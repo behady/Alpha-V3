@@ -38,6 +38,8 @@ interface TrashedClinic {
   subscriptionTier: string | null;
   deletedAt: string | null;
   deletedByEmail: string | null;
+  /** Staff whose access was taken with the clinic. Null: deleted before the trash did that. */
+  members: number | null;
 }
 
 export default function SuperAdminDashboard() {
@@ -450,7 +452,7 @@ export default function SuperAdminDashboard() {
                   <Trash2 size={16} className="text-rose-500" />
                   <h2 className="text-sm font-black text-slate-700 uppercase tracking-widest">Recently deleted</h2>
                   <span className="text-xs text-ink-muted font-medium ms-2">
-                    Their patients and records are untouched. Restore brings the clinic back exactly as it was.
+                    Their patients and records are untouched, and their staff have no access until you restore. Restore brings the clinic back exactly as it was, staff included.
                   </span>
                 </div>
                 <ul className="divide-y divide-slate-100">
@@ -464,6 +466,15 @@ export default function SuperAdminDashboard() {
                         {item.subscriptionTier ? <span className="me-3">{item.subscriptionTier}</span> : null}
                         {item.deletedAt ? <span>Deleted {new Date(item.deletedAt).toLocaleString()}</span> : null}
                         {item.deletedByEmail ? <span> by {item.deletedByEmail}</span> : null}
+                        {item.members === null ? (
+                          // Deleted before the trash took staff access with the clinic: its members
+                          // can still sign into it. Restore and delete again to let them go.
+                          <span className="block text-amber-700 font-semibold mt-1">
+                            Staff still have access. Restore, then delete again, to remove it.
+                          </span>
+                        ) : item.members > 0 ? (
+                          <span className="ms-3">{item.members} staff waiting</span>
+                        ) : null}
                       </div>
                       <button
                         onClick={() => handleRestoreClinic(item.id, item.name)}

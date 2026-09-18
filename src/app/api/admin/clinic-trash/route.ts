@@ -6,9 +6,30 @@ import { requireSuperAdmin } from "@/lib/apiStaffAuth";
 import {
   DELETED_CLINICS_COLLECTION,
   headerFromTrash,
+  letGoMembers,
+  membersFromTrash,
+  MemberProfile,
+  Patch,
+  REMOVE_FIELD,
   trashRecordFrom,
   typedNameMatches,
+  welcomeBackPatch,
 } from "@/lib/clinicTrash";
+
+/** The pure rules say "remove this field" with a symbol; Firestore wants its own sentinel. */
+function toFirestorePatch(patch: Patch): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(patch)) out[key] = value === REMOVE_FIELD ? FieldValue.delete() : value;
+  return out;
+}
+
+function memberFrom(uid: string, data: Record<string, unknown> | undefined): MemberProfile {
+  return {
+    uid,
+    clinicRoles: (data?.clinicRoles as Record<string, unknown> | undefined) ?? null,
+    defaultClinicId: typeof data?.defaultClinicId === "string" ? data.defaultClinicId : null,
+  };
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,6 +67,8 @@ export async function GET(request: Request) {
           subscriptionTier: typeof data.subscriptionTier === "string" ? data.subscriptionTier : null,
           deletedAt: deletedAt ? deletedAt.toISOString() : null,
           deletedByEmail: typeof data.deletedByEmail === "string" ? data.deletedByEmail : null,
+          // Null for records written before the trash kept members: their staff still hold roles.
+          members: data.members && typeof data.members === "object" ? Object.keys(data.members).length : null,
         };
       })
       .sort((a, b) => (b.deletedAt || "").localeCompare(a.deletedAt || ""));
@@ -92,28 +115,55 @@ export async function POST(request: Request) {
         // The uid is recorded either way.
       }
 
+      // The staff go with the clinic. Every member's `clinicRoles.<id>` is removed in the same
+      // transaction, and who-held-what is kept on the trash record so Restore can hand it back.
+      // Without this the header was gone but the roles stayed, and the app follows roles: the
+      // owner signed back in and landed inside the deleted clinic as if nothing had happened.
+      const membersQuery = db.collection("users").where(`clinicRoles.${clinicId}`, "!=", null);
+      let letGo = 0;
       await db.runTransaction(async (tx) => {
         const fresh = await tx.get(clinicRef);
         if (!fresh.exists) throw new Error("That clinic no longer exists");
+        const staff = await tx.get(membersQuery);
+        const { remembered, patches } = letGoMembers(
+          clinicId,
+          staff.docs.map((d) => memberFrom(d.id, d.data()))
+        );
         tx.set(
           trashRef,
-          trashRecordFrom(fresh.data() || {}, { uid: auth.uid, email, at: FieldValue.serverTimestamp() })
+          trashRecordFrom(fresh.data() || {}, { uid: auth.uid, email, at: FieldValue.serverTimestamp() }, remembered)
         );
+        for (const [uid, patch] of Object.entries(patches)) {
+          tx.update(db.collection("users").doc(uid), toFirestorePatch(patch));
+        }
+        letGo = Object.keys(patches).length;
         tx.delete(clinicRef);
       });
-      return NextResponse.json({ ok: true, clinicId, name: header.name });
+      return NextResponse.json({ ok: true, clinicId, name: header.name, membersLetGo: letGo });
     }
 
     if (action === "restore") {
+      let welcomedBack = 0;
       await db.runTransaction(async (tx) => {
         const trash = await tx.get(trashRef);
         if (!trash.exists) throw new Error("Nothing to restore: that clinic is not in the trash");
         const live = await tx.get(clinicRef);
         if (live.exists) throw new Error("That clinic already exists; nothing was overwritten");
-        tx.set(clinicRef, headerFromTrash(trash.data() || {}));
+        const record = trash.data() || {};
+        const members = membersFromTrash(record);
+        // Read every member before any write: a transaction may not read after it has written.
+        const uids = Object.keys(members);
+        const profiles = await Promise.all(uids.map((uid) => tx.get(db.collection("users").doc(uid))));
+        tx.set(clinicRef, headerFromTrash(record));
+        uids.forEach((uid, i) => {
+          const snap = profiles[i];
+          if (!snap.exists) return; // The account is gone; nothing to give a role back to.
+          tx.update(snap.ref, toFirestorePatch(welcomeBackPatch(clinicId, members[uid], memberFrom(uid, snap.data()))));
+          welcomedBack++;
+        });
         tx.delete(trashRef);
       });
-      return NextResponse.json({ ok: true, clinicId });
+      return NextResponse.json({ ok: true, clinicId, membersWelcomedBack: welcomedBack });
     }
 
     return NextResponse.json({ ok: false, error: "Unknown action" }, { status: 400 });
