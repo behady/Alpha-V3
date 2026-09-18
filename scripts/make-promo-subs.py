@@ -104,7 +104,42 @@ def render(text, width, height, font, out_path):
     return len(lines)
 
 
+def render_card(title, width, height, out_path):
+    """
+    A title card for the joins between the walkthrough's parts: dark plate, the part's name in
+    Arabic, shaped the same way the subtitles are. "EN | AR" in the title puts the English small
+    above the Arabic.
+    """
+    img = Image.new("RGB", (width, height), (12, 12, 14))
+    draw = ImageDraw.Draw(img)
+    big = ImageFont.truetype(FONT_PATH, 78)
+    small = ImageFont.truetype(FONT_PATH, 34)
+    en, _, ar = title.partition("|")
+    en, ar = en.strip(), ar.strip() or en.strip()
+    shaped = shape(ar)
+    bb = draw.textbbox((0, 0), shaped, font=big)
+    y = height // 2 - (bb[3] - bb[1]) // 2
+    draw.text(((width - (bb[2] - bb[0])) // 2 - bb[0], y - bb[1]), shaped, font=big, fill=(255, 255, 255))
+    if en and en != ar:
+        sb = draw.textbbox((0, 0), en, font=small)
+        draw.text(((width - (sb[2] - sb[0])) // 2 - sb[0], y - 70 - sb[1]), en, font=small, fill=(255, 214, 10))
+    # A thin accent rule under the title, the brand's yellow.
+    draw.rounded_rectangle([width // 2 - 60, y + (bb[3] - bb[1]) + 34, width // 2 + 60, y + (bb[3] - bb[1]) + 40], radius=3, fill=(255, 214, 10))
+    img.save(out_path)
+
+
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--card", help="render a title card instead of subtitles")
+    ap.add_argument("--out-file", help="where the card goes")
+    ap.add_argument("--width", type=int, default=1920)
+    ap.add_argument("--height", type=int, default=1080)
+    known, _ = ap.parse_known_args()
+    if known.card:
+        render_card(known.card, known.width, known.height, known.out_file)
+        print(f"card -> {known.out_file}")
+        return
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--vo", required=True, help="voice dir holding timings.json")
     ap.add_argument("--out", required=True)
