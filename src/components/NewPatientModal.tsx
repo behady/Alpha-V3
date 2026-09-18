@@ -29,7 +29,7 @@ interface Props {
 
 export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelectedBranchId = "" }: Props) {
   const router = useRouter();
-  const { showToast } = useUI();
+  const { showToast, patientEditorMode } = useUI();
   const { t, language } = useLanguage();
   const { user } = useAuth();
   
@@ -217,10 +217,23 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
 
   if (!isOpen) return null;
 
+  /**
+   * Two shells, one form. The side panel (the default, Settings → Interface) keeps the patient
+   * list or the day's schedule in view behind the form; the pop-up is the old centred window.
+   * Same header, same fields, same save — only the frame changes.
+   */
+  const asDrawer = patientEditorMode === "drawer";
+  const shell = asDrawer
+    ? "fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex justify-end animate-in fade-in duration-200"
+    : "fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in";
+  const panel = asDrawer
+    ? `bg-white w-full sm:max-w-lg h-full shadow-2xl border-s border-gray-100 flex flex-col animate-in duration-300 ${language === "ar" ? "slide-in-from-left" : "slide-in-from-right"}`
+    : "bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden border border-gray-100 flex flex-col max-h-[90vh]";
+
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in">
-      <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden border border-gray-100 flex flex-col max-h-[90vh]">
-        
+    <div className={shell}>
+      <div className={panel}>
+
         {/* HEADER */}
         <div className="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
           <div className="flex items-center gap-3">
@@ -238,7 +251,7 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
         </div>
 
         {/* FORM BODY */}
-        <form onSubmit={handleSubmit} className="p-8 space-y-5 overflow-y-auto custom-scrollbar">
+        <form onSubmit={handleSubmit} className="p-8 space-y-5 overflow-y-auto custom-scrollbar flex-1 min-h-0">
            
            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>

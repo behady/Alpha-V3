@@ -47,6 +47,12 @@ export type ClinicalEditorMode = "modal" | "drawer" | "inline";
 export interface UiPreferences {
   clinicalEditorMode: ClinicalEditorMode;
   appointmentEditorMode: "modal" | "drawer";
+  /**
+   * How the Add Patient form opens. The side panel is the default (asked for 2026-09-18): it
+   * keeps the patient list, or the day's schedule, in view behind the form, and it is where the
+   * appointment editor and clinical editor both offer to live too.
+   */
+  patientEditorMode: "modal" | "drawer";
   appointmentPanelMode: "editor" | "avatar";
   appointmentsVisibility: "all" | "desktop" | "hidden";
   latePatientTrackerEnabled: boolean;
@@ -64,6 +70,7 @@ export interface UiPreferences {
 export const UI_PREFERENCE_DEFAULTS: UiPreferences = {
   clinicalEditorMode: "modal",
   appointmentEditorMode: "modal",
+  patientEditorMode: "drawer",
   appointmentPanelMode: "editor",
   appointmentsVisibility: "desktop",
   latePatientTrackerEnabled: true,
@@ -87,6 +94,7 @@ const oneOf =
 const VALIDATORS: { [K in keyof UiPreferences]: (value: unknown) => value is UiPreferences[K] } = {
   clinicalEditorMode: oneOf("modal", "drawer", "inline"),
   appointmentEditorMode: oneOf("modal", "drawer"),
+  patientEditorMode: oneOf("modal", "drawer"),
   appointmentPanelMode: oneOf("editor", "avatar"),
   appointmentsVisibility: oneOf("all", "desktop", "hidden"),
   latePatientTrackerEnabled: ((value: unknown) => typeof value === "boolean") as (
@@ -102,6 +110,7 @@ const VALIDATORS: { [K in keyof UiPreferences]: (value: unknown) => value is UiP
 const LOCAL_KEYS: Record<keyof UiPreferences, string> = {
   clinicalEditorMode: "clinicalEditorMode",
   appointmentEditorMode: "appointmentEditorMode",
+  patientEditorMode: "patientEditorMode",
   appointmentPanelMode: "appointmentPanelMode",
   appointmentsVisibility: "appointmentsVisibility",
   latePatientTrackerEnabled: "latePatientTrackerEnabled",

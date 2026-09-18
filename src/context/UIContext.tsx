@@ -98,6 +98,9 @@ interface UIContextType {
    */
   appointmentEditorMode: 'modal' | 'drawer';
   setAppointmentEditorMode: (mode: 'modal' | 'drawer') => void;
+  /** How the Add Patient form opens — see lib/uiPreferences. Side panel by default. */
+  patientEditorMode: 'modal' | 'drawer';
+  setPatientEditorMode: (mode: 'modal' | 'drawer') => void;
   /** Which panel fills the column beside the schedule when an appointment is selected. */
   appointmentPanelMode: 'editor' | 'avatar';
   setAppointmentPanelMode: (mode: 'editor' | 'avatar') => void;
@@ -151,6 +154,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
 
   const [clinicalEditorMode, setClinicalEditorModeState] = useState<ClinicalEditorMode>('modal');
   const [appointmentEditorMode, setAppointmentEditorModeState] = useState<'modal' | 'drawer'>('modal');
+  const [patientEditorMode, setPatientEditorModeState] = useState<'modal' | 'drawer'>('drawer');
   const [appointmentPanelMode, setAppointmentPanelModeState] = useState<'editor' | 'avatar'>('editor');
   const [receptionPanelActive, setReceptionPanelActive] = useState(false);
   const [assistantPanelOpen, setAssistantPanelOpen] = useState(false);
@@ -172,6 +176,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
       setClinicalEditorModeState(prefs.clinicalEditorMode);
     }
     if (prefs.appointmentEditorMode !== undefined) setAppointmentEditorModeState(prefs.appointmentEditorMode);
+    if (prefs.patientEditorMode !== undefined) setPatientEditorModeState(prefs.patientEditorMode);
     if (prefs.appointmentPanelMode !== undefined) setAppointmentPanelModeState(prefs.appointmentPanelMode);
     if (prefs.appointmentsVisibility !== undefined) setAppointmentsVisibilityState(prefs.appointmentsVisibility);
     if (prefs.latePatientTrackerEnabled !== undefined) setLatePatientTrackerEnabledState(prefs.latePatientTrackerEnabled);
@@ -238,6 +243,11 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   const setAppointmentEditorMode = useCallback((mode: 'modal' | 'drawer') => {
     setAppointmentEditorModeState(mode);
     rememberPreference("appointmentEditorMode", mode);
+  }, [rememberPreference]);
+
+  const setPatientEditorMode = useCallback((mode: 'modal' | 'drawer') => {
+    setPatientEditorModeState(mode);
+    rememberPreference("patientEditorMode", mode);
   }, [rememberPreference]);
 
   const setAppointmentPanelMode = useCallback((mode: 'editor' | 'avatar') => {
@@ -385,7 +395,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   const promptCanSubmit = !promptState.required || promptValue.trim().length > 0;
 
   return (
-    <UIContext.Provider value={{ showToast, confirm, prompt, clinicalEditorMode, setClinicalEditorMode, appointmentEditorMode, setAppointmentEditorMode, appointmentPanelMode, setAppointmentPanelMode, receptionPanelActive, setReceptionPanelActive, assistantPanelOpen, setAssistantPanelOpen, appointmentsVisibility, setAppointmentsVisibility, latePatientTrackerEnabled: latePatientTrackerEnabledState, setLatePatientTrackerEnabled, clinicalNoteSort, setClinicalNoteSort, clinicalNoteGrouping, setClinicalNoteGrouping, clinicalNoteDensity, setClinicalNoteDensity, homeView, setHomeView }}>
+    <UIContext.Provider value={{ showToast, confirm, prompt, clinicalEditorMode, setClinicalEditorMode, appointmentEditorMode, setAppointmentEditorMode, patientEditorMode, setPatientEditorMode, appointmentPanelMode, setAppointmentPanelMode, receptionPanelActive, setReceptionPanelActive, assistantPanelOpen, setAssistantPanelOpen, appointmentsVisibility, setAppointmentsVisibility, latePatientTrackerEnabled: latePatientTrackerEnabledState, setLatePatientTrackerEnabled, clinicalNoteSort, setClinicalNoteSort, clinicalNoteGrouping, setClinicalNoteGrouping, clinicalNoteDensity, setClinicalNoteDensity, homeView, setHomeView }}>
       {children}
 
       {/* --- TOAST CONTAINER (Smartphone Style) --- */}

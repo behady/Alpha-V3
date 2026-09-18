@@ -338,6 +338,8 @@ export const SETTINGS_TEXT = {
     appointmentEditorDesc: { en: "Choose how you want to display the appointment booking and editing form.", ar: "اختر كيف تريد عرض نموذج حجز وتعديل المواعيد." },
     modal: { en: "Pop-up Modal", ar: "نافذة منبثقة" },
     drawer: { en: "Side Drawer", ar: "شريط جانبي" },
+    patientEditorLabel: { en: "New Patient Form", ar: "نموذج المريض الجديد" },
+    patientEditorDesc: { en: "Choose how the Add Patient form opens. The side panel keeps the list behind it in view.", ar: "اختر كيف يظهر نموذج إضافة مريض. اللوح الجانبي يترك القائمة ظاهرة خلفه." },
     panelModeLabel: { en: "Selected Appointment Panel", ar: "لوحة الموعد المحدد" },
     panelModeDesc: { en: "When you click an appointment, choose what appears beside the schedule: the edit form, or the AI reception assistant. You can flip between them at any time from a button at the top of the panel.", ar: "عند اختيار موعد، اختر ما يظهر بجانب الجدول: نموذج التعديل أم مساعد الاستقبال الذكي. يمكنك التبديل بينهما في أي وقت من زر أعلى اللوحة." },
     panelEditor: { en: "Details Editor", ar: "محرر التفاصيل" },

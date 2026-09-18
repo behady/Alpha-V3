@@ -41,6 +41,7 @@ import {
   Sparkles,
   SquareTerminal,
   UserCircle,
+  UserPlus,
   type LucideIcon,
 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
@@ -204,6 +205,7 @@ export default function InterfaceSettings() {
   const {
     clinicalEditorMode, setClinicalEditorMode,
     appointmentEditorMode, setAppointmentEditorMode,
+    patientEditorMode, setPatientEditorMode,
     appointmentPanelMode, setAppointmentPanelMode,
     appointmentsVisibility, setAppointmentsVisibility,
     latePatientTrackerEnabled, setLatePatientTrackerEnabled,
@@ -299,6 +301,18 @@ export default function InterfaceSettings() {
           choices={[
             { value: "modal", label: txt.modal, icon: SquareTerminal, hint: txt.modalHint },
             { value: "drawer", label: txt.drawer, icon: PanelRight, hint: txt.drawerHint },
+          ]}
+        />
+
+        <PreferenceRow
+          icon={UserPlus}
+          label={txt.patientEditorLabel}
+          description={txt.patientEditorDesc}
+          value={patientEditorMode}
+          onChange={setPatientEditorMode}
+          choices={[
+            { value: "drawer", label: txt.drawer, icon: PanelRight, hint: txt.drawerHint },
+            { value: "modal", label: txt.modal, icon: SquareTerminal, hint: txt.modalHint },
           ]}
         />
 
