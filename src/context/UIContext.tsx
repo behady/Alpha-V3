@@ -153,7 +153,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   const promptInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
 
   const [clinicalEditorMode, setClinicalEditorModeState] = useState<ClinicalEditorMode>('modal');
-  const [appointmentEditorMode, setAppointmentEditorModeState] = useState<'modal' | 'drawer'>('modal');
+  const [appointmentEditorMode, setAppointmentEditorModeState] = useState<'modal' | 'drawer'>('drawer');
   const [patientEditorMode, setPatientEditorModeState] = useState<'modal' | 'drawer'>('drawer');
   const [appointmentPanelMode, setAppointmentPanelModeState] = useState<'editor' | 'avatar'>('editor');
   const [receptionPanelActive, setReceptionPanelActive] = useState(false);

@@ -299,8 +299,8 @@ export default function InterfaceSettings() {
           value={appointmentEditorMode}
           onChange={setAppointmentEditorMode}
           choices={[
-            { value: "modal", label: txt.modal, icon: SquareTerminal, hint: txt.modalHint },
             { value: "drawer", label: txt.drawer, icon: PanelRight, hint: txt.drawerHint },
+            { value: "modal", label: txt.modal, icon: SquareTerminal, hint: txt.modalHint },
           ]}
         />
 

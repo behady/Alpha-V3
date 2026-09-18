@@ -69,7 +69,7 @@ export interface UiPreferences {
 
 export const UI_PREFERENCE_DEFAULTS: UiPreferences = {
   clinicalEditorMode: "modal",
-  appointmentEditorMode: "modal",
+  appointmentEditorMode: "drawer",
   patientEditorMode: "drawer",
   appointmentPanelMode: "editor",
   appointmentsVisibility: "desktop",
