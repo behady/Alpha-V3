@@ -35,6 +35,12 @@ data class VisitSheetState(
     /** The same key the website's own appointment screen checks. */
     val canEdit: Boolean get() = who?.can("appointments.edit") == true
 
+    /** Billing work done in the chair. The same key the patient's file checks. */
+    val canRecordTreatment: Boolean get() = who?.can("clinical.edit") == true
+
+    /** Taking money at the desk as the patient leaves. */
+    val canTakePayment: Boolean get() = who?.can("finance.add") == true
+
     val phone: String get() = record?.phone.orEmpty()
 
     /**

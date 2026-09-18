@@ -32,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -156,11 +157,23 @@ fun SheetField(
     numeric: Boolean = false,
     lines: Int = 1,
     enabled: Boolean = true,
+    /**
+     * Told when the box gains or loses the cursor.
+     *
+     * A box that searches a list has to open the list when it is tapped, not when the first letter
+     * lands. Without this the price list was invisible until you guessed at a word — which is
+     * exactly what "it does not fetch from the list" describes: the list was there, and nothing
+     * ever asked it to show itself.
+     */
+    onFocus: ((Boolean) -> Unit)? = null,
+    /** A control at the right-hand end of the box — a chevron, a clear cross. */
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     Column(Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 10.dp)) {
         Txt(label, Type.eyebrow, T.inkFaint, uppercase = true)
         Spacer(Modifier.height(6.dp))
         OutlinedTextField(
+            trailingIcon = trailing,
             value = value,
             onValueChange = onChange,
             enabled = enabled,
@@ -183,7 +196,12 @@ fun SheetField(
                 disabledIndicatorColor = T.line,
                 cursorColor = T.ink,
             ),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(
+                    if (onFocus == null) Modifier
+                    else Modifier.onFocusChanged { onFocus(it.isFocused) },
+                ),
         )
     }
 }

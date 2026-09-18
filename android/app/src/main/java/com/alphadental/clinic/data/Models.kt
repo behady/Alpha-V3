@@ -216,6 +216,20 @@ data class ClinicalNote(
     val doctor: String = "",
     val date: String = "",
     val ledgerId: String = "",
+    /**
+     * Everything below exists so this note can be sent BACK to the server.
+     *
+     * Changing a treatment — even just marking a planned one done — goes through
+     * /api/clinical/procedures, and that route reprices the whole thing from scratch: it wants the
+     * dentist, the teeth and the unit price, not a one-field patch. A note read without them can
+     * be displayed but never edited, which is how "Mark done" came to be a button that did
+     * nothing at all.
+     */
+    val doctorId: String = "",
+    val teeth: List<String> = emptyList(),
+    val unitCost: Double = 0.0,
+    val pricingMode: String = "",
+    val appointmentId: String = "",
 )
 
 /**

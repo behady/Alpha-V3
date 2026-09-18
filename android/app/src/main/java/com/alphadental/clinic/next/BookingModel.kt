@@ -36,6 +36,15 @@ data class Booking(
     val doctor: Doctor? = null,
     val services: List<Service> = emptyList(),
     val service: Service? = null,
+    /**
+     * What the visit is for, as words.
+     *
+     * Kept next to [service] rather than derived from it, because the two are not the same thing:
+     * a clinic books plenty of visits whose reason is not a priced treatment, and the website's
+     * own field is free text with the price list as a shortcut. Choosing from the list fills this
+     * in; typing over it releases the choice.
+     */
+    val treatment: String = "",
 
     val dateKey: String = ClinicSource.dateKey(),
     val time: String = "",
@@ -232,6 +241,8 @@ class BookingModel : ViewModel() {
                 return@launch
             }
             loadDay(who, _state.value.dateKey)
+            // Before the match below, not alongside it.
+            fetchLists(who)
             val record = runCatching { Repository.loadAppointment(who.clinicId, visit.id) }.getOrNull()
                 ?: run {
                     _state.value = _state.value.copy(error = "That appointment is no longer on file.")
@@ -244,10 +255,14 @@ class BookingModel : ViewModel() {
                 time = toField(record.time),
                 minutes = record.duration.coerceAtLeast(5),
                 notes = record.notes,
-                doctor = s.doctors.firstOrNull { it.id == record.doctorId }
-                    ?: s.doctors.firstOrNull { it.name == record.doctor },
-                service = s.services.firstOrNull { it.id == record.serviceId }
-                    ?: s.services.firstOrNull { it.name == record.treatment },
+                doctor = _state.value.doctors.firstOrNull { it.id == record.doctorId }
+                    ?: _state.value.doctors.firstOrNull { it.name == record.doctor },
+                service = _state.value.services.firstOrNull { it.id == record.serviceId }
+                    ?: _state.value.services.firstOrNull { it.name.equals(record.treatment, ignoreCase = true) },
+                // What the visit is actually for, whether or not that is a name on the price list.
+                // Without it, a visit booked as "post-op check" reopened with an empty box and
+                // saved as a visit for nothing at all.
+                treatment = record.treatment,
             )
         }
     }
@@ -258,7 +273,19 @@ class BookingModel : ViewModel() {
         _state.value = Booking(who = _state.value.who, loading = false)
     }
 
-    private fun loadLists(who: Who) = viewModelScope.launch {
+    private fun loadLists(who: Who) = viewModelScope.launch { fetchLists(who) }
+
+    /**
+     * The price list and the dentists, awaited rather than launched.
+     *
+     * `edit()` fills the sheet from the stored appointment, and to do that it has to match its
+     * service and its dentist against these two lists. It used to read them out of state a few
+     * milliseconds after asking for them, so it almost always matched against two empty lists:
+     * reopening a booking showed no treatment and no dentist selected, and saving then wrote that
+     * emptiness back over what was there.
+     */
+    private suspend fun fetchLists(who: Who) {
+        if (_state.value.services.isNotEmpty() || _state.value.doctors.isNotEmpty()) return
         val doctors = runCatching { Repository.loadDoctors(who.clinicId) }.getOrDefault(emptyList())
         val services = runCatching { Repository.loadServices(who.clinicId) }.getOrDefault(emptyList())
         _state.value = _state.value.copy(doctors = doctors, services = services)
@@ -316,8 +343,20 @@ class BookingModel : ViewModel() {
         val keepLength = current.minutes != untouched && current.minutes != 30
         _state.value = current.copy(
             service = service,
+            // Picking from the price list names the visit too, so the two boxes never disagree
+            // about what somebody is coming in for.
+            treatment = service?.name ?: current.treatment,
             minutes = if (keepLength) current.minutes
             else (service?.durationMinutes?.takeIf { it > 0 } ?: 30),
+        )
+    }
+
+    /** Typing over the name releases the price-list choice it no longer describes. */
+    fun setTreatment(text: String) {
+        val chosen = _state.value.service
+        _state.value = _state.value.copy(
+            treatment = text,
+            service = chosen?.takeIf { text.equals(it.name, ignoreCase = true) },
         )
     }
 
@@ -365,7 +404,7 @@ class BookingModel : ViewModel() {
                     time = s.time,
                     doctor = s.doctor,
                     durationMinutes = s.minutes,
-                    treatment = s.service?.name ?: record.treatment,
+                    treatment = s.treatment.trim().ifBlank { s.service?.name ?: record.treatment },
                     notes = s.notes,
                     service = s.service,
                     cost = s.service?.price ?: record.cost,
@@ -411,7 +450,7 @@ class BookingModel : ViewModel() {
                 dateKey = s.dateKey,
                 time = s.time,
                 durationMinutes = s.minutes,
-                treatment = s.service?.name.orEmpty(),
+                treatment = s.treatment.trim().ifBlank { s.service?.name.orEmpty() },
                 notes = s.notes,
                 service = s.service,
                 byName = who.name,

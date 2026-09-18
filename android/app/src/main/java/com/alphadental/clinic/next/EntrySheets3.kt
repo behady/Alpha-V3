@@ -40,6 +40,10 @@ fun VisitSheet(
     onMove: (Stage) -> Unit,
     onOpenFile: () -> Unit,
     onReschedule: () -> Unit,
+    /** Open the patient's file with the treatment sheet already up. */
+    onRecordTreatment: () -> Unit,
+    /** Open the patient's file with the payment sheet already up. */
+    onTakePayment: () -> Unit,
     onCall: (String) -> Unit,
     onMessage: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -118,6 +122,30 @@ fun VisitSheet(
 
         Spacer(Modifier.height(6.dp))
         Rule()
+
+        /*
+         * What the website's appointment panel does, done the phone's way.
+         *
+         * The panel bills a treatment and takes a payment inline, in the appointment. Doing that
+         * here would mean a second treatment form and a second payment form, kept in step with the
+         * two on the patient's file by hand — and those two already know the patient's outstanding
+         * charges, which is the half that decides what a payment is allowed to settle.
+         *
+         * So these open the real ones, on the right patient, with the sheet already up. One tap,
+         * same forms, nothing to keep in step.
+         */
+        if (state.canRecordTreatment) {
+            SheetAction(
+                "Record a treatment",
+                "Writes the note and its charge on this patient",
+                onRecordTreatment,
+            )
+            Rule()
+        }
+        if (state.canTakePayment) {
+            SheetAction("Take a payment", "Against a treatment, or on account", onTakePayment)
+            Rule()
+        }
 
         SheetAction("Open the patient's file", "Notes, chart, ledger", onOpenFile)
         if (state.canEdit) {

@@ -82,6 +82,8 @@ fun Shell(preview: Boolean = false) {
     var openRecord by rememberSaveable { mutableStateOf<String?>(null) }
     /** Quick Pay opens the file straight onto the payment sheet. */
     var payOnOpen by rememberSaveable { mutableStateOf(false) }
+    /** Set when a file is opened in order to bill something, from an appointment. */
+    var recordOnOpen by rememberSaveable { mutableStateOf(false) }
     var addingPatient by rememberSaveable { mutableStateOf(false) }
     var quickPay by rememberSaveable { mutableStateOf(false) }
     var openMoney by rememberSaveable { mutableStateOf(false) }
@@ -95,6 +97,14 @@ fun Shell(preview: Boolean = false) {
     var openAttendance by rememberSaveable { mutableStateOf(false) }
     var openContent by rememberSaveable { mutableStateOf(false) }
     var openAssistant by rememberSaveable { mutableStateOf(false) }
+    /**
+     * The scans screen, reached from inside the chat rather than from the bar.
+     *
+     * The bar's orb now opens the conversation, which is what a chat bubble promises. The three
+     * paid scans are still one tap away — they are a different job, not a lesser one, and burying
+     * them behind the thing people actually tap is the right way round.
+     */
+    var openScans by rememberSaveable { mutableStateOf(false) }
     var openHelp by rememberSaveable { mutableStateOf(false) }
     // A screen can ask for the bar to go away. A conversation does: the bar
     // would cover its foot, and offer to walk away from a thread mid-read.
@@ -104,7 +114,11 @@ fun Shell(preview: Boolean = false) {
     // belongs to whatever opened it, and the bar has no business offering to
     // navigate away in the middle of reading someone's allergies.
     openRecord?.let { id ->
-        RecordPane(id, preview, payOnOpen = payOnOpen) { openRecord = null; payOnOpen = false }
+        RecordPane(id, preview, payOnOpen = payOnOpen, recordOnOpen = recordOnOpen) {
+            openRecord = null
+            payOnOpen = false
+            recordOnOpen = false
+        }
         return
     }
 
@@ -172,6 +186,15 @@ fun Shell(preview: Boolean = false) {
         return
     }
 
+    if (openScans) {
+        AssistantPane(
+            preview,
+            onOpenPatient = { openScans = false; openRecord = it },
+            onBack = { openScans = false },
+        )
+        return
+    }
+
     // Booking sits at the shell rather than inside a tab, because it is reached
     // from three places — the dashboard tile, a free slot in the day, and the
     // day's own button — and all three want the same half-filled sheet back if
@@ -232,9 +255,27 @@ fun Shell(preview: Boolean = false) {
             )
             Tab.Patients -> PatientsTab(preview) { openRecord = it }
             Tab.Money -> MoneyPane(preview) { tab = Tab.Today }
-            Tab.Assistant -> AssistantPane(
+            Tab.Assistant -> AiChatPane(
                 preview,
                 onOpenPatient = { openRecord = it },
+                onGo = { target ->
+                    // The assistant answers in the website's routes; NavIntent has already turned
+                    // one into a screen this app actually has. Anything it could not translate
+                    // arrived as null and never reaches here.
+                    when (target) {
+                        is com.alphadental.clinic.ai.NavIntent.Target.PatientById -> openRecord = target.id
+                        com.alphadental.clinic.ai.NavIntent.Target.Day -> tab = Tab.Day
+                        com.alphadental.clinic.ai.NavIntent.Target.Money -> tab = Tab.Money
+                        com.alphadental.clinic.ai.NavIntent.Target.Patients -> tab = Tab.Patients
+                        com.alphadental.clinic.ai.NavIntent.Target.Leads -> openLeads = true
+                        com.alphadental.clinic.ai.NavIntent.Target.Reports -> openReports = true
+                        com.alphadental.clinic.ai.NavIntent.Target.Inventory -> openStock = true
+                        com.alphadental.clinic.ai.NavIntent.Target.Ortho -> openOrtho = true
+                        com.alphadental.clinic.ai.NavIntent.Target.WhatsappQueue -> tab = Tab.Chats
+                        else -> Unit
+                    }
+                },
+                onScans = { openScans = true },
                 onBack = { tab = Tab.Today },
             )
             // Not built yet. Saying so is better than a blank screen that reads
@@ -252,7 +293,7 @@ fun Shell(preview: Boolean = false) {
                 onOpenStock = { openStock = true },
                 onOpenAttendance = { openAttendance = true },
                 onOpenContent = { openContent = true },
-                onOpenAssistant = { openAssistant = true },
+                onOpenAssistant = { openScans = true },
                 onOpenHelp = { openHelp = true },
             )
         }
@@ -271,6 +312,7 @@ fun Shell(preview: Boolean = false) {
             AddPatientSheet(
                 busy = patientsState.adding,
                 error = patientsState.addError,
+                sources = patientsState.sources,
                 onAdd = patientsModel::addPatient,
                 onDismiss = { addingPatient = false; patientsModel.clearAdded() },
             )
@@ -330,6 +372,18 @@ fun Shell(preview: Boolean = false) {
                         booking?.edit(visit)
                     }
                 },
+                onRecordTreatment = {
+                    val id = visitState.visit?.patientId
+                    visits?.close()
+                    shown = null
+                    if (!id.isNullOrBlank()) { recordOnOpen = true; openRecord = id }
+                },
+                onTakePayment = {
+                    val id = visitState.visit?.patientId
+                    visits?.close()
+                    shown = null
+                    if (!id.isNullOrBlank()) { payOnOpen = true; openRecord = id }
+                },
                 onCall = { context.dial(it) },
                 onMessage = { context.whatsapp(it) },
                 onDismiss = { visits?.close(); shown = null },
@@ -344,6 +398,7 @@ fun Shell(preview: Boolean = false) {
                     choose = booking::choose,
                     setDoctor = booking::setDoctor,
                     setService = booking::setService,
+                    setTreatment = booking::setTreatment,
                     shiftDay = booking::shiftDay,
                     setTime = booking::setTime,
                     setMinutes = booking::setMinutes,
@@ -437,7 +492,7 @@ private fun TodayTab(
             shift = if (shift.who == null) null else shift.mine,
             onPunch = { attendance.punch(context) },
             onNewPatient = if (state.who?.can("patients.add") == true) onNewPatient else null,
-            onQuickPay = if (state.who?.can("payments.add") == true) onQuickPay else null,
+            onQuickPay = if (state.who?.can("finance.add") == true) onQuickPay else null,
             onPickDay = onPickDay,
         )
     }
@@ -480,6 +535,7 @@ private fun PatientsTab(preview: Boolean, onOpen: (String) -> Unit) {
             AddPatientSheet(
                 busy = state.adding,
                 error = state.addError,
+                sources = state.sources,
                 onAdd = model::addPatient,
                 onDismiss = { adding = false; model.clearAdded() },
             )
@@ -681,7 +737,13 @@ private fun Unbuilt(name: String) {
  * safer default when a wrong tap costs a patient a confusing call.
  */
 @Composable
-private fun RecordPane(patientId: String, preview: Boolean, payOnOpen: Boolean = false, onBack: () -> Unit) {
+private fun RecordPane(
+    patientId: String,
+    preview: Boolean,
+    payOnOpen: Boolean = false,
+    recordOnOpen: Boolean = false,
+    onBack: () -> Unit,
+) {
     BackHandler { onBack() }
     val context = LocalContext.current
 
@@ -875,7 +937,7 @@ private fun RecordPane(patientId: String, preview: Boolean, payOnOpen: Boolean =
     val booking: BookingModel = viewModel()
     val bookingState by booking.state.collectAsState()
     var taking by remember { mutableStateOf(payOnOpen) }
-    var recording by remember { mutableStateOf(false) }
+    var recording by remember { mutableStateOf(recordOnOpen) }
     var more by remember { mutableStateOf(false) }
 
     // Camera and gallery end at the same place: JPEG bytes, downscaled on the
@@ -956,6 +1018,9 @@ private fun RecordPane(patientId: String, preview: Boolean, payOnOpen: Boolean =
                 )
             )
         }) else null,
+        // Null for an account without the finance tick-box, which makes every row on the
+        // statement inert rather than offering a sheet the server would refuse.
+        onEditRow = if (state.canEditLedger) ({ model.editRow(it) }) else null,
     )
 
     if (state.charting != null) {
@@ -1071,6 +1136,7 @@ private fun RecordPane(patientId: String, preview: Boolean, payOnOpen: Boolean =
                 choose = booking::choose,
                 setDoctor = booking::setDoctor,
                 setService = booking::setService,
+                setTreatment = booking::setTreatment,
                 shiftDay = booking::shiftDay,
                 setTime = booking::setTime,
                 setMinutes = booking::setMinutes,
@@ -1078,6 +1144,18 @@ private fun RecordPane(patientId: String, preview: Boolean, payOnOpen: Boolean =
                 book = booking::book,
                 close = booking::close,
             ),
+        )
+    }
+
+    state.editingRow?.let { row ->
+        LedgerRowSheet(
+            row = row,
+            busy = state.savingRow,
+            error = state.rowError,
+            canDelete = state.canDeleteLedger,
+            onSave = model::saveRow,
+            onDelete = model::deleteRow,
+            onDismiss = model::closeRow,
         )
     }
 
@@ -1764,6 +1842,62 @@ private fun ContentPane(preview: Boolean, onBack: () -> Unit) {
             generate = model::generate,
             save = model::save,
         ),
+    )
+}
+
+/**
+ * The assistant you talk to.
+ *
+ * What the orb opens. It used to open the scans screen, which is a page of paid buttons — a
+ * perfectly good screen and not remotely what a chat bubble promises.
+ */
+@Composable
+private fun AiChatPane(
+    preview: Boolean,
+    onOpenPatient: (String) -> Unit,
+    onGo: (com.alphadental.clinic.ai.NavIntent.Target) -> Unit,
+    onScans: () -> Unit,
+    onBack: () -> Unit,
+) {
+    val context = LocalContext.current
+    if (preview) {
+        var state by remember { mutableStateOf(previewChat()) }
+        AiChatScreen(
+            state = state,
+            onType = { state = state.copy(draft = it) },
+            onSend = {},
+            onAsk = { state = state.copy(draft = it) },
+            onAnswer = {},
+            onClear = { state = state.copy(messages = emptyList()) },
+            onScans = onScans,
+            onBack = onBack,
+        )
+        return
+    }
+
+    val model: AiChatModel = viewModel()
+    val state by model.state.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(Unit) { model.start(context) }
+    // Acted on here, then cleared, so returning to the chat later does not move the app again.
+    androidx.compose.runtime.LaunchedEffect(state.go) {
+        state.go?.let { target ->
+            if (target is com.alphadental.clinic.ai.NavIntent.Target.PatientById) {
+                onOpenPatient(target.id)
+            } else {
+                onGo(target)
+            }
+            model.clearGo()
+        }
+    }
+    AiChatScreen(
+        state = state,
+        onType = model::type,
+        onSend = { model.send() },
+        onAsk = { model.send(it) },
+        onAnswer = model::answer,
+        onClear = model::clearChat,
+        onScans = onScans,
+        onBack = onBack,
     )
 }
 

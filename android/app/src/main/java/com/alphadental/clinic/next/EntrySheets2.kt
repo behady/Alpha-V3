@@ -1,6 +1,11 @@
 package com.alphadental.clinic.next
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -73,7 +78,10 @@ fun TreatmentSheet(
         busy = busy,
         error = error,
         action = if (total > 0) "Record and charge ${total.toLong()}" else "Record",
-        ready = procedure.isNotBlank(),
+        // The server refuses a treatment with no dentist on it — it prices the work against that
+        // person's commission — so the sheet asks for one rather than sending a request that
+        // cannot succeed.
+        ready = procedure.isNotBlank() && doctor != null,
         onAction = { onRecord(procedure, teeth.map(Int::toString), note, unit, doctor, service, done) },
         onDismiss = onDismiss,
     ) {
@@ -92,38 +100,87 @@ fun TreatmentSheet(
                 picking = true
             },
             hint = "Composite filling",
+            // Tapping the box opens the price list. It used to take a typed letter, so anybody
+            // who tapped it, saw nothing, and concluded there was no list was right about what
+            // they saw and wrong about why.
+            onFocus = { focused -> if (focused) picking = true },
+            trailing = {
+                Icon(
+                    if (picking) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    if (picking) "Hide the price list" else "Show the price list",
+                    tint = T.inkMuted,
+                    modifier = Modifier
+                        .clickable {
+                            // Reopening after a treatment was chosen means changing the choice,
+                            // so the chosen one is released rather than filtering the list down
+                            // to itself.
+                            if (!picking) service = null
+                            picking = !picking
+                        }
+                        .padding(10.dp),
+                )
+            },
         )
 
         val needle = procedure.trim().lowercase()
         val matches = remember(needle, services, service) {
             when {
-                service != null -> emptyList()
-                needle.isEmpty() -> services.take(8)
-                else -> services.filter { it.name.lowercase().contains(needle) }.take(8)
+                needle.isEmpty() -> services
+                // An exact hit means the name in the box IS the chosen treatment, so the list
+                // under it would be one row repeating what is already typed.
+                services.any { it.name.equals(needle, ignoreCase = true) } -> emptyList()
+                else -> services.filter { it.name.lowercase().contains(needle) }
             }
         }
 
-        if (picking && matches.isNotEmpty()) {
-            matches.forEach { s ->
+        if (picking) {
+            if (services.isEmpty()) {
                 Rule()
-                SheetAction(
-                    s.name,
-                    if (s.price > 0) "${s.price.toLong()} EGP" else "No price set",
-                ) {
-                    service = s
-                    procedure = s.name
-                    if (s.price > 0) price = s.price.toLong().toString()
-                    picking = false
+                Txt(
+                    // Two very different problems that look identical from here, so both are named.
+                    "No price list has loaded. Either nobody has added treatments in Settings → " +
+                        "Prices yet, or this account cannot see them. You can still type what was " +
+                        "done and set the price by hand.",
+                    Type.caption, T.inkMuted,
+                    Modifier.padding(horizontal = T.gutter, vertical = 12.dp),
+                    maxLines = 4,
+                )
+            } else if (matches.isEmpty()) {
+                Rule()
+                Txt(
+                    "Nothing on the price list matches that. It will be recorded exactly as typed, " +
+                        "with whatever price you set below.",
+                    Type.caption, T.inkFaint,
+                    Modifier.padding(horizontal = T.gutter, vertical = 12.dp),
+                    maxLines = 3,
+                )
+            } else {
+                // Capped, but generously: the sheet scrolls, and a clinic with sixty prices was
+                // able to reach eight of them.
+                matches.take(40).forEach { s ->
+                    Rule()
+                    SheetAction(
+                        s.name,
+                        listOfNotNull(
+                            if (s.price > 0) "${s.price.toLong()} EGP" else "No price set",
+                            s.category.takeIf { it.isNotBlank() },
+                        ).joinToString(" · "),
+                    ) {
+                        service = s
+                        procedure = s.name
+                        if (s.price > 0) price = s.price.toLong().toString()
+                        picking = false
+                    }
                 }
+                Rule()
+                Txt(
+                    "Or leave it typed as it is — a treatment that is not on the price list is still " +
+                        "recorded, it just brings no price with it.",
+                    Type.caption, T.inkFaint,
+                    Modifier.padding(horizontal = T.gutter, vertical = 10.dp),
+                    maxLines = 3,
+                )
             }
-            Rule()
-            Txt(
-                "Or leave it typed as it is — a treatment that is not on the price list is still " +
-                    "recorded, it just brings no price with it.",
-                Type.caption, T.inkFaint,
-                Modifier.padding(horizontal = T.gutter, vertical = 10.dp),
-                maxLines = 3,
-            )
         }
 
         service?.let { chosen ->
@@ -172,11 +229,26 @@ fun TreatmentSheet(
         if (doctors.isNotEmpty()) {
             SheetChoices("Done by") {
                 doctors.forEach { d ->
-                    SheetChoice(d.name, doctor?.id == d.id) {
-                        doctor = if (doctor?.id == d.id) null else d
-                    }
+                    SheetChoice(d.name, doctor?.id == d.id) { doctor = d }
                 }
             }
+            if (doctor == null) {
+                Txt(
+                    "Choose who did it. The charge is worked out against that dentist's rate, so " +
+                        "there is no way to record this without one.",
+                    Type.caption, T.warn,
+                    Modifier.padding(horizontal = T.gutter, vertical = 8.dp),
+                    maxLines = 3,
+                )
+            }
+        } else {
+            Txt(
+                "Nobody in this clinic is marked as a dentist, so there is nobody to attribute " +
+                    "this to. Add one under Settings → Dentists first.",
+                Type.caption, T.danger,
+                Modifier.padding(horizontal = T.gutter, vertical = 12.dp),
+                maxLines = 3,
+            )
         }
 
         SheetChoices("Status") {

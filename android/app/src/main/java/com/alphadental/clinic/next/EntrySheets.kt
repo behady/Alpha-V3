@@ -1,6 +1,10 @@
 package com.alphadental.clinic.next
 
 import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,16 +29,38 @@ import com.alphadental.clinic.next.design.T
 import com.alphadental.clinic.next.design.Txt
 import com.alphadental.clinic.next.design.Type
 
-/** Open a file for somebody new. Name and number; everything else can wait. */
+/**
+ * Open a file for somebody new.
+ *
+ * The same questions the website's own form asks, in the order a desk asks them. It used to ask
+ * two — a name and a number — and explain the rest away as something to fill in later. That was
+ * wrong about the one field it matters most for: where somebody heard about the clinic is only
+ * ever known while they are standing there, and it is the single number the marketing report is
+ * built on. Nobody goes back a week later to add it.
+ *
+ * Everything below the fold is optional and looks it. A receptionist with a queue can still type
+ * a name, a number and Save, which is what the two-field version was protecting.
+ */
 @Composable
 fun AddPatientSheet(
     busy: Boolean,
     error: String?,
-    onAdd: (String, String) -> Unit,
+    /** Where this clinic says its patients come from. Falls back to the website's own list. */
+    sources: List<String> = emptyList(),
+    onAdd: (NewPatient) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var name by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
+    var source by remember { mutableStateOf("") }
+    var address by remember { mutableStateOf("") }
+    var gender by remember { mutableStateOf("") }
+    var dob by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var allergies by remember { mutableStateOf("") }
+    var history by remember { mutableStateOf("") }
+    /** The optional half stays folded until somebody wants it. */
+    var more by remember { mutableStateOf(false) }
 
     Sheet(
         title = "New patient",
@@ -43,22 +69,82 @@ fun AddPatientSheet(
         error = error,
         action = "Add",
         ready = name.trim().length >= 2,
-        onAction = { onAdd(name, phone) },
+        onAction = {
+            onAdd(
+                NewPatient(
+                    name = name, phone = phone, address = address, dateOfBirth = dob,
+                    gender = gender, referral = source, allergies = allergies,
+                    medicalHistory = history, email = email,
+                )
+            )
+        },
         onDismiss = onDismiss,
     ) {
         SheetField("Name", name, { name = it }, hint = "Mariam Hassan")
         SheetField("Phone", phone, { phone = it }, hint = "+20 100 123 4567", numeric = true)
+
+        if (sources.isNotEmpty()) {
+            SheetChoices("How did they hear about us") {
+                sources.forEach { option ->
+                    SheetChoice(option, source == option) {
+                        source = if (source == option) "" else option
+                    }
+                }
+            }
+        }
+
+        SheetField("Address", address, { address = it }, hint = "Maadi, Cairo")
+
+        SheetChoices("Gender") {
+            listOf("Female", "Male").forEach { option ->
+                SheetChoice(option, gender == option) {
+                    gender = if (gender == option) "" else option
+                }
+            }
+        }
+
+        Rule()
         Txt(
-            // Said because the sheet asks for so little: the rest is not missing,
-            // it is simply not needed to open a file.
-            "Everything else — date of birth, address, medical history — is on the " +
-                "patient's own file once it exists.",
-            Type.caption, T.inkMuted,
-            Modifier.padding(horizontal = T.gutter, vertical = 12.dp),
-            maxLines = 3,
+            if (more) "Fewer details" else "More details",
+            Type.label.copy(fontSize = 13.sp), T.accentInk,
+            Modifier
+                .clickable { more = !more }
+                .padding(horizontal = T.gutter, vertical = 14.dp),
         )
+
+        if (more) {
+            SheetField("Date of birth", dob, { dob = it }, hint = "1991-04-17")
+            SheetField("Email", email, { email = it }, hint = "mariam@example.com")
+            SheetField("Allergies", allergies, { allergies = it }, hint = "Penicillin", lines = 2)
+            SheetField(
+                "Medical history", history, { history = it },
+                hint = "Diabetic, on blood thinners", lines = 3,
+            )
+            Txt(
+                // Worth saying out loud: an empty box is not a clean bill of health, and the
+                // record has to be able to tell the difference.
+                "Leaving the medical history empty records that nobody has asked yet — not that " +
+                    "there is nothing to report.",
+                Type.caption, T.inkMuted,
+                Modifier.padding(horizontal = T.gutter, vertical = 10.dp),
+                maxLines = 3,
+            )
+        }
     }
 }
+
+/** Everything the new-patient sheet collected, carried in one piece. */
+data class NewPatient(
+    val name: String,
+    val phone: String,
+    val address: String = "",
+    val dateOfBirth: String = "",
+    val gender: String = "",
+    val referral: String = "",
+    val allergies: String = "",
+    val medicalHistory: String = "",
+    val email: String = "",
+)
 
 /**
  * Book somebody in.
@@ -163,14 +249,47 @@ fun BookingSheet(state: Booking, actions: BookingActions) {
 
         Rule()
 
-        if (state.services.isNotEmpty()) {
-            SheetChoices("What for") {
-                state.services.take(20).forEach { service ->
-                    SheetChoice(service.name, state.service?.id == service.id) {
-                        actions.setService(if (state.service?.id == service.id) null else service)
-                    }
+        // One searchable box rather than a row of twenty chips. A clinic with sixty prices could
+        // reach the first twenty of them, in whatever order the list happened to load, and had no
+        // way at all to book a visit whose reason is not a priced treatment.
+        var picking by remember { mutableStateOf(false) }
+        SheetField(
+            label = "What for",
+            value = state.treatment,
+            onChange = { actions.setTreatment(it); picking = true },
+            hint = "Check-up, or a treatment from the price list",
+            onFocus = { focused -> if (focused) picking = true },
+            trailing = if (state.services.isEmpty()) null else ({
+                Icon(
+                    if (picking) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    if (picking) "Hide the price list" else "Show the price list",
+                    tint = T.inkMuted,
+                    modifier = Modifier.clickable { picking = !picking }.padding(10.dp),
+                )
+            }),
+        )
+
+        if (picking && state.services.isNotEmpty()) {
+            val needle = state.treatment.trim().lowercase()
+            val matches = when {
+                needle.isEmpty() -> state.services
+                state.services.any { it.name.equals(needle, ignoreCase = true) } -> emptyList()
+                else -> state.services.filter { it.name.lowercase().contains(needle) }
+            }
+            matches.take(40).forEach { service ->
+                Rule()
+                SheetAction(
+                    service.name,
+                    listOfNotNull(
+                        if (service.price > 0) "${service.price.toLong()} EGP" else null,
+                        service.durationMinutes.takeIf { it > 0 }?.let { "$it min" },
+                    ).joinToString(" · "),
+                ) {
+                    actions.setService(service)
+                    picking = false
                 }
             }
+            if (matches.isNotEmpty()) Rule()
         }
 
         if (state.doctors.isNotEmpty()) {
@@ -304,6 +423,7 @@ data class BookingActions(
     val choose: (com.alphadental.clinic.next.data.Person?) -> Unit,
     val setDoctor: (com.alphadental.clinic.data.Doctor?) -> Unit,
     val setService: (com.alphadental.clinic.data.Service?) -> Unit,
+    val setTreatment: (String) -> Unit,
     val shiftDay: (Int) -> Unit,
     val setTime: (String) -> Unit,
     val setMinutes: (Int) -> Unit,

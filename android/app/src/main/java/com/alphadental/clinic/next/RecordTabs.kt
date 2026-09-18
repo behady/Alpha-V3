@@ -173,7 +173,12 @@ private fun NoteRow(
  * right-hand side. That running figure is the column a receptionist's finger
  * follows.
  */
-fun LazyListScope.statement(state: RecordState, onTakePayment: (() -> Unit)?) {
+fun LazyListScope.statement(
+    state: RecordState,
+    onTakePayment: (() -> Unit)?,
+    /** Null when this account may not correct the books. The rows then do not react to a tap. */
+    onEditRow: ((com.alphadental.clinic.next.data.Money) -> Unit)? = null,
+) {
     val record = state.record ?: return
     val rows = record.ledger.filterNot { it.isExpense }
 
@@ -190,6 +195,17 @@ fun LazyListScope.statement(state: RecordState, onTakePayment: (() -> Unit)?) {
                 if (b.credit > 0) b.credit else b.owed,
                 Modifier.weight(1f),
                 strong = true,
+            )
+        }
+    }
+
+    if (onEditRow != null) {
+        item {
+            Txt(
+                // Said once, quietly, rather than putting a pencil on forty rows.
+                "Tap any line to correct it.",
+                Type.caption, T.inkFaint,
+                Modifier.padding(horizontal = T.gutter, vertical = 4.dp),
             )
         }
     }
@@ -226,7 +242,7 @@ fun LazyListScope.statement(state: RecordState, onTakePayment: (() -> Unit)?) {
             RowGroup {
                 group.forEachIndexed { i, (m, after) ->
                     if (i > 0) Rule()
-                    StatementRow(m, after)
+                    StatementRow(m, after, onEditRow)
                 }
             }
         }
@@ -248,9 +264,16 @@ private fun Figure(label: String, amount: Double, modifier: Modifier, strong: Bo
 }
 
 @Composable
-private fun StatementRow(m: com.alphadental.clinic.next.data.Money, after: Double) {
+private fun StatementRow(
+    m: com.alphadental.clinic.next.data.Money,
+    after: Double,
+    onEdit: ((com.alphadental.clinic.next.data.Money) -> Unit)?,
+) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 12.dp),
+        Modifier
+            .fillMaxWidth()
+            .then(if (onEdit == null) Modifier else Modifier.clickable { onEdit(m) })
+            .padding(horizontal = T.gutter, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // A thin mark rather than a coloured amount: payments and charges are

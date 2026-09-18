@@ -3575,8 +3575,11 @@ class AppViewModel : ViewModel() {
     fun updateNoteStatus(noteId: String, status: String) {
         val session = _state.value.session ?: return
         val patientId = _state.value.openPatientId ?: return
+        // The whole note goes back, because the route reprices what it is sent. Without the note
+        // in hand there is nothing to send, and nothing to change.
+        val note = _state.value.notes.firstOrNull { it.id == noteId } ?: return
         viewModelScope.launch {
-            Repository.setNoteStatus(session.clinicId, noteId, status)
+            Repository.setNoteStatus(session.clinicId, patientId, note, status)
                 .onSuccess { loadNotesFor(session.clinicId, patientId) }
                 .onFailure { error ->
                     _state.value = _state.value.copy(message = error.message ?: "That change could not be saved.")
@@ -3657,11 +3660,10 @@ class AppViewModel : ViewModel() {
                 procedure = draft.procedure,
                 teeth = draft.teeth,
                 noteText = draft.note,
-                unitCost = draft.unitCost,
+                unitCost = draft.unitCost.takeIf { it > 0 },
                 status = draft.status,
                 doctor = draft.doctor,
                 service = draft.service,
-                byName = session.name,
             )
                 .onSuccess {
                     _state.value = _state.value.copy(
@@ -3718,8 +3720,6 @@ class AppViewModel : ViewModel() {
                 patient = patient,
                 procedure = procedure,
                 amount = amount,
-                byName = session.name,
-                byUid = session.uid,
             )
                 .onSuccess {
                     _state.value = _state.value.copy(
