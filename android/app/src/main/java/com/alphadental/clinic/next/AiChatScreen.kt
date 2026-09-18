@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -251,12 +254,26 @@ private fun Approval(
 @Composable
 private fun Composer(state: AiChat, onType: (String) -> Unit, onSend: () -> Unit) {
     Surface(color = T.surface, shadowElevation = 12.dp) {
+        /*
+         * The floating tab bar hovers over the bottom of every screen, and it was sitting on top
+         * of this box — the one part of the assistant you have to touch to use it at all.
+         *
+         * Cleared only when the keyboard is down. Once it is up the bar is off-screen anyway, and
+         * holding its height in reserve would push the box a bar's worth above the keyboard, which
+         * is the same mistake the other way round.
+         */
+        val keyboard = with(LocalDensity.current) { WindowInsets.ime.getBottom(this) } > 0
         Row(
             Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
                 .imePadding()
-                .padding(horizontal = T.gutter, vertical = 10.dp),
+                .padding(
+                    start = T.gutter,
+                    end = T.gutter,
+                    top = 10.dp,
+                    bottom = if (keyboard) 10.dp else T.barHeight + T.barInset + 10.dp,
+                ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             OutlinedTextField(

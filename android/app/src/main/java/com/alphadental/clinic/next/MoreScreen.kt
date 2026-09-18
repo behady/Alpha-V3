@@ -37,6 +37,11 @@ import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.material.icons.filled.Business
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -70,8 +75,10 @@ fun MoreScreen(
     onOpen: (Destination) -> Unit,
     onSignOut: () -> Unit,
     onRetry: () -> Unit = {},
+    onSwitchClinic: (String) -> Unit = {},
 ) {
     val who = state.who
+    var picking by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().background(T.ground)) {
 
@@ -83,6 +90,80 @@ fun MoreScreen(
         who?.email?.takeIf { it.isNotBlank() }?.let { email ->
             Surface(color = T.surface, modifier = Modifier.fillMaxWidth()) {
                 Txt(email, Type.caption, T.inkMuted, Modifier.padding(horizontal = T.gutter, vertical = 11.dp))
+            }
+        }
+
+        /*
+         * Which clinic this phone is in.
+         *
+         * Shown whether or not it can be changed, because the question it answers is "why am I
+         * looking at somebody else's diary" — and that question cannot be asked at all by someone
+         * who has no way of seeing the answer.
+         */
+        if (who != null) {
+            Rule()
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .then(if (state.canSwitch) Modifier.clickable { picking = true } else Modifier)
+                    .padding(horizontal = T.gutter, vertical = 13.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Filled.Business, null, tint = T.inkFaint, modifier = Modifier.size(15.dp))
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Txt(
+                        state.clinicName.ifBlank { "Reading the clinic…" },
+                        Type.rowName, T.ink, maxLines = 2,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Txt(
+                        when {
+                            state.switching -> "Switching…"
+                            state.canSwitch -> "Tap to work at another clinic"
+                            state.clinics.size == 1 -> "The only clinic this account works at"
+                            else -> "This account's clinic"
+                        },
+                        Type.caption, T.inkMuted, maxLines = 2,
+                    )
+                }
+                if (state.canSwitch) {
+                    Txt("Change", Type.label.copy(fontSize = 12.sp), T.accentInk)
+                }
+            }
+        }
+
+        if (picking) {
+            Sheet(
+                title = "Which clinic?",
+                caption = "This phone only, and only until you change it again",
+                action = "Close",
+                ready = true,
+                onAction = { picking = false },
+                onDismiss = { picking = false },
+            ) {
+                state.clinics.forEach { membership ->
+                    Rule()
+                    SheetAction(
+                        membership.name,
+                        listOfNotNull(
+                            membership.role.takeIf { it.isNotBlank() },
+                            if (membership.id == who?.clinicId) "you are here" else null,
+                        ).joinToString(" · "),
+                    ) {
+                        picking = false
+                        onSwitchClinic(membership.id)
+                    }
+                }
+                Rule()
+                Txt(
+                    // Said because switching restarts the app, which otherwise reads as a crash.
+                    "Choosing another clinic starts the app again, so nothing is left showing the " +
+                        "one you were in. Your colleagues' phones and the website are not affected.",
+                    Type.caption, T.inkFaint,
+                    Modifier.padding(horizontal = T.gutter, vertical = 12.dp),
+                    maxLines = 3,
+                )
             }
         }
 

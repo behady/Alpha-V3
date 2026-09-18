@@ -148,10 +148,27 @@ object ClinicSource {
             val roles = (snap.get("clinicRoles") as? Map<String, String>).orEmpty()
             if (roles.isEmpty()) error("This account is not linked to any clinic.")
 
-            val preferred = snap.getString("defaultClinicId")?.takeIf { roles.containsKey(it) }
-            val candidates = listOfNotNull(preferred) + roles.keys
+            /*
+             * In order: what this person chose ON THIS PHONE, then the website's stored default,
+             * then whatever the roles map happens to list first.
+             *
+             * The last of those three was doing all the work, and a map has no order worth
+             * relying on — so an account holding roles at two clinics opened inside one of them
+             * for no reason anybody could see, permanently, with no switch anywhere in the app.
+             *
+             * Each is checked against `clinicRoles` first, because a remembered or stored id can
+             * outlive the role that made it legitimate; and then against the clinic actually
+             * existing, because deleting a clinic does not tidy the maps on the accounts that
+             * belonged to it, and opening a dead id makes every read come back empty — which
+             * looks exactly like a permissions fault and costs a day to diagnose.
+             */
+            val chosen = ClinicChoice.preferred(user.uid)?.takeIf { roles.containsKey(it) }
+            val default = snap.getString("defaultClinicId")?.takeIf { roles.containsKey(it) }
+            val candidates = listOfNotNull(chosen, default) + roles.keys
             val clinicId = candidates.distinct().firstOrNull { clinic(it).get().await().exists() }
                 ?: error("The clinic linked to this account no longer exists.")
+            // A choice that no longer resolves is dropped rather than retried on every sign-in.
+            if (chosen != null && chosen != clinicId) ClinicChoice.forget(user.uid)
 
             // A platform super admin is an Admin everywhere — that is how the
             // website has always read it. The phone once did not read it at all,
@@ -185,6 +202,42 @@ object ClinicSource {
                 permissions = granted?.mapNotNull { it as? String }?.toSet().orEmpty(),
             )
         }
+    }
+
+    /** One clinic this account works at, named well enough to choose between. */
+    data class Membership(val id: String, val name: String, val role: String, val current: Boolean)
+
+    /**
+     * Every clinic this account holds a role at.
+     *
+     * Named from the clinic document first and its profile second, because the two disagree
+     * surprisingly often — the document's name is what the platform calls it and the profile's is
+     * what the clinic renamed itself to. A clinic in the roles map that no longer exists is left
+     * out entirely rather than listed as a dead entry somebody would try to switch into.
+     */
+    suspend fun myClinics(): List<Membership> = withContext(Dispatchers.IO) {
+        runCatching {
+            val user = auth.currentUser ?: return@runCatching emptyList()
+            val snap = db.collection("users").document(user.uid).get().await()
+
+            @Suppress("UNCHECKED_CAST")
+            val roles = (snap.get("clinicRoles") as? Map<String, String>).orEmpty()
+            val active = signedIn().getOrNull()?.clinicId
+
+            roles.entries.mapNotNull { (id, role) ->
+                val doc = runCatching { clinic(id).get().await() }.getOrNull()
+                if (doc == null || !doc.exists()) return@mapNotNull null
+                val named = doc.getString("name").orEmpty().ifBlank {
+                    runCatching { clinicProfile(id).name }.getOrNull().orEmpty()
+                }
+                Membership(
+                    id = id,
+                    name = named.ifBlank { "Unnamed clinic" },
+                    role = role,
+                    current = id == active,
+                )
+            }.sortedBy { it.name.lowercase() }
+        }.getOrDefault(emptyList())
     }
 
     /** The clinic's own name, for the slab. Read once — it changes about once a lifetime. */

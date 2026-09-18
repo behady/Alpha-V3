@@ -574,7 +574,16 @@ object Repository {
                 "mode" to "typed",
                 "createdAt" to FieldValue.serverTimestamp(),
             )
-        ).queueLocally("prescription")
+        /*
+         * Waited for, not queued.
+         *
+         * `queueLocally` hands the write to Firestore and carries on, logging a rejection where
+         * nobody will ever read it. That made sense when this app was meant to work with no
+         * signal; offline support was dropped, and what is left is a Save button that cannot fail
+         * in front of the person pressing it and cannot succeed either — it simply closes, and
+         * whether a prescription exists is found out later, or never.
+         */
+        ).await()
 
         ref.id
     }

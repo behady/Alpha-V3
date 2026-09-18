@@ -46,6 +46,8 @@ fun LazyListScope.treatments(
     state: RecordState,
     onSetStatus: (String, String) -> Unit,
     onAdd: (() -> Unit)?,
+    /** Null when this account may not change what is on the record. Rows are then inert. */
+    onEdit: ((ClinicalNote) -> Unit)? = null,
 ) {
     val planned = state.planned
     val done = state.notes.filterNot { it.status == "Planned" }
@@ -58,13 +60,24 @@ fun LazyListScope.treatments(
         }
     }
 
+    if (onEdit != null && state.notes.isNotEmpty()) {
+        item {
+            Txt(
+                "Tap a treatment to change what was done, its price or its dentist.",
+                Type.caption, T.inkFaint,
+                Modifier.padding(horizontal = T.gutter, vertical = 4.dp),
+                maxLines = 2,
+            )
+        }
+    }
+
     if (planned.isNotEmpty()) {
         item { SectionLabel("Planned · ${planned.size}") }
         item {
             RowGroup {
                 planned.forEachIndexed { i, note ->
                     if (i > 0) Rule()
-                    NoteRow(note, state, onSetStatus)
+                    NoteRow(note, state, onSetStatus, onEdit)
                 }
             }
         }
@@ -76,7 +89,7 @@ fun LazyListScope.treatments(
             RowGroup {
                 done.forEachIndexed { i, note ->
                     if (i > 0) Rule()
-                    NoteRow(note, state, onSetStatus)
+                    NoteRow(note, state, onSetStatus, onEdit)
                 }
             }
         }
@@ -100,10 +113,16 @@ private fun NoteRow(
     note: ClinicalNote,
     state: RecordState,
     onSetStatus: (String, String) -> Unit,
+    onEdit: ((ClinicalNote) -> Unit)?,
 ) {
     val planned = note.status == "Planned"
 
-    Column(Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 13.dp)) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .then(if (onEdit == null) Modifier else Modifier.clickable { onEdit(note) })
+            .padding(horizontal = T.gutter, vertical = 13.dp),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Txt(
                 note.procedure.ifBlank { "Treatment" },
@@ -144,6 +163,9 @@ private fun NoteRow(
                 } else {
                     SettingsPill("Back to planned") { onSetStatus(note.id, "Planned") }
                 }
+                // A button, not just a tappable row. A whole card that quietly responds to a tap
+                // is a thing people find by accident or never.
+                onEdit?.let { edit -> SettingsPill("Edit") { edit(note) } }
             }
         } else if (planned) {
             Spacer(Modifier.height(4.dp))
@@ -572,7 +594,7 @@ fun DetailsSheet(
 }
 
 /** "2026-09-15" as "15 Sep". Anything unparseable is shown as stored. */
-private fun noteDate(key: String): String {
+fun noteDate(key: String): String {
     val d = runCatching {
         java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(key)
     }.getOrNull() ?: return key

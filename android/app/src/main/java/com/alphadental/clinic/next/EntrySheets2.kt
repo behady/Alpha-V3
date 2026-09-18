@@ -17,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.alphadental.clinic.data.Doctor
 import com.alphadental.clinic.data.LabCases
 import com.alphadental.clinic.data.Service
@@ -453,3 +454,187 @@ fun FinanceEntrySheet(
         )
     }
 }
+
+/**
+ * Change a treatment that is already on the file, or take it off.
+ *
+ * The file could record work and never correct it. A price typed with a digit missing, the wrong
+ * tooth, the wrong dentist, the same filling entered twice — all of them permanent, and all of them
+ * things that happen at a chair between patients. The only buttons a recorded treatment had were
+ * "Mark done" and "Back to planned", which change a word and no money.
+ *
+ * Saving reprices the whole thing on the server, exactly as recording it did: the charge behind it
+ * moves with it, and the dentist's commission and the lab fee are worked out again from the new
+ * figures. That is why every field is sent rather than the one that changed.
+ */
+@Composable
+fun TreatmentEditSheet(
+    note: com.alphadental.clinic.data.ClinicalNote,
+    services: List<Service>,
+    doctors: List<Doctor>,
+    charted: Map<Int, com.alphadental.clinic.next.data.Tooth> = emptyMap(),
+    busy: Boolean,
+    error: String?,
+    canDelete: Boolean,
+    onSave: (String, List<String>, String, Double, Doctor?, String) -> Unit,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var procedure by remember(note.id) { mutableStateOf(note.procedure) }
+    var price by remember(note.id) {
+        // The PER-TOOTH price, which is what the server wants back. A note written before that
+        // field existed only has its total, and dividing it by the teeth is the same sum the
+        // server did on the way in.
+        val unit = if (note.unitCost > 0) note.unitCost
+        else note.cost / note.teeth.size.coerceAtLeast(1)
+        mutableStateOf(if (unit > 0) unit.toLong().toString() else "")
+    }
+    var teeth by remember(note.id) {
+        mutableStateOf(note.teeth.mapNotNull { it.trim().toIntOrNull() }.toSet())
+    }
+    var doctor by remember(note.id) {
+        mutableStateOf(doctors.firstOrNull { it.id == note.doctorId })
+    }
+    var text by remember(note.id) { mutableStateOf(note.note) }
+    var done by remember(note.id) { mutableStateOf(note.status != "Planned") }
+    var picking by remember(note.id) { mutableStateOf(false) }
+    /** Removing money asks twice. The first tap arms it, the second does it. */
+    var armed by remember(note.id) { mutableStateOf(false) }
+
+    val service = remember(procedure, services) {
+        services.firstOrNull { it.name.equals(procedure.trim(), ignoreCase = true) }
+    }
+    val unit = price.toDoubleOrNull() ?: 0.0
+    val units = when (service?.pricingMode.orEmpty()) {
+        "flat" -> 1
+        "per_arch" -> listOf(
+            teeth.any { it in UPPER_RIGHT || it in UPPER_LEFT },
+            teeth.any { it in LOWER_RIGHT || it in LOWER_LEFT },
+        ).count { it }.coerceAtLeast(1)
+        else -> teeth.size.coerceAtLeast(1)
+    }
+    val total = unit * units
+
+    Sheet(
+        title = "Change this treatment",
+        caption = noteDate(note.date),
+        busy = busy,
+        error = error,
+        action = if (total > 0) "Save · ${total.toLong()}" else "Save",
+        ready = procedure.isNotBlank() && doctor != null,
+        onAction = {
+            onSave(
+                procedure, teeth.map(Int::toString), text, unit, doctor,
+                if (done) "Completed" else "Planned",
+            )
+        },
+        onDismiss = onDismiss,
+    ) {
+        SheetField(
+            label = "What was done",
+            value = procedure,
+            onChange = { procedure = it; picking = true },
+            hint = "Composite filling",
+            onFocus = { focused -> if (focused) picking = true },
+            trailing = if (services.isEmpty()) null else ({
+                Icon(
+                    if (picking) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    if (picking) "Hide the price list" else "Show the price list",
+                    tint = T.inkMuted,
+                    modifier = Modifier.clickable { picking = !picking }.padding(10.dp),
+                )
+            }),
+        )
+
+        if (picking && services.isNotEmpty()) {
+            val needle = procedure.trim().lowercase()
+            val matches = when {
+                needle.isEmpty() -> services
+                services.any { it.name.equals(needle, ignoreCase = true) } -> emptyList()
+                else -> services.filter { it.name.lowercase().contains(needle) }
+            }
+            matches.take(40).forEach { s ->
+                Rule()
+                SheetAction(s.name, if (s.price > 0) "${s.price.toLong()} EGP" else "No price set") {
+                    procedure = s.name
+                    if (s.price > 0) price = s.price.toLong().toString()
+                    picking = false
+                }
+            }
+            if (matches.isNotEmpty()) Rule()
+        }
+
+        SheetField(
+            label = if (units > 1) "Price for one tooth" else "Price",
+            value = price,
+            onChange = { price = it.filter { c -> c.isDigit() || c == '.' } },
+            numeric = true,
+            hint = "0 for a follow-up",
+        )
+
+        if (unit > 0 && units > 1) {
+            Txt(
+                "$units × ${unit.toLong()} = ${total.toLong()}.",
+                Type.caption, T.accentInk,
+                Modifier.padding(horizontal = T.gutter, vertical = 8.dp),
+                maxLines = 2,
+            )
+        }
+
+        ToothPicker(teeth, charted) { teeth = it }
+
+        if (doctors.isNotEmpty()) {
+            SheetChoices("Done by") {
+                doctors.forEach { d ->
+                    SheetChoice(d.name, doctor?.id == d.id) { doctor = d }
+                }
+            }
+            if (doctor == null) {
+                Txt(
+                    // Not a nicety: the charge is worked out against this person's rate, and a
+                    // treatment recorded before the note carried a dentist id has none to restore.
+                    "This treatment has no dentist on it. Choose one — the charge is worked out " +
+                        "against their rate, so it cannot be saved without.",
+                    Type.caption, T.warn,
+                    Modifier.padding(horizontal = T.gutter, vertical = 8.dp),
+                    maxLines = 3,
+                )
+            }
+        }
+
+        SheetChoices("Status") {
+            SheetChoice("Done", done) { done = true }
+            SheetChoice("Planned", !done) { done = false }
+        }
+
+        SheetField("Note", text, { text = it }, hint = "Anything worth remembering", lines = 2)
+
+        Txt(
+            "Saving works the charge out again from these figures, so the money on the account " +
+                "moves with the treatment.",
+            Type.caption, T.inkMuted,
+            Modifier.padding(horizontal = T.gutter, vertical = 10.dp),
+            maxLines = 3,
+        )
+
+        if (canDelete) {
+            Rule()
+            Txt(
+                if (armed) "Tap again to remove it for good" else "Remove this treatment",
+                Type.label.copy(fontSize = 13.sp),
+                T.danger,
+                Modifier
+                    .clickable(enabled = !busy) { if (armed) onDelete() else armed = true }
+                    .padding(horizontal = T.gutter, vertical = 16.dp),
+            )
+            Txt(
+                "The charge behind it goes too. If money has already been paid against it the " +
+                    "server refuses, and says so — the payment has to be removed first.",
+                Type.caption, T.inkFaint,
+                Modifier.padding(start = T.gutter, end = T.gutter, bottom = 14.dp),
+                maxLines = 4,
+            )
+        }
+    }
+}
+

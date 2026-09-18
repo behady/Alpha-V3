@@ -622,8 +622,10 @@ private fun MoreTab(
     onOpenHelp: () -> Unit,
 ) {
     var confirmSignOut by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     var retry: (() -> Unit)? = null
+    var switch: ((String) -> Unit)? = null
     val state = if (preview) {
         MoreState(loading = false, who = previewDashboard().who)
     } else {
@@ -631,11 +633,13 @@ private fun MoreTab(
         val live by model.state.collectAsState()
         androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
         retry = model::retry
+        switch = { id -> model.switchTo(context, id) }
         live
     }
 
     MoreScreen(
         state = state,
+        onSwitchClinic = { id -> switch?.invoke(id) },
         onRetry = { retry?.invoke() },
         onOpen = { d ->
             when (d) {
@@ -1031,6 +1035,7 @@ private fun RecordPane(
         // Null for an account without the finance tick-box, which makes every row on the
         // statement inert rather than offering a sheet the server would refuse.
         onEditRow = if (state.canEditLedger) ({ model.editRow(it) }) else null,
+        onEditNote = if (state.canRecord) ({ model.editNote(it) }) else null,
     )
 
     if (state.charting != null) {
@@ -1096,6 +1101,16 @@ private fun RecordPane(
         }
     }
 
+    // A prescription is written by a model that knows nothing about this screen, so the screen has
+    // to be told. Cleared straight after, or reopening the file would refresh it again forever.
+    androidx.compose.runtime.LaunchedEffect(script.saved) {
+        if (script.saved != null) {
+            model.refreshScripts()
+            prescriptions.clearSaved()
+            model.show(RecordTab.Rx)
+        }
+    }
+
     if (script.open) {
         PrescriptionSheet(
             state = script,
@@ -1154,6 +1169,21 @@ private fun RecordPane(
                 book = booking::book,
                 close = booking::close,
             ),
+        )
+    }
+
+    state.editingNote?.let { note ->
+        TreatmentEditSheet(
+            note = note,
+            services = state.services,
+            doctors = state.doctors,
+            charted = state.record?.teeth.orEmpty(),
+            busy = state.savingNote,
+            error = state.noteError,
+            canDelete = state.canDeleteNote,
+            onSave = model::saveNote,
+            onDelete = model::deleteNote,
+            onDismiss = model::closeNote,
         )
     }
 

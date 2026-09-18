@@ -93,6 +93,7 @@ fun RecordScreen(
     onCopyScript: ((com.alphadental.clinic.data.Prescription) -> Unit)? = null,
     /** Null when this account may not correct the books, which makes the rows inert. */
     onEditRow: ((com.alphadental.clinic.next.data.Money) -> Unit)? = null,
+    onEditNote: ((com.alphadental.clinic.data.ClinicalNote) -> Unit)? = null,
 ) {
     val record = state.record
 
@@ -121,7 +122,7 @@ fun RecordScreen(
                 when (state.tab) {
                     RecordTab.Overview -> overview(state, record)
                     RecordTab.Chart -> chart(state, record, onSelectTooth, onChart)
-                    RecordTab.Notes -> treatments(state, onSetNoteStatus, onRecordTreatment)
+                    RecordTab.Notes -> treatments(state, onSetNoteStatus, onRecordTreatment, onEditNote)
                     RecordTab.Visits -> visits(record)
                     RecordTab.Rx -> scripts(state, onPrescribe, onPrintScript, onShareScript, onSendScript, onCopyScript)
                     RecordTab.Photos -> photos(state, onFilterMedia, onUploadCategory, onView, onCamera, onGallery)
