@@ -157,7 +157,10 @@ fun DashboardScreen(
                     Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Txt("Today, ${shortDate()}", Type.heading, T.ink, Modifier.weight(1f))
+                    Txt(
+                        if (state.isToday) "Today, ${shortDate()}" else prettyDay(state.date),
+                        Type.heading, T.ink, Modifier.weight(1f), maxLines = 1,
+                    )
                     androidx.compose.material3.Surface(
                         shape = T.pill,
                         color = Color(0xFFECFDF5),
@@ -170,7 +173,7 @@ fun DashboardScreen(
                     }
                 }
             }
-            item { WeekStrip(onPickDay) }
+            item { WeekStrip(state.date, onPickDay) }
 
             state.inChair?.let { visit ->
                 item {
@@ -450,7 +453,7 @@ private fun MiniStat(icon: ImageVector, tint: Color, label: String, value: Int, 
  * that day, which is the screen that can show it.
  */
 @Composable
-private fun WeekStrip(onPickDay: (String) -> Unit) {
+private fun WeekStrip(selected: String, onPickDay: (String) -> Unit) {
     val today = java.util.Calendar.getInstance()
     val fmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
     val dayName = java.text.SimpleDateFormat("EEE", java.util.Locale.US)
@@ -464,11 +467,13 @@ private fun WeekStrip(onPickDay: (String) -> Unit) {
                 val cal = (today.clone() as java.util.Calendar).apply { add(java.util.Calendar.DAY_OF_YEAR, offset) }
                 val key = fmt.format(cal.time)
                 val isToday = offset == 0
+                // The dark cell is the day being LOOKED AT, which is today until somebody taps.
+                val picked = key == selected
                 androidx.compose.material3.Surface(
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-                    color = if (isToday) T.slab else T.surfaceSoft,
-                    border = if (isToday) null else androidx.compose.foundation.BorderStroke(1.dp, T.line),
-                    shadowElevation = if (isToday) 3.dp else 0.dp,
+                    color = if (picked) T.slab else T.surfaceSoft,
+                    border = if (picked) null else androidx.compose.foundation.BorderStroke(1.dp, if (isToday) T.accent else T.line),
+                    shadowElevation = if (picked) 3.dp else 0.dp,
                     modifier = Modifier.width(48.dp).height(56.dp).clickable { onPickDay(key) },
                 ) {
                     Column(
@@ -479,14 +484,14 @@ private fun WeekStrip(onPickDay: (String) -> Unit) {
                         Txt(
                             if (isToday) "Today" else dayName.format(cal.time),
                             Type.chip.copy(fontSize = 8.sp),
-                            if (isToday) T.onSlabSoft else T.inkMuted,
+                            if (picked) T.onSlabSoft else if (isToday) T.accentInk else T.inkMuted,
                             uppercase = true,
                         )
                         Spacer(Modifier.height(3.dp))
                         Txt(
                             cal.get(java.util.Calendar.DAY_OF_MONTH).toString(),
                             Type.label.copy(fontSize = 13.sp),
-                            if (isToday) T.onSlab else T.ink,
+                            if (picked) T.onSlab else T.ink,
                         )
                     }
                 }
@@ -500,6 +505,11 @@ private fun WeekStrip(onPickDay: (String) -> Unit) {
 
 private fun shortDate(): String =
     java.text.SimpleDateFormat("MMM d", java.util.Locale.US).format(java.util.Date())
+
+private fun prettyDay(key: String): String = runCatching {
+    val d = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(key)!!
+    java.text.SimpleDateFormat("EEEE, MMM d", java.util.Locale.US).format(d)
+}.getOrDefault(key)
 
 /**
  * Clocked in or not, and the one tap that changes it.

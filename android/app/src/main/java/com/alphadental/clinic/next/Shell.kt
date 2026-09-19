@@ -86,6 +86,8 @@ fun Shell(preview: Boolean = false) {
     var recordOnOpen by rememberSaveable { mutableStateOf(false) }
     var addingPatient by rememberSaveable { mutableStateOf(false) }
     var quickPay by rememberSaveable { mutableStateOf(false) }
+    /** The patient chosen for a quick payment. The sheet opens over the dashboard, not their file. */
+    var quickPayFor by rememberSaveable { mutableStateOf<String?>(null) }
     var openMoney by rememberSaveable { mutableStateOf(false) }
     var openReports by rememberSaveable { mutableStateOf(false) }
     var openLab by rememberSaveable { mutableStateOf(false) }
@@ -322,8 +324,32 @@ fun Shell(preview: Boolean = false) {
             )
         }
 
-        // Quick Pay: find the person, land on their file with the payment sheet
-        // already up. The site's modal does the same two steps in one box.
+        // The site's Receive Payment modal, over the dashboard. Its own copy of the
+        // file's model, keyed apart, so opening a file afterwards is not confused
+        // about which patient it was last reading.
+        quickPayFor?.let { patientId ->
+            val qp: RecordModel = viewModel(key = "quickpay")
+            val qpState by qp.state.collectAsState()
+            androidx.compose.runtime.LaunchedEffect(patientId) { qp.open(patientId) }
+            androidx.compose.runtime.LaunchedEffect(qpState.paid) {
+                if (qpState.paid != null) { qp.clearPayment(); quickPayFor = null }
+            }
+            qpState.record?.let { record ->
+                ReceivePaymentSheet(
+                    patientName = record.person.name,
+                    charged = record.balance.charged,
+                    paid = record.balance.paid,
+                    unpaid = qpState.unpaid,
+                    busy = qpState.taking,
+                    error = qpState.payError,
+                    onTake = qp::takePayment,
+                    onDismiss = { qp.clearPayment(); quickPayFor = null },
+                )
+            }
+        }
+
+        // Quick Pay: find the person, then the site's Receive Payment modal opens
+        // right here on the dashboard.
         if (quickPay && patientsModel != null) {
             androidx.compose.runtime.LaunchedEffect(Unit) { patientsModel.start() }
             Sheet(
@@ -345,8 +371,7 @@ fun Shell(preview: Boolean = false) {
                         person?.let {
                             quickPay = false
                             patientsModel.search("")
-                            payOnOpen = true
-                            openRecord = it.id
+                            quickPayFor = it.id
                         }
                     },
                 )
@@ -359,38 +384,70 @@ fun Shell(preview: Boolean = false) {
             }
         }
 
-        if (visitState.isOpen) {
+        if (visitState.isOpen && visits != null) {
+            AppointmentSheet(
+                state = visitState,
+                a = AppointmentActions(
+                    setDoctor = visits::setDoctor,
+                    setStatus = visits::setStatus,
+                    shiftDay = visits::shiftDay,
+                    setTime = visits::setTime,
+                    setMinutes = visits::setMinutes,
+                    setReason = visits::setReason,
+                    setNotes = visits::setNotes,
+                    save = visits::save,
+                    addProcedure = visits::openRecording,
+                    pay = visits::openPayment,
+                    delete = visits::delete,
+                    openFile = {
+                        val id = visitState.visit?.patientId
+                        visits.close()
+                        if (!id.isNullOrBlank()) openRecord = id
+                    },
+                    close = visits::close,
+                ),
+            )
+            if (visitState.paying) {
+                visitState.visit?.let { visit ->
+                    ReceivePaymentSheet(
+                        patientName = visit.patientName,
+                        charged = visitState.charged,
+                        paid = visitState.paid,
+                        unpaid = visitState.unpaid,
+                        busy = visitState.takingPayment,
+                        error = visitState.payError,
+                        onTake = visits::takePayment,
+                        onDismiss = visits::closePayment,
+                    )
+                }
+            }
+            if (visitState.recording) {
+                visitState.visit?.let { visit ->
+                    TreatmentSheet(
+                        patientName = visit.patientName,
+                        services = visitState.services,
+                        doctors = visitState.doctors,
+                        busy = visitState.saving,
+                        error = visitState.recordError,
+                        onRecord = { procedure, teeth, note, cost, doctor, service, done ->
+                            visits.recordTreatment(procedure, teeth, note, cost, doctor, service, done)
+                        },
+                        onDismiss = visits::closeRecording,
+                    )
+                }
+            }
+        } else if (visitState.isOpen) {
+            // The preview has no model behind it; the simpler sheet still draws.
             VisitSheet(
                 state = visitState,
-                onMove = { stage -> visits?.move(stage) ?: run { shown = shown?.copy(status = stage) } },
-                onOpenFile = {
-                    val id = visitState.visit?.patientId
-                    visits?.close()
-                    shown = null
-                    if (!id.isNullOrBlank()) openRecord = id
-                },
-                onReschedule = {
-                    visitState.visit?.let { visit ->
-                        visits?.close()
-                        shown = null
-                        booking?.edit(visit)
-                    }
-                },
-                onRecordTreatment = {
-                    val id = visitState.visit?.patientId
-                    visits?.close()
-                    shown = null
-                    if (!id.isNullOrBlank()) { recordOnOpen = true; openRecord = id }
-                },
-                onTakePayment = {
-                    val id = visitState.visit?.patientId
-                    visits?.close()
-                    shown = null
-                    if (!id.isNullOrBlank()) { payOnOpen = true; openRecord = id }
-                },
+                onMove = { stage -> shown = shown?.copy(status = stage) },
+                onOpenFile = { shown = null },
+                onReschedule = { shown = null },
+                onRecordTreatment = { shown = null },
+                onTakePayment = { shown = null },
                 onCall = { context.dial(it) },
                 onMessage = { context.whatsapp(it) },
-                onDismiss = { visits?.close(); shown = null },
+                onDismiss = { shown = null },
             )
         }
 
@@ -497,7 +554,8 @@ private fun TodayTab(
             onPunch = { attendance.punch(context) },
             onNewPatient = if (state.who?.can("patients.add") == true) onNewPatient else null,
             onQuickPay = if (state.who?.can("finance.add") == true) onQuickPay else null,
-            onPickDay = onPickDay,
+            // In place. The calendar tab is still one tap away on the bar for anyone who wants it.
+            onPickDay = model::show,
         )
     }
 }

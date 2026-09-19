@@ -226,6 +226,25 @@ object ClinicApi {
         if (!date.isNullOrBlank()) put("date", date)
     }
 
+    // ------------------------------------------------------------------ appointments
+
+    /**
+     * Delete a visit.
+     *
+     * Through the server, as the website does it, because a visit may have treatments and money
+     * hanging off it. `keepTreatments` detaches them into the patient's general history; the
+     * alternative removes them and their charges too, and is refused once anything has been paid.
+     */
+    suspend fun deleteAppointment(clinicId: String, appointmentId: String, keepTreatments: Boolean) {
+        post(
+            "api/appointments/delete",
+            JSONObject()
+                .put("clinicId", clinicId)
+                .put("appointmentId", appointmentId)
+                .put("servicesAction", if (keepTreatments) "keep" else "delete"),
+        )
+    }
+
     // ------------------------------------------------------------------ plumbing
 
     /**
