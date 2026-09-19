@@ -106,6 +106,8 @@ data class RecordState(
     val noteError: String? = null,
 
     val editingRow: com.alphadental.clinic.next.data.Money? = null,
+    val savingMessaging: Boolean = false,
+    val messagingError: String? = null,
     val savingRow: Boolean = false,
     val rowError: String? = null,
     val rowDone: String? = null,
@@ -448,10 +450,48 @@ class RecordModel : ViewModel() {
         }
     }
 
+    // ------------------------------------------------------------------ messaging
+
+    /** Turn the automatic WhatsApp and SMS to this patient off, or back on. */
+    fun setMessaging(whatsappOn: Boolean, smsOn: Boolean) {
+        val who = _state.value.who ?: return
+        val record = _state.value.record ?: return
+        if (!_state.value.canEditDetails || _state.value.savingMessaging) return
+        _state.value = _state.value.copy(savingMessaging = true, messagingError = null)
+        viewModelScope.launch {
+            com.alphadental.clinic.data.Repository.setPatientMessaging(
+                clinicId = who.clinicId,
+                patientId = record.person.id,
+                whatsappOptOut = !whatsappOn,
+                smsOptOut = !smsOn,
+                byName = who.name,
+            )
+                .onSuccess {
+                    // Shown from the record, so the record is what changes.
+                    _state.value = _state.value.copy(
+                        savingMessaging = false,
+                        record = record.copy(whatsappOptOut = !whatsappOn, smsOptOut = !smsOn),
+                    )
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(
+                        savingMessaging = false,
+                        messagingError = e.message ?: "That could not be saved.",
+                    )
+                }
+        }
+    }
+
     // ------------------------------------------------------------------ correcting the ledger
 
+    /**
+     * Open a ledger line.
+     *
+     * For anyone, not only those who may change it: the sheet shows who took the money and how a
+     * charge was split before it offers any fields, and it offers the fields only to an account
+     * with the finance tick-box.
+     */
     fun editRow(row: com.alphadental.clinic.next.data.Money) {
-        if (!_state.value.canEditLedger) return
         _state.value = _state.value.copy(editingRow = row, rowError = null, rowDone = null)
     }
 

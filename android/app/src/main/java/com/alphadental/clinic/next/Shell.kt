@@ -1067,7 +1067,8 @@ private fun RecordPane(
         }) else null,
         // Null for an account without the finance tick-box, which makes every row on the
         // statement inert rather than offering a sheet the server would refuse.
-        onEditRow = if (state.canEditLedger) ({ model.editRow(it) }) else null,
+        // Everyone may open a line; the sheet decides whether it also offers to change it.
+        onEditRow = { model.editRow(it) },
         onEditNote = if (state.canRecord) ({ model.editNote(it) }) else null,
         ai = aiState,
         aiActions = aiActions,
@@ -1117,6 +1118,11 @@ private fun RecordPane(
         state.record?.let { record ->
             PatientActionsSheet(
                 patientName = record.person.name,
+                whatsappOn = !record.whatsappOptOut,
+                smsOn = !record.smsBlocked,
+                savingMessaging = state.savingMessaging,
+                messagingError = state.messagingError,
+                onMessaging = if (state.canEditDetails) ({ w, t -> model.setMessaging(w, t) }) else null,
                 onPrescribe = if (state.canRecord) ({
                     more = false
                     prescriptions.open(record.person)
@@ -1229,7 +1235,9 @@ private fun RecordPane(
             row = row,
             busy = state.savingRow,
             error = state.rowError,
+            canEdit = state.canEditLedger,
             canDelete = state.canDeleteLedger,
+            payments = state.record?.ledger.orEmpty().filter { it.isPayment && it.procedureId == row.id },
             onSave = model::saveRow,
             onDelete = model::deleteRow,
             onDismiss = model::closeRow,

@@ -2252,6 +2252,37 @@ object Repository {
      * dropping empty strings would make that edit silently impossible. `fileId`
      * is never touched: it is issued once by the clinic's counter.
      */
+    /**
+     * Stop, or resume, the automatic messages to one patient.
+     *
+     * The same two fields the website reads before sending anything and the opt-out reply
+     * writes when a patient says "stop" — so a switch flipped here is honoured by every reminder,
+     * every receipt and the bot, on both surfaces. Both are written explicitly: an SMS flag left
+     * unset follows the WhatsApp one, and a desk that turned SMS off on purpose must not have it
+     * quietly come back when WhatsApp is turned on again.
+     */
+    suspend fun setPatientMessaging(
+        clinicId: String,
+        patientId: String,
+        whatsappOptOut: Boolean,
+        smsOptOut: Boolean,
+        byName: String,
+    ): Result<Unit> = runCatching {
+        Firebase.db().collection("clinics").document(clinicId)
+            .collection("patients").document(patientId)
+            .update(
+                mapOf(
+                    "whatsappOptOut" to whatsappOptOut,
+                    "smsOptOut" to smsOptOut,
+                    "optOutSource" to "staff",
+                    "optOutAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                    "updatedBy" to byName,
+                )
+            ).await()
+        Unit
+    }
+
     suspend fun updatePatient(
         clinicId: String,
         patientId: String,

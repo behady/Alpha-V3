@@ -1,6 +1,8 @@
 package com.alphadental.clinic.next
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -311,7 +313,11 @@ fun LedgerRowSheet(
     row: com.alphadental.clinic.next.data.Money,
     busy: Boolean,
     error: String?,
+    /** Whether this account may change the line. Without it the sheet is the detail alone. */
+    canEdit: Boolean,
     canDelete: Boolean,
+    /** On a charge: every payment recorded against it, so the sheet can say who took what. */
+    payments: List<com.alphadental.clinic.next.data.Money> = emptyList(),
     onSave: (String, String, Double, String) -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
@@ -330,11 +336,63 @@ fun LedgerRowSheet(
         caption = row.description.ifBlank { row.date },
         busy = busy,
         error = error,
-        action = "Save",
-        ready = date.isNotBlank() && (!row.isPayment || value > 0),
-        onAction = { onSave(date, description, value, method) },
+        action = if (canEdit) "Save" else "Close",
+        ready = !canEdit || (date.isNotBlank() && (!row.isPayment || value > 0)),
+        onAction = { if (canEdit) onSave(date, description, value, method) else onDismiss() },
         onDismiss = onDismiss,
     ) {
+        /*
+         * The detail, before anything editable.
+         *
+         * "Who took that payment" and "how was this charge split" were the two questions the
+         * statement could not answer, and they are answered here for everybody — the money is
+         * the clinic's business, and reading how it was handled is not the same as changing it.
+         */
+        Column(Modifier.padding(horizontal = T.gutter, vertical = 12.dp)) {
+            DetailLine("Amount", "${row.amount.toLong()} EGP")
+            DetailLine("Date", noteDate(row.date))
+            if (row.isPayment) {
+                DetailLine("Taken by", row.by.ifBlank { "Not recorded" })
+                DetailLine("Paid by", row.method.ifBlank { "Not recorded" })
+                if (row.doctor.isNotBlank()) DetailLine("Dentist", row.doctor)
+                if (row.commission > 0 || row.labFee > 0) {
+                    DetailLine("Dentist's share", "${row.commission.toLong()}")
+                    if (row.labFee > 0) DetailLine("Lab fee carried", "${row.labFee.toLong()}")
+                    DetailLine("Clinic keeps", "${(row.amount - row.commission - row.labFee).coerceAtLeast(0.0).toLong()}")
+                }
+            } else {
+                DetailLine("Charged by", row.by.ifBlank { row.doctor.ifBlank { "Not recorded" } })
+                if (row.doctor.isNotBlank()) DetailLine("Dentist", row.doctor)
+                if (row.discount > 0) DetailLine("Discount given", "${row.discount.toLong()}")
+                if (row.labFee > 0) DetailLine("Lab fee", "${row.labFee.toLong()}")
+                val paid = payments.sumOf { it.amount }
+                DetailLine("Paid so far", "${paid.toLong()} of ${row.amount.toLong()}")
+                if (payments.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Txt("Payments against this", Type.eyebrow, T.inkFaint, uppercase = true)
+                    payments.sortedBy { it.date }.forEach { p ->
+                        Spacer(Modifier.height(4.dp))
+                        Txt(
+                            listOf(noteDate(p.date), "${p.amount.toLong()}", p.method, p.by.takeIf { it.isNotBlank() }?.let { "by $it" }.orEmpty())
+                                .filter { it.isNotBlank() }.joinToString(" · "),
+                            Type.caption, T.inkMuted, maxLines = 2,
+                        )
+                    }
+                }
+            }
+        }
+
+        if (!canEdit) {
+            Rule()
+            Txt(
+                "Correcting a line needs the finance tick-box under Settings → The team.",
+                Type.caption, T.inkFaint,
+                Modifier.padding(horizontal = T.gutter, vertical = 12.dp), maxLines = 2,
+            )
+            return@Sheet
+        }
+        Rule()
+
         SheetField("Date", date, { date = it }, hint = "2026-09-18")
         SheetField("Description", description, { description = it }, hint = "What this line is for", lines = 2)
 
@@ -389,6 +447,14 @@ fun LedgerRowSheet(
                 maxLines = 4,
             )
         }
+    }
+}
+
+@Composable
+private fun DetailLine(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+        Txt(label, Type.caption, T.inkMuted, Modifier.weight(1f))
+        Txt(value, Type.label.copy(fontSize = 13.sp), T.ink, maxLines = 2)
     }
 }
 

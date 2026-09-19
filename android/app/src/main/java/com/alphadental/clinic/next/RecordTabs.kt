@@ -225,7 +225,7 @@ fun LazyListScope.statement(
         item {
             Txt(
                 // Said once, quietly, rather than putting a pencil on forty rows.
-                "Tap any line to correct it.",
+                if (state.canEditLedger) "Tap any line to see its detail or correct it." else "Tap any line to see its detail.",
                 Type.caption, T.inkFaint,
                 Modifier.padding(horizontal = T.gutter, vertical = 4.dp),
             )
@@ -315,8 +315,14 @@ private fun StatementRow(
             )
             Spacer(Modifier.height(2.dp))
             Txt(
-                listOf(noteDate(m.date), m.method, m.doctor).filter { it.isNotBlank() }.joinToString(" · "),
-                Type.caption, T.inkMuted, maxLines = 1,
+                listOf(
+                    noteDate(m.date),
+                    m.method,
+                    m.doctor,
+                    // Who took the money, on a payment. On a charge the dentist above already says whose work it was.
+                    if (m.isPayment && m.by.isNotBlank()) "taken by ${m.by}" else "",
+                ).filter { it.isNotBlank() }.joinToString(" · "),
+                Type.caption, T.inkMuted, maxLines = 2,
             )
         }
         Spacer(Modifier.width(10.dp))

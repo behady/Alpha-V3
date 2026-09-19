@@ -306,6 +306,14 @@ data class Money(
     val labFee: Double = 0.0,
     /** Knocked off the list price. On charge rows. */
     val discount: Double = 0.0,
+    /**
+     * Who recorded this row — the receptionist who took the cash, the dentist who charged the
+     * work. Both the website and the phone write it as `addedBy`. It was read by nobody, which
+     * is how "who took that payment?" became a question with no answer on the phone.
+     */
+    val by: String = "",
+    /** On a payment: the charge it settles. Blank for money put on account. */
+    val procedureId: String = "",
 ) {
     val isCharge: Boolean get() = type == "procedure"
 
@@ -345,6 +353,15 @@ data class Record(
     val medicalHistory: String,
     /** Only ever shown on the details form; nothing else reads it. */
     val address: String = "",
+    /**
+     * The patient has asked not to be messaged — or the clinic has decided so for them.
+     *
+     * `whatsappOptOut` has existed for a long time; `smsOptOut` is newer and, when UNSET, follows
+     * it (see the website's lib/patientMessaging). Kept as a nullable here for exactly that
+     * reason: null is "never decided separately", which is not the same as false.
+     */
+    val whatsappOptOut: Boolean = false,
+    val smsOptOut: Boolean? = null,
     val balance: Balance,
     val upcoming: List<Visit>,
     val past: List<Visit>,
@@ -352,6 +369,9 @@ data class Record(
     /** The chart, keyed by FDI number. Teeth with nothing recorded are absent. */
     val teeth: Map<Int, Tooth> = emptyMap(),
 ) {
+    /** What actually applies to text messages: its own flag, or WhatsApp's when it has none. */
+    val smsBlocked: Boolean get() = smsOptOut ?: whatsappOptOut
+
     /** Everything ever charged to this patient — what they are worth to the clinic. */
     val lifetime: Double get() = balance.charged
 

@@ -470,6 +470,11 @@ object ClinicSource {
                         amount = value,
                         method = d.text("method"),
                         doctor = d.text("doctorName").ifBlank { d.text("doctor") },
+                        commission = d.number("doctorCommissionAmount") ?: 0.0,
+                        labFee = d.number("labFee") ?: 0.0,
+                        discount = d.number("discountAmount") ?: 0.0,
+                        by = d.text("addedBy"),
+                        procedureId = d.text("procedureId"),
                     )
                 }
 
@@ -485,6 +490,8 @@ object ClinicSource {
                     allergies = snap.text("allergies"),
                     medicalHistory = snap.text("medicalHistory"),
                     address = snap.text("address"),
+                    whatsappOptOut = snap.getBoolean("whatsappOptOut") == true,
+                    smsOptOut = snap.getBoolean("smsOptOut"),
                     balance = Balance(charged, paid),
                     upcoming = visits.filter { it.date >= today && !it.status.isFinished }
                         .sortedWith(compareBy({ it.date }, { it.minuteOfDay })),
