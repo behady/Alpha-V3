@@ -33,10 +33,10 @@ enum class TreatmentState(
     // the chart the way they read a mouth, and a filled tooth is not blue in a mouth.
     Extracted("Extracted", form = true, colour = Color(0xFF334155), precedence = 100),
     Implant("Implant", form = true, colour = Color(0xFF9CA3AF), precedence = 90),
-    Crowned("Crown", form = true, colour = Color(0xFFC7CDD6), precedence = 80),
-    Veneered("Veneer", form = true, colour = Color(0xFFF1F5F9), precedence = 70),
-    RootCanal("Root canal", form = false, colour = Color(0xFFE38A9B), precedence = 60),
-    Filled("Filling", form = false, colour = Color(0xFFD6CBB0), precedence = 50),
+    Crowned("Crown", form = true, colour = Color(0xFFCBD5E1), precedence = 80),
+    Veneered("Veneer", form = true, colour = Color(0xFFE2E8F0), precedence = 70),
+    RootCanal("Root canal", form = false, colour = Color(0xFFE26B7A), precedence = 60),
+    Filled("Filling", form = false, colour = Color(0xFFA69C82), precedence = 50),
     Perio("Gum treatment", form = false, colour = Color(0xFF0891B2), precedence = 40),
     Treated("Treated", form = false, colour = Color(0xFF64748B), precedence = 10),
 }

@@ -237,132 +237,138 @@ private fun ToothCell(
                  * otherwise the diagnosis colour. Where nothing was done the region keeps the
                  * diagnosis colour, so "root-filled but still carious" stays visible.
                  */
+                /*
+                 * Drawn the way the charting textbooks and the big chart programs draw it, not
+                 * the way the materials look in the hand (which was tried, and read wrong):
+                 *
+                 *   root canal  — a line through the canal of each treated root, in gutta-percha
+                 *                 pink; the root itself is not painted (Dentrix, Open Dental:
+                 *                 "root canal, not including pulp chamber").
+                 *   crown       — caps the crown: an outline over the whole crown. Ceramic or
+                 *                 zirconia is light; PFM is light with the metal shown as
+                 *                 diagonal lines at the collar; a full metal crown is diagonal
+                 *                 lines all over ("metal is dark, ceramic and porcelain light").
+                 *   filling     — an outlined restoration on the crown: composite is outlined
+                 *                 and left tooth-coloured, amalgam is outlined and filled solid.
+                 *   implant     — the screw, in the root.
+                 *   veneer      — covers the front of the crown.
+                 *   planned     — red dashed, the near-universal "to be done" colour.
+                 *
+                 * A region nothing was done to keeps the diagnosis colour underneath.
+                 */
+                val lowerProc = (marks.formProcedure + " " + marks.markProcedure).lowercase()
+                val molar = number % 10 >= 6
+                val metalInk = Color(0xFF4B5563)
+                val guttaPercha = Color(0xFFE26B7A)
+                val guttaCore = Color(0xFFB24A58)
+                val porcelain = Color(0xFFEEF2F7)
+                val porcelainEdge = Color(0xFF94A3B8)
+                val composite = Color(0xFFF5F0E4)
+                val compositeEdge = Color(0xFFA69C82)
+                val amalgam = Color(0xFF6B7280)
+
+                // A diagonal hatch, clipped to whatever region is being marked as metal.
+                fun androidx.compose.ui.graphics.drawscope.DrawScope.hatch(region: androidx.compose.ui.graphics.Path, top: Float, bottom: Float) {
+                    clipPath(region) {
+                        var x = -h
+                        while (x < w + h) {
+                            drawLine(metalInk, androidx.compose.ui.geometry.Offset(x, bottom), androidx.compose.ui.geometry.Offset(x + (bottom - top), top), 0.9.dp.toPx())
+                            x += 2.6.dp.toPx()
+                        }
+                    }
+                }
+
                 val base = diagnosisFill ?: soft
-                val rootTop = minOf(g.tipY, g.neckY)
-                val rootBottom = maxOf(g.tipY, g.neckY)
                 val crownTop = minOf(g.neckY, g.edgeY)
                 val crownBottom = maxOf(g.neckY, g.edgeY)
+                val crownH = crownBottom - crownTop
 
-                // ---- the root
-                when {
-                    form == T_Implant -> {
-                        drawPath(g.root, color = Color(0xFFCBD5E1))
+                // ---- the root: painted with its diagnosis, then the screw or the canal line
+                if (form == T_Implant) {
+                    drawPath(g.root, color = Color(0xFFD1D5DB))
+                    clipPath(g.root) {
+                        val rootTop = minOf(g.tipY, g.neckY)
+                        val rootBottom = maxOf(g.tipY, g.neckY)
+                        drawRect(
+                            androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(Color(0xFF6B7280), Color(0xFFE5E7EB), Color(0xFF6B7280)), startX = w * .32f, endX = w * .68f),
+                            topLeft = androidx.compose.ui.geometry.Offset(0f, rootTop),
+                            size = androidx.compose.ui.geometry.Size(w, rootBottom - rootTop),
+                        )
+                        var y = rootTop + 2.dp.toPx()
+                        while (y < rootBottom - 1.dp.toPx()) {
+                            drawLine(Color(0xFF374151).copy(alpha = .6f), androidx.compose.ui.geometry.Offset(w * .32f, y), androidx.compose.ui.geometry.Offset(w * .68f, y), 0.9.dp.toPx())
+                            y += 2.6.dp.toPx()
+                        }
+                    }
+                } else {
+                    drawPath(g.root, color = base)
+                    if (mark == T_RootCanal) {
+                        // The obturated canal: from the apex up to the pulp-chamber floor, one
+                        // line per root — two on a molar — in gutta-percha with a darker core.
+                        val apex = g.tipY
+                        val floor = if (upper) g.neckY - 1.dp.toPx() else g.neckY + 1.dp.toPx()
+                        val xs = if (molar) listOf(w * .36f, w * .64f) else listOf(w / 2)
                         clipPath(g.root) {
-                            drawRect(
-                                androidx.compose.ui.graphics.Brush.horizontalGradient(
-                                    listOf(Color(0xFF6B7280), Color(0xFFD1D5DB), Color(0xFF6B7280)),
-                                    startX = w * .3f, endX = w * .7f,
-                                ),
-                                topLeft = androidx.compose.ui.geometry.Offset(0f, rootTop),
-                                size = androidx.compose.ui.geometry.Size(w, rootBottom - rootTop),
-                            )
-                            // The threads.
-                            var y = rootTop + 2.dp.toPx()
-                            while (y < rootBottom - 1.dp.toPx()) {
-                                drawLine(Color(0xFF374151).copy(alpha = .55f), androidx.compose.ui.geometry.Offset(w * .3f, y), androidx.compose.ui.geometry.Offset(w * .7f, y), 0.9.dp.toPx())
-                                y += 2.6.dp.toPx()
+                            xs.forEach { cx ->
+                                drawLine(guttaPercha, androidx.compose.ui.geometry.Offset(cx, apex), androidx.compose.ui.geometry.Offset(cx, floor), 2.6.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                                drawLine(guttaCore, androidx.compose.ui.geometry.Offset(cx, apex), androidx.compose.ui.geometry.Offset(cx, floor), 0.9.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
                             }
                         }
                     }
-                    mark == T_RootCanal -> {
-                        clipPath(g.root) {
-                            // Gutta-percha: warm pink, darker towards the tip, with the cone's
-                            // fine striations across it and the canal itself down the middle.
-                            drawRect(
-                                androidx.compose.ui.graphics.Brush.verticalGradient(
-                                    if (upper) listOf(Color(0xFFC96A7E), Color(0xFFF0A9B8)) else listOf(Color(0xFFF0A9B8), Color(0xFFC96A7E)),
-                                    startY = rootTop, endY = rootBottom,
-                                ),
-                                topLeft = androidx.compose.ui.geometry.Offset(0f, rootTop),
-                                size = androidx.compose.ui.geometry.Size(w, rootBottom - rootTop),
-                            )
-                            var y = rootTop + 1.5.dp.toPx()
-                            while (y < rootBottom) {
-                                drawLine(Color(0xFF9F4B5E).copy(alpha = .45f), androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(w, y), 0.7.dp.toPx())
-                                y += 2.2.dp.toPx()
-                            }
-                            drawLine(Color(0xFF8E3D50).copy(alpha = .8f), androidx.compose.ui.geometry.Offset(w / 2, rootTop), androidx.compose.ui.geometry.Offset(w / 2, rootBottom), 1.2.dp.toPx())
-                        }
-                    }
-                    else -> drawPath(g.root, color = base)
                 }
 
                 // ---- the crown
-                val lowerProc = (marks.formProcedure + " " + marks.markProcedure).lowercase()
                 when {
                     form == T_Crowned || form == T_Implant -> {
-                        val pfm = "pfm" in lowerProc || "metal" in lowerProc || "porcelain fused" in lowerProc
-                        clipPath(g.crown) {
-                            // Porcelain: a cool white that falls to grey at the edges, and a
-                            // highlight down one side so it reads as a glazed surface.
-                            drawRect(
-                                androidx.compose.ui.graphics.Brush.horizontalGradient(
-                                    listOf(Color(0xFFB8C0CC), Color(0xFFFBFCFD), Color(0xFFD5DAE2), Color(0xFFAEB6C2)),
-                                    startX = w * .15f, endX = w * .85f,
-                                ),
-                                topLeft = androidx.compose.ui.geometry.Offset(0f, crownTop),
-                                size = androidx.compose.ui.geometry.Size(w, crownBottom - crownTop),
-                            )
-                            drawRect(
-                                Color.White.copy(alpha = .55f),
-                                topLeft = androidx.compose.ui.geometry.Offset(w * .3f, crownTop),
-                                size = androidx.compose.ui.geometry.Size(w * .12f, crownBottom - crownTop),
-                            )
-                            if (pfm) {
-                                // The metal collar at the margin, the way a PFM shows one.
-                                val bandY = if (upper) g.neckY else g.neckY - 2.6.dp.toPx()
-                                drawRect(
-                                    androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(Color(0xFF6B7280), Color(0xFFE5E7EB), Color(0xFF6B7280)), startX = w * .2f, endX = w * .8f),
-                                    topLeft = androidx.compose.ui.geometry.Offset(0f, bandY),
-                                    size = androidx.compose.ui.geometry.Size(w, 2.6.dp.toPx()),
-                                )
+                        val fullMetal = listOf("gold", "full metal", "metal crown", "stainless", "ssc").any { it in lowerProc }
+                        val pfm = !fullMetal && listOf("pfm", "porcelain fused", "metal").any { it in lowerProc }
+                        // The cap: a light crown with a firm outline, which is what "capped" reads as.
+                        drawPath(g.crown, color = if (fullMetal) Color(0xFFD1D5DB) else porcelain)
+                        if (fullMetal) hatch(g.crown, crownTop, crownBottom)
+                        if (pfm) {
+                            // The metal collar: the cervical third, hatched.
+                            val collarTop = if (upper) g.neckY else g.neckY - crownH * .3f
+                            val collarBottom = if (upper) g.neckY + crownH * .3f else g.neckY
+                            clipPath(g.crown) {
+                                drawRect(Color(0xFFD1D5DB), topLeft = androidx.compose.ui.geometry.Offset(0f, collarTop), size = androidx.compose.ui.geometry.Size(w, collarBottom - collarTop))
                             }
+                            val collar = androidx.compose.ui.graphics.Path().apply { addRect(androidx.compose.ui.geometry.Rect(0f, collarTop, w, collarBottom)) }
+                            val region = androidx.compose.ui.graphics.Path.combine(androidx.compose.ui.graphics.PathOperation.Intersect, g.crown, collar)
+                            hatch(region, collarTop, collarBottom)
                         }
+                        drawPath(g.crown, color = if (fullMetal) metalInk else porcelainEdge, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.6.dp.toPx()))
                     }
                     form == T_Veneered -> {
                         drawPath(g.crown, color = base)
                         clipPath(g.crown) {
-                            drawRect(
-                                Color.White.copy(alpha = .75f),
-                                topLeft = androidx.compose.ui.geometry.Offset(w * .28f, crownTop),
-                                size = androidx.compose.ui.geometry.Size(w * .44f, crownBottom - crownTop),
-                            )
+                            drawRect(porcelain, topLeft = androidx.compose.ui.geometry.Offset(w * .26f, crownTop), size = androidx.compose.ui.geometry.Size(w * .48f, crownH))
                         }
+                        drawPath(g.crown, color = porcelainEdge, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx()))
                     }
                     mark == T_Filled -> {
-                        val amalgam = "amalgam" in lowerProc || "silver" in lowerProc
-                        clipPath(g.crown) {
-                            if (amalgam) {
-                                drawRect(
-                                    androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(Color(0xFF7B8794), Color(0xFFC3CAD3), Color(0xFF7B8794)), startX = w * .2f, endX = w * .8f),
-                                    topLeft = androidx.compose.ui.geometry.Offset(0f, crownTop),
-                                    size = androidx.compose.ui.geometry.Size(w, crownBottom - crownTop),
-                                )
-                            } else {
-                                // Composite: tooth-coloured ivory, with the faint stipple a cured
-                                // composite shows, so it is not mistaken for an untouched tooth.
-                                drawRect(
-                                    Color(0xFFE6DDC4),
-                                    topLeft = androidx.compose.ui.geometry.Offset(0f, crownTop),
-                                    size = androidx.compose.ui.geometry.Size(w, crownBottom - crownTop),
-                                )
-                                var y = crownTop + 2.dp.toPx()
-                                var row = 0
-                                while (y < crownBottom) {
-                                    var x = (if (row % 2 == 0) 2.dp.toPx() else 3.5.dp.toPx())
-                                    while (x < w) {
-                                        drawCircle(Color(0xFFB9AC8A).copy(alpha = .7f), radius = 0.55.dp.toPx(), center = androidx.compose.ui.geometry.Offset(x, y))
-                                        x += 3.dp.toPx()
-                                    }
-                                    y += 2.6.dp.toPx(); row++
-                                }
-                            }
+                        drawPath(g.crown, color = base)
+                        // The restoration: an outlined patch on the biting third of the crown.
+                        // Composite stays tooth-coloured inside the outline; amalgam is filled.
+                        val isAmalgam = "amalgam" in lowerProc || "silver" in lowerProc
+                        val top = if (upper) crownBottom - crownH * .62f else crownTop + crownH * .12f
+                        val patch = androidx.compose.ui.graphics.Path().apply {
+                            addRoundRect(androidx.compose.ui.geometry.RoundRect(androidx.compose.ui.geometry.Rect(w * .28f, top, w * .72f, top + crownH * .5f), androidx.compose.ui.geometry.CornerRadius(2.dp.toPx())))
                         }
+                        val region = androidx.compose.ui.graphics.Path.combine(androidx.compose.ui.graphics.PathOperation.Intersect, g.crown, patch)
+                        drawPath(region, color = if (isAmalgam) amalgam else composite)
+                        drawPath(region, color = if (isAmalgam) metalInk else compositeEdge, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.1.dp.toPx()))
                     }
                     else -> drawPath(g.crown, color = base)
                 }
 
-                // ---- the outline, over both regions, and the neck line between them
+                // A post, when the procedure says so: fills the pulp chamber under the crown.
+                if ("post" in lowerProc && mark == T_RootCanal) {
+                    val pTop = if (upper) g.neckY - 3.dp.toPx() else g.neckY - crownH * .25f
+                    val pBottom = if (upper) g.neckY + crownH * .25f else g.neckY + 3.dp.toPx()
+                    drawRect(metalInk, topLeft = androidx.compose.ui.geometry.Offset(w * .44f, pTop), size = androidx.compose.ui.geometry.Size(w * .12f, pBottom - pTop))
+                }
+
+                // ---- the outline, over both regions
                 drawPath(
                     path,
                     color = when {
@@ -374,9 +380,6 @@ private fun ToothCell(
                         width = if (isSelected) 2.2.dp.toPx() else 1.dp.toPx(),
                     ),
                 )
-                if (form != null || mark == T_RootCanal || mark == T_Filled) {
-                    drawLine(Color.Black.copy(alpha = .18f), androidx.compose.ui.geometry.Offset(w * .2f, g.neckY), androidx.compose.ui.geometry.Offset(w * .8f, g.neckY), 0.8.dp.toPx())
-                }
 
                 // ---- marks that are not a region
                 when (mark) {
@@ -387,7 +390,7 @@ private fun ToothCell(
 
                 // Work planned and not yet done: a dashed amber outline, never drawn as done.
                 if (pending) {
-                    drawPath(path, color = Color(0xFFD97706), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.4.dp.toPx(), pathEffect = dashed))
+                    drawPath(path, color = Color(0xFFDC2626), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.4.dp.toPx(), pathEffect = dashed))
                 }
 
                 // A tooth carrying more than one condition gets a dot, so the chart
@@ -430,7 +433,7 @@ private fun Legend(
         .distinctBy { it.first }
         .sortedBy { it.first }) +
         done.map { it.label to it.colour } +
-        (if (anyPending) listOf("Planned work" to Color(0xFFD97706)) else emptyList())
+        (if (anyPending) listOf("Planned work" to Color(0xFFDC2626)) else emptyList())
 
     if (present.isEmpty()) {
         Txt("Nothing has been charted for this patient yet.", Type.caption, T.inkFaint, maxLines = 2)
