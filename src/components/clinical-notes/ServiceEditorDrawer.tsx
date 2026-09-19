@@ -635,6 +635,7 @@ export default function ServiceEditorDrawer({
         <div className="flex items-center gap-2">
           <div data-tour="clinical-procedure-name" className="flex-1 min-w-0">
             <ServiceCombobox
+              priceListId={discount.priceListId || null}
               services={servicesList} value={procedure}
               onChange={handleProcedureChange}
               placeholder="Search procedures..."

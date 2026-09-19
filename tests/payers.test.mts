@@ -324,6 +324,29 @@ function eq<T>(actual: T, expected: T, message: string) {
     !/lockedByPayer/.test(read("src/components/shared/DiscountEditor.tsx")),
     "the price-list picker is being driven by something other than the receptionist again"
   );
+
+  /**
+   * The menu has to quote the price the case will actually be charged.
+   *
+   * Every row in the service picker printed `service.price` — the clinic's own rate — whatever
+   * list was selected above it. Reported from the clinic: the AXA list chosen, the menu offering
+   * "Orthodontic Consultation — EGP 300", and AXA's own price of 200 nowhere on screen. A number
+   * you are choosing from that is not the number you are choosing is worse than no number.
+   */
+  const combobox = read("src/components/shared/ServiceCombobox.tsx");
+  ok(
+    /resolveListPrice\(service/.test(combobox),
+    "the service picker prints the clinic's own price again, whatever list is selected"
+  );
+  for (const [rel, label] of [
+    ["src/components/BookingModal.tsx", "booking"],
+    ["src/components/clinical-notes/ServiceEditorDrawer.tsx", "the treatment editor"],
+  ] as const) {
+    ok(
+      /priceListId=\{/.test(read(rel)),
+      `${label} no longer tells the service picker which list is selected, so it quotes the wrong price`
+    );
+  }
   ok(
     !/defaultPayerId/.test(read("src/app/(dashboard)/patients/[id]/page.tsx")),
     "the patient record is predicting a payer again — the list chosen per treatment already says"
