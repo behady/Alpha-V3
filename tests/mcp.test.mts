@@ -1,9 +1,9 @@
 import assert from "node:assert";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { mcpToolCatalogue, runMcpTool, type McpToolContext } from "../src/lib/mcp/tools.ts";
-import { isGlobalCollection } from "../src/lib/adminClinicDb.ts";
-import { resolveBriefingAccess } from "../src/lib/automation/briefing/build.ts";
+import { mcpToolCatalogue, runMcpTool, type McpToolContext } from "../src/lib/mcp/tools";
+import { isGlobalCollection } from "../src/lib/adminClinicDb";
+import { resolveBriefingAccess } from "../src/lib/automation/briefing/build";
 
 /**
  * The MCP connector's boundaries.
