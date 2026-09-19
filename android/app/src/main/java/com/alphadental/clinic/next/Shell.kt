@@ -1383,6 +1383,12 @@ private fun AttendancePane(preview: Boolean, onBack: () -> Unit) {
         onBack = onBack,
         onPunch = { model.punch(context) },
         onPeriod = model::show,
+        team = TeamActions(
+            editStaff = model::editStaff,
+            closeStaff = model::closeStaff,
+            saveStaff = model::saveStaff,
+            decideOvertime = model::decideOvertime,
+        ),
     )
 }
 

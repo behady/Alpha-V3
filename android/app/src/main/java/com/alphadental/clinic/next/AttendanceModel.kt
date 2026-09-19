@@ -90,7 +90,33 @@ data class AttendanceState(
     val error: String? = null,
     /** Redrawn every minute so an open shift's clock ticks. */
     val tick: Long = 0L,
+
+    // ---- the team, for whoever runs it
+    /** Every punch in the period, for the overtime list. */
+    val periodPunches: List<Attendance.Punch> = emptyList(),
+    /** Staff id → commission earned on payments in the period. */
+    val commissions: Map<String, Double> = emptyMap(),
+    val editingStaff: Attendance.StaffMember? = null,
+    val savingStaff: Boolean = false,
+    val staffError: String? = null,
+    /** The punch whose overtime is being decided. */
+    val deciding: String? = null,
 ) {
+    /** Changing what somebody is paid is the Owner's and Admin's — the rule the staff records are under. */
+    val canEditTeam: Boolean get() = who?.isAdmin == true
+
+    val dentists: List<Attendance.StaffMember>
+        get() = staff.filter { it.isDentist || it.commissionPercentage > 0 }
+
+    /** Closed shifts with time outside the schedule that nobody has approved or rejected. */
+    val pendingOvertime: List<Pair<Attendance.Punch, Attendance.StaffMember>>
+        get() = periodPunches.mapNotNull { punch ->
+            if (punch.overtimeStatus == "approved" || punch.overtimeStatus == "rejected") return@mapNotNull null
+            val member = Attendance.owner(punch, staff) ?: return@mapNotNull null
+            if (Attendance.overtimeMinutes(punch, member) <= 0) return@mapNotNull null
+            punch to member
+        }.sortedByDescending { it.first.checkInMillis }
+
     /**
      * Whether this account may see everybody's attendance.
      *
@@ -156,6 +182,7 @@ class AttendanceModel : ViewModel() {
                         loadStaff(who)
                         observeToday(who)
                         loadPayroll()
+                        loadTeamPeriod()
                     }
                     startTicker()
                 }
@@ -206,6 +233,84 @@ class AttendanceModel : ViewModel() {
         if (period == _state.value.period) return
         _state.value = _state.value.copy(period = period, payroll = null, payrollError = null)
         loadPayroll()
+        loadTeamPeriod()
+    }
+
+    /**
+     * The period's punches and the period's commission, together.
+     *
+     * Commission is summed from the payment rows themselves — `doctorCommissionAmount`, stamped
+     * when each payment was taken — never recomputed from today's percentage. That is what makes
+     * a rate change safe: last month's figure is last month's figure.
+     */
+    private fun loadTeamPeriod() {
+        val who = _state.value.who ?: return
+        if (!_state.value.canSeeEveryone) return
+        val (from, to) = _state.value.period.range()
+        viewModelScope.launch {
+            val fmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+            val fromMillis = runCatching { fmt.parse(from)!!.time }.getOrDefault(0L)
+            val toMillis = runCatching { fmt.parse(to)!!.time + 24L * 60 * 60 * 1000 }.getOrDefault(Long.MAX_VALUE)
+            val punches = runCatching { Attendance.punchesBetween(who.clinicId, fromMillis, toMillis) }.getOrDefault(emptyList())
+            val rows = runCatching { ClinicSource.ledgerBetween(who.clinicId, from, to) }.getOrDefault(emptyList())
+            val commissions = rows.filter { it.isPayment && it.doctorId.isNotBlank() && it.commission > 0 }
+                .groupBy { it.doctorId }
+                .mapValues { (_, list) -> list.sumOf { it.commission } }
+            _state.value = _state.value.copy(periodPunches = punches, commissions = commissions)
+        }
+    }
+
+    fun editStaff(member: Attendance.StaffMember) {
+        if (!_state.value.canEditTeam) return
+        _state.value = _state.value.copy(editingStaff = member, staffError = null)
+    }
+
+    fun closeStaff() {
+        _state.value = _state.value.copy(editingStaff = null, staffError = null)
+    }
+
+    fun saveStaff(pct: Double, salary: Double, multiplier: Double, schedule: Map<Int, Attendance.DaySchedule>) {
+        val who = _state.value.who ?: return
+        val member = _state.value.editingStaff ?: return
+        if (!_state.value.canEditTeam || _state.value.savingStaff) return
+        _state.value = _state.value.copy(savingStaff = true, staffError = null)
+        viewModelScope.launch {
+            Attendance.saveStaffPay(who.clinicId, member, pct, salary, multiplier, schedule, who.name)
+                .onSuccess {
+                    _state.value = _state.value.copy(savingStaff = false, editingStaff = null)
+                    loadStaff(who)
+                    // The hourly rate and the expected hours both changed, so the pay figures did.
+                    loadPayroll()
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(
+                        savingStaff = false,
+                        staffError = if (e.message?.contains("PERMISSION_DENIED", true) == true) {
+                            "Only an Owner or Admin may change what somebody is paid."
+                        } else e.message ?: "That could not be saved.",
+                    )
+                }
+        }
+    }
+
+    fun decideOvertime(punchId: String, approved: Boolean) {
+        val who = _state.value.who ?: return
+        if (!_state.value.canSeeEveryone || _state.value.deciding != null) return
+        _state.value = _state.value.copy(deciding = punchId, staffError = null)
+        viewModelScope.launch {
+            Attendance.decideOvertime(who.clinicId, punchId, approved)
+                .onSuccess {
+                    _state.value = _state.value.copy(deciding = null)
+                    loadTeamPeriod()
+                    loadPayroll()
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(
+                        deciding = null,
+                        staffError = e.message ?: "That decision could not be saved.",
+                    )
+                }
+        }
     }
 
     private fun loadPayroll() {

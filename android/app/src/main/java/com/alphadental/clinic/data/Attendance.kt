@@ -39,7 +39,24 @@ object Attendance {
         val schedule: Map<Int, DaySchedule>,
         /** False when nobody has set this person's hours; the website's default was used instead. */
         val hasSchedule: Boolean,
+        /** What the dentist keeps of what is collected on their work. 0 for everyone else. */
+        val commissionPercentage: Double = 0.0,
+        val baseSalary: Double = 0.0,
+        /** What an approved overtime hour is worth against a normal one. The website's default. */
+        val overtimeMultiplier: Double = 1.5,
+        val isDentist: Boolean = false,
+        /** Every change to the percentage made from a phone, newest last. */
+        val history: List<RateChange> = emptyList(),
     )
+
+    /**
+     * One change to a dentist's rate.
+     *
+     * The website keeps no such record — it overwrites the number. Kept here because "what was
+     * she on in June" is a question that gets asked, and appended rather than replaced so the
+     * website's own overwrite never loses it.
+     */
+    data class RateChange(val percentage: Double, val previous: Double, val atMillis: Long, val by: String)
 
     /** One clock-in, open or closed. */
     data class Punch(
@@ -52,6 +69,8 @@ object Attendance {
         val durationMinutes: Int,
         /** "active" or "completed". */
         val status: String,
+        /** "approved", "rejected", or blank while nobody has decided. */
+        val overtimeStatus: String = "",
     )
 
     enum class State { ON_SHIFT, DONE, NOT_ARRIVED, EXPECTED, DAY_OFF }
@@ -98,13 +117,27 @@ object Attendance {
         val snap = clinic(clinicId).collection("staff").get().await()
         return snap.documents.map { d ->
             val schedule = parseSchedule(d.get("attendanceSchedule"))
+            val role = d.getString("role").orEmpty()
             StaffMember(
                 id = d.id,
                 uid = d.getString("uid").orEmpty(),
                 name = d.getString("name").orEmpty().ifBlank { d.getString("email").orEmpty() },
-                role = d.getString("role").orEmpty(),
+                role = role,
                 schedule = schedule ?: defaultSchedule(),
                 hasSchedule = schedule != null,
+                commissionPercentage = (d.get("commissionPercentage") as? Number)?.toDouble() ?: 0.0,
+                baseSalary = (d.get("baseSalary") as? Number)?.toDouble() ?: 0.0,
+                overtimeMultiplier = (d.get("overtimeMultiplier") as? Number)?.toDouble()?.takeIf { it > 0 } ?: 1.5,
+                isDentist = role == "Dentist" || d.getBoolean("isDentist") == true,
+                history = (d.get("commissionHistory") as? List<*>).orEmpty().mapNotNull { h ->
+                    val m = h as? Map<*, *> ?: return@mapNotNull null
+                    RateChange(
+                        percentage = (m["percentage"] as? Number)?.toDouble() ?: return@mapNotNull null,
+                        previous = (m["previous"] as? Number)?.toDouble() ?: 0.0,
+                        atMillis = (m["at"] as? Timestamp)?.toDate()?.time ?: 0L,
+                        by = m["by"]?.toString().orEmpty(),
+                    )
+                },
             )
         }.sortedBy { it.name.lowercase() }
     }
@@ -140,12 +173,126 @@ object Attendance {
                                 checkOutMillis = d.getTimestamp("checkOut")?.toDate()?.time,
                                 durationMinutes = (d.get("durationMinutes") as? Number)?.toInt() ?: 0,
                                 status = d.getString("status").orEmpty(),
+                                overtimeStatus = d.getString("overtimeStatus").orEmpty(),
                             )
                         }
                     )
                 )
             }
         awaitClose { registration.remove() }
+    }
+
+    /**
+     * Every punch in a period, once.
+     *
+     * Not live: this feeds the overtime list and nothing on it changes by the minute. Same range
+     * query as today's, on the server timestamp, for the same reason.
+     */
+    suspend fun punchesBetween(clinicId: String, fromMillis: Long, toMillis: Long): List<Punch> {
+        val snap = clinic(clinicId).collection("attendance")
+            .whereGreaterThanOrEqualTo("checkIn", Timestamp(Date(fromMillis)))
+            .whereLessThan("checkIn", Timestamp(Date(toMillis)))
+            .orderBy("checkIn", Query.Direction.DESCENDING)
+            .get().await()
+        return snap.documents.mapNotNull { d ->
+            val checkIn = d.getTimestamp("checkIn")?.toDate()?.time ?: return@mapNotNull null
+            Punch(
+                id = d.id,
+                userId = d.getString("userId").orEmpty(),
+                staffId = d.getString("staffId").orEmpty(),
+                userName = d.getString("userName").orEmpty(),
+                checkInMillis = checkIn,
+                checkOutMillis = d.getTimestamp("checkOut")?.toDate()?.time,
+                durationMinutes = (d.get("durationMinutes") as? Number)?.toInt() ?: 0,
+                status = d.getString("status").orEmpty(),
+                overtimeStatus = d.getString("overtimeStatus").orEmpty(),
+            )
+        }
+    }
+
+    /** Whose punch this is, by uid first and staff id second — older records have no uid. */
+    fun owner(punch: Punch, staff: List<StaffMember>): StaffMember? =
+        staff.firstOrNull { it.uid.isNotBlank() && it.uid == punch.userId }
+            ?: staff.firstOrNull { it.id.isNotBlank() && it.id == punch.staffId }
+
+    /**
+     * How much of a closed shift fell outside the person's scheduled window that day.
+     *
+     * The website's own arithmetic: minutes worked less the minutes that overlap the schedule.
+     * A day the schedule marks off counts entirely as overtime, because nobody was expected.
+     */
+    fun overtimeMinutes(punch: Punch, member: StaffMember): Int {
+        if (punch.status != "completed" || punch.durationMinutes <= 0) return 0
+        val out = punch.checkOutMillis ?: return 0
+        val day = Calendar.getInstance().apply { timeInMillis = punch.checkInMillis }.get(Calendar.DAY_OF_WEEK) - 1
+        val expected = member.schedule[day]?.takeIf { it.active } ?: return punch.durationMinutes
+        val inMin = minuteOfDay(punch.checkInMillis)
+        val outMin = minuteOfDay(out).let { if (it < inMin) it + 24 * 60 else it }
+        val overlap = (minOf(outMin, minutesOf(expected.end)) - maxOf(inMin, minutesOf(expected.start))).coerceAtLeast(0)
+        return (punch.durationMinutes - overlap).coerceAtLeast(0)
+    }
+
+    /**
+     * Approve or reject one shift's overtime.
+     *
+     * The same single field the website's Attendance page writes, so the payroll route — which
+     * both surfaces read from — pays or withholds it identically. Any active member may write an
+     * attendance row under the rules; the screen only shows the button to whoever may see the
+     * roster.
+     */
+    suspend fun decideOvertime(clinicId: String, punchId: String, approved: Boolean): Result<Unit> = runCatching {
+        clinic(clinicId).collection("attendance").document(punchId)
+            .update("overtimeStatus", if (approved) "approved" else "rejected").await()
+        Unit
+    }
+
+    /**
+     * Save a person's rate, salary, multiplier and week.
+     *
+     * Exactly the fields the website's staff-settings modal writes, plus one it does not: when the
+     * percentage changes, an entry goes onto `commissionHistory` with the old figure, the date and
+     * who did it. Appended with arrayUnion rather than rewritten, so the website overwriting the
+     * rate later never erases the trail.
+     *
+     * Owner or Admin only — that is the rule `staff` is kept under, and the reason is that this
+     * number is what a dentist is paid.
+     */
+    suspend fun saveStaffPay(
+        clinicId: String,
+        member: StaffMember,
+        commissionPercentage: Double,
+        baseSalary: Double,
+        overtimeMultiplier: Double,
+        schedule: Map<Int, DaySchedule>,
+        byName: String,
+    ): Result<Unit> = runCatching {
+        require(commissionPercentage in 0.0..100.0) { "A percentage is between 0 and 100." }
+        require(overtimeMultiplier >= 1.0) { "The overtime multiplier cannot be below 1." }
+        schedule.values.filter { it.active }.forEach {
+            require(minutesOf(it.end) > minutesOf(it.start)) { "A day's end has to come after its start." }
+        }
+        val body = mutableMapOf<String, Any>(
+            "commissionPercentage" to commissionPercentage,
+            "baseSalary" to baseSalary,
+            "overtimeMultiplier" to overtimeMultiplier,
+            "attendanceSchedule" to (0..6).associate { day ->
+                val d = schedule[day] ?: DaySchedule(false, "13:00", "21:00")
+                day.toString() to mapOf("active" to d.active, "start" to d.start, "end" to d.end)
+            },
+        )
+        if (commissionPercentage != member.commissionPercentage) {
+            body["commissionHistory"] = com.google.firebase.firestore.FieldValue.arrayUnion(
+                mapOf(
+                    "percentage" to commissionPercentage,
+                    "previous" to member.commissionPercentage,
+                    "at" to Timestamp.now(),
+                    "by" to byName,
+                )
+            )
+        }
+        clinic(clinicId).collection("staff").document(member.id)
+            .set(body, com.google.firebase.firestore.SetOptions.merge()).await()
+        Unit
     }
 
     /** Local midnight today, in millis. */

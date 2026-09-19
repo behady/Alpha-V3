@@ -62,7 +62,11 @@ fun AttendanceScreen(
     onBack: () -> Unit,
     onPunch: () -> Unit,
     onPeriod: (Period) -> Unit,
+    /** The team half. Null in the preview. */
+    team: TeamActions? = null,
 ) {
+    if (state.editingStaff != null && team != null) StaffPaySheet(state, team)
+
     Column(Modifier.fillMaxSize().background(T.ground)) {
 
         Slab(
@@ -131,6 +135,8 @@ fun AttendanceScreen(
             item { SectionLabel("Hours and pay") }
             item { Periods(state.period, onPeriod) }
             item { Payroll(state) }
+
+            if (team != null) team(state, team)
         }
     }
 }
@@ -403,7 +409,7 @@ private fun Payroll(state: AttendanceState) {
                 }
                 Txt(
                     "These come from the server, not from this phone, so they cannot disagree with " +
-                        "the figures at the desk. Editing a punch or approving overtime is done there.",
+                        "the figures at the desk. Correcting a punch is done there.",
                     Type.caption, T.inkFaint,
                     Modifier.padding(horizontal = T.gutter, vertical = 14.dp),
                     maxLines = 4,

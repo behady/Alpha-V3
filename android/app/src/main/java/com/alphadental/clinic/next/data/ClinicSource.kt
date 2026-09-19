@@ -475,6 +475,7 @@ object ClinicSource {
                         discount = d.number("discountAmount") ?: 0.0,
                         by = d.text("addedBy"),
                         procedureId = d.text("procedureId"),
+                        doctorId = d.text("doctorId"),
                     )
                 }
 
@@ -603,6 +604,9 @@ object ClinicSource {
                     commission = d.number("doctorCommissionAmount") ?: 0.0,
                     labFee = d.number("labFee") ?: 0.0,
                     discount = d.number("discountAmount") ?: 0.0,
+                    by = d.text("addedBy"),
+                    procedureId = d.text("procedureId"),
+                    doctorId = d.text("doctorId"),
                 )
             }.sortedByDescending { it.date }
         }
