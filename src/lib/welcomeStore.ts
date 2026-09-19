@@ -103,6 +103,41 @@ function keyFor(scope: WelcomeScope): string | null {
   return `alphaWelcome:${scope.clinicId}:${scope.uid}`;
 }
 
+/**
+ * "This person has been introduced to Sara", kept per PERSON rather than per (clinic, person).
+ *
+ * The scoped key above needs a clinic, and everything it holds is genuinely per clinic — except
+ * this one flag. Closing the welcome screen a moment before the clinic pointer settled wrote it
+ * nowhere (`keyFor` returns null, the write is a silent no-op), and switching clinic asked again
+ * from a fresh key. Either way the person had already said no, and got the full-screen invitation
+ * back. Meeting the guide is a fact about a person, so it is stored that way, and the answer to
+ * "has this been shown?" is the OR of this, the scoped copy, and the flag on their user document.
+ */
+function introKeyFor(uid: string | null | undefined): string | null {
+  return uid ? `alphaTourIntroSeen:${uid}` : null;
+}
+
+/** Was the welcome screen already shown to this person on this browser? */
+export function readIntroSeenLocal(uid: string | null | undefined): boolean {
+  const key = introKeyFor(uid);
+  if (!key || typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeIntroSeenLocal(uid: string | null | undefined): void {
+  const key = introKeyFor(uid);
+  if (!key || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, "1");
+  } catch {
+    /* Storage blocked. The user document still carries it; see TourContext. */
+  }
+}
+
 export function readWelcomeState(scope: WelcomeScope): StoredState {
   const key = keyFor(scope);
   if (!key || typeof window === "undefined") return EMPTY;
@@ -171,7 +206,10 @@ export function isLessonDone(scope: WelcomeScope, tutorialId: string): boolean {
 }
 
 export function readTourProgress(scope: WelcomeScope): TourProgress {
-  return readWelcomeState(scope).tour;
+  const tour = readWelcomeState(scope).tour;
+  // The per-person flag can only ever turn `introSeen` ON. A "yes, shown" recorded under any
+  // clinic — or with no clinic loaded at all — still means shown.
+  return tour.introSeen ? tour : { ...tour, introSeen: readIntroSeenLocal(scope.uid) };
 }
 
 function writeTour(scope: WelcomeScope, patch: Partial<TourProgress>): void {
@@ -179,8 +217,14 @@ function writeTour(scope: WelcomeScope, patch: Partial<TourProgress>): void {
   writeWelcomeState(scope, { ...state, tour: { ...state.tour, ...patch } });
 }
 
-/** The intro was shown (and either taken or declined). It does not come back on its own. */
+/**
+ * The intro was shown (and either taken or declined). It does not come back on its own.
+ *
+ * The per-person flag is written first and unconditionally: it is the one that still lands when
+ * the clinic pointer has not arrived yet, which is exactly the moment somebody clicks the X.
+ */
 export function markTourIntroSeen(scope: WelcomeScope): void {
+  writeIntroSeenLocal(scope.uid);
   if (readWelcomeState(scope).tour.introSeen) return;
   writeTour(scope, { introSeen: true });
 }

@@ -73,6 +73,14 @@ export interface UserProfile {
   isSuperAdmin?: boolean; // True if this user can access the Super Admin dashboard
   clinicRoles: Record<string, 'Admin' | 'Dentist' | 'Assistant' | 'Receptionist'>; // clinicId -> role
   defaultClinicId?: string; // The clinic to load when logging in
+  /**
+   * This person has already been shown the "Meet Sara" welcome screen, on some device, once.
+   * It is on the user document rather than in the browser because that screen covers the whole
+   * app, and a cleared browser or a second laptop used to bring it back for somebody who had
+   * closed it long ago. Once true it is never written back to false by the app; the tour stays
+   * available from the menu and from Getting started.
+   */
+  tourIntroSeen?: boolean;
   createdAt: Date | any;
   // Legacy fields (still present on root user docs for backwards compatibility)
   role?: string;
