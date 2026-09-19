@@ -229,9 +229,12 @@ private fun LazyListScope.diagnosis(state: AiClinicalState, a: AiClinicalActions
         }
     }
 
+    // Adding a picture is always on offer here, not only after "Attach photos" has been tapped:
+    // the dentist at the chair wants to take the photo first and ask second.
+    item { SectionLabel("Add a picture") }
+    item { UploadRow(state, a, category = "Clinical Photo") }
     if (state.pickingPhotos) {
         item { SectionLabel("Attach from the gallery · up to ${AiClinical.DIAGNOSIS_MAX_IMAGES}") }
-        item { UploadRow(state, a, category = "Clinical Photo") }
         if (state.media.isEmpty()) {
             item { SettingsEmpty(if (state.canUpload) "No photographs on this file yet. Take one or pick one above." else "No photographs on this file yet. Add some under Photos first.") }
         } else {
@@ -712,8 +715,14 @@ private fun MediaGrid(items: List<PatientMedia>, picked: List<String>, onTap: (P
  */
 @Composable
 private fun UploadRow(state: AiClinicalState, a: AiClinicalActions, category: String) {
-    val upload = a.upload ?: return
-    if (!state.canUpload) return
+    val upload = a.upload
+    if (upload == null || !state.canUpload) {
+        Txt(
+            "Adding pictures needs the clinical tick-box under Settings → The team.",
+            Type.caption, T.inkFaint, Modifier.padding(horizontal = T.gutter, vertical = 4.dp), maxLines = 2,
+        )
+        return
+    }
     Row(
         Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),

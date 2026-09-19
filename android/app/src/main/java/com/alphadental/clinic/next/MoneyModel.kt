@@ -139,8 +139,12 @@ data class MoneyState(
             .sortedByDescending { it.total }
             .take(8)
 
-    /** The most recent movements, whichever way the money went. */
-    val recent: List<Money> get() = lines.filterNot { it.isCharge }.take(12)
+    /**
+     * The ledger, newest first — every line the website's table lists, charges included. A
+     * charge is not cash, and the figures above already say so; it is on the list because the
+     * treatment, its dentist and its price are what "what happened this month" means.
+     */
+    val recent: List<Money> get() = lines.sortedByDescending { it.date }.take(150)
 }
 
 private fun firstOfMonth(d: Date): Date = Calendar.getInstance().apply {
@@ -303,7 +307,17 @@ class MoneyModel : ViewModel() {
         val s = _state.value
         viewModelScope.launch {
             runCatching { ClinicSource.ledgerBetween(who.clinicId, s.from, s.to) }
-                .onSuccess { lines ->
+                .onSuccess { raw ->
+                    // A payment written before the server stamped dentists on payments carries
+                    // none; the charge it settles does. The website shows both rows, so the
+                    // dentist is visible either way — here it is copied across as well.
+                    val byId = raw.associateBy { it.id }
+                    val lines = raw.map { m ->
+                        if (m.isPayment && m.doctor.isBlank() && m.procedureId.isNotBlank()) {
+                            val charge = byId[m.procedureId]
+                            if (charge != null && charge.doctor.isNotBlank()) m.copy(doctor = charge.doctor, doctorId = m.doctorId.ifBlank { charge.doctorId }) else m
+                        } else m
+                    }
                     _state.value = _state.value.copy(loading = false, lines = lines, error = null)
                 }
                 .onFailure { e ->

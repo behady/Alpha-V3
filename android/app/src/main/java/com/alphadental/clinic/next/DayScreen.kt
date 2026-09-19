@@ -149,8 +149,8 @@ private fun DaySlab(state: Day, onShiftDay: (Int) -> Unit, onToday: () -> Unit, 
             onBookNow?.let { book ->
                 Surface(shape = T.pill, color = T.accent, modifier = Modifier.clickable(onClick = book)) {
                     Txt(
-                        "Book", Type.label.copy(fontSize = 12.sp), T.slab,
-                        Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        "+ Book", Type.label.copy(fontSize = 15.sp), T.slab,
+                        Modifier.padding(horizontal = 22.dp, vertical = 11.dp),
                     )
                 }
                 Spacer(Modifier.width(8.dp))

@@ -1118,7 +1118,7 @@ private fun RecordPane(
     androidx.compose.runtime.LaunchedEffect(patientId) { model.open(patientId) }
     // A photograph added from the file's Photos tab or from the AI tab itself lands in the AI
     // tab's gallery at once, attached to the question or picked for the read, without a reload.
-    androidx.compose.runtime.LaunchedEffect(state.media, state.uploading) { ai.mediaChanged(state.media, state.uploading, state.canAddPhoto) }
+    androidx.compose.runtime.LaunchedEffect(state.media, state.uploading, state.canAddPhoto) { ai.mediaChanged(state.media, state.uploading, state.canAddPhoto) }
 
     androidx.compose.runtime.LaunchedEffect(state.recorded) {
         if (state.recorded != null) {
@@ -1473,7 +1473,10 @@ private fun MoneyPane(preview: Boolean, onBack: () -> Unit) {
             busy = state.savingRow,
             error = state.rowError,
             canEdit = state.canEditLedger,
-            canDelete = state.canDeleteLedger,
+            // A treatment charge is removed from the patient's file, where the note behind it
+            // goes with it; from here it would leave a treatment that reads as done for free.
+            canDelete = state.canDeleteLedger && !row.isCharge,
+            payments = state.lines.filter { it.isPayment && it.procedureId == row.id },
             onSave = model::saveRow,
             onDelete = model::deleteRow,
             onDismiss = model::closeRow,

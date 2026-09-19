@@ -394,6 +394,7 @@ private fun EarnerRow(earner: Earner, total: Double) {
 @Composable
 private fun MovementRow(m: Money, onOpen: ((Money) -> Unit)?) {
     val out = m.isExpense
+    val charge = m.isCharge
     Row(
         Modifier
             .fillMaxWidth()
@@ -402,7 +403,7 @@ private fun MovementRow(m: Money, onOpen: ((Money) -> Unit)?) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Txt(m.description.ifBlank { if (out) "Expense" else "Payment" }, Type.rowName, T.ink)
+            Txt(m.description.ifBlank { if (out) "Expense" else if (charge) "Treatment" else "Payment" }, Type.rowName, T.ink)
             // The website's row: the patient, the dentist, how it was paid, who took it.
             val detail = listOfNotNull(
                 shortDay(m.date).takeIf { it.isNotBlank() },
@@ -427,11 +428,11 @@ private fun MovementRow(m: Money, onOpen: ((Money) -> Unit)?) {
         Spacer(Modifier.width(10.dp))
         Column(horizontalAlignment = Alignment.End) {
             Txt(
-                (if (out) "−" else "+") + money(m.amount),
+                (if (out) "−" else if (charge) "" else "+") + money(m.amount),
                 Type.label.copy(fontSize = 13.sp),
-                if (out) T.danger else T.ok,
+                if (out) T.danger else if (charge) T.inkMuted else T.ok,
             )
-            Txt("EGP", Type.chip, T.inkFaint, uppercase = true)
+            Txt(if (charge) "charged" else "EGP", Type.chip, T.inkFaint, uppercase = true)
         }
     }
 }
