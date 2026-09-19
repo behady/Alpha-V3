@@ -317,6 +317,24 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   },
 
   {
+    id: "payers",
+    route: "/settings/payers",
+    group: "clinic",
+    labelEn: "Payers & Insurance",
+    labelAr: "التأمين وجهات الدفع",
+    // The payer list itself, plus each dentist's per-payer commission rate, which lives on their
+    // staff record. Both targets are Admin-only in firestore.rules, so this section is too — the
+    // same reasoning as Prices above: a screen gated more loosely than the rules is a screen on
+    // which nothing can be saved.
+    writes: [
+      { kind: "settingsDoc", docId: "payers" },
+      { kind: "collection", name: "staff" },
+    ],
+    view: ADMIN,
+    edit: ADMIN,
+  },
+
+  {
     id: "dentists",
     route: "/settings/dentists",
     group: "people",
@@ -411,6 +429,21 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     // credits and erase the record of what was spent. The one thing this screen writes is the
     // read-x-rays-on-upload switch, a settings document (Admin-only in the rules, as all are).
     writes: [{ kind: "readOnly", reads: "ai_usage" }, { kind: "settingsDoc", docId: "ai_xray" }],
+    view: ADMIN,
+    edit: ADMIN,
+  },
+  {
+    id: "ai_connector",
+    route: "/settings/ai-connector",
+    group: "system",
+    labelEn: "AI Assistant",
+    labelAr: "المساعد الذكي",
+    // Keys live in the root collection `mcp_keys`, which firestore.rules denies to every client
+    // outright — so this screen writes nothing directly and everything through the API on the
+    // Admin SDK. Admin rather than `access.settings` at the menu, even though the route accepts
+    // the permission: a key is a standing grant to a program outside this system, and the
+    // narrower of the two gates is the one worth showing on the menu.
+    writes: [{ kind: "server", route: "/api/admin/mcp-keys", guardedBy: "tests/permissions.test.mts" }],
     view: ADMIN,
     edit: ADMIN,
   },

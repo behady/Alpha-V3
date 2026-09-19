@@ -15,6 +15,7 @@ import ServiceCombobox from "@/components/shared/ServiceCombobox";
 import TeethChart, { type ToothData } from "@/components/TeethChart";
 import { TREATMENT_STATES, pendingTreatments, resolveTreatments, type ToothTreatment } from "@/lib/toothTreatments";
 import { isDentistStaff } from "@/lib/staffRoles";
+import { generalDoctorLabel } from "@/lib/generalDentist";
 import { Note, Service, Staff } from "./types";
 import {
   ALL_TEETH, UPPER_LEFT_TEETH, UPPER_RIGHT_TEETH, LOWER_LEFT_TEETH, LOWER_RIGHT_TEETH,
@@ -255,7 +256,17 @@ export default function ServiceEditorDrawer({
   const [addToLedger, setAddToLedger] = useState(true);
   // Price list + discount for this line. The server recomputes and enforces both; this is the
   // preview and the input.
-  const { priceLists, discountSettings, maxDiscountPercent } = usePricingPolicy();
+  const { priceLists, payers, discountSettings, maxDiscountPercent } = usePricingPolicy();
+
+  /**
+   * Who is being billed for this treatment.
+   *
+   * Empty means "whatever the server decides" — the patient's own payer, else the clinic default —
+   * which is what a clinic with no insurers wants and never has to look at. The picker only
+   * appears when there is an actual choice to make.
+   */
+  const [payerId, setPayerId] = useState<string>("");
+  const activePayers = payers.filter((p) => p.active);
   const [discount, setDiscount] = useState<DiscountState>(EMPTY_DISCOUNT);
 
   const [isSaving, setIsSaving] = useState(false);
@@ -306,6 +317,10 @@ export default function ServiceEditorDrawer({
           if (docObj) setSelectedDoctorId(docObj.id);
       }
       
+      // Same reasoning as the price list below: reopening a treatment must not move it onto a
+      // different payer, which would move the revenue AND the dentist's rate.
+      setPayerId((initialNote as { payerId?: string }).payerId || "");
+
       // Reopen the note on the list and discount it was priced with, so re-saving never silently
       // re-prices it at today's rates.
       setDiscount({
@@ -371,7 +386,7 @@ export default function ServiceEditorDrawer({
     save: language === 'ar' ? "حفظ الإجراء" : "Log Procedure",
     cancel: language === 'ar' ? "إلغاء" : "Cancel",
     addToFinance: language === 'ar' ? "إضافة للمالية" : "Add to Ledger",
-    selectError: language === 'ar' ? "اختر الإجراء والطبيب" : "Select a procedure AND doctor",
+    selectError: language === 'ar' ? "اختر الإجراء" : "Name the procedure",
     extraProcedures: language === 'ar' ? "إجراءات إضافية" : "More procedures",
     hide: language === 'ar' ? "إخفاء" : "Hide",
   };
@@ -379,7 +394,9 @@ export default function ServiceEditorDrawer({
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSaving) return; // Fix Scenario 1: Double-click protection
-    if (!selectedDoctorId || (!procedure && !multiProceduresText)) return showToast(txt.selectError, "error");
+    // The dentist is no longer required: an empty picker means General, a treatment the clinic
+    // did rather than a person.
+    if (!procedure && !multiProceduresText) return showToast(txt.selectError, "error");
     if (Number(cost) < 0) return showToast(language === 'ar' ? "لا يمكن إضافة تكلفة بالسالب" : "Cannot add negative cost", "error"); // Fix Scenario 2: Negative typo protection
 
     setIsSaving(true);
@@ -410,6 +427,7 @@ export default function ServiceEditorDrawer({
         addToLedger,
         ...discountPayload(discount),
         patientDefaultPriceListId: patientDefaultPriceListId || null,
+        payerId: payerId || null,
       };
 
       let labSeed: LabCaseSeed | undefined;
@@ -584,8 +602,10 @@ export default function ServiceEditorDrawer({
   const doctorField = (
     <div>
       <label className={labelClass}>{txt.selectDoctor}</label>
-      <select value={selectedDoctorId} onChange={e => setSelectedDoctorId(e.target.value)} required className={inputClass}>
-        <option value="">Select doctor...</option>
+      <select value={selectedDoctorId} onChange={e => setSelectedDoctorId(e.target.value)} className={inputClass}>
+        {/* No dentist is a real answer here, not an empty field: the clinic did the work. It is
+            charged the same way and earns nobody a commission. */}
+        <option value="">{generalDoctorLabel(language)}</option>
         {doctors.map(d => (
           <option key={d.id} value={d.id}>{d.name}</option>
         ))}
@@ -669,6 +689,33 @@ export default function ServiceEditorDrawer({
     </div>
   );
 
+  /**
+   * The payer picker, rendered only when the clinic actually has more than one.
+   *
+   * A clinic doing no insurance work should never see this control at all — one payer means one
+   * possible answer, and a select with a single option is a question with no purpose. The moment
+   * an insurer is added in Settings it appears here, on every treatment screen, without anything
+   * else changing.
+   */
+  const payerField = activePayers.length > 1 ? (
+    <div>
+      <label className={labelClass}>{isAr ? "جهة الدفع" : "Paid by"}</label>
+      <select
+        value={payerId}
+        onChange={(e) => setPayerId(e.target.value)}
+        disabled={isSaving}
+        className={inputClass}
+      >
+        <option value="">{isAr ? "الافتراضي للمريض" : "The patient's usual"}</option>
+        {activePayers.map((p) => (
+          <option key={p.id} value={p.id}>
+            {isAr ? p.nameAr || p.name : p.name}
+          </option>
+        ))}
+      </select>
+    </div>
+  ) : null;
+
   const discountField = (
     <DiscountEditor
       listTotal={previewTotal}
@@ -737,6 +784,7 @@ export default function ServiceEditorDrawer({
           <div>
             {/* Empty label so this lines up with the fields beside it. */}
             <span className={labelClass} aria-hidden="true">&nbsp;</span>
+            {payerField}
             {discountField}
             {ledgerField}
           </div>
@@ -863,6 +911,8 @@ export default function ServiceEditorDrawer({
           </div>
 
           {costField}
+
+          {payerField}
 
           {billingStrip}
 

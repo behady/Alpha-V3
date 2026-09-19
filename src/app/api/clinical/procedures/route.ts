@@ -32,6 +32,12 @@ import {
   parsePriceLists,
   resolveActiveListId,
 } from "@/lib/priceLists";
+import {
+  commissionRateFor,
+  parsePayers,
+  payerStamp,
+  resolvePayerId,
+} from "@/lib/payers";
 import { buildDeleteContext, evaluateDelete } from "@/lib/deletePolicy";
 import { applyProcedureSync, readProcedureCommissionBasis, readProcedurePayments } from "@/lib/server/ledgerSync";
 import { recordLedgerAudit, recordMoneyChange } from "@/lib/server/ledgerAudit";
@@ -81,15 +87,19 @@ async function loadServices(clinicId: string): Promise<PricedService[]> {
   });
 }
 
-/** The clinic's price lists and its discount policy, both seeded on first read. */
+/** The clinic's price lists, its discount policy and its payers, all seeded on first read. */
 async function loadPricingPolicy(clinicId: string) {
-  const [listsSnap, discountsSnap] = await Promise.all([
+  const [listsSnap, discountsSnap, payersSnap] = await Promise.all([
     adminClinicDoc(clinicId, "settings", PRICE_LISTS_DOC).get(),
     adminClinicDoc(clinicId, "settings", DISCOUNTS_DOC).get(),
+    adminClinicDoc(clinicId, "settings", "payers").get(),
   ]);
   return {
     priceLists: parsePriceLists(listsSnap.exists ? listsSnap.data() : null),
     discountSettings: parseDiscountSettings(discountsSnap.exists ? discountsSnap.data() : null),
+    // Always at least Private, so a clinic that has never opened the payers screen prices exactly
+    // as it did before — one payer, one rate, one column in every report.
+    payers: parsePayers(payersSnap.exists ? payersSnap.data() : null),
   };
 }
 
@@ -102,27 +112,56 @@ async function loadPricingPolicy(clinicId: string) {
  */
 async function priceRequest(clinicId: string, body: Record<string, unknown>, actor: Actor) {
   const services = await loadServices(clinicId);
-  const { priceLists, discountSettings } = await loadPricingPolicy(clinicId);
+  const { priceLists, discountSettings, payers } = await loadPricingPolicy(clinicId);
 
-  const doctorId = String(body.doctorId || "").trim();
-  if (!doctorId) throw new Error("NO_DOCTOR");
-  const staffSnap = await adminClinicDoc(clinicId, "staff", doctorId).get();
+  // No dentist at all is allowed: it is a "General" treatment, one the clinic did rather than a
+  // person. It earns no commission — there is nobody to pay — and the whole amount is clinic
+  // profit, which is what the payment builder already does for a charge it cannot attribute.
+  // A dentist who IS named still has to exist, because a charge pointing at a staff record that
+  // has gone is attributed to nobody while claiming otherwise.
+  const requestedDoctorId = String(body.doctorId || "").trim();
+  const staffSnap = requestedDoctorId
+    ? await adminClinicDoc(clinicId, "staff", requestedDoctorId).get()
+    : null;
   // Two different failures wearing one message. "Choose the dentist" is true when the field was
   // left empty and a lie when a name is sitting in the dropdown — which is what the owner saw:
   // Dr Omar Sherif selected on screen, and the app telling him to pick a dentist. The dentist he
   // picked no longer resolves to a staff record, and that is what it should say.
-  if (!staffSnap.exists) throw new Error("DOCTOR_NOT_FOUND");
-  const staff = staffSnap.data() || {};
-  const doctorName = String(staff.name || "").trim() || "Unknown Doctor";
+  if (staffSnap && !staffSnap.exists) throw new Error("DOCTOR_NOT_FOUND");
+  const staff = staffSnap?.data() || {};
+  const doctorId = requestedDoctorId || null;
+  const doctorName = doctorId ? String(staff.name || "").trim() || "Unknown Doctor" : "";
 
   const selectedTeeth = asStringArray(body.selectedTeeth);
   const procedures = asStringArray(body.procedures);
   if (procedures.length === 0) throw new Error("NO_PROCEDURE_NAME");
 
+  /**
+   * Who is paying, decided before the price is.
+   *
+   * The payer is what makes an insurance case answerable later: it picks the tariff to charge
+   * from, it picks the dentist's rate, and it is stamped onto both the treatment and every
+   * payment against it. A clinic with no insurers resolves to Private every time and nothing
+   * below behaves differently from how it did before payers existed.
+   */
+  const payerId = resolvePayerId(
+    payers,
+    typeof body.payerId === "string" ? body.payerId : null,
+    typeof body.patientDefaultPayerId === "string" ? body.patientDefaultPayerId : null
+  );
+  const payer = payerStamp(payers, payerId);
+  const payerPriceListId = payers.find((p) => p.id === payerId)?.priceListId || null;
+
   // Which list to charge from. An unknown or deactivated list falls back to the clinic default
   // rather than being honoured — a request naming a retired list must not resurrect its prices.
+  //
+  // The payer's own tariff outranks the patient's usual list: a patient normally charged the
+  // Standard list who is treated under an insurer is charged that insurer's rates, which is the
+  // entire reason an insurer has a list of its own. An explicit list on the request still wins,
+  // so a one-off can still be priced by hand.
   const patientDefaultListId =
-    typeof body.patientDefaultPriceListId === "string" ? body.patientDefaultPriceListId : null;
+    payerPriceListId ||
+    (typeof body.patientDefaultPriceListId === "string" ? body.patientDefaultPriceListId : null);
   const priceListId = resolveActiveListId(
     priceLists,
     typeof body.priceListId === "string" ? body.priceListId : null,
@@ -136,7 +175,9 @@ async function priceRequest(clinicId: string, body: Record<string, unknown>, act
     selectedTeeth,
     typedUnitCost: body.unitCost === undefined || body.unitCost === null || body.unitCost === "" ? null : Number(body.unitCost),
     pricingModeOverride: typeof body.pricingMode === "string" ? body.pricingMode : null,
-    commissionPct: Number(staff.commissionPercentage) || 0,
+    // This dentist's rate FOR THIS PAYER — their per-payer exception if they have one, their
+    // ordinary percentage otherwise. Resolved here, snapshotted below, and never recomputed.
+    commissionPct: commissionRateFor(staff, payerId),
     priceListId,
     priceListName: priceList?.name || null,
     discountMode: typeof body.discountMode === "string" ? body.discountMode : null,
@@ -165,7 +206,7 @@ async function priceRequest(clinicId: string, body: Record<string, unknown>, act
     : "Planned";
   const date = /^\d{4}-\d{2}-\d{2}$/.test(String(body.date || "")) ? String(body.date) : todayKey();
 
-  return { pricing, doctorId, doctorName, selectedTeeth, toothText, displayProcedure, status, date };
+  return { pricing, doctorId, doctorName, selectedTeeth, toothText, displayProcedure, status, date, payer };
 }
 
 type Priced = Awaited<ReturnType<typeof priceRequest>>;
@@ -192,6 +233,8 @@ function noteFields(p: Priced, body: Record<string, unknown>, appointmentId: str
     discountAmount: p.pricing.discountAmount,
     discountReason: p.pricing.discountReason,
     note: String(body.note || ""),
+    payerId: p.payer.payerId,
+    payerName: p.payer.payerName,
     doctor: p.doctorName,
     doctorId: p.doctorId,
     serviceIds: p.pricing.serviceIds,
@@ -226,6 +269,10 @@ function ledgerFields(p: Priced, patientId: string, patientName: string | null, 
     serviceId: p.pricing.serviceIds[0] || null,
     serviceIds: p.pricing.serviceIds,
     serviceName: p.pricing.matchedServices[0]?.name || null,
+    // Stamped rather than joined. An insurer renamed or retired next year must still read
+    // correctly on the treatment done under it today.
+    payerId: p.payer.payerId,
+    payerName: p.payer.payerName,
     doctorId: p.doctorId,
     doctorName: p.doctorName,
     doctorCommissionPercentage: p.pricing.commissionPct,
@@ -723,8 +770,7 @@ export async function POST(request: Request) {
     if (e instanceof DiscountRefused) return bad(e.message, 403);
     const message = e instanceof Error ? e.message : "";
     switch (message) {
-      case "NO_DOCTOR":
-        return bad("Choose the dentist who performed this treatment.");
+      // No "NO_DOCTOR" case: a treatment with no dentist is allowed and is charged as General.
       case "DOCTOR_NOT_FOUND":
         return bad(
           "That dentist is no longer on this clinic's team, so the treatment cannot be attributed " +

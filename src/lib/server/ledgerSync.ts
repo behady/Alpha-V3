@@ -19,6 +19,7 @@
 import type { Transaction } from "firebase-admin/firestore";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { recalcProcedurePayments, sumPayments } from "@/lib/ledgerWrite";
+import { commissionRateFor } from "@/lib/payers";
 
 export type PaymentRowLite = {
   id: string;
@@ -96,6 +97,12 @@ export function applyProcedureSync(
  * The percentage comes from the dentist's staff record rather than from whatever the procedure row
  * happens to have stored, so a rate corrected in Settings takes effect on the next payment instead
  * of being frozen at the value copied when the treatment was first recorded.
+ *
+ * Which rate on that record is decided by the PAYER stamped on the treatment. A dentist paid 40%
+ * on private work and 25% on an insurer's earns 25% on every payment against an insurance case,
+ * including one taken months later — the payer is a property of the treatment, not of the day the
+ * money arrived. A treatment with no payer (anything recorded before payers existed) resolves to
+ * the dentist's ordinary percentage, which is exactly what it used to do.
  */
 export async function readProcedureCommissionBasis(
   txn: Transaction,
@@ -104,6 +111,7 @@ export async function readProcedureCommissionBasis(
 ): Promise<{ labFee: number; commissionPct: number }> {
   const labFee = Math.max(0, Number(procedure.labFee) || 0);
   const doctorId = typeof procedure.doctorId === "string" ? procedure.doctorId.trim() : "";
+  const payerId = typeof procedure.payerId === "string" ? procedure.payerId.trim() : null;
 
   if (!doctorId) {
     // No dentist on the charge: nothing to pay out. Falling back to the percentage stored on the
@@ -117,5 +125,5 @@ export async function readProcedureCommissionBasis(
     // that was already agreed.
     return { labFee, commissionPct: Number(procedure.doctorCommissionPercentage) || 0 };
   }
-  return { labFee, commissionPct: Number(staffSnap.data()?.commissionPercentage) || 0 };
+  return { labFee, commissionPct: commissionRateFor(staffSnap.data(), payerId) };
 }

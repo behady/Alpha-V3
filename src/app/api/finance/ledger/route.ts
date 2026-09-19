@@ -195,6 +195,11 @@ async function createPayment(args: {
         doctor: typeof procedureData.doctor === "string" ? procedureData.doctor : null,
         labFee: Number(procedureData.labFee) || 0,
         description: typeof procedureData.description === "string" ? procedureData.description : null,
+        // Carried from the treatment, never from the request. Who paid for a case is settled when
+        // the case is recorded; a payment screen must not be able to move revenue between an
+        // insurer and the clinic's own books.
+        payerId: typeof procedureData.payerId === "string" ? procedureData.payerId : null,
+        payerName: typeof procedureData.payerName === "string" ? procedureData.payerName : null,
       };
 
       // Read the existing payments here, inside the transaction, rather than trusting a client

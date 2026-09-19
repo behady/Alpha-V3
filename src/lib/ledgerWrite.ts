@@ -36,6 +36,14 @@ export type ProcedureLite = {
   id: string;
   doctorId?: string | null;
   doctorName?: string | null;
+  /**
+   * Who is paying for the treatment this payment settles. Copied onto the payment so that
+   * "what did this insurer's work bring in?" is answerable from the ledger alone, without
+   * joining every payment back to its procedure — and so the answer survives the procedure
+   * being edited, or the insurer being renamed.
+   */
+  payerId?: string | null;
+  payerName?: string | null;
   /** Older rows stored the display name here instead of doctorName. */
   doctor?: string | null;
   labFee?: number | null;
@@ -152,6 +160,10 @@ export function buildPaymentRow(args: BuildPaymentArgs): Record<string, unknown>
     cost: 0,
     method: args.method || "Cash",
     procedureId: procedure ? procedure.id : null,
+    // An advance payment settles no treatment, so it has no payer to inherit and stays null
+    // rather than being counted as private work.
+    payerId: procedure ? procedure.payerId || null : null,
+    payerName: procedure ? procedure.payerName || null : null,
     doctorId: doctor ? doctor.id : null,
     doctorName: doctor ? doctor.name || null : null,
     // Written even when zero. An explicit 0 says "attributed, nothing owed"; an absent field says

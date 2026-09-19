@@ -33,11 +33,13 @@ import {
   MessageCircle,
   MessagesSquare,
   Palette,
+  PlugZap,
   Pill,
   RotateCcw,
   SlidersHorizontal,
   Sparkles,
   Tag,
+  Wallet,
   Trash2,
   UserCircle,
   UserPlus,
@@ -62,6 +64,7 @@ export const SETTINGS_ICONS: Record<string, LucideIcon> = {
   clinical: CalendarClock,      // working hours
   locations: MapPinned,         // the places it works from
   labs: FlaskConical,
+  payers: Wallet,               // who is paying: the clinic, or an insurer
   services: Tag,                // a price list is a list of prices
   prescriptions: Pill,
   visit_reasons: ClipboardList, // what reception picks from when booking
@@ -79,6 +82,7 @@ export const SETTINGS_ICONS: Record<string, LucideIcon> = {
   sms: MessagesSquare,
   logs: History,                // what happened, in order
   ai_credits: Sparkles,
+  ai_connector: PlugZap,       // the door an outside assistant knocks on
   recently_deleted: Trash2,
 };
 
@@ -136,6 +140,7 @@ export const SETTINGS_PANELS: Record<string, ComponentType<SettingsPanelProps>> 
   locations: panel(() => import("@/components/settings/LocationsSettings")),
   labs: panel(() => import("@/components/settings/DentalLabsSettings")),
   services: panel(() => import("@/components/settings/hosts/PricesHost")),
+  payers: panel(() => import("@/components/settings/PayersSettings")),
   prescriptions: panel(() => import("@/components/settings/PrescriptionSettings")),
   visit_reasons: panel(() => import("@/components/settings/VisitReasonsSettings")),
   sources: panel(() => import("@/components/settings/PatientSourcesSettings")),
@@ -156,6 +161,7 @@ export const SETTINGS_PANELS: Record<string, ComponentType<SettingsPanelProps>> 
   sms: panel(() => import("@/components/settings/SmsSettings")),
   logs: panel(() => import("@/components/settings/ActivityLogs")),
   ai_credits: panel(() => import("@/components/settings/AiCreditsSettings")),
+  ai_connector: panel(() => import("@/components/settings/AiConnectorSettings")),
   recently_deleted: panel(() => import("@/components/settings/RecentlyDeleted")),
 };
 
