@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
-  X, Trash2, Wallet, User, Edit, Clock, FileText, Loader2, DollarSign, Check, Plus, CheckCircle2,
-  Stethoscope, Activity, Calendar, Hourglass, ClipboardList, ChevronDown, Sparkles, CloudOff
+  X, Trash2, Wallet, Clock, FileText, Loader2, DollarSign, Check,
+  Stethoscope, Calendar, Hourglass, ClipboardList, ChevronDown, Sparkles, CloudOff
 } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { 
@@ -19,10 +19,10 @@ import { saveBooking } from "@/lib/bookingService";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { autosaveVerdict } from "@/lib/appointmentAutosave";
 import { allocationMessage, allocationMessageAr, checkAllocation } from "@/lib/paymentAllocation";
-import { MoneyApiError, createPayment, createProcedure, deleteProcedure } from "@/lib/moneyApi";
+import { MoneyApiError, createPayment } from "@/lib/moneyApi";
 import { sendPatientPaymentWhatsApp } from "@/lib/sendPatientPaymentWhatsAppClient";
-import ServiceCombobox from "@/components/shared/ServiceCombobox";
 import AppointmentStagePicker from "@/components/appointments/AppointmentStagePicker";
+import AppointmentServicesTab from "@/components/appointments/AppointmentServicesTab";
 
 /**
  * Exactly the fields this panel puts on screen — nothing more.
@@ -32,6 +32,23 @@ import AppointmentStagePicker from "@/components/appointments/AppointmentStagePi
  * stored value, counts as a change every render, and saves forever.
  */
 const EDITED_FIELDS = ["date", "time", "doctor", "treatment", "duration", "notes", "status"] as const;
+
+/**
+ * One panel, three jobs, one at a time.
+ *
+ * Everything below used to be a single scroll: the visit's fields, a cut-down procedure form, then
+ * the ledger — so the money sat three screens under the appointment it belonged to, and the
+ * procedure form sat in the middle of booking details it had nothing to do with. Splitting it
+ * makes each job the whole panel while you are doing it, and the services tab can then carry the
+ * patient file's real editor instead of a form with two fields in it.
+ */
+type PanelTab = "appointment" | "services" | "ledger";
+
+const PANEL_TABS: { id: PanelTab; en: string; ar: string; icon: typeof Calendar }[] = [
+  { id: "appointment", en: "Visit", ar: "الموعد", icon: Calendar },
+  { id: "services", en: "Services", ar: "الخدمات", icon: Stethoscope },
+  { id: "ledger", en: "Ledger", ar: "الحساب", icon: Wallet },
+];
 
 interface AppointmentSidePanelProps {
   selectedAppointment: any | null;
@@ -87,13 +104,7 @@ export default function AppointmentSidePanel({
   const [inlinePayLoading, setInlinePayLoading] = useState(false);
   const [unpaidLoading, setUnpaidLoading] = useState(false);
 
-  // Add procedure state
-  const [showAddProcedure, setShowAddProcedure] = useState(false);
-  const [procServiceId, setProcServiceId] = useState("");
-  const [procCost, setProcCost] = useState<number | "">("");
-  const [addProcToLedger, setAddProcToLedger] = useState(true);
-  const [addingProcedure, setAddingProcedure] = useState(false);
-  const [sessionProcedures, setSessionProcedures] = useState<{name: string, cost: number, clinicalNoteId: string, ledgerId: string | null}[]>([]);
+  const [activeTab, setActiveTab] = useState<PanelTab>("appointment");
 
   // Initialize inline edit form when appointment is selected
   useEffect(() => {
@@ -111,13 +122,19 @@ export default function AppointmentSidePanel({
         services: selectedAppointment.services ? JSON.parse(JSON.stringify(selectedAppointment.services)) : [],
       });
       setShowInlinePayment(false); // Reset payment view when switching appts
-      setShowAddProcedure(false);
-      setProcServiceId("");
-      setProcCost("");
-      setAddProcToLedger(true);
-      setSessionProcedures([]);
     }
   }, [selectedAppointment?.id, selectedAppointment]);
+
+  /**
+   * A different visit starts on the visit tab again.
+   *
+   * Keyed on the id alone, not the appointment object: the effect above re-runs on every snapshot
+   * of the same visit, and tying the tab to that would throw someone out of the ledger they were
+   * reading the moment anything on the record changed.
+   */
+  useEffect(() => {
+    setActiveTab("appointment");
+  }, [selectedAppointment?.id]);
 
   // Fetch ledger entries when selected appointment changes
   useEffect(() => {
@@ -398,8 +415,29 @@ export default function AppointmentSidePanel({
                   </div>
                 </div>
 
+                {/* Three faces of one panel: the visit, its services, the money. */}
+                <div className="shrink-0 px-4 pt-3 pb-3 flex items-center gap-1.5 border-b border-slate-200/60">
+                  {PANEL_TABS.map((tab) => {
+                    const Icon = tab.icon;
+                    const active = activeTab === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-full text-xs font-bold transition-all whitespace-nowrap ${
+                          active ? 'bg-ink-slab text-white shadow-sm' : 'text-ink-muted hover:bg-surface-muted'
+                        }`}
+                      >
+                        <Icon size={14} className={active ? 'text-white' : 'text-slate-400'} />
+                        {language === 'ar' ? tab.ar : tab.en}
+                      </button>
+                    );
+                  })}
+                </div>
+
                 {/* Inline Edit Form */}
-                <div className="px-5 py-5 space-y-5 border-b border-slate-200/60">
+                {activeTab === "appointment" && (
+                <div className="px-5 py-5 space-y-5">
                   <div className="flex items-center justify-between">
                       <h3 className="font-light text-slate-800 text-base uppercase tracking-widest">{language === 'ar' ? 'تعديل التفاصيل' : 'Edit Details'}</h3>
                       <AutosaveChip state={autosaveState} language={language} />
@@ -478,191 +516,6 @@ export default function AppointmentSidePanel({
                       </div>
                   </div>
 
-                  {/* Add Procedure Section (Moved directly under Reason for Visit) */}
-                  {servicesList.length > 0 && (
-                    <div className="mt-2">
-                      <button
-                        onClick={() => setShowAddProcedure(prev => !prev)}
-                        className={`w-full text-sm font-bold rounded-xl py-3 flex items-center justify-center gap-2 transition-colors shadow-sm ${
-                          showAddProcedure
-                            ? 'text-ink-body bg-surface-muted border border-line hover:bg-slate-200'
-                            : 'text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100'
-                        }`}
-                      >
-                        <Plus size={16}/> {showAddProcedure ? (language === 'ar' ? 'إلغاء' : 'Cancel') : (language === 'ar' ? 'إضافة إجراء' : 'Add Procedure')}
-                      </button>
-
-                      {showAddProcedure && (
-                        <div className="bg-emerald-50/50 rounded-xl p-3 border border-emerald-100 mt-2 animate-in slide-in-from-top-2 duration-200">
-                          <div className="flex flex-col gap-3">
-                            {/* Service selector */}
-                            <div>
-                              <label className="text-xs font-extrabold text-ink-muted uppercase tracking-wider block mb-1.5">
-                                {language === 'ar' ? 'الخدمة' : 'Service'}
-                              </label>
-                              <ServiceCombobox
-                                services={servicesList}
-                                value={procServiceId}
-                                onChange={(val, svc) => {
-                                  setProcServiceId(val);
-                                  if (svc?.price) setProcCost(Number(svc.price));
-                                }}
-                                valueKey="id"
-                                placeholder={language === 'ar' ? 'اختر الخدمة...' : 'Select service...'}
-                                language={language}
-                                className="w-full text-sm py-2 font-bold border border-line rounded-lg bg-surface"
-                              />
-                            </div>
-                            {/* Cost */}
-                            <div>
-                              <label className="text-xs font-extrabold text-ink-muted uppercase tracking-wider block mb-1.5">
-                                {language === 'ar' ? 'التكلفة' : 'Cost'}
-                              </label>
-                              <div className="relative">
-                                <div className="absolute inset-y-0 start-0 ps-2.5 flex items-center pointer-events-none text-slate-400">
-                                  <DollarSign size={14}/>
-                                </div>
-                                <input
-                                  type="number"
-                                  value={procCost}
-                                  onChange={e => setProcCost(e.target.value ? Number(e.target.value) : "")}
-                                  className="w-full ps-9 pe-3 py-2.5 text-sm font-black text-slate-800 border border-line rounded-lg outline-none focus:ring-2 focus:ring-emerald-400 bg-surface"
-                                  placeholder="0"
-                                />
-                              </div>
-                            </div>
-                            {/* Add to ledger toggle */}
-                            <label className="flex items-center gap-2 cursor-pointer select-none">
-                              <input
-                                type="checkbox"
-                                checked={addProcToLedger}
-                                onChange={e => setAddProcToLedger(e.target.checked)}
-                                className="w-4 h-4 rounded border-line-strong text-emerald-600 focus:ring-emerald-500"
-                              />
-                              <span className="text-sm font-bold text-ink-body">
-                                {language === 'ar' ? 'إضافة للسجل المالي' : 'Add to Ledger'}
-                              </span>
-                            </label>
-                            {/* Confirm */}
-                            <button
-                              disabled={addingProcedure || !procServiceId || (!procCost && procCost !== 0)}
-                              onClick={async () => {
-                                const svc = servicesList.find(s => String(s.id) === String(procServiceId));
-                                if (!svc) { showToast(language === 'ar' ? 'اختر خدمة' : 'Select a service', 'error'); return; }
-                                const numCost = Number(procCost) || 0;
-
-                                setAddingProcedure(true);
-                                try {
-                                  const today = new Date();
-                                  const localDate = new Date(today.getTime() - (today.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
-
-                                  // The charge, the note and their back-link used to be three
-                                  // separate writes from here; a failure between them left a
-                                  // charge nobody could explain, or a treatment nobody was
-                                  // billed for. One call, one transaction.
-                                  //
-                                  // Attribution follows the appointment's dentist, never whoever
-                                  // is clicking — a receptionist recording a procedure must not
-                                  // become the person it pays out to.
-                                  if (!selectedAppointment.doctorId) {
-                                    showToast(
-                                      language === 'ar'
-                                        ? 'الموعد ده مش متسجل عليه دكتور — عدّل الموعد الأول'
-                                        : 'This visit has no dentist assigned. Set one on the appointment first.',
-                                      'error'
-                                    );
-                                    return;
-                                  }
-
-                                  const { noteId, ledgerId: newLedgerId } = await createProcedure({
-                                    patientId: selectedAppointment.patientId,
-                                    appointmentId: selectedAppointment.id,
-                                    procedures: [svc.name],
-                                    selectedTeeth: [],
-                                    tooth: "Gen",
-                                    unitCost: numCost,
-                                    doctorId: selectedAppointment.doctorId,
-                                    status: "Completed",
-                                    date: localDate,
-                                    addToLedger: addProcToLedger,
-                                  });
-
-                                  showToast(
-                                    addProcToLedger
-                                      ? (language === 'ar' ? 'تمت إضافة الإجراء للسجل المالي والملاحظات' : 'Procedure added to ledger & notes')
-                                      : (language === 'ar' ? 'تمت إضافة الإجراء للملاحظات السريرية' : 'Procedure added to clinical notes'),
-                                    'success'
-                                  );
-                                  // Reset form but keep add procedure open
-                                  setProcServiceId("");
-                                  setProcCost("");
-                                  setAddProcToLedger(true);
-                                  setSessionProcedures(prev => [...prev, { name: svc.name, cost: numCost, clinicalNoteId: noteId, ledgerId: newLedgerId }]);
-                                } catch (err) {
-                                  console.error('Error adding procedure:', err);
-                                  showToast(
-                                    err instanceof MoneyApiError
-                                      ? err.message
-                                      : language === 'ar' ? 'خطأ في إضافة الإجراء' : 'Error adding procedure',
-                                    'error'
-                                  );
-                                } finally {
-                                  setAddingProcedure(false);
-                                }
-                              }}
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-[38px] px-4 rounded-lg flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 w-full"
-                            >
-                              {addingProcedure ? <Loader2 size={16} className="animate-spin"/> : <Check size={16}/>}
-                              {language === 'ar' ? 'تأكيد الإجراء' : 'Confirm Procedure'}
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                      {/* Added Session Procedures Review List */}
-                      {sessionProcedures.length > 0 && (
-                        <div className="mt-3 flex flex-col gap-2">
-                          <label className="text-[10px] font-extrabold text-ink-muted uppercase tracking-wider block">
-                            {language === 'ar' ? 'الإجراءات المضافة' : 'Added Procedures'}
-                          </label>
-                          <div className="bg-surface rounded-xl border border-line divide-y divide-slate-100 overflow-hidden shadow-sm">
-                            {sessionProcedures.map((sp, idx) => (
-                              <div key={idx} className="flex items-center justify-between p-3 text-sm">
-                                <div className="flex items-center gap-2">
-                                  <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
-                                  <span className="font-bold text-slate-700">{sp.name}</span>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                  <span className="font-black text-ink">{sp.cost} {language === 'ar' ? 'ج.م' : 'EGP'}</span>
-                                  <button 
-                                    type="button"
-                                    onClick={async () => {
-                                      if (await confirm(language === 'ar' ? 'هل أنت متأكد من حذف هذا الإجراء؟' : 'Are you sure you want to delete this procedure?')) {
-                                        try {
-                                          // One call: the charge goes with the treatment, and the
-                                          // delete is refused outright if money has been taken
-                                          // against it.
-                                          await deleteProcedure(sp.clinicalNoteId);
-                                          setSessionProcedures(prev => prev.filter(p => p.clinicalNoteId !== sp.clinicalNoteId));
-                                          showToast(language === 'ar' ? 'تم الحذف بنجاح' : 'Deleted successfully', 'success');
-                                        } catch (e) {
-                                          console.error(e);
-                                          showToast(language === 'ar' ? 'خطأ في الحذف' : 'Error deleting', 'error');
-                                        }
-                                      }
-                                    }}
-                                    className="p-1 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded transition-colors"
-                                  >
-                                    <Trash2 size={16} />
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
                   {/* Notes */}
                   <div>
                       <label className="text-xs font-black text-ink-muted uppercase tracking-widest block mb-2">{language === 'ar' ? 'ملاحظات' : 'Notes'}</label>
@@ -689,8 +542,21 @@ export default function AppointmentSidePanel({
 
 
                 </div>
+                )}
+
+                {/* Services — the patient file's own editor, on the visit it belongs to */}
+                {activeTab === "services" && (
+                <div className="px-5 py-5">
+                  <AppointmentServicesTab
+                    appointment={selectedAppointment}
+                    doctorsList={doctorsList}
+                    servicesList={servicesList}
+                  />
+                </div>
+                )}
 
                 {/* Ledger & Inline Payment */}
+                {activeTab === "ledger" && (
                 <div className="px-4 py-3 flex-1">
                   <div className="flex items-center justify-between mb-3">
                       <h3 className="font-light text-slate-800 text-base uppercase tracking-widest flex items-center gap-2">
@@ -839,6 +705,7 @@ export default function AppointmentSidePanel({
                       )}
                   </div>
                 </div>
+                )}
 
             </div>
         </div>
