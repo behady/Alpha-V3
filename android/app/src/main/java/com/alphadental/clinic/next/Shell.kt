@@ -1377,6 +1377,10 @@ private fun RecordPane(
                 patientName = record.person.name,
                 services = state.services,
                 doctors = state.doctors,
+                // The chart behind the sheet: what is already on each tooth, and which one the
+                // dentist tapped before reaching for this.
+                charted = record.teeth,
+                preselected = state.tooth,
                 busy = state.recording,
                 error = state.recordError,
                 onRecord = model::recordTreatment,

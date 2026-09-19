@@ -53,11 +53,13 @@ fun TreatmentSheet(
     services: List<Service>,
     doctors: List<Doctor>,
     charted: Map<Int, com.alphadental.clinic.next.data.Tooth> = emptyMap(),
+    /** The tooth picked on the chart behind the sheet, if this was opened from one. */
+    preselected: Int? = null,
     busy: Boolean,
     error: String?,
     onRecord: (ProcedureDraft) -> Unit,
     onDismiss: () -> Unit,
-) = NewProcedureSheet(patientName, services, doctors, charted, busy, error, onRecord, onDismiss)
+) = NewProcedureSheet(patientName, services, doctors, charted, preselected, busy, error, onRecord, onDismiss)
 
 @Composable
 private fun ToothPicker(

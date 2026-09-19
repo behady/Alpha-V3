@@ -619,6 +619,8 @@ fun NewProcedureSheet(
     services: List<Service>,
     doctors: List<Doctor>,
     charted: Map<Int, com.alphadental.clinic.next.data.Tooth> = emptyMap(),
+    /** The tooth already picked on the chart behind this sheet. It arrives ticked. */
+    preselected: Int? = null,
     busy: Boolean,
     error: String?,
     onRecord: (ProcedureDraft) -> Unit,
@@ -629,7 +631,10 @@ fun NewProcedureSheet(
     var extra by draft(form, "extra")
     var price by draft(form, "price")
     var note by draft(form, "note")
-    var toothText by draft(form, "teeth")
+    // Seeded with the tooth picked on the chart: tapping a tooth and then "Add procedure" is one
+    // act, and making somebody pick the same tooth twice is the kind of thing that gets the wrong
+    // tooth charted.
+    var toothText by draft(form, "teeth", preselected?.toString().orEmpty())
     var doctorId by draft(form, "doctor", doctors.firstOrNull()?.id.orEmpty())
     var status by draft(form, "status", "Completed")
     var date by draft(form, "date", com.alphadental.clinic.next.data.ClinicSource.dateKey())
@@ -642,6 +647,12 @@ fun NewProcedureSheet(
 
     val teeth = remember(toothText) { toothText.split(',').mapNotNull { it.trim().toIntOrNull() }.toSet() }
     val setTeeth = { next: Set<Int> -> toothText = next.sorted().joinToString(",") }
+    // A half-filled form left over from earlier beats the seed above, so the picked tooth is
+    // added to it rather than lost. Once, when the sheet opens — after that the ticks are the
+    // dentist's, including a tooth they deliberately unticked.
+    androidx.compose.runtime.LaunchedEffect(form, preselected) {
+        if (preselected != null && preselected !in teeth) setTeeth(teeth + preselected)
+    }
     val service = remember(procedure, services) { services.firstOrNull { it.name.equals(procedure.trim(), ignoreCase = true) } }
     val doctor = remember(doctorId, doctors) { doctors.firstOrNull { it.id == doctorId } }
     val mode = billing.ifBlank { service?.pricingMode.orEmpty().ifBlank { "per_tooth" } }
