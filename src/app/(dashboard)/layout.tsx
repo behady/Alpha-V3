@@ -139,81 +139,18 @@ function PageHeaderStrip({ fallbackTitle }: { fallbackTitle: string }) {
 }
 
 /**
- * The black band, and when it gets out of the way.
+ * The black band: the nav row, and under it whatever the page portalled into the title strip.
  *
- * On a laptop or a phone the band — nav row plus the page's title strip — is a fifth of the
- * screen, and on Settings (which stacks its own search, group tabs and section chips under it)
- * the actual settings started below the fold. So on small screens the title strip folds away
- * when you scroll down and comes back the moment you scroll up or point at the band. The nav
- * row never hides: the menus must stay reachable without a scroll gesture.
- *
- * Small means a short or narrow viewport (a laptop is short; a phone is narrow). A big monitor
- * has room and keeps the band still, because a header that moves is a header you have to watch.
- *
- * Off entirely while Sara's tour runs — her spotlight points at things in the band.
+ * It used to fold its title strip away on short screens as you scrolled down, to buy back the
+ * fifth of the screen it costs. That is gone, on purpose. Folding changed the height of <main>,
+ * and the browser answered by correcting the scroll position — which arrived as a scroll event of
+ * its own and read as a gesture, so the band fought the page and its bottom edge flickered. Each
+ * fix closed one route into that loop and another opened somewhere else: inside a modal, on a page
+ * only a little taller than the window, in a nested pane. A header that never moves cannot have
+ * the bug at all, so now it never moves. Pages that want a tighter band ask for it themselves with
+ * <PageHeader compact>, which is a fixed choice, not a moving one.
  */
 function BandShell({ nav, strip }: { nav: React.ReactNode; strip: React.ReactNode }) {
-  const { active: tourActive } = useTour();
-  const [collapsed, setCollapsed] = useState(false);
-  const lastTops = useRef(new WeakMap<EventTarget, number>());
-  /** The same value as `collapsed`, readable from inside the scroll listener without re-binding it. */
-  const collapsedRef = useRef(false);
-  /**
-   * When the strip folds, <main> grows by the strip's height, so a page scrolled anywhere near its
-   * end gets its scroll position pushed back up by the browser — and that is delivered as an
-   * ordinary scroll event pointing the other way. Read literally it means "the user scrolled up",
-   * which unfolded the strip, which shrank <main> and pushed the position the other way again: the
-   * band flickered for as long as you kept scrolling, and only settled once you scrolled up far
-   * enough to leave the loop. So for the length of the fold animation we stop deciding and only
-   * keep the recorded positions in step with the ones the layout is producing.
-   */
-  const settleUntil = useRef(0);
-
-  const setFolded = useCallback((next: boolean) => {
-    if (collapsedRef.current === next) return;
-    collapsedRef.current = next;
-    settleUntil.current = Date.now() + 420;
-    setCollapsed(next);
-  }, []);
-
-  useEffect(() => {
-    const small = () => window.innerHeight < 900 || window.innerWidth < 1024;
-    const onScroll = (e: Event) => {
-      if (!small()) {
-        setFolded(false);
-        return;
-      }
-      const target = e.target;
-      if (!target) return;
-      const isPage = target === document || target === window;
-      // The listener is on capture, so it also hears sideways chip rows, tab strips and short
-      // dropdown lists. None of those are a page scroll, and the band must not answer them.
-      if (!isPage && (!(target instanceof Element) || target.scrollHeight - target.clientHeight < 48)) return;
-      const top = isPage
-        ? window.scrollY
-        : target instanceof Element
-          ? target.scrollTop
-          : 0;
-      const last = lastTops.current.get(target) ?? 0;
-      lastTops.current.set(target, top);
-      if (Date.now() < settleUntil.current) return;
-      const delta = top - last;
-      if (top <= 8 || delta < -8) setFolded(false);
-      else if (top > 64 && delta > 8) setFolded(true);
-    };
-    const onResize = () => {
-      if (!small()) setFolded(false);
-    };
-    document.addEventListener("scroll", onScroll, true);
-    window.addEventListener("resize", onResize);
-    return () => {
-      document.removeEventListener("scroll", onScroll, true);
-      window.removeEventListener("resize", onResize);
-    };
-  }, [setFolded]);
-
-  const folded = collapsed && !tourActive;
-
   return (
     <header
       /* No z-index, deliberately. A z-index here would make the band a stacking context, which
@@ -223,17 +160,9 @@ function BandShell({ nav, strip }: { nav: React.ReactNode; strip: React.ReactNod
          whole document. Nothing on a page can reach up and cover the bar anyway: the page scrolls
          inside <main>, which begins below it. */
       className="relative shrink-0 bg-ink-slab text-white"
-      onMouseEnter={() => setFolded(false)}
-      onFocusCapture={() => setFolded(false)}
     >
       {nav}
-      {/* Animated with grid rows, which — unlike max-height — needs no guess at the strip's height. */}
-      <div
-        className={`grid transition-[grid-template-rows] duration-300 ease-out ${folded ? "grid-rows-[0fr]" : "grid-rows-[1fr]"}`}
-        aria-hidden={folded}
-      >
-        <div className="min-h-0 overflow-hidden">{strip}</div>
-      </div>
+      {strip}
     </header>
   );
 }
