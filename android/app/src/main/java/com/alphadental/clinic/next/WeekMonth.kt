@@ -115,11 +115,16 @@ private fun WeekGrid(state: Day, onOpenVisit: (Visit) -> Unit, onOpenDay: (Strin
             days.forEachIndexed { i, day ->
                 val isToday = day.dateKey == today
                 val isShown = day.dateKey == state.dateKey
-                Column(Modifier.width(COLUMN)) {
+                // A day where bookings overlap gets a wider column, one full width per lane
+                // (up to three), so every block keeps a readable name. The grid scrolls anyway.
+                val laned = lanes(byDay[day.dateKey].orEmpty())
+                val widest = (laned.maxOfOrNull { it.of } ?: 1).coerceIn(1, 3)
+                val column = COLUMN * widest
+                Column(Modifier.width(column)) {
                     // Header: weekday, date, how many. Tapping it opens the day.
                     Column(
                         Modifier
-                            .fillMaxWidth()
+                            .width(column)
                             .height(HEADER)
                             .padding(horizontal = 4.dp)
                             .clip(RoundedCornerShape(12.dp))
@@ -138,7 +143,7 @@ private fun WeekGrid(state: Day, onOpenVisit: (Visit) -> Unit, onOpenDay: (Strin
                     // The column: hour lines, then blocks laid over them.
                     Box(
                         Modifier
-                            .fillMaxWidth()
+                            .width(column)
                             .height(HOUR * hourCount)
                             .background(if (isToday) T.surfaceSoft.copy(alpha = 0.5f) else Color.Transparent),
                     ) {
@@ -151,17 +156,13 @@ private fun WeekGrid(state: Day, onOpenVisit: (Visit) -> Unit, onOpenDay: (Strin
                             }
                         }
                         if (i > 0) Box(Modifier.width(1.dp).fillMaxSize().background(T.line))
-                        // Two patients booked over the same minutes: the later one is drawn a
-                        // step to the right and on top, the way a calendar app does it, so both
-                        // names stay readable and both blocks stay tappable.
-                        lanes(byDay[day.dateKey].orEmpty()).forEach { (visit, lane, _) ->
+                        // Two patients booked over the same minutes sit side by side, never on
+                        // top of each other — the one thing a grid must never hide.
+                        laned.forEach { (visit, lane, of) ->
                             val top = HOUR * ((visit.minuteOfDay - earliest) / 60f)
                             val h = HOUR * (visit.duration.coerceAtLeast(20) / 60f)
-                            val step = 16.dp * lane.coerceAtMost(4)
-                            WeekBlock(
-                                visit,
-                                Modifier.offset(x = step, y = top + 2.dp * lane).width(COLUMN - step).height(h),
-                            ) { onOpenVisit(visit) }
+                            val w = column / of
+                            WeekBlock(visit, Modifier.offset(x = w * lane, y = top).width(w).height(h)) { onOpenVisit(visit) }
                         }
                     }
                 }
