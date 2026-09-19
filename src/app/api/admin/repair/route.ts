@@ -2,8 +2,9 @@ import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
+import { expandPermissions } from "@/lib/permissions";
 import { FieldValue } from "firebase-admin/firestore";
-import { clinicPermissionsPatch } from "@/lib/server/clinicPermissions";
+import { clinicPermissionsPatch, staffIdentityPatch } from "@/lib/server/clinicPermissions";
 
 export async function POST(request: Request) {
   const body = await request.json();
@@ -56,6 +57,22 @@ export async function POST(request: Request) {
           batch.update(db.collection(staffCollection).doc(linkedStaff.id), { uid: u.uid || u.id });
           fixesApplied++;
         }
+
+        /**
+         * Scenario A2: in the clinic, on the staff list, and shut out of every screen.
+         *
+         * The browser reads users/{uid}.permissions, and the two routes that add a person to a
+         * clinic used not to write it. Their staff card and their enforced map are both correct,
+         * so nothing above notices them. Restore the pair from the staff card, which is where the
+         * role's floor was recorded at the time they joined.
+         */
+        const flat = u.permissions;
+        if (!Array.isArray(flat) || flat.length === 0) {
+          const role = u.clinicRoles?.[clinicId] || linkedStaff.role || "Assistant";
+          const held = Array.isArray(linkedStaff.permissions) ? linkedStaff.permissions : [];
+          batch.update(db.collection("users").doc(u.id), staffIdentityPatch(role, expandPermissions(role, held)));
+          fixesApplied++;
+        }
       } else {
         // Scenario B: User exists but staff profile is missing — create it
         const role = u.clinicRoles?.[clinicId] || u.role || "Assistant";
@@ -76,6 +93,7 @@ export async function POST(request: Request) {
         batch.update(db.collection("users").doc(u.id), {
           staffId: newStaffRef.id,
           ...clinicPermissionsPatch(clinicId, role, u.permissions),
+          ...staffIdentityPatch(role, expandPermissions(role, u.permissions)),
         });
         fixesApplied++;
       }

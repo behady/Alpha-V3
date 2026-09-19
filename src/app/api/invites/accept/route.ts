@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { requireAuthedUser } from "@/lib/apiStaffAuth";
-import { clinicPermissionsPatch, clinicPermissionsSeed } from "@/lib/server/clinicPermissions";
+import { clinicPermissionsPatch, clinicPermissionsSeed, staffIdentityPatch } from "@/lib/server/clinicPermissions";
 import { expandPermissions } from "@/lib/permissions";
 import { INVITES_COLLECTION, inviteStatus, isInvitableRole, normalizeInviteCode } from "@/lib/inviteLinks";
 
@@ -75,7 +75,18 @@ export async function POST(request: Request) {
       const existingRoles = (userData.clinicRoles || {}) as Record<string, unknown>;
       // Already in: the link has nothing to give, and must not spend a use on saying so.
       if (typeof existingRoles[clinicId] === "string" && existingRoles[clinicId]) {
-        return { clinicId, role: existingRoles[clinicId] as string, alreadyMember: true };
+        const heldRole = existingRoles[clinicId] as string;
+        /**
+         * Unless they are one of the people this route locked out before it wrote the flat pair.
+         * They are in the clinic and every screen refuses them, and re-opening the link they were
+         * sent is the first thing anyone tries. So heal it here -- but only when the flat list is
+         * genuinely absent, never over switches an admin has since tuned by hand.
+         */
+        const flat = userData.permissions;
+        if (!Array.isArray(flat) || flat.length === 0) {
+          tx.update(userRef, staffIdentityPatch(heldRole, expandPermissions(heldRole, ["dashboard.view"])));
+        }
+        return { clinicId, role: heldRole, alreadyMember: true };
       }
 
       const state = inviteStatus(invite);
@@ -111,6 +122,9 @@ export async function POST(request: Request) {
           staffId: staffRef.id,
           ...(userData.defaultClinicId ? {} : { defaultClinicId: clinicId }),
           ...clinicPermissionsPatch(clinicId, role, seededPermissions),
+          // The copy the browser reads. Without it the person is in the clinic and locked out
+          // of every screen in it.
+          ...staffIdentityPatch(role, seededPermissions),
         });
       } else {
         tx.set(
@@ -123,6 +137,7 @@ export async function POST(request: Request) {
             defaultClinicId: clinicId,
             staffId: staffRef.id,
             clinicPermissions: clinicPermissionsSeed(clinicId, role, seededPermissions),
+            ...staffIdentityPatch(role, seededPermissions),
           },
           { merge: true }
         );

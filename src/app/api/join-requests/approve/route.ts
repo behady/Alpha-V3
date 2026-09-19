@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
 import { FieldValue } from "firebase-admin/firestore";
-import { clinicPermissionsPatch, clinicPermissionsSeed } from "@/lib/server/clinicPermissions";
+import { clinicPermissionsPatch, clinicPermissionsSeed, staffIdentityPatch } from "@/lib/server/clinicPermissions";
 import { expandPermissions } from "@/lib/permissions";
 import { ASSIGNABLE_ROLES } from "@/lib/permissions";
 
@@ -74,7 +74,7 @@ export async function POST(request: Request) {
       email,
       role,
       uid: targetUid,
-      isDentist: false,
+      isDentist: role === "Dentist",
       permissions: seededPermissions,
       createdAt: FieldValue.serverTimestamp(),
     });
@@ -89,6 +89,9 @@ export async function POST(request: Request) {
         // The field firestore.rules reads. Per-clinic, so approving someone into a second clinic
         // cannot disturb the access they hold at the first.
         ...clinicPermissionsPatch(clinicId, role, seededPermissions),
+        // And the flat pair the browser reads, without which they are approved into a clinic
+        // whose every page tells them they are not allowed in it.
+        ...staffIdentityPatch(role, seededPermissions),
       });
     } else {
       await userRef.set(
@@ -99,6 +102,7 @@ export async function POST(request: Request) {
           clinicRoles: { [clinicId]: role },
           staffId: staffRef.id,
           clinicPermissions: clinicPermissionsSeed(clinicId, role, seededPermissions),
+          ...staffIdentityPatch(role, seededPermissions),
         },
         { merge: true }
       );
