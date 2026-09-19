@@ -30,6 +30,7 @@ import {
 import LateAppointmentPrompt from "@/components/appointments/LateAppointmentPrompt";
 import NewPatientModal from "@/components/NewPatientModal";
 import PageHeader, { headerButtonPrimary, headerButtonGhost } from "@/components/dashboard/PageHeader";
+import HomeViewTabs from "@/components/dashboard/HomeViewTabs";
 import QuickPaymentModal from "@/components/QuickPaymentModal";
 import AppointmentSidePanel from "@/components/appointments/AppointmentSidePanel";
 import AppointmentAvatarPanel from "@/components/appointments/AppointmentAvatarPanel";
@@ -921,6 +922,7 @@ export default function DesktopDashboard() {
               </span>
             }
           >
+            <HomeViewTabs />
             <button onClick={() => setActiveModal('patient')} className={headerButtonPrimary}>
               <Plus size={17} strokeWidth={3} className="shrink-0" />
               <span className="hidden xl:inline whitespace-nowrap">{language === 'ar' ? 'مريض جديد' : 'New Patient'}</span>

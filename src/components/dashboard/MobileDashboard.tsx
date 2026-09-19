@@ -56,6 +56,7 @@ import { getAppointmentStatusStyles, getAppointmentStageLabel } from "@/lib/appo
 import UserClockWidget from "@/components/dashboard/UserClockWidget";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import PageHeader, { headerButtonPrimary, headerButtonGhost } from "@/components/dashboard/PageHeader";
+import HomeViewTabs from "@/components/dashboard/HomeViewTabs";
 function getLocalDateKey(): string {
   const d = new Date();
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split("T")[0];
@@ -886,6 +887,7 @@ export default function MobileDashboard() {
           title={<><span className="font-light">{language === 'ar' ? 'أهلاً بك،' : 'Welcome in,'}</span> {getWelcomeName(user?.name)}</>}
           eyebrow={<span className="inline-flex items-center gap-2"><DashboardClockWidget language={language} /></span>}
         >
+          <HomeViewTabs />
           <button onClick={() => setActiveModal('patient')} className={headerButtonPrimary}>
             <Plus size={17} strokeWidth={3} />
             <span className="hidden sm:inline">{language === 'ar' ? 'مريض جديد' : 'New Patient'}</span>

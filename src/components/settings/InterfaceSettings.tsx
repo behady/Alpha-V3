@@ -50,7 +50,7 @@ import { useUI } from "@/context/UIContext";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { getClinicCollection } from "@/lib/db-utils";
-import { isDentistStaff } from "@/lib/staffRoles";
+import { useAlsoDentist } from "@/lib/useAlsoDentist";
 
 /** One answer to one preference question. */
 type Choice<T extends string> = {
@@ -218,22 +218,12 @@ export default function InterfaceSettings() {
   const txt = useSettingsText("interface");
 
   /**
-   * Is this person both the clinic's admin and one of its dentists? Read off their staff row —
-   * the "also works as dentist" tick on the team list — not the user record, which was never
-   * given that flag for invited staff. Only they get the home-screen choice: a plain dentist
-   * always gets the chair, and an admin who never treats has nothing to choose between.
+   * Is this person both the clinic's admin and one of its dentists? Only they get the home-screen
+   * choice: a plain dentist always gets the chair, and an admin who never treats has nothing to
+   * choose between. The same hook feeds the tab strip on the dashboard, which offers these three.
    */
-  const { user } = useAuth();
-  const { clinicId, isAdmin } = useClinic();
-  const [alsoDentist, setAlsoDentist] = useState(false);
-  useEffect(() => {
-    if (!user?.uid || !clinicId || !isAdmin) return;
-    const q = query(getClinicCollection("staff"), where("uid", "==", user.uid), limit(1));
-    return onSnapshot(q, (snap) => {
-      const row = snap.docs[0]?.data() as { role?: string; isDentist?: boolean } | undefined;
-      setAlsoDentist(!!row && isDentistStaff(row));
-    });
-  }, [user?.uid, clinicId, isAdmin]);
+  const { isAdmin } = useClinic();
+  const alsoDentist = useAlsoDentist();
 
   return (
     <div className="w-full space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>

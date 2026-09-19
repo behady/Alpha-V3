@@ -18,6 +18,7 @@ import type { Briefing, HrStaffRow } from "@/lib/automation/briefing/types";
 import type { Row } from "@/lib/dentistHome";
 import { attendanceByDoctor, cashToday, labChase, leadsFunnel, periodStart, sourcesOf, waitingRoom } from "@/lib/ownerHome";
 import PageHeader from "@/components/dashboard/PageHeader";
+import HomeViewTabs from "@/components/dashboard/HomeViewTabs";
 
 /**
  * The owner's home: is the place running, and is the money moving?
@@ -229,7 +230,9 @@ export default function OwnerHome() {
         <PageHeader
           title={<><span className="font-light">{greeting}</span> {firstName}</>}
           subtitle={`${dateLine} · ${timeLine}${branches.length > 0 && activeBranch ? ` · ${activeBranch.name}` : ""}`}
-        />
+        >
+          <HomeViewTabs />
+        </PageHeader>
 
         <div className="flex flex-wrap items-end justify-end gap-4 px-1">
           <div className="flex items-center gap-2">
