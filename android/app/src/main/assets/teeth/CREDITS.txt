@@ -1,29 +1,21 @@
-Photographs cropped for the tooth chart. Source: Wikimedia Commons. Each is a small crop of the original.
+Photographs cropped for the tooth chart.
 
-gutta_percha.jpg
-  File:Stifte Guttapercha.jpg
-  CC BY-SA 4.0 - <a href="//commons.wikimedia.org/w/index.php?title=User:Gutt
-  https://thumb.wikimedia.org/wikipedia/commons/thumb/4/4b/Stifte_Guttapercha.jpg/960px-Stifte_Guttapercha.jpg
+--- Supplied by the clinic's owner, 2026-09-19 ------------------------------------------------
+Four of these are his own pictures, chosen by him and squared to 256px. They replaced the
+Wikimedia crops that stood in for them. No third-party licence applies to these four.
 
-crown_zirconia.jpg
-  File:Single Unit Zirconia Anterior Dental Crown.jpg
-  CC BY-SA 4.0 - James Roback, <a href="//commons.wikimedia.org/w/index.php?t
-  https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e9/Single_Unit_Zirconia_Anterior_Dental_Crown.jpg/960px-Single_Unit_Zirconia_Anterior_Dental_Crown.jpg
+gutta_percha.jpg    the obturated root
+crown_pfm.jpg       porcelain-fused-to-metal crown
+composite.jpg       composite filling surface
+crown_zirconia.jpg  zirconia / all-ceramic crown
 
-crown_pfm.jpg
-  File:Porcelain Fused to Metal Dental Crown Showing interior and exterior surfaces.jpg
-  CC BY-SA 4.0 - <a href="//commons.wikimedia.org/wiki/User:Nizil_Shah" title
-  https://thumb.wikimedia.org/wikipedia/commons/thumb/3/30/Porcelain_Fused_to_Metal_Dental_Crown_Showing_interior_and_exterior_surfaces.jpg/960px-Porcelain_Fused_to_Metal_Dental_Crown_Showing_interior_and_exterior_surfaces.jpg
+--- Wikimedia Commons ---------------------------------------------------------------------------
+The rest are small crops of the originals below.
 
 crown_metal.jpg
   File:Crown dentistry gold 03 occlusal.jpg
   CC BY-SA 3.0 - No machine-readable author provided. <a href="//commons.wiki
   https://upload.wikimedia.org/wikipedia/commons/1/1f/Crown_dentistry_gold_03_occlusal.jpg
-
-composite.jpg
-  File:Feldspathic VM9 Porcelain Crowns -side view.jpg
-  CC BY-SA 4.0 - <a href="//commons.wikimedia.org/wiki/User:AmirAttallah" tit
-  https://thumb.wikimedia.org/wikipedia/commons/thumb/9/93/Feldspathic_VM9_Porcelain_Crowns_-side_view.jpg/960px-Feldspathic_VM9_Porcelain_Crowns_-side_view.jpg
 
 amalgam.jpg
   File:Complex-amalgam.jpg
@@ -40,5 +32,8 @@ veneer.jpg
   CC BY-SA 3.0 - Dr. Mihail Cos, Hannover
   https://upload.wikimedia.org/wikipedia/commons/5/5b/Veneer_No_Prep_web.jpg
 
-implant.jpg is a crop of an illustration, not a photograph: no bare titanium fixture was available under a free licence.
-composite.jpg is natural enamel from the smile photograph, standing in for a tooth-coloured composite surface.
+implant.jpg is a crop of an illustration, not a photograph: no bare titanium fixture was
+available under a free licence.
+
+To replace any of these, drop a same-named file in this folder and rebuild. Square, a few hundred
+pixels across; the chart masks it to the tooth's own outline.
