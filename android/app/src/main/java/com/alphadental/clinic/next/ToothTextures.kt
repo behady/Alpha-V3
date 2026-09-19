@@ -68,7 +68,9 @@ object ToothTextures {
     fun DrawScope.paintPhoto(region: Path, photo: ImageBitmap, alpha: Float = 1f) {
         val bounds = region.getBounds()
         if (bounds.width <= 0f || bounds.height <= 0f) return
-        val scale = maxOf(bounds.width / photo.width, bounds.height / photo.height)
+        // Cover, then a little more: the crops still carry a sliver of their own background at
+        // the edges, and a chart cell is too small to hide one.
+        val scale = maxOf(bounds.width / photo.width, bounds.height / photo.height) * 1.25f
         val dw = (photo.width * scale).toInt().coerceAtLeast(1)
         val dh = (photo.height * scale).toInt().coerceAtLeast(1)
         val dx = (bounds.left + (bounds.width - dw) / 2f).toInt()

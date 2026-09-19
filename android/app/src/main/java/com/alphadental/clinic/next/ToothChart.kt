@@ -315,14 +315,9 @@ private fun ToothCell(
                         val xs = if (molar) listOf(w * .36f, w * .64f) else listOf(w / 2)
                         val gp = photo("gutta_percha")
                         if (gp != null) {
-                            // The photograph, through a band the width of each canal, cropped
-                            // by the root itself.
-                            val half = 1.8.dp.toPx()
-                            xs.forEach { cx ->
-                                val band = ToothTextures.rect(cx - half, minOf(apex, floor), cx + half, maxOf(apex, floor))
-                                val region = androidx.compose.ui.graphics.Path.combine(androidx.compose.ui.graphics.PathOperation.Intersect, g.root, band)
-                                with(ToothTextures) { paintPhoto(region, gp) }
-                            }
+                            // The owner's call: the whole root is gutta-percha, not a thin band
+                            // in it. Reads at a glance, which a canal-width line did not.
+                            with(ToothTextures) { paintPhoto(g.root, gp) }
                         } else clipPath(g.root) {
                             xs.forEach { cx ->
                                 drawLine(guttaPercha, androidx.compose.ui.geometry.Offset(cx, apex), androidx.compose.ui.geometry.Offset(cx, floor), 2.6.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
@@ -382,9 +377,15 @@ private fun ToothCell(
                         }
                         val region = androidx.compose.ui.graphics.Path.combine(androidx.compose.ui.graphics.PathOperation.Intersect, g.crown, patch)
                         val fp = photo(if (isAmalgam) "amalgam" else "composite")
-                        if (fp != null) with(ToothTextures) { paintPhoto(region, fp) }
-                        else drawPath(region, color = if (isAmalgam) amalgam else composite)
-                        drawPath(region, color = if (isAmalgam) metalInk else compositeEdge, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.1.dp.toPx()))
+                        if (fp != null) {
+                            // The whole crown takes the material, as the owner asked: a filled
+                            // tooth's crown looks like the filling, edge to edge.
+                            with(ToothTextures) { paintPhoto(g.crown, fp) }
+                            drawPath(g.crown, color = if (isAmalgam) metalInk else compositeEdge, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.1.dp.toPx()))
+                        } else {
+                            drawPath(region, color = if (isAmalgam) amalgam else composite)
+                            drawPath(region, color = if (isAmalgam) metalInk else compositeEdge, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.1.dp.toPx()))
+                        }
                     }
                     else -> drawPath(g.crown, color = base)
                 }
