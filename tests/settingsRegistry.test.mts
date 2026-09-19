@@ -819,6 +819,8 @@ const NO_PENDING_EDITS = new Set([
   "logs", "ai_credits", "recently_deleted", // read-only
   "appearance", "interface",                 // save on click, nothing pending
   "join_requests", "users",                  // act through server routes on a button press
+  "ai_connector",                            // same: a key is minted by pressing Create, and the
+                                             // only field is the label that names it
   "prescriptions",                           // a drug is added or removed immediately
   "services",                                // edits happen inside a modal that saves on submit
 ]);

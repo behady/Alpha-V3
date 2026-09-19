@@ -15,7 +15,17 @@ import type { CollectionReference, DocumentReference, DocumentData } from "fireb
  */
 
 /** Collections that genuinely live at the root and must never be clinic-prefixed. */
-const GLOBAL_COLLECTIONS = new Set(["users", "clinics", "join_requests", "clinic_secrets"]);
+const GLOBAL_COLLECTIONS = new Set([
+  "users",
+  "clinics",
+  "join_requests",
+  "clinic_secrets",
+  // Keys that let an outside AI assistant into a clinic. Root-level for the same reason
+  // clinic_secrets is, and listed here for a second reason too: lib/mcp/tools.ts asks
+  // `isGlobalCollection` whether a collection name an assistant supplied would escape the
+  // clinic, and a name missing from this set is one that would resolve to the root.
+  "mcp_keys",
+]);
 
 export function isGlobalCollection(path: string): boolean {
   return GLOBAL_COLLECTIONS.has(path);
