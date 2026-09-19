@@ -61,9 +61,12 @@ const COPY = {
       "A full-access key lets the assistant create, change and delete real records in this clinic. There is no undo. Only choose this if you understand that.",
     create: "Create key",
     creating: "Creating…",
-    onceTitle: "Copy this now — it is shown only once",
+    linkTitle: "Paste this whole link into Claude — shown only once",
+    linkBody: "In Claude: Settings → Connectors → Add custom connector, and paste this as the URL. Your key is already part of it.",
+    onceTitle: "Or, if your assistant asks for the key on its own",
     onceBody: "We store only a scrambled copy, so this exact text cannot be shown again. If you lose it, delete the key and make a new one.",
     copy: "Copy",
+    copyLink: "Copy link",
     copied: "Copied",
     existing: "Keys in use",
     none: "No keys yet.",
@@ -94,9 +97,12 @@ const COPY = {
       "المفتاح الكامل بيخلي المساعد يقدر يضيف ويعدّل ويمسح بيانات حقيقية في العيادة. مفيش تراجع. اختاره بس لو ده مفهوم.",
     create: "اعمل المفتاح",
     creating: "بيتعمل…",
-    onceTitle: "انسخه دلوقتي — هيظهر مرة واحدة بس",
+    linkTitle: "الصق اللينك ده كله في Claude — هيظهر مرة واحدة بس",
+    linkBody: "في Claude: Settings ← Connectors ← Add custom connector، والصق ده كـ URL. المفتاح جواه خلاص.",
+    onceTitle: "أو لو المساعد بيطلب المفتاح لوحده",
     onceBody: "إحنا بنخزّن نسخة مشفّرة بس، يعني النص ده مش هيتعرض تاني. لو ضاع منك، امسح المفتاح واعمل واحد جديد.",
     copy: "نسخ",
+    copyLink: "نسخ اللينك",
     copied: "اتنسخ",
     existing: "المفاتيح المستخدمة",
     none: "مفيش مفاتيح لسه.",
@@ -128,7 +134,7 @@ export default function AiConnectorSettings({ canEdit }: SettingsPanelProps) {
   const [label, setLabel] = useState("");
   const [scope, setScope] = useState<"read" | "full">("read");
   const [freshSecret, setFreshSecret] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"key" | "link" | null>(null);
 
   // window is undefined during the server pass; the panel is ssr:false but the first client
   // render still happens before layout, so this is computed lazily rather than at module scope.
@@ -170,7 +176,7 @@ export default function AiConnectorSettings({ canEdit }: SettingsPanelProps) {
       if (!res.ok || !data.ok) throw new Error(data.error || "failed");
       setFreshSecret(data.secret as string);
       setLabel("");
-      setCopied(false);
+      setCopied(null);
       void load();
     } catch {
       showToast(t.failed, "error");
@@ -179,12 +185,11 @@ export default function AiConnectorSettings({ canEdit }: SettingsPanelProps) {
     }
   };
 
-  const copySecret = async () => {
-    if (!freshSecret) return;
+  const copyText = async (text: string, which: "key" | "link") => {
     try {
-      await navigator.clipboard.writeText(freshSecret);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
+      await navigator.clipboard.writeText(text);
+      setCopied(which);
+      window.setTimeout(() => setCopied(null), 2000);
     } catch {
       showToast(t.failed, "error");
     }
@@ -298,23 +303,50 @@ export default function AiConnectorSettings({ canEdit }: SettingsPanelProps) {
           </button>
 
           {freshSecret && (
-            <div className="rounded-2xl border border-ok/25 bg-ok-tint p-4 space-y-3">
-              <p className="flex items-center gap-2 text-sm font-bold text-ok">
-                <Check size={16} /> {t.onceTitle}
-              </p>
-              <code
-                className="block select-all break-all rounded-lg bg-white/70 px-3 py-2 font-figure text-sm text-ink"
-                dir="ltr"
-              >
-                {freshSecret}
-              </code>
-              <button
-                type="button"
-                onClick={copySecret}
-                className="inline-flex items-center gap-2 rounded-xl bg-white border border-line px-4 py-2 text-sm font-bold text-ink hover:border-line-strong"
-              >
-                {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? t.copied : t.copy}
-              </button>
+            <div className="rounded-2xl border border-ok/25 bg-ok-tint p-4 space-y-4">
+              {/* The whole address first, because claude.ai's connector dialog asks for a URL and
+                  offers nowhere to type a key. The bare key stays below for the clients that do. */}
+              <div className="space-y-2">
+                <p className="flex items-center gap-2 text-sm font-bold text-ok">
+                  <Check size={16} /> {t.linkTitle}
+                </p>
+                <code
+                  className="block select-all break-all rounded-lg bg-white/70 px-3 py-2 font-figure text-sm text-ink"
+                  dir="ltr"
+                >
+                  {`${endpoint}/${freshSecret}`}
+                </code>
+                <button
+                  type="button"
+                  onClick={() => void copyText(`${endpoint}/${freshSecret}`, "link")}
+                  className="inline-flex items-center gap-2 rounded-xl bg-white border border-line px-4 py-2 text-sm font-bold text-ink hover:border-line-strong"
+                >
+                  {copied === "link" ? <Check size={14} /> : <Copy size={14} />}
+                  {copied === "link" ? t.copied : t.copyLink}
+                </button>
+                <p className="text-xs font-medium text-ink-body leading-relaxed">{t.linkBody}</p>
+              </div>
+
+              <div className="space-y-2 border-t border-ok/20 pt-3">
+                <p className="text-[11px] font-black text-ink-muted uppercase tracking-widest">
+                  {t.onceTitle}
+                </p>
+                <code
+                  className="block select-all break-all rounded-lg bg-white/70 px-3 py-2 font-figure text-sm text-ink"
+                  dir="ltr"
+                >
+                  {freshSecret}
+                </code>
+                <button
+                  type="button"
+                  onClick={() => void copyText(freshSecret, "key")}
+                  className="inline-flex items-center gap-2 rounded-xl bg-white border border-line px-4 py-2 text-sm font-bold text-ink hover:border-line-strong"
+                >
+                  {copied === "key" ? <Check size={14} /> : <Copy size={14} />}
+                  {copied === "key" ? t.copied : t.copy}
+                </button>
+              </div>
+
               <p className="text-xs font-medium text-ink-body leading-relaxed">{t.onceBody}</p>
             </div>
           )}
