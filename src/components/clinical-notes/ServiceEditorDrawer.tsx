@@ -269,6 +269,20 @@ export default function ServiceEditorDrawer({
   const activePayers = payers.filter((p) => p.active);
 
   /**
+   * The payer decides which prices apply, so the price-list picker stops being a second opinion.
+   *
+   * Without this, choosing AXA changed nothing visible: the list control resolved itself to the
+   * clinic's default and sent that list explicitly, and an explicit list beats the payer's on the
+   * server. The case was billed at the clinic's own prices while the screen said AXA, which is the
+   * worst possible combination — wrong, and wrong quietly.
+   */
+  const payerList = (() => {
+    const chosen = activePayers.find((p) => p.id === payerId);
+    if (!chosen?.priceListId) return null;
+    return { listId: chosen.priceListId, payerName: isAr ? chosen.nameAr || chosen.name : chosen.name };
+  })();
+
+  /**
    * A new treatment opens on whoever normally pays for this patient.
    *
    * Read here rather than passed in as a prop. Five different screens open this editor — the
@@ -747,6 +761,7 @@ export default function ServiceEditorDrawer({
 
   const discountField = (
     <DiscountEditor
+      lockedByPayer={payerList}
       listTotal={previewTotal}
       priceLists={priceLists}
       branchId={branchId}

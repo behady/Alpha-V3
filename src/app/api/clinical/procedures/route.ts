@@ -152,21 +152,30 @@ async function priceRequest(clinicId: string, body: Record<string, unknown>, act
   const payer = payerStamp(payers, payerId);
   const payerPriceListId = payers.find((p) => p.id === payerId)?.priceListId || null;
 
-  // Which list to charge from. An unknown or deactivated list falls back to the clinic default
-  // rather than being honoured — a request naming a retired list must not resurrect its prices.
-  //
-  // The payer's own tariff outranks the patient's usual list: a patient normally charged the
-  // Standard list who is treated under an insurer is charged that insurer's rates, which is the
-  // entire reason an insurer has a list of its own. An explicit list on the request still wins,
-  // so a one-off can still be priced by hand.
-  const patientDefaultListId =
-    payerPriceListId ||
-    (typeof body.patientDefaultPriceListId === "string" ? body.patientDefaultPriceListId : null);
-  const priceListId = resolveActiveListId(
-    priceLists,
-    typeof body.priceListId === "string" ? body.priceListId : null,
-    patientDefaultListId
-  );
+  /**
+   * Which list to charge from. An unknown or deactivated list falls back to the clinic default
+   * rather than being honoured — a request naming a retired list must not resurrect its prices.
+   *
+   * An insurer's own tariff BEATS whatever list the request names, and that is not a detail. The
+   * treatment screen has its own price-list picker, and that picker resolves itself to the
+   * clinic's default whenever nothing else is chosen — so it always sent a list, explicitly, and
+   * an explicit list used to win. The result was an insurance case billed at the clinic's own
+   * prices while the screen showed the insurer's name on it: wrong, and wrong silently.
+   *
+   * The client no longer sends a competing list, but this is the half that cannot be forgotten by
+   * a different client, an older build or the phone. Choosing the payer IS choosing the prices. A
+   * one-off stays possible by typing the cost, which is what that field is for.
+   */
+  const payerListIsUsable = payerPriceListId
+    ? priceLists.some((l) => l.id === payerPriceListId && l.active)
+    : false;
+  const priceListId = payerListIsUsable
+    ? (payerPriceListId as string)
+    : resolveActiveListId(
+        priceLists,
+        typeof body.priceListId === "string" ? body.priceListId : null,
+        typeof body.patientDefaultPriceListId === "string" ? body.patientDefaultPriceListId : null
+      );
   const priceList = findPriceList(priceLists, priceListId);
 
   const pricing = computeProcedurePricing({

@@ -292,9 +292,32 @@ function eq<T>(actual: T, expected: T, message: string) {
     procedures.includes("commissionRateFor(staff, payerId)"),
     "the treatment route is back on the dentist's single rate — insurance work would pay the private percentage"
   );
+  /**
+   * The one that was actually wrong in front of the clinic.
+   *
+   * The treatment screen carries its own price-list picker, and that picker resolves itself to the
+   * clinic default whenever nothing else is chosen — so every request arrived naming a list,
+   * explicitly, and an explicit list used to beat the payer's. Choosing AXA changed nothing: the
+   * case was billed at the clinic's own prices with the insurer's name on it.
+   */
   ok(
-    /payerPriceListId \|\|/.test(procedures),
-    "an insurer's own tariff no longer outranks the patient's usual price list, which is the whole point of giving a payer a list"
+    /payerListIsUsable[\s\S]{0,200}\? \(payerPriceListId as string\)/.test(procedures),
+    "an insurer's tariff no longer beats the list named in the request — an insurance case can be billed at the clinic's own prices again"
+  );
+  ok(
+    /l\.id === payerPriceListId && l\.active/.test(procedures),
+    "the insurer's list is used without checking it is still active, so a retired list would price the case"
+  );
+
+  const discountEditor = read("src/components/shared/DiscountEditor.tsx");
+  ok(
+    /lockedByPayer/.test(discountEditor),
+    "the price-list picker can offer a second answer again — two controls for one decision is what caused this"
+  );
+  const editor = read("src/components/clinical-notes/ServiceEditorDrawer.tsx");
+  ok(
+    /lockedByPayer=\{payerList\}/.test(editor),
+    "the treatment editor no longer tells the price-list picker that the payer has decided"
   );
 
   const sync = read("src/lib/server/ledgerSync.ts");
