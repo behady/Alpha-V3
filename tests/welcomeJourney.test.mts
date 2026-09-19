@@ -613,10 +613,50 @@ ok(COACH_SNOOZE_MS >= 60 * 60 * 1000, "'Later' means at least an hour — a toke
     "starting over, answering the demo question or finishing the tour must not un-see the welcome"
   );
 
+  // --- and the same three holes under the coach bubble ----------------------------------------
+  //
+  // The bubble is the other thing that speaks first, and it had every hole the welcome screen had
+  // plus one of its own: closing it only ever bought a snooze — six hours, then a day, then a week
+  // for ever — so it always came back eventually, which is a nag however politely it is spaced.
+  // Closing it is final now, and final has to mean everywhere.
+
+  // Off for good, decided before the clinic loaded.
+  welcome.dismissCoach({ clinicId: null, uid: "person-4" });
+  ok(
+    welcome.readWelcomeState({ clinicId: "clinic-a", uid: "person-4" }).dismissed,
+    "closing the coach before the clinic loaded must still switch it off"
+  );
+  ok(
+    welcome.readWelcomeState({ clinicId: "clinic-b", uid: "person-4" }).dismissed,
+    "the coach must not come back just because this person opened another clinic"
+  );
+  ok(
+    welcome.readWelcomeState({ clinicId: null, uid: "person-4" }).dismissed,
+    "and it must stay off during the gap before a clinic is chosen at all"
+  );
+
+  // Off at one clinic, off everywhere — and reversible, from the guide page only.
+  welcome.dismissCoach({ clinicId: "clinic-a", uid: "person-5" });
+  ok(
+    welcome.readWelcomeState({ clinicId: "clinic-q", uid: "person-5" }).dismissed,
+    "switching the coach off is a decision about a person, not about one clinic"
+  );
+  welcome.restoreCoach({ clinicId: "clinic-a", uid: "person-5" });
+  ok(
+    !welcome.readWelcomeState({ clinicId: "clinic-q", uid: "person-5" }).dismissed,
+    "bringing the coach back from Getting started must clear it everywhere too, or it is one-way"
+  );
+
+  // A colleague's own coach is untouched by either.
+  ok(
+    !welcome.readWelcomeState({ clinicId: "clinic-a", uid: "person-6" }).dismissed,
+    "one person switching the coach off must not silence it for everyone at the clinic"
+  );
+
   delete (globalThis as { window?: unknown }).window;
 }
 
-// --- 13. The two halves of that promise are still wired in ----------------------------------------
+// --- 13. The wiring behind both promises is still there -------------------------------------------
 //
 // Source text rather than behaviour: one half is a React component and the other is a Firestore
 // write, and both are one deleted line away from a screen that greets somebody every morning.
@@ -639,6 +679,26 @@ ok(COACH_SNOOZE_MS >= 60 * 60 * 1000, "'Later' means at least an hour — a toke
   ok(
     context.includes("user?.tourIntroSeen !== true") || context.includes("user?.tourIntroSeen === true"),
     "TourContext must read the flag back off the user document, or writing it achieves nothing"
+  );
+
+  const coach = readFileSync(join(REPO, "src/components/welcome/WelcomeCoach.tsx"), "utf8");
+  const welcomeCtx = readFileSync(join(REPO, "src/context/WelcomeContext.tsx"), "utf8");
+
+  ok(
+    /onClick=\{dismiss\}[\s\S]{0,400}aria-label/.test(coach),
+    "the coach bubble's close button must switch it off for good, not snooze it until next week"
+  );
+  ok(
+    !/onClick=\{snooze\}/.test(coach),
+    "nothing on the coach bubble may snooze it any more — a bubble that always returns is the nag itself"
+  );
+  ok(
+    welcomeCtx.includes("{ coachOff: off }") && welcomeCtx.includes('getClinicDoc("users"'),
+    "'stop coaching me' must reach the user's own document, or a cleared browser starts coaching again"
+  );
+  ok(
+    welcomeCtx.includes("user?.coachOff === true"),
+    "WelcomeContext must read coachOff back, or writing it achieves nothing"
   );
 }
 

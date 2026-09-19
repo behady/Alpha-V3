@@ -81,6 +81,13 @@ export interface UserProfile {
    * available from the menu and from Getting started.
    */
   tourIntroSeen?: boolean;
+  /**
+   * This person closed the coach bubble, so it never speaks first again — on any device. Same
+   * reasoning as `tourIntroSeen`: kept off the browser because a cleared browser, a second laptop
+   * or a phone used to read as somebody who had never asked her to stop. Reversible, but only
+   * from the Getting started page.
+   */
+  coachOff?: boolean;
   createdAt: Date | any;
   // Legacy fields (still present on root user docs for backwards compatibility)
   role?: string;
