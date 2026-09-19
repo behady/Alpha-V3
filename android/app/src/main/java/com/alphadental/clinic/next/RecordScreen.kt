@@ -593,18 +593,36 @@ private fun androidx.compose.foundation.lazy.LazyListScope.chart(
             onSelect = onSelectTooth,
         )
     }
-    item { ToothDetail(record.teeth[state.tooth], state.tooth) }
 
+    // The one button on this tab, straight under the chart where the eye lands, full width and
+    // in the website's green. It used to be a small pill under the tooth's detail, and was
+    // missed — a button that has to be found is a button that is not there.
     if (state.canRecord) {
         item {
-            Row(Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 14.dp)) {
-                SettingsPill(
-                    state.tooth?.let { "Chart tooth $it" } ?: "Pick a tooth to chart",
-                    solid = state.tooth != null,
-                ) { state.tooth?.let(onChart) }
+            val n = state.tooth
+            Surface(
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+                color = if (n != null) androidx.compose.ui.graphics.Color(0xFF16A34A) else T.surfaceSoft,
+                border = if (n != null) null else androidx.compose.foundation.BorderStroke(1.dp, T.line),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)
+                    .clickable(enabled = n != null) { n?.let(onChart) },
+            ) {
+                Row(Modifier.fillMaxWidth().padding(vertical = 15.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Add, null, tint = if (n != null) androidx.compose.ui.graphics.Color.White else T.inkFaint, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Txt(
+                        if (n != null) "Add diagnosis to tooth $n" else "Tap a tooth to add a diagnosis",
+                        Type.label.copy(fontSize = 15.sp),
+                        if (n != null) androidx.compose.ui.graphics.Color.White else T.inkFaint,
+                    )
+                }
             }
         }
     }
+
+    // What is on the picked tooth now, then everything that has ever been done to it — or to
+    // every tooth, when none is picked.
+    toothHistory(state, record)
 }
 
 private fun androidx.compose.foundation.lazy.LazyListScope.visits(record: Record) {

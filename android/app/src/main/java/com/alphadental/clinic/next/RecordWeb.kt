@@ -639,6 +639,7 @@ fun NewProcedureSheet(
     var statusOpen by remember { mutableStateOf(false) }
     var doctorOpen by remember { mutableStateOf(false) }
     var billingOpen by remember { mutableStateOf(false) }
+    var dateOpen by remember { mutableStateOf(false) }
 
     val teeth = remember(toothText) { toothText.split(',').mapNotNull { it.trim().toIntOrNull() }.toSet() }
     val setTeeth = { next: Set<Int> -> toothText = next.sorted().joinToString(",") }
@@ -691,17 +692,10 @@ fun NewProcedureSheet(
 
         // ---- date + status
         Row(Modifier.fillMaxWidth().padding(horizontal = T.gutter), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Column(Modifier.weight(1f)) {
-                Txt("Date", Type.caption.copy(fontSize = 12.sp), GreyInk)
-                Spacer(Modifier.height(6.dp))
-                Row(Modifier.fillMaxWidth().background(GreyTint, RoundedCornerShape(12.dp)).border(1.dp, T.line, RoundedCornerShape(12.dp)).padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    SheetChoice("◀", false) { date = shiftKey(date, -1) }
-                    Txt(prettyKey(date), Type.label.copy(fontSize = 12.sp), T.ink, Modifier.weight(1f).padding(horizontal = 4.dp), maxLines = 1)
-                    SheetChoice("▶", false) { date = shiftKey(date, 1) }
-                }
-            }
+            Field("Date", prettyKey(date), Modifier.weight(1f)) { dateOpen = true }
             Field("Status", status, Modifier.weight(1f)) { statusOpen = !statusOpen }
         }
+        if (dateOpen) DatePickerSheet(date, onPick = { date = it; dateOpen = false }, onDismiss = { dateOpen = false })
         if (statusOpen) SheetChoices("") { listOf("Planned", "Ongoing", "Completed").forEach { s -> SheetChoice(s, status == s) { status = s; statusOpen = false } } }
 
         // ---- doctor
@@ -723,12 +717,42 @@ fun NewProcedureSheet(
                 services.any { it.name.equals(needle, ignoreCase = true) } -> emptyList()
                 else -> services.filter { it.name.lowercase().contains(needle) }
             }
-            matches.take(30).forEach { s ->
+            /*
+             * Grouped under the website's category headings, in the website's order, each
+             * service with the icon the price list gave it. A service saved before categories
+             * existed is filed by the same keyword guess the website makes, so the two lists
+             * agree on where "Scaling & Polishing" lives.
+             */
+            val grouped = matches.groupBy { sv ->
+                com.alphadental.clinic.ui.DentalIcons.categoryOf(
+                    sv.category.ifBlank { com.alphadental.clinic.ui.DentalIcons.suggestCategory(sv.name) },
+                )
+            }
+            com.alphadental.clinic.ui.DentalIcons.CATEGORIES.forEach { cat ->
+                val inCat = grouped[cat] ?: return@forEach
                 Rule()
-                SheetAction(s.name, if (s.price > 0) "${fmt(s.price)} EGP" else "No price set") {
-                    procedure = s.name
-                    if (s.price > 0) price = fmt(s.price).replace(",", "")
-                    picking = false
+                Row(Modifier.fillMaxWidth().padding(start = T.gutter, end = T.gutter, top = 10.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(com.alphadental.clinic.ui.DentalIcons.get(cat.icon), null, tint = T.inkFaint, modifier = Modifier.size(13.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Txt(cat.en, Type.chip.copy(fontSize = 10.sp), T.inkFaint, uppercase = true)
+                }
+                inCat.forEach { sv ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable {
+                            procedure = sv.name
+                            if (sv.price > 0) price = fmt(sv.price).replace(",", "")
+                            picking = false
+                        }.padding(horizontal = T.gutter, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            com.alphadental.clinic.ui.DentalIcons.get(com.alphadental.clinic.ui.DentalIcons.idForService(sv.icon, sv.name, sv.category)),
+                            null, tint = Blue, modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Txt(sv.name, Type.body.copy(fontSize = 15.sp), T.ink, Modifier.weight(1f), maxLines = 2)
+                        Chip(if (sv.price > 0) "${fmt(sv.price)} EGP" else "No price", GreyTint, T.ink)
+                    }
                 }
             }
             if (matches.isNotEmpty()) Rule()
@@ -774,6 +798,107 @@ private fun Field(label: String, value: String, modifier: Modifier, onClick: () 
         Row(Modifier.fillMaxWidth().background(GreyTint, RoundedCornerShape(12.dp)).border(1.dp, T.line, RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
             Txt(value, Type.rowName, T.ink, Modifier.weight(1f), maxLines = 1)
             Txt("⌄", Type.body, GreyInk)
+        }
+    }
+}
+
+/** The website's date box opens a calendar. So does this one. */
+@androidx.compose.runtime.Composable
+@kotlin.OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+private fun DatePickerSheet(current: String, onPick: (String) -> Unit, onDismiss: () -> Unit) {
+    val fmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+    val initial = runCatching { fmt.parse(current)!!.time }.getOrNull()
+    val state = androidx.compose.material3.rememberDatePickerState(initialSelectedDateMillis = initial)
+    androidx.compose.material3.DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = {
+                // The picker answers in UTC midnight; formatting it in UTC keeps the same day.
+                state.selectedDateMillis?.let { onPick(fmt.format(java.util.Date(it))) } ?: onDismiss()
+            }) { Txt("Use this date", Type.label, T.ink) }
+        },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Txt("Cancel", Type.label, T.inkMuted) } },
+    ) { androidx.compose.material3.DatePicker(state = state) }
+}
+
+// ====================================================================== the chart's history
+
+private fun ClinicalNote.onTooth(n: Int): Boolean =
+    teeth.any { it.trim() == n.toString() } || tooth.split(Regex("[,\\s]+")).any { it.trim() == n.toString() }
+
+/**
+ * Everything ever recorded on a tooth — or on every tooth, when none is picked.
+ *
+ * Two kinds of record, both here because a dentist reading a tooth wants both at once: what has
+ * been diagnosed on it (the chart's own statuses and note) and what has been done to it (every
+ * procedure whose teeth include it, with the date, the dentist and the price). Split across two
+ * tabs they were two taps apart and read as two different patients.
+ */
+fun LazyListScope.toothHistory(state: RecordState, record: Record) {
+    val picked = state.tooth
+    val numbers: List<Int> = if (picked != null) listOf(picked) else
+        (record.teeth.keys + state.notes.flatMap { n -> n.teeth.mapNotNull { it.trim().toIntOrNull() } }).distinct().sorted()
+
+    item {
+        Txt(
+            if (picked != null) "Tooth $picked history" else "All teeth history",
+            Type.chip.copy(fontSize = 10.sp), GreyInk, Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 4.dp), uppercase = true,
+        )
+    }
+    if (numbers.isEmpty()) {
+        item { Txt("Nothing has been recorded on any tooth yet.", Type.body, T.inkFaint, Modifier.padding(20.dp), maxLines = 2) }
+        return
+    }
+    numbers.forEach { n ->
+        val tooth = record.teeth[n]
+        val done = state.notes.filter { it.onTooth(n) }.sortedByDescending { it.date }
+        if (picked == null && tooth?.hasAnything != true && done.isEmpty()) return@forEach
+        item(key = "th-$n") {
+            WhiteCard {
+                Column(Modifier.padding(14.dp)) {
+                    if (picked == null) {
+                        Txt("Tooth $n", Type.rowName.copy(fontSize = 15.sp), T.ink)
+                        Spacer(Modifier.height(6.dp))
+                    }
+                    if (tooth != null && tooth.statuses.isNotEmpty()) {
+                        Txt("Diagnosis", Type.chip.copy(fontSize = 9.sp), GreyInk, uppercase = true)
+                        tooth.statuses.forEach { id ->
+                            Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(9.dp).clip(RoundedCornerShape(3.dp)).background(com.alphadental.clinic.next.data.colourOf(id)))
+                                Spacer(Modifier.width(8.dp))
+                                Txt(com.alphadental.clinic.next.data.labelOf(id), Type.body, T.ink, Modifier.weight(1f), maxLines = 2)
+                                Txt(com.alphadental.clinic.next.data.categoryNameOf(id), Type.caption, GreyInk, maxLines = 1)
+                            }
+                        }
+                    }
+                    if (tooth != null && tooth.notes.isNotBlank()) {
+                        Spacer(Modifier.height(4.dp))
+                        Txt(tooth.notes, Type.caption, T.inkMuted, maxLines = 8)
+                    }
+                    if (done.isNotEmpty()) {
+                        if (tooth?.hasAnything == true) { Spacer(Modifier.height(8.dp)); Rule(); Spacer(Modifier.height(8.dp)) }
+                        Txt("Procedures", Type.chip.copy(fontSize = 9.sp), GreyInk, uppercase = true)
+                        done.forEach { note ->
+                            Row(Modifier.padding(vertical = 5.dp), verticalAlignment = Alignment.Top) {
+                                Txt(longDate(note.date), Type.caption.copy(fontSize = 11.sp), GreyInk, Modifier.width(78.dp), maxLines = 2)
+                                Column(Modifier.weight(1f)) {
+                                    Txt(note.procedure.ifBlank { "Treatment" }, Type.body, T.ink, maxLines = 2)
+                                    Txt(
+                                        listOfNotNull(
+                                            note.status.ifBlank { null },
+                                            note.doctor.takeIf { it.isNotBlank() },
+                                        ).joinToString(" · "), Type.caption, GreyInk, maxLines = 1,
+                                    )
+                                }
+                                if (note.cost > 0) Chip("EGP ${fmt(note.cost)}", GreyTint, T.ink)
+                            }
+                        }
+                    }
+                    if ((tooth == null || !tooth.hasAnything) && done.isEmpty()) {
+                        Txt("Nothing recorded on this tooth yet.", Type.body, T.inkFaint, maxLines = 2)
+                    }
+                }
+            }
         }
     }
 }
