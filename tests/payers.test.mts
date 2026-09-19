@@ -24,7 +24,7 @@ import {
   payerOf,
   payerStamp,
   payersDocFrom,
-  resolvePayerId,
+  payerForPriceList,
   withCommissionRate,
   type Payer,
 } from "../src/lib/payers";
@@ -98,25 +98,34 @@ function eq<T>(actual: T, expected: T, message: string) {
   eq(payersDocFrom([]).payers[0].id, PRIVATE_PAYER_ID, "Private is written first, so the screen opens on it");
 }
 
-// --- 2. Which payer a new treatment lands on --------------------------------------------------
+// --- 2. The price list IS the insurer ---------------------------------------------------------
+//
+// There is no "paid by" question anywhere in the app. The receptionist picks a price list per
+// treatment — the only control there has ever been — and that decides whose case it is. Two
+// treatments in one visit on two different lists are two different payers, which is how a patient
+// whose scaling is covered and whose filling is not gets both recorded honestly.
 {
   const payers = parsePayers({
     payers: [
       { id: PRIVATE_PAYER_ID, name: "Private", active: true, isDefault: true },
-      { id: "axa", name: "AXA", active: true, isDefault: false },
-      { id: "oldco", name: "OldCo", active: false, isDefault: false },
+      { id: "axa", name: "AXA", active: true, isDefault: false, priceListId: "payer-axa" },
+      { id: "oldco", name: "OldCo", active: false, isDefault: false, priceListId: "payer-oldco" },
     ],
   });
 
-  eq(resolvePayerId(payers, "axa", null), "axa", "what the screen asked for wins");
-  eq(resolvePayerId(payers, null, "axa"), "axa", "then the patient's usual payer");
-  eq(resolvePayerId(payers, null, null), PRIVATE_PAYER_ID, "then the clinic default");
+  eq(payerForPriceList(payers, "payer-axa").id, "axa", "charging on the AXA list makes it AXA's case");
   eq(
-    resolvePayerId(payers, "oldco", null),
+    payerForPriceList(payers, "standard").id,
     PRIVATE_PAYER_ID,
-    "a retired insurer named by a stale screen must not be resurrected — same rule price lists follow"
+    "a list no insurer owns is private work — the clinic's own list needs no configuration"
   );
-  eq(resolvePayerId(payers, "ghost", null), PRIVATE_PAYER_ID, "an id nothing knows falls back, it does not throw");
+  eq(payerForPriceList(payers, null).id, PRIVATE_PAYER_ID, "no list at all is private work");
+  eq(
+    payerForPriceList(payers, "payer-oldco").id,
+    PRIVATE_PAYER_ID,
+    "a retired insurer's list must not still claim cases — the same rule price lists follow"
+  );
+  eq(payerForPriceList(payers, "nothing-owns-this").id, PRIVATE_PAYER_ID, "an unknown list falls back, it does not throw");
   eq(defaultPayer(payers).id, PRIVATE_PAYER_ID, "the default is the one marked default");
 
   // The NAME is stamped beside the id so a renamed or deleted insurer still reads correctly on
@@ -285,39 +294,24 @@ function eq<T>(actual: T, expected: T, message: string) {
 {
   const procedures = read("src/app/api/clinical/procedures/route.ts");
   ok(
-    procedures.includes("resolvePayerId") && procedures.includes("payerStamp"),
-    "the treatment route no longer decides a payer, so nothing would ever be stamped"
+    procedures.includes("payerForPriceList") && procedures.includes("payerStamp"),
+    "the treatment route no longer derives the payer from the price list, so nothing would be stamped"
   );
   ok(
     procedures.includes("commissionRateFor(staff, payerId)"),
     "the treatment route is back on the dentist's single rate — insurance work would pay the private percentage"
   );
-  /**
-   * The one that was actually wrong in front of the clinic.
-   *
-   * The treatment screen carries its own price-list picker, and that picker resolves itself to the
-   * clinic default whenever nothing else is chosen — so every request arrived naming a list,
-   * explicitly, and an explicit list used to beat the payer's. Choosing AXA changed nothing: the
-   * case was billed at the clinic's own prices with the insurer's name on it.
-   */
-  ok(
-    /payerListIsUsable[\s\S]{0,200}\? \(payerPriceListId as string\)/.test(procedures),
-    "an insurer's tariff no longer beats the list named in the request — an insurance case can be billed at the clinic's own prices again"
-  );
-  ok(
-    /l\.id === payerPriceListId && l\.active/.test(procedures),
-    "the insurer's list is used without checking it is still active, so a retired list would price the case"
-  );
-
-  const discountEditor = read("src/components/shared/DiscountEditor.tsx");
-  ok(
-    /lockedByPayer/.test(discountEditor),
-    "the price-list picker can offer a second answer again — two controls for one decision is what caused this"
-  );
+  // One control, not two. A "paid by" picker beside the price list is what billed an insurance
+  // case at the clinic's own prices: both claimed the same decision and the list quietly won.
   const editor = read("src/components/clinical-notes/ServiceEditorDrawer.tsx");
+  ok(!/payerId/.test(editor), "the treatment editor has a payer picker again — the price list is the only control");
   ok(
-    /lockedByPayer=\{payerList\}/.test(editor),
-    "the treatment editor no longer tells the price-list picker that the payer has decided"
+    !/lockedByPayer/.test(read("src/components/shared/DiscountEditor.tsx")),
+    "the price-list picker is being driven by something other than the receptionist again"
+  );
+  ok(
+    !/defaultPayerId/.test(read("src/app/(dashboard)/patients/[id]/page.tsx")),
+    "the patient record is predicting a payer again — the list chosen per treatment already says"
   );
 
   const sync = read("src/lib/server/ledgerSync.ts");

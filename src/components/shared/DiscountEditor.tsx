@@ -49,16 +49,6 @@ type Props = {
   onChange: (next: DiscountState) => void;
   currency?: string;
   disabled?: boolean;
-  /**
-   * The payer has already decided which prices apply, so this control must not offer a second
-   * answer — it shows the insurer's name instead of a dropdown.
-   *
-   * Two pickers for one decision is exactly how an insurance case ended up billed at the clinic's
-   * own prices: the list picker always resolved itself to the clinic default and sent that
-   * explicitly, and an explicit list beats the payer's on the server. Whoever chose the insurer
-   * then watched the normal price appear and had no idea why.
-   */
-  lockedByPayer?: { listId: string; payerName: string } | null;
 };
 
 export default function DiscountEditor({
@@ -71,7 +61,6 @@ export default function DiscountEditor({
   onChange,
   currency,
   disabled = false,
-  lockedByPayer = null,
 }: Props) {
   const { language } = useLanguage();
   const ar = language === "ar";
@@ -96,17 +85,10 @@ export default function DiscountEditor({
    */
   useEffect(() => {
     if (activeLists.length === 0) return;
-    // The payer's list wins outright, including over a list the user picked before choosing one.
-    if (lockedByPayer) {
-      if (value.priceListId !== lockedByPayer.listId) {
-        onChange({ ...value, priceListId: lockedByPayer.listId });
-      }
-      return;
-    }
     if (activeLists.some((l) => l.id === value.priceListId)) return;
     onChange({ ...value, priceListId: resolveActiveListId(activeLists, value.priceListId, null, branchId) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeLists, value.priceListId, lockedByPayer?.listId]);
+  }, [activeLists, value.priceListId]);
 
   /**
    * Prefill the list's blanket discount when the list changes.
@@ -159,11 +141,7 @@ export default function DiscountEditor({
             <Tag size={11} className="mr-1 inline" />
             {txt.priceList}
           </label>
-          {lockedByPayer ? (
-            <p className="rounded-xl border border-line bg-slate-50/50 px-3 py-2.5 text-sm font-bold text-ink-body">
-              {ar ? `أسعار ${lockedByPayer.payerName}` : `${lockedByPayer.payerName} prices`}
-            </p>
-          ) : activeLists.length > 1 ? (
+          {activeLists.length > 1 ? (
             <select
               value={selectedList?.id ?? ""}
               disabled={disabled}

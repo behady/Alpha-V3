@@ -36,7 +36,7 @@ import {
   commissionRateFor,
   parsePayers,
   payerStamp,
-  resolvePayerId,
+  payerForPriceList,
 } from "@/lib/payers";
 import { buildDeleteContext, evaluateDelete } from "@/lib/deletePolicy";
 import { applyProcedureSync, readProcedureCommissionBasis, readProcedurePayments } from "@/lib/server/ledgerSync";
@@ -137,45 +137,28 @@ async function priceRequest(clinicId: string, body: Record<string, unknown>, act
   if (procedures.length === 0) throw new Error("NO_PROCEDURE_NAME");
 
   /**
-   * Who is paying, decided before the price is.
+   * Which list to charge from, and therefore who is paying.
    *
-   * The payer is what makes an insurance case answerable later: it picks the tariff to charge
-   * from, it picks the dentist's rate, and it is stamped onto both the treatment and every
-   * payment against it. A clinic with no insurers resolves to Private every time and nothing
-   * below behaves differently from how it did before payers existed.
+   * The price list IS the insurer. There is no second question anywhere: charge a treatment on
+   * the AXA list and it is AXA's case — AXA's prices, AXA's column in the reports, and the
+   * dentist's AXA percentage. Charge the next treatment in the same visit on the clinic's own
+   * list and that one is private. The receptionist picks a list per treatment and nothing is
+   * remembered between them, which is what makes a mixed visit ordinary rather than a feature.
+   *
+   * An unknown or deactivated list falls back to the clinic default rather than being honoured —
+   * a request naming a retired list must not resurrect its prices, and a retired insurer's list
+   * therefore resolves to private work rather than to a tariff nobody sells any more.
    */
-  const payerId = resolvePayerId(
-    payers,
-    typeof body.payerId === "string" ? body.payerId : null,
-    typeof body.patientDefaultPayerId === "string" ? body.patientDefaultPayerId : null
+  const patientDefaultListId =
+    typeof body.patientDefaultPriceListId === "string" ? body.patientDefaultPriceListId : null;
+  const priceListId = resolveActiveListId(
+    priceLists,
+    typeof body.priceListId === "string" ? body.priceListId : null,
+    patientDefaultListId
   );
-  const payer = payerStamp(payers, payerId);
-  const payerPriceListId = payers.find((p) => p.id === payerId)?.priceListId || null;
+  const payer = payerStamp(payers, payerForPriceList(payers, priceListId).id);
+  const payerId = payer.payerId;
 
-  /**
-   * Which list to charge from. An unknown or deactivated list falls back to the clinic default
-   * rather than being honoured — a request naming a retired list must not resurrect its prices.
-   *
-   * An insurer's own tariff BEATS whatever list the request names, and that is not a detail. The
-   * treatment screen has its own price-list picker, and that picker resolves itself to the
-   * clinic's default whenever nothing else is chosen — so it always sent a list, explicitly, and
-   * an explicit list used to win. The result was an insurance case billed at the clinic's own
-   * prices while the screen showed the insurer's name on it: wrong, and wrong silently.
-   *
-   * The client no longer sends a competing list, but this is the half that cannot be forgotten by
-   * a different client, an older build or the phone. Choosing the payer IS choosing the prices. A
-   * one-off stays possible by typing the cost, which is what that field is for.
-   */
-  const payerListIsUsable = payerPriceListId
-    ? priceLists.some((l) => l.id === payerPriceListId && l.active)
-    : false;
-  const priceListId = payerListIsUsable
-    ? (payerPriceListId as string)
-    : resolveActiveListId(
-        priceLists,
-        typeof body.priceListId === "string" ? body.priceListId : null,
-        typeof body.patientDefaultPriceListId === "string" ? body.patientDefaultPriceListId : null
-      );
   const priceList = findPriceList(priceLists, priceListId);
 
   const pricing = computeProcedurePricing({

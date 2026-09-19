@@ -256,60 +256,8 @@ export default function ServiceEditorDrawer({
   const [addToLedger, setAddToLedger] = useState(true);
   // Price list + discount for this line. The server recomputes and enforces both; this is the
   // preview and the input.
-  const { priceLists, payers, discountSettings, maxDiscountPercent } = usePricingPolicy();
+  const { priceLists, discountSettings, maxDiscountPercent } = usePricingPolicy();
 
-  /**
-   * Who is being billed for this treatment.
-   *
-   * Empty means "whatever the server decides" — the patient's own payer, else the clinic default —
-   * which is what a clinic with no insurers wants and never has to look at. The picker only
-   * appears when there is an actual choice to make.
-   */
-  const [payerId, setPayerId] = useState<string>("");
-  const activePayers = payers.filter((p) => p.active);
-
-  /**
-   * The payer decides which prices apply, so the price-list picker stops being a second opinion.
-   *
-   * Without this, choosing AXA changed nothing visible: the list control resolved itself to the
-   * clinic's default and sent that list explicitly, and an explicit list beats the payer's on the
-   * server. The case was billed at the clinic's own prices while the screen said AXA, which is the
-   * worst possible combination — wrong, and wrong quietly.
-   */
-  const payerList = (() => {
-    const chosen = activePayers.find((p) => p.id === payerId);
-    if (!chosen?.priceListId) return null;
-    return { listId: chosen.priceListId, payerName: isAr ? chosen.nameAr || chosen.name : chosen.name };
-  })();
-
-  /**
-   * A new treatment opens on whoever normally pays for this patient.
-   *
-   * Read here rather than passed in as a prop. Five different screens open this editor — the
-   * patient's file, the appointment panel, the chart, the dentist's home, the desk — and only one
-   * of them ever remembered to pass the patient's default price list. A prop that four callers
-   * forget is a feature that silently does not work, and the cost of forgetting this one is an
-   * insurance case booked as private revenue at the wrong commission.
-   *
-   * Never applied when editing a saved treatment: that one already has its own answer, and
-   * reopening it must not re-bill it to somebody else.
-   */
-  useEffect(() => {
-    if (!isOpen || initialNote || !patientId || activePayers.length < 2) return;
-    let cancelled = false;
-    void getDoc(getClinicDoc("patients", patientId))
-      .then((snap) => {
-        const stored = snap.exists() ? snap.data()?.defaultPayerId : null;
-        if (!cancelled && typeof stored === "string" && stored) setPayerId(stored);
-      })
-      .catch(() => {
-        /* The picker simply opens on the clinic default, which is what it did before. */
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, patientId, initialNote, activePayers.length]);
   const [discount, setDiscount] = useState<DiscountState>(EMPTY_DISCOUNT);
 
   const [isSaving, setIsSaving] = useState(false);
@@ -362,8 +310,6 @@ export default function ServiceEditorDrawer({
       
       // Same reasoning as the price list below: reopening a treatment must not move it onto a
       // different payer, which would move the revenue AND the dentist's rate.
-      setPayerId((initialNote as { payerId?: string }).payerId || "");
-
       // Reopen the note on the list and discount it was priced with, so re-saving never silently
       // re-prices it at today's rates.
       setDiscount({
@@ -470,7 +416,6 @@ export default function ServiceEditorDrawer({
         addToLedger,
         ...discountPayload(discount),
         patientDefaultPriceListId: patientDefaultPriceListId || null,
-        payerId: payerId || null,
       };
 
       let labSeed: LabCaseSeed | undefined;
@@ -732,36 +677,9 @@ export default function ServiceEditorDrawer({
     </div>
   );
 
-  /**
-   * The payer picker, rendered only when the clinic actually has more than one.
-   *
-   * A clinic doing no insurance work should never see this control at all — one payer means one
-   * possible answer, and a select with a single option is a question with no purpose. The moment
-   * an insurer is added in Settings it appears here, on every treatment screen, without anything
-   * else changing.
-   */
-  const payerField = activePayers.length > 1 ? (
-    <div>
-      <label className={labelClass}>{isAr ? "جهة الدفع" : "Paid by"}</label>
-      <select
-        value={payerId}
-        onChange={(e) => setPayerId(e.target.value)}
-        disabled={isSaving}
-        className={inputClass}
-      >
-        <option value="">{isAr ? "الافتراضي للمريض" : "The patient's usual"}</option>
-        {activePayers.map((p) => (
-          <option key={p.id} value={p.id}>
-            {isAr ? p.nameAr || p.name : p.name}
-          </option>
-        ))}
-      </select>
-    </div>
-  ) : null;
 
   const discountField = (
     <DiscountEditor
-      lockedByPayer={payerList}
       listTotal={previewTotal}
       priceLists={priceLists}
       branchId={branchId}
@@ -828,7 +746,6 @@ export default function ServiceEditorDrawer({
           <div>
             {/* Empty label so this lines up with the fields beside it. */}
             <span className={labelClass} aria-hidden="true">&nbsp;</span>
-            {payerField}
             {discountField}
             {ledgerField}
           </div>
@@ -955,8 +872,6 @@ export default function ServiceEditorDrawer({
           </div>
 
           {costField}
-
-          {payerField}
 
           {billingStrip}
 

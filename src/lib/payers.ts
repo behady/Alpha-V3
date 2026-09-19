@@ -157,24 +157,31 @@ export function defaultPayer(payers: readonly Payer[]): Payer {
 }
 
 /**
- * Which payer a new treatment is charged to.
+ * Who is paying, worked out from the price list the treatment was charged on.
  *
- * The request wins, then the patient's own payer, then the clinic default. A payer that has been
- * retired is NOT honoured from the request — the same rule price lists follow, and for the same
- * reason: a stale screen naming a retired insurer must not quietly resurrect its tariff. A payer
- * already on a SAVED procedure is a different matter and stays readable for ever; this decides
- * what a new one gets.
+ * This is the whole interface. There is no separate "paid by" question anywhere in the app,
+ * because there never needed to be one: an insurer IS its price list. Charge a treatment on the
+ * AXA list and it is AXA's case — the patient appears in AXA's patient list, the dentist earns
+ * his AXA percentage, and the revenue lands in AXA's column. Charge the next treatment in the
+ * same visit on the clinic's own list and that one is private. One control, one decision, and a
+ * mixed visit falls out of it for free.
+ *
+ * Everything else was scaffolding around this idea and has been removed: a payer picker on the
+ * treatment screen that argued with the price list, and a "usually pays by" field on the patient
+ * that tried to predict an answer the list already gives.
+ *
+ * A list no insurer owns — the clinic's Standard list, or any list a clinic made for its own
+ * reasons — is private work, which is the correct default and needs no configuration.
  */
-export function resolvePayerId(
+export function payerForPriceList(
   payers: readonly Payer[],
-  requested: string | null | undefined,
-  patientDefault: string | null | undefined,
-): string {
-  const asked = findPayer(payers, requested);
-  if (asked?.active) return asked.id;
-  const patients = findPayer(payers, patientDefault);
-  if (patients?.active) return patients.id;
-  return defaultPayer(payers).id;
+  priceListId: string | null | undefined,
+): Payer {
+  if (priceListId) {
+    const owner = payers.find((p) => p.priceListId === priceListId && p.active);
+    if (owner) return owner;
+  }
+  return payers.find((p) => p.id === PRIVATE_PAYER_ID) || PRIVATE_PAYER;
 }
 
 /* --- what a dentist earns, per payer ---------------------------------------------------------- */
