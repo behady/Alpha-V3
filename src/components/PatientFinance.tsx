@@ -42,6 +42,7 @@ import {
 } from "@/lib/moneyApi";
 import { allocationMessage, allocationMessageAr, checkAllocation, overAllocation } from "@/lib/paymentAllocation";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { usePricingPolicy } from "@/lib/usePricingPolicy";
 function formatWhatsAppLedgerMessage(
   patientName: string,
   clinicName: string,
@@ -110,12 +111,14 @@ interface LedgerItem {
     discountMode?: string;
     discountPercent?: number | null;
     discountFixed?: number | null;
+    discountReason?: string | null;
     status?: string;
     clinicalNoteId?: string;
     doctorCommissionPercentage?: number | null;
   }
 export default function PatientFinance({ patientId }: { patientId: string }) {
   const { showToast, confirm } = useUI();
+  const { discountSettings, maxDiscountPercent } = usePricingPolicy();
   const { language } = useLanguage();
   const { user } = useAuth();
   const { clinic, isReadOnly, isAdmin } = useClinic();
@@ -428,6 +431,9 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
               discountMode: editingItem.discountMode || "none",
               discountPercent: editingItem.discountPercent ?? null,
               discountFixed: editingItem.discountFixed ?? null,
+              // Sent on every save so an edit to the date does not quietly strip the reason the
+              // discount was given under — and so the server has one to check when it grows.
+              discountReason: editingItem.discountReason || null,
             }
           : {
               date: editingItem.date,
@@ -767,6 +773,28 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                               )}
                               {editingItem.discountMode === "fixed" && (
                                 <div><label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">EGP</label><input type="number" value={editingItem.discountFixed ?? ""} onChange={e => setEditingItem({...editingItem, discountFixed: Number(e.target.value)})} className="w-full p-3 border border-gray-200 rounded-xl font-black text-sm outline-none focus:border-blue-500"/></div>
+                              )}
+                              {editingItem.discountMode !== "none" && (
+                                <div>
+                                  <label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">
+                                    {language === "ar" ? "سبب الخصم" : "Discount reason"}
+                                  </label>
+                                  <select
+                                    value={editingItem.discountReason || ""}
+                                    onChange={e => setEditingItem({ ...editingItem, discountReason: e.target.value })}
+                                    className="w-full p-3 border border-gray-200 rounded-xl font-bold text-sm outline-none focus:border-blue-500 bg-surface"
+                                  >
+                                    <option value="">{language === "ar" ? "اختر السبب" : "Choose a reason"}</option>
+                                    {discountSettings.reasons.map(reason => (
+                                      <option key={reason} value={reason}>{reason}</option>
+                                    ))}
+                                  </select>
+                                  <p className="text-[10px] font-bold text-gray-400 mt-1">
+                                    {maxDiscountPercent === null
+                                      ? (language === "ar" ? "مفيش حد أقصى للخصم" : "No ceiling on your discounts")
+                                      : (language === "ar" ? `أقصى خصم مسموح ليك ${maxDiscountPercent}%` : `Your ceiling is ${maxDiscountPercent}%`)}
+                                  </p>
+                                </div>
                               )}
                               {editingItem.discountMode === "none" && (
                                 <div><label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">{txt.cost} (EGP)</label><input type="number" value={editingItem.cost} onChange={e => setEditingItem({...editingItem, cost: Number(e.target.value), listPrice: Number(e.target.value) })} className="w-full p-3 border border-gray-200 rounded-xl font-black text-sm outline-none focus:border-blue-500"/></div>

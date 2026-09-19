@@ -47,6 +47,8 @@ import { buildDeleteContext, evaluateDelete, type DeleteTarget } from "@/lib/del
 import { applyProcedureSync, readProcedureCommissionBasis, readProcedurePayments } from "@/lib/server/ledgerSync";
 import { recordLedgerAudit, recordMoneyChange } from "@/lib/server/ledgerAudit";
 import { recalcCommissionFromPayment } from "@/lib/ledgerCommission";
+import { allowedDiscount, checkDiscountAllowed } from "@/lib/discountMath";
+import { DISCOUNTS_DOC, parseDiscountSettings } from "@/lib/priceLists";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,6 +67,20 @@ function bad(error: string, status = 400) {
  * offer "record that much and put the rest on account" — a refusal that only says no leaves the
  * receptionist holding the patient's money with nowhere to put it.
  */
+/**
+ * A discount this person may not give, or one with no reason behind it.
+ *
+ * The clinical route has asked both questions since discounts existed; this one never did, so the
+ * same discount refused on the treatment screen went through unchallenged from any screen that
+ * edits a charge. A ceiling enforced in one of two doors is not a ceiling.
+ */
+class DiscountRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DiscountRefusedError";
+  }
+}
+
 class OverAllocationError extends Error {
   readonly verdict: Extract<AllocationVerdict, { ok: false }>;
   readonly description: string | null;
@@ -90,7 +106,7 @@ const EDITABLE_ENTRY_FIELDS = ["date", "description", "amount", "category", "met
  * which teeth, how many units, which dentist) belongs to the clinical route, which recomputes the
  * price, the lab fee and the payout together.
  */
-const EDITABLE_PROCEDURE_FIELDS = ["date", "description", "discountMode", "discountPercent", "discountFixed", "listPrice"] as const;
+const EDITABLE_PROCEDURE_FIELDS = ["date", "description", "discountMode", "discountPercent", "discountFixed", "discountReason", "listPrice"] as const;
 
 /**
  * Apply a discount to a charge, server-side.
@@ -314,6 +330,17 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
 
   const staff = await loadStaff(clinicId);
 
+  // Only read the policy when the patch could change a discount — every other edit (a date, a
+  // description, a payment amount) has no business paying for a settings read.
+  const touchesDiscount =
+    patch.discountMode !== undefined ||
+    patch.discountPercent !== undefined ||
+    patch.discountFixed !== undefined ||
+    patch.listPrice !== undefined;
+  const discountSettings = touchesDiscount
+    ? parseDiscountSettings((await adminClinicDoc(clinicId, "settings", DISCOUNTS_DOC).get()).data() ?? null)
+    : null;
+
   const result = await adminDb().runTransaction(async (txn) => {
     const ref = adminClinicDoc(clinicId, "ledger", id);
     const snap = await txn.get(ref);
@@ -526,6 +553,32 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
         fallbackCost: Number(before.cost) || 0,
       });
       Object.assign(update, discounted, { amount: discounted.cost });
+
+      /**
+       * Who may take this much off, and what for.
+       *
+       * Asked only when the discount GROWS. An edit that re-sends the discount already on the row
+       * — which is what the patient's finance screen does on every save, discount or not — is not
+       * someone giving a discount, and making it fail for want of a reason would break editing a
+       * date on a charge that was discounted months ago by somebody else.
+       */
+      if (discountSettings) {
+        const beforeAmount = Number(before.discountAmount) || 0;
+        const reason = String(update.discountReason ?? before.discountReason ?? "");
+        if (discounted.discountAmount > beforeAmount + 0.001) {
+          const verdict = checkDiscountAllowed({
+            listPrice: discounted.listPrice,
+            discountAmount: discounted.discountAmount,
+            reason,
+            authority: allowedDiscount(actor.role, null, discountSettings),
+            availableReasons: discountSettings.reasons,
+          });
+          if (!verdict.ok) throw new DiscountRefusedError(verdict.error);
+        }
+        // A discount lifted off takes its reason with it; one left in place keeps the reason it
+        // was given under, even when this patch never mentioned it.
+        update.discountReason = discounted.discountAmount > 0 ? reason || null : null;
+      }
 
       // The dentist's share follows the discounted amount: the lab is paid in full either way, so
       // a discount comes out of what is left, not off the lab's invoice.
@@ -896,6 +949,9 @@ export async function POST(request: Request) {
         { status: 409 }
       );
     }
+
+    // Carries a sentence written for the person who typed the discount, not a code.
+    if (e instanceof DiscountRefusedError) return bad(e.message, 403);
 
     const message = e instanceof Error ? e.message : "";
     switch (message) {
