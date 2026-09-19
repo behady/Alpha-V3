@@ -252,7 +252,6 @@ private fun tabIcon(tab: RecordTab): ImageVector = when (tab) {
     RecordTab.Overview -> Icons.Filled.Dashboard
     RecordTab.Photos -> Icons.Filled.CameraAlt
     RecordTab.Rx -> Icons.Filled.Medication
-    RecordTab.Chart -> Icons.Filled.Timeline
     RecordTab.Ai -> Icons.Filled.AutoAwesome
 }
 

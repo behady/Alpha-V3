@@ -230,6 +230,8 @@ data class ClinicalNote(
     val unitCost: Double = 0.0,
     val pricingMode: String = "",
     val appointmentId: String = "",
+    /** The price-list entries this note was priced from. What decides the mark on the chart. */
+    val serviceIds: List<String> = emptyList(),
 )
 
 /**

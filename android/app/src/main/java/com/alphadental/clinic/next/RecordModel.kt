@@ -26,7 +26,6 @@ enum class RecordTab(val label: String) {
     Overview("Overview"),
     Photos("X-Rays & Photos"),
     Rx("Prescriptions"),
-    Chart("Chart"),
     Ai("AI"),
 }
 
@@ -134,6 +133,10 @@ data class RecordState(
     /** Changing who somebody is, rather than what was done to them. */
     val canEditDetails: Boolean get() = who?.can("patients.edit") == true
 
+    /** What has been done to each tooth, for the chart's marks. Decided by price-list category. */
+    val treatments: Map<Int, List<com.alphadental.clinic.next.data.ToothTreatment>>
+        get() = com.alphadental.clinic.next.data.ToothTreatments.byTooth(notes, services)
+
     /** Treatments still only planned — the work this patient is waiting for. */
     val planned: List<com.alphadental.clinic.data.ClinicalNote>
         get() = notes.filter { it.status == "Planned" }
@@ -210,7 +213,9 @@ class RecordModel : ViewModel() {
                 .onSuccess {
                     _state.value = _state.value.copy(loading = false, who = who, record = it)
                     if (who.can("finance.add")) loadUnpaid(who, id)
-                    if (who.can("clinical.edit")) loadLists(who)
+                    // For everyone, not only those who may record: the chart maps each procedure
+                    // to a mark through the price list's categories, and a reader needs that too.
+                    loadLists(who)
                     loadMedia(who, id)
                     loadNotes(who, id)
                     loadScripts(who, id)

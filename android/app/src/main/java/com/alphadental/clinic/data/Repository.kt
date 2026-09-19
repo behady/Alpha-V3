@@ -796,6 +796,8 @@ object Repository {
                     unitCost = (doc.get("unitCost") as? Number)?.toDouble() ?: 0.0,
                     pricingMode = doc.getString("pricingMode").orEmpty(),
                     appointmentId = doc.getString("appointmentId").orEmpty(),
+                    serviceIds = ((doc.get("serviceIds") as? List<*>)?.mapNotNull { it?.toString() }.orEmpty()
+                        + listOfNotNull(doc.getString("serviceId"))).filter { it.isNotBlank() }.distinct(),
                 )
             }
             // Ordered here rather than in the query: sorting server-side on date would need a

@@ -56,6 +56,8 @@ fun ToothChart(
     teeth: Map<Int, Tooth>,
     selected: Int?,
     onSelect: (Int?) -> Unit,
+    /** What has been done to each tooth. Drawn as the website draws it: form, then mark. */
+    treatments: Map<Int, List<com.alphadental.clinic.next.data.ToothTreatment>> = emptyMap(),
 ) {
     Surface(color = T.surface, modifier = Modifier.fillMaxWidth()) {
         Column {
@@ -64,18 +66,18 @@ fun ToothChart(
 
                 ArchLabel("Upper")
                 Spacer(Modifier.height(8.dp))
-                Arch(UPPER_RIGHT, UPPER_LEFT, teeth, selected, onSelect)
+                Arch(UPPER_RIGHT, UPPER_LEFT, teeth, selected, onSelect, treatments)
 
                 Spacer(Modifier.height(14.dp))
                 Box(Modifier.fillMaxWidth().height(1.dp).background(T.line))
                 Spacer(Modifier.height(14.dp))
 
-                Arch(LOWER_RIGHT, LOWER_LEFT, teeth, selected, onSelect)
+                Arch(LOWER_RIGHT, LOWER_LEFT, teeth, selected, onSelect, treatments)
                 Spacer(Modifier.height(8.dp))
                 ArchLabel("Lower")
 
                 Spacer(Modifier.height(16.dp))
-                Legend(teeth)
+                Legend(teeth, treatments)
             }
             Rule()
         }
@@ -131,9 +133,10 @@ private fun PickArch(
     onToggle: (Int) -> Unit,
 ) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-        right.forEach { ToothCell(it, teeth[it], it in chosen, Modifier.weight(1f)) { n -> onToggle(n ?: it) } }
+        // Named, because the trailing-lambda slot is now the marks parameter.
+        right.forEach { ToothCell(it, teeth[it], it in chosen, Modifier.weight(1f), onSelect = { n -> onToggle(n ?: it) }) }
         Box(Modifier.width(2.dp).height(46.dp).background(T.line))
-        left.forEach { ToothCell(it, teeth[it], it in chosen, Modifier.weight(1f)) { n -> onToggle(n ?: it) } }
+        left.forEach { ToothCell(it, teeth[it], it in chosen, Modifier.weight(1f), onSelect = { n -> onToggle(n ?: it) }) }
     }
 }
 
@@ -144,13 +147,15 @@ private fun Arch(
     teeth: Map<Int, Tooth>,
     selected: Int?,
     onSelect: (Int?) -> Unit,
+    treatments: Map<Int, List<com.alphadental.clinic.next.data.ToothTreatment>> = emptyMap(),
 ) {
+    val marks = { n: Int -> com.alphadental.clinic.next.data.ToothTreatments.resolve(treatments[n]) }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-        right.forEach { ToothCell(it, teeth[it], selected == it, Modifier.weight(1f), onSelect) }
+        right.forEach { ToothCell(it, teeth[it], selected == it, Modifier.weight(1f), onSelect, marks(it)) }
         // The midline, so a dentist can count outward from it without reading
         // every number.
         Box(Modifier.width(2.dp).height(46.dp).background(T.line))
-        left.forEach { ToothCell(it, teeth[it], selected == it, Modifier.weight(1f), onSelect) }
+        left.forEach { ToothCell(it, teeth[it], selected == it, Modifier.weight(1f), onSelect, marks(it)) }
     }
 }
 
@@ -161,9 +166,26 @@ private fun ToothCell(
     isSelected: Boolean,
     modifier: Modifier,
     onSelect: (Int?) -> Unit,
+    marks: com.alphadental.clinic.next.data.ToothMarks = com.alphadental.clinic.next.data.ToothMarks(),
 ) {
     val leading = tooth?.leading
-    val fill = leading?.let { colourOf(it) }
+    val diagnosisFill = leading?.let { colourOf(it) }
+    /*
+     * What the tooth looks like, in the website's order of precedence: a form treatment
+     * (extraction, implant, crown, veneer) replaces the artwork and the diagnosis colour with
+     * it — a crowned tooth is grey whatever was wrong underneath — while a mark is drawn ON the
+     * tooth and leaves the diagnosis colour showing. Diagnosis and treatment are kept apart on
+     * purpose: a dentist must be able to read "caries" and not mistake it for "we filled it".
+     */
+    val form = marks.form
+    val mark = marks.mark
+    val fill = when (form) {
+        com.alphadental.clinic.next.data.TreatmentState.Extracted -> null
+        null -> diagnosisFill
+        else -> form.colour
+    }
+    val gone = form == com.alphadental.clinic.next.data.TreatmentState.Extracted
+    val pending = marks.pending.isNotEmpty()
 
     val upper = number < 30
     val ink = T.ink
@@ -184,26 +206,93 @@ private fun ToothCell(
             Modifier.fillMaxWidth().aspectRatio(0.72f),
         ) {
             val path = toothPath(number, size.width, size.height, upper)
-            drawPath(path, color = fill ?: soft)
-            drawPath(
-                path,
-                color = when {
-                    isSelected -> ink
-                    fill != null -> Color.Black.copy(alpha = .18f)
-                    else -> line
-                },
-                style = androidx.compose.ui.graphics.drawscope.Stroke(
-                    width = if (isSelected) 2.2.dp.toPx() else 1.dp.toPx(),
-                ),
-            )
-            // A tooth carrying more than one condition gets a dot, so the chart
-            // does not quietly imply the colour is the whole story.
-            if (multi) {
-                drawCircle(
-                    color = Color.White.copy(alpha = .9f),
-                    radius = 2.4.dp.toPx(),
-                    center = androidx.compose.ui.geometry.Offset(size.width / 2, size.height / 2),
+            val w = size.width
+            val h = size.height
+            val dashed = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 2.5.dp.toPx()))
+
+            if (gone) {
+                // An extracted tooth is a gap: a faint dashed outline where it was, and the X
+                // the website draws, so the number still has something under it.
+                drawPath(path, color = line, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx(), pathEffect = dashed))
+                val c = com.alphadental.clinic.next.data.TreatmentState.Extracted.colour
+                val sw = 1.8.dp.toPx()
+                drawLine(c, androidx.compose.ui.geometry.Offset(w * .28f, h * .28f), androidx.compose.ui.geometry.Offset(w * .72f, h * .72f), sw)
+                drawLine(c, androidx.compose.ui.geometry.Offset(w * .72f, h * .28f), androidx.compose.ui.geometry.Offset(w * .28f, h * .72f), sw)
+            } else {
+                drawPath(path, color = fill ?: soft)
+                drawPath(
+                    path,
+                    color = when {
+                        isSelected -> ink
+                        fill != null -> Color.Black.copy(alpha = .18f)
+                        else -> line
+                    },
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(
+                        width = if (isSelected) 2.2.dp.toPx() else 1.dp.toPx(),
+                    ),
                 )
+
+                // The crown is at the bottom of an upper tooth and the top of a lower one; the
+                // root runs the other way. The marks go where the work went.
+                val crownY = if (upper) h * .74f else h * .26f
+                val rootFrom = if (upper) h * .06f else h * .94f
+                val rootTo = if (upper) h * .48f else h * .52f
+
+                when (form) {
+                    com.alphadental.clinic.next.data.TreatmentState.Implant -> {
+                        // A screw down the root: the line and its threads.
+                        val c = Color.White.copy(alpha = .85f)
+                        drawLine(c, androidx.compose.ui.geometry.Offset(w / 2, rootFrom), androidx.compose.ui.geometry.Offset(w / 2, rootTo), 1.6.dp.toPx())
+                        for (i in 1..3) {
+                            val y = rootFrom + (rootTo - rootFrom) * i / 4f
+                            drawLine(c, androidx.compose.ui.geometry.Offset(w * .38f, y), androidx.compose.ui.geometry.Offset(w * .62f, y), 1.dp.toPx())
+                        }
+                    }
+                    com.alphadental.clinic.next.data.TreatmentState.Veneered -> {
+                        // A lighter face on the crown, the way a veneer sits on the front.
+                        drawRect(
+                            Color.White.copy(alpha = .7f),
+                            topLeft = androidx.compose.ui.geometry.Offset(w * .3f, if (upper) h * .58f else h * .12f),
+                            size = androidx.compose.ui.geometry.Size(w * .4f, h * .3f),
+                        )
+                    }
+                    else -> Unit
+                }
+
+                when (mark) {
+                    com.alphadental.clinic.next.data.TreatmentState.RootCanal -> {
+                        // A filled canal: a line down the root in the endo blue.
+                        drawLine(mark.colour, androidx.compose.ui.geometry.Offset(w / 2, rootFrom), androidx.compose.ui.geometry.Offset(w / 2, rootTo), 2.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                    }
+                    com.alphadental.clinic.next.data.TreatmentState.Filled -> {
+                        // A patch on the crown.
+                        drawCircle(mark.colour, radius = 3.2.dp.toPx(), center = androidx.compose.ui.geometry.Offset(w / 2, crownY))
+                    }
+                    com.alphadental.clinic.next.data.TreatmentState.Perio -> {
+                        // A line at the gum, where the treatment was.
+                        drawLine(mark.colour, androidx.compose.ui.geometry.Offset(w * .2f, h / 2), androidx.compose.ui.geometry.Offset(w * .8f, h / 2), 2.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                    }
+                    com.alphadental.clinic.next.data.TreatmentState.Treated -> {
+                        // "Something was done here, open the note." A grey dot on the crown.
+                        drawCircle(mark.colour, radius = 2.6.dp.toPx(), center = androidx.compose.ui.geometry.Offset(w / 2, crownY))
+                    }
+                    else -> Unit
+                }
+
+                // Work planned and not yet done: a dashed amber outline, never drawn as done.
+                if (pending) {
+                    drawPath(path, color = Color(0xFFD97706), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.4.dp.toPx(), pathEffect = dashed))
+                }
+
+                // A tooth carrying more than one condition gets a dot, so the chart
+                // does not quietly imply the colour is the whole story.
+                if (multi && mark == null) {
+                    drawCircle(
+                        color = Color.White.copy(alpha = .9f),
+                        radius = 2.4.dp.toPx(),
+                        center = androidx.compose.ui.geometry.Offset(size.width / 2, size.height / 2),
+                    )
+                }
             }
         }
         Spacer(Modifier.height(3.dp))
@@ -222,12 +311,20 @@ private fun ToothCell(
  * furniture. It grows to fit what is there.
  */
 @Composable
-private fun Legend(teeth: Map<Int, Tooth>) {
-    val present = teeth.values
+private fun Legend(
+    teeth: Map<Int, Tooth>,
+    treatments: Map<Int, List<com.alphadental.clinic.next.data.ToothTreatment>> = emptyMap(),
+) {
+    // Diagnoses first, then the work: each entry only if it is on this mouth.
+    val done = treatments.values.flatten().filter { it.done }.map { it.state }.distinct().sortedByDescending { it.precedence }
+    val anyPending = treatments.values.flatten().any { !it.done }
+    val present = (teeth.values
         .mapNotNull { it.leading }
         .map { categoryNameOf(it) to colourOf(it) }
         .distinctBy { it.first }
-        .sortedBy { it.first }
+        .sortedBy { it.first }) +
+        done.map { it.label to it.colour } +
+        (if (anyPending) listOf("Planned work" to Color(0xFFD97706)) else emptyList())
 
     if (present.isEmpty()) {
         Txt("Nothing has been charted for this patient yet.", Type.caption, T.inkFaint, maxLines = 2)

@@ -145,18 +145,26 @@ fun RecordScreen(
             ) {
                 item { PatientCard(record, onEditDetails, onCall, onMessage) }
                 item { StatsCard(visits = record.past.size, completed = state.notes.count { it.status != "Planned" }) }
-                item { QuickActions(onRx = onPrescribe, onDiagnosis = { onTab(RecordTab.Chart) }, onOrtho = onOrtho) }
+                item { QuickActions(onRx = onPrescribe, onDiagnosis = { onTab(RecordTab.Notes) }, onOrtho = onOrtho) }
                 item { Spacer(Modifier.height(6.dp)) }
                 item { WebTabs(state.tab, onTab) }
                 when (state.tab) {
                     RecordTab.Overview -> overview(state, record)
-                    RecordTab.Chart -> chart(state, record, onSelectTooth, onChart)
                     RecordTab.Ai -> if (ai != null && aiActions != null) {
                         aiClinical(ai, aiActions)
                     } else {
                         item { SettingsEmpty("The assistant is not available in the preview.") }
                     }
-                    RecordTab.Notes -> clinical(state, onRecordTreatment, onSort, onEditNote, onDeleteNote)
+                    RecordTab.Notes -> {
+                        // One tab for the mouth and what was done to it. The chart on top with its
+                        // two verbs — add a procedure, add a diagnosis — then the picked tooth's
+                        // history, then the timeline. They were two tabs, and the owner asked for
+                        // one: a dentist charting a tooth and then recording the filling on it is
+                        // doing one job, not two.
+                        chart(state, record, onSelectTooth, onChart, onRecordTreatment)
+                        if (state.tooth != null) toothHistory(state, record)
+                        clinical(state, null, onSort, onEditNote, onDeleteNote)
+                    }
                     RecordTab.Plan -> plans(state, onPlan, onPlanStatus)
                     RecordTab.Visits -> visits(record)
                     RecordTab.Rx -> scripts(state, onPrescribe, onPrintScript, onShareScript, onSendScript, onCopyScript)
@@ -585,44 +593,55 @@ private fun androidx.compose.foundation.lazy.LazyListScope.chart(
     record: Record,
     onSelectTooth: (Int?) -> Unit,
     onChart: (Int) -> Unit,
+    onRecordTreatment: (() -> Unit)?,
 ) {
     item {
         ToothChart(
             teeth = record.teeth,
             selected = state.tooth,
             onSelect = onSelectTooth,
+            treatments = state.treatments,
         )
     }
 
-    // The one button on this tab, straight under the chart where the eye lands, full width and
-    // in the website's green. It used to be a small pill under the tooth's detail, and was
-    // missed — a button that has to be found is a button that is not there.
+    // The two things this tab is for, side by side under the chart: add a procedure (teal, the
+    // website's), add a diagnosis to the picked tooth (green). Nothing to hunt for.
     if (state.canRecord) {
         item {
             val n = state.tooth
-            Surface(
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
-                color = if (n != null) androidx.compose.ui.graphics.Color(0xFF16A34A) else T.surfaceSoft,
-                border = if (n != null) null else androidx.compose.foundation.BorderStroke(1.dp, T.line),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)
-                    .clickable(enabled = n != null) { n?.let(onChart) },
-            ) {
-                Row(Modifier.fillMaxWidth().padding(vertical = 15.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Add, null, tint = if (n != null) androidx.compose.ui.graphics.Color.White else T.inkFaint, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Txt(
-                        if (n != null) "Add diagnosis to tooth $n" else "Tap a tooth to add a diagnosis",
-                        Type.label.copy(fontSize = 15.sp),
-                        if (n != null) androidx.compose.ui.graphics.Color.White else T.inkFaint,
-                    )
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                onRecordTreatment?.let { add ->
+                    Surface(
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+                        color = androidx.compose.ui.graphics.Color(0xFF0D9488),
+                        modifier = Modifier.weight(1f).clickable(onClick = add),
+                    ) {
+                        Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Add, null, tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Txt("Add procedure", Type.label.copy(fontSize = 13.sp), androidx.compose.ui.graphics.Color.White, maxLines = 1)
+                        }
+                    }
+                }
+                Surface(
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+                    color = if (n != null) androidx.compose.ui.graphics.Color(0xFF16A34A) else T.surfaceSoft,
+                    border = if (n != null) null else androidx.compose.foundation.BorderStroke(1.dp, T.line),
+                    modifier = Modifier.weight(1f).clickable(enabled = n != null) { n?.let(onChart) },
+                ) {
+                    Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Add, null, tint = if (n != null) androidx.compose.ui.graphics.Color.White else T.inkFaint, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Txt(
+                            if (n != null) "Diagnosis · tooth $n" else "Tap a tooth to diagnose",
+                            Type.label.copy(fontSize = 13.sp),
+                            if (n != null) androidx.compose.ui.graphics.Color.White else T.inkFaint, maxLines = 1,
+                        )
+                    }
                 }
             }
         }
     }
-
-    // What is on the picked tooth now, then everything that has ever been done to it — or to
-    // every tooth, when none is picked.
-    toothHistory(state, record)
 }
 
 private fun androidx.compose.foundation.lazy.LazyListScope.visits(record: Record) {
