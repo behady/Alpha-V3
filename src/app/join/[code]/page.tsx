@@ -40,6 +40,17 @@ export default function JoinByInvitePage() {
   const [joinedName, setJoinedName] = useState("");
   const accepted = useRef(false);
 
+  /**
+   * Stop replaying a link that can never work.
+   *
+   * /onboarding sends anyone with a remembered code straight back here, so a dead link would
+   * bounce between the two screens forever. A code is only worth remembering while it still
+   * might be accepted — the moment it is refused, forget it. Network trouble is not a refusal.
+   */
+  const forgetPendingInvite = () => {
+    try { localStorage.removeItem(PENDING_INVITE_STORAGE); } catch { /* storage optional */ }
+  };
+
   const roleLabel = (role?: string) => (role ? (isAr ? ROLE_AR[role] || role : role) : "");
 
   const t = {
@@ -66,11 +77,16 @@ export default function JoinByInvitePage() {
     if (!isValidInviteCode(code)) {
       setPeek({ found: false });
       setError(t.invalid);
+      forgetPendingInvite();
       return;
     }
     fetch(`/api/invites/accept?code=${encodeURIComponent(code)}`)
       .then((r) => r.json())
-      .then((data) => setPeek(data?.ok ? (data as Peek) : { found: false }))
+      .then((data) => {
+        const next: Peek = data?.ok ? (data as Peek) : { found: false };
+        if (!next.found) forgetPendingInvite();
+        setPeek(next);
+      })
       .catch(() => setPeek({ found: false }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code]);
@@ -80,6 +96,7 @@ export default function JoinByInvitePage() {
     if (authLoading || !user || !peek?.found || accepted.current || error) return;
     if (peek.status && peek.status !== "active") {
       setError(friendlyError({ code: `invite-${peek.status}` }, lang, "invite-unusable"));
+      forgetPendingInvite();
       return;
     }
     accepted.current = true;
@@ -105,7 +122,12 @@ export default function JoinByInvitePage() {
         setJoinedName(peek.clinicName || "");
         setJoinedClinicId(data.clinicId as string);
       } catch (err) {
-        setError(isNetworkFailure(err) ? friendlyError({ code: "network" }, lang, "network") : err instanceof Error ? err.message : t.failed);
+        if (isNetworkFailure(err)) {
+          setError(friendlyError({ code: "network" }, lang, "network"));
+        } else {
+          setError(err instanceof Error ? err.message : t.failed);
+          forgetPendingInvite();
+        }
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps

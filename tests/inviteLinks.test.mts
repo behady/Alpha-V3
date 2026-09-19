@@ -80,4 +80,19 @@ assert.ok(login.includes('get("invite")') && login.includes("afterAuth()"), "log
 const users = readFileSync(join(REPO, "src/components/settings/UserManagement.tsx"), "utf8");
 assert.ok(users.includes("<InviteLinks"), "the Users screen offers the link");
 
+// The loop that swallowed anyone who created an account from a link: /join needs a clinic to
+// render, but /join is what gets you one. ClinicProvider must let it through the same door as
+// /onboarding, and the join page must drop a code the server has refused -- /onboarding replays
+// a remembered code, so a dead one bounces between the two screens forever.
+const clinicCtx = readFileSync(join(REPO, "src/context/ClinicContext.tsx"), "utf8");
+assert.ok(clinicCtx.includes('pathname.startsWith("/join/")'), "a person with no clinic yet may stand on the join page");
+assert.ok(
+  !clinicCtx.includes("pathname !== '/onboarding' && pathname !== '/superadmin'"),
+  "the render gate lists its clinic-free routes in one place"
+);
+const joinPage = readFileSync(join(REPO, "src/app/join/[code]/page.tsx"), "utf8");
+assert.ok(joinPage.includes("forgetPendingInvite"), "a refused code stops being replayed");
+const onboarding = readFileSync(join(REPO, "src/app/onboarding/page.tsx"), "utf8");
+assert.ok(onboarding.includes("PENDING_INVITE_STORAGE"), "onboarding is the other half of that loop");
+
 console.log("inviteLinks: all assertions passed");
