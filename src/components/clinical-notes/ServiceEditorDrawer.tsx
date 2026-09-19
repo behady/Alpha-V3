@@ -267,6 +267,35 @@ export default function ServiceEditorDrawer({
    */
   const [payerId, setPayerId] = useState<string>("");
   const activePayers = payers.filter((p) => p.active);
+
+  /**
+   * A new treatment opens on whoever normally pays for this patient.
+   *
+   * Read here rather than passed in as a prop. Five different screens open this editor — the
+   * patient's file, the appointment panel, the chart, the dentist's home, the desk — and only one
+   * of them ever remembered to pass the patient's default price list. A prop that four callers
+   * forget is a feature that silently does not work, and the cost of forgetting this one is an
+   * insurance case booked as private revenue at the wrong commission.
+   *
+   * Never applied when editing a saved treatment: that one already has its own answer, and
+   * reopening it must not re-bill it to somebody else.
+   */
+  useEffect(() => {
+    if (!isOpen || initialNote || !patientId || activePayers.length < 2) return;
+    let cancelled = false;
+    void getDoc(getClinicDoc("patients", patientId))
+      .then((snap) => {
+        const stored = snap.exists() ? snap.data()?.defaultPayerId : null;
+        if (!cancelled && typeof stored === "string" && stored) setPayerId(stored);
+      })
+      .catch(() => {
+        /* The picker simply opens on the clinic default, which is what it did before. */
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, patientId, initialNote, activePayers.length]);
   const [discount, setDiscount] = useState<DiscountState>(EMPTY_DISCOUNT);
 
   const [isSaving, setIsSaving] = useState(false);

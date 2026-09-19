@@ -42,6 +42,11 @@ export default function PayerReport({ procedures, payments, payers, rangeLabel, 
   );
   const payroll = useMemo(() => byDoctor(report), [report]);
   const [open, setOpen] = useState<string | null>(null);
+  /**
+   * What an expanded insurer shows. "Which patients came from this insurance" is the owner's
+   * second question and it used to need a different screen; it is a tab here instead.
+   */
+  const [detail, setDetail] = useState<"doctors" | "patients">("doctors");
 
   const columns = report.payers;
   const hasInsurance = columns.some((c) => c.payerId !== PRIVATE_PAYER_ID);
@@ -147,7 +152,56 @@ export default function PayerReport({ procedures, payments, payers, rangeLabel, 
                       <td className="px-3 py-2.5 text-end font-figure text-[13px] text-ink-muted">{fmt(p.commission)}</td>
                       <td className="px-3 py-2.5 text-end font-figure text-[13px] font-bold text-ink">{fmt(p.clinicNet)}</td>
                     </tr>
-                    {expanded &&
+                    {expanded && (
+                      <tr key={`${p.payerId}-tabs`} className="border-b border-line bg-surface-subtle">
+                        <td colSpan={8} className="px-10 py-2">
+                          <span className="inline-flex gap-1 rounded-full bg-surface p-1">
+                            {(["doctors", "patients"] as const).map((view) => (
+                              <button
+                                key={view}
+                                type="button"
+                                onClick={() => setDetail(view)}
+                                className={`rounded-full px-3 py-1 text-[11.5px] font-black transition-colors ${
+                                  detail === view ? "bg-ink-slab text-white" : "text-ink-faint hover:text-ink"
+                                }`}
+                              >
+                                {view === "doctors"
+                                  ? isAr
+                                    ? "الأطباء"
+                                    : "Dentists"
+                                  : isAr
+                                    ? `المرضى (${p.patients})`
+                                    : `Patients (${p.patients})`}
+                              </button>
+                            ))}
+                          </span>
+                        </td>
+                      </tr>
+                    )}
+                    {expanded && detail === "patients" &&
+                      (p.patientList.length === 0 ? (
+                        <tr key={`${p.payerId}-nopatients`} className="border-b border-line bg-surface-subtle">
+                          <td colSpan={8} className="px-10 py-2.5 text-[12px] font-medium text-ink-faint">
+                            {isAr ? "مفيش مرضى في الفترة دي." : "No patients in this period."}
+                          </td>
+                        </tr>
+                      ) : (
+                        p.patientList.map((person) => (
+                          <tr key={`${p.payerId}-${person.patientId}`} className="border-b border-line bg-surface-subtle">
+                            <td className="px-10 py-2 text-[12.5px] font-medium text-ink-body">
+                              {person.patientName || (isAr ? "بدون اسم" : "Unnamed")}
+                            </td>
+                            <td className="px-3 py-2 text-end font-figure text-[12.5px] text-ink-body">{person.cases}</td>
+                            <td className="px-3 py-2" />
+                            <td className="px-3 py-2 text-end font-figure text-[12.5px] text-ink-faint">{fmt(person.charged)}</td>
+                            <td className="px-3 py-2 text-end font-figure text-[12.5px] text-ink-body">{fmt(person.collected)}</td>
+                            <td className="px-3 py-2" />
+                            <td className="px-3 py-2" />
+                            <td className="px-3 py-2" />
+                          </tr>
+                        ))
+                      ))}
+                    {expanded && detail === "doctors" &&
                       (p.doctors.length === 0 ? (
                         <tr key={`${p.payerId}-none`} className="border-b border-line bg-surface-subtle">
                           <td colSpan={8} className="px-10 py-2.5 text-[12px] font-medium text-ink-faint">

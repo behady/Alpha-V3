@@ -35,6 +35,7 @@ export type LedgerRowLite = {
   payerId?: unknown;
   payerName?: unknown;
   patientId?: unknown;
+  patientName?: unknown;
   doctorId?: unknown;
   doctorName?: unknown;
   cost?: unknown;
@@ -71,6 +72,15 @@ export type DoctorSplit = {
   ratePct: number | null;
 };
 
+/** One patient's work under one payer, for the "who came from this insurer" list. */
+export type PayerPatient = {
+  patientId: string;
+  patientName: string;
+  cases: number;
+  charged: number;
+  collected: number;
+};
+
 export type PayerTotals = {
   payerId: string;
   payerName: string;
@@ -83,6 +93,15 @@ export type PayerTotals = {
   /** Collected, less what the dentists earned and what the lab took. */
   clinicNet: number;
   doctors: DoctorSplit[];
+  /**
+   * Who this insurer's work was for, biggest first.
+   *
+   * The owner's question is "how many patients come from this insurance", and a count alone
+   * invites the follow-up "which ones?" — so the names are carried rather than left to a second
+   * screen. A patient treated under two payers appears under both, with only that payer's work
+   * against their name, which is the only way a mixed visit can be read honestly.
+   */
+  patientList: PayerPatient[];
 };
 
 export type PayerReport = {
@@ -106,7 +125,10 @@ export type PayerReport = {
   unstamped: { procedures: number; payments: number };
 };
 
-function blankTotals(payerId: string, payerName: string): PayerTotals & { patientIds: Set<string> } {
+function blankTotals(
+  payerId: string,
+  payerName: string,
+): PayerTotals & { patientIds: Set<string>; people: Map<string, PayerPatient> } {
   return {
     payerId,
     payerName,
@@ -118,7 +140,9 @@ function blankTotals(payerId: string, payerName: string): PayerTotals & { patien
     commission: 0,
     clinicNet: 0,
     doctors: [],
+    patientList: [],
     patientIds: new Set<string>(),
+    people: new Map<string, PayerPatient>(),
   };
 }
 
@@ -185,7 +209,16 @@ export function buildPayerReport(
     totals.charged += num(row.cost) || num(row.amount);
     totals.labFees += num(row.labFee);
     const patientId = String(row.patientId ?? "").trim();
-    if (patientId) totals.patientIds.add(patientId);
+    if (patientId) {
+      totals.patientIds.add(patientId);
+      const person =
+        totals.people.get(patientId) ||
+        { patientId, patientName: String(row.patientName ?? "").trim(), cases: 0, charged: 0, collected: 0 };
+      person.cases++;
+      person.charged += num(row.cost) || num(row.amount);
+      if (!person.patientName) person.patientName = String(row.patientName ?? "").trim();
+      totals.people.set(patientId, person);
+    }
 
     const doctorId = String(row.doctorId ?? "").trim();
     if (doctorId) {
@@ -205,6 +238,18 @@ export function buildPayerReport(
     const received = num(row.paid) || num(row.amount);
     totals.collected += received;
     totals.commission += num(row.doctorCommissionAmount);
+
+    const payingPatient = String(row.patientId ?? "").trim();
+    if (payingPatient) {
+      // A payment can arrive for a treatment recorded in an earlier period, so the patient may
+      // not be in the map yet. Counted with no cases rather than dropped — the money is real.
+      const person =
+        totals.people.get(payingPatient) ||
+        { patientId: payingPatient, patientName: String(row.patientName ?? "").trim(), cases: 0, charged: 0, collected: 0 };
+      person.collected += received;
+      if (!person.patientName) person.patientName = String(row.patientName ?? "").trim();
+      totals.people.set(payingPatient, person);
+    }
 
     const doctorId = String(row.doctorId ?? "").trim();
     if (doctorId) {
@@ -229,11 +274,20 @@ export function buildPayerReport(
       }))
       .sort((a, b) => b.collected - a.collected || a.doctorName.localeCompare(b.doctorName));
 
+    const patientList = [...row.people.values()]
+      .map((person) => ({
+        ...person,
+        charged: money(person.charged),
+        collected: money(person.collected),
+      }))
+      .sort((a, b) => b.collected - a.collected || b.charged - a.charged);
+
     return {
       payerId: row.payerId,
       payerName: row.payerName,
       cases: row.cases,
       patients: row.patientIds.size,
+      patientList,
       charged: money(row.charged),
       collected: money(row.collected),
       labFees: money(row.labFees),

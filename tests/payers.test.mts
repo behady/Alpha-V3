@@ -327,4 +327,62 @@ function eq<T>(actual: T, expected: T, message: string) {
   ok(/id: "payers"/.test(settings), "the payers screen is not registered, so nothing can be configured");
 }
 
+// --- 8. Who came from each insurer --------------------------------------------------------------
+//
+// "How many patients come from this insurance" is the owner's first question and "which ones" is
+// always his second, so the names travel with the count.
+{
+  const payers = parsePayers({
+    payers: [
+      { id: PRIVATE_PAYER_ID, name: "Private", active: true, isDefault: true },
+      { id: "axa", name: "AXA", active: true, isDefault: false },
+    ],
+  });
+  // One visit, two payers: the scaling is covered, the filling is not. This is the case the
+  // clinic described, and it is why a payer is a property of a treatment and not of a visit.
+  const procedures = [
+    { type: "procedure", payerId: "axa", patientId: "p1", patientName: "Mona", doctorId: "d1", cost: 600 },
+    { type: "procedure", payerId: PRIVATE_PAYER_ID, patientId: "p1", patientName: "Mona", doctorId: "d1", cost: 800 },
+    { type: "procedure", payerId: "axa", patientId: "p2", patientName: "Sara", doctorId: "d1", cost: 1000 },
+  ];
+  const payments = [
+    { type: "payment", payerId: "axa", patientId: "p1", patientName: "Mona", doctorId: "d1", paid: 600, doctorCommissionAmount: 150 },
+    { type: "payment", payerId: PRIVATE_PAYER_ID, patientId: "p1", patientName: "Mona", doctorId: "d1", paid: 800, doctorCommissionAmount: 320 },
+    { type: "payment", payerId: "axa", patientId: "p2", patientName: "Sara", doctorId: "d1", paid: 1000, doctorCommissionAmount: 250 },
+  ];
+
+  const report = buildPayerReport(procedures, payments, payers);
+  const axa = report.payers.find((p) => p.payerId === "axa")!;
+  const priv = report.payers.find((p) => p.payerId === PRIVATE_PAYER_ID)!;
+
+  eq(axa.patients, 2, "AXA saw two patients");
+  eq(axa.patientList.map((x) => x.patientName), ["Sara", "Mona"], "the patient list is biggest first");
+  eq(
+    axa.patientList.find((x) => x.patientId === "p1")!.charged,
+    600,
+    "a patient with work under two payers shows only THIS payer's work against their name"
+  );
+  eq(
+    priv.patientList.find((x) => x.patientId === "p1")!.charged,
+    800,
+    "and the rest of that same visit against the other payer"
+  );
+  eq(report.totals.patients, 2, "the same person in both columns is still one patient overall");
+  eq(
+    axa.patientList.reduce((n, x) => n + x.collected, 0),
+    axa.collected,
+    "the patient list must total the payer's own collected figure"
+  );
+
+  // A payment landing for a treatment from an earlier period still counts the money.
+  const late = buildPayerReport(
+    [],
+    [{ type: "payment", payerId: "axa", patientId: "p9", patientName: "Late", paid: 500 }],
+    payers
+  );
+  const lateAxa = late.payers.find((p) => p.payerId === "axa")!;
+  eq(lateAxa.patientList.length, 1, "a payment with no treatment this period still names its patient");
+  eq(lateAxa.patientList[0].cases, 0, "with no cases against them, because none were recorded in the period");
+}
+
 console.log(`payers: ${checks} checks passed`);

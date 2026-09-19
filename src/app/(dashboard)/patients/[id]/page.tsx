@@ -18,6 +18,7 @@ import { smsPreferenceState, type PatientContactPreferences } from "@/lib/patien
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { useUI } from "@/context/UIContext";
 import { useLanguage } from "@/context/LanguageContext";
+import { generalDoctorLabel } from "@/lib/generalDentist";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { logActivity } from "@/lib/logger";
@@ -40,6 +41,7 @@ import {
 } from "@/lib/phoneNumber";
 import PageHeader from "@/components/dashboard/PageHeader";
 import { isUnlocked } from "@/lib/featureCatalog";
+import { usePricingPolicy } from "@/lib/usePricingPolicy";
 
 // Helper for the CRM Timeline Icons, Colors & Human Titles
 function formatWhatsAppLogType(type: string) {
@@ -230,7 +232,18 @@ export default function PatientProfile() {
   const [editPhone, setEditPhone] = useState("");
   const [editAddress, setEditAddress] = useState("");
   const [editDob, setEditDob] = useState("");
+  const { payers } = usePricingPolicy();
   const [editReferral, setEditReferral] = useState("");
+  /**
+   * Who normally pays for this patient's treatment.
+   *
+   * Saves the front desk from choosing an insurer on every procedure, for every visit, for ever —
+   * and missing it once quietly books an insurance case as private revenue at the wrong
+   * commission. It is only a default: a patient whose scaling is covered and whose filling is not
+   * still gets both, because the payer is chosen per treatment and this just decides what the
+   * picker opens on.
+   */
+  const [editPayerId, setEditPayerId] = useState("");
   const [editAllergies, setEditAllergies] = useState("");
   const [editGender, setEditGender] = useState("Male");
   const [editStatus, setEditStatus] = useState("Active");
@@ -331,6 +344,7 @@ export default function PatientProfile() {
         setEditAddress(data.address || "");
         setEditDob(data.dateOfBirth || "");
         setEditReferral(data.referral || "");
+        setEditPayerId(typeof data.defaultPayerId === "string" ? data.defaultPayerId : "");
         setEditAllergies(data.allergies || "");
         setEditGender(data.gender || "Male");
         setEditStatus(data.status || "Active");
@@ -572,6 +586,7 @@ export default function PatientProfile() {
         address: editAddress,
         dateOfBirth: editDob,
         referral: editReferral,
+        defaultPayerId: editPayerId || null,
         medicalHistory: finalHistory,
         allergies: editAllergies,
         gender: editGender,
@@ -1652,7 +1667,7 @@ export default function PatientProfile() {
                                      const Icon = style.icon;
                                      const appointmentDate = appt.date || "—";
                                      const appointmentTime = appt.time || "—";
-                                     const appointmentDoctor = appt.doctorName || appt.doctor || "Unassigned";
+                                     const appointmentDoctor = appt.doctorName || appt.doctor || generalDoctorLabel(language);
                                      const appointmentReason = appt.treatment || (t("generalConsultation") || "General consultation");
                                      const appointmentNotes = appt.notes || "No extra notes.";
                                      const eventTime = appt.createdAt
@@ -2132,6 +2147,26 @@ export default function PatientProfile() {
                             <ChevronDown size={14} className="absolute top-1/2 -translate-y-1/2 right-4 text-slate-400 pointer-events-none"/>
                         </div>
                     </div>
+                    {payers.filter((p) => p.active).length > 1 && (
+                      <div>
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">
+                            {language === 'ar' ? 'بيدفع عن طريق' : "Usually pays by"}
+                          </label>
+                          <div className="relative">
+                              <select value={editPayerId} onChange={e => setEditPayerId(e.target.value)} className="w-full px-4 py-3 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none appearance-none focus:bg-surface focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all cursor-pointer">
+                                 {payers.filter((p) => p.active).map((p) => (
+                                   <option key={p.id} value={p.id}>{language === 'ar' ? p.nameAr || p.name : p.name}</option>
+                                 ))}
+                              </select>
+                              <ChevronDown size={14} className="absolute top-1/2 -translate-y-1/2 right-4 text-slate-400 pointer-events-none"/>
+                          </div>
+                          <p className="mt-1.5 text-[10.5px] font-medium text-ink-faint">
+                            {language === 'ar'
+                              ? 'ده بس اللي بيتفتح عليه الاختيار — تقدر تغيّره في أي علاج لوحده.'
+                              : 'Only what the picker opens on — you can change it on any single treatment.'}
+                          </p>
+                      </div>
+                    )}
                     <div>
                         <label className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-2 flex items-center gap-1.5"><AlertCircle size={12}/> {t('allergies') || "Allergies"}</label>
                         <input value={editAllergies} onChange={e => setEditAllergies(e.target.value)} placeholder={language === 'ar' ? 'مثال: بنسلين — اتركه فارغاً إن لم يُسأل' : 'e.g. Penicillin — leave blank if not asked'} className="w-full px-4 py-3 bg-rose-50/50 border border-rose-200 rounded-xl font-bold text-rose-900 outline-none focus:bg-surface focus:ring-4 focus:ring-rose-500/10 focus:border-rose-400 transition-all placeholder:font-medium placeholder:text-rose-300"/>
