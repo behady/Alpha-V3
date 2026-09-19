@@ -193,6 +193,9 @@ private fun ToothCell(
     val line = T.line
     val soft = T.surfaceSoft
     val multi = (tooth?.statuses?.size ?: 0) > 1
+    // The photographs, when the app ships them. Looked up once per cell and cached app-wide.
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val photo = { key: String -> ToothTextures.get(context, key) }
 
     Column(
         modifier.clickable { onSelect(if (isSelected) null else number) },
@@ -284,7 +287,9 @@ private fun ToothCell(
                 val crownH = crownBottom - crownTop
 
                 // ---- the root: painted with its diagnosis, then the screw or the canal line
-                if (form == T_Implant) {
+                if (form == T_Implant && photo("implant") != null) {
+                    with(ToothTextures) { paintPhoto(g.root, photo("implant")!!) }
+                } else if (form == T_Implant) {
                     drawPath(g.root, color = Color(0xFFD1D5DB))
                     clipPath(g.root) {
                         val rootTop = minOf(g.tipY, g.neckY)
@@ -308,7 +313,17 @@ private fun ToothCell(
                         val apex = g.tipY
                         val floor = if (upper) g.neckY - 1.dp.toPx() else g.neckY + 1.dp.toPx()
                         val xs = if (molar) listOf(w * .36f, w * .64f) else listOf(w / 2)
-                        clipPath(g.root) {
+                        val gp = photo("gutta_percha")
+                        if (gp != null) {
+                            // The photograph, through a band the width of each canal, cropped
+                            // by the root itself.
+                            val half = 1.8.dp.toPx()
+                            xs.forEach { cx ->
+                                val band = ToothTextures.rect(cx - half, minOf(apex, floor), cx + half, maxOf(apex, floor))
+                                val region = androidx.compose.ui.graphics.Path.combine(androidx.compose.ui.graphics.PathOperation.Intersect, g.root, band)
+                                with(ToothTextures) { paintPhoto(region, gp) }
+                            }
+                        } else clipPath(g.root) {
                             xs.forEach { cx ->
                                 drawLine(guttaPercha, androidx.compose.ui.geometry.Offset(cx, apex), androidx.compose.ui.geometry.Offset(cx, floor), 2.6.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
                                 drawLine(guttaCore, androidx.compose.ui.geometry.Offset(cx, apex), androidx.compose.ui.geometry.Offset(cx, floor), 0.9.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
@@ -322,10 +337,16 @@ private fun ToothCell(
                     form == T_Crowned || form == T_Implant -> {
                         val fullMetal = listOf("gold", "full metal", "metal crown", "stainless", "ssc").any { it in lowerProc }
                         val pfm = !fullMetal && listOf("pfm", "porcelain fused", "metal").any { it in lowerProc }
+                        val crownPhoto = photo(if (fullMetal) "crown_metal" else if (pfm) "crown_pfm" else "crown_zirconia")
+                        if (crownPhoto != null) {
+                            // The real crown, filling the whole crown, cropped by its outline.
+                            with(ToothTextures) { paintPhoto(g.crown, crownPhoto) }
+                        } else {
                         // The cap: a light crown with a firm outline, which is what "capped" reads as.
                         drawPath(g.crown, color = if (fullMetal) Color(0xFFD1D5DB) else porcelain)
                         if (fullMetal) hatch(g.crown, crownTop, crownBottom)
-                        if (pfm) {
+                        }
+                        if (pfm && crownPhoto == null) {
                             // The metal collar: the cervical third, hatched.
                             val collarTop = if (upper) g.neckY else g.neckY - crownH * .3f
                             val collarBottom = if (upper) g.neckY + crownH * .3f else g.neckY
@@ -340,7 +361,12 @@ private fun ToothCell(
                     }
                     form == T_Veneered -> {
                         drawPath(g.crown, color = base)
-                        clipPath(g.crown) {
+                        val vp = photo("veneer")
+                        val face = androidx.compose.ui.graphics.Path.combine(
+                            androidx.compose.ui.graphics.PathOperation.Intersect, g.crown,
+                            ToothTextures.rect(w * .26f, crownTop, w * .74f, crownBottom),
+                        )
+                        if (vp != null) with(ToothTextures) { paintPhoto(face, vp) } else clipPath(g.crown) {
                             drawRect(porcelain, topLeft = androidx.compose.ui.geometry.Offset(w * .26f, crownTop), size = androidx.compose.ui.geometry.Size(w * .48f, crownH))
                         }
                         drawPath(g.crown, color = porcelainEdge, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx()))
@@ -355,7 +381,9 @@ private fun ToothCell(
                             addRoundRect(androidx.compose.ui.geometry.RoundRect(androidx.compose.ui.geometry.Rect(w * .28f, top, w * .72f, top + crownH * .5f), androidx.compose.ui.geometry.CornerRadius(2.dp.toPx())))
                         }
                         val region = androidx.compose.ui.graphics.Path.combine(androidx.compose.ui.graphics.PathOperation.Intersect, g.crown, patch)
-                        drawPath(region, color = if (isAmalgam) amalgam else composite)
+                        val fp = photo(if (isAmalgam) "amalgam" else "composite")
+                        if (fp != null) with(ToothTextures) { paintPhoto(region, fp) }
+                        else drawPath(region, color = if (isAmalgam) amalgam else composite)
                         drawPath(region, color = if (isAmalgam) metalInk else compositeEdge, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.1.dp.toPx()))
                     }
                     else -> drawPath(g.crown, color = base)
