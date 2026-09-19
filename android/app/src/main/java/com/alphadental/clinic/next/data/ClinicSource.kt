@@ -275,6 +275,17 @@ object ClinicSource {
      * here rather than in the query because the stored time is a display string
      * ("09:30 AM") that Firestore cannot order correctly.
      */
+    /** Every visit in a run of days, once. The week grid and the month calendar read this. */
+    suspend fun visitsBetween(clinicId: String, fromKey: String, toKey: String): List<Visit> =
+        withContext(Dispatchers.IO) {
+            clinic(clinicId).collection("appointments")
+                .whereGreaterThanOrEqualTo("date", fromKey)
+                .whereLessThanOrEqualTo("date", toKey)
+                .get().await()
+                .documents.map { it.toVisit() }
+                .sortedWith(compareBy({ it.date }, { it.minuteOfDay }, { it.patientName }))
+        }
+
     fun watchDay(clinicId: String, dateKey: String): Flow<List<Visit>> = callbackFlow {
         val reg: ListenerRegistration = clinic(clinicId)
             .collection("appointments")

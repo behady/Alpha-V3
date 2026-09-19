@@ -786,7 +786,12 @@ private fun DayTab(
         DayScreen(
             state = state, onShiftDay = {}, onToday = {},
             onOpenVisit = onOpenVisit,
-            onSpan = { span -> state = state.copy(span = span, counts = previewCounts(span)) },
+            onSpan = { span ->
+                val counts = previewCounts(span)
+                state = state.copy(span = span, counts = counts, spanVisits = previewSpanVisits(counts))
+            },
+            onSelectDay = { state = state.copy(dateKey = it) },
+            onOpenDay = { state = state.copy(dateKey = it, span = Span.Day) },
             onBookGap = { gap -> onBook(state.dateKey, clockOf(gap.minute)) },
         )
     } else {
@@ -798,6 +803,7 @@ private fun DayTab(
             onOpenVisit = onOpenVisit,
             onSpan = model::show,
             onOpenDay = model::openDay,
+            onSelectDay = model::selectDay,
             // A free slot books into itself: the whole point of tapping one is
             // that the day and time are already decided.
             onBookGap = { gap -> onBook(state.dateKey, clockOf(gap.minute)) },
@@ -2153,6 +2159,19 @@ private fun HelpPane(onBack: () -> Unit) {
  * to draw. The live screen counts real appointments; this only has to prove the
  * squares line up under the right weekday.
  */
+/** The demo's visits spread over the days of the span, so the week grid has blocks on it. */
+private fun previewSpanVisits(counts: List<DayCount>): List<com.alphadental.clinic.next.data.Visit> {
+    val days = counts.filter { it.inSpan }
+    if (days.isEmpty()) return emptyList()
+    val sample = previewDay().visits
+    return days.flatMapIndexed { d, day ->
+        val n = minOf(day.booked, sample.size)
+        sample.shuffled(java.util.Random(d.toLong())).take(n).mapIndexed { i, v ->
+            v.copy(id = "${day.dateKey}-$i", date = day.dateKey)
+        }
+    }
+}
+
 private fun previewCounts(span: Span): List<DayCount> {
     if (span == Span.Day) return emptyList()
     val busy = listOf(6, 0, 9, 11, 4, 7, 0, 3, 12, 8, 0, 5, 10, 2)

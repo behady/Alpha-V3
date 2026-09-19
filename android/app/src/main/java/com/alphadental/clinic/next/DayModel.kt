@@ -65,6 +65,8 @@ data class Day(
     /** The week or month around [dateKey], once it has been counted. */
     val counts: List<DayCount> = emptyList(),
     val counting: Boolean = false,
+    /** Every visit in the week or month on screen, for the grid. Empty in the day view. */
+    val spanVisits: List<Visit> = emptyList(),
 ) {
     val isToday: Boolean get() = dateKey == ClinicSource.dateKey()
     val unconfirmed: Int get() = visits.count { it.status == Stage.Unconfirmed }
@@ -156,7 +158,7 @@ class DayModel : ViewModel() {
 
     fun show(span: Span) {
         if (span == _state.value.span) return
-        _state.value = _state.value.copy(span = span, counts = emptyList())
+        _state.value = _state.value.copy(span = span, counts = emptyList(), spanVisits = emptyList())
         if (span != Span.Day) count()
     }
 
@@ -175,9 +177,7 @@ class DayModel : ViewModel() {
         val (from, to, pad) = rangeOf(_state.value.dateKey, span)
         _state.value = _state.value.copy(counting = true)
         viewModelScope.launch {
-            val rows = runCatching {
-                com.alphadental.clinic.data.Repository.loadAppointmentsBetween(who.clinicId, from, to)
-            }.getOrDefault(emptyList())
+            val rows = runCatching { ClinicSource.visitsBetween(who.clinicId, from, to) }.getOrDefault(emptyList())
 
             val byDay = rows.groupBy { it.date }
             val days = mutableListOf<DayCount>()
@@ -193,13 +193,19 @@ class DayModel : ViewModel() {
                 days += DayCount(
                     dateKey = key,
                     dayOfMonth = cursor.get(Calendar.DAY_OF_MONTH),
-                    booked = onDay.count { Stage.from(it.status) != Stage.Cancelled },
-                    done = onDay.count { Stage.from(it.status) == Stage.Completed },
+                    booked = onDay.count { it.status != Stage.Cancelled },
+                    done = onDay.count { it.status == Stage.Completed },
                 )
                 cursor.add(Calendar.DAY_OF_YEAR, 1)
             }
-            _state.value = _state.value.copy(counts = days, counting = false)
+            _state.value = _state.value.copy(counts = days, counting = false, spanVisits = rows)
         }
+    }
+
+    /** Tapping a day in the month: show its bookings underneath, and stay in the month. */
+    fun selectDay(dateKey: String) {
+        if (dateKey.isBlank()) return
+        goTo(dateKey)
     }
 
     fun shiftSpan(step: Int) {
@@ -215,7 +221,7 @@ class DayModel : ViewModel() {
     /** Tapping a square in the week or the month drops back into that day. */
     fun openDay(dateKey: String) {
         if (dateKey.isBlank()) return
-        _state.value = _state.value.copy(span = Span.Day, counts = emptyList())
+        _state.value = _state.value.copy(span = Span.Day, counts = emptyList(), spanVisits = emptyList())
         goTo(dateKey)
     }
 
@@ -239,9 +245,11 @@ class DayModel : ViewModel() {
         // Clear the old day's rows immediately. Leaving them up while the new
         // day loads shows yesterday's appointments under today's date, which is
         // worse than a blank list for one frame.
-        _state.value = _state.value.copy(dateKey = dateKey, visits = emptyList())
-        _state.value.who?.let { watch(it, dateKey) }
-        if (_state.value.span != Span.Day) count()
+        val before = _state.value
+        _state.value = before.copy(dateKey = dateKey, visits = emptyList())
+        before.who?.let { watch(it, dateKey) }
+        // The week or the month is re-read only when the new day falls outside it.
+        if (before.span != Span.Day && before.counts.none { it.dateKey == dateKey }) count()
     }
 
     /**

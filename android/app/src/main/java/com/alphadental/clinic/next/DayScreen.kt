@@ -62,6 +62,8 @@ fun DayScreen(
     onBookGap: (DayEntry.Gap) -> Unit = {},
     onSpan: (Span) -> Unit = {},
     onOpenDay: (String) -> Unit = {},
+    /** A day tapped in the month: shown underneath, without leaving the month. */
+    onSelectDay: (String) -> Unit = {},
 ) {
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
@@ -82,9 +84,10 @@ fun DayScreen(
                 }
             }
 
-            if (state.span != Span.Day) {
-                calendar(state, onOpenDay)
-                return@LazyColumn
+            when (state.span) {
+                Span.Week -> { weekGrid(state, onOpenVisit, onOpenDay); return@LazyColumn }
+                Span.Month -> { monthView(state, onSelectDay, onOpenDay, onOpenVisit); return@LazyColumn }
+                Span.Day -> Unit
             }
 
             state.error?.let { message ->
@@ -130,13 +133,14 @@ fun DayScreen(
 
 @Composable
 private fun DaySlab(state: Day, onShiftDay: (Int) -> Unit, onToday: () -> Unit) {
+    val unit = when (state.span) { Span.Day -> "day"; Span.Week -> "week"; Span.Month -> "month" }
     Slab(
-        title = prettyDay(state.dateKey),
-        eyebrow = relativeDay(state.dateKey),
+        title = spanTitle(state.dateKey, state.span),
+        eyebrow = if (state.span == Span.Day) relativeDay(state.dateKey) else spanEyebrow(state.dateKey, state.span),
         bar = {
-            SlabIcon(Icons.Filled.ChevronLeft, "Previous day") { onShiftDay(-1) }
+            SlabIcon(Icons.Filled.ChevronLeft, "Previous $unit") { onShiftDay(-1) }
             Spacer(Modifier.width(8.dp))
-            SlabIcon(Icons.Filled.ChevronRight, "Next day") { onShiftDay(1) }
+            SlabIcon(Icons.Filled.ChevronRight, "Next $unit") { onShiftDay(1) }
             Spacer(Modifier.weight(1f))
             // Only when it would do something. A button that is always there and
             // usually does nothing teaches people to stop looking at that corner.
@@ -155,7 +159,12 @@ private fun DaySlab(state: Day, onShiftDay: (Int) -> Unit, onToday: () -> Unit) 
                 }
             }
         },
-        stats = buildList {
+        stats = if (state.span != Span.Day) buildList {
+            val days = state.counts.filter { it.inSpan }
+            add(Stat("Booked", days.sumOf { it.booked }.toString()))
+            add(Stat("Done", days.sumOf { it.done }.toString()))
+            add(Stat("Days", days.count { it.booked > 0 }.toString() + "/" + days.size))
+        } else buildList {
             add(Stat("Booked", state.visits.size.toString()))
             add(Stat("Done", state.done.toString()))
             // Unconfirmed is the one figure here that is a job: somebody still has
