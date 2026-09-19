@@ -20,6 +20,8 @@ import kotlinx.coroutines.launch
 enum class RecordTab(val label: String) {
     Overview("Overview"),
     Chart("Chart"),
+    /** Diagnosis, planning and x-ray reading. After the chart, because it reads the chart. */
+    Ai("AI"),
     Notes("Treatments"),
     Visits("Visits"),
     Photos("Photos"),

@@ -228,6 +228,15 @@ object ClinicApi {
 
     // ------------------------------------------------------------------ plumbing
 
+    /**
+     * The same wire, for the other routes that speak this shape.
+     *
+     * AiClinical posts to the diagnosis, planning and x-ray routes with exactly this envelope —
+     * a bearer token in, `{ ok, error, reason }` out — so it borrows this rather than growing a
+     * second copy that would drift on the first error-handling change.
+     */
+    internal suspend fun call(path: String, body: JSONObject): JSONObject = post(path, body)
+
     private suspend fun post(path: String, body: JSONObject): JSONObject = withContext(Dispatchers.IO) {
         val token = FirebaseAuth.getInstance().currentUser
             ?.getIdToken(false)?.await()?.token

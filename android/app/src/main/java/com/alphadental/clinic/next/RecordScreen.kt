@@ -94,6 +94,9 @@ fun RecordScreen(
     /** Null when this account may not correct the books, which makes the rows inert. */
     onEditRow: ((com.alphadental.clinic.next.data.Money) -> Unit)? = null,
     onEditNote: ((com.alphadental.clinic.data.ClinicalNote) -> Unit)? = null,
+    /** The AI tab's own state and verbs. Null in the preview, which has no server to ask. */
+    ai: AiClinicalState? = null,
+    aiActions: AiClinicalActions? = null,
 ) {
     val record = state.record
 
@@ -122,6 +125,11 @@ fun RecordScreen(
                 when (state.tab) {
                     RecordTab.Overview -> overview(state, record)
                     RecordTab.Chart -> chart(state, record, onSelectTooth, onChart)
+                    RecordTab.Ai -> if (ai != null && aiActions != null) {
+                        aiClinical(ai, aiActions)
+                    } else {
+                        item { SettingsEmpty("The assistant is not available in the preview.") }
+                    }
                     RecordTab.Notes -> treatments(state, onSetNoteStatus, onRecordTreatment, onEditNote)
                     RecordTab.Visits -> visits(record)
                     RecordTab.Rx -> scripts(state, onPrescribe, onPrintScript, onShareScript, onSendScript, onCopyScript)

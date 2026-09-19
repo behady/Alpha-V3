@@ -945,6 +945,39 @@ private fun RecordPane(
     val planState by plans.state.collectAsState()
     val booking: BookingModel = viewModel()
     val bookingState by booking.state.collectAsState()
+    // The AI tab. Opened once the file has told us who is signed in and who the patient is,
+    // because every one of its calls names both.
+    val ai: AiClinicalModel = viewModel()
+    val aiState by ai.state.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(state.who?.uid, state.record?.person?.id) {
+        val who = state.who
+        val person = state.record?.person
+        if (who != null && person != null) ai.open(who, person.id, person.name)
+    }
+    val aiActions = remember(ai) {
+        AiClinicalActions(
+            show = ai::show,
+            type = ai::type,
+            ask = { ai.ask(false) },
+            summarize = { ai.ask(true) },
+            setSuper = ai::setSuper,
+            pickPhotos = ai::pickPhotos,
+            toggleAttached = ai::toggleAttached,
+            openChat = ai::openChat,
+            instruct = ai::instruct,
+            answer = ai::answer,
+            propose = ai::propose,
+            saveOption = ai::saveOption,
+            togglePicked = ai::togglePicked,
+            noteXray = ai::noteXray,
+            setDeep = ai::setDeep,
+            setCompare = ai::setCompare,
+            read = ai::read,
+            view = ai::view,
+            review = { verdicts, chart, sign -> ai.review(verdicts, chart, sign) },
+            clearErrors = ai::clearErrors,
+        )
+    }
     var taking by remember { mutableStateOf(payOnOpen) }
     var recording by remember { mutableStateOf(recordOnOpen) }
     var more by remember { mutableStateOf(false) }
@@ -1036,7 +1069,11 @@ private fun RecordPane(
         // statement inert rather than offering a sheet the server would refuse.
         onEditRow = if (state.canEditLedger) ({ model.editRow(it) }) else null,
         onEditNote = if (state.canRecord) ({ model.editNote(it) }) else null,
+        ai = aiState,
+        aiActions = aiActions,
     )
+
+    if (aiState.viewing != null) XrayReportSheet(aiState, aiActions)
 
     if (state.charting != null) {
         ToothSheet(
