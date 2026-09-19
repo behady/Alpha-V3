@@ -74,6 +74,22 @@ function resolveClinicId(user: UserProfile | null, current: string | null): stri
     : (user.defaultClinicId || userClinics[0]);
 }
 
+/**
+ * Routes a signed-in person may stand on with no clinic yet.
+ *
+ * /onboarding and /superadmin are the obvious two. /join/<code> is the third and was missing:
+ * someone who creates an account from an invite link has no clinicRoles for a moment, so the
+ * gate below held the join page on "Loading Clinic..." while the effect pushed them to
+ * /onboarding -- which reads the remembered invite code and replaces straight back to /join.
+ * The page that accepts the invite never mounted, so the role never arrived, so the loop never
+ * ended. These routes read nothing clinic-scoped; they are what gets you a clinic in the first
+ * place.
+ */
+function isClinicFreeRoute(pathname: string | null): boolean {
+  if (!pathname) return false;
+  return pathname === "/onboarding" || pathname === "/superadmin" || pathname.startsWith("/join/");
+}
+
 export function ClinicProvider({ children }: { children: React.ReactNode }) {
   const { user, loading: authLoading } = useAuth();
   const [clinicId, setClinicIdState] = useState<string | null>(null);
@@ -129,7 +145,7 @@ export function ClinicProvider({ children }: { children: React.ReactNode }) {
         // Not impersonating any clinic. MUST be on superadmin dashboard.
         setClinicIdState(null);
         setClinic(null);
-        if (pathname !== "/superadmin") {
+        if (!isClinicFreeRoute(pathname)) {
           router.push("/superadmin");
         }
         setLoading(false);
@@ -138,7 +154,7 @@ export function ClinicProvider({ children }: { children: React.ReactNode }) {
     } else {
       // Normal user logic
       if (userClinics.length === 0) {
-        if (pathname !== "/onboarding") {
+        if (!isClinicFreeRoute(pathname)) {
           router.push("/onboarding");
         }
         setLoading(false);
@@ -210,7 +226,7 @@ export function ClinicProvider({ children }: { children: React.ReactNode }) {
           that builds Firestore paths on mount, and letting it mount for even one frame before
           the redirect lands throws "No clinic selected globally". The old gate dropped on
           `loading` alone, which the redirect branches cleared first. */}
-      {user && pathname !== '/onboarding' && pathname !== '/superadmin' && (loading || !resolvedClinicId) ? (
+      {user && !isClinicFreeRoute(pathname) && (loading || !resolvedClinicId) ? (
         <div className="flex h-screen w-screen items-center justify-center">Loading Clinic...</div>
       ) : (
         children
