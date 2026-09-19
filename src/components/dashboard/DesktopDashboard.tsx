@@ -41,6 +41,7 @@ import ServiceEditorDrawer from "@/components/clinical-notes/ServiceEditorDrawer
 import { logActivity } from "@/lib/logger";
 import { MoneyApiError, deleteAppointment } from "@/lib/moneyApi";
 import { isDentistStaff } from "@/lib/staffRoles";
+import { doctorCardLabel, pickerValueFromDoctorField } from "@/lib/generalDentist";
 import { parseClinicSchedule, clinicDayBoundsMinutes, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import { useActiveBranch, ALL_BRANCHES } from "@/lib/useActiveBranch";
 import BranchSelector from "@/components/shared/BranchSelector";
@@ -1514,7 +1515,7 @@ export default function DesktopDashboard() {
                                                                 <div className="flex justify-between items-end w-full gap-2 mt-1.5 min-h-0">
                                                                     <div className="flex flex-col gap-1 min-w-0">
                                                                        <p className={`text-slate-800 truncate font-bold bg-white/60 lg:bg-white/80 backdrop-blur-sm px-2 py-0.5 rounded-md shadow-sm min-w-0 ${infoFontSize}`}>
-                                                                           {apt.treatment || "Consultation"} <span className="text-slate-400 mx-1 font-normal">•</span> Dr. {apt.doctor?.split(" ")[1] || apt.doctor}
+                                                                           {apt.treatment || "Consultation"} <span className="text-slate-400 mx-1 font-normal">•</span> {doctorCardLabel(apt.doctor, language)}
                                                                        </p>
                                                                        <div className="pl-1 mt-0.5">
                                                                          <StarRating rating={apt.rating || 0} onRatingChange={(r) => handleRatingChange(apt.id, r)} size={14} />
@@ -1702,7 +1703,8 @@ export default function DesktopDashboard() {
                       id: selectedAppointment!.patientId!,
                       name: selectedAppointment!.patientName!
                     });
-                    setPreSelectedDoctor(selectedAppointment!.doctor || "");
+                    // A visit that was General stays General when it is rebooked.
+                    setPreSelectedDoctor(pickerValueFromDoctorField(selectedAppointment!.doctor));
                     setActiveModal("booking");
                     
                     showToast(language === 'ar' ? 'تم تأجيل الموعد، افتح حجز جديد' : 'Appointment delayed, opening new booking...', 'success');

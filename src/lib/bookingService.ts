@@ -218,6 +218,11 @@ export async function saveBooking(
       patientName: data.patientName,
       treatment: data.treatment,
       doctor: data.doctor,
+      // The edit path used to write the display name and leave `doctorId` alone, so moving a visit
+      // to another dentist — or off every dentist, onto General — renamed it on screen while every
+      // report that groups on the id still credited the old one. `undefined` means the caller never
+      // touched the dentist (a status-only save), which must keep what was there.
+      doctorId: data.doctorId !== undefined ? data.doctorId || null : (prev.doctorId as string | undefined) ?? null,
       date: normalizedDate || data.date,
       time: normalizedTime || data.time,
       duration: Number(data.duration) || 30,

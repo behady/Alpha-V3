@@ -47,6 +47,11 @@ import {
   findRoomConflicts,
   type ConflictCandidate,
 } from "@/lib/appointmentConflicts";
+import {
+  doctorFieldFromPicker,
+  isGeneralDoctorValue,
+  pickerValueFromDoctorField,
+} from "@/lib/generalDentist";
 import PatientPicker from "./appointments/booking/PatientPicker";
 
 import SlotPicker from "./appointments/booking/SlotPicker";
@@ -232,6 +237,18 @@ export default function BookingModal({
   }, [isOpen, onClose]);
 
   const [doctor, setDoctor] = useState(preSelectedDoctor || (doctors.length > 0 ? doctors[0].name : ""));
+  /**
+   * What the picker's choice becomes once stored. "General" is a UI sentinel only — see
+   * lib/generalDentist — and lands as no dentist name and no staff id, so nothing downstream reads
+   * it as a person: not the conflict check, not a commission, not the payout report.
+   *
+   * `doctorId` is forced to null rather than falling back to the appointment's old id, otherwise
+   * moving a visit off a dentist would leave that dentist still being paid for it.
+   */
+  const doctorField = doctorFieldFromPicker(doctor);
+  const resolvedDoctorId = isGeneralDoctorValue(doctor)
+    ? null
+    : doctors.find((d) => d.name === doctorField)?.id || editAppointment?.doctorId || null;
   const [branches, setBranches] = useState<ClinicBranch[]>([]);
   const [branchId, setBranchId] = useState("");
   const [roomId, setRoomId] = useState("");
@@ -419,6 +436,13 @@ export default function BookingModal({
       stillNeeded: language === "ar" ? "ناقص:" : "Still needed:",
       needPatient: language === "ar" ? "المريض" : "a patient",
       needDentist: language === "ar" ? "الطبيب" : "a dentist",
+      // A charge has to be attributed to somebody: a procedure recorded against nobody pays no
+      // commission and never appears on the payout report. So "General" and a paid procedure in the
+      // same visit is refused up front instead of failing halfway through the save.
+      needDentistForProcedure:
+        language === "ar"
+          ? "دكتور للإجراء المدفوع (مينفعش عام)"
+          : "a dentist for the paid procedure (not General)",
       needDate: language === "ar" ? "التاريخ" : "a date",
       needTime: language === "ar" ? "الوقت" : "a time",
       noFollowCase: language === "ar" ? "مفيش متابعة متاحة للمريض ده" : "No ongoing case to link",
@@ -488,6 +512,8 @@ export default function BookingModal({
   useEffect(() => {
     if (isOpen && !doctor && doctors.length > 0) setDoctor(doctors[0].name);
   }, [isOpen, doctor, doctors]);
+  // Note the repair above is why "General" carries a sentinel value instead of "": an empty string
+  // would be treated as "not chosen yet" and snapped back to the first dentist on staff.
 
   useEffect(() => {
     // Always reset isChecking when the modal opens or closes so a stale
@@ -512,7 +538,9 @@ export default function BookingModal({
         id: String(editAppointment.patientId),
         name: editAppointment.patientName || "",
       });
-      setDoctor(editAppointment.doctor || (doctors.length > 0 ? doctors[0].name : ""));
+      // An appointment with no dentist on it reopens on General — it must not be quietly handed to
+      // whoever happens to be first on staff.
+      setDoctor(pickerValueFromDoctorField(editAppointment.doctor));
       setBranchId(editAppointment.branchId || "");
       setRoomId(editAppointment.roomId || "");
       setDate(editAppointment.date || getLocalDate());
@@ -595,10 +623,13 @@ export default function BookingModal({
       missing.push(txt.needPatient);
     }
     if (!doctor) missing.push(txt.needDentist);
+    if (isGeneralDoctorValue(doctor) && sessionProcedures.length > 0) {
+      missing.push(txt.needDentistForProcedure);
+    }
     if (!date) missing.push(txt.needDate);
     if (!time) missing.push(txt.needTime);
     return missing;
-  }, [isNewPatient, newPatientName, newPatientPhone, selectedPatient, doctor, date, time, txt]);
+  }, [isNewPatient, newPatientName, newPatientPhone, selectedPatient, doctor, sessionProcedures, date, time, txt]);
 
   /**
    * The day's appointments, fetched once and filtered in memory.
@@ -630,6 +661,13 @@ export default function BookingModal({
         showToast(txt.pickDentist, "error");
         return;
       }
+      // Stopped here as well as in `blockingReasons`: the procedures are written after the
+      // appointment exists, so letting this through would save the visit and then fail on the
+      // charge, leaving a booking whose procedure silently never happened.
+      if (isGeneralDoctorValue(doctor) && sessionProcedures.length > 0) {
+        showToast(`${txt.stillNeeded} ${txt.needDentistForProcedure}`, "error");
+        return;
+      }
       if (!time) {
         showToast(txt.pickTime, "error");
         return;
@@ -645,14 +683,13 @@ export default function BookingModal({
 
       // One fetch of the day serves both checks below.
       const dayAppointments = await fetchDayAppointments(date);
-      const resolvedDoctorId = doctors.find((d) => d.name === doctor)?.id || editAppointment?.doctorId || null;
 
       const hasConflict =
         findDoctorConflicts(dayAppointments, {
           time,
           duration: Number(duration),
           doctorId: resolvedDoctorId,
-          doctorName: doctor,
+          doctorName: doctorField,
           excludeAppointmentId: editAppointment?.id,
         }).length > 0;
       if (hasConflict) {
@@ -709,10 +746,10 @@ export default function BookingModal({
         newPatientSource: isNewPatient ? newPatientSource : undefined,
         newPatientGender: isNewPatient ? newPatientGender : undefined,
         treatment: treatment.trim(),
-        doctor,
+        doctor: doctorField,
         // Resolved from the same list the picker renders, so reports can group on a stable id
         // instead of a display string.
-        doctorId: doctors.find((d) => d.name === doctor)?.id || editAppointment?.doctorId || null,
+        doctorId: resolvedDoctorId,
         date,
         time,
         duration,
@@ -751,8 +788,10 @@ export default function BookingModal({
   const [autosaveState, setAutosaveState] = useState<"idle" | "pending" | "saving" | "saved" | "error">("idle");
   const autosaveBusy = useRef(false);
   const autosaveFields = useMemo(
-    () => ({ date, time, doctor, treatment: treatment.trim(), duration, notes: visitNotes.trim(), status: appointmentStatus, roomId }),
-    [date, time, doctor, treatment, duration, visitNotes, appointmentStatus, roomId]
+    // `doctorField`, not `doctor`: the comparison is against what is stored, and the General
+    // sentinel would otherwise look like an unsaved edit the moment the panel opened.
+    () => ({ date, time, doctor: doctorField, treatment: treatment.trim(), duration, notes: visitNotes.trim(), status: appointmentStatus, roomId }),
+    [date, time, doctorField, treatment, duration, visitNotes, appointmentStatus, roomId]
   );
   const savedFields = useMemo(
     () =>

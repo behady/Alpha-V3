@@ -43,6 +43,9 @@ import com.alphadental.clinic.next.design.T
 import com.alphadental.clinic.next.design.Txt
 import com.alphadental.clinic.next.design.Type
 
+/** A visit with no dentist of its own. Matches the website's General option in the dentist picker. */
+private const val GENERAL_DOCTOR = "General"
+
 /** What the appointment editor can do. */
 data class AppointmentActions(
     val setDoctor: (Doctor?) -> Unit,
@@ -124,7 +127,11 @@ fun AppointmentSheet(state: VisitSheetState, a: AppointmentActions) {
         Row(Modifier.fillMaxWidth().padding(horizontal = T.gutter), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Dropdown(
                 "Doctor",
-                state.doctors.firstOrNull { it.id == state.doctorId }?.name ?: visit.doctor.ifBlank { "Choose" },
+                // "General" once the staff list is in and nobody on it matches: the visit belongs to
+                // the clinic rather than to one dentist. Until the list arrives the row's own name
+                // stands in, so a visit never flashes "General" while loading.
+                state.doctors.firstOrNull { it.id == state.doctorId }?.name
+                    ?: if (state.doctors.isEmpty()) visit.doctor.ifBlank { "Choose" } else GENERAL_DOCTOR,
                 Modifier.weight(1f), enabled = state.canEdit,
             ) { doctorOpen = !doctorOpen; statusOpen = false }
             Dropdown(
@@ -134,7 +141,10 @@ fun AppointmentSheet(state: VisitSheetState, a: AppointmentActions) {
             ) { statusOpen = !statusOpen; doctorOpen = false }
         }
         if (doctorOpen) {
-            Choices(state.doctors.map { it.id to it.name }, state.doctorId) { id ->
+            // General first, with no id: `setDoctor` resolves an id that matches nobody to null, and
+            // the visit is stored with no dentist name and no staff id — the same shape the website
+            // writes for its General option.
+            Choices(listOf("" to GENERAL_DOCTOR) + state.doctors.map { it.id to it.name }, state.doctorId) { id ->
                 a.setDoctor(state.doctors.firstOrNull { it.id == id }); doctorOpen = false
             }
         }

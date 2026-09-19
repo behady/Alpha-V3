@@ -18,6 +18,7 @@ import { smsPreferenceState, type PatientContactPreferences } from "@/lib/patien
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { useUI } from "@/context/UIContext";
 import { useLanguage } from "@/context/LanguageContext";
+import { generalDoctorLabel } from "@/lib/generalDentist";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { logActivity } from "@/lib/logger";
@@ -1652,7 +1653,7 @@ export default function PatientProfile() {
                                      const Icon = style.icon;
                                      const appointmentDate = appt.date || "—";
                                      const appointmentTime = appt.time || "—";
-                                     const appointmentDoctor = appt.doctorName || appt.doctor || "Unassigned";
+                                     const appointmentDoctor = appt.doctorName || appt.doctor || generalDoctorLabel(language);
                                      const appointmentReason = appt.treatment || (t("generalConsultation") || "General consultation");
                                      const appointmentNotes = appt.notes || "No extra notes.";
                                      const eventTime = appt.createdAt

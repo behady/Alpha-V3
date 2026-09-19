@@ -301,6 +301,9 @@ fun BookingSheet(state: Booking, actions: BookingActions) {
 
         if (state.doctors.isNotEmpty()) {
             SheetChoices("With") {
+                // The clinic rather than one dentist — the website's General option. Tapping a
+                // dentist off already meant this; now it says so, and can be chosen outright.
+                SheetChoice("General", state.doctor == null) { actions.setDoctor(null) }
                 state.doctors.forEach { doctor ->
                     SheetChoice(doctor.name, state.doctor?.id == doctor.id) {
                         actions.setDoctor(if (state.doctor?.id == doctor.id) null else doctor)

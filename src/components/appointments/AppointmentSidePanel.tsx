@@ -18,6 +18,7 @@ import { getAppointmentStatusStyles, APPOINTMENT_STAGES, getAppointmentStageLabe
 import { saveBooking } from "@/lib/bookingService";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { autosaveVerdict } from "@/lib/appointmentAutosave";
+import { generalDoctorLabel } from "@/lib/generalDentist";
 import { allocationMessage, allocationMessageAr, checkAllocation } from "@/lib/paymentAllocation";
 import { MoneyApiError, createPayment, createProcedure, deleteProcedure } from "@/lib/moneyApi";
 import { sendPatientPaymentWhatsApp } from "@/lib/sendPatientPaymentWhatsAppClient";
@@ -207,6 +208,12 @@ export default function AppointmentSidePanel({
         patientName: inlineEdit.patientName,
         treatment: inlineEdit.treatment,
         doctor: inlineEdit.doctor,
+        // Resolved from the list this panel renders. Without it the save wrote the new name over the
+        // old `doctorId`, so the screen said one dentist while every report still credited another —
+        // and picking General here left the visit still attributed to the dentist it just left.
+        doctorId: inlineEdit.doctor
+          ? (doctorsList.find((d: any) => d.name === inlineEdit.doctor)?.id ?? selectedAppointment.doctorId ?? null)
+          : null,
         date: inlineEdit.date,
         time: inlineEdit.time,
         duration: Number(inlineEdit.duration) || 30,
@@ -413,7 +420,8 @@ export default function AppointmentSidePanel({
                           <Stethoscope size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-500 pointer-events-none" />
                           <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                           <select value={inlineEdit.doctor || ''} onChange={e => setInlineEdit(p => ({...p, doctor: e.target.value}))} className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-9 pr-8 text-sm font-bold text-slate-700 outline-none transition-all focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent/10 appearance-none shadow-sm">
-                              <option value="">--</option>
+                              {/* Was "--". Same meaning — no dentist on this visit — said out loud. */}
+                              <option value="">{generalDoctorLabel(language)}</option>
                               {doctorsList.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
                           </select>
                         </div>

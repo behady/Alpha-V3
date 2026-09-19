@@ -2498,10 +2498,12 @@ object Repository {
                 )
             ),
         )
-        doctor?.let {
-            updates["doctor"] = it.name
-            updates["doctorId"] = it.id
-        }
+        // No dentist means "General" — a visit the clinic owns rather than one dentist — and both
+        // fields are written rather than skipped. Leaving them behind kept the previous dentist on
+        // the visit, so the phone said the visit had moved off them while the website's reports,
+        // which group on the id, still credited them for it.
+        updates["doctor"] = doctor?.name ?: ""
+        updates["doctorId"] = doctor?.id ?: ""
         // Cleared explicitly rather than left behind when the service is removed: a stale
         // serviceName on an appointment whose treatment has changed is worse than none, because
         // the website's reports group by it.

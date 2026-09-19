@@ -32,6 +32,27 @@ import { isDentistStaff } from "@/lib/staffRoles";
 import { getAppointmentStatusStyles, getAppointmentStageLabel } from "@/lib/appointmentStages";
 import { LOCATIONS_DOC, parseClinicBranches, flattenRooms, type ClinicBranch } from "@/lib/clinicLocations";
 import { findDoctorConflicts, type ConflictCandidate } from "@/lib/appointmentConflicts";
+import {
+  GENERAL_DOCTOR_VALUE,
+  doctorCardLabel,
+  generalDoctorLabel,
+  pickerValueFromDoctorField,
+} from "@/lib/generalDentist";
+
+/**
+ * The column holding visits with no dentist of their own — the ones booked as "General", plus older
+ * rows and online requests that never named anybody.
+ */
+const GENERAL_COLUMN = "__unassigned__";
+
+/**
+ * What the booking modal's dentist picker should open on when a column is clicked: that dentist,
+ * General for the General column, and nothing at all in week/day view, where a column is a date.
+ */
+function columnPickerDoctor(columnDoctorName?: string): string | undefined {
+  if (!columnDoctorName) return undefined;
+  return columnDoctorName === GENERAL_COLUMN ? GENERAL_DOCTOR_VALUE : columnDoctorName;
+}
 
 interface Appointment {
   id: string;
@@ -335,8 +356,11 @@ export default function AppointmentsPage() {
     const movingAppt = appointments.find((a) => a.id === apptId);
     if (!movingAppt) return;
 
-    // In doctor view, dropping on another dentist's column hands the visit to that dentist.
-    const nextDoctor = targetDoctor && targetDoctor !== "__unassigned__" ? targetDoctor : movingAppt.doctor;
+    // In doctor view, dropping on another dentist's column hands the visit to that dentist, and
+    // dropping on the General column takes it off every dentist. Week and day view pass no column
+    // dentist at all, which leaves the visit with whoever already had it.
+    const droppedOnGeneral = targetDoctor === GENERAL_COLUMN;
+    const nextDoctor = droppedOnGeneral ? "" : targetDoctor || movingAppt.doctor;
 
     // Optional: Conflict checking
     try {
@@ -349,8 +373,9 @@ export default function AppointmentsPage() {
       const dayAppointments = snap.docs.map(
         (d) => ({ id: d.id, ...d.data() }) as ConflictCandidate
       );
-      const nextDoctorId =
-        doctorsList.find((d) => d.name === nextDoctor)?.id || movingAppt.doctorId || null;
+      const nextDoctorId = droppedOnGeneral
+        ? null
+        : doctorsList.find((d) => d.name === nextDoctor)?.id || movingAppt.doctorId || null;
 
       const conflict =
         findDoctorConflicts(dayAppointments, {
@@ -374,6 +399,9 @@ export default function AppointmentsPage() {
           date: targetDate,
           time: targetTime,
           doctor: nextDoctor,
+          // Sent explicitly: spreading `movingAppt` would carry the previous dentist's id along
+          // with the new name, and every report groups on the id.
+          doctorId: nextDoctorId,
         } as Parameters<typeof saveBooking>[0],
         {
           uid: user?.uid || "",
@@ -738,8 +766,10 @@ export default function AppointmentsPage() {
 
   /**
    * The calendar's columns. By date they are the visible days; in doctor view they are one day's
-   * dentists side by side, plus an "Unassigned" column when that day holds appointments whose
-   * dentist isn't on staff (e.g. online requests booked as "Any").
+   * dentists side by side, plus a "General" column for visits that belong to nobody in particular —
+   * booked as General, online requests booked as "Any", or rows whose dentist has left the staff
+   * list. It is always there in doctor view, empty or not, because it is also the place you drag a
+   * visit to in order to take it off a dentist.
    */
   const gridColumns = useMemo(() => {
     if (viewMode !== "doctor") {
@@ -756,7 +786,6 @@ export default function AppointmentsPage() {
     const base = selectedDoctors.length > 0
       ? doctorsList.filter((d: any) => selectedDoctors.includes(d.name))
       : doctorsList;
-    const knownNames = new Set(base.map((d: any) => d.name));
     const cols = base.map((d: any) => ({
       key: d.id,
       dateStr: day?.dateStr || "",
@@ -765,19 +794,16 @@ export default function AppointmentsPage() {
       sublabel: "",
       doctorName: d.name as string | undefined,
     }));
-    const hasUnassigned = filteredAppointments.some(a => a.date === day?.dateStr && !knownNames.has(a.doctor));
-    if (hasUnassigned) {
-      cols.push({
-        key: "__unassigned__",
-        dateStr: day?.dateStr || "",
-        isOffDay: day?.isOffDay,
-        label: language === "ar" ? "غير محدد" : "Unassigned",
-        sublabel: "",
-        doctorName: "__unassigned__",
-      });
-    }
+    cols.push({
+      key: GENERAL_COLUMN,
+      dateStr: day?.dateStr || "",
+      isOffDay: day?.isOffDay,
+      label: generalDoctorLabel(language),
+      sublabel: "",
+      doctorName: GENERAL_COLUMN,
+    });
     return cols;
-  }, [viewMode, weekDays, doctorsList, selectedDoctors, filteredAppointments, language]);
+  }, [viewMode, weekDays, doctorsList, selectedDoctors, language]);
 
   const knownDoctorNames = useMemo(() => new Set(doctorsList.map((d: any) => d.name)), [doctorsList]);
 
@@ -795,7 +821,7 @@ export default function AppointmentsPage() {
     const map = new Map<string, Appointment[]>();
     for (const a of dayAppts) {
       const key = listGroupBy === "doctor"
-        ? (a.doctor || (language === "ar" ? "غير محدد" : "Unassigned"))
+        ? (a.doctor || generalDoctorLabel(language))
         : (apptServiceKey(a) || (language === "ar" ? "بدون خدمة" : "No service"));
       const bucket = map.get(key);
       if (bucket) bucket.push(a);
@@ -808,7 +834,7 @@ export default function AppointmentsPage() {
     return filteredAppointments.filter(a => {
       if (a.date !== col.dateStr) return false;
       if (!col.doctorName) return true;
-      if (col.doctorName === "__unassigned__") return !knownDoctorNames.has(a.doctor);
+      if (col.doctorName === GENERAL_COLUMN) return !knownDoctorNames.has(a.doctor);
       return a.doctor === col.doctorName;
     });
   };
@@ -952,7 +978,7 @@ export default function AppointmentsPage() {
               <div className="flex justify-between items-end w-full gap-2 mt-auto min-h-0 shrink-0">
                 <div className="flex flex-col gap-1 min-w-0">
                   <p className={`text-slate-800 truncate font-bold bg-white/60 lg:bg-white/80 backdrop-blur-sm px-1.5 py-0.5 rounded-md shadow-sm min-w-0 ${infoFontSize}`}>
-                    {appt.treatment || 'Consultation'} <span className="text-slate-400 mx-1 font-normal">•</span> Dr. {appt.doctor?.split(' ')[1] || appt.doctor}
+                    {appt.treatment || 'Consultation'} <span className="text-slate-400 mx-1 font-normal">•</span> {doctorCardLabel(appt.doctor, language)}
                   </p>
                   {(appt.roomName || (!selectedBranchId && branches.length > 1 && appt.branchName)) && (
                     <span className="inline-flex items-center gap-1 text-[9px] lg:text-[10px] font-bold text-teal-700 bg-teal-50/90 border border-teal-100 px-1.5 py-0.5 rounded-md w-fit max-w-full truncate">
@@ -1305,7 +1331,7 @@ export default function AppointmentsPage() {
                                                 <span className="font-extrabold text-sm text-ink truncate">{appt.patientName}</span>
                                              </div>
                                              <p className="text-xs text-ink-muted font-bold truncate mt-0.5">
-                                                {appt.treatment || 'Consultation'} <span className="text-slate-300 mx-0.5">•</span> Dr. {appt.doctor?.split(' ')[1] || appt.doctor}
+                                                {appt.treatment || 'Consultation'} <span className="text-slate-300 mx-0.5">•</span> {doctorCardLabel(appt.doctor, language)}
                                              </p>
                                              {(appt.roomName || appt.branchName) && (
                                                 <p className="text-[10px] text-teal-700 font-bold truncate mt-0.5 flex items-center gap-1">
@@ -1335,12 +1361,15 @@ export default function AppointmentsPage() {
                      <div className="flex flex-1">
                         {gridColumns.map(colObj => (
                             <div key={colObj.key}
-                                 onClick={() => { if(canAddAppointment) handleOpenBooking(colObj.dateStr, undefined, colObj.doctorName && colObj.doctorName !== "__unassigned__" ? colObj.doctorName : undefined) }}
+                                 onClick={() => { if(canAddAppointment) handleOpenBooking(colObj.dateStr, undefined, columnPickerDoctor(colObj.doctorName)) }}
                                  className={`flex-1 text-center py-2 backdrop-blur-md transition-colors border-e border-transparent min-w-0 ${canAddAppointment ? 'cursor-pointer' : 'cursor-default'} ${colObj.isOffDay ? 'bg-red-50/80 hover:bg-red-100 hover:border-red-200' : 'bg-white/90 hover:bg-surface-subtle hover:border-slate-100'}`}>
                                {colObj.doctorName ? (
                                   <>
                                      <span className={`font-bold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1 ${colObj.isOffDay ? 'text-red-400' : 'text-slate-400'}`}>
-                                        <Stethoscope size={11} /> {language === 'ar' ? 'دكتور' : 'Dentist'}
+                                        {/* "Dentist / General" would read as a dentist called General. */}
+                                        <Stethoscope size={11} /> {colObj.doctorName === GENERAL_COLUMN
+                                           ? (language === 'ar' ? 'بدون دكتور' : 'No dentist')
+                                           : (language === 'ar' ? 'دكتور' : 'Dentist')}
                                      </span>
                                      <h3 className={`text-sm sm:text-base font-black mt-0.5 truncate px-1 ${colObj.isOffDay ? 'text-red-600' : 'text-slate-800'}`}>{colObj.label}</h3>
                                   </>
@@ -1375,7 +1404,7 @@ export default function AppointmentsPage() {
                            <div key={colObj.key} className={`flex-1 flex flex-col border-e border-slate-200/80 relative group min-w-0 ${colObj.isOffDay ? 'bg-red-50/30' : ''}`}>
                               {timeSlots.map((slot) => {
                                  const isDraggedOver = activeDragTarget?.colKey === colObj.key && activeDragTarget?.time === slot.timeLabel;
-                                 const colDoctor = colObj.doctorName && colObj.doctorName !== "__unassigned__" ? colObj.doctorName : undefined;
+                                 const colDoctor = columnPickerDoctor(colObj.doctorName);
                                  return (
                                     <div
                                        key={`${slot.h}-${slot.m}`}
@@ -1387,7 +1416,10 @@ export default function AppointmentsPage() {
                                        onDragLeave={() => setActiveDragTarget(null)}
                                        onDrop={(e) => {
                                          setActiveDragTarget(null);
-                                         handleDrop(e, colObj.dateStr, slot.timeLabel, colDoctor);
+                                         // The raw column name, not `colDoctor`: handleDrop needs to
+                                         // tell the General column apart from week/day view, where
+                                         // there is no column dentist at all.
+                                         handleDrop(e, colObj.dateStr, slot.timeLabel, colObj.doctorName);
                                        }}
                                     />
                                  )
@@ -1460,7 +1492,8 @@ export default function AppointmentsPage() {
                          id: delayedApptData.patientId,
                          name: delayedApptData.patientName
                       });
-                      setPreSelectedDoctor(delayedApptData.doctor || "");
+                      // A visit that was General stays General when it is rebooked.
+                      setPreSelectedDoctor(pickerValueFromDoctorField(delayedApptData.doctor));
                       
                       setShowDelayPrompt(false);
                       setIsBookingModalOpen(true); // Open booking modal for new appt

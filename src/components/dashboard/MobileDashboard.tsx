@@ -38,6 +38,7 @@ import { logActivity } from "@/lib/logger";
 import { MoneyApiError, deleteAppointment } from "@/lib/moneyApi";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { parseClinicSchedule, clinicDayBoundsMinutes, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
+import { pickerValueFromDoctorField } from "@/lib/generalDentist";
 import { useActiveBranch } from "@/lib/useActiveBranch";
 import BranchSelector from "@/components/shared/BranchSelector";
 import type { OwnerAlertKey } from "@/types/whatsapp";
@@ -1581,7 +1582,8 @@ export default function MobileDashboard() {
                       id: selectedAppointment!.patientId!,
                       name: selectedAppointment!.patientName!
                     });
-                    setPreSelectedDoctor(selectedAppointment!.doctor || "");
+                    // A visit that was General stays General when it is rebooked.
+                    setPreSelectedDoctor(pickerValueFromDoctorField(selectedAppointment!.doctor));
                     setActiveModal("booking");
 
                     showToast(language === 'ar' ? 'تم تأجيل الموعد، افتح حجز جديد' : 'Appointment delayed, opening new booking...', 'success');

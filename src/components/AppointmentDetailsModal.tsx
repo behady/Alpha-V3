@@ -3,6 +3,7 @@
 import { X, Calendar, Clock, User, Phone, Edit, Trash2, ArrowUpRight, Smile } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { getAppointmentStatusStyles, APPOINTMENT_STAGES, getAppointmentStageLabel } from "@/lib/appointmentStages";
+import { generalDoctorLabel } from "@/lib/generalDentist";
 import { useState } from "react";
 import Protect from "@/components/Protect";
 
@@ -38,7 +39,9 @@ export default function AppointmentDetailsModal({
   
   // Find doctor name
   const docObj = doctors.find((d) => d.id === appointment.doctor || d.name === appointment.doctor);
-  const doctorName = docObj ? (isAr ? docObj.nameAr || docObj.name : docObj.name) : appointment.doctor || (isAr ? "غير محدد" : "Unassigned");
+  const doctorName = docObj
+    ? (isAr ? docObj.nameAr || docObj.name : docObj.name)
+    : appointment.doctor || generalDoctorLabel(language);
 
   const handleStatusChange = async (newStatus: string) => {
     setUpdating(true);
