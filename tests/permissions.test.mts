@@ -242,6 +242,42 @@ assert.deepEqual(
     `them — so the rules that consult them decide nothing: ${neverWritten.join(", ")}`
 );
 
+// --- 4b. A field the BROWSER reads must be a field the grant routes write -----------------------
+
+// The mirror image of the check above, and the one that let a dentist join a clinic and be told
+// "Access Restricted" on every page in it. The rules read clinicPermissions[clinicId]; the browser
+// reads the flat users/{uid}.permissions and users/{uid}.role -- PermissionGuard, the Add-patient
+// button, the clinical tab, the settings sections. The two routes that put a person in a clinic
+// wrote the first pair and not the second, so the person was let through by the server and by the
+// rules, and stopped by their own screen. Only /api/admin/update-user wrote it, which is why
+// re-saving someone's switches by hand "fixed" them.
+
+const GRANT_ROUTES = ["invites/accept/route.ts", "join-requests/approve/route.ts"];
+for (const route of GRANT_ROUTES) {
+  const text = readFileSync(join(REPO, "src/app/api", route), "utf8");
+  assert.ok(
+    text.includes("staffIdentityPatch("),
+    `${route} adds someone to a clinic without writing the role and permissions their browser reads`
+  );
+  assert.ok(
+    text.includes("clinicPermissionsPatch(") || text.includes("clinicPermissionsSeed("),
+    `${route} adds someone to a clinic without writing the map firestore.rules reads`
+  );
+}
+
+// One spelling of the pair, so the two routes and the repair bot cannot disagree about it.
+const identity = readFileSync(join(REPO, "src/lib/server/clinicPermissions.ts"), "utf8");
+assert.ok(identity.includes("export function staffIdentityPatch"), "the flat pair has one writer");
+for (const field of ["role:", "permissions,", "isDentist:"]) {
+  assert.ok(identity.includes(field), `staffIdentityPatch stopped writing ${field}`);
+}
+
+// A Dentist must arrive able to work: see, add and edit patients, and open a patient's file.
+const dentistFloor = new Set(rolePreset("Dentist"));
+for (const needed of ["access.patients", "patients.add", "patients.edit", "access.clinical", "clinical.edit"]) {
+  assert.ok(dentistFloor.has(needed), `a new dentist arrives without "${needed}"`);
+}
+
 // --- 5. The collection→permission maps are duplicated; they must agree ---------------------------
 
 // The maps live in firestore.rules (permCreate/permUpdate/permDelete) and in src/lib/permissions.ts
