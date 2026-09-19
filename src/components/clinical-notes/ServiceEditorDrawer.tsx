@@ -873,6 +873,21 @@ export default function ServiceEditorDrawer({
 
           {costField}
 
+          {/*
+            The price list, in the drawer as well as in the compact editor.
+
+            It was only ever rendered in the inline form, which the tooth chart uses — so the
+            drawer that opens from the patient's file and from the appointment panel, which is
+            where the front desk actually records treatments, had no way to choose a list at all.
+            Every treatment recorded there silently took the clinic's default.
+
+            That was survivable while a list was only a discount sheet. It stopped being
+            survivable when the list became the insurer: an insurance case recorded from the desk
+            was charged at clinic prices and counted as private revenue, and the screen gave
+            nobody a way to say otherwise.
+          */}
+          {discountField}
+
           {billingStrip}
 
           {noteField(4)}

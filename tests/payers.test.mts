@@ -305,6 +305,21 @@ function eq<T>(actual: T, expected: T, message: string) {
   // case at the clinic's own prices: both claimed the same decision and the list quietly won.
   const editor = read("src/components/clinical-notes/ServiceEditorDrawer.tsx");
   ok(!/payerId/.test(editor), "the treatment editor has a payer picker again — the price list is the only control");
+  /**
+   * The control has to be in BOTH layouts, and this is not a style point.
+   *
+   * `discountField` carries the price-list picker, and it was rendered only in the compact inline
+   * form the tooth chart uses. The drawer — the one that opens from the patient's file and the
+   * appointment panel, which is where the front desk records treatments — had no list control at
+   * all, so every treatment taken there silently used the clinic's default. Once the list became
+   * the insurer, that meant an insurance case charged at clinic prices and counted as private
+   * revenue, with nothing on screen to say otherwise.
+   */
+  eq(
+    (editor.match(/\{discountField\}/g) || []).length,
+    2,
+    "the price-list picker is missing from one of the two layouts — the front desk cannot choose an insurer"
+  );
   ok(
     !/lockedByPayer/.test(read("src/components/shared/DiscountEditor.tsx")),
     "the price-list picker is being driven by something other than the receptionist again"
