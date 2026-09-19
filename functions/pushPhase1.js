@@ -19,7 +19,8 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const { DateTime } = require("luxon");
 const { getFirestore } = require("firebase-admin/firestore");
-const { sendClinicPush } = require("./clinicPush");
+const { sendClinicPush, readAlertPreferences } = require("./clinicPush");
+const { notifyTiming } = require("./notificationCatalog");
 
 const TIMEZONE = process.env.CLINIC_TIMEZONE || "Africa/Cairo";
 
@@ -33,8 +34,26 @@ const isCheckedIn = (status) => status === "Checked In" || status === "Arrived";
 
 const FINISHED = new Set(["Completed", "Cancelled", "No Show"]);
 
-/** A message still waiting this long is not "about to be sent", it is stuck. */
-const STUCK_MESSAGE_HOURS = 3;
+/**
+ * The four daily jobs below run EVERY hour and each clinic picks its own hour.
+ *
+ * They used to be four crons at four fixed times, which meant "07:30" was a property of the
+ * software: a clinic that opens at ten got its morning brief two and a half hours before anybody
+ * was there to read it, and an owner who does the books at midnight got the day's money at 21:00
+ * while still with a patient. The cron now fires hourly and each job asks the clinic which hour it
+ * wanted — so the default is the old time exactly, and changing it is a setting rather than a
+ * deploy.
+ *
+ * The minute is preserved per job (the morning brief still lands at :30, the rest at :00) so that
+ * no clinic that never touches the setting sees its alerts move.
+ */
+async function wantsThisHour(clinicId, eventId, hour) {
+  const prefs = await readAlertPreferences(db(), clinicId);
+  return notifyTiming(eventId, "hour", prefs) === hour;
+}
+
+/** The clinic's own hour, for deciding which of the 24 runs is theirs. */
+const hourNow = () => DateTime.now().setZone(TIMEZONE).hour;
 
 async function allClinicIds() {
   const snap = await db().collection("clinics").get();
@@ -67,10 +86,14 @@ function ageHours(createdAt) {
 // ---------------------------------------------------------------------------
 
 exports.stuckMessagesAlert = onSchedule(
-  { schedule: "0 11 * * *", timeZone: TIMEZONE, timeoutSeconds: 300, memory: "256MiB" },
+  { schedule: "0 * * * *", timeZone: TIMEZONE, timeoutSeconds: 300, memory: "256MiB" },
   async () => {
+    const hour = hourNow();
     for (const clinicId of await allClinicIds()) {
       try {
+        if (!(await wantsThisHour(clinicId, "messagesStuck", hour))) continue;
+        const prefs = await readAlertPreferences(db(), clinicId);
+        const stuckHours = notifyTiming("messagesStuck", "stuckHours", prefs);
         const snap = await db()
           .collection(`clinics/${clinicId}/whatsapp_outbox`)
           .where("status", "==", "queued")
@@ -78,7 +101,7 @@ exports.stuckMessagesAlert = onSchedule(
         if (snap.empty) continue;
 
         const ages = snap.docs.map((d) => ageHours(d.data()?.createdAt));
-        const stuck = ages.filter((h) => h >= STUCK_MESSAGE_HOURS);
+        const stuck = ages.filter((h) => h >= stuckHours);
         if (stuck.length === 0) continue; // a normal manual queue being worked through today
 
         const oldest = Math.max(...stuck);
@@ -95,7 +118,7 @@ exports.stuckMessagesAlert = onSchedule(
               `WhatsApp sending is switched off or the connection is broken — check Settings → WhatsApp.`,
           },
           // The people who can actually fix a dead gateway, not the ones staring at the queue.
-          { roles: ["Owner", "Admin"], channel: "alpha_leads", data: { screen: "settings" } }
+          { event: "messagesStuck", channel: "alpha_leads", data: { screen: "settings" } }
         );
       } catch (e) {
         console.error(`stuckMessagesAlert failed for ${clinicId}:`, e);
@@ -152,7 +175,7 @@ exports.onPatientCheckedIn = onDocumentUpdated(
           title: `${patient} has arrived`,
           body: detail ? `In the waiting room · ${detail}` : "In the waiting room",
         },
-        { uids: [uid], channel: "alpha_arrivals", data: { screen: "day" } }
+        { event: "patientArrived", uids: [uid], channel: "alpha_arrivals", data: { screen: "day" } }
       );
     } catch (e) {
       console.error("onPatientCheckedIn failed:", e);
@@ -197,7 +220,7 @@ exports.onSlotFreed = onDocumentUpdated(
           title: `${slot || "A slot"} just freed`,
           body: `${patient} ${what}${after.doctor ? ` · Dr. ${after.doctor}` : ""} — the waitlist or a due lead could take it.`,
         },
-        { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } }
+        { event: "slotFreed", channel: "alpha_bookings", data: { screen: "day" } }
       );
     } catch (e) {
       console.error("onSlotFreed failed:", e);
@@ -243,7 +266,7 @@ exports.onLowStock = onDocumentUpdated(
           title: `${name} is running low`,
           body: `${now}${unit} left · reorder point is ${min}${unit}.`,
         },
-        { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_clinic", data: { screen: "inventory" } }
+        { event: "stockLow", channel: "alpha_clinic", data: { screen: "inventory" } }
       );
     } catch (e) {
       console.error("onLowStock failed:", e);
@@ -256,31 +279,42 @@ exports.onLowStock = onDocumentUpdated(
 // ---------------------------------------------------------------------------
 
 exports.morningBrief = onSchedule(
-  { schedule: "30 7 * * *", timeZone: TIMEZONE, timeoutSeconds: 300, memory: "256MiB" },
+  { schedule: "30 * * * *", timeZone: TIMEZONE, timeoutSeconds: 300, memory: "256MiB" },
   async () => {
     const date = todayKey();
+    const hour = hourNow();
     for (const clinicId of await allClinicIds()) {
       try {
+        // The clinic brief and each dentist's own day are two alerts with two hours, so the hour
+        // is checked per alert rather than for the run.
+        const prefs = await readAlertPreferences(db(), clinicId);
+        const wantsClinic = notifyTiming("morningBriefClinic", "hour", prefs) === hour;
+        const wantsDentists = notifyTiming("morningBriefDentist", "hour", prefs) === hour;
+        if (!wantsClinic && !wantsDentists) continue;
         const apptSnap = await db()
           .collection(`clinics/${clinicId}/appointments`)
           .where("date", "==", date)
           .get();
         const appts = apptSnap.docs.map((d) => d.data()).filter((a) => !FINISHED.has(a.status));
-        // A day with nothing booked is not worth a 07:30 buzz.
+        // A day with nothing booked is not worth a buzz at any hour.
         if (appts.length === 0) continue;
 
         const firstTime = appts.map((a) => String(a.time || "")).filter(Boolean).sort()[0];
 
         // Owners and reception: the clinic's shape.
-        await sendClinicPush(
-          db(),
-          clinicId,
-          {
-            title: "Today at the clinic",
-            body: `${appts.length} booked${firstTime ? ` · first at ${firstTime}` : ""}`,
-          },
-          { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_reminders", data: { screen: "day" } }
-        );
+        if (wantsClinic) {
+          await sendClinicPush(
+            db(),
+            clinicId,
+            {
+              title: "Today at the clinic",
+              body: `${appts.length} booked${firstTime ? ` · first at ${firstTime}` : ""}`,
+            },
+            { event: "morningBriefClinic", channel: "alpha_reminders", data: { screen: "day" } }
+          );
+        }
+
+        if (!wantsDentists) continue;
 
         // Each dentist: their own list, matched the way the app matches it —
         // by doctorId when the appointment has one, by name otherwise.
@@ -304,7 +338,7 @@ exports.morningBrief = onSchedule(
               title: "Your day",
               body: `${mine.length} patient${mine.length === 1 ? "" : "s"}${myFirst ? ` · first at ${myFirst}` : ""}`,
             },
-            { uids: [String(dentist.data().uid).trim()], channel: "alpha_reminders", data: { screen: "day" } }
+            { event: "morningBriefDentist", uids: [String(dentist.data().uid).trim()], channel: "alpha_reminders", data: { screen: "day" } }
           );
         }
       } catch (e) {
@@ -319,11 +353,13 @@ exports.morningBrief = onSchedule(
 // ---------------------------------------------------------------------------
 
 exports.leadsDueToday = onSchedule(
-  { schedule: "0 10 * * *", timeZone: TIMEZONE, timeoutSeconds: 300, memory: "256MiB" },
+  { schedule: "0 * * * *", timeZone: TIMEZONE, timeoutSeconds: 300, memory: "256MiB" },
   async () => {
     const date = todayKey();
+    const hour = hourNow();
     for (const clinicId of await allClinicIds()) {
       try {
+        if (!(await wantsThisHour(clinicId, "leadFollowupsDue", hour))) continue;
         const snap = await db()
           .collection(`clinics/${clinicId}/leads`)
           .where("followUpDate", "<=", date)
@@ -345,7 +381,7 @@ exports.leadsDueToday = onSchedule(
             title: `${due.length} lead follow-up${due.length === 1 ? "" : "s"} due`,
             body: named ? `Waiting on a call: ${named}${due.length > 3 ? "…" : ""}` : "Open the Leads inbox to work through them.",
           },
-          { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_leads", data: { screen: "leads" } }
+          { event: "leadFollowupsDue", channel: "alpha_leads", data: { screen: "leads" } }
         );
       } catch (e) {
         console.error(`leadsDueToday failed for ${clinicId}:`, e);
@@ -359,11 +395,13 @@ exports.leadsDueToday = onSchedule(
 // ---------------------------------------------------------------------------
 
 exports.eveningDigest = onSchedule(
-  { schedule: "0 21 * * *", timeZone: TIMEZONE, timeoutSeconds: 300, memory: "256MiB" },
+  { schedule: "0 * * * *", timeZone: TIMEZONE, timeoutSeconds: 300, memory: "256MiB" },
   async () => {
     const date = todayKey();
+    const hour = hourNow();
     for (const clinicId of await allClinicIds()) {
       try {
+        if (!(await wantsThisHour(clinicId, "eveningDigest", hour))) continue;
         const [ledgerSnap, apptSnap] = await Promise.all([
           db().collection(`clinics/${clinicId}/ledger`).where("date", "==", date).get(),
           db().collection(`clinics/${clinicId}/appointments`).where("date", "==", date).get(),
@@ -394,10 +432,54 @@ exports.eveningDigest = onSchedule(
           db(),
           clinicId,
           { title: "Today, closed out", body: parts.join(" · ") },
-          { roles: ["Owner", "Admin"], channel: "alpha_money", data: { screen: "money" } }
+          { event: "eveningDigest", channel: "alpha_money", data: { screen: "money" } }
         );
       } catch (e) {
         console.error(`eveningDigest failed for ${clinicId}:`, e);
+      }
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// 03:00 — sweep the notification feed.
+//
+// Every alert now leaves a row in `clinics/{id}/notifications` so the bell is a record rather
+// than an ornament. That collection therefore grows for ever, and it is per clinic, so nobody
+// notices until a clinic that has been running two years opens a dropdown backed by forty
+// thousand documents.
+//
+// Dismissing a row cannot delete it — one row is addressed to several people, and one reader
+// hiding it must not take it away from the others — so deletion has to happen here, on age
+// alone. Thirty days: long enough that "what was that alert last week?" is answerable, short
+// enough that the collection has a ceiling.
+// ---------------------------------------------------------------------------
+
+const NOTIFICATION_KEEP_DAYS = 30;
+
+exports.notificationsSweep = onSchedule(
+  { schedule: "0 3 * * *", timeZone: TIMEZONE, timeoutSeconds: 540, memory: "256MiB" },
+  async () => {
+    const cutoff = new Date(Date.now() - NOTIFICATION_KEEP_DAYS * 24 * 60 * 60 * 1000);
+    for (const clinicId of await allClinicIds()) {
+      try {
+        // Capped per clinic per night rather than looped to exhaustion: a runaway clinic should
+        // cost one bounded run, not a timeout that leaves every clinic after it unswept.
+        const snap = await db()
+          .collection(`clinics/${clinicId}/notifications`)
+          .where("createdAt", "<", cutoff)
+          .limit(2000)
+          .get();
+        if (snap.empty) continue;
+        // 500 is the batch limit; the chunking is the whole reason this is not one writeBatch.
+        for (let i = 0; i < snap.docs.length; i += 400) {
+          const batch = db().batch();
+          for (const doc of snap.docs.slice(i, i + 400)) batch.delete(doc.ref);
+          await batch.commit();
+        }
+        console.log(`notificationsSweep: removed ${snap.size} old rows for ${clinicId}`);
+      } catch (e) {
+        console.error(`notificationsSweep failed for ${clinicId}:`, e);
       }
     }
   }

@@ -96,7 +96,7 @@ export async function POST(request: Request) {
             title: `🌟 ${patientName} rated 5/5`,
             body: "Golden chance: ask them for a 30-second video review on their next visit. Interview questions are in Marketing → Reviews.",
           },
-          { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_clinic", data: { screen: "marketing" } }
+          { event: "fiveStarReview", channel: "alpha_clinic", data: { screen: "marketing" } }
         );
       }
       const profile = await getClinicProfileAdmin(clinicId);
@@ -115,7 +115,7 @@ export async function POST(request: Request) {
           ? `${patientName}: ${feedback.slice(0, 140)}`
           : `${patientName} rated their visit ${rating}/5. A quick call could turn this around.`,
       },
-      { roles: ["Owner", "Admin"], channel: "alpha_clinic", data: { screen: "marketing" } }
+      { event: "unhappyReview", channel: "alpha_clinic", data: { screen: "marketing" } }
     );
 
     return NextResponse.json({ ok: true, happy: false });

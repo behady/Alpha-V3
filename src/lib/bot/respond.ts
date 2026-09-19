@@ -478,7 +478,9 @@ export async function respondToPatientMessage(args: {
   const { clinicId, chatId, text } = args;
   const now = args.now ?? Date.now();
   // Every staff notification goes through this; the playground swaps in silence.
-  const push: typeof sendClinicPush = args.dryRun ? async () => {} : sendClinicPush;
+  const push: typeof sendClinicPush = args.dryRun
+    ? async () => ({ raised: false, bellWritten: false, pushed: 0 })
+    : sendClinicPush;
 
   const settings = await loadBotSettings(clinicId);
   if (!settings.enabled) return skip("bot_disabled");
@@ -563,7 +565,7 @@ export async function respondToPatientMessage(args: {
       await markHandoff(clinicId, conversationKey(chatId), "opted_out_urgent", {
         text, phone, patientId: patient.id, patientName: String(patient.data.name || ""), severity: "urgent",
       });
-      void push(clinicId, { title: "⚠️ مريض (موقف الرسايل) محتاج رد فوري", body: `${String(patient.data.name || phone)} — ${text.slice(0, 90)}` }, { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { chatId: conversationKey(chatId), patientId: patient.id } });
+      void push(clinicId, { title: "⚠️ مريض (موقف الرسايل) محتاج رد فوري", body: `${String(patient.data.name || phone)} — ${text.slice(0, 90)}` }, { event: "optedOutPatientNeedsReply", channel: "alpha_bookings", data: { chatId: conversationKey(chatId), patientId: patient.id, screen: "chats" } });
     }
     return skip("opted_out");
   }
@@ -588,7 +590,7 @@ export async function respondToPatientMessage(args: {
   if (conversation.optedOut) {
     if (needsHuman(text)) {
       await markHandoff(clinicId, conversation.phoneKey, "opted_out_urgent", { text, phone, severity: "urgent" });
-      void push(clinicId, { title: "⚠️ مريض (موقف الرسايل) محتاج رد فوري", body: `${phone} — ${text.slice(0, 90)}` }, { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { chatId: conversation.phoneKey, screen: "day" } });
+      void push(clinicId, { title: "⚠️ مريض (موقف الرسايل) محتاج رد فوري", body: `${phone} — ${text.slice(0, 90)}` }, { event: "optedOutPatientNeedsReply", channel: "alpha_bookings", data: { chatId: conversation.phoneKey, screen: "chats" } });
     }
     return skip("opted_out");
   }
@@ -611,7 +613,7 @@ export async function respondToPatientMessage(args: {
       void push(
         clinicId,
         { title: "⚠️ مريض محتاج رد فوري", body: `${phone} — ${text.slice(0, 90)}` },
-        { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { chatId: conversation.phoneKey, screen: "chats" } }
+        { event: "urgentPatientMessage", channel: "alpha_bookings", data: { chatId: conversation.phoneKey, screen: "chats" } }
       );
     }
     await saveConversation(
@@ -853,7 +855,7 @@ export async function respondToPatientMessage(args: {
           void push(
             clinicId,
             { title: "تعديل ميعاد من واتساب 🔁", body: `${ctx.patientName || phone} — ${dateKey} ${time}${doctorName ? ` — ${doctorName}` : ""}` },
-            { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } }
+            { event: "botRescheduled", channel: "alpha_bookings", data: { screen: "day" } }
           );
         } else if (moved.reason === "slot_taken") {
           await listTimes(dateKey, doctorName);
@@ -905,7 +907,7 @@ export async function respondToPatientMessage(args: {
           void push(
             clinicId,
             { title: "حجز جديد من واتساب 🤖", body: `${ctx.patientName || "Patient"} — ${dateKey} ${time}${doctorName ? ` — ${doctorName}` : ""}` },
-            { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } }
+            { event: "botBooked", channel: "alpha_bookings", data: { screen: "day" } }
           );
         } else if (booked.reason === "slot_taken") {
           await listTimes(dateKey, doctorName);
@@ -997,7 +999,7 @@ export async function respondToPatientMessage(args: {
             title: "ميعاد اتلغى من واتساب ❌",
             body: `${ctx.patientName || phone} — ${appt.date} ${appt.time}${appt.doctor ? ` مع ${appt.doctor}` : ""}`,
           },
-          { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } }
+          { event: "botCancelled", channel: "alpha_bookings", data: { screen: "day" } }
         );
         return;
       }
@@ -1015,7 +1017,7 @@ export async function respondToPatientMessage(args: {
           title: kind === "cancel" ? "طلب إلغاء ميعاد ❌" : kind === "reschedule" ? "طلب تعديل ميعاد 🔁" : "مريض هيتأخر ⏳",
           body: `${ctx.patientName || phone} — ${appt ? `${appt.date} ${appt.time}` : "من غير ميعاد محجوز"}`,
         },
-        { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } }
+        { event: "patientRequestedChange", channel: "alpha_bookings", data: { screen: "day" } }
       );
     };
 
@@ -1455,7 +1457,7 @@ ${askWho}` : askWho;
                   title: "رصيد الذكاء الاصطناعي خلص 🤖",
                   body: "البوت وقف عن الرد على أسئلة المرضى وبيحولهم للاستقبال. جدّد الرصيد عشان يرجع يشتغل.",
                 },
-                { roles: ["Owner", "Admin"], channel: "alpha_leads", data: { screen: "settings" } }
+                { event: "aiCreditsOut", channel: "alpha_leads", data: { screen: "settings" } }
               );
             })
             .catch(() => {});
@@ -1820,7 +1822,7 @@ ${askWho}` : askWho;
               : `${who} بعت ${args.media === "audio" ? "رسالة صوتية" : "صورة"}`,
         },
         {
-          roles: ["Owner", "Admin", "Receptionist"],
+          event: "botHandedOff",
           channel: "alpha_bookings",
           // The phone opens the conversation itself (chatId) where the app is new enough to have
           // a chats screen; an older build ignores it and falls back to the patient's record, or
