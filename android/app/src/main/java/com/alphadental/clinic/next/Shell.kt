@@ -429,9 +429,7 @@ fun Shell(preview: Boolean = false) {
                         doctors = visitState.doctors,
                         busy = visitState.saving,
                         error = visitState.recordError,
-                        onRecord = { procedure, teeth, note, cost, doctor, service, done ->
-                            visits.recordTreatment(procedure, teeth, note, cost, doctor, service, done)
-                        },
+                        onRecord = visits::recordTreatment,
                         onDismiss = visits::closeRecording,
                     )
                 }
@@ -977,7 +975,7 @@ private fun RecordPane(
                 services = previewServices(),
                 doctors = previewDoctors(),
                 busy = false, error = null,
-                onRecord = { _, _, _, _, _, _, _ -> previewSheet = "" },
+                onRecord = { _ -> previewSheet = "" },
                 onDismiss = { previewSheet = "" },
             )
             "pay" -> PaymentSheet(
@@ -1130,6 +1128,12 @@ private fun RecordPane(
         onEditNote = if (state.canRecord) ({ model.editNote(it) }) else null,
         ai = aiState,
         aiActions = aiActions,
+        onPlan = if (state.canRecord) ({ state.record?.let { plans.open(it.person) } }) else null,
+        onOrtho = if (state.canRecord) ({ model.startOrtho() }) else null,
+        onSort = model::toggleSort,
+        onDeleteNote = if (state.canDeleteNote) ({ model.deleteNoteNow(it) }) else null,
+        onDeleteRow = if (state.canDeleteLedger) ({ model.deleteRowNow(it) }) else null,
+        onPlanStatus = if (state.canRecord) ({ plan, status -> model.setPlanStatus(plan, status) }) else null,
     )
 
     if (aiState.viewing != null) XrayReportSheet(aiState, aiActions)
@@ -1204,6 +1208,10 @@ private fun RecordPane(
 
     // A prescription is written by a model that knows nothing about this screen, so the screen has
     // to be told. Cleared straight after, or reopening the file would refresh it again forever.
+    androidx.compose.runtime.LaunchedEffect(planState.saved) {
+        if (planState.saved != null) model.refreshPlans()
+    }
+
     androidx.compose.runtime.LaunchedEffect(script.saved) {
         if (script.saved != null) {
             model.refreshScripts()
@@ -1310,9 +1318,7 @@ private fun RecordPane(
                 doctors = state.doctors,
                 busy = state.recording,
                 error = state.recordError,
-                onRecord = { procedure, teeth, note, cost, doctor, service, done ->
-                    model.recordTreatment(procedure, teeth, note, cost, doctor, service, done)
-                },
+                onRecord = model::recordTreatment,
                 onDismiss = { recording = false; model.clearRecorded() },
             )
         }

@@ -18,15 +18,16 @@ import kotlinx.coroutines.launch
 
 /** Which part of the file is showing. */
 enum class RecordTab(val label: String) {
+    // The website's order, with its words. Clinical first because that is what the file is for.
+    Notes("Clinical"),
+    Plan("Treatment Plan"),
+    Ledger("Finance"),
+    Visits("Timeline"),
     Overview("Overview"),
+    Photos("X-Rays & Photos"),
+    Rx("Prescriptions"),
     Chart("Chart"),
-    /** Diagnosis, planning and x-ray reading. After the chart, because it reads the chart. */
     Ai("AI"),
-    Notes("Treatments"),
-    Visits("Visits"),
-    Photos("Photos"),
-    Rx("Scripts"),
-    Ledger("Ledger"),
 }
 
 /** The website's own gallery filters, stored by their English id. */
@@ -44,7 +45,7 @@ data class RecordState(
     val loading: Boolean = true,
     val who: Who? = null,
     val record: Record? = null,
-    val tab: RecordTab = RecordTab.Overview,
+    val tab: RecordTab = RecordTab.Notes,
     /** Which tooth the chart is showing the detail of. */
     val tooth: Int? = null,
     val error: String? = null,
@@ -100,6 +101,11 @@ data class RecordState(
      * treatment recorded twice. All three happen at a busy desk, and all three used to mean
      * opening a laptop.
      */
+    /** The website's timeline toggle. */
+    val newestFirst: Boolean = true,
+    /** Every plan on this file, newest first. */
+    val plans: List<com.alphadental.clinic.data.TreatmentPlans.Plan> = emptyList(),
+
     /** The recorded treatment being corrected. */
     val editingNote: com.alphadental.clinic.data.ClinicalNote? = null,
     val savingNote: Boolean = false,
@@ -208,6 +214,7 @@ class RecordModel : ViewModel() {
                     loadMedia(who, id)
                     loadNotes(who, id)
                     loadScripts(who, id)
+                    loadPlans(who, id)
                 }
                 .onFailure { _state.value = _state.value.copy(loading = false, who = who, error = it.message) }
         }
@@ -318,15 +325,7 @@ class RecordModel : ViewModel() {
      * write the single-tooth price whatever was selected, which undercharged for
      * exactly the treatments worth the most.
      */
-    fun recordTreatment(
-        procedure: String,
-        teeth: List<String>,
-        note: String,
-        unitCost: Double,
-        doctor: com.alphadental.clinic.data.Doctor?,
-        service: com.alphadental.clinic.data.Service?,
-        done: Boolean,
-    ) {
+    fun recordTreatment(d: ProcedureDraft) {
         val who = _state.value.who ?: return
         val record = _state.value.record ?: return
         if (!_state.value.canRecord || _state.value.recording) return
@@ -339,18 +338,21 @@ class RecordModel : ViewModel() {
                     name = record.person.name,
                     phone = record.person.phone,
                 ),
-                procedure = procedure,
-                teeth = teeth,
-                noteText = note,
-                unitCost = unitCost.takeIf { it > 0 },
-                status = if (done) "Completed" else "Planned",
-                doctor = doctor,
-                service = service,
+                procedure = d.procedure,
+                teeth = d.teeth,
+                noteText = d.note,
+                unitCost = d.unitCost,
+                status = d.status,
+                doctor = d.doctor,
+                service = d.service,
+                extra = d.extra,
+                date = d.date.takeIf { it.isNotBlank() },
+                pricingMode = d.pricingMode.takeIf { it.isNotBlank() },
             )
                 .onSuccess {
                     _state.value = _state.value.copy(
                         recording = false,
-                        recorded = if (unitCost > 0) "Recorded and charged." else "Recorded.",
+                        recorded = if ((d.unitCost ?: 0.0) > 0) "Recorded and charged." else "Recorded.",
                     )
                     reload()
                 }
@@ -585,6 +587,42 @@ class RecordModel : ViewModel() {
             com.alphadental.clinic.data.Repository.loadPatientMedia(who.clinicId, patientId)
         }.getOrDefault(emptyList())
         _state.value = _state.value.copy(media = rows)
+    }
+
+    private fun loadPlans(who: Who, patientId: String) = viewModelScope.launch {
+        val rows = runCatching { com.alphadental.clinic.data.TreatmentPlans.load(who.clinicId, patientId) }.getOrDefault(emptyList())
+        _state.value = _state.value.copy(plans = rows.sortedByDescending { it.createdAtMillis })
+    }
+
+    fun refreshPlans() {
+        val who = _state.value.who ?: return
+        val id = _state.value.record?.person?.id ?: return
+        loadPlans(who, id)
+    }
+
+    fun setPlanStatus(plan: com.alphadental.clinic.data.TreatmentPlans.Plan, status: String) {
+        val who = _state.value.who ?: return
+        if (!_state.value.canRecord) return
+        viewModelScope.launch {
+            com.alphadental.clinic.data.TreatmentPlans.setStatus(who.clinicId, plan.id, status)
+                .onSuccess { refreshPlans() }
+                .onFailure { e -> _state.value = _state.value.copy(error = e.message) }
+        }
+    }
+
+    fun toggleSort() {
+        _state.value = _state.value.copy(newestFirst = !_state.value.newestFirst)
+    }
+
+    /** The bin on a timeline row: the same delete, without opening the sheet first. */
+    fun deleteNoteNow(note: com.alphadental.clinic.data.ClinicalNote) {
+        _state.value = _state.value.copy(editingNote = note)
+        deleteNote()
+    }
+
+    fun deleteRowNow(row: com.alphadental.clinic.next.data.Money) {
+        _state.value = _state.value.copy(editingRow = row)
+        deleteRow()
     }
 
     private fun loadNotes(who: Who, patientId: String) = viewModelScope.launch {

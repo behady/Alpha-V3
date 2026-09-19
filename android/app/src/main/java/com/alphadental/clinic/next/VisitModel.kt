@@ -287,10 +287,7 @@ class VisitModel : ViewModel() {
     fun closeRecording() { _state.value = _state.value.copy(recording = false, recordError = null) }
 
     /** Add a procedure to THIS visit: the note carries the appointment id, as the website's does. */
-    fun recordTreatment(
-        procedure: String, teeth: List<String>, note: String, unitCost: Double,
-        doctor: com.alphadental.clinic.data.Doctor?, service: com.alphadental.clinic.data.Service?, done: Boolean,
-    ) {
+    fun recordTreatment(d: ProcedureDraft) {
         val s = _state.value
         val who = s.who ?: return
         val visit = s.visit ?: return
@@ -300,11 +297,14 @@ class VisitModel : ViewModel() {
             Repository.addClinicalNote(
                 clinicId = who.clinicId,
                 patient = com.alphadental.clinic.data.Patient(id = visit.patientId, name = visit.patientName, phone = s.phone),
-                procedure = procedure, teeth = teeth, noteText = note,
-                unitCost = unitCost.takeIf { it > 0 },
-                status = if (done) "Completed" else "Planned",
-                doctor = doctor, service = service,
+                procedure = d.procedure, teeth = d.teeth, noteText = d.note,
+                unitCost = d.unitCost,
+                status = d.status,
+                doctor = d.doctor, service = d.service,
                 appointmentId = visit.id,
+                extra = d.extra,
+                date = d.date.takeIf { it.isNotBlank() },
+                pricingMode = d.pricingMode.takeIf { it.isNotBlank() },
             )
                 .onSuccess {
                     _state.value = _state.value.copy(saving = false, recording = false, done = "Recorded.")

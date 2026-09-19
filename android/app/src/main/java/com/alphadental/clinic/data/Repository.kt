@@ -831,6 +831,11 @@ object Repository {
         doctor: Doctor?,
         service: Service?,
         appointmentId: String? = null,
+        /** Further procedures on the same note. The first one governs the billing rule. */
+        extra: List<String> = emptyList(),
+        date: String? = null,
+        /** per_tooth / flat / per_arch, when the dentist overrides the list's own rule. */
+        pricingMode: String? = null,
     ): Result<String> = runCatching {
         require(procedure.isNotBlank()) { "Enter what was done." }
         // The route refuses without a dentist, and its refusal is a code rather than a sentence.
@@ -841,14 +846,15 @@ object Repository {
         ClinicApi.createProcedure(
             clinicId = clinicId,
             patientId = patient.id,
-            procedures = listOf(procedure.trim()),
+            procedures = listOf(procedure.trim()) + extra.map { it.trim() }.filter { it.isNotBlank() },
             selectedTeeth = teeth,
             doctorId = doctorId,
             unitCost = unitCost,
-            pricingMode = service?.pricingMode?.takeIf { it.isNotBlank() },
+            pricingMode = pricingMode?.takeIf { it.isNotBlank() } ?: service?.pricingMode?.takeIf { it.isNotBlank() },
             status = status,
             note = noteText,
             appointmentId = appointmentId,
+            date = date,
         ).noteId
     }
 

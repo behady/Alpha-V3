@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
@@ -97,17 +98,37 @@ fun RecordScreen(
     /** The AI tab's own state and verbs. Null in the preview, which has no server to ask. */
     ai: AiClinicalState? = null,
     aiActions: AiClinicalActions? = null,
+    // ---- the website's page
+    onPlan: (() -> Unit)? = null,
+    onOrtho: (() -> Unit)? = null,
+    onSort: () -> Unit = {},
+    onDeleteNote: ((com.alphadental.clinic.data.ClinicalNote) -> Unit)? = null,
+    onDeleteRow: ((Money) -> Unit)? = null,
+    onPlanStatus: ((com.alphadental.clinic.data.TreatmentPlans.Plan, String) -> Unit)? = null,
 ) {
     val record = state.record
 
     Column(Modifier.fillMaxSize().background(T.ground)) {
 
-        RecordSlab(
-            state, record, onBack, onCall, onMessage,
-            onTakePayment, onRecordTreatment, onMore, onEditDetails,
+        // A short slab — back, the file number, the name — and the website's cards under it.
+        Slab(
+            title = record?.person?.name?.ifBlank { "No name" } ?: "Patient",
+            eyebrow = "Patients" + (record?.fileId?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""),
+            bar = {
+                SlabIcon(Icons.AutoMirrored.Filled.ArrowBack, "Back", onClick = onBack)
+                Spacer(Modifier.weight(1f))
+                val phone = record?.person?.phone.orEmpty()
+                if (phone.isNotBlank()) {
+                    SlabIcon(Icons.Filled.Phone, "Call") { onCall(phone) }
+                    Spacer(Modifier.width(8.dp))
+                }
+                onTakePayment?.let {
+                    SlabIcon(Icons.Filled.AccountBalanceWallet, "Take payment", onClick = it)
+                    Spacer(Modifier.width(8.dp))
+                }
+                onMore?.let { SlabIcon(Icons.Filled.MoreHoriz, "More", onClick = it) }
+            },
         )
-
-        if (record != null) Tabs(state.tab, onTab)
 
         when {
             state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -122,6 +143,11 @@ fun RecordScreen(
                 Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = T.barClearance),
             ) {
+                item { PatientCard(record, onEditDetails, onCall, onMessage) }
+                item { StatsCard(visits = record.past.size, completed = state.notes.count { it.status != "Planned" }) }
+                item { QuickActions(onRx = onPrescribe, onDiagnosis = { onTab(RecordTab.Chart) }, onOrtho = onOrtho) }
+                item { Spacer(Modifier.height(6.dp)) }
+                item { WebTabs(state.tab, onTab) }
                 when (state.tab) {
                     RecordTab.Overview -> overview(state, record)
                     RecordTab.Chart -> chart(state, record, onSelectTooth, onChart)
@@ -130,11 +156,12 @@ fun RecordScreen(
                     } else {
                         item { SettingsEmpty("The assistant is not available in the preview.") }
                     }
-                    RecordTab.Notes -> treatments(state, onSetNoteStatus, onRecordTreatment, onEditNote)
+                    RecordTab.Notes -> clinical(state, onRecordTreatment, onSort, onEditNote, onDeleteNote)
+                    RecordTab.Plan -> plans(state, onPlan, onPlanStatus)
                     RecordTab.Visits -> visits(record)
                     RecordTab.Rx -> scripts(state, onPrescribe, onPrintScript, onShareScript, onSendScript, onCopyScript)
                     RecordTab.Photos -> photos(state, onFilterMedia, onUploadCategory, onView, onCamera, onGallery)
-                    RecordTab.Ledger -> statement(state, onTakePayment, onEditRow)
+                    RecordTab.Ledger -> finance(state, onTakePayment, onEditRow, onDeleteRow)
                 }
             }
         }
