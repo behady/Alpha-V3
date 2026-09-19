@@ -24,6 +24,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material3.Surface
 import com.alphadental.clinic.data.ClinicSettings
 import com.alphadental.clinic.data.LabCases
 import com.alphadental.clinic.next.design.Chip
@@ -1634,6 +1636,8 @@ private fun BookingPage(state: SettingsState, onBack: () -> Unit, actions: Setti
         onBack = onBack,
         ready = stored != null,
     ) {
+        // The link is what this screen is for, so it is the first thing on it.
+        item { BookingLinkCard(state, form.enabled) }
         item {
             RowGroup {
                 SettingsToggle(
@@ -1782,37 +1786,89 @@ private fun BotPage(state: SettingsState, onBack: () -> Unit, actions: SettingsA
 // This app
 // ---------------------------------------------------------------------------
 
+/**
+ * The clinic's booking link, the website's way: on a dark card at the top, with Copy and Share,
+ * and — once booking is on — one tagged copy per channel so whoever books through the link
+ * pasted in the Instagram bio is counted as coming from Instagram.
+ */
 @Composable
-private fun AlertsPage(state: SettingsState, onBack: () -> Unit, actions: SettingsActions) {
-    SettingsPage(
-        title = Section.Alerts.label,
-        caption = "What rings the bell",
-        state = state,
-        onBack = onBack,
-    ) {
-        item {
-            RowGroup {
-                ClinicSettings.ALERT_KEYS.forEachIndexed { i, (key, label) ->
-                    if (i > 0) Rule()
-                    SettingsToggle(
-                        title = label,
-                        caption = "",
-                        checked = state.alerts[key] ?: ClinicSettings.alertDefault(key),
-                        enabled = state.canEdit,
-                    ) { actions.setAlert(key, it) }
+private fun BookingLinkCard(state: SettingsState, enabled: Boolean) {
+    val context = LocalContext.current
+    val clinicId = state.who?.clinicId.orEmpty()
+    val url = com.alphadental.clinic.BuildConfig.WEB_URL.trimEnd('/') + "/book/" + clinicId
+    Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+        Surface(shape = T.cardShape, color = T.slab, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(horizontal = 18.dp, vertical = 16.dp)) {
+                Txt("Your booking page", Type.chip, T.onSlabFaint, uppercase = true)
+                Spacer(Modifier.height(6.dp))
+                Txt(
+                    if (enabled) "Patients open this link and book themselves in." else "Switched off: the link shows the clinic but takes no bookings.",
+                    Type.caption, T.onSlabSoft, maxLines = 3,
+                )
+                Spacer(Modifier.height(10.dp))
+                Txt(url, Type.caption, T.onSlab, maxLines = 2)
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SlabPill("Copy") { copyText(context, url, "Booking link") }
+                    SlabPill("Share") { shareText(context, url) }
                 }
             }
         }
-        item {
+        if (enabled) {
+            Spacer(Modifier.height(14.dp))
+            SectionLabel("Tagged links, one per channel")
             Txt(
-                "An alert nobody chose is the kind that teaches people to ignore the bell, so " +
-                    "only arrival is on to begin with.",
-                Type.caption, T.inkMuted,
-                Modifier.padding(horizontal = T.gutter, vertical = 12.dp),
-                maxLines = 3,
+                "Paste each one where it belongs. Whoever books through it is counted as coming from that channel, which is what the marketing report rests on.",
+                Type.caption, T.inkMuted, Modifier.padding(start = 8.dp, end = 8.dp, bottom = 8.dp), maxLines = 4,
             )
+            RowGroup {
+                listOf(
+                    "meta" to "Facebook / Meta ads",
+                    "instagram" to "Instagram bio",
+                    "google" to "Google profile",
+                    "tiktok" to "TikTok",
+                    "whatsapp" to "WhatsApp status",
+                ).forEachIndexed { i, (tag, label) ->
+                    if (i > 0) Rule()
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Txt(label, Type.rowName, T.ink, maxLines = 1)
+                            Txt("…/book/${clinicId.take(6)}…?src=$tag", Type.caption, T.inkFaint, maxLines = 1)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        SettingsPill("Copy") { copyText(context, "$url?src=$tag", "$label link") }
+                    }
+                }
+            }
         }
-        if (!state.canEdit) item { SettingsReadOnly() }
+    }
+}
+
+@Composable
+private fun SlabPill(label: String, onClick: () -> Unit) {
+    Surface(shape = T.pill, color = T.slabFill, modifier = Modifier.clickable(onClick = onClick)) {
+        Txt(label, Type.caption.copy(fontSize = 12.sp), T.onSlab, Modifier.padding(horizontal = 14.dp, vertical = 8.dp))
+    }
+}
+
+private fun copyText(context: android.content.Context, text: String, label: String) {
+    runCatching {
+        val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        cm.setPrimaryClip(android.content.ClipData.newPlainText(label, text))
+        android.widget.Toast.makeText(context, "Copied", android.widget.Toast.LENGTH_SHORT).show()
+    }
+}
+
+private fun shareText(context: android.content.Context, text: String) {
+    runCatching {
+        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(android.content.Intent.EXTRA_TEXT, text)
+        }
+        context.startActivity(android.content.Intent.createChooser(send, "Share the booking link"))
     }
 }
 

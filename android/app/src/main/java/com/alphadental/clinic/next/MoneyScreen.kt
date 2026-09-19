@@ -73,6 +73,8 @@ fun MoneyScreen(
     onThisMonth: () -> Unit,
     onAdd: (() -> Unit)? = null,
     onPeriod: (MoneyPeriod) -> Unit = {},
+    /** A line tapped: its sheet, with the detail and — for the right account — the edit. */
+    onOpenRow: ((Money) -> Unit)? = null,
 ) {
     Column(Modifier.fillMaxSize().background(T.ground)) {
 
@@ -176,7 +178,7 @@ fun MoneyScreen(
                         RowGroup {
                             state.recent.forEachIndexed { i, m ->
                                 if (i > 0) Rule()
-                                MovementRow(m)
+                                MovementRow(m, onOpenRow)
                             }
                         }
                     }
@@ -390,22 +392,36 @@ private fun EarnerRow(earner: Earner, total: Double) {
 
 /** One movement: money in, or money out. */
 @Composable
-private fun MovementRow(m: Money) {
+private fun MovementRow(m: Money, onOpen: ((Money) -> Unit)?) {
     val out = m.isExpense
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 12.dp),
+        Modifier
+            .fillMaxWidth()
+            .then(if (onOpen != null) Modifier.clickable { onOpen(m) } else Modifier)
+            .padding(horizontal = T.gutter, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
             Txt(m.description.ifBlank { if (out) "Expense" else "Payment" }, Type.rowName, T.ink)
+            // The website's row: the patient, the dentist, how it was paid, who took it.
             val detail = listOfNotNull(
                 shortDay(m.date).takeIf { it.isNotBlank() },
+                m.patientName.takeIf { it.isNotBlank() },
+                m.doctor.takeIf { it.isNotBlank() }?.let { if (it.startsWith("Dr", true)) it else "Dr. $it" },
                 m.method.takeIf { it.isNotBlank() },
-                m.doctor.takeIf { it.isNotBlank() },
             )
             if (detail.isNotEmpty()) {
                 Spacer(Modifier.height(2.dp))
-                Txt(detail.joinToString(" · "), Type.caption, T.inkMuted)
+                Txt(detail.joinToString(" · "), Type.caption, T.inkMuted, maxLines = 2)
+            }
+            val split = listOfNotNull(
+                m.commission.takeIf { it > 0 }?.let { "Doc ${money(it)}" },
+                m.labFee.takeIf { it > 0 }?.let { "Lab ${money(it)}" },
+                m.by.takeIf { it.isNotBlank() }?.let { "by $it" },
+            )
+            if (split.isNotEmpty()) {
+                Spacer(Modifier.height(2.dp))
+                Txt(split.joinToString(" · "), Type.chip, T.accentInk, maxLines = 1)
             }
         }
         Spacer(Modifier.width(10.dp))

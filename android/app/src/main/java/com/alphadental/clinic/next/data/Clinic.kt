@@ -319,6 +319,9 @@ data class Money(
     val procedureId: String = "",
     /** The dentist whose work this money is for, by staff id. What the commission tally groups on. */
     val doctorId: String = "",
+    /** Whose file this line is on. Blank on a clinic expense. */
+    val patientName: String = "",
+    val patientId: String = "",
 ) {
     val isCharge: Boolean get() = type == "procedure"
 

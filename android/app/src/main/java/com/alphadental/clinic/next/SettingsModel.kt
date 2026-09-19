@@ -121,7 +121,11 @@ data class SettingsState(
     /** My own staff row, for the profile page. Null until read; blank id means no row. */
     val me: ClinicSettings.MyProfile? = null,
     val myStaffId: String = "",
-    val alerts: Map<String, Boolean> = emptyMap(),
+    /** The clinic's `alertPreferences` map, whole. Null until read. */
+    val alertPrefs: Map<String, Any?>? = null,
+    /** My own mutes for this clinic, by event id. */
+    val myMutes: List<String> = emptyList(),
+    val mutesLoaded: Boolean = false,
     val booking: ClinicSettings.OnlineBooking? = null,
     val recall: ClinicSettings.Recall? = null,
     val bot: ClinicSettings.BotSettings? = null,
@@ -228,7 +232,14 @@ class SettingsModel : ViewModel() {
             Section.Requests -> load { it.copy(requests = ClinicSettings.loadJoinRequests(id)) }
             Section.Booking -> load { it.copy(booking = ClinicSettings.loadOnlineBooking(id)) }
             Section.Bot -> load { it.copy(bot = ClinicSettings.loadBot(id)) }
-            Section.Alerts -> load { it.copy(alerts = ClinicSettings.loadAlerts(id)) }
+            Section.Alerts -> load {
+                val uid = it.who?.uid.orEmpty()
+                it.copy(
+                    alertPrefs = ClinicSettings.loadAlertPrefs(id),
+                    myMutes = ClinicSettings.loadMyMutes(uid, id),
+                    mutesLoaded = true,
+                )
+            }
             Section.DentistHome -> load { it.copy(dentistShare = ClinicSettings.loadDentistShowShare(id)) }
             Section.Logs -> load { it.copy(logs = ClinicSettings.loadLogs(id)) }
             Section.Ai -> load { it.copy(ai = ClinicSettings.loadAiUsage(id)) }
@@ -365,9 +376,18 @@ class SettingsModel : ViewModel() {
     fun saveArea(r: ClinicSettings.AttendanceRules) =
         write({ ClinicSettings.saveAttendanceRules(it, r) }) { s -> s.copy(area = r) }
 
-    fun setAlert(key: String, on: Boolean) {
-        val next = _state.value.alerts + (key to on)
-        write({ ClinicSettings.saveAlerts(it, next) }) { s -> s.copy(alerts = next) }
+    fun saveAlertPrefs(prefs: Map<String, Any?>) =
+        write({ ClinicSettings.saveAlertPrefs(it, prefs) }) { s -> s.copy(alertPrefs = prefs) }
+
+    /** Mine, like [saveHomeTab]: written to my own record, no admin needed. */
+    fun setMute(eventId: String, muted: Boolean) {
+        val who = _state.value.who ?: return
+        val next = if (muted) (_state.value.myMutes + eventId).distinct() else _state.value.myMutes - eventId
+        _state.value = _state.value.copy(myMutes = next)
+        viewModelScope.launch {
+            ClinicSettings.saveMyMutes(who.uid, who.clinicId, next)
+                .onFailure { e -> _state.value = _state.value.copy(error = readable(e)) }
+        }
     }
 
     fun saveBooking(b: ClinicSettings.OnlineBooking) =
@@ -542,7 +562,8 @@ fun previewSettings(): SettingsState = SettingsState(
     sources = listOf("Walk-in", "Social Media", "Friend / Family", "Google", "Online Booking"),
     booking = ClinicSettings.OnlineBooking(enabled = true, enableDoctorSelection = true, defaultDurationMinutes = "30"),
     recall = ClinicSettings.Recall(intervalMonths = 6, reactivationMonths = 12),
-    alerts = mapOf("patientArrival" to true, "labReady" to false),
+    alertPrefs = emptyMap(),
+    mutesLoaded = true,
     dentistShare = true,
     bot = ClinicSettings.BotSettings(
         enabled = true,

@@ -487,6 +487,8 @@ object ClinicSource {
                         by = d.text("addedBy"),
                         procedureId = d.text("procedureId"),
                         doctorId = d.text("doctorId"),
+                        patientName = d.text("patientName"),
+                        patientId = d.text("patientId"),
                     )
                 }
 
@@ -618,6 +620,8 @@ object ClinicSource {
                     by = d.text("addedBy"),
                     procedureId = d.text("procedureId"),
                     doctorId = d.text("doctorId"),
+                    patientName = d.text("patientName"),
+                    patientId = d.text("patientId"),
                 )
             }.sortedByDescending { it.date }
         }

@@ -793,6 +793,7 @@ private fun DayTab(
             onSelectDay = { state = state.copy(dateKey = it) },
             onOpenDay = { state = state.copy(dateKey = it, span = Span.Day) },
             onBookGap = { gap -> onBook(state.dateKey, clockOf(gap.minute)) },
+            onBookNow = { onBook(state.dateKey, "") },
         )
     } else {
         val model: DayModel = viewModel()
@@ -804,6 +805,7 @@ private fun DayTab(
             onSpan = model::show,
             onOpenDay = model::openDay,
             onSelectDay = model::selectDay,
+            onBookNow = if (state.who?.can("appointments.add") == true) ({ onBook(state.dateKey, "") }) else null,
             // A free slot books into itself: the whole point of tapping one is
             // that the day and time are already decided.
             onBookGap = { gap -> onBook(state.dateKey, clockOf(gap.minute)) },
@@ -1046,30 +1048,6 @@ private fun RecordPane(
         val person = state.record?.person
         if (who != null && person != null) ai.open(who, person.id, person.name)
     }
-    val aiActions = remember(ai) {
-        AiClinicalActions(
-            show = ai::show,
-            type = ai::type,
-            ask = { ai.ask(false) },
-            summarize = { ai.ask(true) },
-            setSuper = ai::setSuper,
-            pickPhotos = ai::pickPhotos,
-            toggleAttached = ai::toggleAttached,
-            openChat = ai::openChat,
-            instruct = ai::instruct,
-            answer = ai::answer,
-            propose = ai::propose,
-            saveOption = ai::saveOption,
-            togglePicked = ai::togglePicked,
-            noteXray = ai::noteXray,
-            setDeep = ai::setDeep,
-            setCompare = ai::setCompare,
-            read = ai::read,
-            view = ai::view,
-            review = { verdicts, chart, sign -> ai.review(verdicts, chart, sign) },
-            clearErrors = ai::clearErrors,
-        )
-    }
     var taking by remember { mutableStateOf(payOnOpen) }
     var recording by remember { mutableStateOf(recordOnOpen) }
     var more by remember { mutableStateOf(false) }
@@ -1093,7 +1071,54 @@ private fun RecordPane(
             com.alphadental.clinic.ui.readScaledJpeg(context, uri)?.let(model::addPhoto)
         }
     }
+    val aiActions = remember(ai, pickImage, takePicture) {
+        AiClinicalActions(
+            show = ai::show,
+            type = ai::type,
+            ask = { ai.ask(false) },
+            summarize = { ai.ask(true) },
+            setSuper = ai::setSuper,
+            pickPhotos = ai::pickPhotos,
+            toggleAttached = ai::toggleAttached,
+            upload = { camera, category ->
+                model.setUploadCategory(category)
+                if (camera) {
+                    runCatching {
+                        val dir = java.io.File(context.cacheDir, "camera").apply { mkdirs() }
+                        val file = java.io.File(dir, "capture_${System.currentTimeMillis()}.jpg")
+                        val uri = androidx.core.content.FileProvider.getUriForFile(
+                            context, com.alphadental.clinic.BuildConfig.APPLICATION_ID + ".files", file,
+                        )
+                        cameraUri = uri
+                        takePicture.launch(uri)
+                    }
+                } else {
+                    pickImage.launch(
+                        androidx.activity.result.PickVisualMediaRequest(
+                            androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly,
+                        )
+                    )
+                }
+            },
+            openChat = ai::openChat,
+            instruct = ai::instruct,
+            answer = ai::answer,
+            propose = ai::propose,
+            saveOption = ai::saveOption,
+            togglePicked = ai::togglePicked,
+            noteXray = ai::noteXray,
+            setDeep = ai::setDeep,
+            setCompare = ai::setCompare,
+            read = ai::read,
+            view = ai::view,
+            review = { verdicts, chart, sign -> ai.review(verdicts, chart, sign) },
+            clearErrors = ai::clearErrors,
+        )
+    }
     androidx.compose.runtime.LaunchedEffect(patientId) { model.open(patientId) }
+    // A photograph added from the file's Photos tab or from the AI tab itself lands in the AI
+    // tab's gallery at once, attached to the question or picked for the read, without a reload.
+    androidx.compose.runtime.LaunchedEffect(state.media, state.uploading) { ai.mediaChanged(state.media, state.uploading, state.canAddPhoto) }
 
     androidx.compose.runtime.LaunchedEffect(state.recorded) {
         if (state.recorded != null) {
@@ -1439,7 +1464,21 @@ private fun MoneyPane(preview: Boolean, onBack: () -> Unit) {
         onThisMonth = model::thisMonth,
         onAdd = if (state.canAdd) ({ adding = true }) else null,
         onPeriod = model::show,
+        onOpenRow = model::editRow,
     )
+
+    state.editingRow?.let { row ->
+        LedgerRowSheet(
+            row = row,
+            busy = state.savingRow,
+            error = state.rowError,
+            canEdit = state.canEditLedger,
+            canDelete = state.canDeleteLedger,
+            onSave = model::saveRow,
+            onDelete = model::deleteRow,
+            onDismiss = model::closeRow,
+        )
+    }
 
     if (adding) {
         FinanceEntrySheet(
@@ -1677,7 +1716,8 @@ private fun SettingsPane(preview: Boolean, personal: Boolean = false, onBack: ()
                 toggleTab = { t -> edit { p -> p.copy(hiddenTabs = if (t.name in p.hiddenTabs) p.hiddenTabs - t.name else p.hiddenTabs + t.name) } },
                 toggleTool = { n -> edit { p -> p.copy(hiddenTools = if (n in p.hiddenTools) p.hiddenTools - n else p.hiddenTools + n) } },
                 saveMyProfile = { stored = stored.copy(me = it) },
-                setAlert = { key, on -> stored = stored.copy(alerts = stored.alerts + (key to on)) },
+                saveAlertPrefs = { stored = stored.copy(alertPrefs = it) },
+                setMute = { id, muted -> stored = stored.copy(myMutes = if (muted) stored.myMutes + id else stored.myMutes - id) },
                 saveBooking = { stored = stored.copy(booking = it) },
                 saveRecall = { stored = stored.copy(recall = it) },
                 saveBot = { stored = stored.copy(bot = it) },
@@ -1731,7 +1771,8 @@ private fun SettingsPane(preview: Boolean, personal: Boolean = false, onBack: ()
             toggleTab = interfaceModel::toggleTab,
             toggleTool = interfaceModel::toggleTool,
             saveMyProfile = model::saveMyProfile,
-            setAlert = model::setAlert,
+            saveAlertPrefs = model::saveAlertPrefs,
+            setMute = model::setMute,
             saveBooking = model::saveBooking,
             saveRecall = model::saveRecall,
             saveBot = model::saveBot,

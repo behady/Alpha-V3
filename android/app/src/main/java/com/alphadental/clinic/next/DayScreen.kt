@@ -64,6 +64,8 @@ fun DayScreen(
     onOpenDay: (String) -> Unit = {},
     /** A day tapped in the month: shown underneath, without leaving the month. */
     onSelectDay: (String) -> Unit = {},
+    /** Book into the day on screen. On the slab, where the assistant's bubble cannot cover it. */
+    onBookNow: (() -> Unit)? = null,
 ) {
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
@@ -71,7 +73,7 @@ fun DayScreen(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = T.barClearance),
         ) {
-            item { DaySlab(state, onShiftDay, onToday) }
+            item { DaySlab(state, onShiftDay, onToday, onBookNow) }
 
             item {
                 Row(
@@ -132,7 +134,7 @@ fun DayScreen(
 }
 
 @Composable
-private fun DaySlab(state: Day, onShiftDay: (Int) -> Unit, onToday: () -> Unit) {
+private fun DaySlab(state: Day, onShiftDay: (Int) -> Unit, onToday: () -> Unit, onBookNow: (() -> Unit)?) {
     val unit = when (state.span) { Span.Day -> "day"; Span.Week -> "week"; Span.Month -> "month" }
     Slab(
         title = spanTitle(state.dateKey, state.span),
@@ -142,6 +144,17 @@ private fun DaySlab(state: Day, onShiftDay: (Int) -> Unit, onToday: () -> Unit) 
             Spacer(Modifier.width(8.dp))
             SlabIcon(Icons.Filled.ChevronRight, "Next $unit") { onShiftDay(1) }
             Spacer(Modifier.weight(1f))
+            // The yellow one. The gap rows below offer to book too, but the assistant's bubble
+            // floats over the bottom of the list and hid the last of them.
+            onBookNow?.let { book ->
+                Surface(shape = T.pill, color = T.accent, modifier = Modifier.clickable(onClick = book)) {
+                    Txt(
+                        "Book", Type.label.copy(fontSize = 12.sp), T.slab,
+                        Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+            }
             // Only when it would do something. A button that is always there and
             // usually does nothing teaches people to stop looking at that corner.
             if (!state.isToday) {

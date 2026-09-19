@@ -53,6 +53,8 @@ data class AiClinicalActions(
     val setSuper: (Boolean) -> Unit,
     val pickPhotos: (Boolean) -> Unit,
     val toggleAttached: (PatientMedia) -> Unit,
+    /** Add a picture to the file from here: (camera?, category). Null when the account may not. */
+    val upload: ((Boolean, String) -> Unit)? = null,
     val openChat: (AiClinical.DiagChat?) -> Unit,
     // plan
     val instruct: (String) -> Unit,
@@ -229,8 +231,9 @@ private fun LazyListScope.diagnosis(state: AiClinicalState, a: AiClinicalActions
 
     if (state.pickingPhotos) {
         item { SectionLabel("Attach from the gallery · up to ${AiClinical.DIAGNOSIS_MAX_IMAGES}") }
+        item { UploadRow(state, a, category = "Clinical Photo") }
         if (state.media.isEmpty()) {
-            item { SettingsEmpty("No photographs on this file yet. Add some under Photos first.") }
+            item { SettingsEmpty(if (state.canUpload) "No photographs on this file yet. Take one or pick one above." else "No photographs on this file yet. Add some under Photos first.") }
         } else {
             item {
                 MediaGrid(state.media, picked = state.attached.map { it.id }) { m -> a.toggleAttached(m) }
@@ -437,8 +440,9 @@ private fun LazyListScope.xrays(state: AiClinicalState, a: AiClinicalActions) {
     state.xrayError?.let { item { ErrorBand(it, a.clearErrors) } }
 
     item { SectionLabel("Pick up to ${AiClinical.XRAY_MAX_IMAGES} pictures") }
+    item { UploadRow(state, a, category = "X-Ray") }
     if (state.media.isEmpty()) {
-        item { SettingsEmpty("No x-rays or photographs on this file yet. Add them under Photos first.") }
+        item { SettingsEmpty(if (state.canUpload) "No x-rays on this file yet. Take one or pick one above." else "No x-rays or photographs on this file yet. Add them under Photos first.") }
     } else {
         item { MediaGrid(state.xrayCandidates, picked = state.picked) { m -> a.togglePicked(m.id) } }
     }
@@ -696,6 +700,31 @@ private fun MediaGrid(items: List<PatientMedia>, picked: List<String>, onTap: (P
                 repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
+    }
+}
+
+/**
+ * Take a picture or pick one, from the AI tab itself.
+ *
+ * The owner: "there should be an upload button here". The picture goes on the patient's file
+ * under Photos exactly as if it had been added there, and comes straight back into this list,
+ * attached — so an x-ray taken at the chair is read without a trip through another tab.
+ */
+@Composable
+private fun UploadRow(state: AiClinicalState, a: AiClinicalActions, category: String) {
+    val upload = a.upload ?: return
+    if (!state.canUpload) return
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SettingsPill(if (state.uploading) "Saving…" else "Take a photo", solid = true) { if (!state.uploading) upload(true, category) }
+        SettingsPill("From the gallery") { if (!state.uploading) upload(false, category) }
+        Txt(
+            if (category == "X-Ray") "Saved to the file as an x-ray" else "Saved to the file as a clinical photo",
+            Type.caption, T.inkFaint, Modifier.weight(1f), maxLines = 2,
+        )
     }
 }
 

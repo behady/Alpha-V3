@@ -564,6 +564,33 @@ object ClinicSettings {
      */
     fun alertDefault(key: String): Boolean = key == "patientArrival"
 
+    /**
+     * The whole `alertPreferences` map, as the website's Alerts page reads and writes it — every
+     * event's bell/push/roles, the timings, quiet hours, and the two pre-catalogue keys under
+     * `inApp`, which are read as a fallback and never written.
+     */
+    @Suppress("UNCHECKED_CAST")
+    suspend fun loadAlertPrefs(clinicId: String): Map<String, Any?> =
+        (loadDoc(clinicId, "clinic_info")["alertPreferences"] as? Map<String, Any?>).orEmpty()
+
+    /** Merged at the document level: `set` with merge folds nested maps, so nothing else on clinic_info moves. */
+    suspend fun saveAlertPrefs(clinicId: String, prefs: Map<String, Any?>): Result<Unit> =
+        saveDoc(clinicId, "clinic_info", mapOf("alertPreferences" to prefs))
+
+    /** `users/{uid}.notificationMutes[clinicId]`: the alerts this person switched off for themselves. */
+    suspend fun loadMyMutes(uid: String, clinicId: String): List<String> {
+        if (uid.isBlank()) return emptyList()
+        val snap = Firebase.db().collection("users").document(uid).get().await()
+        val mutes = snap.get("notificationMutes") as? Map<*, *>
+        return (mutes?.get(clinicId) as? List<*>).orEmpty().mapNotNull { it?.toString() }
+    }
+
+    suspend fun saveMyMutes(uid: String, clinicId: String, mutes: List<String>): Result<Unit> = runCatching {
+        Firebase.db().collection("users").document(uid)
+            .set(mapOf("notificationMutes" to mapOf(clinicId to mutes)), SetOptions.merge()).await()
+        Unit
+    }
+
     suspend fun loadAlerts(clinicId: String): Map<String, Boolean> {
         val prefs = loadDoc(clinicId, "clinic_info")["alertPreferences"] as? Map<*, *>
         val inApp = prefs?.get("inApp") as? Map<*, *> ?: return emptyMap()

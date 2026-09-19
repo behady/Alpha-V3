@@ -36,9 +36,16 @@ data class MoneyState(
     val saving: Boolean = false,
     val entryError: String? = null,
     val entered: String? = null,
+    /** The line whose sheet is open. Anyone may open one; the sheet decides what it offers. */
+    val editingRow: Money? = null,
+    val savingRow: Boolean = false,
+    val rowError: String? = null,
 ) {
     /** Adding a money line is a finance write, not merely seeing the screen. */
     val canAdd: Boolean get() = who?.can("finance.add") == true
+    /** The website's two tick-boxes, one each: correcting a line and removing one. */
+    val canEditLedger: Boolean get() = who?.can("finance.edit") == true
+    val canDeleteLedger: Boolean get() = who?.can("finance.delete") == true
     val monthStart: String get() = ClinicSource.dateKey(firstOfMonth(anchor))
     val monthEnd: String get() = ClinicSource.dateKey(lastOfMonth(anchor))
 
@@ -215,6 +222,53 @@ class MoneyModel : ViewModel() {
                         entryError = e.message ?: "That could not be saved.",
                     )
                 }
+        }
+    }
+
+    // ------------------------------------------------------------------ one line
+
+    fun editRow(row: Money) {
+        _state.value = _state.value.copy(editingRow = row, rowError = null)
+    }
+
+    fun closeRow() {
+        _state.value = _state.value.copy(editingRow = null, rowError = null)
+    }
+
+    /**
+     * Save a correction, the same route the patient's file uses: the server keeps only the fields
+     * that row type allows and answers with its own sentence when it refuses.
+     */
+    fun saveRow(date: String, description: String, amount: Double, method: String) {
+        val who = _state.value.who ?: return
+        val row = _state.value.editingRow ?: return
+        if (!_state.value.canEditLedger || _state.value.savingRow) return
+        _state.value = _state.value.copy(savingRow = true, rowError = null)
+        val patch = buildMap<String, Any?> {
+            put("date", date.trim())
+            put("description", description.trim())
+            if (row.isPayment) {
+                put("paid", amount)
+                put("method", method.trim())
+            }
+            if (row.isExpense) put("amount", amount)
+        }
+        viewModelScope.launch {
+            com.alphadental.clinic.data.Repository.updateLedgerRow(who.clinicId, row.id, patch)
+                .onSuccess { _state.value = _state.value.copy(savingRow = false, editingRow = null); load() }
+                .onFailure { e -> _state.value = _state.value.copy(savingRow = false, rowError = e.message ?: "That change could not be saved.") }
+        }
+    }
+
+    fun deleteRow() {
+        val who = _state.value.who ?: return
+        val row = _state.value.editingRow ?: return
+        if (!_state.value.canDeleteLedger || _state.value.savingRow) return
+        _state.value = _state.value.copy(savingRow = true, rowError = null)
+        viewModelScope.launch {
+            com.alphadental.clinic.data.Repository.deleteLedgerRow(who.clinicId, row.id)
+                .onSuccess { _state.value = _state.value.copy(savingRow = false, editingRow = null); load() }
+                .onFailure { e -> _state.value = _state.value.copy(savingRow = false, rowError = e.message ?: "That line could not be removed.") }
         }
     }
 

@@ -337,7 +337,7 @@ fun LedgerRowSheet(
         busy = busy,
         error = error,
         action = if (canEdit) "Save" else "Close",
-        ready = !canEdit || (date.isNotBlank() && (!row.isPayment || value > 0)),
+        ready = !canEdit || (date.isNotBlank() && (row.isCharge || value > 0)),
         onAction = { if (canEdit) onSave(date, description, value, method) else onDismiss() },
         onDismiss = onDismiss,
     ) {
@@ -351,6 +351,7 @@ fun LedgerRowSheet(
         Column(Modifier.padding(horizontal = T.gutter, vertical = 12.dp)) {
             DetailLine("Amount", "${row.amount.toLong()} EGP")
             DetailLine("Date", noteDate(row.date))
+            if (row.patientName.isNotBlank()) DetailLine("Patient", row.patientName)
             if (row.isPayment) {
                 DetailLine("Taken by", row.by.ifBlank { "Not recorded" })
                 DetailLine("Paid by", row.method.ifBlank { "Not recorded" })
@@ -413,6 +414,13 @@ fun LedgerRowSheet(
                 Type.caption, T.inkMuted,
                 Modifier.padding(horizontal = T.gutter, vertical = 10.dp),
                 maxLines = 3,
+            )
+        } else if (row.isExpense || row.type == "income") {
+            // A clinic's own line: the figure is the figure, no split behind it.
+            SheetField(
+                "Amount", amount,
+                { amount = it.filter { c -> c.isDigit() || c == '.' } },
+                numeric = true,
             )
         } else {
             Txt(

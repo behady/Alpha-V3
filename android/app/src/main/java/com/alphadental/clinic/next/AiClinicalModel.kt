@@ -42,6 +42,10 @@ data class AiClinicalState(
     val attached: List<PatientMedia> = emptyList(),
     val pickingPhotos: Boolean = false,
     val diagError: String? = null,
+    /** A picture is on its way to the file (from this tab or the Photos tab). */
+    val uploading: Boolean = false,
+    /** Whether this account may add pictures to the file at all. */
+    val canUpload: Boolean = false,
 
     // ---- plan
     val instructions: String = "",
@@ -122,6 +126,36 @@ class AiClinicalModel : ViewModel() {
 
     fun pickPhotos(open: Boolean) {
         _state.value = _state.value.copy(pickingPhotos = open)
+    }
+
+    /**
+     * The file's gallery changed under us.
+     *
+     * The patient's file owns the upload; this tab only watches. A picture that was not in the
+     * list before is the one just added, so it is attached to the question (diagnosis) or picked
+     * for the read (x-rays) — which is what the person who just took it meant.
+     */
+    fun mediaChanged(media: List<PatientMedia>, uploading: Boolean, canUpload: Boolean) {
+        val s = _state.value
+        // The file reads its gallery lazily; an empty list before it has is not "no pictures".
+        if (media.isEmpty() && s.media.isNotEmpty()) {
+            _state.value = s.copy(uploading = uploading, canUpload = canUpload)
+            return
+        }
+        val known = s.media.map { it.id }.toSet()
+        val fresh = media.filter { it.id !in known }
+        var next = s.copy(media = media, uploading = uploading, canUpload = canUpload)
+        if (known.isNotEmpty() && fresh.isNotEmpty()) {
+            val newest = fresh.first()
+            next = when (s.section) {
+                AiSection.Diagnosis ->
+                    if (s.attached.size < AiClinical.DIAGNOSIS_MAX_IMAGES) next.copy(attached = s.attached + newest, pickingPhotos = true) else next
+                AiSection.Xray ->
+                    if (s.picked.size < AiClinical.XRAY_MAX_IMAGES) next.copy(picked = s.picked + newest.id) else next
+                else -> next
+            }
+        }
+        _state.value = next
     }
 
     fun toggleAttached(item: PatientMedia) {
