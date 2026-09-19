@@ -28,12 +28,15 @@ enum class TreatmentState(
     /** Higher wins when a tooth carries several of the same channel. */
     val precedence: Int,
 ) {
+    // The legend swatch is the material the chart paints: gutta-percha pink for a root canal,
+    // porcelain for a crown, composite for a filling, titanium for an implant. A dentist reads
+    // the chart the way they read a mouth, and a filled tooth is not blue in a mouth.
     Extracted("Extracted", form = true, colour = Color(0xFF334155), precedence = 100),
-    Implant("Implant", form = true, colour = Color(0xFF0F766E), precedence = 90),
-    Crowned("Crown", form = true, colour = Color(0xFF94A3B8), precedence = 80),
-    Veneered("Veneer", form = true, colour = Color(0xFFE2E8F0), precedence = 70),
-    RootCanal("Root canal", form = false, colour = Color(0xFF0284C7), precedence = 60),
-    Filled("Filling", form = false, colour = Color(0xFF1D4ED8), precedence = 50),
+    Implant("Implant", form = true, colour = Color(0xFF9CA3AF), precedence = 90),
+    Crowned("Crown", form = true, colour = Color(0xFFC7CDD6), precedence = 80),
+    Veneered("Veneer", form = true, colour = Color(0xFFF1F5F9), precedence = 70),
+    RootCanal("Root canal", form = false, colour = Color(0xFFE38A9B), precedence = 60),
+    Filled("Filling", form = false, colour = Color(0xFFD6CBB0), precedence = 50),
     Perio("Gum treatment", form = false, colour = Color(0xFF0891B2), precedence = 40),
     Treated("Treated", form = false, colour = Color(0xFF64748B), precedence = 10),
 }
@@ -54,6 +57,9 @@ data class ToothTreatment(
 data class ToothMarks(
     val form: TreatmentState? = null,
     val mark: TreatmentState? = null,
+    /** The winning procedures as written, so the drawing can tell zirconia from PFM, composite from amalgam. */
+    val formProcedure: String = "",
+    val markProcedure: String = "",
     /** Work planned on this tooth and not yet done. Drawn as a dashed hint, never as done. */
     val pending: List<ToothTreatment> = emptyList(),
     val all: List<ToothTreatment> = emptyList(),
@@ -130,8 +136,12 @@ object ToothTreatments {
     fun resolve(entries: List<ToothTreatment>?): ToothMarks {
         if (entries.isNullOrEmpty()) return ToothMarks()
         val done = entries.filter { it.done }
-        val form = done.filter { it.state.form }.maxByOrNull { it.state.precedence }?.state
-        val mark = done.filter { !it.state.form }.maxByOrNull { it.state.precedence }?.state
-        return ToothMarks(form = form, mark = mark, pending = entries.filter { !it.done }, all = entries)
+        val formEntry = done.filter { it.state.form }.maxByOrNull { it.state.precedence }
+        val markEntry = done.filter { !it.state.form }.maxByOrNull { it.state.precedence }
+        return ToothMarks(
+            form = formEntry?.state, mark = markEntry?.state,
+            formProcedure = formEntry?.procedure.orEmpty(), markProcedure = markEntry?.procedure.orEmpty(),
+            pending = entries.filter { !it.done }, all = entries,
+        )
     }
 }

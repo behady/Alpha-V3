@@ -19,6 +19,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -205,77 +206,182 @@ private fun ToothCell(
         androidx.compose.foundation.Canvas(
             Modifier.fillMaxWidth().aspectRatio(0.72f),
         ) {
-            val path = toothPath(number, size.width, size.height, upper)
+            val g = toothParts(number, size.width, size.height, upper)
+            val path = g.whole
             val w = size.width
             val h = size.height
             val dashed = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 2.5.dp.toPx()))
+            val T_Extracted = com.alphadental.clinic.next.data.TreatmentState.Extracted
+            val T_Implant = com.alphadental.clinic.next.data.TreatmentState.Implant
+            val T_Crowned = com.alphadental.clinic.next.data.TreatmentState.Crowned
+            val T_Veneered = com.alphadental.clinic.next.data.TreatmentState.Veneered
+            val T_RootCanal = com.alphadental.clinic.next.data.TreatmentState.RootCanal
+            val T_Filled = com.alphadental.clinic.next.data.TreatmentState.Filled
+            val T_Perio = com.alphadental.clinic.next.data.TreatmentState.Perio
+            val T_Treated = com.alphadental.clinic.next.data.TreatmentState.Treated
 
             if (gone) {
-                // An extracted tooth is a gap: a faint dashed outline where it was, and the X
-                // the website draws, so the number still has something under it.
+                // An extracted tooth is a gap: a faint dashed outline where it was, and an X.
                 drawPath(path, color = line, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx(), pathEffect = dashed))
-                val c = com.alphadental.clinic.next.data.TreatmentState.Extracted.colour
+                val c = T_Extracted.colour
                 val sw = 1.8.dp.toPx()
                 drawLine(c, androidx.compose.ui.geometry.Offset(w * .28f, h * .28f), androidx.compose.ui.geometry.Offset(w * .72f, h * .72f), sw)
                 drawLine(c, androidx.compose.ui.geometry.Offset(w * .72f, h * .28f), androidx.compose.ui.geometry.Offset(w * .28f, h * .72f), sw)
             } else {
-                drawPath(path, color = fill ?: soft)
+                /*
+                 * Two regions, each painted by what was done to it, so the chart reads the way a
+                 * mouth does. The ROOT: gutta-percha pink with its striations after a root canal,
+                 * a titanium screw for an implant, otherwise the diagnosis colour. The CROWN:
+                 * porcelain after a crown (with a metal margin when it was a PFM), composite
+                 * ivory after a filling (amalgam grey when it was), a lighter face for a veneer,
+                 * otherwise the diagnosis colour. Where nothing was done the region keeps the
+                 * diagnosis colour, so "root-filled but still carious" stays visible.
+                 */
+                val base = diagnosisFill ?: soft
+                val rootTop = minOf(g.tipY, g.neckY)
+                val rootBottom = maxOf(g.tipY, g.neckY)
+                val crownTop = minOf(g.neckY, g.edgeY)
+                val crownBottom = maxOf(g.neckY, g.edgeY)
+
+                // ---- the root
+                when {
+                    form == T_Implant -> {
+                        drawPath(g.root, color = Color(0xFFCBD5E1))
+                        clipPath(g.root) {
+                            drawRect(
+                                androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                    listOf(Color(0xFF6B7280), Color(0xFFD1D5DB), Color(0xFF6B7280)),
+                                    startX = w * .3f, endX = w * .7f,
+                                ),
+                                topLeft = androidx.compose.ui.geometry.Offset(0f, rootTop),
+                                size = androidx.compose.ui.geometry.Size(w, rootBottom - rootTop),
+                            )
+                            // The threads.
+                            var y = rootTop + 2.dp.toPx()
+                            while (y < rootBottom - 1.dp.toPx()) {
+                                drawLine(Color(0xFF374151).copy(alpha = .55f), androidx.compose.ui.geometry.Offset(w * .3f, y), androidx.compose.ui.geometry.Offset(w * .7f, y), 0.9.dp.toPx())
+                                y += 2.6.dp.toPx()
+                            }
+                        }
+                    }
+                    mark == T_RootCanal -> {
+                        clipPath(g.root) {
+                            // Gutta-percha: warm pink, darker towards the tip, with the cone's
+                            // fine striations across it and the canal itself down the middle.
+                            drawRect(
+                                androidx.compose.ui.graphics.Brush.verticalGradient(
+                                    if (upper) listOf(Color(0xFFC96A7E), Color(0xFFF0A9B8)) else listOf(Color(0xFFF0A9B8), Color(0xFFC96A7E)),
+                                    startY = rootTop, endY = rootBottom,
+                                ),
+                                topLeft = androidx.compose.ui.geometry.Offset(0f, rootTop),
+                                size = androidx.compose.ui.geometry.Size(w, rootBottom - rootTop),
+                            )
+                            var y = rootTop + 1.5.dp.toPx()
+                            while (y < rootBottom) {
+                                drawLine(Color(0xFF9F4B5E).copy(alpha = .45f), androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(w, y), 0.7.dp.toPx())
+                                y += 2.2.dp.toPx()
+                            }
+                            drawLine(Color(0xFF8E3D50).copy(alpha = .8f), androidx.compose.ui.geometry.Offset(w / 2, rootTop), androidx.compose.ui.geometry.Offset(w / 2, rootBottom), 1.2.dp.toPx())
+                        }
+                    }
+                    else -> drawPath(g.root, color = base)
+                }
+
+                // ---- the crown
+                val lowerProc = (marks.formProcedure + " " + marks.markProcedure).lowercase()
+                when {
+                    form == T_Crowned || form == T_Implant -> {
+                        val pfm = "pfm" in lowerProc || "metal" in lowerProc || "porcelain fused" in lowerProc
+                        clipPath(g.crown) {
+                            // Porcelain: a cool white that falls to grey at the edges, and a
+                            // highlight down one side so it reads as a glazed surface.
+                            drawRect(
+                                androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                    listOf(Color(0xFFB8C0CC), Color(0xFFFBFCFD), Color(0xFFD5DAE2), Color(0xFFAEB6C2)),
+                                    startX = w * .15f, endX = w * .85f,
+                                ),
+                                topLeft = androidx.compose.ui.geometry.Offset(0f, crownTop),
+                                size = androidx.compose.ui.geometry.Size(w, crownBottom - crownTop),
+                            )
+                            drawRect(
+                                Color.White.copy(alpha = .55f),
+                                topLeft = androidx.compose.ui.geometry.Offset(w * .3f, crownTop),
+                                size = androidx.compose.ui.geometry.Size(w * .12f, crownBottom - crownTop),
+                            )
+                            if (pfm) {
+                                // The metal collar at the margin, the way a PFM shows one.
+                                val bandY = if (upper) g.neckY else g.neckY - 2.6.dp.toPx()
+                                drawRect(
+                                    androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(Color(0xFF6B7280), Color(0xFFE5E7EB), Color(0xFF6B7280)), startX = w * .2f, endX = w * .8f),
+                                    topLeft = androidx.compose.ui.geometry.Offset(0f, bandY),
+                                    size = androidx.compose.ui.geometry.Size(w, 2.6.dp.toPx()),
+                                )
+                            }
+                        }
+                    }
+                    form == T_Veneered -> {
+                        drawPath(g.crown, color = base)
+                        clipPath(g.crown) {
+                            drawRect(
+                                Color.White.copy(alpha = .75f),
+                                topLeft = androidx.compose.ui.geometry.Offset(w * .28f, crownTop),
+                                size = androidx.compose.ui.geometry.Size(w * .44f, crownBottom - crownTop),
+                            )
+                        }
+                    }
+                    mark == T_Filled -> {
+                        val amalgam = "amalgam" in lowerProc || "silver" in lowerProc
+                        clipPath(g.crown) {
+                            if (amalgam) {
+                                drawRect(
+                                    androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(Color(0xFF7B8794), Color(0xFFC3CAD3), Color(0xFF7B8794)), startX = w * .2f, endX = w * .8f),
+                                    topLeft = androidx.compose.ui.geometry.Offset(0f, crownTop),
+                                    size = androidx.compose.ui.geometry.Size(w, crownBottom - crownTop),
+                                )
+                            } else {
+                                // Composite: tooth-coloured ivory, with the faint stipple a cured
+                                // composite shows, so it is not mistaken for an untouched tooth.
+                                drawRect(
+                                    Color(0xFFE6DDC4),
+                                    topLeft = androidx.compose.ui.geometry.Offset(0f, crownTop),
+                                    size = androidx.compose.ui.geometry.Size(w, crownBottom - crownTop),
+                                )
+                                var y = crownTop + 2.dp.toPx()
+                                var row = 0
+                                while (y < crownBottom) {
+                                    var x = (if (row % 2 == 0) 2.dp.toPx() else 3.5.dp.toPx())
+                                    while (x < w) {
+                                        drawCircle(Color(0xFFB9AC8A).copy(alpha = .7f), radius = 0.55.dp.toPx(), center = androidx.compose.ui.geometry.Offset(x, y))
+                                        x += 3.dp.toPx()
+                                    }
+                                    y += 2.6.dp.toPx(); row++
+                                }
+                            }
+                        }
+                    }
+                    else -> drawPath(g.crown, color = base)
+                }
+
+                // ---- the outline, over both regions, and the neck line between them
                 drawPath(
                     path,
                     color = when {
                         isSelected -> ink
-                        fill != null -> Color.Black.copy(alpha = .18f)
+                        form != null || mark != null || diagnosisFill != null -> Color.Black.copy(alpha = .22f)
                         else -> line
                     },
                     style = androidx.compose.ui.graphics.drawscope.Stroke(
                         width = if (isSelected) 2.2.dp.toPx() else 1.dp.toPx(),
                     ),
                 )
-
-                // The crown is at the bottom of an upper tooth and the top of a lower one; the
-                // root runs the other way. The marks go where the work went.
-                val crownY = if (upper) h * .74f else h * .26f
-                val rootFrom = if (upper) h * .06f else h * .94f
-                val rootTo = if (upper) h * .48f else h * .52f
-
-                when (form) {
-                    com.alphadental.clinic.next.data.TreatmentState.Implant -> {
-                        // A screw down the root: the line and its threads.
-                        val c = Color.White.copy(alpha = .85f)
-                        drawLine(c, androidx.compose.ui.geometry.Offset(w / 2, rootFrom), androidx.compose.ui.geometry.Offset(w / 2, rootTo), 1.6.dp.toPx())
-                        for (i in 1..3) {
-                            val y = rootFrom + (rootTo - rootFrom) * i / 4f
-                            drawLine(c, androidx.compose.ui.geometry.Offset(w * .38f, y), androidx.compose.ui.geometry.Offset(w * .62f, y), 1.dp.toPx())
-                        }
-                    }
-                    com.alphadental.clinic.next.data.TreatmentState.Veneered -> {
-                        // A lighter face on the crown, the way a veneer sits on the front.
-                        drawRect(
-                            Color.White.copy(alpha = .7f),
-                            topLeft = androidx.compose.ui.geometry.Offset(w * .3f, if (upper) h * .58f else h * .12f),
-                            size = androidx.compose.ui.geometry.Size(w * .4f, h * .3f),
-                        )
-                    }
-                    else -> Unit
+                if (form != null || mark == T_RootCanal || mark == T_Filled) {
+                    drawLine(Color.Black.copy(alpha = .18f), androidx.compose.ui.geometry.Offset(w * .2f, g.neckY), androidx.compose.ui.geometry.Offset(w * .8f, g.neckY), 0.8.dp.toPx())
                 }
 
+                // ---- marks that are not a region
                 when (mark) {
-                    com.alphadental.clinic.next.data.TreatmentState.RootCanal -> {
-                        // A filled canal: a line down the root in the endo blue.
-                        drawLine(mark.colour, androidx.compose.ui.geometry.Offset(w / 2, rootFrom), androidx.compose.ui.geometry.Offset(w / 2, rootTo), 2.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
-                    }
-                    com.alphadental.clinic.next.data.TreatmentState.Filled -> {
-                        // A patch on the crown.
-                        drawCircle(mark.colour, radius = 3.2.dp.toPx(), center = androidx.compose.ui.geometry.Offset(w / 2, crownY))
-                    }
-                    com.alphadental.clinic.next.data.TreatmentState.Perio -> {
-                        // A line at the gum, where the treatment was.
-                        drawLine(mark.colour, androidx.compose.ui.geometry.Offset(w * .2f, h / 2), androidx.compose.ui.geometry.Offset(w * .8f, h / 2), 2.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
-                    }
-                    com.alphadental.clinic.next.data.TreatmentState.Treated -> {
-                        // "Something was done here, open the note." A grey dot on the crown.
-                        drawCircle(mark.colour, radius = 2.6.dp.toPx(), center = androidx.compose.ui.geometry.Offset(w / 2, crownY))
-                    }
+                    T_Perio -> drawLine(T_Perio.colour, androidx.compose.ui.geometry.Offset(w * .15f, g.neckY), androidx.compose.ui.geometry.Offset(w * .85f, g.neckY), 2.2.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                    T_Treated -> drawCircle(T_Treated.colour, radius = 2.6.dp.toPx(), center = androidx.compose.ui.geometry.Offset(w / 2, (crownTop + crownBottom) / 2))
                     else -> Unit
                 }
 
@@ -286,7 +392,7 @@ private fun ToothCell(
 
                 // A tooth carrying more than one condition gets a dot, so the chart
                 // does not quietly imply the colour is the whole story.
-                if (multi && mark == null) {
+                if (multi && mark == null && form == null) {
                     drawCircle(
                         color = Color.White.copy(alpha = .9f),
                         radius = 2.4.dp.toPx(),
@@ -411,7 +517,33 @@ fun ToothDetail(tooth: Tooth?, number: Int?) {
  * The same shapes serve every screen that draws a tooth, so a molar on the
  * treatment sheet is the molar from the chart.
  */
-internal fun toothPath(number: Int, w: Float, h: Float, upper: Boolean): androidx.compose.ui.graphics.Path {
+/** A tooth as two regions — the crown and the root — plus where the neck between them sits. */
+internal class ToothGeometry(
+    val root: androidx.compose.ui.graphics.Path,
+    val crown: androidx.compose.ui.graphics.Path,
+    /** The y of the neck line, in pixels. */
+    val neckY: Float,
+    /** The y of the root tip and of the biting edge, in pixels. */
+    val tipY: Float,
+    val edgeY: Float,
+) {
+    val whole: androidx.compose.ui.graphics.Path
+        get() = androidx.compose.ui.graphics.Path().apply { addPath(root); addPath(crown) }
+}
+
+/**
+ * A tooth's outline, by which tooth it is, in two pieces.
+ *
+ * Not anatomy — a chart is a diagram — but the four kinds are told apart the way a dentist tells
+ * them apart at a glance: incisors are flat blades, canines come to a point, premolars are rounded
+ * with one notch, molars are broad with two. The crown is at the bottom for an upper tooth and at
+ * the top for a lower one, with a root tapering away from it, so the two arches read as facing
+ * each other across the midline the way the mouth does.
+ *
+ * Crown and root are separate closed paths on purpose: a root canal is painted into the root
+ * and a filling into the crown, and a dentist reads which is which from where the colour is.
+ */
+internal fun toothParts(number: Int, w: Float, h: Float, upper: Boolean): ToothGeometry {
     val position = number % 10                         // 1..8 from the midline
     val kind = when (position) {
         1, 2 -> 0                                      // incisor
@@ -426,65 +558,72 @@ internal fun toothPath(number: Int, w: Float, h: Float, upper: Boolean): android
     val rootW = when (kind) { 0 -> .16f; 1 -> .17f; 2 -> .20f; else -> .30f }
     val inset = 0.04f * w
 
-    val path = androidx.compose.ui.graphics.Path()
     fun x(f: Float) = w / 2 + f * (w - 2 * inset)
     // Flip vertically for the lower arch so the crown is at the top.
     fun y(f: Float) = if (upper) inset + f * (h - 2 * inset) else h - inset - f * (h - 2 * inset)
 
-    // Walk clockwise from the root tip (y = 0) round the crown (y = 1) and back.
     val rootTip = 0f
     val neck = 1f - crownH
     val edge = 1f
 
-    path.moveTo(x(-rootW * .5f), y(rootTip))
-    path.lineTo(x(rootW * .5f), y(rootTip))
+    val root = androidx.compose.ui.graphics.Path()
+    root.moveTo(x(-rootW * .5f), y(rootTip))
+    root.lineTo(x(rootW * .5f), y(rootTip))
     if (kind == 3) {
         // Two roots on a molar: a notch between them.
-        path.lineTo(x(rootW), y(neck * .55f))
-        path.lineTo(x(rootW * .35f), y(neck * .55f))
-        path.lineTo(x(rootW * .2f), y(neck * .25f))
-        path.lineTo(x(-rootW * .2f), y(neck * .25f))
-        path.lineTo(x(-rootW * .35f), y(neck * .55f))
-        path.lineTo(x(-rootW), y(neck * .55f))
-        path.lineTo(x(-rootW * .5f), y(rootTip))
-        path.close()
-        path.moveTo(x(-rootW), y(neck * .55f))
+        root.lineTo(x(rootW), y(neck * .55f))
+        root.lineTo(x(rootW), y(neck))
+        root.lineTo(x(-rootW), y(neck))
+        root.lineTo(x(-rootW), y(neck * .55f))
+        root.close()
+        // The notch, cut as a second contour so the union still reads as two roots.
+        root.moveTo(x(rootW * .35f), y(neck * .55f))
+        root.lineTo(x(rootW * .2f), y(neck * .25f))
+        root.lineTo(x(-rootW * .2f), y(neck * .25f))
+        root.lineTo(x(-rootW * .35f), y(neck * .55f))
+        root.close()
+        root.fillType = androidx.compose.ui.graphics.PathFillType.EvenOdd
     } else {
-        path.lineTo(x(rootW), y(neck))
-        path.lineTo(x(-rootW), y(neck))
-        path.close()
-        path.moveTo(x(-rootW), y(neck))
+        root.lineTo(x(rootW), y(neck))
+        root.lineTo(x(-rootW), y(neck))
+        root.close()
     }
 
     // The crown, from the neck out to the edge and back.
-    path.moveTo(x(-crownW), y(neck))
-    path.lineTo(x(crownW), y(neck))
+    val crown = androidx.compose.ui.graphics.Path()
+    crown.moveTo(x(-crownW), y(neck))
+    crown.lineTo(x(crownW), y(neck))
     when (kind) {
         0 -> { // incisor: a flat edge
-            path.lineTo(x(crownW * .9f), y(edge))
-            path.lineTo(x(-crownW * .9f), y(edge))
+            crown.lineTo(x(crownW * .9f), y(edge))
+            crown.lineTo(x(-crownW * .9f), y(edge))
         }
         1 -> { // canine: a point
-            path.lineTo(x(crownW * .85f), y(neck + crownH * .55f))
-            path.lineTo(x(0f), y(edge))
-            path.lineTo(x(-crownW * .85f), y(neck + crownH * .55f))
+            crown.lineTo(x(crownW * .85f), y(neck + crownH * .55f))
+            crown.lineTo(x(0f), y(edge))
+            crown.lineTo(x(-crownW * .85f), y(neck + crownH * .55f))
         }
         2 -> { // premolar: two soft cusps with a dip
-            path.lineTo(x(crownW * .95f), y(neck + crownH * .6f))
-            path.lineTo(x(crownW * .5f), y(edge))
-            path.lineTo(x(0f), y(neck + crownH * .8f))
-            path.lineTo(x(-crownW * .5f), y(edge))
-            path.lineTo(x(-crownW * .95f), y(neck + crownH * .6f))
+            crown.lineTo(x(crownW * .95f), y(neck + crownH * .6f))
+            crown.lineTo(x(crownW * .5f), y(edge))
+            crown.lineTo(x(0f), y(neck + crownH * .8f))
+            crown.lineTo(x(-crownW * .5f), y(edge))
+            crown.lineTo(x(-crownW * .95f), y(neck + crownH * .6f))
         }
         else -> { // molar: broad, two cusps
-            path.lineTo(x(crownW), y(neck + crownH * .7f))
-            path.lineTo(x(crownW * .6f), y(edge))
-            path.lineTo(x(crownW * .2f), y(neck + crownH * .82f))
-            path.lineTo(x(-crownW * .2f), y(neck + crownH * .82f))
-            path.lineTo(x(-crownW * .6f), y(edge))
-            path.lineTo(x(-crownW), y(neck + crownH * .7f))
+            crown.lineTo(x(crownW), y(neck + crownH * .7f))
+            crown.lineTo(x(crownW * .6f), y(edge))
+            crown.lineTo(x(crownW * .2f), y(neck + crownH * .82f))
+            crown.lineTo(x(-crownW * .2f), y(neck + crownH * .82f))
+            crown.lineTo(x(-crownW * .6f), y(edge))
+            crown.lineTo(x(-crownW), y(neck + crownH * .7f))
         }
     }
-    path.close()
-    return path
+    crown.close()
+
+    return ToothGeometry(root = root, crown = crown, neckY = y(neck), tipY = y(rootTip), edgeY = y(edge))
 }
+
+/** The whole outline, for anything that only needs the silhouette. */
+internal fun toothPath(number: Int, w: Float, h: Float, upper: Boolean): androidx.compose.ui.graphics.Path =
+    toothParts(number, w, h, upper).whole
