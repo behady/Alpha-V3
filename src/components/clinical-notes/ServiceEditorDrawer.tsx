@@ -787,22 +787,30 @@ export default function ServiceEditorDrawer({
       className={`w-full bg-surface flex flex-col ${!inline ? (clinicalEditorMode === 'modal' ? 'h-full max-h-[90vh] rounded-[2rem] shadow-2xl overflow-hidden' : 'h-full min-h-0 shadow-[0_4px_20px_-4px_rgba(6,81,237,0.1)] rounded-t-3xl rounded-b-none lg:rounded-3xl border border-slate-100 overflow-hidden') : 'rounded-2xl border border-line mt-4'}`}
     >
       {!inline && (
-        <div className="flex items-center justify-between p-6 md:p-8 border-b border-slate-100 bg-surface shrink-0">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center shadow-sm">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+        /*
+          * A title bar, not a title page.
+          *
+          * It was 112px of chrome — `p-8`, a 48px icon tile and a 20px heading — above a window
+          * whose whole job is a teeth chart and a form. On a laptop that is the difference between
+          * the Save button being on screen and being one more scroll away, and the chart is the
+          * thing people came here to look at. Same words, a third of the height.
+          */
+        <div className="flex items-center justify-between gap-3 px-5 py-3 md:px-6 border-b border-slate-100 bg-surface shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shadow-sm shrink-0">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
             </div>
-            <div>
-              <h2 className="text-xl font-black text-ink tracking-tight">{txt.title}</h2>
-              <p className="text-sm font-medium text-ink-muted mt-0.5">{patientName}</p>
+            <div className="min-w-0">
+              <h2 className="text-base font-black text-ink tracking-tight leading-tight truncate">{txt.title}</h2>
+              <p className="text-xs font-medium text-ink-muted truncate">{patientName}</p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="w-10 h-10 rounded-full bg-surface-subtle hover:bg-surface-muted text-slate-400 hover:text-ink-body flex items-center justify-center transition-colors"
+            className="w-8 h-8 rounded-full bg-surface-subtle hover:bg-surface-muted text-slate-400 hover:text-ink-body flex items-center justify-center transition-colors shrink-0"
           >
-            <X size={20} />
+            <X size={18} />
           </button>
         </div>
       )}
@@ -826,7 +834,7 @@ export default function ServiceEditorDrawer({
         */}
       <div className="flex-1 min-h-0 flex flex-col">
         {!hideTeethSelector && (
-          <div className={`shrink-0 ${!inline ? "px-6 pt-6" : "px-4 pt-4"}`}>
+          <div className={`shrink-0 ${!inline ? "px-6 pt-4" : "px-4 pt-4"}`}>
             <TeethChartSelector
               selected={selectedTeeth}
               onToggle={toggleSelectedTooth}
@@ -866,7 +874,7 @@ export default function ServiceEditorDrawer({
         </div>
       </div>
 
-      <div className={`p-6 border-t border-slate-100 bg-surface shrink-0 ${!inline ? 'pb-24 lg:pb-6' : ''}`}>
+      <div className={`px-6 py-4 border-t border-slate-100 bg-surface shrink-0 ${!inline ? 'pb-24 lg:pb-4' : ''}`}>
         {saveButton}
       </div>
     </div>
