@@ -31,6 +31,8 @@ data class Visit(
     val status: Stage,
     /** Minutes booked. Drives the chair's progress meter. */
     val duration: Int,
+    /** The dentist by staff id, when the booking carries one. `doctor` is the display name. */
+    val doctorId: String = "",
 ) {
     /**
      * Minutes past midnight, for ordering.
@@ -159,6 +161,7 @@ internal fun DocumentSnapshot.toVisit(): Visit = Visit(
     treatment = text("treatment"),
     status = Stage.from(text("status")),
     duration = number("duration")?.toInt()?.takeIf { it > 0 } ?: 30,
+    doctorId = text("doctorId"),
 )
 
 /**

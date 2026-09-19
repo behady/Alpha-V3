@@ -61,15 +61,16 @@ fun SettingsScreen(state: SettingsState, onBack: () -> Unit, actions: SettingsAc
     Column(Modifier.fillMaxSize().background(T.ground)) {
 
         Slab(
-            title = "Settings",
-            eyebrow = state.profile?.name?.takeIf { it.isNotBlank() } ?: "The clinic",
+            title = if (state.personal) "My app" else "Settings",
+            eyebrow = if (state.personal) state.who?.name?.takeIf { it.isNotBlank() } ?: "Yours"
+            else state.profile?.name?.takeIf { it.isNotBlank() } ?: "The clinic",
             bar = {
                 SlabIcon(Icons.AutoMirrored.Filled.ArrowBack, "Back", onClick = onBack)
                 Spacer(Modifier.weight(1f))
             },
         )
 
-        if (state.who?.can("access.settings") != true) {
+        if (state.who?.can("access.settings") != true && !state.personal) {
             Box(Modifier.fillMaxSize().padding(T.gutter), contentAlignment = Alignment.Center) {
                 Txt(
                     state.error ?: "This account is not allowed to open the clinic's settings.",
@@ -82,7 +83,7 @@ fun SettingsScreen(state: SettingsState, onBack: () -> Unit, actions: SettingsAc
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = T.barClearance)) {
             // Said once, at the top. Every switch below is drawn disabled for a
             // reader, so without this the screen looks broken rather than shut.
-            if (!state.canEdit) {
+            if (!state.canEdit && !state.personal) {
                 item {
                     Surface(color = T.surfaceSoft, modifier = Modifier.fillMaxWidth()) {
                         Txt(
@@ -97,8 +98,9 @@ fun SettingsScreen(state: SettingsState, onBack: () -> Unit, actions: SettingsAc
             }
 
             SettingsGroup.entries.forEach { group ->
-                val sections = Section.entries.filter { it.group == group }
-                item { SectionLabel(group.label) }
+                val sections = Section.entries.filter { it.group == group && (!state.personal || it.isPersonal) }
+                if (sections.isEmpty()) return@forEach
+                item { SectionLabel(if (state.personal) "Yours" else group.label) }
                 item {
                     RowGroup {
                         sections.forEachIndexed { i, s ->
@@ -109,7 +111,7 @@ fun SettingsScreen(state: SettingsState, onBack: () -> Unit, actions: SettingsAc
                 }
             }
 
-            item {
+            if (!state.personal) item {
                 Txt(
                     "The odontogram and the wording of automatic messages are still edited on the " +
                         "website.",
@@ -393,6 +395,10 @@ data class SettingsActions(
     val purgeDeleted: (String) -> Unit,
     val forget: (String) -> Unit,
     val saveHomeTab: (String) -> Unit,
+    val setHome: (String) -> Unit,
+    val toggleTab: (Tab) -> Unit,
+    val toggleTool: (String) -> Unit,
+    val saveMyProfile: (com.alphadental.clinic.data.ClinicSettings.MyProfile) -> Unit,
     val setAlert: (String, Boolean) -> Unit,
     val saveBooking: (com.alphadental.clinic.data.ClinicSettings.OnlineBooking) -> Unit,
     val saveRecall: (com.alphadental.clinic.data.ClinicSettings.Recall) -> Unit,

@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.LocalHospital
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Medication
@@ -67,7 +68,8 @@ enum class Section(
     Bot("WhatsApp bot", "What answers patients out of hours", Icons.AutoMirrored.Filled.Chat, SettingsGroup.Patients),
 
     Alerts("Alerts", "What rings the bell on this phone", Icons.Filled.Notifications, SettingsGroup.App),
-    Interface("Where the app opens", "The screen you see first", Icons.Filled.Smartphone, SettingsGroup.App),
+    Interface("The app, your way", "Your home screen, the tabs in the bar, the menu", Icons.Filled.Smartphone, SettingsGroup.App),
+    Profile("My profile", "Your name, nickname, phone and a line about you", Icons.Filled.Person, SettingsGroup.App),
     DentistHome("Dentist's home screen", "What a dentist sees of the money", Icons.Filled.LocalHospital, SettingsGroup.App),
 
     Drugs("Prescription drugs", "The clinic's edits to the built-in list", Icons.Filled.Medication, SettingsGroup.Work),
@@ -76,6 +78,15 @@ enum class Section(
     Ai("AI usage", "What the assistant has cost", Icons.Filled.AutoAwesome, SettingsGroup.Records),
     Memory("What the assistant learned", "Rules it applies to every answer", Icons.Filled.Psychology, SettingsGroup.Records),
 }
+
+/**
+ * A section that is about the person, not the clinic.
+ *
+ * These two are reachable by everyone from the menu's "My app", with or without the
+ * settings permission: which home screen a receptionist's phone opens on and what her own
+ * profile says are hers to decide, and the rules already let her write both.
+ */
+val Section.isPersonal: Boolean get() = this == Section.Interface || this == Section.Profile
 
 enum class SettingsGroup(val label: String) {
     Clinic("The clinic"),
@@ -103,6 +114,13 @@ data class SettingsState(
     val facts: List<String> = emptyList(),
     /** Which tab this account opens on; blank until it has been read. */
     val homeTab: String? = null,
+    /** Opened from "My app" on the menu: only the personal sections, no permission needed. */
+    val personal: Boolean = false,
+    /** How this person set the app up. Owned by [InterfaceModel]; copied in for the pages. */
+    val ui: InterfaceState = InterfaceState(),
+    /** My own staff row, for the profile page. Null until read; blank id means no row. */
+    val me: ClinicSettings.MyProfile? = null,
+    val myStaffId: String = "",
     val alerts: Map<String, Boolean> = emptyMap(),
     val booking: ClinicSettings.OnlineBooking? = null,
     val recall: ClinicSettings.Recall? = null,
@@ -153,12 +171,13 @@ class SettingsModel : ViewModel() {
     private val _state = MutableStateFlow(SettingsState())
     val state: StateFlow<SettingsState> = _state.asStateFlow()
 
-    fun start() {
+    fun start(personal: Boolean = false) {
         if (_state.value.who != null) return
         viewModelScope.launch {
             ClinicSource.signedIn()
                 .onSuccess { who ->
-                    _state.value = _state.value.copy(who = who, loading = false)
+                    _state.value = _state.value.copy(who = who, loading = false, personal = personal)
+                    if (personal) return@onSuccess
                     if (!who.can("access.settings")) {
                         _state.value = _state.value.copy(
                             error = "This account is not allowed to open the clinic's settings.",
@@ -186,6 +205,14 @@ class SettingsModel : ViewModel() {
             Section.Deleted -> load { it.copy(bin = com.alphadental.clinic.data.RecycleBin.list(id)) }
             Section.Interface -> load {
                 it.copy(homeTab = ClinicSettings.loadHomeTab(_state.value.who?.uid.orEmpty()))
+            }
+            Section.Profile -> load {
+                val who = it.who ?: return@load it
+                val staffId = Repository.findMyStaffId(id, who.uid, who.email)
+                it.copy(
+                    myStaffId = staffId,
+                    me = if (staffId.isBlank()) ClinicSettings.MyProfile() else ClinicSettings.loadMyProfile(id, staffId),
+                )
             }
             Section.Memory -> load {
                 // Per account, not per clinic: the assistant learns from the
@@ -315,6 +342,22 @@ class SettingsModel : ViewModel() {
         viewModelScope.launch {
             ClinicSettings.saveHomeTab(who.uid, tab)
                 .onSuccess { _state.value = _state.value.copy(busy = false) }
+                .onFailure { e -> _state.value = _state.value.copy(busy = false, error = readable(e)) }
+        }
+    }
+
+    /** Mine to change, like [saveHomeTab]: the rules allow one's own row and nothing more. */
+    fun saveMyProfile(p: ClinicSettings.MyProfile) {
+        val who = _state.value.who ?: return
+        val staffId = _state.value.myStaffId
+        if (staffId.isBlank()) {
+            _state.value = _state.value.copy(error = "This account is not on the clinic's staff list yet.")
+            return
+        }
+        _state.value = _state.value.copy(busy = true, error = null)
+        viewModelScope.launch {
+            ClinicSettings.saveMyProfile(who.clinicId, staffId, p)
+                .onSuccess { _state.value = _state.value.copy(busy = false, me = p) }
                 .onFailure { e -> _state.value = _state.value.copy(busy = false, error = readable(e)) }
         }
     }
@@ -458,6 +501,8 @@ fun previewSettings(): SettingsState = SettingsState(
     loading = false,
     who = previewDashboard().who,
     homeTab = Tab.Today.name,
+    me = ClinicSettings.MyProfile(name = "Dr. Youssef", nickname = "Youssef", phone = "01001234567"),
+    myStaffId = "s1",
     schedule = ClinicSettings.Schedule(
         start = "09:00", end = "21:00", slotMinutes = 20,
         offDays = setOf("friday"), configured = true,

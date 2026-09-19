@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Groups
@@ -76,6 +77,8 @@ fun MoreScreen(
     onSignOut: () -> Unit,
     onRetry: () -> Unit = {},
     onSwitchClinic: (String) -> Unit = {},
+    /** The person's own choice of what to show here, over and above what they are allowed. */
+    shows: (Destination) -> Boolean = { true },
 ) {
     val who = state.who
     var picking by remember { mutableStateOf(false) }
@@ -175,8 +178,8 @@ fun MoreScreen(
             return
         }
 
-        val tools = Destination.entries.filter { it.area == Area.Tool && it.allowed(who) }
-        val admin = Destination.entries.filter { it.area == Area.Admin && it.allowed(who) }
+        val tools = Destination.entries.filter { it.area == Area.Tool && it.allowed(who) && shows(it) }
+        val admin = Destination.entries.filter { it.area == Area.Admin && it.allowed(who) && shows(it) }
 
         LazyColumn(
             Modifier.fillMaxSize(),
@@ -204,7 +207,7 @@ fun MoreScreen(
             item { SectionLabel("Account") }
             item {
                 RowGroup {
-                    Destination.entries.filter { it.area == Area.Account && it.allowed(who) }
+                    Destination.entries.filter { it.area == Area.Account && it.allowed(who) && shows(it) }
                         .forEach { d ->
                             DestinationRow(d) { onOpen(d) }
                             Rule()
@@ -377,6 +380,9 @@ enum class Destination(
     Settings("Settings", "How the clinic runs", Icons.Filled.Settings, Area.Admin, built = true, permission = "access.settings"),
     // Built, and not a website thing: it flips the app's own language.
     // No permission key: everybody is allowed to read how the thing works.
+    // Everyone's: which home, which tabs, which tools, and one's own profile. No permission,
+    // because the rules already let a person write their own preferences and their own row.
+    MyApp("My app", "Your home screen, your tabs, your profile", Icons.Filled.Tune, Area.Account, built = true),
     Help("Help", "How the system works, article by article", Icons.AutoMirrored.Filled.HelpOutline, Area.Account, built = true),
     Language("العربية", "Change the app's language", Icons.Filled.Language, Area.Account, built = true),
     ;

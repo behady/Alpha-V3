@@ -44,6 +44,8 @@ data class Dashboard(
     /** Something went wrong that the person needs told. */
     val error: String? = null,
     val refreshing: Boolean = false,
+    /** The figures the owner's and the dentist's homes add. Empty for the desk. */
+    val extras: HomeExtras = HomeExtras(),
 ) {
     val isToday: Boolean get() = date == ClinicSource.dateKey()
 
@@ -174,6 +176,27 @@ class DashboardModel : ViewModel() {
         _state.value = _state.value.copy(refreshing = true)
         loadClinic(who)
         loadMoney(who)
+        lastUi?.let { loadHome(it) }
+    }
+
+    private var lastUi: InterfaceState? = null
+
+    /**
+     * The extra figures for whichever home is chosen. Read, not watched — see [HomeExtras].
+     * Re-read on pull-to-refresh and whenever the choice or the person's staff link changes.
+     */
+    fun loadHome(ui: InterfaceState) {
+        lastUi = ui
+        val who = _state.value.who ?: ui.who ?: return
+        if (!ui.prefs.loaded) return
+        viewModelScope.launch {
+            val extras = when (ui.home) {
+                "dentist" -> HomeExtrasLoader.dentist(who, ui.staffId, ui.staffName)
+                "owner" -> HomeExtrasLoader.owner(who)
+                else -> HomeExtras(loaded = true)
+            }
+            _state.value = _state.value.copy(extras = extras)
+        }
     }
 
     /** Move whoever is in the chair on to checking out. */

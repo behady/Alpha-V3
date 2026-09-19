@@ -108,6 +108,8 @@ fun Shell(preview: Boolean = false) {
      */
     var openScans by rememberSaveable { mutableStateOf(false) }
     var openHelp by rememberSaveable { mutableStateOf(false) }
+    /** Settings, but only the personal pages: everyone may open it. */
+    var openMyApp by rememberSaveable { mutableStateOf(false) }
     // A screen can ask for the bar to go away. A conversation does: the bar
     // would cover its foot, and offer to walk away from a thread mid-read.
     var immersive by remember { mutableStateOf(false) }
@@ -179,6 +181,11 @@ fun Shell(preview: Boolean = false) {
         return
     }
 
+    if (openMyApp) {
+        SettingsPane(preview, personal = true) { openMyApp = false }
+        return
+    }
+
     if (openAssistant) {
         AssistantPane(
             preview,
@@ -228,6 +235,15 @@ fun Shell(preview: Boolean = false) {
 
     // The chats badge: the same model the Chats tab reads, started here so the
     // count is right before anybody opens that tab.
+    // How this person set the app up: which tabs the bar shows, which home the dashboard draws.
+    val interfaceModel: InterfaceModel? = if (preview) null else viewModel()
+    val liveUi by (interfaceModel?.state?.collectAsState()
+        ?: androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(InterfaceState()) })
+    // Preview drives the same bar filter and the same homes from a local, editable state, so
+    // the whole feature can be walked through with no account on the phone.
+    val uiState = if (preview) PreviewInterface.state else liveUi
+    androidx.compose.runtime.LaunchedEffect(interfaceModel) { interfaceModel?.start() }
+
     val chatsModel: ChatsModel? = if (preview) null else viewModel()
     val chatsState by (chatsModel?.state?.collectAsState()
         ?: androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(Chats()) })
@@ -239,6 +255,7 @@ fun Shell(preview: Boolean = false) {
         when (tab) {
             Tab.Today -> TodayTab(
                 preview,
+                ui = uiState,
                 onOpenAttendance = { openAttendance = true },
                 onBook = { booking?.open() },
                 onOpenVisit = { if (preview) shown = it else visits?.open(it) },
@@ -285,6 +302,8 @@ fun Shell(preview: Boolean = false) {
             Tab.Chats -> ChatsTab(preview) { immersive = it }
             Tab.More -> MoreTab(
                 preview,
+                shows = { uiState.showsTool(it.name) },
+                onOpenMyApp = { openMyApp = true },
                 onOpenMoney = { openMoney = true },
                 onOpenReports = { openReports = true },
                 onOpenLab = { openLab = true },
@@ -500,15 +519,17 @@ fun Shell(preview: Boolean = false) {
 
         if (!immersive) FloatingBar(
             modifier = Modifier.align(Alignment.BottomCenter),
+            // Only the tabs this person kept. Today and Menu cannot be switched off, so the bar
+            // always has a way home and a way to everything else.
             items = listOf(
-                BarItem(Icons.Filled.Dashboard, "Dashboard", tab == Tab.Today) { tab = Tab.Today },
-                BarItem(Icons.AutoMirrored.Filled.Chat, "Chats", tab == Tab.Chats, badge = unread) { tab = Tab.Chats },
-                BarItem(Icons.Filled.AutoAwesome, "Assistant", tab == Tab.Assistant) { tab = Tab.Assistant },
-                BarItem(Icons.Filled.CalendarMonth, "Calendar", tab == Tab.Day) { tab = Tab.Day },
-                BarItem(Icons.Filled.AccountBalanceWallet, "Money", tab == Tab.Money) { tab = Tab.Money },
-                BarItem(Icons.Filled.People, "Patients", tab == Tab.Patients) { tab = Tab.Patients },
-                BarItem(Icons.Filled.Menu, "Menu", tab == Tab.More) { tab = Tab.More },
-            ),
+                Tab.Today to BarItem(Icons.Filled.Dashboard, "Dashboard", tab == Tab.Today) { tab = Tab.Today },
+                Tab.Chats to BarItem(Icons.AutoMirrored.Filled.Chat, "Chats", tab == Tab.Chats, badge = unread) { tab = Tab.Chats },
+                Tab.Assistant to BarItem(Icons.Filled.AutoAwesome, "Assistant", tab == Tab.Assistant) { tab = Tab.Assistant },
+                Tab.Day to BarItem(Icons.Filled.CalendarMonth, "Calendar", tab == Tab.Day) { tab = Tab.Day },
+                Tab.Money to BarItem(Icons.Filled.AccountBalanceWallet, "Money", tab == Tab.Money) { tab = Tab.Money },
+                Tab.Patients to BarItem(Icons.Filled.People, "Patients", tab == Tab.Patients) { tab = Tab.Patients },
+                Tab.More to BarItem(Icons.Filled.Menu, "Menu", tab == Tab.More) { tab = Tab.More },
+            ).filter { uiState.showsTab(it.first) }.map { it.second },
         )
     }
 }
@@ -516,6 +537,7 @@ fun Shell(preview: Boolean = false) {
 @Composable
 private fun TodayTab(
     preview: Boolean,
+    ui: InterfaceState,
     onOpenAttendance: () -> Unit,
     onBook: () -> Unit,
     onOpenVisit: (com.alphadental.clinic.next.data.Visit) -> Unit,
@@ -529,6 +551,7 @@ private fun TodayTab(
 ) {
     if (preview) {
         DashboardScreen(
+            ui = ui, extras = previewExtras(),
             state = previewDashboard(), onCheckOut = {}, onOpenVisit = onOpenVisit,
             onClock = onOpenAttendance, onBook = onBook,
             onLeads = onLeads, onReports = onReports, onBell = onBell, onAccount = onAccount,
@@ -544,7 +567,10 @@ private fun TodayTab(
         val shift by attendance.state.collectAsState()
         val context = LocalContext.current
         androidx.compose.runtime.LaunchedEffect(Unit) { model.start(); attendance.start() }
+        // The chosen home's extra figures, re-read when the choice or the staff link changes.
+        androidx.compose.runtime.LaunchedEffect(ui.home, ui.staffId, ui.prefs.loaded, state.who) { model.loadHome(ui) }
         DashboardScreen(
+            ui = ui, extras = state.extras,
             state = state, onCheckOut = model::checkOut, onOpenVisit = onOpenVisit,
             onClock = onOpenAttendance, onBook = onBook,
             onLeads = onLeads, onReports = onReports, onBell = onBell, onAccount = onAccount,
@@ -664,6 +690,8 @@ private fun ChatsTab(preview: Boolean, onImmersive: (Boolean) -> Unit) {
 @Composable
 private fun MoreTab(
     preview: Boolean,
+    shows: (Destination) -> Boolean,
+    onOpenMyApp: () -> Unit,
     onOpenMoney: () -> Unit,
     onOpenReports: () -> Unit,
     onOpenLab: () -> Unit,
@@ -695,6 +723,7 @@ private fun MoreTab(
 
     MoreScreen(
         state = state,
+        shows = shows,
         onSwitchClinic = { id -> switch?.invoke(id) },
         onRetry = { retry?.invoke() },
         onOpen = { d ->
@@ -711,6 +740,7 @@ private fun MoreTab(
                 Destination.Content -> onOpenContent()
                 Destination.Assistant -> onOpenAssistant()
                 Destination.Help -> onOpenHelp()
+                Destination.MyApp -> onOpenMyApp()
                 else -> Unit
             }
         },
@@ -1613,48 +1643,56 @@ private fun OrthoPane(preview: Boolean, onBack: () -> Unit) {
  * dashboard is not.
  */
 @Composable
-private fun SettingsPane(preview: Boolean, onBack: () -> Unit) {
+private fun SettingsPane(preview: Boolean, personal: Boolean = false, onBack: () -> Unit) {
     if (preview) {
-        var state by remember { mutableStateOf(previewSettings()) }
-        BackHandler { if (state.section != null) state = state.copy(section = null) else onBack() }
+        var stored by remember { mutableStateOf(previewSettings().copy(personal = personal)) }
+        val state = stored.copy(ui = PreviewInterface.state)
+        fun edit(prefs: (com.alphadental.clinic.next.data.AppPrefs) -> com.alphadental.clinic.next.data.AppPrefs) {
+            PreviewInterface.state = PreviewInterface.state.copy(prefs = prefs(PreviewInterface.state.prefs))
+        }
+        BackHandler { if (state.section != null) stored = stored.copy(section = null) else onBack() }
         SettingsScreen(
             state = state,
             onBack = onBack,
             actions = SettingsActions(
-                open = { state = state.copy(section = it) },
-                close = { state = state.copy(section = null) },
-                saveProfile = { state = state.copy(profile = it) },
-                saveArea = { state = state.copy(area = it) },
-                saveSchedule = { state = state.copy(schedule = it) },
+                open = { stored = stored.copy(section = it) },
+                close = { stored = stored.copy(section = null) },
+                saveProfile = { stored = stored.copy(profile = it) },
+                saveArea = { stored = stored.copy(area = it) },
+                saveSchedule = { stored = stored.copy(schedule = it) },
                 saveDrug = { _, _, _, _, _ -> },
                 hideDrug = { _, _, _ -> },
                 binDrug = {},
                 restoreDeleted = {},
                 purgeDeleted = {},
                 forget = {},
-                saveHomeTab = {},
-                setAlert = { key, on -> state = state.copy(alerts = state.alerts + (key to on)) },
-                saveBooking = { state = state.copy(booking = it) },
-                saveRecall = { state = state.copy(recall = it) },
-                saveBot = { state = state.copy(bot = it) },
-                setDentistShare = { state = state.copy(dentistShare = it) },
-                saveReasons = { state = state.copy(reasons = it) },
-                saveSources = { state = state.copy(sources = it) },
-                saveBranches = { state = state.copy(branches = it) },
-                saveLabs = { state = state.copy(labs = it) },
+                saveHomeTab = { stored = stored.copy(homeTab = it) },
+                setHome = { h -> edit { it.copy(home = h) } },
+                toggleTab = { t -> edit { p -> p.copy(hiddenTabs = if (t.name in p.hiddenTabs) p.hiddenTabs - t.name else p.hiddenTabs + t.name) } },
+                toggleTool = { n -> edit { p -> p.copy(hiddenTools = if (n in p.hiddenTools) p.hiddenTools - n else p.hiddenTools + n) } },
+                saveMyProfile = { stored = stored.copy(me = it) },
+                setAlert = { key, on -> stored = stored.copy(alerts = stored.alerts + (key to on)) },
+                saveBooking = { stored = stored.copy(booking = it) },
+                saveRecall = { stored = stored.copy(recall = it) },
+                saveBot = { stored = stored.copy(bot = it) },
+                setDentistShare = { stored = stored.copy(dentistShare = it) },
+                saveReasons = { stored = stored.copy(reasons = it) },
+                saveSources = { stored = stored.copy(sources = it) },
+                saveBranches = { stored = stored.copy(branches = it) },
+                saveLabs = { stored = stored.copy(labs = it) },
                 saveService = { row ->
-                    val list = state.services.toMutableList()
+                    val list = stored.services.toMutableList()
                     val at = list.indexOfFirst { it.id == row.id && row.id.isNotBlank() }
                     if (at >= 0) list[at] = row else list.add(row.copy(id = "new"))
-                    state = state.copy(services = list)
+                    stored = stored.copy(services = list)
                 },
                 saveStaff = { row ->
-                    val list = state.staff.toMutableList()
+                    val list = stored.staff.toMutableList()
                     val at = list.indexOfFirst { it.id == row.id && row.id.isNotBlank() }
                     if (at >= 0) list[at] = row else list.add(row.copy(id = "new"))
-                    state = state.copy(staff = list)
+                    stored = stored.copy(staff = list)
                 },
-                rejectRequest = { id -> state = state.copy(requests = state.requests.filterNot { it.id == id }) },
+                rejectRequest = { id -> stored = stored.copy(requests = stored.requests.filterNot { it.id == id }) },
             ),
         )
         return
@@ -1662,10 +1700,13 @@ private fun SettingsPane(preview: Boolean, onBack: () -> Unit) {
 
     val model: SettingsModel = viewModel()
     val state by model.state.collectAsState()
-    androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
+    // The same instance the shell reads, so a tab switched off here leaves the bar at once.
+    val interfaceModel: InterfaceModel = viewModel()
+    val uiState by interfaceModel.state.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(Unit) { model.start(personal); interfaceModel.start() }
     BackHandler { if (state.section != null) model.close() else onBack() }
     SettingsScreen(
-        state = state,
+        state = state.copy(ui = uiState, personal = personal),
         onBack = onBack,
         actions = SettingsActions(
             open = model::open,
@@ -1680,6 +1721,10 @@ private fun SettingsPane(preview: Boolean, onBack: () -> Unit) {
             purgeDeleted = model::purgeDeleted,
             forget = model::forget,
             saveHomeTab = model::saveHomeTab,
+            setHome = interfaceModel::setHome,
+            toggleTab = interfaceModel::toggleTab,
+            toggleTool = interfaceModel::toggleTool,
+            saveMyProfile = model::saveMyProfile,
             setAlert = model::setAlert,
             saveBooking = model::saveBooking,
             saveRecall = model::saveRecall,

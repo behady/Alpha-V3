@@ -82,6 +82,7 @@ fun SettingsSection(
         Section.Ai -> AiPage(state, onBack)
         Section.Memory -> MemoryPage(state, onBack, actions)
         Section.Interface -> InterfacePage(state, onBack, actions)
+        Section.Profile -> ProfilePage(state, onBack, actions)
     }
 }
 
@@ -627,45 +628,54 @@ private fun MemoryPage(state: SettingsState, onBack: () -> Unit, actions: Settin
 }
 
 /**
- * Which screen the app opens on.
+ * The app, the way this person wants it.
  *
- * One switch, and only one, because only one of the website's interface
- * settings means anything on a phone. The rest are about modals, drawers and a
- * left rail — none of which exist here — and a page of switches that changed
- * nothing would be worse than no page at all. The last line says so rather than
- * leaving somebody hunting for the others.
+ * Three things, all personal and all saved on the person's own record: which home the
+ * dashboard draws (the desk as built, the owner's overview, or a dentist's own chair), which
+ * tabs sit in the bar, and which tools the menu offers. Who may pick which home is decided by
+ * [InterfaceState] from the person's role and the staff list, not here.
+ *
+ * The website's other interface settings — panels, drawers, a left rail — are about a layout
+ * this app does not have, so they are not repeated. The last line says so.
  */
 @Composable
 private fun InterfacePage(state: SettingsState, onBack: () -> Unit, actions: SettingsActions) {
     val current = state.homeTab.orEmpty().ifBlank { Tab.Today.name }
+    val ui = state.ui
 
     SettingsPage(
         title = Section.Interface.label,
         caption = "Yours, not the clinic's",
         state = state,
         onBack = onBack,
-        ready = state.homeTab != null,
+        ready = state.homeTab != null && ui.prefs.loaded,
     ) {
-        item { SectionLabel("Open on") }
+        ui.error?.let { message ->
+            item {
+                Txt(message, Type.caption, T.danger, Modifier.padding(horizontal = T.gutter, vertical = 8.dp), maxLines = 2)
+            }
+        }
+
+        // ---- Which home the dashboard draws.
+        item { SectionLabel("Home screen") }
         item {
             Column {
-                listOf(
-                    Tab.Today to "Today — the day's takings, who is waiting, who is in the chair.",
-                    Tab.Day to "The diary — one day at a time, with the free slots in it.",
-                    Tab.Patients to "Patients — straight to the search box.",
-                ).forEach { (tab, why) ->
+                val homes = buildList {
+                    add(Triple("desk", "The desk", "The day's takings, who is waiting, who is in the chair, the diary. The dashboard as built."))
+                    if (ui.canChooseOwner) add(Triple("owner", "Owner's overview", "The desk, plus the week against last week, what each dentist collected, commissions owed and who is on shift."))
+                    if (ui.canChooseDentist) add(Triple("dentist", "Dentist's chair", "Only my patients: who is in my chair, who is next, what my patients paid today and my share of it."))
+                }
+                homes.forEach { (key, title, why) ->
                     RowGroup {
                         Column(
                             Modifier
                                 .fillMaxWidth()
-                                .clickable { actions.saveHomeTab(tab.name) }
+                                .clickable { actions.setHome(key) }
                                 .padding(horizontal = T.gutter, vertical = 13.dp),
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Txt(tab.name, Type.rowName, T.ink, Modifier.weight(1f))
-                                if (current == tab.name) {
-                                    Txt("Opens here", Type.caption, T.accentInk, maxLines = 1)
-                                }
+                                Txt(title, Type.rowName, T.ink, Modifier.weight(1f))
+                                if (ui.home == key) Txt("Chosen", Type.caption, T.accentInk, maxLines = 1)
                             }
                             Spacer(Modifier.height(2.dp))
                             Txt(why, Type.caption, T.inkMuted, maxLines = 3)
@@ -673,13 +683,101 @@ private fun InterfacePage(state: SettingsState, onBack: () -> Unit, actions: Set
                     }
                     Spacer(Modifier.height(8.dp))
                 }
+                if (!ui.canChooseOwner || !ui.canChooseDentist) {
+                    Txt(
+                        when {
+                            !ui.canChooseOwner && !ui.canChooseDentist -> "The owner's overview is for Owners and Admins; the dentist's chair is for anyone the clinic lists as a dentist."
+                            !ui.canChooseOwner -> "The owner's overview is for Owners and Admins."
+                            else -> "The dentist's chair is for anyone the clinic lists as a dentist under Settings → The team."
+                        },
+                        Type.caption, T.inkFaint,
+                        Modifier.padding(horizontal = T.gutter, vertical = 4.dp),
+                        maxLines = 3,
+                    )
+                }
             }
+        }
+
+        // ---- Which tab the app opens on.
+        item { SectionLabel("Open on") }
+        item {
+            RowGroup {
+                listOf(
+                    Tab.Today to "Home",
+                    Tab.Day to "The diary",
+                    Tab.Patients to "Patients",
+                ).forEachIndexed { i, (tab, name) ->
+                    if (i > 0) Rule()
+                    Row(
+                        Modifier.fillMaxWidth().clickable { actions.saveHomeTab(tab.name) }
+                            .padding(horizontal = T.gutter, vertical = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Txt(name, Type.rowName, T.ink, Modifier.weight(1f))
+                        if (current == tab.name) Txt("Opens here", Type.caption, T.accentInk, maxLines = 1)
+                    }
+                }
+            }
+        }
+
+        // ---- The bar.
+        item { SectionLabel("Show in the bar") }
+        item {
+            RowGroup {
+                listOf(
+                    Tab.Chats to "Chats",
+                    Tab.Assistant to "Assistant",
+                    Tab.Day to "Calendar",
+                    Tab.Money to "Money",
+                    Tab.Patients to "Patients",
+                ).forEachIndexed { i, (tab, name) ->
+                    if (i > 0) Rule()
+                    SettingsToggle(
+                        title = name,
+                        caption = if (ui.showsTab(tab)) "In the bar" else "Hidden — still reachable from the menu and from the assistant",
+                        checked = ui.showsTab(tab), enabled = !ui.saving,
+                    ) { actions.toggleTab(tab) }
+                }
+            }
+        }
+        item {
+            Txt(
+                "Home and the menu always stay, so nothing you hide can lock you out.",
+                Type.caption, T.inkMuted,
+                Modifier.padding(horizontal = T.gutter, vertical = 8.dp),
+                maxLines = 2,
+            )
+        }
+
+        // ---- The menu.
+        item { SectionLabel("Show in the menu") }
+        item {
+            RowGroup {
+                val tools = Destination.entries.filter { it.name !in com.alphadental.clinic.next.data.AppPrefsStore.FIXED_TOOLS && it != Destination.MyApp && it.allowed(state.who) }
+                tools.forEachIndexed { i, d ->
+                    if (i > 0) Rule()
+                    SettingsToggle(
+                        title = d.label,
+                        caption = d.caption,
+                        checked = ui.showsTool(d.name), enabled = !ui.saving,
+                    ) { actions.toggleTool(d.name) }
+                }
+            }
+        }
+        item {
+            Txt(
+                "Only tools this account is allowed to open are listed. Hiding one here is tidiness, " +
+                    "not a permission: the clinic's owner decides who may open what, under The team.",
+                Type.caption, T.inkMuted,
+                Modifier.padding(horizontal = T.gutter, vertical = 8.dp),
+                maxLines = 4,
+            )
         }
 
         item {
             Txt(
-                "This is yours rather than the clinic's: another account on this phone gets its " +
-                    "own answer, and it follows you to another phone.",
+                "All of this is yours rather than the clinic's: another account on this phone gets " +
+                    "its own answer, and it follows you to another phone.",
                 Type.caption, T.inkMuted,
                 Modifier.padding(horizontal = T.gutter, vertical = 12.dp),
                 maxLines = 3,
@@ -693,6 +791,60 @@ private fun InterfacePage(state: SettingsState, onBack: () -> Unit, actions: Set
                 Type.caption, T.inkFaint,
                 Modifier.padding(horizontal = T.gutter, vertical = 12.dp),
                 maxLines = 4,
+            )
+        }
+    }
+}
+
+/**
+ * My own staff record — the part of it that is mine.
+ *
+ * Name, nickname, phone and a line about me. The rules let a person change these four on their
+ * own row and nothing else, so this page needs no admin and draws no read-only banner. Somebody
+ * with no staff row yet is told so instead of being shown an empty form that cannot save.
+ */
+@Composable
+private fun ProfilePage(state: SettingsState, onBack: () -> Unit, actions: SettingsActions) {
+    val stored = state.me
+    var form by remember(stored) { mutableStateOf(stored ?: ClinicSettings.MyProfile()) }
+    val dirty = stored != null && form != stored
+    val onList = state.myStaffId.isNotBlank()
+
+    SettingsPage(
+        title = Section.Profile.label,
+        caption = state.who?.email?.takeIf { it.isNotBlank() } ?: "Yours",
+        state = state,
+        onBack = onBack,
+        ready = stored != null,
+    ) {
+        if (!onList) {
+            item {
+                Txt(
+                    "This account is not on the clinic's staff list yet, so there is no record to " +
+                        "fill in. An owner adds you under Settings → The team.",
+                    Type.body, T.inkMuted,
+                    Modifier.padding(horizontal = T.gutter, vertical = 16.dp),
+                    maxLines = 4,
+                )
+            }
+            return@SettingsPage
+        }
+        item {
+            RowGroup {
+                SettingsField("Name", form.name, { form = form.copy(name = it) })
+                SettingsField("Nickname", form.nickname, { form = form.copy(nickname = it) }, hint = "What patients call you")
+                SettingsField("Phone", form.phone, { form = form.copy(phone = it) }, hint = "01xxxxxxxxx")
+                SettingsField("About you", form.bio, { form = form.copy(bio = it) }, hint = "One line, for the team page", lines = 3)
+            }
+        }
+        item { SettingsSave(dirty = dirty, enabled = true) { actions.saveMyProfile(form) } }
+        item {
+            Txt(
+                "Your role, permissions and commission are set by the clinic's owner and are not " +
+                    "on this page.",
+                Type.caption, T.inkFaint,
+                Modifier.padding(horizontal = T.gutter, vertical = 12.dp),
+                maxLines = 3,
             )
         }
     }

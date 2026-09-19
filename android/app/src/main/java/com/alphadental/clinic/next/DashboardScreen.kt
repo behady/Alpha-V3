@@ -97,6 +97,9 @@ fun DashboardScreen(
     onQuickPay: (() -> Unit)? = null,
     /** A day tapped on the strip: the diary opens on it. */
     onPickDay: (String) -> Unit = {},
+    /** Which home this person chose, and who they are on the staff list. */
+    ui: InterfaceState = InterfaceState(),
+    extras: HomeExtras = HomeExtras(),
 ) {
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
@@ -108,6 +111,13 @@ fun DashboardScreen(
 
             state.error?.let { message ->
                 item { Notice(message) }
+            }
+
+            // ---- A dentist's home is a different page: my chair, and nothing about the clinic's money.
+            if (ui.home == "dentist") {
+                dentistHome(state, ui, extras, onOpenVisit, onBook)
+                item { Spacer(Modifier.height(8.dp)) }
+                return@LazyColumn
             }
 
             // ---- Daily overview: income beside a two-by-two of the day's stages.
@@ -138,6 +148,9 @@ fun DashboardScreen(
                     }
                 }
             }
+
+            // ---- The owner's home is the desk with the week, the dentists and the floor under it.
+            if (ui.home == "owner") ownerOverview(extras)
 
             // ---- The three things a desk does, stacked, the site's way.
             item {

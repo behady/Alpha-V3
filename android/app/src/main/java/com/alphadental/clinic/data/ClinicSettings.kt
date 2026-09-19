@@ -399,6 +399,44 @@ object ClinicSettings {
     // ------------------------------------------------------------------ the team
 
     /** One member of staff, as the Users screen edits them. */
+    /**
+     * The part of a staff record that belongs to the person.
+     *
+     * The rules let anyone update their own row, but only these fields (`name`, `nickname`,
+     * `phone`, `bio`, plus the photo and the timestamp) — never the role, the permissions or the
+     * commission. Written with `update`, not `set`, so a missing row fails loudly instead of
+     * quietly creating a second one for the same person.
+     */
+    data class MyProfile(
+        val name: String = "",
+        val nickname: String = "",
+        val phone: String = "",
+        val bio: String = "",
+    )
+
+    suspend fun loadMyProfile(clinicId: String, staffId: String): MyProfile {
+        val d = clinic(clinicId).collection("staff").document(staffId).get().await()
+        return MyProfile(
+            name = d.getString("name").orEmpty(),
+            nickname = d.getString("nickname").orEmpty(),
+            phone = d.getString("phone").orEmpty(),
+            bio = d.getString("bio").orEmpty(),
+        )
+    }
+
+    suspend fun saveMyProfile(clinicId: String, staffId: String, p: MyProfile): Result<Unit> = runCatching {
+        clinic(clinicId).collection("staff").document(staffId).update(
+            mapOf(
+                "name" to p.name.trim(),
+                "nickname" to p.nickname.trim(),
+                "phone" to p.phone.trim(),
+                "bio" to p.bio.trim(),
+                "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
+            ),
+        ).await()
+        Unit
+    }
+
     data class StaffRow(
         val id: String,
         val uid: String,
