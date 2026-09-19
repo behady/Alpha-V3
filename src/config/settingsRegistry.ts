@@ -415,6 +415,21 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     edit: ADMIN,
   },
   {
+    id: "ai_connector",
+    route: "/settings/ai-connector",
+    group: "system",
+    labelEn: "AI Assistant",
+    labelAr: "المساعد الذكي",
+    // Keys live in the root collection `mcp_keys`, which firestore.rules denies to every client
+    // outright — so this screen writes nothing directly and everything through the API on the
+    // Admin SDK. Admin rather than `access.settings` at the menu, even though the route accepts
+    // the permission: a key is a standing grant to a program outside this system, and the
+    // narrower of the two gates is the one worth showing on the menu.
+    writes: [{ kind: "server", route: "/api/admin/mcp-keys", guardedBy: "tests/permissions.test.mts" }],
+    view: ADMIN,
+    edit: ADMIN,
+  },
+  {
     id: "recently_deleted",
     route: "/settings/recently-deleted",
     group: "system",

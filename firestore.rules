@@ -848,6 +848,19 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    /*
+     * Keys a clinic issues to an outside AI assistant (Claude and anything else that speaks MCP).
+     *
+     * Only the hash of each key is here, but the document is denied outright anyway, and for the
+     * same reason clinic_secrets is: these live at the root precisely because the blanket
+     * clinic-member read grant inside clinics/{id}/ would otherwise let any receptionist list
+     * every connector her practice has, learn which ones carry write access, and revoke them.
+     * Minted, listed and revoked only through /api/admin/mcp-keys, which asks for access.settings.
+     */
+    match /mcp_keys/{keyId} {
+      allow read, write: if false;
+    }
+
     match /sms_pairing_codes/{code} {
       allow read, write: if false;
     }

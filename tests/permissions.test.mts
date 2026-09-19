@@ -586,6 +586,11 @@ const ALLOWED_INACTIVE = [
                                    // depend on the subscription; restoring it does.
   "invites/route.ts",              // GET: the clinic's existing invite links, read. The POST that
                                    // mints a new one is gated.
+  "admin/mcp-keys/route.ts",       // GET: the AI connector keys this clinic holds, read. DELETE is
+                                   // exempt too, and deliberately: revoking an outside assistant's
+                                   // access is a security action, and a security action that stops
+                                   // working when the invoice lapses is worse than no gate at all.
+                                   // The POST that mints a new key IS gated.
   "sms/devices/route.ts",          // GET: paired devices, read
   "store/status/route.ts",         // GET: is a supply shop connected, read
   "store/products/route.ts",       // GET: the partner's catalogue, read
@@ -658,6 +663,15 @@ assert.equal(
   (invites.match(/allowInactive/g) || []).length,
   1,
   "invites may exempt only its GET, never the POST that mints a new link"
+);
+// AI connector keys: the GET that lists them and the DELETE that revokes one are both exempt —
+// see the reason beside the entry above — but the POST that mints a key must stay gated, so the
+// count alone cannot hold this. Read the POST handler itself.
+const mcpKeys = readFileSync(join(apiDir, "admin/mcp-keys/route.ts"), "utf8");
+const mcpPost = mcpKeys.slice(mcpKeys.indexOf("export async function POST"));
+assert.ok(
+  !mcpPost.slice(0, mcpPost.indexOf("export async function DELETE")).includes("allowInactive: true"),
+  "minting an AI connector key must stay behind the expiry gate"
 );
 
 // Nobody should be hand-rolling this decision again. The two local copies that existed read
