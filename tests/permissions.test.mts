@@ -24,6 +24,8 @@ import { join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PERMISSIONS_CATALOG, getAllPermissionIds } from "../src/config/permissionsCatalog";
 import { BIN_COLLECTIONS } from "../src/lib/recycleBin";
+import { INVITABLE_ROLES } from "../src/lib/inviteLinks";
+import { staffIdentityPatch } from "../src/lib/server/clinicPermissions";
 import {
   ASSIGNABLE_ROLES,
   COLLECTION_WRITE_PERMISSIONS,
@@ -272,10 +274,41 @@ for (const field of ["role:", "permissions,", "isDentist:"]) {
   assert.ok(identity.includes(field), `staffIdentityPatch stopped writing ${field}`);
 }
 
-// A Dentist must arrive able to work: see, add and edit patients, and open a patient's file.
-const dentistFloor = new Set(rolePreset("Dentist"));
-for (const needed of ["access.patients", "patients.add", "patients.edit", "access.clinical", "clinical.edit"]) {
-  assert.ok(dentistFloor.has(needed), `a new dentist arrives without "${needed}"`);
+// Everyone an invite link may create must arrive able to do their job on day one, with nobody
+// waiting on an admin to tick a box. The patient list is the floor under all three: a receptionist
+// who cannot add a patient cannot book one, and an assistant who cannot open a file cannot prepare
+// for the visit. Clinical is where they part -- reception books and bills, it does not write notes.
+const ARRIVES_WITH: Record<string, string[]> = {
+  Dentist: ["access.patients", "patients.add", "patients.edit", "access.clinical", "clinical.edit"],
+  Assistant: ["access.patients", "patients.add", "patients.edit", "access.clinical", "clinical.edit"],
+  Receptionist: ["access.patients", "patients.add", "patients.edit", "access.appointments", "appointments.add"],
+};
+assert.deepEqual(
+  Object.keys(ARRIVES_WITH).sort(),
+  [...INVITABLE_ROLES].sort(),
+  "a role an invite link can grant, with nothing said here about what it arrives able to do"
+);
+for (const [role, needed] of Object.entries(ARRIVES_WITH)) {
+  const floor = new Set(rolePreset(role));
+  for (const id of needed) {
+    assert.ok(floor.has(id), `a new ${role} arrives without "${id}"`);
+  }
+}
+// Said out loud so nobody "fixes" it by hand: reception is deliberately outside the clinical file.
+assert.ok(!new Set(rolePreset("Receptionist")).has("access.clinical"), "reception reads no clinical notes");
+
+// And what actually lands on the user document, for each role, from the one writer both routes
+// call. This is the value the browser reads back a moment later, so it is the value that decides
+// whether the person sees their work or "Access Restricted".
+for (const role of INVITABLE_ROLES) {
+  const seeded = expandPermissions(role, ["dashboard.view"]);
+  const patch = staffIdentityPatch(role, seeded) as { role: string; permissions: string[]; isDentist: boolean };
+  assert.equal(patch.role, role, "the flat role must say which role, not be left blank");
+  assert.deepEqual(patch.permissions, seeded, `${role} is written a different list from the one it was granted`);
+  assert.equal(patch.isDentist, role === "Dentist");
+  for (const id of ARRIVES_WITH[role]) {
+    assert.ok(patch.permissions.includes(id), `the ${role} written to the user document lacks "${id}"`);
+  }
 }
 
 // --- 5. The collection→permission maps are duplicated; they must agree ---------------------------
