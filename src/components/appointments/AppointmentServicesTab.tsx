@@ -184,16 +184,9 @@ export default function AppointmentServicesTab({
       return;
     }
     // Attribution follows the appointment's dentist, never whoever is clicking — a receptionist
-    // recording a procedure must not become the person it pays out to.
-    if (!appointment?.doctorId) {
-      showToast(
-        isAr
-          ? "الموعد ده مش متسجل عليه دكتور — عدّل الموعد الأول"
-          : "This visit has no dentist assigned. Set one on the appointment first.",
-        "error"
-      );
-      return;
-    }
+    // recording a procedure must not become the person it pays out to. A General visit has no
+    // dentist to follow, and that is allowed: the charge belongs to the clinic, earns no
+    // commission, and the whole amount is clinic profit.
 
     setAddingProcedure(true);
     try {

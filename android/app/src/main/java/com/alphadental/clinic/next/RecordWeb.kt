@@ -659,7 +659,8 @@ fun NewProcedureSheet(
         busy = busy,
         error = error,
         action = "Log Procedure",
-        ready = procedure.isNotBlank() && doctor != null,
+        // No dentist is a valid answer (General), so only the procedure is required.
+        ready = procedure.isNotBlank(),
         onAction = {
             onRecord(ProcedureDraft(
                 procedure = procedure.trim(),
@@ -698,9 +699,13 @@ fun NewProcedureSheet(
         if (statusOpen) SheetChoices("") { listOf("Planned", "Ongoing", "Completed").forEach { s -> SheetChoice(s, status == s) { status = s; statusOpen = false } } }
 
         // ---- doctor
-        Column(Modifier.padding(horizontal = T.gutter, vertical = 8.dp)) { Field("Select Doctor", doctor?.name ?: "Choose", Modifier.fillMaxWidth()) { doctorOpen = !doctorOpen } }
-        if (doctorOpen) SheetChoices("") { doctors.forEach { d -> SheetChoice(d.name, doctor?.id == d.id) { doctorId = d.id; doctorOpen = false } } }
-        if (doctor == null) Txt("The charge is worked out against the dentist's rate, so one is needed.", Type.caption, T.warn, Modifier.padding(horizontal = T.gutter), maxLines = 2)
+        Column(Modifier.padding(horizontal = T.gutter, vertical = 8.dp)) { Field("Select Doctor", doctor?.name ?: "General", Modifier.fillMaxWidth()) { doctorOpen = !doctorOpen } }
+        if (doctorOpen) SheetChoices("") {
+            // General: work the clinic did rather than a person. Allowed, and priced the same.
+            SheetChoice("General", doctor == null) { doctorId = ""; doctorOpen = false }
+            doctors.forEach { d -> SheetChoice(d.name, doctor?.id == d.id) { doctorId = d.id; doctorOpen = false } }
+        }
+        if (doctor == null) Txt("No dentist on this treatment. It is charged to the clinic and earns nobody a commission.", Type.caption, T.inkMuted, Modifier.padding(horizontal = T.gutter), maxLines = 2)
 
         // ---- procedure
         SheetField(

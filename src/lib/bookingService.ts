@@ -123,9 +123,11 @@ export interface BookingUserContext {
  * which does all of it in one transaction and prices each procedure from the catalogue rather than
  * trusting the cost the browser worked out.
  *
- * A procedure whose dentist cannot be resolved is skipped rather than attributed to nobody: a
- * charge with no dentist pays no commission and is invisible to the payout report, which is the
- * failure this whole change exists to stop.
+ * A visit booked as General carries no dentist, and its procedures are written anyway: they are the
+ * clinic's work, they earn nobody a commission, and the whole amount is clinic profit. This used to
+ * be refused outright — the charge would have been attributed to nobody and invisible to the payout
+ * report — but a clinic that treats without naming a dentist still has money to take, and refusing
+ * the charge loses the money instead of the attribution.
  */
 async function writeSessionProcedures(
   data: BookingSavePayload,
@@ -134,9 +136,6 @@ async function writeSessionProcedures(
   userCtx: BookingUserContext
 ): Promise<void> {
   if (!data.sessionProcedures || data.sessionProcedures.length === 0) return;
-  if (!data.doctorId) {
-    throw new Error("NO_DOCTOR_FOR_PROCEDURE");
-  }
 
   for (const sp of data.sessionProcedures) {
     await createProcedure({
@@ -146,7 +145,7 @@ async function writeSessionProcedures(
       selectedTeeth: [],
       tooth: "Gen",
       unitCost: Number(sp.cost) || 0,
-      doctorId: data.doctorId,
+      doctorId: data.doctorId ?? null,
       status: "Completed",
       date,
       addToLedger: sp.addToLedger,

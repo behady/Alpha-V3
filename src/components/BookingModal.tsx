@@ -436,13 +436,6 @@ export default function BookingModal({
       stillNeeded: language === "ar" ? "ناقص:" : "Still needed:",
       needPatient: language === "ar" ? "المريض" : "a patient",
       needDentist: language === "ar" ? "الطبيب" : "a dentist",
-      // A charge has to be attributed to somebody: a procedure recorded against nobody pays no
-      // commission and never appears on the payout report. So "General" and a paid procedure in the
-      // same visit is refused up front instead of failing halfway through the save.
-      needDentistForProcedure:
-        language === "ar"
-          ? "دكتور للإجراء المدفوع (مينفعش عام)"
-          : "a dentist for the paid procedure (not General)",
       needDate: language === "ar" ? "التاريخ" : "a date",
       needTime: language === "ar" ? "الوقت" : "a time",
       noFollowCase: language === "ar" ? "مفيش متابعة متاحة للمريض ده" : "No ongoing case to link",
@@ -623,13 +616,10 @@ export default function BookingModal({
       missing.push(txt.needPatient);
     }
     if (!doctor) missing.push(txt.needDentist);
-    if (isGeneralDoctorValue(doctor) && sessionProcedures.length > 0) {
-      missing.push(txt.needDentistForProcedure);
-    }
     if (!date) missing.push(txt.needDate);
     if (!time) missing.push(txt.needTime);
     return missing;
-  }, [isNewPatient, newPatientName, newPatientPhone, selectedPatient, doctor, sessionProcedures, date, time, txt]);
+  }, [isNewPatient, newPatientName, newPatientPhone, selectedPatient, doctor, date, time, txt]);
 
   /**
    * The day's appointments, fetched once and filtered in memory.
@@ -659,13 +649,6 @@ export default function BookingModal({
       }
       if (!doctor) {
         showToast(txt.pickDentist, "error");
-        return;
-      }
-      // Stopped here as well as in `blockingReasons`: the procedures are written after the
-      // appointment exists, so letting this through would save the visit and then fail on the
-      // charge, leaving a booking whose procedure silently never happened.
-      if (isGeneralDoctorValue(doctor) && sessionProcedures.length > 0) {
-        showToast(`${txt.stillNeeded} ${txt.needDentistForProcedure}`, "error");
         return;
       }
       if (!time) {

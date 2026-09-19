@@ -235,7 +235,11 @@ export type ProcedureWriteArgs = {
   unitCost?: number | null;
   /** Manual override of the per_tooth / flat / per_arch rule. */
   pricingMode?: string | null;
-  doctorId: string;
+  /**
+   * The treating dentist. Empty or null is a General treatment — one the clinic did rather than a
+   * person. It is charged normally and simply earns nobody a commission.
+   */
+  doctorId: string | null;
   status?: "Planned" | "Ongoing" | "Completed";
   note?: string;
   date?: string;

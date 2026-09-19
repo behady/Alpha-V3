@@ -417,7 +417,10 @@ class RecordModel : ViewModel() {
                 noteText = text,
                 unitCost = unitCost.takeIf { it > 0 },
                 status = status,
-                doctorId = doctor?.id.orEmpty().ifBlank { note.doctorId },
+                // Picking General clears the dentist. The old fallback to the note's own id made
+                // that impossible; it survives only for the case it was really written for — a
+                // staff list that never loaded, where nobody could have chosen anything.
+                doctorId = doctor?.id ?: if (_state.value.doctors.isEmpty()) note.doctorId else "",
             )
                 .onSuccess {
                     _state.value = _state.value.copy(savingNote = false, editingNote = null)

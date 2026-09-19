@@ -282,7 +282,8 @@ fun TreatmentEditSheet(
         busy = busy,
         error = error,
         action = if (total > 0) "Save · ${total.toLong()}" else "Save",
-        ready = procedure.isNotBlank() && doctor != null,
+        // No dentist is a valid answer (General), so only the procedure is required.
+        ready = procedure.isNotBlank(),
         onAction = {
             onSave(
                 procedure, teeth.map(Int::toString), text, unit, doctor,
@@ -346,17 +347,18 @@ fun TreatmentEditSheet(
 
         if (doctors.isNotEmpty()) {
             SheetChoices("Done by") {
+                // General: work the clinic did rather than a person. Saved the same way, and the
+                // charge simply earns nobody a commission.
+                SheetChoice("General", doctor == null) { doctor = null }
                 doctors.forEach { d ->
                     SheetChoice(d.name, doctor?.id == d.id) { doctor = d }
                 }
             }
             if (doctor == null) {
                 Txt(
-                    // Not a nicety: the charge is worked out against this person's rate, and a
-                    // treatment recorded before the note carried a dentist id has none to restore.
-                    "This treatment has no dentist on it. Choose one — the charge is worked out " +
-                        "against their rate, so it cannot be saved without.",
-                    Type.caption, T.warn,
+                    "No dentist on this treatment. It is charged to the clinic and earns nobody " +
+                        "a commission.",
+                    Type.caption, T.inkMuted,
                     Modifier.padding(horizontal = T.gutter, vertical = 8.dp),
                     maxLines = 3,
                 )

@@ -15,6 +15,7 @@ import ServiceCombobox from "@/components/shared/ServiceCombobox";
 import TeethChart, { type ToothData } from "@/components/TeethChart";
 import { TREATMENT_STATES, pendingTreatments, resolveTreatments, type ToothTreatment } from "@/lib/toothTreatments";
 import { isDentistStaff } from "@/lib/staffRoles";
+import { generalDoctorLabel } from "@/lib/generalDentist";
 import { Note, Service, Staff } from "./types";
 import {
   ALL_TEETH, UPPER_LEFT_TEETH, UPPER_RIGHT_TEETH, LOWER_LEFT_TEETH, LOWER_RIGHT_TEETH,
@@ -371,7 +372,7 @@ export default function ServiceEditorDrawer({
     save: language === 'ar' ? "حفظ الإجراء" : "Log Procedure",
     cancel: language === 'ar' ? "إلغاء" : "Cancel",
     addToFinance: language === 'ar' ? "إضافة للمالية" : "Add to Ledger",
-    selectError: language === 'ar' ? "اختر الإجراء والطبيب" : "Select a procedure AND doctor",
+    selectError: language === 'ar' ? "اختر الإجراء" : "Name the procedure",
     extraProcedures: language === 'ar' ? "إجراءات إضافية" : "More procedures",
     hide: language === 'ar' ? "إخفاء" : "Hide",
   };
@@ -379,7 +380,9 @@ export default function ServiceEditorDrawer({
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSaving) return; // Fix Scenario 1: Double-click protection
-    if (!selectedDoctorId || (!procedure && !multiProceduresText)) return showToast(txt.selectError, "error");
+    // The dentist is no longer required: an empty picker means General, a treatment the clinic
+    // did rather than a person.
+    if (!procedure && !multiProceduresText) return showToast(txt.selectError, "error");
     if (Number(cost) < 0) return showToast(language === 'ar' ? "لا يمكن إضافة تكلفة بالسالب" : "Cannot add negative cost", "error"); // Fix Scenario 2: Negative typo protection
 
     setIsSaving(true);
@@ -584,8 +587,10 @@ export default function ServiceEditorDrawer({
   const doctorField = (
     <div>
       <label className={labelClass}>{txt.selectDoctor}</label>
-      <select value={selectedDoctorId} onChange={e => setSelectedDoctorId(e.target.value)} required className={inputClass}>
-        <option value="">Select doctor...</option>
+      <select value={selectedDoctorId} onChange={e => setSelectedDoctorId(e.target.value)} className={inputClass}>
+        {/* No dentist is a real answer here, not an empty field: the clinic did the work. It is
+            charged the same way and earns nobody a commission. */}
+        <option value="">{generalDoctorLabel(language)}</option>
         {doctors.map(d => (
           <option key={d.id} value={d.id}>{d.name}</option>
         ))}

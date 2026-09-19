@@ -840,10 +840,9 @@ object Repository {
         pricingMode: String? = null,
     ): Result<String> = runCatching {
         require(procedure.isNotBlank()) { "Enter what was done." }
-        // The route refuses without a dentist, and its refusal is a code rather than a sentence.
-        // Said here instead, in words, before a round trip is spent on it.
+        // No dentist is allowed: "General", work the clinic did rather than a person. The charge
+        // is priced the same and earns nobody a commission.
         val doctorId = doctor?.id.orEmpty()
-        require(doctorId.isNotBlank()) { "Choose which dentist did this." }
 
         ClinicApi.createProcedure(
             clinicId = clinicId,
@@ -878,7 +877,8 @@ object Repository {
         status: String = note.status,
         doctorId: String = note.doctorId,
     ): Result<Unit> = runCatching {
-        require(doctorId.isNotBlank()) { "This treatment has no dentist on it. Open it and choose one." }
+        // A blank dentist is deliberate: "General", work the clinic did rather than a person. The
+        // server prices it the same and pays nobody a commission, so there is nothing to refuse.
         ClinicApi.updateProcedure(
             clinicId = clinicId,
             noteId = note.id,

@@ -104,16 +104,23 @@ async function priceRequest(clinicId: string, body: Record<string, unknown>, act
   const services = await loadServices(clinicId);
   const { priceLists, discountSettings } = await loadPricingPolicy(clinicId);
 
-  const doctorId = String(body.doctorId || "").trim();
-  if (!doctorId) throw new Error("NO_DOCTOR");
-  const staffSnap = await adminClinicDoc(clinicId, "staff", doctorId).get();
+  // No dentist at all is allowed: it is a "General" treatment, one the clinic did rather than a
+  // person. It earns no commission — there is nobody to pay — and the whole amount is clinic
+  // profit, which is what the payment builder already does for a charge it cannot attribute.
+  // A dentist who IS named still has to exist, because a charge pointing at a staff record that
+  // has gone is attributed to nobody while claiming otherwise.
+  const requestedDoctorId = String(body.doctorId || "").trim();
+  const staffSnap = requestedDoctorId
+    ? await adminClinicDoc(clinicId, "staff", requestedDoctorId).get()
+    : null;
   // Two different failures wearing one message. "Choose the dentist" is true when the field was
   // left empty and a lie when a name is sitting in the dropdown — which is what the owner saw:
   // Dr Omar Sherif selected on screen, and the app telling him to pick a dentist. The dentist he
   // picked no longer resolves to a staff record, and that is what it should say.
-  if (!staffSnap.exists) throw new Error("DOCTOR_NOT_FOUND");
-  const staff = staffSnap.data() || {};
-  const doctorName = String(staff.name || "").trim() || "Unknown Doctor";
+  if (staffSnap && !staffSnap.exists) throw new Error("DOCTOR_NOT_FOUND");
+  const staff = staffSnap?.data() || {};
+  const doctorId = requestedDoctorId || null;
+  const doctorName = doctorId ? String(staff.name || "").trim() || "Unknown Doctor" : "";
 
   const selectedTeeth = asStringArray(body.selectedTeeth);
   const procedures = asStringArray(body.procedures);
@@ -723,8 +730,7 @@ export async function POST(request: Request) {
     if (e instanceof DiscountRefused) return bad(e.message, 403);
     const message = e instanceof Error ? e.message : "";
     switch (message) {
-      case "NO_DOCTOR":
-        return bad("Choose the dentist who performed this treatment.");
+      // No "NO_DOCTOR" case: a treatment with no dentist is allowed and is charged as General.
       case "DOCTOR_NOT_FOUND":
         return bad(
           "That dentist is no longer on this clinic's team, so the treatment cannot be attributed " +
