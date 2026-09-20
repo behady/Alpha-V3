@@ -649,6 +649,17 @@ function eq<T>(actual: T, expected: T, message: string) {
     );
   }
 
+  // The insurer's own price sheet has to agree with the ticks. A price box for a treatment that
+  // insurer does not pay for invites a number that can never be charged, and the treatment is not
+  // on the receptionist's menu anyway.
+  const sheet = read("src/components/settings/PriceListWorkspace.tsx");
+  ok(/payerCoverageFilter/.test(sheet), "an insurer's price sheet still prices treatments it does not cover");
+  ok(
+    /covered\.filter\(/.test(sheet),
+    "the search and category chips still run over every service — the coverage filter above them is computed and then ignored"
+  );
+  ok(/txt\.hidden\(hiddenCount\)/.test(sheet), "treatments vanish from the sheet with nothing said about where they went");
+
   // Switching to an insurer that does not cover what is already picked must empty the box. A
   // selection the dropdown cannot display reads as chosen while the menu says it does not exist.
   for (const rel of ["src/components/BookingModal.tsx", "src/components/appointments/AppointmentMoneyTab.tsx"]) {
