@@ -70,6 +70,14 @@ export type DoctorSplit = {
    * printed one number would be describing neither half accurately.
    */
   ratePct: number | null;
+  /**
+   * Who this dentist treated under this payer, in the order they were seen.
+   *
+   * On the dentist row rather than only in the patients tab, because the two answers are read
+   * together: "Dr Hana earned 15 on AXA" invites "on whom?" immediately, and making that a tab
+   * switch means holding one number in your head while you go and find the other.
+   */
+  patients: string[];
 };
 
 /** One patient's work under one payer, for the "who came from this insurer" list. */
@@ -159,7 +167,7 @@ export function buildPayerReport(
   payers: readonly Payer[] = [],
 ): PayerReport {
   const byPayer = new Map<string, ReturnType<typeof blankTotals>>();
-  const doctorKeys = new Map<string, Map<string, DoctorSplit & { rates: Set<number> }>>();
+  const doctorKeys = new Map<string, Map<string, DoctorSplit & { rates: Set<number>; seen: Map<string, string> }>>();
 
   const ensure = (payerId: string, payerName: string) => {
     let row = byPayer.get(payerId);
@@ -188,7 +196,9 @@ export function buildPayerReport(
         collected: 0,
         commission: 0,
         ratePct: null,
+        patients: [],
         rates: new Set<number>(),
+        seen: new Map<string, string>(),
       };
       map.set(doctorId, row);
     }
@@ -225,6 +235,12 @@ export function buildPayerReport(
       const doctor = ensureDoctor(payerId, doctorId, String(row.doctorName ?? "").trim());
       doctor.cases++;
       doctor.charged += num(row.cost) || num(row.amount);
+      // Keyed by id so one patient seen three times is one name, and the display name is
+      // whatever the row carried — a patient renamed since still reads as they were recorded.
+      if (patientId) {
+        const seenName = String(row.patientName ?? "").trim();
+        if (seenName || !doctor.seen.has(patientId)) doctor.seen.set(patientId, seenName);
+      }
     }
   }
 
@@ -265,8 +281,9 @@ export function buildPayerReport(
 
   const rows: PayerTotals[] = [...byPayer.values()].map((row) => {
     const doctors = [...(doctorKeys.get(row.payerId)?.values() ?? [])]
-      .map(({ rates, ...doctor }) => ({
+      .map(({ rates, seen, ...doctor }) => ({
         ...doctor,
+        patients: [...seen.values()].filter(Boolean),
         charged: money(doctor.charged),
         collected: money(doctor.collected),
         commission: money(doctor.commission),

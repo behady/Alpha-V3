@@ -216,6 +216,17 @@ export default function PayerReport({ procedures, payments, payers, rangeLabel, 
                               {d.ratePct !== null && (
                                 <span className="ms-2 font-figure text-[11px] text-ink-faint">{d.ratePct}%</span>
                               )}
+                              {/* Who the work was for, under the name rather than a tab away: the
+                                  figure on this row immediately raises the question "on whom?",
+                                  and answering it elsewhere means holding one number in your head
+                                  while you go and find the other. Three names, then a count —
+                                  a dentist with a busy month must not push the table sideways. */}
+                              {d.patients.length > 0 && (
+                                <p className="mt-0.5 truncate text-[11.5px] font-medium text-ink-faint">
+                                  {d.patients.slice(0, 3).join(isAr ? "، " : ", ")}
+                                  {d.patients.length > 3 && ` +${d.patients.length - 3}`}
+                                </p>
+                              )}
                             </td>
                             <td className="px-3 py-2 text-end font-figure text-[12.5px] text-ink-body">{d.cases}</td>
                             <td className="px-3 py-2" />

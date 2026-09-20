@@ -429,6 +429,16 @@ function eq<T>(actual: T, expected: T, message: string) {
   const priv = report.payers.find((p) => p.payerId === PRIVATE_PAYER_ID)!;
 
   eq(axa.patients, 2, "AXA saw two patients");
+
+  // The dentist row names who the work was for, so the figure on it can be read without a tab
+  // switch. Keyed by patient id, so one patient seen twice is one name.
+  const omarOnAxa2 = axa.doctors.find((d) => d.doctorId === "d1")!;
+  eq(omarOnAxa2.patients, ["Mona", "Sara"], "the dentist row lists the patients behind its figure");
+  eq(
+    priv.doctors.find((d) => d.doctorId === "d1")!.patients,
+    ["Mona"],
+    "and only the ones under THIS payer — the same visit's private half belongs to the private row"
+  );
   eq(axa.patientList.map((x) => x.patientName), ["Sara", "Mona"], "the patient list is biggest first");
   eq(
     axa.patientList.find((x) => x.patientId === "p1")!.charged,
