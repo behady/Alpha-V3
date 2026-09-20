@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Loader2, RefreshCw, Stethoscope, UserCheck, Network, Building2, CalendarDays, Megaphone,
   Wallet,
+  TableProperties,
 } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, query, where, Timestamp } from "firebase/firestore";
@@ -20,11 +21,12 @@ import SourceReport from "@/components/reports/SourceReport";
 import ClinicReport from "@/components/reports/ClinicReport";
 import LeadFunnelReport from "@/components/reports/LeadFunnelReport";
 import PayerReport from "@/components/reports/PayerReport";
+import CaseSheetReport from "@/components/reports/CaseSheetReport";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import FeatureGate from "@/components/FeatureGate";
 
-type ReportTab = "service" | "dentist" | "source" | "payers" | "leads" | "clinic";
+type ReportTab = "service" | "dentist" | "source" | "payers" | "cases" | "leads" | "clinic";
 
 function normalizeDate(val: unknown): string {
   if (!val) return "1970-01-01";
@@ -149,6 +151,9 @@ function ReportsPage() {
     // the clinic. This one is who is paying for the work, which is a different question with a
     // different answer for the same patient.
     { id: "payers", label: "Insurance & Payers", labelAr: "التأمين وجهات الدفع", icon: Wallet, color: "text-rose-600 bg-rose-50" },
+    // The one report that groups nothing: a line per case, filterable down to the rows being
+    // argued about. It is what the others get checked against.
+    { id: "cases", label: "Case Sheet", labelAr: "سجل الحالات", icon: TableProperties, color: "text-slate-600 bg-slate-100" },
     { id: "leads", label: "Marketing Funnel", labelAr: "قمع التسويق", icon: Megaphone, color: "text-amber-600 bg-amber-50" },
     { id: "clinic", label: "Clinic Overview", labelAr: "نظرة عامة", icon: Building2, color: "text-violet-600 bg-violet-50" },
   ];
@@ -281,6 +286,15 @@ function ReportsPage() {
                   procedures={snapshot.procedures}
                   payments={snapshot.payments}
                   payers={payers}
+                  rangeLabel={rangeLabel}
+                  isAr={isAr}
+                />
+              )}
+
+              {tab === "cases" && (
+                <CaseSheetReport
+                  procedures={snapshot.procedures}
+                  payments={snapshot.payments}
                   rangeLabel={rangeLabel}
                   isAr={isAr}
                 />
