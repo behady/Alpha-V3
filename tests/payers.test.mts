@@ -705,4 +705,46 @@ function eq<T>(actual: T, expected: T, message: string) {
   }
 }
 
+// --- 13. A list says who it bills, where the choice is made ------------------------------------
+//
+// The price list IS the payer — but only if a payer points at it. Nothing on screen distinguished
+// "AXA's list" from a list somebody happened to name AXA, so work charged on the second was
+// recorded as private and went missing from the insurer's report, with the mistake invisible at
+// every step: the dropdown said AXA, the price was AXA's, and the report was right.
+{
+  for (const rel of [
+    "src/components/BookingModal.tsx",
+    "src/components/appointments/AppointmentMoneyTab.tsx",
+    "src/components/shared/DiscountEditor.tsx",
+  ]) {
+    const ui = read(rel);
+    ok(
+      /payerForPriceList\(payers, l(ist)?\.id\)/.test(ui),
+      `${rel} lists price lists without naming the company behind each one`
+    );
+    ok(
+      /Charged to/.test(ui),
+      `${rel} does not say who the treatment will be recorded against — the one line that makes a wrong list obvious`
+    );
+    ok(
+      /PRIVATE_PAYER_ID/.test(ui),
+      `${rel} does not distinguish the private case, so an unlinked list would print a company name it does not have`
+    );
+  }
+
+  // The note editor can only say it if it is given the payers.
+  ok(
+    /payers=\{payers\}/.test(read("src/components/clinical-notes/ServiceEditorDrawer.tsx")),
+    "the note editor's discount panel is never handed the payers, so every list reads as private there"
+  );
+
+  const payers = parsePayers({ payers: [{ id: "axa", name: "AXA", priceListId: "payer-axa" }] });
+  eq(payerForPriceList(payers, "payer-axa").id, "axa", "a list an insurer points at is that insurer's");
+  eq(
+    payerForPriceList(payers, "list-named-axa").id,
+    PRIVATE_PAYER_ID,
+    "a list nobody points at is PRIVATE, however it is named — which is the whole reason the screen has to say so"
+  );
+}
+
 console.log(`payers: ${checks} checks passed`);

@@ -21,7 +21,8 @@ import ServiceCombobox from "@/components/shared/ServiceCombobox";
 import ServiceEditorDrawer from "@/components/clinical-notes/ServiceEditorDrawer";
 import type { Note, Service, Staff } from "@/components/clinical-notes/types";
 import { resolveListPrice } from "@/lib/discountMath";
-import { payerCoverageFilter } from "@/lib/payers";
+import { PRIVATE_PAYER_ID, payerCoverageFilter, payerForPriceList } from "@/lib/payers";
+import InsurerBadge from "@/components/shared/InsurerBadge";
 
 /**
  * The money and the treatments it is for, on one screen.
@@ -237,6 +238,9 @@ export default function AppointmentMoneyTab({
     const covers = payerCoverageFilter(payers, procListId);
     return services.filter((s) => covers(String(s.id)));
   }, [services, payers, procListId]);
+
+  /** Who this treatment will actually be recorded against — shown, not assumed. */
+  const addPayer = useMemo(() => payerForPriceList(payers, procListId), [payers, procListId]);
 
   const treatments = useMemo(() => {
     const categoryById = new Map(services.map((s) => [s.id, s.category]));
@@ -919,12 +923,31 @@ export default function AppointmentMoneyTab({
               onChange={(e) => setProcListId(e.target.value)}
               className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm font-bold text-ink outline-none"
             >
-              {activeLists.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {isAr ? l.nameAr || l.name : l.name}
-                </option>
-              ))}
+              {activeLists.map((l) => {
+                // The company behind the list, in the option itself. A list called "AXA" that no
+                // insurer points at charges exactly like the clinic's own, and looked identical
+                // here — so the case was recorded as private and vanished from AXA's report.
+                const owner = payerForPriceList(payers, l.id);
+                return (
+                  <option key={l.id} value={l.id}>
+                    {isAr ? l.nameAr || l.name : l.name}
+                    {owner.id !== PRIVATE_PAYER_ID ? ` · ${owner.name}` : ""}
+                  </option>
+                );
+              })}
             </select>
+          )}
+          {activeLists.length > 1 && (
+            <p className="flex items-center gap-1.5 text-[11px] font-bold text-ink-muted">
+              {isAr ? "هتتحسب على" : "Charged to"}:
+              {addPayer.id === PRIVATE_PAYER_ID ? (
+                <span className="text-ink-body">{isAr ? "خاص (العيادة)" : "Private (the clinic)"}</span>
+              ) : (
+                <span className="flex items-center gap-1.5 text-ink-body">
+                  <InsurerBadge name={addPayer.name} size={13} /> {addPayer.name}
+                </span>
+              )}
+            </p>
           )}
           <ServiceCombobox
             priceListId={procListId}

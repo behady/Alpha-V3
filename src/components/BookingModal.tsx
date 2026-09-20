@@ -55,7 +55,8 @@ import {
 import PatientPicker from "./appointments/booking/PatientPicker";
 
 import SlotPicker from "./appointments/booking/SlotPicker";
-import { payerCoverageFilter } from "@/lib/payers";
+import { PRIVATE_PAYER_ID, payerCoverageFilter, payerForPriceList } from "@/lib/payers";
+import InsurerBadge from "@/components/shared/InsurerBadge";
 
 interface AppointmentData {
   patientId: string;
@@ -325,6 +326,7 @@ export default function BookingModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveListId]);
   const selectedPriceList = activePriceLists.find((l) => l.id === effectiveListId) || null;
+  const bookingPayer = payerForPriceList(payers, effectiveListId);
 
   /**
    * Only what the selected list actually covers.
@@ -1092,18 +1094,44 @@ export default function BookingModal({
                   }}
                   className="w-full px-3 py-3 text-sm font-bold text-slate-700 border border-line rounded-xl outline-none focus:ring-2 focus:ring-emerald-400 bg-surface"
                 >
-                  {activePriceLists.map((list) => (
-                    <option key={list.id} value={list.id}>
-                      {language === 'ar' && list.nameAr ? list.nameAr : list.name}
-                      {list.generalDiscountPercent > 0 ? ` — ${list.generalDiscountPercent}%` : ""}
-                    </option>
-                  ))}
+                  {activePriceLists.map((list) => {
+                    // The company behind the list, named in the option itself. A list called "AXA"
+                    // that no insurer actually points at charges exactly like the clinic's own —
+                    // and looked identical here until this line existed.
+                    const owner = payerForPriceList(payers, list.id);
+                    return (
+                      <option key={list.id} value={list.id}>
+                        {language === 'ar' && list.nameAr ? list.nameAr : list.name}
+                        {owner.id !== PRIVATE_PAYER_ID ? ` · ${owner.name}` : ""}
+                        {list.generalDiscountPercent > 0 ? ` — ${list.generalDiscountPercent}%` : ""}
+                      </option>
+                    );
+                  })}
                 </select>
               ) : (
                 <p className="w-full px-3 py-3 text-sm font-bold text-ink-body border border-line rounded-xl bg-surface">
                   {selectedPriceList
                     ? (language === 'ar' && selectedPriceList.nameAr ? selectedPriceList.nameAr : selectedPriceList.name)
                     : (language === 'ar' ? 'الأساسي' : 'Standard')}
+                </p>
+              )}
+              {/*
+                Who this treatment will count for, said at the moment it is decided.
+                The price list IS the payer, but only if a payer points at it — and nothing on
+                screen used to distinguish "AXA's list" from a list somebody named AXA. The case
+                was then recorded as private and went missing from the insurer's report, with the
+                mistake invisible at every step.
+              */}
+              {activePriceLists.length > 1 && (
+                <p className="mt-1.5 flex items-center gap-1.5 text-xs font-bold text-ink-muted">
+                  {language === 'ar' ? 'هتتحسب على' : 'Charged to'}:
+                  {bookingPayer.id === PRIVATE_PAYER_ID ? (
+                    <span className="text-ink-body">{language === 'ar' ? 'خاص (العيادة)' : 'Private (the clinic)'}</span>
+                  ) : (
+                    <span className="flex items-center gap-1.5 text-ink-body">
+                      <InsurerBadge name={bookingPayer.name} size={14} /> {bookingPayer.name}
+                    </span>
+                  )}
                 </p>
               )}
               {selectedPriceList && selectedPriceList.generalDiscountPercent > 0 && (

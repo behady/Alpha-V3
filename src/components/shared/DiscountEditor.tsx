@@ -24,6 +24,8 @@ import { Tag, Percent, Info } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { applyDiscount, effectiveDiscountPercent, type DiscountMode } from "@/lib/discountMath";
 import { listsForBranch, resolveActiveListId, type PriceList } from "@/lib/priceLists";
+import { PRIVATE_PAYER_ID, payerForPriceList, type Payer } from "@/lib/payers";
+import InsurerBadge from "@/components/shared/InsurerBadge";
 
 export type DiscountState = {
   priceListId: string;
@@ -42,6 +44,13 @@ type Props = {
    * branch charges; omitted (or a clinic with no branches) offers everything, as before.
    */
   branchId?: string | null;
+  /**
+   * The clinic's payers, so the list can say who it bills.
+   *
+   * Optional, and an empty list simply means every list reads as private — a caller that has not
+   * loaded them yet gets the screen it had before rather than a wrong company name.
+   */
+  payers?: readonly Payer[];
   reasons: string[];
   /** null = no ceiling (an Admin). */
   maxPercent: number | null;
@@ -55,6 +64,7 @@ export default function DiscountEditor({
   listTotal,
   priceLists,
   branchId = null,
+  payers = [],
   reasons,
   maxPercent,
   value,
@@ -71,6 +81,7 @@ export default function DiscountEditor({
     [priceLists, branchId]
   );
   const selectedList = activeLists.find((l) => l.id === value.priceListId) || null;
+  const editorPayer = useMemo(() => payerForPriceList(payers, value.priceListId), [payers, value.priceListId]);
 
   /**
    * Make the selected list real before anything reads it.
@@ -148,16 +159,35 @@ export default function DiscountEditor({
               onChange={(e) => set({ priceListId: e.target.value })}
               className="w-full rounded-xl border border-line bg-slate-50/50 px-3 py-2.5 text-sm font-bold text-slate-700 outline-none transition focus:border-primary-500 focus:bg-surface disabled:opacity-60"
             >
-              {activeLists.map((list) => (
-                <option key={list.id} value={list.id}>
-                  {ar && list.nameAr ? list.nameAr : list.name}
-                  {list.generalDiscountPercent > 0 ? ` — ${list.generalDiscountPercent}%` : ""}
-                </option>
-              ))}
+              {activeLists.map((list) => {
+                // The company behind the list, named in the option. A list called "AXA" that no
+                // insurer points at bills exactly like the clinic's own, and looked identical here.
+                const owner = payerForPriceList(payers, list.id);
+                return (
+                  <option key={list.id} value={list.id}>
+                    {ar && list.nameAr ? list.nameAr : list.name}
+                    {owner.id !== PRIVATE_PAYER_ID ? ` · ${owner.name}` : ""}
+                    {list.generalDiscountPercent > 0 ? ` — ${list.generalDiscountPercent}%` : ""}
+                  </option>
+                );
+              })}
             </select>
           ) : (
             <p className="rounded-xl border border-line bg-slate-50/50 px-3 py-2.5 text-sm font-bold text-ink-body">
               {ar && activeLists[0].nameAr ? activeLists[0].nameAr : activeLists[0].name}
+            </p>
+          )}
+          {/* Who the treatment will be recorded against, said where it is decided. */}
+          {activeLists.length > 1 && (
+            <p className="mt-1 flex items-center gap-1.5 text-[11px] font-bold text-ink-muted">
+              {ar ? "هتتحسب على" : "Charged to"}:
+              {editorPayer.id === PRIVATE_PAYER_ID ? (
+                <span className="text-ink-body">{ar ? "خاص (العيادة)" : "Private (the clinic)"}</span>
+              ) : (
+                <span className="flex items-center gap-1.5 text-ink-body">
+                  <InsurerBadge name={editorPayer.name} size={13} /> {editorPayer.name}
+                </span>
+              )}
             </p>
           )}
           {selectedList && selectedList.generalDiscountPercent > 0 && (

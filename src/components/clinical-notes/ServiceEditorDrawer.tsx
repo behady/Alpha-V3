@@ -697,6 +697,7 @@ export default function ServiceEditorDrawer({
       listTotal={previewTotal}
       priceLists={priceLists}
       branchId={branchId}
+      payers={payers}
       reasons={discountSettings.reasons}
       maxPercent={maxDiscountPercent}
       value={discount}
