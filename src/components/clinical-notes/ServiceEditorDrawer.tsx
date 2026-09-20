@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useState, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
+import { memo, useCallback, useMemo, useState, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import { X, Save, CheckCircle2, Loader2, Camera, Edit2 } from "lucide-react";
 import { auth, db } from "@/lib/firebase";
@@ -27,6 +27,7 @@ import type { LabCaseSeed } from "@/lib/labCases";
 import DiscountEditor, { EMPTY_DISCOUNT, discountPayload, type DiscountState } from "@/components/shared/DiscountEditor";
 import { isDiscountMode, type DiscountMode } from "@/lib/discountMath";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
+import { payerCoverageFilter } from "@/lib/payers";
 
 interface Props {
   isOpen: boolean;
@@ -256,9 +257,21 @@ export default function ServiceEditorDrawer({
   const [addToLedger, setAddToLedger] = useState(true);
   // Price list + discount for this line. The server recomputes and enforces both; this is the
   // preview and the input.
-  const { priceLists, discountSettings, maxDiscountPercent } = usePricingPolicy();
+  const { priceLists, payers, discountSettings, maxDiscountPercent } = usePricingPolicy();
 
   const [discount, setDiscount] = useState<DiscountState>(EMPTY_DISCOUNT);
+
+  /**
+   * Only what the selected list actually covers.
+   *
+   * A treatment the insurer does not pay for is not offered at all, so the menu means what it
+   * says. Leaving it visible and quietly recording it as private would be a screen that lets
+   * somebody pick a wrong answer and then overrules them without saying so.
+   */
+  const offeredServices = useMemo(() => {
+    const covers = payerCoverageFilter(payers, discount.priceListId || null);
+    return servicesList.filter((s) => covers(String(s.id)));
+  }, [servicesList, payers, discount.priceListId]);
 
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatusText, setSaveStatusText] = useState("");
@@ -636,7 +649,7 @@ export default function ServiceEditorDrawer({
           <div data-tour="clinical-procedure-name" className="flex-1 min-w-0">
             <ServiceCombobox
               priceListId={discount.priceListId || null}
-              services={servicesList} value={procedure}
+              services={offeredServices} value={procedure}
               onChange={handleProcedureChange}
               placeholder="Search procedures..."
               valueKey="name"

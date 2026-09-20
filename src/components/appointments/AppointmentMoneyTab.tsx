@@ -21,6 +21,7 @@ import ServiceCombobox from "@/components/shared/ServiceCombobox";
 import ServiceEditorDrawer from "@/components/clinical-notes/ServiceEditorDrawer";
 import type { Note, Service, Staff } from "@/components/clinical-notes/types";
 import { resolveListPrice } from "@/lib/discountMath";
+import { payerCoverageFilter } from "@/lib/payers";
 
 /**
  * The money and the treatments it is for, on one screen.
@@ -78,7 +79,7 @@ export default function AppointmentMoneyTab({
   const { language } = useLanguage();
   const { showToast, confirm } = useUI();
   const isAr = language === "ar";
-  const { priceLists, discountSettings, maxDiscountPercent } = usePricingPolicy();
+  const { priceLists, payers, discountSettings, maxDiscountPercent } = usePricingPolicy();
 
   /**
    * Which list this quick-added treatment is charged on — and therefore who is paying for it.
@@ -100,6 +101,17 @@ export default function AppointmentMoneyTab({
   // Re-price when the list changes, so switching to an insurer updates the figure in front of you
   // rather than leaving the clinic's own price sitting in the box.
   useEffect(() => {
+    if (!procServiceId) return;
+    /**
+     * A treatment the new list does not cover is no longer on the menu, so it must not stay in the
+     * box either. Leaving it there would show a selection the dropdown cannot even display — the
+     * field reads as chosen while the menu says that treatment does not exist here.
+     */
+    if (!payerCoverageFilter(payers, procListId)(String(procServiceId))) {
+      setProcServiceId("");
+      setProcCost(0);
+      return;
+    }
     const svc = services.find((x) => String(x.id) === String(procServiceId));
     if (svc) setProcCost(resolveListPrice(svc as { price?: number; prices?: Record<string, number> }, procListId));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -213,6 +225,18 @@ export default function AppointmentMoneyTab({
     [servicesList, fetchedServices]
   );
   const doctors: Staff[] = fetchedDoctors && fetchedDoctors.length > 0 ? fetchedDoctors : (doctorsList as Staff[]);
+
+  /**
+   * Only what the selected list actually covers.
+   *
+   * A treatment the insurer does not pay for is not offered at all, so the menu means what it
+   * says. Leaving it visible and quietly recording it as private would be a screen that lets
+   * somebody pick a wrong answer and then overrules them without saying so.
+   */
+  const offeredServices = useMemo(() => {
+    const covers = payerCoverageFilter(payers, procListId);
+    return services.filter((s) => covers(String(s.id)));
+  }, [services, payers, procListId]);
 
   const treatments = useMemo(() => {
     const categoryById = new Map(services.map((s) => [s.id, s.category]));
@@ -904,7 +928,7 @@ export default function AppointmentMoneyTab({
           )}
           <ServiceCombobox
             priceListId={procListId}
-            services={services}
+            services={offeredServices}
             value={procServiceId}
             onChange={(val: string, svc: any) => {
               setProcServiceId(val);

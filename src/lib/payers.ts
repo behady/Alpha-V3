@@ -197,6 +197,34 @@ export function coversService(payer: Payer | null | undefined, serviceId: string
 }
 
 /**
+ * Which treatments a screen may OFFER while this price list is selected.
+ *
+ * The clinic's instruction, and it is the right one: a treatment the insurer does not cover should
+ * not appear in the menu at all. Leaving it visible and correcting it after the fact — charging it
+ * quietly as private — is a screen that lets somebody pick a wrong answer and then overrules them
+ * silently. Hiding it makes the list mean what it says: this is what AXA pays for. Anything else is
+ * private work, and switching the list back is the deliberate act that says so.
+ *
+ * Returns a predicate rather than a filtered array because the caller holds the services and their
+ * shapes differ from screen to screen. A list no insurer owns — the clinic's own — covers
+ * everything, so this is a no-op for a clinic that does no insurance work.
+ *
+ * The server still falls back to private for an uncovered treatment. That is not redundancy: this
+ * is the menu, and that is the till. A stale tab, an older build or the phone can still send one.
+ */
+export function payerCoverageFilter(
+  payers: readonly Payer[],
+  priceListId: string | null | undefined,
+): (serviceId: string | null | undefined) => boolean {
+  const payer = payerForPriceList(payers, priceListId);
+  if (!payer.services) return () => true;
+  const covered = new Set(payer.services);
+  // A service with no id cannot be judged, so it is offered rather than silently dropped —
+  // disappearing from a menu with no explanation is the worse failure.
+  return (serviceId) => !serviceId || covered.has(serviceId);
+}
+
+/**
  * Who is paying, worked out from the price list the treatment was charged on.
  *
  * This is the whole interface. There is no separate "paid by" question anywhere in the app,

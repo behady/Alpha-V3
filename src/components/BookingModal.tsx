@@ -55,6 +55,7 @@ import {
 import PatientPicker from "./appointments/booking/PatientPicker";
 
 import SlotPicker from "./appointments/booking/SlotPicker";
+import { payerCoverageFilter } from "@/lib/payers";
 
 interface AppointmentData {
   patientId: string;
@@ -287,7 +288,7 @@ export default function BookingModal({
    * chair ever saw them. Reception is where a patient's rate is usually known ("she's on the
    * family list"), so the choice belongs here too.
    */
-  const { priceLists } = usePricingPolicy();
+  const { priceLists, payers } = usePricingPolicy();
   const [procListId, setProcListId] = useState("");
   // Only the lists this branch actually charges: its own, plus every clinic-wide one. Booking at
   // the seaside desk must not be able to quote the downtown insurer's rates.
@@ -309,11 +310,33 @@ export default function BookingModal({
    */
   useEffect(() => {
     if (!procServiceId) return;
+    /**
+     * A treatment the new list does not cover is no longer on the menu, so it must not stay in the
+     * box either. Leaving it there would show a selection the dropdown cannot even display — the
+     * field reads as chosen while the menu says that treatment does not exist here.
+     */
+    if (!payerCoverageFilter(payers, effectiveListId)(String(procServiceId))) {
+      setProcServiceId("");
+      setProcCost(0);
+      return;
+    }
     const svc = servicesList.find((x) => String(x.id) === String(procServiceId));
     if (svc) setProcCost(resolveListPrice(svc, effectiveListId));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveListId]);
   const selectedPriceList = activePriceLists.find((l) => l.id === effectiveListId) || null;
+
+  /**
+   * Only what the selected list actually covers.
+   *
+   * A treatment the insurer does not pay for is not offered at all, so the menu means what it
+   * says. Leaving it visible and quietly recording it as private would be a screen that lets
+   * somebody pick a wrong answer and then overrules them without saying so.
+   */
+  const offeredServices = useMemo(() => {
+    const covers = payerCoverageFilter(payers, effectiveListId);
+    return servicesList.filter((s: { id?: unknown }) => covers(String(s?.id ?? "")));
+  }, [servicesList, payers, effectiveListId]);
 
   // Local State: Financial & Payment
   const [chargeForVisit, setChargeForVisit] = useState(true);
@@ -1098,7 +1121,7 @@ export default function BookingModal({
               </label>
               <ServiceCombobox
                 priceListId={effectiveListId}
-                services={servicesList}
+                services={offeredServices}
                 value={procServiceId}
                 onChange={(val, svc) => {
                   setProcServiceId(val);

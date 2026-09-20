@@ -28,6 +28,7 @@ import {
   payerForPriceList,
   withCommissionRate,
   type Payer,
+  payerCoverageFilter,
 } from "../src/lib/payers";
 import { buildPayerReport, byDoctor } from "../src/lib/payerReport";
 import { parsePriceLists } from "../src/lib/priceLists";
@@ -605,6 +606,57 @@ function eq<T>(actual: T, expected: T, message: string) {
     "a new insurer must start covering everything — starting empty makes the first case fall to private, which reads as the insurer not working"
   );
   ok(/services: coveredList/.test(wizard), "the wizard does not save the list it just edited");
+}
+
+// --- 12. What the insurer does not cover is not on the menu ------------------------------------
+//
+// The rule the clinic asked for, in their words: "hide untick from the price list, if they want it
+// they go to the private list". A treatment the insurer does not pay for is not offered while that
+// insurer's list is selected — not shown-and-quietly-reclassified, which is a screen that lets
+// somebody pick a wrong answer and then overrules them without saying so.
+{
+  const payers = parsePayers({
+    payers: [
+      { id: "axa", name: "AXA", priceListId: "list-axa", services: ["s1", "s2"] },
+      { id: "old", name: "Old", priceListId: "list-old" },
+      { id: "blank", name: "Blank", priceListId: "list-blank", services: [] },
+    ],
+  });
+  const catalogue = [{ id: "s1" }, { id: "s2" }, { id: "s9" }];
+  const offered = (listId: string | null) => catalogue.filter((s) => payerCoverageFilter(payers, listId)(s.id));
+
+  eq(offered("list-axa").map((s) => s.id), ["s1", "s2"], "the insurer's menu holds only what it covers");
+  eq(offered("list-old").map((s) => s.id), ["s1", "s2", "s9"], "an insurer with no list of its own still offers everything");
+  eq(offered("list-blank"), [], "an insurer that covers nothing offers nothing, rather than falling back to everything");
+  eq(offered(null).map((s) => s.id), ["s1", "s2", "s9"], "the clinic's own work has no list, so nothing is hidden from it");
+  eq(offered("list-unknown").map((s) => s.id), ["s1", "s2", "s9"], "an unknown list is private, and private covers everything");
+
+  ok(payerCoverageFilter(payers, "list-axa")(""), "a row with no id is never hidden — it is not a treatment we can judge");
+
+  // Every screen where a treatment is picked next to a price list. This feature was missed on four
+  // screens in a row for exactly one reason: each one is a separate picker, and finding them is
+  // not something anybody does twice.
+  for (const rel of [
+    "src/components/BookingModal.tsx",
+    "src/components/appointments/AppointmentMoneyTab.tsx",
+    "src/components/clinical-notes/ServiceEditorDrawer.tsx",
+  ]) {
+    const ui = read(rel);
+    ok(/payerCoverageFilter/.test(ui), `${rel} offers every treatment, including the ones this insurer does not cover`);
+    ok(
+      /services=\{offeredServices\}/.test(ui),
+      `${rel} still hands the picker the full catalogue — the filter above it is computed and then ignored`
+    );
+  }
+
+  // Switching to an insurer that does not cover what is already picked must empty the box. A
+  // selection the dropdown cannot display reads as chosen while the menu says it does not exist.
+  for (const rel of ["src/components/BookingModal.tsx", "src/components/appointments/AppointmentMoneyTab.tsx"]) {
+    ok(
+      /setProcServiceId\(""\)/.test(read(rel)),
+      `${rel} keeps a treatment selected after switching to a list that does not cover it`
+    );
+  }
 }
 
 console.log(`payers: ${checks} checks passed`);
