@@ -6,7 +6,6 @@ import { db } from "@/lib/firebase";
 import {
   ArrowLeft,
   ArrowRight,
-  Building2,
   Check,
   Loader2,
   Pencil,
@@ -21,6 +20,8 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useDirtyFlag } from "@/context/UnsavedChangesContext";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { PRICE_LISTS_DOC, parsePriceLists, toStoredLists, type PriceList } from "@/lib/priceLists";
+import InsurerBadge from "@/components/shared/InsurerBadge";
+import { INSURER_GROUPS, presetsIn } from "@/lib/insurerPresets";
 import {
   PRIVATE_PAYER_ID,
   parsePayers,
@@ -261,7 +262,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
       // The list the rest of the app charges from. Created here, named after the insurer, and
       // never called a "price list" on this screen.
       const existing = payers.find((p) => p.id === payerId);
-      let listId = existing?.priceListId || `payer-${payerId}`;
+      const listId = existing?.priceListId || `payer-${payerId}`;
       let lists = priceLists;
       // Adopt an existing list under this id rather than appending a second one. The id is
       // derived from the payer, so a payer document that lost its link (a stale screen, a failed
@@ -384,6 +385,51 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
 
         {step === 1 && (
           <div className="space-y-4 rounded-2xl border border-line bg-surface p-5">
+            {/*
+              The common names, picked rather than spelled.
+              "NEXtCARE" and "جلوب ميد" are not words anybody types the same way twice, and the
+              name is stamped on every case recorded under that payer — so three spellings become
+              three columns in the report that never add up. Typing is still allowed below: a
+              clinic with a private arrangement or a scheme nobody else has must not be blocked by
+              a list, and a preset that refuses the unlisted case is worse than no preset.
+            */}
+            {!draft.payerId && (
+              <div className="space-y-3">
+                {INSURER_GROUPS.map((group) => (
+                  <div key={group.id}>
+                    <p className="mb-1.5 text-[10.5px] font-black uppercase tracking-wider text-ink-faint">
+                      {isAr ? group.ar : group.en}
+                      <span className="ms-2 normal-case tracking-normal">{isAr ? group.note.ar : group.note.en}</span>
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {presetsIn(group.id).map((preset) => {
+                        const picked = draft.name === preset.name;
+                        return (
+                          <button
+                            key={preset.name}
+                            type="button"
+                            onClick={() => setDraft({ ...draft, name: preset.name, nameAr: preset.nameAr })}
+                            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[12px] font-bold transition-colors ${
+                              picked
+                                ? "border-transparent bg-ink-slab text-white"
+                                : "border-line text-ink-body hover:text-ink"
+                            }`}
+                          >
+                            <InsurerBadge name={preset.name} size={18} />
+                            {isAr ? preset.nameAr : preset.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+                <p className="pt-1 text-[11.5px] font-medium text-ink-faint">
+                  {isAr
+                    ? "مش لاقي شركتك؟ اكتب اسمها تحت عادي."
+                    : "Not on the list? Just type the name below."}
+                </p>
+              </div>
+            )}
             <div>
               <label className="mb-1 block text-xs font-bold text-ink-muted">{isAr ? "الاسم" : "Name"}</label>
               <input
@@ -587,9 +633,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
               className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-4 py-3.5"
             >
               <div className="flex min-w-0 items-center gap-3">
-                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-surface-muted text-ink-body">
-                  <Building2 size={16} />
-                </span>
+                <InsurerBadge name={payer.name} size={36} />
                 <div className="min-w-0">
                   <p className="text-[15px] font-bold text-ink">{isAr ? payer.nameAr || payer.name : payer.name}</p>
                   {/* What is actually set, in words. A card that only showed a name would make

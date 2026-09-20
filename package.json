@@ -106,6 +106,8 @@
     "test:payers": "npx tsx tests/payers.test.mts",
     "_comment_test_cases": "The case sheet: a line per treatment, filtered, totalled and paged. The assertions that matter are the quiet ones - money attaches only to the case that names it (an expense sharing the id is not income), the totals describe the FILTERED rows rather than the period, a page number cannot survive a filter and strand the reader on an empty page, and an Arabic name written without the hamza still finds the patient written with it.",
     "test:cases": "npx tsx tests/caseSheet.test.mts",
+    "_comment_test_insurers": "The Egyptian insurer presets and the monogram drawn in place of a logo. Guards two things: the preset names are data (a payer's name is stamped on every case, so three spellings of NEXtCARE are three columns that never add up), and the badge stays a DRAWN monogram - every one of those logos is a registered trademark, so a change that adds an image URL or a bundled asset has to argue with this test first.",
+    "test:insurers": "npx tsx tests/insurerPresets.test.mts",
     "_comment_test_branches": "Price lists scoped to branches: one default per scope, and no branch quoting another branch's rates.",
     "test:branches": "npx tsx tests/priceListBranches.test.mjs",
     "_comment_test_briefing": "The arithmetic behind the daily and weekly brief: double-counted revenue, lateness read on the clinic clock, absence claimed before a shift starts. No network, no emulator.",

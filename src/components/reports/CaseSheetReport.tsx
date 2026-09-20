@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, FileSpreadsheet, Search, X } from "lucide-react";
 import { exportToExcel } from "./reportExcelUtils";
+import InsurerBadge from "@/components/shared/InsurerBadge";
+import { PRIVATE_PAYER_ID } from "@/lib/payers";
 import {
   EMPTY_FILTERS,
   PAGE_SIZES,
@@ -211,7 +213,12 @@ export default function CaseSheetReport({ procedures, payments, rangeLabel, isAr
                 return (
                   <tr key={r.id} className="border-b border-line last:border-b-0">
                     <td className="whitespace-nowrap px-3 py-2.5 font-figure text-[12.5px] text-ink-faint">{r.date}</td>
-                    <td className="px-3 py-2.5 text-[13px] font-bold text-ink">{r.payerName}</td>
+                    <td className="px-3 py-2.5 text-[13px] font-bold text-ink">
+                      <span className="flex items-center gap-1.5">
+                        <InsurerBadge name={r.payerName} isPrivate={r.payerId === PRIVATE_PAYER_ID} size={20} />
+                        {r.payerName}
+                      </span>
+                    </td>
                     <td className="px-3 py-2.5 text-[13px] font-medium text-ink-body">{r.patientName}</td>
                     <td className="px-3 py-2.5 text-[13px] font-medium text-ink-body">{r.service}</td>
                     <td className="px-3 py-2.5 text-end font-figure text-[13px] text-ink-muted">{fmt(r.price)}</td>

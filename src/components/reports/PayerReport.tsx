@@ -1,10 +1,11 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
-import { Building2, ChevronDown, ChevronRight, FileSpreadsheet, Info, Wallet } from "lucide-react";
+import { ChevronDown, ChevronRight, FileSpreadsheet, Info, Wallet } from "lucide-react";
 import { exportToExcel } from "./reportExcelUtils";
 import { buildPayerReport, byDoctor, type LedgerRowLite } from "@/lib/payerReport";
 import { PRIVATE_PAYER_ID, type Payer } from "@/lib/payers";
+import InsurerBadge from "@/components/shared/InsurerBadge";
 
 /**
  * Insurance, as the clinic's books see it.
@@ -140,7 +141,7 @@ export default function PayerReport({ procedures, payments, payers, rangeLabel, 
                       <td className="px-3 py-2.5">
                         <span className="flex items-center gap-1.5 text-[13.5px] font-bold text-ink">
                           {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                          <Building2 size={13} className="text-ink-faint" />
+                          <InsurerBadge name={p.payerName} isPrivate={p.payerId === PRIVATE_PAYER_ID} size={22} />
                           {p.payerName}
                         </span>
                       </td>
