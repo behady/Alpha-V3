@@ -36,6 +36,7 @@ import {
   commissionRateFor,
   parsePayers,
   payerStamp,
+  coversService,
   payerForPriceList,
 } from "@/lib/payers";
 import { buildDeleteContext, evaluateDelete } from "@/lib/deletePolicy";
@@ -156,10 +157,29 @@ async function priceRequest(clinicId: string, body: Record<string, unknown>, act
     typeof body.priceListId === "string" ? body.priceListId : null,
     patientDefaultListId
   );
-  const payer = payerStamp(payers, payerForPriceList(payers, priceListId).id);
+  /**
+   * An insurer only bills for the treatments on its own list.
+   *
+   * Each insurer's list is genuinely separate, so a treatment it does not cover — whitening, most
+   * cosmetic work — is simply not that insurer's case. It is NOT refused: clinics get one-off
+   * approvals, and a desk that cannot record the work it just did writes it on paper instead.
+   * Instead it falls back to the clinic's own prices and is stamped Private, which is the honest
+   * reading and stops the insurer's column claiming money it will never pay.
+   *
+   * Decided by the FIRST matched treatment. A multi-treatment case charged in one line is one
+   * case with one payer, and half-covering it is not a state the books can represent.
+   */
+  const askedPayer = payerForPriceList(payers, priceListId);
+  const matchedIds = procedures
+    .map((name) => services.find((svc) => String(svc.name || "").trim() === name))
+    .filter(Boolean)
+    .map((svc) => String((svc as { id: string }).id));
+  const covered = coversService(askedPayer, matchedIds[0] ?? null);
+  const effectiveListId = covered ? priceListId : resolveActiveListId(priceLists, null, null);
+  const payer = payerStamp(payers, covered ? askedPayer.id : payerForPriceList(payers, effectiveListId).id);
   const payerId = payer.payerId;
 
-  const priceList = findPriceList(priceLists, priceListId);
+  const priceList = findPriceList(priceLists, effectiveListId);
 
   const pricing = computeProcedurePricing({
     procedures,
@@ -170,7 +190,7 @@ async function priceRequest(clinicId: string, body: Record<string, unknown>, act
     // This dentist's rate FOR THIS PAYER — their per-payer exception if they have one, their
     // ordinary percentage otherwise. Resolved here, snapshotted below, and never recomputed.
     commissionPct: commissionRateFor(staff, payerId),
-    priceListId,
+    priceListId: effectiveListId,
     priceListName: priceList?.name || null,
     discountMode: typeof body.discountMode === "string" ? body.discountMode : null,
     discountValue:

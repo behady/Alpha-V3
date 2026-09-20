@@ -43,6 +43,22 @@ export type Payer = {
    * which is what "Private" means and what a new insurer means until somebody prices it.
    */
   priceListId?: string;
+  /**
+   * The treatments this insurer's list actually contains — its own list, independent of the
+   * clinic's and of every other insurer's.
+   *
+   * ABSENT MEANS ALL, and that is the whole of the back-compatibility story: an insurer set up
+   * before lists became separate covers everything, exactly as it did. An EMPTY ARRAY is a
+   * different answer — an insurer that covers nothing yet — and the two must not be conflated,
+   * because `[]` is what a clinic sees the moment it unticks the last row and it has to survive
+   * being saved.
+   *
+   * Held as service ids rather than as a copy of the services themselves. A separate catalogue
+   * per insurer would duplicate every treatment, and then "how much scaling did we do this month"
+   * could no longer be asked across payers — the reports would be counting different objects that
+   * happen to share a name.
+   */
+  services?: string[];
   /** Retired payers stop being offered on new treatments and stay readable on old ones. */
   active: boolean;
   /** Preselected on a new treatment when the patient has no payer of their own. */
@@ -111,6 +127,11 @@ export function parsePayers(raw: unknown): Payer[] {
         ...(typeof p.priceListId === "string" && p.priceListId.trim()
           ? { priceListId: p.priceListId.trim() }
           : {}),
+        // Conditionally spread, like the rest: an `undefined` here would be written straight back
+        // by setDoc and rejected by Firestore, and "absent" is a meaningful answer we must keep.
+        ...(Array.isArray(p.services)
+          ? { services: p.services.filter((x): x is string => typeof x === "string" && !!x.trim()) }
+          : {}),
         active: p.active !== false,
         isDefault: p.isDefault === true,
       });
@@ -154,6 +175,25 @@ export function findPayer(payers: readonly Payer[], id: string | null | undefine
 
 export function defaultPayer(payers: readonly Payer[]): Payer {
   return payers.find((p) => p.isDefault && p.active) || payers.find((p) => p.active) || PRIVATE_PAYER;
+}
+
+/**
+ * Does this insurer's list contain this treatment?
+ *
+ * The question a clinic is really asking when it says whitening is not covered. An insurer with
+ * no list of its own covers everything, which is what every insurer set up before this did and
+ * what a clinic that never opens that step still means.
+ *
+ * A treatment that is NOT on the list is not an error and must not be blocked: clinics get
+ * one-off approvals, and a desk that cannot record the work it just did will write it down on
+ * paper instead. It is simply not that insurer's case — it prices from the clinic's own list and
+ * is recorded as private, which is the honest reading and keeps the insurer's column from
+ * claiming money it will never pay.
+ */
+export function coversService(payer: Payer | null | undefined, serviceId: string | null | undefined): boolean {
+  if (!payer?.services) return true;
+  if (!serviceId) return true;
+  return payer.services.includes(serviceId);
 }
 
 /**

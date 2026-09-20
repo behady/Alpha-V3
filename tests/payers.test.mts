@@ -24,6 +24,7 @@ import {
   payerOf,
   payerStamp,
   payersDocFrom,
+  coversService,
   payerForPriceList,
   withCommissionRate,
   type Payer,
@@ -551,6 +552,59 @@ function eq<T>(actual: T, expected: T, message: string) {
       `${rel} calls createProcedure without ever naming a price list — that treatment cannot belong to an insurer`
     );
   }
+}
+
+// --- 11. Each insurer's list is its own -------------------------------------------------------
+//
+// An insurer bills only for what it covers. Whitening and most cosmetic work are excluded almost
+// everywhere, and before this the clinic had no way to say so — charging one on the insurer's list
+// billed it to them and put money in their column that they will never pay.
+{
+  const all = parsePayers({
+    payers: [
+      { id: PRIVATE_PAYER_ID, name: "Private", active: true, isDefault: true },
+      { id: "axa", name: "AXA", active: true, priceListId: "payer-axa", services: ["s1", "s2"] },
+      // No list of its own: set up before lists were separate, and still covers everything.
+      { id: "old", name: "OldCo", active: true, priceListId: "payer-old" },
+      // An empty list is a DIFFERENT answer from no list — an insurer that covers nothing yet.
+      { id: "blank", name: "Blank", active: true, priceListId: "payer-blank", services: [] },
+    ],
+  });
+  const axa = all.find((p) => p.id === "axa")!;
+  const old = all.find((p) => p.id === "old")!;
+  const blank = all.find((p) => p.id === "blank")!;
+
+  ok(coversService(axa, "s1"), "a treatment on the list is covered");
+  ok(!coversService(axa, "s9"), "one that is not on it is not covered");
+  ok(coversService(old, "s9"), "an insurer with no list of its own still covers everything");
+  ok(
+    !coversService(blank, "s1"),
+    "an empty list must survive being saved as 'covers nothing' rather than collapsing back to 'covers all'"
+  );
+  eq(blank.services, [], "and must read back as an empty array, not as absent");
+  ok(coversService(axa, null), "a treatment that matched no service is not judged");
+  ok(coversService(null, "s1"), "no payer at all covers everything — private work has no list");
+
+  // The route must not simply refuse. A desk that cannot record what it just did writes it on
+  // paper, and the books lose the case entirely.
+  const route = read("src/app/api/clinical/procedures/route.ts");
+  ok(route.includes("coversService"), "the treatment route no longer checks what the insurer covers");
+  ok(
+    /effectiveListId/.test(route) && /priceListId: effectiveListId/.test(route),
+    "an uncovered treatment must be priced from the clinic's own list, not the insurer's"
+  );
+  ok(
+    !/throw new Error\("NOT_COVERED/.test(route),
+    "an uncovered treatment is refused rather than recorded as private — clinics get one-off approvals"
+  );
+
+  const wizard = read("src/components/settings/PayersSettings.tsx");
+  ok(/covered: new Set/.test(wizard), "the wizard no longer edits which treatments an insurer covers");
+  ok(
+    /covered: new Set\(services\.map/.test(wizard),
+    "a new insurer must start covering everything — starting empty makes the first case fall to private, which reads as the insurer not working"
+  );
+  ok(/services: coveredList/.test(wizard), "the wizard does not save the list it just edited");
 }
 
 console.log(`payers: ${checks} checks passed`);
