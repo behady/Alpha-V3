@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { useUI } from "@/context/UIContext";
+import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useDirtyFlag } from "@/context/UnsavedChangesContext";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
@@ -87,6 +88,7 @@ type Draft = {
 export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
   const { language, isRTL } = useLanguage();
   const { showToast } = useUI();
+  const { clinicId } = useClinic();
   const isAr = language === "ar";
   const Forward = isRTL ? ArrowLeft : ArrowRight;
   const Back = isRTL ? ArrowRight : ArrowLeft;
@@ -163,12 +165,22 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
     );
   }, []);
 
+  /**
+   * Keyed on the clinic, not run once.
+   *
+   * Loaded once, this screen kept showing — and worse, kept EDITING — the previous clinic's
+   * payers after a switch, because every save re-derives from state loaded at mount. That is the
+   * stale base that appended a duplicate AXA list. An open wizard is thrown away on switch for
+   * the same reason: a draft built from one clinic must not be saved into another.
+   */
   useEffect(() => {
+    setLoading(true);
+    setDraft(null);
     void load()
       .catch(() => showToast(isAr ? "تعذّر تحميل البيانات" : "Could not load this screen", "error"))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [clinicId]);
 
   const insurers = useMemo(() => payers.filter((p) => p.id !== PRIVATE_PAYER_ID), [payers]);
 
@@ -249,16 +261,16 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
       // The list the rest of the app charges from. Created here, named after the insurer, and
       // never called a "price list" on this screen.
       const existing = payers.find((p) => p.id === payerId);
-      let listId = existing?.priceListId || "";
+      let listId = existing?.priceListId || `payer-${payerId}`;
       let lists = priceLists;
-      if (!listId) {
-        listId = `payer-${payerId}`;
-        lists = [
-          ...priceLists,
-          { id: listId, name, nameAr, generalDiscountPercent: 0, active: true, isDefault: false },
-        ];
+      // Adopt an existing list under this id rather than appending a second one. The id is
+      // derived from the payer, so a payer document that lost its link (a stale screen, a failed
+      // save) would otherwise mint a duplicate — which is exactly what happened in production:
+      // two "AXA" lists, same id, and every price the clinic typed claimed by both.
+      if (lists.some((l) => l.id === listId)) {
+        lists = lists.map((l) => (l.id === listId ? { ...l, name, nameAr } : l));
       } else {
-        lists = priceLists.map((l) => (l.id === listId ? { ...l, name, nameAr } : l));
+        lists = [...lists, { id: listId, name, nameAr, generalDiscountPercent: 0, active: true, isDefault: false }];
       }
       await setDoc(getClinicDoc("settings", PRICE_LISTS_DOC), { lists: toStoredLists(lists) }, { merge: true });
 

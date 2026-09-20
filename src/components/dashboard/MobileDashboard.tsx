@@ -478,7 +478,7 @@ export default function MobileDashboard() {
     });
     const unsubServices = onSnapshot(
       getClinicCollection("services"),
-      (snap) => setServicesList(snap.docs.map((d) => ({ id: d.id, name: d.data().name, price: d.data().price })))
+      (snap) => setServicesList(snap.docs.map((d) => ({ id: d.id, name: d.data().name, price: d.data().price, /* the per-list overrides — without them an insurer's tariff can never reach this screen */ prices: d.data().prices, category: d.data().category, icon: d.data().icon })))
     );
     return () => {
       unsubPatients();

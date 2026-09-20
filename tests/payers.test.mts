@@ -29,6 +29,7 @@ import {
   type Payer,
 } from "../src/lib/payers";
 import { buildPayerReport, byDoctor } from "../src/lib/payerReport";
+import { parsePriceLists } from "../src/lib/priceLists";
 
 const REPO = join(import.meta.dirname, "..");
 const read = (rel: string) => readFileSync(join(REPO, rel), "utf8");
@@ -455,6 +456,48 @@ function eq<T>(actual: T, expected: T, message: string) {
   const lateAxa = late.payers.find((p) => p.payerId === "axa")!;
   eq(lateAxa.patientList.length, 1, "a payment with no treatment this period still names its patient");
   eq(lateAxa.patientList[0].cases, 0, "with no cases against them, because none were recorded in the period");
+}
+
+// --- 9. The two failures that reached production together --------------------------------------
+{
+  /**
+   * A duplicated list id. The wizard derives the id from the payer ("payer-axa"), and a stale
+   * screen appended a second entry under it instead of reusing the first. Prices on the services
+   * are keyed by that id, so both entries claimed the same prices while every picker showed the
+   * insurer twice. The parser now collapses duplicates, keeping the first, so the next save heals
+   * the stored document rather than copying the damage forward.
+   */
+  const healed = parsePriceLists({
+    lists: [
+      { id: "standard", name: "Standard", active: true, isDefault: true },
+      { id: "payer-axa", name: "AXA", active: true },
+      { id: "payer-axa", name: "AXA", active: true },
+    ],
+  });
+  eq(healed.filter((l) => l.id === "payer-axa").length, 1, "a duplicated list id collapses to one entry");
+  eq(healed.length, 2, "and nothing else is lost");
+
+  /**
+   * Loaders that strip the overrides. Three screens loaded services as {id, name, price} — no
+   * `prices` map — so an insurer's tariff could not reach the booking screen or the appointment
+   * panel at all. The clinic updated AXA's prices repeatedly and watched its own prices instead,
+   * and every UI fix upstream of this was correct but starved of data.
+   */
+  for (const rel of [
+    "src/app/(dashboard)/appointments/page.tsx",
+    "src/components/dashboard/DesktopDashboard.tsx",
+    "src/components/dashboard/MobileDashboard.tsx",
+  ]) {
+    const text = read(rel);
+    ok(
+      !/name: d\.data\(\)\.name, price: d\.data\(\)\.price \}\)/.test(text),
+      `${rel} loads services without their per-list prices again — the insurer's tariff cannot reach the screen`
+    );
+    ok(
+      /prices: d\.data\(\)\.prices/.test(text),
+      `${rel} must carry the prices map through to the pickers`
+    );
+  }
 }
 
 console.log(`payers: ${checks} checks passed`);
