@@ -640,6 +640,7 @@ function eq<T>(actual: T, expected: T, message: string) {
     "src/components/BookingModal.tsx",
     "src/components/appointments/AppointmentMoneyTab.tsx",
     "src/components/clinical-notes/ServiceEditorDrawer.tsx",
+    "src/components/patients/PatientTreatmentPlanTab.tsx",
   ]) {
     const ui = read(rel);
     ok(/payerCoverageFilter/.test(ui), `${rel} offers every treatment, including the ones this insurer does not cover`);
@@ -659,6 +660,40 @@ function eq<T>(actual: T, expected: T, message: string) {
     "the search and category chips still run over every service — the coverage filter above them is computed and then ignored"
   );
   ok(/txt\.hidden\(hiddenCount\)/.test(sheet), "treatments vanish from the sheet with nothing said about where they went");
+
+  /**
+   * The treatment plan is a QUOTE, so it carries its payer rather than deriving one.
+   *
+   * A price list can be retired or repriced; a quote the patient signed has to keep reading back
+   * as the quote they signed. And `payerForPriceList` only matches an ACTIVE payer, so a plan that
+   * re-derived its payer on open would silently relabel itself Private the day an insurer is
+   * retired — on a document the patient is holding a printed copy of.
+   */
+  const plan = read("src/components/patients/PatientTreatmentPlanTab.tsx");
+  ok(/priceListId: string;/.test(plan) && /payerId: string;/.test(plan) && /payerName: string;/.test(plan),
+    "a plan does not store which tariff produced its prices, so an old quote cannot be read back");
+  ok(/priceListId: typeof data\.priceListId === "string"/.test(plan),
+    "the stored list is written but never read back, so the editor reopens on the wrong tariff");
+  ok(/resolveListPrice\(service, formPriceListId\)/.test(plan),
+    "a plan step is still priced at the clinic's standard rate, whatever list the quote is on");
+  ok(/priceListId: formPriceListId,/.test(plan) && /priceListId: aiPriceListId,/.test(plan),
+    "a saved plan (manual or AI) does not carry the list it was quoted on");
+  ok(/payerStamp\(payers, payerForPriceList\(payers, formPriceListId\)\.id\)/.test(plan),
+    "the payer is not stamped on the plan, so a retired insurer would re-read as Private");
+  ok(/payerName: plan\.payerId && plan\.payerId !== PRIVATE_PAYER_ID/.test(plan),
+    "the printed quote does not name the company whose prices it is showing");
+
+  // The AI half. Without it the assistant quotes the clinic's own rates and the plan it saves
+  // claims they are the insurer's — a document that lies rather than one that is merely wrong.
+  const aiRoute = read("src/app/api/ai/treatment-plan/route.ts");
+  ok(/resolveListPrice\(svc, coversService\(payer, svc\.id\) \? listId : fallbackListId\)/.test(aiRoute),
+    "the AI plan prices every step on the clinic's own list, whatever payer it was asked for");
+  ok(/priceListId: listId/.test(aiRoute),
+    "the route does not return the list it actually priced on, so the client stamps what it asked for instead");
+  ok(
+    !/coversService\(payer, s\.id\)/.test(aiRoute.split("const priceListText")[1]?.split("const prompt")[0] || ""),
+    "the model's catalogue is narrowed to what the insurer covers — a plan that omits the crown because AXA will not pay for it is a worse plan, not a cheaper one"
+  );
 
   // Switching to an insurer that does not cover what is already picked must empty the box. A
   // selection the dropdown cannot display reads as chosen while the menu says it does not exist.

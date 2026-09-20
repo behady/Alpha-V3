@@ -18,6 +18,11 @@ import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { logActivity } from "@/lib/logger";
 import ServiceCombobox, { type ComboboxService } from "@/components/shared/ServiceCombobox";
+import { usePricingPolicy } from "@/lib/usePricingPolicy";
+import InsurerBadge from "@/components/shared/InsurerBadge";
+import { resolveListPrice } from "@/lib/discountMath";
+import { listsForBranch, resolveActiveListId } from "@/lib/priceLists";
+import { PRIVATE_PAYER_ID, findPayer, payerCoverageFilter, payerForPriceList, payerStamp } from "@/lib/payers";
 import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
 import { isUnlocked } from "@/lib/featureCatalog";
 import {
@@ -63,6 +68,19 @@ type TreatmentPlan = {
   status: "draft" | "presented" | "accepted" | "declined";
   source: "manual" | "ai";
   currency: string;
+  /**
+   * Which tariff this quote was priced on — which, in this app, is WHO IS PAYING.
+   *
+   * It is stored on the plan rather than worked out on open, because a price list can be retired
+   * or repriced and a quote the patient already signed must keep reading back as the quote they
+   * signed. `payerName` is stored for the same reason: `payerForPriceList` only matches an ACTIVE
+   * payer, so a retired insurer would silently re-read as Private and relabel an old document.
+   *
+   * "" on every plan written before this existed. Those read as private and are never re-priced.
+   */
+  priceListId: string;
+  payerId: string;
+  payerName: string;
   visits: PlanVisit[];
   total: number;
   doctorName?: string;
@@ -309,6 +327,7 @@ export default function PatientTreatmentPlanTab({
   const { showToast, confirm } = useUI();
   const { user } = useAuth();
   const { clinicId, clinic } = useClinic();
+  const { priceLists, payers } = usePricingPolicy();
   // Sold as an add-on; the route refuses the send too, this only keeps a dead button off the screen.
   const canSendPdf = isUnlocked(clinic, "clinicalPdfs");
   const ar = language === "ar";
@@ -322,6 +341,8 @@ export default function PatientTreatmentPlanTab({
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [formTitle, setFormTitle] = useState("");
   const [formDescription, setFormDescription] = useState("");
+  /** The list this quote is priced on. "" until the editor opens and resolves one. */
+  const [formPriceListId, setFormPriceListId] = useState("");
   const [formVisits, setFormVisits] = useState<PlanVisit[]>([]);
   const [saving, setSaving] = useState(false);
 
@@ -337,6 +358,11 @@ export default function PatientTreatmentPlanTab({
   const [aiOptions, setAiOptions] = useState<AiOption[] | null>(null);
   const [aiSavingIdx, setAiSavingIdx] = useState<number | null>(null);
   const [aiMode, setAiMode] = useState<AiMode>("power");
+  /**
+   * The list the AI is asked to quote on. Kept apart from the editor's own so that opening the
+   * assistant can never reprice a draft somebody is halfway through typing.
+   */
+  const [aiPriceListId, setAiPriceListId] = useState("");
   // The Q&A loop: questions the AI asked, the dentist's answers, and a compact summary of the
   // previous round so a refinement request carries its own context.
   const [aiQuestions, setAiQuestions] = useState<string[]>([]);
@@ -368,6 +394,26 @@ export default function PatientTreatmentPlanTab({
   const [pdfLangByPlan, setPdfLangByPlan] = useState<Record<string, "en" | "ar">>({});
 
   const currency = String((clinicInfo as any)?.currency || "EGP");
+
+  /**
+   * A treatment plan is a quote, and a quote is made out to somebody.
+   *
+   * Everywhere else in the app the receptionist picks a price list per procedure, because one
+   * visit can mix an insured treatment with a private one. A plan is the opposite kind of
+   * document: it is one piece of paper the patient signs, and a paper whose lines are billed to
+   * different payers is not a quote anybody can accept. So the list is chosen once, for the plan.
+   *
+   * The control is hidden entirely when the clinic has only one list — which is most clinics —
+   * so nothing new appears on screen until there is a real choice to make.
+   */
+  const activeLists = useMemo(() => listsForBranch(priceLists, null).filter((l) => l.active), [priceLists]);
+  const formPayer = useMemo(() => payerForPriceList(payers, formPriceListId), [payers, formPriceListId]);
+
+  /** Only what the payer on this quote actually pays for. Named for `tests/payers.test.mts`. */
+  const offeredServices = useMemo(() => {
+    const covers = payerCoverageFilter(payers, formPriceListId);
+    return services.filter((s) => covers(String(s.id)));
+  }, [services, payers, formPriceListId]);
 
   const defaultVisitLabel = (n: number) => (ar ? `الزيارة ${n}` : `Visit ${n}`);
 
@@ -402,6 +448,18 @@ export default function PatientTreatmentPlanTab({
     delete: ar ? "حذف" : "Delete",
     pdfLang: ar ? "لغة الملف" : "PDF language",
     planTitle: ar ? "عنوان الخطة" : "Plan title",
+    priceList: ar ? "الأسعار حسب" : "Priced on",
+    repriced: (n: number) =>
+      ar
+        ? `اتغيّر سعر ${n} إجراء على القائمة الجديدة.`
+        : `${n} treatment${n === 1 ? "" : "s"} repriced on the new list.`,
+    // Said plainly rather than fixed silently: these are treatments the patient was quoted, and
+    // deleting somebody's quoted work without asking is not a thing a screen should do.
+    notCoveredNow: (n: number, payer: string) =>
+      ar
+        ? `${n} إجراء في الخطة دي ${payer} مش بتغطيهم. سيبهم وهيتحاسبوا خاص، أو شيلهم.`
+        : `${n} treatment${n === 1 ? " is" : "s are"} not covered by ${payer}. Leave ${n === 1 ? "it" : "them"} and ${n === 1 ? "it will" : "they will"} be charged privately, or remove ${n === 1 ? "it" : "them"}.`,
+    notCoveredStep: (payer: string) => (ar ? `${payer} مش بتغطي ده` : `Not covered by ${payer}`),
     planTitlePh: ar ? "مثال: الخيار الأول — علاج شامل" : "e.g. Option A — Comprehensive treatment",
     description: ar ? "وصف الخطة (اختياري)" : "Plan description (optional)",
     descriptionPh: ar
@@ -506,6 +564,9 @@ export default function PatientTreatmentPlanTab({
           status: PLAN_STATUSES.includes(data.status) ? data.status : "draft",
           source: data.source === "ai" ? "ai" : "manual",
           currency: String(data.currency || "EGP"),
+          priceListId: typeof data.priceListId === "string" ? data.priceListId : "",
+          payerId: typeof data.payerId === "string" ? data.payerId : "",
+          payerName: typeof data.payerName === "string" ? data.payerName : "",
           visits,
           total: Number(data.total) || visitsTotal(visits),
           doctorName: typeof data.doctorName === "string" ? data.doctorName : "",
@@ -631,6 +692,14 @@ export default function PatientTreatmentPlanTab({
       }),
       total: visitsTotal(plan.visits),
       currency: plan.currency || currency,
+      /**
+       * The name STORED on the plan, not one re-derived now. `payerForPriceList` only matches an
+       * active payer, so an insurer the clinic has since stopped working with would re-derive as
+       * Private and quietly relabel a quote the patient already holds.
+       */
+      payerName: plan.payerId && plan.payerId !== PRIVATE_PAYER_ID
+        ? (plan.payerName || findPayer(payers, plan.payerId)?.name || "")
+        : "",
       language: pdfLang,
     };
   };
@@ -646,6 +715,14 @@ export default function PatientTreatmentPlanTab({
     setEditingPlanId(null);
     setFormTitle("");
     setFormDescription("");
+    /**
+     * Start on the list this patient's last plan was quoted on.
+     *
+     * It is the only memory the app has of "she is on AXA" — the payer lives on the work, never on
+     * the patient, deliberately. `resolveActiveListId` throws it away again if that list has since
+     * been retired, so a stale id can never price a new quote.
+     */
+    setFormPriceListId(resolveActiveListId(priceLists, plans[0]?.priceListId || null, null, null));
     setFormVisits([blankVisit(1)]);
     setSlotPickerVisitId(null);
     setEditorOpen(true);
@@ -655,6 +732,9 @@ export default function PatientTreatmentPlanTab({
     setEditingPlanId(plan.id);
     setFormTitle(plan.title);
     setFormDescription(plan.description);
+    // The list it was quoted on, exactly as stored — never re-resolved and never re-priced.
+    // Reopening a signed quote must show the signed quote.
+    setFormPriceListId(plan.priceListId || "");
     setFormVisits(
       plan.visits.length
         ? plan.visits.map((v) => ({ ...v, steps: v.steps.map((s) => ({ ...s })) }))
@@ -662,6 +742,48 @@ export default function PatientTreatmentPlanTab({
     );
     setSlotPickerVisitId(null);
     setEditorOpen(true);
+  };
+
+  /**
+   * Changing the quote's list reprices it — but only the prices nobody has touched.
+   *
+   * A number somebody typed over the top is a decision, not a leftover, and a repricing that
+   * silently overwrote it would be the screen arguing with the person using it. So a step moves
+   * only if its price is still exactly what the old list gave, and a free-typed line (no service
+   * id, so no list price exists) is never touched at all.
+   *
+   * Nothing is deleted. A treatment the new insurer does not cover stays on the plan and says so,
+   * because it is work the patient was quoted and removing it is the dentist's call.
+   */
+  const changePriceList = (nextListId: string) => {
+    const previous = formPriceListId;
+    setFormPriceListId(nextListId);
+    if (previous === nextListId) return;
+
+    let repriced = 0;
+    setFormVisits((prev) =>
+      prev.map((v) => ({
+        ...v,
+        steps: v.steps.map((step) => {
+          if (!step.serviceId) return step;
+          const svc = services.find((x) => String(x.id) === String(step.serviceId));
+          if (!svc) return step;
+          const wasListPrice = resolveListPrice(svc, previous);
+          if (Number(step.unitPrice) !== Number(wasListPrice)) return step;
+          const now = resolveListPrice(svc, nextListId);
+          if (now === wasListPrice) return step;
+          repriced += 1;
+          return { ...step, unitPrice: now };
+        }),
+      }))
+    );
+    if (repriced > 0) showToast(txt.repriced(repriced), "success");
+
+    const covers = payerCoverageFilter(payers, nextListId);
+    const stranded = formVisits.flatMap((v) => v.steps).filter((st) => st.serviceId && !covers(String(st.serviceId)));
+    if (stranded.length > 0) {
+      showToast(txt.notCoveredNow(stranded.length, payerForPriceList(payers, nextListId).name), "error");
+    }
   };
 
   const updateVisit = (visitId: string, patch: Partial<PlanVisit>) => {
@@ -746,6 +868,10 @@ export default function PatientTreatmentPlanTab({
         steps: flatSteps,
         total: visitsTotal(visits),
         currency,
+        // Inside the shared payload, so an EDIT that changes the list rewrites the stamp too.
+        // `status`/`source`/`doctorName` below are create-only on purpose; this must not be.
+        priceListId: formPriceListId,
+        ...payerStamp(payers, payerForPriceList(payers, formPriceListId).id),
         // The text just changed, so any cached AI translation of the old text is now wrong.
         translations: {},
         updatedAt: serverTimestamp(),
@@ -978,6 +1104,9 @@ export default function PatientTreatmentPlanTab({
           instructions: aiInstructions,
           language,
           mode: aiMode,
+          // So the server prices on the same tariff the plan will be stamped with. Without it the
+          // assistant quotes the clinic's own rates and the saved plan claims they are AXA's.
+          priceListId: aiPriceListId,
           ...(refine && (aiPrevSummary || aiAnswers.trim())
             ? { refinement: { previous: aiPrevSummary, answers: aiAnswers.trim() } }
             : {}),
@@ -1004,6 +1133,10 @@ export default function PatientTreatmentPlanTab({
           })),
         })),
       }));
+      // The list the SERVER priced on, which is not always the one we asked for — it validates a
+      // retired or unknown id away. Stamping the plan with what was asked instead of what was used
+      // is how a document ends up claiming a tariff that did not produce its numbers.
+      if (typeof data.priceListId === "string") setAiPriceListId(data.priceListId);
       setAiOptions(options);
       setAiQuestions(
         (Array.isArray(data.questions) ? data.questions : []).filter(
@@ -1047,6 +1180,8 @@ export default function PatientTreatmentPlanTab({
         steps: visits.flatMap((v) => v.steps),
         total: visitsTotal(visits),
         currency,
+        priceListId: aiPriceListId,
+        ...payerStamp(payers, payerForPriceList(payers, aiPriceListId).id),
         status: "draft",
         source: "ai",
         doctorName: user?.name || "",
@@ -1286,6 +1421,7 @@ export default function PatientTreatmentPlanTab({
       setDiagOpen(false);
       setAiOptions(null);
       setAiQuestions([]);
+      setAiPriceListId(resolveActiveListId(priceLists, plans[0]?.priceListId || null, null, null));
       setAiOpen(true);
       showToast(
         ar ? "التشخيص اتحط في خانة التعليمات — اضغط «اقترح خطط»" : "Diagnosis placed in the instructions box — press \"Suggest plans\"",
@@ -1470,7 +1606,11 @@ export default function PatientTreatmentPlanTab({
             <Stethoscope size={16} /> {txt.aiDiagnosis}
           </button>
           <button
-            onClick={() => { setAiOpen(true); setAiOptions(null); }}
+            onClick={() => {
+              setAiPriceListId(resolveActiveListId(priceLists, plans[0]?.priceListId || null, null, null));
+              setAiOpen(true);
+              setAiOptions(null);
+            }}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-violet-50 text-violet-700 border border-violet-200 text-sm font-bold hover:bg-violet-100 transition-colors"
           >
             <Sparkles size={16} /> {txt.aiSuggest}
@@ -1507,6 +1647,13 @@ export default function PatientTreatmentPlanTab({
                       }`}>
                         {plan.source === "ai" ? txt.aiBadge : txt.manualBadge}
                       </span>
+                      {/* Only for a real company: every plan is private until one says otherwise,
+                          so a "Private" chip on every card would be noise. */}
+                      {plan.payerId && plan.payerId !== PRIVATE_PAYER_ID && (
+                        <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border bg-surface-subtle text-ink-body border-line">
+                          <InsurerBadge name={plan.payerName || ""} size={14} /> {plan.payerName}
+                        </span>
+                      )}
                     </div>
                     <p className="text-xs font-semibold text-slate-400 mt-1">
                       {plan.createdAt?.toDate?.()?.toLocaleDateString(ar ? "ar-EG" : "en-GB", { day: "numeric", month: "short", year: "numeric" }) || ""}
@@ -1591,7 +1738,7 @@ export default function PatientTreatmentPlanTab({
             </div>
 
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className={`grid grid-cols-1 gap-4 ${activeLists.length > 1 ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
                 <div>
                   <label className="block text-[10px] font-black text-ink-muted uppercase tracking-widest mb-1.5">{txt.planTitle}</label>
                   <input
@@ -1610,6 +1757,40 @@ export default function PatientTreatmentPlanTab({
                     className="w-full rounded-xl border border-line px-4 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-accent focus:ring-2 focus:ring-emerald-100 transition-all"
                   />
                 </div>
+                {/*
+                  Shown only when there is a choice to make. A clinic with one price list has no
+                  insurers, so the control would be a question with one answer — and a screen that
+                  asks those teaches people to stop reading it.
+                */}
+                {activeLists.length > 1 && (
+                  <div>
+                    <label className="block text-[10px] font-black text-ink-muted uppercase tracking-widest mb-1.5">
+                      {txt.priceList}
+                    </label>
+                    <select
+                      value={formPriceListId}
+                      onChange={(e) => changePriceList(e.target.value)}
+                      className="w-full rounded-xl border border-line px-4 py-3 text-sm font-bold text-ink outline-none focus:border-accent focus:ring-2 focus:ring-emerald-100 transition-all bg-surface"
+                    >
+                      {/*
+                        An empty controlled select displays its FIRST option, so a plan saved before
+                        this existed would read as whatever list happens to be first while the state
+                        holds "". The placeholder makes the empty case say what it is.
+                      */}
+                      {!activeLists.some((l) => l.id === formPriceListId) && (
+                        <option value="">{ar ? "خاص" : "Private"}</option>
+                      )}
+                      {activeLists.map((l) => {
+                        const payer = payerForPriceList(payers, l.id);
+                        return (
+                          <option key={l.id} value={l.id}>
+                            {payer.id === PRIVATE_PAYER_ID ? l.name : `${l.name} · ${payer.name}`}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                )}
               </div>
 
               {/* Visits */}
@@ -1699,13 +1880,25 @@ export default function PatientTreatmentPlanTab({
 
                     {/* Steps in this visit */}
                     <div className="p-3.5 space-y-3">
-                      {visit.steps.map((step) => (
+                      {visit.steps.map((step) => {
+                        /*
+                          A treatment that was on the plan before the list changed, and that the new
+                          payer does not cover. It is not removed — it is the patient's quoted work —
+                          but the row says so, in the space the row already has.
+                        */
+                        const stranded =
+                          !!step.serviceId && !payerCoverageFilter(payers, formPriceListId)(String(step.serviceId));
+                        return (
                         <div key={step.id} className="bg-slate-50/70 border border-slate-100 rounded-2xl p-3.5">
                           <div className="flex items-start gap-2">
                             <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-2">
-                              <div className="md:col-span-5">
+                              <div
+                                className={`md:col-span-5 rounded-xl ${stranded ? "ring-1 ring-amber-300" : ""}`}
+                                title={stranded ? txt.notCoveredStep(formPayer.name) : undefined}
+                              >
                                 <ServiceCombobox
-                                  services={services}
+                                  services={offeredServices}
+                                  priceListId={formPriceListId}
                                   value={step.serviceId || step.serviceName}
                                   valueKey={step.serviceId ? "id" : "name"}
                                   allowFreeText
@@ -1715,7 +1908,10 @@ export default function PatientTreatmentPlanTab({
                                       updateStep(visit.id, step.id, {
                                         serviceId: String(service.id),
                                         serviceName: service.name,
-                                        unitPrice: Number(service.price) || 0,
+                                        // The quote's own list, not the clinic's standard rate. A plan
+                                        // is the number the patient signs; it has to be the number
+                                        // they will actually be charged.
+                                        unitPrice: resolveListPrice(service, formPriceListId),
                                       });
                                     } else {
                                       updateStep(visit.id, step.id, { serviceId: "", serviceName: value });
@@ -1772,11 +1968,19 @@ export default function PatientTreatmentPlanTab({
                               <Trash2 size={15} />
                             </button>
                           </div>
-                          <div className="text-end text-xs font-black text-ink-muted mt-2">
-                            {money(step.unitPrice * step.quantity)} {currency}
+                          <div className="flex items-center justify-end gap-2 mt-2">
+                            {stranded && (
+                              <span className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-amber-600">
+                                <AlertTriangle size={11} /> {txt.notCoveredStep(formPayer.name)}
+                              </span>
+                            )}
+                            <span className="text-xs font-black text-ink-muted">
+                              {money(step.unitPrice * step.quantity)} {currency}
+                            </span>
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                       <button
                         onClick={() => updateVisit(visit.id, { steps: [...visit.steps, blankStep()] })}
                         className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
@@ -2147,6 +2351,31 @@ export default function PatientTreatmentPlanTab({
                   <p className="text-sm font-medium text-ink-muted leading-relaxed bg-violet-50/60 border border-violet-100 rounded-2xl px-4 py-3">
                     {txt.aiHint}
                   </p>
+                  {activeLists.length > 1 && (
+                    <div>
+                      <label className="block text-[10px] font-black text-ink-muted uppercase tracking-widest mb-1.5">
+                        {txt.priceList}
+                      </label>
+                      <select
+                        value={aiPriceListId}
+                        onChange={(e) => setAiPriceListId(e.target.value)}
+                        disabled={aiLoading}
+                        className="w-full rounded-xl border border-line px-4 py-3 text-sm font-bold text-ink outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all bg-surface disabled:opacity-60"
+                      >
+                        {!activeLists.some((l) => l.id === aiPriceListId) && (
+                          <option value="">{ar ? "خاص" : "Private"}</option>
+                        )}
+                        {activeLists.map((l) => {
+                          const payer = payerForPriceList(payers, l.id);
+                          return (
+                            <option key={l.id} value={l.id}>
+                              {payer.id === PRIVATE_PAYER_ID ? l.name : `${l.name} · ${payer.name}`}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                  )}
                   <textarea
                     value={aiInstructions}
                     onChange={(e) => setAiInstructions(e.target.value)}

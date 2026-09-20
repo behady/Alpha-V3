@@ -10,6 +10,9 @@ import { fetchPatientAiContext, patientContextBlock } from "@/lib/aiPatientConte
 import { logAiCreditUsage, createUsageMeter } from "@/lib/aiCreditLog";
 import { suggestSlots, type SlotSuggestion } from "@/lib/automation/slotSuggestions";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
+import { parsePriceLists, resolveActiveListId } from "@/lib/priceLists";
+import { parsePayers, coversService, payerForPriceList } from "@/lib/payers";
+import { resolveListPrice } from "@/lib/discountMath";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,6 +59,7 @@ export async function POST(req: Request) {
     const patientId = typeof body?.patientId === "string" ? body.patientId.trim() : "";
     const instructions = typeof body?.instructions === "string" ? body.instructions.trim().slice(0, 2000) : "";
     const language = body?.language === "ar" ? "ar" : "en";
+    const askedListId = typeof body?.priceListId === "string" ? body.priceListId.trim() : "";
 
     // Second round of the Q&A loop: the previous proposals plus the dentist's answers to the
     // AI's questions about durations and visit division. Both are free text shown to the model.
@@ -145,6 +149,8 @@ export async function POST(req: Request) {
         id: d.id,
         name: String(s.name || ""),
         price: Number(s.price) || 0,
+        // Kept so a step can be priced on the payer's tariff rather than the clinic's own.
+        prices: (s.prices && typeof s.prices === "object" ? s.prices : {}) as Record<string, number>,
         category: typeof s.category === "string" ? s.category : "",
         requiresLab: s.requiresLab === true,
       };
@@ -162,6 +168,25 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+
+    /**
+     * Who this plan is being quoted for, and what they cover.
+     *
+     * The MODEL is deliberately not told. It proposes the dentistry the patient needs; narrowing
+     * its catalogue to the insurer's list would turn a clinical suggestion into a billing one, and
+     * a plan that omits the crown because AXA will not pay for it is a worse plan, not a cheaper
+     * one. The money is settled here instead: covered work is priced on the payer's tariff,
+     * anything else on the clinic's own — which is exactly what will happen when it is charged.
+     */
+    const [listsSnap, payersSnap] = await Promise.all([
+      adminClinicDoc(clinicId, "settings", "price_lists").get(),
+      adminClinicDoc(clinicId, "settings", "payers").get(),
+    ]);
+    const priceLists = parsePriceLists((listsSnap.data() || {}) as Record<string, unknown>);
+    const payers = parsePayers(payersSnap.data() || null);
+    const listId = resolveActiveListId(priceLists, askedListId || null, null, null);
+    const fallbackListId = resolveActiveListId(priceLists, null, null, null);
+    const payer = payerForPriceList(payers, listId);
 
     const priceListText = services
       .map((s) => `${s.id} | ${s.name}${s.category ? ` [${s.category}]` : ""}${s.requiresLab ? " (needs lab)" : ""}`)
@@ -311,7 +336,9 @@ ${priceListText}`;
                   serviceName: svc ? svc.name : wantedName || "Unnamed procedure",
                   teeth: String(st.teeth || "").trim().slice(0, 80),
                   quantity,
-                  unitPrice: svc ? svc.price : 0,
+                  // Priced on the payer's list where the payer covers it, on the clinic's own
+                  // where it does not — never on a number the model produced.
+                  unitPrice: svc ? resolveListPrice(svc, coversService(payer, svc.id) ? listId : fallbackListId) : 0,
                   estimatedMinutes: Math.min(240, Math.max(5, Math.round(Number(st.estimatedMinutes) || 30))),
                   note: String(st.note || "").trim().slice(0, 300),
                   unmatched: !svc,
@@ -419,7 +446,9 @@ ${priceListText}`;
       usage: meter.snapshot(),
     });
 
-    return NextResponse.json({ ok: true, options, questions, currency, calendarNotes: Array.from(calendarNotes) });
+    // The list the server ACTUALLY priced on, so the client stamps the plan with the tariff that
+    // produced the numbers rather than the one it happened to ask for.
+    return NextResponse.json({ ok: true, options, questions, currency, priceListId: listId, calendarNotes: Array.from(calendarNotes) });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Treatment plan suggestion failed";
     reportServerError("[TreatmentPlanAI] failed", e);
