@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getDoc, getDocs, setDoc, writeBatch } from "firebase/firestore";
+import { clearListPrices, countListUsage } from "@/lib/priceListUsage";
 import { db } from "@/lib/firebase";
 import {
   ArrowLeft,
@@ -240,9 +241,58 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
         payersDocFrom(payers.filter((p) => p.id !== payer.id)),
         { merge: true },
       );
+
+      /**
+       * Take the insurer's price list with it.
+       *
+       * This screen never says the words "price list" — it is an implementation detail of "an
+       * insurer pays these prices". So removing the insurer and leaving its list behind left the
+       * clinic staring at a row on another screen it had never knowingly created, offered in every
+       * treatment picker, and which the bin there refused to delete.
+       *
+       * Deleted outright only when nothing was ever recorded on it. Once work exists the list has
+       * to survive, or a charge points at a tariff nobody can look up — so it is deactivated
+       * instead, which keeps every past report readable and stops it being offered on new work.
+       */
+      const listId = payer.priceListId || "";
+      const list = listId ? priceLists.find((l) => l.id === listId) : null;
+      const sharedWithAnotherPayer = payers.some((p) => p.id !== payer.id && p.priceListId === listId);
+      let listOutcome: "deleted" | "deactivated" | "kept" = "kept";
+
+      if (list && !list.isDefault && !sharedWithAnotherPayer) {
+        const used = await countListUsage(listId).catch(() => null);
+        if (used && used.total === 0) {
+          const pricedIds = services.filter((svc) => typeof svc.prices[listId] === "number").map((svc) => svc.id);
+          await clearListPrices(listId, pricedIds);
+          await setDoc(
+            getClinicDoc("settings", PRICE_LISTS_DOC),
+            { lists: toStoredLists(priceLists.filter((l) => l.id !== listId)) },
+            { merge: true },
+          );
+          listOutcome = "deleted";
+        } else if (list.active) {
+          await setDoc(
+            getClinicDoc("settings", PRICE_LISTS_DOC),
+            { lists: toStoredLists(priceLists.map((l) => (l.id === listId ? { ...l, active: false } : l))) },
+            { merge: true },
+          );
+          listOutcome = "deactivated";
+        }
+      }
+
       await load();
       showToast(
-        isAr ? "اتشالت — التقارير القديمة زي ما هي" : "Removed — past reports are unchanged",
+        listOutcome === "deleted"
+          ? isAr
+            ? "اتشالت هي وقائمة أسعارها — مفيش علاج كان متسجل عليها"
+            : "Removed, along with its price list — no treatment had been recorded on it"
+          : listOutcome === "deactivated"
+            ? isAr
+              ? "اتشالت. قائمة أسعارها اتعطّلت بس فضلت موجودة، عشان فيه علاج متسجل عليها"
+              : "Removed. Its price list was deactivated rather than deleted, because treatments were recorded on it"
+            : isAr
+              ? "اتشالت — التقارير القديمة زي ما هي"
+              : "Removed — past reports are unchanged",
         "success",
       );
     } catch {

@@ -747,4 +747,59 @@ function eq<T>(actual: T, expected: T, message: string) {
   );
 }
 
+// --- 14. An insurer you remove does not leave a list you cannot remove -------------------------
+//
+// What actually happened to a clinic: they set AXA up, priced eleven treatments on it, changed
+// their mind, and deleted the insurer. The price list survived — a row on a screen that never says
+// the words "price list", offered in every treatment picker, with its bin greyed out for ever.
+//
+// The old rule refused on the wrong question. "Has prices typed on it" is a draft. What must never
+// be deleted is a list some RECORDED TREATMENT points at, because that charge would then name a
+// tariff nobody can look up. Those are different questions and only the second is asked of the
+// database.
+{
+  const prices = read("src/components/settings/PriceListSettings.tsx");
+  ok(/countListUsage\(list\.id\)/.test(prices), "the bin still refuses on typed prices instead of on recorded work");
+  ok(
+    /disabled=\{saving \|\| list\.isDefault\}/.test(prices),
+    "the bin is still disabled for any priced list — a greyed button with no way forward is the bug"
+  );
+  ok(
+    /clearListPrices\(/.test(prices),
+    "deleting a list leaves its prices on every service — numbers no screen can explain, and a future list minted under the same id would adopt them"
+  );
+  ok(
+    /used\.total > 0/.test(prices) && /inUseRecorded/.test(prices),
+    "a refusal must say how much recorded work is holding the list, not just refuse"
+  );
+
+  const payersUi = read("src/components/settings/PayersSettings.tsx");
+  ok(
+    /countListUsage\(listId\)/.test(payersUi),
+    "removing an insurer leaves its price list behind on a screen the clinic never knowingly used"
+  );
+  ok(
+    /sharedWithAnotherPayer/.test(payersUi),
+    "a list two insurers point at would be deleted out from under the second one"
+  );
+  ok(
+    /!list\.isDefault/.test(payersUi),
+    "the clinic's default list could be deleted by removing an insurer that happened to point at it"
+  );
+  ok(
+    /active: false/.test(payersUi),
+    "a list with recorded work must be deactivated rather than kept offered — or deleted, which is worse"
+  );
+
+  const usage = read("src/lib/priceListUsage.ts");
+  ok(
+    /"ledger"/.test(usage) && /"clinical_notes"/.test(usage),
+    "only one of the two collections is counted; both carry priceListId, and a treatment recorded but not billed would be missed"
+  );
+  ok(
+    /deleteField\(\)/.test(usage),
+    "a list's price is cleared to a number rather than removed — and a stored 0 means free, which is the one thing it must not come to mean"
+  );
+}
+
 console.log(`payers: ${checks} checks passed`);

@@ -17,6 +17,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSettingsText } from "@/lib/useSettingsText";
 import { onSnapshot, setDoc, writeBatch, doc, getDocs } from "firebase/firestore";
+import { clearListPrices, countListUsage } from "@/lib/priceListUsage";
 import { Check, Loader2, Plus, Star, Tag, Trash2, X, Percent, Copy, SlidersHorizontal, Building2, Layers } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc, getGlobalClinicId } from "@/lib/db-utils";
@@ -86,23 +87,22 @@ export default function PriceListSettings({
   }, []);
 
   /**
-   * Which lists actually carry a price. A list nothing is priced on can be deleted outright;
-   * one that does must only ever be deactivated, or recorded treatments would point at a list
-   * nobody can look up.
+   * How many treatments carry a price on each list — shown on the row as "11 priced".
+   *
+   * This used to double as the delete rule, and that was the bug: a list somebody priced and then
+   * abandoned could never be removed. Having prices typed on it is a draft; what must not be
+   * deleted is a list some RECORDED TREATMENT points at, which is a different question and is
+   * asked of the database in `removeList`.
    */
-  const { usedListIds, pricedCounts } = useMemo(() => {
-    const used = new Set<string>();
+  const pricedCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const service of services) {
       const prices = service.prices;
       if (prices && typeof prices === "object") {
-        for (const key of Object.keys(prices)) {
-          used.add(key);
-          counts[key] = (counts[key] || 0) + 1;
-        }
+        for (const key of Object.keys(prices)) counts[key] = (counts[key] || 0) + 1;
       }
     }
-    return { usedListIds: used, pricedCounts: counts };
+    return counts;
   }, [services]);
   const serviceCount = services.length;
 
@@ -118,6 +118,25 @@ export default function PriceListSettings({
 
     confirmDelete: (name: string) =>
       ar ? `تحذف قائمة "${name}" نهائياً؟` : `Permanently delete the price list "${name}"?`,
+
+    /**
+     * Two different refusals, and the difference is the whole point.
+     *
+     * "Work was recorded on it" is a real reason to keep a list for ever. "You typed prices on it"
+     * is not — that is a draft, and a clinic that set an insurer up and then decided against them
+     * was left with a row it could never clear.
+     */
+    confirmDeletePriced: (name: string, n: number) =>
+      ar
+        ? `تحذف "${name}" نهائياً؟ الـ${n} سعر اللي كتبتهم عليها هيتشالوا. مفيش أي علاج اتسجل عليها، فمفيش حاجة في التقارير هتتأثر.`
+        : `Permanently delete "${name}"? The ${n} price${n === 1 ? "" : "s"} you typed on it will be removed. No treatment has ever been recorded on it, so nothing in your reports changes.`,
+
+    inUseRecorded: (n: number) =>
+      ar
+        ? `في ${n} علاج متسجل على القائمة دي، فمينفعش تتحذف — عطّلها بدل كده وهي هتفضل موجودة في التقارير القديمة.`
+        : `${n} recorded treatment${n === 1 ? " points" : "s point"} at this list, so it cannot be deleted — deactivate it instead and past reports keep working.`,
+
+    checkingUse: ar ? "بنشوف القائمة دي اتستعملت فين..." : "Checking where this list has been used...",
 
     copyOf: (name: string) => (ar ? `نسخة من "${name}"` : `Copy of "${name}"`),
 
@@ -325,20 +344,61 @@ export default function PriceListSettings({
   };
 
   const removeList = async (list: PriceList) => {
-    if (usedListIds.has(list.id)) {
-      showToast(txt.inUse, "error");
-      return;
-    }
     if (list.isDefault) {
       showToast(txt.cannotDeactivateDefault, "error");
       return;
     }
-    const ok = await confirm(txt.confirmDelete(list.name), {
-      title: txt.confirmDeleteTitle,
-      confirmLabel: txt.remove,
-      tone: "danger",
-    });
+
+    /**
+     * Ask the question that matters before refusing.
+     *
+     * Not "does this list have prices on it" — that was the old rule, and it made a priced-but-
+     * never-used list permanent. A treatment recorded on the list is the thing that must not be
+     * left pointing at something nobody can look up, so that is what is counted, on the server.
+     */
+    setSaving(true);
+    let used;
+    try {
+      showToast(txt.checkingUse, "info");
+      used = await countListUsage(list.id);
+    } catch {
+      // Could not tell: refuse rather than guess. A wrongly refused delete can be retried; a
+      // wrongly allowed one takes the tariff out from under recorded work.
+      showToast(txt.failed, "error");
+      setSaving(false);
+      return;
+    }
+    setSaving(false);
+
+    if (used.total > 0) {
+      showToast(txt.inUseRecorded(used.total), "error");
+      return;
+    }
+
+    const priced = pricedCounts[list.id] || 0;
+    const ok = await confirm(
+      priced > 0 ? txt.confirmDeletePriced(list.name, priced) : txt.confirmDelete(list.name),
+      { title: txt.confirmDeleteTitle, confirmLabel: txt.remove, tone: "danger" },
+    );
     if (!ok) return;
+
+    // The prices first: a service left holding `prices["payer-axa"]` after the list is gone is a
+    // number no screen can explain, and it would be adopted by any future list minted under the
+    // same id.
+    if (priced > 0) {
+      setSaving(true);
+      try {
+        await clearListPrices(
+          list.id,
+          services.filter((svc) => svc.prices && typeof svc.prices === "object" && list.id in svc.prices).map((svc) => svc.id),
+        );
+      } catch {
+        showToast(txt.failed, "error");
+        setSaving(false);
+        return;
+      }
+      setSaving(false);
+    }
     await persistLists(lists.filter((l) => l.id !== list.id), `Deleted price list "${list.name}"`);
   };
 
@@ -447,8 +507,8 @@ export default function PriceListSettings({
             <button
               type="button"
               onClick={() => removeList(list)}
-              disabled={saving || usedListIds.has(list.id) || list.isDefault}
-              title={usedListIds.has(list.id) ? txt.inUse : undefined}
+              disabled={saving || list.isDefault}
+              title={list.isDefault ? txt.cannotDeactivateDefault : undefined}
               aria-label={txt.remove}
               className="rounded-lg p-1.5 text-ink-muted transition hover:bg-danger-tint hover:text-danger disabled:cursor-not-allowed disabled:opacity-30"
             >
