@@ -227,7 +227,7 @@ async function deliverPatientWhatsApp(args: {
       void sendClinicPush(clinicId, {
         title: "رسالة واتساب في الانتظار",
         body: "رسالة جاهزة للإرسال من التطبيق — a WhatsApp message is waiting in the app.",
-      });
+      }, { event: "messageWaitingManual", channel: "alpha_bookings", data: { screen: "chats" } });
       return { status: "queued" };
     }
     return { status: "sent" };

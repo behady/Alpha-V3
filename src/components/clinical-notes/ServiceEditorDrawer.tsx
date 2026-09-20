@@ -257,6 +257,7 @@ export default function ServiceEditorDrawer({
   // Price list + discount for this line. The server recomputes and enforces both; this is the
   // preview and the input.
   const { priceLists, discountSettings, maxDiscountPercent } = usePricingPolicy();
+
   const [discount, setDiscount] = useState<DiscountState>(EMPTY_DISCOUNT);
 
   const [isSaving, setIsSaving] = useState(false);
@@ -307,6 +308,8 @@ export default function ServiceEditorDrawer({
           if (docObj) setSelectedDoctorId(docObj.id);
       }
       
+      // Same reasoning as the price list below: reopening a treatment must not move it onto a
+      // different payer, which would move the revenue AND the dentist's rate.
       // Reopen the note on the list and discount it was priced with, so re-saving never silently
       // re-prices it at today's rates.
       setDiscount({
@@ -632,6 +635,7 @@ export default function ServiceEditorDrawer({
         <div className="flex items-center gap-2">
           <div data-tour="clinical-procedure-name" className="flex-1 min-w-0">
             <ServiceCombobox
+              priceListId={discount.priceListId || null}
               services={servicesList} value={procedure}
               onChange={handleProcedureChange}
               placeholder="Search procedures..."
@@ -673,6 +677,7 @@ export default function ServiceEditorDrawer({
       />
     </div>
   );
+
 
   const discountField = (
     <DiscountEditor
@@ -868,6 +873,21 @@ export default function ServiceEditorDrawer({
           </div>
 
           {costField}
+
+          {/*
+            The price list, in the drawer as well as in the compact editor.
+
+            It was only ever rendered in the inline form, which the tooth chart uses — so the
+            drawer that opens from the patient's file and from the appointment panel, which is
+            where the front desk actually records treatments, had no way to choose a list at all.
+            Every treatment recorded there silently took the clinic's default.
+
+            That was survivable while a list was only a discount sheet. It stopped being
+            survivable when the list became the insurer: an insurance case recorded from the desk
+            was charged at clinic prices and counted as private revenue, and the screen gave
+            nobody a way to say otherwise.
+          */}
+          {discountField}
 
           {billingStrip}
 

@@ -18,7 +18,8 @@ const admin = require("firebase-admin");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { FieldValue, getFirestore } = require("firebase-admin/firestore");
 const { DateTime } = require("luxon");
-const { sendClinicPush } = require("./clinicPush");
+const { sendClinicPush, readAlertPreferences } = require("./clinicPush");
+const { notifyTiming } = require("./notificationCatalog");
 const { resolveWhatsappTemplate, mergeWhatsappTemplate } = require("./whatsappMessageDefaults");
 
 const TIMEZONE = process.env.CLINIC_TIMEZONE || "Africa/Cairo";
@@ -31,17 +32,18 @@ const APP_BASE_URL = process.env.APP_BASE_URL || "https://alphadental.app";
 
 /** How long after a review ask before the same patient may be asked again. */
 const REVIEW_COOLDOWN_DAYS = 90;
-const LEAD_ALERT_AFTER_MINUTES = 15;
 /**
- * The second nudge, and the reason this job is worth having at all.
+ * The two lead windows moved into the clinic loop, where they are read per clinic from
+ * Settings → Notifications (`leadWaiting` and `leadAbandoned` in the notification catalogue).
+ * The defaults are still fifteen minutes and two hours; they are just no longer decided here.
  *
- * The first alert goes to whoever is on the floor, once, and then the lead was never mentioned
- * again — an inbox of eight paid ad leads sat untouched for eighteen hours with every one of them
- * already alerted. So a lead still untouched two hours on stops being a busy-moment problem and
- * goes over the floor's head to the people paying for the ads, naming whoever owns it.
- * Once per lead: escalation that repeats is just noise with a worse reputation.
+ * The second one is the reason this job is worth having at all. The first alert goes to whoever is
+ * on the floor, once, and then the lead was never mentioned again — an inbox of eight paid ad
+ * leads sat untouched for eighteen hours with every one of them already alerted. So a lead still
+ * untouched hours on stops being a busy-moment problem and goes over the floor's head to the
+ * people paying for the ads, naming whoever owns it. Once per lead: escalation that repeats is
+ * just noise with a worse reputation.
  */
-const LEAD_ESCALATE_AFTER_MINUTES = 120;
 
 /**
  * Twin of OCCASION_DATES in src/types/marketing.ts — functions can't import TS, so keep the
@@ -255,7 +257,7 @@ exports.reviewRequestsNightly = onSchedule(
               title: `⭐ ${created} review request${created === 1 ? "" : "s"} ready`,
               body: "Today's happy patients are one tap from a Google review — open Marketing → Campaigns to send.",
             },
-            { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_clinic", data: { screen: "marketing" } }
+            { event: "reviewRequestsReady", channel: "alpha_clinic", data: { screen: "marketing" } }
           );
         }
       } catch (e) {
@@ -322,7 +324,7 @@ exports.birthdayCampaigns = onSchedule(
               title: `🎂 ${created} birthday wish${created === 1 ? "" : "es"} ready`,
               body: "Open Marketing → Campaigns to review and send them.",
             },
-            { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_clinic", data: { screen: "marketing" } }
+            { event: "birthdayWishesReady", channel: "alpha_clinic", data: { screen: "marketing" } }
           );
         }
       } catch (e) {
@@ -339,13 +341,23 @@ exports.birthdayCampaigns = onSchedule(
 exports.leadSpeedAlerts = onSchedule(
   { schedule: "*/10 9-22 * * *", timeZone: TIMEZONE, timeoutSeconds: 300, memory: "256MiB" },
   async () => {
-    const cutoffMs = Date.now() - LEAD_ALERT_AFTER_MINUTES * 60 * 1000;
-    const escalateCutoffMs = Date.now() - LEAD_ESCALATE_AFTER_MINUTES * 60 * 1000;
-
     for (const clinic of await marketingClinics()) {
       try {
         const auto = await automationSettings(clinic.id);
         if (auto.leadAlerts === false) continue; // on by default — a push costs nothing
+
+        /**
+         * How long a lead may sit unanswered, as this clinic has decided.
+         *
+         * Inside the loop, not above it: these used to be module constants, which made the
+         * fifteen minutes a property of the software. A clinic paying for every one of these
+         * enquiries is the only party who can say how long is too long.
+         */
+        const prefs = await readAlertPreferences(db(), clinic.id);
+        const alertAfterMinutes = notifyTiming("leadWaiting", "afterMinutes", prefs);
+        const escalateAfterMinutes = notifyTiming("leadAbandoned", "afterMinutes", prefs);
+        const cutoffMs = Date.now() - alertAfterMinutes * 60 * 1000;
+        const escalateCutoffMs = Date.now() - escalateAfterMinutes * 60 * 1000;
 
         const snap = await db()
           .collection(`clinics/${clinic.id}/leads`)
@@ -371,12 +383,12 @@ exports.leadSpeedAlerts = onSchedule(
             db(),
             clinic.id,
             {
-              title: `⏱ ${waiting.length} lead${waiting.length === 1 ? "" : "s"} waiting ${LEAD_ALERT_AFTER_MINUTES}+ min`,
+              title: `⏱ ${waiting.length} lead${waiting.length === 1 ? "" : "s"} waiting ${alertAfterMinutes}+ min`,
               body: names
                 ? `Still unanswered: ${names}${waiting.length > 3 ? "…" : ""}. The first minutes win the lead.`
                 : "Open the Leads inbox — someone is waiting for a reply.",
             },
-            { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_leads", data: { screen: "leads" } }
+            { event: "leadWaiting", channel: "alpha_leads", data: { screen: "leads" } }
           );
 
           await Promise.all(
@@ -400,7 +412,7 @@ exports.leadSpeedAlerts = onSchedule(
             abandoned.map((doc) => String(doc.data().assignedToName || "").trim()).filter(Boolean)
           ),
         ];
-        const hours = Math.round(LEAD_ESCALATE_AFTER_MINUTES / 60);
+        const hours = Math.max(1, Math.round(escalateAfterMinutes / 60));
 
         await sendClinicPush(
           db(),
@@ -412,7 +424,7 @@ exports.leadSpeedAlerts = onSchedule(
               : "Nobody has been assigned to them. Open the Leads inbox.",
           },
           // Over the floor's head on purpose: reception was already told, twice is not the answer.
-          { roles: ["Owner", "Admin"], channel: "alpha_leads", data: { screen: "leads" } }
+          { event: "leadAbandoned", channel: "alpha_leads", data: { screen: "leads" } }
         );
 
         await Promise.all(
@@ -450,7 +462,7 @@ exports.occasionRadarPush = onSchedule(
             title: `📣 ${name.en} is 10 days away`,
             body: `«${name.ar}» بعد ١٠ أيام — افتح صفحة التسويق وجهّز المحتوى والعروض من الآن.`,
           },
-          { roles: ["Owner", "Admin"], channel: "alpha_clinic", data: { screen: "marketing" } }
+          { event: "occasionSoon", channel: "alpha_clinic", data: { screen: "marketing" } }
         );
       } catch (e) {
         console.error(`occasionRadarPush failed for ${clinic.id}:`, e);

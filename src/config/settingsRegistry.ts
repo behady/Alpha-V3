@@ -317,6 +317,24 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   },
 
   {
+    id: "payers",
+    route: "/settings/payers",
+    group: "clinic",
+    labelEn: "Payers & Insurance",
+    labelAr: "التأمين وجهات الدفع",
+    // The payer list itself, plus each dentist's per-payer commission rate, which lives on their
+    // staff record. Both targets are Admin-only in firestore.rules, so this section is too — the
+    // same reasoning as Prices above: a screen gated more loosely than the rules is a screen on
+    // which nothing can be saved.
+    writes: [
+      { kind: "settingsDoc", docId: "payers" },
+      { kind: "collection", name: "staff" },
+    ],
+    view: ADMIN,
+    edit: ADMIN,
+  },
+
+  {
     id: "dentists",
     route: "/settings/dentists",
     group: "people",

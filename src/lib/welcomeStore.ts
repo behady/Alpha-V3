@@ -14,12 +14,17 @@
  *    the clinic. A receptionist who joins in month three has learned nothing because the owner
  *    watched the walkthrough in week one, and their guide should say so. Scoped per clinic AND per
  *    user for exactly that reason.
- *  - **Coach snoozed / switched off.** A preference, on the surface it was expressed on. Syncing
- *    "not now" to the owner's other laptop is not a feature anybody asked for.
+ *  - **Coach snoozed.** "Not now" is about this hour on this screen; there is nothing to sync.
  *
  * Nothing here is a record. Every read is wrapped, every write is wrapped, and a browser with
  * storage blocked (private window, a locked-down device) gets a guide that works and simply
  * forgets — which is the correct failure for a coach, and would be the wrong one for a ledger.
+ *
+ * Two answers are the exception, and they are NOT only local: "this person has met Sara" and
+ * "this person told the coach to stop". Both were browser-only once, and both came back for
+ * people who had already said no — a cleared browser, a second laptop or a phone read as somebody
+ * who had never been asked. Those two are stored per person here AND on the person's own user
+ * document (see TourContext and WelcomeContext), and any copy saying "no" is enough.
  *
  * Writes fire a window event so the provider re-reads: two components in the same tab share this
  * state, and `storage` events famously do not fire in the tab that made the change.
@@ -66,7 +71,10 @@ interface StoredState {
   snoozedUntil: number;
   /** How many times the coach has been closed. Each close buys a longer silence than the last. */
   snoozeCount: number;
-  /** The coach was switched off for good. Reversible from the guide page. */
+  /**
+   * The coach was switched off for good — for this person, on every device. Reversible from the
+   * guide page, and only from there: closing the bubble is what sets it, so nothing else may.
+   */
   dismissed: boolean;
   tour: TourProgress;
 }
@@ -103,12 +111,60 @@ function keyFor(scope: WelcomeScope): string | null {
   return `alphaWelcome:${scope.clinicId}:${scope.uid}`;
 }
 
+/**
+ * The two answers that are about a PERSON, not about a (clinic, person): has this person met
+ * Sara, and have they told her to stop talking first.
+ *
+ * The scoped key above needs a clinic, and everything else it holds is genuinely per clinic —
+ * these two are not. Closing Sara's welcome screen, or her coach bubble, a moment before the
+ * clinic pointer settled wrote the answer nowhere at all (`keyFor` returns null, and the write is
+ * a silent no-op); switching clinic asked again from a fresh key. Either way the person had
+ * already said no, and got the same thing back. So both live here, and the answer to "may this
+ * appear?" is the OR of this, the scoped copy, and the flag on their own user document.
+ */
+function personKey(name: "alphaTourIntroSeen" | "alphaCoachOff", uid: string | null | undefined): string | null {
+  return uid ? `${name}:${uid}` : null;
+}
+
+function readPersonFlag(name: "alphaTourIntroSeen" | "alphaCoachOff", uid: string | null | undefined): boolean {
+  const key = personKey(name, uid);
+  if (!key || typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writePersonFlag(name: "alphaTourIntroSeen" | "alphaCoachOff", uid: string | null | undefined, on: boolean): void {
+  const key = personKey(name, uid);
+  if (!key || typeof window === "undefined") return;
+  try {
+    if (on) window.localStorage.setItem(key, "1");
+    else window.localStorage.removeItem(key);
+  } catch {
+    /* Storage blocked. The user document still carries both; see TourContext and WelcomeContext. */
+  }
+}
+
+/** Was the welcome screen already shown to this person on this browser? */
+export function readIntroSeenLocal(uid: string | null | undefined): boolean {
+  return readPersonFlag("alphaTourIntroSeen", uid);
+}
+
+/** Has this person switched the coach bubble off, on this browser? */
+export function readCoachOffLocal(uid: string | null | undefined): boolean {
+  return readPersonFlag("alphaCoachOff", uid);
+}
+
 export function readWelcomeState(scope: WelcomeScope): StoredState {
   const key = keyFor(scope);
-  if (!key || typeof window === "undefined") return EMPTY;
+  // No clinic (or no browser): there is no scoped record to read, but the two person-wide answers
+  // still hold — and "the coach is off" has to survive being asked before the clinic arrives.
+  if (!key || typeof window === "undefined") return { ...EMPTY, dismissed: readCoachOffLocal(scope.uid) };
   try {
     const raw = window.localStorage.getItem(key);
-    if (!raw) return EMPTY;
+    if (!raw) return { ...EMPTY, dismissed: readCoachOffLocal(scope.uid) };
     const parsed = JSON.parse(raw) as Partial<StoredState>;
     return {
       // Re-validated rather than trusted: this is hand-editable text, and a `lessons` that came
@@ -116,11 +172,11 @@ export function readWelcomeState(scope: WelcomeScope): StoredState {
       lessons: Array.isArray(parsed.lessons) ? parsed.lessons.filter((l) => typeof l === "string") : [],
       snoozedUntil: typeof parsed.snoozedUntil === "number" ? parsed.snoozedUntil : 0,
       snoozeCount: typeof parsed.snoozeCount === "number" ? parsed.snoozeCount : 0,
-      dismissed: parsed.dismissed === true,
+      dismissed: parsed.dismissed === true || readCoachOffLocal(scope.uid),
       tour: readTour(parsed.tour),
     };
   } catch {
-    return EMPTY;
+    return { ...EMPTY, dismissed: readCoachOffLocal(scope.uid) };
   }
 }
 
@@ -153,13 +209,21 @@ export function snoozeCoach(scope: WelcomeScope, until: number): void {
   writeWelcomeState(scope, { ...state, snoozedUntil: until, snoozeCount: state.snoozeCount + 1 });
 }
 
-/** Switches the coach off for good at this clinic. The guide page can turn it back on. */
+/**
+ * Switches the coach off for good — for this person, everywhere, not just at this clinic.
+ *
+ * The person-wide flag is written first and unconditionally, for the same reason the welcome
+ * screen's is: the clinic pointer may not have arrived yet, and that is exactly the moment
+ * somebody reaches for the close button. Reversible from the guide page, and only from there.
+ */
 export function dismissCoach(scope: WelcomeScope): void {
+  writePersonFlag("alphaCoachOff", scope.uid, true);
   writeWelcomeState(scope, { ...readWelcomeState(scope), dismissed: true });
 }
 
-/** Brings the coach back — both the "for good" flag and any live snooze. */
+/** Brings the coach back — the "for good" flag, its person-wide copy, and any live snooze. */
 export function restoreCoach(scope: WelcomeScope): void {
+  writePersonFlag("alphaCoachOff", scope.uid, false);
   writeWelcomeState(scope, { ...readWelcomeState(scope), dismissed: false, snoozedUntil: 0, snoozeCount: 0 });
 }
 
@@ -171,7 +235,10 @@ export function isLessonDone(scope: WelcomeScope, tutorialId: string): boolean {
 }
 
 export function readTourProgress(scope: WelcomeScope): TourProgress {
-  return readWelcomeState(scope).tour;
+  const tour = readWelcomeState(scope).tour;
+  // The per-person flag can only ever turn `introSeen` ON. A "yes, shown" recorded under any
+  // clinic — or with no clinic loaded at all — still means shown.
+  return tour.introSeen ? tour : { ...tour, introSeen: readIntroSeenLocal(scope.uid) };
 }
 
 function writeTour(scope: WelcomeScope, patch: Partial<TourProgress>): void {
@@ -179,8 +246,14 @@ function writeTour(scope: WelcomeScope, patch: Partial<TourProgress>): void {
   writeWelcomeState(scope, { ...state, tour: { ...state.tour, ...patch } });
 }
 
-/** The intro was shown (and either taken or declined). It does not come back on its own. */
+/**
+ * The intro was shown (and either taken or declined). It does not come back on its own.
+ *
+ * The per-person flag is written first and unconditionally: it is the one that still lands when
+ * the clinic pointer has not arrived yet, which is exactly the moment somebody clicks the X.
+ */
 export function markTourIntroSeen(scope: WelcomeScope): void {
+  writePersonFlag("alphaTourIntroSeen", scope.uid, true);
   if (readWelcomeState(scope).tour.introSeen) return;
   writeTour(scope, { introSeen: true });
 }

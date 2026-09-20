@@ -479,7 +479,7 @@ async function runUpcoming24h(authz: { cron: boolean; uid?: string }, requestedC
       void sendClinicPush(clinic.clinicId, {
         title: "رسائل واتساب في الانتظار",
         body: `${queuedHere} رسالة جاهزة للإرسال من التطبيق — ${queuedHere} WhatsApp message(s) waiting in the app.`,
-      });
+      }, { event: "messageWaitingManual", channel: "alpha_bookings", data: { screen: "chats" } });
     }
   }
 

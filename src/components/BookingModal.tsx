@@ -1088,6 +1088,7 @@ export default function BookingModal({
                 {language === 'ar' ? 'الخدمة' : 'Service'}
               </label>
               <ServiceCombobox
+                priceListId={effectiveListId}
                 services={servicesList}
                 value={procServiceId}
                 onChange={(val, svc) => {

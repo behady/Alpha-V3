@@ -11,12 +11,27 @@
 const admin = require("firebase-admin");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { getFirestore } = require("firebase-admin/firestore");
-const { sendClinicPush } = require("./clinicPush");
+const { sendClinicPush, readAlertPreferences } = require("./clinicPush");
+const { notifyTiming } = require("./notificationCatalog");
 
 const db = () => getFirestore(admin.app(), "default");
 
-const STAFF_AFTER_MS = 15 * 60 * 1000;
-const OWNER_AFTER_MS = 45 * 60 * 1000;
+/**
+ * How long a patient may wait before anyone is told, per clinic.
+ *
+ * These were fixed constants, which made "nobody answered for fifteen minutes" a fact about the
+ * software rather than a decision the clinic had made. A single-chair practice that answers its
+ * own phone wants half an hour; a six-chair clinic with a dedicated desk wants five minutes. Both
+ * numbers now come from Settings → Notifications, and both fall back to what the constants were,
+ * so a clinic that never opens that page behaves exactly as before.
+ */
+async function slaWindows(clinicId) {
+  const prefs = await readAlertPreferences(db(), clinicId);
+  return {
+    staffAfterMs: notifyTiming("patientWaitingReply", "afterMinutes", prefs) * 60 * 1000,
+    ownerAfterMs: notifyTiming("patientWaitingReplyEscalated", "afterMinutes", prefs) * 60 * 1000,
+  };
+}
 /** A handoff older than this is a stale one (the bot's own hold is 24h); not worth a page. */
 const MAX_AGE_MS = 24 * 60 * 60 * 1000;
 /** A patient message counts as swallowed by a claim only if the claim was this recent. */
@@ -36,13 +51,14 @@ exports.handoffSla = onSchedule(
       const clinicId = clinic.id;
       if (!isActiveClinic(clinic.data())) continue;
       try {
+        const { staffAfterMs, ownerAfterMs } = await slaWindows(clinicId);
         const snap = await db().collection(`clinics/${clinicId}/whatsapp_conversations`).where("needsHuman", "==", true).get();
         for (const doc of snap.docs) {
           const c = doc.data() || {};
           const at = Number(c.handoffAtMs) || 0;
           if (!at) continue;
           const age = now - at;
-          if (age < STAFF_AFTER_MS || age > MAX_AGE_MS) continue;
+          if (age < staffAfterMs || age > MAX_AGE_MS) continue;
           // Somebody answered or claimed it after the handoff: nothing is waiting.
           if ((Number(c.handledAtMs) || 0) >= at || (Number(c.humanActiveAtMs) || 0) >= at || c.botPaused === true) continue;
 
@@ -50,7 +66,7 @@ exports.handoffSla = onSchedule(
           const what = String(c.lastInbound || "").replace(/\s+/g, " ").slice(0, 80);
           const severity = c.severity === "urgent" ? "⚠️ " : c.severity === "complaint" ? "🙏 " : "";
 
-          if (age >= OWNER_AFTER_MS && (Number(c.slaOwnerPingedAtMs) || 0) < at) {
+          if (age >= ownerAfterMs && (Number(c.slaOwnerPingedAtMs) || 0) < at) {
             await sendClinicPush(
               db(),
               clinicId,
@@ -58,7 +74,7 @@ exports.handoffSla = onSchedule(
                 title: `${severity}مريض مستني رد من ${minutesLabel(age)}`,
                 body: `${who}${what ? ` — ${what}` : ""}. محدش من الاستقبال رد لسه.`,
               },
-              { roles: ["Owner", "Admin"], channel: "alpha_bookings", data: { screen: "chats" } }
+              { event: "patientWaitingReplyEscalated", channel: "alpha_bookings", data: { screen: "chats" } }
             );
             await doc.ref.set({ slaOwnerPingedAtMs: now, slaStaffPingedAtMs: Number(c.slaStaffPingedAtMs) || now }, { merge: true });
           } else if ((Number(c.slaStaffPingedAtMs) || 0) < at) {
@@ -69,7 +85,7 @@ exports.handoffSla = onSchedule(
                 title: `${severity}لسه مستني رد — ${minutesLabel(age)}`,
                 body: `${who}${what ? ` — ${what}` : ""}`,
               },
-              { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "chats" } }
+              { event: "patientWaitingReply", channel: "alpha_bookings", data: { screen: "chats" } }
             );
             await doc.ref.set({ slaStaffPingedAtMs: now }, { merge: true });
           }
@@ -99,7 +115,7 @@ exports.handoffSla = onSchedule(
           if (!claimed || claimed >= lastIn) continue;
           if (lastIn - claimed > CLAIM_LINK_MS) continue;
           const age = now - lastIn;
-          if (age < STAFF_AFTER_MS || age > MAX_AGE_MS) continue;
+          if (age < staffAfterMs || age > MAX_AGE_MS) continue;
           if ((Number(c.slaWaitPingedAtMs) || 0) >= lastIn) continue;
           const who = c.patientName || c.phone || doc.id;
           const what = String(c.lastText || "").replace(/\s+/g, " ").slice(0, 80);
@@ -108,7 +124,9 @@ exports.handoffSla = onSchedule(
             clinicId,
             { title: `مريض رد ومحدش رد عليه — ${minutesLabel(age)}`, body: `${who}${what ? ` — ${what}` : ""}` },
             {
-              roles: age >= OWNER_AFTER_MS ? ["Owner", "Admin"] : ["Owner", "Admin", "Receptionist"],
+              // Past the escalation mark this IS the escalation, so it borrows that alert's
+              // audience — which the clinic controls — rather than naming roles here.
+              event: age >= ownerAfterMs ? "patientWaitingReplyEscalated" : "patientRepliedAfterClaim",
               channel: "alpha_bookings",
               data: { screen: "chats" },
             }
