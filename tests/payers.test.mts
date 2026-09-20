@@ -500,4 +500,47 @@ function eq<T>(actual: T, expected: T, message: string) {
   }
 }
 
+// --- 10. Every writer sends the list, or the payer is lost on the way ---------------------------
+//
+// The list is the payer. A screen that resolves the right PRICE but omits the list hands the
+// server a number with no provenance — it falls back to the clinic default and files an insurance
+// case as private revenue. That is not hypothetical: it is what the ledger showed after the
+// pickers were fixed. A treatment charged at AXA's 150, stamped `priceListId: standard`,
+// `payerId: private`. The cost survived the trip and the payer did not, which is the worst shape
+// this bug can take, because the screen looks right and the report is wrong.
+{
+  const booking = read("src/components/BookingModal.tsx");
+  ok(
+    /sessionProcedures\?: \{[^}]*priceListId/.test(booking),
+    "the booking modal drops priceListId from the payload it hands its caller — the cost travels and the payer does not"
+  );
+
+  const service = read("src/lib/bookingService.ts");
+  ok(
+    /priceListId: sp\.priceListId/.test(service),
+    "bookingService writes staged treatments without their list, so a visit booked on an insurer files as private"
+  );
+  ok(
+    /priceListId\?: string \| null/.test(service),
+    "the staged-treatment type must carry the list, or the field is dropped before it is even read"
+  );
+
+  /**
+   * Every caller of createProcedure has to name a list. Counted by file rather than asserted
+   * once, because each new screen is a fresh chance to omit it — and omitting it is silent.
+   */
+  for (const rel of [
+    "src/lib/bookingService.ts",
+    "src/components/appointments/AppointmentMoneyTab.tsx",
+  ]) {
+    const text = read(rel);
+    const calls = (text.match(/createProcedure\(/g) || []).length;
+    const lists = (text.match(/priceListId:/g) || []).length;
+    ok(
+      calls === 0 || lists >= 1,
+      `${rel} calls createProcedure without ever naming a price list — that treatment cannot belong to an insurer`
+    );
+  }
+}
+
 console.log(`payers: ${checks} checks passed`);

@@ -80,7 +80,7 @@ export interface BookingSavePayload {
   discountPercent?: number | null;
   discountFixed?: number | null;
   discountAmount?: number | null;
-  sessionProcedures?: { serviceId?: string | null; name: string; cost: number; addToLedger: boolean }[];
+  sessionProcedures?: { serviceId?: string | null; name: string; cost: number; addToLedger: boolean; priceListId?: string | null }[];
   status?: string;
   delayedPromptUntil?: number | null;
   services?: Array<{
@@ -145,6 +145,9 @@ async function writeSessionProcedures(
       selectedTeeth: [],
       tooth: "Gen",
       unitCost: Number(sp.cost) || 0,
+      // The list the treatment was staged against — and therefore the payer. Without it the
+      // server falls back to the clinic default and an insurance visit books as private.
+      priceListId: sp.priceListId ?? null,
       doctorId: data.doctorId ?? null,
       status: "Completed",
       date,

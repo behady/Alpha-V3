@@ -95,7 +95,16 @@ interface AppointmentData {
   existingAppointmentId?: string | null;
   status?: string;
   discountDistribution?: "total" | "each";
-  sessionProcedures?: { id?: string; serviceId?: string | null; name: string; cost: number; addToLedger: boolean }[];
+  /**
+   * `priceListId` is part of this contract, not an internal detail.
+   *
+   * The modal stages each treatment against the list chosen above it, and the list is what says
+   * who is paying. Dropping it here handed the caller a cost with no idea where it came from: the
+   * server then fell back to the clinic default, so a visit booked on an insurer was charged at
+   * the insurer's price and filed as private revenue — the cost survived the trip and the payer
+   * did not.
+   */
+  sessionProcedures?: { id?: string; serviceId?: string | null; name: string; cost: number; addToLedger: boolean; priceListId?: string | null }[];
 }
 
 export type BookingEditSnapshot = {
