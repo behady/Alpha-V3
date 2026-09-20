@@ -338,9 +338,26 @@ function eq<T>(actual: T, expected: T, message: string) {
     /resolveListPrice\(service/.test(combobox),
     "the service picker prints the clinic's own price again, whatever list is selected"
   );
+  /**
+   * The appointment panel's quick-add is the fastest way to record a treatment, which makes it
+   * the one the front desk actually uses — and it had no price list at all. It read the clinic's
+   * own price, sent no list, and the server fell back to the default, so a treatment recorded
+   * there could never be an insurance case however carefully the clinic was set up.
+   */
+  const moneyTab = read("src/components/appointments/AppointmentMoneyTab.tsx");
+  ok(
+    /priceListId: procListId/.test(moneyTab),
+    "the appointment panel's quick-add sends no price list again — every treatment from the front desk is private"
+  );
+  ok(
+    /resolveListPrice\(svc, procListId\)/.test(moneyTab),
+    "the quick-add fills in the clinic's own price again, whatever list is chosen"
+  );
+
   for (const [rel, label] of [
     ["src/components/BookingModal.tsx", "booking"],
     ["src/components/clinical-notes/ServiceEditorDrawer.tsx", "the treatment editor"],
+    ["src/components/appointments/AppointmentMoneyTab.tsx", "the appointment panel"],
   ] as const) {
     ok(
       /priceListId=\{/.test(read(rel)),

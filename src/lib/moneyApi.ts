@@ -244,6 +244,15 @@ export type ProcedureWriteArgs = {
   note?: string;
   date?: string;
   addToLedger?: boolean;
+  /**
+   * Which price list to charge from — and therefore who is paying, since an insurer IS its list.
+   *
+   * Optional because most callers spread a discount payload that already carries it. Named here
+   * so the quick-add on the appointment panel can send it on its own: that caller sent nothing,
+   * the server fell back to the clinic default, and every treatment recorded from the front desk
+   * was charged at clinic rates and counted as private revenue.
+   */
+  priceListId?: string | null;
   clinicId?: string | null;
 };
 
