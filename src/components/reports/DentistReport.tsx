@@ -1,10 +1,6 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import {
-  Tooltip, ResponsiveContainer,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid,
-} from "recharts";
 import { Download, UserCheck, FileSpreadsheet } from "lucide-react";
 import { exportToExcel, parseMoney } from "./reportExcelUtils";
 import { ledgerCashValue } from "@/lib/reportHelpers";
@@ -429,7 +425,7 @@ export default function DentistReport({ procedures, payments, rangeLabel, isAr }
                     <button
                       onClick={handlePdfExport}
                       disabled={exporting}
-                      className="px-4 py-2 bg-slate-800 text-ink-on-accent text-sm font-bold rounded-xl hover:bg-accent transition-colors flex items-center gap-2 disabled:opacity-50"
+                      className="px-4 py-2 bg-ink-slab text-white text-sm font-bold rounded-xl hover:bg-ink-strong transition-colors flex items-center gap-2 disabled:opacity-50"
                     >
                       <Download size={16} />
                       {exporting ? (isAr ? "جاري التصدير..." : "Exporting...") : (isAr ? "الكل (PDF)" : "All (PDF)")}
@@ -446,30 +442,25 @@ export default function DentistReport({ procedures, payments, rangeLabel, isAr }
                 </Protect>
               </div>
             </div>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart
-                data={activeDentist.procedures.slice(0, 10)}
-                layout="vertical"
-                margin={{ left: 80, right: 20 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                <XAxis type="number" tick={{ fontSize: 10, fontWeight: "bold" }} />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  tick={{ fontSize: 9, fontWeight: "bold", fill: "#64748b" }}
-                  width={80}
-                  tickFormatter={(v: string) => v.length > 14 ? v.slice(0, 14) + "…" : v}
-                />
-                <Tooltip
-                  formatter={(v, name) => [
-                    Number(v || 0),
-                    String(name) === "count" ? (isAr ? "العدد" : "Count") : (isAr ? "الدخل" : "Income"),
-                  ]}
-                />
-                <Bar dataKey="count" fill="#2563eb" radius={[0, 4, 4, 0]} name="count" />
-              </BarChart>
-            </ResponsiveContainer>
+            {/*
+              Was a recharts bar chart with a category axis, and its labels could not be read: 9px,
+              reserved 80px of width INSIDE an 80px left margin so the axis and the plot fought over
+              the same strip, and every treatment name longer than fourteen characters was cut with
+              an ellipsis and then wrapped on top of the bar beside it. In Arabic it was worse, and
+              it was drawn in a blue that appears nowhere else on the page.
+
+              The same list, with each name on its own line above its own bar. Counts here and money
+              on the card opposite: how OFTEN against how MUCH, which are the two halves of the
+              question and are worth seeing side by side.
+            */}
+            <Bars
+              rows={activeDentist.procedures.slice(0, 10).map((p, i) => ({
+                label: p.name,
+                value: p.count,
+                text: isAr ? `${p.count} مرة` : `${p.count}×`,
+                color: i === 0 ? MARK : INK,
+              }))}
+            />
           </div>
         </div>
       )}

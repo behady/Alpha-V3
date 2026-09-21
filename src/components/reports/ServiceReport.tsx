@@ -260,7 +260,7 @@ export default function ServiceReport({ procedures, payments, rangeLabel, isAr }
             <button
               data-tour="reports-export-pdf" onClick={handlePdfExport}
               disabled={exporting}
-              className="px-4 py-2 bg-slate-800 text-ink-on-accent text-sm font-bold rounded-xl hover:bg-accent transition-colors flex items-center gap-2 disabled:opacity-50"
+              className="px-4 py-2 bg-ink-slab text-white text-sm font-bold rounded-xl hover:bg-ink-strong transition-colors flex items-center gap-2 disabled:opacity-50"
             >
               <Download size={16} />
               {exporting ? (isAr ? "جاري التصدير..." : "Exporting...") : "PDF"}
