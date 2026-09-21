@@ -98,7 +98,7 @@ export default function CaseSheetReport({ procedures, payments, rangeLabel, isAr
         [columns[6]]: r.doctorName,
         [columns[7]]: r.share,
       })),
-      `cases-${rangeLabel}`,
+      `Case_Sheet_${new Date().toISOString().slice(0, 10)}`,
     );
 
   const selectClass =

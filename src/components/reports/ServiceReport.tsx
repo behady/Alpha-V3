@@ -8,7 +8,7 @@ import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
 import { ledgerCashValue } from "@/lib/reportHelpers";
 import { useUI } from "@/context/UIContext";
 import { attributeService, buildProcedureIndex, type AttributableRow } from "@/lib/serviceAttribution";
-import { Bars, ChartFrame, INK, MARK } from "@/components/reports/chartKit";
+import { Bars, ChartFrame, Figure, INK, MARK } from "@/components/reports/chartKit";
 
 interface ServiceStat {
   name: string;
@@ -209,17 +209,21 @@ export default function ServiceReport({ procedures, payments, rangeLabel, isAr }
 
   return (
     <div className="space-y-6">
-      {/* KPI Strip */}
+      {/*
+        The figures, in one ink and in the figures font.
+        A strip of four numbers coloured blue, green, amber and black told the reader that three of
+        them were categories of something — which they are not; they are one sum broken into parts.
+        Colour is kept for the one thing it means here: money going the wrong way.
+      */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          { label: isAr ? "إجمالي الإجراءات" : "Total Services", value: totalCount.toString(), color: "text-blue-600" },
-          { label: isAr ? "إجمالي الدخل" : "Total Income", value: `${totalIncome.toLocaleString()} EGP`, color: "text-emerald-600" },
-          { label: isAr ? "العمولات" : "Commissions", value: `(${totalCommission.toLocaleString()}) EGP`, color: "text-amber-600" },
-          { label: isAr ? "صافي الدخل" : "Net Income", value: `${totalNet.toLocaleString()} EGP`, color: "text-ink" },
+          { label: isAr ? "إجمالي الإجراءات" : "Total Services", value: totalCount.toString() },
+          { label: isAr ? "إجمالي الدخل" : "Total Income", value: `${totalIncome.toLocaleString()} EGP` },
+          { label: isAr ? "العمولات" : "Commissions", value: `(${totalCommission.toLocaleString()}) EGP`, tone: "muted" as const },
+          { label: isAr ? "صافي الدخل" : "Net Income", value: `${totalNet.toLocaleString()} EGP` },
         ].map((k) => (
-          <div key={k.label} className="bg-surface border border-line shadow-sm rounded-2xl p-4 flex flex-col gap-1">
-            <p className="text-[10px] font-black text-ink-muted uppercase tracking-wider">{k.label}</p>
-            <p className={`text-xl font-black tabular-nums ${k.color}`}>{k.value}</p>
+          <div key={k.label} className="bg-surface border border-line shadow-sm rounded-2xl p-4">
+            <Figure value={k.value} label={k.label} tone={k.tone} />
           </div>
         ))}
       </div>

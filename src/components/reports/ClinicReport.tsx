@@ -12,7 +12,7 @@ import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
 import { ledgerCashValue } from "@/lib/reportHelpers";
 import { useUI } from "@/context/UIContext";
 import { attributeService, buildProcedureIndex, type AttributableRow } from "@/lib/serviceAttribution";
-import { ANIM, Bars, ChartFrame, GRID, INK, MARK, ReportEmpty, ReportTip, TICK } from "@/components/reports/chartKit";
+import { ANIM, Bars, ChartFrame, Figure, GRID, INK, MARK, ReportEmpty, ReportTip, TICK } from "@/components/reports/chartKit";
 import { bucketKey, bucketsFor, type BucketKind, type Period } from "@/lib/dentistReport";
 
 interface Props {
@@ -305,17 +305,22 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
 
   return (
     <div className="space-y-6">
-      {/* KPI Strip */}
+      {/*
+        The figures, in one ink and in the figures font.
+        A strip of four numbers coloured blue, green, amber and black told the reader that three of
+        them were categories of something — which they are not; they are one sum broken into parts.
+        Colour is kept for the one thing it means here: money going the wrong way.
+      */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
         {[
-          { l: isAr ? "إجمالي الدخل" : "Total Income", v: `${totalIncome.toLocaleString()} EGP`, c: "text-emerald-600" },
-          { l: isAr ? "الاستقطاعات" : "Deductions", v: `(${totalCommissions.toLocaleString()}) EGP`, c: "text-amber-600" },
-          { l: isAr ? "المصروفات" : "Expenses", v: `(${totalExpenses.toLocaleString()}) EGP`, c: "text-red-600" },
-          { l: isAr ? "صافي الربح" : "Net Profit", v: `${netProfit.toLocaleString()} EGP`, c: netProfit >= 0 ? "text-ink" : "text-red-600" },
+          { l: isAr ? "إجمالي الدخل" : "Total Income", v: `${totalIncome.toLocaleString()} EGP` },
+          { l: isAr ? "الاستقطاعات" : "Deductions", v: `(${totalCommissions.toLocaleString()}) EGP`, tone: "muted" as const },
+          { l: isAr ? "المصروفات" : "Expenses", v: `(${totalExpenses.toLocaleString()}) EGP`, tone: "muted" as const },
+          // The one figure that earns a colour, and only when it is actually negative.
+          { l: isAr ? "صافي الربح" : "Net Profit", v: `${netProfit.toLocaleString()} EGP`, tone: netProfit >= 0 ? ("ink" as const) : ("bad" as const) },
         ].map((k) => (
           <div key={k.l} className="bg-surface border border-line shadow-sm rounded-2xl p-4">
-            <p className="text-[10px] font-black text-ink-muted uppercase tracking-wider">{k.l}</p>
-            <p className={`text-xl font-black tabular-nums mt-1 ${k.c}`}>{k.v}</p>
+            <Figure value={k.v} label={k.l} tone={k.tone} />
           </div>
         ))}
       </div>

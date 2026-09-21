@@ -65,7 +65,7 @@ export default function PayerReport({ procedures, payments, payers, rangeLabel, 
         [isAr ? "نسب الأطباء" : "Commission"]: p.commission,
         [isAr ? "صافي العيادة" : "Clinic net"]: p.clinicNet,
       })),
-      `payers-${rangeLabel}`,
+      `Payers_${new Date().toISOString().slice(0, 10)}`,
     );
 
   if (report.totals.cases === 0 && report.totals.collected === 0) {
