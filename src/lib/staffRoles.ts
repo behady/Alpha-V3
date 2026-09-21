@@ -21,5 +21,24 @@ export function formatStaffRoleLabel(member: StaffRoleFields, isAr = false): str
     return `${base} · ${isAr ? "طبيب" : "Dentist"}`;
   }
   if (member.role === "Owner") return isAr ? "المالك" : "Owner";
+  /**
+   * The other roles were returned in English even in Arabic, so an Arabic screen labelled its own
+   * team "Dentist", "Receptionist", "Assistant" — the roles are stored in English on purpose (they
+   * are data), but the label on screen is not data.
+   */
+  if (isAr) {
+    const ar: Record<string, string> = {
+      Admin: "مدير",
+      Dentist: "طبيب",
+      Receptionist: "استقبال",
+      Assistant: "مساعد",
+      Nurse: "تمريض",
+      Hygienist: "أخصائي تنظيف",
+      Accountant: "حسابات",
+      Manager: "مدير عام",
+      Staff: "موظف",
+    };
+    if (member.role && ar[member.role]) return ar[member.role];
+  }
   return member.role || (isAr ? "غير معروف" : "Unknown");
 }
