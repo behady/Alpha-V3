@@ -6,6 +6,7 @@ import { exportToExcel } from "./reportExcelUtils";
 import { buildPayerReport, byDoctor, type LedgerRowLite } from "@/lib/payerReport";
 import { PRIVATE_PAYER_ID, type Payer } from "@/lib/payers";
 import InsurerBadge from "@/components/shared/InsurerBadge";
+import { ChartFrame, Figure, INK, MARK } from "@/components/reports/chartKit";
 
 /**
  * Insurance, as the clinic's books see it.
@@ -75,6 +76,21 @@ export default function PayerReport({ procedures, payments, payers, rangeLabel, 
     );
   }
 
+  /**
+   * Charged against collected, one insurer per row.
+   *
+   * This is the only question the table cannot answer at a glance, and it is the question insurance
+   * work exists to raise: private patients pay on the day, so the two figures sit on top of each
+   * other; an insurer's do not, and the GAP between the bars is the money the clinic has done the
+   * work for and not yet seen. On a private-only clinic the bars line up and the chart quietly says
+   * "nothing to watch here", which is the correct answer rather than an empty panel.
+   */
+  const chartRows = columns
+    .filter((p) => p.charged > 0 || p.collected > 0)
+    .sort((a, b) => b.charged - a.charged)
+    .slice(0, 8);
+  const chartMax = Math.max(1, ...chartRows.map((p) => Math.max(p.charged, p.collected)));
+
   return (
     <div className="space-y-8">
       {/* Why the Private column may be bigger than it looks. Said once, plainly, at the top. */}
@@ -86,6 +102,65 @@ export default function PayerReport({ procedures, payments, payers, rangeLabel, 
             : `${report.unstamped.procedures} treatments and ${report.unstamped.payments} payments were recorded before payers were set up, so they are counted as Private — there is no way to know what they were.`}
         </p>
       )}
+
+      {/* --- the shape of it, before the table ---------------------------------------------- */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_auto]">
+        <ChartFrame
+          title={isAr ? "المطلوب مقابل المحصّل" : "Charged against collected"}
+          note={
+            isAr
+              ? "الفرق بين العمودين هو الشغل اللي اتعمل ولسه فلوسه مجتش."
+              : "The gap between the two bars is work done and not yet paid for."
+          }
+        >
+          <div className="flex flex-col gap-4">
+            {chartRows.map((p) => {
+              const owed = Math.max(0, p.charged - p.collected);
+              return (
+                <div key={p.payerId}>
+                  <div className="mb-1.5 flex items-center justify-between gap-3">
+                    <span className="flex min-w-0 items-center gap-2 text-[13px] font-bold text-ink">
+                      <InsurerBadge name={p.payerName} isPrivate={p.payerId === PRIVATE_PAYER_ID} size={16} />
+                      <span className="truncate">{p.payerName}</span>
+                    </span>
+                    <span className="shrink-0 font-figure text-xs font-semibold text-ink-muted">
+                      {fmt(p.collected)} / {fmt(p.charged)}
+                    </span>
+                  </div>
+                  {/* Collected drawn INSIDE charged rather than beside it: two bars side by side
+                      invite the reader to compare their lengths, when the thing being read is how
+                      much of the first one the second one fills. */}
+                  <div className="h-3 overflow-hidden rounded bg-surface-muted" style={{ width: `${Math.max(4, (p.charged / chartMax) * 100)}%` }}>
+                    <div
+                      className="h-full rounded transition-[width] duration-700 ease-out"
+                      style={{
+                        width: `${p.charged > 0 ? Math.min(100, (p.collected / p.charged) * 100) : 0}%`,
+                        background: p.payerId === PRIVATE_PAYER_ID ? INK : MARK,
+                      }}
+                    />
+                  </div>
+                  {owed > 0 && (
+                    <p className="mt-1 font-figure text-[10.5px] font-bold text-ink-muted">
+                      {isAr ? `باقي ${fmt(owed)}` : `${fmt(owed)} outstanding`}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </ChartFrame>
+
+        {/* The three figures the chart is an argument about. */}
+        <div className="flex flex-row flex-wrap items-start gap-8 rounded-2xl border border-line bg-surface p-5 lg:w-56 lg:flex-col lg:gap-7">
+          <Figure value={fmt(report.totals.charged)} label={isAr ? "المطلوب" : "Charged"} />
+          <Figure value={fmt(report.totals.collected)} label={isAr ? "المحصّل" : "Collected"} />
+          <Figure
+            value={fmt(Math.max(0, report.totals.charged - report.totals.collected))}
+            label={isAr ? "لسه مجاش" : "Still owed"}
+            tone={report.totals.charged - report.totals.collected > 0 ? "bad" : "muted"}
+          />
+        </div>
+      </div>
 
       {/* --- by payer ----------------------------------------------------------------------- */}
       <section>

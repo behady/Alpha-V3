@@ -2,15 +2,16 @@
 
 import { useMemo, useRef, useState } from "react";
 import {
-  PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
+  Tooltip, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from "recharts";
-import { Download, UserCheck, FileBarChart, FileSpreadsheet } from "lucide-react";
-import { exportToExcel, CHART_COLORS, parseMoney } from "./reportExcelUtils";
+import { Download, UserCheck, FileSpreadsheet } from "lucide-react";
+import { exportToExcel, parseMoney } from "./reportExcelUtils";
 import { ledgerCashValue } from "@/lib/reportHelpers";
 import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
 import { useUI } from "@/context/UIContext";
 import Protect from "@/components/Protect";
+import { Bars, INK, MARK } from "@/components/reports/chartKit";
 
 interface ProcStat { name: string; count: number; income: number; }
 
@@ -328,7 +329,7 @@ export default function DentistReport({ procedures, payments, rangeLabel, isAr }
     <div className="space-y-6">
       {/* Overview cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-        {stats.map((s, i) => (
+        {stats.map((s) => (
           <button
             key={s.name}
             type="button"
@@ -340,10 +341,6 @@ export default function DentistReport({ procedures, payments, rangeLabel, isAr }
             }`}
           >
             <div className="flex items-center gap-2 mb-3">
-              <span
-                className="w-3 h-3 rounded-full shrink-0"
-                style={{ background: CHART_COLORS[i % CHART_COLORS.length] }}
-              />
               <p className={`text-xs font-black uppercase tracking-wide ${activeDentist?.name === s.name ? "text-slate-300" : "text-slate-500"}`}>
                 Dr. {s.name}
               </p>
@@ -369,33 +366,26 @@ export default function DentistReport({ procedures, payments, rangeLabel, isAr }
             <h3 className="text-sm font-black text-ink mb-1">Dr. {activeDentist.name}</h3>
             {/* Export hint */}
             <div className="flex items-center gap-2 text-[11px] text-slate-400 font-medium pt-2">
-              <FileBarChart size={14} />
+              <FileSpreadsheet size={14} />
               <span>{isAr ? "اضغط على زر Excel لتصدير ملخص أداء الأطباء كجدول بيانات." : "Click the Excel button above to export a summary of dentist performance as a spreadsheet."}</span>
             </div>
+            {/*
+              Was a donut of how MANY treatments each dentist did, which answers the less
+              interesting half of the question: twelve consultations and one implant are not
+              comparable quantities. The money is what the rest of this tab is about.
+            */}
             <p className="text-xs text-slate-400 font-medium mb-4">
-              {isAr ? "توزيع الإجراءات" : "Procedure distribution"}
+              {isAr ? "شغله حسب الدخل" : "Their work, by income"}
             </p>
             <div ref={chartRef}>
-              <ResponsiveContainer width="100%" height={240}>
-                <PieChart>
-                  <Pie
-                    data={activeDentist.procedures.slice(0, 8).map((p) => ({ name: p.name, value: p.count }))}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={65}
-                    outerRadius={95}
-                    paddingAngle={4}
-                    cornerRadius={8}
-                    stroke="none"
-                    dataKey="value"
-                  >
-                    {activeDentist.procedures.slice(0, 8).map((_, i) => (
-                      <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(v) => [Number(v || 0), isAr ? "العدد" : "Count"]} />
-                </PieChart>
-              </ResponsiveContainer>
+              <Bars
+                rows={activeDentist.procedures.slice(0, 8).map((p, i) => ({
+                  label: p.name,
+                  value: p.income,
+                  text: `${p.count} × · ${p.income.toLocaleString()} ${isAr ? "ج.م" : "EGP"}`,
+                  color: i === 0 ? MARK : INK,
+                }))}
+              />
             </div>
             {/* KPI row */}
             <div className="grid grid-cols-3 gap-2 mt-4 border-t border-slate-100 pt-4">

@@ -2,15 +2,18 @@
 
 import { useMemo, useRef, useState } from "react";
 import {
-  PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend,
+  Tooltip, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  AreaChart, Area,
 } from "recharts";
-import { Download, Building2, FileSpreadsheet, FileBarChart } from "lucide-react";
-import { exportToExcel, CHART_COLORS, parseMoney } from "./reportExcelUtils";
+import { Download, Building2, FileSpreadsheet } from "lucide-react";
+import { exportToExcel, parseMoney } from "./reportExcelUtils";
 import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
 import { ledgerCashValue } from "@/lib/reportHelpers";
 import { useUI } from "@/context/UIContext";
 import { attributeService, buildProcedureIndex, type AttributableRow } from "@/lib/serviceAttribution";
+import { ANIM, Bars, ChartFrame, GRID, INK, MARK, ReportEmpty, ReportTip, TICK } from "@/components/reports/chartKit";
+import { bucketKey, bucketsFor, type BucketKind, type Period } from "@/lib/dentistReport";
 
 interface Props {
   procedures: Record<string, unknown>[];
@@ -113,6 +116,38 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
   }, [allPatients, procedures, payments, startDate, endDate]);
 
   const totalIncome = serviceStats.reduce((s, r) => s + r.income, 0);
+
+  /**
+   * The money, day by day across whatever period is on screen.
+   *
+   * The one thing the reports section could not show and every owner asks first: not "how much did
+   * I take" — the figure above already says that — but "when". A quiet week, a dead Tuesday, the day
+   * the phone stopped ringing are all invisible in a total and obvious here.
+   *
+   * Every bucket in the range is emitted, including the empty ones, using the app's own bucketing
+   * (`src/lib/dentistReport.ts`) rather than a second implementation: it starts the week on
+   * SATURDAY, the Egyptian working week, and a chart that skipped its empty days would draw a
+   * closed Friday as if it never happened — which is a line that lies about the shape of the week.
+   */
+  const cashByDay = useMemo(() => {
+    const bucket: BucketKind = ((): BucketKind => {
+      const days = Math.round((Date.parse(`${endDate}T00:00:00`) - Date.parse(`${startDate}T00:00:00`)) / 86400000) + 1;
+      // Past roughly two months a per-day axis is a comb nobody can read.
+      return days <= 62 ? "day" : days <= 400 ? "week" : "month";
+    })();
+    const period: Period = { start: startDate, end: endDate, bucket, kind: "month" };
+    const buckets = bucketsFor(period, isAr);
+    const totals = new Map<string, number>();
+    for (const pay of payments) {
+      const ymd = String((pay as { date?: unknown }).date || "").slice(0, 10);
+      if (!ymd || ymd < startDate || ymd > endDate) continue;
+      const key = bucketKey(ymd, bucket);
+      totals.set(key, (totals.get(key) || 0) + ledgerCashValue(pay));
+    }
+    return buckets.map((b) => ({ label: b.label, value: Math.round(totals.get(b.key) || 0) }));
+  }, [payments, startDate, endDate, isAr]);
+
+  const cashPeak = Math.max(0, ...cashByDay.map((d) => d.value));
   const totalProcs = serviceStats.reduce((s, r) => s + r.count, 0);
   const totalCommissions = payments?.reduce((s, p) => s + parseMoney(p.doctorCommissionAmount), 0) || 0;
   const totalExpenses = payments?.filter(p => p.type === "expense").reduce((s, p) => s + parseMoney(p.cost || p.amount), 0) || 0;
@@ -304,23 +339,89 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
         ))}
       </div>
 
+      {/* --- the money over time -------------------------------------------------------- */}
+      <ChartFrame
+        title={isAr ? "الفلوس يوم بيوم" : "Money, day by day"}
+        note={
+          cashPeak > 0
+            ? isAr
+              ? `أعلى يوم ${cashPeak.toLocaleString()} ج.م.`
+              : `Best in the period: ${cashPeak.toLocaleString()} EGP.`
+            : undefined
+        }
+      >
+        {cashPeak === 0 ? (
+          <ReportEmpty reason="money" isAr={isAr} />
+        ) : (
+          <ResponsiveContainer width="100%" height={230}>
+            <AreaChart data={cashByDay} margin={{ top: 6, right: 6, bottom: 0, left: -18 }}>
+              <defs>
+                <linearGradient id="cashFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={INK} stopOpacity={0.14} />
+                  <stop offset="100%" stopColor={INK} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              {/* Horizontal rules only: the vertical ones divide days, and the days are already
+                  divided by being days. */}
+              <CartesianGrid stroke={GRID} strokeDasharray="0" vertical={false} />
+              <XAxis dataKey="label" tick={TICK} tickLine={false} axisLine={false} interval="preserveStartEnd" reversed={isAr} />
+              <YAxis
+                tick={TICK}
+                tickLine={false}
+                axisLine={false}
+                width={54}
+                orientation={isAr ? "right" : "left"}
+                tickFormatter={(v: number) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v))}
+              />
+              <Tooltip
+                cursor={{ stroke: GRID }}
+                content={(props) => (
+                  <ReportTip
+                    {...props}
+                    isAr={isAr}
+                    labelPrefix={isAr ? "يوم" : ""}
+                    fmt={(n) => `${n.toLocaleString()} ${isAr ? "ج.م" : "EGP"}`}
+                  />
+                )}
+              />
+              <Area
+                type="monotone"
+                dataKey="value"
+                name={isAr ? "محصّل" : "Collected"}
+                stroke={INK}
+                strokeWidth={2}
+                fill="url(#cashFill)"
+                animationDuration={ANIM}
+                dot={false}
+                activeDot={{ r: 4, fill: MARK, stroke: INK, strokeWidth: 2 }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
+      </ChartFrame>
+
       {/* Charts + Table */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-        {/* Patient pie */}
-        <div className="xl:col-span-4 bg-surface rounded-2xl border border-line p-5 shadow-sm">
-          <h3 className="text-sm font-black text-ink mb-4">{isAr ? "توزيع المرضى" : "Patient Distribution"}</h3>
-          <div ref={chartRef}>
-            <ResponsiveContainer width="100%" height={200}>
-              <PieChart>
-                <Pie data={patientPieData} cx="50%" cy="50%" outerRadius={85} innerRadius={55} paddingAngle={4} cornerRadius={8} stroke="none" dataKey="value">
-                  <Cell fill="#7c3aed" />
-                  <Cell fill="#2563eb" />
-                </Pie>
-                <Tooltip formatter={(v, name) => [Number(v || 0), String(name)]} />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
+        {/*
+          Two numbers do not need a ring, a legend and four colours. They need to be next to each
+          other, which is the comparison — and the money each group brought in, which the donut
+          carried in its data and never showed.
+        */}
+        <div className="xl:col-span-4" ref={chartRef}>
+          <ChartFrame
+            title={isAr ? "مرضى جدد وحاليين" : "New and returning patients"}
+            note={isAr ? "العدد، وفلوسهم." : "How many, and what they were worth."}
+          >
+            <Bars
+              rows={patientPieData.map((d, i) => ({
+                label: d.name,
+                value: d.value,
+                text: `${d.value} · ${d.income.toLocaleString()} ${isAr ? "ج.م" : "EGP"}`,
+                // The mark on new patients: on this screen they are the thing being watched.
+                color: i === 0 ? MARK : INK,
+              }))}
+            />
+          </ChartFrame>
         </div>
 
         {/* Top procedures bar */}
@@ -365,11 +466,8 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
                   tickFormatter={(v: string) => v.length > 15 ? v.slice(0, 15) + "…" : v}
                 />
                 <Tooltip formatter={(v) => [`${Number(v || 0).toLocaleString()} EGP`, isAr ? "الدخل" : "Income"]} />
-                <Bar dataKey="income" fill="#2563eb" radius={[0, 4, 4, 0]}>
-                  {serviceStats.slice(0, 8).map((_, i) => (
-                    <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                  ))}
-                </Bar>
+                {/* One ink. Eight bars of eight colours said nothing the eight lengths did not. */}
+                <Bar dataKey="income" fill={INK} radius={[0, 4, 4, 0]} animationDuration={ANIM} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -394,10 +492,7 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
             <tbody className="divide-y divide-slate-50">
               {serviceStats.map((s, i) => (
                 <tr key={i} className="hover:bg-surface-subtle transition-colors">
-                  <td className="py-3 px-4 font-semibold text-slate-800 text-xs flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
-                    {s.name}
-                  </td>
+                  <td className="py-3 px-4 font-semibold text-slate-800 text-xs">{s.name}</td>
                   <td className="py-3 px-4 text-center">
                     <span className="inline-flex items-center justify-center w-6 h-6 rounded-lg bg-blue-50 text-blue-700 text-[11px] font-black">{s.count}</span>
                   </td>

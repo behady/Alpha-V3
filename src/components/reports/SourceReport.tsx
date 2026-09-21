@@ -1,13 +1,13 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
-import { Network, ChevronDown, ChevronRight, FileBarChart, FileSpreadsheet, Download } from "lucide-react";
-import { exportToExcel, CHART_COLORS, parseMoney } from "./reportExcelUtils";
+import { Network, ChevronDown, ChevronRight, FileSpreadsheet, Download } from "lucide-react";
+import { exportToExcel, parseMoney } from "./reportExcelUtils";
 import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
 import { ledgerCashValue } from "@/lib/reportHelpers";
 import { useUI } from "@/context/UIContext";
 import { attributeService, buildProcedureIndex } from "@/lib/serviceAttribution";
+import { Bars, ChartFrame, GHOST, INK, MARK } from "@/components/reports/chartKit";
 
 interface SourceStat {
   name: string;
@@ -139,7 +139,6 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
 
   const totalPatients = stats.reduce((a, s) => a + s.patientCount, 0);
   const totalIncome = stats.reduce((a, s) => a + s.totalIncome, 0);
-  const pieData = stats.map((s) => ({ name: s.name, value: s.totalIncome }));
 
   const handleExcelExport = () => {
     setExporting(true);
@@ -300,33 +299,41 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-        {/* Pie */}
-        <div className="xl:col-span-4 bg-surface rounded-2xl border border-line p-5 shadow-sm">
-          <h3 className="text-sm font-black text-ink mb-4">{isAr ? "توزيع الدخل" : "Income Distribution"}</h3>
-          <div ref={chartRef}>
-            <ResponsiveContainer width="100%" height={230}>
-              <PieChart>
-                <Pie data={pieData} cx="50%" cy="50%" outerRadius={90} innerRadius={60} paddingAngle={4} cornerRadius={8} stroke="none" dataKey="value">
-                  {pieData.map((_, i) => (
-                    <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(v) => [`${Number(v || 0).toLocaleString()} EGP`, isAr ? "الدخل" : "Income"]} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-          {/* Legend */}
-          <div className="space-y-1.5 mt-2">
-            {stats.slice(0, 6).map((s, i) => (
-              <div key={s.name} className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
-                  <span className="text-xs font-semibold text-slate-700">{s.name}</span>
-                </div>
-                <span className="text-xs font-black tabular-nums text-emerald-600">{s.totalIncome.toLocaleString()}</span>
-              </div>
-            ))}
-          </div>
+        {/*
+          The donut drew every source while its legend listed six, so the ring and the list below it
+          described different things. One labelled list now, with the remainder stated rather than
+          drawn and left unnamed.
+        */}
+        <div className="xl:col-span-4" ref={chartRef}>
+          <ChartFrame
+            title={isAr ? "الدخل حسب المصدر" : "Income by source"}
+            note={
+              stats.length > 6
+                ? isAr
+                  ? `أعلى ٦ من ${stats.length} مصدر.`
+                  : `The top 6 of ${stats.length} sources.`
+                : undefined
+            }
+          >
+            <Bars
+              rows={[
+                ...stats.slice(0, 6).map((s, i) => ({
+                  label: s.name,
+                  value: s.totalIncome,
+                  text: `${s.totalIncome.toLocaleString()} ${isAr ? "ج.م" : "EGP"}`,
+                  color: i === 0 ? MARK : INK,
+                })),
+                ...(stats.length > 6
+                  ? [{
+                      label: isAr ? `باقي المصادر (${stats.length - 6})` : `Other sources (${stats.length - 6})`,
+                      value: stats.slice(6).reduce((n, s) => n + s.totalIncome, 0),
+                      text: `${stats.slice(6).reduce((n, s) => n + s.totalIncome, 0).toLocaleString()} ${isAr ? "ج.م" : "EGP"}`,
+                      color: GHOST,
+                    }]
+                  : []),
+              ]}
+            />
+          </ChartFrame>
         </div>
 
         {/* Sources table with expandable rows */}
@@ -353,14 +360,13 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
             </div>
           </div>
           <div className="divide-y divide-slate-100">
-            {stats.map((s, i) => (
+            {stats.map((s) => (
               <div key={s.name}>
                 <button
                   type="button"
                   onClick={() => setExpanded(expanded === s.name ? null : s.name)}
                   className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-surface-subtle transition-colors text-start"
                 >
-                  <span className="w-3 h-3 rounded-full shrink-0" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
                   <span className="flex-1 font-bold text-sm text-slate-800">{s.name}</span>
                   <span className="text-xs text-ink-muted font-semibold">{s.patientCount} {isAr ? "مريض" : "patients"}</span>
                   <span className="text-xs font-black text-emerald-600 tabular-nums w-24 text-end">{s.totalIncome.toLocaleString()} EGP</span>

@@ -1,15 +1,14 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import {
-  PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
-} from "recharts";
+
 import { Download, FileBarChart, Stethoscope, FileSpreadsheet } from "lucide-react";
-import { exportToExcel, CHART_COLORS, parseMoney } from "./reportExcelUtils";
+import { exportToExcel, parseMoney } from "./reportExcelUtils";
 import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
 import { ledgerCashValue } from "@/lib/reportHelpers";
 import { useUI } from "@/context/UIContext";
 import { attributeService, buildProcedureIndex, type AttributableRow } from "@/lib/serviceAttribution";
+import { Bars, ChartFrame, INK, MARK } from "@/components/reports/chartKit";
 
 interface ServiceStat {
   name: string;
@@ -227,33 +226,26 @@ export default function ServiceReport({ procedures, payments, rangeLabel, isAr }
 
       {/* Chart + Table */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-        {/* Pie Chart */}
-        <div className="xl:col-span-5 bg-surface rounded-2xl border border-line p-5 shadow-sm">
-          <h3 className="text-sm font-black text-ink mb-4">
-            {isAr ? "توزيع الدخل حسب الخدمة" : "Income by Service"}
-          </h3>
-          <div ref={chartRef}>
-            <ResponsiveContainer width="100%" height={260}>
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={65}
-                  outerRadius={95}
-                  paddingAngle={4}
-                  cornerRadius={8}
-                  stroke="none"
-                  dataKey="value"
-                >
-                  {pieData.map((_, i) => (
-                    <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(v) => [`${Number(v || 0).toLocaleString()} EGP`, isAr ? "الدخل" : "Income"]} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
+        {/*
+          Eight coloured slices and a colour-matching exercise, replaced by eight labelled bars.
+          A treatment name sits against its own bar, which also means a long Arabic name is read
+          rather than truncated into a legend.
+        */}
+        <div className="xl:col-span-5" ref={chartRef}>
+          <ChartFrame
+            title={isAr ? "الدخل حسب الخدمة" : "Income by service"}
+            note={isAr ? "أعلى ٨ خدمات في الفترة." : "The eight biggest earners in this period."}
+          >
+            <Bars
+              rows={pieData.map((d, i) => ({
+                label: d.name,
+                value: d.value,
+                text: `${d.value.toLocaleString()} ${isAr ? "ج.م" : "EGP"}`,
+                // One mark, on the biggest — the row the chart exists to point at.
+                color: i === 0 ? MARK : INK,
+              }))}
+            />
+          </ChartFrame>
         </div>
 
         {/* Table */}
@@ -294,10 +286,7 @@ export default function ServiceReport({ procedures, payments, rangeLabel, isAr }
                 {stats.map((s, i) => (
                   <tr key={i} className="hover:bg-surface-subtle transition-colors">
                     <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
-                        <span className="font-semibold text-slate-800 text-xs">{s.name}</span>
-                      </div>
+                      <span className="font-semibold text-slate-800 text-xs">{s.name}</span>
                     </td>
                     <td className="py-3 px-3 text-center">
                       <span className="inline-flex items-center justify-center w-6 h-6 rounded-lg bg-blue-50 text-blue-700 text-[11px] font-black">{s.count}</span>
