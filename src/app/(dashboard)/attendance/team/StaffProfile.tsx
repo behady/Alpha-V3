@@ -141,7 +141,7 @@ export default function StaffProfile({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {row?.activeNow && (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-3 py-1 text-[11px] font-bold text-emerald-300">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-[11px] font-bold text-white/80">
                 <Hourglass size={11} /> {isAr ? "موجود دلوقتي" : "On the floor"}
               </span>
             )}
@@ -185,12 +185,23 @@ export default function StaffProfile({
 
       {/* --- what the period looked like ------------------------------------------------------ */}
       {row && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        <div className={`grid grid-cols-2 gap-3 ${scheduleAssumed ? "sm:grid-cols-3" : "sm:grid-cols-5"}`}>
           {[
             { v: String(row.daysWorked), l: isAr ? "أيام حضور" : "Days worked" },
-            { v: String(row.scheduledDays), l: isAr ? "أيام مطلوبة" : "Days scheduled" },
-            { v: String(row.lateDays), l: isAr ? "أيام تأخير" : "Late days", bad: row.lateDays > 0 },
-            { v: String(row.absentDays), l: isAr ? "غياب" : "Absent", bad: row.absentDays > 0 },
+            /*
+              Lateness and absence are dropped when the roster is assumed. The engine judges a
+              person against whatever roster it is handed, so an assumed one reported "16 absences"
+              in red for somebody nobody has ever rostered — which is a fact about the assumption,
+              not about them. Hours and overtime survive because they come from real punches.
+            */
+            ...(scheduleAssumed
+              ? []
+              : [
+                  { v: String(row.scheduledDays), l: isAr ? "أيام مطلوبة" : "Days scheduled" },
+                  { v: String(row.lateDays), l: isAr ? "أيام تأخير" : "Late days", bad: row.lateDays > 0 },
+                  { v: String(row.absentDays), l: isAr ? "غياب" : "Absent", bad: row.absentDays > 0 },
+                ]),
+            { v: String(row.openShifts), l: isAr ? "ورديات مفتوحة" : "Open shifts", bad: row.openShifts > 0 },
             { v: hoursText(row.overtimePendingMinutes), l: isAr ? "إضافي مستني" : "Overtime pending", bad: row.overtimePendingMinutes > 0 },
           ].map((k) => (
             <div key={k.l} className="rounded-2xl border border-line bg-surface p-4">
@@ -221,9 +232,7 @@ export default function StaffProfile({
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-3">
                       <span
-                        className={`grid size-10 shrink-0 place-items-center rounded-xl ${
-                          log.status === "active" ? "bg-emerald-50 text-emerald-600" : "bg-surface-muted text-ink-muted"
-                        }`}
+                        className="grid size-10 shrink-0 place-items-center rounded-xl bg-surface-muted text-ink-muted"
                       >
                         {log.status === "active" ? <Hourglass size={17} className="animate-pulse" /> : <CheckCircle2 size={17} />}
                       </span>
@@ -325,7 +334,7 @@ export default function StaffProfile({
                       <span
                         className={`rounded px-2 py-0.5 text-[10px] font-black uppercase tracking-wider ${
                           log.overtimeStatus === "approved"
-                            ? "bg-emerald-50 text-emerald-700"
+                            ? "bg-ok-tint text-ok"
                             : log.overtimeStatus === "rejected"
                               ? "bg-danger-tint text-danger"
                               : "bg-surface-muted text-ink-body"

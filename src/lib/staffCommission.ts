@@ -86,7 +86,7 @@ function serviceOf(row: CommissionRow): string {
   const desc = String(row.description ?? "").trim();
   if (!desc) return "—";
   // Ledger descriptions are built as "Payment for <name> (T: 11) | 1x500=500".
-  return desc.replace(/^Payment for\s+/i, "").split(/\s*[(|]/)[0].trim() || "—";
+  return desc.replace(/^Payment for:?\s+/i, "").split(/\s*[(|]/)[0].trim() || "—";
 }
 
 /**

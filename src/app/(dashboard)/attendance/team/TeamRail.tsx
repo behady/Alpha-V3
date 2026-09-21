@@ -106,7 +106,8 @@ export default function TeamRail({
                   title={p.onFloor ? (isAr ? "موجود دلوقتي" : "On the floor now") : (isAr ? "محتاج مراجعة" : "Needs a look")}
                   className={`absolute -end-0.5 -bottom-0.5 size-3 rounded-full border-2 ${
                     active ? "border-ink-slab" : "border-surface"
-                  } ${p.onFloor ? "bg-emerald-500" : "bg-amber-500"}`}
+                  }`}
+                  style={{ background: p.onFloor ? "var(--ok)" : "var(--warn)" }}
                 />
               )}
             </span>
