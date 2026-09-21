@@ -14,12 +14,32 @@ export type RailPerson = {
   needsAttention: boolean;
 };
 
+/**
+ * The name without its title.
+ *
+ * Half a clinic's staff rows are stored as "Dr. Hana Mostafa", so taking the first word gave a rail
+ * of people all called "Dr." and a monogram of "DH" for every one of them. The honorific is a title,
+ * not a name.
+ */
+function nameParts(name: string): string[] {
+  return name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((w, i) => !(i === 0 && /^(dr|dr\.|d\.|prof|prof\.|mr|mr\.|mrs|mrs\.|ms|ms\.|د|د\.|دكتور|دكتورة|أستاذ)$/i.test(w)));
+}
+
 /** Two letters, from whichever script the name is in. */
 function initials(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
+  const words = nameParts(name);
   if (words.length === 0) return "?";
   const take = (w: string) => [...w][0] ?? "";
   return (take(words[0]) + (words[1] ? take(words[1]) : "")).toUpperCase();
+}
+
+/** What to call somebody in a rail two inches wide. */
+function shortName(name: string): string {
+  return nameParts(name)[0] || name.trim() || "?";
 }
 
 /**
@@ -92,7 +112,7 @@ export default function TeamRail({
             </span>
             <span className="min-w-0">
               <span className={`block truncate text-[13px] font-bold leading-tight ${active ? "text-white" : "text-ink"}`}>
-                {p.name.split(/\s+/)[0]}
+                {shortName(p.name)}
               </span>
               <span className={`block truncate text-[10px] font-semibold leading-tight ${active ? "text-white/50" : "text-ink-muted"}`}>
                 {formatStaffRoleLabel(p, isAr)}
