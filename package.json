@@ -103,6 +103,7 @@
     "_comment_test_discount": "Price lists and discounts. The two rules that matter: the lab fee is never discounted, and commission is calculated on the net.",
     "test:discount": "npx tsx tests/discountMath.test.mjs",
     "_comment_test_payers": "Insurance work: who paid for a case, what it was worth, and what each dentist earned on it. The assertions that matter are the refusals - an insurer with no rate set pays the dentist their USUAL percentage rather than nothing, a retired insurer named by a stale screen is not resurrected, a payment route may not read a payer off the request body, and two rates in one period read as null rather than as one of them. Plus the arithmetic agreeing with itself: the payer view and the payroll view must total the same, or the owner is holding two answers.",
+    "test:schedule-card": "npx tsx tests/scheduleCard.test.mts",
     "test:staff": "npx tsx tests/staffProfile.test.mts",
     "test:payers": "npx tsx tests/payers.test.mts",
     "_comment_test_cases": "The case sheet: a line per treatment, filtered, totalled and paged. The assertions that matter are the quiet ones - money attaches only to the case that names it (an expense sharing the id is not income), the totals describe the FILTERED rows rather than the period, a page number cannot survive a filter and strand the reader on an empty page, and an Arabic name written without the hamza still finds the patient written with it.",
