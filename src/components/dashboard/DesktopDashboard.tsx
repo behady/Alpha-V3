@@ -43,7 +43,7 @@ import { logActivity } from "@/lib/logger";
 import { MoneyApiError, deleteAppointment } from "@/lib/moneyApi";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { doctorCardLabel, pickerValueFromDoctorField } from "@/lib/generalDentist";
-import { parseClinicSchedule, clinicDayBoundsMinutes, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
+import { parseClinicSchedule, dayBoundsCovering, visitStartInDay, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import { useActiveBranch, ALL_BRANCHES } from "@/lib/useActiveBranch";
 import BranchSelector from "@/components/shared/BranchSelector";
 import type { OwnerAlertKey } from "@/types/whatsapp";
@@ -1326,7 +1326,15 @@ export default function DesktopDashboard() {
                                 />
                             ) : (() => {
                                 const sched = config;
-                                const bounds = clinicDayBoundsMinutes(sched);
+                                // Widened to cover every visit on the day — a booking outside the
+                                // clinic's hours is still a booking, and used to be dropped here.
+                                const bounds = dayBoundsCovering(
+                                    sched,
+                                    appointments.map((apt) => {
+                                        const startMin = parseApptTimeToMinutes(apt.time);
+                                        return { startMin, endMin: startMin + (apt.duration || 30) };
+                                    }),
+                                );
                                 const slotDuration = sched.slotDuration || 30;
                                 const rowHeight = 148;
                                 const pixelsPerMinute = rowHeight / slotDuration;
@@ -1340,7 +1348,10 @@ export default function DesktopDashboard() {
                                     const ampm = h >= 12 ? 'PM' : 'AM';
                                     const h12 = h % 12 || 12;
                                     const label = `${h12.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')} ${ampm}`;
-                                    timeSlots.push({ minutes: m, label });
+                                    // Shaded when the clinic is closed at that hour, so a visit drawn
+                                    // there reads as "outside hours", not as the hours being wrong.
+                                    const outside = m < bounds.clinicStart || m >= bounds.clinicEnd;
+                                    timeSlots.push({ minutes: m, label, outside });
                                 }
 
                                 return (
@@ -1372,7 +1383,7 @@ export default function DesktopDashboard() {
                                             {timeSlots.map((slot, idx) => (
                                                 <div 
                                                     key={idx} 
-                                                    className="border-b border-dashed border-slate-300/60 flex-1 relative pointer-events-auto cursor-pointer hover:bg-white/50 transition-colors group/slot"
+                                                    className={`border-b border-dashed border-slate-300/60 flex-1 relative pointer-events-auto cursor-pointer hover:bg-white/50 transition-colors group/slot ${slot.outside ? 'bg-slate-900/[0.04]' : ''}`}
                                                     style={{ height: `${rowHeight}px` }}
                                                     onClick={() => {
                                                         handleSelectAppointmentWrapper(null);
@@ -1389,14 +1400,16 @@ export default function DesktopDashboard() {
                                         </div>
                                         <div className="absolute inset-0 left-[88px] md:left-[104px] right-2 md:right-4 pointer-events-none">
                                             {(() => {
-                                                const visibleAppts = appointments.filter(apt => {
-                                                    const startMin = parseApptTimeToMinutes(apt.time);
-                                                    return startMin >= bounds.start && startMin < bounds.end;
-                                                }).map(apt => ({
-                                                    ...apt,
-                                                    startMin: parseApptTimeToMinutes(apt.time),
-                                                    endMin: parseApptTimeToMinutes(apt.time) + (apt.duration || 30)
-                                                })).sort((a, b) => a.startMin - b.startMin || b.endMin - a.endMin);
+                                                // Every visit on the day is drawn: the bounds above were
+                                                // widened to fit them, so nothing is filtered out here.
+                                                const visibleAppts = appointments.map(apt => {
+                                                    const startMin = visitStartInDay(parseApptTimeToMinutes(apt.time), bounds);
+                                                    return {
+                                                        ...apt,
+                                                        startMin,
+                                                        endMin: startMin + (apt.duration || 30),
+                                                    };
+                                                }).sort((a, b) => a.startMin - b.startMin || b.endMin - a.endMin);
 
                                                 const blocks: (typeof visibleAppts)[] = [];
                                                 let currentBlock: typeof visibleAppts = [];

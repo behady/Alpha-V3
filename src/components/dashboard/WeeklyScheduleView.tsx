@@ -2,7 +2,7 @@
 
 import React, { useMemo } from "react";
 import { parseApptTimeToMinutes, updateBookingTime } from "@/lib/bookingService";
-import { clinicDayBoundsMinutes, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
+import { dayBoundsCovering, visitStartInDay, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import { getAppointmentStatusStyles } from "@/lib/appointmentStages";
 
 type DashboardAppointment = any;
@@ -35,8 +35,19 @@ export default function WeeklyScheduleView({ appointments, currentDate, language
         return dates;
     }, [currentDate]);
 
-    const bounds = clinicDayBoundsMinutes(config);
-
+    // Widened to cover every visit in the week — a booking outside the clinic's hours is still a
+    // booking, and used to be drawn above the top edge where nobody could see it.
+    const bounds = useMemo(
+        () =>
+            dayBoundsCovering(
+                config,
+                appointments.map((apt) => {
+                    const startMin = parseApptTimeToMinutes(apt.time);
+                    return { startMin, endMin: startMin + (apt.duration || 30) };
+                }),
+            ),
+        [config, appointments],
+    );
 
     const slotDuration = config.slotDuration || 30;
     // The compact dashboard header freed ~260px, so rows can breathe. A 30-minute
@@ -61,7 +72,9 @@ export default function WeeklyScheduleView({ appointments, currentDate, language
             const stdH12 = h % 12 || 12;
             const stdValue = `${stdH12.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')} ${stdAmpm}`;
 
-            slots.push({ minutes: m, label, value: stdValue });
+            // Shaded when the clinic is closed at that hour.
+            const outside = m < bounds.clinicStart || m >= bounds.clinicEnd;
+            slots.push({ minutes: m, label, value: stdValue, outside });
         }
         return slots;
     }, [bounds, slotDuration, language]);
@@ -134,7 +147,7 @@ export default function WeeklyScheduleView({ appointments, currentDate, language
                                         {timeSlots.map((slot, idx) => (
                                             <div 
                                                 key={idx} 
-                                                className="flex-1 border-b border-dashed border-amber-200/40 cursor-pointer hover:bg-amber-50/50 transition-colors"
+                                                className={`flex-1 border-b border-dashed border-amber-200/40 cursor-pointer hover:bg-amber-50/50 transition-colors ${slot.outside ? 'bg-slate-900/[0.04]' : ''}`}
                                                 onClick={() => onSelectAppointment(null, slot.value, dateStr)}
                                             ></div>
                                         ))}
@@ -144,7 +157,7 @@ export default function WeeklyScheduleView({ appointments, currentDate, language
                                     <div className="absolute inset-0 pointer-events-none">
                                         {(() => {
                                             const processedAppts = dayAppts.map(apt => {
-                                                const aptMins = parseApptTimeToMinutes(apt.time);
+                                                const aptMins = visitStartInDay(parseApptTimeToMinutes(apt.time), bounds);
                                                 let dur = apt.duration || 30;
                                                 const maxDur = bounds.end - aptMins;
                                                 if (dur > maxDur) dur = maxDur;

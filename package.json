@@ -30,6 +30,7 @@
     "_comment_test_trial": "When a free trial actually stops, and who decides. The enforcement (firestore.rules isClinicActive, lib/clinicStatus) predated anything writing expiresAt, so trials ran forever; this guards the piece that closes the loop. Asymmetric failure modes: too lenient leaks revenue slowly, too strict stops a paying clinic's writes with a patient in the chair — so most cases here are about the second, including the backfill's grace floor.",
     "test:trial": "npx tsx tests/trialPolicy.test.mts",
     "test:features": "npx tsx tests/featureCatalog.test.mts",
+    "test:daybounds": "npx tsx tests/dayBounds.test.mts",
     "_comment_test_xray": "The AI x-ray report as a pure shape: an unusable model answer must normalise to null (so no credits are charged), a sloppy one is cleaned not rejected, and the disclaimer is added by code so a model cannot forget it.",
     "test:xray": "npx tsx tests/xrayReport.test.mts",
     "test:scripts": "npx tsx tests/botScripts.test.mts",
