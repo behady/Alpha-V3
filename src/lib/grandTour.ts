@@ -919,6 +919,15 @@ const SETTINGS_NARRATION: Record<string, SettingsNarration> = {
       "Dental Labs (/settings/labs, admin): the list of external labs with contact details and default fees per work type. Used by the Lab Tracking page; a case's fee becomes a deduction in Finance and is taken before dentist commission.",
     helpSlugs: ["commissions-and-lab-fees"],
   },
+  payers: {
+    say: {
+      en: "The insurance companies you work with. Each one can have its own prices, and each dentist can earn a different share on its cases. A treatment marked for an insurer uses that insurer's prices.",
+      ar: "شركات التأمين اللي بتتعامل معاها. كل شركة ممكن يكون ليها أسعارها، وكل دكتور ممكن ياخد نسبة مختلفة على حالاتها. العلاج اللي متعلّم على شركة تأمين بياخد أسعارها.",
+    },
+    ask: [{ en: "How do I add an insurance company?", ar: "أضيف شركة تأمين إزاي؟" }],
+    knowledge:
+      "Insurance companies (/settings/payers, admin): the payer list. A payer sits on the procedure, picks the price list used, and sets the dentist's commission rate for that payer's cases (stored per dentist). Receivables from insurers are not tracked yet.",
+  },
   services: {
     say: {
       en: "The price list everything is built on. Every treatment with its price, category and icon; price lists per branch with a blanket discount; the discount reasons you require; and a ceiling on how much a non-admin can discount.",
@@ -1121,6 +1130,15 @@ const SETTINGS_NARRATION: Record<string, SettingsNarration> = {
     knowledge:
       "AI Credits (/settings/ai-credits, admin, read-only): monthly allowance by plan, used vs remaining, extra credits, a log of every AI action (feature, user, patient, credits). Costs: a chat or reception message 1 credit (3 with an image), a WhatsApp bot reply 1, a treatment-plan draft 2, super mode more; marketing has its own allowance; spoken replies have a separate monthly character cap. When credits run out the assistant and the WhatsApp bot stop answering until the 1st of next month or a top-up; the bot then tells patients reception will contact them. Asking Sara a question during this tour costs one credit; the narration itself is free.",
   },
+  ai_connector: {
+    say: {
+      en: "Connect an outside AI app, like Claude, to your clinic. You make a key here and paste it into that app; it can then read and work with your clinic's records. Remove the key and the connection stops at once.",
+      ar: "اربط تطبيق ذكاء اصطناعي من برّه، زي Claude، بعيادتك. بتعمل مفتاح هنا وتلزقه في التطبيق ده؛ وبعدها يقدر يقرا ويشتغل على بيانات عيادتك. امسح المفتاح والربط يقف فوراً.",
+    },
+    ask: [{ en: "Is it safe to connect an outside AI app?", ar: "ربط تطبيق ذكاء اصطناعي من برّه أمان؟" }],
+    knowledge:
+      "Connect an AI app (/settings/ai-connector, admin): issues and revokes keys for the clinic's MCP endpoint (/api/mcp). A key gives an outside assistant full clinic access as its creator; revoking it cuts access immediately. Keys are stored server-side only.",
+  },
   recently_deleted: {
     say: {
       en: "The bin. Anything deleted — a patient, an appointment, a payment — waits here until you restore it or remove it for good. Nothing in this system disappears on one click.",
@@ -1141,8 +1159,8 @@ function settingsStops(): TourStop[] {
     requiresSettingsLink: true,
     title: { en: "Settings, all of it", ar: "الإعدادات، كلها" },
     say: {
-      en: "Now the part most tours skip: every setting. Four groups — Personal, Clinic, People, System & Automation — and a search box that finds any section by name. I'll open each one and tell you what it decides.",
-      ar: "دلوقتي الجزء اللي أغلب الجولات بتعدّيه: كل الإعدادات. أربع مجموعات — شخصي، العيادة، الفريق، النظام والأتمتة — وخانة بحث بتلاقي أي قسم باسمه. هفتح كل واحد وأقولك بيحدد إيه.",
+      en: "Now the part most tours skip: every setting. One list down the side, grouped by the job — you, the clinic, booking, treatment and money, the team, messages, and the system — and a search box that finds a setting by any word you would use for it. I'll open each one and tell you what it decides.",
+      ar: "دلوقتي الجزء اللي أغلب الجولات بتعدّيه: كل الإعدادات. قايمة واحدة على الجنب، متقسمة حسب الشغل — انت، العيادة، الحجز، العلاج والحسابات، الفريق، الرسايل، والنظام — وخانة بحث بتلاقي أي إعداد بأي كلمة تقولها عليه. هفتح كل واحد وأقولك بيحدد إيه.",
     },
     ask: [{ en: "Which settings should I do first?", ar: "أبدأ بأنهي إعدادات الأول؟" }],
     knowledge:

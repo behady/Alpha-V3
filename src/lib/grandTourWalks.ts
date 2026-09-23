@@ -274,10 +274,14 @@ export const TOUR_WALKS: Record<string, DemoAction[]> = {
 
   /* ---------------------------------------------------------------- settings */
   settings: [
-    pa("settings-group-personal", "Personal: you.", "شخصي: انت."),
-    pa("settings-group-clinic", "Clinic: hours, prices, labs, booking.", "العيادة: المواعيد، الأسعار، المعامل، الحجز."),
-    pa("settings-group-people", "People: users, join requests, dentists.", "الفريق: المستخدمين، طلبات الانضمام، الأطباء."),
-    pa("settings-group-system", "System & Automation: alerts, WhatsApp, SMS, logs, credits, the bin.", "النظام والأتمتة: التنبيهات، واتساب، SMS، السجل، الرصيد، المحذوفات."),
+    pa("settings-search", "Type what you want to change — hours, password, insurance — and it finds it.", "اكتب اللي عايز تغيّره — ساعات، باسورد، تأمين — وهو يلاقيه."),
+    pa("settings-group-personal", "You: your profile and your own preferences.", "حسابك: ملفك وتفضيلاتك."),
+    pa("settings-group-clinic", "Clinic: details, branches, colours.", "العيادة: البيانات، الفروع، الألوان."),
+    pa("settings-group-booking", "Booking & patients: hours, online booking, reminders.", "الحجز والمرضى: الساعات، الحجز الإلكتروني، التذكير."),
+    pa("settings-group-money", "Treatment & money: prices, insurance, labs, medicines.", "العلاج والحسابات: الأسعار، التأمين، المعامل، الأدوية."),
+    pa("settings-group-team", "Team: staff, join requests, clock-in.", "الفريق: الموظفين، طلبات الانضمام، الحضور."),
+    pa("settings-group-messages", "Messages: WhatsApp, SMS, alerts.", "الرسايل: واتساب، SMS، التنبيهات."),
+    pa("settings-group-system", "System: AI credits, the log, the bin.", "النظام: رصيد الذكاء، السجل، المحذوفات."),
   ],
   "settings-general": [
     pt(l("You", "بياناتك"), "Your name, what people call you, your photo.", "اسمك، الناس بتناديك إيه، صورتك."),

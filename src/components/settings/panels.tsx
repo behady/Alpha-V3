@@ -27,7 +27,6 @@ import {
   FlaskConical,
   Globe,
   History,
-  Hospital,
   MapPinned,
   Megaphone,
   MessageCircle,
@@ -43,10 +42,7 @@ import {
   Trash2,
   UserCircle,
   UserPlus,
-  UserRound,
   Users,
-  UsersRound,
-  Workflow,
   Bot,
   BrainCircuit,
   type LucideIcon,
@@ -84,32 +80,6 @@ export const SETTINGS_ICONS: Record<string, LucideIcon> = {
   ai_credits: Sparkles,
   ai_connector: PlugZap,       // the door an outside assistant knocks on
   recently_deleted: Trash2,
-};
-
-/**
- * The icon for each GROUP — the four tabs above the section chips. Distinct from every section
- * icon on purpose: both rows are on screen at once, and a group tab wearing a section's icon
- * reads as that section.
- */
-export const SETTINGS_GROUP_ICONS: Record<string, LucideIcon> = {
-  personal: UserRound,
-  clinic: Hospital,
-  people: UsersRound,
-  system: Workflow,
-};
-
-/**
- * Each group's tile, as the literal class strings Tailwind has to see at build time.
- *
- * One entry, one job: a solid rounded square with a white glyph, which is the only place colour
- * appears anywhere in Settings. Tabs, chips, labels and chevrons are achromatic on purpose — a
- * coloured control competes with the tiles for the same meaning and wins neither.
- */
-export const SETTINGS_GROUP_TONE: Record<string, { tile: string }> = {
-  personal: { tile: "bg-tone-personal text-white" },
-  clinic: { tile: "bg-tone-clinic text-white" },
-  people: { tile: "bg-tone-people text-white" },
-  system: { tile: "bg-tone-system text-white" },
 };
 
 /** What every panel receives. Most ignore it; the ones that can be read-only do not. */

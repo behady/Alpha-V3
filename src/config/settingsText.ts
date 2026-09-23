@@ -605,8 +605,15 @@ export const SETTINGS_TEXT = {
   },
   shell: {
     title: { en: "Settings", ar: "الإعدادات" },
-    search: { en: "Search settings", ar: "ابحث في الإعدادات" },
-    noResults: { en: "No section by that name", ar: "لا يوجد قسم بهذا الاسم" },
+    search: { en: "What do you want to change?", ar: "ماذا تريد أن تغيّر؟" },
+    noResults: { en: "Nothing matches — try another word", ar: "لا توجد نتيجة — جرّب كلمة أخرى" },
+    pick: { en: "Pick a setting from the list.", ar: "اختر إعداداً من القائمة." },
+    searchTip: {
+      en: "Not sure where something is? Type what you want to change — like “hours”, “password” or “insurance” — and the list finds it.",
+      ar: "لست متأكداً أين تجد شيئاً؟ اكتب ما تريد تغييره — مثل «ساعات» أو «كلمة السر» أو «تأمين» — والقائمة تجده.",
+    },
+    common: { en: "Most used", ar: "الأكثر استخداماً" },
+    allSettings: { en: "All settings", ar: "كل الإعدادات" },
     clear: { en: "Clear search", ar: "امسح البحث" },
     readOnly: { en: "This clinic's subscription has ended — you can look, but not save.", ar: "اشتراك العيادة منتهي — يمكنك الاطلاع دون حفظ." },
   },
