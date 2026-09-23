@@ -58,6 +58,8 @@ import {
 import { printPatientReceipt } from "@/lib/printPatientReceipt";
 import ReceptionSummonPanel from "@/components/summon/ReceptionSummonPanel";
 import { getAppointmentStatusStyles } from "@/lib/appointmentStages";
+import { cardTiming, moneyByAppointment, planDetails, timeRange, type VisitMoney } from "@/lib/scheduleCard";
+import ScheduleCardDetails, { ChairProgress } from "@/components/dashboard/ScheduleCardDetails";
 import UserClockWidget from "@/components/dashboard/UserClockWidget";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 function getLocalDateKey(): string {
@@ -233,6 +235,15 @@ export default function DesktopDashboard() {
     return () => unsub();
   }, []);
 
+  /**
+   * What each visit on the schedule came to, for the DAY ON SCREEN.
+   *
+   * The income listener above is pinned to today, which is right for "what came in today" and
+   * wrong for a card on Thursday's schedule — so this is its own listener, keyed to the day being
+   * viewed. One bounded read of that day's ledger, grouped by appointment.
+   */
+  const [visitMoney, setVisitMoney] = useState<Map<string, VisitMoney>>(new Map());
+
   const fireOwnerWhatsAppAlert = async (alertKey: OwnerAlertKey, message: string) => {
     try {
       const u = auth.currentUser;
@@ -247,6 +258,16 @@ export default function DesktopDashboard() {
       console.warn("Owner WhatsApp alert", e);
     }
   };
+
+  useEffect(() => {
+    if (!scheduleViewDate) return;
+    const unsub = onSnapshot(
+      query(getClinicCollection("ledger"), where("date", "==", scheduleViewDate)),
+      (snap) => setVisitMoney(moneyByAppointment(snap.docs.map((d) => d.data() as Record<string, unknown>))),
+      () => setVisitMoney(new Map()),
+    );
+    return () => unsub();
+  }, [scheduleViewDate]);
 
   // 1. Clock Timer
   useEffect(() => {
@@ -1374,20 +1395,32 @@ export default function DesktopDashboard() {
                                                     const leftPercent = (apt.colIndex / apt.totalCols) * 100;
                                                     const widthPercent = (100 / apt.totalCols);
 
-                                                    // Dynamic font sizes based on card size (duration)
-                                                    let nameFontSize = "text-xs md:text-sm lg:text-base";
-                                                    let timeFontSize = "text-[10px] md:text-xs lg:text-xs";
-                                                    let infoFontSize = "text-[10px] md:text-xs lg:text-sm";
+                                                    /*
+                                                      Type that grows with the card. This used to key off the
+                                                      duration and then set the SAME `lg:` size on every tier,
+                                                      so on a laptop or a tablet in landscape the name was 16px
+                                                      on a 15-minute card and on a two-hour one alike. Keyed off
+                                                      the card's real height now, which is what the eye compares.
+                                                    */
+                                                    const tall = height >= 260;
+                                                    const roomy = height >= 170;
+                                                    const nameFontSize = tall ? "text-base lg:text-lg" : roomy ? "text-sm lg:text-base" : "text-xs lg:text-[15px]";
+                                                    const timeFontSize = tall ? "text-xs lg:text-[13px]" : "text-[10px] lg:text-xs";
+                                                    const infoFontSize = tall ? "text-xs lg:text-sm" : roomy ? "text-xs lg:text-[13px]" : "text-[10px] lg:text-xs";
 
-                                                    if (durationMinutes > 30 && durationMinutes <= 60) {
-                                                        nameFontSize = "text-sm md:text-base lg:text-base";
-                                                        timeFontSize = "text-xs md:text-sm lg:text-xs";
-                                                        infoFontSize = "text-xs md:text-sm lg:text-sm";
-                                                    } else if (durationMinutes > 60) {
-                                                        nameFontSize = "text-base md:text-lg lg:text-base";
-                                                        timeFontSize = "text-sm md:text-base lg:text-xs";
-                                                        infoFontSize = "text-sm md:text-base lg:text-sm";
-                                                    }
+                                                    /*
+                                                      What fills the space. Timing once they have arrived, then
+                                                      what the visit came to, then the booking note with however
+                                                      many lines are left — see src/lib/scheduleCard.ts.
+                                                    */
+                                                    const timing = cardTiming(apt, currentTime);
+                                                    const money = visitMoney.get(apt.id) ?? null;
+                                                    const note = String(apt.notes ?? "").trim();
+                                                    const plan = planDetails(height, {
+                                                        timing: timing.kind !== "none",
+                                                        money: Boolean(money && money.charged > 0),
+                                                        note: note.length > 0,
+                                                    });
                                                     
                                                     const phone = patientsList.find(p => p.id === apt.patientId)?.phone;
 
@@ -1435,7 +1468,7 @@ export default function DesktopDashboard() {
                                                                 style={{ zIndex: selectedAppointment?.id === apt.id ? 20 : 1 }}
                                                             >
                                                             <div className={`absolute left-0 top-0 bottom-0 w-2 ${aptStyles.accent}`}></div>
-                                                            <div className="flex flex-col h-full p-2 lg:p-3 relative justify-between gap-1">
+                                                            <div className="flex flex-col h-full p-2 lg:p-3 relative gap-1.5">
                                                                 {/* TOP ROW: Name + Actions */}
                                                                 <div className="flex justify-between items-start w-full gap-2">
                                                                     <div className="flex flex-col min-w-0">
@@ -1513,20 +1546,37 @@ export default function DesktopDashboard() {
                                                                     </div>
                                                                 </div>
 
-                                                                {/* BOTTOM ROW: Treatment + Time */}
-                                                                <div className="flex justify-between items-end w-full gap-2 mt-1.5 min-h-0">
-                                                                    <div className="flex flex-col gap-1 min-w-0">
-                                                                       <p className={`text-slate-800 truncate font-bold bg-white/60 lg:bg-white/80 backdrop-blur-sm px-2 py-0.5 rounded-md shadow-sm min-w-0 ${infoFontSize}`}>
-                                                                           {apt.treatment || "Consultation"} <span className="text-slate-400 mx-1 font-normal">•</span> {doctorCardLabel(apt.doctor, language)}
-                                                                       </p>
-                                                                       <div className="pl-1 mt-0.5">
-                                                                         <StarRating rating={apt.rating || 0} onRatingChange={(r) => handleRatingChange(apt.id, r)} size={14} />
-                                                                       </div>
+                                                                {/*
+                                                                  The treatment sits under the name now rather than at the
+                                                                  bottom edge. On a short card nothing moves far; on a tall
+                                                                  one the card reads top-down — who, what, then the details —
+                                                                  instead of name at the top, treatment at the bottom and a
+                                                                  white gap between them.
+                                                                */}
+                                                                <p className={`self-start max-w-full text-slate-800 truncate font-bold bg-white/60 lg:bg-white/80 backdrop-blur-sm px-2 py-0.5 rounded-md shadow-sm min-w-0 ${infoFontSize}`}>
+                                                                    {apt.treatment || "Consultation"} <span className="text-slate-400 mx-1 font-normal">•</span> {doctorCardLabel(apt.doctor, language)}
+                                                                </p>
+
+                                                                <ScheduleCardDetails
+                                                                    plan={plan}
+                                                                    timing={timing}
+                                                                    money={money}
+                                                                    note={note}
+                                                                    isAr={language === "ar"}
+                                                                />
+
+                                                                {/* FOOTER: rating + the time the visit occupies */}
+                                                                <div className="mt-auto flex justify-between items-end w-full gap-2 min-h-0">
+                                                                    <div className="pl-1">
+                                                                        <StarRating rating={apt.rating || 0} onRatingChange={(r) => handleRatingChange(apt.id, r)} size={14} />
                                                                     </div>
-                                                                    <span className={`font-black text-ink-body lg:text-indigo-950 opacity-80 whitespace-nowrap shrink-0 bg-white/40 px-1.5 py-0.5 rounded-md ${timeFontSize}`}>
-                                                                        {apt.time} ({durationMinutes}m)
+                                                                    {/* "09:00 – 09:45" rather than "09:00 (45m)": the end time is
+                                                                        the thing being checked against the clock on the wall. */}
+                                                                    <span className={`font-figure font-black text-ink-body opacity-80 whitespace-nowrap shrink-0 bg-white/40 px-1.5 py-0.5 rounded-md ${timeFontSize}`} dir="ltr">
+                                                                        {timeRange(apt.time || "", durationMinutes)}
                                                                     </span>
                                                                 </div>
+                                                                <ChairProgress timing={timing} />
                                                             </div>
                                                          </div>
                                                      </div>
