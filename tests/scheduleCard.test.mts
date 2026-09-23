@@ -16,6 +16,9 @@ import {
   LONG_WAIT_MIN,
   cardTiming,
   detailLines,
+  detailOrder,
+  historyByPatient,
+  medicalAlert,
   moneyByAppointment,
   planDetails,
   timeRange,
@@ -42,26 +45,84 @@ function eq<T>(actual: T, expected: T, message: string) {
 
   // The real heights: 148px per 30-minute slot on this schedule.
   const at = (min: number) => Math.max(min * (148 / 30), 120);
-  const all = { timing: true, money: true, note: true };
+  const arrivedAll = detailOrder(true, { alert: true, timing: true, money: true, owes: true, status: true });
+  const shown = (min: number) => [...planDetails(at(min), arrivedAll, true).show];
 
-  eq(planDetails(at(15), all), { timing: false, money: false, noteLines: 0 }, "a 15-minute card stays exactly as it was");
-  eq(planDetails(at(30), all), { timing: true, money: false, noteLines: 0 }, "30 minutes: timing only — the thing that changes minute to minute");
-  eq(planDetails(at(45), all).timing && planDetails(at(45), all).money, true, "45 minutes: timing and money");
-  ok(planDetails(at(45), all).noteLines >= 1, "and at least the first line of the note");
-  eq(planDetails(at(120), all).noteLines, 4, "a long visit shows up to four lines of note, and no more");
+  eq(shown(15), [], "a 15-minute card stays exactly as it was — the badge beside the name carries the alert");
+  eq(shown(30), ["alert"], "30 minutes: one line, and it is the medical alert");
+  eq(shown(45), ["alert", "timing", "money", "owes"], "45 minutes: the four lines that matter once they are here");
+  eq(planDetails(at(120), arrivedAll, true).noteLines, 4, "a long visit shows up to four lines of note, and no more");
+  eq(planDetails(at(45), arrivedAll, false).noteLines, 0, "no note, no note line");
 }
 
-// --- 2. A detail with nothing to say gives its line away ----------------------------------------
+// --- 2. The order depends on whether they have arrived ------------------------------------------
 {
+  const all = { alert: true, timing: true, money: true, owes: true, status: true };
+  eq(
+    detailOrder(false, all),
+    ["alert", "owes", "status", "money"],
+    "before they arrive: is it safe, do they owe us, are they coming, and what is already charged"
+  );
+  eq(
+    detailOrder(true, all),
+    ["alert", "timing", "money", "owes"],
+    "after: is it safe, how long have they been here, what does this visit come to, what is owed from before"
+  );
+  ok(!detailOrder(true, all).includes("status"), "confirmation and history stop mattering the moment they walk in");
+  ok(!detailOrder(false, all).includes("timing"), "and there is no timing before they arrive");
+  eq(detailOrder(false, { status: true }), ["status"], "a detail with nothing to say is not in the list at all");
+
+  // A missing line gives its space to the next one, in order.
   const at45 = 45 * (148 / 30);
-  const noTiming = planDetails(at45, { timing: false, money: true, note: true });
-  eq(noTiming.timing, false, "nothing about arrival before they arrive");
-  ok(noTiming.noteLines > planDetails(at45, { timing: true, money: true, note: true }).noteLines, "and the note gets the line instead");
+  eq(
+    [...planDetails(at45, detailOrder(false, { owes: true, status: true }), true).show],
+    ["owes", "status"],
+    "no alert and nothing charged: the two lines that exist move up"
+  );
+  ok(
+    planDetails(at45, detailOrder(false, { status: true }), true).noteLines >
+      planDetails(at45, detailOrder(false, { owes: true, status: true }), true).noteLines,
+    "and the note gets the lines that were not needed"
+  );
+  const tight = planDetails(CARD_BASE_PX + CARD_LINE_PX, detailOrder(true, all), true);
+  eq([...tight.show], ["alert"], "with only one line, the medical alert wins over everything");
+  eq(tight.noteLines, 0, "and the note waits");
+}
 
-  eq(planDetails(at45, { timing: false, money: false, note: false }), { timing: false, money: false, noteLines: 0 }, "an empty card draws no empty rows");
+// --- 2b. Medical alerts --------------------------------------------------------------------------
+{
+  eq(medicalAlert({ allergies: "Penicillin", medicalHistory: "Diabetic" }), "Penicillin \u00b7 Diabetic", "both, on one line");
+  eq(medicalAlert({ allergies: "Penicillin" }), "Penicillin", "one is enough");
+  eq(medicalAlert(null), "", "no patient, no alert");
+  for (const nothing of ["None", "none", "No", "N/A", "na", "-", "--", ".", "0", "\u0644\u0627", "\u0644\u0627 \u064a\u0648\u062c\u062f", "\u0645\u0641\u064a\u0634", "\u0633\u0644\u064a\u0645", "   "]) {
+    eq(
+      medicalAlert({ allergies: nothing }),
+      "",
+      `"${nothing}" means nothing — flagging it in red on every card would teach the desk to ignore the red`
+    );
+  }
+  eq(medicalAlert({ allergies: "None", medicalHistory: "Hypertension" }), "Hypertension", "a 'None' in one field does not hide a real entry in the other");
+  eq(medicalAlert({ medicalHistory: "  on   warfarin  " }), "on warfarin", "spacing is tidied");
+}
 
-  const tight = planDetails(CARD_BASE_PX + CARD_LINE_PX, { timing: true, money: true, note: true });
-  eq(tight, { timing: true, money: false, noteLines: 0 }, "with one line, timing wins over money and the note");
+// --- 2c. What the clinic already knows about a patient ------------------------------------------
+{
+  const rows = [
+    { type: "procedure", patientId: "p1", date: "2026-08-01", cost: 1000, paid: 400 },
+    { type: "procedure", patientId: "p1", date: "2026-08-01", cost: 200, paid: 200 },
+    { type: "procedure", patientId: "p1", date: "2026-09-10", cost: 500, paid: 700 },
+    // TODAY's treatment: already on the card as "this visit", so it is not "from before".
+    { type: "procedure", patientId: "p1", date: "2026-09-23", cost: 900, paid: 0 },
+    { type: "payment", patientId: "p1", date: "2026-09-01", paid: 5000 },
+    { type: "procedure", patientId: "p1", date: "2026-07-01", cost: 800, paid: 0, status: "deleted" },
+    { type: "procedure", patientId: "p2", date: "2026-09-23", cost: 300, paid: 0 },
+  ];
+  const map = historyByPatient(rows, "2026-09-23");
+  const p1 = map.get("p1")!;
+  eq(p1.owedBefore, 600, "unpaid from earlier visits only — the overpaid filling does not cancel the unpaid crown");
+  eq(p1.visits, 2, "two days with treatment, however many lines each had");
+  eq(p1.lastVisit, "2026-09-10", "the last day before the one being viewed");
+  eq(map.has("p2"), false, "somebody whose only treatment is today has no history — they are a first visit");
 }
 
 // --- 3. Timing -----------------------------------------------------------------------------------
@@ -170,6 +231,11 @@ function eq<T>(actual: T, expected: T, message: string) {
 {
   const dash = readFileSync(join(REPO, "src/components/dashboard/DesktopDashboard.tsx"), "utf8");
   ok(/planDetails\(height,/.test(dash), "the card decides what to show from its real HEIGHT, which is what the eye compares");
+  ok(/<AlertBadge alert=\{alert\}/.test(dash), "the medical alert badge is not beside the name — it must show on every card, whatever its height");
+  ok(
+    /where\("patientId", "in", chunk\)/.test(dash),
+    "patient history is read one card at a time instead of in one chunked read for the day"
+  );
   ok(
     /where\("date", "==", scheduleViewDate\)/.test(dash),
     "the money listener is keyed to the day ON SCREEN — the income listener is pinned to today, which is wrong for Thursday's schedule"

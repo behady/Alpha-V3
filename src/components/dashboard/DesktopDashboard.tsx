@@ -58,8 +58,11 @@ import {
 import { printPatientReceipt } from "@/lib/printPatientReceipt";
 import ReceptionSummonPanel from "@/components/summon/ReceptionSummonPanel";
 import { getAppointmentStatusStyles } from "@/lib/appointmentStages";
-import { cardTiming, moneyByAppointment, planDetails, timeRange, type VisitMoney } from "@/lib/scheduleCard";
-import ScheduleCardDetails, { ChairProgress } from "@/components/dashboard/ScheduleCardDetails";
+import {
+  cardTiming, detailOrder, historyByPatient, medicalAlert, moneyByAppointment, planDetails, timeRange,
+  type PatientHistory, type VisitMoney,
+} from "@/lib/scheduleCard";
+import ScheduleCardDetails, { AlertBadge, ChairProgress } from "@/components/dashboard/ScheduleCardDetails";
 import UserClockWidget from "@/components/dashboard/UserClockWidget";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 function getLocalDateKey(): string {
@@ -243,6 +246,7 @@ export default function DesktopDashboard() {
    * viewed. One bounded read of that day's ledger, grouped by appointment.
    */
   const [visitMoney, setVisitMoney] = useState<Map<string, VisitMoney>>(new Map());
+  const [patientHistory, setPatientHistory] = useState<Map<string, PatientHistory>>(new Map());
 
   const fireOwnerWhatsAppAlert = async (alertKey: OwnerAlertKey, message: string) => {
     try {
@@ -268,6 +272,55 @@ export default function DesktopDashboard() {
     );
     return () => unsub();
   }, [scheduleViewDate]);
+
+  /**
+   * What the clinic already knows about each patient on the day being viewed: what they still owe
+   * from earlier visits, how often they have been, and when they were last in.
+   *
+   * One read of those patients' treatment rows — `in` takes 30 ids, so a busy day is a few chunks,
+   * not a read per card. Keyed on the SORTED id list rather than the appointments array, so a
+   * status change on one card does not tear the listeners down and read everything again.
+   */
+  const dayPatientKey = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          allAppointments
+            .filter((a) => a.date === scheduleViewDate && a.patientId)
+            .map((a) => String(a.patientId)),
+        ),
+      )
+        .sort()
+        .join(","),
+    [allAppointments, scheduleViewDate],
+  );
+
+  useEffect(() => {
+    const ids = dayPatientKey ? dayPatientKey.split(",") : [];
+    if (ids.length === 0) {
+      setPatientHistory(new Map());
+      return;
+    }
+    const chunks: string[][] = [];
+    for (let i = 0; i < ids.length; i += 30) chunks.push(ids.slice(i, i + 30));
+    const rowsByChunk = new Map<number, Record<string, unknown>[]>();
+    const recompute = () =>
+      setPatientHistory(historyByPatient(Array.from(rowsByChunk.values()).flat(), scheduleViewDate));
+    const unsubs = chunks.map((chunk, i) =>
+      onSnapshot(
+        query(getClinicCollection("ledger"), where("patientId", "in", chunk)),
+        (snap) => {
+          rowsByChunk.set(i, snap.docs.map((d) => d.data() as Record<string, unknown>));
+          recompute();
+        },
+        () => {
+          rowsByChunk.set(i, []);
+          recompute();
+        },
+      ),
+    );
+    return () => unsubs.forEach((u) => u());
+  }, [dayPatientKey, scheduleViewDate]);
 
   // 1. Clock Timer
   useEffect(() => {
@@ -1409,20 +1462,32 @@ export default function DesktopDashboard() {
                                                     const infoFontSize = tall ? "text-xs lg:text-sm" : roomy ? "text-xs lg:text-[13px]" : "text-[10px] lg:text-xs";
 
                                                     /*
-                                                      What fills the space. Timing once they have arrived, then
-                                                      what the visit came to, then the booking note with however
-                                                      many lines are left — see src/lib/scheduleCard.ts.
+                                                      What fills the space, in the order the desk needs it —
+                                                      which depends on whether the patient has arrived. Before:
+                                                      medical alert, money owed from before, confirmed or not,
+                                                      first visit or last seen. After: medical alert, how long
+                                                      they have been here, what this visit comes to, what they
+                                                      owe from before. The booking note takes whatever lines are
+                                                      left. See src/lib/scheduleCard.ts.
                                                     */
+                                                    const patient = patientsList.find(p => p.id === apt.patientId);
+                                                    const phone = patient?.phone;
                                                     const timing = cardTiming(apt, currentTime);
-                                                    const money = visitMoney.get(apt.id) ?? null;
+                                                    const visit = visitMoney.get(apt.id) ?? null;
+                                                    const history = patientHistory.get(String(apt.patientId)) ?? null;
+                                                    const alert = medicalAlert(patient);
                                                     const note = String(apt.notes ?? "").trim();
-                                                    const plan = planDetails(height, {
+                                                    const arrived = timing.kind !== "none" || ["Checked In", "In Chair", "Checking Out", "Completed"].includes(String(apt.status));
+                                                    const order = detailOrder(arrived, {
+                                                        alert: alert.length > 0,
                                                         timing: timing.kind !== "none",
-                                                        money: Boolean(money && money.charged > 0),
-                                                        note: note.length > 0,
+                                                        money: Boolean(visit && visit.charged > 0),
+                                                        owes: Boolean(history && history.owedBefore > 0),
+                                                        // Confirmation and history are only worth a line before
+                                                        // they arrive, and only for a visit that is still coming.
+                                                        status: !arrived && ["Scheduled", "Confirmed"].includes(String(apt.status || "Scheduled")),
                                                     });
-                                                    
-                                                    const phone = patientsList.find(p => p.id === apt.patientId)?.phone;
+                                                    const plan = planDetails(height, order, note.length > 0);
 
                                                     return (
                                                         <div 
@@ -1476,6 +1541,7 @@ export default function DesktopDashboard() {
                                                                             <h4 className={`font-medium truncate drop-shadow-sm ${nameFontSize}`}>
                                                                                 {apt.patientName}
                                                                             </h4>
+                                                                            <AlertBadge alert={alert} isAr={language === "ar"} />
                                                                             {/* Only while looking at every branch at once — inside a single
                                                                                 branch the chip would repeat the same word on every card. */}
                                                                             {activeBranchId === ALL_BRANCHES && apt.branchName && (
@@ -1494,9 +1560,9 @@ export default function DesktopDashboard() {
                                                                                 </span>
                                                                             )}
                                                                         </div>
-                                                                        {patientsList.find(p => p.id === apt.patientId)?.phone && (
+                                                                        {phone && (
                                                                             <span className="text-[10px] text-ink-muted font-medium truncate mt-0.5" dir="ltr">
-                                                                                {patientsList.find(p => p.id === apt.patientId)?.phone}
+                                                                                {phone}
                                                                             </span>
                                                                         )}
                                                                     </div>
@@ -1559,8 +1625,12 @@ export default function DesktopDashboard() {
 
                                                                 <ScheduleCardDetails
                                                                     plan={plan}
+                                                                    order={order}
                                                                     timing={timing}
-                                                                    money={money}
+                                                                    visit={visit}
+                                                                    history={history}
+                                                                    alert={alert}
+                                                                    status={String(apt.status || "Scheduled")}
                                                                     note={note}
                                                                     isAr={language === "ar"}
                                                                 />

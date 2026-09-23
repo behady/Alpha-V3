@@ -7,15 +7,18 @@
  * treatment and the time pinned to the bottom, and on a long visit a white gap between them that
  * read as broken rather than as spacious.
  *
- * So the space becomes information, in the order the front desk needs it:
+ * So the space becomes information, in the order the front desk needs it — which depends on whether
+ * the patient has walked in yet.
  *
- *   1. Timing — once the patient has arrived. How long they have been waiting, or how long they
- *      have been in the chair against how long was booked. This is the one that changes minute to
- *      minute, and the one that tells a receptionist who to go and check on.
- *   2. Money — what this visit came to and what is still owed on it, so nobody leaves without the
- *      conversation that should have happened at the desk.
- *   3. Notes — what was written when the visit was booked. It takes whatever lines are left, so a
- *      long visit shows the whole note and a short one shows its first line.
+ *   Before they arrive: a medical alert from their file; money still owed from earlier visits;
+ *   confirmed or not, and first visit or when they were last in.
+ *   After: the medical alert; how long they have been waiting or in the chair against how long was
+ *   booked; what this visit came to; what is owed from before, which is still worth raising at the
+ *   desk on the way out.
+ *
+ * The medical alert leads both, and also has a badge beside the name on every card whatever its
+ * height, because whether it is safe to treat somebody cannot depend on how long they were booked
+ * for. The booking note takes whatever lines are left.
  *
  * A row with nothing to say is skipped rather than shown empty, and its space goes to the next one.
  * All of this is pure so the rules can be tested without a screen.
@@ -165,33 +168,136 @@ export function timeRange(start: string, durationMin: number): string {
   return `${pad(h)}:${pad(m)} – ${pad(Math.floor(end / 60) % 24)}:${pad(end % 60)}`;
 }
 
+/* --- before they arrive ------------------------------------------------------------------------ */
+
+/**
+ * Words people type into a medical field to mean "nothing".
+ *
+ * A card that flagged "Allergies: None" in red on every patient would teach the desk to ignore the
+ * red, which is the one thing a medical alert cannot afford.
+ */
+const NOTHING = /^(none|no|nil|nothing|n\/?a|-+|\.|0|لا|لا يوجد|لايوجد|مفيش|لا شيء|سليم)$/i;
+
+/**
+ * Allergies and medical history, as one line, or "" when there is nothing real in either.
+ *
+ * Read off the patient's file, which the schedule already has loaded — so it costs nothing, and it
+ * is the one thing on this card a dentist most needs before the patient sits down.
+ */
+export function medicalAlert(patient: { allergies?: unknown; medicalHistory?: unknown } | null | undefined): string {
+  if (!patient) return "";
+  const clean = (v: unknown) => {
+    const t = String(v ?? "").replace(/\s+/g, " ").trim();
+    return t && !NOTHING.test(t) ? t : "";
+  };
+  return [clean(patient.allergies), clean(patient.medicalHistory)].filter(Boolean).join(" · ");
+}
+
+export type PatientHistory = {
+  /** Unpaid on treatments from BEFORE the day being viewed. This visit's own charges are not in it. */
+  owedBefore: number;
+  /** Days with at least one treatment before the day being viewed. */
+  visits: number;
+  /** The last of those days, YYYY-MM-DD, or "" for somebody with none. */
+  lastVisit: string;
+};
+
+/**
+ * What the clinic already knows about each patient, from their treatment rows.
+ *
+ * "Before" is strict — the day being viewed is excluded — so the card never says a patient owes
+ * money from before when what they owe is the visit they are sitting in, which the money line
+ * already shows.
+ *
+ * Owed is counted treatment by treatment and never goes below zero on any one, so an overpaid crown
+ * does not quietly cancel an unpaid filling. A payment taken "on account", against no treatment,
+ * is not credited here — it belongs to no treatment, and the patient's own account screen is where
+ * that reconciliation lives.
+ *
+ * Visits are counted as distinct days with a treatment. A visit where nothing was charged does not
+ * count, which in a dental clinic is rare — even a consultation is a line.
+ */
+export function historyByPatient(
+  rows: readonly Record<string, unknown>[],
+  beforeDate: string,
+): Map<string, PatientHistory> {
+  const days = new Map<string, Set<string>>();
+  const out = new Map<string, PatientHistory>();
+  for (const row of rows) {
+    if (String(row.type ?? "") !== "procedure") continue;
+    if (["deleted", "cancelled"].includes(String(row.status ?? "").toLowerCase())) continue;
+    const patientId = String(row.patientId ?? "").trim();
+    const date = String(row.date ?? "").slice(0, 10);
+    if (!patientId || !date || date >= beforeDate) continue;
+
+    const h = out.get(patientId) || { owedBefore: 0, visits: 0, lastVisit: "" };
+    const cost = Number(row.cost ?? row.amount ?? 0) || 0;
+    const paid = Number(row.paid ?? 0) || 0;
+    h.owedBefore += Math.max(0, cost - paid);
+    if (date > h.lastVisit) h.lastVisit = date;
+    out.set(patientId, h);
+
+    const seen = days.get(patientId) || new Set<string>();
+    seen.add(date);
+    days.set(patientId, seen);
+  }
+  for (const [id, h] of out) {
+    h.visits = days.get(id)?.size ?? 0;
+    h.owedBefore = Math.round(h.owedBefore * 100) / 100;
+  }
+  return out;
+}
+
+/* --- what fits --------------------------------------------------------------------------------- */
+
+/**
+ * The one-line details a card can carry. The note is separate: it takes whatever is left.
+ *
+ *   alert  — allergies / medical history
+ *   timing — arrived, waiting, in the chair, done
+ *   money  — what THIS visit came to and what is owed on it
+ *   owes   — what is still unpaid from earlier visits
+ *   status — confirmed or not, and first visit or last seen
+ */
+export type DetailKey = "alert" | "timing" | "money" | "owes" | "status";
+
 export type DetailPlan = {
-  timing: boolean;
-  money: boolean;
+  show: ReadonlySet<DetailKey>;
   /** How many lines the note may take. 0 = not shown. */
   noteLines: number;
 };
 
 /**
- * Which details go on a card of this height, in priority order.
+ * The order the desk needs things in, which depends on where the patient is.
  *
- * Timing first because it changes minute to minute and says who to check on; money second; the
- * note takes whatever is left. A detail with nothing to say gives its line to the next one.
+ * Before they arrive: is it safe to treat them, do they owe us, are they coming, have we seen them.
+ * After: is it safe, how long have they been here, what does this visit come to, what do they owe
+ * from before — the last is still worth raising at check-out. Confirmation and history stop
+ * mattering the moment they walk in.
+ *
+ * The medical alert leads both, because it is the only line whose absence could hurt somebody.
  */
-export function planDetails(
-  heightPx: number,
-  has: { timing: boolean; money: boolean; note: boolean },
-): DetailPlan {
+export function detailOrder(arrived: boolean, present: Partial<Record<DetailKey, boolean>>): DetailKey[] {
+  const order: DetailKey[] = arrived
+    ? ["alert", "timing", "money", "owes"]
+    : ["alert", "owes", "status", "money"];
+  return order.filter((k) => present[k]);
+}
+
+/**
+ * Which details go on a card of this height.
+ *
+ * Takes them in the order given, one line each, while there is room; the note gets whatever is left,
+ * up to four lines. A detail with nothing to say is simply not in the list, so its line goes to the
+ * next one.
+ */
+export function planDetails(heightPx: number, order: readonly DetailKey[], hasNote: boolean): DetailPlan {
   let left = detailLines(heightPx);
-  const plan: DetailPlan = { timing: false, money: false, noteLines: 0 };
-  if (has.timing && left > 0) {
-    plan.timing = true;
+  const show = new Set<DetailKey>();
+  for (const key of order) {
+    if (left <= 0) break;
+    show.add(key);
     left -= 1;
   }
-  if (has.money && left > 0) {
-    plan.money = true;
-    left -= 1;
-  }
-  if (has.note && left > 0) plan.noteLines = Math.min(left, 4);
-  return plan;
+  return { show, noteLines: hasNote && left > 0 ? Math.min(left, 4) : 0 };
 }
