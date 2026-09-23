@@ -37,6 +37,7 @@ import { useUI } from "@/context/UIContext";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { logActivity } from "@/lib/logger";
 import { deleteRecord, RecycleBinError } from "@/lib/recycleBinApi";
+import { MoneyApiError, setPaymentCommission } from "@/lib/moneyApi";
 import FeatureGate from "@/components/FeatureGate";
 import PageHeader from "@/components/dashboard/PageHeader";
 import { buildHrSection } from "@/lib/automation/briefing/hr";
@@ -337,6 +338,33 @@ function TeamPage() {
     [user, showToast, isAr],
   );
 
+  /**
+   * One payment's rate, set by hand.
+   *
+   * Restored from the old team table, where the % was typed straight into the row. It is a real
+   * need rather than a convenience: a one-off arrangement on a single case has to be recordable
+   * without moving the dentist's standing rate, which would recalculate every other payment on
+   * that treatment.
+   *
+   * The route does the arithmetic and the audit — the share and the clinic's profit are recomputed
+   * from the new rate server-side, and the row is stamped as set by hand so a repair pass cannot
+   * quietly put it back to the standing rate.
+   */
+  const setPct = useCallback(
+    async (paymentId: string, pct: number) => {
+      try {
+        await setPaymentCommission(paymentId, pct, clinicId);
+        showToast(isAr ? "النسبة اتغيّرت" : "Rate updated", "success");
+      } catch (err) {
+        showToast(
+          err instanceof MoneyApiError ? err.message : isAr ? "مقدرناش نغيّر النسبة" : "Could not change that rate",
+          "error",
+        );
+      }
+    },
+    [clinicId, showToast, isAr],
+  );
+
   const unlinkDevice = useCallback(async () => {
     if (!selectedDoc) return;
     const ok = await confirm(
@@ -452,6 +480,7 @@ function TeamPage() {
                   onDeleteLog={removeLog}
                   onOvertime={decideOvertime}
                   onUnlinkDevice={unlinkDevice}
+                  onSetPct={setPct}
                 />
               </div>
             )}

@@ -26,6 +26,9 @@ export type PaymentRowLite = {
   date?: string | null;
   paid?: number | null;
   amount?: number | null;
+  /** True when this row's rate was typed by hand rather than taken from the standing rate. */
+  commissionSetManually?: boolean | null;
+  doctorCommissionPercentage?: number | null;
 };
 
 /**
@@ -51,6 +54,11 @@ export async function readProcedurePayments(
       date: typeof data.date === "string" ? data.date : null,
       paid: typeof data.paid === "number" ? data.paid : null,
       amount: typeof data.amount === "number" ? data.amount : null,
+      // Carried so the rebalance can leave a hand-set rate alone. Without these two the standing
+      // rate is stamped over every row, which undoes the override on the next payment.
+      commissionSetManually: data.commissionSetManually === true,
+      doctorCommissionPercentage:
+        typeof data.doctorCommissionPercentage === "number" ? data.doctorCommissionPercentage : null,
     };
   });
 }

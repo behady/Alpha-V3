@@ -510,7 +510,20 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
         const withoutThis = nextSiblings.filter((p) => p.id !== id);
         // The set as it will stand once this edit lands. The row may be joining the set for the
         // first time, so it is added rather than mapped over.
-        const paymentsAfter = [...withoutThis, { id, paid, amount: paid, date }];
+        // The flag and the rate come along: correcting an AMOUNT must not throw away a rate
+        // somebody set on this payment by hand.
+        const paymentsAfter = [
+          ...withoutThis,
+          {
+            id,
+            paid,
+            amount: paid,
+            date,
+            commissionSetManually: before.commissionSetManually === true,
+            doctorCommissionPercentage:
+              typeof before.doctorCommissionPercentage === "number" ? before.doctorCommissionPercentage : null,
+          },
+        ];
         applyProcedureSync(txn, {
           clinicId,
           procedureLedgerId: nextProcedureId,

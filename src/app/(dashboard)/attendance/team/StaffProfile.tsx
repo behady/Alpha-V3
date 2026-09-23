@@ -84,6 +84,7 @@ export default function StaffProfile({
   onDeleteLog,
   onOvertime,
   onUnlinkDevice,
+  onSetPct,
 }: {
   staff: ProfileStaff;
   row: HrStaffRow | null;
@@ -99,12 +100,21 @@ export default function StaffProfile({
   onDeleteLog: (logId: string) => void;
   onOvertime: (logId: string, decision: "approved" | "rejected") => void;
   onUnlinkDevice: () => void;
+  /** Set one payment's rate by hand. Recomputed and audited server-side. */
+  onSetPct: (paymentId: string, pct: number) => void;
 }) {
   const [editingLog, setEditingLog] = useState<string | null>(null);
   const [logIn, setLogIn] = useState("");
   const [logOut, setLogOut] = useState("");
   const [payOpen, setPayOpen] = useState(false);
   const [draft, setDraft] = useState<PayDraft | null>(null);
+  /**
+   * The rate cell being typed in, keyed by payment id.
+   *
+   * Held separately from the row so a half-typed "1" on the way to "15" never reaches the server,
+   * and so the table keeps showing the stored figure until the box is left.
+   */
+  const [pctDraft, setPctDraft] = useState<Record<string, string>>({});
 
   const days = isAr ? DAYS_AR : DAYS_EN;
   const dentist = isDentistStaff(staff);
@@ -371,8 +381,12 @@ export default function StaffProfile({
           title={isAr ? "العمولة، دفعة دفعة" : "Commission, payment by payment"}
           note={
             isAr
-              ? "النسبة المحفوظة على كل دفعة وقت ما اتحصّلت — مش النسبة الحالية."
-              : "The rate stamped on each payment when it was taken, not today's rate."
+              ? canEdit
+                ? "النسبة المحفوظة على كل دفعة وقت ما اتحصّلت — مش النسبة الحالية. تقدر تعدّلها للدفعة دي لوحدها."
+                : "النسبة المحفوظة على كل دفعة وقت ما اتحصّلت — مش النسبة الحالية."
+              : canEdit
+                ? "The rate stamped on each payment when it was taken, not today's rate. You can change it for one payment on its own."
+                : "The rate stamped on each payment when it was taken, not today's rate."
           }
         >
           {commission.entries.length === 0 ? (
@@ -397,8 +411,58 @@ export default function StaffProfile({
                       <td className="py-2.5 pe-3 font-semibold text-ink">{e.patientName}</td>
                       <td className="py-2.5 pe-3 font-semibold text-ink-body">{e.serviceName}</td>
                       <td className="py-2.5 pe-3 text-end font-figure font-semibold text-ink-body">{money(e.paid)}</td>
-                      <td className="py-2.5 pe-3 text-end font-figure font-semibold text-ink-muted">
-                        {e.pct == null ? "—" : `${e.pct}%`}
+                      {/*
+                        Editable, as it was on the old team table. This is the one-off: a case where
+                        the dentist took a different cut, set on that payment rather than by moving
+                        their standing rate and rewriting everything else. The server recomputes the
+                        share and the clinic's profit from it and stamps the row as set by hand, so a
+                        later repair pass can tell a deliberate override from a row that was never
+                        computed properly.
+                      */}
+                      <td className="py-2.5 pe-3 text-end">
+                        {canEdit ? (
+                          <span className="inline-flex items-center gap-0.5">
+                            <input
+                              type="number"
+                              min={0}
+                              max={100}
+                              step="0.5"
+                              inputMode="decimal"
+                              aria-label={isAr ? "نسبة الدفعة" : "Rate on this payment"}
+                              value={pctDraft[e.id] ?? (e.pct == null ? "" : String(e.pct))}
+                              onChange={(ev) => setPctDraft((d) => ({ ...d, [e.id]: ev.target.value }))}
+                              onBlur={(ev) => {
+                                const raw = ev.target.value.trim();
+                                setPctDraft((d) => {
+                                  const next = { ...d };
+                                  delete next[e.id];
+                                  return next;
+                                });
+                                if (raw === "") return;
+                                const next = Math.max(0, Math.min(100, Number(raw) || 0));
+                                if (e.pct != null && next === e.pct) return;
+                                onSetPct(e.id, next);
+                              }}
+                              onKeyDown={(ev) => {
+                                if (ev.key === "Enter") (ev.target as HTMLInputElement).blur();
+                                if (ev.key === "Escape") {
+                                  setPctDraft((d) => {
+                                    const next = { ...d };
+                                    delete next[e.id];
+                                    return next;
+                                  });
+                                  (ev.target as HTMLInputElement).blur();
+                                }
+                              }}
+                              className="w-16 rounded-lg border border-line bg-surface px-2 py-1 text-end font-figure text-[13px] font-bold text-ink outline-none focus:border-accent"
+                            />
+                            <span className="font-figure text-[12px] font-semibold text-ink-muted">%</span>
+                          </span>
+                        ) : (
+                          <span className="font-figure font-semibold text-ink-muted">
+                            {e.pct == null ? "—" : `${e.pct}%`}
+                          </span>
+                        )}
                       </td>
                       <td className="py-2.5 text-end font-figure font-extrabold text-ink">{money(e.amount)}</td>
                     </tr>
