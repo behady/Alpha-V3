@@ -44,6 +44,9 @@ import { MoneyApiError, deleteAppointment } from "@/lib/moneyApi";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { doctorCardLabel, pickerValueFromDoctorField } from "@/lib/generalDentist";
 import { parseClinicSchedule, dayBoundsCovering, visitStartInDay, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
+import { weekDaysFrom } from "@/lib/weekSchedule";
+import { holdsPermission } from "@/lib/permissions";
+import { useClinic } from "@/context/ClinicContext";
 import { useActiveBranch, ALL_BRANCHES } from "@/lib/useActiveBranch";
 import BranchSelector from "@/components/shared/BranchSelector";
 import type { OwnerAlertKey } from "@/types/whatsapp";
@@ -110,9 +113,13 @@ type DashboardAppointment = {
 
 export default function DesktopDashboard() {
   const { language, isRTL, t } = useLanguage();
-  const { user } = useAuth(); 
+  const { user } = useAuth();
   const { showToast, confirm, appointmentEditorMode, appointmentPanelMode, setAppointmentPanelMode, latePatientTrackerEnabled } = useUI();
   const router = useRouter();
+  const { isAdmin, role } = useClinic();
+  // The same gate the finance pages use. The week view prints money above each day, and a
+  // receptionist without the finance permission should not read the clinic's week in pounds.
+  const canSeeMoney = isAdmin || holdsPermission(role, user?.permissions, "access.finance");
 
   const [allAppointments, setAllAppointments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -286,13 +293,15 @@ export default function DesktopDashboard() {
       Array.from(
         new Set(
           allAppointments
-            .filter((a) => a.date === scheduleViewDate && a.patientId)
+            // In week mode the whole week is on screen, so every patient on it gets a history —
+            // the "owes from before" mark on a week card comes from the same read.
+            .filter((a) => a.patientId && (viewMode === "week" || a.date === scheduleViewDate))
             .map((a) => String(a.patientId)),
         ),
       )
         .sort()
         .join(","),
-    [allAppointments, scheduleViewDate],
+    [allAppointments, scheduleViewDate, viewMode],
   );
 
   useEffect(() => {
@@ -304,8 +313,11 @@ export default function DesktopDashboard() {
     const chunks: string[][] = [];
     for (let i = 0; i < ids.length; i += 30) chunks.push(ids.slice(i, i + 30));
     const rowsByChunk = new Map<number, Record<string, unknown>[]>();
+    // "Before" means before the day on screen — or, on the week view, before the week on screen,
+    // so a visit earlier in the same week is not counted as old debt on Thursday's card.
+    const beforeDate = viewMode === "week" ? weekDaysFrom(scheduleViewDate)[0] : scheduleViewDate;
     const recompute = () =>
-      setPatientHistory(historyByPatient(Array.from(rowsByChunk.values()).flat(), scheduleViewDate));
+      setPatientHistory(historyByPatient(Array.from(rowsByChunk.values()).flat(), beforeDate));
     const unsubs = chunks.map((chunk, i) =>
       onSnapshot(
         query(getClinicCollection("ledger"), where("patientId", "in", chunk)),
@@ -320,7 +332,7 @@ export default function DesktopDashboard() {
       ),
     );
     return () => unsubs.forEach((u) => u());
-  }, [dayPatientKey, scheduleViewDate]);
+  }, [dayPatientKey, scheduleViewDate, viewMode]);
 
   // 1. Clock Timer
   useEffect(() => {
@@ -463,27 +475,13 @@ export default function DesktopDashboard() {
       const viewKey = normalizeDateKey(scheduleViewDate) || scheduleViewDate;
       q = query(getClinicCollection("appointments"), where("date", "==", viewKey));
     } else {
-      const parts = scheduleViewDate.split("-");
-      const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-      const diffToSat = (d.getDay() + 1) % 7;
-      const startOfWeek = new Date(d);
-      startOfWeek.setDate(d.getDate() - diffToSat);
-      const endOfWeek = new Date(startOfWeek);
-      endOfWeek.setDate(startOfWeek.getDate() + 6);
-
-      const formatLocalDate = (date: Date) => {
-        const yyyy = date.getFullYear();
-        const mm = String(date.getMonth() + 1).padStart(2, '0');
-        const dd = String(date.getDate()).padStart(2, '0');
-        return `${yyyy}-${mm}-${dd}`;
-      };
-      
-      const startOfWeekKey = formatLocalDate(startOfWeek);
-      const endOfWeekKey = formatLocalDate(endOfWeek);
+      // The same seven days the week grid draws, from the same function, so the query and the
+      // columns can never disagree about which days are "this week".
+      const days = weekDaysFrom(scheduleViewDate);
       q = query(
         getClinicCollection("appointments"),
-        where("date", ">=", startOfWeekKey),
-        where("date", "<=", endOfWeekKey)
+        where("date", ">=", days[0]),
+        where("date", "<=", days[6])
       );
     }
 
@@ -522,7 +520,15 @@ export default function DesktopDashboard() {
       // Feeds the booking picker, which filters by name in the browser. Capped like the
       // patients screen's own name search, so it cannot grow into an unbounded read.
       query(getClinicCollection("patients"), orderBy("name"), limit(2500)),
-      (snap) => setPatientsList(snap.docs.map((d) => ({ id: d.id, name: d.data().name, phone: d.data().phone })))
+      // Allergies and history ride along for the medical-alert badge on the cards. Without them
+      // `medicalAlert()` had nothing to read and the badge never appeared, on any card.
+      (snap) => setPatientsList(snap.docs.map((d) => ({
+        id: d.id,
+        name: d.data().name,
+        phone: d.data().phone,
+        allergies: d.data().allergies,
+        medicalHistory: d.data().medicalHistory,
+      })))
     );
     const unsubDoctors = onSnapshot(getClinicCollection("staff"), (snap) => {
       setDoctorsList(
@@ -1226,8 +1232,10 @@ export default function DesktopDashboard() {
                             {language === 'ar' ? 'جدول المواعيد' : 'Schedule'}
                           </span>
                           <span className="text-xs font-bold text-ink-muted lg:text-ink-body mt-0.5">
-                            {scheduleViewDate}
-                            {scheduleViewDate === getLocalDateKey()
+                            {viewMode === "week"
+                              ? `${weekDaysFrom(scheduleViewDate)[0]} – ${weekDaysFrom(scheduleViewDate)[6]}`
+                              : scheduleViewDate}
+                            {viewMode !== "week" && scheduleViewDate === getLocalDateKey()
                               ? language === "ar"
                                 ? " · اليوم"
                                 : " · Today"
@@ -1323,6 +1331,10 @@ export default function DesktopDashboard() {
                                     config={config}
                                     patientsList={patientsList}
                                     onSelectAppointment={handleSelectAppointmentWrapper}
+                                    currentTime={currentTime}
+                                    todayKey={getLocalDateKey()}
+                                    canSeeMoney={canSeeMoney}
+                                    patientHistory={patientHistory}
                                 />
                             ) : (() => {
                                 const sched = config;
