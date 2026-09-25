@@ -109,6 +109,12 @@ interface TourContextType {
   goTo: (stopId: string) => boolean;
   leave: () => void;
   declineIntro: () => void;
+  /**
+   * The welcome screen is on screen right now. Called the instant it appears, not when it is
+   * closed: "shown automatically once" has to mean once, and a person who wandered off instead
+   * of answering used to get the whole black screen again on the next reload.
+   */
+  noteIntroShown: () => void;
   demoMode: DemoMode;
   setDemoMode: (mode: DemoMode) => void;
   demoValues: DemoValues;
@@ -484,9 +490,15 @@ export function TourProvider({
     };
   }, []);
   const progress = useMemo(
-    () => readTourProgress(scope),
+    () => {
+      const local = readTourProgress(scope);
+      // The flag on the user document outranks this browser: it is the same answer on every
+      // device, and it is the only one a freshly cleared browser still has.
+      if (local.introSeen || user?.tourIntroSeen !== true) return local;
+      return { ...local, introSeen: true };
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [scope, localTick],
+    [scope, localTick, user?.tourIntroSeen],
   );
   const firstTour = progress.completedAt === 0;
   /** A release walk this person has never been offered. Offered once, from Getting started. */
@@ -522,6 +534,48 @@ export function TourProvider({
     [clinicId, runId, role],
   );
 
+  /**
+   * "This person has met Sara" — written everywhere it can be written, once.
+   *
+   * The local copy is the fast one and the only one a signed-out or storage-blocked browser has.
+   * The copy on the user's own document is the one that actually keeps the promise: a browser
+   * whose storage was cleared, a second laptop, a phone, an incognito window — each of those is a
+   * fresh localStorage and used to mean the full-screen welcome again, for somebody who closed it
+   * weeks ago. `users/{uid}` is readable and writable by its owner (see firestore.rules), it is
+   * already live-subscribed by AuthContext, so the flag is on `user` the moment it lands and no
+   * extra read is needed. Merged, never set: this document carries roles granted server-side.
+   *
+   * Fire and forget. A failed write leaves the local flag standing, which is the old behaviour.
+   */
+  const introWritten = useRef<string | null>(null);
+  const writeIntroSeenRemote = useCallback((uid: string | null | undefined) => {
+    // At most one write per person per session: the callers fire on every paint of the welcome
+    // screen, and the snapshot that would stop them takes a round trip to come back.
+    if (!uid || introWritten.current === uid) return;
+    introWritten.current = uid;
+    void setDoc(getClinicDoc("users", uid), { tourIntroSeen: true }, { merge: true }).catch(() => {
+      // Offline or denied: the local flag already answered for this browser, and clearing this
+      // lets the next render try again rather than giving up for the session.
+      introWritten.current = null;
+    });
+  }, []);
+
+  const markIntroSeen = useCallback(() => {
+    markTourIntroSeen(scope);
+    if (user?.tourIntroSeen !== true) writeIntroSeenRemote(user?.uid);
+  }, [scope, user?.uid, user?.tourIntroSeen, writeIntroSeenRemote]);
+
+  /**
+   * A "yes, shown" that only this browser knows gets carried up to the user document, once.
+   *
+   * Without this, everyone who had already closed the welcome screen before it was stored on the
+   * server would have to close it one more time, on every device, to stop it coming back.
+   */
+  useEffect(() => {
+    if (user?.tourIntroSeen === true || !progress.introSeen) return;
+    writeIntroSeenRemote(user?.uid);
+  }, [user?.uid, user?.tourIntroSeen, progress.introSeen, writeIntroSeenRemote]);
+
   const start = useCallback(
     (opts?: { stopId?: string; fromStart?: boolean; run?: TourRun }) => {
       if (allStops.length === 0) return;
@@ -549,7 +603,7 @@ export function TourProvider({
         if (i >= 0) index = i;
       }
       if (opts?.fromStart) resetTourPosition(scope);
-      markTourIntroSeen(scope);
+      markIntroSeen();
       // Offered once: watching it and skipping it both count, or it would nag.
       if (run.startsWith("whatsnew:")) markWhatsNewSeen(scope, run.slice("whatsnew:".length));
       direction.current = 1;
@@ -562,7 +616,7 @@ export function TourProvider({
       // The setup stops sit after the first two; the checks are back long before then.
       if (run === "core") void findSetupNeeded().then(setSetupNeeded);
     },
-    [allStops, scope, runId, setupNeeded, stopsForRun, findSetupNeeded, clinicId, role],
+    [allStops, scope, markIntroSeen, runId, setupNeeded, stopsForRun, findSetupNeeded, clinicId, role],
   );
 
   const leave = useCallback(() => {
@@ -597,7 +651,7 @@ export function TourProvider({
       const i = active ? stops.findIndex((s) => s.id === stopId) : -1;
       if (i >= 0) {
         direction.current = i >= stopIndex ? 1 : -1;
-        markTourIntroSeen(scope);
+        markIntroSeen();
         setStopIndex(i);
         setPaused(false);
         return true;
@@ -608,21 +662,22 @@ export function TourProvider({
       start({ stopId });
       return true;
     },
-    [active, stops, stopIndex, scope, allStops, start],
+    [active, stops, stopIndex, markIntroSeen, allStops, start],
   );
 
-  const declineIntro = useCallback(() => markTourIntroSeen(scope), [scope]);
+  const declineIntro = useCallback(() => markIntroSeen(), [markIntroSeen]);
+  const noteIntroShown = declineIntro;
 
   const value = useMemo<TourContextType>(
     () => ({
       active, paused, stops, allStops, coreStops, role, track, unseenRelease, runId, chapters, stop, stopIndex, stopRoute, progress, firstTour,
-      start, next, back, goTo, leave, declineIntro,
+      start, next, back, goTo, leave, declineIntro, noteIntroShown,
       demoMode, setDemoMode, demoValues, liveDemoValues, firstPatientName,
       resolveDemoPatient, markDemoPatient, check, applyOffer, setHomeView, restoreHomeView,
     }),
     [
       active, paused, stops, allStops, coreStops, role, track, unseenRelease, runId, chapters, stop, stopIndex, stopRoute, progress, firstTour,
-      start, next, back, goTo, leave, declineIntro,
+      start, next, back, goTo, leave, declineIntro, noteIntroShown,
       demoMode, setDemoMode, demoValues, liveDemoValues, firstPatientName,
       resolveDemoPatient, markDemoPatient, check, applyOffer, setHomeView, restoreHomeView,
     ],

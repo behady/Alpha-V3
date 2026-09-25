@@ -522,7 +522,7 @@ async function processLeadEvent(db, event, todayStr) {
         body: `${detail}\nFacebook · ${pageName || pageId}`,
       },
       // The inbox is reception's and the owner's; tapping opens it directly.
-      { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_leads", data: { screen: "leads" } }
+      { event: "newLead", channel: "alpha_leads", data: { screen: "leads" } }
     ).catch(() => {});
   }
 

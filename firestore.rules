@@ -213,6 +213,13 @@ service cloud.firestore {
         && sub != 'sms_devices' && sub != 'leads'
         && sub != 'ai_usage' && sub != 'ai_usage_log'
         && sub != 'whatsapp_outbox'
+        // The notification feed. Every row is written by the server (an API route or a Cloud
+        // Function, both on the Admin SDK), and every row names the people it is addressed to.
+        // Left inside the general grant, any member could forge one — an "owner, a paid lead has
+        // been abandoned" that nobody sent — or edit the audience of a real one, or delete a
+        // colleague's. The only thing a browser needs here is to mark a row it can already see as
+        // read or hidden, which the block below grants exactly.
+        && sub != 'notifications'
         // Supply orders are created by /api/store/orders against the partner's WooCommerce shop.
         // A client able to write here could invent an order the shop never received, or edit the
         // line items of one it did — and the commission record that pays us is written in the
@@ -395,6 +402,31 @@ service cloud.firestore {
       match /settings/{docId} {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
         allow write: if isSuperAdmin() || (isClinicAdmin(clinicId) && isClinicActive(clinicId));
+      }
+
+      /**
+       * The notification feed: read your own, mark your own, nothing else.
+       *
+       * Reads stay clinic-wide because the query is what scopes them — the bell asks for rows
+       * where `audience` contains the caller, and a rule that tried to enforce that instead would
+       * have to be evaluated per document against an array, which Firestore will not do for a
+       * list query.
+       *
+       * The update is the narrow part, and it is narrow in three ways at once: the caller must be
+       * named in the row's own audience, the only fields that may change are the two read/hidden
+       * lists, and nothing may be created or deleted from a browser at all. Creating is the
+       * server's job (see notificationDelivery.ts and functions/clinicPush.js) and deleting is the
+       * daily sweeper's, so a member cannot manufacture an alert, re-address a real one, or clear
+       * a colleague's inbox.
+       */
+      match /notifications/{notificationId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow update: if isAuth() && hasClinicRole(clinicId) && isClinicActive(clinicId)
+          && request.auth.uid in resource.data.get('audience', [])
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['readBy', 'dismissedBy']);
+        allow create: if isSuperAdmin();
+        allow delete: if isSuperAdmin();
       }
 
       /**

@@ -104,7 +104,7 @@ const DUE_STYLE: Record<DueState, { pill: string; en: (n: number) => string; ar:
 function LabTrackingPage() {
   const { language, isRTL } = useLanguage();
   const { user } = useAuth();
-  const { clinic } = useClinic();
+  const { clinic, clinicId } = useClinic();
   const router = useRouter();
   const { showToast, confirm } = useUI();
   const { branches, matches, activeBranchId } = useActiveBranch();
@@ -246,7 +246,7 @@ function LabTrackingPage() {
         if (next === "back") {
           // The bell, and then the person. The alert is for whoever is not looking at this screen;
           // the prompt is for whoever just clicked, because they are the one holding the case.
-          void notifyLabCaseReady(labCase, language, clinic?.alertPreferences);
+          void notifyLabCaseReady(labCase, language, clinic?.alertPreferences, clinicId);
           showToast(
             isAr
               ? `${labCase.code} وصلت — كلّم المريض واحجزله التركيب`

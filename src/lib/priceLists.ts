@@ -113,7 +113,18 @@ export function parsePriceLists(data: Record<string, unknown> | null | undefined
       active: entry?.active !== false,
       isDefault: entry?.isDefault === true,
     }))
-    .filter((list) => list.id && list.name);
+    .filter((list) => list.id && list.name)
+    /**
+     * One entry per id, keeping the first.
+     *
+     * Duplicates happened in production: the insurance wizard derives a list id from the payer
+     * ("payer-axa"), and a stale screen appended a second entry under the same id instead of
+     * reusing the first. Two lists with one id is unrepresentable everywhere else — prices on the
+     * services are keyed by id, so both entries claim the same prices while the pickers show the
+     * name twice — and whichever write happens next persists the confusion. Collapsing here means
+     * the next save heals the stored document instead of copying the damage forward.
+     */
+    .filter((list, index, all) => all.findIndex((other) => other.id === list.id) === index);
 
   if (lists.length === 0) return [DEFAULT_PRICE_LIST];
 

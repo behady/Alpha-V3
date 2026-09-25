@@ -195,6 +195,11 @@ async function createPayment(args: {
         doctor: typeof procedureData.doctor === "string" ? procedureData.doctor : null,
         labFee: Number(procedureData.labFee) || 0,
         description: typeof procedureData.description === "string" ? procedureData.description : null,
+        // Carried from the treatment, never from the request. Who paid for a case is settled when
+        // the case is recorded; a payment screen must not be able to move revenue between an
+        // insurer and the clinic's own books.
+        payerId: typeof procedureData.payerId === "string" ? procedureData.payerId : null,
+        payerName: typeof procedureData.payerName === "string" ? procedureData.payerName : null,
       };
 
       // Read the existing payments here, inside the transaction, rather than trusting a client
@@ -505,7 +510,20 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
         const withoutThis = nextSiblings.filter((p) => p.id !== id);
         // The set as it will stand once this edit lands. The row may be joining the set for the
         // first time, so it is added rather than mapped over.
-        const paymentsAfter = [...withoutThis, { id, paid, amount: paid, date }];
+        // The flag and the rate come along: correcting an AMOUNT must not throw away a rate
+        // somebody set on this payment by hand.
+        const paymentsAfter = [
+          ...withoutThis,
+          {
+            id,
+            paid,
+            amount: paid,
+            date,
+            commissionSetManually: before.commissionSetManually === true,
+            doctorCommissionPercentage:
+              typeof before.doctorCommissionPercentage === "number" ? before.doctorCommissionPercentage : null,
+          },
+        ];
         applyProcedureSync(txn, {
           clinicId,
           procedureLedgerId: nextProcedureId,

@@ -186,4 +186,43 @@ assert.equal(
   "the lab is paid exactly once, however the payments change"
 );
 
+/**
+ * A rate somebody typed by hand survives the next payment.
+ *
+ * This rebalance runs after ANY change to a procedure's payments, and it used to stamp the
+ * dentist's standing rate onto every row — so a one-off split typed into a single payment was
+ * silently undone the next time money came in against the same treatment. The figure changed back,
+ * with nothing on screen to say it had. `commissionSetManually` is written for exactly this reason
+ * (finance/ledger: "recomputing an override back to the standing rate silently reverses a decision
+ * someone made on purpose"), and this is the function that has to honour it.
+ */
+const withOverride = recalcProcedurePayments({
+  payments: [
+    { id: "a", date: "2026-08-01", paid: 1000 },
+    { id: "b", date: "2026-08-05", paid: 1000, commissionSetManually: true, doctorCommissionPercentage: 50 },
+  ],
+  labFee: 200,
+  commissionPct: 30,
+});
+const overrideById = Object.fromEntries(withOverride.map((r) => [r.id, r]));
+assert.equal(overrideById.a.doctorCommissionPercentage, 30, "an ordinary row takes the standing rate");
+assert.equal(overrideById.a.doctorCommissionAmount, 240, "(1000 - 200) * 30%");
+assert.equal(overrideById.b.doctorCommissionPercentage, 50, "a hand-set rate is kept, not overwritten");
+assert.equal(overrideById.b.doctorCommissionAmount, 500, "and the share is worked out from it");
+assert.equal(
+  overrideById.b.labFee,
+  0,
+  "the lab fee is still reallocated — which payment carries it is not a decision anybody made about the rate"
+);
+
+// A row flagged manual but carrying no percentage means 0%, which is a real answer: somebody
+// decided this payment earns nothing. It must not fall back to the standing rate.
+const manualZero = recalcProcedurePayments({
+  payments: [{ id: "z", date: "2026-08-01", paid: 1000, commissionSetManually: true }],
+  labFee: 0,
+  commissionPct: 30,
+});
+assert.equal(manualZero[0].doctorCommissionPercentage, 0, "manual with no rate is 0%, not the standing rate");
+assert.equal(manualZero[0].doctorCommissionAmount, 0);
+
 console.log("✓ ledgerWrite: every payment carries its dentist, and the lab fee is charged exactly once");

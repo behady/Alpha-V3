@@ -423,6 +423,8 @@ exports.morningBrief = pushPhase1.morningBrief;
 exports.leadsDueToday = pushPhase1.leadsDueToday;
 exports.eveningDigest = pushPhase1.eveningDigest;
 exports.stuckMessagesAlert = pushPhase1.stuckMessagesAlert;
+// Keeps the bell's feed from growing for ever; see pushPhase1.js.
+exports.notificationsSweep = pushPhase1.notificationsSweep;
 exports.handoffSla = require("./handoffSla").handoffSla;
 exports.quietNudge = require("./quietNudge").quietNudge;
 exports.appointmentNotices = require("./appointmentNotices").appointmentNotices;

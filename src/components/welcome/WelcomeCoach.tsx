@@ -28,7 +28,7 @@ import { coachGreeting } from "@/lib/welcomeJourney";
  * When it stays quiet, and why — all decided in `coachDecision`, not here:
  *  - the guide is finished (the only ending that needs no goodbye),
  *  - a lesson is running: its ring owns the screen and this would talk over it,
- *  - "Later" is still in effect, or it was switched off for good at this clinic,
+ *  - it was closed, which means for good and on every device this person signs in from,
  *  - the signals have not come back yet, so "next" would be a guess.
  *
  * And two it decides for itself, because they are about where it is standing rather than what it
@@ -39,7 +39,7 @@ export default function WelcomeCoach() {
   const { language, isRTL } = useLanguage();
   const { receptionPanelActive, assistantPanelOpen } = useUI();
   const { startTutorial } = useTutorial();
-  const { progress, trial, coach, snooze, dismiss } = useWelcome();
+  const { progress, trial, coach, dismiss } = useWelcome();
   const { user } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
@@ -128,17 +128,24 @@ export default function WelcomeCoach() {
                 <span className="ms-auto text-[10px] font-black text-slate-400 tabular-nums shrink-0">
                   {progress.done}/{progress.total}
                 </span>
-                {/* The X closes the bubble, full stop. It used to open a two-option menu asking
-                    whether you meant "later" or "never", which is a question nobody wants after
-                    pressing a close button — the bubble stayed on screen and, because neither
-                    option had been chosen, nothing was remembered and it came straight back. It
-                    closes now, and closing it repeatedly buys a longer and longer silence (see
-                    coachSnoozeMs). Turning it off for good is the separate button below, which is
-                    always visible rather than hidden behind this one. */}
+                {/* The X means never again, and says so.
+
+                    It has been through three versions. First it opened a menu asking whether you
+                    meant "later" or "never" — a question nobody wants after pressing a close
+                    button, and because neither option had been chosen, nothing was remembered and
+                    the bubble came straight back. Then it snoozed, for six hours, then a day, then
+                    a week, then a week for ever: a bubble that always came back eventually, which
+                    is the definition of a nag however politely it is spaced. Now closing it is the
+                    answer, and it is final. Getting started has a button to bring her back, and
+                    that page is the only thing that can. */}
                 <button
-                  onClick={snooze}
-                  aria-label={isAr ? "إغلاق" : "Close"}
-                  title={isAr ? "إغلاق" : "Close"}
+                  onClick={dismiss}
+                  aria-label={isAr ? "مش عايز الشرح" : "Don't show this again"}
+                  title={
+                    isAr
+                      ? "مش هتظهر تاني — تقدر ترجّعها من صفحة البداية"
+                      : "It won't come back — you can turn it on again from Getting started"
+                  }
                   className="w-6 h-6 -me-1 rounded-full text-ink-muted hover:text-ink hover:bg-surface-muted flex items-center justify-center transition-colors shrink-0"
                 >
                   <X size={14} />

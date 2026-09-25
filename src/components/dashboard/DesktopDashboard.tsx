@@ -43,7 +43,10 @@ import { logActivity } from "@/lib/logger";
 import { MoneyApiError, deleteAppointment } from "@/lib/moneyApi";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { doctorCardLabel, pickerValueFromDoctorField } from "@/lib/generalDentist";
-import { parseClinicSchedule, clinicDayBoundsMinutes, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
+import { parseClinicSchedule, dayBoundsCovering, visitStartInDay, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
+import { weekDaysFrom } from "@/lib/weekSchedule";
+import { holdsPermission } from "@/lib/permissions";
+import { useClinic } from "@/context/ClinicContext";
 import { useActiveBranch, ALL_BRANCHES } from "@/lib/useActiveBranch";
 import BranchSelector from "@/components/shared/BranchSelector";
 import type { OwnerAlertKey } from "@/types/whatsapp";
@@ -58,6 +61,11 @@ import {
 import { printPatientReceipt } from "@/lib/printPatientReceipt";
 import ReceptionSummonPanel from "@/components/summon/ReceptionSummonPanel";
 import { getAppointmentStatusStyles } from "@/lib/appointmentStages";
+import {
+  cardTiming, detailOrder, historyByPatient, medicalAlert, moneyByAppointment, planDetails, timeRange,
+  type PatientHistory, type VisitMoney,
+} from "@/lib/scheduleCard";
+import ScheduleCardDetails, { AlertBadge, ChairProgress } from "@/components/dashboard/ScheduleCardDetails";
 import UserClockWidget from "@/components/dashboard/UserClockWidget";
 import { currentClinicId, getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 function getLocalDateKey(): string {
@@ -105,9 +113,13 @@ type DashboardAppointment = {
 
 export default function DesktopDashboard() {
   const { language, isRTL, t } = useLanguage();
-  const { user } = useAuth(); 
+  const { user } = useAuth();
   const { showToast, confirm, appointmentEditorMode, appointmentPanelMode, setAppointmentPanelMode, latePatientTrackerEnabled } = useUI();
   const router = useRouter();
+  const { isAdmin, role } = useClinic();
+  // The same gate the finance pages use. The week view prints money above each day, and a
+  // receptionist without the finance permission should not read the clinic's week in pounds.
+  const canSeeMoney = isAdmin || holdsPermission(role, user?.permissions, "access.finance");
 
   const [allAppointments, setAllAppointments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -233,6 +245,16 @@ export default function DesktopDashboard() {
     return () => unsub();
   }, []);
 
+  /**
+   * What each visit on the schedule came to, for the DAY ON SCREEN.
+   *
+   * The income listener above is pinned to today, which is right for "what came in today" and
+   * wrong for a card on Thursday's schedule — so this is its own listener, keyed to the day being
+   * viewed. One bounded read of that day's ledger, grouped by appointment.
+   */
+  const [visitMoney, setVisitMoney] = useState<Map<string, VisitMoney>>(new Map());
+  const [patientHistory, setPatientHistory] = useState<Map<string, PatientHistory>>(new Map());
+
   const fireOwnerWhatsAppAlert = async (alertKey: OwnerAlertKey, message: string) => {
     try {
       const u = auth.currentUser;
@@ -247,6 +269,70 @@ export default function DesktopDashboard() {
       console.warn("Owner WhatsApp alert", e);
     }
   };
+
+  useEffect(() => {
+    if (!scheduleViewDate) return;
+    const unsub = onSnapshot(
+      query(getClinicCollection("ledger"), where("date", "==", scheduleViewDate)),
+      (snap) => setVisitMoney(moneyByAppointment(snap.docs.map((d) => d.data() as Record<string, unknown>))),
+      () => setVisitMoney(new Map()),
+    );
+    return () => unsub();
+  }, [scheduleViewDate]);
+
+  /**
+   * What the clinic already knows about each patient on the day being viewed: what they still owe
+   * from earlier visits, how often they have been, and when they were last in.
+   *
+   * One read of those patients' treatment rows — `in` takes 30 ids, so a busy day is a few chunks,
+   * not a read per card. Keyed on the SORTED id list rather than the appointments array, so a
+   * status change on one card does not tear the listeners down and read everything again.
+   */
+  const dayPatientKey = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          allAppointments
+            // In week mode the whole week is on screen, so every patient on it gets a history —
+            // the "owes from before" mark on a week card comes from the same read.
+            .filter((a) => a.patientId && (viewMode === "week" || a.date === scheduleViewDate))
+            .map((a) => String(a.patientId)),
+        ),
+      )
+        .sort()
+        .join(","),
+    [allAppointments, scheduleViewDate, viewMode],
+  );
+
+  useEffect(() => {
+    const ids = dayPatientKey ? dayPatientKey.split(",") : [];
+    if (ids.length === 0) {
+      setPatientHistory(new Map());
+      return;
+    }
+    const chunks: string[][] = [];
+    for (let i = 0; i < ids.length; i += 30) chunks.push(ids.slice(i, i + 30));
+    const rowsByChunk = new Map<number, Record<string, unknown>[]>();
+    // "Before" means before the day on screen — or, on the week view, before the week on screen,
+    // so a visit earlier in the same week is not counted as old debt on Thursday's card.
+    const beforeDate = viewMode === "week" ? weekDaysFrom(scheduleViewDate)[0] : scheduleViewDate;
+    const recompute = () =>
+      setPatientHistory(historyByPatient(Array.from(rowsByChunk.values()).flat(), beforeDate));
+    const unsubs = chunks.map((chunk, i) =>
+      onSnapshot(
+        query(getClinicCollection("ledger"), where("patientId", "in", chunk)),
+        (snap) => {
+          rowsByChunk.set(i, snap.docs.map((d) => d.data() as Record<string, unknown>));
+          recompute();
+        },
+        () => {
+          rowsByChunk.set(i, []);
+          recompute();
+        },
+      ),
+    );
+    return () => unsubs.forEach((u) => u());
+  }, [dayPatientKey, scheduleViewDate, viewMode]);
 
   // 1. Clock Timer
   useEffect(() => {
@@ -389,27 +475,13 @@ export default function DesktopDashboard() {
       const viewKey = normalizeDateKey(scheduleViewDate) || scheduleViewDate;
       q = query(getClinicCollection("appointments"), where("date", "==", viewKey));
     } else {
-      const parts = scheduleViewDate.split("-");
-      const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-      const diffToSat = (d.getDay() + 1) % 7;
-      const startOfWeek = new Date(d);
-      startOfWeek.setDate(d.getDate() - diffToSat);
-      const endOfWeek = new Date(startOfWeek);
-      endOfWeek.setDate(startOfWeek.getDate() + 6);
-
-      const formatLocalDate = (date: Date) => {
-        const yyyy = date.getFullYear();
-        const mm = String(date.getMonth() + 1).padStart(2, '0');
-        const dd = String(date.getDate()).padStart(2, '0');
-        return `${yyyy}-${mm}-${dd}`;
-      };
-      
-      const startOfWeekKey = formatLocalDate(startOfWeek);
-      const endOfWeekKey = formatLocalDate(endOfWeek);
+      // The same seven days the week grid draws, from the same function, so the query and the
+      // columns can never disagree about which days are "this week".
+      const days = weekDaysFrom(scheduleViewDate);
       q = query(
         getClinicCollection("appointments"),
-        where("date", ">=", startOfWeekKey),
-        where("date", "<=", endOfWeekKey)
+        where("date", ">=", days[0]),
+        where("date", "<=", days[6])
       );
     }
 
@@ -448,7 +520,15 @@ export default function DesktopDashboard() {
       // Feeds the booking picker, which filters by name in the browser. Capped like the
       // patients screen's own name search, so it cannot grow into an unbounded read.
       query(getClinicCollection("patients"), orderBy("name"), limit(2500)),
-      (snap) => setPatientsList(snap.docs.map((d) => ({ id: d.id, name: d.data().name, phone: d.data().phone })))
+      // Allergies and history ride along for the medical-alert badge on the cards. Without them
+      // `medicalAlert()` had nothing to read and the badge never appeared, on any card.
+      (snap) => setPatientsList(snap.docs.map((d) => ({
+        id: d.id,
+        name: d.data().name,
+        phone: d.data().phone,
+        allergies: d.data().allergies,
+        medicalHistory: d.data().medicalHistory,
+      })))
     );
     const unsubDoctors = onSnapshot(getClinicCollection("staff"), (snap) => {
       setDoctorsList(
@@ -460,7 +540,7 @@ export default function DesktopDashboard() {
     });
     const unsubServices = onSnapshot(
       getClinicCollection("services"),
-      (snap) => setServicesList(snap.docs.map((d) => ({ id: d.id, name: d.data().name, price: d.data().price })))
+      (snap) => setServicesList(snap.docs.map((d) => ({ id: d.id, name: d.data().name, price: d.data().price, /* the per-list overrides — without them an insurer's tariff can never reach this screen */ prices: d.data().prices, category: d.data().category, icon: d.data().icon })))
     );
     return () => {
       unsubPatients();
@@ -1152,8 +1232,10 @@ export default function DesktopDashboard() {
                             {language === 'ar' ? 'جدول المواعيد' : 'Schedule'}
                           </span>
                           <span className="text-xs font-bold text-ink-muted lg:text-ink-body mt-0.5">
-                            {scheduleViewDate}
-                            {scheduleViewDate === getLocalDateKey()
+                            {viewMode === "week"
+                              ? `${weekDaysFrom(scheduleViewDate)[0]} – ${weekDaysFrom(scheduleViewDate)[6]}`
+                              : scheduleViewDate}
+                            {viewMode !== "week" && scheduleViewDate === getLocalDateKey()
                               ? language === "ar"
                                 ? " · اليوم"
                                 : " · Today"
@@ -1249,10 +1331,22 @@ export default function DesktopDashboard() {
                                     config={config}
                                     patientsList={patientsList}
                                     onSelectAppointment={handleSelectAppointmentWrapper}
+                                    currentTime={currentTime}
+                                    todayKey={getLocalDateKey()}
+                                    canSeeMoney={canSeeMoney}
+                                    patientHistory={patientHistory}
                                 />
                             ) : (() => {
                                 const sched = config;
-                                const bounds = clinicDayBoundsMinutes(sched);
+                                // Widened to cover every visit on the day — a booking outside the
+                                // clinic's hours is still a booking, and used to be dropped here.
+                                const bounds = dayBoundsCovering(
+                                    sched,
+                                    appointments.map((apt) => {
+                                        const startMin = parseApptTimeToMinutes(apt.time);
+                                        return { startMin, endMin: startMin + (apt.duration || 30) };
+                                    }),
+                                );
                                 const slotDuration = sched.slotDuration || 30;
                                 const rowHeight = 148;
                                 const pixelsPerMinute = rowHeight / slotDuration;
@@ -1266,7 +1360,10 @@ export default function DesktopDashboard() {
                                     const ampm = h >= 12 ? 'PM' : 'AM';
                                     const h12 = h % 12 || 12;
                                     const label = `${h12.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')} ${ampm}`;
-                                    timeSlots.push({ minutes: m, label });
+                                    // Shaded when the clinic is closed at that hour, so a visit drawn
+                                    // there reads as "outside hours", not as the hours being wrong.
+                                    const outside = m < bounds.clinicStart || m >= bounds.clinicEnd;
+                                    timeSlots.push({ minutes: m, label, outside });
                                 }
 
                                 return (
@@ -1298,7 +1395,7 @@ export default function DesktopDashboard() {
                                             {timeSlots.map((slot, idx) => (
                                                 <div 
                                                     key={idx} 
-                                                    className="border-b border-dashed border-slate-300/60 flex-1 relative pointer-events-auto cursor-pointer hover:bg-white/50 transition-colors group/slot"
+                                                    className={`border-b border-dashed border-slate-300/60 flex-1 relative pointer-events-auto cursor-pointer hover:bg-white/50 transition-colors group/slot ${slot.outside ? 'bg-slate-900/[0.04]' : ''}`}
                                                     style={{ height: `${rowHeight}px` }}
                                                     onClick={() => {
                                                         handleSelectAppointmentWrapper(null);
@@ -1315,14 +1412,16 @@ export default function DesktopDashboard() {
                                         </div>
                                         <div className="absolute inset-0 left-[88px] md:left-[104px] right-2 md:right-4 pointer-events-none">
                                             {(() => {
-                                                const visibleAppts = appointments.filter(apt => {
-                                                    const startMin = parseApptTimeToMinutes(apt.time);
-                                                    return startMin >= bounds.start && startMin < bounds.end;
-                                                }).map(apt => ({
-                                                    ...apt,
-                                                    startMin: parseApptTimeToMinutes(apt.time),
-                                                    endMin: parseApptTimeToMinutes(apt.time) + (apt.duration || 30)
-                                                })).sort((a, b) => a.startMin - b.startMin || b.endMin - a.endMin);
+                                                // Every visit on the day is drawn: the bounds above were
+                                                // widened to fit them, so nothing is filtered out here.
+                                                const visibleAppts = appointments.map(apt => {
+                                                    const startMin = visitStartInDay(parseApptTimeToMinutes(apt.time), bounds);
+                                                    return {
+                                                        ...apt,
+                                                        startMin,
+                                                        endMin: startMin + (apt.duration || 30),
+                                                    };
+                                                }).sort((a, b) => a.startMin - b.startMin || b.endMin - a.endMin);
 
                                                 const blocks: (typeof visibleAppts)[] = [];
                                                 let currentBlock: typeof visibleAppts = [];
@@ -1374,22 +1473,46 @@ export default function DesktopDashboard() {
                                                     const leftPercent = (apt.colIndex / apt.totalCols) * 100;
                                                     const widthPercent = (100 / apt.totalCols);
 
-                                                    // Dynamic font sizes based on card size (duration)
-                                                    let nameFontSize = "text-xs md:text-sm lg:text-base";
-                                                    let timeFontSize = "text-[10px] md:text-xs lg:text-xs";
-                                                    let infoFontSize = "text-[10px] md:text-xs lg:text-sm";
+                                                    /*
+                                                      Type that grows with the card. This used to key off the
+                                                      duration and then set the SAME `lg:` size on every tier,
+                                                      so on a laptop or a tablet in landscape the name was 16px
+                                                      on a 15-minute card and on a two-hour one alike. Keyed off
+                                                      the card's real height now, which is what the eye compares.
+                                                    */
+                                                    const tall = height >= 260;
+                                                    const roomy = height >= 170;
+                                                    const nameFontSize = tall ? "text-base lg:text-lg" : roomy ? "text-sm lg:text-base" : "text-xs lg:text-[15px]";
+                                                    const timeFontSize = tall ? "text-xs lg:text-[13px]" : "text-[10px] lg:text-xs";
+                                                    const infoFontSize = tall ? "text-xs lg:text-sm" : roomy ? "text-xs lg:text-[13px]" : "text-[10px] lg:text-xs";
 
-                                                    if (durationMinutes > 30 && durationMinutes <= 60) {
-                                                        nameFontSize = "text-sm md:text-base lg:text-base";
-                                                        timeFontSize = "text-xs md:text-sm lg:text-xs";
-                                                        infoFontSize = "text-xs md:text-sm lg:text-sm";
-                                                    } else if (durationMinutes > 60) {
-                                                        nameFontSize = "text-base md:text-lg lg:text-base";
-                                                        timeFontSize = "text-sm md:text-base lg:text-xs";
-                                                        infoFontSize = "text-sm md:text-base lg:text-sm";
-                                                    }
-                                                    
-                                                    const phone = patientsList.find(p => p.id === apt.patientId)?.phone;
+                                                    /*
+                                                      What fills the space, in the order the desk needs it —
+                                                      which depends on whether the patient has arrived. Before:
+                                                      medical alert, money owed from before, confirmed or not,
+                                                      first visit or last seen. After: medical alert, how long
+                                                      they have been here, what this visit comes to, what they
+                                                      owe from before. The booking note takes whatever lines are
+                                                      left. See src/lib/scheduleCard.ts.
+                                                    */
+                                                    const patient = patientsList.find(p => p.id === apt.patientId);
+                                                    const phone = patient?.phone;
+                                                    const timing = cardTiming(apt, currentTime);
+                                                    const visit = visitMoney.get(apt.id) ?? null;
+                                                    const history = patientHistory.get(String(apt.patientId)) ?? null;
+                                                    const alert = medicalAlert(patient);
+                                                    const note = String(apt.notes ?? "").trim();
+                                                    const arrived = timing.kind !== "none" || ["Checked In", "In Chair", "Checking Out", "Completed"].includes(String(apt.status));
+                                                    const order = detailOrder(arrived, {
+                                                        alert: alert.length > 0,
+                                                        timing: timing.kind !== "none",
+                                                        money: Boolean(visit && visit.charged > 0),
+                                                        owes: Boolean(history && history.owedBefore > 0),
+                                                        // Confirmation and history are only worth a line before
+                                                        // they arrive, and only for a visit that is still coming.
+                                                        status: !arrived && ["Scheduled", "Confirmed"].includes(String(apt.status || "Scheduled")),
+                                                    });
+                                                    const plan = planDetails(height, order, note.length > 0);
 
                                                     return (
                                                         <div 
@@ -1435,7 +1558,7 @@ export default function DesktopDashboard() {
                                                                 style={{ zIndex: selectedAppointment?.id === apt.id ? 20 : 1 }}
                                                             >
                                                             <div className={`absolute left-0 top-0 bottom-0 w-2 ${aptStyles.accent}`}></div>
-                                                            <div className="flex flex-col h-full p-2 lg:p-3 relative justify-between gap-1">
+                                                            <div className="flex flex-col h-full p-2 lg:p-3 relative gap-1.5">
                                                                 {/* TOP ROW: Name + Actions */}
                                                                 <div className="flex justify-between items-start w-full gap-2">
                                                                     <div className="flex flex-col min-w-0">
@@ -1443,6 +1566,7 @@ export default function DesktopDashboard() {
                                                                             <h4 className={`font-medium truncate drop-shadow-sm ${nameFontSize}`}>
                                                                                 {apt.patientName}
                                                                             </h4>
+                                                                            <AlertBadge alert={alert} isAr={language === "ar"} />
                                                                             {/* Only while looking at every branch at once — inside a single
                                                                                 branch the chip would repeat the same word on every card. */}
                                                                             {activeBranchId === ALL_BRANCHES && apt.branchName && (
@@ -1461,9 +1585,9 @@ export default function DesktopDashboard() {
                                                                                 </span>
                                                                             )}
                                                                         </div>
-                                                                        {patientsList.find(p => p.id === apt.patientId)?.phone && (
+                                                                        {phone && (
                                                                             <span className="text-[10px] text-ink-muted font-medium truncate mt-0.5" dir="ltr">
-                                                                                {patientsList.find(p => p.id === apt.patientId)?.phone}
+                                                                                {phone}
                                                                             </span>
                                                                         )}
                                                                     </div>
@@ -1513,20 +1637,41 @@ export default function DesktopDashboard() {
                                                                     </div>
                                                                 </div>
 
-                                                                {/* BOTTOM ROW: Treatment + Time */}
-                                                                <div className="flex justify-between items-end w-full gap-2 mt-1.5 min-h-0">
-                                                                    <div className="flex flex-col gap-1 min-w-0">
-                                                                       <p className={`text-slate-800 truncate font-bold bg-white/60 lg:bg-white/80 backdrop-blur-sm px-2 py-0.5 rounded-md shadow-sm min-w-0 ${infoFontSize}`}>
-                                                                           {apt.treatment || "Consultation"} <span className="text-slate-400 mx-1 font-normal">•</span> {doctorCardLabel(apt.doctor, language)}
-                                                                       </p>
-                                                                       <div className="pl-1 mt-0.5">
-                                                                         <StarRating rating={apt.rating || 0} onRatingChange={(r) => handleRatingChange(apt.id, r)} size={14} />
-                                                                       </div>
+                                                                {/*
+                                                                  The treatment sits under the name now rather than at the
+                                                                  bottom edge. On a short card nothing moves far; on a tall
+                                                                  one the card reads top-down — who, what, then the details —
+                                                                  instead of name at the top, treatment at the bottom and a
+                                                                  white gap between them.
+                                                                */}
+                                                                <p className={`self-start max-w-full text-slate-800 truncate font-bold bg-white/60 lg:bg-white/80 backdrop-blur-sm px-2 py-0.5 rounded-md shadow-sm min-w-0 ${infoFontSize}`}>
+                                                                    {apt.treatment || "Consultation"} <span className="text-slate-400 mx-1 font-normal">•</span> {doctorCardLabel(apt.doctor, language)}
+                                                                </p>
+
+                                                                <ScheduleCardDetails
+                                                                    plan={plan}
+                                                                    order={order}
+                                                                    timing={timing}
+                                                                    visit={visit}
+                                                                    history={history}
+                                                                    alert={alert}
+                                                                    status={String(apt.status || "Scheduled")}
+                                                                    note={note}
+                                                                    isAr={language === "ar"}
+                                                                />
+
+                                                                {/* FOOTER: rating + the time the visit occupies */}
+                                                                <div className="mt-auto flex justify-between items-end w-full gap-2 min-h-0">
+                                                                    <div className="pl-1">
+                                                                        <StarRating rating={apt.rating || 0} onRatingChange={(r) => handleRatingChange(apt.id, r)} size={14} />
                                                                     </div>
-                                                                    <span className={`font-black text-ink-body lg:text-indigo-950 opacity-80 whitespace-nowrap shrink-0 bg-white/40 px-1.5 py-0.5 rounded-md ${timeFontSize}`}>
-                                                                        {apt.time} ({durationMinutes}m)
+                                                                    {/* "09:00 – 09:45" rather than "09:00 (45m)": the end time is
+                                                                        the thing being checked against the clock on the wall. */}
+                                                                    <span className={`font-figure font-black text-ink-body opacity-80 whitespace-nowrap shrink-0 bg-white/40 px-1.5 py-0.5 rounded-md ${timeFontSize}`} dir="ltr">
+                                                                        {timeRange(apt.time || "", durationMinutes)}
                                                                     </span>
                                                                 </div>
+                                                                <ChairProgress timing={timing} />
                                                             </div>
                                                          </div>
                                                      </div>

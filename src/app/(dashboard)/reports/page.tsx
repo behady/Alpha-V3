@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Loader2, RefreshCw, Stethoscope, UserCheck, Network, Building2, CalendarDays, Megaphone,
+  Wallet,
+  TableProperties,
 } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, query, where, Timestamp } from "firebase/firestore";
@@ -10,18 +12,24 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import PermissionGuard from "@/components/PermissionGuard";
 import PageHeader, { headerButtonPrimary } from "@/components/dashboard/PageHeader";
-import { getFirstDay, getToday } from "@/lib/reportHelpers";
-import { isDentistStaff } from "@/lib/staffRoles";
+import {
+  getFirstDay, getToday, presetOf, rangeFor, rangeText,
+  type DateRange, type RangePreset,
+} from "@/lib/reportHelpers";
+import { useClinic } from "@/context/ClinicContext";
 
 import ServiceReport from "@/components/reports/ServiceReport";
 import DentistReport from "@/components/reports/DentistReport";
 import SourceReport from "@/components/reports/SourceReport";
 import ClinicReport from "@/components/reports/ClinicReport";
 import LeadFunnelReport from "@/components/reports/LeadFunnelReport";
+import PayerReport from "@/components/reports/PayerReport";
+import CaseSheetReport from "@/components/reports/CaseSheetReport";
+import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import FeatureGate from "@/components/FeatureGate";
 
-type ReportTab = "service" | "dentist" | "source" | "leads" | "clinic";
+type ReportTab = "service" | "dentist" | "source" | "payers" | "cases" | "leads" | "clinic";
 
 function normalizeDate(val: unknown): string {
   if (!val) return "1970-01-01";
@@ -49,15 +57,27 @@ function ReportsPage() {
   const isAr = language === "ar";
 
   const [tab, setTab] = useState<ReportTab>("service");
-  const [startDate, setStartDate] = useState(getFirstDay());
-  const [endDate, setEndDate] = useState(getToday());
+  const { payers } = usePricingPolicy();
+  const { clinicId } = useClinic();
+  /**
+   * ONE piece of state, not two.
+   *
+   * Both dates used to be separate, and the fetch keyed on the pair — so a preset that set them in
+   * sequence fired two full reads, and stepping a month field with the arrow keys fired one per
+   * step. Moving them together makes a preset a single change.
+   */
+  const [range, setRange] = useState<DateRange>({ start: getFirstDay(), end: getToday() });
+  const { start: startDate, end: endDate } = range;
   const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
 
-  const rangeLabel = `${startDate} → ${endDate}`;
+  const preset = presetOf(range);
+  const rangeLabel = rangeText(range, isAr);
 
   const buildSnapshot = useCallback(async () => {
     setLoading(true);
+    setFailed(null);
     try {
       // Bounded by the selected range rather than pulled whole. This screen used to download
       // every ledger row and every lead the clinic had ever recorded and then throw away all but
@@ -73,7 +93,7 @@ function ReportsPage() {
       const leadsFrom = Timestamp.fromDate(new Date(`${startDate}T00:00:00`));
       const leadsTo = Timestamp.fromDate(new Date(`${endDate}T23:59:59.999`));
 
-      const [ledgerSnap, patientsSnap, staffSnap, leadsSnap] = await Promise.all([
+      const [ledgerSnap, patientsSnap, leadsSnap] = await Promise.all([
         getDocs(
           query(
             getClinicCollection("ledger"),
@@ -82,7 +102,6 @@ function ReportsPage() {
           )
         ),
         getDocs(getClinicCollection("patients")),
-        getDocs(getClinicCollection("staff")),
         getDocs(
           query(
             getClinicCollection("leads"),
@@ -92,15 +111,9 @@ function ReportsPage() {
         ),
       ]);
 
-      const staff = staffSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Record<string, unknown>));
-      const dentistSet = new Set<string>(
-        staff
-          .filter((s) => isDentistStaff(s as { role?: string; isDentist?: boolean }))
-          .map((s) => String(s.name || ""))
-          .filter(Boolean)
-      );
-      void dentistSet; // available for future use
-
+      // The whole `staff` collection used to be read here on every range change, filtered into a
+      // set of dentist names, and then thrown away with a `void` — dentists are named off the
+      // ledger rows instead. It was a full collection read per keystroke, for nothing.
       const allPatients = patientsSnap.docs.map((d) => ({
         id: d.id,
         ...d.data(),
@@ -128,21 +141,57 @@ function ReportsPage() {
         .filter((l) => inRange(l.normDate as string));
 
       setSnapshot({ procedures, payments, allPatients, leads });
+    } catch (e) {
+      /**
+       * There was no catch at all, so a failure left `snapshot` null and the page showed "Click
+       * Refresh to load data" — the same sentence it shows before the first load and on an empty
+       * clinic. Three different situations, one message, and the only one of them that was a
+       * problem told the owner to press a button that would fail again in silence.
+       */
+      setFailed(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, [startDate, endDate]);
+    // `clinicId` is a dependency even though it is not read here: `getClinicCollection` resolves
+    // the tenant globally and THROWS before it has landed, so a cold load raced the pointer and
+    // left the page empty with no way back. Now the arrival of a clinic refetches — which is also
+    // what makes a superadmin switching clinics load the new one.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startDate, endDate, clinicId]);
 
   useEffect(() => {
     buildSnapshot();
   }, [buildSnapshot]);
 
-  const tabs: { id: ReportTab; label: string; labelAr: string; icon: React.ElementType; color: string }[] = [
-    { id: "service", label: "Service Analysis", labelAr: "تحليل الخدمات", icon: Stethoscope, color: "text-blue-600 bg-blue-50" },
-    { id: "dentist", label: "Dentist Performance", labelAr: "أداء الأطباء", icon: UserCheck, color: "text-emerald-600 bg-emerald-50" },
-    { id: "source", label: "Patient Sources", labelAr: "مصادر المرضى", icon: Network, color: "text-cyan-600 bg-cyan-50" },
-    { id: "leads", label: "Marketing Funnel", labelAr: "قمع التسويق", icon: Megaphone, color: "text-amber-600 bg-amber-50" },
-    { id: "clinic", label: "Clinic Overview", labelAr: "نظرة عامة", icon: Building2, color: "text-violet-600 bg-violet-50" },
+  /**
+   * The seven tabs, with no colour of their own.
+   *
+   * Each used to carry a pastel chip — blue, emerald, cyan, rose, slate, amber, violet — which is
+   * the templated-dashboard rainbow the app's own rule forbids: chrome stays achromatic so that
+   * colour only ever names a destination. Seven colours name nothing.
+   */
+  const tabs: { id: ReportTab; label: string; labelAr: string; icon: React.ElementType }[] = [
+    { id: "service", label: "Service Analysis", labelAr: "تحليل الخدمات", icon: Stethoscope },
+    { id: "dentist", label: "Dentist Performance", labelAr: "أداء الأطباء", icon: UserCheck },
+    { id: "source", label: "Patient Sources", labelAr: "مصادر المرضى", icon: Network },
+    // Separate from Patient Sources on purpose: that one is marketing — where a patient heard about
+    // the clinic. This one is who is paying for the work, which is a different question with a
+    // different answer for the same patient.
+    { id: "payers", label: "Insurance & Payers", labelAr: "التأمين وجهات الدفع", icon: Wallet },
+    // The one report that groups nothing: a line per case, filterable down to the rows being
+    // argued about. It is what the others get checked against.
+    { id: "cases", label: "Case Sheet", labelAr: "سجل الحالات", icon: TableProperties },
+    { id: "leads", label: "Marketing Funnel", labelAr: "قمع التسويق", icon: Megaphone },
+    { id: "clinic", label: "Clinic Overview", labelAr: "نظرة عامة", icon: Building2 },
+  ];
+
+  const presets: { id: Exclude<RangePreset, "custom">; en: string; ar: string }[] = [
+    { id: "today", en: "Today", ar: "النهارده" },
+    { id: "week", en: "This week", ar: "الأسبوع ده" },
+    { id: "month", en: "This month", ar: "الشهر ده" },
+    { id: "lastMonth", en: "Last month", ar: "الشهر اللي فات" },
+    { id: "quarter", en: "This quarter", ar: "الربع ده" },
+    { id: "year", en: "This year", ar: "السنة دي" },
   ];
 
   return (
@@ -160,17 +209,33 @@ function ReportsPage() {
             subtitle={isAr ? "تحليلات احترافية قابلة للطباعة" : "Professional analytics with PDF export"}
           >
             <CalendarDays size={15} className="hidden text-white/40 sm:block" />
+            {/* One control for the question everybody actually asks, in front of the two pickers
+                for the one they occasionally do. Setting both ends at once is also a single
+                refetch rather than two. */}
+            <select
+              value={preset}
+              onChange={(e) => {
+                const next = e.target.value as RangePreset;
+                if (next !== "custom") setRange(rangeFor(next));
+              }}
+              className="cursor-pointer rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm font-bold text-white outline-none [color-scheme:dark] focus:border-white/40"
+            >
+              {preset === "custom" && <option value="custom">{isAr ? "مدة مخصصة" : "Custom range"}</option>}
+              {presets.map((p) => (
+                <option key={p.id} value={p.id}>{isAr ? p.ar : p.en}</option>
+              ))}
+            </select>
             <input
               type="date"
               value={startDate} data-tour="reports-date-start"
-              onChange={(e) => setStartDate(e.target.value)}
+              onChange={(e) => setRange((r) => ({ ...r, start: e.target.value }))}
               className="cursor-pointer rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm font-bold text-white outline-none [color-scheme:dark] focus:border-white/40"
             />
             <span className="text-xs font-bold text-white/40">→</span>
             <input
               type="date"
               value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
+              onChange={(e) => setRange((r) => ({ ...r, end: e.target.value }))}
               className="cursor-pointer rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm font-bold text-white outline-none [color-scheme:dark] focus:border-white/40"
             />
             <button type="button" onClick={buildSnapshot} disabled={loading} className={headerButtonPrimary}>
@@ -179,8 +244,19 @@ function ReportsPage() {
             </button>
           </PageHeader>
 
-          {/* Tab navigation */}
-          <div data-tour="reports-tabs" className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+          {/*
+            Seven tiles in a five-column grid left a two-thirds-empty second row on a desktop and
+            a screen and a half of navigation to scroll past on a phone — before a single number.
+            A pill rail instead: one row, one label each, scrolling sideways when it has to.
+
+            The second label went with them. It was the raw English tab id — "Payers", "Cases" —
+            printed above the translated one, so an Arabic reader got an English word they never
+            asked for over the Arabic they did.
+          */}
+          <div
+            data-tour="reports-tabs"
+            className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1 pb-1"
+          >
             {tabs.map((t) => {
               const Icon = t.icon;
               const active = tab === t.id;
@@ -189,53 +265,50 @@ function ReportsPage() {
                   key={t.id}
                   type="button"
                   onClick={() => setTab(t.id)}
-                  className={`flex items-center gap-3 p-4 rounded-2xl border transition-all text-start ${
+                  aria-current={active ? "page" : undefined}
+                  className={`flex shrink-0 items-center gap-2 rounded-full px-4 py-2.5 text-[13px] font-bold transition-colors ${
                     active
-                      ? "bg-ink-strong border-ink-strong text-white shadow-lg shadow-ink-strong/30"
-                      : "bg-white border-slate-200 hover:border-slate-300 shadow-sm text-slate-600"
+                      ? "bg-ink-slab text-white"
+                      : "border border-line bg-surface text-ink-body hover:bg-surface-muted"
                   }`}
                 >
-                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${active ? "bg-white/10" : t.color}`}>
-                    <Icon size={18} className={active ? "text-white" : ""} />
-                  </div>
-                  <div>
-                    <p className={`text-xs font-black uppercase tracking-wide ${active ? "text-slate-400" : "text-slate-400"}`}>
-                      {t.id.charAt(0).toUpperCase() + t.id.slice(1)}
-                    </p>
-                    <p className={`text-sm font-black ${active ? "text-white" : "text-slate-800"}`}>
-                      {isAr ? t.labelAr : t.label}
-                    </p>
-                  </div>
+                  <Icon size={15} className={active ? "text-white/70" : "text-ink-muted"} />
+                  {isAr ? t.labelAr : t.label}
                 </button>
               );
             })}
           </div>
 
-          {/* Loading */}
-          {loading && (
-            <div className="bg-surface rounded-2xl border border-line p-8 flex flex-col items-center gap-3 text-ink-muted">
-              <Loader2 size={28} className="animate-spin text-primary-500" />
-              <p className="font-bold text-sm">
-                {isAr ? "جاري تحميل البيانات…" : "Loading analytics…"}
+          {/* A failure is its own state now, and says what went wrong. */}
+          {failed && !loading && (
+            <div className="flex flex-col items-center gap-3 rounded-3xl border border-danger/30 bg-danger-tint px-6 py-10 text-center">
+              <p className="text-sm font-black text-ink">
+                {isAr ? "مقدرناش نحمّل التقرير." : "The report could not be loaded."}
               </p>
+              <p className="max-w-lg text-[12px] font-semibold text-ink-muted">{failed}</p>
+              <button type="button" onClick={buildSnapshot} className="rounded-xl bg-ink-slab px-4 py-2 text-[13px] font-bold text-white">
+                {isAr ? "جرّب تاني" : "Try again"}
+              </button>
             </div>
           )}
 
           {/* Report panels */}
-          {!loading && snapshot && (
-            <div className="bg-surface rounded-3xl border border-line shadow-sm p-6">
-              {/* Range badge */}
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h2 className="text-base font-black text-ink">
-                    {isAr
-                      ? tabs.find((t) => t.id === tab)?.labelAr
-                      : tabs.find((t) => t.id === tab)?.label}
-                  </h2>
-                  <p className="text-xs text-slate-400 font-semibold mt-0.5">{rangeLabel}</p>
-                </div>
-                <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-muted text-xs font-black text-ink-body">
-                  <CalendarDays size={12} />
+          {!failed && snapshot && (
+            /*
+              The panel stays MOUNTED while a new range loads, and dims. It used to be replaced by
+              a spinner card, so every tweak of a date collapsed the page to a small box and then
+              threw it back open — a jump on the most common interaction this screen has.
+            */
+            <div className={`bg-surface rounded-3xl border border-line shadow-sm p-6 transition-opacity ${loading ? "pointer-events-none opacity-50" : "opacity-100"}`}>
+              {/* Which report, and over what — said once, in words, rather than twice in ISO. */}
+              <div className="flex items-center justify-between gap-3 mb-6">
+                <h2 className="text-base font-black text-ink">
+                  {isAr
+                    ? tabs.find((t) => t.id === tab)?.labelAr
+                    : tabs.find((t) => t.id === tab)?.label}
+                </h2>
+                <span className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-surface-muted px-3 py-1.5 text-xs font-bold text-ink-body">
+                  {loading ? <Loader2 size={12} className="animate-spin" /> : <CalendarDays size={12} />}
                   {rangeLabel}
                 </span>
               </div>
@@ -268,6 +341,25 @@ function ReportsPage() {
                 />
               )}
 
+              {tab === "payers" && (
+                <PayerReport
+                  procedures={snapshot.procedures}
+                  payments={snapshot.payments}
+                  payers={payers}
+                  rangeLabel={rangeLabel}
+                  isAr={isAr}
+                />
+              )}
+
+              {tab === "cases" && (
+                <CaseSheetReport
+                  procedures={snapshot.procedures}
+                  payments={snapshot.payments}
+                  rangeLabel={rangeLabel}
+                  isAr={isAr}
+                />
+              )}
+
               {tab === "leads" && (
                 <LeadFunnelReport
                   leads={snapshot.leads}
@@ -291,9 +383,12 @@ function ReportsPage() {
             </div>
           )}
 
-          {!loading && !snapshot && (
-            <div className="bg-surface rounded-2xl border border-line p-8 text-center text-slate-400">
-              <p className="font-bold">{isAr ? "اضغط تحديث لتحميل البيانات" : "Click Refresh to load data"}</p>
+          {/* First paint, before anything has arrived. Not a message — there is nothing to say
+              yet, and "Click Refresh to load data" was untrue anyway: it loads by itself. */}
+          {!failed && !snapshot && (
+            <div className="flex items-center justify-center gap-2.5 rounded-3xl border border-line bg-surface px-6 py-16 text-ink-muted">
+              <Loader2 size={18} className="animate-spin" />
+              <span className="text-sm font-bold">{isAr ? "بنجهّز التقرير…" : "Building the report…"}</span>
             </div>
           )}
         </div>

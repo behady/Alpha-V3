@@ -274,6 +274,33 @@ export const SETTINGS_TEXT = {
     inAppSub: { en: "Push notifications visible to doctors and front desk.", ar: "إشعارات تظهر للأطباء وموظفي الاستقبال." },
     eventPatientArrival: { en: "Patient Arrived (Waiting Area)", ar: "وصول المريض للعيادة" },
     eventLabReady: { en: "Lab Cases Received", ar: "استلام حالات المعمل" },
+    // The notification centre. The two switches above became thirty, so the page needed a
+    // vocabulary rather than a label per alert — every alert's own wording lives in
+    // `lib/notificationCatalog`, which both this page and the Cloud Functions read.
+    bellCol: { en: "Bell", ar: "الجرس" },
+    pushCol: { en: "Phone", ar: "الموبايل" },
+    goesTo: { en: "Goes to", ar: "بتوصل لـ" },
+    fixedAudience: { en: "Always this person only", ar: "دايماً الشخص ده بس" },
+    offEverywhere: { en: "Off", ar: "مقفولة" },
+    test: { en: "Test", ar: "تجربة" },
+    testSent: { en: "Sent to you only", ar: "اتبعتت لك إنت بس" },
+    testFailed: { en: "Could not send", ar: "مقدرتش تبعت" },
+    quietTitle: { en: "Quiet hours", ar: "ساعات الهدوء" },
+    quietNote: {
+      en: "Phones stay silent in this window. Nothing is lost — it still lands in the bell — and anything urgent still buzzes: a patient waiting for a reply, a patient in pain, an arrival, a broken WhatsApp connection.",
+      ar: "الموبايلات بتسكت في الوقت ده. مفيش حاجة بتضيع — بتوصل في الجرس — وأي حاجة مستعجلة برضه بترن: مريض مستني رد، مريض بيتوجع، مريض وصل، أو واتساب واقف.",
+    },
+    quietFrom: { en: "From", ar: "من" },
+    quietTo: { en: "To", ar: "لـ" },
+    mineTitle: { en: "Mine only", ar: "بتاعتي بس" },
+    mineNote: {
+      en: "Silence an alert for yourself, on every device, without changing it for anyone else. You cannot switch on something the clinic has switched off. Saves as you tap.",
+      ar: "اسكّت تنبيه لنفسك، على كل الأجهزة، من غير ما تغيّره لحد تاني. مش تقدر تفتح حاجة العيادة قافلاها. بيتحفظ مع كل ضغطة.",
+    },
+    mineMuted: { en: "Muted for me", ar: "مسكوتة ليّا" },
+    mineOn: { en: "On for me", ar: "شغالة ليّا" },
+    clinicOff: { en: "Your clinic has this off", ar: "العيادة قافلة دي" },
+    everyAlert: { en: "alerts", ar: "تنبيه" },
   },
   appearance: {
     langSettings: { en: "Language Settings", ar: "إعدادات اللغة" },
@@ -578,8 +605,15 @@ export const SETTINGS_TEXT = {
   },
   shell: {
     title: { en: "Settings", ar: "الإعدادات" },
-    search: { en: "Search settings", ar: "ابحث في الإعدادات" },
-    noResults: { en: "No section by that name", ar: "لا يوجد قسم بهذا الاسم" },
+    search: { en: "What do you want to change?", ar: "ماذا تريد أن تغيّر؟" },
+    noResults: { en: "Nothing matches — try another word", ar: "لا توجد نتيجة — جرّب كلمة أخرى" },
+    pick: { en: "Pick a setting from the list.", ar: "اختر إعداداً من القائمة." },
+    searchTip: {
+      en: "Not sure where something is? Type what you want to change — like “hours”, “password” or “insurance” — and the list finds it.",
+      ar: "لست متأكداً أين تجد شيئاً؟ اكتب ما تريد تغييره — مثل «ساعات» أو «كلمة السر» أو «تأمين» — والقائمة تجده.",
+    },
+    common: { en: "Most used", ar: "الأكثر استخداماً" },
+    allSettings: { en: "All settings", ar: "كل الإعدادات" },
     clear: { en: "Clear search", ar: "امسح البحث" },
     readOnly: { en: "This clinic's subscription has ended — you can look, but not save.", ar: "اشتراك العيادة منتهي — يمكنك الاطلاع دون حفظ." },
   },

@@ -20,6 +20,9 @@ import { sendPatientPaymentWhatsApp } from "@/lib/sendPatientPaymentWhatsAppClie
 import ServiceCombobox from "@/components/shared/ServiceCombobox";
 import ServiceEditorDrawer from "@/components/clinical-notes/ServiceEditorDrawer";
 import type { Note, Service, Staff } from "@/components/clinical-notes/types";
+import { resolveListPrice } from "@/lib/discountMath";
+import { PRIVATE_PAYER_ID, payerCoverageFilter, payerForPriceList } from "@/lib/payers";
+import InsurerBadge from "@/components/shared/InsurerBadge";
 
 /**
  * The money and the treatments it is for, on one screen.
@@ -77,7 +80,43 @@ export default function AppointmentMoneyTab({
   const { language } = useLanguage();
   const { showToast, confirm } = useUI();
   const isAr = language === "ar";
-  const { discountSettings, maxDiscountPercent } = usePricingPolicy();
+  const { priceLists, payers, discountSettings, maxDiscountPercent } = usePricingPolicy();
+
+  /**
+   * Which list this quick-added treatment is charged on — and therefore who is paying for it.
+   *
+   * This box had no list at all. It read `service.price`, sent no list, and the server fell back
+   * to the clinic's default, so a treatment added from the appointment panel could never be an
+   * insurance case: it was charged at clinic rates and counted as private revenue, whatever the
+   * clinic had set up. It is also the fastest way to record a treatment, which means it is the
+   * one the front desk actually uses.
+   */
+  const activeLists = useMemo(() => priceLists.filter((l) => l.active), [priceLists]);
+  const [procListId, setProcListId] = useState("");
+  useEffect(() => {
+    if (activeLists.length === 0) return;
+    if (activeLists.some((l) => l.id === procListId)) return;
+    setProcListId((activeLists.find((l) => l.isDefault) || activeLists[0]).id);
+  }, [activeLists, procListId]);
+
+  // Re-price when the list changes, so switching to an insurer updates the figure in front of you
+  // rather than leaving the clinic's own price sitting in the box.
+  useEffect(() => {
+    if (!procServiceId) return;
+    /**
+     * A treatment the new list does not cover is no longer on the menu, so it must not stay in the
+     * box either. Leaving it there would show a selection the dropdown cannot even display — the
+     * field reads as chosen while the menu says that treatment does not exist here.
+     */
+    if (!payerCoverageFilter(payers, procListId)(String(procServiceId))) {
+      setProcServiceId("");
+      setProcCost(0);
+      return;
+    }
+    const svc = services.find((x) => String(x.id) === String(procServiceId));
+    if (svc) setProcCost(resolveListPrice(svc as { price?: number; prices?: Record<string, number> }, procListId));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [procListId]);
 
   const patientId = appointment?.patientId as string | undefined;
   const appointmentId = appointment?.id as string | undefined;
@@ -187,6 +226,21 @@ export default function AppointmentMoneyTab({
     [servicesList, fetchedServices]
   );
   const doctors: Staff[] = fetchedDoctors && fetchedDoctors.length > 0 ? fetchedDoctors : (doctorsList as Staff[]);
+
+  /**
+   * Only what the selected list actually covers.
+   *
+   * A treatment the insurer does not pay for is not offered at all, so the menu means what it
+   * says. Leaving it visible and quietly recording it as private would be a screen that lets
+   * somebody pick a wrong answer and then overrules them without saying so.
+   */
+  const offeredServices = useMemo(() => {
+    const covers = payerCoverageFilter(payers, procListId);
+    return services.filter((s) => covers(String(s.id)));
+  }, [services, payers, procListId]);
+
+  /** Who this treatment will actually be recorded against — shown, not assumed. */
+  const addPayer = useMemo(() => payerForPriceList(payers, procListId), [payers, procListId]);
 
   const treatments = useMemo(() => {
     const categoryById = new Map(services.map((s) => [s.id, s.category]));
@@ -488,6 +542,9 @@ export default function AppointmentMoneyTab({
         selectedTeeth: [],
         tooth: "Gen",
         unitCost: Number(procCost) || 0,
+        // Without this the server falls back to the clinic default and the case is private,
+        // however carefully the list was chosen above.
+        priceListId: procListId || null,
         doctorId: appointment.doctorId || null,
         status: "Completed",
         date: localDate,
@@ -860,12 +917,45 @@ export default function AppointmentMoneyTab({
           <Plus size={14} className="text-emerald-600" /> {isAr ? "إضافة خدمة" : "Add a treatment"}
         </div>
         <div className="flex flex-col gap-2">
+          {activeLists.length > 1 && (
+            <select
+              value={procListId}
+              onChange={(e) => setProcListId(e.target.value)}
+              className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm font-bold text-ink outline-none"
+            >
+              {activeLists.map((l) => {
+                // The company behind the list, in the option itself. A list called "AXA" that no
+                // insurer points at charges exactly like the clinic's own, and looked identical
+                // here — so the case was recorded as private and vanished from AXA's report.
+                const owner = payerForPriceList(payers, l.id);
+                return (
+                  <option key={l.id} value={l.id}>
+                    {isAr ? l.nameAr || l.name : l.name}
+                    {owner.id !== PRIVATE_PAYER_ID ? ` · ${owner.name}` : ""}
+                  </option>
+                );
+              })}
+            </select>
+          )}
+          {activeLists.length > 1 && (
+            <p className="flex items-center gap-1.5 text-[11px] font-bold text-ink-muted">
+              {isAr ? "هتتحسب على" : "Charged to"}:
+              {addPayer.id === PRIVATE_PAYER_ID ? (
+                <span className="text-ink-body">{isAr ? "خاص (العيادة)" : "Private (the clinic)"}</span>
+              ) : (
+                <span className="flex items-center gap-1.5 text-ink-body">
+                  <InsurerBadge name={addPayer.name} size={13} /> {addPayer.name}
+                </span>
+              )}
+            </p>
+          )}
           <ServiceCombobox
-            services={services}
+            priceListId={procListId}
+            services={offeredServices}
             value={procServiceId}
             onChange={(val: string, svc: any) => {
               setProcServiceId(val);
-              if (svc?.price) setProcCost(Number(svc.price));
+              if (svc) setProcCost(resolveListPrice(svc, procListId));
             }}
             valueKey="id"
             placeholder={isAr ? "اختاري الخدمة..." : "Select service..."}

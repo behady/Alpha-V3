@@ -451,22 +451,22 @@ for (const file of sourceFiles(join(REPO, "src/components/settings"))) {
     );
   }
 
-  // The four group tabs sit directly above the section chips, so a group wearing a section's
-  // icon reads as that section — and two groups sharing one is two tabs that look the same.
-  const groupBlock = panels.slice(
-    panels.indexOf("SETTINGS_GROUP_ICONS"),
-    panels.indexOf("};", panels.indexOf("SETTINGS_GROUP_ICONS"))
-  );
-  const groupIcons = [...groupBlock.matchAll(/^ {2}([a-z]+): *([A-Z][A-Za-z0-9]*) *,/gm)];
-  ok(groupIcons.length === 4, `expected an icon for each of the four groups, found ${groupIcons.length}`);
-  const seenGroup = new Set<string>();
-  for (const [, group, icon] of groupIcons) {
-    ok(!seenGroup.has(icon), `two groups share the ${icon} icon`);
-    seenGroup.add(icon);
-    ok(
-      !byIcon.has(icon),
-      `the "${group}" group tab uses ${icon}, which is already the ${(byIcon.get(icon) ?? []).join("/")} section's icon`
-    );
+  // The side list shows every group's name at once, so two sections with the same name read as
+  // one — the list once had two entries called "AI Assistant" (the WhatsApp AI and the outside-app
+  // connector) and nobody could tell which was which. Names must be unique in each language, and
+  // every section must say in one line what it decides: that line is what makes a name like
+  // "Come-back reminders" findable by someone who does not yet know what it is called.
+  for (const lang of ["En", "Ar"] as const) {
+    const seen = new Map<string, string>();
+    for (const section of SETTINGS_SECTIONS) {
+      const name = section[`label${lang}`].trim();
+      ok(
+        !seen.has(name),
+        `"${section.id}" and "${seen.get(name)}" are both called "${name}" — in one list they look like one section`
+      );
+      seen.set(name, section.id);
+      ok(section[`hint${lang}`].trim().length > 0, `"${section.id}" has no ${lang} hint under its name`);
+    }
   }
 }
 

@@ -1,15 +1,14 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import {
-  PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
-} from "recharts";
+
 import { Download, FileBarChart, Stethoscope, FileSpreadsheet } from "lucide-react";
-import { exportToExcel, CHART_COLORS, parseMoney } from "./reportExcelUtils";
+import { exportToExcel, parseMoney } from "./reportExcelUtils";
 import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
 import { ledgerCashValue } from "@/lib/reportHelpers";
 import { useUI } from "@/context/UIContext";
 import { attributeService, buildProcedureIndex, type AttributableRow } from "@/lib/serviceAttribution";
+import { Bars, ChartFrame, Figure, INK, MARK } from "@/components/reports/chartKit";
 
 interface ServiceStat {
   name: string;
@@ -210,50 +209,47 @@ export default function ServiceReport({ procedures, payments, rangeLabel, isAr }
 
   return (
     <div className="space-y-6">
-      {/* KPI Strip */}
+      {/*
+        The figures, in one ink and in the figures font.
+        A strip of four numbers coloured blue, green, amber and black told the reader that three of
+        them were categories of something — which they are not; they are one sum broken into parts.
+        Colour is kept for the one thing it means here: money going the wrong way.
+      */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          { label: isAr ? "إجمالي الإجراءات" : "Total Services", value: totalCount.toString(), color: "text-blue-600" },
-          { label: isAr ? "إجمالي الدخل" : "Total Income", value: `${totalIncome.toLocaleString()} EGP`, color: "text-emerald-600" },
-          { label: isAr ? "العمولات" : "Commissions", value: `(${totalCommission.toLocaleString()}) EGP`, color: "text-amber-600" },
-          { label: isAr ? "صافي الدخل" : "Net Income", value: `${totalNet.toLocaleString()} EGP`, color: "text-ink" },
+          { label: isAr ? "إجمالي الإجراءات" : "Total Services", value: totalCount.toString() },
+          { label: isAr ? "إجمالي الدخل" : "Total Income", value: `${totalIncome.toLocaleString()} EGP` },
+          { label: isAr ? "العمولات" : "Commissions", value: `(${totalCommission.toLocaleString()}) EGP`, tone: "muted" as const },
+          { label: isAr ? "صافي الدخل" : "Net Income", value: `${totalNet.toLocaleString()} EGP` },
         ].map((k) => (
-          <div key={k.label} className="bg-surface border border-line shadow-sm rounded-2xl p-4 flex flex-col gap-1">
-            <p className="text-[10px] font-black text-ink-muted uppercase tracking-wider">{k.label}</p>
-            <p className={`text-xl font-black tabular-nums ${k.color}`}>{k.value}</p>
+          <div key={k.label} className="bg-surface border border-line shadow-sm rounded-2xl p-4">
+            <Figure value={k.value} label={k.label} tone={k.tone} />
           </div>
         ))}
       </div>
 
       {/* Chart + Table */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-        {/* Pie Chart */}
-        <div className="xl:col-span-5 bg-surface rounded-2xl border border-line p-5 shadow-sm">
-          <h3 className="text-sm font-black text-ink mb-4">
-            {isAr ? "توزيع الدخل حسب الخدمة" : "Income by Service"}
-          </h3>
-          <div ref={chartRef}>
-            <ResponsiveContainer width="100%" height={260}>
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={65}
-                  outerRadius={95}
-                  paddingAngle={4}
-                  cornerRadius={8}
-                  stroke="none"
-                  dataKey="value"
-                >
-                  {pieData.map((_, i) => (
-                    <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(v) => [`${Number(v || 0).toLocaleString()} EGP`, isAr ? "الدخل" : "Income"]} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
+        {/*
+          Eight coloured slices and a colour-matching exercise, replaced by eight labelled bars.
+          A treatment name sits against its own bar, which also means a long Arabic name is read
+          rather than truncated into a legend.
+        */}
+        <div className="xl:col-span-5" ref={chartRef}>
+          <ChartFrame
+            title={isAr ? "الدخل حسب الخدمة" : "Income by service"}
+            note={isAr ? "أعلى ٨ خدمات في الفترة." : "The eight biggest earners in this period."}
+          >
+            <Bars
+              rows={pieData.map((d, i) => ({
+                label: d.name,
+                value: d.value,
+                text: `${d.value.toLocaleString()} ${isAr ? "ج.م" : "EGP"}`,
+                // One mark, on the biggest — the row the chart exists to point at.
+                color: i === 0 ? MARK : INK,
+              }))}
+            />
+          </ChartFrame>
         </div>
 
         {/* Table */}
@@ -264,7 +260,7 @@ export default function ServiceReport({ procedures, payments, rangeLabel, isAr }
             <button
               data-tour="reports-export-pdf" onClick={handlePdfExport}
               disabled={exporting}
-              className="px-4 py-2 bg-slate-800 text-ink-on-accent text-sm font-bold rounded-xl hover:bg-accent transition-colors flex items-center gap-2 disabled:opacity-50"
+              className="px-4 py-2 bg-ink-slab text-white text-sm font-bold rounded-xl hover:bg-ink-strong transition-colors flex items-center gap-2 disabled:opacity-50"
             >
               <Download size={16} />
               {exporting ? (isAr ? "جاري التصدير..." : "Exporting...") : "PDF"}
@@ -294,10 +290,7 @@ export default function ServiceReport({ procedures, payments, rangeLabel, isAr }
                 {stats.map((s, i) => (
                   <tr key={i} className="hover:bg-surface-subtle transition-colors">
                     <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
-                        <span className="font-semibold text-slate-800 text-xs">{s.name}</span>
-                      </div>
+                      <span className="font-semibold text-slate-800 text-xs">{s.name}</span>
                     </td>
                     <td className="py-3 px-3 text-center">
                       <span className="inline-flex items-center justify-center w-6 h-6 rounded-lg bg-blue-50 text-blue-700 text-[11px] font-black">{s.count}</span>

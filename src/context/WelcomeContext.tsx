@@ -1,8 +1,9 @@
 "use client";
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { getClinicDoc } from "@/lib/db-utils";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { hasFeature } from "@/lib/subscriptions";
@@ -239,10 +240,12 @@ export function WelcomeProvider({
         : coachDecision({
             progress,
             snoozedUntil: local.snoozedUntil,
-            dismissedForever: local.dismissed,
+            // Either copy is enough. The remote one is the same answer on every device; the
+            // local one is the only one a storage-blocked browser has.
+            dismissedForever: local.dismissed || user?.coachOff === true,
             tutorialRunning,
           }),
-    [loading, progress, local.snoozedUntil, local.dismissed, tutorialRunning],
+    [loading, progress, local.snoozedUntil, local.dismissed, user?.coachOff, tutorialRunning],
   );
 
   const refresh = useCallback(() => setSignalTick((n) => n + 1), []);
@@ -255,8 +258,47 @@ export function WelcomeProvider({
     () => snoozeCoach(scope, Date.now() + coachSnoozeMs(local.snoozeCount)),
     [scope, local.snoozeCount],
   );
-  const dismiss = useCallback(() => dismissCoach(scope), [scope]);
-  const restore = useCallback(() => restoreCoach(scope), [scope]);
+  /**
+   * "Stop coaching me", kept on the person's own user document as well as in this browser.
+   *
+   * Local storage alone made this a promise the app could not keep. A cleared browser, a second
+   * laptop, a phone, a private window — each is a fresh localStorage, and a fresh localStorage
+   * read as somebody who had never asked her to stop. `users/{uid}` is readable and writable by
+   * its owner (see firestore.rules) and is already live-subscribed by AuthContext, so the answer
+   * is in hand on every device the moment they sign in. Merged, never set: this document carries
+   * roles granted server-side.
+   */
+  const writeCoachOffRemote = useCallback(
+    (off: boolean) => {
+      const uid = user?.uid;
+      if (!uid) return;
+      void setDoc(getClinicDoc("users", uid), { coachOff: off }, { merge: true }).catch(() => {
+        /* Offline or denied: the local flag still answers for this browser. */
+      });
+    },
+    [user?.uid],
+  );
+
+  const dismiss = useCallback(() => {
+    dismissCoach(scope);
+    writeCoachOffRemote(true);
+  }, [scope, writeCoachOffRemote]);
+
+  const restore = useCallback(() => {
+    restoreCoach(scope);
+    writeCoachOffRemote(false);
+  }, [scope, writeCoachOffRemote]);
+
+  /**
+   * A "stop" that only one browser knows gets carried up to the user document, once.
+   *
+   * Without this, everyone who had already switched the coach off before it was stored on the
+   * server would have to switch it off again, on every device, to make it stick.
+   */
+  useEffect(() => {
+    if (!user?.uid || !local.dismissed || user.coachOff === true) return;
+    writeCoachOffRemote(true);
+  }, [user?.uid, user?.coachOff, local.dismissed, writeCoachOffRemote]);
 
   const value = useMemo(
     () => ({
@@ -267,13 +309,13 @@ export function WelcomeProvider({
       trial,
       trialEnding,
       coach,
-      coachDismissed: local.dismissed,
+      coachDismissed: local.dismissed || user?.coachOff === true,
       refresh,
       snooze,
       dismiss,
       restore,
     }),
-    [loading, missions, locked, progress, trial, trialEnding, coach, local.dismissed, refresh, snooze, dismiss, restore],
+    [loading, missions, locked, progress, trial, trialEnding, coach, local.dismissed, user?.coachOff, refresh, snooze, dismiss, restore],
   );
 
   return <WelcomeContext.Provider value={value}>{children}</WelcomeContext.Provider>;

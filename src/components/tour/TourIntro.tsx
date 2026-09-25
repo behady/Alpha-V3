@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { ArrowLeft, ArrowRight, Clock, X } from "lucide-react";
 import AvatarFace from "@/components/appointments/AvatarFace";
@@ -18,34 +18,35 @@ import { TOUR_GUIDE, tourMinutes } from "@/lib/grandTour";
  * The first thing a new person sees after the setup wizard: a black screen, her orb, and — before
  * anything else — the language question. Picking Arabic switches the whole system to Arabic,
  * not just the tour, because a receptionist who chose Arabic here should not then find the
- * dashboard in English. Then her name, one offer, and two buttons. It appears once per person
- * per clinic and never by itself again; declining is one click and the tour stays a menu item
- * away.
+ * dashboard in English. Then her name, one offer, and two buttons.
+ *
+ * It appears ONCE per person, ever, and never by itself again. Not once per clinic, not once per
+ * browser: the flag is written the moment it appears, under the person's own id (so a clinic that
+ * has not finished loading cannot swallow it) and onto their user document (so a cleared browser,
+ * a second laptop or a phone does not count as a new person who has never met her). Declining is
+ * one click, and the tour stays a menu item away.
  *
  * Deliberately not a modal over the dashboard. A card over a busy screen competes with the
  * screen. The point of this moment is that there is nothing else on it.
+ *
+ * Two components: a gate that decides whether to mount at all, and the screen itself.
+ */
+/**
+ * The gate.
+ *
+ * Nothing is decided until this person is actually known: the answer to "have they met Sara?"
+ * lives partly under their own id and partly on their user document, and reading it while the
+ * account is still loading returns "no" for someone who met her months ago. So the screen itself
+ * is not mounted until there is a user, a clinic and a settled page — and it reads the answer
+ * once, at its own mount, in a `useState` initialiser.
  */
 export default function TourIntro() {
   const tour = useTour();
   const { activeTutorial } = useTutorial();
-  const { language, isRTL, toggleLanguage } = useLanguage();
   const { user } = useAuth();
-  const { clinic, clinicId } = useClinic();
+  const { clinicId } = useClinic();
   const { receptionPanelActive } = useUI();
   const pathname = usePathname();
-  const isAr = language === "ar";
-
-  /**
-   * Escape declines it, on either step, and is remembered. An invitation that cannot be turned
-   * down is a nag, and this one covers the whole screen.
-   */
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") tour.declineIntro();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [tour]);
 
   // A beat after the page paints, so the app is seen first and this arrives over it.
   const [ready, setReady] = useState(false);
@@ -53,6 +54,64 @@ export default function TourIntro() {
     const t = setTimeout(() => setReady(true), 700);
     return () => clearTimeout(t);
   }, []);
+
+  if (!ready || !clinicId || !user) return null;
+  if (tour.active || tour.allStops.length === 0) return null;
+  // Not over the setup wizard (it comes first), a lesson, or the reception desk mid-call.
+  if (pathname === "/setup" || activeTutorial || receptionPanelActive) return null;
+
+  return <IntroScreen />;
+}
+
+function IntroScreen() {
+  const tour = useTour();
+  const { language, isRTL, toggleLanguage } = useLanguage();
+  const { user } = useAuth();
+  const { clinic } = useClinic();
+  const isAr = language === "ar";
+
+  /**
+   * The answer as it stood when this screen opened, read once and never re-read.
+   *
+   * It has to be a snapshot, because the very next thing this component does is set the flag —
+   * and a screen that reacted to its own write would disappear before anybody read a word of it.
+   */
+  const [alreadySeen] = useState(() => tour.progress.introSeen);
+
+  /** Closed by hand. The stored flag says the same thing, but this one is instant. */
+  const [closed, setClosed] = useState(false);
+  const visible = !alreadySeen && !closed;
+
+  /**
+   * Shown once, and the "once" is banked the moment it appears — not when it is closed.
+   *
+   * Closing was never the only way off this screen. Reload it, navigate away, close the tab,
+   * answer the language question and walk off: none of those wrote anything, so the full-screen
+   * invitation came back the next time, and the time after that. Now the first paint is the
+   * record. From here on the tour is a menu item under the name at the top, and this screen never
+   * opens by itself again — on this browser or any other, at this clinic or the next one.
+   */
+  useEffect(() => {
+    if (visible) tour.noteIntroShown();
+  }, [visible, tour]);
+
+  /**
+   * Escape declines it, on either step. An invitation that cannot be turned down is a nag, and
+   * this one covers the whole screen. Bound only while it is up.
+   */
+  useEffect(() => {
+    if (!visible) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setClosed(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [visible]);
+
+  const dismiss = useCallback(() => {
+    setClosed(true);
+    tour.declineIntro();
+  }, [tour]);
 
   /**
    * First the language, then the welcome — unless the language is already settled.
@@ -70,11 +129,7 @@ export default function TourIntro() {
     }
   });
 
-  if (!ready || !clinicId || !user) return null;
-  if (tour.progress.introSeen || tour.active) return null;
-  if (tour.allStops.length === 0) return null;
-  // Not over the setup wizard (it comes first), a lesson, or the reception desk mid-call.
-  if (pathname === "/setup" || activeTutorial || receptionPanelActive) return null;
+  if (!visible || !user) return null;
 
   const firstName = (user.name || "").trim().split(/\s+/)[0] || "";
   const guide = isAr ? TOUR_GUIDE.ar : TOUR_GUIDE.en;
@@ -99,7 +154,7 @@ export default function TourIntro() {
       {/* The way out, on both steps. Declining is remembered; it does not come back on its own. */}
       <button
         type="button"
-        onClick={tour.declineIntro}
+        onClick={dismiss}
         aria-label={isAr ? "مش دلوقتي" : "Not now"}
         title={isAr ? "مش دلوقتي" : "Not now"}
         className="absolute top-5 end-5 grid size-10 place-items-center rounded-full border border-white/15 text-white/50 transition-colors hover:bg-white/10 hover:text-white"
@@ -172,7 +227,7 @@ export default function TourIntro() {
               </button>
               <button
                 type="button"
-                onClick={tour.declineIntro}
+                onClick={dismiss}
                 className="inline-flex w-full items-center justify-center rounded-full border border-white/15 px-6 py-3.5 text-[14px] font-bold text-white/70 transition-colors hover:bg-white/10 hover:text-white sm:w-auto"
               >
                 {isAr ? "مش دلوقتي" : "Not now"}

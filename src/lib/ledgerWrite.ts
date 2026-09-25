@@ -36,6 +36,14 @@ export type ProcedureLite = {
   id: string;
   doctorId?: string | null;
   doctorName?: string | null;
+  /**
+   * Who is paying for the treatment this payment settles. Copied onto the payment so that
+   * "what did this insurer's work bring in?" is answerable from the ledger alone, without
+   * joining every payment back to its procedure — and so the answer survives the procedure
+   * being edited, or the insurer being renamed.
+   */
+  payerId?: string | null;
+  payerName?: string | null;
   /** Older rows stored the display name here instead of doctorName. */
   doctor?: string | null;
   labFee?: number | null;
@@ -152,6 +160,10 @@ export function buildPaymentRow(args: BuildPaymentArgs): Record<string, unknown>
     cost: 0,
     method: args.method || "Cash",
     procedureId: procedure ? procedure.id : null,
+    // An advance payment settles no treatment, so it has no payer to inherit and stays null
+    // rather than being counted as private work.
+    payerId: procedure ? procedure.payerId || null : null,
+    payerName: procedure ? procedure.payerName || null : null,
     doctorId: doctor ? doctor.id : null,
     doctorName: doctor ? doctor.name || null : null,
     // Written even when zero. An explicit 0 says "attributed, nothing owed"; an absent field says
@@ -240,7 +252,19 @@ export function firstPaymentIdFor(
  * payment so a caller can write them in a single batch.
  */
 export function recalcProcedurePayments(args: {
-  payments: Array<{ id: string; date?: string | null; paid?: number | null; amount?: number | null }>;
+  payments: Array<{
+    id: string;
+    date?: string | null;
+    paid?: number | null;
+    amount?: number | null;
+    /**
+     * Somebody typed this row's rate on purpose — a one-off arrangement on a single payment.
+     * Set by the `set-commission` action, and the reason this function cannot simply apply the
+     * standing rate to everything.
+     */
+    commissionSetManually?: boolean | null;
+    doctorCommissionPercentage?: number | null;
+  }>;
   labFee: number;
   commissionPct: number;
 }): Array<{ id: string; labFee: number; doctorCommissionPercentage: number; doctorCommissionAmount: number; clinicProfit: number }> {
@@ -251,15 +275,28 @@ export function recalcProcedurePayments(args: {
   return args.payments.map((payment) => {
     const paid = Number(payment.paid ?? payment.amount ?? 0) || 0;
     const appliedLabFee = payment.id === firstId ? labFee : 0;
+    /**
+     * A rate set by hand survives.
+     *
+     * This function runs after ANY change to a procedure's payments — a new one, an edited amount,
+     * a deleted one — and it used to stamp the dentist's standing rate onto every row. So a one-off
+     * split typed into a single payment was silently undone by the next payment taken on that same
+     * treatment: the figure changed back, with nothing on screen to say it had.
+     *
+     * The lab fee is still reallocated, because which payment carries it depends on which one is
+     * first, and that is not a decision anybody made about the rate.
+     */
+    const manual = payment.commissionSetManually === true;
+    const pct = manual ? Number(payment.doctorCommissionPercentage) || 0 : commissionPct;
     const { doctorCommissionAmount, clinicProfit } = recalcCommissionFromPayment(
       paid,
       appliedLabFee,
-      commissionPct
+      pct
     );
     return {
       id: payment.id,
       labFee: appliedLabFee,
-      doctorCommissionPercentage: commissionPct,
+      doctorCommissionPercentage: pct,
       doctorCommissionAmount,
       clinicProfit,
     };

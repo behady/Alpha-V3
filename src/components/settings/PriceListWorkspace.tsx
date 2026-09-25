@@ -46,6 +46,8 @@ import { useAuth } from "@/context/AuthContext";
 import { logActivity } from "@/lib/logger";
 import { matchesTokenizedSubstring } from "@/lib/flexibleSearch";
 import { STANDARD_LIST_ID, type PriceList } from "@/lib/priceLists";
+import { payerCoverageFilter } from "@/lib/payers";
+import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import { DENTAL_CATEGORIES, DentalIcon, iconForService, suggestCategory } from "@/lib/dentalIcons";
 
 type ServiceRow = {
@@ -76,6 +78,7 @@ export default function PriceListWorkspace({
   const { language, isRTL } = useLanguage();
   const { showToast, confirm } = useUI();
   const { user } = useAuth();
+  const { payers } = usePricingPolicy();
   const ar = language === "ar";
 
   const [services, setServices] = useState<ServiceRow[]>([]);
@@ -143,6 +146,13 @@ export default function PriceListWorkspace({
       ? "بيحسب سعر كل علاج ظاهر تحت كنسبة خصم من السعر الأساسي، وبيستبدل اللي مكتوب. البحث والفئات بيحددوا اللي هيتغير. مش هيتحفظ غير لما تدوس حفظ."
       : "Prices every treatment shown below at a percentage off its standard price, replacing anything already typed. The search box and category chips narrow what it touches. Nothing is written until you press Save.",
 
+    // Named so it reads as an answer rather than a warning: the treatments are missing on purpose,
+    // and the sentence says where to put them back.
+    hidden: (n: number) =>
+      ar
+        ? `${n} علاج مش مغطى من الشركة دي، فمش ظاهر هنا. لو بتغطيهم، فعّلهم من الإعدادات ← التأمين.`
+        : `${n} treatment${n === 1 ? " is" : "s are"} not covered by this company, so ${n === 1 ? "it is" : "they are"} not shown. To cover ${n === 1 ? "it" : "them"}, tick ${n === 1 ? "it" : "them"} under Settings → Insurance.`,
+
     blanketNote: (pct: number) =>
       ar
         ? `كل خدمة من القائمة دي بتيجي وعليها خصم ${pct}% ظاهر وقابل للتعديل، فوق السعر ده.`
@@ -150,14 +160,31 @@ export default function PriceListWorkspace({
 
   };
 
+  /**
+   * The treatments this insurer actually covers, and only those.
+   *
+   * Coverage is ticked once, against the insurer, and this screen has to agree with it. A list
+   * that still showed a price box for a treatment the insurer does not pay for would be inviting
+   * somebody to set a price that can never be charged — and the treatment is missing from the
+   * receptionist's menu anyway, so the number would go nowhere.
+   *
+   * Everything downstream reads this rather than `services`: the search, the category chips, and
+   * the bulk fill, which would otherwise write prices onto rows nobody can see.
+   */
+  const covered = useMemo(() => {
+    const covers = payerCoverageFilter(payers, list.id);
+    return services.filter((s) => covers(s.id));
+  }, [services, payers, list.id]);
+  const hiddenCount = services.length - covered.length;
+
   const filtered = useMemo(
     () =>
-      services.filter(
+      covered.filter(
         (s) =>
           matchesTokenizedSubstring(s.name, search) &&
           (categoryFilter === "all" || (s.category || suggestCategory(s.name)) === categoryFilter)
       ),
-    [services, search, categoryFilter]
+    [covered, search, categoryFilter]
   );
 
   const grouped = useMemo(() => {
@@ -173,9 +200,9 @@ export default function PriceListWorkspace({
   }, [filtered]);
 
   const usedCategories = useMemo(() => {
-    const used = new Set(services.map((s) => s.category || suggestCategory(s.name)));
+    const used = new Set(covered.map((s) => s.category || suggestCategory(s.name)));
     return DENTAL_CATEGORIES.filter((c) => used.has(c.key));
-  }, [services]);
+  }, [covered]);
 
   /** Fill blanks from the standard price, so a new list is priced in one gesture, not sixty. */
   const applyBulk = () => {
@@ -336,6 +363,11 @@ export default function PriceListWorkspace({
 
       {/* --- the list itself --- */}
       <div>
+        {hiddenCount > 0 && (
+          <p className="mb-3 rounded-2xl border border-line bg-surface-subtle px-4 py-2.5 text-xs font-semibold text-ink-body">
+            {txt.hidden(hiddenCount)}
+          </p>
+        )}
         <div className="relative">
           <Search size={18} className={`absolute top-1/2 -translate-y-1/2 text-ink-muted ${isRTL ? "right-4" : "left-4"}`} />
           <input
@@ -354,7 +386,7 @@ export default function PriceListWorkspace({
               categoryFilter === "all" ? "bg-accent text-ink-on-accent shadow-sm" : "border border-line bg-surface-subtle text-ink-body hover:bg-surface-muted"
             }`}
           >
-            {txt.all} · {services.length}
+            {txt.all} · {covered.length}
           </button>
           {usedCategories.map((c) => (
             <button

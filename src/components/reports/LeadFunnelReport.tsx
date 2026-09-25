@@ -3,7 +3,8 @@
 import React, { useMemo, useState } from "react";
 import { Megaphone, FileSpreadsheet, Download, ChevronDown, ChevronRight } from "lucide-react";
 import { SourceIcon } from "@/components/SourceIcon";
-import { exportToExcel, CHART_COLORS } from "./reportExcelUtils";
+import { exportToExcel } from "./reportExcelUtils";
+import { INK, MARK } from "@/components/reports/chartKit";
 import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
 import { useUI } from "@/context/UIContext";
 import { leadStageLabel } from "@/lib/leads";
@@ -416,7 +417,7 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
             <button
               onClick={handlePdfExport}
               disabled={exporting}
-              className="px-4 py-2 bg-slate-800 text-ink-on-accent text-sm font-bold rounded-xl hover:bg-accent transition-colors flex items-center gap-2 disabled:opacity-50"
+              className="px-4 py-2 bg-ink-slab text-white text-sm font-bold rounded-xl hover:bg-ink-strong transition-colors flex items-center gap-2 disabled:opacity-50"
             >
               <Download size={16} />
               {exporting ? (isAr ? "جاري التصدير..." : "Exporting...") : "PDF"}
@@ -466,7 +467,7 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
                       <div className="mt-1.5 h-1.5 rounded-full bg-surface-muted overflow-hidden max-w-[160px]">
                         <div
                           className="h-full rounded-full"
-                          style={{ width: `${Math.max(6, Math.round((s.total / maxTotal) * 100))}%`, background: CHART_COLORS[i % CHART_COLORS.length] }}
+                          style={{ width: `${Math.max(6, Math.round((s.total / maxTotal) * 100))}%`, background: i === 0 ? MARK : INK }}
                         />
                       </div>
                     </td>
@@ -479,7 +480,7 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
                         </span>
                       )}
                     </td>
-                    <td className="py-3 px-3 text-center font-bold text-rose-500 tabular-nums">{s.lost}</td>
+                    <td className="py-3 px-3 text-center font-bold text-danger tabular-nums">{s.lost}</td>
                     <td className="py-3 px-3 text-center font-black text-emerald-600 tabular-nums">{s.won}</td>
                     <td className="py-3 px-3 text-center font-black text-violet-600 tabular-nums">{s.conversion}%</td>
                     <td className="py-3 px-4 text-end font-black text-blue-600 tabular-nums">
@@ -502,7 +503,7 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
                         </td>
                         <td className="py-2 px-3 text-center text-xs font-bold text-slate-700 tabular-nums">{c.total}</td>
                         <td className="py-2 px-3 text-center text-xs font-bold text-sky-600 tabular-nums">{c.open}</td>
-                        <td className="py-2 px-3 text-center text-xs font-bold text-rose-500 tabular-nums">{c.lost}</td>
+                        <td className="py-2 px-3 text-center text-xs font-bold text-danger tabular-nums">{c.lost}</td>
                         <td className="py-2 px-3 text-center text-xs font-bold text-emerald-600 tabular-nums">{c.won}</td>
                         <td className="py-2 px-3 text-center text-xs font-bold text-violet-600 tabular-nums">{c.conversion}%</td>
                         <td className="py-2 px-4 text-end text-xs font-bold text-blue-600 tabular-nums">{c.revenue.toLocaleString()}</td>
@@ -523,7 +524,7 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
                     </span>
                   )}
                 </td>
-                <td className="py-3 px-3 text-center tabular-nums text-rose-500">{totals.lost}</td>
+                <td className="py-3 px-3 text-center tabular-nums text-danger">{totals.lost}</td>
                 <td className="py-3 px-3 text-center tabular-nums text-emerald-600">{totals.won}</td>
                 <td className="py-3 px-3 text-center tabular-nums text-violet-600">{totalConversion}%</td>
                 <td className="py-3 px-4 text-end tabular-nums text-blue-600">
