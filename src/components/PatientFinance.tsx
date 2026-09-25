@@ -121,7 +121,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
   const { discountSettings, maxDiscountPercent } = usePricingPolicy();
   const { language } = useLanguage();
   const { user } = useAuth();
-  const { clinic, isReadOnly, isAdmin } = useClinic();
+  const { clinic, clinicId, isReadOnly, isAdmin } = useClinic();
   
   const searchParams = useSearchParams();
   const highlightTxId = searchParams?.get("tx");
@@ -524,7 +524,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
       const res = await fetch("/api/whatsapp/send-patient-message", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ kind: "invoice", patientId, ledgerId: item.id }),
+        body: JSON.stringify({ clinicId, kind: "invoice", patientId, ledgerId: item.id }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) throw new Error(typeof data?.error === "string" ? data.error : "Request failed");
@@ -569,7 +569,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
       const res = await fetch("/api/whatsapp/send-patient-message", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ kind: "receipt", patientId, message: text }),
+        body: JSON.stringify({ clinicId, kind: "receipt", patientId, message: text }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) throw new Error(typeof data?.error === "string" ? data.error : "Request failed");

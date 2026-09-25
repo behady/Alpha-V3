@@ -18,7 +18,7 @@ import { collection, onSnapshot, query, orderBy, doc, updateDoc, addDoc, serverT
 import { saveBooking, normalizeDateKey, normalizeTimeKey, parseApptTimeToMinutes } from "@/lib/bookingService";
 import { MoneyApiError, deleteAppointment } from "@/lib/moneyApi";
 import DeleteAppointmentDialog from "@/components/appointments/DeleteAppointmentDialog";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { currentClinicId, getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { parseClinicSchedule, clinicDayBoundsMinutes, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import Protect from "@/components/Protect";
 import StarRating from "@/components/StarRating";
@@ -417,7 +417,7 @@ export default function AppointmentsPage() {
             await fetch("/api/whatsapp/owner-alert", {
               method: "POST",
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
-              body: JSON.stringify({ alertKey: key, message: msg }),
+              body: JSON.stringify({ alertKey: key, message: msg, clinicId: currentClinicId() }),
             });
           } catch (err) {}
         }
@@ -461,7 +461,7 @@ export default function AppointmentsPage() {
             await fetch("/api/whatsapp/owner-alert", {
               method: "POST",
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
-              body: JSON.stringify({ alertKey: key, message: msg }),
+              body: JSON.stringify({ alertKey: key, message: msg, clinicId: currentClinicId() }),
             });
           } catch (err) {}
         }
