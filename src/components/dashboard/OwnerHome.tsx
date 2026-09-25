@@ -156,7 +156,7 @@ export default function OwnerHome() {
         const token = await auth.currentUser?.getIdToken();
         if (!token) return;
         const [duesRes, recallRes] = await Promise.all([
-          fetch("/api/finance/recovery", { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json()),
+          fetch(`/api/finance/recovery?clinicId=${encodeURIComponent(clinicId)}`, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json()),
           fetch(`/api/ai/recalls?clinicId=${encodeURIComponent(clinicId)}`, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json()),
         ]);
         if (cancelled) return;
