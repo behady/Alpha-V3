@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { Fragment, useState, useEffect, useCallback, useRef } from "react";
 import { Plus_Jakarta_Sans, Cairo } from "next/font/google";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -612,7 +612,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                : "overflow-x-hidden overflow-y-auto pb-24 lg:pb-0"
            }`}
          >
-             {children}
+             {/* Keyed on the clinic, so switching clinics remounts the page. Every page subscribes
+                 to its clinic's collections when it mounts and never again — the dashboard's
+                 listeners depend on the date and the view, not on the clinic — so after a switch
+                 the day view kept drawing the PREVIOUS clinic's day until something else made
+                 it resubscribe. Changing to week view happened to, which is why the visits
+                 "showed in week view but not in day view". A remount is the honest reset: a
+                 different clinic is a different page. */}
+             <Fragment key={clinicId ?? "none"}>{children}</Fragment>
          </main>
       </div>
 
