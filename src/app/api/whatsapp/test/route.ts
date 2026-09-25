@@ -15,6 +15,7 @@ export async function POST(request: Request) {
       /** Optional full E.164 if client sends it instead */
       phoneE164?: string;
       message?: string;
+      clinicId?: string;
     };
 
     let to = "";
@@ -35,7 +36,8 @@ export async function POST(request: Request) {
 
     // The test has to go out over the same credentials the clinic's real messages use, or it
     // proves nothing about whether that clinic can actually send.
-    const clinicId = await resolveUserClinicId(authz.uid);
+    // The clinic on screen; honoured only when the caller holds a role there, else their default.
+    const clinicId = await resolveUserClinicId(authz.uid, typeof body.clinicId === "string" ? body.clinicId : undefined);
     const result = await sendWhatsApp({ clinicId, to, text });
     return NextResponse.json({ ok: true, to, result });
   } catch (e: unknown) {

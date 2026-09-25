@@ -9,7 +9,7 @@ export async function POST(request: Request) {
   if (!authz.ok) return authz.response;
 
   try {
-    const payload = (await request.json().catch(() => ({}))) as { summonId?: string };
+    const payload = (await request.json().catch(() => ({}))) as { summonId?: string; clinicId?: string };
     const summonId = typeof payload.summonId === "string" ? payload.summonId.trim() : "";
     if (!summonId) {
       return NextResponse.json({ ok: false, error: "summonId required" }, { status: 400 });
@@ -17,7 +17,8 @@ export async function POST(request: Request) {
 
     // lib/staffSummon writes these via getClinicCollection, i.e. clinics/{clinicId}/staff_summons.
     // Reading at the root found nothing, so every summon push silently 404'd.
-    const clinicId = await resolveUserClinicId(authz.uid);
+    // The clinic on screen; honoured only when the caller holds a role there, else their default.
+    const clinicId = await resolveUserClinicId(authz.uid, typeof payload.clinicId === "string" ? payload.clinicId : undefined);
     const summonSnap = await adminClinicDoc(clinicId, "staff_summons", summonId).get();
     if (!summonSnap.exists) {
       return NextResponse.json({ ok: false, error: "Summon not found" }, { status: 404 });

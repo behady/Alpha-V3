@@ -285,7 +285,7 @@ export default function PatientProfile() {
       const res = await fetch("/api/whatsapp/send-google-review", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ patientId: id }),
+        body: JSON.stringify({ patientId: id, clinicId }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
@@ -744,7 +744,7 @@ export default function PatientProfile() {
       const res = await fetch("/api/whatsapp/send-prescription-pdf", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ patientId: id, pdfBase64 }),
+        body: JSON.stringify({ patientId: id, pdfBase64, clinicId }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {

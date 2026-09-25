@@ -52,7 +52,9 @@ export async function GET(request: Request) {
   if (!authz.ok) return authz.response;
 
   try {
-    const clinicId = await resolveUserClinicId(authz.uid);
+    // The clinic on screen; honoured only when the caller holds a role there, else their default.
+    const requestedClinicId = new URL(request.url).searchParams.get("clinicId")?.trim() || undefined;
+    const clinicId = await resolveUserClinicId(authz.uid, requestedClinicId);
     if (!clinicId) {
       return NextResponse.json({ ok: false, error: "No clinic for this user" }, { status: 400 });
     }
@@ -98,12 +100,8 @@ export async function POST(request: Request) {
   if (!authz.ok) return authz.response;
 
   try {
-    const clinicId = await resolveUserClinicId(authz.uid);
-    if (!clinicId) {
-      return NextResponse.json({ ok: false, error: "No clinic for this user" }, { status: 400 });
-    }
-
     const body = (await request.json().catch(() => ({}))) as {
+      clinicId?: string;
       instanceId?: string;
       apiToken?: string;
       apiBaseUrl?: string;
@@ -111,6 +109,12 @@ export async function POST(request: Request) {
       sendDocumentPath?: string;
       connectedPhoneHint?: string;
     };
+    // The clinic on screen; honoured only when the caller holds a role there, else their default.
+    const clinicId = await resolveUserClinicId(authz.uid, typeof body.clinicId === "string" ? body.clinicId : undefined);
+    if (!clinicId) {
+      return NextResponse.json({ ok: false, error: "No clinic for this user" }, { status: 400 });
+    }
+
 
     const instanceId = typeof body.instanceId === "string" ? body.instanceId.trim() : "";
     if (!instanceId) {

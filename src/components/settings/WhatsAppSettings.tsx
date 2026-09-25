@@ -236,7 +236,7 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
   const { language, isRTL } = useLanguage();
   const { user } = useAuth();
   const { showToast } = useUI();
-  const { clinic } = useClinic();
+  const { clinic, clinicId } = useClinic();
 
   // The same check the server makes before using the gateway, so this screen cannot promise
   // something the API will then refuse.
@@ -785,7 +785,7 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
     setWapilotLoading(true);
     try {
       const idToken = await firebaseUser.getIdToken();
-      const res = await fetch("/api/admin/wapilot-config", {
+      const res = await fetch(`/api/admin/wapilot-config?clinicId=${encodeURIComponent(clinicId ?? "")}`, {
         headers: { Authorization: `Bearer ${idToken}` },
       });
       const data = await res.json();
@@ -906,6 +906,7 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
           Authorization: `Bearer ${idToken}`,
         },
         body: JSON.stringify({
+          clinicId,
           instanceId: wapilotInstanceId.trim(),
           apiToken: wapilotTokenDraft.trim() || undefined,
           apiBaseUrl: wapilotApiBaseUrl.trim() || undefined,
@@ -1129,6 +1130,7 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
           Authorization: `Bearer ${idToken}`,
         },
         body: JSON.stringify({
+          clinicId,
           dialCode: testDial,
           nationalNumber: testNational,
           message: testMessage.trim() || undefined,
