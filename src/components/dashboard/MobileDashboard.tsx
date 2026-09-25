@@ -54,7 +54,7 @@ import { printPatientReceipt } from "@/lib/printPatientReceipt";
 
 import { getAppointmentStatusStyles, getAppointmentStageLabel } from "@/lib/appointmentStages";
 import UserClockWidget from "@/components/dashboard/UserClockWidget";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { currentClinicId, getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import PageHeader, { headerButtonPrimary, headerButtonGhost } from "@/components/dashboard/PageHeader";
 import HomeViewTabs from "@/components/dashboard/HomeViewTabs";
 function getLocalDateKey(): string {
@@ -307,7 +307,7 @@ export default function MobileDashboard() {
       await fetch("/api/whatsapp/owner-alert", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ alertKey, message }),
+        body: JSON.stringify({ alertKey, message, clinicId: currentClinicId() }),
       });
     } catch (e) {
       console.warn("Owner WhatsApp alert", e);

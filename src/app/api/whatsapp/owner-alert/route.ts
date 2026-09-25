@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { adminDb } from "@/lib/firebaseAdmin";
+import { resolveUserClinicId } from "@/lib/adminClinicDb";
 import { sendOwnerWhatsAppAlertIfEnabled } from "@/lib/whatsappOwnerAlerts";
 import type { OwnerAlertKey } from "@/types/whatsapp";
 
@@ -17,10 +18,23 @@ export async function POST(request: Request) {
   const authz = await requireStaffUser(request);
   if (!authz.ok) return authz.response;
 
+  const body = (await request.json().catch(() => ({}))) as {
+    clinicId?: string;
+    alertKey?: string;
+    message?: string;
+  };
+
+  // The clinic on screen, honoured only when the caller holds a role there; otherwise the
+  // account's default. Without it the alert went to the default clinic's owner over the
+  // default clinic's number, whichever clinic the change was actually made in.
+  let clinicId: string | null = null;
+  try {
+    clinicId = await resolveUserClinicId(authz.uid, typeof body.clinicId === "string" ? body.clinicId : undefined);
+  } catch {
+    clinicId = null;
+  }
+
   // SUBSCRIPTION ENFORCEMENT
-  const userSnap = await adminDb().collection("users").doc(authz.uid).get();
-  const userData = userSnap.data();
-  const clinicId = userData?.defaultClinicId || Object.keys(userData?.clinicRoles || {})[0];
   if (clinicId) {
     const clinicSnap = await adminDb().collection("clinics").doc(clinicId).get();
     const clinic = clinicSnap.data();
@@ -30,10 +44,6 @@ export async function POST(request: Request) {
   }
 
   try {
-    const body = (await request.json().catch(() => ({}))) as {
-      alertKey?: string;
-      message?: string;
-    };
 
     const alertKey = typeof body.alertKey === "string" ? body.alertKey.trim() : "";
     const message = typeof body.message === "string" ? body.message.trim() : "";

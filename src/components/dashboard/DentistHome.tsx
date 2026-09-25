@@ -308,7 +308,7 @@ export default function DentistHome() {
       await fetch("/api/whatsapp/owner-alert", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ alertKey, message }),
+        body: JSON.stringify({ alertKey, message, clinicId }),
       });
     } catch (e) {
       console.warn("Owner WhatsApp alert", e);

@@ -59,7 +59,7 @@ import { printPatientReceipt } from "@/lib/printPatientReceipt";
 import ReceptionSummonPanel from "@/components/summon/ReceptionSummonPanel";
 import { getAppointmentStatusStyles } from "@/lib/appointmentStages";
 import UserClockWidget from "@/components/dashboard/UserClockWidget";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { currentClinicId, getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 function getLocalDateKey(): string {
   const d = new Date();
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split("T")[0];
@@ -241,7 +241,7 @@ export default function DesktopDashboard() {
       await fetch("/api/whatsapp/owner-alert", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ alertKey, message }),
+        body: JSON.stringify({ alertKey, message, clinicId: currentClinicId() }),
       });
     } catch (e) {
       console.warn("Owner WhatsApp alert", e);
