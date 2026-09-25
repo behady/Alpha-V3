@@ -174,7 +174,9 @@ export default function WeeklyScheduleView({
                             ) : (
                                 <span
                                     dir="auto"
-                                    className={`mt-1.5 max-w-full truncate font-figure text-[11px] font-semibold ${isToday ? 'text-white/70' : 'text-ink-muted'}`}
+                                    /* Wraps to a second line rather than cutting off: beside the assistant panel a
+                                       column is narrow, and "2 visits · 2 unconf…" answers nothing. */
+                                    className={`mt-1.5 max-w-full line-clamp-2 font-figure text-[11px] font-semibold leading-tight ${isToday ? 'text-white/70' : 'text-ink-muted'}`}
                                     title={stripText(key)}
                                 >
                                     {stripText(key)}
