@@ -11,15 +11,18 @@ import { loadRecoveryList } from "@/lib/paymentRecovery";
  * note down to a phone on clinic wifi to do the same arithmetic client-side would be slow and
  * expensive, and every device would be doing it separately.
  *
- * The clinic is resolved from the signed-in user, never taken from the request, so one clinic
- * cannot ask for another's debtors by editing a parameter.
+ * The clinic on screen arrives as ?clinicId=; it is honoured only when the signed-in user holds a
+ * role there (resolveUserClinicId checks membership), otherwise the account's default clinic is
+ * used. Without the parameter an owner of two clinics always saw the default one's debtors, even
+ * while looking at the other.
  */
 export async function GET(request: Request) {
   const staff = await requireStaffUser(request);
   if (!staff.ok) return staff.response;
 
   try {
-    const clinicId = await resolveUserClinicId(staff.uid);
+    const requestedClinicId = new URL(request.url).searchParams.get("clinicId")?.trim() || undefined;
+    const clinicId = await resolveUserClinicId(staff.uid, requestedClinicId);
     const list = await loadRecoveryList(clinicId);
     return NextResponse.json({ ok: true, ...list });
   } catch (error: unknown) {
