@@ -152,7 +152,7 @@ export type CreatePaymentArgs = {
  * Record a payment. The dentist, the lab fee and the commission are all resolved server-side from
  * the procedure being settled — the caller does not (and must not) work them out.
  */
-export function createPayment(args: CreatePaymentArgs): Promise<{ id: string }> {
+export function createPayment(args: CreatePaymentArgs): Promise<{ id: string; receiptNumber?: string }> {
   return post("/api/finance/ledger", { action: "create-payment", ...args });
 }
 

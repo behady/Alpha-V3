@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import {
-  AlertTriangle, Banknote, Check, ChevronDown, History, Loader2, Pencil, Plus, Receipt, Tag, Trash2,
+  AlertTriangle, Banknote, Check, ChevronDown, History, Loader2, Pencil, Plus, Printer, Receipt, Tag, Trash2,
 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
@@ -17,6 +17,8 @@ import {
   MoneyApiError, createPayment, createProcedure, deleteProcedure, updateLedgerRow,
 } from "@/lib/moneyApi";
 import { sendPatientPaymentWhatsApp } from "@/lib/sendPatientPaymentWhatsAppClient";
+import { printPaymentReceipt } from "@/lib/printPatientReceipt";
+import { loadReceiptSettings } from "@/lib/receiptSettingsClient";
 import ServiceCombobox from "@/components/shared/ServiceCombobox";
 import ServiceEditorDrawer from "@/components/clinical-notes/ServiceEditorDrawer";
 import type { Note, Service, Staff } from "@/components/clinical-notes/types";
@@ -161,6 +163,18 @@ export default function AppointmentMoneyTab({
 
   const [showOlder, setShowOlder] = useState(false);
   const [showReceipts, setShowReceipts] = useState(false);
+  const [printingId, setPrintingId] = useState<string | null>(null);
+
+  const printReceipt = async (paymentId: string) => {
+    if (!patientId) return;
+    setPrintingId(paymentId);
+    try {
+      const result = await printPaymentReceipt(patientId, paymentId, { fallbackName: appointment?.patientName, language });
+      if (!result.ok) showToast(result.message, "error");
+    } finally {
+      setPrintingId(null);
+    }
+  };
 
   useEffect(() => {
     if (!patientId) {
@@ -416,6 +430,7 @@ export default function AppointmentMoneyTab({
     const today = new Date();
     const localDate = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().split("T")[0];
     let taken = 0;
+    let lastPaymentId: string | null = null;
     try {
       for (const row of rows) {
         const { id: paymentId } = await createPayment({
@@ -428,6 +443,7 @@ export default function AppointmentMoneyTab({
           date: localDate,
         });
         taken = money(taken + row.amount);
+        lastPaymentId = paymentId;
 
         // Fire-and-forget, as everywhere else that takes money: the payment is recorded either
         // way, and a messaging outage must not look like the payment failed.
@@ -441,6 +457,12 @@ export default function AppointmentMoneyTab({
         isAr ? `اتسجل ${taken.toLocaleString()} ج.م` : `Recorded ${taken.toLocaleString()} EGP`,
         "success"
       );
+      // One print for the sitting: "all owed" can create several rows, and a receipt per row would
+      // open the print dialog that many times over. The last row's receipt is the one handed over.
+      if (lastPaymentId) {
+        const receiptSettings = await loadReceiptSettings();
+        if (receiptSettings.autoPrintAfterPayment) void printReceipt(lastPaymentId);
+      }
       setCollectOpen(false);
       setCollectAmount("");
       setCollectTarget("all");
@@ -1035,9 +1057,20 @@ export default function AppointmentMoneyTab({
                       {p.date} · {p.method}
                     </p>
                   </div>
-                  <span className="text-sm font-black text-emerald-600 shrink-0">
-                    +{p.amount.toLocaleString()}
-                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-sm font-black text-emerald-600">
+                      +{p.amount.toLocaleString()}
+                    </span>
+                    <button
+                      type="button"
+                      title={isAr ? "طباعة الإيصال" : "Print receipt"}
+                      disabled={printingId === p.id}
+                      onClick={() => void printReceipt(p.id)}
+                      className="p-1.5 text-slate-400 hover:text-ink hover:bg-surface-muted rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      {printingId === p.id ? <Loader2 size={14} className="animate-spin" /> : <Printer size={14} />}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

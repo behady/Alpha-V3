@@ -45,6 +45,7 @@ import {
   Users,
   Bot,
   BrainCircuit,
+  Receipt,
   type LucideIcon,
 } from "lucide-react";
 
@@ -66,6 +67,7 @@ export const SETTINGS_ICONS: Record<string, LucideIcon> = {
   visit_reasons: ClipboardList, // what reception picks from when booking
   sources: Megaphone,           // how a patient heard about the clinic
   attendance: Fingerprint,      // clocking in
+  receipt: Receipt,             // the paper a patient is handed
   online_booking: Globe,        // a public page on the internet
   recall: RotateCcw,
   users: Users,
@@ -115,6 +117,7 @@ export const SETTINGS_PANELS: Record<string, ComponentType<SettingsPanelProps>> 
   visit_reasons: panel(() => import("@/components/settings/VisitReasonsSettings")),
   sources: panel(() => import("@/components/settings/PatientSourcesSettings")),
   attendance: panel(() => import("@/components/settings/hosts/AttendanceHost")),
+  receipt: panel(() => import("@/components/settings/hosts/ReceiptHost")),
   online_booking: panel(() => import("@/components/settings/OnlineBookingSettings")),
   recall: panel(() => import("@/components/settings/RecallSettings")),
 

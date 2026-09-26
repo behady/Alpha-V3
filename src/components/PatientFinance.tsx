@@ -31,6 +31,8 @@ import {
   buildDentalReceiptPayloadFromLedger,
   downloadDentalReceiptPdf,
 } from "@/lib/receiptPdfHtml";
+import { loadReceiptSettings } from "@/lib/receiptSettingsClient";
+import { printPaymentReceipt } from "@/lib/printPatientReceipt";
 import { parseLedgerProcedureDescription } from "@/lib/ledgerProcedureParse";
 import { sendPatientPaymentWhatsApp } from "@/lib/sendPatientPaymentWhatsAppClient";
 import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
@@ -115,6 +117,10 @@ interface LedgerItem {
     status?: string;
     clinicalNoteId?: string;
     doctorCommissionPercentage?: number | null;
+    /** Stamped by the ledger API when the payment is created. Older rows have none. */
+    receiptNumber?: string | null;
+    addedBy?: string | null;
+    receivedBy?: string | null;
   }
 export default function PatientFinance({ patientId }: { patientId: string }) {
   const { showToast, confirm } = useUI();
@@ -161,7 +167,9 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
   const [patientAddress, setPatientAddress] = useState("");
   const [patientDob, setPatientDob] = useState("");
   const [patientGender, setPatientGender] = useState("");
-  const [clinicInfo, setClinicInfo] = useState({ name: "Alpha Dental", address: "Cairo", phone: "", email: "", doctorName: "Dr. Ahmed" });
+  const [clinicInfo, setClinicInfo] = useState({ name: "Alpha Dental", address: "Cairo", phone: "", email: "", doctorName: "Dr. Ahmed", currency: "EGP" });
+  const [patientFileNumber, setPatientFileNumber] = useState("");
+  const [printingPaymentId, setPrintingPaymentId] = useState<string | null>(null);
 
   const [editingItem, setEditingItem] = useState<LedgerItem | null>(null);
 
@@ -188,7 +196,8 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
     totalPaid: language === 'ar' ? "إجمالي المدفوع" : "Total Paid",
     balanceDue: language === 'ar' ? "المبلغ المستحق" : "Balance Due",
     history: language === 'ar' ? "سجل المعاملات" : "Transaction History",
-    print: language === 'ar' ? "تحميل إيصال PDF" : "Download PDF receipt",
+    print: language === 'ar' ? "طباعة كشف الحساب" : "Print statement",
+    printReceipt: language === 'ar' ? "طباعة إيصال الدفعة" : "Print receipt",
     printPdfBusy: language === 'ar' ? "جاري الإنشاء…" : "Generating…",
     addPayment: language === 'ar' ? "إضافة دفعة" : "Add Payment",
     receivePayment: language === 'ar' ? "استلام دفعة" : "Receive Payment",
@@ -250,6 +259,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
             setPatientAddress(typeof data.address === "string" ? data.address : "");
             setPatientDob(typeof data.dateOfBirth === "string" ? data.dateOfBirth : "");
             setPatientGender(typeof data.gender === "string" ? data.gender : "");
+            setPatientFileNumber(typeof data.fileId === "string" ? data.fileId : "");
         }
     });
 
@@ -262,6 +272,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
         phone: (typeof d.phone === "string" ? d.phone : "") as string,
         email: (typeof d.email === "string" ? d.email : "") as string,
         doctorName: (typeof d.doctorName === "string" ? d.doctorName : "Dr. Ahmed") as string,
+        currency: (typeof d.currency === "string" && d.currency.trim() ? d.currency : "EGP") as string,
       });
     });
 
@@ -393,6 +404,9 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
       setIsDropdownOpen(false);
       setPayAmount(""); setPayNote(""); setSelectedProcedureId("");
       showToast(txt.paidSuccess, "success");
+      // A desk with a printer beside it: the receipt comes out as the payment is saved.
+      const receiptSettings = await loadReceiptSettings();
+      if (receiptSettings.autoPrintAfterPayment) void handlePrintPaymentReceipt(paymentId);
     } catch (err) {
       showToast(err instanceof MoneyApiError ? err.message : txt.addError, "error");
     } finally {
@@ -473,14 +487,19 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
     const totalPaidPdf = active.reduce((s, t) => s + (t.type === "payment" ? Number(t.paid) || 0 : 0), 0);
 
     return buildDentalReceiptPayloadFromLedger({
-      clinicName: clinicInfo.name?.trim() || "Eleganza Dental Clinic",
-      clinicPhone: clinicInfo.phone?.trim() || "+201551558269",
-      clinicAddress: clinicInfo.address?.trim() || "برج الأمير, 74 شارع النزهة",
-      leadDoctorName: clinicInfo.doctorName?.trim() || "Dr. Ahmed",
+      // The clinic's own letterhead, or nothing. This used to fall back to one specific clinic's
+      // name, phone and street, which every other clinic then printed on its receipts.
+      clinicName: clinicInfo.name?.trim() || "Alpha Dental",
+      clinicPhone: clinicInfo.phone?.trim() || "",
+      clinicAddress: clinicInfo.address?.trim() || "",
+      clinicEmail: clinicInfo.email?.trim() || undefined,
+      leadDoctorName: clinicInfo.doctorName?.trim() || undefined,
+      currency: clinicInfo.currency,
       patientName,
       patientPhone,
       patientAddress,
       patientAgeSex: ageSex || undefined,
+      patientFileNumber: patientFileNumber || undefined,
       patientId,
       transactions: active.map((t) => ({
         id: t.id,
@@ -494,6 +513,9 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
         listPrice: t.listPrice,
         discountAmount: t.discountAmount,
         status: t.status,
+        procedureId: t.procedureId || null,
+        receiptNumber: t.receiptNumber || null,
+        addedBy: t.receivedBy || t.addedBy || null,
       })),
       totals: {
         totalTreatment: totalTreatmentPdf,
@@ -506,7 +528,18 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
   // Async since the receipt embeds the clinic's uploaded logo, which has to be fetched first.
   const handlePrintReceipt = async () => {
     const payload = buildReceiptLedgerPayload();
-    await downloadDentalReceiptPdf(payload, `Receipt-${patientId}.pdf`);
+    await downloadDentalReceiptPdf(payload, await loadReceiptSettings());
+  };
+
+  /** The numbered receipt for one payment — what the patient is handed. */
+  const handlePrintPaymentReceipt = async (paymentId: string) => {
+    setPrintingPaymentId(paymentId);
+    try {
+      const result = await printPaymentReceipt(patientId, paymentId, { fallbackName: patientName, language });
+      if (!result.ok) showToast(result.message, "error");
+    } finally {
+      setPrintingPaymentId(null);
+    }
   };
   const handleSendLedgerWhatsApp = async (item: LedgerItem) => {
     const u = auth.currentUser;
@@ -1048,6 +1081,15 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                     <td className="p-4 text-end font-bold text-green-600">{payment.paid > 0 ? payment.paid.toLocaleString() : "-"}</td>
                                                     <td className="p-4 text-center no-print">
                                                         <div className="flex items-center justify-center gap-2">
+                                                            <button
+                                                              type="button"
+                                                              title={txt.printReceipt}
+                                                              disabled={printingPaymentId === payment.id}
+                                                              onClick={() => void handlePrintPaymentReceipt(payment.id)}
+                                                              className="p-1.5 text-gray-400 hover:text-ink hover:bg-surface-muted rounded-lg transition-colors disabled:opacity-50"
+                                                            >
+                                                              {printingPaymentId === payment.id ? <Loader2 size={16} className="animate-spin" /> : <Printer size={16} />}
+                                                            </button>
                                                             {hasEditAccess && (
                                                                 <button onClick={() => setEditingItem(payment)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"><Edit2 size={16}/></button>
                                                             )}
@@ -1099,6 +1141,15 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                             <td className="p-4 text-end font-bold text-green-600">{payment.paid > 0 ? payment.paid.toLocaleString() : "-"}</td>
                                             <td className="p-4 text-center no-print">
                                                 <div className="flex items-center justify-center gap-2">
+                                                    <button
+                                                      type="button"
+                                                      title={txt.printReceipt}
+                                                      disabled={printingPaymentId === payment.id}
+                                                      onClick={() => void handlePrintPaymentReceipt(payment.id)}
+                                                      className="p-1.5 text-gray-400 hover:text-ink hover:bg-surface-muted rounded-lg transition-colors disabled:opacity-50"
+                                                    >
+                                                      {printingPaymentId === payment.id ? <Loader2 size={16} className="animate-spin" /> : <Printer size={16} />}
+                                                    </button>
                                                     <button
                                                       type="button"
                                                       title={txt.sendWhatsapp}

@@ -192,6 +192,11 @@ export const DOCUMENT_DENY: Record<string, string> = {
     "and the next patients registered are stamped with file numbers already printed on existing " +
     "records. Nothing checks fileId for uniqueness. Two patients sharing one clinical file number " +
     "surfaces days later and cannot be undone by re-running anything.",
+  "settings/receipt_counter":
+    "The transactional generator behind receipt numbers (see src/lib/receiptSettings.ts). " +
+    "Restoring it rewinds the sequence, and the next payments taken are stamped with numbers " +
+    "already printed on receipts in patients' hands — which, once the clinic is on the Egyptian " +
+    "e-receipt system, is a duplicate receipt number filed with the Tax Authority.",
 };
 
 /** Is this exact document refused, whatever its collection allows? */

@@ -183,6 +183,22 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     edit: ADMIN,
     tourAnchor: "settings-tab-clinic",
   },
+  // How the printed receipt looks and what it carries — template, colour, font, paper, which
+  // lines print, and the tax block the Egyptian e-receipt system expects on paper. The receipt
+  // number itself is minted by the ledger API (settings/receipt_counter), never from here.
+  {
+    id: "receipt",
+    route: "/settings/receipt",
+    group: "clinic",
+    labelEn: "Receipt",
+    labelAr: "الإيصال",
+    hintEn: "How the receipt a patient is handed looks, what it shows, and the Tax Authority e-receipt details.",
+    hintAr: "شكل الإيصال اللي بيتسلّم للمريض، وإيه اللي بيظهر فيه، وبيانات الإيصال الإلكتروني لمصلحة الضرائب.",
+    keywords: ["receipt", "invoice", "print", "e-receipt", "tax", "VAT", "ETA", "إيصال", "فاتورة", "طباعة", "الضرائب", "الإيصال الإلكتروني"],
+    writes: [{ kind: "settingsDoc", docId: "receipt" }],
+    view: ADMIN,
+    edit: ADMIN,
+  },
   {
     id: "locations",
     route: "/settings/branches",

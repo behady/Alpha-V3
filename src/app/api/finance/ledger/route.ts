@@ -49,6 +49,12 @@ import { recordLedgerAudit, recordMoneyChange } from "@/lib/server/ledgerAudit";
 import { recalcCommissionFromPayment } from "@/lib/ledgerCommission";
 import { allowedDiscount, checkDiscountAllowed } from "@/lib/discountMath";
 import { DISCOUNTS_DOC, parseDiscountSettings } from "@/lib/priceLists";
+import {
+  RECEIPT_COUNTER_DOC,
+  RECEIPT_SETTINGS_DOC,
+  formatReceiptNumber,
+  normalizeReceiptSettings,
+} from "@/lib/receiptSettings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -228,6 +234,17 @@ async function createPayment(args: {
       ? await readProcedureCommissionBasis(txn, clinicId, procedureData)
       : { labFee: 0, commissionPct: 0 };
 
+    // The receipt number, minted here so it can never be skipped or handed out twice: the counter
+    // and the payment land in the same transaction, and a retry replays both. Read before any
+    // write, as Firestore transactions require.
+    const [receiptSettingsSnap, counterSnap] = await Promise.all([
+      txn.get(adminClinicDoc(clinicId, "settings", RECEIPT_SETTINGS_DOC)),
+      txn.get(adminClinicDoc(clinicId, "settings", RECEIPT_COUNTER_DOC)),
+    ]);
+    const receiptSettings = normalizeReceiptSettings(receiptSettingsSnap.exists ? receiptSettingsSnap.data() : null);
+    const receiptSeq = (Number(counterSnap.exists ? counterSnap.data()?.last : 0) || 0) + 1;
+    const receiptNumber = formatReceiptNumber(receiptSettings, receiptSeq, date);
+
     const newRef = adminClinicCollection(clinicId, "ledger").doc();
 
     // The set as it will stand once this payment exists — a transaction cannot read its own
@@ -252,7 +269,12 @@ async function createPayment(args: {
       category: typeof body.category === "string" ? body.category : null,
     });
 
-    txn.set(newRef, { ...row, createdAt: FieldValue.serverTimestamp() });
+    txn.set(newRef, { ...row, receiptNumber, receiptSeq, createdAt: FieldValue.serverTimestamp() });
+    txn.set(
+      adminClinicDoc(clinicId, "settings", RECEIPT_COUNTER_DOC),
+      { last: receiptSeq, lastReceiptNumber: receiptNumber, updatedAt: new Date().toISOString() },
+      { merge: true }
+    );
 
     if (procedureId) {
       applyProcedureSync(txn, {
@@ -264,7 +286,7 @@ async function createPayment(args: {
       });
     }
 
-    return { id: newRef.id, row, patientName };
+    return { id: newRef.id, row: { ...row, receiptNumber, receiptSeq }, patientName, receiptNumber };
   });
 
   await recordMoneyChange({
@@ -281,7 +303,7 @@ async function createPayment(args: {
     details: `${amount} EGP from ${result.patientName || patientId}${procedureId ? ` toward ${procedureId}` : " (on account)"}`,
   });
 
-  return NextResponse.json({ ok: true, id: result.id });
+  return NextResponse.json({ ok: true, id: result.id, receiptNumber: result.receiptNumber });
 }
 
 // ---------------------------------------------------------------------------------------------
