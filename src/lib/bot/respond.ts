@@ -26,7 +26,8 @@ import type { MetaInteractive } from "@/lib/metaWhatsapp";
 import type { BotFacts, BotMedicine, BotScript } from "@/types/whatsapp";
 import { cleanScripts } from "./scripts";
 import { arabicClock, arabicDayLabel, arabicTimeLabel } from "@/lib/arabicDateTime";
-import { appendOptOutFooter, normalizeReplyText, WHATSAPP_OPT_OUT_FOOTER_AR } from "@/lib/patientMessaging";
+import { normalizeReplyText } from "@/lib/patientMessaging";
+import { claimKey, claimOnce } from "./replyClaims";
 import {
   conversationKey,
   humanClaimMsFromSetting,
@@ -472,8 +473,11 @@ export async function respondToPatientMessage(args: {
    * credits ARE spent — a rehearsal that costs nothing teaches nothing about cost.
    */
   dryRun?: boolean;
-  /** What the model saw in a photo, for staff. The patient is never shown it. */
-  mediaNote?: { summary: string; urgent: boolean; interest?: string };
+  /**
+   * What the model saw in a photo. `summary` and `urgent` are for staff; `impression` (dental
+   * photos only) may reach the patient as a preliminary reading, with the disclaimer added here.
+   */
+  mediaNote?: { summary: string; urgent: boolean; interest?: string; impression?: string; category?: "dental" | "document" | "other" };
 }): Promise<BotOutcome> {
   const { clinicId, chatId, text } = args;
   const now = args.now ?? Date.now();
@@ -495,6 +499,12 @@ export async function respondToPatientMessage(args: {
   // conversation, it is a worse version of the message they already sent.
   const mode = await resolveWhatsappDeliveryMode(clinicId, { purpose: "bot" });
   if (mode !== "auto") return skip("no_gateway");
+
+  // The same words from the same number inside 20 seconds are one message — a double tap on a
+  // button, a message sent twice on a bad connection. Answered once. See lib/bot/replyClaims.
+  if (text.trim() && !args.dryRun && !(await claimOnce(clinicId, claimKey("in", conversationKey(chatId), text), 20_000, now))) {
+    return skip("duplicate_inbound");
+  }
 
   // Behind a lid, identity comes from what the system has already learned: every outgoing
   // message binds its lid to its patient (lib/whatsappLid). The gateway's own resolver is asked
@@ -683,8 +693,27 @@ export async function respondToPatientMessage(args: {
    * Everything else gets a person, because the clinic cannot know what it did not see, and the
    * worst thing this branch can do is be slightly over-eager on a photo of a parking spot.
    */
-  const decision =
-    args.media && args.media !== "sticker" && !text.trim()
+  /*
+   * A photo the model has already read goes to the model, in sales mode: the reading (and, for
+   * a dental photo, the preliminary impression) is in its prompt, so it can answer the picture
+   * the way it answers a sentence — and, in dentist mode, as the desk dentist. The fixed "we got
+   * your photo, someone will look" stays for clinics without the salesperson, for voice notes
+   * that could not be transcribed, and for photos the describer could not read.
+   */
+  const photoToModel = args.media === "image" && !text.trim() && Boolean(args.mediaNote) && settings.aiFirst && ctx.aiAvailable;
+  const decision = photoToModel
+    ? {
+        reply: "",
+        action: {
+          type: "ai" as const,
+          question: `[المريض بعت صورة] ${args.mediaNote!.summary}`,
+          clinical: ctx.clinicalMode === "dentist" && args.mediaNote!.category === "dental",
+        },
+        next: "awaiting_choice" as const,
+        handoff: false,
+        reason: "photo_ai",
+      }
+    : args.media && args.media !== "sticker" && !text.trim()
       ? {
           reply:
             args.media === "audio"
@@ -1179,6 +1208,7 @@ ${urgentCallLine(ctx.clinicPhone)}`;
         flaggedForStaff: conversation.humanOwned && !conversation.staffActive,
         bookingStep: bookingStepLabel(conversation),
         sessionGapMinutes: salesContext?.gapMinutes,
+        photo: args.media === "image" && args.mediaNote ? args.mediaNote : undefined,
       });
       /*
        * A pick the model turned into "let's open the booking" instead of "book this one".
@@ -1641,6 +1671,19 @@ ${askWho}` : askWho;
       structure = { body: replyText, buttons: menuButtons(Boolean(ctx.canOfferBooking)) };
     }
   }
+  /*
+   * The line under every photo reading, written by code so the model cannot forget it: what it
+   * said is an impression from a picture, not a diagnosis, and the exam and x-ray decide.
+   */
+  if (reason === "ai_answer" && args.media === "image" && args.mediaNote?.impression && replyText.trim()) {
+    const latinReply = /[A-Za-z]/.test(replyText) && !/[؀-ۿ]/.test(replyText);
+    const disclaimer = latinReply
+      ? "⚠️ This is a first impression from the photo, not a final diagnosis. A photo alone is never enough — a clinical exam and an x-ray are a must before anything is decided."
+      : "⚠️ ده انطباع مبدئي من الصورة مش تشخيص نهائي. الصورة لوحدها مش كفاية أبداً — لازم كشف إكلينيكي وأشعة قبل ما نقرر أي حاجة.";
+    replyText = `${replyText}\n\n${disclaimer}`;
+    if (structure) structure = { ...structure, body: `${structure.body}\n\n${disclaimer}` };
+  }
+
   if (phone && !args.dryRun && ((!args.media && text.trim()) || args.mediaNote?.interest)) {
     if (reason === "booked" || reason === "rescheduled") {
       if (patient) void markBotLeadBooked(clinicId, phone, patient.id).catch(() => {});
@@ -1862,22 +1905,13 @@ ${askWho}` : askWho;
    * fresh conversation, so it qualified. Answering "yes I'll be there" with instructions for
    * unsubscribing is the one place this footer makes the ban risk worse rather than better.
    */
-  const courtesy = reason === "ack" || reason === "thanks";
-  let body =
-    conversation.state === "new" && !courtesy
-      ? appendOptOutFooter(replyText, latinPatient ? "— To stop these messages, reply: STOP" : WHATSAPP_OPT_OUT_FOOTER_AR)
-      : replyText;
   /*
-   * The footer belongs on the interactive body too.
-   *
-   * The old test was `structure.body === replyText`, which only holds for the plainest replies —
-   * every menu, day list and time list builds its own shorter heading, so the clinic's very first
-   * automated message to a number, the one message that most needs a STOP line, went out without
-   * one. The footer that was appended is appended there as well, whatever the body says.
+   * No opt-out footer on a conversation reply — the owner's call (2026-09-27). A person
+   * answering a question does not sign off with "reply STOP to unsubscribe"; that line belongs
+   * on the messages the clinic starts (reminders, receipts, campaigns), and those add it in
+   * deliverWhatsAppMessage. Stop words still work on any message, and are confirmed once.
    */
-  if (structure && body !== replyText) {
-    structure = { ...structure, body: `${structure.body}${body.slice(replyText.length)}` };
-  }
+  let body = replyText;
 
   /*
    * Human pacing.
@@ -1912,6 +1946,11 @@ ${askWho}` : askWho;
   let firstSentAt = Date.now();
   let firstSent = false;
   try {
+    // Two invocations composing the same answer at the same moment (two quick messages from the
+    // patient, each answered): exactly one of them gets to send it. See lib/bot/replyClaims.
+    if (!args.dryRun && !(await claimOnce(clinicId, claimKey("out", conversationKey(replyTo), body), 90_000))) {
+      return skip("duplicate_reply");
+    }
     if (!args.dryRun) waMessageId = await sendPatientWhatsAppRich(clinicId, replyTo, body, structure);
     firstSentAt = Date.now();
     firstSent = true;
