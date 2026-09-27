@@ -140,9 +140,10 @@ Done when: the owner receives tonight's evening report on WhatsApp from a clinic
 
 **M4 — phone + replies**: Android screen and channels; owner Q&A through the AI assistant.
 
-## 5. Open items for the owner
+## 5. Decided 2026-09-27 (was open)
 
-- Price of the `ownerAlertsLine` add-on.
-- Which Wapilot instance is the platform number (existing one, or a new line).
-- Confirm narrowing the shared number to staff alerts (3.4, decision needed).
-- Staff phone numbers: many staff rows have none today; the page will show who is unreachable.
+- `ownerAlertsLine` add-on price: **590 EGP / year**.
+- Platform line: a **new** Wapilot number, connected from the superadmin card once the owner has it.
+- Shared number carries staff alerts only; patient fallback removed (3.4).
+
+Still to watch: many staff rows have no phone today; the page will show who is unreachable.
