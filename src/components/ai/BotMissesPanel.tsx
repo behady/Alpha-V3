@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Bot, BookOpen, Check, GraduationCap, Settings2, Sparkles, Trash2 } from "lucide-react";
+import { Bot, BookOpen, Check, FlaskConical, GraduationCap, Settings2, Sparkles, ThumbsDown, Trash2 } from "lucide-react";
 import { deleteDoc, doc, getDoc, onSnapshot, query, setDoc, updateDoc, where } from "firebase/firestore";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import BotFunnelCard from "./BotFunnelCard";
+import BotWeekCard from "./BotWeekCard";
 
 /**
  * How the WhatsApp assistant gets better: what it missed, what staff taught it, what worked.
@@ -44,6 +45,37 @@ interface CoachSuggestion {
   status: "pending" | "applied" | "dismissed";
   atMs: number;
 }
+
+/** A staff thumb on one bot answer — see the Chats page. */
+interface Feedback {
+  id: string;
+  verdict: "up" | "down";
+  reason?: string | null;
+  text: string;
+  question?: string | null;
+  kind?: string | null;
+  name?: string | null;
+  chatKey: string;
+  atMs: number;
+}
+
+/** A real conversation saved into the battery's eval set — see lib/bot/testCases. */
+interface SavedCase {
+  id: string;
+  turns: Array<{ q: string; a: string; kind: string }>;
+  note?: string;
+  savedName?: string | null;
+  atMs: number;
+  sourceChat?: string;
+}
+
+const DOWN_LABEL: Record<string, { en: string; ar: string }> = {
+  wrong: { en: "wrong", ar: "غلط" },
+  invented: { en: "made it up", ar: "اخترع" },
+  tone: { en: "tone", ar: "الأسلوب" },
+  should_handoff: { en: "should have handed off", ar: "كان لازم يحوّل" },
+  other: { en: "other", ar: "حاجة تانية" },
+};
 
 interface Playbook {
   text?: string;
@@ -103,6 +135,8 @@ export default function BotMissesPanel() {
   const [playbookDraft, setPlaybookDraft] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [writeError, setWriteError] = useState<string | null>(null);
+  const [flagged, setFlagged] = useState<Feedback[]>([]);
+  const [cases, setCases] = useState<SavedCase[]>([]);
 
   useEffect(() => {
     if (!user) return;
@@ -131,13 +165,42 @@ export default function BotMissesPanel() {
       (snap) => setCoach(snap.docs.map((d) => ({ id: d.id, ...d.data() } as CoachSuggestion)).sort((a, b) => b.atMs - a.atMs)),
       () => {}
     );
+    const unsubF = onSnapshot(
+      query(getClinicCollection("bot_feedback"), where("atMs", ">=", Date.now() - WINDOW_MS)),
+      (snap) =>
+        setFlagged(
+          snap.docs
+            .map((d) => ({ id: d.id, ...d.data() } as Feedback))
+            .filter((f) => f.verdict === "down")
+            .sort((a, b) => b.atMs - a.atMs)
+        ),
+      () => {}
+    );
+    const unsubT = onSnapshot(
+      getClinicCollection("bot_test_cases"),
+      (snap) => setCases(snap.docs.map((d) => ({ id: d.id, ...d.data() } as SavedCase)).sort((a, b) => b.atMs - a.atMs)),
+      () => {}
+    );
     return () => {
       unsub();
       unsubK();
       unsubP();
       unsubC();
+      unsubF();
+      unsubT();
     };
   }, [user]);
+
+  const removeCase = async (id: string) => {
+    setBusy(id);
+    try {
+      await deleteDoc(doc(getClinicCollection("bot_test_cases"), id));
+    } catch (e) {
+      setWriteError(e instanceof Error ? e.message : "failed");
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const grouped = useMemo(
     () =>
@@ -251,7 +314,90 @@ export default function BotMissesPanel() {
         </p>
       )}
 
+      <BotWeekCard />
       <BotFunnelCard />
+
+      {/* Answers a staff member marked wrong on the Chats page: the question, the answer, why. */}
+      {flagged.length > 0 && (
+        <section className="bg-surface rounded-2xl border border-line shadow-sm p-4 sm:p-5">
+          <div className="flex items-center gap-2 mb-1">
+            <ThumbsDown size={16} className="text-ink-body" />
+            <h2 className="text-sm font-black text-ink">{isAr ? "ردود الفريق قال عليها غلط" : "Answers staff marked wrong"}</h2>
+            <span className="text-[11px] font-black px-2 py-0.5 rounded-full bg-surface-muted text-ink-body">{flagged.length}</span>
+          </div>
+          <p className="text-xs text-ink-muted font-bold mb-3">
+            {isAr
+              ? "من زر 👎 تحت رد البوت في صفحة الشات. الرد اللي بيتكرر هنا هو اللي يستاهل حقيقة جاهزة أو تعليمة."
+              : "From the 👎 under a bot reply on the Chats page. Whatever repeats here is worth a ready answer or a coaching line."}
+          </p>
+          <ul className="space-y-2">
+            {flagged.slice(0, 12).map((f) => (
+              <li key={f.id} className="rounded-xl bg-surface-subtle px-3 py-2 text-sm">
+                <div className="flex items-baseline gap-2 text-[10px] font-bold text-slate-400 mb-1">
+                  <span>{ago(f.atMs, isAr)}</span>
+                  {f.reason && DOWN_LABEL[f.reason] && (
+                    <span className="px-1.5 py-0.5 rounded-full bg-[#b3261e]/10 text-[#b3261e]">{isAr ? DOWN_LABEL[f.reason].ar : DOWN_LABEL[f.reason].en}</span>
+                  )}
+                  {f.name && <span>· {f.name}</span>}
+                  <Link href={`/chats?chat=${encodeURIComponent(f.chatKey)}`} className="ms-auto underline text-ink-body">
+                    {isAr ? "افتح الشات" : "Open chat"}
+                  </Link>
+                </div>
+                {f.question && (
+                  <p className="text-ink-body font-semibold" dir="auto">
+                    <span className="text-slate-400">{isAr ? "المريض: " : "Patient: "}</span>
+                    {f.question}
+                  </p>
+                )}
+                <p className="text-ink font-medium" dir="auto">
+                  <span className="text-slate-400">{isAr ? "البوت: " : "Bot: "}</span>
+                  {f.text}
+                </p>
+              </li>
+            ))}
+            {flagged.length > 12 && (
+              <li className="text-[11px] font-bold text-ink-muted">{isAr ? `و ${flagged.length - 12} كمان` : `and ${flagged.length - 12} more`}</li>
+            )}
+          </ul>
+        </section>
+      )}
+
+      {/* Real conversations kept as regression cases. Replayed by scripts/probe-model-battery.mts. */}
+      {cases.length > 0 && (
+        <section className="bg-surface rounded-2xl border border-line shadow-sm p-4 sm:p-5">
+          <div className="flex items-center gap-2 mb-1">
+            <FlaskConical size={16} className="text-ink-body" />
+            <h2 className="text-sm font-black text-ink">{isAr ? "حالات اختبار من محادثات حقيقية" : "Test cases from real chats"}</h2>
+            <span className="text-[11px] font-black px-2 py-0.5 rounded-full bg-surface-muted text-ink-body">{cases.length}</span>
+          </div>
+          <p className="text-xs text-ink-muted font-bold mb-3">
+            {isAr
+              ? "اتحفظت من قايمة الشات، من غير أسماء ولا أرقام. أي تعديل على البوت بيتجرب عليها قبل ما يطلع."
+              : "Saved from a chat's menu, names and numbers removed. Every change to the bot is tried against these before it ships."}
+          </p>
+          <ul className="space-y-1.5">
+            {cases.slice(0, 12).map((c) => (
+              <li key={c.id} className="flex items-center gap-3 text-sm">
+                <span className="text-[10px] font-bold text-slate-400 shrink-0 w-16">{ago(c.atMs, isAr)}</span>
+                <span className="text-ink font-medium bg-surface-subtle rounded-lg px-3 py-1.5 flex-1 truncate" dir="auto" title={c.turns.map((t) => t.q).join(" / ")}>
+                  {c.turns[0]?.q || "—"}
+                  <span className="text-slate-400 font-bold text-[11px]"> · {c.turns.length} {isAr ? "دور" : "turns"}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void removeCase(c.id)}
+                  disabled={busy === c.id}
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-[#b3261e] hover:bg-black/5 disabled:opacity-40"
+                  title={isAr ? "احذف" : "Remove"}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </li>
+            ))}
+            {cases.length > 12 && <li className="text-[11px] font-bold text-ink-muted pl-[4.75rem]">{isAr ? `و ${cases.length - 12} كمان` : `and ${cases.length - 12} more`}</li>}
+          </ul>
+        </section>
+      )}
 
       {/* This morning's coaching suggestions from yesterday's chats. */}
       {coach.length > 0 && (

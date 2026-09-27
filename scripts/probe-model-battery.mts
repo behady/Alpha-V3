@@ -7,6 +7,9 @@
  *   ONLY_CONV=english,pain-1 run just these conversations
  *   REPEAT=3                 replay each conversation N times (the replies are sampled at the
  *                            production temperature, so one run is one sample, not a verdict)
+ *   INCLUDE_SAVED=1          also replay every conversation staff saved with "Save as test case"
+ *                            on the Chats page (clinics/{id}/bot_test_cases) — the cases that
+ *                            came from real patients rather than from imagination
  *
  * Calls the Gemini API DIRECTLY — no route, no Firestore writes, no credits charged, no
  * WhatsApp message can escape. The clinic's real price list is read (read-only) so the
@@ -25,8 +28,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
-import { buildBotPrompt, fixedPromptLayers, type AiPatientContext } from "../src/lib/bot/botPrompt";
+import { buildBotPrompt, fixedPromptLayers, promptVersion, type AiPatientContext } from "../src/lib/bot/botPrompt";
 import { strayDrugNames } from "../src/lib/bot/drugGuard";
+import { expectFromKind, type SavedTestCase } from "../src/lib/bot/testCases";
 
 const BASELINE = process.argv[2] || "gemini-flash-latest";
 const CANDIDATE = process.argv[3] || "gemini-3.1-flash-lite";
@@ -259,8 +263,28 @@ async function main() {
 
   const only = (process.env.ONLY_CONV || "").split(",").filter(Boolean);
   const repeat = Number(process.env.REPEAT) || 1;
+  const all: Conv[] = [...CONVERSATIONS];
+  if (process.env.INCLUDE_SAVED) {
+    // Saved from real chats. The expected action is what the engine did at the time unless a
+    // reviewer wrote `expect` on the doc; a stranger to the clinic, since the thread's own
+    // patient is deliberately not in it any more.
+    const saved = await db.collection("clinics").doc(CLINIC_ID).collection("bot_test_cases").orderBy("atMs", "desc").limit(200).get();
+    for (const d of saved.docs) {
+      const c = d.data() as SavedTestCase;
+      const turns = (c.turns || []).filter((t) => t.q.trim());
+      if (!turns.length) continue;
+      all.push({
+        id: `saved-${d.id.slice(0, 18)}`,
+        clinical: c.clinical === true,
+        patient: STRANGER,
+        turns: turns.map((t, i) => ({ q: t.q, expect: i === turns.length - 1 && c.expect?.length ? c.expect : expectFromKind(t.kind), note: c.note || "" })),
+      });
+    }
+    console.log(`saved cases: ${saved.size}\n`);
+  }
+  console.log(`prompt version: ${promptVersion("sales", false, true)} (sales) / ${promptVersion("sales", true, true)} (dentist mode)`);
   const plan: Conv[] = [];
-  for (let i = 0; i < repeat; i++) for (const c of CONVERSATIONS) if (!only.length || only.includes(c.id)) plan.push(c);
+  for (let i = 0; i < repeat; i++) for (const c of all) if (!only.length || only.includes(c.id)) plan.push(c);
 
   type Tot = { in: number; out: number; cached: number; ms: number; calls: number; jsonFail: number; offExpect: number; strays: number; langFail: number; drugFail: number; missing: number };
   const totals: Record<string, Tot> = Object.fromEntries(models.map((m) => [m, { in: 0, out: 0, cached: 0, ms: 0, calls: 0, jsonFail: 0, offExpect: 0, strays: 0, langFail: 0, drugFail: 0, missing: 0 }]));
