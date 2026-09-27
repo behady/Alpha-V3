@@ -714,6 +714,17 @@ export const SETTINGS_TEXT = {
     discard: { en: "Discard", ar: "تجاهل" },
     saveSchedule: { en: "Save schedule", ar: "حفظ الجدول" },
   },
+  targets: {
+    title: { en: "Monthly targets", ar: "الأهداف الشهرية" },
+    intro: { en: "Two numbers the owner's home measures every month against. Leave one at 0 to hide its bar.", ar: "رقمين شاشة المالك بتقيس عليهم كل شهر. سيب أي رقم 0 لو مش عايز شريطه يظهر." },
+    revenue: { en: "Cash collected per month (EGP)", ar: "الكاش المحصّل في الشهر (ج.م)" },
+    newPatients: { en: "New patients per month", ar: "مرضى جدد في الشهر" },
+    save: { en: "Save targets", ar: "احفظ الأهداف" },
+    saved: { en: "Targets saved", ar: "اتحفظت الأهداف" },
+    failed: { en: "Could not save", ar: "معرفناش نحفظ" },
+    readOnly: { en: "Only an admin can change the targets.", ar: "المدير بس اللي يقدر يغيّر الأهداف." },
+    discard: { en: "Discard changes", ar: "تجاهل التعديلات" },
+  },
   shell: {
     title: { en: "Settings", ar: "الإعدادات" },
     search: { en: "What do you want to change?", ar: "ماذا تريد أن تغيّر؟" },

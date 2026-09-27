@@ -372,6 +372,8 @@ export const TOUR_WALKS: Record<string, DemoAction[]> = {
     pt(l("Breakdown by feature", "حسب الميزة"), "What used them.", "إيه اللي استخدمهم."),
     pt(l("Usage log", "سجل الاستخدام"), "And every action, with who and for whom.", "وكل إجراء، بمين ولمين."),
   ],
+  "settings-receipt": [pt(l("Receipt", "الإيصال"), "How the patient's receipt looks, and the Tax Authority e-receipt details.", "شكل إيصال المريض، وبيانات الإيصال الإلكتروني بتاع الضرايب.")],
+  "settings-targets": [pt(l("Monthly targets", "الأهداف الشهرية"), "Cash and new patients you aim for each month; the owner's home measures against them.", "الكاش والمرضى الجدد اللي بتستهدفهم كل شهر؛ شاشة المالك بتقيس عليهم.")],
   "settings-recently_deleted": [
     pt(l("All types", "كل الأنواع"), "Filter by type.", "فلتر بالنوع.", "self"),
     pt(l("Restore", "استعادة"), "Restore puts it back exactly as it was.", "الاستعادة بترجّعه زي ما كان بالظبط.", "self"),

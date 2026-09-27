@@ -47,6 +47,7 @@ import {
   BrainCircuit,
   Receipt,
   type LucideIcon,
+  Target,
 } from "lucide-react";
 
 /**
@@ -62,6 +63,7 @@ export const SETTINGS_ICONS: Record<string, LucideIcon> = {
   locations: MapPinned,         // the places it works from
   labs: FlaskConical,
   payers: Wallet,               // who is paying: the clinic, or an insurer
+  targets: Target,              // the month's goals
   services: Tag,                // a price list is a list of prices
   prescriptions: Pill,
   visit_reasons: ClipboardList, // what reception picks from when booking
@@ -113,6 +115,7 @@ export const SETTINGS_PANELS: Record<string, ComponentType<SettingsPanelProps>> 
   labs: panel(() => import("@/components/settings/DentalLabsSettings")),
   services: panel(() => import("@/components/settings/hosts/PricesHost")),
   payers: panel(() => import("@/components/settings/PayersSettings")),
+  targets: panel(() => import("@/components/settings/TargetsSettings")),
   prescriptions: panel(() => import("@/components/settings/PrescriptionSettings")),
   visit_reasons: panel(() => import("@/components/settings/VisitReasonsSettings")),
   sources: panel(() => import("@/components/settings/PatientSourcesSettings")),
