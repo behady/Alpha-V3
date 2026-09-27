@@ -128,8 +128,10 @@ export function cashBySource(ledger: Row[], patients: Row[], unknownLabel = "Unk
   const out = new Map<string, SourceCash>();
   const seen = new Map<string, Set<string>>();
   for (const row of ledger) {
+    // Payments and manual income only. A procedure row carries `paid` as the sum of its payments,
+    // so counting it beside them would count every pound twice.
     const type = String(row.type || "");
-    if (type !== "payment" && type !== "income" && type !== "procedure") continue;
+    if (type !== "payment" && type !== "income") continue;
     const cash = ledgerCashValue(row);
     if (cash <= 0) continue;
     const patientId = String(row.patientId || "");

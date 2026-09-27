@@ -12,7 +12,18 @@
 
 const TIMEOUT_MS = 12_000;
 
-export type GatewayState = "starting" | "qr" | "connecting" | "open" | "closed" | "logged_out";
+export type GatewayState = "starting" | "qr" | "connecting" | "open" | "closed" | "logged_out" | "restricted";
+
+/** The instance's sending rules as they stand right now — see whatsapp-gateway/src/policy.js. */
+export type GatewaySending = {
+  windowOpen: boolean;
+  window: string;
+  nextOpenAt: number | null;
+  queued: number;
+  waiting: number;
+  dailyCap: number;
+  sentToday: number;
+};
 
 export type GatewayInstanceStatus = {
   instanceId: string;
@@ -25,6 +36,7 @@ export type GatewayInstanceStatus = {
   webhookUrl: string;
   /** PNG data URL while `state === "qr"`, else null. */
   qr: string | null;
+  sending?: GatewaySending;
   token?: string;
 };
 
@@ -93,6 +105,12 @@ export async function gatewayInstanceStatus(instanceId: string): Promise<Gateway
 /** Forget the login; the instance comes back waiting for a new scan. */
 export async function gatewayLogout(instanceId: string): Promise<GatewayInstanceStatus> {
   const res = await adminFetch(`/admin/instances/${encodeURIComponent(instanceId)}/logout`, { method: "POST" });
+  return readJson(res);
+}
+
+/** Lift the emergency brake (`state: restricted`) and reconnect with the same session. */
+export async function gatewayResume(instanceId: string): Promise<GatewayInstanceStatus> {
+  const res = await adminFetch(`/admin/instances/${encodeURIComponent(instanceId)}/resume`, { method: "POST" });
   return readJson(res);
 }
 
