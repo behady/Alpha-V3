@@ -605,9 +605,16 @@ export default function NotificationSettings({
                           ) : (
                             <Smartphone size={12} />
                           )}
-                          {state === "ok" ? txt.testSent : state === "ok-nowa" ? txt.waNoPhoneForYou : state === "fail" ? txt.testFailed : event.report ? txt.testReport : txt.test}
+                          {state === "ok" || state === "ok-nowa" ? txt.testSent : state === "fail" ? txt.testFailed : event.report ? txt.testReport : txt.test}
                         </button>
                       </div>
+                    )}
+
+                    {state === "ok-nowa" && (
+                      <p className="mt-2 flex items-start gap-1.5 text-[11.5px] font-bold text-warn">
+                        <MessageCircle size={12} className="mt-0.5 shrink-0" />
+                        {txt.waNoPhoneForYou}
+                      </p>
                     )}
 
                     {!anyOn && (
@@ -662,7 +669,7 @@ export default function NotificationSettings({
                   dir="ltr"
                   value={person.phone}
                   onChange={(e) => setPerson(m.uid, "phone", e.target.value)}
-                  placeholder={m.role === "Owner" ? "+2010… " : txt.noPhone}
+                  placeholder={m.role === "Owner" ? "+2010…" : txt.noPhone}
                   className="w-44 rounded-xl border border-line bg-surface px-3 py-1.5 font-figure text-[13px] text-ink outline-none focus:border-accent"
                 />
                 <span className="flex items-center gap-2 text-[11px] font-bold text-ink-faint">
