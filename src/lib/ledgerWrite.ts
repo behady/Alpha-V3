@@ -15,9 +15,11 @@
  *
  *   - A payment linked to a procedure inherits that procedure's dentist. That dentist's
  *     commission percentage comes from their staff record, never from the request.
- *   - The lab fee is charged once, against the earliest payment for a procedure. Which payment is
- *     "earliest" is the caller's to determine — only a caller reading the sibling payments (inside
- *     a transaction, server-side) can know, and it must never be taken from client input.
+ *   - The lab fee is charged once, against the earliest payments for a procedure: the first
+ *     payment absorbs as much of it as it can, and whatever is left carries into the next, until
+ *     the lab is paid. Which payment is "earliest" is the caller's to determine — only a caller
+ *     reading the sibling payments (inside a transaction, server-side) can know, and it must never
+ *     be taken from client input.
  *   - Commission is calculated on what is left after the lab fee, because the lab is paid first.
  *   - A payment with no linked procedure, or whose procedure names no dentist, carries zeroes in
  *     every commission field. That is the documented rule for an unallocated payment, not an
@@ -270,11 +272,11 @@ export function recalcProcedurePayments(args: {
 }): Array<{ id: string; labFee: number; doctorCommissionPercentage: number; doctorCommissionAmount: number; clinicProfit: number }> {
   const labFee = money(Math.max(0, Number(args.labFee) || 0));
   const commissionPct = Number(args.commissionPct) || 0;
-  const firstId = firstPaymentIdFor(args.payments);
+  const shares = labFeeShares(args.payments, labFee);
 
   return args.payments.map((payment) => {
     const paid = Number(payment.paid ?? payment.amount ?? 0) || 0;
-    const appliedLabFee = payment.id === firstId ? labFee : 0;
+    const appliedLabFee = shares.get(payment.id) ?? 0;
     /**
      * A rate set by hand survives.
      *
@@ -301,6 +303,41 @@ export function recalcProcedurePayments(args: {
       clinicProfit,
     };
   });
+}
+
+/**
+ * How much of the lab fee each payment carries, earliest first.
+ *
+ * The whole fee used to sit on the first payment however small that payment was. A 1,000 crown
+ * with a 500 lab fee paid 200 then 800 put the fee on the 200: that row went 300 negative, earned
+ * nothing, and the 800 then paid the dentist their share of 800 rather than of the 500 that was
+ * actually left after the lab — the dentist was overpaid by their share of 300. Now the first
+ * payment absorbs what it can, the remainder carries into the next, and the lab is still paid
+ * exactly once.
+ */
+export function labFeeShares(
+  payments: Array<{ id: string; date?: string | null; paid?: number | null; amount?: number | null }>,
+  labFee: number
+): Map<string, number> {
+  const ordered = [...payments].sort((a, b) => {
+    const byDate = String(a.date || "").localeCompare(String(b.date || ""));
+    return byDate !== 0 ? byDate : a.id.localeCompare(b.id);
+  });
+  const shares = new Map<string, number>();
+  let remaining = money(Math.max(0, Number(labFee) || 0));
+  for (const payment of ordered) {
+    const paid = Math.max(0, Number(payment.paid ?? payment.amount ?? 0) || 0);
+    const share = money(Math.min(remaining, paid));
+    shares.set(payment.id, share);
+    remaining = money(remaining - share);
+  }
+  // A fee no payment could absorb yet (nothing paid so far) still sits on the earliest row, so the
+  // clinic's own figure shows the lab as owed rather than losing it.
+  if (remaining > 0 && ordered.length > 0) {
+    const first = ordered[0];
+    shares.set(first.id, money((shares.get(first.id) ?? 0) + remaining));
+  }
+  return shares;
 }
 
 /** Total collected against a procedure, from rows the caller has already loaded. */

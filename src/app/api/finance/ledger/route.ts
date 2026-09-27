@@ -264,7 +264,8 @@ async function createPayment(args: {
       description: String(body.description || "").trim() || (procedure ? `Payment for ${procedure.description || "treatment"}` : "Payment on account"),
       date,
       procedure,
-      appliedLabFee: isFirst ? basis.labFee : 0,
+      // The share this payment can absorb; the rebalance below settles the rest across the others.
+      appliedLabFee: isFirst ? Math.min(basis.labFee, amount) : 0,
       staff,
       actor: { uid: actor.uid, name: actor.name },
       category: typeof body.category === "string" ? body.category : null,

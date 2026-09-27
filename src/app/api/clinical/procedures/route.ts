@@ -314,6 +314,8 @@ function syncedAppointmentServices(
     serviceId: string | null;
     serviceName: string;
     cost: number;
+    /** What the treatment lists at before its own discount. */
+    listPrice: number;
     status: string;
   }
 ) {
@@ -336,7 +338,7 @@ function syncedAppointmentServices(
     serviceId: entry.serviceId || "",
     serviceName: entry.serviceName,
     cost: entry.cost,
-    listPrice: entry.cost,
+    listPrice: entry.listPrice > 0 ? entry.listPrice : entry.cost,
     clinicalNoteId: entry.clinicalNoteId,
     ledgerId: entry.ledgerId,
     status: entry.status,
@@ -344,14 +346,19 @@ function syncedAppointmentServices(
   if (index === -1) existing.push(row);
   else existing[index] = { ...existing[index], ...row };
 
-  const totalListPrice = existing.reduce((sum, s) => sum + (Number(s.listPrice) || Number(s.cost) || 0), 0);
-  const discountAmount = Number(appointmentData.discountAmount) || 0;
-  const hasDiscount = appointmentData.discountMode && appointmentData.discountMode !== "none";
+  // Each treatment already carries its own discount inside `cost`, so the visit's total is the sum
+  // of those — not the sum of list prices with the BOOKING's discount taken off again. That
+  // second subtraction put a 10%-booked visit whose crown was already charged at 10% off on the
+  // calendar at 20% off, while the bill said 10%.
+  const round = (n: number) => Number(n.toFixed(2));
+  const totalListPrice = round(existing.reduce((sum, s) => sum + (Number(s.listPrice) || Number(s.cost) || 0), 0));
+  const totalCost = round(existing.reduce((sum, s) => sum + (Number(s.cost) || 0), 0));
 
   return {
     services: existing,
     listPrice: totalListPrice,
-    cost: hasDiscount ? Math.max(0, totalListPrice - discountAmount) : totalListPrice,
+    cost: totalCost,
+    discountAmount: round(Math.max(0, totalListPrice - totalCost)),
   };
 }
 
@@ -411,6 +418,7 @@ async function createProcedure(args: { clinicId: string; actor: Actor; body: Rec
           serviceId: priced.pricing.serviceIds[0] || null,
           serviceName: priced.pricing.matchedServices[0]?.name || priced.displayProcedure,
           cost: priced.pricing.cost,
+          listPrice: priced.pricing.listPrice,
           status: priced.status,
         })
       );
@@ -539,6 +547,7 @@ async function updateProcedure(args: { clinicId: string; actor: Actor; body: Rec
           serviceId: priced.pricing.serviceIds[0] || null,
           serviceName: priced.pricing.matchedServices[0]?.name || priced.displayProcedure,
           cost: priced.pricing.cost,
+          listPrice: priced.pricing.listPrice,
           status: priced.status,
         })
       );

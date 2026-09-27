@@ -186,6 +186,34 @@ assert.equal(
   "the lab is paid exactly once, however the payments change"
 );
 
+// --- the lab fee carries into the next payment when the first cannot absorb it ------------------------
+//
+// A 1,000 crown with a 500 lab fee, paid 200 then 800. The fee used to sit whole on the 200: that
+// row went 300 negative and earned nothing, and the 800 then paid the dentist 30% of 800 instead
+// of 30% of the 500 actually left after the lab — 90 EGP too much.
+{
+  const split = recalcProcedurePayments({
+    payments: [
+      { id: "first", date: "2026-09-01", paid: 200 },
+      { id: "second", date: "2026-09-10", paid: 800 },
+    ],
+    labFee: 500,
+    commissionPct: 30,
+  });
+  const s = Object.fromEntries(split.map((r) => [r.id, r]));
+  assert.equal(s.first.labFee, 200, "the first payment absorbs what it can");
+  assert.equal(s.second.labFee, 300, "the remainder carries into the next");
+  assert.equal(s.first.doctorCommissionAmount, 0, "nothing left after the lab on the first");
+  assert.equal(s.second.doctorCommissionAmount, 150, "(800 - 300) * 30% — not 240");
+  assert.equal(split.reduce((n, r) => n + r.labFee, 0), 500, "the lab is still paid exactly once");
+  assert.equal(split.reduce((n, r) => n + r.doctorCommissionAmount, 0), 150, "30% of the 500 left after the lab, in total");
+  assert.equal(split.reduce((n, r) => n + r.clinicProfit, 0), 350, "1000 - 500 lab - 150 share");
+
+  // Nothing paid yet: the fee still shows on the earliest row so it reads as owed, not lost.
+  const unpaid = recalcProcedurePayments({ payments: [{ id: "a", date: "2026-09-01", paid: 0 }], labFee: 500, commissionPct: 30 });
+  assert.equal(unpaid[0].labFee, 500, "an unabsorbed fee sits on the earliest row rather than vanishing");
+}
+
 /**
  * A rate somebody typed by hand survives the next payment.
  *
