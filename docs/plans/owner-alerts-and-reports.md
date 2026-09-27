@@ -160,7 +160,16 @@ Done when: the owner receives tonight's evening report on WhatsApp from a clinic
 - Settings → Alerts & reports: WhatsApp column, report options under each report row, a
   "WhatsApp recipients" block, and a line saying which number WhatsApp leaves from.
 
-**Not in M1 (next):** PDF attachment and weekly/monthly/payroll reports (M2); the new real-time alerts
+**Milestone 2 — built 2026-09-27:** `weeklyReport` (weekday + hour), `monthlyReport` and `payrollReport`
+(day-of-month + hour) in the Reports group, built from `buildBriefing` week/month; "Attach PDF" on every
+report except the dentist's day, rendered server-side with jsPDF (`lib/reports/staffReportPdf.ts`) and sent
+as a document (`sendStaffDocument`: Storage signed URL → Meta link / Wapilot bytes). Arabic PDFs need a real
+Arabic font in `public/fonts` (`NotoNaskhArabic-Regular.ttf` or `Amiri-Regular.ttf`) — the Cairo file there is
+Latin-only — or `REPORT_ARABIC_FONT_URL`; without one the PDF falls back to English. Also shipped between the
+milestones: the **staff line** (`lib/bot/staffLine.ts`): a number on the recipients block is answered as staff
+by the bot, kept out of the Chats inbox, and can ask for reports by a word.
+
+**Not done yet:** the new real-time alerts
 with thresholds and batching (M3); WhatsApp for alerts raised by Cloud Functions (arrivals, SLA
 escalations, stock) — they show "—" in the WhatsApp column until the Functions half can reach a
 gateway; Android screen (M4); month-to-date comparison in the daily text (needs a second briefing build).
