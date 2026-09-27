@@ -96,14 +96,17 @@ const MONTHS_AR = ["يناير", "فبراير", "مارس", "أبريل", "ما
  * ends are the same day.
  */
 export function rangeText(range: DateRange, isAr: boolean): string {
-  const months = isAr ? MONTHS_AR : MONTHS_EN;
-  const day = (s: string) => {
-    const [yy, mm, dd] = s.split("-").map(Number);
-    if (!yy || !mm || !dd) return s;
-    return `${dd} ${months[mm - 1]}${yy === new Date().getFullYear() ? "" : ` ${yy}`}`;
-  };
+  const day = (s: string) => dayText(s, isAr);
   if (range.start === range.end) return day(range.start);
   return isAr ? `${day(range.start)} إلى ${day(range.end)}` : `${day(range.start)} to ${day(range.end)}`;
+}
+
+/** One date the way a person says it — "14 Sep", with the year only when it is not this year. */
+export function dayText(ymd: string, isAr: boolean): string {
+  const months = isAr ? MONTHS_AR : MONTHS_EN;
+  const [yy, mm, dd] = ymd.split("-").map(Number);
+  if (!yy || !mm || !dd) return ymd;
+  return `${dd} ${months[mm - 1]}${yy === new Date().getFullYear() ? "" : ` ${yy}`}`;
 }
 
 /** Which preset a range corresponds to, or "custom" when it matches none. */

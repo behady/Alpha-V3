@@ -286,6 +286,23 @@ export async function saveBooking(
         ? `تعديل موعد: ${data.patientName} — ${normalizedDate || data.date} ${normalizedTime || data.time}`
         : `Appointment edited: ${data.patientName} — ${normalizedDate || data.date} ${normalizedTime || data.time}`
     );
+    // The flow alerts: a no-show, and a cancellation of today's own appointment.
+    if (nextStatus === "No Show" && prev.status !== "No Show") {
+      void fireOwnerWhatsAppAlert(
+        "appointment_no_show",
+        userCtx.language === "ar"
+          ? `مجاش: ${data.patientName} — ${normalizedTime || data.time} — ${data.doctor || ""}`
+          : `No-show: ${data.patientName} — ${normalizedTime || data.time} — ${data.doctor || ""}`
+      );
+    }
+    if (nextStatus === "Cancelled" && prev.status !== "Cancelled" && normalizeDateKey(String(normalizedDate || data.date || "")) === new Intl.DateTimeFormat("en-CA").format(new Date())) {
+      void fireOwnerWhatsAppAlert(
+        "appointment_same_day_cancel",
+        userCtx.language === "ar"
+          ? `إلغاء النهارده: ${data.patientName} — ${normalizedTime || data.time} — ${data.doctor || ""}`
+          : `Cancelled today: ${data.patientName} — ${normalizedTime || data.time} — ${data.doctor || ""}`
+      );
+    }
 
     const prevDate = normalizeDateKey(String(prev.date ?? ""));
     const prevTime = normalizeTimeKey(String(prev.time ?? ""));
@@ -392,6 +409,14 @@ export async function saveBooking(
       ? `موعد جديد: ${data.patientName} — ${normalizedDate || data.date} ${normalizedTime || data.time} — ${data.doctor || ""}`
       : `New appointment: ${data.patientName} — ${normalizedDate || data.date} ${normalizedTime || data.time} — ${data.doctor || ""}`
   );
+  if (normalizeDateKey(String(normalizedDate || data.date || "")) === new Intl.DateTimeFormat("en-CA").format(new Date())) {
+    void fireOwnerWhatsAppAlert(
+      "appointment_walk_in",
+      userCtx.language === "ar"
+        ? `حجز لنفس اليوم: ${data.patientName} — ${normalizedTime || data.time} — ${data.doctor || ""}`
+        : `Walk-in: ${data.patientName} — ${normalizedTime || data.time} — ${data.doctor || ""}`
+    );
+  }
 
   if (data.patientId) {
     void sendPatientAppointmentWhatsApp({

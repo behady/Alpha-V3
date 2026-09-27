@@ -20,7 +20,7 @@ object NotifyCatalog {
 
     data class Timing(
         val key: String,
-        /** "minutes", "hours" or "hourOfDay". */
+        /** "minutes", "hours", "hourOfDay", "weekday", "dayOfMonth", or a threshold: "percent", "egp", "count", "days". */
         val kind: String,
         val en: String,
         val ar: String,
@@ -43,17 +43,29 @@ object NotifyCatalog {
         val rolesMax: List<String>? = null,
         val bell: Boolean,
         val push: Boolean,
+        /** Sent to each recipient's WhatsApp out of the box. */
+        val whatsapp: Boolean = false,
+        /** The WhatsApp switch is offered: the web server raises this alert and can put it on WhatsApp. */
+        val waReady: Boolean = false,
+        /** One of the scheduled reports: "morning", "evening", "dentistDay", "summary", "weekly", "monthly", "payroll". */
+        val report: String? = null,
         val ignoresQuietHours: Boolean = false,
         val timings: List<Timing> = emptyList(),
         /** Where the answer lived before the catalogue existed (`alertPreferences.inApp.<key>`). */
         val legacyKey: String? = null,
+        /** The old Settings → WhatsApp grid key; read from `legacyOwnerAlerts` the same way the website does. */
+        val legacyOwnerKey: String? = null,
     )
+
+    val BATCHING = listOf("instant", "hourly", "daily")
+    val REPORT_SECTIONS = listOf("money", "appointments", "patients", "team")
+    val MONEY_DETAILS = listOf("totals", "dentists", "full")
 
     val GROUPS: List<Group> = listOf(
         Group("unanswered", "Patients waiting for a reply", "مرضى مستنيين رد", "The only alerts here that cost you money if you switch them off.", "دي التنبيهات اللي إغلاقها بيكلّفك فلوس فعلاً."),
         Group("frontdesk", "Front desk", "الاستقبال", "Arrivals, bookings, and anything the WhatsApp bot changed in the diary.", "الوصول والحجوزات وأي حاجة البوت غيّرها في اليومية."),
         Group("leads", "Leads", "العملاء المحتملين", "New enquiries and the ones nobody has answered yet.", "الاستفسارات الجديدة واللي محدش رد عليها."),
-        Group("briefs", "Daily briefs", "ملخص اليوم", "The morning summary. One version for the desk, one for each dentist.", "ملخص الصباح. نسخة للاستقبال ونسخة لكل دكتور."),
+        Group("reports", "Reports", "التقارير", "The morning brief and the day's close-out. On WhatsApp they arrive as a full report; each one has its own sections, detail level and hour below.", "ملخص الصباح وإقفال اليوم. على واتساب بيوصلوا تقرير كامل؛ كل واحد ليه أقسامه ومستوى تفاصيله وساعته تحت."),
         Group("money", "Money", "الفلوس", "Never sent to anyone but owners and admins, whatever you set here.", "مش بتوصل غير للمالك والمدير، مهما تظبّط هنا."),
         Group("clinic", "Running the clinic", "إدارة العيادة", "Stock, the lab, reviews and marketing that is ready to send.", "المخزون والمعمل والتقييمات والتسويق الجاهز للإرسال."),
         Group("delivery", "Is anything broken?", "في حاجة واقفة؟", "Messages that never left the building. Switch these off and a dead WhatsApp connection is silent.", "رسايل مخرجتش. لو قفلتها، انقطاع الواتساب مش هيبان."),
@@ -97,6 +109,7 @@ object NotifyCatalog {
             roles = listOf("Owner", "Admin", "Receptionist"),
             bell = true,
             push = true,
+            waReady = true,
             ignoresQuietHours = true,
         ),
         Event(
@@ -121,6 +134,7 @@ object NotifyCatalog {
             roles = listOf("Owner", "Admin", "Receptionist"),
             bell = true,
             push = true,
+            waReady = true,
             ignoresQuietHours = true,
         ),
         Event(
@@ -133,7 +147,20 @@ object NotifyCatalog {
             roles = listOf("Owner", "Admin", "Receptionist"),
             bell = true,
             push = true,
+            waReady = true,
             ignoresQuietHours = true,
+        ),
+        Event(
+            id = "complaintKeyword",
+            group = "unanswered",
+            en = "A message that reads as a complaint",
+            ar = "رسالة شكلها شكوى",
+            whenEn = "A patient's WhatsApp contains a complaint word — angry, refund, lawyer, never coming back. A person should answer it, not the bot.",
+            whenAr = "رسالة مريض فيها كلمة شكوى — زعلان، استرجاع، محامي، مش هرجع. لازم يرد عليها بني آدم مش البوت.",
+            roles = listOf("Owner", "Admin", "Receptionist"),
+            bell = true,
+            push = true,
+            waReady = true,
         ),
         Event(
             id = "patientArrived",
@@ -170,6 +197,7 @@ object NotifyCatalog {
             roles = listOf("Owner", "Admin", "Receptionist"),
             bell = true,
             push = true,
+            waReady = true,
         ),
         Event(
             id = "botBooked",
@@ -181,6 +209,7 @@ object NotifyCatalog {
             roles = listOf("Owner", "Admin", "Receptionist"),
             bell = true,
             push = true,
+            waReady = true,
         ),
         Event(
             id = "botRescheduled",
@@ -192,6 +221,7 @@ object NotifyCatalog {
             roles = listOf("Owner", "Admin", "Receptionist"),
             bell = true,
             push = true,
+            waReady = true,
         ),
         Event(
             id = "botCancelled",
@@ -203,6 +233,7 @@ object NotifyCatalog {
             roles = listOf("Owner", "Admin", "Receptionist"),
             bell = true,
             push = true,
+            waReady = true,
         ),
         Event(
             id = "patientRequestedChange",
@@ -214,7 +245,97 @@ object NotifyCatalog {
             roles = listOf("Owner", "Admin", "Receptionist"),
             bell = true,
             push = true,
+            waReady = true,
             ignoresQuietHours = true,
+        ),
+        Event(
+            id = "appointmentAdded",
+            group = "frontdesk",
+            en = "The desk booked an appointment",
+            ar = "الاستقبال حجز ميعاد",
+            whenEn = "Every booking made by a staff member, as it is saved. Bot and online bookings are the rows above.",
+            whenAr = "كل حجز بيعمله موظف، لحظة ما يتحفظ. حجوزات البوت والصفحة العامة ليها صفوفها فوق.",
+            roles = listOf("Owner"),
+            bell = false,
+            push = false,
+            waReady = true,
+            legacyOwnerKey = "appointment_add",
+        ),
+        Event(
+            id = "appointmentEdited",
+            group = "frontdesk",
+            en = "An appointment was moved or changed",
+            ar = "ميعاد اتنقل أو اتعدّل",
+            whenEn = "A staff member rescheduled, changed the dentist, or edited the details.",
+            whenAr = "موظف غيّر الميعاد أو الدكتور أو التفاصيل.",
+            roles = listOf("Owner"),
+            bell = false,
+            push = false,
+            waReady = true,
+            legacyOwnerKey = "appointment_edit",
+        ),
+        Event(
+            id = "appointmentDeleted",
+            group = "frontdesk",
+            en = "An appointment was deleted",
+            ar = "ميعاد اتمسح",
+            whenEn = "A staff member removed a booking from the diary altogether.",
+            whenAr = "موظف مسح حجز من اليومية خالص.",
+            roles = listOf("Owner"),
+            bell = false,
+            push = false,
+            waReady = true,
+            legacyOwnerKey = "appointment_delete",
+        ),
+        Event(
+            id = "noShowMarked",
+            group = "frontdesk",
+            en = "A patient did not show up",
+            ar = "مريض مجاش",
+            whenEn = "An appointment was marked No Show.",
+            whenAr = "ميعاد اتعلّم عليه إنه مجاش.",
+            roles = listOf("Owner"),
+            bell = true,
+            push = false,
+            waReady = true,
+        ),
+        Event(
+            id = "sameDayCancellation",
+            group = "frontdesk",
+            en = "A same-day cancellation",
+            ar = "إلغاء في نفس اليوم",
+            whenEn = "Today's appointment was cancelled today — a chair that will probably stay empty.",
+            whenAr = "ميعاد النهارده اتلغى النهارده — كرسي غالباً هيفضل فاضي.",
+            roles = listOf("Owner", "Receptionist"),
+            bell = true,
+            push = true,
+            waReady = true,
+        ),
+        Event(
+            id = "walkInBooked",
+            group = "frontdesk",
+            en = "A walk-in was booked",
+            ar = "حجز لنفس اليوم",
+            whenEn = "An appointment was created for today.",
+            whenAr = "ميعاد اتحجز لنفس اليوم.",
+            roles = listOf("Owner"),
+            bell = true,
+            push = false,
+            waReady = true,
+        ),
+        Event(
+            id = "patientWaitingLong",
+            group = "frontdesk",
+            en = "A patient has waited too long",
+            ar = "مريض مستني كتير",
+            whenEn = "A checked-in patient has been in the waiting room longer than the minutes below. Once per patient.",
+            whenAr = "مريض عمل تسجيل وصول وقاعد في الانتظار أكتر من الدقايق اللي تحت. مرة واحدة لكل مريض.",
+            roles = listOf("Owner", "Admin", "Receptionist"),
+            bell = true,
+            push = true,
+            waReady = true,
+            ignoresQuietHours = true,
+            timings = listOf(Timing("minutes", "minutes", "Longer than", "أكتر من", 20, 5, 180)),
         ),
         Event(
             id = "newLead",
@@ -266,19 +387,21 @@ object NotifyCatalog {
         ),
         Event(
             id = "morningBriefClinic",
-            group = "briefs",
+            group = "reports",
             en = "The clinic's morning brief",
             ar = "ملخص الصباح للعيادة",
-            whenEn = "How many are booked today and what time the first one is.",
-            whenAr = "كام محجوز النهارده وأول ميعاد إمتى.",
+            whenEn = "Today's bookings and first slot; on WhatsApp also yesterday's money, what to chase, and who is rostered.",
+            whenAr = "حجوزات النهارده وأول ميعاد؛ وعلى واتساب كمان فلوس إمبارح، اللي محتاج متابعة، ومين شغال.",
             roles = listOf("Owner", "Admin", "Receptionist"),
             bell = true,
             push = true,
+            waReady = true,
+            report = "morning",
             timings = listOf(Timing("hour", "hourOfDay", "Send at", "ابعت الساعة", 7, 0, 23)),
         ),
         Event(
             id = "morningBriefDentist",
-            group = "briefs",
+            group = "reports",
             en = "Each dentist's own day",
             ar = "يوم كل دكتور",
             whenEn = "Sent to each dentist separately, containing only their own patients.",
@@ -287,20 +410,169 @@ object NotifyCatalog {
             rolesFixed = true,
             bell = true,
             push = true,
+            waReady = true,
+            report = "dentistDay",
             timings = listOf(Timing("hour", "hourOfDay", "Send at", "ابعت الساعة", 7, 0, 23)),
         ),
         Event(
-            id = "eveningDigest",
+            id = "paymentAdded",
             group = "money",
+            en = "A payment was recorded",
+            ar = "دفعة اتسجّلت",
+            whenEn = "Every payment or expense entered, with the amount, the patient and who took it.",
+            whenAr = "كل دفعة أو مصروف بيتسجّل، بالمبلغ والمريض ومين استلم.",
+            roles = listOf("Owner"),
+            rolesMax = listOf("Owner", "Admin"),
+            bell = false,
+            push = false,
+            waReady = true,
+            legacyOwnerKey = "finance_add",
+        ),
+        Event(
+            id = "paymentEdited",
+            group = "money",
+            en = "A payment was changed after the fact",
+            ar = "دفعة اتعدّلت بعد ما اتسجّلت",
+            whenEn = "An amount, method or date on an existing ledger row was edited.",
+            whenAr = "مبلغ أو طريقة دفع أو تاريخ في سطر موجود اتعدّل.",
+            roles = listOf("Owner"),
+            rolesMax = listOf("Owner", "Admin"),
+            bell = false,
+            push = false,
+            waReady = true,
+            legacyOwnerKey = "finance_edit",
+        ),
+        Event(
+            id = "paymentDeleted",
+            group = "money",
+            en = "A payment was deleted",
+            ar = "دفعة اتمسحت",
+            whenEn = "A ledger row was removed. The one money alert worth leaving on everywhere.",
+            whenAr = "سطر من الدفتر اتمسح. تنبيه الفلوس الوحيد اللي يستاهل يفضل شغال في كل مكان.",
+            roles = listOf("Owner"),
+            rolesMax = listOf("Owner", "Admin"),
+            bell = false,
+            push = false,
+            waReady = true,
+            legacyOwnerKey = "finance_delete",
+        ),
+        Event(
+            id = "discountAbove",
+            group = "money",
+            en = "A discount above the line",
+            ar = "خصم أكبر من الحد",
+            whenEn = "A charge was discounted by more than the percentage below, from any screen.",
+            whenAr = "إجراء اتخصم منه أكتر من النسبة اللي تحت، من أي شاشة.",
+            roles = listOf("Owner"),
+            rolesMax = listOf("Owner", "Admin"),
+            bell = true,
+            push = true,
+            waReady = true,
+            timings = listOf(Timing("percent", "percent", "Above", "أكتر من", 20, 1, 100)),
+        ),
+        Event(
+            id = "expenseAbove",
+            group = "money",
+            en = "An expense above the line",
+            ar = "مصروف أكبر من الحد",
+            whenEn = "An expense was entered for more than the amount below.",
+            whenAr = "مصروف اتسجّل بأكتر من المبلغ اللي تحت.",
+            roles = listOf("Owner"),
+            rolesMax = listOf("Owner", "Admin"),
+            bell = true,
+            push = true,
+            waReady = true,
+            timings = listOf(Timing("amount", "egp", "Above", "أكتر من", 2000, 1, 10000000)),
+        ),
+        Event(
+            id = "paymentBackdated",
+            group = "money",
+            en = "A backdated entry",
+            ar = "قيد بتاريخ قديم",
+            whenEn = "A payment or expense was entered with a date further back than the days below.",
+            whenAr = "دفعة أو مصروف اتسجّل بتاريخ أقدم من عدد الأيام اللي تحت.",
+            roles = listOf("Owner"),
+            rolesMax = listOf("Owner", "Admin"),
+            bell = true,
+            push = false,
+            waReady = true,
+            timings = listOf(Timing("days", "days", "Older than", "أقدم من", 1, 0, 365)),
+        ),
+        Event(
+            id = "eveningDigest",
+            group = "reports",
             en = "The day, closed out",
             ar = "اليوم بعد ما يخلص",
-            whenEn = "What came through the door today, and who was late or absent.",
-            whenAr = "اللي دخل النهارده، ومين اتأخر أو غاب.",
+            whenEn = "Collected, seen and missed today; on WhatsApp the full close-out with per-dentist figures, new patients and leads, and attendance.",
+            whenAr = "اللي اتحصّل واللي اتشاف واللي غاب النهارده؛ وعلى واتساب الإقفال الكامل بأرقام كل دكتور والمرضى والعملاء الجداد والحضور.",
             roles = listOf("Owner", "Admin"),
             rolesMax = listOf("Owner", "Admin"),
             bell = true,
             push = true,
+            waReady = true,
+            report = "evening",
             timings = listOf(Timing("hour", "hourOfDay", "Send at", "ابعت الساعة", 21, 0, 23)),
+        ),
+        Event(
+            id = "ownerSummary",
+            group = "reports",
+            en = "The day in three lines",
+            ar = "اليوم في تلات سطور",
+            whenEn = "Three sentences about the day, written by the AI from the day's figures — the same lines the owner's home shows next morning. One AI credit a day; without credits, the plain version.",
+            whenAr = "تلات جمل عن اليوم، الذكاء الاصطناعي بيكتبها من أرقام اليوم — نفس السطور اللي شاشة المالك بتوريها الصبح. رصيد ذكاء اصطناعي واحد في اليوم؛ ومن غير رصيد، النسخة العادية.",
+            roles = listOf("Owner"),
+            rolesMax = listOf("Owner", "Admin"),
+            bell = false,
+            push = false,
+            waReady = true,
+            report = "summary",
+            timings = listOf(Timing("hour", "hourOfDay", "Send at", "ابعت الساعة", 21, 0, 23)),
+            legacyOwnerKey = "daily_digest",
+        ),
+        Event(
+            id = "weeklyReport",
+            group = "reports",
+            en = "The week in numbers",
+            ar = "الأسبوع في أرقام",
+            whenEn = "Seven days against the seven before: money, patients seen and missed, new patients and leads, best and quietest day, top procedures, the team.",
+            whenAr = "سبع أيام مقابل السبعة اللي قبلهم: الفلوس، اللي اتشاف واللي غاب، المرضى والعملاء الجداد، أحسن يوم وأهدأ يوم، أكتر إجراءات، والفريق.",
+            roles = listOf("Owner", "Admin"),
+            rolesMax = listOf("Owner", "Admin"),
+            bell = false,
+            push = false,
+            waReady = true,
+            report = "weekly",
+            timings = listOf(Timing("weekday", "weekday", "On", "يوم", 6, 0, 6), Timing("hour", "hourOfDay", "Send at", "ابعت الساعة", 8, 0, 23)),
+        ),
+        Event(
+            id = "monthlyReport",
+            group = "reports",
+            en = "The month, closed",
+            ar = "الشهر بعد ما يقفل",
+            whenEn = "Last month against the month before, once it has ended: revenue, expenses, per dentist, collection rate, growth, and the payroll estimate.",
+            whenAr = "الشهر اللي فات مقابل اللي قبله، بعد ما يخلص: الإيراد والمصروفات ولكل دكتور ونسبة التحصيل والنمو وتقدير المرتبات.",
+            roles = listOf("Owner"),
+            rolesMax = listOf("Owner", "Admin"),
+            bell = false,
+            push = false,
+            waReady = true,
+            report = "monthly",
+            timings = listOf(Timing("dayOfMonth", "dayOfMonth", "On day", "يوم", 1, 1, 28), Timing("hour", "hourOfDay", "Send at", "ابعت الساعة", 8, 0, 23)),
+        ),
+        Event(
+            id = "payrollReport",
+            group = "reports",
+            en = "Attendance and pay for the month",
+            ar = "كشف الحضور والمرتبات للشهر",
+            whenEn = "For each person: days and hours worked, late minutes, absences, overtime waiting for approval, and the estimated pay. Commission stays on the payroll screen.",
+            whenAr = "لكل شخص: أيام وساعات الشغل، دقايق التأخير، الغياب، الإضافي المستني موافقة، والمرتب التقديري. العمولات في شاشة المرتبات.",
+            roles = listOf("Owner"),
+            rolesMax = listOf("Owner", "Admin"),
+            bell = false,
+            push = false,
+            waReady = true,
+            report = "payroll",
+            timings = listOf(Timing("dayOfMonth", "dayOfMonth", "On day", "يوم", 1, 1, 28), Timing("hour", "hourOfDay", "Send at", "ابعت الساعة", 9, 0, 23)),
         ),
         Event(
             id = "stockLow",
@@ -314,6 +586,47 @@ object NotifyCatalog {
             push = true,
         ),
         Event(
+            id = "staffLate",
+            group = "clinic",
+            en = "Someone is late",
+            ar = "حد اتأخر",
+            whenEn = "A rostered staff member has not clocked in this many minutes after their shift start. Once per person per day.",
+            whenAr = "موظف في الجدول مسجّلش حضور بعد بداية شيفته بالدقايق اللي تحت. مرة في اليوم لكل شخص.",
+            roles = listOf("Owner", "Admin"),
+            rolesMax = listOf("Owner", "Admin"),
+            bell = true,
+            push = true,
+            waReady = true,
+            timings = listOf(Timing("minutes", "minutes", "After", "بعد", 15, 1, 240)),
+        ),
+        Event(
+            id = "staffAbsent",
+            group = "clinic",
+            en = "Someone is absent",
+            ar = "حد غايب",
+            whenEn = "A rostered staff member still has no clock-in at the hour below.",
+            whenAr = "موظف في الجدول لسه مسجّلش حضور لحد الساعة اللي تحت.",
+            roles = listOf("Owner", "Admin"),
+            rolesMax = listOf("Owner", "Admin"),
+            bell = true,
+            push = true,
+            waReady = true,
+            timings = listOf(Timing("hour", "hourOfDay", "At", "الساعة", 11, 0, 23)),
+        ),
+        Event(
+            id = "labCaseOverdue",
+            group = "clinic",
+            en = "A lab case is overdue",
+            ar = "حالة معمل اتأخرت",
+            whenEn = "A case still at the lab is past its due date by the days below. Once per case.",
+            whenAr = "حالة لسه في المعمل عدّى ميعادها بالأيام اللي تحت. مرة لكل حالة.",
+            roles = listOf("Owner", "Admin"),
+            bell = true,
+            push = true,
+            waReady = true,
+            timings = listOf(Timing("days", "days", "Overdue by", "متأخرة بـ", 1, 0, 60)),
+        ),
+        Event(
             id = "labCaseBack",
             group = "clinic",
             en = "A lab case is back",
@@ -323,6 +636,7 @@ object NotifyCatalog {
             roles = listOf("Owner", "Admin", "Receptionist"),
             bell = false,
             push = false,
+            waReady = true,
             legacyKey = "labReady",
         ),
         Event(
@@ -369,6 +683,7 @@ object NotifyCatalog {
             rolesMax = listOf("Owner", "Admin"),
             bell = true,
             push = true,
+            waReady = true,
             ignoresQuietHours = true,
         ),
         Event(
@@ -381,6 +696,7 @@ object NotifyCatalog {
             roles = listOf("Owner", "Admin", "Receptionist"),
             bell = true,
             push = true,
+            waReady = true,
         ),
         Event(
             id = "messagesStuck",
@@ -395,6 +711,19 @@ object NotifyCatalog {
             timings = listOf(Timing("hour", "hourOfDay", "Check at", "اتشيّك الساعة", 11, 0, 23), Timing("stuckHours", "hours", "Count as stuck after", "اعتبرها واقفة بعد", 3, 1, 48)),
         ),
         Event(
+            id = "aiCreditsLow",
+            group = "delivery",
+            en = "AI credits are running low",
+            ar = "رصيد الذكاء الاصطناعي قرب يخلص",
+            whenEn = "Fewer credits than the number below remain this month. Once a month.",
+            whenAr = "الرصيد المتبقي الشهر ده أقل من الرقم اللي تحت. مرة في الشهر.",
+            roles = listOf("Owner", "Admin"),
+            bell = true,
+            push = true,
+            waReady = true,
+            timings = listOf(Timing("credits", "count", "Below", "أقل من", 20, 1, 10000)),
+        ),
+        Event(
             id = "aiCreditsOut",
             group = "delivery",
             en = "The AI ran out of credit",
@@ -405,6 +734,7 @@ object NotifyCatalog {
             rolesMax = listOf("Owner", "Admin"),
             bell = true,
             push = true,
+            waReady = true,
             ignoresQuietHours = true,
         ),
         Event(
@@ -417,6 +747,7 @@ object NotifyCatalog {
             roles = listOf("Owner", "Admin", "Receptionist"),
             bell = true,
             push = true,
+            waReady = true,
         ),
     )
 
@@ -425,7 +756,18 @@ object NotifyCatalog {
     fun eventsIn(group: String): List<Event> = EVENTS.filter { it.group == group }
 
     /** What one alert resolves to for a clinic: where it goes, and to whom. */
-    data class Resolved(val event: Event, val bell: Boolean, val push: Boolean, val roles: List<String>)
+    data class Resolved(
+        val event: Event,
+        val bell: Boolean,
+        val push: Boolean,
+        val whatsapp: Boolean,
+        val roles: List<String>,
+        val batching: String,
+    ) {
+        val any: Boolean get() = bell || push || whatsapp
+    }
+
+    fun reportEvents(): List<Event> = EVENTS.filter { it.report != null }
 
     /**
      * The clinic's own answer, then the answer it gave before this page existed, then the
@@ -437,13 +779,55 @@ object NotifyCatalog {
         val legacy = event.legacyKey?.let { (prefs?.get("inApp") as? Map<*, *>)?.get(it) as? Boolean }
         val bell = (saved?.get("bell") as? Boolean) ?: legacy ?: event.bell
         val push = (saved?.get("push") as? Boolean) ?: legacy ?: event.push
+        val legacyOwner = event.legacyOwnerKey?.let { (prefs?.get("legacyOwnerAlerts") as? Map<*, *>)?.get(it) as? Boolean }
+        val whatsapp = event.waReady && ((saved?.get("whatsapp") as? Boolean) ?: legacyOwner ?: event.whatsapp)
+        val savedBatching = saved?.get("batching")?.toString()
+        val batching = if (event.report == null && (savedBatching == "hourly" || savedBatching == "daily")) savedBatching else "instant"
         var roles = event.roles
         val askedRoles = saved?.get("roles") as? List<*>
         if (!event.rolesFixed && askedRoles != null) {
             roles = askedRoles.mapNotNull { it?.toString() }.filter { it in ROLES }
         }
         event.rolesMax?.let { max -> roles = roles.filter { it in max } }
-        return Resolved(event, bell, push, roles)
+        return Resolved(event, bell, push, whatsapp, roles, batching)
+    }
+
+    /** A scheduled report's own settings, defaults filled in — a port of the website's `reportPrefs`. */
+    data class ReportPrefs(
+        val sections: Map<String, Boolean>,
+        val moneyDetail: String,
+        val comparisons: Boolean,
+        val language: String,
+        val pdf: Boolean,
+    )
+
+    fun reportPrefs(eventId: String, prefs: Map<String, Any?>?): ReportPrefs {
+        val event = event(eventId)
+        val saved = (prefs?.get("reports") as? Map<*, *>)?.get(eventId) as? Map<*, *>
+        val savedSections = saved?.get("sections") as? Map<*, *>
+        val isMorning = event?.report == "morning"
+        fun pick(key: String, fallback: Boolean) = (savedSections?.get(key) as? Boolean) ?: fallback
+        val detail = saved?.get("moneyDetail")?.toString()
+        return ReportPrefs(
+            sections = mapOf(
+                "money" to pick("money", true),
+                "appointments" to pick("appointments", true),
+                "patients" to pick("patients", true),
+                "team" to pick("team", !isMorning),
+            ),
+            moneyDetail = if (detail in MONEY_DETAILS) detail!! else "dentists",
+            comparisons = saved?.get("comparisons") != false,
+            language = if (saved?.get("language") == "en") "en" else "ar",
+            pdf = saved?.get("pdf") == true,
+        )
+    }
+
+    /** One person's WhatsApp: on unless the owner switched them off, and the number the owner typed. */
+    data class Person(val enabled: Boolean, val phone: String)
+
+    fun person(uid: String, prefs: Map<String, Any?>?): Person {
+        val p = (prefs?.get("people") as? Map<*, *>)?.get(uid) as? Map<*, *>
+        return Person(enabled = p?.get("whatsapp") != false, phone = p?.get("phone")?.toString()?.trim().orEmpty())
     }
 
     /** One of an alert's numbers as this clinic set it, or what the code used before. */

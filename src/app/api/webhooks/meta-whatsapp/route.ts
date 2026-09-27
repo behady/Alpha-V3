@@ -5,6 +5,7 @@ import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { respondToPatientMessage } from "@/lib/bot/respond";
 import { interceptStaffInbound } from "@/lib/bot/staffLine";
+import { raiseComplaintIfAny } from "@/lib/alerts/complaint";
 import { conversationKey } from "@/lib/bot/conversation";
 import { transcribeWhatsappAudio } from "@/lib/bot/transcribe";
 import { describeWhatsappImage } from "@/lib/bot/describeImage";
@@ -384,6 +385,7 @@ export async function POST(request: NextRequest) {
       // Into the thread before anything decides whether to answer: a message the bot is switched
       // off for, or refuses to answer, is still a message the clinic received.
       const lineId = await rememberInbound(clinicId, msg);
+      if (msg.text) void raiseComplaintIfAny({ clinicId, phone: `+${msg.from}`, text: msg.text, chatId: conversationKey(msg.from) });
 
       /*
        * Answering happens after the response, not before it.

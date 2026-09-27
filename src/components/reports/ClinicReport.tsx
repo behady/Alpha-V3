@@ -1,12 +1,12 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import {
   Tooltip, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   AreaChart, Area,
 } from "recharts";
-import { Download, Building2, FileSpreadsheet } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, Building2, FileSpreadsheet } from "lucide-react";
 import { exportToExcel, parseMoney } from "./reportExcelUtils";
 import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
 import { ledgerCashValue } from "@/lib/reportHelpers";
@@ -14,11 +14,13 @@ import { useUI } from "@/context/UIContext";
 import { attributeService, buildProcedureIndex, type AttributableRow } from "@/lib/serviceAttribution";
 import { ANIM, Bars, ChartFrame, Figure, GRID, INK, MARK, ReportEmpty, ReportTip, TICK } from "@/components/reports/chartKit";
 import { bucketKey, bucketsFor, type BucketKind, type Period } from "@/lib/dentistReport";
+import PatientDrilldown from "@/components/reports/PatientDrilldown";
+import { partitionRows, rollupPatients, type ReportPatient } from "@/lib/reportPatients";
 
 interface Props {
   procedures: Record<string, unknown>[];
   payments: Record<string, unknown>[];
-  allPatients: { id: string; name?: string; createdAt?: unknown }[];
+  allPatients: { id: string; name?: string; phone?: string; createdAt?: unknown }[];
   startDate: string;
   endDate: string;
   rangeLabel: string;
@@ -42,17 +44,25 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
   const chartRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const [exporting, setExporting] = useState(false);
+  /** Which row of the full procedure table is open to its patients. */
+  const [expandedService, setExpandedService] = useState<string | null>(null);
+
+  const patientMap = useMemo(() => {
+    const m: Record<string, ReportPatient> = {};
+    allPatients.forEach((p) => { if (p.id) m[p.id] = { id: p.id, name: p.name, phone: p.phone }; });
+    return m;
+  }, [allPatients]);
 
   // a) Procedure counts per service
   const serviceStats = useMemo(() => {
     // Grouped on the catalogue id where the row carries one, so renaming a service keeps its
     // history together instead of splitting it in two. See lib/serviceAttribution.
-    const map: Record<string, { name: string; count: number; income: number }> = {};
+    const map: Record<string, { key: string; name: string; count: number; income: number }> = {};
     const procedureIndex = buildProcedureIndex(procedures);
 
     const bucket = (row: AttributableRow) => {
       const { key, name } = attributeService(row, procedureIndex);
-      if (!map[key]) map[key] = { name, count: 0, income: 0 };
+      if (!map[key]) map[key] = { key, name, count: 0, income: 0 };
       return map[key];
     };
 
@@ -68,9 +78,22 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
     });
 
     return Object.values(map)
-      .map((d) => ({ name: d.name, count: d.count, income: d.income }))
+      .map((d) => ({ key: d.key, name: d.name, count: d.count, income: d.income }))
       .sort((a, b) => b.income - a.income);
   }, [procedures, payments]);
+
+  /** The rows behind each service line of the full table, keyed as the figures are. */
+  const rowsByService = useMemo(() => {
+    const procedureIndex = buildProcedureIndex(procedures);
+    return partitionRows(procedures, payments, (row) => attributeService(row, procedureIndex).key);
+  }, [procedures, payments]);
+
+  const expandedServicePatients = useMemo(() => {
+    if (!expandedService) return [];
+    const group = rowsByService.get(expandedService);
+    if (!group) return [];
+    return rollupPatients(group.procedures, group.payments, patientMap, { unknownName: isAr ? "بدون اسم" : "Unknown" });
+  }, [expandedService, rowsByService, patientMap, isAr]);
 
   // b) New vs returning patients
   const { newPatientIds, returningPatientIds, newPatientIncome, returningPatientIncome } = useMemo(() => {
@@ -114,6 +137,22 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
       returningPatientIncome: retInc
     };
   }, [allPatients, procedures, payments, startDate, endDate]);
+
+  /**
+   * The two groups as people. A tile saying "7 new patients" is only useful if the owner can see
+   * who the seven are — and, for the returning group, who is still coming back.
+   */
+  const { newPatientRows, returningPatientRows } = useMemo(() => {
+    const groups = partitionRows(procedures, payments, (row) => {
+      const pid = String(row.patientId || "");
+      return newPatientIds.has(pid) ? "new" : returningPatientIds.has(pid) ? "returning" : "";
+    });
+    const roll = (key: string) => {
+      const g = groups.get(key);
+      return g ? rollupPatients(g.procedures, g.payments, patientMap, { unknownName: isAr ? "بدون اسم" : "Unknown" }) : [];
+    };
+    return { newPatientRows: roll("new"), returningPatientRows: roll("returning") };
+  }, [procedures, payments, newPatientIds, returningPatientIds, patientMap, isAr]);
 
   const totalIncome = serviceStats.reduce((s, r) => s + r.income, 0);
 
@@ -325,21 +364,40 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
         ))}
       </div>
 
-      {/* New vs Returning patients */}
-      <div className="grid grid-cols-2 gap-4">
+      {/* New vs Returning patients — each tile with its people underneath, closed until asked. */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {[
-          { label: isAr ? "مرضى جدد" : "New Patients", count: newPatientIds.size, income: newPatientIncome, color: "bg-violet-600", text: "text-ink" },
-          { label: isAr ? "مرضى حاليون" : "Returning Patients", count: returningPatientIds.size, income: returningPatientIncome, color: "bg-blue-600", text: "text-ink" },
+          {
+            label: isAr ? "مرضى جدد" : "New Patients",
+            count: newPatientIds.size,
+            income: newPatientIncome,
+            color: "bg-violet-600",
+            rows: newPatientRows,
+            note: isAr ? `ملفهم اتفتح خلال ${rangeLabel}` : `Their file was opened in ${rangeLabel}`,
+            file: "New_Patients",
+          },
+          {
+            label: isAr ? "مرضى حاليون" : "Returning Patients",
+            count: returningPatientIds.size,
+            income: returningPatientIncome,
+            color: "bg-blue-600",
+            rows: returningPatientRows,
+            note: isAr ? `مرضى قدام رجعوا خلال ${rangeLabel}` : `Existing patients seen in ${rangeLabel}`,
+            file: "Returning_Patients",
+          },
         ].map((p) => (
-          <div key={p.label} className="bg-surface border border-line shadow-sm rounded-2xl p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <span className={`w-3 h-3 rounded-full ${p.color}`} />
-              <p className="text-xs font-black text-ink-body uppercase tracking-wide">{p.label}</p>
+          <div key={p.label} className="space-y-2">
+            <div className="bg-surface border border-line shadow-sm rounded-2xl p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <span className={`w-3 h-3 rounded-full ${p.color}`} />
+                <p className="text-xs font-black text-ink-body uppercase tracking-wide">{p.label}</p>
+              </div>
+              <p className="text-3xl font-black tabular-nums text-ink">{p.count}</p>
+              <p className="text-sm font-semibold text-ink-muted mt-1">
+                {p.income.toLocaleString()} EGP {isAr ? "مدفوع" : "paid"}
+              </p>
             </div>
-            <p className={`text-3xl font-black tabular-nums ${p.text}`}>{p.count}</p>
-            <p className="text-sm font-semibold text-ink-muted mt-1">
-              {p.income.toLocaleString()} EGP {isAr ? "مدفوع" : "paid"}
-            </p>
+            <PatientDrilldown rows={p.rows} isAr={isAr} title={p.label} note={p.note} exportName={p.file} />
           </div>
         ))}
       </div>
@@ -495,18 +553,45 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {serviceStats.map((s, i) => (
-                <tr key={i} className="hover:bg-surface-subtle transition-colors">
-                  <td className="py-3 px-4 font-semibold text-slate-800 text-xs">{s.name}</td>
-                  <td className="py-3 px-4 text-center">
-                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-lg bg-blue-50 text-blue-700 text-[11px] font-black">{s.count}</span>
-                  </td>
-                  <td className="py-3 px-4 text-end font-bold text-emerald-600 tabular-nums text-xs">{s.income.toLocaleString()}</td>
-                  <td className="py-3 px-4 text-end text-xs text-slate-400 font-semibold tabular-nums">
-                    {totalIncome > 0 ? `${((s.income / totalIncome) * 100).toFixed(1)}%` : "—"}
-                  </td>
-                </tr>
-              ))}
+              {/* Each line opens to the patients who had that treatment in the period. */}
+              {serviceStats.map((s) => {
+                const isOpen = expandedService === s.key;
+                return (
+                  <Fragment key={s.key}>
+                    <tr
+                      onClick={() => setExpandedService(isOpen ? null : s.key)}
+                      aria-expanded={isOpen}
+                      className={`cursor-pointer transition-colors ${isOpen ? "bg-surface-subtle" : "hover:bg-surface-subtle"}`}
+                    >
+                      <td className="py-3 px-4 font-semibold text-slate-800 text-xs">
+                        <span className="flex items-center gap-1.5">
+                          {isOpen ? <ChevronDown size={13} className="shrink-0 text-ink-faint" /> : <ChevronRight size={13} className="shrink-0 text-ink-faint rtl:rotate-180" />}
+                          {s.name}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-lg bg-blue-50 text-blue-700 text-[11px] font-black">{s.count}</span>
+                      </td>
+                      <td className="py-3 px-4 text-end font-bold text-emerald-600 tabular-nums text-xs">{s.income.toLocaleString()}</td>
+                      <td className="py-3 px-4 text-end text-xs text-slate-400 font-semibold tabular-nums">
+                        {totalIncome > 0 ? `${((s.income / totalIncome) * 100).toFixed(1)}%` : "—"}
+                      </td>
+                    </tr>
+                    {isOpen && (
+                      <tr className="bg-surface-subtle/60">
+                        <td colSpan={4} className="p-0">
+                          <PatientDrilldown
+                            embedded
+                            rows={expandedServicePatients}
+                            isAr={isAr}
+                            exportName={`Service_Patients_${s.name.replace(/[^\p{L}\p{N}]+/gu, "_")}`}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
             </tbody>
             <tfoot>
               <tr className="bg-ink-strong text-white text-xs font-black">

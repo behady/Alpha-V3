@@ -15,12 +15,20 @@ import {
   NOTIFY_EVENTS,
   notifyEvent,
   personWhatsapp,
+  reportDueOn,
   reportEvents,
   reportPrefs,
   resolveNotify,
 } from "../src/lib/notificationCatalog";
+import { buildReportPdf, arabicPdfAvailable } from "../src/lib/reports/staffReportPdf";
+import { lastDayOfPreviousMonth, reportEndDate } from "../src/lib/reports/sendStaffReport";
+import { matchesComplaint } from "../src/lib/alerts/complaint";
+import { discountPercentOf } from "../src/lib/alerts/moneyAlerts";
+import { groupQueued } from "../src/lib/alerts/sweep";
+import { notifyTiming } from "../src/lib/notificationCatalog";
 import { renderStaffReport, reportPushLine } from "../src/lib/reports/staffReportText";
 import { samePhone, staffHelpText, staffIntent, staffLanguage } from "../src/lib/bot/staffLine";
+import { confirmPrompt, pendingToLines, staffDecision, toStaffPending } from "../src/lib/bot/staffAssistant";
 import type { Briefing } from "../src/lib/automation/briefing/types";
 import { FEATURE_CATALOG } from "../src/lib/featureCatalog";
 import { TIER_LIMITS } from "../src/lib/subscriptions";
@@ -87,7 +95,7 @@ function eq<T>(actual: T, expected: T, message: string) {
 // --- 2. The reports and their settings --------------------------------------------------------
 {
   const ids = reportEvents().map((e) => e.id).sort();
-  eq(ids, ["eveningDigest", "morningBriefClinic", "morningBriefDentist", "ownerSummary"], "the set of scheduled reports changed");
+  eq(ids, ["eveningDigest", "monthlyReport", "morningBriefClinic", "morningBriefDentist", "ownerSummary", "payrollReport", "weeklyReport"], "the set of scheduled reports changed");
   // The other session's "daily_digest" checkbox on Settings → WhatsApp maps onto the AI three-liner.
   eq(notifyEvent("ownerSummary")?.legacyOwnerKey, "daily_digest", "the old daily_digest tick would be lost");
   eq(resolveNotify("ownerSummary", { legacyOwnerAlerts: { daily_digest: true } })?.whatsapp, true, "daily_digest tick not honoured");
@@ -302,7 +310,36 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
   eq(staffIntent("today"), "morning", "English today");
   eq(staffIntent("ملخص"), "summary", "Arabic summary");
   eq(staffIntent("Hi"), "help", "a greeting is help");
-  eq(staffIntent("Do you know who am i?"), "help", "a question the line cannot answer is help");
+  eq(staffIntent("ازيك"), "help", "an Arabic greeting is help");
+  eq(staffIntent("Do you know who am i?"), "ask", "a free question goes to the assistant");
+  eq(staffIntent("كام مريض جه النهارده؟"), "ask", "a question containing a report word is still a question");
+  eq(staffIntent("How much did Dr Ahmed collect this week?"), "ask", "an English question goes to the assistant");
+  eq(staffIntent("رصيد محمد علي"), "ask", "a balance question goes to the assistant");
+  const route = read("src/app/api/gemini/route.ts");
+  ok(/WHATSAPP_STAFF_EXCLUDED_TOOLS/.test(route) && route.includes('client === "whatsapp-staff"'), "the assistant route has no tool rule for the staff line");
+  const excluded = route.slice(route.indexOf("const WHATSAPP_STAFF_EXCLUDED_TOOLS"), route.indexOf("]);", route.indexOf("const WHATSAPP_STAFF_EXCLUDED_TOOLS")));
+  // Screens cannot be shown in a WhatsApp bubble; everything else stays, gated by the person's own permissions.
+  for (const screenOnly of ["navigate_to", "trigger_pdf_generation", "open_appointment", "start_tutorial", "open_tour_stop", "file_bug_report", "file_feature_request"]) {
+    ok(excluded.includes(`"${screenOnly}"`), `${screenOnly} is offered on WhatsApp, where it can only fail`);
+  }
+  for (const acting of ["set_appointment_status", "reschedule_appointment", "record_payment", "db_write", "db_delete"]) {
+    ok(!excluded.includes(`"${acting}"`), `${acting} is withheld on WhatsApp although the owner asked for the app's reach`);
+  }
+  ok(route.includes('client !== "web-widget" && client !== "whatsapp-staff"'), "the staff line is told it has an appointment panel");
+
+  // The yes/no round.
+  for (const t of ["نعم", "ايوه", "تمام", "yes", "Yes.", "ok", "do it", "أكد"]) eq(staffDecision(t), "approve", `not read as yes: ${t}`);
+  for (const t of ["لا", "الغي", "cancel", "No", "بلاش"]) eq(staffDecision(t), "reject", `not read as no: ${t}`);
+  for (const t of ["نعم بس بكرة", "who is booked", "yes please move it to 5"]) eq(staffDecision(t), null, `read as a decision although it is a new instruction: ${t}`);
+  const card = toStaffPending({ id: "a1", kind: "appointment_update", title: "Move appointment", summary: { patientName: "Mona Ali", date: "2026-09-28", time: "10:00" }, changes: [{ label: "Time", from: "10:00", to: "12:00" }] });
+  ok(card && card.title === "Move appointment" && card.lines[0] === "Mona Ali · 2026-09-28 10:00" && card.lines[1] === "Time: 10:00 → 12:00", "the staged action does not read as a card");
+  eq(pendingToLines({ id: "p", kind: "payment", summary: { patientName: "Omar" }, amount: 1500 }), ["Omar", "1,500 EGP"], "payment card lines");
+  eq(toStaffPending({ kind: "delete" }), null, "a preview without an id must not become a pending action");
+  ok(confirmPrompt("ar").includes("نعم") && confirmPrompt("en").includes("yes"), "confirm prompt");
+  const line = read("src/lib/bot/staffLine.ts");
+  ok(line.indexOf("loadStaffPending(") < line.indexOf('if (intent !== "help")'), "a pending action is not checked before the report keywords — 'yes' would fetch nothing");
+  ok(read("src/lib/bot/staffAssistant.ts").includes("/api/gemini/confirm-action"), "the staff line does not use the app's own confirm route");
+  ok(read("src/lib/bot/staffAssistant.ts").includes("createCustomToken(uid"), "the staff line does not sign in as the real person — permissions would be nobody's");
   // The owner types 01551552440 on the page; Meta delivers 201551552440; both are the same phone.
   ok(samePhone("01551552440", "201551552440"), "a local number does not match its international form");
   ok(samePhone("01551552440", "+201551552440"), "a local number does not match E.164");
@@ -326,6 +363,159 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
   ok(/needsHuman: false/.test(read("src/lib/bot/staffLine.ts")), "an owner's old handoff row keeps paging staff about a waiting patient");
   const respond = read("src/lib/bot/respond.ts");
   ok(respond.indexOf("findStaffByPhone(") < respond.indexOf("if (!settings.enabled)"), "the staff check runs after the patient gates — the owner is a patient again when the bot is off");
+}
+
+// --- 6. The week, the month, the pay sheet ---------------------------------------------------------
+{
+  // Due-on: hour alone for the daily ones; hour + weekday for the week; hour + day for the month.
+  ok(reportDueOn("eveningDigest", {}, { hour: 21, weekday: 2, dayOfMonth: 15 }), "the close-out is not due at its default hour");
+  ok(!reportDueOn("eveningDigest", {}, { hour: 20, weekday: 2, dayOfMonth: 15 }), "the close-out is due at the wrong hour");
+  ok(reportDueOn("weeklyReport", {}, { hour: 8, weekday: 6, dayOfMonth: 15 }), "the weekly report is not due Saturday 08:00 by default");
+  ok(!reportDueOn("weeklyReport", {}, { hour: 8, weekday: 5, dayOfMonth: 15 }), "the weekly report goes out on the wrong weekday");
+  ok(reportDueOn("weeklyReport", { timings: { weeklyReport: { weekday: 1, hour: 10 } } }, { hour: 10, weekday: 1, dayOfMonth: 3 }), "a clinic's own weekday and hour are ignored");
+  ok(reportDueOn("monthlyReport", {}, { hour: 8, weekday: 0, dayOfMonth: 1 }), "the monthly report is not due on the 1st");
+  ok(!reportDueOn("monthlyReport", {}, { hour: 8, weekday: 0, dayOfMonth: 2 }), "the monthly report goes out on the 2nd");
+  ok(reportDueOn("payrollReport", {}, { hour: 9, weekday: 0, dayOfMonth: 1 }), "the pay sheet is not due on the 1st at 09:00");
+  ok(!reportDueOn("patientArrived", {}, { hour: 9, weekday: 0, dayOfMonth: 1 }), "a non-report is 'due'");
+  for (const e of reportEvents()) {
+    const kinds = (e.timings || []).map((t) => t.kind);
+    ok(kinds.includes("hourOfDay"), `report "${e.id}" has no hour`);
+    if (e.report === "weekly") ok(kinds.includes("weekday"), "the weekly report has no weekday");
+    if (e.report === "monthly" || e.report === "payroll") ok(kinds.includes("dayOfMonth"), `${e.id} has no day of month`);
+  }
+
+  // Which days a report covers.
+  eq(reportEndDate("weekly", "2026-09-27"), "2026-09-26", "the week should end yesterday");
+  eq(reportEndDate("monthly", "2026-10-01"), "2026-09-30", "the month sent on the 1st should be last month");
+  eq(reportEndDate("monthly", "2026-10-05"), "2026-09-30", "the month sent on the 5th is still last month");
+  eq(reportEndDate("payroll", "2027-01-01"), "2026-12-31", "December's pay sheet crosses the year");
+  eq(lastDayOfPreviousMonth("2026-03-15"), "2026-02-28", "February");
+  eq(reportEndDate("evening", "2026-09-27"), "2026-09-27", "the close-out is today");
+
+  // The weekly text: comparisons against the previous period, the best day, top procedures, team.
+  const week = briefing({
+    period: "week",
+    startDate: "2026-09-20",
+    endDate: "2026-09-26",
+    trend: {
+      points: [
+        { key: "collected", current: 85000, previous: 76000, changePercent: 12, isMoney: true },
+        { key: "patients_seen", current: 61, previous: 55, changePercent: 11, isMoney: false },
+        { key: "missed", current: 9, previous: 12, changePercent: -25, isMoney: false },
+        { key: "new_patients", current: 14, previous: 10, changePercent: 40, isMoney: false },
+      ],
+      daily: [{ dateKey: "2026-09-20", weekday: 0, collected: 12000, patientsSeen: 9 }],
+      previousDaily: [],
+      bestDay: "2026-09-24",
+      quietestDay: "2026-09-20",
+      topProcedures: [{ name: "Filling", count: 12, revenue: 24000 }, { name: "Cleaning", count: 8, revenue: 8000 }],
+      collectionRate: 78,
+      payrollMonthToDate: 40000,
+    },
+  });
+  week.money!.collected = 85000;
+  week.counts = { total: 70, attended: 61, cancelled: 9, stillScheduled: 0 };
+  const prefs = reportPrefs("weeklyReport", {});
+  ok(prefs.sections.team, "the weekly report should include the team by default");
+  const weekly = renderStaffReport({ kind: "weekly", clinicName: "Alpha Dental", today: week, prefs, access: { money: true, hr: true } });
+  ok(weekly.includes("تقرير الأسبوع") && weekly.includes("20/9 – 26/9"), "weekly heading or range missing");
+  ok(weekly.includes("85,000 ج.م") && weekly.includes("↑ 12%"), "weekly collected or its arrow missing");
+  ok(weekly.includes("نسبة التحصيل من الفواتير: 78%"), "collection rate missing");
+  ok(weekly.includes("أحسن يوم") && weekly.includes("الخميس"), "best day missing");
+  ok(weekly.includes("Filling 12"), "top procedures missing");
+  ok(weekly.includes("70 محجوز") && weekly.includes("61 اتشاف") && weekly.includes("↓ 25%"), "weekly appointment counts or the missed arrow are wrong");
+  ok(weekly.includes("1 أيام تأخير") && weekly.includes("1 أيام غياب"), "weekly team line missing");
+  const weeklyReception = renderStaffReport({ kind: "weekly", clinicName: "Alpha Dental", today: week, prefs, access: { money: false, hr: false } });
+  ok(!weeklyReception.includes("ج.م") && !weeklyReception.includes("تكلفة العمالة"), "a receptionist's weekly report leaks money or labour cost");
+
+  // The month.
+  const monthly = renderStaffReport({ kind: "monthly", clinicName: "Alpha Dental", today: { ...week, period: "month", startDate: "2026-09-01", endDate: "2026-09-30" }, prefs: { ...reportPrefs("monthlyReport", {}), language: "en" }, access: { money: true, hr: true } });
+  ok(monthly.includes("The month — September 2026"), "monthly heading missing");
+  ok(monthly.includes("Collected: 85,000 EGP"), "monthly collected missing");
+
+  // The pay sheet: per person, with the total; HR-only.
+  const payroll = renderStaffReport({ kind: "payroll", clinicName: "Alpha Dental", today: { ...week, period: "month", startDate: "2026-09-01", endDate: "2026-09-30" }, prefs: reportPrefs("payrollReport", {}), access: { money: true, hr: true } });
+  ok(payroll.includes("كشف الحضور والمرتبات") && payroll.includes("سبتمبر 2026"), "payroll heading missing");
+  ok(payroll.includes("Ahmed (دكتور)") && payroll.includes("اتأخر 20 دقيقة") && payroll.includes("Nour") && payroll.includes("غاب 1"), "payroll rows missing");
+  ok(payroll.includes("إجمالي المرتبات التقديري"), "payroll total missing");
+  ok(payroll.includes("العمولات في شاشة المرتبات"), "payroll note missing");
+
+  // The PDF: a real file, the reader's access respected, and an honest fallback without an Arabic font.
+  const pdfEn = await buildReportPdf({ kind: "evening", clinicName: "Alpha Dental", briefing: briefing(), prefs: { ...reportPrefs("eveningDigest", {}), language: "en" }, access: { money: true, hr: true } });
+  ok(pdfEn.bytes.length > 2000 && String.fromCharCode(...pdfEn.bytes.slice(0, 5)) === "%PDF-", "the English PDF is not a PDF");
+  eq(pdfEn.language, "en", "English PDF language");
+  eq(pdfEn.filename, "close-out-2026-09-27.pdf", "PDF filename");
+  const arabicFont = await arabicPdfAvailable();
+  const pdfAr = await buildReportPdf({ kind: "weekly", clinicName: "ألفا دنتال", briefing: week, prefs, access: { money: false, hr: false } });
+  eq(pdfAr.language, arabicFont ? "ar" : "en", "an Arabic PDF without an Arabic font must fall back to English, never to blank glyphs");
+  ok(pdfAr.bytes.length > 2000, "the weekly PDF is empty");
+  const pdfPay = await buildReportPdf({ kind: "payroll", clinicName: "Alpha Dental", briefing: { ...week, period: "month", startDate: "2026-09-01", endDate: "2026-09-30" }, prefs: { ...reportPrefs("payrollReport", {}), language: "en" }, access: { money: true, hr: true } });
+  ok(pdfPay.filename === "payroll-2026-09-30.pdf", "payroll PDF filename");
+  // The Cairo file the site ships is Latin-only; the PDF must never be pointed at it.
+  ok(!read("src/lib/reports/staffReportPdf.ts").includes("Cairo-Regular"), "the PDF uses Cairo-Regular.ttf, which has no Arabic glyphs");
+}
+
+// --- 7. The real-time alerts: thresholds, batching, the complaint words ------------------------------
+{
+  // The owner's numbers, as defaults.
+  eq(notifyTiming("discountAbove", "percent", {}), 20, "discount threshold");
+  eq(notifyTiming("expenseAbove", "amount", {}), 2000, "expense threshold");
+  eq(notifyTiming("patientWaitingLong", "minutes", {}), 20, "waiting threshold");
+  eq(notifyTiming("staffLate", "minutes", {}), 15, "late threshold");
+  eq(notifyTiming("staffAbsent", "hour", {}), 11, "absent hour");
+  eq(notifyTiming("labCaseOverdue", "days", {}), 1, "lab overdue days");
+  eq(notifyTiming("aiCreditsLow", "credits", {}), 20, "credits floor");
+  eq(notifyTiming("expenseAbove", "amount", { timings: { expenseAbove: { amount: 5000 } } }), 5000, "a clinic's own threshold is ignored");
+  for (const id of ["discountAbove", "expenseAbove", "paymentBackdated", "noShowMarked", "sameDayCancellation", "walkInBooked", "patientWaitingLong", "complaintKeyword", "staffLate", "staffAbsent", "labCaseOverdue", "aiCreditsLow"]) {
+    ok(notifyEvent(id)?.waReady, `"${id}" has no WhatsApp switch although the web server raises it`);
+  }
+  for (const id of ["discountAbove", "expenseAbove", "paymentBackdated", "staffLate", "staffAbsent"]) {
+    const r = resolveNotify(id, { events: { [id]: { roles: ["Owner", "Receptionist"] } } });
+    ok(r && !r.roles.includes("Receptionist"), `"${id}" can reach reception`);
+  }
+
+  // Batching: instant unless asked; never for a report; the settings value survives.
+  eq(resolveNotify("noShowMarked", {})?.batching, "instant", "default batching");
+  eq(resolveNotify("noShowMarked", { events: { noShowMarked: { batching: "hourly" } } })?.batching, "hourly", "saved batching");
+  eq(resolveNotify("noShowMarked", { events: { noShowMarked: { batching: "weird" as never } } })?.batching, "instant", "a bad batching value must fall back");
+  eq(resolveNotify("eveningDigest", { events: { eveningDigest: { batching: "daily" } } })?.batching, "instant", "a report must never be batched");
+  const delivery = read("src/lib/notificationDelivery.ts");
+  ok(/resolved\.batching !== "instant" && !uids && !flushingBatch/.test(delivery), "the queue check lost its test/flush exceptions — a digest would queue itself forever");
+  ok(delivery.indexOf("alert_queue") > delivery.indexOf("bellWritten = true"), "batched alerts skip the bell row — the record must always be written");
+
+  // The digest wording.
+  const grouped = groupQueued([
+    { id: "1", event: "noShowMarked", title: "No-show", body: "Mona — 10:00", whatsappText: "", bucket: "hourly", date: "2026-09-27" },
+    { id: "2", event: "noShowMarked", title: "No-show", body: "Omar — 11:00", whatsappText: "", bucket: "hourly", date: "2026-09-27" },
+    { id: "3", event: "walkInBooked", title: "Walk-in", body: "Sara — 12:00", whatsappText: "", bucket: "hourly", date: "2026-09-27" },
+  ], "en");
+  eq(grouped.length, 2, "one message per event");
+  ok(grouped[0].title === "2 × A patient did not show up" && grouped[0].whatsappText.includes("• Mona — 10:00") && grouped[0].whatsappText.includes("• Omar — 11:00"), "grouped digest wording");
+  ok(groupQueued([{ id: "1", event: "noShowMarked", title: "", body: "x", whatsappText: "", bucket: "daily", date: "" }], "ar")[0].title.includes("مريض مجاش"), "Arabic digest label");
+
+  // Complaints.
+  for (const t of ["انا زعلان جدا من المعاملة", "عايز استرجاع فلوسي", "This is unacceptable, I want a refund", "هرفع شكوى", "الخدمة وحشة"]) ok(matchesComplaint(t), `not seen as a complaint: ${t}`);
+  for (const t of ["عايز احجز بكرة", "شكرا جدا", "Hi", "ممكن ميعاد الساعة ٥", "تمام"]) ok(!matchesComplaint(t), `wrongly seen as a complaint: ${t}`);
+
+  // Discounts.
+  eq(discountPercentOf({ listPrice: 1000, discountAmount: 250 }), 25, "discount percent from list price");
+  eq(discountPercentOf({ cost: 750, discountAmount: 250 }), 25, "discount percent from cost + discount");
+  eq(discountPercentOf({ listPrice: 1000 }), 0, "no discount");
+
+  // The sweep is scheduled, and every money write path calls the hooks.
+  const vercel = JSON.parse(read("vercel.json")) as { crons: { path: string; schedule: string }[] };
+  ok(vercel.crons.some((c) => c.path === "/api/automation/alert-sweep" && c.schedule === "*/10 * * * *"), "the alert sweep is not scheduled every ten minutes");
+  const ledger = read("src/app/api/finance/ledger/route.ts");
+  ok((ledger.match(/afterLedgerCreate\(/g) || []).length === 2 && ledger.includes("afterLedgerUpdate(") && ledger.includes("afterLedgerDelete("), "a ledger write path has no money-alert hook");
+  ok(read("src/app/api/clinical/procedures/route.ts").includes("afterChargeCreate("), "a discounted charge from the clinical route raises nothing");
+  const svc = read("src/lib/bookingService.ts");
+  ok(svc.includes('"appointment_no_show"') && svc.includes('"appointment_same_day_cancel"') && svc.includes('"appointment_walk_in"'), "the booking service does not raise the flow alerts");
+  for (const rel of ["src/components/dashboard/DesktopDashboard.tsx", "src/components/dashboard/MobileDashboard.tsx"]) {
+    ok(read(rel).includes('"appointment_no_show"'), `${rel} status buttons do not raise the no-show alert`);
+  }
+  for (const rel of ["src/app/api/webhooks/meta-whatsapp/route.ts", "src/app/api/webhooks/whatsapp-inbound/route.ts"]) {
+    ok(read(rel).includes("raiseComplaintIfAny("), `${rel} never checks for complaints`);
+  }
 }
 
 console.log(`staffReports: ${checks} checks passed`);

@@ -25,6 +25,9 @@ const EVENT_FOR_KEY: Record<string, string> = {
   finance_add: "paymentAdded",
   finance_edit: "paymentEdited",
   finance_delete: "paymentDeleted",
+  appointment_no_show: "noShowMarked",
+  appointment_same_day_cancel: "sameDayCancellation",
+  appointment_walk_in: "walkInBooked",
 };
 
 const TITLE_FOR_EVENT: Record<string, string> = {
@@ -34,6 +37,9 @@ const TITLE_FOR_EVENT: Record<string, string> = {
   paymentAdded: "Payment recorded",
   paymentEdited: "Payment changed",
   paymentDeleted: "Payment deleted",
+  noShowMarked: "No-show",
+  sameDayCancellation: "Same-day cancellation",
+  walkInBooked: "Walk-in booked",
 };
 
 export async function POST(request: Request) {

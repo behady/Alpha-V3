@@ -106,12 +106,19 @@ const read = (rel: string) => readFileSync(join(REPO, rel), "utf8");
     "src/app/api/whatsapp/send-patient-message/route.ts",
     "src/app/api/automation/reminders/route.ts",
     "src/app/api/whatsapp/owner-alert/route.ts",
+    "src/lib/alerts/moneyAlerts.ts",
+    "src/lib/alerts/sweep.ts",
+    "src/lib/alerts/complaint.ts",
   ];
   const raised = new Set<string>();
   for (const rel of SOURCES) {
     const text = read(rel);
     for (const m of text.matchAll(/event:\s*"([a-zA-Z]+)"/g)) raised.add(m[1]);
-    // The owner-alert route names its six events in a key → event map.
+    // The alert modules name their event as the second argument of their own raise() helper.
+    if (rel.startsWith("src/lib/alerts/")) {
+      for (const m of text.matchAll(/raise\(\s*clinicId,\s*"([a-zA-Z]+)"/g)) raised.add(m[1]);
+    }
+    // The owner-alert route names its events in a key → event map.
     if (rel.endsWith("owner-alert/route.ts")) {
       for (const m of text.matchAll(/^\s+[a-z_]+: "([a-zA-Z]+)",$/gm)) if (notifyEvent(m[1])) raised.add(m[1]);
     }
@@ -308,6 +315,9 @@ const read = (rel: string) => readFileSync(join(REPO, rel), "utf8");
     "patientRequestedChange",
     "unhappyReview",
     "aiCreditsOut",
+    // A patient physically in the waiting room past the clinic's own limit: by definition inside
+    // opening hours, and the person to tell is standing thirty feet away.
+    "patientWaitingLong",
   ]);
   for (const e of NOTIFY_EVENTS) {
     if (e.ignoresQuietHours) {

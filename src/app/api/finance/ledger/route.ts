@@ -48,6 +48,7 @@ import { applyProcedureSync, readProcedureCommissionBasis, readProcedurePayments
 import { recordLedgerAudit, recordMoneyChange } from "@/lib/server/ledgerAudit";
 import { recalcCommissionFromPayment } from "@/lib/ledgerCommission";
 import { allowedDiscount, checkDiscountAllowed } from "@/lib/discountMath";
+import { afterLedgerCreate, afterLedgerDelete, afterLedgerUpdate } from "@/lib/alerts/moneyAlerts";
 import { DISCOUNTS_DOC, parseDiscountSettings } from "@/lib/priceLists";
 import {
   RECEIPT_COUNTER_DOC,
@@ -303,6 +304,7 @@ async function createPayment(args: {
     details: `${amount} EGP from ${result.patientName || patientId}${procedureId ? ` toward ${procedureId}` : " (on account)"}`,
   });
 
+  void afterLedgerCreate(clinicId, result.row as Record<string, unknown>, actor);
   return NextResponse.json({ ok: true, id: result.id, receiptNumber: result.receiptNumber });
 }
 
@@ -342,6 +344,7 @@ async function createEntry(args: { clinicId: string; actor: Actor; body: Record<
     details: `${type.toUpperCase()} ${row.amount} EGP - ${row.description}`,
   });
 
+  void afterLedgerCreate(clinicId, row, actor);
   return NextResponse.json({ ok: true, id: ref.id });
 }
 
@@ -657,6 +660,7 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
     details: `${result.type} ${id}`,
   });
 
+  void afterLedgerUpdate(clinicId, result.before as Record<string, unknown>, result.update as Record<string, unknown>, actor);
   return NextResponse.json({ ok: true, id });
 }
 
@@ -913,6 +917,7 @@ async function deleteRow(args: { clinicId: string; actor: Actor; body: Record<st
     });
   }
 
+  void afterLedgerDelete(clinicId, target as Record<string, unknown>, actor);
   return NextResponse.json({ ok: true, deleted: verdict.cascade });
 }
 

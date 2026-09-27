@@ -1,0 +1,43 @@
+# The whole deployment: the gateway, and Caddy in front of it for HTTPS.
+#
+#   cp .env.example .env     # fill in the three values
+#   docker compose up -d --build
+#
+# Caddy fetches and renews the TLS certificate on its own, as long as GATEWAY_DOMAIN points at
+# this machine and ports 80/443 are open. Updating the gateway is the same command again.
+
+services:
+  gateway:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      PORT: "8080"
+    volumes:
+      - ./data:/data
+    expose:
+      - "8080"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - gateway
+
+volumes:
+  caddy_data:
+  caddy_config:

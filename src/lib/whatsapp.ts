@@ -269,6 +269,14 @@ export async function sendWhatsAppPdfFromUrl({
   caption,
 }: WhatsAppPdfSendArgs) {
   const config = await loadWapilotConfig(clinicId);
+  return sendWapilotDocument(config, { to, fileUrl, pdfBytes, filename, caption });
+}
+
+/** The same document send with the credentials handed in — the platform alerts line is nobody's clinic. */
+export async function sendWapilotDocument(
+  config: WapilotConfig,
+  { to, fileUrl, pdfBytes, filename, caption }: Omit<WhatsAppPdfSendArgs, "clinicId">,
+) {
   assertWapilotReady(config);
   const { instanceId, token, apiRoot, sendDocumentUrlOverride, sendDocumentPathTemplate } = config;
 

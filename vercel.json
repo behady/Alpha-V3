@@ -51,6 +51,10 @@
     {
       "path": "/api/automation/staff-reports",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/automation/alert-sweep",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

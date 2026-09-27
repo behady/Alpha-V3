@@ -594,6 +594,14 @@ export default function MobileDashboard() {
 
       await updateDoc(getClinicDoc("appointments", id), updatePayload);
 
+      // The flow alerts. Same keys the booking service sends; the server maps them to the catalogue.
+      if (nextStatus === "No Show") {
+        void fireOwnerWhatsAppAlert("appointment_no_show" as OwnerAlertKey, `No-show: ${appt.patientName || ""} — ${appt.time || ""} — ${appt.doctor || ""}`);
+      }
+      if (nextStatus === "Cancelled" && String(appt.date || "") === new Intl.DateTimeFormat("en-CA").format(new Date())) {
+        void fireOwnerWhatsAppAlert("appointment_same_day_cancel" as OwnerAlertKey, `Cancelled today: ${appt.patientName || ""} — ${appt.time || ""} — ${appt.doctor || ""}`);
+      }
+
       // Cancelling is the one status change the patient has to hear about — everything else is
       // clinic-side bookkeeping, but a cancelled patient is still expecting to be seen. It lives
       // here rather than in bookingService because a cancellation is a status change on the

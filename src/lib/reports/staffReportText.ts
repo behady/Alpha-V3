@@ -31,6 +31,8 @@ export interface StaffReportInput {
   access: BriefingAccess;
   /** The dentist's own day: their name and their appointments for today. */
   dentist?: { name: string; appointments: BriefingAppointment[] };
+  /** A PDF is being sent after the text; say so at the end. */
+  pdfFollows?: boolean;
 }
 
 type L = "ar" | "en";
@@ -86,6 +88,26 @@ const T = {
   stockLow: { ar: "📦 مخزون قرب يخلص", en: "📦 Low stock" },
   items: { ar: "صنف", en: "items" },
   footer: { ar: "من نظام ألفا دنتال", en: "Sent by Alpha Dental" },
+  weekly: { ar: "تقرير الأسبوع", en: "The week" },
+  monthly: { ar: "تقرير الشهر", en: "The month" },
+  payroll: { ar: "كشف الحضور والمرتبات", en: "Attendance & pay" },
+  vsPrevious: { ar: "عن الفترة اللي فاتت", en: "vs previous period" },
+  bestDay: { ar: "أحسن يوم", en: "Best day" },
+  quietestDay: { ar: "أهدأ يوم", en: "Quietest day" },
+  collectionRate: { ar: "نسبة التحصيل من الفواتير", en: "Collection rate" },
+  topProcedures: { ar: "أكتر إجراءات", en: "Top procedures" },
+  converted: { ar: "اتحولوا لمرضى", en: "converted" },
+  nextPeriod: { ar: "الأسبوع الجاي", en: "Next week" },
+  lateDays: { ar: "أيام تأخير", en: "late days" },
+  absentDays: { ar: "أيام غياب", en: "absent days" },
+  labour: { ar: "تكلفة العمالة", en: "Labour cost" },
+  otPending: { ar: "إضافي مستني موافقة", en: "Overtime awaiting approval" },
+  hoursShort: { ar: "س", en: "h" },
+  daysShort: { ar: "يوم", en: "days" },
+  estPay: { ar: "مستحق تقديري", en: "est. pay" },
+  payrollTotal: { ar: "إجمالي المرتبات التقديري", en: "Estimated payroll" },
+  payrollNote: { ar: "العمولات في شاشة المرتبات. يوم الإجازة المتفق عليه بيتحسب غياب هنا.", en: "Commission is on the payroll screen. An agreed day off counts as an absence here." },
+  pdfFollows: { ar: "التقرير الكامل في ملف PDF بعد الرسالة دي.", en: "The full report follows as a PDF." },
 } as const;
 
 const t = (key: keyof typeof T, l: L) => T[key][l];
@@ -260,6 +282,118 @@ function stockLine(b: Briefing, l: L): string[] {
   return [`*${t("stockLow", l)}*`, `${b.stock.lowCount} ${t("items", l)}${names ? `: ${names}` : ""}`];
 }
 
+/* --- the week and the month ------------------------------------------------------------------------ */
+
+function monthLabel(dateKey: string, l: L): string {
+  const [y, m] = dateKey.split("-");
+  const names = l === "ar"
+    ? ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"]
+    : ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  return `${names[Number(m) - 1] || m} ${y}`;
+}
+
+function rangeLabel(b: Briefing): string {
+  const [, m1, d1] = b.startDate.split("-");
+  const [, m2, d2] = b.endDate.split("-");
+  return `${Number(d1)}/${Number(m1)} – ${Number(d2)}/${Number(m2)}`;
+}
+
+function periodBlocks(kind: "weekly" | "monthly", b: Briefing, prefs: ResolvedReportPrefs, access: BriefingAccess, l: L): string[][] {
+  const blocks: string[][] = [];
+  const tr = b.trend;
+  const point = (key: string) => tr?.points.find((p) => p.key === key);
+
+  if (prefs.sections.money && access.money && b.money) {
+    const m = b.money;
+    const lines = [`*${t("money", l)}*`];
+    const cp = point("collected");
+    const line = `${t("collected", l)}: ${money(m.collected, l)}`;
+    lines.push(prefs.comparisons && cp ? withArrow(line, arrow(cp.current, cp.previous), t("vsPrevious", l)) : line);
+    lines.push(`${t("expenses", l)}: ${money(m.expenses, l)} · ${t("net", l)}: ${money(m.netCash, l)}`);
+    if (tr?.collectionRate !== null && tr?.collectionRate !== undefined) lines.push(`${t("collectionRate", l)}: ${tr.collectionRate}%`);
+    if (tr?.bestDay) lines.push(`${t("bestDay", l)}: ${dayLabel(tr.bestDay, l)}${tr.quietestDay && tr.quietestDay !== tr.bestDay ? ` · ${t("quietestDay", l)}: ${dayLabel(tr.quietestDay, l)}` : ""}`);
+    if (prefs.moneyDetail === "full" && m.byMethod.length > 1) lines.push(m.byMethod.map((x) => `${x.method} ${Math.round(x.amount).toLocaleString("en-US")}`).join(" · "));
+    if (prefs.moneyDetail !== "totals" && b.production && b.production.doctors.length > 0) {
+      lines.push(`${t("perDentist", l)}:`);
+      for (const d of [...b.production.doctors].sort((a, c) => c.collected - a.collected).slice(0, 8)) {
+        lines.push(`• ${d.name} — ${countWord(d.patientsSeen, "pt", t("patientsShort", l), l)} · ${money(d.collected, l)}`);
+      }
+    }
+    blocks.push(lines);
+  }
+
+  if (prefs.sections.appointments) {
+    const lines = [`*${t("appointments", l)}*`];
+    const seen = point("patients_seen");
+    const missed = point("missed");
+    const parts = [`${b.counts.total} ${t("booked", l)}`];
+    parts.push(prefs.comparisons && seen ? withArrow(`${b.counts.attended} ${t("seen", l)}`, arrow(seen.current, seen.previous), "") .replace(/\s+\)$/, ")") : `${b.counts.attended} ${t("seen", l)}`);
+    parts.push(prefs.comparisons && missed ? withArrow(`${b.counts.cancelled} ${t("missed", l)}`, arrow(missed.current, missed.previous), "").replace(/\s+\)$/, ")") : `${b.counts.cancelled} ${t("missed", l)}`);
+    lines.push(parts.join(" · "));
+    if (tr && tr.topProcedures.length > 0) {
+      lines.push(`${t("topProcedures", l)}: ${tr.topProcedures.slice(0, 4).map((p) => `${p.name} ${p.count}`).join(l === "ar" ? "، " : ", ")}`);
+    }
+    const n = b.nextUp;
+    lines.push(`${t("nextPeriod", l)}: ${countWord(n.appointments, "appointment", t("appts", l), l)}${n.unconfirmed > 0 ? ` · ${n.unconfirmed} ${t("unconfirmed", l)}` : ""}`);
+    blocks.push(lines);
+  }
+
+  if (prefs.sections.patients) {
+    const g = b.growth;
+    const np = point("new_patients");
+    const lines = [`*${t("patients", l)}*`];
+    const npLine = `${t("newPatients", l)}: ${g.newPatients}`;
+    lines.push(`${prefs.comparisons && np ? withArrow(npLine, arrow(np.current, np.previous), "").replace(/\s+\)$/, ")") : npLine} · ${t("newLeads", l)}: ${g.newLeads}${g.leadsConverted > 0 ? ` · ${g.leadsConverted} ${t("converted", l)}` : ""}`);
+    const sources = g.leadsBySource.slice(0, 3).map((s) => `${s.source} ${s.count}`).join(l === "ar" ? "، " : ", ");
+    if (sources) lines.push(sources);
+    if (b.actions.overdueFollowUpCount > 0) lines.push(`${t("overdueFollowups", l)}: ${b.actions.overdueFollowUpCount}`);
+    if (access.money && b.actions.staleBalanceTotal !== null && b.actions.staleBalances.length > 0) {
+      lines.push(`${t("staleBalances", l)}: ${b.actions.staleBalances.length} ${t("accounts", l)} · ${money(b.actions.staleBalanceTotal, l)}`);
+    }
+    blocks.push(lines);
+  }
+
+  if (prefs.sections.team && access.hr && b.hr) {
+    const hr = b.hr;
+    const lines = [`*${t("team", l)}*`];
+    lines.push(`${hr.lateDays} ${t("lateDays", l)} · ${hr.absentDays} ${t("absentDays", l)}${access.money ? ` · ${t("labour", l)}: ${money(hr.labourCost, l)}` : ""}`);
+    if (hr.overtimePendingMinutes > 0) lines.push(`${t("otPending", l)}: ${(hr.overtimePendingMinutes / 60).toFixed(1)} ${t("hoursShort", l)}`);
+    for (const s of [...hr.staff].filter((x) => x.lateDays > 0 || x.absentDays > 0).slice(0, 6)) {
+      const bits: string[] = [];
+      if (s.lateDays > 0) bits.push(`${t("late", l)} ${s.lateDays} ${t("daysShort", l)} (${s.lateMinutes} ${t("min", l)})`);
+      if (s.absentDays > 0) bits.push(`${t("absent", l)} ${s.absentDays} ${t("daysShort", l)}`);
+      lines.push(`• ${s.name} — ${bits.join(" · ")}`);
+    }
+    blocks.push(lines);
+  }
+  blocks.push(stockLine(b, l));
+  return blocks;
+}
+
+const ROLE_AR: Record<string, string> = { Owner: "المالك", Admin: "مدير", Dentist: "دكتور", Receptionist: "استقبال", Assistant: "مساعد" };
+const roleLabel = (role: string, l: L) => (l === "ar" ? ROLE_AR[role] || role : role);
+
+function payrollBlocks(b: Briefing, l: L): string[][] {
+  const hr = b.hr;
+  if (!hr) return [[t("nothingBooked", l)]];
+  const staff = [...hr.staff].sort((a, c) => c.minutesWorked - a.minutesWorked);
+  const lines: string[] = [];
+  for (const s of staff) {
+    lines.push(
+      `• ${s.name}${s.role ? ` (${roleLabel(s.role, l)})` : ""}: ${s.daysWorked} ${t("daysShort", l)} · ${(s.minutesWorked / 60).toFixed(0)} ${t("hoursShort", l)}` +
+        `${s.lateMinutes > 0 ? ` · ${t("late", l)} ${s.lateMinutes} ${t("min", l)}` : ""}` +
+        `${s.absentDays > 0 ? ` · ${t("absent", l)} ${s.absentDays}` : ""}` +
+        `${s.overtimePendingMinutes > 0 ? ` · ${t("otPending", l)} ${(s.overtimePendingMinutes / 60).toFixed(1)} ${t("hoursShort", l)}` : ""}` +
+        ` · ${t("estPay", l)} ${money(s.estimatedPay, l)}`,
+    );
+  }
+  const total = staff.reduce((sum, s) => sum + s.estimatedPay, 0);
+  lines.push("", `*${t("payrollTotal", l)}: ${money(total, l)}*`);
+  if (hr.withoutSchedule > 0) lines.push(`_${hr.withoutSchedule} ${t("noSchedule", l)}_`);
+  lines.push(`_${t("payrollNote", l)}_`);
+  return [lines];
+}
+
 /* --- the three reports -------------------------------------------------------------------------- */
 
 export function renderStaffReport(input: StaffReportInput): string {
@@ -280,7 +414,14 @@ export function renderStaffReport(input: StaffReportInput): string {
     return [...head, summary.join(" · "), "", ...rows, "", `_${t("footer", l)}_`].join("\n");
   }
 
-  if (input.kind === "morning") {
+  if (input.kind === "weekly" || input.kind === "monthly") {
+    const heading = input.kind === "weekly" ? `📊 ${t("weekly", l)} — ${rangeLabel(today)}` : `📊 ${t("monthly", l)} — ${monthLabel(today.endDate, l)}`;
+    blocks.push([`*${input.clinicName}*`, heading]);
+    blocks.push(...periodBlocks(input.kind, today, prefs, access, l));
+  } else if (input.kind === "payroll") {
+    blocks.push([`*${input.clinicName}*`, `💵 ${t("payroll", l)} — ${monthLabel(today.endDate, l)}`]);
+    blocks.push(...payrollBlocks(today, l));
+  } else if (input.kind === "morning") {
     blocks.push([`*${input.clinicName}*`, `☀️ ${t("morning", l)} — ${dayLabel(today.dateKey, l)}`]);
     if (prefs.sections.appointments) blocks.push(todayBlock(today, l));
     if (prefs.sections.money && access.money && input.yesterday?.money) {
@@ -305,6 +446,7 @@ export function renderStaffReport(input: StaffReportInput): string {
     blocks.push(stockLine(today, l));
   }
 
+  if (input.pdfFollows) blocks.push([`_${t("pdfFollows", l)}_`]);
   const body = blocks
     .filter((b) => b.length > 0)
     .map((b) => b.join("\n"))
@@ -314,6 +456,13 @@ export function renderStaffReport(input: StaffReportInput): string {
 
 /** The one-line push that accompanies a report, so the phone buzz says something. */
 export function reportPushLine(kind: Exclude<ReportKind, "summary">, b: Briefing, l: L): { title: string; body: string } {
+  if (kind === "weekly" || kind === "monthly" || kind === "payroll") {
+    const title = kind === "weekly" ? t("weekly", l) : kind === "monthly" ? t("monthly", l) : t("payroll", l);
+    const parts = kind === "payroll"
+      ? [b.hr ? `${t("labour", l)} ${money(b.hr.labourCost, l)}` : ""]
+      : [b.money ? money(b.money.collected, l) : "", `${b.counts.attended} ${t("seen", l)}`];
+    return { title, body: parts.filter(Boolean).join(" · ") };
+  }
   if (kind === "evening") {
     const parts = [
       b.money ? money(b.money.collected, l) : null,

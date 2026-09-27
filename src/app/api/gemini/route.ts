@@ -121,6 +121,25 @@ const RECEPTION_READABLE_COLLECTIONS = new Set([
  */
 const TOUR_TOOL_NAMES = new Set(["start_tutorial", "open_tour_stop"]);
 
+/**
+ * What the staff line on WhatsApp may NOT call (lib/bot/staffAssistant.ts).
+ *
+ * The owner asked for the same reach on WhatsApp as in the app, so the person's role and
+ * permissions decide, exactly as they do here — this list removes only the tools whose result is
+ * a screen: nothing can navigate, render a PDF, put an appointment on a panel, start a lesson or
+ * open a ticket form inside a WhatsApp bubble. The acting tools stay: each stages a preview, and
+ * the staff line turns the preview into a yes/no question instead of a card.
+ */
+const WHATSAPP_STAFF_EXCLUDED_TOOLS = new Set([
+  "navigate_to",
+  "trigger_pdf_generation",
+  "open_appointment",
+  "start_tutorial",
+  "open_tour_stop",
+  "file_bug_report",
+  "file_feature_request",
+]);
+
 /** The tour's model: cheap, and adequate for "answer from these notes in 2-4 sentences". */
 const TOUR_MODEL = "gemini-3.1-flash-lite";
 
@@ -343,7 +362,7 @@ export async function POST(req: Request) {
      */
     const client = typeof body?.client === "string" ? body.client : "";
     /** The floating chat bubble has no appointment panel to put an appointment into. */
-    const clientHasAppointmentPanel = client !== "web-widget";
+    const clientHasAppointmentPanel = client !== "web-widget" && client !== "whatsapp-staff";
     /**
      * Guided lessons draw a pulsing ring over the dashboard's own DOM, which only the web
      * widget can host: the reception panel is pinned beside one appointment, and Android has
@@ -357,6 +376,7 @@ export async function POST(req: Request) {
      * the tour immediately pushes back from.
      */
     const clientIsTour = client === "web-tour";
+    const clientIsWhatsappStaff = client === "whatsapp-staff";
     const clientCanRunTutorials = client === "web-widget" || clientIsTour;
     /** The widget can hand over to the tour ("show me around"); the tour can move itself. */
     const clientCanOpenTour = client === "web-widget" || clientIsTour;
@@ -1150,7 +1170,9 @@ export async function POST(req: Request) {
         ? functionDeclarations.filter((f) => RECEPTION_TOOL_NAMES.has(f.name))
         : clientIsTour
           ? functionDeclarations.filter((f) => TOUR_TOOL_NAMES.has(f.name))
-          : functionDeclarations
+          : clientIsWhatsappStaff
+            ? functionDeclarations.filter((f) => !WHATSAPP_STAFF_EXCLUDED_TOOLS.has(f.name))
+            : functionDeclarations
     )
       .filter((f) => f.name !== "open_appointment" || clientHasAppointmentPanel)
       .filter((f) => f.name !== "start_tutorial" || clientCanRunTutorials)

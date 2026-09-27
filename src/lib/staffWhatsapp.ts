@@ -1,9 +1,9 @@
-import { adminDb } from "@/lib/firebaseAdmin";
+import { adminBucket, adminDb } from "@/lib/firebaseAdmin";
 import { clinicHasFeature } from "@/lib/clinicFeatures";
-import { loadMetaWhatsappConfig, sendMetaWhatsappText, type MetaWhatsappConfig } from "@/lib/metaWhatsapp";
+import { loadMetaWhatsappConfig, sendMetaWhatsappMedia, sendMetaWhatsappText, type MetaWhatsappConfig } from "@/lib/metaWhatsapp";
 import { loadPlatformWapilotConfig, loadWapilotConfig } from "@/lib/wapilotConfig";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
-import { sendWapilotText } from "@/lib/whatsapp";
+import { sendWapilotDocument, sendWapilotText } from "@/lib/whatsapp";
 import type { WapilotConfig } from "@/types/wapilot";
 
 /**
@@ -128,6 +128,62 @@ export async function sendStaffWhatsApp(args: {
       return { sent: true, via: "meta" };
     }
     await sendWapilotText(gateway.config, to, text);
+    return { sent: true, via: gateway.platform ? "platform" : "wapilot" };
+  } catch (error) {
+    return { sent: false, reason: "gateway_error", error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/**
+ * A PDF to a staff member: the report as a file, after the text.
+ *
+ * Stored first under the clinic's own folder in Storage — the official API only takes a link it
+ * can fetch itself, and a signed URL that lives a week is what the treatment-plan PDFs already
+ * use. Wapilot is handed the bytes and the link both, as its existing sender does.
+ */
+export async function sendStaffDocument(args: {
+  clinicId: string;
+  to: string;
+  bytes: Uint8Array;
+  filename: string;
+  caption?: string;
+  /** Path inside the bucket. Defaults to the clinic's reports folder with the file name. */
+  storagePath?: string;
+  gateway?: StaffGateway | null;
+}): Promise<StaffSendResult> {
+  const to = normalizeToE164AssumingCountry(args.to);
+  if (!to || to.replace(/\D/g, "").length < 8) return { sent: false, reason: "invalid_phone" };
+
+  let gateway = args.gateway;
+  if (gateway === undefined) {
+    const resolved = await resolveStaffGateway(args.clinicId);
+    gateway = resolved.gateway;
+    if (!gateway) return { sent: false, reason: resolved.reason || "no_gateway" };
+  }
+  if (!gateway) return { sent: false, reason: "no_gateway" };
+
+  const safeName = args.filename.replace(/[^\w.\-\u0600-\u06FF]+/g, "_") || "report.pdf";
+  const storagePath = args.storagePath || `clinics/${args.clinicId}/reports/${Date.now()}_${safeName}`;
+  let link = "";
+  try {
+    const file = adminBucket().file(storagePath);
+    await file.save(Buffer.from(args.bytes), { contentType: "application/pdf", metadata: { cacheControl: "private, max-age=3600" } });
+    const [signed] = await file.getSignedUrl({ action: "read", expires: Date.now() + 7 * 24 * 60 * 60 * 1000 });
+    link = signed;
+  } catch (error) {
+    if (gateway.kind === "meta") {
+      return { sent: false, reason: "gateway_error", error: `Could not store the PDF: ${error instanceof Error ? error.message : String(error)}` };
+    }
+    // Wapilot can take the bytes without a link.
+  }
+
+  try {
+    if (gateway.kind === "meta") {
+      const result = await sendMetaWhatsappMedia({ config: gateway.config, to, kind: "document", link, filename: safeName, caption: args.caption });
+      if (!result.ok) return { sent: false, reason: "gateway_error", error: result.error || "Meta refused the document" };
+      return { sent: true, via: "meta" };
+    }
+    await sendWapilotDocument(gateway.config, { to, fileUrl: link || undefined, pdfBytes: args.bytes, filename: safeName, caption: args.caption });
     return { sent: true, via: gateway.platform ? "platform" : "wapilot" };
   } catch (error) {
     return { sent: false, reason: "gateway_error", error: error instanceof Error ? error.message : String(error) };

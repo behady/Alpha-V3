@@ -8,6 +8,8 @@ import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
 import { useUI } from "@/context/UIContext";
 import Protect from "@/components/Protect";
 import { Bars, INK, MARK } from "@/components/reports/chartKit";
+import PatientDrilldown from "@/components/reports/PatientDrilldown";
+import { doctorLabel, partitionRows, rollupPatients, type ReportPatient } from "@/lib/reportPatients";
 
 interface ProcStat { name: string; count: number; income: number; }
 
@@ -23,15 +25,31 @@ interface DentistStat {
 interface Props {
   procedures: Record<string, unknown>[];
   payments?: Record<string, unknown>[];
+  allPatients?: ReportPatient[];
   rangeLabel: string;
   isAr: boolean;
 }
 
-export default function DentistReport({ procedures, payments, rangeLabel, isAr }: Props) {
+export default function DentistReport({ procedures, payments, allPatients, rangeLabel, isAr }: Props) {
   const { showToast } = useUI();
   const chartRef = useRef<HTMLDivElement>(null);
   const [exporting, setExporting] = useState(false);
   const [selectedDentist, setSelectedDentist] = useState<string>("");
+
+  const patientMap = useMemo(() => {
+    const m: Record<string, ReportPatient> = {};
+    (allPatients || []).forEach((p) => { if (p.id) m[p.id] = p; });
+    return m;
+  }, [allPatients]);
+
+  /**
+   * Each dentist's rows, keyed the way the cards below are keyed (lib/reportPatients.doctorLabel
+   * is the same normalisation), so the drawer under Dr Omar's card lists Dr Omar's patients.
+   */
+  const rowsByDentist = useMemo(
+    () => partitionRows(procedures, payments || [], (row) => doctorLabel(row)),
+    [procedures, payments],
+  );
 
   const stats: DentistStat[] = useMemo(() => {
     const map: Record<string, { procedures: Record<string, { count: number; income: number }>; commission: number; labFee: number; income: number }> = {};
@@ -89,6 +107,15 @@ export default function DentistReport({ procedures, payments, rangeLabel, isAr }
 
   const activeDentist = stats.find((s) => s.name === selectedDentist) || stats[0];
   const dentistNames = stats.map((s) => s.name);
+
+  const activePatients = useMemo(() => {
+    if (!activeDentist) return [];
+    const group = rowsByDentist.get(activeDentist.name);
+    if (!group) return [];
+    return rollupPatients(group.procedures, group.payments, patientMap, {
+      unknownName: isAr ? "بدون اسم" : "Unknown",
+    });
+  }, [activeDentist, rowsByDentist, patientMap, isAr]);
 
   const handleExcelExport = () => {
     setExporting(true);
@@ -460,6 +487,18 @@ export default function DentistReport({ procedures, payments, rangeLabel, isAr }
                 text: isAr ? `${p.count} مرة` : `${p.count}×`,
                 color: i === 0 ? MARK : INK,
               }))}
+            />
+          </div>
+
+          {/* Who the work was on. The card says how much; this says for whom, and opens on demand
+              because the payroll question above it is the one asked more often. */}
+          <div className="xl:col-span-12">
+            <PatientDrilldown
+              rows={activePatients}
+              isAr={isAr}
+              title={isAr ? `مرضى د. ${activeDentist.name}` : `Patients of Dr. ${activeDentist.name}`}
+              note={isAr ? `اللي اتعالجوا أو دفعوا عند الدكتور في الفترة دي (${rangeLabel})` : `Treated by or paid to this dentist in ${rangeLabel}`}
+              exportName={`Dentist_Patients_${activeDentist.name.replace(/[^\p{L}\p{N}]+/gu, "_")}`}
             />
           </div>
         </div>

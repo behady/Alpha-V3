@@ -6,6 +6,14 @@ import { notifyEvent } from "@/lib/notificationCatalog";
 import { readAlertPreferences, readClinicMembers } from "@/lib/notificationDelivery";
 import { sendStaffReport } from "@/lib/reports/sendStaffReport";
 import { sendStaffWhatsApp } from "@/lib/staffWhatsapp";
+import {
+  askAssistantForStaff,
+  clearStaffPending,
+  confirmPrompt,
+  decideStaffPending,
+  loadStaffPending,
+  staffDecision,
+} from "@/lib/bot/staffAssistant";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 
 /**
@@ -79,15 +87,26 @@ export async function findStaffByPhone(clinicId: string, phone: string): Promise
   return { uid, role: roleOf.get(uid) || "Admin", name };
 }
 
-export type StaffIntent = "evening" | "morning" | "summary" | "help";
+export type StaffIntent = "evening" | "morning" | "summary" | "help" | "ask";
 
-/** What a staff member asked for, from a few words in either language. */
+/**
+ * What a staff member asked for.
+ *
+ * A word or two that names a report sends that report. A greeting, or "help", sends the menu.
+ * Anything longer is a question for the assistant — "كام مريض جه النهارده؟" contains "النهارده",
+ * but it is a question, not a request for the morning schedule, and the assistant can answer it.
+ */
 export function staffIntent(text: string): StaffIntent {
-  const t = text.trim().toLowerCase();
-  if (/(تقرير|اقفال|إقفال|الاقفال|الإقفال|close|report|حساب اليوم|فلوس)/.test(t)) return "evening";
-  if (/(ملخص|summary|سطور|lines)/.test(t)) return "summary";
-  if (/(النهارده|النهاردة|اليوم|صباح|مواعيد|today|morning|schedule|brief)/.test(t)) return "morning";
-  return "help";
+  const t = text.trim().toLowerCase().replace(/[؟?!.،,]+$/g, "").trim();
+  if (!t) return "help";
+  const words = t.split(/\s+/).filter(Boolean);
+  if (words.length <= 2 && /^(hi+|hello|hey|help|menu|start|السلام عليكم|سلام|ازيك|إزيك|أهلا|اهلا|مرحبا|صباح الخير|مساء الخير|مساعدة|القايمة|القائمة|ابدأ)$/.test(t)) return "help";
+  if (words.length <= 3) {
+    if (/(تقرير|اقفال|إقفال|الاقفال|الإقفال|close|report|حساب اليوم|فلوس)/.test(t)) return "evening";
+    if (/(ملخص|summary|سطور|lines)/.test(t)) return "summary";
+    if (/(النهارده|النهاردة|اليوم|صباح|مواعيد|today|morning|schedule|brief)/.test(t)) return "morning";
+  }
+  return "ask";
 }
 
 export function staffLanguage(text: string): "ar" | "en" {
@@ -110,7 +129,8 @@ export function staffHelpText(sender: StaffSender, clinicName: string, language:
       "• *النهارده* — مواعيد اليوم",
       "• *ملخص* — اليوم في تلات سطور",
       "",
-      "_الأسئلة الحرة عن أرقام العيادة جاية في الخطوة الجاية._",
+      "أو اسألني أي سؤال عن العيادة بكلامك — مين محجوز بكرة، كام اتحصّل الأسبوع ده، رصيد مريض معين.",
+      "وأقدر أنفّذ: احجز، انقل ميعاد، سجّل دفعة، ابعت رسالة لمريض — بأكّد معاك بـ نعم/لا قبل أي خطوة.",
     ].join("\n");
   }
   return [
@@ -123,7 +143,8 @@ export function staffHelpText(sender: StaffSender, clinicName: string, language:
     "• *today* — today's appointments",
     "• *summary* — the day in three lines",
     "",
-    "_Free questions about the clinic's numbers come in the next step._",
+    "Or just ask me anything about the clinic in your own words — who is booked tomorrow, what came in this week, a patient's balance.",
+    "I can also act: book, move an appointment, record a payment, message a patient — I confirm with you (yes/no) before every step.",
   ].join("\n");
 }
 
@@ -152,6 +173,26 @@ export async function respondToStaffMessage(args: {
   const intent = staffIntent(text);
   const language = staffLanguage(text);
 
+  // A staged action first: the person's next word decides it. Anything that is not a yes or a no
+  // drops the staged action — a new question is a change of mind — and is answered on its own.
+  const pending = await loadStaffPending(clinicId, sender.uid);
+  if (pending) {
+    const decision = staffDecision(text);
+    if (decision) {
+      const result = await decideStaffPending({ clinicId, uid: sender.uid, name: sender.name, actionId: pending.id, decision });
+      const reply = !result.ok
+        ? (language === "ar" ? `معرفتش أنفّذ: ${result.error}` : `Could not do that: ${result.error}`)
+        : result.status === "rejected"
+          ? (language === "ar" ? "تمام، اتلغت." : "Cancelled.")
+          : result.manual
+            ? `${result.message}\n\n${language === "ar" ? "مفيش واتساب متوصّل للمرضى، فالرسالة دي محتاجة تتبعت يدوي:" : "No patient gateway is connected, so this needs to be sent by hand:"}\n${result.manual.phone}\n${result.manual.text}`
+            : `✅ ${result.message}`;
+      const sent = await sendStaffWhatsApp({ clinicId, to, text: reply });
+      return sent.sent ? { status: "replied", text: reply, handoff: false, reason: `staff_${decision}` } : { status: "skipped", reason: "staff_send_failed" };
+    }
+    await clearStaffPending(clinicId, sender.uid);
+  }
+
   if (intent !== "help") {
     const eventId =
       intent === "evening" ? "eveningDigest" : intent === "summary" ? "ownerSummary" : sender.role === "Dentist" ? "morningBriefDentist" : "morningBriefClinic";
@@ -168,6 +209,25 @@ export async function respondToStaffMessage(args: {
       const sent = await sendStaffWhatsApp({ clinicId, to, text: sorry });
       return sent.sent ? { status: "replied", text: sorry, handoff: false, reason: `staff_${intent}_empty` } : { status: "skipped", reason: "staff_send_failed" };
     }
+  }
+
+  if (intent === "ask") {
+    const answer = await askAssistantForStaff({ clinicId, uid: sender.uid, name: sender.name, question: text });
+    if (answer.ok) {
+      // A staged action becomes the card, in words, with the question under it.
+      const reply = answer.pending
+        ? [answer.reply, "", `📋 *${answer.pending.title}*`, ...answer.pending.lines, "", confirmPrompt(language)].filter((l, i, a) => !(l === "" && a[i - 1] === "")).join("\n").trim()
+        : answer.reply;
+      const sent = await sendStaffWhatsApp({ clinicId, to, text: reply });
+      return sent.sent ? { status: "replied", text: reply, handoff: false, reason: answer.pending ? "staff_staged" : "staff_ask" } : { status: "skipped", reason: "staff_send_failed" };
+    }
+    console.warn(`staff line: assistant failed for ${sender.uid}: ${answer.reason}${answer.error ? ` — ${answer.error}` : ""}`);
+    const sorry =
+      language === "ar"
+        ? "معرفتش أجاوب على ده دلوقتي. جرّب تاني بعد شوية، أو اسأل من المساعد جوه البرنامج."
+        : "I could not answer that just now. Try again in a moment, or ask the assistant inside the app.";
+    const sent = await sendStaffWhatsApp({ clinicId, to, text: `${sorry}\n\n${staffHelpText(sender, await clinicName(clinicId), language)}` });
+    return sent.sent ? { status: "replied", text: sorry, handoff: false, reason: "staff_ask_failed" } : { status: "skipped", reason: "staff_send_failed" };
   }
 
   const help = staffHelpText(sender, await clinicName(clinicId), language);

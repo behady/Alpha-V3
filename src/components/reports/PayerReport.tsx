@@ -1,7 +1,8 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, FileSpreadsheet, Info, Wallet } from "lucide-react";
+import Link from "next/link";
+import { ChevronDown, ChevronRight, ExternalLink, FileSpreadsheet, Info, Wallet } from "lucide-react";
 import { exportToExcel } from "./reportExcelUtils";
 import { buildPayerReport, byDoctor, type LedgerRowLite } from "@/lib/payerReport";
 import { PRIVATE_PAYER_ID, type Payer } from "@/lib/payers";
@@ -265,7 +266,16 @@ export default function PayerReport({ procedures, payments, payers, rangeLabel, 
                         p.patientList.map((person) => (
                           <tr key={`${p.payerId}-${person.patientId}`} className="border-b border-line bg-surface-subtle">
                             <td className="px-10 py-2 text-[12.5px] font-medium text-ink-body">
-                              {person.patientName || (isAr ? "بدون اسم" : "Unnamed")}
+                              {/* The name opens the file, as it does in every other tab's drawer. */}
+                              <Link
+                                href={`/patients/${person.patientId}`}
+                                onClick={(e) => e.stopPropagation()}
+                                title={isAr ? "افتح الملف" : "Open file"}
+                                className="group inline-flex items-center gap-1.5 hover:underline"
+                              >
+                                {person.patientName || (isAr ? "بدون اسم" : "Unnamed")}
+                                <ExternalLink size={11} className="text-ink-faint opacity-0 transition-opacity group-hover:opacity-100" />
+                              </Link>
                             </td>
                             <td className="px-3 py-2 text-end font-figure text-[12.5px] text-ink-body">{person.cases}</td>
                             <td className="px-3 py-2" />
