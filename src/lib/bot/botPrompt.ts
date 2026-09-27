@@ -293,6 +293,23 @@ const ASSISTED_VOICE = [
  * Exported so a test can pin that it contains no clinic-specific text, and so the fixed prefix
  * can be measured (and one day cached) on its own.
  */
+/**
+ * A short fingerprint of the fixed layers, stamped on every logged reply.
+ *
+ * When a metric moves, the first question is "which prompt was live?" — and without a stamp the
+ * answer is a guess from commit dates. FNV-1a over the joined text; eight hex characters is
+ * enough to tell two prompts apart and short enough to read in a list.
+ */
+export function promptVersion(mode: "assisted" | "sales", clinical: boolean, canBook?: boolean): string {
+  const text = fixedPromptLayers(mode, clinical, canBook).filter(Boolean).join("\n");
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
 export function fixedPromptLayers(mode: "assisted" | "sales", clinical: boolean, canBook?: boolean): string[] {
   const sales = mode === "sales";
   return [

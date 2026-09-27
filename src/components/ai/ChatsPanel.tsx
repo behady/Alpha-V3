@@ -28,6 +28,8 @@ import {
   RotateCcw,
   Search,
   Send,
+  ThumbsDown,
+  ThumbsUp,
   UserCheck,
   UserPlus,
   UserRound,
@@ -38,7 +40,8 @@ import {
 } from "lucide-react";
 import QuickReplies from "./QuickReplies";
 import ChatInfoPanel, { tagLabel, tagTone } from "./ChatInfoPanel";
-import { getDoc, getDocs, limit, onSnapshot, orderBy, query, startAfter, updateDoc } from "firebase/firestore";
+import { deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, setDoc, startAfter, updateDoc, where } from "firebase/firestore";
+import { testCaseId, turnsFromLines } from "@/lib/bot/testCases";
 import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
 import { auth, storage } from "@/lib/firebase";
 import { chatSoundEnabled, playChatChime, requestChatNotifications, setChatSoundEnabled } from "@/lib/useChatAlerts";
@@ -681,6 +684,9 @@ function Thread({
   const [olderDone, setOlderDone] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [assigning, setAssigning] = useState(false);
+  /** Staff verdicts on the bot's answers in this thread, by message id. */
+  const [feedback, setFeedback] = useState<Record<string, "up" | "down">>({});
+  const [savingCase, setSavingCase] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -756,6 +762,83 @@ function Thread({
   };
 
   const allLines = useMemo(() => [...older, ...lines], [older, lines]);
+
+  useEffect(() => {
+    if (!user) return;
+    const unsub = onSnapshot(
+      query(getClinicCollection("bot_feedback"), where("chatKey", "==", chat.id)),
+      (snap) => {
+        const next: Record<string, "up" | "down"> = {};
+        for (const d of snap.docs) {
+          const x = d.data();
+          if (typeof x.messageId === "string") next[x.messageId] = x.verdict === "down" ? "down" : "up";
+        }
+        setFeedback(next);
+      },
+      () => {}
+    );
+    return unsub;
+  }, [user, chat.id]);
+
+  /*
+   * A thumb on a bot bubble. The verdict goes to `bot_feedback` with the patient's question
+   * beside it, so the Bot tab can show "asked X, bot said Y, staff said wrong" without opening
+   * the thread. Tapping the same thumb again withdraws it. Nothing here feeds the model: these
+   * are for the person deciding which fact, keyword or coaching line to add next.
+   */
+  const rate = async (line: ThreadLine, verdict: "up" | "down", reason?: string) => {
+    const ref = doc(getClinicCollection("bot_feedback"), `${chat.id}_${line.id}`.replace(/[^A-Za-z0-9_-]/g, ""));
+    try {
+      if (feedback[line.id] === verdict && !reason) {
+        await deleteDoc(ref);
+        return;
+      }
+      const idx = allLines.findIndex((l) => l.id === line.id);
+      const asked = [...allLines.slice(0, Math.max(0, idx))].reverse().find((l) => l.direction === "in");
+      await setDoc(ref, {
+        chatKey: chat.id,
+        messageId: line.id,
+        verdict,
+        reason: reason || null,
+        text: line.text.slice(0, 600),
+        kind: line.kind || null,
+        question: asked ? asked.text.slice(0, 400) : null,
+        uid: user?.uid || null,
+        name: user?.name || user?.email || null,
+        atMs: Date.now(),
+      });
+    } catch {
+      showToast(isAr ? "حصل خطأ" : "Could not save", "error");
+    }
+  };
+
+  /** The thread, minus the person, into the battery's eval set. */
+  const saveTestCase = async () => {
+    const turns = turnsFromLines(allLines, chat.patientName);
+    if (!turns.length) {
+      showToast(isAr ? "مفيش رسايل من المريض تتحفظ" : "No patient messages to save", "error");
+      return;
+    }
+    setSavingCase(true);
+    try {
+      const last = allLines[allLines.length - 1];
+      await setDoc(doc(getClinicCollection("bot_test_cases"), testCaseId(chat.id, last?.id || String(Date.now()))), {
+        turns,
+        clinical: false,
+        note: "",
+        sourceChat: chat.id,
+        savedBy: user?.uid || null,
+        savedName: user?.name || user?.email || null,
+        atMs: Date.now(),
+      });
+      showToast(isAr ? `اتحفظت كحالة اختبار (${turns.length} دور)` : `Saved as a test case (${turns.length} turns)`, "success");
+      setMenuOpen(false);
+    } catch {
+      showToast(isAr ? "حصل خطأ" : "Could not save", "error");
+    } finally {
+      setSavingCase(false);
+    }
+  };
 
   // Search: every line whose words contain the query, newest last, with one of them current.
   const matches = useMemo(() => {
@@ -1154,6 +1237,19 @@ function Thread({
                     ? "الأرشفة بتخفي المحادثة لحد ما المريض يبعت تاني. الكتم بيوقف الصوت والإشعار بس."
                     : "Archive hides the chat until the patient writes again. Mute only stops the chime and notification."}
                 </p>
+                <button
+                  onClick={() => void saveTestCase()}
+                  disabled={savingCase}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] font-semibold text-start hover:bg-surface-subtle dark:hover:bg-slate-800/50 text-ink dark:text-slate-100 border-t border-black/5 disabled:opacity-50"
+                >
+                  {savingCase ? <Loader2 size={16} className="animate-spin" /> : <FlaskConical size={16} />}
+                  {isAr ? "احفظها كحالة اختبار" : "Save as test case"}
+                </button>
+                <p className="px-4 pb-2 pt-1 text-[11px] text-ink-muted dark:text-slate-400">
+                  {isAr
+                    ? "المحادثة دي، من غير اسم المريض ورقمه، بتتضاف لاختبارات البوت عشان أي تعديل جاي يتجرب عليها."
+                    : "This conversation, with the patient's name and number removed, joins the bot's test set so every future change is tried against it."}
+                </p>
               </div>
             )}
           </div>
@@ -1279,6 +1375,8 @@ function Thread({
                     isAr={isAr}
                     hit={matches.includes(l.id)}
                     current={l.id === currentMatch}
+                    feedback={feedback[l.id]}
+                    onRate={(v, r) => void rate(l, v, r)}
                   />
                 ))}
               </div>
@@ -1678,11 +1776,22 @@ function MediaView({ line, isAr }: { line: ThreadLine; isAr: boolean }) {
   );
 }
 
+/** Why a bot answer was wrong. Short, because a receptionist taps one between two patients. */
+const DOWN_REASONS: Array<{ key: string; en: string; ar: string }> = [
+  { key: "wrong", en: "Wrong", ar: "غلط" },
+  { key: "invented", en: "Made it up", ar: "اخترع" },
+  { key: "tone", en: "Tone", ar: "الأسلوب" },
+  { key: "should_handoff", en: "Should have handed off", ar: "كان لازم يحوّل" },
+  { key: "other", en: "Other", ar: "حاجة تانية" },
+];
+
 function Bubble({
   line,
   isAr,
   hit = false,
   current = false,
+  feedback,
+  onRate,
 }: {
   line: ThreadLine;
   isAr: boolean;
@@ -1690,8 +1799,13 @@ function Bubble({
   hit?: boolean;
   /** The match the arrows are on: a strong ring, and where the view scrolls to. */
   current?: boolean;
+  /** Staff's verdict on this bot answer, if any. */
+  feedback?: "up" | "down";
+  onRate?: (verdict: "up" | "down", reason?: string) => void;
 }) {
   const mine = line.direction === "out";
+  const [askReason, setAskReason] = useState(false);
+  const ratable = line.author === "bot" && !!onRate;
   const who =
     line.author === "bot"
       ? isAr
@@ -1748,6 +1862,51 @@ function Bubble({
             {isAr ? "موصلتش: " : "Not delivered: "}
             {line.errorMessage || (isAr ? "واتساب رفض الرسالة" : "WhatsApp refused the message")}
           </p>
+        )}
+        {ratable && (
+          <div className="flex items-center gap-1 mt-1 pt-1 border-t border-black/5">
+            <button
+              type="button"
+              title={isAr ? "رد كويس" : "Good answer"}
+              onClick={() => {
+                setAskReason(false);
+                onRate!("up");
+              }}
+              className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${feedback === "up" ? "bg-[#1f7a4d] text-white" : "text-ink-muted hover:bg-black/5"}`}
+            >
+              <ThumbsUp size={12} />
+            </button>
+            <button
+              type="button"
+              title={isAr ? "رد غلط" : "Bad answer"}
+              onClick={() => {
+                if (feedback === "down") {
+                  setAskReason(false);
+                  onRate!("down");
+                } else setAskReason((v) => !v);
+              }}
+              className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${feedback === "down" ? "bg-[#b3261e] text-white" : "text-ink-muted hover:bg-black/5"}`}
+            >
+              <ThumbsDown size={12} />
+            </button>
+            {askReason && (
+              <div className="flex flex-wrap gap-1 ms-1">
+                {DOWN_REASONS.map((r) => (
+                  <button
+                    key={r.key}
+                    type="button"
+                    onClick={() => {
+                      setAskReason(false);
+                      onRate!("down", r.key);
+                    }}
+                    className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-black/10 hover:bg-black/5 text-ink"
+                  >
+                    {isAr ? r.ar : r.en}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

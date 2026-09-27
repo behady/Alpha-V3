@@ -8,7 +8,7 @@ import type { Clinic } from "@/types/saas";
 import type { BotFacts } from "@/types/whatsapp";
 import { dossierLines, type PatientDossier } from "./patientDossier";
 import { strayDrugNames } from "./drugGuard";
-import { clinicAndPatientLayer, factLines, fixedPromptLayers, type AiPatientContext } from "./botPrompt";
+import { clinicAndPatientLayer, factLines, fixedPromptLayers, promptVersion, type AiPatientContext } from "./botPrompt";
 import { getRulebookCache } from "./rulebookCache";
 
 /**
@@ -496,6 +496,9 @@ export async function answerWithAi(args: {
         question: question.slice(0, 300),
         raw: raw.slice(0, 1000),
         mode: sales ? "sales" : "assisted",
+        model: MODEL,
+        promptVersion: promptVersion(promptInput.mode, promptInput.clinical, promptInput.canBook),
+        action: String(parsed?.action || ""),
         modelMs,
         slotsGiven: args.slots?.length ?? 0,
         threadLines: thread.length,
