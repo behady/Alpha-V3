@@ -36,7 +36,9 @@ export type OwnerAlertKey =
   | "appointment_delete"
   | "finance_add"
   | "finance_edit"
-  | "finance_delete";
+  | "finance_delete"
+  /** The evening three-line summary of the day, to the owner's number. */
+  | "daily_digest";
 
 export type WhatsAppOwnerAlerts = Partial<Record<OwnerAlertKey | string, boolean>>;
 

@@ -676,6 +676,8 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
       ownerNumber: language === "ar" ? "رقم واتساب المالك" : "Owner WhatsApp number",
       ownerHint: language === "ar" ? "صيغة دولية مفضلة (+2010...)" : "Prefer E.164 format (+2010...)",
       alertGrid: language === "ar" ? "قواعد التنبيه" : "Alert rules",
+      digest: language === "ar" ? "ملخص اليوم كل مساء" : "The day's summary every evening",
+      digestHint: language === "ar" ? "تلات سطور عن اليوم — الزيارات، الفلوس، واللي مستني — على رقم المالك كل مساء. نفس السطور اللي شاشة المالك بتوريها الصبح." : "Three lines about the day — visits, money, what is waiting — to the owner's number every evening. The same lines the owner's home shows next morning.",
       saved: language === "ar" ? "تم الحفظ" : "Saved",
       failed: language === "ar" ? "فشل الحفظ" : "Save failed",
       templateSaved: language === "ar" ? "تم تحديث القالب" : "Template updated",
@@ -2267,6 +2269,19 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
               className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-ink outline-none focus:bg-surface focus:border-accent focus:ring-2 focus:ring-accent/15"
             />
             <p className="text-xs text-ink-muted mt-1">{txt.ownerHint}</p>
+          </label>
+
+          <label className="flex items-start gap-3 rounded-xl border border-line bg-surface-subtle p-4 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-1 w-4 h-4 rounded border-line-strong text-accent focus:ring-accent cursor-pointer"
+              checked={Boolean(state.ownerAlerts.daily_digest)}
+              onChange={(e) => toggleOwnerAlert("daily_digest", e.target.checked)}
+            />
+            <span className="min-w-0">
+              <span className="block text-sm font-bold text-ink">{txt.digest}</span>
+              <span className="block text-xs text-ink-muted mt-0.5">{txt.digestHint}</span>
+            </span>
           </label>
 
           <div>

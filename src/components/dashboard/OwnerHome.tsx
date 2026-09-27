@@ -171,6 +171,26 @@ export default function OwnerHome() {
     return () => unsubs.forEach((u) => u());
   }, [clinicId, start, today]);
 
+  // Yesterday in three lines, written once a day and kept — the same text the evening WhatsApp sends.
+  const [summary, setSummary] = useState<{ en: string[]; ar: string[]; source: "ai" | "plain"; dateKey: string } | null>(null);
+  useEffect(() => {
+    if (!clinicId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        if (!token) return;
+        const res = await fetch(`/api/ai/owner-summary?clinicId=${encodeURIComponent(clinicId)}`, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json());
+        if (!cancelled && res?.ok && res.summary) setSummary(res.summary);
+      } catch {
+        /* the line is simply absent */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [clinicId]);
+
   // The debtors list has no live twin.
   const [dues, setDues] = useState<{ totalOwed: number; patients: number; rows: Array<{ patientId: string; patientName: string; totalOwed: number }> } | null>(null);
   useEffect(() => {
@@ -329,6 +349,17 @@ export default function OwnerHome() {
               </button>
             </div>
           </div>
+
+          {summary && (
+            <div className="mb-4 rounded-2xl bg-white/[0.06] px-4 py-3">
+              <span className={`${eyebrow} text-white/50`}>{isAr ? "إمبارح" : "Yesterday"} · {summary.dateKey}{summary.source === "ai" ? " · AI" : ""}</span>
+              <ul className="mt-1.5 flex flex-col gap-0.5">
+                {(isAr ? summary.ar : summary.en).map((line, i) => (
+                  <li key={i} className="text-[13.5px] font-semibold text-white/90 leading-snug">{line}</li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {!dayBrief ? (
             <div className="h-10 rounded-xl bg-white/[0.06] animate-pulse" aria-hidden="true" />
