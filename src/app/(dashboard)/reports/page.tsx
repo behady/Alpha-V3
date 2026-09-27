@@ -1,15 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import {
-  Loader2, RefreshCw, Stethoscope, UserCheck, Network, Building2, CalendarDays, Megaphone,
-  Wallet,
-  TableProperties,
-} from "lucide-react";
-import { db } from "@/lib/firebase";
-import { collection, getDocs, query, where, Timestamp } from "firebase/firestore";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Loader2, RefreshCw, CalendarDays, Lock } from "lucide-react";
+import { getDocs, query, where, Timestamp } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
-import { useAuth } from "@/context/AuthContext";
 import PermissionGuard from "@/components/PermissionGuard";
 import PageHeader, { headerButtonPrimary } from "@/components/dashboard/PageHeader";
 import {
@@ -17,19 +11,13 @@ import {
   type DateRange, type RangePreset,
 } from "@/lib/reportHelpers";
 import { useClinic } from "@/context/ClinicContext";
-
-import ServiceReport from "@/components/reports/ServiceReport";
-import DentistReport from "@/components/reports/DentistReport";
-import SourceReport from "@/components/reports/SourceReport";
-import ClinicReport from "@/components/reports/ClinicReport";
-import LeadFunnelReport from "@/components/reports/LeadFunnelReport";
-import PayerReport from "@/components/reports/PayerReport";
-import CaseSheetReport from "@/components/reports/CaseSheetReport";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
-import FeatureGate from "@/components/FeatureGate";
-
-type ReportTab = "service" | "dentist" | "source" | "payers" | "cases" | "leads" | "clinic";
+import { getClinicCollection } from "@/lib/db-utils";
+import FeatureGate, { FeatureLocked } from "@/components/FeatureGate";
+import { isUnlocked } from "@/lib/featureCatalog";
+import { REPORTS, REPORT_GROUPS, reportById, type ReportGroupId } from "@/components/reports/registry";
+import { useReportData, type Row } from "@/components/reports/useReportData";
+import { ReportState } from "@/components/reports/reportKit";
 
 function normalizeDate(val: unknown): string {
   if (!val) return "1970-01-01";
@@ -45,20 +33,27 @@ function normalizeDate(val: unknown): string {
 }
 
 interface Snapshot {
-  procedures: Record<string, unknown>[];
-  payments: Record<string, unknown>[];
-  allPatients: { id: string; name?: string; phone?: string; referral?: string; source?: string; createdAt?: unknown }[];
-  leads: Record<string, unknown>[];
+  procedures: Row[];
+  payments: Row[];
+  allPatients: Row[];
+  leads: Row[];
+}
+
+/** The report named in the URL, so a tab can be linked to and comes back after a reload. */
+function reportFromUrl(): string | null {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get("report");
 }
 
 function ReportsPage() {
   const { language } = useLanguage();
-  const { user } = useAuth();
   const isAr = language === "ar";
 
-  const [tab, setTab] = useState<ReportTab>("service");
+  const [reportId, setReportId] = useState<string>(() => reportFromUrl() || "clinic");
+  const report = reportById(reportId);
+  const [group, setGroup] = useState<ReportGroupId>(report.group);
   const { payers } = usePricingPolicy();
-  const { clinicId } = useClinic();
+  const { clinicId, clinic } = useClinic();
   /**
    * ONE piece of state, not two.
    *
@@ -74,6 +69,20 @@ function ReportsPage() {
 
   const preset = presetOf(range);
   const rangeLabel = rangeText(range, isAr);
+  const today = getToday();
+
+  // The report's extra data, fetched when it is opened and remembered for this range.
+  const extras = useReportData(report.needs, range, clinicId);
+
+  const pick = (id: string) => {
+    setReportId(id);
+    setGroup(reportById(id).group);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("report", id);
+      window.history.replaceState(null, "", url.toString());
+    }
+  };
 
   const buildSnapshot = useCallback(async () => {
     setLoading(true);
@@ -88,8 +97,8 @@ function ReportsPage() {
       // were only ever reachable through the `r.date || r.createdAt` fallback below, and a money
       // row with no date cannot be attributed to a period honestly anyway.
       //
-      // patients and staff stay whole: new-vs-returning classification needs every patient's
-      // creation date, name lookups need every staff member, and both collections are small.
+      // patients stay whole: new-vs-returning classification needs every patient's creation date,
+      // and the collection is small.
       const leadsFrom = Timestamp.fromDate(new Date(`${startDate}T00:00:00`));
       const leadsTo = Timestamp.fromDate(new Date(`${endDate}T23:59:59.999`));
 
@@ -111,16 +120,10 @@ function ReportsPage() {
         ),
       ]);
 
-      // The whole `staff` collection used to be read here on every range change, filtered into a
-      // set of dentist names, and then thrown away with a `void` — dentists are named off the
-      // ledger rows instead. It was a full collection read per keystroke, for nothing.
-      const allPatients = patientsSnap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-      })) as { id: string; name?: string; phone?: string; referral?: string; source?: string; createdAt?: unknown }[];
+      const allPatients = patientsSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as Row[];
 
       const allLedger = ledgerSnap.docs
-        .map((d) => ({ id: d.id, ...d.data() } as Record<string, unknown>))
+        .map((d) => ({ id: d.id, ...d.data() } as Row))
         .filter((r) => !["deleted", "cancelled"].includes(String(r.status || "").toLowerCase()));
 
       const inRange = (d: string) => d >= startDate && d <= endDate;
@@ -136,7 +139,7 @@ function ReportsPage() {
         .filter((r) => inRange(r.normDate as string));
 
       const leads = leadsSnap.docs
-        .map((d) => ({ id: d.id, ...d.data() } as Record<string, unknown>))
+        .map((d) => ({ id: d.id, ...d.data() } as Row))
         .map((l) => ({ ...l, normDate: normalizeDate(l.createdAt) }))
         .filter((l) => inRange(l.normDate as string));
 
@@ -163,27 +166,12 @@ function ReportsPage() {
     buildSnapshot();
   }, [buildSnapshot]);
 
-  /**
-   * The seven tabs, with no colour of their own.
-   *
-   * Each used to carry a pastel chip — blue, emerald, cyan, rose, slate, amber, violet — which is
-   * the templated-dashboard rainbow the app's own rule forbids: chrome stays achromatic so that
-   * colour only ever names a destination. Seven colours name nothing.
-   */
-  const tabs: { id: ReportTab; label: string; labelAr: string; icon: React.ElementType }[] = [
-    { id: "service", label: "Service Analysis", labelAr: "تحليل الخدمات", icon: Stethoscope },
-    { id: "dentist", label: "Dentist Performance", labelAr: "أداء الأطباء", icon: UserCheck },
-    { id: "source", label: "Patient Sources", labelAr: "مصادر المرضى", icon: Network },
-    // Separate from Patient Sources on purpose: that one is marketing — where a patient heard about
-    // the clinic. This one is who is paying for the work, which is a different question with a
-    // different answer for the same patient.
-    { id: "payers", label: "Insurance & Payers", labelAr: "التأمين وجهات الدفع", icon: Wallet },
-    // The one report that groups nothing: a line per case, filterable down to the rows being
-    // argued about. It is what the others get checked against.
-    { id: "cases", label: "Case Sheet", labelAr: "سجل الحالات", icon: TableProperties },
-    { id: "leads", label: "Marketing Funnel", labelAr: "قمع التسويق", icon: Megaphone },
-    { id: "clinic", label: "Clinic Overview", labelAr: "نظرة عامة", icon: Building2 },
-  ];
+  const refresh = () => {
+    extras.invalidate();
+    buildSnapshot();
+    // Re-run the extras fetch for the open report by nudging the range object identity.
+    setRange((r) => ({ ...r }));
+  };
 
   const presets: { id: Exclude<RangePreset, "custom">; en: string; ar: string }[] = [
     { id: "today", en: "Today", ar: "النهارده" },
@@ -193,6 +181,10 @@ function ReportsPage() {
     { id: "quarter", en: "This quarter", ar: "الربع ده" },
     { id: "year", en: "This year", ar: "السنة دي" },
   ];
+
+  const inGroup = useMemo(() => REPORTS.filter((r) => r.group === group), [group]);
+  const locked = report.feature ? !isUnlocked(clinic, report.feature) : false;
+  const ledger = useMemo(() => (snapshot ? [...snapshot.procedures, ...snapshot.payments] : []), [snapshot]);
 
   return (
     <PermissionGuard permission="access.reports">
@@ -238,45 +230,70 @@ function ReportsPage() {
               onChange={(e) => setRange((r) => ({ ...r, end: e.target.value }))}
               className="cursor-pointer rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm font-bold text-white outline-none [color-scheme:dark] focus:border-white/40"
             />
-            <button type="button" onClick={buildSnapshot} disabled={loading} className={headerButtonPrimary}>
+            <button type="button" onClick={refresh} disabled={loading} className={headerButtonPrimary}>
               {loading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
               {isAr ? "تحديث" : "Refresh"}
             </button>
           </PageHeader>
 
           {/*
-            Seven tiles in a five-column grid left a two-thirds-empty second row on a desktop and
-            a screen and a half of navigation to scroll past on a phone — before a single number.
-            A pill rail instead: one row, one label each, scrolling sideways when it has to.
-
-            The second label went with them. It was the raw English tab id — "Payers", "Cases" —
-            printed above the translated one, so an Arabic reader got an English word they never
-            asked for over the Arabic they did.
+            Two rails. Twenty-seven reports in one row is a wall; grouped by the question being
+            asked they are five words, and then a handful of reports under the chosen one. The
+            group rail keeps the tour anchor the old rail had.
           */}
-          <div
-            data-tour="reports-tabs"
-            className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1 pb-1"
-          >
-            {tabs.map((t) => {
-              const Icon = t.icon;
-              const active = tab === t.id;
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setTab(t.id)}
-                  aria-current={active ? "page" : undefined}
-                  className={`flex shrink-0 items-center gap-2 rounded-full px-4 py-2.5 text-[13px] font-bold transition-colors ${
-                    active
-                      ? "bg-ink-slab text-white"
-                      : "border border-line bg-surface text-ink-body hover:bg-surface-muted"
-                  }`}
-                >
-                  <Icon size={15} className={active ? "text-white/70" : "text-ink-muted"} />
-                  {isAr ? t.labelAr : t.label}
-                </button>
-              );
-            })}
+          <div className="space-y-3">
+            <div
+              data-tour="reports-tabs"
+              className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1 pb-1"
+            >
+              {REPORT_GROUPS.map((g) => {
+                const Icon = g.icon;
+                const active = group === g.id;
+                return (
+                  <button
+                    key={g.id}
+                    type="button"
+                    onClick={() => {
+                      setGroup(g.id);
+                      const first = REPORTS.find((r) => r.group === g.id);
+                      if (first && report.group !== g.id) pick(first.id);
+                    }}
+                    aria-current={active ? "page" : undefined}
+                    className={`flex shrink-0 items-center gap-2 rounded-full px-4 py-2.5 text-[13px] font-bold transition-colors ${
+                      active
+                        ? "bg-ink-slab text-white"
+                        : "border border-line bg-surface text-ink-body hover:bg-surface-muted"
+                    }`}
+                  >
+                    <Icon size={15} className={active ? "text-white/70" : "text-ink-muted"} />
+                    {isAr ? g.ar : g.en}
+                    <span className={`font-figure text-[11px] ${active ? "text-white/50" : "text-ink-faint"}`}>{REPORTS.filter((r) => r.group === g.id).length}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="no-scrollbar -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+              {inGroup.map((r) => {
+                const Icon = r.icon;
+                const active = report.id === r.id;
+                const isLocked = r.feature ? !isUnlocked(clinic, r.feature) : false;
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => pick(r.id)}
+                    aria-current={active ? "page" : undefined}
+                    title={isAr ? r.hintAr : r.hintEn}
+                    className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-[12.5px] font-bold transition-colors ${
+                      active ? "bg-surface-muted text-ink ring-1 ring-line" : "text-ink-muted hover:bg-surface-subtle hover:text-ink"
+                    }`}
+                  >
+                    {isLocked ? <Lock size={13} className="text-ink-faint" /> : <Icon size={14} className={active ? "text-ink" : "text-ink-faint"} />}
+                    {isAr ? r.ar : r.en}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* A failure is its own state now, and says what went wrong. */}
@@ -299,90 +316,42 @@ function ReportsPage() {
               a spinner card, so every tweak of a date collapsed the page to a small box and then
               threw it back open — a jump on the most common interaction this screen has.
             */
-            <div className={`bg-surface rounded-3xl border border-line shadow-sm p-6 transition-opacity ${loading ? "pointer-events-none opacity-50" : "opacity-100"}`}>
+            <div className={`bg-surface rounded-3xl border border-line shadow-sm p-6 transition-opacity ${loading || extras.loading ? "pointer-events-none opacity-50" : "opacity-100"}`}>
               {/* Which report, and over what — said once, in words, rather than twice in ISO. */}
-              <div className="flex items-center justify-between gap-3 mb-6">
-                <h2 className="text-base font-black text-ink">
-                  {isAr
-                    ? tabs.find((t) => t.id === tab)?.labelAr
-                    : tabs.find((t) => t.id === tab)?.label}
-                </h2>
+              <div className="flex items-start justify-between gap-3 mb-6">
+                <div>
+                  <h2 className="text-base font-black text-ink">{isAr ? report.ar : report.en}</h2>
+                  <p className="text-[12px] font-semibold text-ink-muted">{isAr ? report.hintAr : report.hintEn}</p>
+                </div>
                 <span className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-surface-muted px-3 py-1.5 text-xs font-bold text-ink-body">
-                  {loading ? <Loader2 size={12} className="animate-spin" /> : <CalendarDays size={12} />}
-                  {rangeLabel}
+                  {loading || extras.loading ? <Loader2 size={12} className="animate-spin" /> : <CalendarDays size={12} />}
+                  {report.allTime ? (isAr ? "كل الفترة" : "All time") : rangeLabel}
                 </span>
               </div>
 
-              {/* Every grouped tab gets the patient list, so any figure can be opened to the
-                  names it is made of — see components/reports/PatientDrilldown. */}
-              {tab === "service" && (
-                <ServiceReport
-                  procedures={snapshot.procedures}
-                  payments={snapshot.payments}
-                  allPatients={snapshot.allPatients}
-                  rangeLabel={rangeLabel}
-                  isAr={isAr}
-                />
-              )}
-
-              {tab === "dentist" && (
-                <DentistReport
-                  procedures={snapshot.procedures}
-                  payments={snapshot.payments}
-                  allPatients={snapshot.allPatients}
-                  rangeLabel={rangeLabel}
-                  isAr={isAr}
-                />
-              )}
-
-              {tab === "source" && (
-                <SourceReport
-                  procedures={snapshot.procedures}
-                  payments={snapshot.payments}
-                  allPatients={snapshot.allPatients}
-                  rangeLabel={rangeLabel}
-                  isAr={isAr}
-                />
-              )}
-
-              {tab === "payers" && (
-                <PayerReport
-                  procedures={snapshot.procedures}
-                  payments={snapshot.payments}
-                  payers={payers}
-                  rangeLabel={rangeLabel}
-                  isAr={isAr}
-                />
-              )}
-
-              {tab === "cases" && (
-                <CaseSheetReport
-                  procedures={snapshot.procedures}
-                  payments={snapshot.payments}
-                  rangeLabel={rangeLabel}
-                  isAr={isAr}
-                />
-              )}
-
-              {tab === "leads" && (
-                <LeadFunnelReport
-                  leads={snapshot.leads}
-                  payments={snapshot.payments}
-                  rangeLabel={rangeLabel}
-                  isAr={isAr}
-                />
-              )}
-
-              {tab === "clinic" && (
-                <ClinicReport
-                  procedures={snapshot.procedures}
-                  payments={snapshot.payments}
-                  allPatients={snapshot.allPatients}
-                  startDate={startDate}
-                  endDate={endDate}
-                  rangeLabel={rangeLabel}
-                  isAr={isAr}
-                />
+              {locked && report.feature ? (
+                <FeatureLocked feature={report.feature} />
+              ) : extras.error ? (
+                <ReportState kind="error" isAr={isAr} text={extras.error} />
+              ) : extras.loading && report.needs.some((k) => !extras.data[k]) ? (
+                <ReportState kind="loading" isAr={isAr} />
+              ) : (
+                <div key={report.id}>
+                  {report.render({
+                    procedures: snapshot.procedures,
+                    payments: snapshot.payments,
+                    ledger,
+                    allPatients: snapshot.allPatients,
+                    leads: snapshot.leads,
+                    range,
+                    rangeLabel,
+                    today,
+                    isAr,
+                    clinic,
+                    data: extras.data,
+                    payers,
+                  })}
+                </div>
               )}
             </div>
           )}
