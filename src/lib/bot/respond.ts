@@ -1670,16 +1670,17 @@ ${askWho}` : askWho;
     }
   }
   /*
-   * The line under every photo reading, written by code so the model cannot forget it: what it
-   * said is an impression from a picture, not a diagnosis, and the exam and x-ray decide.
+   * The line after every photo reading, written by code so the model cannot forget it: what it
+   * said is an impression from a picture, not a diagnosis, and the exam and x-ray decide. Sent
+   * as its OWN bubble a few seconds after the reading — the owner's first live photo reply was
+   * five paragraphs in one bubble, and the verdict was "too much in one message".
    */
+  let trailerBubble = "";
   if (reason === "ai_answer" && args.media === "image" && args.mediaNote?.impression && replyText.trim()) {
     const latinReply = /[A-Za-z]/.test(replyText) && !/[؀-ۿ]/.test(replyText);
-    const disclaimer = latinReply
-      ? "⚠️ This is a first impression from the photo, not a final diagnosis. A photo alone is never enough — a clinical exam and an x-ray are a must before anything is decided."
-      : "⚠️ ده انطباع مبدئي من الصورة مش تشخيص نهائي. الصورة لوحدها مش كفاية أبداً — لازم كشف إكلينيكي وأشعة قبل ما نقرر أي حاجة.";
-    replyText = `${replyText}\n\n${disclaimer}`;
-    if (structure) structure = { ...structure, body: `${structure.body}\n\n${disclaimer}` };
+    trailerBubble = latinReply
+      ? "⚠️ An impression from the photo, not a diagnosis — an exam and an x-ray are a must."
+      : "⚠️ ده انطباع من الصورة مش تشخيص — لازم كشف وأشعة.";
   }
 
   if (phone && !args.dryRun && ((!args.media && text.trim()) || args.mediaNote?.interest)) {
@@ -1920,7 +1921,9 @@ ${askWho}` : askWho;
    * first paragraph break — the way a receptionist actually types on a phone. Lists and button
    * messages are never split; the playground skips the waits.
    */
-  const pace = settings.humanTouch && !args.dryRun && !args.media;
+  // A photo the model answered is a text turn in every way that matters here: it paces and
+  // splits like one. Other media turns are the fixed one-liners and stay as they are.
+  const pace = settings.humanTouch && !args.dryRun && (!args.media || photoToModel);
   let secondBubble = "";
   if (pace && !structure && body.length > 180) {
     const cut = body.indexOf("\n\n", Math.min(80, body.length));
@@ -1956,6 +1959,11 @@ ${askWho}` : askWho;
       await new Promise((r) => setTimeout(r, Math.min(7000, 1500 + secondBubble.length * 30)));
       await sendPatientWhatsAppRich(clinicId, replyTo, secondBubble, undefined);
       await recordThreadMessage(clinicId, replyTo, { direction: "out", author: "bot", text: secondBubble, kind: reason }, Date.now()).catch(() => {});
+    }
+    if (trailerBubble && !args.dryRun) {
+      await new Promise((r) => setTimeout(r, pace ? 2500 : 0));
+      await sendPatientWhatsAppRich(clinicId, replyTo, trailerBubble, undefined);
+      await recordThreadMessage(clinicId, replyTo, { direction: "out", author: "bot", text: trailerBubble, kind: "photo_disclaimer" }, Date.now()).catch(() => {});
     }
     // The file the model chose to attach: a before/after photo, the price sheet. After the words.
     // Cast: the assignment happens inside the action dispatch and TS's flow analysis loses it here.
