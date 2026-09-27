@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // A separate Node service with its own package.json; not part of the Next.js app.
+    "whatsapp-gateway/**",
   ]),
   {
     rules: {
