@@ -65,6 +65,8 @@ export interface UiPreferences {
    * only matters for the person who wears both hats.
    */
   homeView: "desk" | "chair" | "owner";
+  /** The period the owner's home opened on last time — today, this week or this month. */
+  ownerPeriod: "day" | "week" | "month";
 }
 
 export const UI_PREFERENCE_DEFAULTS: UiPreferences = {
@@ -78,6 +80,7 @@ export const UI_PREFERENCE_DEFAULTS: UiPreferences = {
   clinicalNoteGrouping: "flat",
   clinicalNoteDensity: "detailed",
   homeView: "desk",
+  ownerPeriod: "month",
 };
 
 const oneOf =
@@ -104,6 +107,7 @@ const VALIDATORS: { [K in keyof UiPreferences]: (value: unknown) => value is UiP
   clinicalNoteGrouping: isClinicalNoteGrouping as (value: unknown) => value is ClinicalNoteGrouping,
   clinicalNoteDensity: isClinicalNoteDensity as (value: unknown) => value is ClinicalNoteDensity,
   homeView: oneOf("desk", "chair", "owner"),
+  ownerPeriod: oneOf("day", "week", "month"),
 };
 
 /** The localStorage key each preference has always used. Renaming one silently resets it. */
@@ -118,6 +122,7 @@ const LOCAL_KEYS: Record<keyof UiPreferences, string> = {
   clinicalNoteGrouping: "clinicalNoteGrouping",
   clinicalNoteDensity: "clinicalNoteDensity",
   homeView: "homeView",
+  ownerPeriod: "ownerPeriod",
 };
 
 /** An older key for the clinical editor, still on the machines of anyone who set it back then. */

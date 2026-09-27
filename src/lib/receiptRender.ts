@@ -264,7 +264,7 @@ const FONT_FAMILIES: Record<ReceiptSettings["font"], { css: string; google: stri
   "ibm-plex": { css: "'IBM Plex Sans Arabic', Tahoma, sans-serif", google: "IBM+Plex+Sans+Arabic:wght@400;500;600;700" },
 };
 
-const LOGO_PX: Record<ReceiptSettings["logoSize"], { h: number; w: number }> = {
+const LOGO_PX: Record<Exclude<ReceiptSettings["logoSize"], "custom">, { h: number; w: number }> = {
   none: { h: 0, w: 0 },
   small: { h: 36, w: 90 },
   medium: { h: 52, w: 130 },
@@ -283,13 +283,36 @@ function buildCss(s: ReceiptSettings): string {
   const font = FONT_FAMILIES[s.font].css;
   const thermal = s.template === "thermal" || s.paper === "thermal80";
   const pageSize = thermal ? "80mm auto" : s.paper === "a5" ? "A5 portrait" : "A4 portrait";
+  const pageMargin = thermal ? "4mm 3mm" : s.paper === "a5" ? "10mm 10mm" : "12mm 14mm";
+  const printableWidth = thermal ? "74mm" : s.paper === "a5" ? "128mm" : "182mm";
   const accent = s.accent;
   const soft = tint(accent, 0.92);
   const softer = tint(accent, 0.96);
 
   const base = `
-    @page { size: ${pageSize}; margin: 0; }
+    @page { size: ${pageSize}; margin: ${pageMargin}; }
     html, body { margin: 0; padding: 0; background: #fff; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    /*
+     * Printing: the page carries the margins, and the body is exactly the printable width. Without
+     * this, a tablet lays the receipt out at its screen width and shrinks the whole sheet to fit,
+     * so the paper came out with a receipt half its size in the middle.
+     */
+    @media print {
+      html, body { width: ${printableWidth}; }
+      .r { width: ${printableWidth}; max-width: none; margin: 0; padding: 0; }
+    }
+    /*
+     * Page breaks at the end of the document. Each block below stays whole, and the footer is
+     * glued to whichever block comes last, so a page never ends with the footer alone on it (the
+     * original tablet printout) — and the totals are not dragged onto a fresh page along with a
+     * tax block that would have fitted on its own.
+     */
+    .keep { break-inside: avoid; page-break-inside: avoid; }
+    .ft { break-before: avoid; page-break-before: avoid; }
+    /* A section title stays with its table: a heading alone at the foot of a page announces nothing. */
+    h4 { break-after: avoid; page-break-after: avoid; }
+    /* Each contact item wraps as a unit, so a long address moves to the next line whole. */
+    .hd .contact > span { display: inline-block; }
     * { font-family: ${font} !important; box-sizing: border-box; }
     .r { color: #111827; margin: 0 auto; }
     table { border-collapse: collapse; width: 100%; page-break-inside: auto; }
@@ -305,6 +328,17 @@ function buildCss(s: ReceiptSettings): string {
     [dir="ltr"] .num { text-align: right; }
     .lbl { font-size: 10px; font-weight: 700; letter-spacing: .02em; }
     .hd .left { flex: 1 1 auto; }
+    /* Logo above the header, centred. */
+    .logo-top { display: flex; justify-content: center; margin: 0 0 14px; }
+    /* Logo on the title side, pushed to that side's edge. */
+    .logo-title { display: flex; justify-content: flex-start; margin-bottom: 8px; }
+    [dir="ltr"] .logo-title { justify-content: flex-end; }
+    /* Letterhead: everything centred, the title row below the name. */
+    .hd.banner { flex-direction: column; align-items: center; text-align: center; gap: 10px; }
+    .hd.banner .left { justify-content: center; text-align: center; }
+    .hd.banner .contact { justify-content: center; }
+    .hd.banner .right { max-width: none; margin: 0; text-align: center; }
+    .hd.banner .title, [dir="ltr"] .hd.banner .title { text-align: center; }
     .hd .right { flex: 0 0 auto; max-width: 46%; margin-inline-start: 18px; }
     .hd .name { overflow-wrap: anywhere; }
     .meta { white-space: nowrap; }
@@ -381,7 +415,7 @@ function buildCss(s: ReceiptSettings): string {
       .eta .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 24px; }
       .eta .row { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
       .eta .row span:last-child { text-align: left; } [dir="ltr"] .eta .row span:last-child { text-align: right; }
-      .ft { margin-top: 30px; padding-top: 12px; border-top: 1px solid #e5e7eb; text-align: center; font-size: 10px; color: #9ca3af; }
+      .ft { margin-top: 22px; padding-top: 12px; border-top: 1px solid #e5e7eb; text-align: center; font-size: 10px; color: #9ca3af; }
     `;
   }
 
@@ -415,7 +449,7 @@ function buildCss(s: ReceiptSettings): string {
       .eta .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 24px; }
       .eta .row { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
       .eta .row span:last-child { text-align: left; } [dir="ltr"] .eta .row span:last-child { text-align: right; }
-      .ft { margin-top: 36px; text-align: center; font-size: 9.5px; color: #9ca3af; letter-spacing: .04em; }
+      .ft { margin-top: 26px; text-align: center; font-size: 9.5px; color: #9ca3af; letter-spacing: .04em; }
     `;
   }
 
@@ -449,7 +483,7 @@ function buildCss(s: ReceiptSettings): string {
     .eta .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 24px; }
     .eta .row { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
     .eta .row span:last-child { text-align: left; } [dir="ltr"] .eta .row span:last-child { text-align: right; }
-    .ft { margin-top: 40px; padding-top: 16px; border-top: 1px solid #f3f4f6; text-align: center; font-size: 10px; color: #9ca3af; }
+    .ft { margin-top: 26px; padding-top: 14px; border-top: 1px solid #f3f4f6; text-align: center; font-size: 10px; color: #9ca3af; }
   `;
 }
 
@@ -474,11 +508,15 @@ export function buildDentalReceiptSrcDoc(
     en ? line.replace(/^الطبيب:\s*/, `${LABELS.doctor.en}: `) : line;
 
   // --- header -------------------------------------------------------------------------------
-  const logoBox = LOGO_PX[s.logoSize];
+  // Custom size: the height is the setting; the width is free up to three times it, so a wide
+  // wordmark and a square badge both come out at the height the clinic chose.
+  const logoBox = s.logoSize === "custom" ? { h: s.logoHeight, w: s.logoHeight * 3 } : LOGO_PX[s.logoSize];
   const logoImg =
     s.logoSize === "none"
       ? ""
       : logoImgHtml(p.logo, logoBox.h, logoBox.w);
+  // The roll has one column, so the logo is always centred there.
+  const placement = thermal ? "top" : s.logoPlacement;
 
   const contact: string[] = [];
   if (show.clinicPhone && p.clinicPhone) contact.push(`<span class="ltr nw">${LRM}${esc(p.clinicPhone)}</span>`);
@@ -503,15 +541,31 @@ export function buildDentalReceiptSrcDoc(
         <div class="title">${title}</div>
         ${metaHtml}
       </div>`
-    : `<div class="hd">
+    : placement === "banner"
+      ? `${logoImg ? `<div class="logo-top">${logoImg}</div>` : ""}
+      <div class="hd banner">
         <div class="left">
-          ${logoImg ? `<div class="logo">${logoImg}</div>` : ""}
           <div style="min-width:0;">
             <div class="name">${esc(p.clinicName)}</div>
             <div class="contact">${contactHtml}</div>
           </div>
         </div>
         <div class="right">
+          <div class="title">${title}</div>
+          ${metaHtml}
+        </div>
+      </div>`
+      : `${placement === "top" && logoImg ? `<div class="logo-top">${logoImg}</div>` : ""}
+      <div class="hd">
+        <div class="left">
+          ${placement === "name" && logoImg ? `<div class="logo">${logoImg}</div>` : ""}
+          <div style="min-width:0;">
+            <div class="name">${esc(p.clinicName)}</div>
+            <div class="contact">${contactHtml}</div>
+          </div>
+        </div>
+        <div class="right">
+          ${placement === "title" && logoImg ? `<div class="logo logo-title">${logoImg}</div>` : ""}
           <div class="title">${title}</div>
           ${metaHtml}
         </div>
@@ -719,10 +773,9 @@ export function buildDentalReceiptSrcDoc(
   ${noteHtml}
   ${patientHtml}
   ${itemsHtml}
-  ${totalsHtml}
-  ${etaHtml}
-  ${sigHtml}
-  ${footerHtml}
+  ${etaHtml
+    ? `<div class="keep">${totalsHtml}</div><div class="keep">${etaHtml}${sigHtml}${footerHtml}</div>`
+    : `<div class="keep">${totalsHtml}${sigHtml}${footerHtml}</div>`}
 </div></body>
 </html>`;
 }

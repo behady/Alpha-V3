@@ -18,7 +18,8 @@ import type { ReportKind, ResolvedReportPrefs } from "@/lib/notificationCatalog"
  */
 
 export interface StaffReportInput {
-  kind: ReportKind;
+  /** The AI three-liner ("summary") is composed in lib/ownerSummaryText, not here. */
+  kind: Exclude<ReportKind, "summary">;
   clinicName: string;
   /** The briefing for the day the report is about (today, for both the morning brief and the close-out). */
   today: Briefing;
@@ -312,7 +313,7 @@ export function renderStaffReport(input: StaffReportInput): string {
 }
 
 /** The one-line push that accompanies a report, so the phone buzz says something. */
-export function reportPushLine(kind: ReportKind, b: Briefing, l: L): { title: string; body: string } {
+export function reportPushLine(kind: Exclude<ReportKind, "summary">, b: Briefing, l: L): { title: string; body: string } {
   if (kind === "evening") {
     const parts = [
       b.money ? money(b.money.collected, l) : null,

@@ -96,7 +96,7 @@ export interface NotifyTiming {
 }
 
 /** Which of the scheduled reports an event is, when it is one. Decides what the WhatsApp text contains. */
-export type ReportKind = "morning" | "evening" | "dentistDay";
+export type ReportKind = "morning" | "evening" | "dentistDay" | "summary";
 
 export interface NotifyEvent {
   id: string;
@@ -526,6 +526,23 @@ export const NOTIFY_EVENTS: readonly NotifyEvent[] = [
     rolesMax: ["Owner", "Admin"],
     bell: true,
     push: true,
+    timings: [{ key: "hour", kind: "hourOfDay", en: "Send at", ar: "ابعت الساعة", fallback: 21, min: 0, max: 23 }],
+  },
+
+  {
+    id: "ownerSummary",
+    group: "reports",
+    waReady: true,
+    report: "summary",
+    legacyOwnerKey: "daily_digest",
+    en: "The day in three lines",
+    ar: "اليوم في تلات سطور",
+    whenEn: "Three sentences about the day, written by the AI from the day's figures — the same lines the owner's home shows next morning. One AI credit a day; without credits, the plain version.",
+    whenAr: "تلات جمل عن اليوم، الذكاء الاصطناعي بيكتبها من أرقام اليوم — نفس السطور اللي شاشة المالك بتوريها الصبح. رصيد ذكاء اصطناعي واحد في اليوم؛ ومن غير رصيد، النسخة العادية.",
+    roles: ["Owner"],
+    rolesMax: ["Owner", "Admin"],
+    bell: false,
+    push: false,
     timings: [{ key: "hour", kind: "hourOfDay", en: "Send at", ar: "ابعت الساعة", fallback: 21, min: 0, max: 23 }],
   },
 

@@ -1139,6 +1139,24 @@ const SETTINGS_NARRATION: Record<string, SettingsNarration> = {
     knowledge:
       "Connect an AI app (/settings/ai-connector, admin): issues and revokes keys for the clinic's MCP endpoint (/api/mcp). A key gives an outside assistant full clinic access as its creator; revoking it cuts access immediately. Keys are stored server-side only.",
   },
+  receipt: {
+    say: {
+      en: "The receipt: how the paper a patient is handed looks, what it shows, and the Tax Authority e-receipt details for clinics that have them.",
+      ar: "الإيصال: شكل الورقة اللي المريض بياخدها، بتوري إيه، وبيانات الإيصال الإلكتروني بتاع الضرايب للعيادات اللي عندها.",
+    },
+    ask: [{ en: "Do I need the Tax Authority details?", ar: "لازم أدخل بيانات الضرايب؟" }],
+    knowledge:
+      "Receipt (/settings/receipt, admin): receipt layout and numbering, and the Egyptian Tax Authority e-receipt fields. The e-receipt is print-layout only until the clinic has credentials.",
+  },
+  targets: {
+    say: {
+      en: "Monthly targets: the cash and the new-patient numbers you want each month. The owner's home shows how far along the month you are against them, and whether you are on pace.",
+      ar: "الأهداف الشهرية: الكاش وعدد المرضى الجدد اللي عايزهم كل شهر. شاشة المالك بتوريك وصلت فين في الشهر بالنسبة ليهم، وإنت ماشي على الخطة ولا لأ.",
+    },
+    ask: [{ en: "What is a sensible monthly target?", ar: "إيه الهدف الشهري المعقول؟" }],
+    knowledge:
+      "Monthly targets (/settings/targets, admin): settings/targets holds monthlyRevenue and monthlyNewPatients. The owner's home draws a progress bar for each, with the expected pace for the day of the month; 0 hides a bar.",
+  },
   recently_deleted: {
     say: {
       en: "The bin. Anything deleted — a patient, an appointment, a payment — waits here until you restore it or remove it for good. Nothing in this system disappears on one click.",

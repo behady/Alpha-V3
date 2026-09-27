@@ -124,6 +124,12 @@ const read = (rel: string) => readFileSync(join(REPO, rel), "utf8");
     for (const m of text.matchAll(/LAB_READY_EVENT = "([a-zA-Z]+)"/g)) raised.add(m[1]);
   }
 
+  // The scheduled reports are sent by the hourly tick, which walks the catalogue's report events
+  // rather than naming each one.
+  const reportsTick = read("src/lib/reports/sendStaffReport.ts");
+  ok(/reportEvents\(\)/.test(reportsTick), "the reports tick no longer walks reportEvents(); a new report would never be sent");
+  for (const e of NOTIFY_EVENTS) if (e.report) raised.add(e.id);
+
   for (const id of raised) {
     ok(notifyEvent(id), `something sends "${id}", which is not in the catalogue — it cannot be switched off or seen`);
   }

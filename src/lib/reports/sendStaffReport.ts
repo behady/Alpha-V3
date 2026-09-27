@@ -18,6 +18,8 @@ import {
   type DeliverResult,
 } from "@/lib/notificationDelivery";
 import { renderStaffReport, reportPushLine } from "@/lib/reports/staffReportText";
+import { getOrWriteOwnerSummary } from "@/lib/ownerSummary";
+import { digestMessage } from "@/lib/ownerSummaryText";
 
 /**
  * The scheduled reports, on WhatsApp.
@@ -107,6 +109,30 @@ export async function sendStaffReport(args: SendStaffReportArgs): Promise<Delive
   const prefs = await readAlertPreferences(clinicId);
   const rp = reportPrefs(event.id, prefs);
   const full: BriefingAccess = { money: true, hr: true };
+
+  /*
+   * The AI three-liner. Written once per day and stored (lib/ownerSummary), so the owner's home
+   * next morning and this evening's WhatsApp are the same text and the credit is spent once.
+   * Owner and Admin only by its role ceiling, so no per-reader redaction is needed.
+   */
+  if (kind === "summary") {
+    const [name, summary] = await Promise.all([clinicName(clinicId), getOrWriteOwnerSummary(clinicId, today)]);
+    const lines = rp.language === "ar" ? summary.ar : summary.en;
+    const text = digestMessage(summary.facts, lines, name, rp.language);
+    const title = args.test ? `🧪 ${name}` : name;
+    return deliverClinicNotification(
+      clinicId,
+      { title, body: lines[0] || "" },
+      {
+        event: event.id,
+        ...(args.uids ? { uids: args.uids } : {}),
+        whatsappOnly: !args.test,
+        ...(args.allowOutsiders ? { allowOutsiders: true } : {}),
+        data: { screen: "money" },
+        whatsappText: text,
+      },
+    );
+  }
 
   const [name, todayBriefing, yesterdayBriefing, handoffs, staff] = await Promise.all([
     clinicName(clinicId),

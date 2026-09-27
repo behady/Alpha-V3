@@ -64,7 +64,7 @@ function eq<T>(actual: T, expected: T, message: string) {
     false,
     "the clinic's new answer does not beat the old grid",
   );
-  for (const key of ["appointment_add", "appointment_edit", "appointment_delete", "finance_add", "finance_edit", "finance_delete"]) {
+  for (const key of ["appointment_add", "appointment_edit", "appointment_delete", "finance_add", "finance_edit", "finance_delete", "daily_digest"]) {
     ok(NOTIFY_EVENTS.some((e) => e.legacyOwnerKey === key), `old grid key "${key}" maps to no alert — that tick is now silently dead`);
   }
 
@@ -86,7 +86,10 @@ function eq<T>(actual: T, expected: T, message: string) {
 // --- 2. The reports and their settings --------------------------------------------------------
 {
   const ids = reportEvents().map((e) => e.id).sort();
-  eq(ids, ["eveningDigest", "morningBriefClinic", "morningBriefDentist"], "the set of scheduled reports changed");
+  eq(ids, ["eveningDigest", "morningBriefClinic", "morningBriefDentist", "ownerSummary"], "the set of scheduled reports changed");
+  // The other session's "daily_digest" checkbox on Settings → WhatsApp maps onto the AI three-liner.
+  eq(notifyEvent("ownerSummary")?.legacyOwnerKey, "daily_digest", "the old daily_digest tick would be lost");
+  eq(resolveNotify("ownerSummary", { legacyOwnerAlerts: { daily_digest: true } })?.whatsapp, true, "daily_digest tick not honoured");
   for (const e of reportEvents()) {
     ok(e.waReady, `report "${e.id}" has no WhatsApp switch`);
     ok(e.timings?.some((t) => t.key === "hour" && t.kind === "hourOfDay"), `report "${e.id}" has no send hour`);
@@ -276,6 +279,9 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
   }
   ok(route.includes("deliverClinicNotification"), "the owner-alert route bypasses the notification centre");
   ok(!route.includes("ownerNumber"), "the owner-alert route still reads the single owner number directly");
+
+  // The other session's separate evening cron is gone: one tick sends every report.
+  ok(!read("vercel.json").includes("owner-digest"), "the owner-digest cron is back beside the reports tick — the owner gets the evening twice");
 
   // The hourly cron exists and is scheduled.
   const vercel = JSON.parse(read("vercel.json")) as { crons: { path: string; schedule: string }[] };

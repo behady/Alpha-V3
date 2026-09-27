@@ -37,6 +37,8 @@ import { useSettingsDraft } from "@/lib/settingsDraft";
 import { useSettingsText } from "@/lib/useSettingsText";
 import {
   DEFAULT_RECEIPT_SETTINGS,
+  LOGO_HEIGHT_MAX,
+  LOGO_HEIGHT_MIN,
   RECEIPT_COUNTER_DOC,
   RECEIPT_SETTINGS_DOC,
   etaMissingFields,
@@ -135,6 +137,22 @@ function Toggle({ on, onChange, label, disabled }: { on: boolean; onChange: () =
   );
 }
 
+/**
+ * What the preview shows in the logo's place while the clinic has not uploaded one: a plain
+ * badge that reads as "a logo goes here". Never printed for a real patient — the print path
+ * resolves the clinic's own logo, and nothing when there is none.
+ */
+const SAMPLE_LOGO: ClinicLogoAsset = {
+  url: "",
+  dataUrl:
+    "data:image/svg+xml;utf8," +
+    encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="120" viewBox="0 0 240 120"><rect x="2" y="2" width="236" height="116" rx="18" fill="#f3f4f6" stroke="#9ca3af" stroke-width="3" stroke-dasharray="10 8"/><path d="M92 38c-9 0-16 7-16 17 0 12 6 19 8 31 1 6 8 6 9 0 1-8 3-8 4-8s3 0 4 8c1 6 8 6 9 0 2-12 8-19 8-31 0-10-7-17-16-17-3 0-5 1-8 3-3-2-5-3-8-3z" fill="#9ca3af"/><text x="150" y="70" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#6b7280">LOGO</text></svg>`
+    ),
+  width: 240,
+  height: 120,
+};
+
 type ClinicLetterhead = {
   clinicName: string;
   clinicPhone: string;
@@ -208,7 +226,7 @@ export default function ReceiptHost({ canEdit }: { canEdit: boolean }) {
         clinicEmail: typeof d.email === "string" ? d.email : undefined,
         leadDoctorName: typeof d.doctorName === "string" ? d.doctorName : undefined,
         currency: typeof d.currency === "string" && d.currency.trim() ? d.currency : "EGP",
-        logo,
+        logo: logo.dataUrl || logo.url ? logo : SAMPLE_LOGO,
       });
       const last = Number(counterSnap?.exists() ? counterSnap.data()?.last : 0) || 0;
       setNextSeq(last + 1);
@@ -393,6 +411,38 @@ export default function ReceiptHost({ canEdit }: { canEdit: boolean }) {
                     { id: "small", label: txt.logoSmall },
                     { id: "medium", label: txt.logoMedium },
                     { id: "large", label: txt.logoLarge },
+                    { id: "custom", label: txt.logoCustom },
+                  ]}
+                />
+                {form.logoSize === "custom" && (
+                  <div className="mt-3 flex items-center gap-3">
+                    <input
+                      type="range"
+                      min={LOGO_HEIGHT_MIN}
+                      max={LOGO_HEIGHT_MAX}
+                      step={2}
+                      value={form.logoHeight}
+                      disabled={!canEdit}
+                      aria-label={txt.logoHeight}
+                      onChange={(e) => patch({ logoHeight: Number(e.target.value) })}
+                      className="w-full accent-[var(--accent)]"
+                    />
+                    <span className="w-16 shrink-0 text-end font-mono text-xs text-ink-muted" dir="ltr">
+                      {form.logoHeight}px
+                    </span>
+                  </div>
+                )}
+              </Field>
+              <Field label={txt.logoPlacement} hint={txt.logoPlacementHint}>
+                <Choice
+                  value={form.logoPlacement}
+                  disabled={!canEdit || form.logoSize === "none"}
+                  onChange={(logoPlacement) => patch({ logoPlacement })}
+                  options={[
+                    { id: "name", label: txt.logoAtName },
+                    { id: "top", label: txt.logoAtTop },
+                    { id: "title", label: txt.logoAtTitle },
+                    { id: "banner", label: txt.logoBanner },
                   ]}
                 />
               </Field>
