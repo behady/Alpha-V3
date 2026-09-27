@@ -53,24 +53,68 @@ function waitForImages(doc: Document, timeoutMs = 5000): Promise<void> {
   }, timeoutMs);
 }
 
-/** Phones and tablets, where a hidden frame cannot be printed. iPadOS calls itself a Macintosh. */
+/**
+ * Phones and tablets, where a hidden frame cannot be printed.
+ *
+ * Decided by what the device IS, not what it calls itself: a Huawei tablet in "desktop site"
+ * mode sends a desktop user agent and was printing the settings page (2026-09-27). A screen
+ * whose primary pointer is a finger and that cannot hover is a touch device whatever the UA
+ * says. iPadOS calls itself a Macintosh, hence the touch-point check.
+ */
 export function printsFromOwnTab(): boolean {
-  if (typeof navigator === "undefined") return false;
+  if (typeof navigator === "undefined" || typeof window === "undefined") return false;
   const ua = navigator.userAgent || "";
-  if (/Android|iPhone|iPad|iPod|Mobile|HarmonyOS/i.test(ua)) return true;
-  return /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
+  if (/Android|iPhone|iPad|iPod|Mobile|HarmonyOS|Tablet/i.test(ua)) return true;
+  const touchPoints = navigator.maxTouchPoints || 0;
+  if (/Macintosh/.test(ua) && touchPoints > 1) return true;
+  try {
+    const coarse = window.matchMedia("(pointer: coarse)").matches;
+    const noHover = window.matchMedia("(hover: none)").matches;
+    if (coarse && noHover) return true;
+    if (touchPoints > 1 && !window.matchMedia("(hover: hover)").matches) return true;
+  } catch {
+    // matchMedia missing: an old engine, and old engines are desktops.
+  }
+  return false;
 }
 
-/** The script that opens the print dialog in the document's own tab, once fonts and images are in. */
-const AUTO_PRINT = `<script>
+/**
+ * What the document's own tab gets on top of the document: a bar with a Print button, and a
+ * script that tries to open the print dialog by itself once fonts and images are in.
+ *
+ * The button is not decoration. Several mobile browsers ignore a print() that no tap caused,
+ * and the person is then looking at a receipt with no way to print it. The bar is hidden from
+ * the printout itself. Arabic or English follows the document's own lang attribute.
+ */
+function ownTabChrome(arabic: boolean): string {
+  const print = arabic ? "طباعة / حفظ PDF" : "Print / Save as PDF";
+  const close = arabic ? "إغلاق" : "Close";
+  const hint = arabic ? "لو لم تفتح نافذة الطباعة وحدها، اضغط هنا." : "If the print dialog did not open by itself, press here.";
+  return `<div id="__print_bar" dir="${arabic ? "rtl" : "ltr"}" style="position:sticky;top:0;z-index:2147483647;display:flex;align-items:center;gap:12px;padding:10px 14px;background:#111827;color:#fff;font:600 14px/1.3 system-ui,sans-serif;box-shadow:0 2px 12px rgba(0,0,0,.25);">
+  <button type="button" onclick="window.print()" style="appearance:none;border:0;border-radius:10px;padding:10px 16px;background:#facc15;color:#111827;font:800 14px system-ui,sans-serif;cursor:pointer;">${print}</button>
+  <span style="flex:1;font-weight:500;font-size:12px;opacity:.85;">${hint}</span>
+  <button type="button" onclick="window.close()" style="appearance:none;border:1px solid rgba(255,255,255,.35);border-radius:10px;padding:9px 14px;background:transparent;color:#fff;font:700 13px system-ui,sans-serif;cursor:pointer;">${close}</button>
+</div>
+<style>@media print { #__print_bar { display: none !important; } }</style>
+<script>
 (function(){
   function go(){ setTimeout(function(){ try { window.focus(); window.print(); } catch (e) {} }, 700); }
   if (document.readyState === "complete") go(); else window.addEventListener("load", go, { once: true });
 })();
 </script>`;
+}
 
-function withAutoPrint(srcDoc: string): string {
-  return srcDoc.includes("</body>") ? srcDoc.replace("</body>", `${AUTO_PRINT}</body>`) : srcDoc + AUTO_PRINT;
+/** Exported for the tests. */
+export function withOwnTabChrome(srcDoc: string): string {
+  const arabic = /<html[^>]*\slang="ar"/i.test(srcDoc);
+  const chrome = ownTabChrome(arabic);
+  // The bar goes first in <body> so it sits above the document; the script at the end.
+  const bar = chrome.slice(0, chrome.indexOf("<script>"));
+  const script = chrome.slice(chrome.indexOf("<script>"));
+  let out = srcDoc;
+  out = out.includes("<body>") ? out.replace("<body>", `<body>${bar}`) : bar + out;
+  out = out.includes("</body>") ? out.replace("</body>", `${script}</body>`) : out + script;
+  return out;
 }
 
 async function printInHiddenFrame(srcDoc: string, label: string): Promise<void> {
@@ -114,7 +158,7 @@ async function printInHiddenFrame(srcDoc: string, label: string): Promise<void> 
 }
 
 function printInOwnTab(srcDoc: string): void {
-  const url = URL.createObjectURL(new Blob([withAutoPrint(srcDoc)], { type: "text/html" }));
+  const url = URL.createObjectURL(new Blob([withOwnTabChrome(srcDoc)], { type: "text/html" }));
   const opened = window.open(url, "_blank");
   if (!opened) {
     // Blocked. The document is more important than staying on this screen.

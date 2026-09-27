@@ -276,4 +276,19 @@ const letterhead = { clinicName: "Alpha Dental", clinicPhone: "+20 100 000 0000"
   ok(withUuid.includes("ABCDEF0123456789") && !withUuid.includes("لم يُرسل بعد"), "a returned UUID prints in place of the pending note");
 }
 
+
+// --- 8. The receipt's own tab on a phone or tablet -------------------------------------------------
+
+{
+  const { withOwnTabChrome } = await import("../src/lib/printSrcDoc");
+  const ar = withOwnTabChrome(buildDentalReceiptSrcDoc(sampleReceiptPayload("payment", letterhead)));
+  ok(ar.includes('id="__print_bar"'), "the own tab gets a print bar");
+  ok(ar.indexOf('id="__print_bar"') < ar.indexOf('id="dental-receipt-container"'), "the bar sits above the receipt");
+  ok(ar.includes("طباعة / حفظ PDF") && ar.includes('dir="rtl"'), "an Arabic receipt gets an Arabic bar");
+  ok(ar.includes("#__print_bar { display: none !important; }"), "the bar never prints");
+  ok(ar.includes("window.print()") && ar.lastIndexOf("<script>") > ar.indexOf("dental-receipt-container"), "the auto-print script runs after the document");
+  const en = withOwnTabChrome(buildDentalReceiptSrcDoc(sampleReceiptPayload("payment", letterhead), normalizeReceiptSettings({ language: "en" })));
+  ok(en.includes("Print / Save as PDF"), "an English receipt gets an English bar");
+}
+
 console.log(`receipt: ${passed} checks passed`);
