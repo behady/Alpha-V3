@@ -8,7 +8,7 @@
  * or no key, the plain-words version is stored instead and says so in `source`.
  */
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicDoc } from "@/lib/adminClinicDb";
 import { buildBriefing } from "@/lib/automation/briefing/build";
@@ -49,7 +49,22 @@ async function askModel(facts: DayFacts): Promise<{ en: string[]; ar: string[] }
   if (!apiKey) return { skipped: "no_api_key" };
   const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({
     model: MODEL,
-    generationConfig: { responseMimeType: "application/json", temperature: 0.4, maxOutputTokens: 600 },
+    // A thinking model spends part of maxOutputTokens on its own reasoning, and 600 cut the JSON
+    // off mid-string ("Unterminated string at position 44"). Room to think, and a schema so the
+    // shape is enforced rather than hoped for.
+    generationConfig: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: SchemaType.OBJECT,
+        properties: {
+          en: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+          ar: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+        },
+        required: ["en", "ar"],
+      },
+      temperature: 0.4,
+      maxOutputTokens: 4096,
+    },
     systemInstruction:
       "You write a dental clinic owner's three-line summary of one day. Use ONLY the numbers in the fact sheet; " +
       "never invent, estimate or advise. Plain words, no exclamation marks, no praise. Line 1: what happened (visits, misses, new patients). " +
@@ -59,7 +74,8 @@ async function askModel(facts: DayFacts): Promise<{ en: string[]; ar: string[] }
   });
   try {
     const result = await withTimeout(model.generateContent(factSheet(facts)), TIMEOUT_MS);
-    const parsed = JSON.parse(result.response.text() || "{}") as { en?: unknown; ar?: unknown };
+    const text = (result.response.text() || "{}").trim().replace(/^```(?:json)?s*/i, "").replace(/```s*$/, "");
+    const parsed = JSON.parse(text) as { en?: unknown; ar?: unknown };
     const en = threeLines(parsed.en);
     const ar = threeLines(parsed.ar);
     return en && ar ? { en, ar } : { skipped: "bad_shape" };
