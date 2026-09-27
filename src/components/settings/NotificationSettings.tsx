@@ -13,6 +13,7 @@ import {
   NOTIFY_EVENTS,
   NOTIFY_GROUPS,
   NOTIFY_ROLES,
+  BATCHING_MODES,
   REPORT_MONEY_DETAILS,
   REPORT_SECTIONS,
   mutedEventsFor,
@@ -24,6 +25,7 @@ import {
   type AlertPreferences,
   type NotifyEvent,
   type NotifyRole,
+  type BatchingMode,
   type ReportMoneyDetail,
   type ReportPrefs,
   type ReportSection,
@@ -193,6 +195,12 @@ export default function NotificationSettings({
         events: { ...(current.events || {}), [event.id]: { ...(current.events?.[event.id] || {}), roles: [...roles] } },
       };
     });
+
+  const setBatching = (eventId: string, value: BatchingMode) =>
+    patch((current) => ({
+      ...current,
+      events: { ...(current.events || {}), [eventId]: { ...(current.events?.[eventId] || {}), batching: value } },
+    }));
 
   const setTiming = (eventId: string, key: string, value: number) =>
     patch((current) => ({
@@ -674,12 +682,39 @@ export default function NotificationSettings({
                                   className="w-16 rounded-xl border border-line bg-surface px-2 py-1 font-figure text-[12.5px] text-ink"
                                 />
                                 <span className="text-[11px] font-bold text-ink-faint">
-                                  {timing.kind === "hours" ? (isAr ? "ساعة" : "h") : isAr ? "دقيقة" : "min"}
+                                  {timing.kind === "hours"
+                                    ? (isAr ? "ساعة" : "h")
+                                    : timing.kind === "percent"
+                                      ? "%"
+                                      : timing.kind === "egp"
+                                        ? (isAr ? "ج.م" : "EGP")
+                                        : timing.kind === "days"
+                                          ? (isAr ? "يوم" : "days")
+                                          : timing.kind === "count"
+                                            ? ""
+                                            : isAr ? "دقيقة" : "min"}
                                 </span>
                               </span>
                             )}
                           </label>
                         ))}
+
+                        {event.waReady && !event.report && (push || whatsapp) && (
+                          <label className="flex items-center gap-2 text-[11.5px] font-bold text-ink-body">
+                            {txt.batching}
+                            <select
+                              value={resolved?.batching || "instant"}
+                              onChange={(e) => setBatching(event.id, e.target.value as BatchingMode)}
+                              className="rounded-xl border border-line bg-surface px-2 py-1 text-[12.5px] text-ink"
+                            >
+                              {BATCHING_MODES.map((mode) => (
+                                <option key={mode} value={mode}>
+                                  {mode === "instant" ? txt.batchInstant : mode === "hourly" ? txt.batchHourly : txt.batchDaily}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
 
                         <button
                           type="button"

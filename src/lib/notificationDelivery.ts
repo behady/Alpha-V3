@@ -179,6 +179,8 @@ export interface DeliverOptions {
    * asked for by writing to the clinic's number. Only ever with explicit `uids`.
    */
   forceWhatsapp?: boolean;
+  /** This IS the batched digest going out; do not queue it again. Set by the sweep only. */
+  flushingBatch?: boolean;
 }
 
 export interface DeliverResult {
@@ -188,6 +190,8 @@ export interface DeliverResult {
   pushed: number;
   /** People whose WhatsApp actually accepted the message. */
   whatsapped: number;
+  /** Held for the hourly or evening digest instead of pushed now. The bell row was still written. */
+  queued?: boolean;
   /** Why nobody got it on WhatsApp although the alert has WhatsApp on. */
   whatsappReason?: "off" | "quiet" | "no-gateway" | "platform-not-configured" | "no-phone" | "failed";
   reason?: "unknown-event" | "off" | "nobody" | "muted" | "quiet" | "no-devices";
@@ -207,7 +211,7 @@ export async function deliverClinicNotification(
 ): Promise<DeliverResult> {
   const none: DeliverResult = { raised: false, bellWritten: false, pushed: 0, whatsapped: 0 };
   try {
-    const { event, uids = null, roles = null, channel = null, data = null, actionUrl, whatsappText, whatsappTextFor, whatsappOnly = false, allowOutsiders = false, forceWhatsapp = false, whatsappDocumentFor } = options;
+    const { event, uids = null, roles = null, channel = null, data = null, actionUrl, whatsappText, whatsappTextFor, whatsappOnly = false, allowOutsiders = false, forceWhatsapp = false, whatsappDocumentFor, flushingBatch = false } = options;
 
     const prefs = event ? await readAlertPreferences(clinicId) : {};
     const resolved = event ? resolveNotify(event, prefs) : null;
@@ -278,6 +282,28 @@ export async function deliverClinicNotification(
         bellWritten = true;
       } catch (error) {
         console.warn("Bell row failed:", error);
+      }
+    }
+
+    /*
+     * Batched alerts stop here: the bell row above is the record, and the buzz waits for the
+     * hourly or evening digest the sweep sends (lib/alerts/sweep.ts). A test addressed to one
+     * person, and the digest itself, go straight through.
+     */
+    if (resolved && resolved.batching !== "instant" && !uids && !flushingBatch && !forceWhatsapp) {
+      try {
+        await adminClinicCollection(clinicId, "alert_queue").add({
+          event,
+          title: notification.title,
+          body: notification.body,
+          whatsappText: whatsappText || `*${notification.title}*\n${notification.body}`,
+          bucket: resolved.batching,
+          date: new Intl.DateTimeFormat("en-CA", { timeZone: TIMEZONE }).format(new Date()),
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        return { raised: true, bellWritten, pushed: 0, whatsapped: 0, queued: true };
+      } catch (error) {
+        console.warn("Could not queue the alert; sending now instead:", error);
       }
     }
 

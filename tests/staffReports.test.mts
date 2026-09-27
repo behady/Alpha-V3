@@ -22,6 +22,10 @@ import {
 } from "../src/lib/notificationCatalog";
 import { buildReportPdf, arabicPdfAvailable } from "../src/lib/reports/staffReportPdf";
 import { lastDayOfPreviousMonth, reportEndDate } from "../src/lib/reports/sendStaffReport";
+import { matchesComplaint } from "../src/lib/alerts/complaint";
+import { discountPercentOf } from "../src/lib/alerts/moneyAlerts";
+import { groupQueued } from "../src/lib/alerts/sweep";
+import { notifyTiming } from "../src/lib/notificationCatalog";
 import { renderStaffReport, reportPushLine } from "../src/lib/reports/staffReportText";
 import { samePhone, staffHelpText, staffIntent, staffLanguage } from "../src/lib/bot/staffLine";
 import type { Briefing } from "../src/lib/automation/briefing/types";
@@ -419,6 +423,69 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
   ok(pdfPay.filename === "payroll-2026-09-30.pdf", "payroll PDF filename");
   // The Cairo file the site ships is Latin-only; the PDF must never be pointed at it.
   ok(!read("src/lib/reports/staffReportPdf.ts").includes("Cairo-Regular"), "the PDF uses Cairo-Regular.ttf, which has no Arabic glyphs");
+}
+
+// --- 7. The real-time alerts: thresholds, batching, the complaint words ------------------------------
+{
+  // The owner's numbers, as defaults.
+  eq(notifyTiming("discountAbove", "percent", {}), 20, "discount threshold");
+  eq(notifyTiming("expenseAbove", "amount", {}), 2000, "expense threshold");
+  eq(notifyTiming("patientWaitingLong", "minutes", {}), 20, "waiting threshold");
+  eq(notifyTiming("staffLate", "minutes", {}), 15, "late threshold");
+  eq(notifyTiming("staffAbsent", "hour", {}), 11, "absent hour");
+  eq(notifyTiming("labCaseOverdue", "days", {}), 1, "lab overdue days");
+  eq(notifyTiming("aiCreditsLow", "credits", {}), 20, "credits floor");
+  eq(notifyTiming("expenseAbove", "amount", { timings: { expenseAbove: { amount: 5000 } } }), 5000, "a clinic's own threshold is ignored");
+  for (const id of ["discountAbove", "expenseAbove", "paymentBackdated", "noShowMarked", "sameDayCancellation", "walkInBooked", "patientWaitingLong", "complaintKeyword", "staffLate", "staffAbsent", "labCaseOverdue", "aiCreditsLow"]) {
+    ok(notifyEvent(id)?.waReady, `"${id}" has no WhatsApp switch although the web server raises it`);
+  }
+  for (const id of ["discountAbove", "expenseAbove", "paymentBackdated", "staffLate", "staffAbsent"]) {
+    const r = resolveNotify(id, { events: { [id]: { roles: ["Owner", "Receptionist"] } } });
+    ok(r && !r.roles.includes("Receptionist"), `"${id}" can reach reception`);
+  }
+
+  // Batching: instant unless asked; never for a report; the settings value survives.
+  eq(resolveNotify("noShowMarked", {})?.batching, "instant", "default batching");
+  eq(resolveNotify("noShowMarked", { events: { noShowMarked: { batching: "hourly" } } })?.batching, "hourly", "saved batching");
+  eq(resolveNotify("noShowMarked", { events: { noShowMarked: { batching: "weird" as never } } })?.batching, "instant", "a bad batching value must fall back");
+  eq(resolveNotify("eveningDigest", { events: { eveningDigest: { batching: "daily" } } })?.batching, "instant", "a report must never be batched");
+  const delivery = read("src/lib/notificationDelivery.ts");
+  ok(/resolved\.batching !== "instant" && !uids && !flushingBatch/.test(delivery), "the queue check lost its test/flush exceptions — a digest would queue itself forever");
+  ok(delivery.indexOf("alert_queue") > delivery.indexOf("bellWritten = true"), "batched alerts skip the bell row — the record must always be written");
+
+  // The digest wording.
+  const grouped = groupQueued([
+    { id: "1", event: "noShowMarked", title: "No-show", body: "Mona — 10:00", whatsappText: "", bucket: "hourly", date: "2026-09-27" },
+    { id: "2", event: "noShowMarked", title: "No-show", body: "Omar — 11:00", whatsappText: "", bucket: "hourly", date: "2026-09-27" },
+    { id: "3", event: "walkInBooked", title: "Walk-in", body: "Sara — 12:00", whatsappText: "", bucket: "hourly", date: "2026-09-27" },
+  ], "en");
+  eq(grouped.length, 2, "one message per event");
+  ok(grouped[0].title === "2 × A patient did not show up" && grouped[0].whatsappText.includes("• Mona — 10:00") && grouped[0].whatsappText.includes("• Omar — 11:00"), "grouped digest wording");
+  ok(groupQueued([{ id: "1", event: "noShowMarked", title: "", body: "x", whatsappText: "", bucket: "daily", date: "" }], "ar")[0].title.includes("مريض مجاش"), "Arabic digest label");
+
+  // Complaints.
+  for (const t of ["انا زعلان جدا من المعاملة", "عايز استرجاع فلوسي", "This is unacceptable, I want a refund", "هرفع شكوى", "الخدمة وحشة"]) ok(matchesComplaint(t), `not seen as a complaint: ${t}`);
+  for (const t of ["عايز احجز بكرة", "شكرا جدا", "Hi", "ممكن ميعاد الساعة ٥", "تمام"]) ok(!matchesComplaint(t), `wrongly seen as a complaint: ${t}`);
+
+  // Discounts.
+  eq(discountPercentOf({ listPrice: 1000, discountAmount: 250 }), 25, "discount percent from list price");
+  eq(discountPercentOf({ cost: 750, discountAmount: 250 }), 25, "discount percent from cost + discount");
+  eq(discountPercentOf({ listPrice: 1000 }), 0, "no discount");
+
+  // The sweep is scheduled, and every money write path calls the hooks.
+  const vercel = JSON.parse(read("vercel.json")) as { crons: { path: string; schedule: string }[] };
+  ok(vercel.crons.some((c) => c.path === "/api/automation/alert-sweep" && c.schedule === "*/10 * * * *"), "the alert sweep is not scheduled every ten minutes");
+  const ledger = read("src/app/api/finance/ledger/route.ts");
+  ok((ledger.match(/afterLedgerCreate\(/g) || []).length === 2 && ledger.includes("afterLedgerUpdate(") && ledger.includes("afterLedgerDelete("), "a ledger write path has no money-alert hook");
+  ok(read("src/app/api/clinical/procedures/route.ts").includes("afterChargeCreate("), "a discounted charge from the clinical route raises nothing");
+  const svc = read("src/lib/bookingService.ts");
+  ok(svc.includes('"appointment_no_show"') && svc.includes('"appointment_same_day_cancel"') && svc.includes('"appointment_walk_in"'), "the booking service does not raise the flow alerts");
+  for (const rel of ["src/components/dashboard/DesktopDashboard.tsx", "src/components/dashboard/MobileDashboard.tsx"]) {
+    ok(read(rel).includes('"appointment_no_show"'), `${rel} status buttons do not raise the no-show alert`);
+  }
+  for (const rel of ["src/app/api/webhooks/meta-whatsapp/route.ts", "src/app/api/webhooks/whatsapp-inbound/route.ts"]) {
+    ok(read(rel).includes("raiseComplaintIfAny("), `${rel} never checks for complaints`);
+  }
 }
 
 console.log(`staffReports: ${checks} checks passed`);

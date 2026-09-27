@@ -1,4 +1,5 @@
 import { reportServerError } from "@/lib/server/reportError";
+import { afterChargeCreate } from "@/lib/alerts/moneyAlerts";
 /**
  * Recording, changing and removing a treatment — as one indivisible operation.
  *
@@ -427,6 +428,13 @@ async function createProcedure(args: { clinicId: string; actor: Actor; body: Rec
     details: `${priced.displayProcedure} (${priced.pricing.cost} EGP) for ${result.patientName || patientId}`,
   });
 
+  if (result.ledgerId) {
+    void afterChargeCreate(
+      clinicId,
+      { type: "procedure", patientName: result.patientName, description: priced.displayProcedure, listPrice: priced.pricing.listPrice, discountAmount: priced.pricing.discountAmount },
+      actor,
+    );
+  }
   return NextResponse.json({ ok: true, noteId: result.noteId, ledgerId: result.ledgerId, cost: priced.pricing.cost });
 }
 

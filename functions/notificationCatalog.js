@@ -34,7 +34,7 @@
  * `scripts/generate-functions-notification-catalog.mjs`). Edit this file; never that one.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.REPORT_MONEY_DETAILS = exports.REPORT_SECTIONS = exports.NOTIFY_EVENTS = exports.NOTIFY_GROUPS = exports.NOTIFY_ROLES = void 0;
+exports.REPORT_MONEY_DETAILS = exports.REPORT_SECTIONS = exports.BATCHING_MODES = exports.NOTIFY_EVENTS = exports.NOTIFY_GROUPS = exports.NOTIFY_ROLES = void 0;
 exports.notifyEvent = notifyEvent;
 exports.notifyEventsIn = notifyEventsIn;
 exports.resolveNotify = resolveNotify;
@@ -191,6 +191,18 @@ exports.NOTIFY_EVENTS = [
         push: true,
         ignoresQuietHours: true,
     },
+    {
+        id: "complaintKeyword",
+        group: "unanswered",
+        waReady: true,
+        en: "A message that reads as a complaint",
+        ar: "رسالة شكلها شكوى",
+        whenEn: "A patient's WhatsApp contains a complaint word — angry, refund, lawyer, never coming back. A person should answer it, not the bot.",
+        whenAr: "رسالة مريض فيها كلمة شكوى — زعلان، استرجاع، محامي، مش هرجع. لازم يرد عليها بني آدم مش البوت.",
+        roles: ["Owner", "Admin", "Receptionist"],
+        bell: true,
+        push: true,
+    },
     // --- Front desk ----------------------------------------------------------------------------
     {
         id: "patientArrived",
@@ -320,6 +332,57 @@ exports.NOTIFY_EVENTS = [
         bell: false,
         push: false,
     },
+    // Patient flow: what the day actually did, as it happens.
+    {
+        id: "noShowMarked",
+        group: "frontdesk",
+        waReady: true,
+        en: "A patient did not show up",
+        ar: "مريض مجاش",
+        whenEn: "An appointment was marked No Show.",
+        whenAr: "ميعاد اتعلّم عليه إنه مجاش.",
+        roles: ["Owner"],
+        bell: true,
+        push: false,
+    },
+    {
+        id: "sameDayCancellation",
+        group: "frontdesk",
+        waReady: true,
+        en: "A same-day cancellation",
+        ar: "إلغاء في نفس اليوم",
+        whenEn: "Today's appointment was cancelled today — a chair that will probably stay empty.",
+        whenAr: "ميعاد النهارده اتلغى النهارده — كرسي غالباً هيفضل فاضي.",
+        roles: ["Owner", "Receptionist"],
+        bell: true,
+        push: true,
+    },
+    {
+        id: "walkInBooked",
+        group: "frontdesk",
+        waReady: true,
+        en: "A walk-in was booked",
+        ar: "حجز لنفس اليوم",
+        whenEn: "An appointment was created for today.",
+        whenAr: "ميعاد اتحجز لنفس اليوم.",
+        roles: ["Owner"],
+        bell: true,
+        push: false,
+    },
+    {
+        id: "patientWaitingLong",
+        group: "frontdesk",
+        waReady: true,
+        en: "A patient has waited too long",
+        ar: "مريض مستني كتير",
+        whenEn: "A checked-in patient has been in the waiting room longer than the minutes below. Once per patient.",
+        whenAr: "مريض عمل تسجيل وصول وقاعد في الانتظار أكتر من الدقايق اللي تحت. مرة واحدة لكل مريض.",
+        roles: ["Owner", "Admin", "Receptionist"],
+        bell: true,
+        push: true,
+        ignoresQuietHours: true,
+        timings: [{ key: "minutes", kind: "minutes", en: "Longer than", ar: "أكتر من", fallback: 20, min: 5, max: 180 }],
+    },
     // --- Leads ---------------------------------------------------------------------------------
     {
         id: "newLead",
@@ -448,6 +511,49 @@ exports.NOTIFY_EVENTS = [
         bell: false,
         push: false,
     },
+    // The money risks: not every payment, only the ones that should raise an eyebrow.
+    {
+        id: "discountAbove",
+        group: "money",
+        waReady: true,
+        en: "A discount above the line",
+        ar: "خصم أكبر من الحد",
+        whenEn: "A charge was discounted by more than the percentage below, from any screen.",
+        whenAr: "إجراء اتخصم منه أكتر من النسبة اللي تحت، من أي شاشة.",
+        roles: ["Owner"],
+        rolesMax: ["Owner", "Admin"],
+        bell: true,
+        push: true,
+        timings: [{ key: "percent", kind: "percent", en: "Above", ar: "أكتر من", fallback: 20, min: 1, max: 100 }],
+    },
+    {
+        id: "expenseAbove",
+        group: "money",
+        waReady: true,
+        en: "An expense above the line",
+        ar: "مصروف أكبر من الحد",
+        whenEn: "An expense was entered for more than the amount below.",
+        whenAr: "مصروف اتسجّل بأكتر من المبلغ اللي تحت.",
+        roles: ["Owner"],
+        rolesMax: ["Owner", "Admin"],
+        bell: true,
+        push: true,
+        timings: [{ key: "amount", kind: "egp", en: "Above", ar: "أكتر من", fallback: 2000, min: 1, max: 10000000 }],
+    },
+    {
+        id: "paymentBackdated",
+        group: "money",
+        waReady: true,
+        en: "A backdated entry",
+        ar: "قيد بتاريخ قديم",
+        whenEn: "A payment or expense was entered with a date further back than the days below.",
+        whenAr: "دفعة أو مصروف اتسجّل بتاريخ أقدم من عدد الأيام اللي تحت.",
+        roles: ["Owner"],
+        rolesMax: ["Owner", "Admin"],
+        bell: true,
+        push: false,
+        timings: [{ key: "days", kind: "days", en: "Older than", ar: "أقدم من", fallback: 1, min: 0, max: 365 }],
+    },
     {
         id: "eveningDigest",
         group: "reports",
@@ -546,6 +652,47 @@ exports.NOTIFY_EVENTS = [
         push: true,
     },
     {
+        id: "staffLate",
+        group: "clinic",
+        waReady: true,
+        en: "Someone is late",
+        ar: "حد اتأخر",
+        whenEn: "A rostered staff member has not clocked in this many minutes after their shift start. Once per person per day.",
+        whenAr: "موظف في الجدول مسجّلش حضور بعد بداية شيفته بالدقايق اللي تحت. مرة في اليوم لكل شخص.",
+        roles: ["Owner", "Admin"],
+        rolesMax: ["Owner", "Admin"],
+        bell: true,
+        push: true,
+        timings: [{ key: "minutes", kind: "minutes", en: "After", ar: "بعد", fallback: 15, min: 1, max: 240 }],
+    },
+    {
+        id: "staffAbsent",
+        group: "clinic",
+        waReady: true,
+        en: "Someone is absent",
+        ar: "حد غايب",
+        whenEn: "A rostered staff member still has no clock-in at the hour below.",
+        whenAr: "موظف في الجدول لسه مسجّلش حضور لحد الساعة اللي تحت.",
+        roles: ["Owner", "Admin"],
+        rolesMax: ["Owner", "Admin"],
+        bell: true,
+        push: true,
+        timings: [{ key: "hour", kind: "hourOfDay", en: "At", ar: "الساعة", fallback: 11, min: 0, max: 23 }],
+    },
+    {
+        id: "labCaseOverdue",
+        group: "clinic",
+        waReady: true,
+        en: "A lab case is overdue",
+        ar: "حالة معمل اتأخرت",
+        whenEn: "A case still at the lab is past its due date by the days below. Once per case.",
+        whenAr: "حالة لسه في المعمل عدّى ميعادها بالأيام اللي تحت. مرة لكل حالة.",
+        roles: ["Owner", "Admin"],
+        bell: true,
+        push: true,
+        timings: [{ key: "days", kind: "days", en: "Overdue by", ar: "متأخرة بـ", fallback: 1, min: 0, max: 60 }],
+    },
+    {
         id: "labCaseBack",
         group: "clinic",
         waReady: true,
@@ -637,6 +784,19 @@ exports.NOTIFY_EVENTS = [
         ],
     },
     {
+        id: "aiCreditsLow",
+        group: "delivery",
+        waReady: true,
+        en: "AI credits are running low",
+        ar: "رصيد الذكاء الاصطناعي قرب يخلص",
+        whenEn: "Fewer credits than the number below remain this month. Once a month.",
+        whenAr: "الرصيد المتبقي الشهر ده أقل من الرقم اللي تحت. مرة في الشهر.",
+        roles: ["Owner", "Admin"],
+        bell: true,
+        push: true,
+        timings: [{ key: "credits", kind: "count", en: "Below", ar: "أقل من", fallback: 20, min: 1, max: 10000 }],
+    },
+    {
         id: "aiCreditsOut",
         group: "delivery",
         waReady: true,
@@ -671,6 +831,7 @@ function notifyEvent(id) {
 function notifyEventsIn(group) {
     return exports.NOTIFY_EVENTS.filter((e) => e.group === group);
 }
+exports.BATCHING_MODES = ["instant", "hourly", "daily"];
 exports.REPORT_SECTIONS = ["money", "appointments", "patients", "team"];
 exports.REPORT_MONEY_DETAILS = ["totals", "dentists", "full"];
 function legacyAnswer(event, prefs) {
@@ -715,7 +876,8 @@ function resolveNotify(eventId, prefs) {
         const max = event.rolesMax;
         roles = roles.filter((r) => max.includes(r));
     }
-    return { event, bell, push, whatsapp, roles };
+    const batching = !event.report && (saved?.batching === "hourly" || saved?.batching === "daily") ? saved.batching : "instant";
+    return { event, bell, push, whatsapp, roles, batching };
 }
 /* --- the scheduled reports ---------------------------------------------------------------------- */
 /** Every event that is a report, in page order. */

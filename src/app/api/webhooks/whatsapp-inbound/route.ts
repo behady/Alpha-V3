@@ -9,6 +9,7 @@ import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { sendWapilotTyping } from "@/lib/whatsapp";
 import { respondToPatientMessage } from "@/lib/bot/respond";
 import { interceptStaffInbound } from "@/lib/bot/staffLine";
+import { raiseComplaintIfAny } from "@/lib/alerts/complaint";
 import { attachTranscript, recordThreadMessage, updateThreadStatus } from "@/lib/bot/thread";
 import { extractDeliveryAck } from "@/lib/bot/wapilotAck";
 import { transcribeAudioBytes } from "@/lib/bot/transcribe";
@@ -326,6 +327,7 @@ export async function POST(request: NextRequest) {
       console.warn("[whatsapp-inbound] thread write failed:", e);
       return "";
     });
+    if (reply.text) void raiseComplaintIfAny({ clinicId, phone: phone || chatId, text: reply.text, chatId: conversationKey(chatId) });
 
     // Opt-out first, always. A patient asking to be left alone must never be answered by the
     // assistant instead — that is the single most effective way to turn a stop request into a
