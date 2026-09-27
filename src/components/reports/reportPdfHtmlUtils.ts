@@ -1,4 +1,45 @@
-import { receiptElementToPdfBlob } from "@/lib/receiptPdfHtml";
+/**
+ * A multi-page report from a DOM element, with real pages.
+ *
+ * The receipt's converter (lib/receiptPdfHtml) is right for a receipt — one page, no margins — and
+ * wrong for a report: html2pdf renders the whole element as one tall picture and slices it every
+ * 297mm, so a table row landed half on one page and half on the next, and every page ran edge to
+ * edge with no top or bottom margin. Here each page gets a margin, a row or a heading is never
+ * cut (html2pdf's page-break engine pushes it whole onto the next page), and the page number is
+ * written in the corner after the fact, because a sliced canvas cannot know which page it is on.
+ */
+async function reportElementToPdfBlob(element: HTMLElement): Promise<Blob> {
+  const html2pdfMod = await import("html2pdf.js");
+  const html2pdf = html2pdfMod.default ?? html2pdfMod;
+  const opt = {
+    // Top and bottom only: the container already keeps 15mm on each side.
+    margin: [12, 0, 16, 0] as [number, number, number, number],
+    filename: "report.pdf",
+    image: { type: "jpeg" as const, quality: 0.98 },
+    html2canvas: { scale: 3, useCORS: true, logging: false, letterRendering: true },
+    jsPDF: { unit: "mm" as const, format: "a4" as const, orientation: "portrait" as const },
+    pagebreak: { mode: ["css", "legacy"], avoid: ["tr", "thead", "h1", "h2", "h3", ".pdf-keep"] },
+  };
+  const worker = html2pdf().set(opt).from(element).toPdf();
+  const pdf = (await worker.get("pdf")) as {
+    internal: { getNumberOfPages: () => number; pageSize: { getWidth: () => number; getHeight: () => number } };
+    setPage: (n: number) => void;
+    setFontSize: (n: number) => void;
+    setTextColor: (r: number, g?: number, b?: number) => void;
+    text: (t: string, x: number, y: number, o?: { align?: "center" | "left" | "right" }) => void;
+    output: (kind: "blob") => Blob;
+  };
+  const pages = pdf.internal.getNumberOfPages();
+  const w = pdf.internal.pageSize.getWidth();
+  const h = pdf.internal.pageSize.getHeight();
+  for (let i = 1; i <= pages; i++) {
+    pdf.setPage(i);
+    pdf.setFontSize(9);
+    pdf.setTextColor(148, 163, 184);
+    pdf.text(`${i} / ${pages}`, w / 2, h - 7, { align: "center" });
+  }
+  return pdf.output("blob");
+}
 
 export async function htmlToPdfBlob(srcDoc: string, rootId: string = "report-container"): Promise<Blob> {
   return new Promise((resolve, reject) => {
@@ -27,7 +68,7 @@ export async function htmlToPdfBlob(srcDoc: string, rootId: string = "report-con
         const root = doc.getElementById(rootId);
         if (!root) throw new Error(`Report PDF root '${rootId}' not found in iframe`);
 
-        const blob = await receiptElementToPdfBlob(root);
+        const blob = await reportElementToPdfBlob(root);
 
         document.body.removeChild(iframe);
         resolve(blob);
@@ -78,6 +119,9 @@ export function buildReportHtmlBase(title: string, language: string, bodyContent
       size: A4 portrait; 
       margin: 0; 
     }
+    /* A row, a heading or a figure tile is never split across two pages. */
+    tr, thead, h1, h2, h3, .pdf-keep { page-break-inside: avoid; break-inside: avoid; }
+    h1, h2, h3 { page-break-after: avoid; break-after: avoid; }
   </style>
 </head>
 <body>
