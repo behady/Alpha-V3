@@ -14,6 +14,7 @@ import { adminClinicDoc } from "@/lib/adminClinicDb";
 import { buildBriefing } from "@/lib/automation/briefing/build";
 import { reserveAiCredit } from "@/lib/bot/aiCredits";
 import { factSheet, plainSummary, summaryFacts, type DayFacts } from "@/lib/ownerSummaryText";
+import { reportServerError } from "@/lib/server/reportError";
 
 export const OWNER_SUMMARIES = "owner_summaries";
 const MODEL = "gemini-flash-latest";
@@ -24,6 +25,8 @@ export type OwnerSummary = {
   en: string[];
   ar: string[];
   source: "ai" | "plain";
+  /** Why the plain version was stored — empty when the model wrote it. */
+  aiSkipped?: string;
   facts: DayFacts;
   generatedAt: number;
 };
@@ -41,9 +44,9 @@ function threeLines(v: unknown): string[] | null {
   return lines.length >= 2 ? lines : null;
 }
 
-async function askModel(facts: DayFacts): Promise<{ en: string[]; ar: string[] } | null> {
+async function askModel(facts: DayFacts): Promise<{ en: string[]; ar: string[] } | { skipped: string }> {
   const apiKey = process.env.GEMINI_API_KEY || "";
-  if (!apiKey) return null;
+  if (!apiKey) return { skipped: "no_api_key" };
   const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({
     model: MODEL,
     generationConfig: { responseMimeType: "application/json", temperature: 0.4, maxOutputTokens: 600 },
@@ -59,9 +62,11 @@ async function askModel(facts: DayFacts): Promise<{ en: string[]; ar: string[] }
     const parsed = JSON.parse(result.response.text() || "{}") as { en?: unknown; ar?: unknown };
     const en = threeLines(parsed.en);
     const ar = threeLines(parsed.ar);
-    return en && ar ? { en, ar } : null;
-  } catch {
-    return null;
+    return en && ar ? { en, ar } : { skipped: "bad_shape" };
+  } catch (e) {
+    // Worth a line in the error log: a silent fallback here would read as "the AI is off".
+    reportServerError("[OwnerSummary] model failed", e);
+    return { skipped: e instanceof Error ? e.message.slice(0, 120) : "error" };
   }
 }
 
@@ -73,7 +78,7 @@ export async function readOwnerSummary(clinicId: string, dateKey: string): Promi
   const en = threeLines(d.en);
   const ar = threeLines(d.ar);
   if (!en || !ar) return null;
-  return { dateKey, en, ar, source: d.source === "ai" ? "ai" : "plain", facts: d.facts as DayFacts, generatedAt: Number(d.generatedAt) || 0 };
+  return { dateKey, en, ar, source: d.source === "ai" ? "ai" : "plain", aiSkipped: String(d.aiSkipped || ""), facts: d.facts as DayFacts, generatedAt: Number(d.generatedAt) || 0 };
 }
 
 /**
@@ -90,11 +95,17 @@ export async function getOrWriteOwnerSummary(clinicId: string, dateKey: string, 
   let source: OwnerSummary["source"] = "plain";
   let en = plainSummary(facts, "en");
   let ar = plainSummary(facts, "ar");
+  // Why the plain version was stored, when it was — "plan", "no_credits", or what the model said.
+  let aiSkipped = "";
 
   const reservation = await reserveAiCredit(clinicId, 1);
-  if (reservation.ok) {
+  if (!reservation.ok) {
+    aiSkipped = reservation.reason;
+  } else {
     const written = await askModel(facts);
-    if (written) {
+    if ("skipped" in written) {
+      aiSkipped = written.skipped;
+    } else {
       en = written.en;
       ar = written.ar;
       source = "ai";
@@ -104,8 +115,8 @@ export async function getOrWriteOwnerSummary(clinicId: string, dateKey: string, 
 
   const generatedAt = Date.now();
   await adminClinicDoc(clinicId, OWNER_SUMMARIES, dateKey).set(
-    { dateKey, en, ar, source, facts, generatedAt, createdAt: FieldValue.serverTimestamp() },
+    { dateKey, en, ar, source, aiSkipped, facts, generatedAt, createdAt: FieldValue.serverTimestamp() },
     { merge: true },
   );
-  return { dateKey, en, ar, source, facts, generatedAt };
+  return { dateKey, en, ar, source, aiSkipped, facts, generatedAt };
 }

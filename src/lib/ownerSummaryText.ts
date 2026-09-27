@@ -64,9 +64,10 @@ export function plainSummary(f: DayFacts, language: "en" | "ar"): string[] {
   const lines: string[] = [];
 
   const missed = f.noShows + f.cancelled;
+  const n = (x: number) => fmt(x, ar);
   lines.push(
     ar
-      ? `${f.attended} زيارة من ${f.visits}${missed ? ` · ${f.noShows} غياب و${f.cancelled} إلغاء` : ""}${f.newPatients ? ` · ${f.newPatients} مريض جديد` : ""}.`
+      ? `${n(f.attended)} زيارة من ${n(f.visits)}${missed ? ` · ${n(f.noShows)} غياب و${n(f.cancelled)} إلغاء` : ""}${f.newPatients ? ` · ${n(f.newPatients)} مريض جديد` : ""}.`
       : `${f.attended} of ${f.visits} visits seen${missed ? ` · ${f.noShows} no-show${f.noShows === 1 ? "" : "s"}, ${f.cancelled} cancelled` : ""}${f.newPatients ? ` · ${f.newPatients} new patient${f.newPatients === 1 ? "" : "s"}` : ""}.`,
   );
 
@@ -87,9 +88,9 @@ export function plainSummary(f: DayFacts, language: "en" | "ar"): string[] {
   }
 
   const waiting: string[] = [];
-  if (f.unconfirmedTomorrow) waiting.push(ar ? `${f.unconfirmedTomorrow} مواعيد بكرة مش مؤكدة` : `${f.unconfirmedTomorrow} unconfirmed for tomorrow`);
-  if (f.labLate) waiting.push(ar ? `${f.labLate} حالات معمل متأخرة` : `${f.labLate} lab case${f.labLate === 1 ? "" : "s"} late`);
-  if (f.outOfStock) waiting.push(ar ? `${f.outOfStock} صنف خلص` : `${f.outOfStock} item${f.outOfStock === 1 ? "" : "s"} out of stock`);
+  if (f.unconfirmedTomorrow) waiting.push(ar ? `${n(f.unconfirmedTomorrow)} مواعيد بكرة مش مؤكدة` : `${f.unconfirmedTomorrow} unconfirmed for tomorrow`);
+  if (f.labLate) waiting.push(ar ? `${n(f.labLate)} حالات معمل متأخرة` : `${f.labLate} lab case${f.labLate === 1 ? "" : "s"} late`);
+  if (f.outOfStock) waiting.push(ar ? `${n(f.outOfStock)} صنف خلص` : `${f.outOfStock} item${f.outOfStock === 1 ? "" : "s"} out of stock`);
   if (waiting.length) lines.push((ar ? "مستني: " : "Waiting: ") + waiting.join(ar ? " · " : " · ") + ".");
   else lines.push(ar ? "مفيش حاجة مستنية." : "Nothing waiting.");
 
