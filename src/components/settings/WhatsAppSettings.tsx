@@ -228,9 +228,12 @@ type GatewayView = {
   phone?: string | null;
   qr?: string | null;
   lastError?: string | null;
+  /** Clinic hours and the queue, as the gateway reports them (whatsapp-gateway/src/policy.js). */
+  sending?: { windowOpen: boolean; window: string; nextOpenAt: number | null; queued: number; waiting: number; dailyCap: number; sentToday: number } | null;
 };
 
 function readGateway(data: Record<string, unknown>): GatewayView {
+  const s = data.sending && typeof data.sending === "object" ? (data.sending as Record<string, unknown>) : null;
   return {
     available: data.available === true,
     managed: data.managed === true,
@@ -238,6 +241,17 @@ function readGateway(data: Record<string, unknown>): GatewayView {
     phone: typeof data.phone === "string" ? data.phone : null,
     qr: typeof data.qr === "string" ? data.qr : null,
     lastError: typeof data.lastError === "string" ? data.lastError : null,
+    sending: s
+      ? {
+          windowOpen: s.windowOpen === true,
+          window: typeof s.window === "string" ? s.window : "",
+          nextOpenAt: typeof s.nextOpenAt === "number" ? s.nextOpenAt : null,
+          queued: Number(s.queued) || 0,
+          waiting: Number(s.waiting) || 0,
+          dailyCap: Number(s.dailyCap) || 0,
+          sentToday: Number(s.sentToday) || 0,
+        }
+      : null,
   };
 }
 
@@ -787,6 +801,15 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
           ? "فصل واتساب العيادة؟ رسائل المرضى الأوتوماتيكية هتقف لحد ما توصّل تاني."
           : "Disconnect the clinic's WhatsApp? Automatic patient messages stop until you connect again.",
       gwOrWapilot: language === "ar" ? "أو استخدم Wapilot بدل كده" : "Or use Wapilot instead",
+      gwRestricted:
+        language === "ar"
+          ? "الإرسال متوقف مؤقتاً — واتساب رفض الاتصال أو فصل الجهاز أكتر من مرة. الرقم ممكن يكون عليه قيود. افتح واتساب على الموبايل واتأكد، وبعدين اضغط «استئناف»."
+          : "Sending is paused — WhatsApp refused the connection or logged this device out repeatedly. The number may be restricted. Check WhatsApp on the phone, then press Resume.",
+      gwResume: language === "ar" ? "استئناف" : "Resume",
+      gwWaitingCount: (n: number, at: string) =>
+        language === "ar" ? `${n} رسالة مستنية — الإرسال هيكمل الساعة ${at}` : `${n} message${n === 1 ? "" : "s"} waiting — sending resumes at ${at}`,
+      gwSentToday: (used: number, cap: number) =>
+        language === "ar" ? `النهارده: ${used} من ${cap} رسالة أولى مسموحة` : `Today: ${used} of ${cap} first-contact messages allowed`,
       wapilotHint:
         language === "ar"
           ? "يُحفظ في قاعدة بيانات العيادة (لا حاجة لإعادة نشر Vercel عند تغيير التوكن). متغيرات البيئة اختيارية كنسخة احتياطية."
@@ -889,7 +912,7 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
     return () => clearInterval(timer);
   }, [gateway?.managed, gateway?.state, loadGateway]);
 
-  const gatewayAction = async (action: "connect" | "disconnect" | "relink") => {
+  const gatewayAction = async (action: "connect" | "disconnect" | "relink" | "resume") => {
     const u = auth.currentUser;
     if (!u) return;
     if (action === "disconnect" && !window.confirm(txt.gwConfirmDisconnect)) return;
@@ -1384,6 +1407,30 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
                     <li>{txt.gwStep3}</li>
                   </ol>
                 </div>
+              ) : gateway.state === "restricted" ? (
+                <div className="space-y-3">
+                  <p className="text-xs text-danger bg-danger/5 border border-danger/25 rounded-xl px-3 py-2.5 leading-relaxed">{txt.gwRestricted}</p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void gatewayAction("resume")}
+                      disabled={gatewayBusy}
+                      className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-ink-slab text-white text-xs font-bold disabled:opacity-50"
+                    >
+                      {gatewayBusy ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                      {txt.gwResume}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void gatewayAction("relink")}
+                      disabled={gatewayBusy}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-line text-xs font-bold text-ink-body disabled:opacity-50"
+                    >
+                      <QrCode size={14} />
+                      {txt.gwRelink}
+                    </button>
+                  </div>
+                </div>
               ) : (
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <span className="inline-flex items-center gap-2 text-xs font-bold text-ink-muted">
@@ -1423,6 +1470,13 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
                     </button>
                   </div>
                 </div>
+              )}
+              {gateway.managed && gateway.sending && gateway.state === "open" && (
+                <p className="text-[11px] font-bold text-ink-muted" dir="auto">
+                  {gateway.sending.waiting > 0 && gateway.sending.nextOpenAt
+                    ? txt.gwWaitingCount(gateway.sending.waiting, new Date(gateway.sending.nextOpenAt).toLocaleTimeString(language === "ar" ? "ar-EG" : "en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Cairo" }))
+                    : txt.gwSentToday(gateway.sending.sentToday, gateway.sending.dailyCap)}
+                </p>
               )}
             </div>
           )}

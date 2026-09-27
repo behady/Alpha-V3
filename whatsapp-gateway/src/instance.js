@@ -5,10 +5,13 @@ import makeWASocket, {
   DisconnectReason,
   downloadMediaMessage,
   fetchLatestBaileysVersion,
+  generateMessageIDV2,
   jidNormalizedUser,
 } from "@whiskeysockets/baileys";
 import { useEncryptedFileAuthState } from "./authState.js";
 import { config } from "./config.js";
+import { classify, dailyProactiveCap, daysBetween, inSendWindow, nextWindowOpen, zonedParts } from "./policy.js";
+import { PersistedQueue } from "./queue.js";
 import {
   buildAckEvent,
   buildMessageEvent,
@@ -24,8 +27,9 @@ import {
  * One clinic's WhatsApp, kept alive.
  *
  * An instance is a WhatsApp Web session (the same thing the phone shows under Linked devices)
- * plus the two things around it that make it a service: a send queue that paces outgoing
- * messages like a person, and a webhook that hands every incoming message to the web app.
+ * plus the things around it that make it a service: a queue that paces outgoing messages like
+ * a person and holds them for clinic hours, a webhook that hands every incoming message to the
+ * web app, and a brake that stops everything when WhatsApp shows signs of a restriction.
  *
  * States, in the order a clinic sees them:
  *   starting   — socket being built
@@ -34,6 +38,14 @@ import {
  *   open       — live
  *   closed     — dropped; reconnecting on its own
  *   logged_out — the phone removed us (or the clinic asked); needs a new scan
+ *   restricted — the brake: WhatsApp refused us or logged us out repeatedly; waits for a person
+ *
+ * ── Sending ──────────────────────────────────────────────────────────────────────────────────
+ * `sendText` / `sendDocument` do not send. They classify the message (reply or proactive — see
+ * policy.js), decide when it may leave, put it in the on-disk queue and return its id at once.
+ * The id is generated here and handed to WhatsApp on the actual send, so it is the same string
+ * the web app stored and the same one the delivery acks later carry. The drain loop then sends
+ * whatever is due, one at a time, with a random human gap between messages.
  */
 export class Instance {
   constructor(meta, { logger, dataDir }) {
@@ -42,6 +54,7 @@ export class Instance {
     this.log = logger.child({ instance: meta.id });
     this.dir = join(dataDir, "instances", meta.id);
     this.mediaDir = join(dataDir, "media", meta.id);
+    this.outboxDir = join(dataDir, "outbox", meta.id);
 
     this.state = "starting";
     this.qr = null;
@@ -55,11 +68,22 @@ export class Instance {
     this.stopping = false;
     this.reconnectAttempt = 0;
     this.reconnectTimer = null;
+    this.logoutTimes = [];
 
-    // Send pacing (see config.js).
-    this.queue = Promise.resolve();
+    // Outbound.
+    this.queue = new PersistedQueue(join(this.dir, "queue.json"));
+    this.draining = false;
+    this.drainTimer = null;
     this.lastSendAt = 0;
-    this.sendTimes = [];
+
+    // What this number knows about the people it talks to: when each chat last wrote in (decides
+    // reply vs proactive) and whom it has ever messaged (decides whether a number needs the
+    // "is this on WhatsApp?" check). Persisted, because "wrote in yesterday" must survive a restart.
+    this.contacts = { inbound: {}, contacted: {} };
+    this.contactsDirty = false;
+
+    // Today's first-contact count, under the day key in the clinic's zone.
+    this.daily = { day: "", proactive: 0 };
   }
 
   /* ───────────────────────── lifecycle ───────────────────────── */
@@ -67,12 +91,16 @@ export class Instance {
   async start() {
     this.stopping = false;
     await mkdir(this.mediaDir, { recursive: true });
+    await mkdir(this.outboxDir, { recursive: true });
+    await this.#loadState();
     await this.#connect();
   }
 
   async stop() {
     this.stopping = true;
     clearTimeout(this.reconnectTimer);
+    clearTimeout(this.drainTimer);
+    await this.#saveState().catch(() => {});
     const sock = this.sock;
     this.sock = null;
     if (sock) {
@@ -85,7 +113,7 @@ export class Instance {
     }
   }
 
-  /** Forget the login and come back up waiting for a fresh scan. */
+  /** Forget the login and come back up waiting for a fresh scan. Also clears the brake. */
   async logout() {
     const sock = this.sock;
     try {
@@ -96,7 +124,16 @@ export class Instance {
     await this.stop();
     if (this.auth) await this.auth.clear().catch(() => {});
     this.phone = null;
+    this.logoutTimes = [];
     this.state = "logged_out";
+    await this.start();
+  }
+
+  /** A person has looked: lift the brake and reconnect with the same session. */
+  async resume() {
+    this.logoutTimes = [];
+    this.reconnectAttempt = 0;
+    await this.stop();
     await this.start();
   }
 
@@ -104,6 +141,35 @@ export class Instance {
     await this.stop();
     await rm(this.dir, { recursive: true, force: true });
     await rm(this.mediaDir, { recursive: true, force: true });
+    await rm(this.outboxDir, { recursive: true, force: true });
+  }
+
+  async #loadState() {
+    await this.queue.load();
+    try {
+      const raw = JSON.parse(await readFile(join(this.dir, "state.json"), "utf8"));
+      if (raw?.contacts) this.contacts = { inbound: raw.contacts.inbound || {}, contacted: raw.contacts.contacted || {} };
+      if (raw?.daily) this.daily = raw.daily;
+      if (raw?.connectedAt) this.connectedAt = raw.connectedAt;
+      if (raw?.firstConnectedAt) this.meta.firstConnectedAt = raw.firstConnectedAt;
+    } catch {
+      /* first run */
+    }
+  }
+
+  async #saveState() {
+    await writeFile(
+      join(this.dir, "state.json"),
+      JSON.stringify({ contacts: this.contacts, daily: this.daily, connectedAt: this.connectedAt, firstConnectedAt: this.meta.firstConnectedAt })
+    );
+    this.contactsDirty = false;
+  }
+
+  #touchState() {
+    // Coalesced: a burst of inbound messages is one write, not fifty.
+    if (this.contactsDirty) return;
+    this.contactsDirty = true;
+    setTimeout(() => this.#saveState().catch((e) => this.log.warn({ err: e?.message }, "state save failed")), 2000);
   }
 
   async #connect() {
@@ -158,9 +224,14 @@ export class Instance {
       this.lastError = null;
       this.reconnectAttempt = 0;
       this.connectedAt = Date.now();
+      // The number's age, for the warm-up curve, is counted from its FIRST successful link — a
+      // reconnect after a Wi-Fi drop must not reset a week of trust to day zero.
+      if (!this.meta.firstConnectedAt) this.meta.firstConnectedAt = this.connectedAt;
       const me = this.sock?.user?.id ? jidNormalizedUser(this.sock.user.id) : "";
       this.phone = digitsOf(me) || this.phone;
-      this.log.info({ phone: this.phone }, "connected");
+      this.log.info({ phone: this.phone, queued: this.queue.size }, "connected");
+      this.#touchState();
+      this.#kickDrain();
       return;
     }
     if (connection === "close") {
@@ -170,13 +241,28 @@ export class Instance {
       this.lastError = reason;
       this.sock = null;
 
+      if (code === DisconnectReason.forbidden) {
+        // WhatsApp refused the session outright. That is what a ban or restriction looks like
+        // from a linked device, and knocking again is the one thing that makes it worse.
+        this.#trip("WhatsApp refused the connection (403). The number may be restricted. Check the phone, then press New QR or Resume.");
+        return;
+      }
+
       if (code === DisconnectReason.loggedOut) {
-        // The phone removed this device (Linked devices → Log out), or the account was banned.
-        // The old keys are useless now; wipe them so the next start shows a fresh QR.
-        this.log.warn("logged out by the phone; clearing session");
-        this.state = "logged_out";
+        // The phone removed this device (Linked devices → Log out), or the account was banned —
+        // and a restricted account drops its linked devices too. One logout is a person; three
+        // in a quarter of an hour is WhatsApp, and the brake goes on rather than a fresh QR.
+        const now = Date.now();
+        this.logoutTimes = this.logoutTimes.filter((t) => now - t < config.logoutStormWindowMs);
+        this.logoutTimes.push(now);
         this.phone = null;
         this.auth?.clear().catch(() => {});
+        if (this.logoutTimes.length >= config.logoutStormCount) {
+          this.#trip(`Logged out ${this.logoutTimes.length} times in ${Math.round(config.logoutStormWindowMs / 60000)} minutes. The number may be restricted. Wait, check the phone, then press New QR.`);
+          return;
+        }
+        this.log.warn("logged out by the phone; clearing session");
+        this.state = "logged_out";
         this.#scheduleReconnect(2000);
         return;
       }
@@ -191,8 +277,17 @@ export class Instance {
     }
   }
 
+  /** Put the brake on: no reconnects, no sends, until a person presses Resume or New QR. */
+  #trip(message) {
+    clearTimeout(this.reconnectTimer);
+    clearTimeout(this.drainTimer);
+    this.state = "restricted";
+    this.lastError = message;
+    this.log.error({ queued: this.queue.size }, message);
+  }
+
   #scheduleReconnect(delayMs) {
-    if (this.stopping) return;
+    if (this.stopping || this.state === "restricted") return;
     clearTimeout(this.reconnectTimer);
     const backoff = Math.min(60_000, 1000 * 2 ** Math.min(this.reconnectAttempt, 6));
     const delay = delayMs ?? backoff;
@@ -229,6 +324,16 @@ export class Instance {
     // patient directly. `remoteJidAlt` is the field on the rc line; `senderPn` was its old name.
     let phoneJid = key.remoteJidAlt || key.senderPn || null;
     if (!phoneJid && /@lid$/i.test(jid)) phoneJid = await this.resolveLid(jid);
+
+    if (!key.fromMe) {
+      // This chat wrote to us: for the next 24 hours anything we send it is a reply. Remembered
+      // under both ids WhatsApp may use for the same person, so a send addressed by phone is
+      // recognised as a reply to a message that arrived under a lid.
+      const now = Date.now();
+      this.contacts.inbound[jid] = now;
+      if (phoneJid) this.contacts.inbound[jidNormalizedUser(phoneJid)] = now;
+      this.#touchState();
+    }
 
     let mediaUrl = null;
     if (media && !key.fromMe && (media.type === "ptt" || media.type === "audio" || media.type === "image")) {
@@ -325,86 +430,186 @@ export class Instance {
 
   /* ───────────────────────── outbound ───────────────────────── */
 
-  #assertOpen() {
-    if (this.state !== "open" || !this.sock) {
-      const err = new Error(`WhatsApp is not connected (${this.state})`);
-      err.statusCode = 503;
-      throw err;
-    }
+  #window() {
+    return { tz: config.sendTz, startHour: config.windowStartHour, endHour: config.windowEndHour };
+  }
+
+  /** Today's first-contact allowance and how much of it is used. */
+  #dailyStatus(now = new Date()) {
+    const { dayKey } = zonedParts(now, config.sendTz);
+    if (this.daily.day !== dayKey) this.daily = { day: dayKey, proactive: 0 };
+    const cap = dailyProactiveCap(daysBetween(this.meta.firstConnectedAt, now.getTime()), config.warmup);
+    return { cap, used: this.daily.proactive, left: Math.max(0, cap - this.daily.proactive) };
   }
 
   /**
-   * Run one send after the pacing rules have had their say.
+   * Decide when a message may leave, before it goes in the queue.
    *
-   * Every send on this instance goes through here, in order. The gap is measured from the
-   * previous send's completion, and the per-minute cap holds the queue rather than dropping
-   * anything — a reminder batch of forty goes out over two minutes instead of two seconds.
+   * A reply leaves now. A proactive message leaves now if the window is open and the day's
+   * allowance has room; otherwise it is dated for the next opening. A message already dated
+   * for tomorrow is only re-examined then, by the drain loop, which applies the same rules
+   * again — the window may have closed, the allowance may be gone — and re-dates it if needed.
    */
-  #paced(fn) {
-    const run = async () => {
-      const now = Date.now();
-      this.sendTimes = this.sendTimes.filter((t) => now - t < 60_000);
-      let wait = 0;
-      if (this.sendTimes.length >= config.perMinuteCap) wait = Math.max(wait, this.sendTimes[0] + 60_000 - now);
-      const gap = randomGap(config.minGapMs, config.maxGapMs);
-      if (this.lastSendAt) wait = Math.max(wait, this.lastSendAt + gap - now);
-      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-      this.#assertOpen();
-      try {
-        return await fn();
-      } finally {
-        this.lastSendAt = Date.now();
-        this.sendTimes.push(this.lastSendAt);
-      }
-    };
-    const next = this.queue.then(run, run);
-    this.queue = next.catch(() => {});
-    return next;
+  #schedule(jid, now = new Date()) {
+    const kind = classify(this.contacts.inbound[jid], now);
+    if (kind === "reply") return { kind, notBefore: now.getTime() };
+    if (!inSendWindow(now, this.#window())) return { kind, notBefore: nextWindowOpen(now, this.#window()).getTime(), held: "window" };
+    if (this.#dailyStatus(now).left <= 0) return { kind, notBefore: nextWindowOpen(now, this.#window()).getTime(), held: "daily_cap" };
+    return { kind, notBefore: now.getTime() };
+  }
+
+  async #enqueue(item) {
+    const { kind, notBefore, held } = this.#schedule(item.jid);
+    const full = { ...item, id: generateMessageIDV2(), proactive: kind === "proactive", notBefore, createdAt: Date.now(), attempts: 0 };
+    await this.queue.push(full);
+    if (held) this.log.info({ id: full.id, held, notBefore: new Date(notBefore).toISOString() }, "message held");
+    this.#kickDrain();
+    return { id: full.id, queued: true, proactive: full.proactive, notBefore, held: held || null };
   }
 
   async sendText(chatId, text) {
-    this.#assertOpen();
     const jid = toWaJid(chatId);
     if (!jid) throw Object.assign(new Error("Invalid chat_id"), { statusCode: 400 });
     const body = String(text ?? "");
     if (!body.trim()) throw Object.assign(new Error("text is required"), { statusCode: 400 });
-
-    return this.#paced(async () => {
-      // A person types before they send. Short and bounded: decoration, never a delay worth noticing.
-      try {
-        await this.sock.sendPresenceUpdate("composing", jid);
-        await new Promise((r) => setTimeout(r, Math.min(1500, 300 + body.length * 15)));
-      } catch {
-        /* cosmetic */
-      }
-      const sent = await this.sock.sendMessage(jid, { text: body });
-      try {
-        await this.sock.sendPresenceUpdate("paused", jid);
-      } catch {
-        /* cosmetic */
-      }
-      return { id: sent?.key?.id || "", chatId: toWaJid(chatId) };
-    });
+    if (this.state === "restricted") throw Object.assign(new Error(`Sending is paused: ${this.lastError}`), { statusCode: 503 });
+    return this.#enqueue({ jid, kind: "text", text: body });
   }
 
   async sendDocument(chatId, { buffer, mimetype, fileName, caption }) {
-    this.#assertOpen();
     const jid = toWaJid(chatId);
     if (!jid) throw Object.assign(new Error("Invalid chat_id"), { statusCode: 400 });
     if (!buffer?.length) throw Object.assign(new Error("file is empty"), { statusCode: 400 });
-    return this.#paced(async () => {
-      const sent = await this.sock.sendMessage(jid, {
-        document: buffer,
-        mimetype: mimetype || "application/octet-stream",
-        fileName: fileName || "file",
-        caption: caption || undefined,
-      });
-      return { id: sent?.key?.id || "" };
-    });
+    if (this.state === "restricted") throw Object.assign(new Error(`Sending is paused: ${this.lastError}`), { statusCode: 503 });
+    // The bytes wait on disk with the queue, not in memory with the process.
+    const fileId = generateMessageIDV2();
+    const file = join(this.outboxDir, fileId);
+    await writeFile(file, buffer);
+    return this.#enqueue({ jid, kind: "document", file, mimetype: mimetype || "application/octet-stream", fileName: fileName || "file", caption: caption || "" });
+  }
+
+  #kickDrain() {
+    clearTimeout(this.drainTimer);
+    if (this.draining || this.state !== "open") return;
+    const due = this.queue.dueNow();
+    if (due) {
+      this.#drain().catch((e) => this.log.error({ err: e?.message }, "drain failed"));
+      return;
+    }
+    const next = this.queue.nextDueAt();
+    if (next != null) this.drainTimer = setTimeout(() => this.#kickDrain(), Math.max(1000, Math.min(next - Date.now(), 3600_000)));
+  }
+
+  /**
+   * Send what is due, one at a time, at a human pace.
+   *
+   * The gap is measured from the previous send: short for a reply (someone is waiting), long
+   * and random for a proactive message (nobody is, and forty identical-looking sends two seconds
+   * apart is the signature WhatsApp's classifier is trained on). Each item is re-checked against
+   * the rules at the moment of sending, so a batch that started at 21:55 stops at 22:00 and
+   * carries on at 10:00.
+   */
+  async #drain() {
+    if (this.draining) return;
+    this.draining = true;
+    try {
+      while (!this.stopping && this.state === "open") {
+        const now = new Date();
+        const item = this.queue.dueNow(now.getTime());
+        if (!item) break;
+
+        // Rules again, now: the window may have closed while the batch was running.
+        if (item.proactive) {
+          const { notBefore, held } = this.#schedule(item.jid, now);
+          if (held) {
+            await this.queue.update(item.id, { notBefore });
+            this.log.info({ id: item.id, held }, "message re-held");
+            continue;
+          }
+        }
+
+        const [lo, hi] = item.proactive ? config.proactiveGapMs : config.replyGapMs;
+        const wait = this.lastSendAt + randomGap(lo, hi) - Date.now();
+        if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+        if (this.state !== "open" || !this.sock) break;
+
+        try {
+          await this.#sendNow(item);
+          await this.queue.remove(item.id);
+          if (item.proactive) {
+            this.daily.proactive += 1;
+            this.contacts.contacted[item.jid] = Date.now();
+            this.#touchState();
+          }
+        } catch (e) {
+          const permanent = e?.permanent === true;
+          this.log.warn({ id: item.id, err: e?.message, permanent, attempts: item.attempts + 1 }, "send failed");
+          if (permanent || item.attempts + 1 >= 3) {
+            await this.queue.remove(item.id);
+            if (item.kind === "document") await rm(item.file, { force: true }).catch(() => {});
+            // Tell the web app, in the shape its ack parser reads, so the chat shows a red mark
+            // instead of a message stuck on one tick forever.
+            await this.#postWebhook(buildAckEvent({ instanceId: this.id, key: { id: item.id, remoteJid: item.jid, fromMe: true }, status: 0 }));
+          } else {
+            // A transient failure: try again in a minute, after everything else that is due.
+            await this.queue.update(item.id, { attempts: item.attempts + 1, notBefore: Date.now() + 60_000 });
+          }
+        } finally {
+          this.lastSendAt = Date.now();
+        }
+      }
+    } finally {
+      this.draining = false;
+      this.#kickDrain();
+    }
+  }
+
+  async #sendNow(item) {
+    const sock = this.sock;
+    if (!sock) throw new Error("not connected");
+
+    // A number we have never spoken to and that never wrote to us: make sure it is on WhatsApp
+    // before writing to it. Sending to numbers that are not is one of the clearer machine tells.
+    if (item.proactive && /@s\.whatsapp\.net$/.test(item.jid) && !this.contacts.contacted[item.jid] && !this.contacts.inbound[item.jid]) {
+      try {
+        const [hit] = await sock.onWhatsApp(item.jid);
+        if (hit && hit.exists === false) throw Object.assign(new Error("number is not on WhatsApp"), { permanent: true });
+      } catch (e) {
+        if (e?.permanent) throw e;
+        // A lookup failure is not a reason to drop the message.
+      }
+    }
+
+    if (item.kind === "text") {
+      // A person types before they send. Short and bounded: decoration, never a delay worth noticing.
+      try {
+        await sock.sendPresenceUpdate("composing", item.jid);
+        await new Promise((r) => setTimeout(r, Math.min(1500, 300 + item.text.length * 15)));
+      } catch {
+        /* cosmetic */
+      }
+      await sock.sendMessage(item.jid, { text: item.text }, { messageId: item.id });
+      sock.sendPresenceUpdate("paused", item.jid).catch(() => {});
+      return;
+    }
+
+    if (item.kind === "document") {
+      let buffer;
+      try {
+        buffer = await readFile(item.file);
+      } catch {
+        throw Object.assign(new Error("queued file is gone"), { permanent: true });
+      }
+      await sock.sendMessage(item.jid, { document: buffer, mimetype: item.mimetype, fileName: item.fileName, caption: item.caption || undefined }, { messageId: item.id });
+      await rm(item.file, { force: true }).catch(() => {});
+      return;
+    }
+
+    throw Object.assign(new Error(`unknown item kind ${item.kind}`), { permanent: true });
   }
 
   async typing(chatId) {
-    this.#assertOpen();
+    if (this.state !== "open" || !this.sock) return;
     const jid = toWaJid(chatId);
     if (!jid) return;
     await this.sock.sendPresenceUpdate("composing", jid).catch(() => {});
@@ -423,16 +628,29 @@ export class Instance {
   }
 
   status() {
+    const now = new Date();
+    const daily = this.#dailyStatus(now);
+    const open = inSendWindow(now, this.#window());
     return {
       instanceId: this.id,
       label: this.meta.label || "",
       state: this.state,
       phone: this.phone,
       connectedAt: this.connectedAt,
+      firstConnectedAt: this.meta.firstConnectedAt || null,
       qrAt: this.qrAt,
       lastError: this.lastError,
       webhookUrl: this.meta.webhookUrl || "",
       createdAt: this.meta.createdAt,
+      sending: {
+        windowOpen: open,
+        window: `${String(config.windowStartHour).padStart(2, "0")}:00–${String(config.windowEndHour).padStart(2, "0")}:00 ${config.sendTz}`,
+        nextOpenAt: open ? null : nextWindowOpen(now, this.#window()).getTime(),
+        queued: this.queue.size,
+        waiting: this.queue.countWaiting(now.getTime()),
+        dailyCap: daily.cap,
+        sentToday: daily.used,
+      },
     };
   }
 }

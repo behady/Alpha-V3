@@ -13,6 +13,7 @@ import {
   gatewayInstanceIdForClinic,
   gatewayInstanceStatus,
   gatewayLogout,
+  gatewayResume,
   inboundWebhookUrlForClinic,
   isAlphaGatewayCredentials,
 } from "@/lib/waGateway";
@@ -91,6 +92,9 @@ async function describe(t: Target) {
     qrAt: status.qrAt,
     lastError: status.lastError,
     connectedAt: status.connectedAt,
+    // Clinic hours, the day's allowance and what is waiting — so the card can say "12 messages
+    // waiting, sending resumes at 10:00" instead of leaving the desk to wonder.
+    sending: status.sending ?? null,
   };
 }
 
@@ -106,7 +110,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => ({}))) as { clinicId?: string; action?: "connect" | "disconnect" | "relink" };
+  const body = (await request.json().catch(() => ({}))) as { clinicId?: string; action?: "connect" | "disconnect" | "relink" | "resume" };
   const target = await resolveTarget(request, typeof body.clinicId === "string" ? body.clinicId.trim() || undefined : undefined);
   if (target instanceof NextResponse) return target;
 
@@ -160,6 +164,14 @@ export async function POST(request: Request) {
       const existing = await storedCredentials(target);
       if (!isAlphaGatewayCredentials(existing)) return NextResponse.json({ ok: false, error: "Not connected through the gateway" }, { status: 400 });
       await gatewayLogout(instanceId);
+      return NextResponse.json(await describe(target));
+    }
+
+    if (body.action === "resume") {
+      // The gateway's emergency brake has tripped and a person has looked. Same session, no scan.
+      const existing = await storedCredentials(target);
+      if (!isAlphaGatewayCredentials(existing)) return NextResponse.json({ ok: false, error: "Not connected through the gateway" }, { status: 400 });
+      await gatewayResume(instanceId);
       return NextResponse.json(await describe(target));
     }
 

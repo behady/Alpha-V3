@@ -121,7 +121,7 @@ export function createHttpServer({ registry, logger }) {
         return json(res, created ? 201 : 200, { ok: true, created, token, ...instance.status() });
       }
 
-      const m = /^\/admin\/instances\/([^/]+)(?:\/(qr|logout|restart|webhook))?$/.exec(path);
+      const m = /^\/admin\/instances\/([^/]+)(?:\/(qr|logout|restart|resume|webhook))?$/.exec(path);
       if (m) {
         const inst = registry.get(decodeURIComponent(m[1]));
         if (!inst) return json(res, 404, { ok: false, error: "No such instance" });
@@ -153,6 +153,11 @@ export function createHttpServer({ registry, logger }) {
           await inst.start();
           return json(res, 200, { ok: true, ...inst.status() });
         }
+        if (sub === "resume" && method === "POST") {
+          // A person has looked at a tripped brake: reconnect with the same session.
+          await inst.resume();
+          return json(res, 200, { ok: true, ...inst.status() });
+        }
       }
       return json(res, 404, { ok: false, error: "Not found" });
     }
@@ -173,9 +178,10 @@ export function createHttpServer({ registry, logger }) {
           const chatId = body.chat_id || body.chatId || body.phone || body.to;
           const text = body.text ?? body.message ?? body.body;
           const sent = await inst.sendText(chatId, text);
-          // `id` at the root is what the web app's wapilotMessageId reads first; the same string
-          // later arrives on the ack event, which is how the ticks find their message.
-          return json(res, 200, { ok: true, id: sent.id, data: { id: sent.id, chatId: sent.chatId } });
+          // Accepted, not yet sent: the instance paces and may hold it for clinic hours. `id` at
+          // the root is what the web app's wapilotMessageId reads first; the same string later
+          // arrives on the ack event, which is how the ticks find their message.
+          return json(res, 200, { ok: true, id: sent.id, data: { id: sent.id, queued: true, proactive: sent.proactive, notBefore: sent.notBefore, held: sent.held } });
         }
 
         if (action === "send-file" && method === "POST") {
@@ -200,7 +206,7 @@ export function createHttpServer({ registry, logger }) {
             fileName = fileName || (body.media && body.media.filename) || "file";
           }
           const sent = await inst.sendDocument(chatId, { buffer, mimetype, fileName, caption });
-          return json(res, 200, { ok: true, id: sent.id, data: { id: sent.id } });
+          return json(res, 200, { ok: true, id: sent.id, data: { id: sent.id, queued: true, proactive: sent.proactive, notBefore: sent.notBefore, held: sent.held } });
         }
 
         if (action === "typing" && method === "POST") {

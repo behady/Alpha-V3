@@ -41,15 +41,38 @@ export const config = {
   publicUrl: String(process.env.GATEWAY_PUBLIC_URL || "").replace(/\/$/, ""),
 
   /*
-   * Sending pace. WhatsApp bans numbers for behaving like machines, and the cheapest tell is a
-   * burst of messages with zero milliseconds between them. Every send waits a random gap after
-   * the previous one, and no instance sends more than `perMinuteCap` in any rolling minute —
-   * anything beyond that waits its turn rather than being refused, so a reminder batch still
-   * goes out, just at a human pace.
+   * Sending rules (see policy.js for the reasoning). Two kinds of message:
+   *
+   *   reply      — the patient wrote to this number in the last 24 h. Goes out at once, any hour,
+   *                with a short human gap.
+   *   proactive  — the clinic is starting the conversation (reminders, recalls, welcomes).
+   *                Clinic hours only; held until the window opens otherwise; paced with a long
+   *                random gap; counted against a daily allowance that grows with the number's age.
+   *
+   * Decided 2026-09-27: the window is 10:00–22:00 Cairo; anything outside waits for 10:00 the
+   * next day and then leaves with random waits between messages.
    */
-  minGapMs: Number(process.env.SEND_MIN_GAP_MS || 1500),
-  maxGapMs: Number(process.env.SEND_MAX_GAP_MS || 4000),
-  perMinuteCap: Number(process.env.SEND_PER_MINUTE_CAP || 20),
+  sendTz: process.env.SEND_TZ || "Africa/Cairo",
+  windowStartHour: Number(process.env.SEND_WINDOW_START || 10),
+  windowEndHour: Number(process.env.SEND_WINDOW_END || 22),
+
+  replyGapMs: [Number(process.env.REPLY_GAP_MIN_MS || 1500), Number(process.env.REPLY_GAP_MAX_MS || 4000)],
+  proactiveGapMs: [Number(process.env.PROACTIVE_GAP_MIN_MS || 10_000), Number(process.env.PROACTIVE_GAP_MAX_MS || 30_000)],
+
+  /** First-contacts per day: base × growth^daysLinked, capped at max. Day 0 → 20, day 6+ → 200. */
+  warmup: {
+    base: Number(process.env.WARMUP_BASE || 20),
+    growth: Number(process.env.WARMUP_GROWTH || 1.5),
+    max: Number(process.env.DAILY_PROACTIVE_MAX || 200),
+  },
+
+  /**
+   * Emergency brake. A 403 from WhatsApp, or the phone logging this device out repeatedly in a
+   * short span, is what a restriction looks like from here; reconnecting in a loop through it is
+   * how a 24-hour restriction becomes a permanent ban. The instance stops and waits for a person.
+   */
+  logoutStormCount: Number(process.env.LOGOUT_STORM_COUNT || 3),
+  logoutStormWindowMs: Number(process.env.LOGOUT_STORM_WINDOW_MIN || 15) * 60 * 1000,
 
   /** Inbound voice notes and photos are kept this long for the web app to fetch, then deleted. */
   mediaTtlMs: Number(process.env.MEDIA_TTL_HOURS || 48) * 3600 * 1000,

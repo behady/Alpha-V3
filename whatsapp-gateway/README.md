@@ -93,12 +93,32 @@ Webhook events posted to `webhookUrl` use the WAHA layout the web app's inbound 
 parses: `{ event: "message", payload: { id, from, fromMe, body, type, mimetype, media: { url } } }`
 and `{ event: "message.ack", payload: { id, from, fromMe: true, ack, ackName } }`.
 
-## Sending pace
+## Sending rules
 
-WhatsApp bans numbers that behave like machines. Every send waits a random 1.5–4 s after the
-previous one, shows "typing…" first, and no number sends more than 20 messages in any minute
-— extra ones wait rather than fail. The web app's own protections (the opt-out footer, the
-per-patient flood guard) sit on top of this.
+WhatsApp bans numbers that behave like machines. The gateway makes every clinic number behave
+like a receptionist (`src/policy.js` has the reasoning; `.env.example` the knobs):
+
+- **Two kinds of message.** A *reply* is anything sent to a patient who wrote to this number in
+  the last 24 hours: it leaves at once, any hour, with a 1.5–4 s gap. Everything else is
+  *proactive* (reminders, recalls, welcomes, campaigns) and follows the rules below.
+- **Clinic hours: 10:00–22:00 Cairo.** A proactive message outside the window is held and sent
+  from 10:00 the next morning. A batch that is still going at 22:00 stops and resumes at 10:00.
+- **Random waits.** Proactive messages leave 10–30 s apart, with "typing…" first.
+- **Warm-up.** A newly linked number may start 20 first-contacts a day, growing ×1.5 daily to
+  200 (day 6). Over the allowance → held until tomorrow. Counted from the number's *first*
+  successful link, so a reconnect does not reset it.
+- **Unknown numbers are looked up first.** A first-ever message to a number that never wrote in
+  is only sent if the number is on WhatsApp; messaging dead numbers is a known machine tell.
+- **The queue is on disk.** A restart at 23:00 keeps tomorrow's reminders.
+- **Emergency brake.** A 403 from WhatsApp, or 3 logouts within 15 minutes, means the number is
+  probably restricted. The instance stops reconnecting and stops sending (`state: restricted`)
+  until someone presses **Resume** or **New QR** in Settings. Retrying through a restriction is
+  how a 24-hour one becomes permanent.
+
+`send-message` therefore answers immediately with the message id (the same id the delivery acks
+carry later) plus `data.queued`, `data.notBefore` and `data.held` (`window` / `daily_cap` / null).
+The web app's own protections (the opt-out footer, the per-patient flood guard, STOP handling)
+sit on top of all this.
 
 ## Tests
 
