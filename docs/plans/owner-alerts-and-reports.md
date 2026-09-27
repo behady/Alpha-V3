@@ -114,7 +114,7 @@ Rules for the platform number:
 - Add-on key `ownerAlertsLine` in `featureCatalog.ts`, group messaging. Auto-granted (shown as "included") when `whatsappIntegration` or `whatsappBot` is on **and** a clinic number is connected; otherwise sold cheaply on its own.
 - Wapilot is an unofficial gateway. Low volume to known staff numbers keeps the ban risk small; it must never carry marketing or patient traffic.
 
-**Decision needed before build** (touches the live backend): the existing platform fallback currently also sends *patient* messages for clinics with no own number. This plan narrows the shared number to staff alerts only. Clinics relying on it for patient messages would move to click-to-send (`manual` mode), which the code already supports.
+**Decided 2026-09-27:** the platform number is for alerts only. The existing platform fallback for *patient* messages is removed in M1; a clinic with no own number sends patient messages by click-to-send (`manual` mode), which the code already supports. The platform line is a **new** Wapilot number, not the current one.
 
 ### 3.5 Owner Q&A (later, but designed now)
 
