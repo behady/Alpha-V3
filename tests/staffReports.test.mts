@@ -309,7 +309,18 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
   eq(staffIntent("today"), "morning", "English today");
   eq(staffIntent("ملخص"), "summary", "Arabic summary");
   eq(staffIntent("Hi"), "help", "a greeting is help");
-  eq(staffIntent("Do you know who am i?"), "help", "a question the line cannot answer is help");
+  eq(staffIntent("ازيك"), "help", "an Arabic greeting is help");
+  eq(staffIntent("Do you know who am i?"), "ask", "a free question goes to the assistant");
+  eq(staffIntent("كام مريض جه النهارده؟"), "ask", "a question containing a report word is still a question");
+  eq(staffIntent("How much did Dr Ahmed collect this week?"), "ask", "an English question goes to the assistant");
+  eq(staffIntent("رصيد محمد علي"), "ask", "a balance question goes to the assistant");
+  const route = read("src/app/api/gemini/route.ts");
+  ok(/WHATSAPP_STAFF_TOOL_NAMES/.test(route) && route.includes('client === "whatsapp-staff"'), "the assistant route has no read-only tool set for the staff line");
+  for (const forbidden of ["db_write", "db_update", "db_delete", "navigate_to", "trigger_pdf_generation", "set_appointment_status", "reschedule_appointment", "record_payment", "send_patient_whatsapp", "open_appointment", "update_odontogram", "trigger_whatsapp_appointment"]) {
+    const block = route.slice(route.indexOf("const WHATSAPP_STAFF_TOOL_NAMES"), route.indexOf("]);", route.indexOf("const WHATSAPP_STAFF_TOOL_NAMES")));
+    ok(!block.includes(`"${forbidden}"`), `the staff line can call ${forbidden} from WhatsApp`);
+  }
+  ok(read("src/lib/bot/staffAssistant.ts").includes("createCustomToken(uid"), "the staff line does not sign in as the real person — permissions would be nobody's");
   // The owner types 01551552440 on the page; Meta delivers 201551552440; both are the same phone.
   ok(samePhone("01551552440", "201551552440"), "a local number does not match its international form");
   ok(samePhone("01551552440", "+201551552440"), "a local number does not match E.164");

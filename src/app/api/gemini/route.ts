@@ -121,6 +121,22 @@ const RECEPTION_READABLE_COLLECTIONS = new Set([
  */
 const TOUR_TOOL_NAMES = new Set(["start_tutorial", "open_tour_stop"]);
 
+/**
+ * What the staff line on WhatsApp may call (lib/bot/staffAssistant.ts). Reads and reports only:
+ * a WhatsApp message cannot show a confirmation card, open a screen or render a PDF, so every
+ * tool that ends in one of those is left out rather than offered and then failed.
+ */
+const WHATSAPP_STAFF_TOOL_NAMES = new Set([
+  "db_read",
+  "find_patient",
+  "find_duplicate_ledger_entries",
+  "generate_financial_summary",
+  "run_clinic_report",
+  "suggest_appointment_slots",
+  "audit_patient_records",
+  "learn_fact",
+]);
+
 /** The tour's model: cheap, and adequate for "answer from these notes in 2-4 sentences". */
 const TOUR_MODEL = "gemini-3.1-flash-lite";
 
@@ -357,6 +373,7 @@ export async function POST(req: Request) {
      * the tour immediately pushes back from.
      */
     const clientIsTour = client === "web-tour";
+    const clientIsWhatsappStaff = client === "whatsapp-staff";
     const clientCanRunTutorials = client === "web-widget" || clientIsTour;
     /** The widget can hand over to the tour ("show me around"); the tour can move itself. */
     const clientCanOpenTour = client === "web-widget" || clientIsTour;
@@ -1150,7 +1167,9 @@ export async function POST(req: Request) {
         ? functionDeclarations.filter((f) => RECEPTION_TOOL_NAMES.has(f.name))
         : clientIsTour
           ? functionDeclarations.filter((f) => TOUR_TOOL_NAMES.has(f.name))
-          : functionDeclarations
+          : clientIsWhatsappStaff
+            ? functionDeclarations.filter((f) => WHATSAPP_STAFF_TOOL_NAMES.has(f.name))
+            : functionDeclarations
     )
       .filter((f) => f.name !== "open_appointment" || clientHasAppointmentPanel)
       .filter((f) => f.name !== "start_tutorial" || clientCanRunTutorials)
