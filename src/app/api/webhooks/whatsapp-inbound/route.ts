@@ -14,6 +14,7 @@ import { transcribeAudioBytes } from "@/lib/bot/transcribe";
 import { describeImageBytes } from "@/lib/bot/describeImage";
 import { extractInboundMedia, fetchInboundMediaBytes } from "@/lib/bot/wapilotMedia";
 import { applyInboundOptOut } from "@/lib/optOutInbound";
+import { confirmOptOut } from "@/lib/bot/optOutConfirm";
 import { reportServerError } from "@/lib/server/reportError";
 
 export const runtime = "nodejs";
@@ -330,6 +331,7 @@ export async function POST(request: NextRequest) {
         channel: "whatsapp",
       });
       if (result.status !== "ignored") {
+        if (result.status === "opted_out" || result.status === "unknown_number") await confirmOptOut(clinicId, chatId, reply.text, "wapilot");
         return NextResponse.json({ ok: true, result: result.status });
       }
     } else if (!phone && isOptOutReply(reply.text)) {
@@ -381,7 +383,7 @@ export async function POST(request: NextRequest) {
 
     let text = reply.text;
     let mediaKind = media?.kind as "audio" | "image" | undefined;
-    let mediaNote: { summary: string; urgent: boolean; interest?: string } | undefined;
+    let mediaNote: { summary: string; urgent: boolean; interest?: string; impression?: string; category?: "dental" | "document" | "other" } | undefined;
 
     if (media && !text) {
       const gate = await adminClinicDoc(clinicId, "settings", "whatsapp").get().catch(() => null);
@@ -411,11 +413,11 @@ export async function POST(request: NextRequest) {
           if (d.ok) {
             // The description is for the team, never for the patient: a model's reading of a
             // swelling is exactly the message a clinic must never send.
-            mediaNote = { summary: d.summary, urgent: d.urgent, interest: d.interest || undefined };
+            mediaNote = { summary: d.summary, urgent: d.urgent, interest: d.interest || undefined, impression: d.impression, category: d.category };
             await recordThreadMessage(clinicId, chatId, {
               direction: "in",
               author: "system",
-              text: `🖼️ وصف الصورة (للفريق): ${d.summary}${d.urgent ? " — ⚠️ يبدو عاجل" : ""}`,
+              text: `🖼️ وصف الصورة (للفريق): ${d.summary}${d.urgent ? " — ⚠️ يبدو عاجل" : ""}${d.impression ? `\nقراءة مبدئية: ${d.impression}` : ""}`,
               kind: "image_note",
               channel: "wapilot",
             }).catch(() => {});

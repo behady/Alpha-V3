@@ -11,6 +11,7 @@ import { loadMetaWhatsappConfig, sendMetaTypingIndicator } from "@/lib/metaWhats
 import { attachTranscript, recordThreadMessage, updateThreadStatus } from "@/lib/bot/thread";
 import { attachInboundMedia } from "@/lib/bot/media";
 import { applyInboundOptOut } from "@/lib/optOutInbound";
+import { confirmOptOut } from "@/lib/bot/optOutConfirm";
 import { isOptOutReply } from "@/lib/patientMessaging";
 import { clinicIdForPhoneNumberId } from "@/lib/metaWhatsapp";
 import { reportServerError } from "@/lib/server/reportError";
@@ -358,7 +359,8 @@ export async function POST(request: NextRequest) {
       // this reaches the patient's actual record with no lid fallback needed.
       if (isOptOutReply(msg.text)) {
         await rememberInbound(clinicId, msg);
-        await applyInboundOptOut({ clinicId, phone: msg.from, text: msg.text, channel: "whatsapp" });
+        const r = await applyInboundOptOut({ clinicId, phone: msg.from, text: msg.text, channel: "whatsapp" });
+        if (r.status === "opted_out" || r.status === "unknown_number") await confirmOptOut(clinicId, msg.from, msg.text, "meta");
         continue;
       }
 
@@ -443,15 +445,15 @@ export async function POST(request: NextRequest) {
            * urgent, what it is about. The patient still gets "we got your photo, someone will
            * look" — the description goes into the thread and the handoff, never to them.
            */
-          let mediaNote: { summary: string; urgent: boolean; interest?: string } | undefined;
+          let mediaNote: { summary: string; urgent: boolean; interest?: string; impression?: string; category?: "dental" | "document" | "other" } | undefined;
           if (mayRead && msg.media === "image" && msg.mediaId && !text) {
             const d = await describeWhatsappImage(clinicId, msg.mediaId);
             if (d.ok) {
-              mediaNote = { summary: d.summary, urgent: d.urgent, interest: d.interest || undefined };
+              mediaNote = { summary: d.summary, urgent: d.urgent, interest: d.interest || undefined, impression: d.impression, category: d.category };
               await recordThreadMessage(clinicId, msg.from, {
                 direction: "in",
                 author: "system",
-                text: `🖼️ وصف الصورة (للفريق): ${d.summary}${d.urgent ? " — ⚠️ يبدو عاجل" : ""}`,
+                text: `🖼️ وصف الصورة (للفريق): ${d.summary}${d.urgent ? " — ⚠️ يبدو عاجل" : ""}${d.impression ? `\nقراءة مبدئية: ${d.impression}` : ""}`,
                 kind: "image_note",
                 channel: "meta",
               }).catch(() => {});

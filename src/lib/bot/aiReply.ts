@@ -193,6 +193,8 @@ export async function answerWithAi(args: {
    * emergency red flags still hand off.
    */
   clinical?: boolean;
+  /** The patient just sent a photo: what it shows, and a preliminary reading for dental photos. */
+  photo?: { summary: string; impression?: string; urgent: boolean; category?: "dental" | "document" | "other" };
 }): Promise<AiReplyResult> {
   const { clinicId, clinicName, question, patientName, hoursText, addressText, clinicPhone, facts, history } = args;
   const sales = args.mode === "sales";
@@ -260,6 +262,7 @@ export async function answerWithAi(args: {
     mode: sales ? "sales" : "assisted",
     clinical: args.clinical === true,
     canBook: args.canBook,
+    photo: args.photo,
     hoursText,
     addressText,
     clinicPhone,
@@ -448,6 +451,25 @@ export async function answerWithAi(args: {
      */
     const drugsAllowed = [question, ...(args.dossier?.prescriptions || []).flatMap((p) => p.items)].join(" \n ");
     let namedDrugs: string[] = [];
+    /*
+     * The language rule, enforced. The prompt says "answer in the script of the last message";
+     * the battery showed the model breaking it on English and Franco turns, and in production
+     * nothing checked. One nudge and one more try; a reply that still comes back in the wrong
+     * script is sent rather than lost — a wrong-language answer beats no answer.
+     */
+    const isArabic = (s: string) => (s.match(/[؀-ۿ]/g) || []).length;
+    const isLatin = (s: string) => (s.match(/[A-Za-z]/g) || []).length;
+    const qArabic = isArabic(question);
+    const qLatin = isLatin(question);
+    const questionHasScript = qArabic >= 3 || qLatin >= 3;
+    const wrongScript = (reply: string) => {
+      if (!questionHasScript || !reply.trim()) return false;
+      const rArabic = isArabic(reply);
+      const rLatin = isLatin(reply);
+      if (rArabic + rLatin < 6) return false;
+      return qArabic > qLatin ? rLatin > rArabic : rArabic > rLatin;
+    };
+    let langRetries = 0;
     const ATTEMPTS = 3;
     for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
       const t0 = Date.now();
@@ -474,10 +496,18 @@ export async function answerWithAi(args: {
       const spoken = ["answer", "open_booking", "book_slot", "reschedule", "cancel", "late", "suggest_medicine"].includes(String(parsed.action));
       strays = spoken ? strayNumbers(String(parsed.reply || "")) : [];
       namedDrugs = spoken ? strayDrugNames(String(parsed.reply || ""), drugsAllowed) : [];
-      if (!strays.length && !namedDrugs.length) break;
+      const badScript = spoken && wrongScript(String(parsed.reply || ""));
+      if (!strays.length && !namedDrugs.length && !badScript) break;
+      if (badScript && !strays.length && !namedDrugs.length && langRetries > 0) break;
       if (attempt === 0) {
         contents.push({ role: "model" as const, parts: [{ text: raw }] });
+        if (badScript) langRetries += 1;
         const notes = [
+          badScript
+            ? qArabic > qLatin
+              ? "المريض كتب بالعربي وردك جه بالإنجليزي. أعد نفس الرد بالعامية المصرية."
+              : "المريض كتب بالإنجليزي أو فرانكو وردك جه بالعربي. أعد نفس الرد بنفس لغة رسالته (إنجليزي → إنجليزي، فرانكو → فرانكو بحروف إنجليزية)."
+            : "",
           strays.length
             ? `الأرقام دي مش موجودة في قايمة الأسعار ولا في معلومات العيادة: ${strays.join("، ")}. أعد نفس الرد بالأرقام الصحيحة من القايمة فقط، ولو الرقم مش موجود متذكرش رقم خالص.`
             : "",
@@ -499,6 +529,8 @@ export async function answerWithAi(args: {
         model: MODEL,
         promptVersion: promptVersion(promptInput.mode, promptInput.clinical, promptInput.canBook),
         action: String(parsed?.action || ""),
+        langRetries,
+        photo: Boolean(args.photo),
         modelMs,
         slotsGiven: args.slots?.length ?? 0,
         threadLines: thread.length,
