@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Check, Loader2, MessageCircle, Save, Send, Trash2 } from "lucide-react";
+import { Check, Loader2, MessageCircle, QrCode, RefreshCw, Save, Send, Trash2, Unplug } from "lucide-react";
 import { auth } from "@/lib/firebase";
 import { useUI } from "@/context/UIContext";
 
@@ -24,6 +24,27 @@ type Status = {
   updatedAt: string | null;
   lastTest: { to: string; ok: boolean; error?: string; at: string } | null;
 };
+
+/** What the QR-connect panel knows about the line on Alpha's own gateway (see lib/waGateway). */
+type GatewayView = {
+  available: boolean;
+  managed: boolean;
+  state?: string;
+  phone?: string | null;
+  qr?: string | null;
+  lastError?: string | null;
+};
+
+function readGateway(data: Record<string, unknown>): GatewayView {
+  return {
+    available: data.available === true,
+    managed: data.managed === true,
+    state: typeof data.state === "string" ? data.state : undefined,
+    phone: typeof data.phone === "string" ? data.phone : null,
+    qr: typeof data.qr === "string" ? data.qr : null,
+    lastError: typeof data.lastError === "string" ? data.lastError : null,
+  };
+}
 
 const CARD = "bg-surface rounded-[2rem] border border-slate-200/60 shadow-sm p-6 md:p-8";
 const LABEL = "text-xs font-bold text-ink-muted block mb-1.5";
@@ -115,6 +136,66 @@ export function AlertsLineCard() {
     }
   };
 
+  /*
+   * Alpha's own gateway (whatsapp-gateway/): the alerts line can be a number scanned by QR
+   * instead of a Wapilot instance. Same route the clinic Settings card uses, with `platform`
+   * as the target. `available` — this deployment has a gateway; `managed` — the line is on it.
+   */
+  const [gw, setGw] = useState<GatewayView | null>(null);
+  const [gwBusy, setGwBusy] = useState(false);
+
+  const loadGw = useCallback(async () => {
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch("/api/admin/wapilot-config/gateway?clinicId=platform", {
+        headers: { Authorization: `Bearer ${token || ""}` },
+      });
+      const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      if (res.ok && json.ok) setGw(readGateway(json));
+      else setGw((g) => g ?? { available: false, managed: false });
+    } catch {
+      setGw((g) => g ?? { available: false, managed: false });
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadGw();
+  }, [loadGw]);
+
+  // The QR rotates and the state flips the moment the phone scans, so poll while not connected.
+  useEffect(() => {
+    if (!gw?.managed || gw.state === "open") return;
+    const timer = setInterval(() => void loadGw(), 3000);
+    return () => clearInterval(timer);
+  }, [gw?.managed, gw?.state, loadGw]);
+
+  const gwAction = async (action: "connect" | "disconnect" | "relink") => {
+    if (action === "disconnect") {
+      const ok = await confirm(
+        "Clinics on the Alerts line add-on stop receiving WhatsApp alerts until the line is connected again.",
+        { title: "Disconnect the alerts line?", confirmLabel: "Disconnect", tone: "danger" },
+      );
+      if (!ok) return;
+    }
+    setGwBusy(true);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch("/api/admin/wapilot-config/gateway", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token || ""}` },
+        body: JSON.stringify({ clinicId: "platform", action }),
+      });
+      const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!res.ok || json.ok === false) throw new Error(String(json.error || `HTTP ${res.status}`));
+      setGw(readGateway(json));
+      await refresh();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Gateway request failed", "error");
+    } finally {
+      setGwBusy(false);
+    }
+  };
+
   return (
     <div className={CARD}>
       <div className="flex items-start gap-3 mb-6">
@@ -142,6 +223,82 @@ export function AlertsLineCard() {
         )}
       </div>
 
+      {gw?.available && (
+        <div className="mb-5 rounded-2xl border border-line bg-surface-subtle p-4">
+          {!gw.managed ? (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs font-semibold text-ink-muted leading-relaxed max-w-xl">
+                Or connect a number on Alpha&apos;s own gateway by scanning a QR — no Wapilot subscription for this line.
+              </p>
+              <button
+                type="button"
+                onClick={() => void gwAction("connect")}
+                disabled={gwBusy}
+                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {gwBusy ? <Loader2 size={15} className="animate-spin" /> : <QrCode size={15} />}
+                Connect by QR
+              </button>
+            </div>
+          ) : gw.state === "open" ? (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span className="inline-flex items-center gap-1.5 text-sm font-bold text-emerald-700" dir="ltr">
+                <Check size={15} /> Connected on Alpha&apos;s gateway{gw.phone ? ` · +${gw.phone}` : ""}
+              </span>
+              <button
+                type="button"
+                onClick={() => void gwAction("disconnect")}
+                disabled={gwBusy}
+                className="inline-flex items-center gap-2 rounded-xl border border-line px-4 py-2.5 text-sm font-bold text-ink-muted transition hover:text-red-600 disabled:opacity-50"
+              >
+                {gwBusy ? <Loader2 size={15} className="animate-spin" /> : <Unplug size={15} />}
+                Disconnect
+              </button>
+            </div>
+          ) : gw.state === "qr" && gw.qr ? (
+            <div className="flex flex-col sm:flex-row items-center gap-5">
+              {/* A data URL that changes every few seconds; next/image has nothing to optimise here. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={gw.qr} alt="WhatsApp QR" width={208} height={208} className="rounded-xl border border-line bg-white p-2 shrink-0" />
+              <ol className="text-xs font-semibold text-ink-muted leading-relaxed list-decimal ps-4 space-y-1.5">
+                <li>Open WhatsApp on the phone that will be the alerts line.</li>
+                <li>Settings → Linked devices → Link a device.</li>
+                <li>Scan this code. It refreshes on its own if it expires.</li>
+              </ol>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span className="inline-flex items-center gap-2 text-xs font-bold text-ink-muted">
+                <Loader2 size={14} className="animate-spin" />
+                {gw.state === "missing"
+                  ? "The connection is gone from the gateway — connect again."
+                  : gw.state === "logged_out"
+                    ? "The phone logged this device out — a new QR is coming."
+                    : "Connecting…"}
+              </span>
+              <div className="flex gap-2">
+                {gw.state === "missing" ? (
+                  <button type="button" onClick={() => void gwAction("connect")} disabled={gwBusy} className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">
+                    <QrCode size={14} /> Connect by QR
+                  </button>
+                ) : (
+                  <button type="button" onClick={() => void gwAction("relink")} disabled={gwBusy} className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-2 text-xs font-bold text-ink-muted disabled:opacity-50">
+                    <RefreshCw size={14} /> New QR
+                  </button>
+                )}
+                <button type="button" onClick={() => void gwAction("disconnect")} disabled={gwBusy} className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-2 text-xs font-bold text-ink-muted hover:text-red-600 disabled:opacity-50">
+                  <Unplug size={14} /> Disconnect
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* The Wapilot form. Hidden while the line is on our gateway: the fields would only show
+          the gateway's own instance id and a token nobody should re-type. */}
+      {!gw?.managed && (
+      <>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div>
           <label className={LABEL}>Wapilot instance ID</label>
@@ -187,6 +344,8 @@ export function AlertsLineCard() {
           </button>
         )}
       </div>
+      </>
+      )}
 
       <div className="mt-6 border-t border-line pt-5">
         <label className={LABEL}>Send a test to</label>
