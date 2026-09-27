@@ -3,7 +3,7 @@
 import Link from "next/link";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MessageCircle, Save, Loader2, Send, Plug, CheckCircle2, AlertCircle, Lock } from "lucide-react";
+import { MessageCircle, Save, Loader2, Send, Plug, CheckCircle2, AlertCircle, Lock, QrCode, Unplug, RefreshCw } from "lucide-react";
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import BotPlayground from "./BotPlayground";
@@ -220,6 +220,27 @@ const SECTION_TABS: Record<WhatsAppSection, readonly WhatsAppTab[]> = {
   ai: ["ai"],
 };
 
+/** What the QR-connect card knows about this clinic on Alpha's own gateway (see lib/waGateway). */
+type GatewayView = {
+  available: boolean;
+  managed: boolean;
+  state?: string;
+  phone?: string | null;
+  qr?: string | null;
+  lastError?: string | null;
+};
+
+function readGateway(data: Record<string, unknown>): GatewayView {
+  return {
+    available: data.available === true,
+    managed: data.managed === true,
+    state: typeof data.state === "string" ? data.state : undefined,
+    phone: typeof data.phone === "string" ? data.phone : null,
+    qr: typeof data.qr === "string" ? data.qr : null,
+    lastError: typeof data.lastError === "string" ? data.lastError : null,
+  };
+}
+
 export default function WhatsAppSettings({ section = "all" }: { section?: WhatsAppSection }) {
   const { language, isRTL } = useLanguage();
   const { user } = useAuth();
@@ -285,6 +306,12 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
   const [wapilotLoading, setWapilotLoading] = useState(true);
   const [wapilotSaving, setWapilotSaving] = useState(false);
   const [showAdvancedWapilot, setShowAdvancedWapilot] = useState(false);
+
+  // Alpha's own gateway (whatsapp-gateway/ in the repo): connect by scanning a QR instead of
+  // pasting Wapilot keys. `available` — this deployment has one; `managed` — THIS clinic's
+  // credentials point at it. Neither is assumed: with no gateway the card is the old form.
+  const [gateway, setGateway] = useState<GatewayView | null>(null);
+  const [gatewayBusy, setGatewayBusy] = useState(false);
 
   // Official Meta Cloud API connection — the drop-proof channel. Mirrors the Wapilot block:
   // status is loaded (never the token), an empty token on save keeps the stored one.
@@ -735,6 +762,31 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
       metaRegister: language === "ar" ? "سجّل الرقم" : "Register number",
       metaRegistered: language === "ar" ? "تم التسجيل ✅ الرقم شغال على Meta" : "Registered ✅ the number is live on Meta",
       wapilotCard: language === "ar" ? "اتصال Wapilot" : "Wapilot connection",
+      gwTitle: language === "ar" ? "اتصال واتساب" : "WhatsApp connection",
+      gwHint:
+        language === "ar"
+          ? "امسح كود QR بموبايل العيادة، زي واتساب ويب بالظبط. الرسائل بتتبعت من رقم العيادة نفسه."
+          : "Scan a QR with the clinic's phone, exactly like WhatsApp Web. Messages go out from the clinic's own number.",
+      gwIntro:
+        language === "ar"
+          ? "وصّل رقم العيادة بمسح كود QR — من غير حساب Wapilot ولا مفاتيح تتلصق."
+          : "Connect the clinic's number by scanning a QR — no Wapilot account, no keys to paste.",
+      gwConnect: language === "ar" ? "وصّل بمسح QR" : "Connect by QR",
+      gwConnected: language === "ar" ? "متصل" : "Connected",
+      gwDisconnect: language === "ar" ? "فصل الرقم" : "Disconnect",
+      gwRelink: language === "ar" ? "كود جديد" : "New QR",
+      gwWaiting: language === "ar" ? "جاري الاتصال…" : "Connecting…",
+      gwLoggedOut:
+        language === "ar" ? "الموبايل فصل الجهاز ده — كود جديد هيظهر خلال ثواني" : "The phone logged this device out — a new QR is coming",
+      gwMissing: language === "ar" ? "الاتصال اتمسح من السيرفر — وصّل تاني" : "The connection is gone from the server — connect again",
+      gwStep1: language === "ar" ? "افتح واتساب على موبايل العيادة" : "Open WhatsApp on the clinic's phone",
+      gwStep2: language === "ar" ? "الإعدادات ← الأجهزة المرتبطة ← ربط جهاز" : "Settings → Linked devices → Link a device",
+      gwStep3: language === "ar" ? "امسح الكود ده. بيتجدد لوحده لو اتأخرت." : "Scan this code. It refreshes on its own if it expires.",
+      gwConfirmDisconnect:
+        language === "ar"
+          ? "فصل واتساب العيادة؟ رسائل المرضى الأوتوماتيكية هتقف لحد ما توصّل تاني."
+          : "Disconnect the clinic's WhatsApp? Automatic patient messages stop until you connect again.",
+      gwOrWapilot: language === "ar" ? "أو استخدم Wapilot بدل كده" : "Or use Wapilot instead",
       wapilotHint:
         language === "ar"
           ? "يُحفظ في قاعدة بيانات العيادة (لا حاجة لإعادة نشر Vercel عند تغيير التوكن). متغيرات البيئة اختيارية كنسخة احتياطية."
@@ -807,6 +859,59 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
   useEffect(() => {
     void loadWapilotStatus();
   }, [loadWapilotStatus]);
+
+  const loadGateway = useCallback(async () => {
+    const u = auth.currentUser;
+    if (!u) return;
+    try {
+      const idToken = await u.getIdToken();
+      const res = await fetch(`/api/admin/wapilot-config/gateway?clinicId=${encodeURIComponent(clinicId ?? "")}`, {
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      if (res.ok && data.ok) setGateway(readGateway(data));
+      else setGateway((g) => g ?? { available: false, managed: false });
+    } catch {
+      // No gateway reachable: the card falls back to the manual form, which is the pre-gateway state.
+      setGateway((g) => g ?? { available: false, managed: false });
+    }
+  }, [clinicId]);
+
+  useEffect(() => {
+    void loadGateway();
+  }, [loadGateway]);
+
+  // A QR rotates every ~20 s and the state flips the instant the phone scans it, so while one
+  // is on screen (or the number is reconnecting) the card asks again every few seconds.
+  useEffect(() => {
+    if (!gateway?.managed || gateway.state === "open") return;
+    const timer = setInterval(() => void loadGateway(), 3000);
+    return () => clearInterval(timer);
+  }, [gateway?.managed, gateway?.state, loadGateway]);
+
+  const gatewayAction = async (action: "connect" | "disconnect" | "relink") => {
+    const u = auth.currentUser;
+    if (!u) return;
+    if (action === "disconnect" && !window.confirm(txt.gwConfirmDisconnect)) return;
+    setGatewayBusy(true);
+    try {
+      const idToken = await u.getIdToken();
+      const res = await fetch("/api/admin/wapilot-config/gateway", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ clinicId, action }),
+      });
+      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!res.ok || !data.ok) throw new Error(typeof data.error === "string" ? data.error : txt.failed);
+      setGateway(readGateway(data));
+      await loadWapilotStatus();
+      await logActivity({ uid: user?.uid, name: user?.name, role: user?.role }, `WhatsApp gateway: ${action}`, "settings/wapilot");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : txt.failed, "error");
+    } finally {
+      setGatewayBusy(false);
+    }
+  };
 
   const loadMetaStatus = useCallback(async () => {
     try {
@@ -1204,8 +1309,8 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
             <div className="flex items-center gap-2 text-ink-body">
               <Plug size={18} />
               <div>
-                <h3 className="text-sm font-black uppercase tracking-wider text-ink">{txt.wapilotCard}</h3>
-                <p className="text-xs text-ink-muted font-medium mt-0.5 max-w-xl">{txt.wapilotHint}</p>
+                <h3 className="text-sm font-black uppercase tracking-wider text-ink">{gateway?.available ? txt.gwTitle : txt.wapilotCard}</h3>
+                <p className="text-xs text-ink-muted font-medium mt-0.5 max-w-xl">{gateway?.available ? txt.gwHint : txt.wapilotHint}</p>
               </div>
             </div>
             {wapilotLoading ? (
@@ -1236,6 +1341,100 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
             </p>
           )}
 
+          {gateway?.available && (
+            <div className="rounded-2xl border border-line bg-surface-subtle p-4 space-y-3">
+              {!gateway.managed ? (
+                <>
+                  <p className="text-xs text-ink-body leading-relaxed">{txt.gwIntro}</p>
+                  <button
+                    type="button"
+                    onClick={() => void gatewayAction("connect")}
+                    disabled={gatewayBusy}
+                    className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-ink-slab text-white text-xs font-black uppercase tracking-widest hover:bg-ink disabled:opacity-50 transition-all"
+                  >
+                    {gatewayBusy ? <Loader2 size={16} className="animate-spin" /> : <QrCode size={16} />}
+                    {txt.gwConnect}
+                  </button>
+                </>
+              ) : gateway.state === "open" ? (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold text-ok" dir="ltr">
+                    <CheckCircle2 size={14} />
+                    {txt.gwConnected}
+                    {gateway.phone ? ` +${gateway.phone}` : ""}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void gatewayAction("disconnect")}
+                    disabled={gatewayBusy}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-line text-xs font-bold text-ink-body hover:text-danger hover:border-danger/40 disabled:opacity-50"
+                  >
+                    <Unplug size={14} />
+                    {txt.gwDisconnect}
+                  </button>
+                </div>
+              ) : gateway.state === "qr" && gateway.qr ? (
+                <div className="flex flex-col md:flex-row items-center gap-5">
+                  {/* A data URL that changes every few seconds; next/image has nothing to optimise here. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={gateway.qr} alt="WhatsApp QR" width={224} height={224} className="rounded-xl border border-line bg-white p-2 shrink-0" />
+                  <ol className="text-xs text-ink-body leading-relaxed list-decimal ps-4 space-y-1.5">
+                    <li>{txt.gwStep1}</li>
+                    <li>{txt.gwStep2}</li>
+                    <li>{txt.gwStep3}</li>
+                  </ol>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span className="inline-flex items-center gap-2 text-xs font-bold text-ink-muted">
+                    <Loader2 size={14} className="animate-spin" />
+                    {gateway.state === "missing" ? txt.gwMissing : gateway.state === "logged_out" ? txt.gwLoggedOut : txt.gwWaiting}
+                  </span>
+                  <div className="flex gap-2">
+                    {gateway.state === "missing" ? (
+                      <button
+                        type="button"
+                        onClick={() => void gatewayAction("connect")}
+                        disabled={gatewayBusy}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-ink-slab text-white text-xs font-bold disabled:opacity-50"
+                      >
+                        <QrCode size={14} />
+                        {txt.gwConnect}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void gatewayAction("relink")}
+                        disabled={gatewayBusy}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-line text-xs font-bold text-ink-body disabled:opacity-50"
+                      >
+                        <RefreshCw size={14} />
+                        {txt.gwRelink}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void gatewayAction("disconnect")}
+                      disabled={gatewayBusy}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-line text-xs font-bold text-ink-body hover:text-danger hover:border-danger/40 disabled:opacity-50"
+                    >
+                      <Unplug size={14} />
+                      {txt.gwDisconnect}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {gateway?.available && !gateway.managed && (
+            <p className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.gwOrWapilot}</p>
+          )}
+
+          {/* The manual Wapilot form. Hidden while the clinic is on our gateway: the fields would
+              only show the gateway's own instance id and a token nobody should re-type. */}
+          {!gateway?.managed && (
+          <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <label className="block">
               <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.instanceId}</span>
@@ -1299,6 +1498,8 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
             {wapilotSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
             {txt.saveConnection}
           </button>
+          </>
+          )}
         </section>
 
         {/* Official Meta Cloud API. Above the two-column grid, beside Wapilot's card: they are the

@@ -1,0 +1,20 @@
+{
+  "name": "alpha-whatsapp-gateway",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Alpha Dental's own WhatsApp gateway: a Wapilot-compatible HTTP API in front of WhatsApp Web sessions, one per clinic.",
+  "type": "module",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "7.0.0-rc14",
+    "pino": "^9.0.0",
+    "qrcode": "^1.5.4"
+  }
+}
