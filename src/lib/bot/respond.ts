@@ -1679,8 +1679,8 @@ ${askWho}` : askWho;
   if (reason === "ai_answer" && args.media === "image" && args.mediaNote?.impression && replyText.trim()) {
     const latinReply = /[A-Za-z]/.test(replyText) && !/[؀-ۿ]/.test(replyText);
     trailerBubble = latinReply
-      ? "⚠️ An impression from the photo, not a diagnosis — an exam and an x-ray are a must."
-      : "⚠️ ده انطباع من الصورة مش تشخيص — لازم كشف وأشعة.";
+      ? "This is only an impression from the photo, not a diagnosis. An exam and an x-ray are a must."
+      : "ده انطباع من الصورة بس مش تشخيص، ولازم كشف وأشعة.";
   }
 
   if (phone && !args.dryRun && ((!args.media && text.trim()) || args.mediaNote?.interest)) {
@@ -1928,6 +1928,15 @@ ${askWho}` : askWho;
   if (pace && !structure && body.length > 180) {
     const cut = body.indexOf("\n\n", Math.min(80, body.length));
     if (cut > 40 && body.length - cut > 40) {
+      secondBubble = body.slice(cut + 2).trim();
+      body = body.slice(0, cut).trim();
+    }
+  }
+  // A photo answer is always the reading, then the question — two bubbles whatever their length.
+  // The owner: "divide the message". A short question after a blank line is exactly the split.
+  if (pace && !structure && !secondBubble && photoToModel) {
+    const cut = body.indexOf("\n\n");
+    if (cut > 0 && body.slice(cut + 2).trim()) {
       secondBubble = body.slice(cut + 2).trim();
       body = body.slice(0, cut).trim();
     }
