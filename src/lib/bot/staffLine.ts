@@ -197,26 +197,3 @@ export async function interceptStaffInbound(args: { clinicId: string; phone: str
   await respondToStaffMessage({ clinicId, to: phone, text, sender });
   return true;
 }
-
-/**
- * A staff member's chat is not a patient conversation, so it is kept out of the Chats inbox.
- *
- * The inbound webhooks call this BEFORE writing the message into the thread: nothing about the
- * owner's exchange with his own clinic is recorded where the front desk reads. The conversation
- * document may already exist from before the number was registered (the owner was answered as a
- * patient once); it is flagged so the inbox hides it and its handoff, if any, is closed so the
- * SLA job stops paging staff about "a patient waiting" who is the owner.
- *
- * Returns true when the message was handled here and the caller must not treat it as a patient's.
- */
-export async function interceptStaffInbound(args: { clinicId: string; phone: string; text: string }): Promise<boolean> {
-  const { clinicId, phone, text } = args;
-  if (!phone) return false;
-  const sender = await findStaffByPhone(clinicId, phone).catch(() => null);
-  if (!sender) return false;
-  await adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(phone))
-    .set({ staffLine: true, needsHuman: false, staffLineAt: FieldValue.serverTimestamp() }, { merge: true })
-    .catch(() => {});
-  await respondToStaffMessage({ clinicId, to: phone, text, sender });
-  return true;
-}
