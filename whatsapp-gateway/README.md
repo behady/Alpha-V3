@@ -40,6 +40,7 @@ box carries dozens of clinics) and a subdomain pointing at it.
    ```
 5. **Start it:**
    ```bash
+   mkdir -p data && sudo chown 1000:1000 data   # once: the gateway runs as user 1000 inside its container
    docker compose up -d --build
    ```
 6. **Check it:** `curl https://wa.alphadental.app/health` → `{"status":"ok",...}`.
