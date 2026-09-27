@@ -41,7 +41,9 @@ export async function findStaffByPhone(clinicId: string, phone: string): Promise
 
   let uid = "";
   for (const [id, p] of Object.entries(prefs.people || {})) {
-    if (p?.phone && samePhone(p.phone, phone) && roleOf.has(id)) {
+    // Any row the page saved counts, member or not: the platform admin looking after a clinic
+    // gets a row of their own there and is nobody's patient.
+    if (p?.phone && samePhone(p.phone, phone)) {
       uid = id;
       break;
     }
