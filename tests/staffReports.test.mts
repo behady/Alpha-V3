@@ -20,7 +20,7 @@ import {
   resolveNotify,
 } from "../src/lib/notificationCatalog";
 import { renderStaffReport, reportPushLine } from "../src/lib/reports/staffReportText";
-import { staffHelpText, staffIntent, staffLanguage } from "../src/lib/bot/staffLine";
+import { samePhone, staffHelpText, staffIntent, staffLanguage } from "../src/lib/bot/staffLine";
 import type { Briefing } from "../src/lib/automation/briefing/types";
 import { FEATURE_CATALOG } from "../src/lib/featureCatalog";
 import { TIER_LIMITS } from "../src/lib/subscriptions";
@@ -303,6 +303,12 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
   eq(staffIntent("ملخص"), "summary", "Arabic summary");
   eq(staffIntent("Hi"), "help", "a greeting is help");
   eq(staffIntent("Do you know who am i?"), "help", "a question the line cannot answer is help");
+  // The owner types 01551552440 on the page; Meta delivers 201551552440; both are the same phone.
+  ok(samePhone("01551552440", "201551552440"), "a local number does not match its international form");
+  ok(samePhone("01551552440", "+201551552440"), "a local number does not match E.164");
+  ok(!samePhone("01551552440", "01551552441"), "different numbers match");
+  ok(!samePhone("", "201551552440"), "an empty number matches");
+  ok(!read("src/lib/staffWhatsapp.ts").includes("normalizeToE164(args.to)"), "the staff sender uses the strict normaliser and drops every 01x number typed on the page");
   eq(staffLanguage("Hi"), "en", "Latin → English");
   eq(staffLanguage("ازيك"), "ar", "Arabic → Arabic");
   const help = staffHelpText({ uid: "u", role: "Owner", name: "Ahmed" }, "Alpha Dental", "en");

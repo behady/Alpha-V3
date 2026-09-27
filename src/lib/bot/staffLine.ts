@@ -4,7 +4,7 @@ import { notifyEvent } from "@/lib/notificationCatalog";
 import { readAlertPreferences, readClinicMembers } from "@/lib/notificationDelivery";
 import { sendStaffReport } from "@/lib/reports/sendStaffReport";
 import { sendStaffWhatsApp } from "@/lib/staffWhatsapp";
-import { normalizeToE164 } from "@/lib/whatsapp";
+import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 
 /**
  * The staff line: what happens when the clinic's own people write to the clinic's number.
@@ -26,9 +26,10 @@ export interface StaffSender {
   name: string;
 }
 
-function samePhone(a: string, b: string): boolean {
-  const x = normalizeToE164(a);
-  const y = normalizeToE164(b);
+/** Typed numbers ("01551552440") against WhatsApp's ("201551552440"): both become +20…. */
+export function samePhone(a: string, b: string): boolean {
+  const x = normalizeToE164AssumingCountry(a);
+  const y = normalizeToE164AssumingCountry(b);
   return Boolean(x) && x === y;
 }
 

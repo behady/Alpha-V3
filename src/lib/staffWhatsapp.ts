@@ -2,7 +2,8 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { loadMetaWhatsappConfig, sendMetaWhatsappText, type MetaWhatsappConfig } from "@/lib/metaWhatsapp";
 import { loadPlatformWapilotConfig, loadWapilotConfig } from "@/lib/wapilotConfig";
-import { normalizeToE164, sendWapilotText } from "@/lib/whatsapp";
+import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
+import { sendWapilotText } from "@/lib/whatsapp";
 import type { WapilotConfig } from "@/types/wapilot";
 
 /**
@@ -99,7 +100,9 @@ export async function sendStaffWhatsApp(args: {
   /** Skip the resolution when the caller already did it for a batch of recipients. */
   gateway?: StaffGateway | null;
 }): Promise<StaffSendResult> {
-  const to = normalizeToE164(args.to);
+  // Staff numbers are typed by hand on the settings page, almost always as 01xxxxxxxxx. The
+  // strict normaliser rejects a number with no country code; here a local number is Egyptian.
+  const to = normalizeToE164AssumingCountry(args.to);
   if (!to || to.replace(/\D/g, "").length < 8) return { sent: false, reason: "invalid_phone" };
 
   let gateway = args.gateway;
