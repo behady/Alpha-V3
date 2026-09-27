@@ -10,8 +10,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  WEEK_MAX_COLUMN_WEIGHT,
   WEEK_ROW_PX,
+  columnWeight,
   countsAsVisit,
+  packOverlaps,
   dayNameKey,
   daySummary,
   isOffDay,
@@ -107,6 +110,30 @@ const clinic = (over: Partial<ClinicScheduleConfig> = {}): ClinicScheduleConfig 
   const ppm = WEEK_ROW_PX / 30;
   eq(weekCardTier(15 * ppm - 2), "line", "at the real geometry a 15-minute card still says what it is for");
   eq(weekCardTier(30 * ppm - 2), "full", "and a 30-minute card says everything");
+}
+
+// --- 4b. Overlaps get lanes, and a crowded day gets a wider column ------------------------------------
+{
+  const a = { id: "a", startMin: 540, endMin: 600 };
+  const b = { id: "b", startMin: 540, endMin: 570 };
+  const c = { id: "c", startMin: 570, endMin: 600 };
+  const d = { id: "d", startMin: 660, endMin: 690 };
+  const placed = packOverlaps([b, d, a, c]);
+  const byId = Object.fromEntries(placed.map((p) => [p.id, [p.colIndex, p.totalCols]]));
+  eq(byId.a, [0, 2], "the longer visit at 09:00 takes the first lane, and its run needs two lanes");
+  eq(byId.b, [1, 2], "the short one beside it takes the second");
+  eq(byId.c, [1, 2], "09:30 fits under the short one, still in a two-lane run");
+  eq(byId.d, [0, 1], "a visit that touches nothing is alone in lane 0");
+  eq(columnWeight(placed), 2, "a day whose widest overlap is two visits is two columns wide");
+  eq(columnWeight([]), 1, "an empty day is a plain column");
+  const three = packOverlaps([
+    { id: "x", startMin: 540, endMin: 600 },
+    { id: "y", startMin: 550, endMin: 610 },
+    { id: "z", startMin: 560, endMin: 620 },
+    { id: "w", startMin: 565, endMin: 625 },
+  ]);
+  eq(new Set(three.map((p) => p.totalCols)), new Set([4]), "four at once need four lanes");
+  eq(columnWeight(three), WEEK_MAX_COLUMN_WEIGHT, "…but the column stops growing at the cap");
 }
 
 // --- 5. Clock strings feed the range --------------------------------------------------------------

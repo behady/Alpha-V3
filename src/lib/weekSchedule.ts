@@ -148,6 +148,56 @@ export function daySummary(
   return { visits, unconfirmed, noShows, expectedMoney, freeSlots, totalSlots, isOffDay: off, isEmpty: visits === 0 };
 }
 
+export type Placed<T> = T & { colIndex: number; totalCols: number };
+
+/**
+ * Lays overlapping visits out side by side: each gets a lane, and every visit in a run of
+ * overlaps knows how many lanes that run needed. Visits that do not touch each other share lane 0.
+ * Sorted by start, longer first at the same start, so a long visit takes the first lane and the
+ * short ones tuck in beside it. Same packing the day view uses.
+ */
+export function packOverlaps<T extends { startMin: number; endMin: number }>(visits: ReadonlyArray<T>): Placed<T>[] {
+  const sorted = [...visits].sort((a, b) => a.startMin - b.startMin || (b.endMin - b.startMin) - (a.endMin - a.startMin));
+  const out: Placed<T>[] = [];
+  let block: Placed<T>[] = [];
+  let lanes: Placed<T>[][] = [];
+  let blockEnd = 0;
+  const closeBlock = () => {
+    for (const p of block) p.totalCols = Math.max(1, lanes.length);
+    block = [];
+    lanes = [];
+    blockEnd = 0;
+  };
+  for (const v of sorted) {
+    if (block.length > 0 && v.startMin >= blockEnd) closeBlock();
+    let colIndex = lanes.findIndex((lane) => lane[lane.length - 1].endMin <= v.startMin);
+    if (colIndex < 0) {
+      colIndex = lanes.length;
+      lanes.push([]);
+    }
+    const placed: Placed<T> = { ...v, colIndex, totalCols: 0 };
+    lanes[colIndex].push(placed);
+    block.push(placed);
+    out.push(placed);
+    blockEnd = Math.max(blockEnd, v.endMin);
+  }
+  closeBlock();
+  return out;
+}
+
+/** A day column never grows past this many times a plain column, however crowded it is. */
+export const WEEK_MAX_COLUMN_WEIGHT = 3;
+
+/**
+ * How much of the week's width a day column takes, relative to a plain day: as many lanes as its
+ * busiest overlap needs, so three visits at once get three cards' worth of room instead of a
+ * third of one. Capped, because one wild afternoon must not squeeze the other six days to slivers.
+ */
+export function columnWeight(placed: ReadonlyArray<{ totalCols: number }>): number {
+  const widest = placed.reduce((max, p) => Math.max(max, p.totalCols), 1);
+  return Math.min(WEEK_MAX_COLUMN_WEIGHT, Math.max(1, widest));
+}
+
 /**
  * What a week card has room for, by its rendered height.
  *

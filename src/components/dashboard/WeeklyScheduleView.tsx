@@ -26,11 +26,14 @@ import { AlertBadge } from "@/components/dashboard/ScheduleCardDetails";
 import {
     WEEK_MIN_CARD_PX,
     WEEK_ROW_PX,
+    columnWeight,
     daySummary,
     isUnconfirmed,
     minutesToClock,
+    packOverlaps,
     weekCardTier,
     weekDaysFrom,
+    type Placed,
 } from "@/lib/weekSchedule";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -122,6 +125,30 @@ export default function WeeklyScheduleView({
         return byDay;
     }, [weekDays, appointments, config]);
 
+    /**
+     * Each day's visits laid out in lanes, and how wide the column must be to hold them.
+     *
+     * A day with three visits at once used to split a plain column into thirds, and nothing on
+     * those cards could be read. The column now grows with its busiest overlap — the header cell
+     * and the body column take the same weight, so the two rows stay aligned.
+     */
+    const layouts = useMemo(() => {
+        const byDay = new Map<string, { placed: Placed<DashboardAppointment & { startMin: number; endMin: number; dur: number }>[]; weight: number }>();
+        for (const key of weekDays) {
+            const visits = appointments
+                .filter((a) => a.date === key)
+                .map((apt) => {
+                    const startMin = visitStartInDay(parseApptTimeToMinutes(apt.time), bounds);
+                    const dur = Math.min(apt.duration || 30, bounds.end - startMin);
+                    return { ...apt, startMin, endMin: startMin + dur, dur };
+                });
+            const placed = packOverlaps(visits);
+            byDay.set(key, { placed, weight: columnWeight(placed) });
+        }
+        return byDay;
+    }, [weekDays, appointments, bounds]);
+    const flexFor = (key: string) => ({ flex: `${layouts.get(key)?.weight ?? 1} 1 0%` });
+
     // Where the now-line sits on today's column, or null when the clock is outside the drawn day.
     const nowTop = useMemo(() => {
         const nowMin = visitStartInDay(currentTime.getHours() * 60 + currentTime.getMinutes(), bounds);
@@ -159,7 +186,8 @@ export default function WeeklyScheduleView({
                     return (
                         <div
                             key={key}
-                            className={`flex-1 min-w-0 border-e border-line last:border-e-0 px-2 py-2.5 text-center flex flex-col items-center justify-start ${
+                            style={flexFor(key)}
+                            className={`min-w-0 border-e border-line last:border-e-0 px-2 py-2.5 text-center flex flex-col items-center justify-start ${
                                 isToday ? 'bg-ink-slab text-white' : off ? 'bg-surface-muted text-ink-faint' : 'text-ink'
                             }`}
                         >
@@ -204,12 +232,11 @@ export default function WeeklyScheduleView({
                     {/* Day columns */}
                     <div className="absolute inset-y-0 start-[84px] md:start-[100px] end-0 flex">
                         {weekDays.map((dateStr, i) => {
-                            const dayAppts = appointments.filter(a => a.date === dateStr);
                             const isToday = dateStr === todayKey;
                             const off = Boolean(summaries.get(dateStr)?.isOffDay);
 
                             return (
-                                <div key={dateStr} className={`flex-1 relative border-e border-line/60 last:border-e-0 ${off ? 'bg-surface-muted' : ''}`}
+                                <div key={dateStr} style={flexFor(dateStr)} className={`min-w-0 relative border-e border-line/60 last:border-e-0 ${off ? 'bg-surface-muted' : ''}`}
                                     onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                     onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                     onDrop={(e) => {
@@ -250,64 +277,7 @@ export default function WeeklyScheduleView({
                                     {/* The day's visits */}
                                     <div className="absolute inset-0 pointer-events-none">
                                         {(() => {
-                                            const processedAppts = dayAppts.map(apt => {
-                                                const aptMins = visitStartInDay(parseApptTimeToMinutes(apt.time), bounds);
-                                                let dur = apt.duration || 30;
-                                                const maxDur = bounds.end - aptMins;
-                                                if (dur > maxDur) dur = maxDur;
-                                                return { ...apt, startMin: aptMins, endMin: aptMins + dur, dur };
-                                            });
-
-                                            processedAppts.sort((a, b) => {
-                                                if (a.startMin === b.startMin) return b.dur - a.dur;
-                                                return a.startMin - b.startMin;
-                                            });
-
-                                            // Visits that overlap share the column's width, each as its own
-                                            // strip — the same packing the day view uses. They used to be
-                                            // staggered 15% apart, which hid most of every card but the first,
-                                            // on the one view whose job is to show how full a day is.
-                                            const blocks: (typeof processedAppts)[] = [];
-                                            let currentBlock: typeof processedAppts = [];
-                                            let currentBlockEnd = 0;
-
-                                            processedAppts.forEach(apt => {
-                                                if (currentBlock.length > 0 && apt.startMin >= currentBlockEnd) {
-                                                    blocks.push(currentBlock);
-                                                    currentBlock = [];
-                                                    currentBlockEnd = 0;
-                                                }
-                                                currentBlock.push(apt);
-                                                currentBlockEnd = Math.max(currentBlockEnd, apt.endMin);
-                                            });
-                                            if (currentBlock.length > 0) blocks.push(currentBlock);
-
-                                            const positionedAppts: (typeof processedAppts[0] & { colIndex: number, totalCols: number })[] = [];
-                                            blocks.forEach(block => {
-                                                const columns: typeof processedAppts[] = [];
-                                                block.forEach(apt => {
-                                                    let placed = false;
-                                                    for (let c = 0; c < columns.length; c++) {
-                                                        const lastInCol = columns[c][columns[c].length - 1];
-                                                        if (lastInCol.endMin <= apt.startMin) {
-                                                            columns[c].push(apt);
-                                                            positionedAppts.push({ ...apt, colIndex: c, totalCols: 0 });
-                                                            placed = true;
-                                                            break;
-                                                        }
-                                                    }
-                                                    if (!placed) {
-                                                        columns.push([apt]);
-                                                        positionedAppts.push({ ...apt, colIndex: columns.length - 1, totalCols: 0 });
-                                                    }
-                                                });
-                                                const numCols = columns.length;
-                                                block.forEach(apt => {
-                                                    const pApt = positionedAppts.find(p => p.id === apt.id);
-                                                    if (pApt) pApt.totalCols = numCols;
-                                                });
-                                            });
-
+                                            const positionedAppts = layouts.get(dateStr)?.placed ?? [];
                                             return positionedAppts.map(apt => {
                                                 const top = (apt.startMin - bounds.start) * pixelsPerMinute;
                                                 const h = Math.max(apt.dur * pixelsPerMinute - 2, WEEK_MIN_CARD_PX);
