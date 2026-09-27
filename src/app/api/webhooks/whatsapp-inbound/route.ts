@@ -313,7 +313,24 @@ export async function POST(request: NextRequest) {
     // Into the chat thread before any decision about answering — received is received.
     // The clinic's own people are answered on the staff line and kept out of the inbox. Only
     // possible when the sender's phone is visible; a lid hides it, and that owner stays a stranger.
-    if (phone && (await interceptStaffInbound({ clinicId, phone, text: reply.text }))) {
+    if (
+      phone &&
+      (await interceptStaffInbound({
+        clinicId,
+        phone,
+        text: reply.text,
+        media: media?.kind,
+        transcribe:
+          media && media.kind === "audio"
+            ? async () => {
+                const got = await fetchInboundMediaBytes(clinicId, media);
+                if (!got.ok) return "";
+                const t = await transcribeAudioBytes(clinicId, got.bytes, got.mime, media.ref);
+                return t.ok ? t.text : "";
+              }
+            : undefined,
+      }))
+    ) {
       return NextResponse.json({ ok: true, staffLine: true });
     }
 

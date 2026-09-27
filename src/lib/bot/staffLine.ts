@@ -168,8 +168,11 @@ export async function respondToStaffMessage(args: {
   to: string;
   text: string;
   sender: StaffSender;
+  /** The transcript, when the message was a voice note: the reply opens by echoing it. */
+  heard?: string;
 }): Promise<StaffLineOutcome> {
   const { clinicId, to, text, sender } = args;
+  const echo = args.heard ? `🎙️ "${args.heard.slice(0, 200)}"\n\n` : "";
   const intent = staffIntent(text);
   const language = staffLanguage(text);
 
@@ -215,9 +218,9 @@ export async function respondToStaffMessage(args: {
     const answer = await askAssistantForStaff({ clinicId, uid: sender.uid, name: sender.name, question: text });
     if (answer.ok) {
       // A staged action becomes the card, in words, with the question under it.
-      const reply = answer.pending
+      const reply = echo + (answer.pending
         ? [answer.reply, "", `📋 *${answer.pending.title}*`, ...answer.pending.lines, "", confirmPrompt(language)].filter((l, i, a) => !(l === "" && a[i - 1] === "")).join("\n").trim()
-        : answer.reply;
+        : answer.reply);
       const sent = await sendStaffWhatsApp({ clinicId, to, text: reply });
       return sent.sent ? { status: "replied", text: reply, handoff: false, reason: answer.pending ? "staff_staged" : "staff_ask" } : { status: "skipped", reason: "staff_send_failed" };
     }
@@ -246,14 +249,39 @@ export async function respondToStaffMessage(args: {
  *
  * Returns true when the message was handled here and the caller must not treat it as a patient's.
  */
-export async function interceptStaffInbound(args: { clinicId: string; phone: string; text: string }): Promise<boolean> {
-  const { clinicId, phone, text } = args;
+export async function interceptStaffInbound(args: {
+  clinicId: string;
+  phone: string;
+  text: string;
+  /** What arrived when there was no text: "audio", "image", "document"… */
+  media?: string;
+  /** Turns a voice note into words. Supplied by the webhook, which knows its gateway's media API. */
+  transcribe?: () => Promise<string>;
+}): Promise<boolean> {
+  const { clinicId, phone, media, transcribe } = args;
   if (!phone) return false;
   const sender = await findStaffByPhone(clinicId, phone).catch(() => null);
   if (!sender) return false;
   await adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(phone))
     .set({ staffLine: true, needsHuman: false, staffLineAt: FieldValue.serverTimestamp() }, { merge: true })
     .catch(() => {});
-  await respondToStaffMessage({ clinicId, to: phone, text, sender });
+
+  // The owner talks to his clinic the way he talks to his staff: in voice notes. Transcribed
+  // before anything reads the message, and echoed back so he knows what was heard.
+  let text = String(args.text || "").trim();
+  let heard = "";
+  if (!text && media === "audio" && transcribe) {
+    heard = (await transcribe().catch(() => "")).trim();
+    text = heard;
+  }
+  if (!text) {
+    const note =
+      media === "audio"
+        ? "مسمعتش الرسالة الصوتية كويس — ممكن تعيدها أو تكتبها؟\nI could not make out the voice note — could you resend it or type it?"
+        : "أقدر أقرأ كلام ورسايل صوتية بس هنا. ابعت سؤالك مكتوب أو صوت.\nI can read text and voice notes here. Send your question as text or a voice note.";
+    await sendStaffWhatsApp({ clinicId, to: phone, text: note });
+    return true;
+  }
+  await respondToStaffMessage({ clinicId, to: phone, text, sender, heard: heard || undefined });
   return true;
 }

@@ -71,6 +71,7 @@ export const WHATSAPP_STAFF_INSTRUCTION =
   "You CAN act here with the person's own permissions. Two rules: " +
   "(1) The acting tools (set_appointment_status, reschedule_appointment, record_payment, send_patient_whatsapp, db_delete) stage a preview and the system asks the person to reply yes or no — never say it is done until the system confirms. " +
   "(2) Before db_write or db_update, first state exactly what you will create or change (every field) and ask them to confirm in words; call the tool only after they have said yes in a later message. " +
+  "For an open question — recommendations, how are we doing, what should I focus on, where are we losing money — call run_clinic_report (and generate_financial_summary if money is in scope) FIRST, then give at most three concrete recommendations, each tied to a number you actually read. Never advise from general knowledge when the clinic's own figures are one tool call away. " +
   "Answer in the language the question was written in.";
 
 /** What the assistant staged and is waiting on. Mirrors PendingActionPreview, kept small. */

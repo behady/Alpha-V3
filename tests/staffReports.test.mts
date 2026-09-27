@@ -339,6 +339,15 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
   const line = read("src/lib/bot/staffLine.ts");
   ok(line.indexOf("loadStaffPending(") < line.indexOf('if (intent !== "help")'), "a pending action is not checked before the report keywords — 'yes' would fetch nothing");
   ok(read("src/lib/bot/staffAssistant.ts").includes("/api/gemini/confirm-action"), "the staff line does not use the app's own confirm route");
+
+  // Voice notes: both webhooks hand the staff line a transcriber; the staff line echoes what it heard.
+  for (const rel of ["src/app/api/webhooks/meta-whatsapp/route.ts", "src/app/api/webhooks/whatsapp-inbound/route.ts"]) {
+    const w = read(rel);
+    const call = w.slice(w.indexOf("interceptStaffInbound({"), w.indexOf("})", w.indexOf("interceptStaffInbound({")) + 2);
+    ok(call.includes("transcribe:") && call.includes("media:"), `${rel} sends the owner's voice note to the staff line as an empty message`);
+  }
+  ok(line.includes('media === "audio" && transcribe') && line.includes("heard"), "the staff line does not transcribe a voice note or echo what it heard");
+  ok(read("src/lib/bot/staffAssistant.ts").includes("run_clinic_report (and generate_financial_summary"), "the assistant is not told to read the clinic's figures before recommending");
   ok(read("src/lib/bot/staffAssistant.ts").includes("createCustomToken(uid"), "the staff line does not sign in as the real person — permissions would be nobody's");
   // The owner types 01551552440 on the page; Meta delivers 201551552440; both are the same phone.
   ok(samePhone("01551552440", "201551552440"), "a local number does not match its international form");

@@ -377,7 +377,21 @@ export async function POST(request: NextRequest) {
 
       // The clinic's own people, before anything is written where the front desk reads. A staff
       // number is answered on the staff line and never enters the Chats inbox.
-      if (await interceptStaffInbound({ clinicId, phone: `+${msg.from}`, text: msg.text })) {
+      if (
+        await interceptStaffInbound({
+          clinicId,
+          phone: `+${msg.from}`,
+          text: msg.text,
+          media: msg.media,
+          transcribe:
+            msg.media === "audio" && msg.mediaId
+              ? async () => {
+                  const t = await transcribeWhatsappAudio(clinicId, msg.mediaId!);
+                  return t.ok ? t.text : "";
+                }
+              : undefined,
+        })
+      ) {
         lastBot = { status: "skipped", reason: "staff_line" };
         continue;
       }
