@@ -6,7 +6,14 @@ import { notifyEvent } from "@/lib/notificationCatalog";
 import { readAlertPreferences, readClinicMembers } from "@/lib/notificationDelivery";
 import { sendStaffReport } from "@/lib/reports/sendStaffReport";
 import { sendStaffWhatsApp } from "@/lib/staffWhatsapp";
-import { askAssistantForStaff } from "@/lib/bot/staffAssistant";
+import {
+  askAssistantForStaff,
+  clearStaffPending,
+  confirmPrompt,
+  decideStaffPending,
+  loadStaffPending,
+  staffDecision,
+} from "@/lib/bot/staffAssistant";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 
 /**
@@ -123,6 +130,7 @@ export function staffHelpText(sender: StaffSender, clinicName: string, language:
       "• *ملخص* — اليوم في تلات سطور",
       "",
       "أو اسألني أي سؤال عن العيادة بكلامك — مين محجوز بكرة، كام اتحصّل الأسبوع ده، رصيد مريض معين.",
+      "وأقدر أنفّذ: احجز، انقل ميعاد، سجّل دفعة، ابعت رسالة لمريض — بأكّد معاك بـ نعم/لا قبل أي خطوة.",
     ].join("\n");
   }
   return [
@@ -136,6 +144,7 @@ export function staffHelpText(sender: StaffSender, clinicName: string, language:
     "• *summary* — the day in three lines",
     "",
     "Or just ask me anything about the clinic in your own words — who is booked tomorrow, what came in this week, a patient's balance.",
+    "I can also act: book, move an appointment, record a payment, message a patient — I confirm with you (yes/no) before every step.",
   ].join("\n");
 }
 
@@ -164,6 +173,26 @@ export async function respondToStaffMessage(args: {
   const intent = staffIntent(text);
   const language = staffLanguage(text);
 
+  // A staged action first: the person's next word decides it. Anything that is not a yes or a no
+  // drops the staged action — a new question is a change of mind — and is answered on its own.
+  const pending = await loadStaffPending(clinicId, sender.uid);
+  if (pending) {
+    const decision = staffDecision(text);
+    if (decision) {
+      const result = await decideStaffPending({ clinicId, uid: sender.uid, name: sender.name, actionId: pending.id, decision });
+      const reply = !result.ok
+        ? (language === "ar" ? `معرفتش أنفّذ: ${result.error}` : `Could not do that: ${result.error}`)
+        : result.status === "rejected"
+          ? (language === "ar" ? "تمام، اتلغت." : "Cancelled.")
+          : result.manual
+            ? `${result.message}\n\n${language === "ar" ? "مفيش واتساب متوصّل للمرضى، فالرسالة دي محتاجة تتبعت يدوي:" : "No patient gateway is connected, so this needs to be sent by hand:"}\n${result.manual.phone}\n${result.manual.text}`
+            : `✅ ${result.message}`;
+      const sent = await sendStaffWhatsApp({ clinicId, to, text: reply });
+      return sent.sent ? { status: "replied", text: reply, handoff: false, reason: `staff_${decision}` } : { status: "skipped", reason: "staff_send_failed" };
+    }
+    await clearStaffPending(clinicId, sender.uid);
+  }
+
   if (intent !== "help") {
     const eventId =
       intent === "evening" ? "eveningDigest" : intent === "summary" ? "ownerSummary" : sender.role === "Dentist" ? "morningBriefDentist" : "morningBriefClinic";
@@ -185,8 +214,12 @@ export async function respondToStaffMessage(args: {
   if (intent === "ask") {
     const answer = await askAssistantForStaff({ clinicId, uid: sender.uid, name: sender.name, question: text });
     if (answer.ok) {
-      const sent = await sendStaffWhatsApp({ clinicId, to, text: answer.reply });
-      return sent.sent ? { status: "replied", text: answer.reply, handoff: false, reason: "staff_ask" } : { status: "skipped", reason: "staff_send_failed" };
+      // A staged action becomes the card, in words, with the question under it.
+      const reply = answer.pending
+        ? [answer.reply, "", `📋 *${answer.pending.title}*`, ...answer.pending.lines, "", confirmPrompt(language)].filter((l, i, a) => !(l === "" && a[i - 1] === "")).join("\n").trim()
+        : answer.reply;
+      const sent = await sendStaffWhatsApp({ clinicId, to, text: reply });
+      return sent.sent ? { status: "replied", text: reply, handoff: false, reason: answer.pending ? "staff_staged" : "staff_ask" } : { status: "skipped", reason: "staff_send_failed" };
     }
     console.warn(`staff line: assistant failed for ${sender.uid}: ${answer.reason}${answer.error ? ` — ${answer.error}` : ""}`);
     const sorry =

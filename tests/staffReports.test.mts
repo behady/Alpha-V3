@@ -28,6 +28,7 @@ import { groupQueued } from "../src/lib/alerts/sweep";
 import { notifyTiming } from "../src/lib/notificationCatalog";
 import { renderStaffReport, reportPushLine } from "../src/lib/reports/staffReportText";
 import { samePhone, staffHelpText, staffIntent, staffLanguage } from "../src/lib/bot/staffLine";
+import { confirmPrompt, pendingToLines, staffDecision, toStaffPending } from "../src/lib/bot/staffAssistant";
 import type { Briefing } from "../src/lib/automation/briefing/types";
 import { FEATURE_CATALOG } from "../src/lib/featureCatalog";
 import { TIER_LIMITS } from "../src/lib/subscriptions";
@@ -315,11 +316,29 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
   eq(staffIntent("How much did Dr Ahmed collect this week?"), "ask", "an English question goes to the assistant");
   eq(staffIntent("رصيد محمد علي"), "ask", "a balance question goes to the assistant");
   const route = read("src/app/api/gemini/route.ts");
-  ok(/WHATSAPP_STAFF_TOOL_NAMES/.test(route) && route.includes('client === "whatsapp-staff"'), "the assistant route has no read-only tool set for the staff line");
-  for (const forbidden of ["db_write", "db_update", "db_delete", "navigate_to", "trigger_pdf_generation", "set_appointment_status", "reschedule_appointment", "record_payment", "send_patient_whatsapp", "open_appointment", "update_odontogram", "trigger_whatsapp_appointment"]) {
-    const block = route.slice(route.indexOf("const WHATSAPP_STAFF_TOOL_NAMES"), route.indexOf("]);", route.indexOf("const WHATSAPP_STAFF_TOOL_NAMES")));
-    ok(!block.includes(`"${forbidden}"`), `the staff line can call ${forbidden} from WhatsApp`);
+  ok(/WHATSAPP_STAFF_EXCLUDED_TOOLS/.test(route) && route.includes('client === "whatsapp-staff"'), "the assistant route has no tool rule for the staff line");
+  const excluded = route.slice(route.indexOf("const WHATSAPP_STAFF_EXCLUDED_TOOLS"), route.indexOf("]);", route.indexOf("const WHATSAPP_STAFF_EXCLUDED_TOOLS")));
+  // Screens cannot be shown in a WhatsApp bubble; everything else stays, gated by the person's own permissions.
+  for (const screenOnly of ["navigate_to", "trigger_pdf_generation", "open_appointment", "start_tutorial", "open_tour_stop", "file_bug_report", "file_feature_request"]) {
+    ok(excluded.includes(`"${screenOnly}"`), `${screenOnly} is offered on WhatsApp, where it can only fail`);
   }
+  for (const acting of ["set_appointment_status", "reschedule_appointment", "record_payment", "db_write", "db_delete"]) {
+    ok(!excluded.includes(`"${acting}"`), `${acting} is withheld on WhatsApp although the owner asked for the app's reach`);
+  }
+  ok(route.includes('client !== "web-widget" && client !== "whatsapp-staff"'), "the staff line is told it has an appointment panel");
+
+  // The yes/no round.
+  for (const t of ["نعم", "ايوه", "تمام", "yes", "Yes.", "ok", "do it", "أكد"]) eq(staffDecision(t), "approve", `not read as yes: ${t}`);
+  for (const t of ["لا", "الغي", "cancel", "No", "بلاش"]) eq(staffDecision(t), "reject", `not read as no: ${t}`);
+  for (const t of ["نعم بس بكرة", "who is booked", "yes please move it to 5"]) eq(staffDecision(t), null, `read as a decision although it is a new instruction: ${t}`);
+  const card = toStaffPending({ id: "a1", kind: "appointment_update", title: "Move appointment", summary: { patientName: "Mona Ali", date: "2026-09-28", time: "10:00" }, changes: [{ label: "Time", from: "10:00", to: "12:00" }] });
+  ok(card && card.title === "Move appointment" && card.lines[0] === "Mona Ali · 2026-09-28 10:00" && card.lines[1] === "Time: 10:00 → 12:00", "the staged action does not read as a card");
+  eq(pendingToLines({ id: "p", kind: "payment", summary: { patientName: "Omar" }, amount: 1500 }), ["Omar", "1,500 EGP"], "payment card lines");
+  eq(toStaffPending({ kind: "delete" }), null, "a preview without an id must not become a pending action");
+  ok(confirmPrompt("ar").includes("نعم") && confirmPrompt("en").includes("yes"), "confirm prompt");
+  const line = read("src/lib/bot/staffLine.ts");
+  ok(line.indexOf("loadStaffPending(") < line.indexOf('if (intent !== "help")'), "a pending action is not checked before the report keywords — 'yes' would fetch nothing");
+  ok(read("src/lib/bot/staffAssistant.ts").includes("/api/gemini/confirm-action"), "the staff line does not use the app's own confirm route");
   ok(read("src/lib/bot/staffAssistant.ts").includes("createCustomToken(uid"), "the staff line does not sign in as the real person — permissions would be nobody's");
   // The owner types 01551552440 on the page; Meta delivers 201551552440; both are the same phone.
   ok(samePhone("01551552440", "201551552440"), "a local number does not match its international form");
