@@ -20,13 +20,18 @@ const MAX_QUIET_MS = 90 * 60 * 1000;
 const WINDOW_MS = 23 * 60 * 60 * 1000;
 const GRAPH = "https://graph.facebook.com/v21.0";
 
+/** How long a "not now" holds the nudge off. Longer than any lead follow-up window. */
+const DECLINE_HOLD_MS = 30 * 24 * 60 * 60 * 1000;
+
 function nudgeText(c) {
   const interest = String(c.lastInterest || "").trim();
-  const name = String(c.patientName || "").trim();
+  // First name only: "مروة محمد ابو ضيف، لسه معاك؟" is a form letter; "مروة، لسه معاكي؟" is a person.
+  const name = String(c.patientName || "").trim().split(/\s+/)[0] || "";
   const hi = name ? `${name}، ` : "";
+  // "لو حبيت" reads the same to a man and a woman; the masculine participle does not.
   return interest
-    ? `${hi}لسه معاك؟ 😊 لو حابب أحجزلك كشف عشان ${interest} أو عندك أي سؤال تاني، أنا هنا.`
-    : `${hi}لسه معاك؟ 😊 لو حابب أحجزلك كشف أو عندك أي سؤال تاني، أنا هنا.`;
+    ? `${hi}لسه معانا؟ 😊 لو حبيت أحجزلك كشف عشان ${interest} أو عندك أي سؤال تاني، أنا هنا.`
+    : `${hi}لسه معانا؟ 😊 لو حبيت أحجزلك كشف أو عندك أي سؤال تاني، أنا هنا.`;
 }
 
 exports.quietNudge = onSchedule(
@@ -51,6 +56,8 @@ exports.quietNudge = onSchedule(
           const c = doc.data() || {};
           if (doc.id.startsWith("play_") || c.aiUsed !== true) continue;
           if (c.needsHuman === true || c.botPaused === true || c.outcome === "booked" || c.optedOut === true) continue;
+          // "Not now" means not now. Nudging after it is how a polite no becomes a STOP.
+          if (Number(c.declinedAtMs) > 0 && now - Number(c.declinedAtMs) < DECLINE_HOLD_MS) continue;
           if (c.lastDirection !== "out" || c.lastAuthor !== "bot") continue;
           const lastIn = Number(c.lastInboundAt) || 0;
           const lastAt = Number(c.lastMessageAt) || 0;

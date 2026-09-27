@@ -47,12 +47,13 @@ import { DEFAULT_SCREENING, readScreeningAnswer } from "./medicineScreen";
 import { stripRepeatIntro } from "./repeatIntro";
 import { feminizeAddress } from "./voiceFix";
 import { SALES_CLOSE_REASONS, LEAD_INTEREST_REASONS, activeOffers, closingLine, offerForService } from "./sales";
-import { markBotLeadBooked, upsertBotLead } from "./botLeads";
+import { markBotLeadBooked, snoozeBotLead, upsertBotLead } from "./botLeads";
 import { recordThreadMessage } from "./thread";
 import { clinicalReplyText,
   urgentCallLine, decideBotReply, type BotContext } from "./engine";
 import { needsHuman } from "./clinicalTriage";
-import { mentionsRelative, quickIntent } from "./quickAnswers";
+import { isDecline, mentionsRelative, quickIntent } from "./quickAnswers";
+import { markConversationDeclined } from "./conversation";
 import { parseDayWord } from "./dayWords";
 import { guessGender, voiceFor } from "@/lib/arabicNames";
 import { normalizeAppointmentStatus } from "@/lib/appointmentStages";
@@ -608,6 +609,13 @@ export async function respondToPatientMessage(args: {
   }
 
   const conversation = await loadConversation(clinicId, chatId, now, { humanClaimMs: settings.humanClaimMs });
+
+  // "Not now" is remembered before anything answers it, so the gracious one-line reply below is
+  // the LAST automated message this person gets until a human decides otherwise.
+  if (!args.dryRun && isDecline(text)) {
+    void markConversationDeclined(clinicId, chatId).catch(() => {});
+    if (phone) void snoozeBotLead(clinicId, phone).catch(() => {});
+  }
 
   // A stop request recorded against this sender directly — the only place it can live when a lid
   // hides the patient record. Survives conversation expiry; see markConversationOptedOut.

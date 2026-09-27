@@ -500,6 +500,20 @@ export async function markHumanActive(clinicId: string, address: string, uid?: s
 }
 
 /**
+ * Record a "not now": the sender declined, politely, for the time being.
+ *
+ * Read by the quiet-nudge function and the lead follow-up job, both of which skip a conversation
+ * that carries it. Kept as a millisecond stamp like `nudgedAtMs`, so the Functions copy can compare
+ * it without a Timestamp import.
+ */
+export async function markConversationDeclined(clinicId: string, address: string): Promise<void> {
+  await ref(clinicId, conversationKey(address)).set(
+    { phone: address, declinedAtMs: Date.now(), updatedAt: FieldValue.serverTimestamp() },
+    { merge: true }
+  );
+}
+
+/**
  * Record "stop" for a sender who has no patient record to record it on.
  *
  * The `@lid` case: the phone is hidden, so `whatsappOptOut` on the patient cannot be reached.

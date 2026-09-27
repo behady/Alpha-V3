@@ -307,6 +307,30 @@ const GREETING = [
  * late) come next because they expire, and courtesy comes last because it is the only category
  * where being wrong costs nothing.
  */
+/**
+ * "Not now." A polite no to the whole conversation, not to one question.
+ *
+ * The recall button's "مش دلوقتي" already reads as an acknowledgement so the bot answers it with
+ * one gracious line. What it did not do was REMEMBER it: an hour later the quiet-nudge asked
+ * "still with me?", and the next day the lead follow-up asked again — the exact sequence that
+ * turns a "not now" into a STOP. A decline marks the conversation and snoozes the lead for a
+ * person to pick up in two weeks; no automation writes to that number again meanwhile.
+ */
+const DECLINE = [
+  "مش دلوقتي", "مش دلوقت", "مش دلوقتى", "بعدين", "لما افضى", "لما افضي", "مش محتاج", "مش محتاجه", "مش محتاجة",
+  "مش عايز", "مش عايزه", "مش عايزة", "مش هحجز", "مش مهتم", "مش مهتمه", "مش مهتمة", "لا شكرا", "لأ شكرا", "لا متشكر",
+  "خلاص شكرا", "مش حاليا", "مش حالياً", "في وقت تاني", "وقت تاني", "هفكر", "هشوف وابلغك", "هبلغك",
+  "not now", "later", "maybe later", "no thanks", "no thank you", "not interested", "some other time", "i'll think about it",
+];
+
+export function isDecline(raw: string): boolean {
+  const text = normalize(raw);
+  if (!text) return false;
+  // A decline is short. "مش دلوقتي، بكرة الساعة 5 ينفع؟" is a booking with a preference in front.
+  if (text.split(/\s+/).length > 6) return false;
+  return has(text, DECLINE);
+}
+
 export function quickIntent(raw: string): QuickIntent | null {
   const text = normalize(raw);
   if (!text) return null;
