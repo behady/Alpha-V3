@@ -90,7 +90,7 @@ eq(targetProgress(500, 0, 0.5), null, "no target set: no bar");
     { type: "payment", patientId: "p1", paid: 500 },
     { type: "payment", patientId: "p1", paid: 300 },
     { type: "payment", patientId: "p2", paid: 1000 },
-    { type: "procedure", patientId: "p2", cost: 2000, paid: 0 }, // billed, not cash
+    { type: "procedure", patientId: "p2", cost: 2000, paid: 1000 }, // its paid mirrors the payment above — not cash again
     { type: "expense", patientId: "", cost: 900 },
     { type: "payment", patientId: "p3", paid: 100 },
     { type: "payment", patientId: "p9", paid: 50 },
@@ -99,7 +99,7 @@ eq(targetProgress(500, 0, 0.5), null, "no target set: no bar");
     { source: "Google", cash: 1000, patients: 1 },
     { source: "Facebook", cash: 800, patients: 1 },
     { source: "Unknown", cash: 150, patients: 2 },
-  ], "cash lands under the paying patient's source, biggest first; billed work and expenses are not cash");
+  ], "cash lands under the paying patient's source, biggest first; a procedure row's paid mirror, billed work and expenses are not cash");
 }
 
 // --- 6. The bot's share ---------------------------------------------------------------------------------------
