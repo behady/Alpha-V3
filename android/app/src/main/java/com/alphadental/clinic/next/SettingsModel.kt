@@ -234,8 +234,13 @@ class SettingsModel : ViewModel() {
             Section.Bot -> load { it.copy(bot = ClinicSettings.loadBot(id)) }
             Section.Alerts -> load {
                 val uid = it.who?.uid.orEmpty()
+                // The old Settings → WhatsApp grid's ticks ride along as `legacyOwnerAlerts`, read-only,
+                // so the six migrated alerts resolve here as they do on the website. Stripped on save.
+                val legacy = ClinicSettings.loadDoc(id, "whatsapp")["ownerAlerts"] as? Map<*, *>
+                val prefs = ClinicSettings.loadAlertPrefs(id).let { p -> if (legacy != null) p + ("legacyOwnerAlerts" to legacy) else p }
                 it.copy(
-                    alertPrefs = ClinicSettings.loadAlertPrefs(id),
+                    alertPrefs = prefs,
+                    staff = ClinicSettings.loadStaff(id),
                     myMutes = ClinicSettings.loadMyMutes(uid, id),
                     mutesLoaded = true,
                 )
@@ -377,7 +382,7 @@ class SettingsModel : ViewModel() {
         write({ ClinicSettings.saveAttendanceRules(it, r) }) { s -> s.copy(area = r) }
 
     fun saveAlertPrefs(prefs: Map<String, Any?>) =
-        write({ ClinicSettings.saveAlertPrefs(it, prefs) }) { s -> s.copy(alertPrefs = prefs) }
+        write({ ClinicSettings.saveAlertPrefs(it, prefs - "legacyOwnerAlerts") }) { s -> s.copy(alertPrefs = prefs) }
 
     /** Mine, like [saveHomeTab]: written to my own record, no admin needed. */
     fun setMute(eventId: String, muted: Boolean) {

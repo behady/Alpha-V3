@@ -33,41 +33,72 @@ import com.alphadental.clinic.next.design.Txt
 import com.alphadental.clinic.next.design.Type
 
 /**
- * Every alert the system can raise, on one page — the website's Settings → Alerts.
+ * Alerts & reports — the same page as the website's, on the phone.
  *
- * The clinic's answers (bell, push, who, when, quiet hours) are one map, edited here and saved
- * with the button, the way the website's Save works. The last section is personal: my own mutes,
- * saved on my own record the moment they are tapped, because they are nobody else's business and
- * need nobody's permission.
+ * Three switches per alert (bell, push, WhatsApp), the reports with their own sections, detail,
+ * comparisons, language and PDF, a "Send" choice (as it happens, hourly, with the evening), the
+ * WhatsApp recipients with a number each, and the personal mutes at the bottom. Every value is
+ * written into the same `alertPreferences` map the website writes, through the catalogue's own
+ * resolver, so a switch flipped here reads the same in the browser.
  */
 @Composable
 internal fun AlertsPage(state: SettingsState, onBack: () -> Unit, actions: SettingsActions) {
     val stored = state.alertPrefs
     var form by remember(stored) { mutableStateOf(stored ?: emptyMap()) }
     val dirty = stored != null && form != stored
-    val onCount = NotifyCatalog.EVENTS.count { e -> NotifyCatalog.resolve(e.id, form)?.let { it.bell || it.push } == true }
+    val onCount = NotifyCatalog.EVENTS.count { e -> NotifyCatalog.resolve(e.id, form)?.any == true }
+
+    fun mapAt(key: String): Map<String, Any?> =
+        (form[key] as? Map<*, *>)?.mapNotNull { (k, v) -> (k?.toString() ?: return@mapNotNull null) to v }?.toMap().orEmpty()
+
+    fun subMap(parent: Map<String, Any?>, id: String): Map<String, Any?> =
+        (parent[id] as? Map<*, *>)?.mapNotNull { (k, v) -> (k?.toString() ?: return@mapNotNull null) to v }?.toMap().orEmpty()
 
     fun patchEvent(id: String, edit: (Map<String, Any?>) -> Map<String, Any?>) {
-        val events = (form["events"] as? Map<*, *>)?.mapNotNull { (k, v) -> (k?.toString() ?: return@mapNotNull null) to v }?.toMap().orEmpty()
-        val current = (events[id] as? Map<*, *>)?.mapNotNull { (k, v) -> (k?.toString() ?: return@mapNotNull null) to v }?.toMap().orEmpty()
-        form = form + ("events" to (events + (id to edit(current))))
+        val events = mapAt("events")
+        form = form + ("events" to (events + (id to edit(subMap(events, id)))))
     }
 
     fun patchTiming(id: String, key: String, value: Int) {
-        val timings = (form["timings"] as? Map<*, *>)?.mapNotNull { (k, v) -> (k?.toString() ?: return@mapNotNull null) to v }?.toMap().orEmpty()
-        val current = (timings[id] as? Map<*, *>)?.mapNotNull { (k, v) -> (k?.toString() ?: return@mapNotNull null) to v }?.toMap().orEmpty()
-        form = form + ("timings" to (timings + (id to (current + (key to value)))))
+        val timings = mapAt("timings")
+        form = form + ("timings" to (timings + (id to (subMap(timings, id) + (key to value)))))
     }
 
     fun patchQuiet(key: String, value: Any) {
-        val quiet = (form["quietHours"] as? Map<*, *>)?.mapNotNull { (k, v) -> (k?.toString() ?: return@mapNotNull null) to v }?.toMap().orEmpty()
-        form = form + ("quietHours" to (quiet + (key to value)))
+        form = form + ("quietHours" to (mapAt("quietHours") + (key to value)))
+    }
+
+    /** `reports.<id>.<key>`; a key of the form `sections.money` goes one level deeper. */
+    fun patchReport(id: String, key: String, value: Any) {
+        val reports = mapAt("reports")
+        val current = subMap(reports, id)
+        val next = if (key.startsWith("sections.")) {
+            val sections = subMap(current, "sections")
+            current + ("sections" to (sections + (key.removePrefix("sections.") to value)))
+        } else {
+            current + (key to value)
+        }
+        form = form + ("reports" to (reports + (id to next)))
+    }
+
+    fun patchPerson(uid: String, key: String, value: Any) {
+        val people = mapAt("people")
+        form = form + ("people" to (people + (uid to (subMap(people, uid) + (key to value)))))
     }
 
     val quiet = form["quietHours"] as? Map<*, *>
     val quietOn = quiet?.get("enabled") == true
     val quietFrom = (quiet?.get("fromHour") as? Number)?.toInt() ?: 22
     val quietTo = (quiet?.get("toHour") as? Number)?.toInt() ?: 8
+
+    // Everyone with a login, plus whoever is looking at the page if they are not on the list.
+    val myUid = state.who?.uid.orEmpty()
+    val people = remember(state.staff, myUid) {
+        val rows = state.staff.filter { it.uid.isNotBlank() }.map { Triple(it.uid, it.name, it.role) }.toMutableList()
+        if (myUid.isNotBlank() && rows.none { it.first == myUid }) rows.add(Triple(myUid, "", "Admin"))
+        val order = mapOf("Owner" to 0, "Admin" to 1, "Dentist" to 2, "Receptionist" to 3, "Assistant" to 4)
+        rows.sortedWith(compareBy({ order[it.third] ?: 9 }, { it.second }))
+    }
 
     SettingsPage(
         title = Section.Alerts.label,
@@ -78,10 +109,10 @@ internal fun AlertsPage(state: SettingsState, onBack: () -> Unit, actions: Setti
     ) {
         item {
             Txt(
-                "Who gets told what, and when. The bell is the list inside the app; push is the " +
-                    "buzz on a phone. Everything here is the clinic's answer — your own mutes are at the bottom.",
+                "Every alert, with three switches: the bell inside the app, the phone, and WhatsApp. " +
+                    "The reports go out on WhatsApp as full reports at the hour you choose. Your own mutes are at the bottom.",
                 Type.caption, T.inkMuted,
-                Modifier.padding(horizontal = T.gutter, vertical = 10.dp), maxLines = 4,
+                Modifier.padding(horizontal = T.gutter, vertical = 10.dp), maxLines = 5,
             )
         }
 
@@ -103,13 +134,47 @@ internal fun AlertsPage(state: SettingsState, onBack: () -> Unit, actions: Setti
             }
         }
 
+        // ---- WhatsApp recipients: a number per person, and a personal off switch.
+        item { SectionLabel("WhatsApp recipients") }
+        item {
+            Txt(
+                "Each person's WhatsApp number, and whether they get WhatsApp at all. A person with no number " +
+                    "gets the phone and the bell only. The owner falls back to the number on WhatsApp setup.",
+                Type.caption, T.inkFaint,
+                Modifier.padding(start = T.gutter, end = T.gutter, bottom = 8.dp), maxLines = 4,
+            )
+        }
+        item {
+            RowGroup {
+                if (people.isEmpty()) {
+                    Txt("Nobody has been added on Staff & logins yet.", Type.caption, T.inkFaint, Modifier.padding(T.gutter), maxLines = 2)
+                }
+                people.forEachIndexed { i, (uid, name, role) ->
+                    if (i > 0) Rule()
+                    val person = NotifyCatalog.person(uid, form)
+                    SettingsToggle(
+                        title = name.ifBlank { roleName(role) },
+                        caption = if (person.enabled) "${roleName(role)} · gets WhatsApp" else "${roleName(role)} · no WhatsApp",
+                        checked = person.enabled, enabled = state.canEdit,
+                    ) { patchPerson(uid, "whatsapp", it) }
+                    SettingsField(
+                        label = "WhatsApp number",
+                        value = person.phone,
+                        onChange = { patchPerson(uid, "phone", it) },
+                        enabled = state.canEdit,
+                        hint = "01xxxxxxxxx",
+                    )
+                }
+            }
+        }
+
         // ---- The catalogue, group by group.
         NotifyCatalog.GROUPS.forEach { group ->
             val events = NotifyCatalog.eventsIn(group.id)
             if (events.isEmpty()) return@forEach
             item { SectionLabel(group.en) }
             item {
-                Txt(group.noteEn, Type.caption, T.inkFaint, Modifier.padding(start = T.gutter, end = T.gutter, bottom = 8.dp), maxLines = 3)
+                Txt(group.noteEn, Type.caption, T.inkFaint, Modifier.padding(start = T.gutter, end = T.gutter, bottom = 8.dp), maxLines = 4)
             }
             item {
                 RowGroup {
@@ -129,6 +194,8 @@ internal fun AlertsPage(state: SettingsState, onBack: () -> Unit, actions: Setti
                                 patchEvent(event.id) { it + ("roles" to NotifyCatalog.ROLES.filter { r -> r in now }) }
                             },
                             onTiming = { key, value -> patchTiming(event.id, key, value) },
+                            onBatching = { mode -> patchEvent(event.id) { it + ("batching" to mode) } },
+                            onReport = { key, value -> patchReport(event.id, key, value) },
                         )
                     }
                 }
@@ -153,7 +220,7 @@ internal fun AlertsPage(state: SettingsState, onBack: () -> Unit, actions: Setti
                 NotifyCatalog.EVENTS.forEachIndexed { i, event ->
                     if (i > 0) Rule()
                     val resolved = NotifyCatalog.resolve(event.id, form)
-                    val clinicHasIt = resolved?.let { it.bell || it.push } == true
+                    val clinicHasIt = resolved?.any == true
                     val muted = event.id in state.myMutes
                     SettingsToggle(
                         title = event.en,
@@ -176,20 +243,75 @@ private fun EventRow(
     onChannel: (String, Boolean) -> Unit,
     onRole: (String) -> Unit,
     onTiming: (String, Int) -> Unit,
+    onBatching: (String) -> Unit,
+    onReport: (String, Any) -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Txt(event.en, Type.rowName, T.ink, maxLines = 2)
                 Spacer(Modifier.height(2.dp))
-                Txt(event.whenEn, Type.caption, T.inkMuted, maxLines = 3)
+                Txt(event.whenEn, Type.caption, T.inkMuted, maxLines = 4)
             }
             Spacer(Modifier.width(10.dp))
             Channel("Bell", resolved.bell, enabled) { onChannel("bell", it) }
             Spacer(Modifier.width(8.dp))
             Channel("Push", resolved.push, enabled) { onChannel("push", it) }
+            Spacer(Modifier.width(8.dp))
+            if (event.waReady) {
+                Channel("WhatsApp", resolved.whatsapp, enabled) { onChannel("whatsapp", it) }
+            } else {
+                // Raised by the Cloud Functions, which cannot reach a WhatsApp gateway yet.
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Txt("WhatsApp", Type.chip.copy(fontSize = 9.sp), T.inkFaint, uppercase = true)
+                    Chip("—", on = false, enabled = false) {}
+                }
+            }
         }
-        if (resolved.bell || resolved.push) {
+        if (resolved.any) {
+            // A report's own options.
+            val report = event.report
+            if (report != null && report != "dentistDay") {
+                val rp = NotifyCatalog.reportPrefs(event.id, prefs)
+                Spacer(Modifier.height(8.dp))
+                if (report != "summary" && report != "payroll") {
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+                        Txt("Sections", Type.chip, T.inkFaint, uppercase = true)
+                        Spacer(Modifier.width(8.dp))
+                        NotifyCatalog.REPORT_SECTIONS.forEach { key ->
+                            val on = rp.sections[key] == true
+                            Chip(sectionName(key), on = on, enabled = enabled) { onReport("sections.$key", !on) }
+                            Spacer(Modifier.width(6.dp))
+                        }
+                    }
+                    if (rp.sections["money"] == true) {
+                        Spacer(Modifier.height(6.dp))
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+                            Txt("Money detail", Type.chip, T.inkFaint, uppercase = true)
+                            Spacer(Modifier.width(8.dp))
+                            NotifyCatalog.MONEY_DETAILS.forEach { d ->
+                                Chip(detailName(d), on = rp.moneyDetail == d, enabled = enabled) { onReport("moneyDetail", d) }
+                                Spacer(Modifier.width(6.dp))
+                            }
+                            Spacer(Modifier.width(6.dp))
+                            Chip("Compare with last week", on = rp.comparisons, enabled = enabled) { onReport("comparisons", !rp.comparisons) }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+                    Txt("Language", Type.chip, T.inkFaint, uppercase = true)
+                    Spacer(Modifier.width(8.dp))
+                    Chip("العربية", on = rp.language == "ar", enabled = enabled) { onReport("language", "ar") }
+                    Spacer(Modifier.width(6.dp))
+                    Chip("English", on = rp.language == "en", enabled = enabled) { onReport("language", "en") }
+                    if (report != "summary") {
+                        Spacer(Modifier.width(12.dp))
+                        Chip("Attach PDF", on = rp.pdf, enabled = enabled) { onReport("pdf", !rp.pdf) }
+                    }
+                }
+            }
+
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                 Txt("Goes to", Type.chip, T.inkFaint, uppercase = true)
@@ -206,13 +328,26 @@ private fun EventRow(
             }
             event.timings.forEach { t ->
                 Spacer(Modifier.height(6.dp))
-                if (t.kind == "hourOfDay") {
-                    HourPicker(t.en, NotifyCatalog.timing(event.id, t.key, prefs), enabled, inset = false) { onTiming(t.key, it) }
-                } else {
-                    NumberPicker(
+                when (t.kind) {
+                    "hourOfDay" -> HourPicker(t.en, NotifyCatalog.timing(event.id, t.key, prefs), enabled, inset = false) { onTiming(t.key, it) }
+                    "weekday" -> WeekdayPicker(t.en, NotifyCatalog.timing(event.id, t.key, prefs), enabled) { onTiming(t.key, it) }
+                    else -> NumberPicker(
                         t.en, NotifyCatalog.timing(event.id, t.key, prefs), t.min, t.max,
-                        unit = if (t.kind == "hours") "h" else "min", enabled = enabled,
+                        unit = unitFor(t.kind), enabled = enabled,
+                        step = stepFor(t.kind, t.max),
                     ) { onTiming(t.key, it) }
+                }
+            }
+            // How the buzz arrives. Reports have an hour of their own; the bell is always immediate.
+            if (event.waReady && event.report == null && (resolved.push || resolved.whatsapp)) {
+                Spacer(Modifier.height(6.dp))
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+                    Txt("Send", Type.chip, T.inkFaint, uppercase = true)
+                    Spacer(Modifier.width(8.dp))
+                    NotifyCatalog.BATCHING.forEach { mode ->
+                        Chip(batchingName(mode), on = resolved.batching == mode, enabled = enabled) { onBatching(mode) }
+                        Spacer(Modifier.width(6.dp))
+                    }
                 }
             }
         } else {
@@ -261,23 +396,75 @@ private fun HourPicker(label: String, value: Int, enabled: Boolean, inset: Boole
     }
 }
 
+private val WEEKDAYS = listOf("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
+
+/** The seven days; the chosen one is filled. Sunday first, as the catalogue counts. */
+@Composable
+private fun WeekdayPicker(label: String, value: Int, enabled: Boolean, onPick: (Int) -> Unit) {
+    Column(Modifier.fillMaxWidth()) {
+        Txt(label, Type.chip, T.inkFaint, uppercase = true)
+        Spacer(Modifier.height(6.dp))
+        Row(Modifier.horizontalScroll(rememberScrollState())) {
+            WEEKDAYS.forEachIndexed { i, d ->
+                Chip(d, on = i == value, enabled = enabled) { onPick(i) }
+                Spacer(Modifier.width(6.dp))
+            }
+        }
+    }
+}
+
 /** A number with a minus and a plus, clamped to the catalogue's range. */
 @Composable
-private fun NumberPicker(label: String, value: Int, min: Int, max: Int, unit: String, enabled: Boolean, onPick: (Int) -> Unit) {
-    val step = if (unit == "h") 1 else if (max > 120) 15 else 5
+private fun NumberPicker(label: String, value: Int, min: Int, max: Int, unit: String, enabled: Boolean, step: Int, onPick: (Int) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Txt(label, Type.caption, T.inkMuted, Modifier.weight(1f), maxLines = 1)
         Chip("−", on = false, enabled = enabled && value > min) { onPick((value - step).coerceAtLeast(min)) }
         Spacer(Modifier.width(8.dp))
-        Txt("$value $unit", Type.label.copy(fontSize = 13.sp), T.ink, maxLines = 1)
+        Txt(if (unit.isBlank()) "$value" else "$value $unit", Type.label.copy(fontSize = 13.sp), T.ink, maxLines = 1)
         Spacer(Modifier.width(8.dp))
         Chip("+", on = false, enabled = enabled && value < max) { onPick((value + step).coerceAtMost(max)) }
     }
 }
 
+private fun unitFor(kind: String): String = when (kind) {
+    "hours" -> "h"
+    "percent" -> "%"
+    "egp" -> "EGP"
+    "days" -> "days"
+    "count", "dayOfMonth" -> ""
+    else -> "min"
+}
+
+private fun stepFor(kind: String, max: Int): Int = when (kind) {
+    "hours", "days", "dayOfMonth" -> 1
+    "percent" -> 5
+    "egp" -> if (max > 100000) 500 else 100
+    "count" -> 5
+    else -> if (max > 120) 15 else 5
+}
+
 private fun roleName(role: String): String = when (role) {
     "Receptionist" -> "Reception"
     else -> role
+}
+
+private fun sectionName(key: String): String = when (key) {
+    "money" -> "Money"
+    "appointments" -> "Appointments"
+    "patients" -> "Patients & leads"
+    else -> "Team"
+}
+
+private fun detailName(d: String): String = when (d) {
+    "totals" -> "Totals"
+    "dentists" -> "Per dentist"
+    else -> "Full"
+}
+
+private fun batchingName(mode: String): String = when (mode) {
+    "hourly" -> "Once an hour"
+    "daily" -> "With the evening"
+    else -> "As it happens"
 }
 
 private fun hourLabel(h: Int): String {
