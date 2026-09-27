@@ -8,6 +8,8 @@ import { ledgerCashValue } from "@/lib/reportHelpers";
 import { useUI } from "@/context/UIContext";
 import { attributeService, buildProcedureIndex } from "@/lib/serviceAttribution";
 import { Bars, ChartFrame, GHOST, INK, MARK } from "@/components/reports/chartKit";
+import PatientDrilldown from "@/components/reports/PatientDrilldown";
+import { partitionRows, rollupPatients } from "@/lib/reportPatients";
 
 interface SourceStat {
   name: string;
@@ -16,7 +18,6 @@ interface SourceStat {
   commission: number;
   netIncome: number;
   services: { name: string; count: number; income: number }[];
-  patients: { name: string; phone?: string; paid: number }[];
 }
 
 interface PatientData {
@@ -66,7 +67,6 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
       services: Record<string, { name: string; count: number; income: number }>;
       commission: number;
       income: number;
-      patientPaid: Record<string, number>;
     }> = {};
 
     const procedureIndex = buildProcedureIndex(procedures);
@@ -78,7 +78,7 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
       const source = patientChannel(patient, proc.patientReferral);
 
       if (!map[source]) {
-        map[source] = { patientIds: new Set(), services: {}, commission: 0, income: 0, patientPaid: {} };
+        map[source] = { patientIds: new Set(), services: {}, commission: 0, income: 0 };
       }
       // Keyed on the catalogue id when the row has one — see lib/serviceAttribution.
       const svc = attributeService(proc, procedureIndex);
@@ -96,7 +96,7 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
       const source = patientChannel(patient, pay.patientReferral);
 
       if (!map[source]) {
-        map[source] = { patientIds: new Set(), services: {}, commission: 0, income: 0, patientPaid: {} };
+        map[source] = { patientIds: new Set(), services: {}, commission: 0, income: 0 };
       }
 
       // A payment is attributed through the procedure it settles, not by re-reading its own
@@ -110,10 +110,7 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
       map[source].services[svc.key].income += inc;
       map[source].income += inc;
       map[source].commission += parseMoney(pay.doctorCommissionAmount);
-      if (pid) {
-          map[source].patientIds.add(pid);
-          map[source].patientPaid[pid] = (map[source].patientPaid[pid] || 0) + inc;
-      }
+      if (pid) map[source].patientIds.add(pid);
     });
 
     return Object.entries(map)
@@ -126,16 +123,29 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
         services: Object.values(d.services)
           .map((s) => ({ name: s.name, count: s.count, income: s.income }))
           .sort((a, b) => b.income - a.income),
-        patients: Object.entries(d.patientPaid)
-          .map(([pId, paid]) => ({
-            name: patientMap[pId]?.name || "Unknown",
-            phone: patientMap[pId]?.phone,
-            paid,
-          }))
-          .sort((a, b) => b.paid - a.paid),
       }))
       .sort((a, b) => b.totalIncome - a.totalIncome);
   }, [procedures, payments, patientMap]);
+
+  /**
+   * Every patient a channel brought, not the ten who paid most.
+   *
+   * The old list was built off payments alone and cut at ten, so a patient who had treatment and
+   * has not paid yet — the one the desk most needs to see — was missing, and a channel with
+   * thirty patients showed a third of them. Same channel rule as the figures above.
+   */
+  const patientsBySource = useMemo(() => {
+    const keyOf = (row: Record<string, unknown>) => {
+      const pid = String(row.patientId || "");
+      return patientChannel(pid ? patientMap[pid] : null, row.patientReferral);
+    };
+    const groups = partitionRows(procedures, payments || [], keyOf);
+    const out = new Map<string, ReturnType<typeof rollupPatients>>();
+    groups.forEach((g, source) => {
+      out.set(source, rollupPatients(g.procedures, g.payments, patientMap, { unknownName: isAr ? "بدون اسم" : "Unknown" }));
+    });
+    return out;
+  }, [procedures, payments, patientMap, isAr]);
 
   const totalPatients = stats.reduce((a, s) => a + s.patientCount, 0);
   const totalIncome = stats.reduce((a, s) => a + s.totalIncome, 0);
@@ -400,28 +410,18 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
                       </div>
                     </div>
 
-                    {/* Patients */}
+                    {/* Patients — all of them, with a file link, a phone and what they had. */}
                     <div>
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">{isAr ? "المرضى" : "Patients"}</p>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">
+                        {isAr ? `المرضى من ${s.name}` : `Patients from ${s.name}`}
+                      </p>
                       <div className="bg-surface rounded-xl border border-line overflow-hidden">
-                        <table className="w-full text-xs">
-                          <thead>
-                            <tr className="bg-surface-subtle text-[9px] font-black text-ink-muted uppercase">
-                              <th className="text-start py-2 px-3">{isAr ? "الاسم" : "Name"}</th>
-                              <th className="text-start py-2 px-3">{isAr ? "الهاتف" : "Phone"}</th>
-                              <th className="text-end py-2 px-3">{isAr ? "المدفوع" : "Paid (EGP)"}</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-50">
-                            {s.patients.slice(0, 10).map((p, j) => (
-                              <tr key={j}>
-                                <td className="py-2 px-3 font-semibold text-slate-700">{p.name}</td>
-                                <td className="py-2 px-3 text-ink-muted">{p.phone || "—"}</td>
-                                <td className="py-2 px-3 text-end font-bold text-emerald-600 tabular-nums">{p.paid.toLocaleString()}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                        <PatientDrilldown
+                          embedded
+                          rows={patientsBySource.get(s.name) || []}
+                          isAr={isAr}
+                          exportName={`Source_Patients_${s.name.replace(/[^\p{L}\p{N}]+/gu, "_")}`}
+                        />
                       </div>
                     </div>
                   </div>

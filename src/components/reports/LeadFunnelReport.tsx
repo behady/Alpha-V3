@@ -1,13 +1,15 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { Megaphone, FileSpreadsheet, Download, ChevronDown, ChevronRight } from "lucide-react";
+import Link from "next/link";
+import { Megaphone, FileSpreadsheet, Download, ChevronDown, ChevronRight, ExternalLink, Search } from "lucide-react";
 import { SourceIcon } from "@/components/SourceIcon";
 import { exportToExcel } from "./reportExcelUtils";
 import { INK, MARK } from "@/components/reports/chartKit";
 import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
 import { useUI } from "@/context/UIContext";
-import { leadStageLabel } from "@/lib/leads";
+import { leadStageLabel, type LeadStage } from "@/lib/leads";
+import { dayText } from "@/lib/reportHelpers";
 
 /**
  * The marketing funnel — what the Leads inbox was collecting data for.
@@ -20,8 +22,13 @@ import { leadStageLabel } from "@/lib/leads";
 
 interface LeadRow {
   id?: string;
+  name?: string;
+  phone?: string;
+  /** What they asked about — a service name or free text. */
+  interest?: string;
   source?: string;
   stage?: string;
+  lostReason?: string | null;
   patientId?: string | null;
   normDate?: string;
   /** Stamped by the Meta webhook — what makes the per-campaign drill-down possible. */
@@ -94,10 +101,210 @@ function paymentCash(d: Record<string, unknown>): number {
   return Number(d.paid) || Number(d.amount) || 0;
 }
 
+const STAGE_TONE: Record<LeadStage, string> = {
+  new: "bg-surface-muted text-ink-body",
+  contacted: "bg-surface-muted text-ink-body",
+  booked: "bg-ink-slab text-white",
+  won: "bg-accent text-ink",
+  lost: "bg-danger-tint text-danger",
+};
+
+const LIST_SHOW_FIRST = 50;
+
+/**
+ * The people a channel's numbers are made of.
+ *
+ * "Instagram: 14 leads, 3 in the chair" invites exactly one question, and this is the answer:
+ * every lead that came through the channel in the period, what they asked for, where they got
+ * to, and — for the ones who became patients — a link to the file. A lost lead shows its reason,
+ * because a channel that loses people for the same reason every time is a channel with a fixable
+ * problem rather than a bad one.
+ */
+function LeadList({
+  rows,
+  isAr,
+  paidByPatient,
+  exportName,
+}: {
+  rows: LeadRow[];
+  isAr: boolean;
+  paidByPatient: Record<string, number>;
+  exportName: string;
+}) {
+  const [query, setQuery] = useState("");
+  const [showAll, setShowAll] = useState(false);
+  const q = query.trim().toLowerCase();
+  const filtered = rows.filter(
+    (l) =>
+      !q ||
+      String(l.name || "").toLowerCase().includes(q) ||
+      String(l.phone || "").replace(/\s+/g, "").includes(q.replace(/\s+/g, "")),
+  );
+  const shown = showAll ? filtered : filtered.slice(0, LIST_SHOW_FIRST);
+  const hidden = filtered.length - shown.length;
+
+  const exportRows = () =>
+    exportToExcel(
+      filtered.map((l) => ({
+        [isAr ? "الاسم" : "Name"]: l.name || "",
+        [isAr ? "الهاتف" : "Phone"]: l.phone || "",
+        [isAr ? "التاريخ" : "Date"]: l.normDate || "",
+        [isAr ? "طلب" : "Asked for"]: l.interest || "",
+        [isAr ? "الحملة" : "Campaign"]: l.meta?.campaignName || "",
+        [isAr ? "المرحلة" : "Stage"]: leadStageLabel(String(l.stage || "new"), isAr ? "ar" : "en"),
+        [isAr ? "سبب الفقد" : "Lost reason"]: l.lostReason || "",
+        [isAr ? "دفع (ج.م)" : "Paid (EGP)"]: l.patientId ? paidByPatient[String(l.patientId)] || 0 : "",
+      })),
+      `${exportName}_${new Date().toISOString().slice(0, 10)}`,
+      isAr,
+    );
+
+  return (
+    <div onClick={(e) => e.stopPropagation()}>
+      <div className="flex flex-wrap items-center gap-2 px-4 py-3">
+        {rows.length >= 8 && (
+          <span className="relative">
+            <Search size={13} className="pointer-events-none absolute top-1/2 start-2.5 -translate-y-1/2 text-ink-faint" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={isAr ? "ابحث بالاسم أو الرقم" : "Search by name or phone"}
+              className="w-52 rounded-xl border border-line bg-surface py-1.5 pe-2.5 ps-8 text-[12.5px] font-bold text-ink outline-none transition focus:border-accent"
+            />
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={exportRows}
+          className="ms-auto inline-flex items-center gap-1.5 rounded-xl border border-line px-3 py-1.5 text-[11.5px] font-black text-ink-body transition-colors hover:text-ink"
+        >
+          <FileSpreadsheet size={13} />
+          {isAr ? "تصدير" : "Export"} ({filtered.length})
+        </button>
+      </div>
+      {filtered.length === 0 ? (
+        <p className="px-4 py-6 text-center text-[12.5px] font-medium text-ink-faint">
+          {isAr ? "مفيش عميل بالاسم ده." : "No lead matches."}
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[40rem] border-collapse">
+            <thead>
+              <tr className="border-y border-line bg-surface-subtle">
+                {[
+                  isAr ? "العميل" : "Lead",
+                  isAr ? "التاريخ" : "Date",
+                  isAr ? "طلب" : "Asked for",
+                  isAr ? "الحملة" : "Campaign",
+                  isAr ? "المرحلة" : "Stage",
+                  isAr ? "دفع" : "Paid",
+                ].map((h, i) => (
+                  <th
+                    key={h}
+                    className={`px-3 py-2 text-[10.5px] font-black uppercase tracking-wider text-ink-muted ${i === 5 ? "text-end" : "text-start"}`}
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((l, i) => {
+                const stage = (LEAD_STAGE_SET.has(String(l.stage)) ? String(l.stage) : "new") as LeadStage;
+                const paid = l.patientId ? paidByPatient[String(l.patientId)] || 0 : null;
+                return (
+                  <tr key={l.id || i} className="border-b border-line last:border-b-0">
+                    <td className="px-3 py-2.5">
+                      {l.patientId ? (
+                        <Link
+                          href={`/patients/${l.patientId}`}
+                          title={isAr ? "افتح الملف" : "Open file"}
+                          className="group inline-flex items-center gap-1.5 text-[13px] font-bold text-ink hover:underline"
+                        >
+                          {l.name || (isAr ? "بدون اسم" : "Unnamed")}
+                          <ExternalLink size={11} className="text-ink-faint opacity-0 transition-opacity group-hover:opacity-100" />
+                        </Link>
+                      ) : (
+                        <span className="text-[13px] font-bold text-ink">{l.name || (isAr ? "بدون اسم" : "Unnamed")}</span>
+                      )}
+                      {l.phone && (
+                        <a href={`tel:${l.phone}`} dir="ltr" className="block font-figure text-[11.5px] text-ink-faint hover:text-ink">
+                          {l.phone}
+                        </a>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2.5 align-top font-figure text-[12.5px] text-ink-body">
+                      {l.normDate ? dayText(l.normDate, isAr) : "—"}
+                    </td>
+                    <td className="max-w-[14rem] px-3 py-2.5 align-top text-[12.5px] font-medium text-ink-body">
+                      {l.interest ? <span className="line-clamp-2">{l.interest}</span> : <span className="text-ink-faint">—</span>}
+                    </td>
+                    <td className="max-w-[12rem] px-3 py-2.5 align-top text-[12px] font-medium text-ink-muted">
+                      {l.meta?.campaignName ? <span className="line-clamp-2">{l.meta.campaignName}</span> : <span className="text-ink-faint">—</span>}
+                    </td>
+                    <td className="px-3 py-2.5 align-top">
+                      <span className={`inline-block rounded-full px-2 py-0.5 text-[10.5px] font-black ${STAGE_TONE[stage]}`}>
+                        {leadStageLabel(stage, isAr ? "ar" : "en")}
+                      </span>
+                      {stage === "lost" && l.lostReason && (
+                        <span className="block max-w-[12rem] truncate text-[11px] font-medium text-ink-faint" title={l.lostReason}>
+                          {l.lostReason}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-end align-top font-figure text-[13px] font-bold text-ink">
+                      {paid === null ? <span className="text-ink-faint">—</span> : Math.round(paid).toLocaleString()}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {hidden > 0 && (
+        <div className="px-4 py-3 text-center">
+          <button
+            type="button"
+            onClick={() => setShowAll(true)}
+            className="rounded-xl border border-line px-3 py-1.5 text-[12px] font-black text-ink-body transition-colors hover:text-ink"
+          >
+            {isAr ? `اعرض الباقي (${hidden})` : `Show the rest (${hidden})`}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const LEAD_STAGE_SET = new Set<string>(["new", "contacted", "booked", "won", "lost"]);
+
 export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: Props) {
   const { showToast } = useUI();
   const [exporting, setExporting] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  /** The channel's leads, newest first, for the drawer under its row. */
+  const leadsBySource = useMemo(() => {
+    const out = new Map<string, LeadRow[]>();
+    (leads as LeadRow[]).forEach((lead) => {
+      const source = String(lead.source || "").trim() || (isAr ? "غير محدد" : "Unspecified");
+      out.set(source, [...(out.get(source) || []), lead]);
+    });
+    out.forEach((rows) => rows.sort((a, b) => String(b.normDate || "").localeCompare(String(a.normDate || ""))));
+    return out;
+  }, [leads, isAr]);
+
+  const paidByPatient = useMemo(() => {
+    const out: Record<string, number> = {};
+    payments.forEach((pay) => {
+      if (pay.type === "expense") return;
+      const pid = String(pay.patientId || "");
+      if (!pid) return;
+      out[pid] = (out[pid] || 0) + paymentCash(pay);
+    });
+    return out;
+  }, [payments]);
 
   const stats: FunnelStat[] = useMemo(() => {
     const bySource: Record<string, { rows: LeadRow[]; patientIds: Set<string> }> = {};
@@ -447,20 +654,23 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
+              {/* Every channel row opens: to its campaigns when it has them, and always to the
+                  leads themselves. */}
               {stats.map((s, i) => (
                 <React.Fragment key={s.name}>
                   <tr
-                    className={`transition-colors ${s.campaigns.length > 0 ? "cursor-pointer hover:bg-indigo-50/40" : "hover:bg-slate-50/60"}`}
-                    onClick={() => s.campaigns.length > 0 && setExpanded(expanded === s.name ? null : s.name)}
+                    className={`cursor-pointer transition-colors ${expanded === s.name ? "bg-surface-subtle" : "hover:bg-surface-subtle"}`}
+                    onClick={() => setExpanded(expanded === s.name ? null : s.name)}
+                    aria-expanded={expanded === s.name}
                   >
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2">
+                        {expanded === s.name ? <ChevronDown size={13} className="shrink-0 text-ink-faint" /> : <ChevronRight size={13} className="shrink-0 text-ink-faint rtl:rotate-180" />}
                         <SourceIcon source={s.name} size={18} />
                         <span className="font-bold text-slate-800">{s.name}</span>
                         {s.campaigns.length > 0 && (
                           <span className="flex items-center gap-0.5 text-[10px] font-black text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded-full">
                             {s.campaigns.length} {isAr ? "حملة" : s.campaigns.length === 1 ? "campaign" : "campaigns"}
-                            {expanded === s.name ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
                           </span>
                         )}
                       </div>
@@ -509,6 +719,21 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
                         <td className="py-2 px-4 text-end text-xs font-bold text-blue-600 tabular-nums">{c.revenue.toLocaleString()}</td>
                       </tr>
                     ))}
+                  {expanded === s.name && (
+                    <tr className="bg-surface-subtle/60">
+                      <td colSpan={7} className="p-0">
+                        <p className="px-4 pt-3 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                          {isAr ? `العملاء من ${s.name} (${s.total})` : `Leads from ${s.name} (${s.total})`}
+                        </p>
+                        <LeadList
+                          rows={leadsBySource.get(s.name) || []}
+                          isAr={isAr}
+                          paidByPatient={paidByPatient}
+                          exportName={`Leads_${s.name.replace(/[^\p{L}\p{N}]+/gu, "_")}`}
+                        />
+                      </td>
+                    </tr>
+                  )}
                 </React.Fragment>
               ))}
             </tbody>

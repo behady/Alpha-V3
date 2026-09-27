@@ -313,10 +313,13 @@ function ReportsPage() {
                 </span>
               </div>
 
+              {/* Every grouped tab gets the patient list, so any figure can be opened to the
+                  names it is made of — see components/reports/PatientDrilldown. */}
               {tab === "service" && (
                 <ServiceReport
                   procedures={snapshot.procedures}
                   payments={snapshot.payments}
+                  allPatients={snapshot.allPatients}
                   rangeLabel={rangeLabel}
                   isAr={isAr}
                 />
@@ -326,6 +329,7 @@ function ReportsPage() {
                 <DentistReport
                   procedures={snapshot.procedures}
                   payments={snapshot.payments}
+                  allPatients={snapshot.allPatients}
                   rangeLabel={rangeLabel}
                   isAr={isAr}
                 />
