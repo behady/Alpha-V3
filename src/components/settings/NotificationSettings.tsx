@@ -62,6 +62,11 @@ type Prefs = AlertPreferences;
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const hourLabel = (h: number) => `${String(h).padStart(2, "0")}:00`;
+const WEEKDAYS = {
+  en: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+  ar: ["الأحد", "الاتنين", "التلات", "الأربع", "الخميس", "الجمعة", "السبت"],
+};
+const MONTH_DAYS = Array.from({ length: 28 }, (_, i) => i + 1);
 
 /** One switch. Small, because a row carries two of them plus a role list. */
 function Toggle({
@@ -522,9 +527,9 @@ export default function NotificationSettings({
 
                     {anyOn && report && (
                       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl bg-surface-subtle px-3 py-2.5">
-                        <span className={`flex flex-wrap items-center gap-1.5 ${event.report === "dentistDay" || event.report === "summary" ? "hidden" : ""}`}>
+                        <span className={`flex flex-wrap items-center gap-1.5 ${event.report === "dentistDay" || event.report === "summary" || event.report === "payroll" ? "hidden" : ""}`}>
                           <span className="me-1 text-[10.5px] font-black uppercase tracking-wider text-ink-faint">{txt.reportSections}</span>
-                          {(event.report === "dentistDay" || event.report === "summary" ? [] : REPORT_SECTIONS).map((key: ReportSection) => {
+                          {(event.report === "dentistDay" || event.report === "summary" || event.report === "payroll" ? [] : REPORT_SECTIONS).map((key: ReportSection) => {
                             const label = key === "money" ? txt.secMoney : key === "appointments" ? txt.secAppointments : key === "patients" ? txt.secPatients : txt.secTeam;
                             const on = report.sections[key];
                             return (
@@ -542,7 +547,7 @@ export default function NotificationSettings({
                             );
                           })}
                         </span>
-                        {(event.report === "morning" || event.report === "evening") && report.sections.money && (
+                        {(event.report === "morning" || event.report === "evening" || event.report === "weekly" || event.report === "monthly") && report.sections.money && (
                           <label className="flex items-center gap-2 text-[11.5px] font-bold text-ink-body">
                             {txt.moneyDetail}
                             <select
@@ -558,7 +563,7 @@ export default function NotificationSettings({
                             </select>
                           </label>
                         )}
-                        {(event.report === "morning" || event.report === "evening") && report.sections.money && (
+                        {(event.report === "morning" || event.report === "evening" || event.report === "weekly" || event.report === "monthly") && report.sections.money && (
                           <label className="flex items-center gap-2 text-[11.5px] font-bold text-ink-body">
                             <input
                               type="checkbox"
@@ -580,9 +585,14 @@ export default function NotificationSettings({
                             <option value="en">English</option>
                           </select>
                         </label>
-                        {event.report !== "summary" && (
-                          <label className="flex items-center gap-2 text-[11.5px] font-bold text-ink-faint" title={txt.reportPdf}>
-                            <input type="checkbox" checked={report.pdf} disabled className="h-4 w-4 rounded border-line-strong" />
+                        {event.report !== "summary" && event.report !== "dentistDay" && (
+                          <label className="flex items-center gap-2 text-[11.5px] font-bold text-ink-body">
+                            <input
+                              type="checkbox"
+                              checked={report.pdf}
+                              onChange={(e) => setReport(event.id, (c) => ({ ...c, pdf: e.target.checked }))}
+                              className="h-4 w-4 rounded border-line-strong text-accent focus:ring-accent"
+                            />
                             {txt.reportPdf}
                           </label>
                         )}
@@ -626,6 +636,30 @@ export default function NotificationSettings({
                                 {HOURS.map((h) => (
                                   <option key={h} value={h}>
                                     {hourLabel(h)}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : timing.kind === "weekday" ? (
+                              <select
+                                value={notifyTiming(event.id, timing.key, prefs)}
+                                onChange={(e) => setTiming(event.id, timing.key, Number(e.target.value))}
+                                className="rounded-xl border border-line bg-surface px-2 py-1 text-[12.5px] text-ink"
+                              >
+                                {WEEKDAYS[isAr ? "ar" : "en"].map((d, i) => (
+                                  <option key={d} value={i}>
+                                    {d}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : timing.kind === "dayOfMonth" ? (
+                              <select
+                                value={notifyTiming(event.id, timing.key, prefs)}
+                                onChange={(e) => setTiming(event.id, timing.key, Number(e.target.value))}
+                                className="rounded-xl border border-line bg-surface px-2 py-1 font-figure text-[12.5px] text-ink"
+                              >
+                                {MONTH_DAYS.map((d) => (
+                                  <option key={d} value={d}>
+                                    {d}
                                   </option>
                                 ))}
                               </select>

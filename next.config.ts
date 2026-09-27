@@ -2,7 +2,15 @@ import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // The report PDFs read an Arabic font from public/fonts at runtime (lib/reports/staffReportPdf).
+  // Serverless bundles only what the tracer sees, and a path built at runtime is not seen.
+  outputFileTracingIncludes: {
+    "/api/automation/staff-reports": ["./public/fonts/**/*"],
+    "/api/notifications/raise": ["./public/fonts/**/*"],
+    "/api/webhooks/meta-whatsapp": ["./public/fonts/**/*"],
+    "/api/webhooks/whatsapp-inbound": ["./public/fonts/**/*"],
+  },
+
 
   /**
    * The three screens that became tabs of /ai — the brief, the WhatsApp send queue and patient

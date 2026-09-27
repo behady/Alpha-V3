@@ -5,12 +5,13 @@ import { buildBriefing } from "@/lib/automation/briefing/build";
 import type { Briefing, BriefingAccess } from "@/lib/automation/briefing/types";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import {
-  notifyTiming,
+  reportDueOn,
   reportEvents,
   reportPrefs,
   resolveNotify,
   type NotifyEvent,
 } from "@/lib/notificationCatalog";
+import { buildReportPdf } from "@/lib/reports/staffReportPdf";
 import {
   clinicHourNow,
   deliverClinicNotification,
@@ -46,6 +47,25 @@ function shiftDays(dateKey: string, delta: number): string {
   const d = new Date(`${dateKey}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + delta);
   return d.toISOString().slice(0, 10);
+}
+
+/** The last day of the month before the one `dateKey` is in. */
+export function lastDayOfPreviousMonth(dateKey: string): string {
+  return shiftDays(`${dateKey.slice(0, 7)}-01`, -1);
+}
+
+/**
+ * The day a report's briefing ends on.
+ *
+ * The morning brief and the close-out are about today. The week is the seven days that ended
+ * yesterday, whatever day it is sent. The month and the pay sheet are the previous calendar
+ * month — sent on the 1st by default, but a clinic that picks the 5th still gets last month,
+ * not five days of this one.
+ */
+export function reportEndDate(kind: NonNullable<NotifyEvent["report"]>, today: string): string {
+  if (kind === "weekly") return shiftDays(today, -1);
+  if (kind === "monthly" || kind === "payroll") return lastDayOfPreviousMonth(today);
+  return today;
 }
 
 async function clinicName(clinicId: string): Promise<string> {
@@ -137,9 +157,11 @@ export async function sendStaffReport(args: SendStaffReportArgs): Promise<Delive
     );
   }
 
+  const period = kind === "weekly" ? "week" : kind === "monthly" || kind === "payroll" ? "month" : "day";
+  const endDate = reportEndDate(kind, today);
   const [name, todayBriefing, yesterdayBriefing, handoffs, staff] = await Promise.all([
     clinicName(clinicId),
-    buildBriefing({ clinicId, period: "day", endDate: today, access: full }),
+    buildBriefing({ clinicId, period, endDate, access: full }),
     kind === "morning"
       ? buildBriefing({ clinicId, period: "day", endDate: shiftDays(today, -1), access: full })
       : Promise.resolve(undefined),
@@ -150,6 +172,28 @@ export async function sendStaffReport(args: SendStaffReportArgs): Promise<Delive
   const push = reportPushLine(kind, todayBriefing, rp.language);
   const title = args.test ? `🧪 ${push.title}` : push.title;
 
+  // One PDF per access level, not per person: the owner and the admin get the same file, the
+  // receptionist a different one, and nobody pays for the render twice.
+  const pdfKind = kind === "dentistDay" ? null : kind;
+  const wantPdf = rp.pdf && pdfKind !== null;
+  const pdfCache = new Map<string, Promise<{ bytes: Uint8Array; filename: string; caption?: string } | null>>();
+  const pdfFor = (access: BriefingAccess) => {
+    if (!pdfKind) return Promise.resolve(null);
+    const key = `${access.money}-${access.hr}`;
+    if (!pdfCache.has(key)) {
+      pdfCache.set(
+        key,
+        buildReportPdf({ kind: pdfKind, clinicName: name, briefing: todayBriefing, yesterday: yesterdayBriefing, handoffsWaiting: handoffs, prefs: rp, access })
+          .then((pdf) => ({ bytes: pdf.bytes, filename: pdf.filename, caption: name }))
+          .catch((error) => {
+            console.warn("Report PDF build failed:", error);
+            return null;
+          }),
+      );
+    }
+    return pdfCache.get(key)!;
+  };
+
   return deliverClinicNotification(
     clinicId,
     { title, body: push.body },
@@ -159,9 +203,12 @@ export async function sendStaffReport(args: SendStaffReportArgs): Promise<Delive
       whatsappOnly: !args.test,
       ...(args.allowOutsiders ? { allowOutsiders: true } : {}),
       ...(args.onDemand ? { forceWhatsapp: true } : {}),
-      data: { screen: kind === "evening" ? "money" : "day" },
+      data: { screen: kind === "evening" || kind === "weekly" || kind === "monthly" || kind === "payroll" ? "money" : "day" },
+      ...(wantPdf ? { whatsappDocumentFor: ({ role }: { uid: string; role: string }) => pdfFor(reportAccessForRole(role)) } : {}),
       whatsappTextFor: ({ uid, role }) => {
         const access = reportAccessForRole(role);
+        // The pay sheet is HR-only; there is nothing in it for someone who may not see HR.
+        if (kind === "payroll" && !access.hr) return null;
         if (kind === "dentistDay") {
           const me = staff.find((s) => s.uid === uid);
           if (!me) return null;
@@ -180,6 +227,7 @@ export async function sendStaffReport(args: SendStaffReportArgs): Promise<Delive
           handoffsWaiting: handoffs,
           prefs: rp,
           access,
+          pdfFollows: wantPdf,
         });
       },
     },
@@ -196,13 +244,14 @@ export async function runStaffReportsForClinic(clinicId: string, now = new Date(
   const prefs = await readAlertPreferences(clinicId);
   const hour = clinicHourNow(now);
   const today = ymdInTimeZone(clinicTimeZone(), now);
+  const when = { hour, weekday: new Date(`${today}T12:00:00Z`).getUTCDay(), dayOfMonth: Number(today.slice(8, 10)) };
   const sent: string[] = [];
   const skipped: string[] = [];
 
   for (const event of reportEvents()) {
     const resolved = resolveNotify(event.id, prefs);
     if (!resolved?.whatsapp) continue;
-    if (notifyTiming(event.id, "hour", prefs) !== hour) continue;
+    if (!reportDueOn(event.id, prefs, when)) continue;
 
     const marker = adminClinicDoc(clinicId, "report_sends", `${event.id}_${today}`);
     try {

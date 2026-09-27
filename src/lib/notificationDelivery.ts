@@ -24,7 +24,7 @@ import {
   type AlertPreferences,
   type NotifyRole,
 } from "@/lib/notificationCatalog";
-import { resolveStaffGateway, sendStaffWhatsApp } from "@/lib/staffWhatsapp";
+import { resolveStaffGateway, sendStaffDocument, sendStaffWhatsApp } from "@/lib/staffWhatsapp";
 
 /** The clinic's own day, for quiet hours. Same default as the Cloud Functions package. */
 const TIMEZONE = process.env.CLINIC_TIMEZONE || "Africa/Cairo";
@@ -158,6 +158,11 @@ export interface DeliverOptions {
    */
   whatsappTextFor?: (member: { uid: string; role: string }) => string | null | Promise<string | null>;
   /**
+   * A file to follow the text, per person: the report as a PDF. Returning null sends no file.
+   * Called only for people whose text went out, so a dead gateway costs one failed send, not two.
+   */
+  whatsappDocumentFor?: (member: { uid: string; role: string }) => Promise<{ bytes: Uint8Array; filename: string; caption?: string } | null>;
+  /**
    * WhatsApp and nothing else. For the scheduled reports, whose bell row and push already come
    * from the Cloud Functions job at the same hour — sending them twice is how an owner learns to
    * ignore both.
@@ -202,7 +207,7 @@ export async function deliverClinicNotification(
 ): Promise<DeliverResult> {
   const none: DeliverResult = { raised: false, bellWritten: false, pushed: 0, whatsapped: 0 };
   try {
-    const { event, uids = null, roles = null, channel = null, data = null, actionUrl, whatsappText, whatsappTextFor, whatsappOnly = false, allowOutsiders = false, forceWhatsapp = false } = options;
+    const { event, uids = null, roles = null, channel = null, data = null, actionUrl, whatsappText, whatsappTextFor, whatsappOnly = false, allowOutsiders = false, forceWhatsapp = false, whatsappDocumentFor } = options;
 
     const prefs = event ? await readAlertPreferences(clinicId) : {};
     const resolved = event ? resolveNotify(event, prefs) : null;
@@ -318,8 +323,20 @@ export async function deliverClinicNotification(
               : whatsappText || `*${notification.title}*\n${notification.body}`;
             if (!text) continue;
             const sent = await sendStaffWhatsApp({ clinicId, to: phone, text, gateway });
-            if (sent.sent) whatsapped += 1;
-            else {
+            if (sent.sent) {
+              whatsapped += 1;
+              if (whatsappDocumentFor) {
+                try {
+                  const doc = await whatsappDocumentFor({ uid, role });
+                  if (doc) {
+                    const filed = await sendStaffDocument({ clinicId, to: phone, gateway, ...doc });
+                    if (!filed.sent) console.warn(`PDF to ${role || "member"} ${uid} failed: ${filed.reason}${filed.error ? ` — ${filed.error}` : ""}`);
+                  }
+                } catch (error) {
+                  console.warn("Report PDF failed:", error);
+                }
+              }
+            } else {
               anyFailed = true;
               console.warn(`WhatsApp to ${role || "member"} ${uid} failed: ${sent.reason}${sent.error ? ` — ${sent.error}` : ""}`);
             }

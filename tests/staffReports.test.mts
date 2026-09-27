@@ -15,10 +15,13 @@ import {
   NOTIFY_EVENTS,
   notifyEvent,
   personWhatsapp,
+  reportDueOn,
   reportEvents,
   reportPrefs,
   resolveNotify,
 } from "../src/lib/notificationCatalog";
+import { buildReportPdf, arabicPdfAvailable } from "../src/lib/reports/staffReportPdf";
+import { lastDayOfPreviousMonth, reportEndDate } from "../src/lib/reports/sendStaffReport";
 import { renderStaffReport, reportPushLine } from "../src/lib/reports/staffReportText";
 import { samePhone, staffHelpText, staffIntent, staffLanguage } from "../src/lib/bot/staffLine";
 import type { Briefing } from "../src/lib/automation/briefing/types";
@@ -87,7 +90,7 @@ function eq<T>(actual: T, expected: T, message: string) {
 // --- 2. The reports and their settings --------------------------------------------------------
 {
   const ids = reportEvents().map((e) => e.id).sort();
-  eq(ids, ["eveningDigest", "morningBriefClinic", "morningBriefDentist", "ownerSummary"], "the set of scheduled reports changed");
+  eq(ids, ["eveningDigest", "monthlyReport", "morningBriefClinic", "morningBriefDentist", "ownerSummary", "payrollReport", "weeklyReport"], "the set of scheduled reports changed");
   // The other session's "daily_digest" checkbox on Settings → WhatsApp maps onto the AI three-liner.
   eq(notifyEvent("ownerSummary")?.legacyOwnerKey, "daily_digest", "the old daily_digest tick would be lost");
   eq(resolveNotify("ownerSummary", { legacyOwnerAlerts: { daily_digest: true } })?.whatsapp, true, "daily_digest tick not honoured");
@@ -326,6 +329,96 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
   ok(/needsHuman: false/.test(read("src/lib/bot/staffLine.ts")), "an owner's old handoff row keeps paging staff about a waiting patient");
   const respond = read("src/lib/bot/respond.ts");
   ok(respond.indexOf("findStaffByPhone(") < respond.indexOf("if (!settings.enabled)"), "the staff check runs after the patient gates — the owner is a patient again when the bot is off");
+}
+
+// --- 6. The week, the month, the pay sheet ---------------------------------------------------------
+{
+  // Due-on: hour alone for the daily ones; hour + weekday for the week; hour + day for the month.
+  ok(reportDueOn("eveningDigest", {}, { hour: 21, weekday: 2, dayOfMonth: 15 }), "the close-out is not due at its default hour");
+  ok(!reportDueOn("eveningDigest", {}, { hour: 20, weekday: 2, dayOfMonth: 15 }), "the close-out is due at the wrong hour");
+  ok(reportDueOn("weeklyReport", {}, { hour: 8, weekday: 6, dayOfMonth: 15 }), "the weekly report is not due Saturday 08:00 by default");
+  ok(!reportDueOn("weeklyReport", {}, { hour: 8, weekday: 5, dayOfMonth: 15 }), "the weekly report goes out on the wrong weekday");
+  ok(reportDueOn("weeklyReport", { timings: { weeklyReport: { weekday: 1, hour: 10 } } }, { hour: 10, weekday: 1, dayOfMonth: 3 }), "a clinic's own weekday and hour are ignored");
+  ok(reportDueOn("monthlyReport", {}, { hour: 8, weekday: 0, dayOfMonth: 1 }), "the monthly report is not due on the 1st");
+  ok(!reportDueOn("monthlyReport", {}, { hour: 8, weekday: 0, dayOfMonth: 2 }), "the monthly report goes out on the 2nd");
+  ok(reportDueOn("payrollReport", {}, { hour: 9, weekday: 0, dayOfMonth: 1 }), "the pay sheet is not due on the 1st at 09:00");
+  ok(!reportDueOn("patientArrived", {}, { hour: 9, weekday: 0, dayOfMonth: 1 }), "a non-report is 'due'");
+  for (const e of reportEvents()) {
+    const kinds = (e.timings || []).map((t) => t.kind);
+    ok(kinds.includes("hourOfDay"), `report "${e.id}" has no hour`);
+    if (e.report === "weekly") ok(kinds.includes("weekday"), "the weekly report has no weekday");
+    if (e.report === "monthly" || e.report === "payroll") ok(kinds.includes("dayOfMonth"), `${e.id} has no day of month`);
+  }
+
+  // Which days a report covers.
+  eq(reportEndDate("weekly", "2026-09-27"), "2026-09-26", "the week should end yesterday");
+  eq(reportEndDate("monthly", "2026-10-01"), "2026-09-30", "the month sent on the 1st should be last month");
+  eq(reportEndDate("monthly", "2026-10-05"), "2026-09-30", "the month sent on the 5th is still last month");
+  eq(reportEndDate("payroll", "2027-01-01"), "2026-12-31", "December's pay sheet crosses the year");
+  eq(lastDayOfPreviousMonth("2026-03-15"), "2026-02-28", "February");
+  eq(reportEndDate("evening", "2026-09-27"), "2026-09-27", "the close-out is today");
+
+  // The weekly text: comparisons against the previous period, the best day, top procedures, team.
+  const week = briefing({
+    period: "week",
+    startDate: "2026-09-20",
+    endDate: "2026-09-26",
+    trend: {
+      points: [
+        { key: "collected", current: 85000, previous: 76000, changePercent: 12, isMoney: true },
+        { key: "patients_seen", current: 61, previous: 55, changePercent: 11, isMoney: false },
+        { key: "missed", current: 9, previous: 12, changePercent: -25, isMoney: false },
+        { key: "new_patients", current: 14, previous: 10, changePercent: 40, isMoney: false },
+      ],
+      daily: [{ dateKey: "2026-09-20", weekday: 0, collected: 12000, patientsSeen: 9 }],
+      previousDaily: [],
+      bestDay: "2026-09-24",
+      quietestDay: "2026-09-20",
+      topProcedures: [{ name: "Filling", count: 12, revenue: 24000 }, { name: "Cleaning", count: 8, revenue: 8000 }],
+      collectionRate: 78,
+      payrollMonthToDate: 40000,
+    },
+  });
+  week.money!.collected = 85000;
+  week.counts = { total: 70, attended: 61, cancelled: 9, stillScheduled: 0 };
+  const prefs = reportPrefs("weeklyReport", {});
+  ok(prefs.sections.team, "the weekly report should include the team by default");
+  const weekly = renderStaffReport({ kind: "weekly", clinicName: "Alpha Dental", today: week, prefs, access: { money: true, hr: true } });
+  ok(weekly.includes("تقرير الأسبوع") && weekly.includes("20/9 – 26/9"), "weekly heading or range missing");
+  ok(weekly.includes("85,000 ج.م") && weekly.includes("↑ 12%"), "weekly collected or its arrow missing");
+  ok(weekly.includes("نسبة التحصيل من الفواتير: 78%"), "collection rate missing");
+  ok(weekly.includes("أحسن يوم") && weekly.includes("الخميس"), "best day missing");
+  ok(weekly.includes("Filling 12"), "top procedures missing");
+  ok(weekly.includes("70 محجوز") && weekly.includes("61 اتشاف") && weekly.includes("↓ 25%"), "weekly appointment counts or the missed arrow are wrong");
+  ok(weekly.includes("1 أيام تأخير") && weekly.includes("1 أيام غياب"), "weekly team line missing");
+  const weeklyReception = renderStaffReport({ kind: "weekly", clinicName: "Alpha Dental", today: week, prefs, access: { money: false, hr: false } });
+  ok(!weeklyReception.includes("ج.م") && !weeklyReception.includes("تكلفة العمالة"), "a receptionist's weekly report leaks money or labour cost");
+
+  // The month.
+  const monthly = renderStaffReport({ kind: "monthly", clinicName: "Alpha Dental", today: { ...week, period: "month", startDate: "2026-09-01", endDate: "2026-09-30" }, prefs: { ...reportPrefs("monthlyReport", {}), language: "en" }, access: { money: true, hr: true } });
+  ok(monthly.includes("The month — September 2026"), "monthly heading missing");
+  ok(monthly.includes("Collected: 85,000 EGP"), "monthly collected missing");
+
+  // The pay sheet: per person, with the total; HR-only.
+  const payroll = renderStaffReport({ kind: "payroll", clinicName: "Alpha Dental", today: { ...week, period: "month", startDate: "2026-09-01", endDate: "2026-09-30" }, prefs: reportPrefs("payrollReport", {}), access: { money: true, hr: true } });
+  ok(payroll.includes("كشف الحضور والمرتبات") && payroll.includes("سبتمبر 2026"), "payroll heading missing");
+  ok(payroll.includes("Ahmed (دكتور)") && payroll.includes("اتأخر 20 دقيقة") && payroll.includes("Nour") && payroll.includes("غاب 1"), "payroll rows missing");
+  ok(payroll.includes("إجمالي المرتبات التقديري"), "payroll total missing");
+  ok(payroll.includes("العمولات في شاشة المرتبات"), "payroll note missing");
+
+  // The PDF: a real file, the reader's access respected, and an honest fallback without an Arabic font.
+  const pdfEn = await buildReportPdf({ kind: "evening", clinicName: "Alpha Dental", briefing: briefing(), prefs: { ...reportPrefs("eveningDigest", {}), language: "en" }, access: { money: true, hr: true } });
+  ok(pdfEn.bytes.length > 2000 && String.fromCharCode(...pdfEn.bytes.slice(0, 5)) === "%PDF-", "the English PDF is not a PDF");
+  eq(pdfEn.language, "en", "English PDF language");
+  eq(pdfEn.filename, "close-out-2026-09-27.pdf", "PDF filename");
+  const arabicFont = await arabicPdfAvailable();
+  const pdfAr = await buildReportPdf({ kind: "weekly", clinicName: "ألفا دنتال", briefing: week, prefs, access: { money: false, hr: false } });
+  eq(pdfAr.language, arabicFont ? "ar" : "en", "an Arabic PDF without an Arabic font must fall back to English, never to blank glyphs");
+  ok(pdfAr.bytes.length > 2000, "the weekly PDF is empty");
+  const pdfPay = await buildReportPdf({ kind: "payroll", clinicName: "Alpha Dental", briefing: { ...week, period: "month", startDate: "2026-09-01", endDate: "2026-09-30" }, prefs: { ...reportPrefs("payrollReport", {}), language: "en" }, access: { money: true, hr: true } });
+  ok(pdfPay.filename === "payroll-2026-09-30.pdf", "payroll PDF filename");
+  // The Cairo file the site ships is Latin-only; the PDF must never be pointed at it.
+  ok(!read("src/lib/reports/staffReportPdf.ts").includes("Cairo-Regular"), "the PDF uses Cairo-Regular.ttf, which has no Arabic glyphs");
 }
 
 console.log(`staffReports: ${checks} checks passed`);

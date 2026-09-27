@@ -40,6 +40,7 @@ exports.notifyEventsIn = notifyEventsIn;
 exports.resolveNotify = resolveNotify;
 exports.reportEvents = reportEvents;
 exports.reportPrefs = reportPrefs;
+exports.reportDueOn = reportDueOn;
 exports.personWhatsapp = personWhatsapp;
 exports.notifyTiming = notifyTiming;
 exports.inQuietHours = inQuietHours;
@@ -478,6 +479,60 @@ exports.NOTIFY_EVENTS = [
         push: false,
         timings: [{ key: "hour", kind: "hourOfDay", en: "Send at", ar: "ابعت الساعة", fallback: 21, min: 0, max: 23 }],
     },
+    {
+        id: "weeklyReport",
+        group: "reports",
+        waReady: true,
+        report: "weekly",
+        en: "The week in numbers",
+        ar: "الأسبوع في أرقام",
+        whenEn: "Seven days against the seven before: money, patients seen and missed, new patients and leads, best and quietest day, top procedures, the team.",
+        whenAr: "سبع أيام مقابل السبعة اللي قبلهم: الفلوس، اللي اتشاف واللي غاب، المرضى والعملاء الجداد، أحسن يوم وأهدأ يوم، أكتر إجراءات، والفريق.",
+        roles: ["Owner", "Admin"],
+        rolesMax: ["Owner", "Admin"],
+        bell: false,
+        push: false,
+        timings: [
+            { key: "weekday", kind: "weekday", en: "On", ar: "يوم", fallback: 6, min: 0, max: 6 },
+            { key: "hour", kind: "hourOfDay", en: "Send at", ar: "ابعت الساعة", fallback: 8, min: 0, max: 23 },
+        ],
+    },
+    {
+        id: "monthlyReport",
+        group: "reports",
+        waReady: true,
+        report: "monthly",
+        en: "The month, closed",
+        ar: "الشهر بعد ما يقفل",
+        whenEn: "Last month against the month before, once it has ended: revenue, expenses, per dentist, collection rate, growth, and the payroll estimate.",
+        whenAr: "الشهر اللي فات مقابل اللي قبله، بعد ما يخلص: الإيراد والمصروفات ولكل دكتور ونسبة التحصيل والنمو وتقدير المرتبات.",
+        roles: ["Owner"],
+        rolesMax: ["Owner", "Admin"],
+        bell: false,
+        push: false,
+        timings: [
+            { key: "dayOfMonth", kind: "dayOfMonth", en: "On day", ar: "يوم", fallback: 1, min: 1, max: 28 },
+            { key: "hour", kind: "hourOfDay", en: "Send at", ar: "ابعت الساعة", fallback: 8, min: 0, max: 23 },
+        ],
+    },
+    {
+        id: "payrollReport",
+        group: "reports",
+        waReady: true,
+        report: "payroll",
+        en: "Attendance and pay for the month",
+        ar: "كشف الحضور والمرتبات للشهر",
+        whenEn: "For each person: days and hours worked, late minutes, absences, overtime waiting for approval, and the estimated pay. Commission stays on the payroll screen.",
+        whenAr: "لكل شخص: أيام وساعات الشغل، دقايق التأخير، الغياب، الإضافي المستني موافقة، والمرتب التقديري. العمولات في شاشة المرتبات.",
+        roles: ["Owner"],
+        rolesMax: ["Owner", "Admin"],
+        bell: false,
+        push: false,
+        timings: [
+            { key: "dayOfMonth", kind: "dayOfMonth", en: "On day", ar: "يوم", fallback: 1, min: 1, max: 28 },
+            { key: "hour", kind: "hourOfDay", en: "Send at", ar: "ابعت الساعة", fallback: 9, min: 0, max: 23 },
+        ],
+    },
     // --- Running the clinic --------------------------------------------------------------------
     {
         id: "stockLow",
@@ -694,6 +749,29 @@ function reportPrefs(eventId, prefs) {
     };
 }
 /* --- one person's WhatsApp ---------------------------------------------------------------------- */
+/**
+ * Is this report due at this moment of the clinic's day?
+ *
+ * The hourly tick asks it for every report event. The hour must match; a report with a weekday
+ * or a day-of-month timing must also be on that day. Pure, so the calendar arithmetic is pinned
+ * by a test rather than by waiting for the first of the month.
+ */
+function reportDueOn(eventId, prefs, when) {
+    const event = BY_ID.get(eventId);
+    if (!event?.report)
+        return false;
+    const timings = event.timings || [];
+    for (const t of timings) {
+        const want = notifyTiming(eventId, t.key, prefs);
+        if (t.kind === "hourOfDay" && want !== when.hour)
+            return false;
+        if (t.kind === "weekday" && want !== when.weekday)
+            return false;
+        if (t.kind === "dayOfMonth" && want !== when.dayOfMonth)
+            return false;
+    }
+    return timings.some((t) => t.kind === "hourOfDay");
+}
 /** Whether this person receives WhatsApp at all, and the number the owner entered for them. */
 function personWhatsapp(uid, prefs) {
     const p = prefs?.people?.[uid];

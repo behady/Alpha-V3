@@ -301,7 +301,7 @@ export const SETTINGS_TEXT = {
     detailFull: { en: "Full breakdown", ar: "تفصيلي" },
     comparisons: { en: "Compare with last week", ar: "قارن بالأسبوع اللي فات" },
     reportLang: { en: "Language", ar: "اللغة" },
-    reportPdf: { en: "Attach PDF (coming soon)", ar: "إرفاق PDF (قريباً)" },
+    reportPdf: { en: "Attach PDF", ar: "إرفاق PDF" },
     testReport: { en: "Send me today's", ar: "ابعتلي بتاع النهارده" },
     whatsappTo: { en: "WhatsApp to", ar: "واتساب لـ" },
     waNoPhoneForYou: { en: "Sent to your phone and bell; add your WhatsApp number below to get it there too.", ar: "اتبعتت للموبايل والجرس؛ ضيف رقم واتسابك تحت عشان توصلك هناك كمان." },
