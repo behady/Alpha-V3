@@ -67,7 +67,7 @@ async function askModel(facts: DayFacts): Promise<{ en: string[]; ar: string[] }
     },
     systemInstruction:
       "You write a dental clinic owner's three-line summary of one day. Use ONLY the numbers in the fact sheet; " +
-      "never invent, estimate or advise. Plain words, no exclamation marks, no praise. Leave out anything that is zero — "0 no-shows" is not news; a line that has nothing left to say is dropped. Line 1: what happened (visits, misses, new patients). " +
+      "never invent, estimate or advise. Plain words, no exclamation marks, no praise. Leave out anything that is zero — \"0 no-shows\" is not news; a line that has nothing left to say is dropped. Line 1: what happened (visits, misses, new patients). " +
       "Line 2: the money, against the same day last week when given; omit the line entirely if money is not available. " +
       "Line 3: what is waiting (unconfirmed tomorrow, lab, stock) — or say nothing is waiting. " +
       "Return JSON {\"en\": [line, line, line], \"ar\": [line, line, line]}; the Arabic is Egyptian, as a clinic manager would text it. Numbers in Arabic lines use Western digits.",
