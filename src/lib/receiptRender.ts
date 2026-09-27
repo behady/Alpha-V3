@@ -304,6 +304,12 @@ function buildCss(s: ReceiptSettings): string {
     .num { text-align: left; white-space: nowrap; }
     [dir="ltr"] .num { text-align: right; }
     .lbl { font-size: 10px; font-weight: 700; letter-spacing: .02em; }
+    .hd .left { flex: 1 1 auto; }
+    .hd .right { flex: 0 0 auto; max-width: 46%; margin-inline-start: 18px; }
+    .hd .name { overflow-wrap: anywhere; }
+    .meta { white-space: nowrap; }
+    .hd .contact .nw { white-space: nowrap; }
+    .pb .val .ltr { white-space: nowrap; }
     .sig { margin-top: 28px; display: flex; justify-content: flex-end; }
     .sig div { width: 220px; border-top: 1px solid #9ca3af; padding-top: 6px; font-size: 10px; text-align: center; color: #6b7280; }
     .strike { text-decoration: line-through; color: #9ca3af; font-weight: 600; font-size: 10px; }
@@ -344,7 +350,7 @@ function buildCss(s: ReceiptSettings): string {
   if (s.template === "modern") {
     return `${base}
       .r { max-width: ${width}; padding: ${pad}; }
-      .hd { display: flex; justify-content: space-between; align-items: center; background: ${accent}; color: #fff; padding: 18px 22px; border-radius: 14px; margin-bottom: 22px; }
+      .hd { display: flex; justify-content: space-between; align-items: flex-start; background: ${accent}; color: #fff; padding: 18px 22px; border-radius: 14px; margin-bottom: 22px; }
       .hd .left { display: flex; align-items: center; gap: 14px; min-width: 0; }
       .hd .logo img { background: #fff; border-radius: 10px; padding: 4px; }
       .hd .name { font-size: 22px; font-weight: 900; color: #fff; }
@@ -382,7 +388,7 @@ function buildCss(s: ReceiptSettings): string {
   if (s.template === "minimal") {
     return `${base}
       .r { max-width: ${width}; padding: ${pad}; }
-      .hd { display: flex; justify-content: space-between; align-items: flex-end; padding-bottom: 14px; margin-bottom: 26px; border-bottom: 1px solid #111827; }
+      .hd { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 14px; margin-bottom: 26px; border-bottom: 1px solid #111827; }
       .hd .left { display: flex; align-items: center; gap: 14px; min-width: 0; }
       .hd .name { font-size: 20px; font-weight: 700; letter-spacing: .01em; }
       .hd .contact { font-size: 10.5px; color: #6b7280; margin-top: 4px; }
@@ -416,7 +422,7 @@ function buildCss(s: ReceiptSettings): string {
   // classic
   return `${base}
     .r { max-width: ${width}; padding: ${pad}; }
-    .hd { display: flex; justify-content: space-between; align-items: flex-end; padding-bottom: 16px; margin-bottom: 20px; border-bottom: 2px solid ${accent}; }
+    .hd { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 16px; margin-bottom: 20px; border-bottom: 2px solid ${accent}; }
     .hd .left { display: flex; align-items: flex-start; gap: 14px; min-width: 0; }
     .hd .name { font-size: 24px; font-weight: 900; margin-bottom: 6px; }
     .hd .contact { font-size: 11px; color: #4b5563; display: flex; flex-wrap: wrap; gap: 4px 6px; }
@@ -475,12 +481,12 @@ export function buildDentalReceiptSrcDoc(
       : logoImgHtml(p.logo, logoBox.h, logoBox.w);
 
   const contact: string[] = [];
-  if (show.clinicPhone && p.clinicPhone) contact.push(`<span class="ltr">${LRM}${esc(p.clinicPhone)}</span>`);
+  if (show.clinicPhone && p.clinicPhone) contact.push(`<span class="ltr nw">${LRM}${esc(p.clinicPhone)}</span>`);
   if (show.clinicAddress && p.clinicAddress?.trim()) contact.push(`<span>${esc(p.clinicAddress.trim())}</span>`);
   if (show.clinicEmail && p.clinicEmail?.trim()) contact.push(`<span class="ltr">${esc(p.clinicEmail.trim())}</span>`);
   if (show.leadDoctor && p.leadDoctorName?.trim()) {
     const dn = p.leadDoctorName.replace(/^Dr\.?\s*/i, "").replace(/^د\.?\s*/, "").trim();
-    contact.push(`<span class="strong" style="font-weight:700;">${en ? "Dr. " : "د. "}${esc(dn)}</span>`);
+    contact.push(`<span class="strong nw" style="font-weight:700;">${en ? "Dr. " : "د. "}${esc(dn)}</span>`);
   }
   const contactHtml = contact.join(thermal ? "<br/>" : ` <span class="faint">•</span> `);
 
@@ -505,7 +511,7 @@ export function buildDentalReceiptSrcDoc(
             <div class="contact">${contactHtml}</div>
           </div>
         </div>
-        <div>
+        <div class="right">
           <div class="title">${title}</div>
           ${metaHtml}
         </div>

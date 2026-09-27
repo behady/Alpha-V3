@@ -12,7 +12,7 @@
  * only thing here that touches it is the prefix.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getDoc, onSnapshot, setDoc } from "firebase/firestore";
 import {
   Check,
@@ -157,6 +157,23 @@ export default function ReceiptHost({ canEdit }: { canEdit: boolean }) {
   const [nextSeq, setNextSeq] = useState(1);
   const [letterhead, setLetterhead] = useState<ClinicLetterhead>({ clinicName: "", clinicPhone: "", clinicAddress: "" });
   const [previewKind, setPreviewKind] = useState<"payment" | "statement">("payment");
+  const previewBoxRef = useRef<HTMLDivElement | null>(null);
+  const [previewWidth, setPreviewWidth] = useState(0);
+
+  // How wide the preview column is, minus its own padding — re-measured as the window changes.
+  useEffect(() => {
+    const el = previewBoxRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const measure = () => {
+      const style = window.getComputedStyle(el);
+      const pad = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+      setPreviewWidth(Math.max(0, el.clientWidth - pad));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [loaded]);
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -260,6 +277,12 @@ export default function ReceiptHost({ canEdit }: { canEdit: boolean }) {
   const missing = etaMissingFields(form);
   const numberExample = formatReceiptNumber(form, nextSeq);
   const thermal = form.template === "thermal";
+
+  // Paper at CSS 96dpi: A4 210×297mm, A5 148×210mm, roll 80mm. The frame is this big and scaled
+  // down to whatever the column allows, so the preview is the printout, only smaller.
+  const paperPx = thermal ? 302 : form.paper === "a5" ? 559 : 794;
+  const paperHeightPx = thermal ? 900 : form.paper === "a5" ? 794 : 1123;
+  const previewScale = Math.min(1, previewWidth > 0 ? previewWidth / paperPx : 1);
 
   if (!loaded) {
     return <div className="h-40 animate-pulse rounded-3xl bg-surface-muted" aria-hidden="true" />;
@@ -579,19 +602,27 @@ export default function ReceiptHost({ canEdit }: { canEdit: boolean }) {
               </button>
             </div>
           </div>
-          <div className="overflow-hidden rounded-2xl border border-line bg-[#e5e7eb] p-3 sm:p-5">
-            <iframe
-              title={txt.preview}
-              srcDoc={previewSrc}
-              sandbox="allow-same-origin"
-              className="mx-auto block bg-white shadow-xl"
-              style={{
-                width: thermal ? "80mm" : form.paper === "a5" ? "148mm" : "210mm",
-                maxWidth: "100%",
-                height: thermal ? "560px" : "760px",
-                border: 0,
-              }}
-            />
+          <div ref={previewBoxRef} className="overflow-hidden rounded-2xl border border-line bg-[#e5e7eb] p-3 sm:p-5">
+            {/*
+              The page is laid out at its real paper width and SCALED to fit, never narrowed: a
+              21cm receipt squeezed into a 14cm frame wraps its own header and shows a layout no
+              printer will ever produce — which is what the first tablet preview did.
+            */}
+            <div className="mx-auto" style={{ width: paperPx * previewScale, height: paperHeightPx * previewScale }}>
+              <iframe
+                title={txt.preview}
+                srcDoc={previewSrc}
+                sandbox="allow-same-origin"
+                className="block bg-white shadow-xl"
+                style={{
+                  width: paperPx,
+                  height: paperHeightPx,
+                  border: 0,
+                  transform: `scale(${previewScale})`,
+                  transformOrigin: "top left",
+                }}
+              />
+            </div>
           </div>
         </div>
       </div>
