@@ -169,7 +169,17 @@ Latin-only — or `REPORT_ARABIC_FONT_URL`; without one the PDF falls back to En
 milestones: the **staff line** (`lib/bot/staffLine.ts`): a number on the recipients block is answered as staff
 by the bot, kept out of the Chats inbox, and can ask for reports by a word.
 
-**Not done yet:** the new real-time alerts
+**Milestone 3 — built 2026-09-27:** twelve real-time alerts with owner-set thresholds (`percent` / `egp` /
+`count` / `days` timing kinds): `discountAbove`, `expenseAbove`, `paymentBackdated` (from `/api/finance/ledger`
+and the clinical charge route via `lib/alerts/moneyAlerts.ts`), `noShowMarked`, `sameDayCancellation`,
+`walkInBooked` (booking service + dashboard status buttons → owner-alert route), `patientWaitingLong`,
+`staffLate`, `staffAbsent`, `labCaseOverdue`, `aiCreditsLow` (`lib/alerts/sweep.ts`, cron `/api/automation/alert-sweep`
+every 10 min, one marker per subject in `alert_marks`), `complaintKeyword` (both inbound webhooks, word list in
+`lib/alerts/complaint.ts`). Per-alert **batching** (`events.<id>.batching`: instant / hourly / daily): the bell row
+is always immediate; batched items wait in `alert_queue` and the sweep sends one grouped message per event at the
+top of the hour or at the close-out hour.
+
+**Not done yet:** Cloud-Functions-raised alerts on WhatsApp
 with thresholds and batching (M3); WhatsApp for alerts raised by Cloud Functions (arrivals, SLA
 escalations, stock) — they show "—" in the WhatsApp column until the Functions half can reach a
 gateway; Android screen (M4); month-to-date comparison in the daily text (needs a second briefing build).
