@@ -107,3 +107,25 @@ export async function markBotLeadBooked(clinicId: string, phone: string, patient
     { merge: true }
   );
 }
+
+/**
+ * The lead said "not now". Out of the bot's hands, into a person's: the stage leaves "new" so no
+ * automated follow-up chases it, and a follow-up date two weeks out puts it on the front desk's
+ * list (the leads-due push) when "not now" has had time to become "maybe".
+ */
+export async function snoozeBotLead(clinicId: string, phone: string, days = 14): Promise<void> {
+  const open = await findOpenLead(clinicId, phone).catch(() => null);
+  if (!open) return;
+  const d = open.data() || {};
+  const due = new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+  await open.ref.set(
+    {
+      ...(String(d.stage || "new") === "new" ? { stage: "contacted" } : {}),
+      declinedAt: FieldValue.serverTimestamp(),
+      followUpDate: due,
+      notes: `${String(d.notes || "")}${d.notes ? "\n" : ""}${new Date().toISOString().slice(0, 16).replace("T", " ")} — قال "مش دلوقتي"؛ متابعة بشرية بعد ${days} يوم`.slice(0, 4000),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+}

@@ -117,7 +117,12 @@ async function runForClinic(clinicId: string): Promise<{ results: FollowupResult
     if (patient && isWhatsAppBlocked(patient)) { results.push({ leadId: d.id, status: "skipped", reason: "opted_out" }); continue; }
     // A number that opted out from a thread the clinic has no patient record for still counts.
     const convOptOut = await adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(phone)).get().catch(() => null);
-    if (convOptOut?.data()?.optedOut === true) { results.push({ leadId: d.id, status: "skipped", reason: "opted_out" }); continue; }
+    const conv = (convOptOut?.data() || {}) as Record<string, unknown>;
+    if (conv.optedOut === true) { results.push({ leadId: d.id, status: "skipped", reason: "opted_out" }); continue; }
+    // "Not now" is a reply. So is any reply: a lead who wrote back is in a conversation the bot is
+    // already having, and a second "you asked and did not book" the next morning is a nag.
+    if (Number(conv.declinedAtMs) > 0) { results.push({ leadId: d.id, status: "skipped", reason: "declined" }); continue; }
+    if (Number(conv.lastInboundAt) > createdMs) { results.push({ leadId: d.id, status: "skipped", reason: "already_replied" }); continue; }
     if (await hasUpcomingAppointment(clinicId, phone)) {
       await d.ref.set({ stage: "booked", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       results.push({ leadId: d.id, status: "skipped", reason: "already_booked" });
@@ -125,7 +130,7 @@ async function runForClinic(clinicId: string): Promise<{ results: FollowupResult
     }
 
     const interest = String(lead.interest || "").trim() || "خدماتنا";
-    const text = `أهلاً 👋 حضرتك سألت ${clinicName} عن ${interest} ولسه محجزتش. لو حابب نحجزلك كشف أو عندك أي سؤال، ابعتلنا رسالة وهنرد عليك فوراً 🦷`;
+    const text = `أهلاً 👋 حضرتك سألت ${clinicName} عن ${interest} ولسه محجزتش. لو حبيت نحجزلك كشف أو عندك أي سؤال، ابعتلنا رسالة وهنرد عليك فوراً 🦷`;
     try {
       const delivery = await deliverWhatsAppMessage({
         clinicId,

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { quickIntent, mentionsRelative } from "../src/lib/bot/quickAnswers";
+import { quickIntent, mentionsRelative, isDecline } from "../src/lib/bot/quickAnswers";
+import { readFileSync } from "node:fs";
 import { decideBotReply, type BotContext } from "../src/lib/bot/engine";
 
 /**
@@ -274,6 +275,23 @@ run("the greeting speaks to a woman as a woman, and to everyone as حضرتك", 
   const him = decideBotReply({ state: "new", text: "السلام عليكم", ctx: { ...ctx, patientName: "أحمد", gender: "unknown" } });
   assert.ok(him.reply.includes("معاك "), "masculine default");
   assert.ok(!him.reply.includes("معاكي"));
+});
+
+run("a 'not now' is remembered, and nothing automated follows it", () => {
+  for (const t of ["مش دلوقتي", "مش دلوقت", "بعدين", "لا شكرا", "مش محتاج دلوقتي", "not now", "maybe later", "هشوف وابلغك", "مش مهتمة"]) {
+    assert.ok(isDecline(t), `not read as a decline: ${t}`);
+  }
+  for (const t of ["عايز احجز", "تمام", "شكرا", "مش دلوقتي، بكرة الساعة 5 ينفع عشان معنديش وقت النهارده خالص", "الكشف بكام", "Hi"]) {
+    assert.ok(!isDecline(t), `wrongly read as a decline: ${t}`);
+  }
+  const respond = readFileSync("src/lib/bot/respond.ts", "utf8");
+  assert.ok(respond.includes("isDecline(text)") && respond.includes("markConversationDeclined(") && respond.includes("snoozeBotLead("), "the bot answers a decline but forgets it");
+  const nudge = readFileSync("functions/quietNudge.js", "utf8");
+  assert.ok(nudge.includes("declinedAtMs"), "the quiet nudge ignores a decline and asks 'still with me?' an hour later");
+  assert.ok(!nudge.includes("لو حابب"), "the nudge still says 'حابب' to women");
+  assert.ok(nudge.includes('split(/\\s+/)[0]'), "the nudge greets by full name");
+  const followup = readFileSync("src/app/api/automation/lead-followup/route.ts", "utf8");
+  assert.ok(followup.includes('reason: "declined"') && followup.includes('reason: "already_replied"'), "the lead follow-up still chases people who replied or declined");
 });
 
 console.log("\nquickAnswers: all suites passed");
