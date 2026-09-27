@@ -1,4 +1,6 @@
-import { adminClinicCollection } from "@/lib/adminClinicDb";
+import { FieldValue } from "firebase-admin/firestore";
+import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
+import { conversationKey } from "@/lib/bot/conversation";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { notifyEvent } from "@/lib/notificationCatalog";
 import { readAlertPreferences, readClinicMembers } from "@/lib/notificationDelivery";
@@ -171,4 +173,50 @@ export async function respondToStaffMessage(args: {
   const help = staffHelpText(sender, await clinicName(clinicId), language);
   const sent = await sendStaffWhatsApp({ clinicId, to, text: help });
   return sent.sent ? { status: "replied", text: help, handoff: false, reason: "staff_help" } : { status: "skipped", reason: "staff_send_failed" };
+}
+
+/**
+ * A staff member's chat is not a patient conversation, so it is kept out of the Chats inbox.
+ *
+ * The inbound webhooks call this BEFORE writing the message into the thread: nothing about the
+ * owner's exchange with his own clinic is recorded where the front desk reads. The conversation
+ * document may already exist from before the number was registered (the owner was answered as a
+ * patient once); it is flagged so the inbox hides it and its handoff, if any, is closed so the
+ * SLA job stops paging staff about "a patient waiting" who is the owner.
+ *
+ * Returns true when the message was handled here and the caller must not treat it as a patient's.
+ */
+export async function interceptStaffInbound(args: { clinicId: string; phone: string; text: string }): Promise<boolean> {
+  const { clinicId, phone, text } = args;
+  if (!phone) return false;
+  const sender = await findStaffByPhone(clinicId, phone).catch(() => null);
+  if (!sender) return false;
+  await adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(phone))
+    .set({ staffLine: true, needsHuman: false, staffLineAt: FieldValue.serverTimestamp() }, { merge: true })
+    .catch(() => {});
+  await respondToStaffMessage({ clinicId, to: phone, text, sender });
+  return true;
+}
+
+/**
+ * A staff member's chat is not a patient conversation, so it is kept out of the Chats inbox.
+ *
+ * The inbound webhooks call this BEFORE writing the message into the thread: nothing about the
+ * owner's exchange with his own clinic is recorded where the front desk reads. The conversation
+ * document may already exist from before the number was registered (the owner was answered as a
+ * patient once); it is flagged so the inbox hides it and its handoff, if any, is closed so the
+ * SLA job stops paging staff about "a patient waiting" who is the owner.
+ *
+ * Returns true when the message was handled here and the caller must not treat it as a patient's.
+ */
+export async function interceptStaffInbound(args: { clinicId: string; phone: string; text: string }): Promise<boolean> {
+  const { clinicId, phone, text } = args;
+  if (!phone) return false;
+  const sender = await findStaffByPhone(clinicId, phone).catch(() => null);
+  if (!sender) return false;
+  await adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(phone))
+    .set({ staffLine: true, needsHuman: false, staffLineAt: FieldValue.serverTimestamp() }, { merge: true })
+    .catch(() => {});
+  await respondToStaffMessage({ clinicId, to: phone, text, sender });
+  return true;
 }

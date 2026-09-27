@@ -4,6 +4,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { respondToPatientMessage } from "@/lib/bot/respond";
+import { interceptStaffInbound } from "@/lib/bot/staffLine";
 import { conversationKey } from "@/lib/bot/conversation";
 import { transcribeWhatsappAudio } from "@/lib/bot/transcribe";
 import { describeWhatsappImage } from "@/lib/bot/describeImage";
@@ -368,6 +369,13 @@ export async function POST(request: NextRequest) {
       // being composed is refused rather than racing it.
       if (!(await claimMessage(clinicId, msg.messageId))) {
         lastBot = { status: "skipped", reason: "duplicate_delivery" };
+        continue;
+      }
+
+      // The clinic's own people, before anything is written where the front desk reads. A staff
+      // number is answered on the staff line and never enters the Chats inbox.
+      if (await interceptStaffInbound({ clinicId, phone: `+${msg.from}`, text: msg.text })) {
+        lastBot = { status: "skipped", reason: "staff_line" };
         continue;
       }
 

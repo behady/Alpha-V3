@@ -316,6 +316,14 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
   ok(!/STOP/.test(help), "the staff greeting carries the patient opt-out footer");
   const helpAr = staffHelpText({ uid: "u", role: "Dentist", name: "" }, "ألفا", "ar");
   ok(helpAr.includes("دكتور") && helpAr.includes("*تقرير*"), "the Arabic greeting lacks the role or the keywords");
+  // The owner's chat never reaches the inbox: both webhooks intercept before the thread write,
+  // and the inbox hides anything flagged staffLine.
+  const meta = read("src/app/api/webhooks/meta-whatsapp/route.ts");
+  ok(meta.indexOf("interceptStaffInbound(") > 0 && meta.indexOf("interceptStaffInbound(") < meta.indexOf("const lineId = await rememberInbound("), "the Meta webhook records the owner's message in the inbox before asking whether he is staff");
+  const wap = read("src/app/api/webhooks/whatsapp-inbound/route.ts");
+  ok(wap.indexOf("interceptStaffInbound(") > 0 && wap.indexOf("interceptStaffInbound(") < wap.indexOf("const lineId = await recordThreadMessage("), "the Wapilot webhook records the owner's message in the inbox before asking whether he is staff");
+  ok(/staffLine !== true/.test(read("src/components/ai/ChatsPanel.tsx")), "the Chats inbox shows staff-line conversations to the whole desk");
+  ok(/needsHuman: false/.test(read("src/lib/bot/staffLine.ts")), "an owner's old handoff row keeps paging staff about a waiting patient");
   const respond = read("src/lib/bot/respond.ts");
   ok(respond.indexOf("findStaffByPhone(") < respond.indexOf("if (!settings.enabled)"), "the staff check runs after the patient gates — the owner is a patient again when the bot is off");
 }

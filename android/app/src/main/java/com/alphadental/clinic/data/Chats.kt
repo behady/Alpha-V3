@@ -134,7 +134,8 @@ object Chats {
             if (snapshot == null) return@addSnapshotListener
             trySend(
                 snapshot.documents
-                    .filterNot { it.id.startsWith("play_") }
+                    // Staff-line rows (the owner talking to his own clinic) are flagged by the server; not chats.
+                    .filterNot { it.id.startsWith("play_") || it.bool("staffLine") }
                     .map { doc ->
                         ChatRow(
                             id = doc.id,

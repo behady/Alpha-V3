@@ -8,6 +8,7 @@ import { findPatientByLid, learnPatientLid, lidChatFromEvent } from "@/lib/whats
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { sendWapilotTyping } from "@/lib/whatsapp";
 import { respondToPatientMessage } from "@/lib/bot/respond";
+import { interceptStaffInbound } from "@/lib/bot/staffLine";
 import { attachTranscript, recordThreadMessage, updateThreadStatus } from "@/lib/bot/thread";
 import { extractDeliveryAck } from "@/lib/bot/wapilotAck";
 import { transcribeAudioBytes } from "@/lib/bot/transcribe";
@@ -308,6 +309,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Into the chat thread before any decision about answering — received is received.
+    // The clinic's own people are answered on the staff line and kept out of the inbox. Only
+    // possible when the sender's phone is visible; a lid hides it, and that owner stays a stranger.
+    if (phone && (await interceptStaffInbound({ clinicId, phone, text: reply.text }))) {
+      return NextResponse.json({ ok: true, staffLine: true });
+    }
+
     const lineId = await recordThreadMessage(clinicId, chatId, {
       direction: "in",
       author: "patient",
