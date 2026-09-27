@@ -23,6 +23,7 @@ export type PatientDoc = {
   age?: unknown;
   createdAt?: unknown;
   whatsappOptOut?: unknown;
+  optOutAt?: unknown;
   recallSentAt?: unknown;
   recallCount?: unknown;
 };

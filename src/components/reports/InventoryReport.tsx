@@ -67,7 +67,7 @@ export default function InventoryReport({ ledger, isAr, data }: ReportProps) {
           rowKey={(l) => l.itemId}
           exportName="Inventory"
           dense
-          maxRows={100}
+          maxRows={25}
           columns={[
             { key: "name", label: isAr ? "الصنف" : "Item", render: (l) => <span className={`text-[13px] font-bold ${l.below ? "text-danger" : "text-ink"}`}>{l.name}</span> },
             { key: "category", label: isAr ? "التصنيف" : "Category" },

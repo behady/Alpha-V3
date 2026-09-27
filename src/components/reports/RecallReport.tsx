@@ -63,7 +63,7 @@ export default function RecallReport({ allPatients, isAr, data, today }: ReportP
           rows={shown}
           rowKey={(l) => l.patientId}
           exportName={`Recall_Due${bucket ? `_${bucket}` : ""}`}
-          maxRows={100}
+          maxRows={25}
           columns={[
             { key: "name", label: isAr ? "المريض" : "Patient", render: (l) => (<div><PatientLink id={l.patientId} name={l.name} isAr={isAr} />{l.whatsappOptOut && <span className="ms-2 rounded-full bg-surface-muted px-1.5 py-0.5 text-[9.5px] font-black text-ink-body">{isAr ? "اتصل" : "call only"}</span>}</div>) },
             { key: "phone", label: isAr ? "الهاتف" : "Phone", render: (l) => <Phone value={l.phone} /> },

@@ -16,8 +16,8 @@
  * All text is bilingual through `isAr`; all numbers are set in the figures font.
  */
 
-import { type ReactNode, useMemo } from "react";
-import { ArrowDownRight, ArrowUpRight, FileSpreadsheet, Minus } from "lucide-react";
+import { type ReactNode, useMemo, useState } from "react";
+import { ArrowDownRight, ArrowUpRight, ChevronLeft, ChevronRight, FileSpreadsheet, Minus } from "lucide-react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from "recharts";
 import { exportToExcel } from "./reportExcelUtils";
 import { ANIM, GRID, INK, MARK, ReportTip, TICK } from "@/components/reports/chartKit";
@@ -117,10 +117,19 @@ export function DataTable<T>({
   onRowClick?: (row: T) => void;
   expanded?: string | null;
   renderExpanded?: (row: T) => ReactNode;
+  /** Rows per page. Every table pages past this; the export always takes every row. */
   maxRows?: number;
   dense?: boolean;
 }) {
-  const shown = maxRows ? rows.slice(0, maxRows) : rows;
+  const pageSize = maxRows || 20;
+  // The page is remembered together with the list length it was turned on. A new list — a
+  // filter, a new range — comes back on page one rather than on an empty page, without an effect.
+  const [paging, setPaging] = useState({ page: 1, len: rows.length });
+  const page = paging.len === rows.length ? paging.page : 1;
+  const setPage = (p: number) => setPaging({ page: p, len: rows.length });
+  const pages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const current = Math.min(page, pages);
+  const shown = rows.slice((current - 1) * pageSize, current * pageSize);
   const hasTotals = columns.some((c) => c.total !== undefined);
   const doExport = () =>
     exportToExcel(
@@ -210,10 +219,33 @@ export function DataTable<T>({
           </table>
         </div>
       )}
-      {maxRows && rows.length > maxRows && (
-        <p className="px-4 py-2.5 text-[11.5px] font-medium text-ink-faint">
-          {isAr ? `أول ${maxRows} من ${rows.length}. التصدير فيه الكل.` : `First ${maxRows} of ${rows.length}. The export has all of them.`}
-        </p>
+      {rows.length > pageSize && (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-2.5">
+          <p className="font-figure text-[12px] text-ink-faint">
+            {isAr ? `${(current - 1) * pageSize + 1}–${Math.min(rows.length, current * pageSize)} من ${rows.length}` : `${(current - 1) * pageSize + 1}–${Math.min(rows.length, current * pageSize)} of ${rows.length}`}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPage(Math.max(1, current - 1))}
+              disabled={current <= 1}
+              aria-label={isAr ? "السابق" : "Previous"}
+              className="grid size-8 place-items-center rounded-xl border border-line text-ink-body transition-colors hover:text-ink disabled:opacity-40"
+            >
+              {isAr ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+            </button>
+            <span className="font-figure text-[12.5px] font-bold text-ink-body">{current} / {pages}</span>
+            <button
+              type="button"
+              onClick={() => setPage(Math.min(pages, current + 1))}
+              disabled={current >= pages}
+              aria-label={isAr ? "التالي" : "Next"}
+              className="grid size-8 place-items-center rounded-xl border border-line text-ink-body transition-colors hover:text-ink disabled:opacity-40"
+            >
+              {isAr ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
+            </button>
+          </div>
+        </div>
       )}
     </section>
   );

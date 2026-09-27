@@ -44,7 +44,7 @@ export default function LtvReport({ allPatients, isAr, data }: ReportProps) {
           rows={r.lines}
           rowKey={(l) => l.patientId}
           exportName="Lifetime_Value"
-          maxRows={50}
+          maxRows={25}
           columns={[
             { key: "name", label: isAr ? "المريض" : "Patient", render: (l) => <PatientLink id={l.patientId} name={l.name} isAr={isAr} /> },
             { key: "phone", label: isAr ? "الهاتف" : "Phone", render: (l) => <Phone value={l.phone} /> },

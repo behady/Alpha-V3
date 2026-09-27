@@ -78,7 +78,7 @@ export default function PlanConversionReport({ range, isAr, data }: ReportProps)
           rows={shown}
           rowKey={(l) => l.id}
           exportName={`Plans${status ? `_${status}` : ""}`}
-          maxRows={100}
+          maxRows={25}
           columns={[
             { key: "created", label: isAr ? "التاريخ" : "Date", render: (l) => <span className="whitespace-nowrap font-figure text-ink-faint">{l.created ? dayText(l.created, isAr) : "—"}</span> },
             { key: "patientName", label: isAr ? "المريض" : "Patient", render: (l) => <PatientLink id={l.patientId} name={l.patientName} isAr={isAr} /> },

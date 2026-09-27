@@ -55,7 +55,7 @@ export default function DiscountsReport({ ledger, isAr }: ReportProps) {
           rows={lines}
           rowKey={(l) => l.id}
           exportName="Discounts"
-          maxRows={100}
+          maxRows={25}
           columns={[
             { key: "date", label: isAr ? "التاريخ" : "Date", render: (l) => <span className="whitespace-nowrap font-figure text-ink-faint">{l.date ? dayText(l.date, isAr) : "—"}</span>, exportValue: (l) => l.date },
             { key: "patientName", label: isAr ? "المريض" : "Patient", render: (l) => <PatientLink id={l.patientId} name={l.patientName} isAr={isAr} /> },
