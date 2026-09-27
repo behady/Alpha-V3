@@ -3,7 +3,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
 import { resolveUserClinicId } from "@/lib/adminClinicDb";
-import { clearWapilotConfigCache, loadWapilotConfig } from "@/lib/wapilotConfig";
+import { clearWapilotConfigCache } from "@/lib/wapilotConfig";
 import {
   CLINIC_SECRETS_COLLECTION,
   WAPILOT_SECRET_FIELD,
@@ -65,23 +65,9 @@ export async function GET(request: Request) {
     );
     if (own) return NextResponse.json({ ok: true, ...own });
 
-    // No connection of its own. Say plainly whether a shared platform number is carrying this
-    // clinic's messages, because "configured" and "configured as you" are different answers and
-    // the clinic owner needs to know which one applies to them.
-    const live = await loadWapilotConfig(clinicId, true);
-    if (live.source === "platform" && live.instanceId && live.token) {
-      return NextResponse.json({
-        ok: true,
-        configured: true,
-        source: "platform",
-        instanceId: live.instanceId,
-        tokenSet: true,
-        apiBaseUrl: live.apiRoot,
-        sendPath: live.sendPathTemplate,
-        sendDocumentPath: live.sendDocumentPathTemplate,
-      } satisfies WapilotConfigStatus & { ok: true });
-    }
-
+    // No connection of its own. There is no longer a shared number to fall back on for patient
+    // messages (the platform line carries staff alerts only — see lib/staffWhatsapp.ts), so the
+    // honest answer is "not connected" and the page offers click-to-send.
     return NextResponse.json({
       ok: true,
       configured: false,

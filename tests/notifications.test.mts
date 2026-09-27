@@ -105,11 +105,16 @@ const read = (rel: string) => readFileSync(join(REPO, rel), "utf8");
     "src/app/api/public/review/route.ts",
     "src/app/api/whatsapp/send-patient-message/route.ts",
     "src/app/api/automation/reminders/route.ts",
+    "src/app/api/whatsapp/owner-alert/route.ts",
   ];
   const raised = new Set<string>();
   for (const rel of SOURCES) {
     const text = read(rel);
     for (const m of text.matchAll(/event:\s*"([a-zA-Z]+)"/g)) raised.add(m[1]);
+    // The owner-alert route names its six events in a key → event map.
+    if (rel.endsWith("owner-alert/route.ts")) {
+      for (const m of text.matchAll(/^\s+[a-z_]+: "([a-zA-Z]+)",$/gm)) if (notifyEvent(m[1])) raised.add(m[1]);
+    }
     // The escalation picks its event with a ternary, so both arms have to be counted.
     for (const m of text.matchAll(/\?\s*"([a-zA-Z]+)"\s*:\s*"([a-zA-Z]+)"/g)) {
       if (notifyEvent(m[1])) raised.add(m[1]);

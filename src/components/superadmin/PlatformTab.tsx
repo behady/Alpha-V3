@@ -5,6 +5,7 @@ import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db, auth } from "@/lib/firebase";
 import { AlertTriangle, CalendarClock, Check, Eye, Loader2, Save, ShieldAlert, Timer } from "lucide-react";
 import { useUI } from "@/context/UIContext";
+import { AlertsLineCard } from "@/components/superadmin/AlertsLineCard";
 import {
   DEFAULT_TRIAL_POLICY,
   MAX_TRIAL_DAYS,
@@ -172,6 +173,9 @@ export function PlatformTab() {
 
   return (
     <div className="space-y-6">
+      {/* --- The alerts line: Alpha's own WhatsApp number for staff alerts ------------------ */}
+      <AlertsLineCard />
+
       {/* --- The policy ------------------------------------------------------------------- */}
       <div className={CARD}>
         <div className="flex items-start gap-3 mb-6">

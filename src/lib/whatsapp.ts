@@ -76,6 +76,16 @@ export function isWhatsAppChatId(to: string): boolean {
 
 export async function sendWhatsApp({ clinicId, to, text }: WhatsAppSendArgs) {
   const config = await loadWapilotConfig(clinicId);
+  return sendWapilotText(config, to, text);
+}
+
+/**
+ * The same send, with the credentials handed in.
+ *
+ * `sendWhatsApp` resolves a clinic's own credentials; the platform alerts line is not any
+ * clinic's, so its sender (lib/staffWhatsapp.ts) loads that config itself and calls this.
+ */
+export async function sendWapilotText(config: WapilotConfig, to: string, text: string) {
   assertWapilotReady(config);
   const { instanceId, token, apiRoot, sendUrlOverride, sendPathTemplate } = config;
 

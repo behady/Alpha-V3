@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MessageCircle, Save, Loader2, Send, Plug, CheckCircle2, AlertCircle, Lock } from "lucide-react";
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
@@ -18,7 +20,6 @@ import BotScriptsEditor from "@/components/settings/BotScriptsEditor";
 import { logActivity } from "@/lib/logger";
 import { useDirtyFlag } from "@/context/UnsavedChangesContext";
 import type {
-  OwnerAlertKey,
   WhatsAppMessageTemplate,
   WhatsAppSettingsDocument,
   WhatsAppTemplateType,
@@ -32,26 +33,13 @@ import {
 } from "@/lib/whatsappDefaultBodies";
 import type { WapilotConfigStatus } from "@/types/wapilot";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
-const OWNER_ALERT_MATRIX: { module: "appointments" | "finance"; labelEn: string; labelAr: string; keys: OwnerAlertKey[] }[] = [
-  {
-    module: "appointments",
-    labelEn: "Appointments",
-    labelAr: "المواعيد",
-    keys: ["appointment_add", "appointment_edit", "appointment_delete"],
-  },
-  {
-    module: "finance",
-    labelEn: "Finance",
-    labelAr: "المالية",
-    keys: ["finance_add", "finance_edit", "finance_delete"],
-  },
-];
-
-const ACTION_HEADERS = [
-  { key: "add" as const, labelEn: "Add", labelAr: "إضافة" },
-  { key: "edit" as const, labelEn: "Edit", labelAr: "تعديل" },
-  { key: "delete" as const, labelEn: "Delete", labelAr: "حذف" },
-];
+/*
+ * The owner-alert grid that lived here — six checkboxes, Appointments × Finance by Add / Edit /
+ * Delete, all pointing at one owner number — moved to Settings → Alerts & Reports on 2026-09-27,
+ * where every alert has a WhatsApp switch beside its bell and phone switches and goes to people
+ * by role. The ticks a clinic left on the grid are still honoured there (`legacyOwnerKey` in
+ * lib/notificationCatalog). The owner number stays below as the owner's fallback number.
+ */
 
 /**
  * An on/off switch that reads as one from across the room.
@@ -674,8 +662,10 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
       saveTemplate: language === "ar" ? "حفظ القالب" : "Save template",
       ownerCard: language === "ar" ? "تنبيهات المالك" : "Owner alerts",
       ownerNumber: language === "ar" ? "رقم واتساب المالك" : "Owner WhatsApp number",
-      ownerHint: language === "ar" ? "صيغة دولية مفضلة (+2010...)" : "Prefer E.164 format (+2010...)",
-      alertGrid: language === "ar" ? "قواعد التنبيه" : "Alert rules",
+      ownerHint:
+        language === "ar"
+          ? "الرقم اللي بيرجعله النظام للمالك لو مفيش رقم متسجّل له في التنبيهات والتقارير. صيغة دولية (+2010...)"
+          : "The owner's fallback number when none is entered on Alerts & Reports. E.164 format (+2010...)",
       saved: language === "ar" ? "تم الحفظ" : "Saved",
       failed: language === "ar" ? "فشل الحفظ" : "Save failed",
       templateSaved: language === "ar" ? "تم تحديث القالب" : "Template updated",
@@ -1058,21 +1048,6 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
     setDraftMessage(bodies[templateType] || "");
     void persist(next, "none");
     showToast(txt.packApplied, "success");
-  };
-
-  /**
-   * Saves on change, like every other switch here.
-   *
-   * This was the one control on the page that did not, which is the entire reason a page-wide
-   * Save button existed — and why it sat at the bottom of a very long scroll, minutes away from
-   * the checkbox that needed it.
-   */
-  const toggleOwnerAlert = (key: OwnerAlertKey, value: boolean) => {
-    setState((prev) => {
-      const next = { ...prev, ownerAlerts: { ...prev.ownerAlerts, [key]: value } };
-      void persist(next, "silent");
-      return next;
-    });
   };
 
   /**
@@ -2269,44 +2244,14 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
             <p className="text-xs text-ink-muted mt-1">{txt.ownerHint}</p>
           </label>
 
-          <div>
-            <p className="text-[11px] font-bold text-ink-muted uppercase tracking-wider mb-3">{txt.alertGrid}</p>
-            <div className="overflow-x-auto rounded-xl border border-line">
-              <table className="w-full min-w-[320px] text-sm">
-                <thead>
-                  <tr className="bg-surface-subtle border-b border-line">
-                    <th className="text-start px-3 py-2.5 text-[10px] font-black uppercase tracking-wider text-ink-muted">
-                      {language === "ar" ? "الوحدة" : "Module"}
-                    </th>
-                    {ACTION_HEADERS.map((h) => (
-                      <th key={h.key} className="text-center px-2 py-2.5 text-[10px] font-black uppercase tracking-wider text-ink-muted">
-                        {language === "ar" ? h.labelAr : h.labelEn}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {OWNER_ALERT_MATRIX.map((row) => (
-                    <tr key={row.module} className="border-b border-line last:border-0">
-                      <td className="px-3 py-3 font-bold text-ink">
-                        {language === "ar" ? row.labelAr : row.labelEn}
-                      </td>
-                      {row.keys.map((key) => (
-                        <td key={key} className="text-center py-3">
-                          <input
-                            type="checkbox"
-                            className="w-4 h-4 rounded border-line-strong text-accent focus:ring-accent cursor-pointer"
-                            checked={Boolean(state.ownerAlerts[key])}
-                            onChange={(e) => toggleOwnerAlert(key, e.target.checked)}
-                          />
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <p className="text-xs text-ink-muted leading-relaxed">
+            {language === "ar"
+              ? "تنبيهات المالك والفريق (حجز، تعديل، حذف، دفعات) والتقارير اليومية اتنقلت إلى الإعدادات ← التنبيهات والتقارير، وهناك لكل تنبيه مفتاح واتساب جنب الجرس والموبايل."
+              : "Owner and team alerts (bookings, changes, deletions, payments) and the daily reports now live in Settings → Alerts & Reports, where every alert has a WhatsApp switch beside its bell and phone switches."}{" "}
+            <Link href="/settings/alerts" className="font-bold text-ink underline underline-offset-2">
+              {language === "ar" ? "افتح التنبيهات والتقارير" : "Open Alerts & Reports"}
+            </Link>
+          </p>
         </section>
         </div>
       )}

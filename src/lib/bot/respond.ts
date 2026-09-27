@@ -479,7 +479,7 @@ export async function respondToPatientMessage(args: {
   const now = args.now ?? Date.now();
   // Every staff notification goes through this; the playground swaps in silence.
   const push: typeof sendClinicPush = args.dryRun
-    ? async () => ({ raised: false, bellWritten: false, pushed: 0 })
+    ? async () => ({ raised: false, bellWritten: false, pushed: 0, whatsapped: 0 })
     : sendClinicPush;
 
   const settings = await loadBotSettings(clinicId);

@@ -28,7 +28,7 @@ export type NotifyRole = "Owner" | "Admin" | "Dentist" | "Receptionist" | "Assis
 export const NOTIFY_ROLES: readonly NotifyRole[] = ["Owner", "Admin", "Dentist", "Receptionist", "Assistant"];
 
 /** The seven headings on the settings page, in the order they appear. */
-export type NotifyGroup = "unanswered" | "frontdesk" | "leads" | "briefs" | "money" | "clinic" | "delivery";
+export type NotifyGroup = "unanswered" | "frontdesk" | "leads" | "reports" | "money" | "clinic" | "delivery";
 
 export const NOTIFY_GROUPS: readonly { id: NotifyGroup; en: string; ar: string; noteEn: string; noteAr: string }[] = [
   {
@@ -53,11 +53,11 @@ export const NOTIFY_GROUPS: readonly { id: NotifyGroup; en: string; ar: string; 
     noteAr: "الاستفسارات الجديدة واللي محدش رد عليها.",
   },
   {
-    id: "briefs",
-    en: "Daily briefs",
-    ar: "ملخص اليوم",
-    noteEn: "The morning summary. One version for the desk, one for each dentist.",
-    noteAr: "ملخص الصباح. نسخة للاستقبال ونسخة لكل دكتور.",
+    id: "reports",
+    en: "Reports",
+    ar: "التقارير",
+    noteEn: "The morning brief and the day's close-out. On WhatsApp they arrive as a full report; each one has its own sections, detail level and hour below.",
+    noteAr: "ملخص الصباح وإقفال اليوم. على واتساب بيوصلوا تقرير كامل؛ كل واحد ليه أقسامه ومستوى تفاصيله وساعته تحت.",
   },
   {
     id: "money",
@@ -95,6 +95,9 @@ export interface NotifyTiming {
   max: number;
 }
 
+/** Which of the scheduled reports an event is, when it is one. Decides what the WhatsApp text contains. */
+export type ReportKind = "morning" | "evening" | "dentistDay";
+
 export interface NotifyEvent {
   id: string;
   group: NotifyGroup;
@@ -119,6 +122,28 @@ export interface NotifyEvent {
   bell: boolean;
   /** Pushed to phones and desktops, out of the box. */
   push: boolean;
+  /**
+   * Sent to each recipient's WhatsApp, out of the box. Off for everything by default: WhatsApp is
+   * the channel a person reads away from the clinic, and an alert that follows them home has to
+   * be one they asked for.
+   */
+  whatsapp?: boolean;
+  /**
+   * The WhatsApp switch is offered for this alert.
+   *
+   * Only alerts raised by the web server can leave on WhatsApp today — the Cloud Functions half
+   * has push and the bell but no gateway. Showing a switch for an alert that cannot honour it
+   * would be the settings-page lie this catalogue exists to end, so the page hides it instead.
+   */
+  waReady?: boolean;
+  /** One of the scheduled reports. The WhatsApp text is a full report rather than a line. */
+  report?: ReportKind;
+  /**
+   * The key this alert's WhatsApp switch was stored under on the old Settings → WhatsApp grid
+   * (`settings/whatsapp.ownerAlerts.<key>`). Read as a fallback so a clinic that ticked
+   * "finance › add" years ago keeps getting it, on the same channel, without touching anything.
+   */
+  legacyOwnerKey?: string;
   /**
    * Quiet hours do not apply. An urgent alert that waits until 09:00 is not an alert — and the
    * things in this group are the ones a clinic loses money by hearing late.
@@ -178,6 +203,7 @@ export const NOTIFY_EVENTS: readonly NotifyEvent[] = [
   {
     id: "botHandedOff",
     group: "unanswered",
+    waReady: true,
     en: "The bot has passed a patient to a person",
     ar: "البوت سلّم مريض لحد",
     whenEn: "The bot could not answer and said reception would. Somebody has to, now.",
@@ -202,6 +228,7 @@ export const NOTIFY_EVENTS: readonly NotifyEvent[] = [
   {
     id: "optedOutPatientNeedsReply",
     group: "unanswered",
+    waReady: true,
     en: "A patient who blocked messages needs a person",
     ar: "مريض موقف الرسايل ومحتاج حد",
     whenEn: "Somebody who asked to stop receiving messages has written in. The bot will not answer them, ever.",
@@ -214,6 +241,7 @@ export const NOTIFY_EVENTS: readonly NotifyEvent[] = [
   {
     id: "urgentPatientMessage",
     group: "unanswered",
+    waReady: true,
     en: "A message the bot refused to answer",
     ar: "رسالة البوت رفض يردّ عليها",
     whenEn: "Pain, bleeding, or anything clinical. The bot hands these straight to a human by design.",
@@ -253,6 +281,7 @@ export const NOTIFY_EVENTS: readonly NotifyEvent[] = [
   {
     id: "onlineBooking",
     group: "frontdesk",
+    waReady: true,
     en: "A new online booking",
     ar: "حجز جديد أونلاين",
     whenEn: "Somebody booked themselves through the clinic's public booking page.",
@@ -264,6 +293,7 @@ export const NOTIFY_EVENTS: readonly NotifyEvent[] = [
   {
     id: "botBooked",
     group: "frontdesk",
+    waReady: true,
     en: "The bot booked an appointment",
     ar: "البوت حجز ميعاد",
     whenEn: "A patient booked over WhatsApp without a person being involved.",
@@ -275,6 +305,7 @@ export const NOTIFY_EVENTS: readonly NotifyEvent[] = [
   {
     id: "botRescheduled",
     group: "frontdesk",
+    waReady: true,
     en: "The bot moved an appointment",
     ar: "البوت عدّل ميعاد",
     whenEn: "A patient changed their own time over WhatsApp.",
@@ -286,6 +317,7 @@ export const NOTIFY_EVENTS: readonly NotifyEvent[] = [
   {
     id: "botCancelled",
     group: "frontdesk",
+    waReady: true,
     en: "The bot cancelled an appointment",
     ar: "البوت لغى ميعاد",
     whenEn: "A patient cancelled over WhatsApp. The slot is now free.",
@@ -297,6 +329,7 @@ export const NOTIFY_EVENTS: readonly NotifyEvent[] = [
   {
     id: "patientRequestedChange",
     group: "frontdesk",
+    waReady: true,
     en: "A patient is asking to cancel, move, or says they'll be late",
     ar: "مريض بيطلب إلغاء أو تعديل أو بيقول هيتأخر",
     whenEn: "Asked for, not done — somebody has to act on it.",
@@ -305,6 +338,49 @@ export const NOTIFY_EVENTS: readonly NotifyEvent[] = [
     bell: true,
     push: true,
     ignoresQuietHours: true,
+  },
+
+  // The three appointment alerts that used to be the "Appointments" row of the owner-alert grid on
+  // Settings → WhatsApp. Staff actions only: the bot's and the public page's bookings have their
+  // own rows above, and an owner who wants "every booking" switches all of them on.
+  {
+    id: "appointmentAdded",
+    group: "frontdesk",
+    waReady: true,
+    legacyOwnerKey: "appointment_add",
+    en: "The desk booked an appointment",
+    ar: "الاستقبال حجز ميعاد",
+    whenEn: "Every booking made by a staff member, as it is saved. Bot and online bookings are the rows above.",
+    whenAr: "كل حجز بيعمله موظف، لحظة ما يتحفظ. حجوزات البوت والصفحة العامة ليها صفوفها فوق.",
+    roles: ["Owner"],
+    bell: false,
+    push: false,
+  },
+  {
+    id: "appointmentEdited",
+    group: "frontdesk",
+    waReady: true,
+    legacyOwnerKey: "appointment_edit",
+    en: "An appointment was moved or changed",
+    ar: "ميعاد اتنقل أو اتعدّل",
+    whenEn: "A staff member rescheduled, changed the dentist, or edited the details.",
+    whenAr: "موظف غيّر الميعاد أو الدكتور أو التفاصيل.",
+    roles: ["Owner"],
+    bell: false,
+    push: false,
+  },
+  {
+    id: "appointmentDeleted",
+    group: "frontdesk",
+    waReady: true,
+    legacyOwnerKey: "appointment_delete",
+    en: "An appointment was deleted",
+    ar: "ميعاد اتمسح",
+    whenEn: "A staff member removed a booking from the diary altogether.",
+    whenAr: "موظف مسح حجز من اليومية خالص.",
+    roles: ["Owner"],
+    bell: false,
+    push: false,
   },
 
   // --- Leads ---------------------------------------------------------------------------------
@@ -364,11 +440,13 @@ export const NOTIFY_EVENTS: readonly NotifyEvent[] = [
   // --- Daily briefs --------------------------------------------------------------------------
   {
     id: "morningBriefClinic",
-    group: "briefs",
+    group: "reports",
+    waReady: true,
+    report: "morning",
     en: "The clinic's morning brief",
     ar: "ملخص الصباح للعيادة",
-    whenEn: "How many are booked today and what time the first one is.",
-    whenAr: "كام محجوز النهارده وأول ميعاد إمتى.",
+    whenEn: "Today's bookings and first slot; on WhatsApp also yesterday's money, what to chase, and who is rostered.",
+    whenAr: "حجوزات النهارده وأول ميعاد؛ وعلى واتساب كمان فلوس إمبارح، اللي محتاج متابعة، ومين شغال.",
     roles: ["Owner", "Admin", "Receptionist"],
     bell: true,
     push: true,
@@ -376,7 +454,9 @@ export const NOTIFY_EVENTS: readonly NotifyEvent[] = [
   },
   {
     id: "morningBriefDentist",
-    group: "briefs",
+    group: "reports",
+    waReady: true,
+    report: "dentistDay",
     en: "Each dentist's own day",
     ar: "يوم كل دكتور",
     whenEn: "Sent to each dentist separately, containing only their own patients.",
@@ -389,13 +469,59 @@ export const NOTIFY_EVENTS: readonly NotifyEvent[] = [
   },
 
   // --- Money ---------------------------------------------------------------------------------
+  // The "Finance" row of the old owner-alert grid, one alert per action. Money stays with the
+  // people who own it: the ceiling is Owner and Admin, and a receptionist cannot be added.
+  {
+    id: "paymentAdded",
+    group: "money",
+    waReady: true,
+    legacyOwnerKey: "finance_add",
+    en: "A payment was recorded",
+    ar: "دفعة اتسجّلت",
+    whenEn: "Every payment or expense entered, with the amount, the patient and who took it.",
+    whenAr: "كل دفعة أو مصروف بيتسجّل، بالمبلغ والمريض ومين استلم.",
+    roles: ["Owner"],
+    rolesMax: ["Owner", "Admin"],
+    bell: false,
+    push: false,
+  },
+  {
+    id: "paymentEdited",
+    group: "money",
+    waReady: true,
+    legacyOwnerKey: "finance_edit",
+    en: "A payment was changed after the fact",
+    ar: "دفعة اتعدّلت بعد ما اتسجّلت",
+    whenEn: "An amount, method or date on an existing ledger row was edited.",
+    whenAr: "مبلغ أو طريقة دفع أو تاريخ في سطر موجود اتعدّل.",
+    roles: ["Owner"],
+    rolesMax: ["Owner", "Admin"],
+    bell: false,
+    push: false,
+  },
+  {
+    id: "paymentDeleted",
+    group: "money",
+    waReady: true,
+    legacyOwnerKey: "finance_delete",
+    en: "A payment was deleted",
+    ar: "دفعة اتمسحت",
+    whenEn: "A ledger row was removed. The one money alert worth leaving on everywhere.",
+    whenAr: "سطر من الدفتر اتمسح. تنبيه الفلوس الوحيد اللي يستاهل يفضل شغال في كل مكان.",
+    roles: ["Owner"],
+    rolesMax: ["Owner", "Admin"],
+    bell: false,
+    push: false,
+  },
   {
     id: "eveningDigest",
-    group: "money",
+    group: "reports",
+    waReady: true,
+    report: "evening",
     en: "The day, closed out",
     ar: "اليوم بعد ما يخلص",
-    whenEn: "What came through the door today, and who was late or absent.",
-    whenAr: "اللي دخل النهارده، ومين اتأخر أو غاب.",
+    whenEn: "Collected, seen and missed today; on WhatsApp the full close-out with per-dentist figures, new patients and leads, and attendance.",
+    whenAr: "اللي اتحصّل واللي اتشاف واللي غاب النهارده؛ وعلى واتساب الإقفال الكامل بأرقام كل دكتور والمرضى والعملاء الجداد والحضور.",
     roles: ["Owner", "Admin"],
     rolesMax: ["Owner", "Admin"],
     bell: true,
@@ -418,6 +544,7 @@ export const NOTIFY_EVENTS: readonly NotifyEvent[] = [
   {
     id: "labCaseBack",
     group: "clinic",
+    waReady: true,
     en: "A lab case is back",
     ar: "حالة معمل وصلت",
     whenEn: "Somebody marked a case received. Call the patient and book the fitting.",
@@ -465,6 +592,7 @@ export const NOTIFY_EVENTS: readonly NotifyEvent[] = [
   {
     id: "unhappyReview",
     group: "clinic",
+    waReady: true,
     en: "A patient rated their visit poorly",
     ar: "مريض قيّم الزيارة وحش",
     whenEn: "Reaches the manager's pocket instead of Google. A call the same day is what turns it around.",
@@ -479,6 +607,7 @@ export const NOTIFY_EVENTS: readonly NotifyEvent[] = [
   {
     id: "fiveStarReview",
     group: "clinic",
+    waReady: true,
     en: "A patient left five stars",
     ar: "مريض قيّم ٥ نجوم",
     whenEn: "Worth knowing the same day — that is when to ask them for a video.",
@@ -507,6 +636,7 @@ export const NOTIFY_EVENTS: readonly NotifyEvent[] = [
   {
     id: "aiCreditsOut",
     group: "delivery",
+    waReady: true,
     en: "The AI ran out of credit",
     ar: "رصيد الذكاء الاصطناعي خلص",
     whenEn: "The bot has stopped answering patients and is sending them all to reception.",
@@ -521,6 +651,7 @@ export const NOTIFY_EVENTS: readonly NotifyEvent[] = [
   {
     id: "messageWaitingManual",
     group: "delivery",
+    waReady: true,
     en: "A message is waiting to be sent by hand",
     ar: "رسالة مستنية تتبعت بالإيد",
     whenEn: "Only happens when WhatsApp sending is set to manual. Switch this off and nobody knows to send them.",
@@ -547,7 +678,55 @@ export function notifyEventsIn(group: NotifyGroup): NotifyEvent[] {
 export interface NotifyEventPref {
   bell?: boolean;
   push?: boolean;
+  whatsapp?: boolean;
   roles?: string[];
+}
+
+/** The four blocks a scheduled report is built from. Each can be switched off per report. */
+export type ReportSection = "money" | "appointments" | "patients" | "team";
+export const REPORT_SECTIONS: readonly ReportSection[] = ["money", "appointments", "patients", "team"];
+
+/** How much of the money a report spells out. */
+export type ReportMoneyDetail = "totals" | "dentists" | "full";
+export const REPORT_MONEY_DETAILS: readonly ReportMoneyDetail[] = ["totals", "dentists", "full"];
+
+export type ReportLanguage = "ar" | "en";
+
+/**
+ * One scheduled report's own settings, stored under `alertPreferences.reports.<eventId>`.
+ *
+ * Everything optional, for the same reason as the rest of this document: a clinic that never
+ * opened the page has `{}` and must still get a sensible report.
+ */
+export interface ReportPrefs {
+  sections?: Partial<Record<ReportSection, boolean>>;
+  moneyDetail?: ReportMoneyDetail;
+  /** Arrows against the same weekday last week and month-to-date. */
+  comparisons?: boolean;
+  language?: ReportLanguage;
+  /** A branded PDF alongside the text. Not built yet; stored so the switch survives the build. */
+  pdf?: boolean;
+}
+
+export interface ResolvedReportPrefs {
+  sections: Record<ReportSection, boolean>;
+  moneyDetail: ReportMoneyDetail;
+  comparisons: boolean;
+  language: ReportLanguage;
+  pdf: boolean;
+}
+
+/**
+ * One person's WhatsApp answers, stored under `alertPreferences.people.<uid>`.
+ *
+ * The phone lives here rather than on the staff row because nothing in this system ever asked a
+ * staff member for a WhatsApp number — staff rows have a name and a role and nothing else — and
+ * because this page's Save button already owns this document. `whatsapp: false` is a person-level
+ * mute the owner sets: "Dr Ahmed does not want these on his phone" without touching every row.
+ */
+export interface PersonPrefs {
+  phone?: string;
+  whatsapp?: boolean;
 }
 
 export interface QuietHours {
@@ -569,6 +748,13 @@ export interface AlertPreferences {
   events?: Record<string, NotifyEventPref>;
   timings?: Record<string, Record<string, number>>;
   quietHours?: QuietHours;
+  reports?: Record<string, ReportPrefs>;
+  people?: Record<string, PersonPrefs>;
+  /**
+   * The old Settings → WhatsApp grid (`settings/whatsapp.ownerAlerts`), merged in by the server
+   * when it reads preferences. Never written here — see `legacyOwnerKey` on the event.
+   */
+  legacyOwnerAlerts?: Record<string, boolean>;
   /** The two pre-catalogue switches. Read as a fallback, never written. */
   inApp?: Record<string, boolean>;
   /** Kept so nothing breaks for clinics that filled in the old, removed email section. */
@@ -580,6 +766,7 @@ export interface ResolvedNotify {
   event: NotifyEvent;
   bell: boolean;
   push: boolean;
+  whatsapp: boolean;
   roles: NotifyRole[];
 }
 
@@ -606,6 +793,16 @@ export function resolveNotify(eventId: string, prefs: AlertPreferences | null | 
 
   const bell = typeof saved?.bell === "boolean" ? saved.bell : legacy !== undefined ? legacy : event.bell;
   const push = typeof saved?.push === "boolean" ? saved.push : legacy !== undefined ? legacy : event.push;
+  // WhatsApp: the clinic's answer here, else the tick it left on the old owner-alert grid, else
+  // the catalogue — and never on for an alert the server cannot actually put on WhatsApp.
+  const legacyOwner = event.legacyOwnerKey ? prefs?.legacyOwnerAlerts?.[event.legacyOwnerKey] : undefined;
+  const whatsapp =
+    event.waReady === true &&
+    (typeof saved?.whatsapp === "boolean"
+      ? saved.whatsapp
+      : typeof legacyOwner === "boolean"
+        ? legacyOwner
+        : event.whatsapp === true);
 
   let roles: NotifyRole[] = [...event.roles];
   if (!event.rolesFixed && Array.isArray(saved?.roles)) {
@@ -619,7 +816,56 @@ export function resolveNotify(eventId: string, prefs: AlertPreferences | null | 
     roles = roles.filter((r) => max.includes(r));
   }
 
-  return { event, bell, push, roles };
+  return { event, bell, push, whatsapp, roles };
+}
+
+/* --- the scheduled reports ---------------------------------------------------------------------- */
+
+/** Every event that is a report, in page order. */
+export function reportEvents(): NotifyEvent[] {
+  return NOTIFY_EVENTS.filter((e) => e.report);
+}
+
+/**
+ * A report's settings as this clinic has them, defaults filled in.
+ *
+ * Arabic by default: the clinics this is sold to read Arabic, and a report is read by the owner
+ * at night on a phone, not by a developer. The team block is off on the morning brief because
+ * attendance is a fact about the day that has ended, not the one starting.
+ */
+export function reportPrefs(eventId: string, prefs: AlertPreferences | null | undefined): ResolvedReportPrefs {
+  const event = BY_ID.get(eventId);
+  const saved = prefs?.reports?.[eventId];
+  const isMorning = event?.report === "morning";
+  const pick = (key: ReportSection, fallback: boolean) =>
+    typeof saved?.sections?.[key] === "boolean" ? (saved.sections[key] as boolean) : fallback;
+  const detail = saved?.moneyDetail;
+  return {
+    sections: {
+      money: pick("money", true),
+      appointments: pick("appointments", true),
+      patients: pick("patients", true),
+      team: pick("team", !isMorning),
+    },
+    moneyDetail: detail && REPORT_MONEY_DETAILS.includes(detail) ? detail : "dentists",
+    comparisons: saved?.comparisons !== false,
+    language: saved?.language === "en" ? "en" : "ar",
+    pdf: saved?.pdf === true,
+  };
+}
+
+/* --- one person's WhatsApp ---------------------------------------------------------------------- */
+
+/** Whether this person receives WhatsApp at all, and the number the owner entered for them. */
+export function personWhatsapp(
+  uid: string,
+  prefs: AlertPreferences | null | undefined,
+): { enabled: boolean; phone: string } {
+  const p = prefs?.people?.[uid];
+  return {
+    enabled: p?.whatsapp !== false,
+    phone: typeof p?.phone === "string" ? p.phone.trim() : "",
+  };
 }
 
 /** One of an alert's numbers, as this clinic has set it — or what the code used before. */

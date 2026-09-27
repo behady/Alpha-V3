@@ -27,6 +27,7 @@
     "test:welcome": "npx tsx tests/welcomeJourney.test.mts",
     "_comment_test_notify": "The notification centre. Guards the promise that the settings page lists exactly what the clinic will be told: every alert the code raises has a row, every row has a sender, and no call site names its own audience (which would skip the settings, the bell and every personal mute). Also pins the two bugs it replaced - a toggle that read a different document from the one the page saved, and targeting that could not see an owner with no staff row - plus quiet hours, the clamped timings, and that the Cloud Functions copy of the catalogue is the current output.",
     "test:notify": "npx tsx tests/notifications.test.mts",
+    "test:staffreports": "npx tsx tests/staffReports.test.mts",
     "_comment_test_trial": "When a free trial actually stops, and who decides. The enforcement (firestore.rules isClinicActive, lib/clinicStatus) predated anything writing expiresAt, so trials ran forever; this guards the piece that closes the loop. Asymmetric failure modes: too lenient leaks revenue slowly, too strict stops a paying clinic's writes with a patient in the chair — so most cases here are about the second, including the backfill's grace floor.",
     "test:trial": "npx tsx tests/trialPolicy.test.mts",
     "test:features": "npx tsx tests/featureCatalog.test.mts",

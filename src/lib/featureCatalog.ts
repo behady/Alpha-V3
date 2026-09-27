@@ -57,6 +57,14 @@ export const FEATURE_CATALOG: FeatureInfo[] = [
     descAr: "ردود جاهزة وكلمات مفتاحية وحجز وتعديل مواعيد بقواعد ثابتة — بدون ذكاء اصطناعي وبدون تكلفة لكل رسالة. الردود بالذكاء الاصطناعي هي إضافة المساعد الذكي.",
   },
   {
+    key: "ownerAlertsLine",
+    group: "messaging",
+    labelEn: "Alerts line",
+    labelAr: "خط التنبيهات",
+    descEn: "Owner and staff alerts and the daily reports on WhatsApp from Alpha's own number, for a clinic that has not connected its own. Not needed once your number is connected.",
+    descAr: "تنبيهات المالك والفريق والتقارير اليومية على واتساب من رقم ألفا، للعيادة اللي لسه موصّلتش رقمها. مش محتاجه لو رقمك متوصّل.",
+  },
+  {
     key: "clinicalPdfs",
     group: "messaging",
     labelEn: "Clinical PDFs on WhatsApp",
