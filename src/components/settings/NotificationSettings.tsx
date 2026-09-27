@@ -397,6 +397,61 @@ export default function NotificationSettings({
         )}
       </section>
 
+      {/* --- WhatsApp recipients: a number per person, and a personal off switch. ------------ */}
+      <section>
+        <h3 className="mb-1 flex items-center gap-2 px-1 font-display text-[11px] font-black uppercase tracking-[0.18em] text-ink-muted">
+          <Users size={12} />
+          {txt.recipientsTitle}
+        </h3>
+        <p className="mb-3 max-w-2xl px-1 text-[12px] font-medium leading-relaxed text-ink-faint">{txt.recipientsNote}</p>
+        {waStatusText && (
+          <p className="mb-3 flex items-start gap-1.5 px-1 text-[12px] font-medium leading-relaxed text-ink-muted">
+            <MessageCircle size={12} className="mt-0.5 shrink-0" />
+            {waStatusText}
+          </p>
+        )}
+        <div className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface">
+          {people.length === 0 && (
+            <p className="px-4 py-3 text-[12.5px] font-medium text-ink-faint">{txt.noMembers}</p>
+          )}
+          {people.map((m) => {
+            const person = personWhatsapp(m.uid, prefs);
+            const roleName: Record<string, { en: string; ar: string }> = {
+              Owner: { en: txt.ownerLabel, ar: txt.ownerLabel },
+              Admin: { en: "Admin", ar: "مدير" },
+              Dentist: { en: "Dentist", ar: "دكتور" },
+              Receptionist: { en: "Reception", ar: "استقبال" },
+              Assistant: { en: "Assistant", ar: "مساعد" },
+            };
+            const role = roleName[m.role] ? (isAr ? roleName[m.role].ar : roleName[m.role].en) : m.role;
+            return (
+              <div key={m.uid} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13.5px] font-bold text-ink">{m.name || role}</span>
+                  <span className="text-[11px] font-bold text-ink-faint">{role}</span>
+                </span>
+                <input
+                  type="tel"
+                  dir="ltr"
+                  value={person.phone}
+                  onChange={(e) => setPerson(m.uid, "phone", e.target.value)}
+                  placeholder={m.role === "Owner" ? "+2010…" : txt.noPhone}
+                  className="w-44 rounded-xl border border-line bg-surface px-3 py-1.5 font-figure text-[13px] text-ink outline-none focus:border-accent"
+                />
+                <span className="flex items-center gap-2 text-[11px] font-bold text-ink-faint">
+                  {person.enabled ? txt.personOn : txt.personOff}
+                  <Toggle
+                    on={person.enabled}
+                    onChange={() => setPerson(m.uid, "whatsapp", !person.enabled)}
+                    label={person.enabled ? txt.personOn : txt.personOff}
+                  />
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
       {NOTIFY_GROUPS.map((group) => {
         const events = NOTIFY_EVENTS.filter((e) => e.group === group.id);
         if (events.length === 0) return null;
@@ -630,61 +685,6 @@ export default function NotificationSettings({
           </section>
         );
       })}
-
-      {/* --- WhatsApp recipients: a number per person, and a personal off switch. ------------ */}
-      <section>
-        <h3 className="mb-1 flex items-center gap-2 px-1 font-display text-[11px] font-black uppercase tracking-[0.18em] text-ink-muted">
-          <Users size={12} />
-          {txt.recipientsTitle}
-        </h3>
-        <p className="mb-3 max-w-2xl px-1 text-[12px] font-medium leading-relaxed text-ink-faint">{txt.recipientsNote}</p>
-        {waStatusText && (
-          <p className="mb-3 flex items-start gap-1.5 px-1 text-[12px] font-medium leading-relaxed text-ink-muted">
-            <MessageCircle size={12} className="mt-0.5 shrink-0" />
-            {waStatusText}
-          </p>
-        )}
-        <div className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface">
-          {people.length === 0 && (
-            <p className="px-4 py-3 text-[12.5px] font-medium text-ink-faint">{txt.noMembers}</p>
-          )}
-          {people.map((m) => {
-            const person = personWhatsapp(m.uid, prefs);
-            const roleName: Record<string, { en: string; ar: string }> = {
-              Owner: { en: txt.ownerLabel, ar: txt.ownerLabel },
-              Admin: { en: "Admin", ar: "مدير" },
-              Dentist: { en: "Dentist", ar: "دكتور" },
-              Receptionist: { en: "Reception", ar: "استقبال" },
-              Assistant: { en: "Assistant", ar: "مساعد" },
-            };
-            const role = roleName[m.role] ? (isAr ? roleName[m.role].ar : roleName[m.role].en) : m.role;
-            return (
-              <div key={m.uid} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13.5px] font-bold text-ink">{m.name || role}</span>
-                  <span className="text-[11px] font-bold text-ink-faint">{role}</span>
-                </span>
-                <input
-                  type="tel"
-                  dir="ltr"
-                  value={person.phone}
-                  onChange={(e) => setPerson(m.uid, "phone", e.target.value)}
-                  placeholder={m.role === "Owner" ? "+2010…" : txt.noPhone}
-                  className="w-44 rounded-xl border border-line bg-surface px-3 py-1.5 font-figure text-[13px] text-ink outline-none focus:border-accent"
-                />
-                <span className="flex items-center gap-2 text-[11px] font-bold text-ink-faint">
-                  {person.enabled ? txt.personOn : txt.personOff}
-                  <Toggle
-                    on={person.enabled}
-                    onChange={() => setPerson(m.uid, "whatsapp", !person.enabled)}
-                    label={person.enabled ? txt.personOn : txt.personOff}
-                  />
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </section>
 
       {/* --- Mine only. Saves itself; deliberately outside the clinic's Save button. --------- */}
       <section>
