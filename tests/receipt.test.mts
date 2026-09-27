@@ -291,4 +291,30 @@ const letterhead = { clinicName: "Alpha Dental", clinicPhone: "+20 100 000 0000"
   ok(en.includes("Print / Save as PDF"), "an English receipt gets an English bar");
 }
 
+
+// --- 9. The logo goes where the clinic puts it ------------------------------------------------------
+
+{
+  const logo = { url: "", dataUrl: "data:image/png;base64,AAAA", width: 200, height: 100 };
+  const withLogo = { ...letterhead, logo };
+  const at = (s: Record<string, unknown>) => buildDentalReceiptSrcDoc(sampleReceiptPayload("payment", withLogo), normalizeReceiptSettings(s));
+  const name = at({ logoPlacement: "name" });
+  ok(name.includes('<div class="logo"><img') && !name.includes('class="logo-top"') && !name.includes('class="logo logo-title"'), "beside the name: inside the left block only");
+  const top = at({ logoPlacement: "top" });
+  ok(top.includes('<div class="logo-top"><img') && top.indexOf("logo-top") < top.indexOf('class="hd"'), "above the header: a centred row before the header");
+  const title = at({ logoPlacement: "title" });
+  ok(title.includes('class="logo logo-title"'), "by the title: inside the right block");
+  const banner = at({ logoPlacement: "banner" });
+  ok(banner.includes('class="hd banner"') && banner.includes("logo-top"), "letterhead: centred header with the logo above it");
+  const custom = at({ logoSize: "custom", logoHeight: 96 });
+  ok(custom.includes('height="96"'), "custom size sets the height in px");
+  eq(normalizeReceiptSettings({ logoHeight: 999 }).logoHeight, 160, "custom height is capped");
+  eq(normalizeReceiptSettings({ logoHeight: 3 }).logoHeight, 24, "custom height has a floor");
+  eq(normalizeReceiptSettings({ logoPlacement: "left" }).logoPlacement, "name", "unknown placement falls back to beside the name");
+  const roll = at({ template: "thermal", logoPlacement: "title" });
+  ok(roll.includes('<div class="logo"><img') && !roll.includes('class="logo logo-title"'), "the roll ignores placement: always centred at the top");
+  const hidden = at({ logoSize: "none", logoPlacement: "banner" });
+  ok(!hidden.includes("<img"), "hidden means hidden, whatever the placement");
+}
+
 console.log(`receipt: ${passed} checks passed`);

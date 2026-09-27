@@ -35,7 +35,9 @@ export type ReceiptTemplate = "classic" | "modern" | "minimal" | "thermal";
 export type ReceiptFont = "tajawal" | "cairo" | "noto-naskh" | "ibm-plex";
 export type ReceiptPaper = "a4" | "a5" | "thermal80";
 export type ReceiptLanguage = "ar" | "en" | "both";
-export type ReceiptLogoSize = "none" | "small" | "medium" | "large";
+export type ReceiptLogoSize = "none" | "small" | "medium" | "large" | "custom";
+/** Where the logo sits: beside the clinic name, centred above the header, by the title, or as a centred letterhead. */
+export type ReceiptLogoPlacement = "name" | "top" | "title" | "banner";
 
 /** Which blocks and lines the receipt prints. Every switch defaults to on except the two that add noise. */
 export type ReceiptShowFlags = {
@@ -100,6 +102,9 @@ export type ReceiptSettings = {
   paper: ReceiptPaper;
   language: ReceiptLanguage;
   logoSize: ReceiptLogoSize;
+  /** Height in CSS px when `logoSize` is "custom". */
+  logoHeight: number;
+  logoPlacement: ReceiptLogoPlacement;
   /** A line under the title, e.g. "Thank you for visiting". Blank prints nothing. */
   headerNote: string;
   /** Replaces the default "generated automatically, no signature required" line. Blank keeps the default. */
@@ -156,6 +161,8 @@ export const DEFAULT_RECEIPT_SETTINGS: ReceiptSettings = {
   paper: "a4",
   language: "ar",
   logoSize: "medium",
+  logoHeight: 52,
+  logoPlacement: "name",
   headerNote: "",
   footerText: "",
   numberPrefix: "R-",
@@ -169,7 +176,10 @@ const TEMPLATES: ReceiptTemplate[] = ["classic", "modern", "minimal", "thermal"]
 const FONTS: ReceiptFont[] = ["tajawal", "cairo", "noto-naskh", "ibm-plex"];
 const PAPERS: ReceiptPaper[] = ["a4", "a5", "thermal80"];
 const LANGUAGES: ReceiptLanguage[] = ["ar", "en", "both"];
-const LOGO_SIZES: ReceiptLogoSize[] = ["none", "small", "medium", "large"];
+const LOGO_SIZES: ReceiptLogoSize[] = ["none", "small", "medium", "large", "custom"];
+const LOGO_PLACEMENTS: ReceiptLogoPlacement[] = ["name", "top", "title", "banner"];
+export const LOGO_HEIGHT_MIN = 24;
+export const LOGO_HEIGHT_MAX = 160;
 
 function pick<T extends string>(value: unknown, allowed: T[], fallback: T): T {
   return typeof value === "string" && (allowed as string[]).includes(value) ? (value as T) : fallback;
@@ -181,6 +191,12 @@ function str(value: unknown, fallback = ""): string {
 
 function bool(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
+}
+
+function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(n)));
 }
 
 function hex(value: unknown, fallback: string): string {
@@ -212,6 +228,8 @@ export function normalizeReceiptSettings(raw: unknown): ReceiptSettings {
     paper: pick(r.paper, PAPERS, DEFAULT_RECEIPT_SETTINGS.paper),
     language: pick(r.language, LANGUAGES, DEFAULT_RECEIPT_SETTINGS.language),
     logoSize: pick(r.logoSize, LOGO_SIZES, DEFAULT_RECEIPT_SETTINGS.logoSize),
+    logoHeight: clampInt(r.logoHeight, LOGO_HEIGHT_MIN, LOGO_HEIGHT_MAX, DEFAULT_RECEIPT_SETTINGS.logoHeight),
+    logoPlacement: pick(r.logoPlacement, LOGO_PLACEMENTS, DEFAULT_RECEIPT_SETTINGS.logoPlacement),
     headerNote: str(r.headerNote).slice(0, 200),
     footerText: str(r.footerText).slice(0, 300),
     numberPrefix: str(r.numberPrefix, DEFAULT_RECEIPT_SETTINGS.numberPrefix).slice(0, 12),

@@ -264,7 +264,7 @@ const FONT_FAMILIES: Record<ReceiptSettings["font"], { css: string; google: stri
   "ibm-plex": { css: "'IBM Plex Sans Arabic', Tahoma, sans-serif", google: "IBM+Plex+Sans+Arabic:wght@400;500;600;700" },
 };
 
-const LOGO_PX: Record<ReceiptSettings["logoSize"], { h: number; w: number }> = {
+const LOGO_PX: Record<Exclude<ReceiptSettings["logoSize"], "custom">, { h: number; w: number }> = {
   none: { h: 0, w: 0 },
   small: { h: 36, w: 90 },
   medium: { h: 52, w: 130 },
@@ -328,6 +328,17 @@ function buildCss(s: ReceiptSettings): string {
     [dir="ltr"] .num { text-align: right; }
     .lbl { font-size: 10px; font-weight: 700; letter-spacing: .02em; }
     .hd .left { flex: 1 1 auto; }
+    /* Logo above the header, centred. */
+    .logo-top { display: flex; justify-content: center; margin: 0 0 14px; }
+    /* Logo on the title side, pushed to that side's edge. */
+    .logo-title { display: flex; justify-content: flex-start; margin-bottom: 8px; }
+    [dir="ltr"] .logo-title { justify-content: flex-end; }
+    /* Letterhead: everything centred, the title row below the name. */
+    .hd.banner { flex-direction: column; align-items: center; text-align: center; gap: 10px; }
+    .hd.banner .left { justify-content: center; text-align: center; }
+    .hd.banner .contact { justify-content: center; }
+    .hd.banner .right { max-width: none; margin: 0; text-align: center; }
+    .hd.banner .title, [dir="ltr"] .hd.banner .title { text-align: center; }
     .hd .right { flex: 0 0 auto; max-width: 46%; margin-inline-start: 18px; }
     .hd .name { overflow-wrap: anywhere; }
     .meta { white-space: nowrap; }
@@ -497,11 +508,15 @@ export function buildDentalReceiptSrcDoc(
     en ? line.replace(/^الطبيب:\s*/, `${LABELS.doctor.en}: `) : line;
 
   // --- header -------------------------------------------------------------------------------
-  const logoBox = LOGO_PX[s.logoSize];
+  // Custom size: the height is the setting; the width is free up to three times it, so a wide
+  // wordmark and a square badge both come out at the height the clinic chose.
+  const logoBox = s.logoSize === "custom" ? { h: s.logoHeight, w: s.logoHeight * 3 } : LOGO_PX[s.logoSize];
   const logoImg =
     s.logoSize === "none"
       ? ""
       : logoImgHtml(p.logo, logoBox.h, logoBox.w);
+  // The roll has one column, so the logo is always centred there.
+  const placement = thermal ? "top" : s.logoPlacement;
 
   const contact: string[] = [];
   if (show.clinicPhone && p.clinicPhone) contact.push(`<span class="ltr nw">${LRM}${esc(p.clinicPhone)}</span>`);
@@ -526,15 +541,31 @@ export function buildDentalReceiptSrcDoc(
         <div class="title">${title}</div>
         ${metaHtml}
       </div>`
-    : `<div class="hd">
+    : placement === "banner"
+      ? `${logoImg ? `<div class="logo-top">${logoImg}</div>` : ""}
+      <div class="hd banner">
         <div class="left">
-          ${logoImg ? `<div class="logo">${logoImg}</div>` : ""}
           <div style="min-width:0;">
             <div class="name">${esc(p.clinicName)}</div>
             <div class="contact">${contactHtml}</div>
           </div>
         </div>
         <div class="right">
+          <div class="title">${title}</div>
+          ${metaHtml}
+        </div>
+      </div>`
+      : `${placement === "top" && logoImg ? `<div class="logo-top">${logoImg}</div>` : ""}
+      <div class="hd">
+        <div class="left">
+          ${placement === "name" && logoImg ? `<div class="logo">${logoImg}</div>` : ""}
+          <div style="min-width:0;">
+            <div class="name">${esc(p.clinicName)}</div>
+            <div class="contact">${contactHtml}</div>
+          </div>
+        </div>
+        <div class="right">
+          ${placement === "title" && logoImg ? `<div class="logo logo-title">${logoImg}</div>` : ""}
           <div class="title">${title}</div>
           ${metaHtml}
         </div>
