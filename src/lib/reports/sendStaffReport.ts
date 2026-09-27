@@ -96,6 +96,8 @@ export interface SendStaffReportArgs {
   test?: boolean;
   /** The tester is a platform superadmin with no role at this clinic; treat them as its owner. */
   allowOutsiders?: boolean;
+  /** Asked for on the staff line: WhatsApp only, to these uids, whether or not the clinic's switch is on. */
+  onDemand?: boolean;
   /** The day the report is about. Defaults to today in the clinic's zone. */
   dateKey?: string;
 }
@@ -128,6 +130,7 @@ export async function sendStaffReport(args: SendStaffReportArgs): Promise<Delive
         ...(args.uids ? { uids: args.uids } : {}),
         whatsappOnly: !args.test,
         ...(args.allowOutsiders ? { allowOutsiders: true } : {}),
+        ...(args.onDemand ? { forceWhatsapp: true } : {}),
         data: { screen: "money" },
         whatsappText: text,
       },
@@ -155,6 +158,7 @@ export async function sendStaffReport(args: SendStaffReportArgs): Promise<Delive
       ...(args.uids ? { uids: args.uids } : {}),
       whatsappOnly: !args.test,
       ...(args.allowOutsiders ? { allowOutsiders: true } : {}),
+      ...(args.onDemand ? { forceWhatsapp: true } : {}),
       data: { screen: kind === "evening" ? "money" : "day" },
       whatsappTextFor: ({ uid, role }) => {
         const access = reportAccessForRole(role);

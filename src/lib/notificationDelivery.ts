@@ -169,6 +169,11 @@ export interface DeliverOptions {
    * treated as its owner for that one message. Never set from a clinic's own action.
    */
   allowOutsiders?: boolean;
+  /**
+   * Send on WhatsApp even when the clinic's switch for this alert is off: a report a staff member
+   * asked for by writing to the clinic's number. Only ever with explicit `uids`.
+   */
+  forceWhatsapp?: boolean;
 }
 
 export interface DeliverResult {
@@ -197,7 +202,7 @@ export async function deliverClinicNotification(
 ): Promise<DeliverResult> {
   const none: DeliverResult = { raised: false, bellWritten: false, pushed: 0, whatsapped: 0 };
   try {
-    const { event, uids = null, roles = null, channel = null, data = null, actionUrl, whatsappText, whatsappTextFor, whatsappOnly = false, allowOutsiders = false } = options;
+    const { event, uids = null, roles = null, channel = null, data = null, actionUrl, whatsappText, whatsappTextFor, whatsappOnly = false, allowOutsiders = false, forceWhatsapp = false } = options;
 
     const prefs = event ? await readAlertPreferences(clinicId) : {};
     const resolved = event ? resolveNotify(event, prefs) : null;
@@ -206,7 +211,8 @@ export async function deliverClinicNotification(
       // dropping it: a silently swallowed alert is far worse than an unconfigurable one.
       console.warn(`deliverClinicNotification: unknown event "${event}" — sending ungated`);
     }
-    if (resolved && !resolved.bell && !resolved.push && !resolved.whatsapp) {
+    const wantWhatsapp = resolved ? resolved.whatsapp || (forceWhatsapp && uids !== null) : false;
+    if (resolved && !resolved.bell && !resolved.push && !wantWhatsapp) {
       return { ...none, reason: "off" };
     }
 
@@ -279,9 +285,9 @@ export async function deliverClinicNotification(
      */
     let whatsapped = 0;
     let whatsappReason: DeliverResult["whatsappReason"];
-    if (resolved?.whatsapp) {
+    if (resolved && wantWhatsapp) {
       const hour = clinicHourNow();
-      const quiet = !resolved.event.ignoresQuietHours && !resolved.event.report && inQuietHours(prefs, hour);
+      const quiet = !forceWhatsapp && !resolved.event.ignoresQuietHours && !resolved.event.report && inQuietHours(prefs, hour);
       if (quiet) {
         whatsappReason = "quiet";
       } else {

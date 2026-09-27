@@ -20,6 +20,7 @@ import {
   resolveNotify,
 } from "../src/lib/notificationCatalog";
 import { renderStaffReport, reportPushLine } from "../src/lib/reports/staffReportText";
+import { samePhone, staffHelpText, staffIntent, staffLanguage } from "../src/lib/bot/staffLine";
 import type { Briefing } from "../src/lib/automation/briefing/types";
 import { FEATURE_CATALOG } from "../src/lib/featureCatalog";
 import { TIER_LIMITS } from "../src/lib/subscriptions";
@@ -78,7 +79,7 @@ function eq<T>(actual: T, expected: T, message: string) {
   const only = resolveNotify("eveningDigest", { events: { eveningDigest: { bell: false, push: false, whatsapp: true } } });
   ok(only && !only.bell && !only.push && only.whatsapp, "WhatsApp-only did not resolve");
   ok(
-    /!resolved\.bell && !resolved\.push && !resolved\.whatsapp/.test(read("src/lib/notificationDelivery.ts")),
+    /!resolved\.bell && !resolved\.push && !wantWhatsapp/.test(read("src/lib/notificationDelivery.ts")) && /wantWhatsapp = resolved \? resolved\.whatsapp/.test(read("src/lib/notificationDelivery.ts")),
     "notificationDelivery treats bell-off + push-off as 'off' and never reaches the WhatsApp leg",
   );
 }
@@ -290,6 +291,41 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
 
   // WhatsApp-only for the cron, so the Functions push is not doubled.
   ok(read("src/lib/reports/sendStaffReport.ts").includes("whatsappOnly: !args.test"), "the report cron would also push and write the bell, doubling the Functions job");
+}
+
+// --- 5. The staff line ---------------------------------------------------------------------------
+{
+  eq(staffIntent("تقرير"), "evening", "Arabic 'report'");
+  eq(staffIntent("ابعتلي الاقفال"), "evening", "Arabic close-out");
+  eq(staffIntent("report please"), "evening", "English report");
+  eq(staffIntent("النهارده"), "morning", "Arabic today");
+  eq(staffIntent("today"), "morning", "English today");
+  eq(staffIntent("ملخص"), "summary", "Arabic summary");
+  eq(staffIntent("Hi"), "help", "a greeting is help");
+  eq(staffIntent("Do you know who am i?"), "help", "a question the line cannot answer is help");
+  // The owner types 01551552440 on the page; Meta delivers 201551552440; both are the same phone.
+  ok(samePhone("01551552440", "201551552440"), "a local number does not match its international form");
+  ok(samePhone("01551552440", "+201551552440"), "a local number does not match E.164");
+  ok(!samePhone("01551552440", "01551552441"), "different numbers match");
+  ok(!samePhone("", "201551552440"), "an empty number matches");
+  ok(!read("src/lib/staffWhatsapp.ts").includes("normalizeToE164(args.to)"), "the staff sender uses the strict normaliser and drops every 01x number typed on the page");
+  eq(staffLanguage("Hi"), "en", "Latin → English");
+  eq(staffLanguage("ازيك"), "ar", "Arabic → Arabic");
+  const help = staffHelpText({ uid: "u", role: "Owner", name: "Ahmed" }, "Alpha Dental", "en");
+  ok(help.includes("Ahmed") && help.includes("Owner") && help.includes("not as a patient"), "the greeting does not say who the sender is");
+  ok(!/STOP/.test(help), "the staff greeting carries the patient opt-out footer");
+  const helpAr = staffHelpText({ uid: "u", role: "Dentist", name: "" }, "ألفا", "ar");
+  ok(helpAr.includes("دكتور") && helpAr.includes("*تقرير*"), "the Arabic greeting lacks the role or the keywords");
+  // The owner's chat never reaches the inbox: both webhooks intercept before the thread write,
+  // and the inbox hides anything flagged staffLine.
+  const meta = read("src/app/api/webhooks/meta-whatsapp/route.ts");
+  ok(meta.indexOf("interceptStaffInbound(") > 0 && meta.indexOf("interceptStaffInbound(") < meta.indexOf("const lineId = await rememberInbound("), "the Meta webhook records the owner's message in the inbox before asking whether he is staff");
+  const wap = read("src/app/api/webhooks/whatsapp-inbound/route.ts");
+  ok(wap.indexOf("interceptStaffInbound(") > 0 && wap.indexOf("interceptStaffInbound(") < wap.indexOf("const lineId = await recordThreadMessage("), "the Wapilot webhook records the owner's message in the inbox before asking whether he is staff");
+  ok(/staffLine !== true/.test(read("src/components/ai/ChatsPanel.tsx")), "the Chats inbox shows staff-line conversations to the whole desk");
+  ok(/needsHuman: false/.test(read("src/lib/bot/staffLine.ts")), "an owner's old handoff row keeps paging staff about a waiting patient");
+  const respond = read("src/lib/bot/respond.ts");
+  ok(respond.indexOf("findStaffByPhone(") < respond.indexOf("if (!settings.enabled)"), "the staff check runs after the patient gates — the owner is a patient again when the bot is off");
 }
 
 console.log(`staffReports: ${checks} checks passed`);

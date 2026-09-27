@@ -330,7 +330,9 @@ export default function ChatsPanel({
         const mine = playgroundIdFor(user.uid);
         setChats(
           snap.docs
-            .filter((d) => !d.id.startsWith("play_") || d.id === mine)
+            // A staff member's own chat with the clinic number (the owner asking for a report) is
+            // flagged staffLine by the webhook and is nobody's business at the front desk.
+            .filter((d) => (!d.id.startsWith("play_") || d.id === mine) && d.data().staffLine !== true)
             .map((d) => ({ id: d.id, ...d.data(), ...(d.id === mine ? { isPlayground: true } : {}) } as ChatRow))
         );
         setLoading(false);

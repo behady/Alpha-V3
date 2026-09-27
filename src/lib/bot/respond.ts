@@ -1,4 +1,5 @@
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
+import { findStaffByPhone, respondToStaffMessage } from "@/lib/bot/staffLine";
 import { FieldValue } from "firebase-admin/firestore";
 import {
   computeAvailableSlots,
@@ -481,6 +482,19 @@ export async function respondToPatientMessage(args: {
 }): Promise<BotOutcome> {
   const { clinicId, chatId, text } = args;
   const now = args.now ?? Date.now();
+
+  /*
+   * The clinic's own people first. A number entered on Settings → Alerts & reports is the owner
+   * or a colleague, whatever patient record happens to share it — the owner once wrote "Hi" to
+   * his own clinic and was greeted as a patient and offered a check-up. Checked before every
+   * patient gate (bot switch, plan, opt-out, strangers), because none of those is about them.
+   */
+  const senderPhone = /^\d{8,15}$/.test(args.phone || "") ? `+${args.phone}` : args.phone || "";
+  if (senderPhone && !args.dryRun) {
+    const staff = await findStaffByPhone(clinicId, senderPhone).catch(() => null);
+    if (staff) return respondToStaffMessage({ clinicId, to: senderPhone, text, sender: staff });
+  }
+
   // Every staff notification goes through this; the playground swaps in silence.
   const push: typeof sendClinicPush = args.dryRun
     ? async () => ({ raised: false, bellWritten: false, pushed: 0, whatsapped: 0 })
