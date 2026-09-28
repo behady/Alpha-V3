@@ -2087,6 +2087,18 @@ object Repository {
     }
 
     /** Whatever the person on the phone was told. Replaces the note rather than appending. */
+    /** Name, phone, interest and source, corrected at the desk. The stage and the money are untouched. */
+    suspend fun updateLeadDetails(clinicId: String, leadId: String, name: String, phone: String, interest: String, source: String): Result<Unit> = runCatching {
+        require(name.isNotBlank()) { "A lead needs a name." }
+        leads(clinicId).document(leadId).update(
+            mapOf(
+                "name" to name.trim(), "phone" to phone.trim(), "interest" to interest.trim(),
+                "source" to source.ifBlank { "Walk-in" }, "updatedAt" to FieldValue.serverTimestamp(),
+            )
+        ).await()
+        Unit
+    }
+
     suspend fun setLeadNotes(clinicId: String, leadId: String, notes: String): Result<Unit> = runCatching {
         leads(clinicId).document(leadId).update(
             mapOf("notes" to notes.trim(), "updatedAt" to FieldValue.serverTimestamp())

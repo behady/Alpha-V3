@@ -56,6 +56,7 @@ data class Stock(
 ) {
     val canAdd: Boolean get() = who?.can("inventory.add") == true
     val canEdit: Boolean get() = who?.can("inventory.edit") == true
+    val canDelete: Boolean get() = who?.can("inventory.delete") == true
 
     val openItem: StockRow? get() = items.firstOrNull { it.item.id == open }
 
@@ -198,6 +199,18 @@ class StockModel : ViewModel() {
         if (isNew && !_state.value.canAdd) return
         if (!isNew && !_state.value.canEdit) return
         write { Repository.saveInventoryItem(who.clinicId, item) }
+    }
+
+    /** To the recycle bin through the website's route, which is the only door that deletes. */
+    fun delete(id: String) {
+        val who = _state.value.who ?: return
+        if (!_state.value.canDelete || id.isBlank()) return
+        _state.value = _state.value.copy(busy = true, error = null)
+        viewModelScope.launch {
+            com.alphadental.clinic.data.RecycleBin.delete(who.clinicId, "inventory", id)
+                .onSuccess { _state.value = _state.value.copy(open = null); load() }
+                .onFailure { e -> _state.value = _state.value.copy(busy = false, error = readable(e)) }
+        }
     }
 
     private fun write(action: suspend () -> Result<Unit>) {

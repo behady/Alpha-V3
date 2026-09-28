@@ -114,6 +114,7 @@ data class Leads(
     val sources: List<String> = DEFAULT_LEAD_SOURCES,
 ) {
     val canEdit: Boolean get() = who?.can("access.marketing") == true
+    val canDelete: Boolean get() = who?.can("leads.delete") == true || who?.isAdmin == true
 
     val openLead: LeadRow? get() = leads.firstOrNull { it.lead.id == open }
 
@@ -282,6 +283,27 @@ class LeadsModel : ViewModel() {
         val row = _state.value.openLead ?: return
         if (!_state.value.canEdit) return
         write { Repository.setLeadNotes(who.clinicId, row.lead.id, notes) }
+    }
+
+    /** The person's own details, corrected. */
+    fun edit(name: String, phone: String, interest: String, source: String) {
+        val who = _state.value.who ?: return
+        val row = _state.value.openLead ?: return
+        if (!_state.value.canEdit || name.isBlank()) return
+        write { Repository.updateLeadDetails(who.clinicId, row.lead.id, name, phone, interest, source) }
+    }
+
+    /** To the recycle bin through the website's route, then back to the list. */
+    fun delete() {
+        val who = _state.value.who ?: return
+        val row = _state.value.openLead ?: return
+        if (!_state.value.canDelete) return
+        _state.value = _state.value.copy(busy = true, error = null)
+        viewModelScope.launch {
+            com.alphadental.clinic.data.RecycleBin.delete(who.clinicId, "leads", row.lead.id)
+                .onSuccess { _state.value = _state.value.copy(open = null); load() }
+                .onFailure { e -> _state.value = _state.value.copy(busy = false, error = readable(e)) }
+        }
     }
 
     fun add(name: String, phone: String, source: String, interest: String, notes: String) {

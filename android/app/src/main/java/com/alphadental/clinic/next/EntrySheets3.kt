@@ -194,6 +194,9 @@ fun PatientActionsSheet(
     onPlan: (() -> Unit)?,
     onBook: (() -> Unit)?,
     onOrtho: (() -> Unit)? = null,
+    /** The whole file to the recycle bin. Null when this account may not. */
+    onDelete: (() -> Unit)? = null,
+    deleteError: String? = null,
     /** Whether the clinic may message this patient automatically. Null hides the switches. */
     whatsappOn: Boolean? = null,
     smsOn: Boolean? = null,
@@ -257,7 +260,16 @@ fun PatientActionsSheet(
             SheetAction("Start orthodontic treatment", "Puts them on the ortho board", it)
             Rule()
         }
-        if (onPrescribe == null && onPlan == null && onBook == null && onOrtho == null) {
+        onDelete?.let { remove ->
+            var armed by remember(patientName) { mutableStateOf(false) }
+            SheetAction(
+                if (armed) "Tap again to remove the file" else "Remove this patient",
+                if (armed) "The file, its treatments and its money go to Recently deleted for thirty days." else "To Recently deleted, where it can be put back",
+            ) { if (armed) remove() else armed = true }
+            if (deleteError != null) Txt(deleteError, Type.caption, T.danger, Modifier.padding(horizontal = T.gutter, vertical = 6.dp), maxLines = 3)
+            Rule()
+        }
+        if (onPrescribe == null && onPlan == null && onBook == null && onOrtho == null && onDelete == null) {
             Txt(
                 "This account has nothing else it can do on a patient's file.",
                 Type.caption, T.inkMuted,

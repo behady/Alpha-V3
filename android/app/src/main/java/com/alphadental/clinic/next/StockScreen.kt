@@ -297,6 +297,7 @@ private fun StockItemScreen(state: Stock, onBack: () -> Unit, actions: StockActi
             state = state,
             onBack = { editing = false },
             onSave = { actions.save(it); editing = false },
+            onDelete = if (state.canDelete) ({ actions.delete(row.item.id); editing = false }) else null,
         )
         return
     }
@@ -467,9 +468,12 @@ private fun ItemEditor(
     state: Stock,
     onBack: () -> Unit,
     onSave: (InventoryItem) -> Unit,
+    onDelete: (() -> Unit)? = null,
 ) {
     BackHandler { onBack() }
     val isNew = item.id.isBlank()
+    /** Removing stock asks twice. The first tap arms it, the second does it. */
+    var armed by remember(item.id) { mutableStateOf(false) }
 
     var name by remember(item.id) { mutableStateOf(item.name) }
     var category by remember(item.id) { mutableStateOf(item.category) }
@@ -591,6 +595,19 @@ private fun ItemEditor(
                     enabled = name.isNotBlank() && (if (isNew) state.canAdd else state.canEdit),
                 ) { onSave(edited) }
             }
+            if (!isNew && onDelete != null) {
+                item {
+                    Row(Modifier.padding(horizontal = T.gutter, vertical = 10.dp)) {
+                        SettingsPill(if (armed) "Tap again to remove it" else "Remove this item", danger = true) {
+                            if (armed) onDelete() else armed = true
+                        }
+                    }
+                    Txt(
+                        "It goes to Recently deleted under Settings, where it can be put back for thirty days. Its count history stays.",
+                        Type.caption, T.inkFaint, Modifier.padding(horizontal = T.gutter), maxLines = 3,
+                    )
+                }
+            }
         }
     }
 }
@@ -633,4 +650,6 @@ data class StockActions(
     val close: () -> Unit,
     val adjust: (Double) -> Unit,
     val save: (InventoryItem) -> Unit,
+    /** To Recently deleted, where it can be put back for thirty days. */
+    val delete: (String) -> Unit = {},
 )

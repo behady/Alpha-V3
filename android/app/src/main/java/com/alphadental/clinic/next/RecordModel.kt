@@ -134,6 +134,7 @@ data class RecordState(
 
     /** Changing who somebody is, rather than what was done to them. */
     val canEditDetails: Boolean get() = who?.can("patients.edit") == true
+    val canDeletePatient: Boolean get() = who?.can("patients.delete") == true
 
     /** What has been done to each tooth, for the chart's marks. Decided by price-list category. */
     val treatments: Map<Int, List<com.alphadental.clinic.next.data.ToothTreatment>>
@@ -993,6 +994,38 @@ class RecordModel : ViewModel() {
 
     fun view(url: String?) {
         _state.value = _state.value.copy(viewing = url)
+    }
+
+    /** The picture on screen, to the recycle bin. The file stays in storage until the bin is emptied. */
+    fun deleteViewing() {
+        val who = _state.value.who ?: return
+        val record = _state.value.record ?: return
+        val url = _state.value.viewing ?: return
+        val media = _state.value.media.firstOrNull { it.url == url } ?: return
+        if (!_state.value.canEditDetails) return
+        _state.value = _state.value.copy(viewing = null, mediaError = null)
+        viewModelScope.launch {
+            com.alphadental.clinic.data.RecycleBin.delete(who.clinicId, "patient_media", media.id)
+                .onSuccess { loadMedia(who, record.person.id) }
+                .onFailure { e -> _state.value = _state.value.copy(mediaError = e.message ?: "That picture could not be removed.") }
+        }
+    }
+
+    /**
+     * The whole file, to the recycle bin. The website's route bins the patient and carries the
+     * ledger and notes with it; thirty days to put it back. Refused when money is owed — the route
+     * says so and the sheet shows it.
+     */
+    fun deletePatient(onDone: () -> Unit) {
+        val who = _state.value.who ?: return
+        val record = _state.value.record ?: return
+        if (!_state.value.canDeletePatient) return
+        _state.value = _state.value.copy(error = null)
+        viewModelScope.launch {
+            com.alphadental.clinic.data.RecycleBin.delete(who.clinicId, "patients", record.person.id)
+                .onSuccess { onDone() }
+                .onFailure { e -> _state.value = _state.value.copy(error = e.message ?: "The file could not be removed.") }
+        }
     }
 
     /**

@@ -426,6 +426,42 @@ private fun LeadScreen(state: Leads, onBack: () -> Unit, actions: LeadActions) {
                 }
             }
 
+            item { SectionLabel("Details") }
+            item {
+                var name by remember(row.lead.id, row.lead.name) { mutableStateOf(row.lead.name) }
+                var phone by remember(row.lead.id, row.lead.phone) { mutableStateOf(row.lead.phone) }
+                var interest by remember(row.lead.id, row.lead.interest) { mutableStateOf(row.lead.interest) }
+                var source by remember(row.lead.id, row.lead.source) { mutableStateOf(row.lead.source) }
+                val dirty = name != row.lead.name || phone != row.lead.phone || interest != row.lead.interest || source != row.lead.source
+                RowGroup {
+                    SettingsField("Name", name, { name = it }, state.canEdit)
+                    SettingsField("Phone", phone, { phone = it }, state.canEdit, hint = "010…")
+                    SettingsField("Asked about", interest, { interest = it }, state.canEdit, hint = "Whitening")
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = T.gutter, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        (state.sources + listOf(source).filter { it.isNotBlank() }).distinct().forEach { s ->
+                            SettingsPill(s, solid = s == source) { if (state.canEdit) source = s }
+                        }
+                    }
+                    SettingsSave(dirty = dirty, enabled = state.canEdit && name.isNotBlank()) {
+                        actions.edit(name, phone, interest, source)
+                    }
+                }
+            }
+
+            if (state.canDelete) {
+                item {
+                    var armed by remember(row.lead.id) { mutableStateOf(false) }
+                    Row(Modifier.padding(horizontal = T.gutter, vertical = 14.dp)) {
+                        SettingsPill(if (armed) "Tap again to remove this lead" else "Remove this lead", danger = true) {
+                            if (armed) actions.delete() else armed = true
+                        }
+                    }
+                }
+            }
+
             item { SectionLabel("Where it came from") }
             item {
                 RowGroup {
@@ -665,4 +701,7 @@ data class LeadActions(
     val add: (String, String, String, String) -> Unit,
     val call: (String) -> Unit,
     val message: (String) -> Unit,
+    /** Name, phone, what they asked about, where they came from. */
+    val edit: (String, String, String, String) -> Unit = { _, _, _, _ -> },
+    val delete: () -> Unit = {},
 )

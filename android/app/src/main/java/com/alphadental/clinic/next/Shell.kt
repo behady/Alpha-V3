@@ -1238,7 +1238,13 @@ private fun RecordPane(
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(8.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    var armed by remember(url) { mutableStateOf(false) }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                        if (state.canEditDetails) {
+                            SettingsPill(if (armed) "Tap again to remove" else "Remove", danger = true) {
+                                if (armed) model.deleteViewing() else armed = true
+                            }
+                        }
                         SettingsPill("Close") { model.view(null) }
                     }
                 }
@@ -1271,6 +1277,10 @@ private fun RecordPane(
                     more = false
                     model.startOrtho()
                 }) else null,
+                onDelete = if (state.canDeletePatient) ({
+                    model.deletePatient { more = false; onBack() }
+                }) else null,
+                deleteError = state.error,
                 onDismiss = { more = false },
             )
         }
@@ -1588,6 +1598,7 @@ private fun StockPane(preview: Boolean, onBack: () -> Unit) {
             close = model::close,
             adjust = model::adjust,
             save = model::save,
+            delete = model::delete,
         ),
     )
 }
@@ -1643,6 +1654,8 @@ private fun LeadsPane(preview: Boolean, onBack: () -> Unit) {
             add = { name, phone, source, interest -> model.add(name, phone, source, interest, "") },
             call = { context.dial(it) },
             message = { context.whatsapp(it) },
+            edit = { name, phone, interest, source -> model.edit(name, phone, interest, source) },
+            delete = model::delete,
         ),
     )
 }
