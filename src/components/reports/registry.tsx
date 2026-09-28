@@ -15,8 +15,7 @@ import type { ComponentType, ReactNode } from "react";
 import {
   Activity, BarChart3, Building2, CalendarDays, CalendarRange, Clock, FlaskConical, Grid3x3, Heart, Landmark, MessageCircle, Network, Package, Percent, PieChart, Receipt, Repeat, Stethoscope, TableProperties, TrendingUp, UserCheck, UserPlus, Users, Wallet, Megaphone, ClipboardCheck, BellRing, Cake,
 } from "lucide-react";
-import type { DatasetKey } from "@/components/reports/useReportData";
-import type { FeatureKey } from "@/lib/featureCatalog";
+import { REPORT_CATALOG, REPORT_GROUP_META, type ReportGroupId, type ReportMeta } from "@/lib/reports/catalog";
 import type { ReportProps } from "@/components/reports/types";
 
 import ServiceReport from "@/components/reports/ServiceReport";
@@ -48,98 +47,50 @@ import WhatsappReport from "@/components/reports/WhatsappReport";
 import type { Payer } from "@/lib/payers";
 import type { LedgerRowLite } from "@/lib/payerReport";
 
-export type ReportGroupId = "overview" | "money" | "patients" | "operations" | "marketing";
+export type { ReportGroupId };
 
-export const REPORT_GROUPS: { id: ReportGroupId; en: string; ar: string; icon: ComponentType<{ size?: number; className?: string }> }[] = [
-  { id: "overview", en: "Overview", ar: "نظرة عامة", icon: Building2 },
-  { id: "money", en: "Money", ar: "الفلوس", icon: Wallet },
-  { id: "patients", en: "Patients", ar: "المرضى", icon: Users },
-  { id: "operations", en: "Operations", ar: "التشغيل", icon: Activity },
-  { id: "marketing", en: "Marketing", ar: "التسويق", icon: Megaphone },
-];
+export const REPORT_GROUPS: { id: ReportGroupId; en: string; ar: string; icon: ComponentType<{ size?: number; className?: string }> }[] = REPORT_GROUP_META.map((g) => ({
+  ...g,
+  icon: { overview: Building2, money: Wallet, patients: Users, operations: Activity, marketing: Megaphone }[g.id],
+}));
 
-export type ReportDef = {
-  id: string;
-  group: ReportGroupId;
-  en: string;
-  ar: string;
-  /** One line under the title, saying what the report answers. */
-  hintEn: string;
-  hintAr: string;
+export type ReportDef = ReportMeta & {
   icon: ComponentType<{ size?: number; className?: string }>;
-  needs: DatasetKey[];
-  /** The add-on this report belongs to; shown locked when the clinic does not have it. */
-  feature?: FeatureKey;
-  /** True when the report runs over the whole history rather than the range on screen. */
-  allTime?: boolean;
   render: (p: ReportProps & { payers: Payer[] }) => ReactNode;
 };
 
-export const REPORTS: ReportDef[] = [
-  // --- overview ----------------------------------------------------------------------------------
-  { id: "clinic", group: "overview", en: "Clinic Overview", ar: "نظرة عامة", hintEn: "The period in one screen.", hintAr: "الفترة في شاشة واحدة.", icon: Building2, needs: [],
-    render: (p) => <ClinicReport procedures={p.procedures} payments={p.payments} allPatients={p.allPatients} startDate={p.range.start} endDate={p.range.end} rangeLabel={p.rangeLabel} isAr={p.isAr} /> },
-  { id: "compare", group: "overview", en: "vs Previous Period", ar: "مقارنة بالفترة السابقة", hintEn: "This period against the one before it.", hintAr: "الفترة دي مقابل اللي قبلها.", icon: CalendarRange, needs: ["ledgerPrev"],
-    render: (p) => <CompareReport {...p} mode="previous" /> },
-  { id: "lastYear", group: "overview", en: "vs Last Year", ar: "مقارنة بالسنة اللي فاتت", hintEn: "The same dates a year earlier.", hintAr: "نفس التواريخ السنة اللي فاتت.", icon: Repeat, needs: ["ledgerLastYear"],
-    render: (p) => <CompareReport {...p} mode="lastYear" /> },
-  { id: "year", group: "overview", en: "Year in Review", ar: "السنة شهر بشهر", hintEn: "The last twelve months, month by month.", hintAr: "آخر ١٢ شهر، شهر بشهر.", icon: BarChart3, needs: ["ledgerMonths12"],
-    render: (p) => <YearReviewReport {...p} /> },
-  { id: "heatmap", group: "overview", en: "Days & Hours", ar: "الأيام والساعات", hintEn: "When patients and money actually happen.", hintAr: "المرضى والفلوس بييجوا إمتى بالظبط.", icon: Grid3x3, needs: ["appointments"],
-    render: (p) => <HeatmapReport {...p} /> },
+/** The website's half of each report: an icon and how to draw it. The rest comes from the catalog. */
+const RENDERERS: Record<string, { icon: ComponentType<{ size?: number; className?: string }>; render: ReportDef["render"] }> = {
+  clinic: { icon: Building2, render: (p) => <ClinicReport procedures={p.procedures} payments={p.payments} allPatients={p.allPatients} startDate={p.range.start} endDate={p.range.end} rangeLabel={p.rangeLabel} isAr={p.isAr} /> },
+  compare: { icon: CalendarRange, render: (p) => <CompareReport {...p} mode="previous" /> },
+  lastYear: { icon: Repeat, render: (p) => <CompareReport {...p} mode="lastYear" /> },
+  year: { icon: BarChart3, render: (p) => <YearReviewReport {...p} /> },
+  heatmap: { icon: Grid3x3, render: (p) => <HeatmapReport {...p} /> },
+  pnl: { icon: Landmark, render: (p) => <PnlReport {...p} /> },
+  service: { icon: Stethoscope, render: (p) => <ServiceReport procedures={p.procedures} payments={p.payments} allPatients={p.allPatients} rangeLabel={p.rangeLabel} isAr={p.isAr} /> },
+  dentist: { icon: UserCheck, render: (p) => <DentistReport procedures={p.procedures} payments={p.payments} allPatients={p.allPatients} rangeLabel={p.rangeLabel} isAr={p.isAr} /> },
+  dentistTrend: { icon: TrendingUp, render: (p) => <DentistTrendReport {...p} /> },
+  payers: { icon: Wallet, render: (p) => <PayerReport procedures={p.procedures as LedgerRowLite[]} payments={p.payments as LedgerRowLite[]} payers={p.payers} rangeLabel={p.rangeLabel} isAr={p.isAr} /> },
+  receivables: { icon: Receipt, render: (p) => <ReceivablesReport {...p} /> },
+  expenses: { icon: PieChart, render: (p) => <ExpensesReport {...p} /> },
+  discounts: { icon: Percent, render: (p) => <DiscountsReport {...p} /> },
+  methods: { icon: Landmark, render: (p) => <PaymentMethodsReport {...p} /> },
+  cases: { icon: TableProperties, render: (p) => <CaseSheetReport procedures={p.procedures} payments={p.payments} rangeLabel={p.rangeLabel} isAr={p.isAr} /> },
+  source: { icon: Network, render: (p) => <SourceReport procedures={p.procedures} payments={p.payments} allPatients={p.allPatients} rangeLabel={p.rangeLabel} isAr={p.isAr} /> },
+  retention: { icon: Heart, render: (p) => <RetentionReport {...p} /> },
+  recall: { icon: BellRing, render: (p) => <RecallReport {...p} /> },
+  ltv: { icon: UserPlus, render: (p) => <LtvReport {...p} /> },
+  demographics: { icon: Cake, render: (p) => <DemographicsReport {...p} /> },
+  plans: { icon: ClipboardCheck, render: (p) => <PlanConversionReport {...p} /> },
+  appointments: { icon: CalendarDays, render: (p) => <AppointmentsReport {...p} /> },
+  lab: { icon: FlaskConical, render: (p) => <LabReport {...p} /> },
+  attendance: { icon: Clock, render: (p) => <AttendanceReport {...p} /> },
+  inventory: { icon: Package, render: (p) => <InventoryReport {...p} /> },
+  leads: { icon: Megaphone, render: (p) => <LeadFunnelReport leads={p.leads} payments={p.payments} rangeLabel={p.rangeLabel} isAr={p.isAr} /> },
+  whatsapp: { icon: MessageCircle, render: (p) => <WhatsappReport {...p} /> },
+};
 
-  // --- money ---------------------------------------------------------------------------------------
-  { id: "pnl", group: "money", en: "Profit & Loss", ar: "الأرباح والخسائر", hintEn: "Gross to net, the way an accountant lays it out.", hintAr: "من الإجمالي للصافي زي ما المحاسب بيكتبها.", icon: Landmark, needs: ["ledgerMonths12"],
-    render: (p) => <PnlReport {...p} /> },
-  { id: "service", group: "money", en: "Service Analysis", ar: "تحليل الخدمات", hintEn: "What each treatment earned.", hintAr: "كل علاج جاب كام.", icon: Stethoscope, needs: [],
-    render: (p) => <ServiceReport procedures={p.procedures} payments={p.payments} allPatients={p.allPatients} rangeLabel={p.rangeLabel} isAr={p.isAr} /> },
-  { id: "dentist", group: "money", en: "Dentist Performance", ar: "أداء الأطباء", hintEn: "Income, commission and cases per dentist.", hintAr: "دخل وعمولة وحالات كل دكتور.", icon: UserCheck, needs: [],
-    render: (p) => <DentistReport procedures={p.procedures} payments={p.payments} allPatients={p.allPatients} rangeLabel={p.rangeLabel} isAr={p.isAr} /> },
-  { id: "dentistTrend", group: "money", en: "Dentist Trend", ar: "الأطباء شهر بشهر", hintEn: "Each dentist over the last twelve months.", hintAr: "كل دكتور على مدار ١٢ شهر.", icon: TrendingUp, needs: ["ledgerMonths12"],
-    render: (p) => <DentistTrendReport {...p} /> },
-  { id: "payers", group: "money", en: "Insurance & Payers", ar: "التأمين وجهات الدفع", hintEn: "Charged against collected, per payer.", hintAr: "المطلوب مقابل المحصّل لكل جهة.", icon: Wallet, needs: [],
-    render: (p) => <PayerReport procedures={p.procedures as LedgerRowLite[]} payments={p.payments as LedgerRowLite[]} payers={p.payers} rangeLabel={p.rangeLabel} isAr={p.isAr} /> },
-  { id: "receivables", group: "money", en: "Outstanding Balances", ar: "المستحقات", hintEn: "Who owes what, and for how long.", hintAr: "مين عليه كام، ومن إمتى.", icon: Receipt, needs: ["ledgerAll"], allTime: true,
-    render: (p) => <ReceivablesReport {...p} /> },
-  { id: "expenses", group: "money", en: "Expenses", ar: "المصروفات", hintEn: "Where the clinic's own money goes.", hintAr: "فلوس العيادة بتروح فين.", icon: PieChart, needs: ["ledgerMonths12"],
-    render: (p) => <ExpensesReport {...p} /> },
-  { id: "discounts", group: "money", en: "Discounts", ar: "الخصومات", hintEn: "What was given away, by whom, and why.", hintAr: "اتخصم كام، من مين، وليه.", icon: Percent, needs: [],
-    render: (p) => <DiscountsReport {...p} /> },
-  { id: "methods", group: "money", en: "Payment Methods", ar: "طرق الدفع", hintEn: "Cash, card and transfer, day by day.", hintAr: "كاش وفيزا وتحويل، يوم بيوم.", icon: Landmark, needs: [],
-    render: (p) => <PaymentMethodsReport {...p} /> },
-  { id: "cases", group: "money", en: "Case Sheet", ar: "سجل الحالات", hintEn: "One line per case, filterable.", hintAr: "سطر لكل حالة، بفلاتر.", icon: TableProperties, needs: [],
-    render: (p) => <CaseSheetReport procedures={p.procedures} payments={p.payments} rangeLabel={p.rangeLabel} isAr={p.isAr} /> },
-
-  // --- patients ------------------------------------------------------------------------------------
-  { id: "source", group: "patients", en: "Patient Sources", ar: "مصادر المرضى", hintEn: "Where patients heard about the clinic.", hintAr: "المرضى عرفوا العيادة منين.", icon: Network, needs: [],
-    render: (p) => <SourceReport procedures={p.procedures} payments={p.payments} allPatients={p.allPatients} rangeLabel={p.rangeLabel} isAr={p.isAr} /> },
-  { id: "retention", group: "patients", en: "Retention", ar: "الرجوع", hintEn: "Who comes back, and who stopped.", hintAr: "مين بيرجع، ومين بطّل.", icon: Heart, needs: ["ledgerAll", "appointmentsWide"], allTime: true,
-    render: (p) => <RetentionReport {...p} /> },
-  { id: "recall", group: "patients", en: "Recall Due", ar: "الاستدعاء", hintEn: "Due back and not booked.", hintAr: "ميعادهم جه ومحجزوش.", icon: BellRing, needs: ["ledgerAll", "appointmentsWide", "recallSettings"], allTime: true,
-    render: (p) => <RecallReport {...p} /> },
-  { id: "ltv", group: "patients", en: "Patient Value", ar: "قيمة المريض", hintEn: "What a patient is worth over their lifetime.", hintAr: "المريض بيساوي كام على طول.", icon: UserPlus, needs: ["ledgerAll"], allTime: true,
-    render: (p) => <LtvReport {...p} /> },
-  { id: "demographics", group: "patients", en: "Demographics", ar: "الأعمار والنوع", hintEn: "Age and gender, and what each group comes for.", hintAr: "الأعمار والنوع، وكل فئة بتيجي ليه.", icon: Cake, needs: [],
-    render: (p) => <DemographicsReport {...p} /> },
-  { id: "plans", group: "patients", en: "Treatment Plans", ar: "خطط العلاج", hintEn: "Presented, accepted, and actually done.", hintAr: "اتعرضت، اتقبلت، واتعملت فعلاً.", icon: ClipboardCheck, needs: ["treatmentPlans", "ledgerAll"], allTime: true,
-    render: (p) => <PlanConversionReport {...p} /> },
-
-  // --- operations ----------------------------------------------------------------------------------
-  { id: "appointments", group: "operations", en: "Appointments", ar: "المواعيد", hintEn: "Seen, missed, cancelled; by day, dentist and source.", hintAr: "حضور وغياب وإلغاء؛ باليوم والدكتور والمصدر.", icon: CalendarDays, needs: ["appointments"],
-    render: (p) => <AppointmentsReport {...p} /> },
-  { id: "lab", group: "operations", en: "Lab", ar: "المعمل", hintEn: "Turnaround, remakes and cost, per lab.", hintAr: "المدة والإعادة والتكلفة، لكل معمل.", icon: FlaskConical, needs: ["labCases", "labPayments"], feature: "lab",
-    render: (p) => <LabReport {...p} /> },
-  { id: "attendance", group: "operations", en: "Attendance & Payroll", ar: "الحضور والمرتبات", hintEn: "Hours, lateness, overtime and pay.", hintAr: "ساعات وتأخير وإضافي ومرتب.", icon: Clock, needs: ["staff", "punches"], feature: "attendance",
-    render: (p) => <AttendanceReport {...p} /> },
-  { id: "inventory", group: "operations", en: "Inventory", ar: "المخزون", hintEn: "Stock value, usage and what to order.", hintAr: "قيمة المخزون والاستهلاك واللي يتطلب.", icon: Package, needs: ["inventory", "inventoryTx"], feature: "inventory",
-    render: (p) => <InventoryReport {...p} /> },
-
-  // --- marketing -----------------------------------------------------------------------------------
-  { id: "leads", group: "marketing", en: "Marketing Funnel", ar: "قمع التسويق", hintEn: "Leads in, patients out, per channel.", hintAr: "عملاء داخلين ومرضى طالعين، لكل قناة.", icon: Megaphone, needs: [], feature: "leads",
-    render: (p) => <LeadFunnelReport leads={p.leads} payments={p.payments} rangeLabel={p.rangeLabel} isAr={p.isAr} /> },
-  { id: "whatsapp", group: "marketing", en: "WhatsApp & Assistant", ar: "واتساب والمساعد", hintEn: "What the assistant carried, and how fast people answered.", hintAr: "المساعد شال إيه، والناس ردّت بسرعة قد إيه.", icon: MessageCircle, needs: ["conversations", "appointments", "whatsappLogs", "smsOutbox"], feature: "whatsappIntegration",
-    render: (p) => <WhatsappReport {...p} /> },
-];
+export const REPORTS: ReportDef[] = REPORT_CATALOG.map((meta) => ({ ...meta, ...(RENDERERS[meta.id] || RENDERERS.clinic) }));
 
 export function reportById(id: string | null | undefined): ReportDef {
   return REPORTS.find((r) => r.id === id) || REPORTS[0];

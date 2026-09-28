@@ -117,6 +117,7 @@
     "test:cases": "npx tsx tests/caseSheet.test.mts",
     "test:report-patients": "npx tsx tests/reportPatients.test.mts",
     "test:report-suite": "npx tsx tests/reportSuite.test.mts",
+    "test:report-docs": "npx tsx tests/reportDocuments.test.mts",
     "_comment_test_insurers": "The Egyptian insurer presets and the monogram drawn in place of a logo. Guards two things: the preset names are data (a payer's name is stamped on every case, so three spellings of NEXtCARE are three columns that never add up), and the badge stays a DRAWN monogram - every one of those logos is a registered trademark, so a change that adds an image URL or a bundled asset has to argue with this test first.",
     "test:insurers": "npx tsx tests/insurerPresets.test.mts",
     "_comment_test_branches": "Price lists scoped to branches: one default per scope, and no branch quoting another branch's rates.",

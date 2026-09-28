@@ -132,7 +132,7 @@ fun Shell(preview: Boolean = false) {
     }
 
     if (openReports) {
-        ReportsPane(preview) { openReports = false }
+        ReportsPane(preview, onOpenPatient = { openRecord = it }) { openReports = false }
         return
     }
 
@@ -2002,19 +2002,31 @@ private fun LabPane(preview: Boolean, onBack: () -> Unit) {
 }
 
 
-/** How the clinic has been doing. Reached from More, like Money. */
+/** The reports, as the website computes them. Reached from More, like Money. */
 @Composable
-private fun ReportsPane(preview: Boolean, onBack: () -> Unit) {
+private fun ReportsPane(preview: Boolean, onOpenPatient: (String) -> Unit, onBack: () -> Unit) {
     BackHandler { onBack() }
     if (preview) {
         var state by remember { mutableStateOf(previewReports()) }
-        ReportsScreen(state, onBack = onBack, onWindow = { state = state.copy(window = it) })
+        ReportsScreen(
+            state, onBack = onBack,
+            onGroup = { id -> state = state.copy(groupId = id, reportId = state.groups.first { it.id == id }.reports.first().id) },
+            onReport = { state = state.copy(reportId = it) },
+            onPreset = { p -> val (f, t) = p.range(); state = state.copy(preset = p, from = f, to = t) },
+            onRange = { f, t -> state = state.copy(preset = null, from = f ?: state.from, to = t ?: state.to) },
+            onDrill = {}, onCloseDrill = {}, onOpenPatient = {},
+        )
         return
     }
     val model: ReportsModel = viewModel()
     val state by model.state.collectAsState()
     androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
-    ReportsScreen(state, onBack = onBack, onWindow = model::show)
+    ReportsScreen(
+        state, onBack = onBack,
+        onGroup = model::showGroup, onReport = model::showReport, onPreset = model::pick,
+        onRange = { f, t -> model.setRange(f, t) },
+        onDrill = model::drill, onCloseDrill = model::closeDrill, onOpenPatient = onOpenPatient,
+    )
 }
 
 /** Minutes past midnight as "14:30", for a slot that books into itself. */
