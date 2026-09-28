@@ -1,5 +1,6 @@
 import { adminClinicDoc } from "@/lib/adminClinicDb";
 import { allowAutomatedMessage } from "@/lib/whatsappFloodGuard";
+import { whatsappOptOutReason } from "@/lib/messagingConsent";
 import { clinicHasFeature } from "@/lib/clinicFeatures";
 import {
   WHATSAPP_OPT_OUT_FOOTER_AR,
@@ -49,7 +50,7 @@ export type WhatsappDeliveryResult =
    * than any legitimate automation produces. Not an error — callers treat it the way they treat a
    * queued message, and the count is on the conversation for the desk to see.
    */
-  | { mode: "blocked"; sent: false }
+  | { mode: "blocked"; sent: false; reason?: "flood" | "opted_out" }
   | { mode: "manual"; sent: false; phone: string; text: string };
 
 /**
@@ -213,8 +214,13 @@ export async function deliverWhatsAppMessage(args: {
    * assistant's own replies do not come through here at all.
    */
   if (args.audience === "patient" && args.thread?.author !== "staff") {
+    // "Please stop" is honoured here, for every sender at once. Each job used to check its own
+    // corner of the opt-out state (the patient flag, or the conversation flag, never the list of
+    // strangers who said stop), and a lead who asked to be left alone was followed up anyway.
+    if (await whatsappOptOutReason(args.clinicId, args.to)) return { mode: "blocked", sent: false, reason: "opted_out" };
+
     const verdict = await allowAutomatedMessage(args.clinicId, args.to, args.queue?.type || args.metaTemplate?.kind || "message");
-    if (!verdict.allowed) return { mode: "blocked", sent: false };
+    if (!verdict.allowed) return { mode: "blocked", sent: false, reason: "flood" };
   }
 
   if (mode === "auto") {

@@ -1,7 +1,8 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
-import { normalizeToE164, sendWhatsApp } from "@/lib/whatsapp";
-import { resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
+import { normalizeToE164 } from "@/lib/whatsapp";
+import { deliverWhatsAppMessage, resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
+import { whatsappOptOutReason } from "@/lib/messagingConsent";
 
 /**
  * Outbound messages drafted automatically, held for a human to approve before they send.
@@ -167,6 +168,21 @@ export async function resolveMessageDraft(args: {
   const phone = normalizeToE164(String(draft.phone || ""));
   if (!phone) return { ok: false, error: "This patient has no usable phone number." };
 
+  // Checked at approval time, not only when the draft was made: a patient can say STOP in the
+  // days between the scan and the click, and a win-back to someone who just asked to be left
+  // alone is the message that gets a number reported. Applies to the hand-it-back path too —
+  // the reviewer must not be handed a message the system would refuse to send.
+  if (await whatsappOptOutReason(clinicId, phone, { scan: true })) {
+    await ref.update({
+      status: "rejected" as DraftStatus,
+      error: "The patient asked not to be messaged.",
+      reviewedByUserId: userId,
+      reviewedByName: userName || null,
+      reviewedAt: FieldValue.serverTimestamp(),
+    });
+    return { ok: false, error: "This patient asked not to receive messages, so the draft was closed." };
+  }
+
   // No gateway connected: hand the finished message back so a person can send it, and leave the
   // draft in the queue. Marking it "sent" here would be the worst outcome — the patient never
   // hears from the clinic, and the queue says they did, so nobody ever chases it.
@@ -182,7 +198,27 @@ export async function resolveMessageDraft(args: {
   }
 
   try {
-    await sendWhatsApp({ clinicId, to: phone, text: body });
+    // Through the chokepoint, not the raw gateway call: that is where the opt-out footer, the
+    // per-patient flood guard and the chat-thread record live, and a campaign to five hundred
+    // people is exactly the traffic those exist for.
+    // Not marked as a staff reply on purpose: a staff reply is exempt from the flood guard because
+    // a person answering a patient is not automation. An approved draft is automation with a
+    // person's blessing, and a reviewer clicking through five hundred of them is the batch the
+    // guard exists for.
+    const delivery = await deliverWhatsAppMessage({
+      clinicId,
+      to: phone,
+      text: body,
+      audience: "patient",
+    });
+    if (delivery.mode === "blocked") {
+      throw new Error(delivery.reason === "opted_out" ? "The patient asked not to be messaged." : "This patient has already received several messages this hour.");
+    }
+    if (delivery.mode !== "auto") {
+      // The gateway went away between the mode check above and the send.
+      await ref.update({ body, reviewedByUserId: userId, reviewedByName: userName || null, reviewedAt: FieldValue.serverTimestamp() });
+      return { ok: true, status: "manual", phone, body };
+    }
   } catch (error: unknown) {
     // Left as failed rather than sent, so the queue reflects what actually went out.
     await ref.update({

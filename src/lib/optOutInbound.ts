@@ -3,6 +3,7 @@ import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { isOptOutReply } from "@/lib/patientMessaging";
 import { phoneMatchKey, pickPatientPhone } from "@/lib/patientPhone";
 import { normalizeToInternationalDigits } from "@/lib/whatsapp";
+import { markConversationOptedOut } from "@/lib/bot/conversation";
 
 /**
  * Acting on a patient who replied "STOP".
@@ -91,6 +92,11 @@ export async function applyInboundOptOut(args: {
   if (!isOptOutReply(text)) return { status: "ignored" };
 
   try {
+    // The conversation flag as well, whoever this turns out to be. The bot and the quiet nudge
+    // read only that flag, so without it a patient who said stop was answered by the assistant
+    // twenty minutes later with "still there?" — the one reply that turns a stop into a report.
+    await markConversationOptedOut(clinicId, phone).catch(() => {});
+
     const found = await findPatientByPhone(clinicId, phone);
 
     if (!found) {

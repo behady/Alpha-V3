@@ -140,6 +140,7 @@ export async function scanDormantPatients(
 
   const out: DormantPatient[] = [];
   let skippedUpcoming = 0;
+  let skippedOptedOut = 0;
 
   patientsSnap.forEach((doc) => {
     const p = (doc.data() || {}) as Record<string, unknown>;
@@ -147,6 +148,12 @@ export async function scanDormantPatients(
 
     if (hasUpcoming.has(patientId)) {
       skippedUpcoming++;
+      return;
+    }
+    // Every name on this list is about to be messaged, so the people who asked not to be are
+    // left off it here — before a reviewer ever sees them and long before a campaign is built.
+    if (p.whatsappOptOut === true) {
+      skippedOptedOut++;
       return;
     }
 
@@ -192,6 +199,9 @@ export async function scanDormantPatients(
   const withoutPhone = out.filter((p) => !p.phone).length;
   if (withoutPhone > 0) {
     notes.push(`${withoutPhone} of these patients have no phone number on file and cannot be messaged.`);
+  }
+  if (skippedOptedOut > 0) {
+    notes.push(`${skippedOptedOut} patient${skippedOptedOut === 1 ? "" : "s"} asked not to receive messages and ${skippedOptedOut === 1 ? "was" : "were"} left off this list.`);
   }
   notes.push(
     "A visit means an appointment the patient attended, or a clinical note. Cancelled and no-show " +
