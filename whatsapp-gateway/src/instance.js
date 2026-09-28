@@ -17,6 +17,7 @@ import {
   buildMessageEvent,
   digitsOf,
   isSilentMessage,
+  messageAd,
   messageMedia,
   messageText,
   randomGap,
@@ -352,6 +353,7 @@ export class Instance {
       mediaUrl,
       pushName: msg.pushName,
       phoneJid,
+      ad: key.fromMe ? null : messageAd(msg.message),
     });
     await this.#postWebhook(event);
   }

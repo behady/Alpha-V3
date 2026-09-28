@@ -1,6 +1,7 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection } from "@/lib/adminClinicDb";
 import { phoneMatchKey } from "@/lib/patientPhone";
+import type { AdReferral } from "./adReferral";
 
 /**
  * The people who asked and did not book, written where the clinic already works its leads.
@@ -46,7 +47,22 @@ export async function upsertBotLead(args: {
   reason: string;
   existingPatientId?: string;
   existingPatientName?: string;
+  /** The ad this person came from. Sets the source and is kept under `meta` beside form leads. */
+  ad?: AdReferral;
 }): Promise<void> {
+  // The same block the Meta lead-form webhook writes, so the Leads page and the funnel report
+  // treat an ad click and an ad form as what they are: the same channel.
+  const adMeta = args.ad
+    ? {
+        adName: args.ad.headline || args.ad.body?.slice(0, 80) || null,
+        ...(args.ad.sourceId ? { sourceId: args.ad.sourceId } : {}),
+        ...(args.ad.sourceType ? { sourceType: args.ad.sourceType } : {}),
+        ...(args.ad.sourceUrl ? { sourceUrl: args.ad.sourceUrl } : {}),
+        ...(args.ad.ctwaClid ? { ctwaClid: args.ad.ctwaClid } : {}),
+        ...(args.ad.mediaType ? { mediaType: args.ad.mediaType } : {}),
+        via: "whatsapp_click",
+      }
+    : null;
   const phone = e164(args.phone);
   if (!phone || phone.length < 8) return;
   const question = args.question.trim().slice(0, 200);
@@ -60,6 +76,9 @@ export async function upsertBotLead(args: {
     await open.ref.set(
       {
         ...(args.interest && !d.interest ? { interest: args.interest } : {}),
+        // An open lead that arrived some other way and then tapped an ad keeps its source; the
+        // ad is still recorded on it so the report can see the click.
+        ...(adMeta && !(d.meta && typeof d.meta === "object" && (d.meta as { adName?: unknown }).adName) ? { meta: { ...((d.meta as object) || {}), ...adMeta } } : {}),
         lastQuestion: question,
         lastQuestionReason: args.reason,
         lastQuestionAt: FieldValue.serverTimestamp(),
@@ -76,7 +95,8 @@ export async function upsertBotLead(args: {
     name: args.name?.trim() || args.existingPatientName || phone,
     phone,
     interest: args.interest || "",
-    source: "WhatsApp",
+    source: adMeta ? "Meta ads" : "WhatsApp",
+    ...(adMeta ? { meta: adMeta } : {}),
     stage: "new",
     branchId: null,
     branchName: null,

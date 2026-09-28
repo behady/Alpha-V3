@@ -623,16 +623,16 @@ function LeadsPage() {
                         {lead.source && <SourceIcon source={lead.source} size={14} />}
                         <span className="truncate">{[lead.interest, lead.source, lead.branchName].filter(Boolean).join(" · ")}</span>
                       </p>
-                      {(lead.createdAt?.seconds || lead.meta?.campaignName) && (
+                      {(lead.createdAt?.seconds || lead.meta?.campaignName || lead.meta?.adName) && (
                         <p className="text-[11px] text-slate-400 font-semibold mt-1.5 flex items-center gap-x-3 gap-y-1 flex-wrap">
                           {lead.createdAt?.seconds ? (
                             <span className="flex items-center gap-1">
                               <Clock size={11} /> {arrivedLabel(lead.createdAt.seconds)}
                             </span>
                           ) : null}
-                          {lead.meta?.campaignName ? (
-                            <span className="flex items-center gap-1 text-slate-500 line-clamp-1 max-w-[200px]" title={lead.meta.campaignName}>
-                              <Megaphone size={11} className="shrink-0" /> {lead.meta.campaignName}
+                          {lead.meta?.campaignName || lead.meta?.adName ? (
+                            <span className="flex items-center gap-1 text-slate-500 line-clamp-1 max-w-[200px]" title={lead.meta.campaignName || lead.meta.adName || ""}>
+                              <Megaphone size={11} className="shrink-0" /> {lead.meta.campaignName || lead.meta.adName}
                             </span>
                           ) : null}
                         </p>

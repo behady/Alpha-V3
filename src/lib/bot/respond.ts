@@ -49,6 +49,7 @@ import { feminizeAddress } from "./voiceFix";
 import { SALES_CLOSE_REASONS, LEAD_INTEREST_REASONS, activeOffers, closingLine, offerForService } from "./sales";
 import { markBotLeadBooked, snoozeBotLead, upsertBotLead } from "./botLeads";
 import { recordThreadMessage } from "./thread";
+import { adSubjectText, adSystemLine, readStoredAd, type AdReferral } from "./adReferral";
 import { clinicalReplyText,
   urgentCallLine, decideBotReply, type BotContext } from "./engine";
 import { needsHuman } from "./clinicalTriage";
@@ -396,6 +397,37 @@ function closedNote(schedule: ClinicScheduleConfig): string {
  * was the one word the desk did not get. Longest full-name match first; failing that, the first
  * word of a service name (≥ 3 letters) appearing in the message, so "تنظيف" finds "تنظيف الجير".
  */
+/**
+ * The ad this conversation started from, written where every reader will find it.
+ *
+ * Three places, one call: the conversation document (the Chats list badge, the report, and the
+ * context every later turn is answered with), a line at the top of the thread so the desk sees
+ * what the person saw, and a lead — created on the spot, whatever they typed. "مرحبا" from an ad
+ * click is the warmest enquiry a clinic gets and used to leave no trace unless it happened to
+ * contain a price question.
+ *
+ * The first ad wins. A person who taps two ads in a week is one person who came from the first;
+ * re-attributing them would count them twice and credit the wrong creative.
+ */
+async function recordAdReferral(clinicId: string, chatId: string, phone: string, ad: AdReferral, text: string): Promise<void> {
+  const key = conversationKey(chatId);
+  const ref = adminClinicDoc(clinicId, "whatsapp_conversations", key);
+  const snap = await ref.get();
+  if (readStoredAd(snap.data()?.ad)) return;
+  await ref.set({ ad, adAt: Date.now(), ...(text.trim() ? { adTypedAt: Date.now() } : {}) }, { merge: true });
+  await recordThreadMessage(clinicId, chatId, { direction: "in", author: "system", text: adSystemLine(ad), kind: "ad_referral" }).catch(() => {});
+  if (!phone) return;
+  const interest = (await matchService(clinicId, adSubjectText(ad)).catch(() => "")) || undefined;
+  await upsertBotLead({
+    clinicId,
+    phone,
+    interest,
+    question: text.trim() || "فتح المحادثة من الإعلان ولسه مكتبش",
+    reason: "ad_referral",
+    ad,
+  });
+}
+
 async function matchService(clinicId: string, text: string): Promise<string> {
   // With and without the definite article: "التبييض بكام" must find "تبييض الأسنان".
   const t0 = ` ${normalizeReplyText(text)} `;
@@ -480,6 +512,17 @@ export async function respondToPatientMessage(args: {
    * photos only) may reach the patient as a preliminary reading, with the disclaimer added here.
    */
   mediaNote?: { summary: string; urgent: boolean; interest?: string; impression?: string; category?: "dental" | "document" | "other" };
+  /**
+   * The ad or post this message's conversation started from — present on the FIRST message of
+   * a Click-to-WhatsApp conversation only, on either channel. Recorded on the conversation
+   * before any gate, so the clinic knows where the person came from even when the bot is off.
+   */
+  ad?: AdReferral;
+  /**
+   * Not a message: the person opened the chat from an ad and has not typed. Sent by Meta only
+   * when the clinic switched the welcome message on. The bot greets and names the ad.
+   */
+  welcome?: boolean;
 }): Promise<BotOutcome> {
   const { clinicId, chatId, text } = args;
   const now = args.now ?? Date.now();
@@ -500,6 +543,15 @@ export async function respondToPatientMessage(args: {
   const push: typeof sendClinicPush = args.dryRun
     ? async () => ({ raised: false, bellWritten: false, pushed: 0, whatsapped: 0 })
     : sendClinicPush;
+
+  /*
+   * Where they came from, before whether we answer. The ad is on the wire for exactly one
+   * message; every gate below that ends the turn early (bot off, not in plan, stranger) would
+   * otherwise lose it, and the clinic paid for that click whether or not the bot is on.
+   */
+  if (args.ad && !args.dryRun) {
+    await recordAdReferral(clinicId, chatId, senderPhone, args.ad, text).catch((e) => console.warn("[bot] ad referral not recorded:", e));
+  }
 
   const settings = await loadBotSettings(clinicId);
   if (!settings.enabled) return skip("bot_disabled");
@@ -610,6 +662,12 @@ export async function respondToPatientMessage(args: {
 
   const conversation = await loadConversation(clinicId, chatId, now, { humanClaimMs: settings.humanClaimMs });
 
+  // An ad tap opens a chat; this is the moment the person behind it actually said something.
+  // Once per number — the ads report separates "clicked" from "wrote" on it.
+  if (conversation.ad && !conversation.adTypedAt && text.trim() && !args.dryRun) {
+    void adminClinicDoc(clinicId, "whatsapp_conversations", conversation.phoneKey).set({ adTypedAt: now }, { merge: true }).catch(() => {});
+  }
+
   // "Not now" is remembered before anything answers it, so the gracious one-line reply below is
   // the LAST automated message this person gets until a human decides otherwise.
   if (!args.dryRun && isDecline(text)) {
@@ -691,6 +749,20 @@ export async function respondToPatientMessage(args: {
   ctx.relative = mentionsRelative(text);
   ctx.forRelative = conversation.pendingForRelative === true;
   ctx.serviceMatch = (await matchService(clinicId, text)) || undefined;
+  /*
+   * The ad they came from, on every turn: the model is told each time (it is a fact about the
+   * person, like their name), and the greeting names it. The ad's SERVICE fills in only on the
+   * referral turn itself — "مرحبا" from someone who tapped the whitening ad is about whitening,
+   * so the lead and any booking that follows carry it — never on a message weeks later, where a
+   * question about braces must not be read as whitening because of an old click.
+   */
+  ctx.ad = args.ad ?? conversation.ad;
+  ctx.welcome = args.welcome === true;
+  if (ctx.ad) {
+    const adService = (await matchService(clinicId, adSubjectText(ctx.ad))) || "";
+    if (adService && offersActive) ctx.adOfferLine = offerForService(offersActive, adService) || undefined;
+    if (adService && !ctx.serviceMatch && (args.ad || ctx.welcome)) ctx.serviceMatch = adService;
+  }
   ctx.aiAvailable = settings.aiEnabled && (settings.aiMaxReplies === 0 || (conversation.aiReplies ?? 0) < settings.aiMaxReplies);
   ctx.aiFirst = settings.aiFirst;
   // Remembered so a tapped button, a bare digit or an emoji keeps the language the patient chose.
@@ -1231,6 +1303,7 @@ ${urgentCallLine(ctx.clinicPhone)}`;
         bookingStep: bookingStepLabel(conversation),
         sessionGapMinutes: salesContext?.gapMinutes,
         photo: args.media === "image" && args.mediaNote ? args.mediaNote : undefined,
+        ad: ctx.ad,
       });
       /*
        * A pick the model turned into "let's open the booking" instead of "book this one".
@@ -1720,6 +1793,7 @@ ${askWho}` : askWho;
         reason,
         existingPatientId: patient?.id,
         existingPatientName: ctx.patientName,
+        ad: ctx.ad,
       }).catch(() => {});
     }
   }

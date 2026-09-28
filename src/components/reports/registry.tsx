@@ -45,6 +45,7 @@ import LabReport from "@/components/reports/LabReport";
 import AttendanceReport from "@/components/reports/AttendanceReport";
 import InventoryReport from "@/components/reports/InventoryReport";
 import WhatsappReport from "@/components/reports/WhatsappReport";
+import AdsReport from "@/components/reports/AdsReport";
 import type { Payer } from "@/lib/payers";
 import type { LedgerRowLite } from "@/lib/payerReport";
 
@@ -139,6 +140,8 @@ export const REPORTS: ReportDef[] = [
     render: (p) => <LeadFunnelReport leads={p.leads} payments={p.payments} rangeLabel={p.rangeLabel} isAr={p.isAr} /> },
   { id: "whatsapp", group: "marketing", en: "WhatsApp & Assistant", ar: "واتساب والمساعد", hintEn: "What the assistant carried, and how fast people answered.", hintAr: "المساعد شال إيه، والناس ردّت بسرعة قد إيه.", icon: MessageCircle, needs: ["conversations", "appointments", "whatsappLogs", "smsOutbox"], feature: "whatsappIntegration",
     render: (p) => <WhatsappReport {...p} /> },
+  { id: "ads", group: "marketing", en: "Ads → WhatsApp", ar: "إعلانات واتساب", hintEn: "Which ad opened chats, and which chats became patients.", hintAr: "أنهي إعلان فتح محادثات، وأنهي محادثات بقت مرضى.", icon: Megaphone, needs: ["conversations", "appointments"], feature: "whatsappIntegration",
+    render: (p) => <AdsReport {...p} /> },
 ];
 
 export function reportById(id: string | null | undefined): ReportDef {

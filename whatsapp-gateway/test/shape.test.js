@@ -110,3 +110,45 @@ test("random gap stays inside its bounds", () => {
   }
   assert.equal(randomGap(0, 0), 0);
 });
+
+test("ads: the ad a chat started from rides on the first message, under the web app's names", async () => {
+  const { messageAd } = await import("../src/shape.js");
+  const msg = {
+    extendedTextMessage: {
+      text: "مرحبا، عايز أعرف عن عرض التبييض",
+      contextInfo: {
+        conversionSource: "FB_Ads",
+        externalAdReply: {
+          title: "تبييض الأسنان بخصم 30%",
+          body: "احجز كشفك المجاني النهاردة",
+          mediaType: 1,
+          sourceType: "ad",
+          sourceId: "120212345678901234",
+          sourceUrl: "https://fb.me/abc",
+          ctwaClid: "ARBxyz",
+          thumbnailUrl: "https://scontent.example/thumb.jpg",
+        },
+      },
+    },
+  };
+  assert.deepEqual(messageAd(msg), {
+    headline: "تبييض الأسنان بخصم 30%",
+    body: "احجز كشفك المجاني النهاردة",
+    sourceId: "120212345678901234",
+    sourceType: "ad",
+    sourceUrl: "https://fb.me/abc",
+    mediaType: "image",
+    ctwaClid: "ARBxyz",
+    thumbnailUrl: "https://scontent.example/thumb.jpg",
+  });
+  // A boosted post with no creative details is still an ad conversation.
+  assert.deepEqual(messageAd({ extendedTextMessage: { text: "hi", contextInfo: { conversionSource: "IG_Ads", externalAdReply: { sourceId: "9" } } } }), { sourceId: "9", sourceType: "ad" });
+  // An ordinary message, a quoted reply, a plain link preview: no ad.
+  assert.equal(messageAd({ conversation: "hi" }), null);
+  assert.equal(messageAd({ extendedTextMessage: { text: "ok", contextInfo: { stanzaId: "x", quotedMessage: { conversation: "y" } } } }), null);
+  assert.equal(messageAd({ extendedTextMessage: { text: "ok", contextInfo: { externalAdReply: { title: "", body: "" } } } }), null);
+  // And it lands on the event, next to the sender's name.
+  const ev = buildMessageEvent({ instanceId: "i", key: { id: "k", remoteJid: "201012345678@s.whatsapp.net" }, text: "hi", ad: { headline: "x" } });
+  assert.deepEqual(ev.payload._data.ad, { headline: "x" });
+  assert.equal(buildMessageEvent({ instanceId: "i", key: { id: "k", remoteJid: "201012345678@s.whatsapp.net" }, text: "hi" }).payload._data.ad, undefined);
+});

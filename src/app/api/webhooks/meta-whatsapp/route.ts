@@ -17,6 +17,7 @@ import { confirmOptOut } from "@/lib/bot/optOutConfirm";
 import { isOptOutReply } from "@/lib/patientMessaging";
 import { clinicIdForPhoneNumberId } from "@/lib/metaWhatsapp";
 import { reportServerError } from "@/lib/server/reportError";
+import { parseMetaReferral, type AdReferral } from "@/lib/bot/adReferral";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -182,6 +183,18 @@ interface InboundMessage {
   /** Meta's id for the media object — the handle the bytes are fetched with, valid ~30 days. */
   mediaId?: string;
   mime?: string;
+  /**
+   * The ad or post this conversation started from. Meta attaches it to the FIRST message of a
+   * Click-to-WhatsApp conversation only; every later message arrives bare, so it is stored on
+   * the conversation the moment it is seen.
+   */
+  ad?: AdReferral;
+  /**
+   * Not a message at all: the person opened the chat (from an ad, typically) and has not typed
+   * yet. Meta sends this only when the clinic switched on the welcome message in WhatsApp
+   * Manager. It is the one chance to speak first — most ad clicks never type anything.
+   */
+  welcome?: boolean;
 }
 
 /** WhatsApp message types that carry no words the assistant can act on. */
@@ -207,6 +220,12 @@ function extractMessages(body: unknown): InboundMessage[] {
         // digits a typed answer would be, so a tap and a keystroke are indistinguishable to the
         // conversation engine — the titles are only what the patient read.
         const type = String(m?.type || "");
+        const ad = parseMetaReferral(m?.referral) || undefined;
+        // The chat was opened and nothing typed yet. Carries the referral like a message does.
+        if (type === "request_welcome" && from) {
+          out.push({ phoneNumberId, from, text: "", fromMe: false, messageId: String(m?.id || ""), ad, welcome: true });
+          continue;
+        }
         const media = MEDIA_TYPES.includes(type as (typeof MEDIA_TYPES)[number])
           ? (type as InboundMessage["media"])
           : undefined;
@@ -236,7 +255,7 @@ function extractMessages(body: unknown): InboundMessage[] {
           m?.interactive?.button_reply?.title ?? m?.interactive?.list_reply?.title ?? ""
         ).trim();
         if (from && (text || media)) {
-          out.push({ phoneNumberId, from, text, fromMe: false, media, messageId, mediaId, mime, label: label || undefined });
+          out.push({ phoneNumberId, from, text, fromMe: false, media, messageId, mediaId, mime, label: label || undefined, ad });
         }
       }
     }
@@ -359,7 +378,7 @@ export async function POST(request: NextRequest) {
 
       // Opt-out first, always — before the assistant is consulted. Meta gives the real phone, so
       // this reaches the patient's actual record with no lid fallback needed.
-      if (isOptOutReply(msg.text)) {
+      if (!msg.welcome && isOptOutReply(msg.text)) {
         await rememberInbound(clinicId, msg);
         const r = await applyInboundOptOut({ clinicId, phone: msg.from, text: msg.text, channel: "whatsapp" });
         if (r.status === "opted_out" || r.status === "unknown_number") await confirmOptOut(clinicId, msg.from, msg.text, "meta");
@@ -398,7 +417,9 @@ export async function POST(request: NextRequest) {
 
       // Into the thread before anything decides whether to answer: a message the bot is switched
       // off for, or refuses to answer, is still a message the clinic received.
-      const lineId = await rememberInbound(clinicId, msg);
+      // A welcome event is not something the person said, so it is not a patient line; the
+      // attribution line respond.ts writes ("came from ad …") is the thread's record of it.
+      const lineId = msg.welcome ? "" : await rememberInbound(clinicId, msg);
       if (msg.text) void raiseComplaintIfAny({ clinicId, phone: `+${msg.from}`, text: msg.text, chatId: conversationKey(msg.from) });
 
       /*
@@ -489,6 +510,8 @@ export async function POST(request: NextRequest) {
             phone: msg.from,
             text,
             media,
+            ad: msg.ad,
+            welcome: msg.welcome,
             mediaNote,
           });
         } catch (e) {

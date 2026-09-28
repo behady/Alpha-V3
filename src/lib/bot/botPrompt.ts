@@ -1,4 +1,5 @@
 import type { BotFacts } from "@/types/whatsapp";
+import { adPromptLines, type AdReferral } from "./adReferral";
 
 /**
  * The WhatsApp assistant's system prompt, as a pure function of what the caller knows.
@@ -96,6 +97,8 @@ export interface BotPromptInput {
    * the caller appends the "not final, exam and x-ray needed" line in code.
    */
   photo?: { summary: string; impression?: string; urgent: boolean; category?: "dental" | "document" | "other" };
+  /** The ad or post this conversation started from: what the person saw before they typed. */
+  ad?: AdReferral;
 }
 
 /**
@@ -407,6 +410,8 @@ export function clinicAndPatientLayer(input: BotPromptInput): string[] {
           .join("\n")
       : "",
     input.dossierText,
+    // What they tapped before typing. Placed with the patient facts: it is a fact about them.
+    input.ad ? adPromptLines(input.ad) : "",
     input.memory?.trim() ? `\nذاكرة من محادثات سابقة مع المريض ده (ابدأ من مكان ما وقفتوا، ومتعيدش اللي هو عارفه):\n${input.memory.trim().slice(0, 900)}` : "",
     sales && input.offeredSlots.length
       ? `\nأقرب مواعيد متاحة (slotKey → إزاي تقولها للمريض):\n${input.offeredSlots.map((s) => `- ${s.id} → ${s.label}`).join("\n")}`

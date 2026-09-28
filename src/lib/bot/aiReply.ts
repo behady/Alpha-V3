@@ -3,6 +3,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection } from "@/lib/adminClinicDb";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { createUsageMeter, logAiCreditUsage } from "@/lib/aiCreditLog";
+import type { AdReferral } from "./adReferral";
 import { getAiCreditLimit, hasFeature } from "@/lib/subscriptions";
 import type { Clinic } from "@/types/saas";
 import type { BotFacts } from "@/types/whatsapp";
@@ -195,6 +196,8 @@ export async function answerWithAi(args: {
   clinical?: boolean;
   /** The patient just sent a photo: what it shows, and a preliminary reading for dental photos. */
   photo?: { summary: string; impression?: string; urgent: boolean; category?: "dental" | "document" | "other" };
+  /** The ad or post this conversation started from. */
+  ad?: AdReferral;
 }): Promise<AiReplyResult> {
   const { clinicId, clinicName, question, patientName, hoursText, addressText, clinicPhone, facts, history } = args;
   const sales = args.mode === "sales";
@@ -263,6 +266,7 @@ export async function answerWithAi(args: {
     clinical: args.clinical === true,
     canBook: args.canBook,
     photo: args.photo,
+    ad: args.ad,
     hoursText,
     addressText,
     clinicPhone,

@@ -18,6 +18,7 @@ import { extractInboundMedia, fetchInboundMediaBytes } from "@/lib/bot/wapilotMe
 import { applyInboundOptOut } from "@/lib/optOutInbound";
 import { confirmOptOut } from "@/lib/bot/optOutConfirm";
 import { reportServerError } from "@/lib/server/reportError";
+import { readStoredAd, type AdReferral } from "@/lib/bot/adReferral";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -278,6 +279,17 @@ export async function POST(request: NextRequest) {
      */
     const parsedBody = obj(body);
     const media = parsedBody ? extractInboundMedia(candidateMessages(parsedBody)) : null;
+    // The ad this chat started from — our own gateway puts it at `_data.ad` on the first message.
+    let ad: AdReferral | undefined;
+    if (parsedBody) {
+      for (const m of candidateMessages(parsedBody)) {
+        const found = readStoredAd(m.ad);
+        if (found) {
+          ad = found;
+          break;
+        }
+      }
+    }
 
     let reply = extractReply(body);
     if (!reply && media && parsedBody) {
@@ -461,6 +473,7 @@ export async function POST(request: NextRequest) {
       text,
       media: mediaKind,
       mediaNote,
+      ad,
     });
 
     return NextResponse.json({ ok: true, bot: bot.status, why: bot.reason });

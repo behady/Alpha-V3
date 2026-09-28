@@ -341,6 +341,33 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
   const [metaPin, setMetaPin] = useState("");
   const [metaRegistering, setMetaRegistering] = useState(false);
   const [metaRegisterResult, setMetaRegisterResult] = useState<{ ok: boolean; text: string } | null>(null);
+  // Meta's "welcome message" switch for the number: null until read, then on/off. Lives on Meta,
+  // not in our settings, so it is read from Meta each time the card opens.
+  const [metaWelcome, setMetaWelcome] = useState<boolean | null>(null);
+  const [metaWelcomeBusy, setMetaWelcomeBusy] = useState(false);
+  const [metaWelcomeError, setMetaWelcomeError] = useState("");
+
+  const handleToggleMetaWelcome = async (enable: boolean) => {
+    setMetaWelcomeBusy(true);
+    setMetaWelcomeError("");
+    try {
+      const u = auth.currentUser;
+      if (!u) throw new Error("Not signed in");
+      const token = await u.getIdToken();
+      const res = await fetch("/api/admin/meta-whatsapp-welcome", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ clinicId: currentClinicId() || "", enable }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.ok) setMetaWelcome(data.enabled === true);
+      else setMetaWelcomeError(String(data?.error || "Failed"));
+    } catch (e) {
+      setMetaWelcomeError(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setMetaWelcomeBusy(false);
+    }
+  };
 
   const handleRegisterMetaNumber = async () => {
     if (!/^\d{5,20}$/.test(metaPhoneNumberId.trim()) || !/^\d{6}$/.test(metaPin.trim())) return;
@@ -775,6 +802,15 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
       metaPin: language === "ar" ? "الرقم السري (٦ أرقام)" : "6-digit PIN",
       metaRegister: language === "ar" ? "سجّل الرقم" : "Register number",
       metaRegistered: language === "ar" ? "تم التسجيل ✅ الرقم شغال على Meta" : "Registered ✅ the number is live on Meta",
+      metaWelcomeTitle: language === "ar" ? "الرد الأول من الإعلانات" : "Speak first from ads",
+      metaWelcomeHint:
+        language === "ar"
+          ? "ناس كتير بتضغط إعلان «راسلنا على واتساب» وتفتح الشات من غير ما تكتب. لما ده شغال، المساعد بيسلّم عليهم هو الأول ويذكر الإعلان اللي شافوه، وبيظهرلهم ٣ اختيارات جاهزة (حجز، أسعار، عنوان)."
+          : "Many people tap a \"Send WhatsApp message\" ad and open the chat without typing. With this on, the assistant greets them first, names the ad they saw, and shows three ready choices (book, prices, address).",
+      metaWelcomeOn: language === "ar" ? "شغّل" : "Turn on",
+      metaWelcomeOff: language === "ar" ? "اقفل" : "Turn off",
+      metaWelcomeEnabled: language === "ar" ? "شغال ✅ المساعد بيرد الأول على اللي جايين من الإعلانات" : "On ✅ the assistant speaks first to people arriving from ads",
+      metaWelcomeDisabled: language === "ar" ? "مقفول — اللي يفتح الشات من إعلان ومايكتبش، محدش بيكلمه" : "Off — someone who opens the chat from an ad and never types is never spoken to",
       wapilotCard: language === "ar" ? "اتصال Wapilot" : "Wapilot connection",
       gwTitle: language === "ar" ? "اتصال واتساب" : "WhatsApp connection",
       gwHint:
@@ -947,6 +983,13 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.ok) {
         setMetaStatus({ configured: data.configured === true, phoneNumberId: data.phoneNumberId || "", tokenSet: data.tokenSet === true });
+        // Whether the number greets ad clicks first — a Meta-side switch, read from Meta.
+        if (data.configured === true) {
+          fetch(`/api/admin/meta-whatsapp-welcome?clinicId=${encodeURIComponent(currentClinicId() || "")}`, { headers: { Authorization: `Bearer ${idToken}` } })
+            .then((r) => r.json())
+            .then((w) => setMetaWelcome(w?.ok ? w.enabled === true : false))
+            .catch(() => setMetaWelcome(false));
+        }
         if (data.phoneNumberId) setMetaPhoneNumberId(data.phoneNumberId);
         if (data.wabaId) setMetaWabaId(data.wabaId);
       }
@@ -1665,6 +1708,31 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
               </p>
             )}
           </div>
+
+          {/* Meta's welcome-message switch: the only way to greet an ad click before it types. */}
+          {metaStatus?.configured && (
+            <div className="rounded-xl border border-line bg-surface-subtle p-3 space-y-2">
+              <p className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.metaWelcomeTitle}</p>
+              <p className="text-xs text-ink-body leading-relaxed">{txt.metaWelcomeHint}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleToggleMetaWelcome(metaWelcome !== true)}
+                  disabled={metaWelcomeBusy || metaWelcome === null}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent text-ink text-xs font-black uppercase tracking-wide hover:opacity-90 transition-opacity disabled:opacity-50"
+                >
+                  {metaWelcomeBusy ? <Loader2 size={14} className="animate-spin" /> : <MessageCircle size={14} />}
+                  {metaWelcome === true ? txt.metaWelcomeOff : txt.metaWelcomeOn}
+                </button>
+                <span dir="auto" className={`text-xs font-bold ${metaWelcome === true ? "text-ok" : "text-ink-muted"}`}>
+                  {metaWelcome === null ? "…" : metaWelcome ? txt.metaWelcomeEnabled : txt.metaWelcomeDisabled}
+                </span>
+              </div>
+              {metaWelcomeError && (
+                <p dir="auto" className="text-xs font-bold rounded-lg px-3 py-2 bg-warn-tint text-warn border border-warn/25">{metaWelcomeError}</p>
+              )}
+            </div>
+          )}
 
           <button
             type="button"

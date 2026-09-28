@@ -98,6 +98,8 @@ interface ChatRow {
   assignedAtMs?: number;
   /** What the desk wants to remember about this thread — see ChatInfoPanel. */
   note?: string;
+  /** The ad or post this chat started from — written by the bot on the first message. */
+  ad?: { headline?: string; body?: string; sourceType?: string };
   tags?: string[];
   /** Out of the list until the patient writes again. Nothing is deleted. */
   archived?: boolean;
@@ -561,6 +563,16 @@ export default function ChatsPanel({
                             : "Write like a patient would and see how the bot answers"
                           : previewText(c.lastText || "", isAr)}
                       </span>
+                      {/* Came from an ad: the one row a clinic paying for clicks scans for first. */}
+                      {c.ad && (
+                        <span
+                          className="shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded-full truncate max-w-[110px]"
+                          style={{ background: "#fff1c2", color: "#6b4a00" }}
+                          title={c.ad.headline || c.ad.body || ""}
+                        >
+                          📣 {c.ad.headline ? c.ad.headline : isAr ? (c.ad.sourceType === "post" ? "منشور" : "إعلان") : c.ad.sourceType === "post" ? "Post" : "Ad"}
+                        </span>
+                      )}
                       {/* The first tag, as a colour the eye can scan the list by. */}
                       {c.tags && c.tags.length > 0 && (
                         <span

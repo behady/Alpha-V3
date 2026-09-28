@@ -139,7 +139,7 @@ export function ackFromStatus(status) {
  * Passing it as `from` means the web app sees a patient it can look up instead of a stranger
  * behind a lid, and its whole lid-learning path becomes a fallback rather than the norm.
  */
-export function buildMessageEvent({ instanceId, key, timestamp, text, media, mediaUrl, pushName, phoneJid }) {
+export function buildMessageEvent({ instanceId, key, timestamp, text, media, mediaUrl, pushName, phoneJid, ad }) {
   const chat = toChatId(key.remoteJid);
   const from = phoneJid ? toChatId(phoneJid) : chat;
   const payload = {
@@ -162,7 +162,56 @@ export function buildMessageEvent({ instanceId, key, timestamp, text, media, med
     payload.hasMedia = true;
     if (mediaUrl) payload.media = { url: mediaUrl, mimetype: media.mimetype };
   }
+  // The ad this chat started from, when WhatsApp said so. Same key names the web app stores.
+  if (ad) payload._data.ad = ad;
   return { event: "message", session: instanceId, instanceId, payload };
+}
+
+/**
+ * The ad or post a conversation started from, when this message carries it.
+ *
+ * WhatsApp attaches `contextInfo.externalAdReply` to the FIRST message of a Click-to-WhatsApp
+ * conversation — the ad's title and text, its id and link, and the click id Meta's Conversions
+ * API credits a booking back with. The web app reads the same fields off the Cloud API's
+ * `referral`, so the names here match its stored shape, not Baileys'. Only the first message
+ * has it; nothing here remembers, the web app does.
+ */
+export function messageAd(message) {
+  const m = unwrapContent(message);
+  if (!m) return null;
+  const ctx =
+    m.extendedTextMessage?.contextInfo ||
+    m.imageMessage?.contextInfo ||
+    m.videoMessage?.contextInfo ||
+    m.audioMessage?.contextInfo ||
+    m.documentMessage?.contextInfo ||
+    m.buttonsResponseMessage?.contextInfo ||
+    m.listResponseMessage?.contextInfo ||
+    null;
+  if (!ctx) return null;
+  const ad = ctx.externalAdReply || null;
+  const source = String(ctx.conversionSource || "");
+  const fromAds = /ads?$/i.test(source) || /ads?[_ ]/i.test(source);
+  if (!ad && !fromAds) return null;
+  const s = (v, max) => {
+    if (v == null) return undefined;
+    const t = String(v).replace(/\s+/g, " ").trim();
+    return t ? t.slice(0, max) : undefined;
+  };
+  const mt = ad?.mediaType;
+  const mediaType = mt === 2 || mt === "VIDEO" || mt === "video" ? "video" : mt === 1 || mt === "IMAGE" || mt === "image" ? "image" : undefined;
+  const out = {
+    headline: s(ad?.title, 160),
+    body: s(ad?.body, 400),
+    sourceId: s(ad?.sourceId, 64),
+    sourceType: s(ad?.sourceType, 20) || (fromAds ? "ad" : undefined),
+    sourceUrl: s(ad?.sourceUrl, 500),
+    mediaType,
+    ctwaClid: s(ad?.ctwaClid, 300),
+    thumbnailUrl: s(ad?.thumbnailUrl, 500),
+  };
+  for (const k of Object.keys(out)) if (out[k] === undefined) delete out[k];
+  return out.headline || out.body || out.sourceId || out.sourceUrl || out.ctwaClid ? out : null;
 }
 
 export function buildAckEvent({ instanceId, key, status }) {
