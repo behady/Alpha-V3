@@ -33,9 +33,12 @@ type GatewayView = {
   phone?: string | null;
   qr?: string | null;
   lastError?: string | null;
+  /** Clinic hours and the queue, as the gateway reports them (whatsapp-gateway/src/policy.js). */
+  sending?: { windowOpen: boolean; nextOpenAt: number | null; waiting: number; dailyCap: number; sentToday: number } | null;
 };
 
 function readGateway(data: Record<string, unknown>): GatewayView {
+  const s = data.sending && typeof data.sending === "object" ? (data.sending as Record<string, unknown>) : null;
   return {
     available: data.available === true,
     managed: data.managed === true,
@@ -43,6 +46,15 @@ function readGateway(data: Record<string, unknown>): GatewayView {
     phone: typeof data.phone === "string" ? data.phone : null,
     qr: typeof data.qr === "string" ? data.qr : null,
     lastError: typeof data.lastError === "string" ? data.lastError : null,
+    sending: s
+      ? {
+          windowOpen: s.windowOpen === true,
+          nextOpenAt: typeof s.nextOpenAt === "number" ? s.nextOpenAt : null,
+          waiting: Number(s.waiting) || 0,
+          dailyCap: Number(s.dailyCap) || 0,
+          sentToday: Number(s.sentToday) || 0,
+        }
+      : null,
   };
 }
 
@@ -169,7 +181,7 @@ export function AlertsLineCard() {
     return () => clearInterval(timer);
   }, [gw?.managed, gw?.state, loadGw]);
 
-  const gwAction = async (action: "connect" | "disconnect" | "relink") => {
+  const gwAction = async (action: "connect" | "disconnect" | "relink" | "resume") => {
     if (action === "disconnect") {
       const ok = await confirm(
         "Clinics on the Alerts line add-on stop receiving WhatsApp alerts until the line is connected again.",
@@ -266,6 +278,22 @@ export function AlertsLineCard() {
                 <li>Scan this code. It refreshes on its own if it expires.</li>
               </ol>
             </div>
+          ) : gw.state === "restricted" ? (
+            <div className="space-y-3">
+              <p className="text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5 leading-relaxed">
+                Sending is paused: WhatsApp refused the connection or logged this device out repeatedly, which is what a
+                restriction looks like. Owner alerts on this line are held. Check WhatsApp on the phone, then Resume.
+                {gw.lastError ? ` (${gw.lastError})` : ""}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => void gwAction("resume")} disabled={gwBusy} className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50">
+                  {gwBusy ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Resume
+                </button>
+                <button type="button" onClick={() => void gwAction("relink")} disabled={gwBusy} className="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-2 text-xs font-bold text-ink-muted disabled:opacity-50">
+                  <QrCode size={14} /> New QR
+                </button>
+              </div>
+            </div>
           ) : (
             <div className="flex flex-wrap items-center justify-between gap-3">
               <span className="inline-flex items-center gap-2 text-xs font-bold text-ink-muted">
@@ -291,6 +319,13 @@ export function AlertsLineCard() {
                 </button>
               </div>
             </div>
+          )}
+          {gw.managed && gw.state === "open" && gw.sending && (
+            <p className="mt-3 text-[11px] font-bold text-ink-muted">
+              {gw.sending.waiting > 0 && gw.sending.nextOpenAt
+                ? `${gw.sending.waiting} message${gw.sending.waiting === 1 ? "" : "s"} waiting — sending resumes at ${new Date(gw.sending.nextOpenAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Cairo" })} Cairo`
+                : `Today: ${gw.sending.sentToday} of ${gw.sending.dailyCap} first-contact messages allowed`}
+            </p>
           )}
         </div>
       )}
