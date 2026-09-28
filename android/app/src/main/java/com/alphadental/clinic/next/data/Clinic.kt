@@ -322,6 +322,10 @@ data class Money(
     /** Whose file this line is on. Blank on a clinic expense. */
     val patientName: String = "",
     val patientId: String = "",
+    /** Minted by the ledger route when the money was saved. Blank on payments from before numbering. */
+    val receiptNumber: String = "",
+    /** On a charge: the price before any discount, for the struck-through figure on a receipt. */
+    val listPrice: Double = 0.0,
 ) {
     val isCharge: Boolean get() = type == "procedure"
 

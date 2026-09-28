@@ -321,6 +321,8 @@ fun LedgerRowSheet(
     onSave: (String, String, Double, String) -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
+    /** "print", "share" or "whatsapp" — the receipt for a payment, the statement for a charge. */
+    onReceipt: ((String) -> Unit)? = null,
 ) {
     var date by remember(row.id) { mutableStateOf(row.date) }
     var description by remember(row.id) { mutableStateOf(row.description) }
@@ -381,6 +383,20 @@ fun LedgerRowSheet(
                     }
                 }
             }
+        }
+
+        if (onReceipt != null) {
+            Rule()
+            val paper = if (row.isPayment) "receipt" else "statement"
+            if (row.isPayment) {
+                Txt(
+                    if (row.receiptNumber.isNotBlank()) "Receipt ${row.receiptNumber}" else "Recorded before receipts were numbered — it prints without a number.",
+                    Type.caption, T.inkMuted, Modifier.padding(start = T.gutter, end = T.gutter, top = 12.dp), maxLines = 2,
+                )
+            }
+            SheetAction("Print the $paper", "Any printer the phone knows, or Save as PDF") { onReceipt("print") }
+            SheetAction("Share the $paper as PDF", "Mail, Drive, or anything else") { onReceipt("share") }
+            SheetAction("Send on WhatsApp", "Opens WhatsApp with the PDF attached; you pick the chat") { onReceipt("whatsapp") }
         }
 
         if (!canEdit) {

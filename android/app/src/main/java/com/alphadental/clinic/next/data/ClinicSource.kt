@@ -489,6 +489,8 @@ object ClinicSource {
                         doctorId = d.text("doctorId"),
                         patientName = d.text("patientName"),
                         patientId = d.text("patientId"),
+                        receiptNumber = d.text("receiptNumber"),
+                        listPrice = d.number("listPrice") ?: 0.0,
                     )
                 }
 
@@ -622,6 +624,8 @@ object ClinicSource {
                     doctorId = d.text("doctorId"),
                     patientName = d.text("patientName"),
                     patientId = d.text("patientId"),
+                    receiptNumber = d.text("receiptNumber"),
+                    listPrice = d.number("listPrice") ?: 0.0,
                 )
             }.sortedByDescending { it.date }
         }

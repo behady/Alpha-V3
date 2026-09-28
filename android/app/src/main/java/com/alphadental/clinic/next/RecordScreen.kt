@@ -77,6 +77,8 @@ fun RecordScreen(
     onCall: (String) -> Unit = {},
     onMessage: (String) -> Unit = {},
     onTakePayment: (() -> Unit)? = null,
+    /** The account statement as a PDF. */
+    onStatement: (() -> Unit)? = null,
     onRecordTreatment: (() -> Unit)? = null,
     onMore: (() -> Unit)? = null,
     onFilterMedia: (String) -> Unit = {},
@@ -169,7 +171,7 @@ fun RecordScreen(
                     RecordTab.Visits -> visits(record)
                     RecordTab.Rx -> scripts(state, onPrescribe, onPrintScript, onShareScript, onSendScript, onCopyScript)
                     RecordTab.Photos -> photos(state, onFilterMedia, onUploadCategory, onView, onCamera, onGallery)
-                    RecordTab.Ledger -> finance(state, onTakePayment, onEditRow, onDeleteRow)
+                    RecordTab.Ledger -> finance(state, onTakePayment, onEditRow, onDeleteRow, onStatement)
                 }
             }
         }

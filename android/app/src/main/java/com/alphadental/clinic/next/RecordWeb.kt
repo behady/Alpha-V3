@@ -374,6 +374,8 @@ fun LazyListScope.finance(
     onAddPayment: (() -> Unit)?,
     onEditRow: ((Money) -> Unit)?,
     onDeleteRow: ((Money) -> Unit)?,
+    /** The account statement as a PDF, to the share sheet. */
+    onStatement: (() -> Unit)? = null,
 ) {
     val record = state.record ?: return
     val b = record.balance
@@ -394,8 +396,8 @@ fun LazyListScope.finance(
                 }
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Surface(shape = RoundedCornerShape(12.dp), color = GreenTint, modifier = Modifier.weight(1f)) {
-                        Txt("Receipt on the website", Type.label.copy(fontSize = 12.sp), Color(0xFF15803D), Modifier.padding(vertical = 13.dp).fillMaxWidth(), maxLines = 1, align = androidx.compose.ui.text.style.TextAlign.Center)
+                    Surface(shape = RoundedCornerShape(12.dp), color = GreenTint, modifier = Modifier.weight(1f).then(if (onStatement != null) Modifier.clickable(onClick = onStatement) else Modifier)) {
+                        Txt("Statement (PDF)", Type.label.copy(fontSize = 12.sp), Color(0xFF15803D), Modifier.padding(vertical = 13.dp).fillMaxWidth(), maxLines = 1, align = androidx.compose.ui.text.style.TextAlign.Center)
                     }
                     if (onAddPayment != null) {
                         Surface(shape = RoundedCornerShape(12.dp), color = GreenSoft, modifier = Modifier.weight(1f).clickable(onClick = onAddPayment)) {

@@ -1145,6 +1145,7 @@ private fun RecordPane(
         onCall = { context.dial(it) },
         onMessage = { context.whatsapp(it) },
         // A write, so only for someone the server would accept it from.
+        onStatement = { model.statement(context, "share") },
         onTakePayment = if (state.canTakePayment) ({ taking = true }) else null,
         onRecordTreatment = if (state.canRecord) ({ recording = true }) else null,
         onMore = { more = true },
@@ -1373,6 +1374,7 @@ private fun RecordPane(
             onSave = model::saveRow,
             onDelete = model::deleteRow,
             onDismiss = model::closeRow,
+            onReceipt = { mode -> model.receipt(context, row, mode) },
         )
     }
 

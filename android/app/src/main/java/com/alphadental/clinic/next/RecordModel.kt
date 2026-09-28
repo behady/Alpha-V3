@@ -842,6 +842,50 @@ class RecordModel : ViewModel() {
         }
     }
 
+    /**
+     * The receipt for one payment, or the account statement, as a PDF — printed, shared, or
+     * handed to WhatsApp for the staff member to pick the chat. The website's receipt settings
+     * decide what prints; the number was minted when the money was saved.
+     */
+    fun receipt(context: android.content.Context, row: com.alphadental.clinic.next.data.Money, mode: String) {
+        val who = _state.value.who ?: return
+        val record = _state.value.record ?: return
+        if (_state.value.busyScript != null) return
+        _state.value = _state.value.copy(busyScript = row.id, error = null)
+        viewModelScope.launch {
+            val file = runCatching {
+                val clinic = runCatching { com.alphadental.clinic.data.Repository.loadClinicInfo(who.clinicId) }
+                    .getOrDefault(com.alphadental.clinic.data.ClinicInfo())
+                val settings = com.alphadental.clinic.data.ReceiptPdf.loadSettings(who.clinicId)
+                val ledger = record.ledger
+                if (row.isPayment) {
+                    val charge = ledger.firstOrNull { it.id == row.procedureId }
+                    val before = ledger.filter { it.isPayment && it.procedureId == row.procedureId && row.procedureId.isNotBlank() && it.date < row.date }.sumOf { it.amount }
+                    // Where the account stood after this payment: everything up to and including its day.
+                    val upTo = ledger.filter { it.date <= row.date }
+                    val balance = upTo.filter { it.isCharge }.sumOf { it.amount } - upTo.filter { it.isPayment }.sumOf { it.amount }
+                    com.alphadental.clinic.data.ReceiptPdf.writePayment(context, clinic, settings, record.person.name, record.person.phone, row, charge, before, balance)
+                } else {
+                    com.alphadental.clinic.data.ReceiptPdf.writeStatement(context, clinic, settings, record.person.name, record.person.phone, ledger)
+                }
+            }.getOrNull()
+            _state.value = _state.value.copy(busyScript = null, error = if (file == null) "The receipt could not be drawn." else null)
+            if (file == null) return@launch
+            val subject = if (row.isPayment) "Receipt ${row.receiptNumber}".trim() else "Account statement"
+            when (mode) {
+                "print" -> com.alphadental.clinic.ui.DocumentActions.print(context, file, subject)
+                "whatsapp" -> com.alphadental.clinic.ui.DocumentActions.shareToWhatsapp(context, file, subject)
+                else -> com.alphadental.clinic.ui.DocumentActions.share(context, file, subject)
+            }
+        }
+    }
+
+    /** The whole account as one PDF. */
+    fun statement(context: android.content.Context, mode: String) {
+        val any = _state.value.record?.ledger?.firstOrNull { it.isCharge } ?: _state.value.record?.ledger?.firstOrNull() ?: return
+        receipt(context, any.copy(type = "procedure"), mode)
+    }
+
     fun printScript(context: android.content.Context, script: com.alphadental.clinic.data.Prescription) =
         withPdf(context, script) { com.alphadental.clinic.ui.DocumentActions.print(context, it, "Prescription") }
 
