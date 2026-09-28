@@ -852,10 +852,13 @@ export default function MarketingPage() {
         "Marketing campaign launched",
         `${campName.trim()} → ${data.created} drafts`
       );
+      // Two kinds of "left out", named separately: a duplicate is a bookkeeping detail, a patient
+      // who asked not to be messaged is a promise the clinic kept.
+      const optedOut = Number(data.skippedOptedOut) || 0;
       showToast(
         isAr
-          ? `تم تجهيز ${data.created} رسالة للمراجعة${data.skipped ? ` (${data.skipped} مكررة تم تخطيها)` : ""}`
-          : `${data.created} messages queued for review${data.skipped ? ` (${data.skipped} duplicates skipped)` : ""}`,
+          ? `تم تجهيز ${data.created} رسالة للمراجعة${data.skipped ? ` (${data.skipped} مكررة تم تخطيها)` : ""}${optedOut ? ` · ${optedOut} طلبوا عدم المراسلة وتم استبعادهم` : ""}`
+          : `${data.created} messages queued for review${data.skipped ? ` (${data.skipped} duplicates skipped)` : ""}${optedOut ? ` · ${optedOut} asked not to be messaged and were left out` : ""}`,
         "success"
       );
       setCampSegment(null);

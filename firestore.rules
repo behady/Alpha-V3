@@ -213,6 +213,11 @@ service cloud.firestore {
         && sub != 'sms_devices' && sub != 'leads'
         && sub != 'ai_usage' && sub != 'ai_usage_log'
         && sub != 'whatsapp_outbox'
+        // A stop request from a number nobody had on file. Written by the inbound webhook, read
+        // by every automated sender before it messages anyone. Deleting one from a browser would
+        // silently un-stop a stranger; re-subscribing a patient is a staff decision made on the
+        // patient's profile, where it is logged — not by removing a row here.
+        && sub != 'messaging_opt_outs'
         // The notification feed. Every row is written by the server (an API route or a Cloud
         // Function, both on the Admin SDK), and every row names the people it is addressed to.
         // Left inside the general grant, any member could forge one — an "owner, a paid lead has
@@ -661,6 +666,13 @@ service cloud.firestore {
       // write, someone could change a draft's recipient or body after it was reviewed, or flip a
       // status to 'sent' without anything actually being sent.
       match /message_drafts/{draftId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow write: if false;
+      }
+
+      // Stop requests from numbers that matched no patient (see memberMayWrite for why the
+      // browser may only read them).
+      match /messaging_opt_outs/{numberId} {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
         allow write: if false;
       }
