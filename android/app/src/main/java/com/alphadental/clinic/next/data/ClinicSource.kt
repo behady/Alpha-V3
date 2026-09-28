@@ -632,6 +632,73 @@ object ClinicSource {
 
     // ---------------------------------------------------------------- writes
 
+    /**
+     * Claim, release, or take over a thread — the website's one-click rule. Taking a colleague's
+     * thread asks nothing: the common case is "she went to lunch".
+     */
+    suspend fun assignThread(clinicId: String, threadId: String, who: Who?, mine: Boolean): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            clinic(clinicId).collection("whatsapp_conversations").document(threadId).update(
+                if (mine || who == null) mapOf("assignedTo" to null, "assignedName" to null, "assignedAtMs" to System.currentTimeMillis())
+                else mapOf("assignedTo" to who.uid, "assignedName" to who.name, "assignedAtMs" to System.currentTimeMillis()),
+            ).await()
+            Unit
+        }
+    }
+
+    /**
+     * The bot switch. Pausing sets the flag; handing back clears every hold at once — the pause,
+     * an open hand-off, and the hour a reply claims — so "the bot is answering again" means that.
+     */
+    suspend fun setBotQuiet(clinicId: String, threadId: String, uid: String, quiet: Boolean): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            clinic(clinicId).collection("whatsapp_conversations").document(threadId).update(
+                if (quiet) mapOf("botPaused" to true, "botPausedBy" to uid, "botPausedAtMs" to System.currentTimeMillis())
+                else mapOf("botPaused" to false, "needsHuman" to false, "handledAtMs" to System.currentTimeMillis(), "handledBy" to uid, "humanActiveAtMs" to 0L),
+            ).await()
+            Unit
+        }
+    }
+
+    /** The desk's labels: eight at most, lower-case, as the website writes them. */
+    suspend fun setThreadTags(clinicId: String, threadId: String, tags: List<String>): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            clinic(clinicId).collection("whatsapp_conversations").document(threadId)
+                .update("tags", tags.map { it.trim().lowercase().take(24) }.filter { it.isNotBlank() }.distinct().take(8)).await()
+            Unit
+        }
+    }
+
+    /**
+     * A thumb on a bot bubble, to `bot_feedback` with the patient's question beside it — the same
+     * row the website writes, so the Bot tab's "asked X, bot said Y, staff said wrong" reads both.
+     * The same thumb twice withdraws it.
+     */
+    suspend fun rateBotLine(clinicId: String, threadId: String, line: Line, question: String, verdict: String, who: Who, withdraw: Boolean): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val ref = clinic(clinicId).collection("bot_feedback").document("${threadId}_${line.id}".replace(Regex("[^A-Za-z0-9_-]"), ""))
+            if (withdraw) ref.delete().await()
+            else ref.set(
+                mapOf(
+                    "chatKey" to threadId, "messageId" to line.id, "verdict" to verdict, "reason" to null,
+                    "text" to line.text.take(600), "kind" to line.kind.ifBlank { null }, "question" to question.take(400).ifBlank { null },
+                    "uid" to who.uid, "name" to who.name.ifBlank { who.email }, "atMs" to System.currentTimeMillis(),
+                ),
+            ).await()
+            Unit
+        }
+    }
+
+    /** The thumbs already given on this thread, line id → "up" / "down". */
+    fun watchFeedback(clinicId: String, threadId: String): Flow<Map<String, String>> = callbackFlow {
+        val reg = clinic(clinicId).collection("bot_feedback").whereEqualTo("chatKey", threadId)
+            .addSnapshotListener { snap, err ->
+                if (err != null) { close(err); return@addSnapshotListener }
+                trySend(snap?.documents.orEmpty().associate { it.getString("messageId").orEmpty() to it.getString("verdict").orEmpty() })
+            }
+        awaitClose { reg.remove() }
+    }
+
     /** Move a visit on. The only write the dashboard performs. */
     suspend fun setStage(clinicId: String, visitId: String, stage: Stage): Result<Unit> =
         withContext(Dispatchers.IO) {

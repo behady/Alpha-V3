@@ -104,13 +104,13 @@ class HelpModel(app: Application) : AndroidViewModel(app) {
 
     private fun read(): List<Article> {
         val assets = getApplication<Application>().assets
-        // English only for now. The Arabic set is copied in beside it and the
-        // app's language switch is the thing that has to choose between them;
-        // shipping the files first means that switch is a one-line change
-        // rather than a content project.
+        // The set the phone's language asks for; an article missing in Arabic falls back to English.
+        val lang = if (com.alphadental.clinic.next.data.AppLocale.isArabic) "ar" else "en"
         val names = runCatching { assets.list("help/en").orEmpty() }.getOrDefault(emptyArray())
         return names.filter { it.endsWith(".md") }.mapNotNull { file ->
             val text = runCatching {
+                assets.open("help/$lang/$file").bufferedReader().use { it.readText() }
+            }.recoverCatching {
                 assets.open("help/en/$file").bufferedReader().use { it.readText() }
             }.getOrNull() ?: return@mapNotNull null
             parse(file.removeSuffix(".md"), text)

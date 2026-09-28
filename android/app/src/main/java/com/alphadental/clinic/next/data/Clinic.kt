@@ -435,7 +435,16 @@ data class Thread(
     val optedOut: Boolean,
     val assignedName: String,
     val archived: Boolean,
+    /** The staff uid holding this thread, so "mine" can be decided. */
+    val assignedTo: String = "",
+    /** The desk's labels on the conversation, as the website keeps them. */
+    val tags: List<String> = emptyList(),
+    /** When a person last typed here; the bot stands down for an hour after it. */
+    val humanActiveAtMs: Long = 0L,
 ) {
+    /** Every reason the bot is quiet, as the website's one switch sees them. */
+    val botQuiet: Boolean get() = botPaused || needsHuman || humanActiveAtMs > System.currentTimeMillis() - 60L * 60 * 1000
+
     /** Who this is: their name if the clinic knows it, else the number. */
     val title: String get() = patientName.ifBlank { phone.ifBlank { id } }
 
@@ -471,6 +480,8 @@ data class Line(
     /** Meta's own ticks: "sent", "delivered", "read", "failed". Blank inbound. */
     val status: String,
     val name: String,
+    /** The bot's own slug for what it answered — "hours", "booking_days" — for the feedback row. */
+    val kind: String = "",
 ) {
     val fromPatient: Boolean get() = direction == "in"
     val fromBot: Boolean get() = author == "bot"
@@ -497,6 +508,9 @@ internal fun DocumentSnapshot.toThread(): Thread = Thread(
     optedOut = getBoolean("optedOut") == true,
     assignedName = text("assignedName"),
     archived = getBoolean("archived") == true,
+    assignedTo = text("assignedTo"),
+    tags = (get("tags") as? List<*>)?.mapNotNull { it?.toString()?.takeIf(String::isNotBlank) }.orEmpty(),
+    humanActiveAtMs = millis("humanActiveAtMs"),
 )
 
 internal fun DocumentSnapshot.toLine(): Line = Line(
@@ -509,4 +523,5 @@ internal fun DocumentSnapshot.toLine(): Line = Line(
     transcript = text("transcript"),
     status = text("status"),
     name = text("name"),
+    kind = text("kind"),
 )

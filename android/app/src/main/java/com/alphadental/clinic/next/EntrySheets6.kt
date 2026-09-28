@@ -108,8 +108,8 @@ fun LabOrderSheet(state: LabOrder, actions: LabOrderActions) {
 
         if (state.labs.isEmpty() && !state.loading) {
             Txt(
-                "No laboratory is set up yet. Settings → Labs on the website is where they are " +
-                    "added, with the turnaround that makes a case late.",
+                "No laboratory is set up yet. Add one under Settings → Dental labs, with the " +
+                    "turnaround that makes a case late.",
                 Type.caption, T.warn,
                 Modifier.padding(horizontal = T.gutter, vertical = 14.dp),
                 maxLines = 3,
@@ -267,7 +267,7 @@ fun LabOrderSheet(state: LabOrder, actions: LabOrderActions) {
                     "case amber as that day approaches and red once it passes."
             } else {
                 "This lab has no turnaround set, so the case has no due date and can never show as " +
-                    "late. That is set on the website, under Labs."
+                    "late. Set it under Settings → Dental labs."
             },
             Type.caption, if (state.draft.dueDate.isNotBlank()) T.inkMuted else T.warn,
             Modifier.padding(horizontal = T.gutter, vertical = 12.dp),

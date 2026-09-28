@@ -65,7 +65,14 @@ data class Chats(
     /** What the last send actually did, in the person's own words. */
     val sent: String? = null,
     val sendError: String? = null,
+    /** Thumbs already given on the open thread, line id → "up" / "down". */
+    val feedback: Map<String, String> = emptyMap(),
+    /** A thread-level write (assign, bot, tag) in flight. */
+    val acting: Boolean = false,
 ) {
+    /** The open thread is mine. */
+    val mine: Boolean get() = open != null && who != null && open.assignedTo.isNotBlank() && open.assignedTo == who.uid
+
     private val live: List<Thread> get() = threads.filterNot { it.archived }
 
     /** Threads the bot handed over and nobody has picked up. */
@@ -378,9 +385,10 @@ class ChatsModel : ViewModel() {
     }
 
     fun open(thread: Thread) {
-        _state.value = _state.value.copy(open = thread, lines = emptyList(), linesLoading = true)
+        _state.value = _state.value.copy(open = thread, lines = emptyList(), linesLoading = true, feedback = emptyMap())
         val who = _state.value.who ?: return
         threadWatch?.cancel()
+        feedbackWatch?.cancel()
         threadWatch = viewModelScope.launch {
             ClinicSource.watchLines(who.clinicId, thread.id)
                 .catch { e -> _state.value = _state.value.copy(linesLoading = false, error = e.message) }
@@ -388,12 +396,62 @@ class ChatsModel : ViewModel() {
                     _state.value = _state.value.copy(lines = lines, linesLoading = false)
                 }
         }
+        feedbackWatch = viewModelScope.launch {
+            ClinicSource.watchFeedback(who.clinicId, thread.id)
+                .catch { }
+                .collect { map -> _state.value = _state.value.copy(feedback = map) }
+        }
     }
 
     fun close() {
         threadWatch?.cancel()
         threadWatch = null
-        _state.value = _state.value.copy(open = null, lines = emptyList())
+        feedbackWatch?.cancel()
+        feedbackWatch = null
+        _state.value = _state.value.copy(open = null, lines = emptyList(), feedback = emptyMap())
+    }
+
+    private var feedbackWatch: Job? = null
+
+    /** The open thread, as the inbox watcher has it now — writes land there first. */
+    private fun current(): Thread? = _state.value.open?.let { open -> _state.value.threads.firstOrNull { it.id == open.id } ?: open }
+
+    private fun act(block: suspend (Who, Thread) -> Result<Unit>) {
+        val who = _state.value.who ?: return
+        val thread = current() ?: return
+        if (_state.value.acting) return
+        _state.value = _state.value.copy(acting = true, error = null)
+        viewModelScope.launch {
+            block(who, thread)
+                .onSuccess { _state.value = _state.value.copy(acting = false) }
+                .onFailure { e -> _state.value = _state.value.copy(acting = false, error = e.message ?: "That could not be saved.") }
+        }
+    }
+
+    /** Take the thread, or let it go. */
+    fun toggleAssign() = act { who, t -> ClinicSource.assignThread(who.clinicId, t.id, who, mine = t.assignedTo == who.uid) }
+
+    /** Pause the bot on this thread, or hand the thread back to it. */
+    fun toggleBot() = act { who, t -> ClinicSource.setBotQuiet(who.clinicId, t.id, who.uid, quiet = !t.botQuiet) }
+
+    fun toggleTag(tag: String) = act { who, t ->
+        val clean = tag.trim().lowercase().take(24)
+        val next = if (clean in t.tags) t.tags - clean else (t.tags + clean).take(8)
+        ClinicSource.setThreadTags(who.clinicId, t.id, next)
+    }
+
+    /** A thumb on a bot answer. The same thumb again withdraws it. */
+    fun rate(line: Line, verdict: String) {
+        val who = _state.value.who ?: return
+        val thread = _state.value.open ?: return
+        val lines = _state.value.lines
+        val idx = lines.indexOfFirst { it.id == line.id }
+        val question = lines.take(maxOf(0, idx)).lastOrNull { it.fromPatient }?.let { it.text.ifBlank { it.transcript } }.orEmpty()
+        val withdraw = _state.value.feedback[line.id] == verdict
+        viewModelScope.launch {
+            ClinicSource.rateBotLine(who.clinicId, thread.id, line, question, verdict, who, withdraw)
+                .onFailure { e -> _state.value = _state.value.copy(error = e.message ?: "Could not save.") }
+        }
     }
 }
 

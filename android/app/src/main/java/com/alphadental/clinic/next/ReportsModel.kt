@@ -59,7 +59,7 @@ enum class Preset(val en: String, val ar: String) {
 data class ReportsState(
     val loading: Boolean = true,
     val who: Who? = null,
-    val lang: String = if (Locale.getDefault().language == "ar") "ar" else "en",
+    val lang: String = com.alphadental.clinic.next.data.AppLocale.language.value,
     val groups: List<ReportsClient.Group> = emptyList(),
     val groupId: String = "overview",
     val reportId: String = "clinic",

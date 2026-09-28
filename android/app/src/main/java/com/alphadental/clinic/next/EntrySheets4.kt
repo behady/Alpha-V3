@@ -144,8 +144,8 @@ fun PrescriptionSheet(state: Script, actions: ScriptActions) {
 
         Txt(
             // Said where somebody would otherwise hunt for a print button.
-            "Saved to the patient's file. Printing it, or sending it on WhatsApp, is done on the " +
-                "website — a phone has nowhere to print to.",
+            "Saved to the patient's file. Print it, share the PDF or send it on WhatsApp from the " +
+                "Prescriptions tab.",
             Type.caption, T.inkFaint,
             Modifier.padding(horizontal = T.gutter, vertical = 12.dp),
             maxLines = 3,

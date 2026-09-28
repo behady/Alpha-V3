@@ -299,7 +299,7 @@ fun Shell(preview: Boolean = false) {
             )
             // Not built yet. Saying so is better than a blank screen that reads
             // as a bug, and better than hiding the tab so the bar keeps moving.
-            Tab.Chats -> ChatsTab(preview) { immersive = it }
+            Tab.Chats -> ChatsTab(preview, onImmersive = { immersive = it }, onOpenPatient = { openRecord = it })
             Tab.More -> MoreTab(
                 preview,
                 shows = { uiState.showsTool(it.name) },
@@ -640,7 +640,7 @@ private fun PatientsTab(preview: Boolean, onOpen: (String) -> Unit) {
  * conversation somebody is in the middle of reading.
  */
 @Composable
-private fun ChatsTab(preview: Boolean, onImmersive: (Boolean) -> Unit) {
+private fun ChatsTab(preview: Boolean, onImmersive: (Boolean) -> Unit, onOpenPatient: (String) -> Unit = {}) {
     if (preview) {
         var state by remember { mutableStateOf(previewChats()) }
         androidx.compose.runtime.LaunchedEffect(state.open?.id) { onImmersive(state.open != null) }
@@ -677,6 +677,11 @@ private fun ChatsTab(preview: Boolean, onImmersive: (Boolean) -> Unit) {
             onAttach = { model.attach(context, it) },
             onClearAttachment = model::clearAttachment,
             onSendAttachment = { model.sendAttachment(context, it) },
+            onAssign = model::toggleAssign,
+            onBot = model::toggleBot,
+            onTag = model::toggleTag,
+            onRate = model::rate,
+            onOpenPatient = onOpenPatient,
         )
     } else {
         ChatsScreen(state = state, onFilter = model::show, onOpen = model::open)
@@ -743,6 +748,7 @@ private fun MoreTab(
                 Destination.Assistant -> onOpenAssistant()
                 Destination.Help -> onOpenHelp()
                 Destination.MyApp -> onOpenMyApp()
+                Destination.Language -> com.alphadental.clinic.next.data.AppLocale.toggle(context)
                 else -> Unit
             }
         },

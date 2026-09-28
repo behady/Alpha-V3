@@ -300,7 +300,7 @@ private fun ToolCell(d: Destination, modifier: Modifier, onOpen: (Destination) -
         Icon(d.icon, null, tint = T.inkFaint, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(11.dp))
         Column(Modifier.weight(1f)) {
-            Txt(d.label, Type.label, T.ink)
+            Txt(if (d == Destination.Language) com.alphadental.clinic.next.data.AppLocale.switchLabel else d.label, Type.label, T.ink)
             if (!d.built) {
                 Spacer(Modifier.height(2.dp))
                 Txt("On the website", Type.chip, T.inkFaint, uppercase = true)
@@ -318,9 +318,13 @@ private fun DestinationRow(d: Destination, onOpen: () -> Unit) {
         Icon(d.icon, null, tint = T.inkFaint, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(13.dp))
         Column(Modifier.weight(1f)) {
-            Txt(d.label, Type.rowName, T.ink)
+            Txt(if (d == Destination.Language) com.alphadental.clinic.next.data.AppLocale.switchLabel else d.label, Type.rowName, T.ink)
             Spacer(Modifier.height(2.dp))
-            Txt(if (d.built) d.caption else "On the website", Type.caption, T.inkMuted, maxLines = 2)
+            Txt(
+                if (d == Destination.Language) "Reports, help and printed dates. The app's own words stay English for now."
+                else if (d.built) d.caption else "On the website",
+                Type.caption, T.inkMuted, maxLines = 2,
+            )
         }
         Icon(
             Icons.AutoMirrored.Filled.KeyboardArrowRight,
