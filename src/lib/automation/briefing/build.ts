@@ -288,6 +288,7 @@ export async function buildBriefing(args: {
   const growth = buildGrowthSection({
     leads: data.leads,
     patientCreatedAt: data.patientCreatedAt,
+    appointments,
     startDate,
     endDate,
     timeZone,

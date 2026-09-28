@@ -211,11 +211,13 @@ export function buildActionsSection(args: {
 export function buildGrowthSection(args: {
   leads: LeadRecord[];
   patientCreatedAt: Map<string, Date>;
+  /** The period's appointments — a new file counts as "seen" once one of these was attended. */
+  appointments: ReadonlyArray<{ patientId: string; status: string }>;
   startDate: string;
   endDate: string;
   timeZone: string;
 }): GrowthSection {
-  const { leads, patientCreatedAt, startDate, endDate, timeZone } = args;
+  const { leads, patientCreatedAt, appointments, startDate, endDate, timeZone } = args;
 
   const dayKey = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone }).format(d);
   const inWindow = (d: Date | null) => {
@@ -224,8 +226,19 @@ export function buildGrowthSection(args: {
     return key >= startDate && key <= endDate;
   };
 
+  // "New patients" was files created in the period, whichever way — the desk, the booking form,
+  // the WhatsApp bot, a converted lead — and whether or not the person ever came. The owner read
+  // 28 against a target of 12 and asked. Both numbers are kept: files created, and of those, the
+  // ones seen at least once. A file cannot have been seen before it was made, so the period's own
+  // appointments are enough to tell.
+  const seenPatients = new Set(appointments.filter((a) => a.patientId && ATTENDED.has(a.status)).map((a) => a.patientId));
   let newPatients = 0;
-  for (const created of patientCreatedAt.values()) if (inWindow(created)) newPatients += 1;
+  let newPatientsSeen = 0;
+  for (const [patientId, created] of patientCreatedAt) {
+    if (!inWindow(created)) continue;
+    newPatients += 1;
+    if (seenPatients.has(patientId)) newPatientsSeen += 1;
+  }
 
   const newLeads = leads.filter((l) => inWindow(l.createdAt));
 
@@ -245,6 +258,7 @@ export function buildGrowthSection(args: {
 
   return {
     newPatients,
+    newPatientsSeen,
     newLeads: newLeads.length,
     leadsBySource: Array.from(sources.entries())
       .map(([source, count]) => ({ source, count }))

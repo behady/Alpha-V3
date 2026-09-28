@@ -243,7 +243,8 @@ export default function OwnerHome() {
   const monthBrief = briefs.month;
   const monthElapsed = monthFraction(today);
   const revenueTarget = useMemo(() => targetProgress(monthBrief?.money?.collected ?? 0, targets.monthlyRevenue, monthElapsed), [monthBrief, targets.monthlyRevenue, monthElapsed]);
-  const patientsTarget = useMemo(() => targetProgress(monthBrief?.growth.newPatients ?? 0, targets.monthlyNewPatients, monthElapsed), [monthBrief, targets.monthlyNewPatients, monthElapsed]);
+  // The target is measured on new patients actually SEEN — a file made for an enquiry is not a patient yet.
+  const patientsTarget = useMemo(() => targetProgress(monthBrief?.growth.newPatientsSeen ?? 0, targets.monthlyNewPatients, monthElapsed), [monthBrief, targets.monthlyNewPatients, monthElapsed]);
   // The month brief feeds the target bars whatever period is on screen.
   useEffect(() => {
     if ((targets.monthlyRevenue > 0 || targets.monthlyNewPatients > 0) && !briefs.month) void load("month");
@@ -292,7 +293,7 @@ export default function OwnerHome() {
     { key: "money", label: isAr ? "الفلوس" : "Money", badge: brief?.money ? compact(brief.money.collected) : "" },
     { key: "team", label: isAr ? "الفريق" : "Team", badge: onFloor !== null && rostered !== null ? `${onFloor}/${rostered}` : "" },
     { key: "floor", label: isAr ? "الصالة" : "The floor", badge: room.waiting.length ? String(room.waiting.length) : "" },
-    { key: "growth", label: isAr ? "النمو" : "Growth", badge: brief ? String(brief.growth.newPatients) : "" },
+    { key: "growth", label: isAr ? "النمو" : "Growth", badge: brief ? String(brief.growth.newPatientsSeen) : "" },
   ];
   const eyebrow = "font-display text-[11px] font-black uppercase tracking-[0.12em] text-ink-muted";
   const ghost = "inline-flex items-center gap-1.5 h-[30px] px-3 rounded-xl bg-surface border border-line text-ink text-[11px] font-extrabold uppercase tracking-wide shadow-sm hover:bg-surface-subtle transition-colors whitespace-nowrap";
@@ -421,7 +422,7 @@ export default function OwnerHome() {
               ) : (
                 <>
                   {revenueTarget && <TargetBar label={isAr ? "الكاش" : "Cash"} value={fmt(monthBrief?.money?.collected ?? 0)} target={fmt(targets.monthlyRevenue)} progress={revenueTarget} isAr={isAr} />}
-                  {patientsTarget && <TargetBar label={isAr ? "مرضى جدد" : "New patients"} value={String(monthBrief?.growth.newPatients ?? 0)} target={String(targets.monthlyNewPatients)} progress={patientsTarget} isAr={isAr} />}
+                  {patientsTarget && <TargetBar label={isAr ? "مرضى جدد اتشافوا" : "New patients seen"} value={String(monthBrief?.growth.newPatientsSeen ?? 0)} target={String(targets.monthlyNewPatients)} progress={patientsTarget} isAr={isAr} />}
                 </>
               )}
             </div>
@@ -602,9 +603,14 @@ export default function OwnerHome() {
               <Card title={isAr ? "مرضى جدد" : "New patients"} eyebrow={eyebrow}>
                 {brief ? (
                   <>
-                    <Big value={String(brief.growth.newPatients)} unit={brief.trend ? `${isAr ? "مقابل" : "vs"} ${brief.trend.points.find((p) => p.key === "new_patients")?.previous ?? "—"} ${periodWord}` : undefined} />
+                    <Big value={String(brief.growth.newPatientsSeen)} unit={isAr ? "اتشافوا مرة على الأقل" : "seen at least once"} />
+                    <p className="text-xs font-semibold text-ink-muted">
+                      {brief.growth.newPatients} {isAr ? "ملف جديد اتعمل" : "new files created"}
+                      {brief.growth.newPatients > brief.growth.newPatientsSeen ? ` · ${brief.growth.newPatients - brief.growth.newPatientsSeen} ${isAr ? "لسه مجاش" : "not seen yet"}` : ""}
+                      {brief.trend ? ` · ${isAr ? "مقابل" : "vs"} ${brief.trend.points.find((p) => p.key === "new_patients")?.previous ?? "—"} ${isAr ? "ملف" : "files"} ${periodWord}` : ""}
+                    </p>
                     {patientsTarget ? (
-                      <TargetBar dark={false} label={isAr ? "هدف الشهر" : "Month's target"} value={String(monthBrief?.growth.newPatients ?? 0)} target={String(targets.monthlyNewPatients)} progress={patientsTarget} isAr={isAr} />
+                      <TargetBar dark={false} label={isAr ? "هدف الشهر (اتشافوا)" : "Month's target (seen)"} value={String(monthBrief?.growth.newPatientsSeen ?? 0)} target={String(targets.monthlyNewPatients)} progress={patientsTarget} isAr={isAr} />
                     ) : (
                       <button onClick={() => router.push("/settings/targets")} className={`${ghost} self-start`}>{isAr ? "حدّد هدف" : "Set a target"} <ArrowUpRight size={12} /></button>
                     )}

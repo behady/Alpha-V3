@@ -180,7 +180,7 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
       staleBalances: [{ patientId: "p9", patientName: "X", balance: 12000, daysSinceLastActivity: 60 }],
       staleBalanceTotal: 12000,
     },
-    growth: { newPatients: 3, newLeads: 5, leadsBySource: [{ source: "Facebook", count: 3 }, { source: "WhatsApp", count: 2 }], leadsConverted: 1, leadsUntouched: 0 },
+    growth: { newPatients: 3, newPatientsSeen: 2, newLeads: 5, leadsBySource: [{ source: "Facebook", count: 3 }, { source: "WhatsApp", count: 2 }], leadsConverted: 1, leadsUntouched: 0 },
     stock: { low: [{ itemId: "i1", name: "Gloves M", stock: 1, minStock: 5, unit: "box", outOfStock: false }], lowCount: 1, outOfStockCount: 0, noThresholdCount: 0 },
     nextUp: { key: "tomorrow", startDate: "2026-09-28", endDate: "2026-09-28", appointments: 9, firstAppointmentTime: "10:00", doctors: ["Dr Ahmed"], unconfirmed: 3, staffRostered: ["Ahmed", "Nour"] },
     notes: [],
