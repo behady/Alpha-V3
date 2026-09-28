@@ -4,6 +4,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.ListAlt
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.EventRepeat
@@ -57,6 +58,7 @@ enum class Section(
     Hours("Opening hours", "When the clinic is open, and for how long a slot", Icons.Filled.Schedule, SettingsGroup.Clinic),
 
     Prices("Price list", "What each treatment costs", Icons.Filled.Payments, SettingsGroup.Work),
+    Payers("Payers & insurance", "Who pays, at what prices, and what each dentist earns on it", Icons.Filled.HealthAndSafety, SettingsGroup.Work),
     Recall("Recall and dormancy", "When a patient is due back", Icons.Filled.EventRepeat, SettingsGroup.Work),
     Reasons("Visit reasons", "What reception picks when booking", Icons.AutoMirrored.Filled.ListAlt, SettingsGroup.Work),
     Sources("How patients hear of you", "The list behind every marketing figure", Icons.Filled.PersonSearch, SettingsGroup.Work),
@@ -135,6 +137,9 @@ data class SettingsState(
     val branches: List<LabCases.Branch> = emptyList(),
     val labs: List<LabCases.Lab> = emptyList(),
     val services: List<ClinicSettings.ServiceRow> = emptyList(),
+    /** The clinic's price lists and insurers. Null until the Payers or Prices page has read them. */
+    val pricing: com.alphadental.clinic.next.data.Pricing.Policy? = null,
+    val rates: List<ClinicSettings.StaffRates> = emptyList(),
     val staff: List<ClinicSettings.StaffRow> = emptyList(),
     val requests: List<ClinicSettings.JoinRequest> = emptyList(),
     val logs: List<ClinicSettings.LogRow> = emptyList(),
@@ -224,7 +229,14 @@ class SettingsModel : ViewModel() {
                 // ai_preferences/{uid} document.
                 it.copy(facts = Repository.loadAiFacts(id, _state.value.who?.uid.orEmpty()))
             }
-            Section.Prices -> load { it.copy(services = ClinicSettings.loadServices(id)) }
+            Section.Prices -> load { it.copy(services = ClinicSettings.loadServices(id), pricing = com.alphadental.clinic.next.data.Pricing.load(id)) }
+            Section.Payers -> load {
+                it.copy(
+                    pricing = com.alphadental.clinic.next.data.Pricing.load(id),
+                    services = ClinicSettings.loadServices(id),
+                    rates = ClinicSettings.loadStaffRates(id),
+                )
+            }
             Section.Recall -> load { it.copy(recall = ClinicSettings.loadRecall(id)) }
             Section.Reasons -> load { it.copy(reasons = ClinicSettings.loadList(id, ClinicSettings.VISIT_REASONS)) }
             Section.Sources -> load { it.copy(sources = ClinicSettings.loadList(id, ClinicSettings.PATIENT_SOURCES)) }
@@ -433,6 +445,33 @@ class SettingsModel : ViewModel() {
                         services = fresh ?: _state.value.services,
                         error = null,
                     )
+                }
+                .onFailure { e -> _state.value = _state.value.copy(busy = false, error = readable(e)) }
+        }
+    }
+
+    /** An insurer and the list it bills on, written together as the website's wizard writes them. */
+    fun savePayer(payer: com.alphadental.clinic.next.data.Pricing.Payer) {
+        val id = _state.value.who?.clinicId ?: return
+        val policy = _state.value.pricing ?: return
+        if (!_state.value.canEdit) return
+        _state.value = _state.value.copy(busy = true)
+        viewModelScope.launch {
+            runCatching { com.alphadental.clinic.next.data.Pricing.savePayer(id, policy, payer) }
+                .onSuccess { fresh -> _state.value = _state.value.copy(busy = false, pricing = fresh, error = null) }
+                .onFailure { e -> _state.value = _state.value.copy(busy = false, error = readable(e)) }
+        }
+    }
+
+    fun saveRates(staffId: String, rates: Map<String, Double?>) {
+        val id = _state.value.who?.clinicId ?: return
+        if (!_state.value.canEdit) return
+        _state.value = _state.value.copy(busy = true)
+        viewModelScope.launch {
+            ClinicSettings.saveStaffRates(id, staffId, rates)
+                .onSuccess {
+                    val fresh = runCatching { ClinicSettings.loadStaffRates(id) }.getOrNull()
+                    _state.value = _state.value.copy(busy = false, rates = fresh ?: _state.value.rates, error = null)
                 }
                 .onFailure { e -> _state.value = _state.value.copy(busy = false, error = readable(e)) }
         }

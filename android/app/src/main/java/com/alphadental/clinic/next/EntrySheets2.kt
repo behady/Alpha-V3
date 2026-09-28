@@ -55,11 +55,12 @@ fun TreatmentSheet(
     charted: Map<Int, com.alphadental.clinic.next.data.Tooth> = emptyMap(),
     /** The tooth picked on the chart behind the sheet, if this was opened from one. */
     preselected: Int? = null,
+    policy: com.alphadental.clinic.next.data.Pricing.Policy = com.alphadental.clinic.next.data.Pricing.Policy.NONE,
     busy: Boolean,
     error: String?,
     onRecord: (ProcedureDraft) -> Unit,
     onDismiss: () -> Unit,
-) = NewProcedureSheet(patientName, services, doctors, charted, preselected, busy, error, onRecord, onDismiss)
+) = NewProcedureSheet(patientName, services, doctors, charted, policy, preselected, busy, error, onRecord, onDismiss)
 
 @Composable
 private fun ToothPicker(
@@ -236,10 +237,12 @@ fun TreatmentEditSheet(
     services: List<Service>,
     doctors: List<Doctor>,
     charted: Map<Int, com.alphadental.clinic.next.data.Tooth> = emptyMap(),
+    policy: com.alphadental.clinic.next.data.Pricing.Policy = com.alphadental.clinic.next.data.Pricing.Policy.NONE,
     busy: Boolean,
     error: String?,
     canDelete: Boolean,
-    onSave: (String, List<String>, String, Double, Doctor?, String) -> Unit,
+    /** procedure, teeth, note, unit price, dentist, status, price list. */
+    onSave: (String, List<String>, String, Double, Doctor?, String, String) -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -263,6 +266,10 @@ fun TreatmentEditSheet(
     var picking by remember(note.id) { mutableStateOf(false) }
     /** Removing money asks twice. The first tap arms it, the second does it. */
     var armed by remember(note.id) { mutableStateOf(false) }
+    // The list the treatment was charged on, still usable; else the clinic's default.
+    var listId by remember(note.id) { mutableStateOf(policy.resolve(note.priceListId.ifBlank { null })) }
+    var listOpen by remember(note.id) { mutableStateOf(false) }
+    val priceOn = { sv: Service -> com.alphadental.clinic.next.data.Pricing.priceOf(sv, listId) }
 
     val service = remember(procedure, services) {
         services.firstOrNull { it.name.equals(procedure.trim(), ignoreCase = true) }
@@ -290,6 +297,7 @@ fun TreatmentEditSheet(
             onSave(
                 procedure, teeth.map(Int::toString), text, unit, doctor,
                 if (done) "Completed" else "Planned",
+                if (policy.hasChoice) listId else "",
             )
         },
         onDismiss = onDismiss,
@@ -310,18 +318,35 @@ fun TreatmentEditSheet(
             }),
         )
 
+        if (policy.hasChoice) {
+            SheetChoices("Price list · " + policy.chargedTo(listId)) {
+                policy.activeLists.forEach { l ->
+                    SheetChoice(policy.label(l), listId == l.id) {
+                        listId = l.id
+                        listOpen = false
+                        val picked = services.firstOrNull { it.name.equals(procedure.trim(), ignoreCase = true) }
+                        if (picked != null) {
+                            if (!policy.covers(l.id, picked.id)) { procedure = ""; price = "" }
+                            else priceOn(picked).takeIf { it > 0 }?.let { price = it.toLong().toString() }
+                        }
+                    }
+                }
+            }
+        }
+
         if (picking && services.isNotEmpty()) {
             val needle = procedure.trim().lowercase()
+            val offered = services.filter { policy.covers(listId, it.id) }
             val matches = when {
-                needle.isEmpty() -> services
-                services.any { it.name.equals(needle, ignoreCase = true) } -> emptyList()
-                else -> services.filter { it.name.lowercase().contains(needle) }
+                needle.isEmpty() -> offered
+                offered.any { it.name.equals(needle, ignoreCase = true) } -> emptyList()
+                else -> offered.filter { it.name.lowercase().contains(needle) }
             }
             matches.take(40).forEach { s ->
                 Rule()
-                SheetAction(s.name, if (s.price > 0) "${s.price.toLong()} EGP" else "No price set") {
+                SheetAction(s.name, if (priceOn(s) > 0) "${priceOn(s).toLong()} EGP" else "No price set") {
                     procedure = s.name
-                    if (s.price > 0) price = s.price.toLong().toString()
+                    if (priceOn(s) > 0) price = priceOn(s).toLong().toString()
                     picking = false
                 }
             }

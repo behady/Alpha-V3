@@ -150,10 +150,11 @@ object ClinicApi {
         note: String = "",
         appointmentId: String? = null,
         date: String? = null,
+        priceListId: String? = null,
     ): ProcedureResult {
         val body = procedureBody(
             clinicId, patientId, procedures, selectedTeeth, doctorId,
-            unitCost, pricingMode, status, note, appointmentId, date,
+            unitCost, pricingMode, status, note, appointmentId, date, priceListId,
         ).put("action", "create")
         val json = post("api/clinical/procedures", body)
         return ProcedureResult(
@@ -177,10 +178,11 @@ object ClinicApi {
         note: String = "",
         appointmentId: String? = null,
         date: String? = null,
+        priceListId: String? = null,
     ): ProcedureResult {
         val body = procedureBody(
             clinicId, patientId, procedures, selectedTeeth, doctorId,
-            unitCost, pricingMode, status, note, appointmentId, date,
+            unitCost, pricingMode, status, note, appointmentId, date, priceListId,
         ).put("action", "update").put("noteId", noteId)
         val json = post("api/clinical/procedures", body)
         return ProcedureResult(
@@ -210,6 +212,7 @@ object ClinicApi {
         note: String,
         appointmentId: String?,
         date: String?,
+        priceListId: String?,
     ): JSONObject = JSONObject().apply {
         put("clinicId", clinicId)
         put("patientId", patientId)
@@ -224,6 +227,9 @@ object ClinicApi {
         if (!pricingMode.isNullOrBlank()) put("pricingMode", pricingMode)
         if (!appointmentId.isNullOrBlank()) put("appointmentId", appointmentId)
         if (!date.isNullOrBlank()) put("date", date)
+        // The list IS the insurer (see next/data/Pricing). Left out, the server charges the
+        // clinic's default and stamps the case Private — which is what every phone did before.
+        if (!priceListId.isNullOrBlank()) put("priceListId", priceListId)
     }
 
     // ------------------------------------------------------------------ appointments

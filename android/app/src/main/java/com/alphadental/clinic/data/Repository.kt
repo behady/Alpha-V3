@@ -798,6 +798,8 @@ object Repository {
                     appointmentId = doc.getString("appointmentId").orEmpty(),
                     serviceIds = ((doc.get("serviceIds") as? List<*>)?.mapNotNull { it?.toString() }.orEmpty()
                         + listOfNotNull(doc.getString("serviceId"))).filter { it.isNotBlank() }.distinct(),
+                    priceListId = doc.getString("priceListId").orEmpty(),
+                    payerName = doc.getString("payerName").orEmpty(),
                 )
             }
             // Ordered here rather than in the query: sorting server-side on date would need a
@@ -838,6 +840,8 @@ object Repository {
         date: String? = null,
         /** per_tooth / flat / per_arch, when the dentist overrides the list's own rule. */
         pricingMode: String? = null,
+        /** The list to charge on — and so the insurer. Null leaves it to the clinic's default. */
+        priceListId: String? = null,
     ): Result<String> = runCatching {
         require(procedure.isNotBlank()) { "Enter what was done." }
         // No dentist is allowed: "General", work the clinic did rather than a person. The charge
@@ -856,6 +860,7 @@ object Repository {
             note = noteText,
             appointmentId = appointmentId,
             date = date,
+            priceListId = priceListId,
         ).noteId
     }
 
@@ -876,6 +881,7 @@ object Repository {
         unitCost: Double? = note.unitCost.takeIf { it > 0 },
         status: String = note.status,
         doctorId: String = note.doctorId,
+        priceListId: String? = note.priceListId.takeIf { it.isNotBlank() },
     ): Result<Unit> = runCatching {
         // A blank dentist is deliberate: "General", work the clinic did rather than a person. The
         // server prices it the same and pays nobody a commission, so there is nothing to refuse.
@@ -892,6 +898,7 @@ object Repository {
             note = noteText,
             appointmentId = note.appointmentId.takeIf { it.isNotBlank() },
             date = note.date.takeIf { it.isNotBlank() },
+            priceListId = priceListId,
         )
         Unit
     }
@@ -1931,6 +1938,9 @@ object Repository {
                 category = doc.getString("category").orEmpty(),
                 icon = doc.getString("icon").orEmpty(),
                 pricingMode = doc.getString("pricingMode").orEmpty(),
+                prices = (doc.get("prices") as? Map<*, *>).orEmpty()
+                    .mapNotNull { (k, v) -> (v as? Number)?.let { k.toString() to it.toDouble() } }
+                    .toMap(),
             )
         }.sortedBy { it.name }
     }
@@ -2424,7 +2434,10 @@ object Repository {
         notes: String,
         service: Service?,
         byName: String,
+        /** The list the visit was priced on. Blank on a clinic with one list. */
+        priceListId: String = "",
     ): Result<String> = runCatching {
+        val listPrice = service?.let { com.alphadental.clinic.next.data.Pricing.priceOf(it, priceListId.ifBlank { null }) } ?: 0.0
         val data = hashMapOf<String, Any?>(
             "patientId" to patient.id,
             "patientName" to patient.name,
@@ -2440,12 +2453,13 @@ object Repository {
             // browser uses so the appointment opens identically there.
             "serviceId" to service?.id,
             "serviceName" to service?.name,
-            "listPrice" to (service?.price ?: 0.0),
+            "listPrice" to listPrice,
+            "priceListId" to priceListId.ifBlank { null },
             // What the visit is expected to cost. This is the figure on the appointment — it does
             // NOT post to the ledger. Invoicing is a separate, deliberate act on the patient's
             // file, and silently creating financial records from a booking screen is exactly the
             // kind of thing nobody would find until the month-end numbers were wrong.
-            "cost" to (service?.price ?: 0.0),
+            "cost" to listPrice,
             "status" to "Scheduled",
             "statusHistory" to listOf(
                 mapOf(
@@ -2482,6 +2496,7 @@ object Repository {
         service: Service?,
         cost: Double,
         byName: String,
+        priceListId: String = "",
     ): Result<Unit> = runCatching {
         val updates = mutableMapOf<String, Any>(
             "date" to normalizeDateKey(dateKey),
@@ -2509,7 +2524,8 @@ object Repository {
         // the website's reports group by it.
         updates["serviceId"] = service?.id ?: ""
         updates["serviceName"] = service?.name ?: ""
-        if (service != null) updates["listPrice"] = service.price
+        if (service != null) updates["listPrice"] = cost
+        updates["priceListId"] = priceListId
 
         appointments(clinicId).document(appointment.id).update(updates).queueLocally("appointment edit")
     }

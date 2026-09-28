@@ -23,6 +23,8 @@ data class PlanActions(
     val cancelDraft: () -> Unit,
     val search: (String) -> Unit,
     val addStep: (com.alphadental.clinic.data.Service?, String) -> Unit,
+    /** The plan's one price list — its payer. */
+    val setList: (String) -> Unit = {},
     val setTeeth: (String, String) -> Unit,
     val setQuantity: (String, Int) -> Unit,
     val setPrice: (String, Double) -> Unit,
@@ -183,14 +185,23 @@ private fun PlanDraft(state: Plans, actions: PlanActions) {
 
     if (lines.isNotEmpty()) Rule()
 
+    if (state.policy.hasChoice) {
+        SheetChoices("Price list · " + state.policy.chargedTo(state.listId.ifBlank { null })) {
+            state.policy.activeLists.forEach { l ->
+                SheetChoice(state.policy.label(l), state.listId == l.id) { actions.setList(l.id) }
+            }
+        }
+    }
+
     SheetField("Add a treatment", state.query, actions.search, hint = "Crown, root canal")
 
     if (state.query.trim().length >= 2 || lines.isEmpty()) {
         state.matches.forEach { service ->
             Rule()
+            val listed = state.priceOn(service)
             SheetAction(
                 service.name,
-                if (service.price > 0) "${service.price.toLong()} EGP" else "No price set",
+                if (listed > 0) "${listed.toLong()} EGP" else "No price set",
             ) { actions.addStep(service, "") }
         }
         state.query.trim().takeIf { it.length >= 2 }?.let { typed ->

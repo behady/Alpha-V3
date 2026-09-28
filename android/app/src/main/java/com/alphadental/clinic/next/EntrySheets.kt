@@ -256,6 +256,15 @@ fun BookingSheet(state: Booking, actions: BookingActions) {
 
         Rule()
 
+        // The price list, which is the insurer. Only when the clinic has more than one.
+        if (state.policy.hasChoice) {
+            SheetChoices("Price list · " + state.policy.chargedTo(state.listId)) {
+                state.policy.activeLists.forEach { l ->
+                    SheetChoice(state.policy.label(l), state.listId == l.id) { actions.setList(l.id) }
+                }
+            }
+        }
+
         // One searchable box rather than a row of twenty chips. A clinic with sixty prices could
         // reach the first twenty of them, in whatever order the list happened to load, and had no
         // way at all to book a visit whose reason is not a priced treatment.
@@ -278,17 +287,20 @@ fun BookingSheet(state: Booking, actions: BookingActions) {
 
         if (picking && state.services.isNotEmpty()) {
             val needle = state.treatment.trim().lowercase()
+            val listId = state.listId.ifBlank { null }
+            val offered = state.services.filter { state.policy.covers(listId, it.id) }
             val matches = when {
-                needle.isEmpty() -> state.services
-                state.services.any { it.name.equals(needle, ignoreCase = true) } -> emptyList()
-                else -> state.services.filter { it.name.lowercase().contains(needle) }
+                needle.isEmpty() -> offered
+                offered.any { it.name.equals(needle, ignoreCase = true) } -> emptyList()
+                else -> offered.filter { it.name.lowercase().contains(needle) }
             }
             matches.take(40).forEach { service ->
                 Rule()
+                val listed = com.alphadental.clinic.next.data.Pricing.priceOf(service, listId)
                 SheetAction(
                     service.name,
                     listOfNotNull(
-                        if (service.price > 0) "${service.price.toLong()} EGP" else null,
+                        if (listed > 0) "${listed.toLong()} EGP" else null,
                         service.durationMinutes.takeIf { it > 0 }?.let { "$it min" },
                     ).joinToString(" · "),
                 ) {
@@ -320,10 +332,10 @@ fun BookingSheet(state: Booking, actions: BookingActions) {
 
         SheetField("Notes", state.notes, actions.setNotes, hint = "Nervous, wants the late slot", lines = 2)
 
-        state.service?.takeIf { it.price > 0 }?.let {
+        state.service?.let { sv -> com.alphadental.clinic.next.data.Pricing.priceOf(sv, state.listId.ifBlank { null }).takeIf { it > 0 }?.let { listed -> sv to listed } }?.let { (sv, listed) ->
             Txt(
                 // The number on the appointment, and what it is not.
-                "${it.name} lists at ${it.price.toLong()}. That figure goes on the appointment; " +
+                "${sv.name} lists at ${listed.toLong()}. That figure goes on the appointment; " +
                     "nothing is charged until the treatment is recorded on the patient's file.",
                 Type.caption, T.inkMuted,
                 Modifier.padding(horizontal = T.gutter, vertical = 12.dp),
@@ -434,6 +446,8 @@ data class BookingActions(
     val setDoctor: (com.alphadental.clinic.data.Doctor?) -> Unit,
     val setService: (com.alphadental.clinic.data.Service?) -> Unit,
     val setTreatment: (String) -> Unit,
+    /** Which price list, and therefore which insurer, the visit is for. */
+    val setList: (String) -> Unit = {},
     val shiftDay: (Int) -> Unit,
     val setTime: (String) -> Unit,
     val setMinutes: (Int) -> Unit,

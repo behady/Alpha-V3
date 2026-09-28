@@ -56,6 +56,8 @@ data class RecordState(
     /** The price list and the dentists, for recording a treatment. */
     val services: List<com.alphadental.clinic.data.Service> = emptyList(),
     val doctors: List<com.alphadental.clinic.data.Doctor> = emptyList(),
+    /** The clinic's price lists and insurers, for the treatment pickers. */
+    val policy: com.alphadental.clinic.next.data.Pricing.Policy = com.alphadental.clinic.next.data.Pricing.Policy.NONE,
     val recording: Boolean = false,
     val recordError: String? = null,
     val recorded: String? = null,
@@ -312,7 +314,9 @@ class RecordModel : ViewModel() {
         val doctors = runCatching {
             com.alphadental.clinic.data.Repository.loadDoctors(who.clinicId)
         }.getOrDefault(emptyList())
-        _state.value = _state.value.copy(services = services, doctors = doctors)
+        val policy = runCatching { com.alphadental.clinic.next.data.Pricing.load(who.clinicId) }
+            .getOrDefault(com.alphadental.clinic.next.data.Pricing.Policy.NONE)
+        _state.value = _state.value.copy(services = services, doctors = doctors, policy = policy)
     }
 
     /**
@@ -353,6 +357,7 @@ class RecordModel : ViewModel() {
                 extra = d.extra,
                 date = d.date.takeIf { it.isNotBlank() },
                 pricingMode = d.pricingMode.takeIf { it.isNotBlank() },
+                priceListId = d.priceListId.takeIf { it.isNotBlank() },
             )
                 .onSuccess {
                     _state.value = _state.value.copy(
@@ -400,6 +405,7 @@ class RecordModel : ViewModel() {
         unitCost: Double,
         doctor: com.alphadental.clinic.data.Doctor?,
         status: String,
+        priceListId: String = "",
     ) {
         val who = _state.value.who ?: return
         val patientId = _state.value.record?.person?.id ?: return
@@ -421,6 +427,7 @@ class RecordModel : ViewModel() {
                 // that impossible; it survives only for the case it was really written for — a
                 // staff list that never loaded, where nobody could have chosen anything.
                 doctorId = doctor?.id ?: if (_state.value.doctors.isEmpty()) note.doctorId else "",
+                priceListId = priceListId.ifBlank { note.priceListId }.takeIf { it.isNotBlank() },
             )
                 .onSuccess {
                     _state.value = _state.value.copy(savingNote = false, editingNote = null)

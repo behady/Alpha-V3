@@ -604,6 +604,8 @@ data class ProcedureDraft(
     val date: String,
     /** per_tooth, flat or per_arch — the billing rule, when the dentist overrides the list's. */
     val pricingMode: String,
+    /** The price list the treatment is charged on — and so the insurer. Blank = the clinic's default. */
+    val priceListId: String = "",
 )
 
 /**
@@ -619,6 +621,8 @@ fun NewProcedureSheet(
     services: List<Service>,
     doctors: List<Doctor>,
     charted: Map<Int, com.alphadental.clinic.next.data.Tooth> = emptyMap(),
+    /** The clinic's price lists and insurers. The picker only appears when there is a choice. */
+    policy: com.alphadental.clinic.next.data.Pricing.Policy = com.alphadental.clinic.next.data.Pricing.Policy.NONE,
     /** The tooth already picked on the chart behind this sheet. It arrives ticked. */
     preselected: Int? = null,
     busy: Boolean,
@@ -639,11 +643,16 @@ fun NewProcedureSheet(
     var status by draft(form, "status", "Completed")
     var date by draft(form, "date", com.alphadental.clinic.next.data.ClinicSource.dateKey())
     var billing by draft(form, "billing", "")
+    // The list IS the insurer: picking it decides the prices, the payer and the dentist's rate.
+    var listIdRaw by draft(form, "list", "")
+    val listId = policy.resolve(listIdRaw.ifBlank { null })
     var picking by remember { mutableStateOf(false) }
     var statusOpen by remember { mutableStateOf(false) }
     var doctorOpen by remember { mutableStateOf(false) }
     var billingOpen by remember { mutableStateOf(false) }
     var dateOpen by remember { mutableStateOf(false) }
+    var listOpen by remember { mutableStateOf(false) }
+    val priceOn = { sv: Service -> com.alphadental.clinic.next.data.Pricing.priceOf(sv, listId) }
 
     val teeth = remember(toothText) { toothText.split(',').mapNotNull { it.trim().toIntOrNull() }.toSet() }
     val setTeeth = { next: Set<Int> -> toothText = next.sorted().joinToString(",") }
@@ -678,6 +687,7 @@ fun NewProcedureSheet(
                 extra = extra.lines().map { it.trim() }.filter { it.isNotBlank() },
                 teeth = teeth.map(Int::toString), note = note, unitCost = unit.takeIf { it > 0 },
                 doctor = doctor, service = service, status = status, date = date, pricingMode = billing,
+                priceListId = if (policy.hasChoice) listId else "",
             ))
         },
         onDismiss = onDismiss,
@@ -718,6 +728,30 @@ fun NewProcedureSheet(
         }
         if (doctor == null) Txt("No dentist on this treatment. It is charged to the clinic and earns nobody a commission.", Type.caption, T.inkMuted, Modifier.padding(horizontal = T.gutter), maxLines = 2)
 
+        // ---- price list, which is the insurer. Hidden on a clinic with one list.
+        if (policy.hasChoice) {
+            Column(Modifier.padding(horizontal = T.gutter, vertical = 8.dp)) {
+                Field("Price list", policy.list(listId)?.let(policy::label) ?: listId, Modifier.fillMaxWidth()) { listOpen = !listOpen }
+                Spacer(Modifier.height(4.dp))
+                Txt(policy.chargedTo(listId), Type.caption.copy(fontSize = 12.sp), GreyInk)
+            }
+            if (listOpen) SheetChoices("") {
+                policy.activeLists.forEach { l ->
+                    SheetChoice(policy.label(l), listId == l.id) {
+                        listIdRaw = l.id
+                        listOpen = false
+                        // Switching lists clears a picked treatment the new list does not cover, and
+                        // re-prices one it does — the same two rules the website applies.
+                        val picked = services.firstOrNull { it.name.equals(procedure.trim(), ignoreCase = true) }
+                        if (picked != null) {
+                            if (!policy.covers(l.id, picked.id)) { procedure = ""; price = "" }
+                            else com.alphadental.clinic.next.data.Pricing.priceOf(picked, l.id).takeIf { it > 0 }?.let { price = fmt(it).replace(",", "") }
+                        }
+                    }
+                }
+            }
+        }
+
         // ---- procedure
         SheetField(
             label = "Procedure Name", value = procedure,
@@ -727,10 +761,12 @@ fun NewProcedureSheet(
         )
         if (picking && services.isNotEmpty()) {
             val needle = procedure.trim().lowercase()
+            // Only what this list's insurer covers is offered; the rest is private work on another list.
+            val offered = services.filter { policy.covers(listId, it.id) }
             val matches = when {
-                needle.isEmpty() -> services
-                services.any { it.name.equals(needle, ignoreCase = true) } -> emptyList()
-                else -> services.filter { it.name.lowercase().contains(needle) }
+                needle.isEmpty() -> offered
+                offered.any { it.name.equals(needle, ignoreCase = true) } -> emptyList()
+                else -> offered.filter { it.name.lowercase().contains(needle) }
             }
             /*
              * Grouped under the website's category headings, in the website's order, each
@@ -755,7 +791,7 @@ fun NewProcedureSheet(
                     Row(
                         Modifier.fillMaxWidth().clickable {
                             procedure = sv.name
-                            if (sv.price > 0) price = fmt(sv.price).replace(",", "")
+                            if (priceOn(sv) > 0) price = fmt(priceOn(sv)).replace(",", "")
                             picking = false
                         }.padding(horizontal = T.gutter, vertical = 11.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -766,7 +802,7 @@ fun NewProcedureSheet(
                         )
                         Spacer(Modifier.width(12.dp))
                         Txt(sv.name, Type.body.copy(fontSize = 15.sp), T.ink, Modifier.weight(1f), maxLines = 2)
-                        Chip(if (sv.price > 0) "${fmt(sv.price)} EGP" else "No price", GreyTint, T.ink)
+                        Chip(if (priceOn(sv) > 0) "${fmt(priceOn(sv))} EGP" else "No price", GreyTint, T.ink)
                     }
                 }
             }

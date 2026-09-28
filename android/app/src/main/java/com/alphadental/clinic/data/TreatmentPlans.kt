@@ -158,6 +158,9 @@ object TreatmentPlans {
         currency: String,
         doctorName: String,
         uid: String,
+        /** The one list the whole plan is quoted on, and who that makes the payer. */
+        priceListId: String = "",
+        payer: Pair<String, String>? = null,
     ): Result<Unit> = runCatching {
         val cleaned = visits.map { v -> v.copy(steps = v.steps.filter { it.serviceName.isNotBlank() }) }
             .filter { it.steps.isNotEmpty() }
@@ -182,6 +185,10 @@ object TreatmentPlans {
             "steps" to flat.map(::stepMap),
             "total" to flat.sumOf { it.lineTotal },
             "currency" to currency,
+            // Stored, never re-derived: a retired insurer must not relabel an old quote as Private.
+            "priceListId" to priceListId,
+            "payerId" to (payer?.first ?: "private"),
+            "payerName" to (payer?.second ?: "Private"),
             "translations" to emptyMap<String, Any>(),
             "updatedAt" to FieldValue.serverTimestamp(),
         )

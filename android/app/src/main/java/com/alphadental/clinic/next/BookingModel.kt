@@ -36,6 +36,9 @@ data class Booking(
     val doctor: Doctor? = null,
     val services: List<Service> = emptyList(),
     val service: Service? = null,
+    /** The clinic's lists and insurers, and the list this visit is priced on. */
+    val policy: com.alphadental.clinic.next.data.Pricing.Policy = com.alphadental.clinic.next.data.Pricing.Policy.NONE,
+    val listId: String = "",
     /**
      * What the visit is for, as words.
      *
@@ -288,7 +291,19 @@ class BookingModel : ViewModel() {
         if (_state.value.services.isNotEmpty() || _state.value.doctors.isNotEmpty()) return
         val doctors = runCatching { Repository.loadDoctors(who.clinicId) }.getOrDefault(emptyList())
         val services = runCatching { Repository.loadServices(who.clinicId) }.getOrDefault(emptyList())
-        _state.value = _state.value.copy(doctors = doctors, services = services)
+        val policy = runCatching { com.alphadental.clinic.next.data.Pricing.load(who.clinicId) }
+            .getOrDefault(com.alphadental.clinic.next.data.Pricing.Policy.NONE)
+        val s = _state.value
+        _state.value = s.copy(doctors = doctors, services = services, policy = policy, listId = policy.resolve(s.listId.ifBlank { null }))
+    }
+
+    /** Charge the visit on another list — which is to say, to another insurer. */
+    fun setList(id: String) {
+        val s = _state.value
+        val next = s.policy.resolve(id)
+        // A treatment the new list's insurer does not cover is released, as the website does.
+        val keep = s.service?.let { s.policy.covers(next, it.id) } ?: true
+        _state.value = s.copy(listId = next, service = if (keep) s.service else null)
     }
 
     private fun loadDay(who: Who, dateKey: String) = viewModelScope.launch {
@@ -407,8 +422,9 @@ class BookingModel : ViewModel() {
                     treatment = s.treatment.trim().ifBlank { s.service?.name ?: record.treatment },
                     notes = s.notes,
                     service = s.service,
-                    cost = s.service?.price ?: record.cost,
+                    cost = s.service?.let { com.alphadental.clinic.next.data.Pricing.priceOf(it, s.listId.ifBlank { null }) } ?: record.cost,
                     byName = who.name,
+                    priceListId = if (s.policy.hasChoice) s.listId else "",
                 )
                     .onSuccess {
                         _state.value = _state.value.copy(
@@ -454,6 +470,8 @@ class BookingModel : ViewModel() {
                 notes = s.notes,
                 service = s.service,
                 byName = who.name,
+                priceListId = if (s.policy.hasChoice) s.listId else "",
+
             )
                 .onSuccess { id ->
                     _state.value = _state.value.copy(saving = false, bookedId = id, open = false)

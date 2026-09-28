@@ -33,6 +33,7 @@ data class VisitSheetState(
     // ---- the editable fields, as the website's panel has them
     val doctors: List<com.alphadental.clinic.data.Doctor> = emptyList(),
     val services: List<com.alphadental.clinic.data.Service> = emptyList(),
+    val policy: com.alphadental.clinic.next.data.Pricing.Policy = com.alphadental.clinic.next.data.Pricing.Policy.NONE,
     val reasons: List<String> = emptyList(),
     val hours: com.alphadental.clinic.next.data.Hours = com.alphadental.clinic.next.data.Hours(),
     val doctorId: String = "",
@@ -165,9 +166,11 @@ class VisitModel : ViewModel() {
         val services = runCatching { Repository.loadServices(who.clinicId) }.getOrDefault(emptyList())
         val reasons = runCatching { Repository.loadVisitReasons(who.clinicId) }.getOrDefault(emptyList())
         val hours = runCatching { ClinicSource.hours(who.clinicId) }.getOrDefault(com.alphadental.clinic.next.data.Hours())
+        val policy = runCatching { com.alphadental.clinic.next.data.Pricing.load(who.clinicId) }
+            .getOrDefault(com.alphadental.clinic.next.data.Pricing.Policy.NONE)
         val s = _state.value
         _state.value = s.copy(
-            doctors = doctors, services = services, reasons = reasons, hours = hours,
+            doctors = doctors, services = services, reasons = reasons, hours = hours, policy = policy,
             // A visit whose dentist was stored by name only still gets its dropdown filled.
             doctorId = s.doctorId.ifBlank { doctors.firstOrNull { it.name == s.record?.doctor }?.id.orEmpty() },
         )
@@ -305,6 +308,7 @@ class VisitModel : ViewModel() {
                 extra = d.extra,
                 date = d.date.takeIf { it.isNotBlank() },
                 pricingMode = d.pricingMode.takeIf { it.isNotBlank() },
+                priceListId = d.priceListId.takeIf { it.isNotBlank() },
             )
                 .onSuccess {
                     _state.value = _state.value.copy(saving = false, recording = false, done = "Recorded.")

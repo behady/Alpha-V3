@@ -412,4 +412,6 @@ data class SettingsActions(
     val saveService: (com.alphadental.clinic.data.ClinicSettings.ServiceRow) -> Unit,
     val saveStaff: (com.alphadental.clinic.data.ClinicSettings.StaffRow) -> Unit,
     val rejectRequest: (String) -> Unit,
+    val savePayer: (com.alphadental.clinic.next.data.Pricing.Payer) -> Unit = {},
+    val saveRates: (String, Map<String, Double?>) -> Unit = { _, _ -> },
 )

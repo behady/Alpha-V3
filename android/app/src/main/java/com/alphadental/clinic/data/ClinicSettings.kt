@@ -352,6 +352,8 @@ object ClinicSettings {
         val category: String,
         val pricingMode: String,
         val icon: String,
+        /** The price on each other list, keyed by list id. Absent = the standard price. */
+        val prices: Map<String, Double> = emptyMap(),
     )
 
     suspend fun loadServices(clinicId: String): List<ServiceRow> {
@@ -366,8 +368,51 @@ object ClinicSettings {
                 category = d.getString("category").orEmpty(),
                 pricingMode = d.getString("pricingMode").orEmpty(),
                 icon = d.getString("icon").orEmpty(),
+                prices = (d.get("prices") as? Map<*, *>).orEmpty()
+                    .mapNotNull { (k, v) -> (v as? Number)?.let { k.toString() to it.toDouble() } }.toMap(),
             )
         }.sortedBy { it.name.lowercase() }
+    }
+
+    /** A dentist and what they keep, usually and per insurer. */
+    data class StaffRates(
+        val id: String,
+        val name: String,
+        val role: String,
+        val commissionPercentage: Double,
+        /** Keyed by payer id. Absent means the usual rate; 0 is a real answer. */
+        val commissionByPayer: Map<String, Double>,
+    )
+
+    suspend fun loadStaffRates(clinicId: String): List<StaffRates> {
+        val snap = clinic(clinicId).collection("staff").get().await()
+        return snap.documents.mapNotNull { d ->
+            val role = d.getString("role").orEmpty()
+            val pct = (d.get("commissionPercentage") as? Number)?.toDouble() ?: 0.0
+            val isDentist = role == "Dentist" || d.getBoolean("isDentist") == true
+            if (!isDentist && pct <= 0) return@mapNotNull null
+            StaffRates(
+                id = d.id,
+                name = d.getString("name").orEmpty().ifBlank { d.getString("email").orEmpty() },
+                role = role,
+                commissionPercentage = pct,
+                commissionByPayer = (d.get("commissionByPayer") as? Map<*, *>).orEmpty()
+                    .mapNotNull { (k, v) -> (v as? Number)?.let { k.toString() to it.toDouble() } }.toMap(),
+            )
+        }.sortedBy { it.name.lowercase() }
+    }
+
+    /**
+     * A dentist's per-insurer rates. A null clears the entry, which is "their usual rate" — never
+     * written as 0, because 0 is a different answer and would silently underpay a real person.
+     */
+    suspend fun saveStaffRates(clinicId: String, staffId: String, rates: Map<String, Double?>): Result<Unit> = runCatching {
+        rates.values.filterNotNull().forEach { require(it in 0.0..100.0) { "A percentage is between 0 and 100." } }
+        val body = mapOf(
+            "commissionByPayer" to rates.mapValues { (_, v) -> v ?: com.google.firebase.firestore.FieldValue.delete() },
+        )
+        clinic(clinicId).collection("staff").document(staffId).set(body, SetOptions.merge()).await()
+        Unit
     }
 
     suspend fun saveService(clinicId: String, row: ServiceRow): Result<Unit> = runCatching {
@@ -379,6 +424,8 @@ object ClinicSettings {
             "category" to row.category.trim(),
             "pricingMode" to row.pricingMode.trim(),
             "icon" to row.icon.trim(),
+            // The whole map, as the website writes it: a list with no price falls back to `price`.
+            "prices" to row.prices.filterValues { it > 0 },
         )
         val services = clinic(clinicId).collection("services")
         if (row.id.isBlank()) services.document().set(body).await()

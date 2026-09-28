@@ -176,6 +176,11 @@ data class Service(
     val icon: String = "",
     /** "per_tooth", "flat" or "per_arch". Blank on services from before billing rules existed. */
     val pricingMode: String = "",
+    /**
+     * The price on each other price list, keyed by list id — an insurer's tariff. A list with no
+     * entry here charges [price]. See next/data/Pricing for which list is which insurer.
+     */
+    val prices: Map<String, Double> = emptyMap(),
 )
 
 /** One lead in the CRM inbox — same shape the website's Leads page reads. */
@@ -232,6 +237,9 @@ data class ClinicalNote(
     val appointmentId: String = "",
     /** The price-list entries this note was priced from. What decides the mark on the chart. */
     val serviceIds: List<String> = emptyList(),
+    /** The list this treatment was charged on, and who that made the payer. Stamped by the server. */
+    val priceListId: String = "",
+    val payerName: String = "",
 )
 
 /**

@@ -59,6 +59,7 @@ fun SettingsSection(
         Section.Drugs -> DrugsPage(state, onBack, actions)
         Section.Deleted -> DeletedPage(state, onBack, actions)
         Section.Prices -> PricesPage(state, onBack, actions)
+        Section.Payers -> PayersPage(state, onBack, actions)
         Section.Recall -> RecallPage(state, onBack, actions)
         Section.Reasons -> ListPage(
             section, state, onBack,
@@ -1194,11 +1195,15 @@ private fun PriceEditor(
     var price by remember(row.id) { mutableStateOf(if (row.price > 0) trimNumber(row.price) else "") }
     var labFee by remember(row.id) { mutableStateOf(if (row.estimatedLabFee > 0) trimNumber(row.estimatedLabFee) else "") }
     var minutes by remember(row.id) { mutableStateOf(row.durationMinutes.takeIf { it > 0 }?.toString() ?: "") }
+    // One box per other price list — an insurer's tariff. Blank charges the standard price.
+    val otherLists = state.pricing?.activeLists?.filter { !it.isDefault }.orEmpty()
+    var listPrices by remember(row.id) { mutableStateOf(otherLists.associate { l -> l.id to (row.prices[l.id]?.takeIf { it > 0 }?.let(::trimNumber) ?: "") }) }
 
     val edited = form.copy(
         price = price.toDoubleOrNull() ?: 0.0,
         estimatedLabFee = labFee.toDoubleOrNull() ?: 0.0,
         durationMinutes = minutes.toIntOrNull() ?: 0,
+        prices = row.prices.filterKeys { k -> otherLists.none { it.id == k } } + listPrices.mapNotNull { (k, v) -> v.toDoubleOrNull()?.takeIf { it > 0 }?.let { k to it } }.toMap(),
     )
 
     SettingsPage(
@@ -1218,6 +1223,27 @@ private fun PriceEditor(
                     { labFee = it.filter { c -> c.isDigit() || c == '.' } },
                     state.canEdit, numeric = true, hint = "0",
                 )
+            }
+        }
+        if (otherLists.isNotEmpty()) {
+            item { SectionLabel("On other price lists") }
+            item {
+                RowGroup {
+                    otherLists.forEach { l ->
+                        val payer = state.pricing?.payerFor(l.id)
+                        SettingsField(
+                            if (payer != null && payer.id != com.alphadental.clinic.next.data.Pricing.PRIVATE) "${l.name} · ${payer.name}" else l.name,
+                            listPrices[l.id].orEmpty(),
+                            { v -> listPrices = listPrices + (l.id to v.filter { c -> c.isDigit() || c == '.' }) },
+                            state.canEdit, numeric = true, hint = "same as standard",
+                        )
+                    }
+                    Rule()
+                    Txt(
+                        "What this treatment costs when charged on that list. Left blank, the standard price is used.",
+                        Type.caption, T.inkMuted, Modifier.padding(horizontal = T.gutter, vertical = 12.dp), maxLines = 3,
+                    )
+                }
             }
         }
         item { SectionLabel("How it is priced") }
