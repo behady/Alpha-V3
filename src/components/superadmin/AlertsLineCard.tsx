@@ -300,12 +300,14 @@ export function AlertsLineCard() {
                 <Loader2 size={14} className="animate-spin" />
                 {gw.state === "missing"
                   ? "The connection is gone from the gateway — connect again."
+                  : gw.state === "qr_expired"
+                    ? "The code expired before anyone scanned it — press Connect by QR for a new one."
                   : gw.state === "logged_out"
                     ? "The phone logged this device out — a new QR is coming."
                     : "Connecting…"}
               </span>
               <div className="flex gap-2">
-                {gw.state === "missing" ? (
+                {gw.state === "missing" || gw.state === "qr_expired" ? (
                   <button type="button" onClick={() => void gwAction("connect")} disabled={gwBusy} className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">
                     <QrCode size={14} /> Connect by QR
                   </button>

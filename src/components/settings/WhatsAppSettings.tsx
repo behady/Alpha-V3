@@ -829,6 +829,7 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
       gwLoggedOut:
         language === "ar" ? "الموبايل فصل الجهاز ده — كود جديد هيظهر خلال ثواني" : "The phone logged this device out — a new QR is coming",
       gwMissing: language === "ar" ? "الاتصال اتمسح من السيرفر — وصّل تاني" : "The connection is gone from the server — connect again",
+      gwQrExpired: language === "ar" ? "الكود انتهى قبل ما حد يمسحه — اضغط «وصّل بمسح QR» لكود جديد" : "The code expired before anyone scanned it — press Connect by QR for a new one",
       gwStep1: language === "ar" ? "افتح واتساب على موبايل العيادة" : "Open WhatsApp on the clinic's phone",
       gwStep2: language === "ar" ? "الإعدادات ← الأجهزة المرتبطة ← ربط جهاز" : "Settings → Linked devices → Link a device",
       gwStep3: language === "ar" ? "امسح الكود ده. بيتجدد لوحده لو اتأخرت." : "Scan this code. It refreshes on its own if it expires.",
@@ -1478,10 +1479,10 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <span className="inline-flex items-center gap-2 text-xs font-bold text-ink-muted">
                     <Loader2 size={14} className="animate-spin" />
-                    {gateway.state === "missing" ? txt.gwMissing : gateway.state === "logged_out" ? txt.gwLoggedOut : txt.gwWaiting}
+                    {gateway.state === "missing" ? txt.gwMissing : gateway.state === "qr_expired" ? txt.gwQrExpired : gateway.state === "logged_out" ? txt.gwLoggedOut : txt.gwWaiting}
                   </span>
                   <div className="flex gap-2">
-                    {gateway.state === "missing" ? (
+                    {gateway.state === "missing" || gateway.state === "qr_expired" ? (
                       <button
                         type="button"
                         onClick={() => void gatewayAction("connect")}

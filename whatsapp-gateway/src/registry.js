@@ -73,6 +73,8 @@ export class Registry {
       if (typeof label === "string") existing.meta.label = label;
       existing.meta.updatedAt = new Date().toISOString();
       await this.#save(existing.meta);
+      // "Connect" on an instance whose codes all expired is the person coming back: start again.
+      if (existing.state === "qr_expired") await existing.resume();
       return { instance: existing, token: existing.meta.token, created: false };
     }
 

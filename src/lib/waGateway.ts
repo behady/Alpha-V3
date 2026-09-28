@@ -12,7 +12,7 @@
 
 const TIMEOUT_MS = 12_000;
 
-export type GatewayState = "starting" | "qr" | "connecting" | "open" | "closed" | "logged_out" | "restricted";
+export type GatewayState = "starting" | "qr" | "connecting" | "open" | "closed" | "logged_out" | "restricted" | "qr_expired";
 
 /** The instance's sending rules as they stand right now — see whatsapp-gateway/src/policy.js. */
 export type GatewaySending = {

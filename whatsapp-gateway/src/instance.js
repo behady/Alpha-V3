@@ -70,6 +70,7 @@ export class Instance {
     this.reconnectAttempt = 0;
     this.reconnectTimer = null;
     this.logoutTimes = [];
+    this.qrCycles = 0;
 
     // Outbound.
     this.queue = new PersistedQueue(join(this.dir, "queue.json"));
@@ -133,6 +134,7 @@ export class Instance {
   /** A person has looked: lift the brake and reconnect with the same session. */
   async resume() {
     this.logoutTimes = [];
+    this.qrCycles = 0;
     this.reconnectAttempt = 0;
     await this.stop();
     await this.start();
@@ -224,6 +226,7 @@ export class Instance {
       this.qr = null;
       this.lastError = null;
       this.reconnectAttempt = 0;
+      this.qrCycles = 0;
       this.connectedAt = Date.now();
       // The number's age, for the warm-up curve, is counted from its FIRST successful link — a
       // reconnect after a Wi-Fi drop must not reset a week of trust to day zero.
@@ -271,6 +274,21 @@ export class Instance {
         this.state = "closed";
         return;
       }
+
+      // Nobody scanned. WhatsApp hands out a few codes and then closes with 408; left alone, the
+      // gateway would open a fresh pairing every minute for ever — a clinic that clicked Connect
+      // and walked away would look, from WhatsApp's side, like a machine hammering the pairing
+      // endpoint from a datacenter. Three rounds, then wait for a person to click again.
+      if (code === DisconnectReason.timedOut && !this.phone && /QR/i.test(reason)) {
+        this.qrCycles += 1;
+        if (this.qrCycles >= 3) {
+          this.state = "qr_expired";
+          this.lastError = "Nobody scanned the code in time. Press Connect by QR for a new one.";
+          this.log.info("QR expired three times; waiting for a person");
+          return;
+        }
+      }
+
       this.state = "closed";
       // 515 = "restart required" after pairing: expected, immediate. Anything else backs off.
       this.log.warn({ code, reason }, "connection closed");
