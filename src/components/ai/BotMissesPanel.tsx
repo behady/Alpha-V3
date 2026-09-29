@@ -292,11 +292,11 @@ export default function BotMissesPanel() {
             : "This is where the bot learns: what it couldn't answer, the answers your team wrote, and what works with your patients."}
         </p>
         <Link
-          href="/settings?tab=whatsapp"
+          href="/chats/bot"
           className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-surface border border-line text-xs font-black uppercase tracking-wide text-ink-body hover:bg-surface-subtle transition-colors"
         >
           <Settings2 size={14} />
-          {isAr ? "إعدادات الواتساب وتعليمات البوت" : "WhatsApp settings & coaching"}
+          {isAr ? "ردود البوت الجاهزة" : "Bot ready answers"}
         </Link>
       </div>
 

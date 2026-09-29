@@ -31,6 +31,8 @@ export interface Lead {
   /** Set once converted — the proof a lead became revenue. */
   patientId?: string | null;
   createdBy?: string;
+  /** Written by the WhatsApp bot (src/lib/bot/botLeads.ts), whatever `source` says. */
+  botLead?: boolean;
   createdAt?: { seconds: number } | null;
   updatedAt?: { seconds: number } | null;
 
@@ -158,6 +160,16 @@ export const DEFAULT_LEAD_SOURCES = [
   "TikTok",
   "Friend referral",
 ];
+
+/**
+ * A lead that arrived on WhatsApp — the WhatsApp page's Leads tab shows only these.
+ *
+ * `source` alone is not enough: someone who taps a click-to-WhatsApp ad is filed by the bot
+ * under "Meta ads" so the ad gets the credit, but the conversation is still on WhatsApp.
+ */
+export function isWhatsAppLead(lead: Pick<Lead, "botLead" | "source">): boolean {
+  return lead.botLead === true || lead.source === "WhatsApp";
+}
 
 /**
  * Looks up what the clinic already knows about this phone, at the moment a lead arrives.

@@ -149,7 +149,9 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
       <li key={section.id}>
         <button
           type="button"
-          onClick={() => void go(section.route)}
+          // A section that moved (WhatsApp Bot and AI) is only ever reached here through the
+          // search, and the click goes where it lives now.
+          onClick={() => void go(section.movedTo ?? section.route)}
           /* The four frozen lesson anchors keep their names; every other item gets one derived
              from its id so Sara's tour can light any section. */
           data-tour={section.tourAnchor ?? `settings-${section.id}`}
@@ -212,7 +214,7 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
                 // Enter opens the first match, so "hours ⏎" is the whole trip.
-                if (e.key === "Enter" && searching && results[0]) void go(results[0].route);
+                if (e.key === "Enter" && searching && results[0]) void go(results[0].movedTo ?? results[0].route);
                 if (e.key === "Escape") setQuery("");
               }}
               placeholder={txt.search}
@@ -241,7 +243,9 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
           ) : (
             <div className="space-y-5 pb-2">
               {SETTINGS_GROUP_ORDER.map((group) => {
-                const inGroup = sections.filter((s) => s.group === group);
+                // Moved sections leave the list — they are tabs of another page now — but stay
+                // in `sections`, so typing "bot" here still finds them.
+                const inGroup = sections.filter((s) => s.group === group && !s.movedTo);
                 if (inGroup.length === 0) return null;
                 return (
                   <section key={group}>

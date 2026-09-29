@@ -203,6 +203,14 @@ export function navPlanFor(stop: TourStop, resolvedRoute?: string | null, target
   if (stop.settingsId) {
     const section = SETTINGS_SECTIONS.find((s) => s.id === stop.settingsId);
     if (!section) return [];
+    // Moved out of Settings (the WhatsApp page's Bot and AI tabs): open WhatsApp, click the tab.
+    if (section.movedTo) {
+      return [
+        { kind: "click", anchor: "nav-chats", optional: true },
+        { kind: "wait", anchor: `whatsapp-tab-${section.movedTo.split("/").pop()}` },
+        { kind: "click", anchor: `whatsapp-tab-${section.movedTo.split("/").pop()}` },
+      ];
+    }
     return [
       { kind: "click", anchor: "nav-settings", optional: true },
       { kind: "wait", anchor: `settings-group-${section.group}` },

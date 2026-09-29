@@ -167,7 +167,7 @@ for (const stop of TOUR_STOPS) {
   if (stop.settingsId) {
     assert.ok(sectionIds.has(stop.settingsId), `${stop.id}: settings section '${stop.settingsId}' does not exist`);
     const section = SETTINGS_SECTIONS.find((s) => s.id === stop.settingsId)!;
-    assert.equal(stop.route, section.route, `${stop.id}: route must be the section's route`);
+    assert.equal(stop.route, section.movedTo ?? section.route, `${stop.id}: route must be where the section lives`);
   }
 }
 

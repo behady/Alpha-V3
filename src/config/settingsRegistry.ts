@@ -121,6 +121,13 @@ export interface SettingsSection {
   tourAnchor?: string;
   /** Subscription feature this section is gated behind, if any. */
   feature?: string | string[];
+  /**
+   * The section lives outside Settings now, at this address — the WhatsApp page's Bot and AI
+   * tabs. It leaves the grouped list, but the search still finds it and sends you there, and
+   * its old `route` (plus `?tab=<id>`) forwards there, so bookmarks and scripts keep working.
+   * The access rules above still decide who may open and save it.
+   */
+  movedTo?: string;
 }
 
 const ADMIN: SettingsAccess = { kind: "admin" };
@@ -489,8 +496,9 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     feature: ["whatsappIntegration", "whatsappBot"],
   },
   // The bot and the AI are slices of the same document as WhatsApp above — one component,
-  // three menu entries — because the seven-tab page they came from mixed the bot's switches
-  // with the AI's and nobody could tell which was which.
+  // three entries — because the seven-tab page they came from mixed the bot's switches with the
+  // AI's and nobody could tell which was which. Since 2026-09-29 those two are tabs of the
+  // WhatsApp page (`movedTo`), beside the chats they shape; the number stays here.
   {
     id: "whatsapp_bot",
     route: "/settings/whatsapp-bot",
@@ -504,6 +512,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     view: ADMIN,
     edit: ADMIN,
     feature: "whatsappBot",
+    movedTo: "/chats/bot",
   },
   {
     id: "whatsapp_ai",
@@ -518,6 +527,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     view: ADMIN,
     edit: ADMIN,
     feature: "aiChat",
+    movedTo: "/chats/ai",
   },
   {
     id: "sms",

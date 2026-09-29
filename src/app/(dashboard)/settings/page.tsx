@@ -57,7 +57,7 @@ function SettingsIndex() {
     : undefined;
 
   useEffect(() => {
-    if (legacyTarget) router.replace(legacyTarget.route);
+    if (legacyTarget) router.replace(legacyTarget.movedTo ?? legacyTarget.route);
   }, [legacyTarget, router]);
 
   const sections = useMemo(

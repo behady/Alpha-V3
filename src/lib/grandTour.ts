@@ -398,7 +398,7 @@ const FRONTDESK_STOPS: TourStop[] = [
       { en: "Can patients stop the messages?", ar: "المريض يقدر يوقف الرسايل؟" },
     ],
     knowledge:
-      "The WhatsApp page (/chats) is the clinic's WhatsApp inbox: a list of conversations (unread count on the nav icon and a chime on new messages), the open thread, a composer to reply, and the patient's file linked from the thread. It requires a WhatsApp Business number connected under Settings → WhatsApp (an official Meta WhatsApp Business connection; the clinic owns its own Meta business portfolio and Alpha is a partner on the number). The WhatsApp assistant (a bot; the clinic names it under Settings → WhatsApp, e.g. 'Sara') answers patients in Egyptian Arabic or English: prices from the clinic's price list, working hours, location, ready answers the clinic writes, offering real free appointment slots and booking them, rescheduling, sending the clinic's media (photos/videos), medicine questions with strict safety rules, and it hands off to a human when it cannot answer — those handoffs appear on the Intelligence page's 'The Bot' tab. Patients can opt out with words like 'stop'; a footer line is added so opt-out is always possible, and SMS is off by default. Automated messages (confirmations, reminders, recalls, review requests) go out over the same number, using approved templates; the message queue on the Intelligence page holds messages waiting for a human to press send. Bot replies are part of the clinic's AI credits.",
+      "The WhatsApp page (/chats) has tabs, each shown only to people allowed to open it: Chats (/chats — the inbox), Leads (/chats/leads — the Leads board narrowed to people who wrote in on WhatsApp, including click-to-WhatsApp ad leads), Bot (/chats/bot — who answers patients, ready answers, scripts, the test chat; admin), AI (/chats/ai — what the AI may say; admin), and Bot misses (/chats/misses — questions the assistant handed to a person). The Chats tab is the clinic's WhatsApp inbox: a list of conversations (unread count on the nav icon and a chime on new messages), the open thread, a composer to reply, and the patient's file linked from the thread. It requires a WhatsApp Business number connected under Settings → WhatsApp (an official Meta WhatsApp Business connection; the clinic owns its own Meta business portfolio and Alpha is a partner on the number). The WhatsApp assistant (a bot; the clinic names it under Settings → WhatsApp, e.g. 'Sara') answers patients in Egyptian Arabic or English: prices from the clinic's price list, working hours, location, ready answers the clinic writes, offering real free appointment slots and booking them, rescheduling, sending the clinic's media (photos/videos), medicine questions with strict safety rules, and it hands off to a human when it cannot answer — those handoffs appear on the WhatsApp page's 'Bot misses' tab. Patients can opt out with words like 'stop'; a footer line is added so opt-out is always possible, and SMS is off by default. Automated messages (confirmations, reminders, recalls, review requests) go out over the same number, using approved templates; the message queue on the Intelligence page holds messages waiting for a human to press send. Bot replies are part of the clinic's AI credits.",
     helpSlugs: ["messages"],
   },
   {
@@ -788,7 +788,7 @@ const INSIGHTS_STOPS: TourStop[] = [
       { en: "How do I teach the bot a new answer?", ar: "أعلّم البوت إجابة جديدة إزاي؟" },
     ],
     knowledge:
-      "Intelligence (/ai) has tabs filtered by permission: The Brief (?tab=brief — today's/this week's numbers as a written briefing: bookings, arrivals, cash, no-shows), Messages (?tab=messages — the WhatsApp send queue: messages the system composed (reminders, recalls, follow-ups) that wait for a human to review and press send; ones with an approved template can go automatically), No-Shows (?tab=noshows — past appointments still in a booked status: mark them no-show, completed or reschedule, which is what makes attendance figures true), The Bot (?tab=bot — real patient questions the WhatsApp assistant handed to a person; repeats are worth a ready answer in Settings → WhatsApp). Older AI pages: /ai/revenue (revenue recovery — unpaid balances to chase), /ai/reactivation (patients who have not been back), /ai/operations (recalls) — reachable by URL.",
+      "Intelligence (/ai) has tabs filtered by permission: The Brief (?tab=brief — today's/this week's numbers as a written briefing: bookings, arrivals, cash, no-shows), Messages (?tab=messages — the WhatsApp send queue: messages the system composed (reminders, recalls, follow-ups) that wait for a human to review and press send; ones with an approved template can go automatically), No-Shows (?tab=noshows — past appointments still in a booked status: mark them no-show, completed or reschedule, which is what makes attendance figures true). What the WhatsApp assistant could not answer used to be a 'The Bot' tab here; it is the WhatsApp page's Bot misses tab (/chats/misses) now, and ?tab=bot forwards there. Older AI pages: /ai/revenue (revenue recovery — unpaid balances to chase), /ai/reactivation (patients who have not been back), /ai/operations (recalls) — reachable by URL.",
     helpSlugs: ["messages"],
   },
   {
@@ -1086,7 +1086,7 @@ const SETTINGS_NARRATION: Record<string, SettingsNarration> = {
       { en: "Do the scripted answers cost credits?", ar: "الردود الجاهزة بتتكلف رصيد؟" },
     ],
     knowledge:
-      "Bot (/settings/whatsapp-bot, admin, plan feature whatsappBot) holds the scripted half of the WhatsApp assistant, saved into the same settings/whatsapp document as the other two WhatsApp sections: ready answers for the recurring questions (prices, address, hours, directions), the handover words that pass a conversation to a human, and the switches for which automated messages the bot may send. Scripted answers are free — they never call a model — and they are answered before the AI is ever consulted.",
+      "Bot (the WhatsApp page's Bot tab, /chats/bot — it moved out of Settings on 2026-09-29; admin, plan feature whatsappBot) holds the scripted half of the WhatsApp assistant, saved into the same settings/whatsapp document as the other two WhatsApp sections: ready answers for the recurring questions (prices, address, hours, directions), the handover words that pass a conversation to a human, and the switches for which automated messages the bot may send. Scripted answers are free — they never call a model — and they are answered before the AI is ever consulted.",
   },
   whatsapp_ai: {
     say: {
@@ -1098,7 +1098,7 @@ const SETTINGS_NARRATION: Record<string, SettingsNarration> = {
       { en: "What stops it inventing a price?", ar: "إيه اللي يمنعه يخترع سعر؟" },
     ],
     knowledge:
-      "AI Assistant (/settings/whatsapp-ai, admin, plan feature aiChat) is the model-backed half of the WhatsApp assistant, saved into the same settings/whatsapp document: the persona and tone, what it is allowed to answer on its own, the coaching notes that correct it, and the limits that make it hand over instead of guessing. It answers only what the scripted bot did not, and every answer costs one credit. It quotes prices from the clinic's own price list rather than inventing them, and any medical question is handed to a person.",
+      "AI Assistant (the WhatsApp page's AI tab, /chats/ai — it moved out of Settings on 2026-09-29; admin, plan feature aiChat) is the model-backed half of the WhatsApp assistant, saved into the same settings/whatsapp document: the persona and tone, what it is allowed to answer on its own, the coaching notes that correct it, and the limits that make it hand over instead of guessing. It answers only what the scripted bot did not, and every answer costs one credit. It quotes prices from the clinic's own price list rather than inventing them, and any medical question is handed to a person.",
   },
   sms: {
     say: {
@@ -1198,7 +1198,8 @@ function settingsStops(): TourStop[] {
       {
         id: `settings-${section.id}`,
         chapter,
-        route: section.route,
+        // A section that moved out of Settings is visited where it lives now.
+        route: section.movedTo ?? section.route,
         settingsId: section.id,
         spot: ["settings-panel", "page-main"],
         title: { en: section.labelEn, ar: section.labelAr },

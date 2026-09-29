@@ -21,6 +21,11 @@ export const NAVIGABLE_EXACT: readonly string[] = [
   "/attendance",
   "/attendance/team",
   "/chats",
+  // The WhatsApp page's other tabs; /chats itself is the inbox.
+  "/chats/ai",
+  "/chats/bot",
+  "/chats/leads",
+  "/chats/misses",
   "/finance",
   "/finance/recovery",
   "/help",

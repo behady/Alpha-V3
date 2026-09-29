@@ -5,7 +5,6 @@ import PermissionGuard from "@/components/PermissionGuard";
 import ChatsPanel from "@/components/ai/ChatsPanel";
 import { useLanguage } from "@/context/LanguageContext";
 import PageHeader from "@/components/dashboard/PageHeader";
-import FeatureGate from "@/components/FeatureGate";
 
 /**
  * The clinic's WhatsApp, as a page of its own.
@@ -15,9 +14,10 @@ import FeatureGate from "@/components/FeatureGate";
  * rail — not behind a page whose other tabs are a morning brief and a no-show list.
  *
  * Gated on patient access, the same key the message queue has always used, so reception opens it
- * without anyone editing permissions.
+ * without anyone editing permissions. The add-on gate and the tab strip above it are the
+ * WhatsApp page's layout (./layout.tsx); this is its first tab.
  */
-function ChatsPage() {
+export default function ChatsPage() {
   const { isRTL, language } = useLanguage();
   return (
     <PermissionGuard permission="access.patients" allowedRoles={["Admin", "Owner"]}>
@@ -34,14 +34,5 @@ function ChatsPage() {
         </Suspense>
       </div>
     </PermissionGuard>
-  );
-}
-
-/** Sold as an add-on: the page renders only once the clinic's subscription says so. */
-export default function ChatsPageGated() {
-  return (
-    <FeatureGate feature={["whatsappIntegration", "whatsappBot"]}>
-      <ChatsPage />
-    </FeatureGate>
   );
 }

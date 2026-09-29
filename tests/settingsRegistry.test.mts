@@ -36,6 +36,7 @@ import {
   type SettingsSection,
 } from "../src/config/settingsRegistry";
 import { getAllPermissionIds } from "../src/config/permissionsCatalog";
+import { resolveNavigablePath } from "../src/lib/aiNavigation";
 import { SETTINGS_TEXT, settingsText } from "../src/config/settingsText";
 
 // fileURLToPath, not .pathname: on Windows the latter yields "/C:/Users/..." and every join()
@@ -745,7 +746,9 @@ for (const section of SETTINGS_SECTIONS) {
 
 const shellFiles = [
   "src/app/(dashboard)/settings/layout.tsx",
-  "src/app/(dashboard)/settings/[section]/page.tsx",
+  // [section]/page.tsx hands every section to this view, and so do the WhatsApp page's Bot and
+  // AI tabs; the gate lives here once.
+  "src/components/settings/SettingsSectionView.tsx",
   "src/app/(dashboard)/settings/clinic/page.tsx",
 ];
 for (const file of shellFiles) {
@@ -1084,6 +1087,18 @@ for (const file of sourceFiles(join(REPO, "src", "components", "settings"))) {
     `${rel} caps its own width (\`${root[1].match(/max-w-\S+/)?.[0]}\`). The shell in ` +
       `settings/layout.tsx sets the measure for every section; a panel that sets its own makes ` +
       `the content jump sideways as you move between tabs.`
+  );
+}
+
+// A section that moved out of Settings must land on a real page — its old route forwards there,
+// and the tour and the assistant send people there.
+for (const section of SETTINGS_SECTIONS) {
+  if (!section.movedTo) continue;
+  const page = join(REPO, "src", "app", "(dashboard)", ...section.movedTo.split("/").filter(Boolean), "page.tsx");
+  ok(existsSync(page), `${section.id} moved to ${section.movedTo}, but there is no page at ${page}`);
+  ok(
+    resolveNavigablePath(section.movedTo) === section.movedTo,
+    `${section.id} moved to ${section.movedTo}, which src/lib/aiNavigation.ts does not list as navigable`
   );
 }
 

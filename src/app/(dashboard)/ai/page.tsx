@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Bot, MessageCircle, Newspaper, UserCheck } from "lucide-react";
+import { MessageCircle, Newspaper, UserCheck } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import PageHeader from "@/components/dashboard/PageHeader";
 import { useAuth } from "@/context/AuthContext";
@@ -11,7 +11,6 @@ import PermissionGuard from "@/components/PermissionGuard";
 import BriefPanel from "@/components/ai/BriefPanel";
 import MessageQueuePanel from "@/components/ai/MessageQueuePanel";
 import NoShowPanel from "@/components/ai/NoShowPanel";
-import BotMissesPanel from "@/components/ai/BotMissesPanel";
 
 /**
  * One page for everything the system worked out on its own.
@@ -30,7 +29,7 @@ import BotMissesPanel from "@/components/ai/BotMissesPanel";
  * three pages guarded on before.
  */
 
-type TabKey = "brief" | "messages" | "noshows" | "bot";
+type TabKey = "brief" | "messages" | "noshows";
 
 /** Query values the old routes redirect with. Kept short — these end up in people's bookmarks. */
 const TAB_FROM_QUERY: Record<string, TabKey> = {
@@ -39,7 +38,6 @@ const TAB_FROM_QUERY: Record<string, TabKey> = {
   messages: "messages",
   noshows: "noshows",
   attendance: "noshows",
-  bot: "bot",
 };
 
 export default function IntelligencePage() {
@@ -67,6 +65,13 @@ function IntelligenceHub() {
   useEffect(() => {
     if (wantsChats) router.replace(chatParam ? `/chats?chat=${encodeURIComponent(chatParam)}` : "/chats");
   }, [wantsChats, chatParam, router]);
+
+  // "The Bot" — what the WhatsApp assistant could not answer — was a tab here until 2026-09-29.
+  // It is a tab of the WhatsApp page now, beside the Bot settings where the fix gets written.
+  const wantsBotMisses = searchParams.get("tab") === "bot";
+  useEffect(() => {
+    if (wantsBotMisses) router.replace("/chats/misses");
+  }, [wantsBotMisses, router]);
 
   // Rebuilt every render rather than memoized: it is three objects, and hand-memoizing it only
   // gives the React Compiler a dependency list to disagree with.
@@ -100,16 +105,6 @@ function IntelligenceHub() {
       blurb: isAr
         ? "أغلق المواعيد السابقة التي لم يُسجَّل ما حدث فيها. هذا وحده ما يجعل أرقام الغياب ذات معنى."
         : "Close out past appointments nobody answered for. That is the only thing that makes attendance figures mean anything.",
-    },
-    {
-      key: "bot" as const,
-      permission: "access.patients",
-      icon: Bot,
-      label: isAr ? "البوت" : "The Bot",
-      heading: isAr ? "اللي البوت معرفش يرد عليه" : "What the bot couldn't answer",
-      blurb: isAr
-        ? "أسئلة المرضى الحقيقية اللي المساعد حوّلها لموظف. اللي بيتكرر هنا هو اللي يستاهل إجابة جاهزة أو كلمة جديدة."
-        : "Real patient questions the assistant handed to a person. Whatever repeats here is worth a ready answer or a new keyword.",
     },
   ].filter((tab) => can(tab.permission));
 
@@ -174,7 +169,6 @@ function IntelligenceHub() {
         {current.key === "brief" && <BriefPanel />}
         {current.key === "messages" && <MessageQueuePanel />}
         {current.key === "noshows" && <NoShowPanel />}
-        {current.key === "bot" && <BotMissesPanel />}
       </div>
     </div>
   );
