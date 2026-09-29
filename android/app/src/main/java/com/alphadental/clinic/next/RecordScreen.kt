@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
@@ -76,6 +77,8 @@ fun RecordScreen(
     onCall: (String) -> Unit = {},
     onMessage: (String) -> Unit = {},
     onTakePayment: (() -> Unit)? = null,
+    /** The account statement as a PDF. */
+    onStatement: (() -> Unit)? = null,
     onRecordTreatment: (() -> Unit)? = null,
     onMore: (() -> Unit)? = null,
     onFilterMedia: (String) -> Unit = {},
@@ -91,17 +94,43 @@ fun RecordScreen(
     onShareScript: (com.alphadental.clinic.data.Prescription) -> Unit = {},
     onSendScript: (com.alphadental.clinic.data.Prescription) -> Unit = {},
     onCopyScript: ((com.alphadental.clinic.data.Prescription) -> Unit)? = null,
+    /** Null when this account may not correct the books, which makes the rows inert. */
+    onEditRow: ((com.alphadental.clinic.next.data.Money) -> Unit)? = null,
+    onEditNote: ((com.alphadental.clinic.data.ClinicalNote) -> Unit)? = null,
+    /** The AI tab's own state and verbs. Null in the preview, which has no server to ask. */
+    ai: AiClinicalState? = null,
+    aiActions: AiClinicalActions? = null,
+    // ---- the website's page
+    onPlan: (() -> Unit)? = null,
+    onOrtho: (() -> Unit)? = null,
+    onSort: () -> Unit = {},
+    onDeleteNote: ((com.alphadental.clinic.data.ClinicalNote) -> Unit)? = null,
+    onDeleteRow: ((Money) -> Unit)? = null,
+    onPlanStatus: ((com.alphadental.clinic.data.TreatmentPlans.Plan, String) -> Unit)? = null,
 ) {
     val record = state.record
 
     Column(Modifier.fillMaxSize().background(T.ground)) {
 
-        RecordSlab(
-            state, record, onBack, onCall, onMessage,
-            onTakePayment, onRecordTreatment, onMore, onEditDetails,
+        // A short slab — back, the file number, the name — and the website's cards under it.
+        Slab(
+            title = record?.person?.name?.ifBlank { "No name" } ?: "Patient",
+            eyebrow = "Patients" + (record?.fileId?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""),
+            bar = {
+                SlabIcon(Icons.AutoMirrored.Filled.ArrowBack, "Back", onClick = onBack)
+                Spacer(Modifier.weight(1f))
+                val phone = record?.person?.phone.orEmpty()
+                if (phone.isNotBlank()) {
+                    SlabIcon(Icons.Filled.Phone, "Call") { onCall(phone) }
+                    Spacer(Modifier.width(8.dp))
+                }
+                onTakePayment?.let {
+                    SlabIcon(Icons.Filled.AccountBalanceWallet, "Take payment", onClick = it)
+                    Spacer(Modifier.width(8.dp))
+                }
+                onMore?.let { SlabIcon(Icons.Filled.MoreHoriz, "More", onClick = it) }
+            },
         )
-
-        if (record != null) Tabs(state.tab, onTab)
 
         when {
             state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -116,14 +145,33 @@ fun RecordScreen(
                 Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = T.barClearance),
             ) {
+                item { PatientCard(record, onEditDetails, onCall, onMessage) }
+                item { StatsCard(visits = record.past.size, completed = state.notes.count { it.status != "Planned" }) }
+                item { QuickActions(onRx = onPrescribe, onDiagnosis = { onTab(RecordTab.Notes) }, onOrtho = onOrtho) }
+                item { Spacer(Modifier.height(6.dp)) }
+                item { WebTabs(state.tab, onTab) }
                 when (state.tab) {
                     RecordTab.Overview -> overview(state, record)
-                    RecordTab.Chart -> chart(state, record, onSelectTooth, onChart)
-                    RecordTab.Notes -> treatments(state, onSetNoteStatus, onRecordTreatment)
+                    RecordTab.Ai -> if (ai != null && aiActions != null) {
+                        aiClinical(ai, aiActions)
+                    } else {
+                        item { SettingsEmpty("The assistant is not available in the preview.") }
+                    }
+                    RecordTab.Notes -> {
+                        // One tab for the mouth and what was done to it. The chart on top with its
+                        // two verbs — add a procedure, add a diagnosis — then the picked tooth's
+                        // history, then the timeline. They were two tabs, and the owner asked for
+                        // one: a dentist charting a tooth and then recording the filling on it is
+                        // doing one job, not two.
+                        chart(state, record, onSelectTooth, onChart, onRecordTreatment)
+                        if (state.tooth != null) toothHistory(state, record)
+                        clinical(state, null, onSort, onEditNote, onDeleteNote)
+                    }
+                    RecordTab.Plan -> plans(state, onPlan, onPlanStatus)
                     RecordTab.Visits -> visits(record)
                     RecordTab.Rx -> scripts(state, onPrescribe, onPrintScript, onShareScript, onSendScript, onCopyScript)
                     RecordTab.Photos -> photos(state, onFilterMedia, onUploadCategory, onView, onCamera, onGallery)
-                    RecordTab.Ledger -> statement(state, onTakePayment)
+                    RecordTab.Ledger -> finance(state, onTakePayment, onEditRow, onDeleteRow, onStatement)
                 }
             }
         }
@@ -547,23 +595,52 @@ private fun androidx.compose.foundation.lazy.LazyListScope.chart(
     record: Record,
     onSelectTooth: (Int?) -> Unit,
     onChart: (Int) -> Unit,
+    onRecordTreatment: (() -> Unit)?,
 ) {
     item {
         ToothChart(
             teeth = record.teeth,
             selected = state.tooth,
             onSelect = onSelectTooth,
+            treatments = state.treatments,
         )
     }
-    item { ToothDetail(record.teeth[state.tooth], state.tooth) }
 
+    // The two things this tab is for, side by side under the chart: add a procedure (teal, the
+    // website's), add a diagnosis to the picked tooth (green). Nothing to hunt for.
     if (state.canRecord) {
         item {
-            Row(Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 14.dp)) {
-                SettingsPill(
-                    state.tooth?.let { "Chart tooth $it" } ?: "Pick a tooth to chart",
-                    solid = state.tooth != null,
-                ) { state.tooth?.let(onChart) }
+            val n = state.tooth
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                onRecordTreatment?.let { add ->
+                    Surface(
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+                        color = androidx.compose.ui.graphics.Color(0xFF0D9488),
+                        modifier = Modifier.weight(1f).clickable(onClick = add),
+                    ) {
+                        Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Add, null, tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Txt("Add procedure", Type.label.copy(fontSize = 13.sp), androidx.compose.ui.graphics.Color.White, maxLines = 1)
+                        }
+                    }
+                }
+                Surface(
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+                    color = if (n != null) androidx.compose.ui.graphics.Color(0xFF16A34A) else T.surfaceSoft,
+                    border = if (n != null) null else androidx.compose.foundation.BorderStroke(1.dp, T.line),
+                    modifier = Modifier.weight(1f).clickable(enabled = n != null) { n?.let(onChart) },
+                ) {
+                    Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Add, null, tint = if (n != null) androidx.compose.ui.graphics.Color.White else T.inkFaint, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Txt(
+                            if (n != null) "Diagnosis · tooth $n" else "Tap a tooth to diagnose",
+                            Type.label.copy(fontSize = 13.sp),
+                            if (n != null) androidx.compose.ui.graphics.Color.White else T.inkFaint, maxLines = 1,
+                        )
+                    }
+                }
             }
         }
     }

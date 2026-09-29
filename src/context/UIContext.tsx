@@ -135,6 +135,8 @@ interface UIContextType {
   /** The desk or the chair — see lib/uiPreferences. Only read for people who could be either. */
   homeView: 'desk' | 'chair' | 'owner';
   setHomeView: (view: 'desk' | 'chair' | 'owner') => void;
+  ownerPeriod: 'day' | 'week' | 'month';
+  setOwnerPeriod: (period: 'day' | 'week' | 'month') => void;
 }
 
 const UIContext = createContext<UIContextType | undefined>(undefined);
@@ -164,6 +166,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   const [clinicalNoteGrouping, setClinicalNoteGroupingState] = useState<ClinicalNoteGrouping>('flat');
   const [clinicalNoteDensity, setClinicalNoteDensityState] = useState<ClinicalNoteDensity>('detailed');
   const [homeView, setHomeViewState] = useState<'desk' | 'chair' | 'owner'>('desk');
+  const [ownerPeriod, setOwnerPeriodState] = useState<'day' | 'week' | 'month'>('month');
 
   /**
    * Apply a set of preferences to the eight pieces of state that hold them.
@@ -184,6 +187,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
     if (prefs.clinicalNoteGrouping !== undefined) setClinicalNoteGroupingState(prefs.clinicalNoteGrouping);
     if (prefs.clinicalNoteDensity !== undefined) setClinicalNoteDensityState(prefs.clinicalNoteDensity);
     if (prefs.homeView !== undefined) setHomeViewState(prefs.homeView);
+    if (prefs.ownerPeriod !== undefined) setOwnerPeriodState(prefs.ownerPeriod);
   }, []);
 
   // The browser's cache first, so the screen paints the layout this person chose rather than the
@@ -273,6 +277,11 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   const setHomeView = useCallback((view: 'desk' | 'chair' | 'owner') => {
     setHomeViewState(view);
     rememberPreference("homeView", view);
+  }, [rememberPreference]);
+
+  const setOwnerPeriod = useCallback((period: 'day' | 'week' | 'month') => {
+    setOwnerPeriodState(period);
+    rememberPreference("ownerPeriod", period);
   }, [rememberPreference]);
 
   const setClinicalNoteGrouping = useCallback((grouping: ClinicalNoteGrouping) => {
@@ -395,7 +404,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   const promptCanSubmit = !promptState.required || promptValue.trim().length > 0;
 
   return (
-    <UIContext.Provider value={{ showToast, confirm, prompt, clinicalEditorMode, setClinicalEditorMode, appointmentEditorMode, setAppointmentEditorMode, patientEditorMode, setPatientEditorMode, appointmentPanelMode, setAppointmentPanelMode, receptionPanelActive, setReceptionPanelActive, assistantPanelOpen, setAssistantPanelOpen, appointmentsVisibility, setAppointmentsVisibility, latePatientTrackerEnabled: latePatientTrackerEnabledState, setLatePatientTrackerEnabled, clinicalNoteSort, setClinicalNoteSort, clinicalNoteGrouping, setClinicalNoteGrouping, clinicalNoteDensity, setClinicalNoteDensity, homeView, setHomeView }}>
+    <UIContext.Provider value={{ showToast, confirm, prompt, clinicalEditorMode, setClinicalEditorMode, appointmentEditorMode, setAppointmentEditorMode, patientEditorMode, setPatientEditorMode, appointmentPanelMode, setAppointmentPanelMode, receptionPanelActive, setReceptionPanelActive, assistantPanelOpen, setAssistantPanelOpen, appointmentsVisibility, setAppointmentsVisibility, latePatientTrackerEnabled: latePatientTrackerEnabledState, setLatePatientTrackerEnabled, clinicalNoteSort, setClinicalNoteSort, clinicalNoteGrouping, setClinicalNoteGrouping, clinicalNoteDensity, setClinicalNoteDensity, homeView, setHomeView, ownerPeriod, setOwnerPeriod }}>
       {children}
 
       {/* --- TOAST CONTAINER (Smartphone Style) --- */}

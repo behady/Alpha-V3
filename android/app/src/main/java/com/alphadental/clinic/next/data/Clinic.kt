@@ -31,6 +31,8 @@ data class Visit(
     val status: Stage,
     /** Minutes booked. Drives the chair's progress meter. */
     val duration: Int,
+    /** The dentist by staff id, when the booking carries one. `doctor` is the display name. */
+    val doctorId: String = "",
 ) {
     /**
      * Minutes past midnight, for ordering.
@@ -159,6 +161,7 @@ internal fun DocumentSnapshot.toVisit(): Visit = Visit(
     treatment = text("treatment"),
     status = Stage.from(text("status")),
     duration = number("duration")?.toInt()?.takeIf { it > 0 } ?: 30,
+    doctorId = text("doctorId"),
 )
 
 /**
@@ -306,6 +309,23 @@ data class Money(
     val labFee: Double = 0.0,
     /** Knocked off the list price. On charge rows. */
     val discount: Double = 0.0,
+    /**
+     * Who recorded this row — the receptionist who took the cash, the dentist who charged the
+     * work. Both the website and the phone write it as `addedBy`. It was read by nobody, which
+     * is how "who took that payment?" became a question with no answer on the phone.
+     */
+    val by: String = "",
+    /** On a payment: the charge it settles. Blank for money put on account. */
+    val procedureId: String = "",
+    /** The dentist whose work this money is for, by staff id. What the commission tally groups on. */
+    val doctorId: String = "",
+    /** Whose file this line is on. Blank on a clinic expense. */
+    val patientName: String = "",
+    val patientId: String = "",
+    /** Minted by the ledger route when the money was saved. Blank on payments from before numbering. */
+    val receiptNumber: String = "",
+    /** On a charge: the price before any discount, for the struck-through figure on a receipt. */
+    val listPrice: Double = 0.0,
 ) {
     val isCharge: Boolean get() = type == "procedure"
 
@@ -345,6 +365,15 @@ data class Record(
     val medicalHistory: String,
     /** Only ever shown on the details form; nothing else reads it. */
     val address: String = "",
+    /**
+     * The patient has asked not to be messaged — or the clinic has decided so for them.
+     *
+     * `whatsappOptOut` has existed for a long time; `smsOptOut` is newer and, when UNSET, follows
+     * it (see the website's lib/patientMessaging). Kept as a nullable here for exactly that
+     * reason: null is "never decided separately", which is not the same as false.
+     */
+    val whatsappOptOut: Boolean = false,
+    val smsOptOut: Boolean? = null,
     val balance: Balance,
     val upcoming: List<Visit>,
     val past: List<Visit>,
@@ -352,6 +381,9 @@ data class Record(
     /** The chart, keyed by FDI number. Teeth with nothing recorded are absent. */
     val teeth: Map<Int, Tooth> = emptyMap(),
 ) {
+    /** What actually applies to text messages: its own flag, or WhatsApp's when it has none. */
+    val smsBlocked: Boolean get() = smsOptOut ?: whatsappOptOut
+
     /** Everything ever charged to this patient — what they are worth to the clinic. */
     val lifetime: Double get() = balance.charged
 
@@ -403,7 +435,16 @@ data class Thread(
     val optedOut: Boolean,
     val assignedName: String,
     val archived: Boolean,
+    /** The staff uid holding this thread, so "mine" can be decided. */
+    val assignedTo: String = "",
+    /** The desk's labels on the conversation, as the website keeps them. */
+    val tags: List<String> = emptyList(),
+    /** When a person last typed here; the bot stands down for an hour after it. */
+    val humanActiveAtMs: Long = 0L,
 ) {
+    /** Every reason the bot is quiet, as the website's one switch sees them. */
+    val botQuiet: Boolean get() = botPaused || needsHuman || humanActiveAtMs > System.currentTimeMillis() - 60L * 60 * 1000
+
     /** Who this is: their name if the clinic knows it, else the number. */
     val title: String get() = patientName.ifBlank { phone.ifBlank { id } }
 
@@ -439,6 +480,8 @@ data class Line(
     /** Meta's own ticks: "sent", "delivered", "read", "failed". Blank inbound. */
     val status: String,
     val name: String,
+    /** The bot's own slug for what it answered — "hours", "booking_days" — for the feedback row. */
+    val kind: String = "",
 ) {
     val fromPatient: Boolean get() = direction == "in"
     val fromBot: Boolean get() = author == "bot"
@@ -465,6 +508,9 @@ internal fun DocumentSnapshot.toThread(): Thread = Thread(
     optedOut = getBoolean("optedOut") == true,
     assignedName = text("assignedName"),
     archived = getBoolean("archived") == true,
+    assignedTo = text("assignedTo"),
+    tags = (get("tags") as? List<*>)?.mapNotNull { it?.toString()?.takeIf(String::isNotBlank) }.orEmpty(),
+    humanActiveAtMs = millis("humanActiveAtMs"),
 )
 
 internal fun DocumentSnapshot.toLine(): Line = Line(
@@ -477,4 +523,5 @@ internal fun DocumentSnapshot.toLine(): Line = Line(
     transcript = text("transcript"),
     status = text("status"),
     name = text("name"),
+    kind = text("kind"),
 )

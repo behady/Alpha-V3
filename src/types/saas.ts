@@ -53,6 +53,7 @@ export interface Clinic {
     reports?: boolean;
     multiBranch?: boolean;
     clinicalPdfs?: boolean;
+    ownerAlertsLine?: boolean;
   };
   billingCycle?: 'Monthly' | 'Yearly' | '2-Yearly';
   customPrice?: number;

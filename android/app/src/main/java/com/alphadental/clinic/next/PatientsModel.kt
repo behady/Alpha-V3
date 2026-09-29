@@ -31,6 +31,8 @@ data class Patients(
     val addError: String? = null,
     /** The file that was just opened, so the screen can go straight to it. */
     val added: String? = null,
+    /** The clinic's own "how did you hear about us" list, for the new-patient sheet. */
+    val sources: List<String> = emptyList(),
 ) {
     val canAdd: Boolean get() = who?.can("patients.add") == true
     val isSearching: Boolean get() = query.isNotBlank()
@@ -84,6 +86,9 @@ class PatientsModel : ViewModel() {
                 .onSuccess { who ->
                     _state.value = _state.value.copy(who = who)
                     firstPage(who)
+                    // Loaded with the register rather than when the sheet opens: a picker that
+                    // fills in a moment after somebody looks at it is a picker they tap past.
+                    if (who.can("patients.add")) loadSources(who)
                     // Money is a permission, not a role — and a directory that
                     // silently omits the "owes" section for someone who may not
                     // see money is more honest than one showing an empty heading.
@@ -123,12 +128,23 @@ class PatientsModel : ViewModel() {
      * connection, and it says so when there is none rather than inventing a
      * number that would collide later.
      */
-    fun addPatient(name: String, phone: String) {
+    fun addPatient(form: NewPatient) {
         val who = _state.value.who ?: return
-        if (!_state.value.canAdd || name.isBlank() || _state.value.adding) return
+        if (!_state.value.canAdd || form.name.isBlank() || _state.value.adding) return
         _state.value = _state.value.copy(adding = true, addError = null, added = null)
         viewModelScope.launch {
-            com.alphadental.clinic.data.Repository.createPatient(who.clinicId, name, phone)
+            com.alphadental.clinic.data.Repository.createPatient(
+                clinicId = who.clinicId,
+                name = form.name,
+                phone = form.phone,
+                address = form.address,
+                dateOfBirth = form.dateOfBirth,
+                gender = form.gender,
+                referral = form.referral,
+                allergies = form.allergies,
+                medicalHistory = form.medicalHistory,
+                email = form.email,
+            )
                 .onSuccess { patient ->
                     _state.value = _state.value.copy(adding = false, added = patient.id)
                     // Put them in the list straight away rather than waiting for
@@ -146,6 +162,13 @@ class PatientsModel : ViewModel() {
 
     fun clearAdded() {
         _state.value = _state.value.copy(added = null, addError = null)
+    }
+
+    private fun loadSources(who: Who) = viewModelScope.launch {
+        val rows = runCatching {
+            com.alphadental.clinic.data.Repository.loadPatientSources(who.clinicId)
+        }.getOrDefault(emptyList())
+        _state.value = _state.value.copy(sources = rows)
     }
 
     fun search(term: String) {

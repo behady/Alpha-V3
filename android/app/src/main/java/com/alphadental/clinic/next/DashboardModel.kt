@@ -26,6 +26,14 @@ data class Dashboard(
     val clinicName: String = "",
     val currency: String = "EGP",
     val visits: List<Visit> = emptyList(),
+    /**
+     * The day the strip is on, "yyyy-MM-dd". Today unless somebody tapped another.
+     *
+     * Tapping a day used to leave the dashboard for the calendar tab. The whole point of the
+     * strip is to glance at Thursday without going anywhere, so the day is state here and the
+     * visits and the four counters follow it. The income tile stays today's — it says so.
+     */
+    val date: String = ClinicSource.dateKey(),
 
     /** Null while unread, and for anyone who may not see the clinic's money. */
     val takings: Double? = null,
@@ -36,7 +44,11 @@ data class Dashboard(
     /** Something went wrong that the person needs told. */
     val error: String? = null,
     val refreshing: Boolean = false,
+    /** The figures the owner's and the dentist's homes add. Empty for the desk. */
+    val extras: HomeExtras = HomeExtras(),
 ) {
+    val isToday: Boolean get() = date == ClinicSource.dateKey()
+
     val active: List<Visit> get() = visits.filterNot { it.status.isFinished }
     val waiting: List<Visit> get() = active.filter { it.status == Stage.CheckedIn }
     val inChair: Visit? get() = visits.firstOrNull { it.status == Stage.InChair }
@@ -88,7 +100,7 @@ class DashboardModel : ViewModel() {
             ClinicSource.signedIn()
                 .onSuccess { who ->
                     _state.value = _state.value.copy(who = who, loading = false)
-                    watchToday(who)
+                    watchDay(who, _state.value.date)
                     loadClinic(who)
                     loadMoney(who)
                 }
@@ -98,10 +110,18 @@ class DashboardModel : ViewModel() {
         }
     }
 
-    private fun watchToday(who: Who) {
+    /** Show another day on the strip, in place. */
+    fun show(dateKey: String) {
+        val who = _state.value.who ?: return
+        if (dateKey == _state.value.date) return
+        _state.value = _state.value.copy(date = dateKey, visits = emptyList())
+        watchDay(who, dateKey)
+    }
+
+    private fun watchDay(who: Who, dateKey: String) {
         dayWatch?.cancel()
         dayWatch = viewModelScope.launch {
-            ClinicSource.watchDay(who.clinicId, ClinicSource.dateKey())
+            ClinicSource.watchDay(who.clinicId, dateKey)
                 .catch { e -> _state.value = _state.value.copy(error = readable(e)) }
                 .collect { visits -> _state.value = _state.value.copy(visits = visits, error = null) }
         }
@@ -156,6 +176,27 @@ class DashboardModel : ViewModel() {
         _state.value = _state.value.copy(refreshing = true)
         loadClinic(who)
         loadMoney(who)
+        lastUi?.let { loadHome(it) }
+    }
+
+    private var lastUi: InterfaceState? = null
+
+    /**
+     * The extra figures for whichever home is chosen. Read, not watched — see [HomeExtras].
+     * Re-read on pull-to-refresh and whenever the choice or the person's staff link changes.
+     */
+    fun loadHome(ui: InterfaceState) {
+        lastUi = ui
+        val who = _state.value.who ?: ui.who ?: return
+        if (!ui.prefs.loaded) return
+        viewModelScope.launch {
+            val extras = when (ui.home) {
+                "dentist" -> HomeExtrasLoader.dentist(who, ui.staffId, ui.staffName)
+                "owner" -> HomeExtrasLoader.owner(who)
+                else -> HomeExtras(loaded = true)
+            }
+            _state.value = _state.value.copy(extras = extras)
+        }
     }
 
     /** Move whoever is in the chair on to checking out. */

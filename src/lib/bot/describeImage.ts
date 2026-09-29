@@ -24,7 +24,7 @@ const TIMEOUT_MS = 25000;
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 
 export type ImageDescription =
-  | { ok: true; summary: string; urgent: boolean; interest: string; category: "dental" | "document" | "other" }
+  | { ok: true; summary: string; urgent: boolean; interest: string; category: "dental" | "document" | "other"; impression?: string }
   | { ok: false; reason: string };
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -66,6 +66,7 @@ export async function describeImageBytes(
             summary: { type: SchemaType.STRING },
             urgent: { type: SchemaType.BOOLEAN },
             interest: { type: SchemaType.STRING },
+            impression: { type: SchemaType.STRING },
           },
           required: ["category", "summary", "urgent"],
         },
@@ -83,22 +84,24 @@ export async function describeImageBytes(
             "- category: dental لو الصورة لفم أو أسنان أو وش، document لو روشتة أو أشعة أو فاتورة أو سكرين شوت، other غير كده.\n" +
             "- summary: وصف من جملة لجملتين بالعامية المصرية لإيه اللي باين في الصورة (مثلاً: ضرس مكسور في الفك السفلي يمين، أو ورم واضح في الخد الشمال، أو صورة أشعة بانوراما). ممنوع تشخيص أو خطة علاج — وصف بس.\n" +
             "- urgent: true لو باين ورم، نزيف، صديد، كسر كبير، إصابة، أو أي حاجة تستاهل رد فوري.\n" +
-            "- interest: اسم الخدمة اللي الصورة غالباً بتخصها لو واضح (تبييض، تقويم، زراعة، حشو، خلع، تنظيف...) وإلا سيبها فاضية.",
+            "- interest: اسم الخدمة اللي الصورة غالباً بتخصها لو واضح (تبييض، تقويم، زراعة، حشو، خلع، تنظيف...) وإلا سيبها فاضية.\n" +
+            "- impression: بس لو category = dental — قراءة مبدئية زي ما طبيب أسنان يقولها بالعامية المصرية في جملتين لتلاتة: إيه المشكلة اللي شكلها موجودة (مثلاً: تسوس عميق شكله قرّب من العصب، التهاب لثة، كسر في حافة السنة، ورم في اللثة) وإيه اللي غالباً هيتعمل في الكشف. من غير أسماء أدوية ولا جرعات ولا أسعار ولا نسب. لو الصورة مش واضحة كفاية قول إنها مش واضحة وإيه اللي محتاج يتصوّر أحسن. لو مش dental سيبها فاضية.",
         },
       ]),
       TIMEOUT_MS
     );
-    const parsed = JSON.parse(result.response.text()) as { category?: string; summary?: string; urgent?: boolean; interest?: string };
+    const parsed = JSON.parse(result.response.text()) as { category?: string; summary?: string; urgent?: boolean; interest?: string; impression?: string };
     const summary = String(parsed.summary || "").trim().slice(0, 400);
     if (!summary) return { ok: false, reason: "empty" };
     const category = parsed.category === "dental" || parsed.category === "document" ? parsed.category : "other";
+    const impression = category === "dental" ? String(parsed.impression || "").trim().slice(0, 600) : "";
 
     await reservation.charge("whatsapp_photo", summary);
     await adminClinicCollection(clinicId, "ai_debug")
       .doc(new Date().toISOString().replace(/[:.]/g, "-"))
-      .set({ kind: "image", mediaId: ref, summary, urgent: parsed.urgent === true, category, createdAt: FieldValue.serverTimestamp() })
+      .set({ kind: "image", mediaId: ref, summary, urgent: parsed.urgent === true, category, impression, createdAt: FieldValue.serverTimestamp() })
       .catch(() => {});
-    return { ok: true, summary, urgent: parsed.urgent === true, interest: String(parsed.interest || "").trim().slice(0, 60), category };
+    return { ok: true, summary, urgent: parsed.urgent === true, interest: String(parsed.interest || "").trim().slice(0, 60), category, impression: impression || undefined };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : "describe_failed" };
   }

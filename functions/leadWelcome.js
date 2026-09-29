@@ -16,6 +16,13 @@
  *
  * Whatever happens the reply is never silently dropped: a gateway that fails, or was never
  * configured, falls back to the queue so a human still sees it waiting.
+ *
+ * ── The same rules as every other patient message ────────────────────────────────────────────
+ * This is the ONE message in the system sent to someone who has never written to the clinic,
+ * which makes it the message most likely to be reported — and it used to leave with none of the
+ * protections the web app's chokepoint (src/lib/whatsappDelivery.ts) applies: no stop check, no
+ * opt-out footer, at any hour, and from the shared platform number when the clinic had none.
+ * Those four are applied here now, mirroring the web app's rules field for field.
  */
 
 const { FieldValue } = require("firebase-admin/firestore");
@@ -24,21 +31,34 @@ const { normalizeToInternationalDigits } = require("./wapilotClient");
 
 const DEFAULT_API_ROOT = "https://api.wapilot.net/api/v2";
 const DEFAULT_SEND_PATH = "/{instanceId}/send-message";
+const TIMEZONE = process.env.CLINIC_TIMEZONE || "Africa/Cairo";
+
+/** Clinic hours for unattended patient messages — the same 10:00–22:00 the gateway enforces. */
+const SEND_WINDOW_START = 10;
+const SEND_WINDOW_END = 22;
+
+/** Mirrors src/lib/patientMessaging.ts — the two footers and the word they hinge on. */
+const OPT_OUT_KEYWORD_AR = "إيقاف";
+const FOOTER_AR = `— لإيقاف الرسائل أرسل: ${OPT_OUT_KEYWORD_AR}`;
+const FOOTER_BILINGUAL = `— لإيقاف الرسائل أرسل: ${OPT_OUT_KEYWORD_AR} · To stop, reply: STOP`;
 
 /**
- * This clinic's own WhatsApp number first, then the shared platform number — the same
- * resolution order as src/lib/wapilotConfig.ts, whose comment explains why per-clinic
- * credentials had to exist at all.
+ * This clinic's own WhatsApp number, or nothing.
+ *
+ * There used to be a second step — the shared WAPILOT_* platform number — so that a clinic with
+ * no number of its own still greeted its leads. The web app removed that fallback on 2026-09-27
+ * (src/lib/wapilotConfig.ts): the platform line carries staff alerts only, and a cold message to
+ * a stranger from a number shared by every clinic is the single riskiest send in the system.
+ * A clinic with no number gets the human queue, which is what it gets everywhere else.
  */
 async function loadWapilotConfig(db, clinicId) {
-  const pick = (data) => {
+  try {
+    const secret = await db.doc(`clinic_secrets/${clinicId}`).get();
+    const data = secret.exists ? secret.data().wapilot : null;
     if (!data || typeof data !== "object") return null;
     const instanceId = String(data.instanceId || "").trim();
     // `apiToken`/`apiBaseUrl` are what the app actually stores (src/lib/wapilotConfig.ts writes
-    // and reads those names). Reading only `token` meant a clinic could fill its credentials in,
-    // switch delivery to auto, and still have every greeting fall silently into the manual queue —
-    // configured, saved, and never sent. The older names stay as fallbacks because the env-var
-    // path below builds its object with them.
+    // and reads those names). The older names stay as fallbacks for hand-written records.
     const token = String(data.apiToken || data.token || data.accessToken || "").trim();
     if (!instanceId || !token) return null;
     return {
@@ -47,23 +67,15 @@ async function loadWapilotConfig(db, clinicId) {
       apiRoot: String(data.apiBaseUrl || data.apiRoot || DEFAULT_API_ROOT).replace(/\/$/, ""),
       sendUrlOverride: String(data.sendUrl || "").trim() || null,
       sendPathTemplate: String(data.sendPath || DEFAULT_SEND_PATH).trim() || DEFAULT_SEND_PATH,
+      // Alpha's own gateway holds proactive messages for clinic hours itself, so the night rule
+      // below is only needed for a third-party gateway that sends the moment it is asked.
+      holdsForClinicHours: data.provider === "alpha",
+      source: "clinic",
     };
-  };
-
-  try {
-    const secret = await db.doc(`clinic_secrets/${clinicId}`).get();
-    const own = pick(secret.exists ? secret.data().wapilot : null);
-    if (own) return { ...own, source: "clinic" };
   } catch (e) {
     console.warn(`leadWelcome: could not read clinic_secrets/${clinicId}:`, e);
+    return null;
   }
-
-  const envConfig = pick({
-    instanceId: process.env.WAPILOT_INSTANCE_ID,
-    token: process.env.WAPILOT_API_TOKEN || process.env.WAPILOT_ACCESS_TOKEN,
-    apiRoot: process.env.WAPILOT_API_BASE_URL,
-  });
-  return envConfig ? { ...envConfig, source: "platform" } : null;
 }
 
 /** Templates are written for the fullest case; an empty placeholder must not leave a hole. */
@@ -72,6 +84,75 @@ function tidy(text) {
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+/** Same folding the web app applies before comparing Arabic: alef forms, tashkeel, case. */
+function foldArabic(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/[ً-ْـ]/g, "")
+    .replace(/[أإآٱ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ؤ/g, "و");
+}
+
+/**
+ * The opt-out line, unless the body already tells the reader how to stop.
+ *
+ * Mirrors `appendOptOutFooter` + `applyPatientOptOutFooter` in the web app: on unless the clinic
+ * switched it off, Arabic-only when its templates are, and never added twice.
+ */
+function withOptOutFooter(text, settings) {
+  const body = String(text || "");
+  if (settings && settings.optOutFooterEnabled === false) return body;
+  const folded = foldArabic(body);
+  if (folded.includes(foldArabic(OPT_OUT_KEYWORD_AR)) && folded.includes("ارسل")) return body;
+  if (/\bstop\b/i.test(body) && /repl(y|ies)|send/i.test(body)) return body;
+  const footer = settings && settings.templatePack === "arabic" ? FOOTER_AR : FOOTER_BILINGUAL;
+  return `${body.replace(/\s+$/, "")}\n\n${footer}`;
+}
+
+/** The last nine digits — the key `whatsapp_conversations` documents are filed under (src/lib/patientPhone.ts). */
+function phoneMatchKey(raw) {
+  let digits = String(raw || "")
+    .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+    .replace(/\D/g, "");
+  if (!digits) return "";
+  if (digits.startsWith("00")) digits = digits.slice(2);
+  while (digits.startsWith("0")) digits = digits.slice(1);
+  return digits.length > 9 ? digits.slice(-9) : digits;
+}
+
+/**
+ * Has this number asked to be left alone? The three places a stop request can land, as the web
+ * app's `whatsappOptOutReason` (src/lib/messagingConsent.ts) checks them.
+ */
+async function optOutReason(db, clinicId, phone) {
+  const digits = normalizeToInternationalDigits(phone) || String(phone || "").replace(/\D/g, "");
+  try {
+    if (digits) {
+      const number = await db.doc(`clinics/${clinicId}/messaging_opt_outs/${digits}`).get();
+      if (number.exists) return "number";
+    }
+    const key = phoneMatchKey(phone);
+    if (key) {
+      const conversation = await db.doc(`clinics/${clinicId}/whatsapp_conversations/${key}`).get();
+      if (conversation.exists && conversation.data().optedOut === true) return "conversation";
+    }
+    if (digits) {
+      const patients = await db.collection(`clinics/${clinicId}/patients`).where("phone", "==", `+${digits}`).limit(1).get();
+      if (!patients.empty && patients.docs[0].data().whatsappOptOut === true) return "patient";
+    }
+  } catch (e) {
+    console.warn(`leadWelcome: opt-out lookup failed for ${clinicId}:`, e);
+  }
+  return null;
+}
+
+/** Is it clinic hours in Cairo right now? */
+function insideSendWindow(now = new Date()) {
+  const hour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: TIMEZONE, hour: "2-digit", hourCycle: "h23" }).format(now));
+  return hour >= SEND_WINDOW_START && hour < SEND_WINDOW_END;
 }
 
 async function sendViaGateway(config, phone, text) {
@@ -83,7 +164,8 @@ async function sendViaGateway(config, phone, text) {
   const res = await fetch(url, {
     method: "POST",
     headers: { Token: config.token, "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: `${digits}@c.us`, message: text }),
+    // Both spellings: Wapilot's own API reads `text`; older gateways read `message`.
+    body: JSON.stringify({ chat_id: `${digits}@c.us`, text, message: text }),
   });
   const body = await res.text();
   if (!res.ok) throw new Error(`Wapilot ${res.status}: ${body.slice(0, 200)}`);
@@ -171,7 +253,7 @@ async function sendViaMeta(config, phone, text, params, canFreeText) {
  * replayed event cannot queue the same greeting twice — the trick `enqueueWhatsapp` uses on the
  * web side — and the Android queue sheet reads these fields as they are.
  */
-async function queueForHuman(db, clinicId, lead, phone, text) {
+async function queueForHuman(db, clinicId, lead, phone, text, reason) {
   const ref = db.doc(`clinics/${clinicId}/whatsapp_outbox/lead_${lead.docId}`);
   const existing = await ref.get();
   if (!existing.exists) {
@@ -184,7 +266,7 @@ async function queueForHuman(db, clinicId, lead, phone, text) {
       createdAt: new Date().toISOString(),
     });
   }
-  return { status: "queued", mode: "manual", at: FieldValue.serverTimestamp(), text };
+  return { status: "queued", mode: "manual", at: FieldValue.serverTimestamp(), text, ...(reason ? { reason } : {}) };
 }
 
 /**
@@ -194,7 +276,8 @@ async function queueForHuman(db, clinicId, lead, phone, text) {
  * re-delivers events and the retry sweep replays them, and somebody who asked once must not be
  * greeted three times.
  */
-async function sendLeadWelcome(db, clinicId, lead) {
+async function sendLeadWelcome(db, clinicId, lead, opts = {}) {
+  const now = opts.now instanceof Date ? opts.now : new Date();
   const leadRef = db.doc(`clinics/${clinicId}/leads/${lead.docId}`);
 
   const snap = await leadRef.get();
@@ -211,6 +294,15 @@ async function sendLeadWelcome(db, clinicId, lead) {
   const template = resolveWhatsappTemplate(settings, "lead_welcome");
   if (!template) return null; // the clinic switched this template off
 
+  const stamp = async (record) => {
+    await leadRef.set({ welcomeMessage: record, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    return record;
+  };
+
+  // Before anything is composed: a number that said stop is not greeted, queued or retried.
+  const optedOut = await optOutReason(db, clinicId, phone);
+  if (optedOut) return stamp({ status: "skipped", reason: `opted_out_${optedOut}`, at: FieldValue.serverTimestamp() });
+
   let clinicName = "";
   try {
     const profile = await db.doc(`clinics/${clinicId}/settings/clinicProfile`).get();
@@ -224,19 +316,17 @@ async function sendLeadWelcome(db, clinicId, lead) {
   }
 
   const interest = String(current.interest || lead.interest || "").trim();
-  const text = tidy(
-    mergeWhatsappTemplate(template, {
-      patient_name: String(current.name || lead.name || "").trim(),
-      clinic_name: clinicName,
-      interest,
-    })
+  const text = withOptOutFooter(
+    tidy(
+      mergeWhatsappTemplate(template, {
+        patient_name: String(current.name || lead.name || "").trim(),
+        clinic_name: clinicName,
+        interest,
+      })
+    ),
+    settings
   );
-  if (!text) return null;
-
-  const stamp = async (record) => {
-    await leadRef.set({ welcomeMessage: record, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-    return record;
-  };
+  if (!text.trim()) return null;
 
   const meta = await loadMetaConfig(db, clinicId);
   const config = meta ? null : await loadWapilotConfig(db, clinicId);
@@ -268,6 +358,13 @@ async function sendLeadWelcome(db, clinicId, lead) {
   }
 
   if (wanted === "auto" && config) {
+    // A third-party gateway sends the moment it is asked, and a stranger messaged at 1 a.m. is
+    // the message that gets reported. Outside clinic hours the greeting goes to the human queue,
+    // where reception sends it first thing — a person's morning message beats a machine's night
+    // one. Alpha's own gateway holds it for 10:00 itself, so it is asked at once.
+    if (!config.holdsForClinicHours && !insideSendWindow(now)) {
+      return stamp(await queueForHuman(db, clinicId, lead, phone, text, "outside_hours"));
+    }
     try {
       await sendViaGateway(config, phone, text);
       return stamp({ status: "sent", mode: "auto", at: FieldValue.serverTimestamp(), text });
@@ -281,4 +378,4 @@ async function sendLeadWelcome(db, clinicId, lead) {
   return stamp(await queueForHuman(db, clinicId, lead, phone, text));
 }
 
-module.exports = { sendLeadWelcome, tidy };
+module.exports = { sendLeadWelcome, tidy, withOptOutFooter, insideSendWindow, phoneMatchKey };

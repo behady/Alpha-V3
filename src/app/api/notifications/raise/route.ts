@@ -3,6 +3,7 @@ import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { isFullAccessRole } from "@/lib/permissions";
 import { deliverClinicNotification } from "@/lib/notificationDelivery";
 import { notifyEvent } from "@/lib/notificationCatalog";
+import { sendStaffReport } from "@/lib/reports/sendStaffReport";
 
 /**
  * Raise one catalogued alert, from the browser.
@@ -63,6 +64,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
     }
 
+    // A test of a scheduled report sends the real report — today's figures, to this person only —
+    // because a placeholder proves the switch and nothing about the report.
+    if (test && meta.report) {
+      const result = await sendStaffReport({ clinicId, event: meta, uids: [staff.uid], test: true, allowOutsiders: staff.isSuperAdmin });
+      return NextResponse.json({ ok: true, ...result, event: undefined, raised: result.raised });
+    }
+
     // A test is addressed to the person who asked for it and nobody else. Sending the clinic's
     // whole staff a fake "a patient is waiting" to prove a switch works is how a team learns to
     // ignore the alert that matters.
@@ -76,7 +84,7 @@ export async function POST(request: Request) {
       { title, body: text },
       {
         event: eventId,
-        ...(test ? { uids: [staff.uid] } : {}),
+        ...(test ? { uids: [staff.uid], allowOutsiders: staff.isSuperAdmin } : {}),
         ...(body.actionUrl ? { actionUrl: String(body.actionUrl).slice(0, 300) } : {}),
         ...(body.data ? { data: body.data } : {}),
       },

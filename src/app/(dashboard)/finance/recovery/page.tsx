@@ -134,7 +134,7 @@ export default function RecoverPaymentsPage() {
       const idToken = await auth.currentUser?.getIdToken();
       if (!idToken) throw new Error(isAr ? "انتهت الجلسة" : "Session expired");
 
-      const res = await fetch("/api/finance/recovery", { headers: { Authorization: `Bearer ${idToken}` } });
+      const res = await fetch(`/api/finance/recovery?clinicId=${encodeURIComponent(clinicId ?? "")}`, { headers: { Authorization: `Bearer ${idToken}` } });
       const data = await res.json();
       if (!res.ok || !data?.ok) throw new Error(data?.error || "Could not load the list");
 
@@ -144,7 +144,7 @@ export default function RecoverPaymentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [isAr]);
+  }, [isAr, clinicId]);
 
   useEffect(() => {
     if (!clinicId) return;

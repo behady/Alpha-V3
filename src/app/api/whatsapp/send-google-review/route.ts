@@ -15,10 +15,11 @@ export async function POST(request: Request) {
   try {
     // Every collection below lives under clinics/{clinicId}/. Reading them at the root returned
     // an empty snapshot rather than an error, so this route reported "Patient not found" for
-    // every patient that exists. Membership is proven here, not taken from the request body.
-    const clinicId = await resolveUserClinicId(authz.uid);
+    // every patient that exists. The clinic on screen arrives in the body but membership is proven
+    // here: resolveUserClinicId honours it only when the caller holds a role there.
+    const body = (await request.json().catch(() => ({}))) as { patientId?: string; clinicId?: string };
+    const clinicId = await resolveUserClinicId(authz.uid, typeof body.clinicId === "string" ? body.clinicId : undefined);
 
-    const body = (await request.json().catch(() => ({}))) as { patientId?: string };
     const patientId = typeof body.patientId === "string" ? body.patientId.trim() : "";
     if (!patientId) {
       return NextResponse.json({ ok: false, error: "patientId required" }, { status: 400 });

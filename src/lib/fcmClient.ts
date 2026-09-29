@@ -1,4 +1,5 @@
 import { getToken, isSupported, onMessage, type Messaging } from "firebase/messaging";
+import { currentClinicId } from "@/lib/db-utils";
 import { getMessagingInstance } from "@/lib/firebase";
 import { auth } from "@/lib/firebase";const SW_PATH = "/firebase-messaging-sw.js";
 
@@ -89,7 +90,7 @@ export async function notifySummonPush(summonId: string): Promise<void> {
     await fetch("/api/push/summon", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
-      body: JSON.stringify({ summonId }),
+      body: JSON.stringify({ summonId, clinicId: currentClinicId() }),
     });
   } catch (e) {
     console.warn("summon push notify failed", e);

@@ -24,10 +24,10 @@ import {
   CalendarClock,
   ClipboardList,
   Fingerprint,
+  Flame,
   FlaskConical,
   Globe,
   History,
-  Hospital,
   MapPinned,
   Megaphone,
   MessageCircle,
@@ -39,16 +39,16 @@ import {
   SlidersHorizontal,
   Sparkles,
   Tag,
+  Wallet,
   Trash2,
   UserCircle,
   UserPlus,
-  UserRound,
   Users,
-  UsersRound,
-  Workflow,
   Bot,
   BrainCircuit,
+  Receipt,
   type LucideIcon,
+  Target,
 } from "lucide-react";
 
 /**
@@ -63,13 +63,17 @@ export const SETTINGS_ICONS: Record<string, LucideIcon> = {
   clinical: CalendarClock,      // working hours
   locations: MapPinned,         // the places it works from
   labs: FlaskConical,
+  payers: Wallet,               // who is paying: the clinic, or an insurer
+  targets: Target,              // the month's goals
   services: Tag,                // a price list is a list of prices
   prescriptions: Pill,
   visit_reasons: ClipboardList, // what reception picks from when booking
   sources: Megaphone,           // how a patient heard about the clinic
   attendance: Fingerprint,      // clocking in
+  receipt: Receipt,             // the paper a patient is handed
   online_booking: Globe,        // a public page on the internet
   recall: RotateCcw,
+  lead_grading: Flame,          // which leads burn hottest
   users: Users,
   join_requests: UserPlus,      // people asking to become users
   dentists: Armchair,           // the chair — what a dentist's own screen shows
@@ -82,32 +86,6 @@ export const SETTINGS_ICONS: Record<string, LucideIcon> = {
   ai_credits: Sparkles,
   ai_connector: PlugZap,       // the door an outside assistant knocks on
   recently_deleted: Trash2,
-};
-
-/**
- * The icon for each GROUP — the four tabs above the section chips. Distinct from every section
- * icon on purpose: both rows are on screen at once, and a group tab wearing a section's icon
- * reads as that section.
- */
-export const SETTINGS_GROUP_ICONS: Record<string, LucideIcon> = {
-  personal: UserRound,
-  clinic: Hospital,
-  people: UsersRound,
-  system: Workflow,
-};
-
-/**
- * Each group's tile, as the literal class strings Tailwind has to see at build time.
- *
- * One entry, one job: a solid rounded square with a white glyph, which is the only place colour
- * appears anywhere in Settings. Tabs, chips, labels and chevrons are achromatic on purpose — a
- * coloured control competes with the tiles for the same meaning and wins neither.
- */
-export const SETTINGS_GROUP_TONE: Record<string, { tile: string }> = {
-  personal: { tile: "bg-tone-personal text-white" },
-  clinic: { tile: "bg-tone-clinic text-white" },
-  people: { tile: "bg-tone-people text-white" },
-  system: { tile: "bg-tone-system text-white" },
 };
 
 /** What every panel receives. Most ignore it; the ones that can be read-only do not. */
@@ -138,12 +116,16 @@ export const SETTINGS_PANELS: Record<string, ComponentType<SettingsPanelProps>> 
   locations: panel(() => import("@/components/settings/LocationsSettings")),
   labs: panel(() => import("@/components/settings/DentalLabsSettings")),
   services: panel(() => import("@/components/settings/hosts/PricesHost")),
+  payers: panel(() => import("@/components/settings/PayersSettings")),
+  targets: panel(() => import("@/components/settings/TargetsSettings")),
   prescriptions: panel(() => import("@/components/settings/PrescriptionSettings")),
   visit_reasons: panel(() => import("@/components/settings/VisitReasonsSettings")),
   sources: panel(() => import("@/components/settings/PatientSourcesSettings")),
   attendance: panel(() => import("@/components/settings/hosts/AttendanceHost")),
+  receipt: panel(() => import("@/components/settings/hosts/ReceiptHost")),
   online_booking: panel(() => import("@/components/settings/OnlineBookingSettings")),
   recall: panel(() => import("@/components/settings/RecallSettings")),
+  lead_grading: panel(() => import("@/components/settings/LeadGradingSettings")),
 
   // --- People ---
   users: panel(() => import("@/components/settings/hosts/UsersHost")),

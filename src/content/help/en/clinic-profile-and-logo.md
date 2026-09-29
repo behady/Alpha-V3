@@ -53,7 +53,7 @@ If you only have one of the two, put it in the matching box and leave the other 
 
 The file is uploaded when you save, not when you pick it. If you pick an image and leave the page without saving, nothing is stored.
 
-> **What the logo does today:** it is saved safely against your clinic, and it shows in the preview box on this page — but it does **not** yet appear on printed receipts, prescriptions, or anywhere else in the app. Upload it now so it's ready, but don't expect to see it on your printouts yet.
+> **Where the logo shows:** in the preview box on this page, in the top-left of the app, and on every printed receipt and statement. How big it prints — or whether it prints at all — is chosen under Settings → Receipt.
 
 ## Saving
 

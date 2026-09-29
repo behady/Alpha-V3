@@ -19,6 +19,8 @@ import { sendPatientPaymentWhatsApp } from "@/lib/sendPatientPaymentWhatsAppClie
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { allocationMessage, allocationMessageAr, checkAllocation } from "@/lib/paymentAllocation";
 import { MoneyApiError, createPayment } from "@/lib/moneyApi";
+import { loadReceiptSettings } from "@/lib/receiptSettingsClient";
+import { printPaymentReceipt } from "@/lib/printPatientReceipt";
 
 const GENERAL_PAYMENT = {
     id: 'general_payment',
@@ -208,6 +210,18 @@ export default function QuickPaymentModal({ isOpen, onClose, onSave, patients, p
 
             onSave();
             onClose();
+
+            // The receipt, if the clinic wants it printed as the money is taken. After onClose so
+            // the modal is gone before the print dialog covers the screen.
+            const receiptSettings = await loadReceiptSettings();
+            if (receiptSettings.autoPrintAfterPayment) {
+                void printPaymentReceipt(String(selectedPatient.id), paymentId, {
+                    fallbackName: selectedPatient.name,
+                    language,
+                }).then((r) => {
+                    if (!r.ok) showToast(r.message, "error");
+                });
+            }
         } catch (error) {
             console.error(error);
             showToast(error instanceof MoneyApiError ? error.message : t.errorSync, "error");

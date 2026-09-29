@@ -152,7 +152,7 @@ export type CreatePaymentArgs = {
  * Record a payment. The dentist, the lab fee and the commission are all resolved server-side from
  * the procedure being settled — the caller does not (and must not) work them out.
  */
-export function createPayment(args: CreatePaymentArgs): Promise<{ id: string }> {
+export function createPayment(args: CreatePaymentArgs): Promise<{ id: string; receiptNumber?: string }> {
   return post("/api/finance/ledger", { action: "create-payment", ...args });
 }
 
@@ -235,11 +235,24 @@ export type ProcedureWriteArgs = {
   unitCost?: number | null;
   /** Manual override of the per_tooth / flat / per_arch rule. */
   pricingMode?: string | null;
-  doctorId: string;
+  /**
+   * The treating dentist. Empty or null is a General treatment — one the clinic did rather than a
+   * person. It is charged normally and simply earns nobody a commission.
+   */
+  doctorId: string | null;
   status?: "Planned" | "Ongoing" | "Completed";
   note?: string;
   date?: string;
   addToLedger?: boolean;
+  /**
+   * Which price list to charge from — and therefore who is paying, since an insurer IS its list.
+   *
+   * Optional because most callers spread a discount payload that already carries it. Named here
+   * so the quick-add on the appointment panel can send it on its own: that caller sent nothing,
+   * the server fell back to the clinic default, and every treatment recorded from the front desk
+   * was charged at clinic rates and counted as private revenue.
+   */
+  priceListId?: string | null;
   clinicId?: string | null;
 };
 

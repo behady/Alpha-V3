@@ -12,22 +12,21 @@ export const CLINIC_SECRETS_COLLECTION = "clinic_secrets";
 export const WAPILOT_SECRET_FIELD = "wapilot";
 
 /**
- * The old platform-wide credentials document.
+ * The platform's own WhatsApp line: `clinic_secrets/{PLATFORM_SECRETS_DOC}.wapilot`, same shape as
+ * a clinic's, written only from the superadmin panel.
  *
- * Every clinic read it and any clinic Admin could overwrite it, so one clinic could break or
- * hijack another's messaging, and all patients were messaged from a single shared number. It is
- * still read as a *fallback* so clinics keep sending while their own numbers are connected, but
- * nothing writes to it any more.
+ * It replaces the old `settings/wapilot` document, which every clinic read as a fallback and any
+ * clinic Admin could overwrite. That fallback carried PATIENT messages for clinics with no number
+ * of their own — the reason "all patients were messaged from one shared number". Decided
+ * 2026-09-27: the platform line carries owner and staff alerts only, and nothing else reads it.
+ * A clinic with no connected number sends patient messages by click-to-send.
  */
-export const LEGACY_WAPILOT_SETTINGS_DOC_REF = {
-  collection: "settings",
-  docId: "wapilot",
-} as const;
+export const PLATFORM_SECRETS_DOC = "platform";
 
 /**
- * Where a clinic's credentials came from.
+ * Where credentials came from.
  * `clinic`   — this clinic's own connected number.
- * `platform` — the shared fallback number (legacy doc or WAPILOT_* env).
+ * `platform` — the platform's alerts line (staff messages only).
  * `none`     — nothing configured; sending falls back to click-to-send.
  */
 export type WapilotConfigSource = "clinic" | "platform" | "none";

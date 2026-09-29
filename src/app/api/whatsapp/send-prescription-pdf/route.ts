@@ -25,8 +25,14 @@ export async function POST(request: Request) {
   try {
     // Clinic data lives under clinics/{clinicId}/. These reads were hitting root-level
     // collections that do not exist, so they silently resolved to empty and this route
-    // could never find the record it was asked to send.
-    const clinicId = await resolveUserClinicId(authz.uid);
+    // could never find the record it was asked to send. The clinic on screen arrives in the body;
+    // resolveUserClinicId honours it only when the caller holds a role there, else their default.
+    const body = (await request.json().catch(() => ({}))) as {
+      clinicId?: string;
+      patientId?: string;
+      pdfBase64?: string;
+    };
+    const clinicId = await resolveUserClinicId(authz.uid, typeof body.clinicId === "string" ? body.clinicId : undefined);
     // Sold as an add-on; the button in the browser is hidden when it is off, and this is the
     // check that hiding cannot be talked out of.
     if (!(await clinicHasFeature(clinicId, "clinicalPdfs"))) {
@@ -50,11 +56,6 @@ export async function POST(request: Request) {
      */
     const permitted = await requireStaffPermission(request, clinicId, "clinical.edit");
     if (!permitted.ok) return permitted.response;
-
-    const body = (await request.json().catch(() => ({}))) as {
-      patientId?: string;
-      pdfBase64?: string;
-    };
 
     const patientId = typeof body.patientId === "string" ? body.patientId.trim() : "";
     const pdfBase64 = typeof body.pdfBase64 === "string" ? body.pdfBase64.trim() : "";

@@ -1,6 +1,8 @@
 {
   "framework": "nextjs",
-  "regions": ["lhr1"],
+  "regions": [
+    "lhr1"
+  ],
   "crons": [
     {
       "path": "/api/automation/reminders",
@@ -45,6 +47,22 @@
     {
       "path": "/api/automation/flush-lead-welcome",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/automation/staff-reports",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/automation/alert-sweep",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/automation/lead-grades",
+      "schedule": "30 3 * * *"
+    },
+    {
+      "path": "/api/automation/lead-flow",
+      "schedule": "30 4 * * 1"
     }
   ]
 }

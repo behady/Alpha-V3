@@ -1,4 +1,5 @@
 import { reportServerError } from "@/lib/server/reportError";
+import { afterChargeCreate } from "@/lib/alerts/moneyAlerts";
 /**
  * Recording, changing and removing a treatment — as one indivisible operation.
  *
@@ -32,6 +33,13 @@ import {
   parsePriceLists,
   resolveActiveListId,
 } from "@/lib/priceLists";
+import {
+  commissionRateFor,
+  parsePayers,
+  payerStamp,
+  coversService,
+  payerForPriceList,
+} from "@/lib/payers";
 import { buildDeleteContext, evaluateDelete } from "@/lib/deletePolicy";
 import { applyProcedureSync, readProcedureCommissionBasis, readProcedurePayments } from "@/lib/server/ledgerSync";
 import { recordLedgerAudit, recordMoneyChange } from "@/lib/server/ledgerAudit";
@@ -81,15 +89,19 @@ async function loadServices(clinicId: string): Promise<PricedService[]> {
   });
 }
 
-/** The clinic's price lists and its discount policy, both seeded on first read. */
+/** The clinic's price lists, its discount policy and its payers, all seeded on first read. */
 async function loadPricingPolicy(clinicId: string) {
-  const [listsSnap, discountsSnap] = await Promise.all([
+  const [listsSnap, discountsSnap, payersSnap] = await Promise.all([
     adminClinicDoc(clinicId, "settings", PRICE_LISTS_DOC).get(),
     adminClinicDoc(clinicId, "settings", DISCOUNTS_DOC).get(),
+    adminClinicDoc(clinicId, "settings", "payers").get(),
   ]);
   return {
     priceLists: parsePriceLists(listsSnap.exists ? listsSnap.data() : null),
     discountSettings: parseDiscountSettings(discountsSnap.exists ? discountsSnap.data() : null),
+    // Always at least Private, so a clinic that has never opened the payers screen prices exactly
+    // as it did before — one payer, one rate, one column in every report.
+    payers: parsePayers(payersSnap.exists ? payersSnap.data() : null),
   };
 }
 
@@ -102,25 +114,43 @@ async function loadPricingPolicy(clinicId: string) {
  */
 async function priceRequest(clinicId: string, body: Record<string, unknown>, actor: Actor) {
   const services = await loadServices(clinicId);
-  const { priceLists, discountSettings } = await loadPricingPolicy(clinicId);
+  const { priceLists, discountSettings, payers } = await loadPricingPolicy(clinicId);
 
-  const doctorId = String(body.doctorId || "").trim();
-  if (!doctorId) throw new Error("NO_DOCTOR");
-  const staffSnap = await adminClinicDoc(clinicId, "staff", doctorId).get();
+  // No dentist at all is allowed: it is a "General" treatment, one the clinic did rather than a
+  // person. It earns no commission — there is nobody to pay — and the whole amount is clinic
+  // profit, which is what the payment builder already does for a charge it cannot attribute.
+  // A dentist who IS named still has to exist, because a charge pointing at a staff record that
+  // has gone is attributed to nobody while claiming otherwise.
+  const requestedDoctorId = String(body.doctorId || "").trim();
+  const staffSnap = requestedDoctorId
+    ? await adminClinicDoc(clinicId, "staff", requestedDoctorId).get()
+    : null;
   // Two different failures wearing one message. "Choose the dentist" is true when the field was
   // left empty and a lie when a name is sitting in the dropdown — which is what the owner saw:
   // Dr Omar Sherif selected on screen, and the app telling him to pick a dentist. The dentist he
   // picked no longer resolves to a staff record, and that is what it should say.
-  if (!staffSnap.exists) throw new Error("DOCTOR_NOT_FOUND");
-  const staff = staffSnap.data() || {};
-  const doctorName = String(staff.name || "").trim() || "Unknown Doctor";
+  if (staffSnap && !staffSnap.exists) throw new Error("DOCTOR_NOT_FOUND");
+  const staff = staffSnap?.data() || {};
+  const doctorId = requestedDoctorId || null;
+  const doctorName = doctorId ? String(staff.name || "").trim() || "Unknown Doctor" : "";
 
   const selectedTeeth = asStringArray(body.selectedTeeth);
   const procedures = asStringArray(body.procedures);
   if (procedures.length === 0) throw new Error("NO_PROCEDURE_NAME");
 
-  // Which list to charge from. An unknown or deactivated list falls back to the clinic default
-  // rather than being honoured — a request naming a retired list must not resurrect its prices.
+  /**
+   * Which list to charge from, and therefore who is paying.
+   *
+   * The price list IS the insurer. There is no second question anywhere: charge a treatment on
+   * the AXA list and it is AXA's case — AXA's prices, AXA's column in the reports, and the
+   * dentist's AXA percentage. Charge the next treatment in the same visit on the clinic's own
+   * list and that one is private. The receptionist picks a list per treatment and nothing is
+   * remembered between them, which is what makes a mixed visit ordinary rather than a feature.
+   *
+   * An unknown or deactivated list falls back to the clinic default rather than being honoured —
+   * a request naming a retired list must not resurrect its prices, and a retired insurer's list
+   * therefore resolves to private work rather than to a tariff nobody sells any more.
+   */
   const patientDefaultListId =
     typeof body.patientDefaultPriceListId === "string" ? body.patientDefaultPriceListId : null;
   const priceListId = resolveActiveListId(
@@ -128,7 +158,29 @@ async function priceRequest(clinicId: string, body: Record<string, unknown>, act
     typeof body.priceListId === "string" ? body.priceListId : null,
     patientDefaultListId
   );
-  const priceList = findPriceList(priceLists, priceListId);
+  /**
+   * An insurer only bills for the treatments on its own list.
+   *
+   * Each insurer's list is genuinely separate, so a treatment it does not cover — whitening, most
+   * cosmetic work — is simply not that insurer's case. It is NOT refused: clinics get one-off
+   * approvals, and a desk that cannot record the work it just did writes it on paper instead.
+   * Instead it falls back to the clinic's own prices and is stamped Private, which is the honest
+   * reading and stops the insurer's column claiming money it will never pay.
+   *
+   * Decided by the FIRST matched treatment. A multi-treatment case charged in one line is one
+   * case with one payer, and half-covering it is not a state the books can represent.
+   */
+  const askedPayer = payerForPriceList(payers, priceListId);
+  const matchedIds = procedures
+    .map((name) => services.find((svc) => String(svc.name || "").trim() === name))
+    .filter(Boolean)
+    .map((svc) => String((svc as { id: string }).id));
+  const covered = coversService(askedPayer, matchedIds[0] ?? null);
+  const effectiveListId = covered ? priceListId : resolveActiveListId(priceLists, null, null);
+  const payer = payerStamp(payers, covered ? askedPayer.id : payerForPriceList(payers, effectiveListId).id);
+  const payerId = payer.payerId;
+
+  const priceList = findPriceList(priceLists, effectiveListId);
 
   const pricing = computeProcedurePricing({
     procedures,
@@ -136,8 +188,10 @@ async function priceRequest(clinicId: string, body: Record<string, unknown>, act
     selectedTeeth,
     typedUnitCost: body.unitCost === undefined || body.unitCost === null || body.unitCost === "" ? null : Number(body.unitCost),
     pricingModeOverride: typeof body.pricingMode === "string" ? body.pricingMode : null,
-    commissionPct: Number(staff.commissionPercentage) || 0,
-    priceListId,
+    // This dentist's rate FOR THIS PAYER — their per-payer exception if they have one, their
+    // ordinary percentage otherwise. Resolved here, snapshotted below, and never recomputed.
+    commissionPct: commissionRateFor(staff, payerId),
+    priceListId: effectiveListId,
     priceListName: priceList?.name || null,
     discountMode: typeof body.discountMode === "string" ? body.discountMode : null,
     discountValue:
@@ -165,7 +219,7 @@ async function priceRequest(clinicId: string, body: Record<string, unknown>, act
     : "Planned";
   const date = /^\d{4}-\d{2}-\d{2}$/.test(String(body.date || "")) ? String(body.date) : todayKey();
 
-  return { pricing, doctorId, doctorName, selectedTeeth, toothText, displayProcedure, status, date };
+  return { pricing, doctorId, doctorName, selectedTeeth, toothText, displayProcedure, status, date, payer };
 }
 
 type Priced = Awaited<ReturnType<typeof priceRequest>>;
@@ -192,6 +246,8 @@ function noteFields(p: Priced, body: Record<string, unknown>, appointmentId: str
     discountAmount: p.pricing.discountAmount,
     discountReason: p.pricing.discountReason,
     note: String(body.note || ""),
+    payerId: p.payer.payerId,
+    payerName: p.payer.payerName,
     doctor: p.doctorName,
     doctorId: p.doctorId,
     serviceIds: p.pricing.serviceIds,
@@ -226,6 +282,10 @@ function ledgerFields(p: Priced, patientId: string, patientName: string | null, 
     serviceId: p.pricing.serviceIds[0] || null,
     serviceIds: p.pricing.serviceIds,
     serviceName: p.pricing.matchedServices[0]?.name || null,
+    // Stamped rather than joined. An insurer renamed or retired next year must still read
+    // correctly on the treatment done under it today.
+    payerId: p.payer.payerId,
+    payerName: p.payer.payerName,
     doctorId: p.doctorId,
     doctorName: p.doctorName,
     doctorCommissionPercentage: p.pricing.commissionPct,
@@ -254,6 +314,8 @@ function syncedAppointmentServices(
     serviceId: string | null;
     serviceName: string;
     cost: number;
+    /** What the treatment lists at before its own discount. */
+    listPrice: number;
     status: string;
   }
 ) {
@@ -276,7 +338,7 @@ function syncedAppointmentServices(
     serviceId: entry.serviceId || "",
     serviceName: entry.serviceName,
     cost: entry.cost,
-    listPrice: entry.cost,
+    listPrice: entry.listPrice > 0 ? entry.listPrice : entry.cost,
     clinicalNoteId: entry.clinicalNoteId,
     ledgerId: entry.ledgerId,
     status: entry.status,
@@ -284,14 +346,19 @@ function syncedAppointmentServices(
   if (index === -1) existing.push(row);
   else existing[index] = { ...existing[index], ...row };
 
-  const totalListPrice = existing.reduce((sum, s) => sum + (Number(s.listPrice) || Number(s.cost) || 0), 0);
-  const discountAmount = Number(appointmentData.discountAmount) || 0;
-  const hasDiscount = appointmentData.discountMode && appointmentData.discountMode !== "none";
+  // Each treatment already carries its own discount inside `cost`, so the visit's total is the sum
+  // of those — not the sum of list prices with the BOOKING's discount taken off again. That
+  // second subtraction put a 10%-booked visit whose crown was already charged at 10% off on the
+  // calendar at 20% off, while the bill said 10%.
+  const round = (n: number) => Number(n.toFixed(2));
+  const totalListPrice = round(existing.reduce((sum, s) => sum + (Number(s.listPrice) || Number(s.cost) || 0), 0));
+  const totalCost = round(existing.reduce((sum, s) => sum + (Number(s.cost) || 0), 0));
 
   return {
     services: existing,
     listPrice: totalListPrice,
-    cost: hasDiscount ? Math.max(0, totalListPrice - discountAmount) : totalListPrice,
+    cost: totalCost,
+    discountAmount: round(Math.max(0, totalListPrice - totalCost)),
   };
 }
 
@@ -351,6 +418,7 @@ async function createProcedure(args: { clinicId: string; actor: Actor; body: Rec
           serviceId: priced.pricing.serviceIds[0] || null,
           serviceName: priced.pricing.matchedServices[0]?.name || priced.displayProcedure,
           cost: priced.pricing.cost,
+          listPrice: priced.pricing.listPrice,
           status: priced.status,
         })
       );
@@ -368,6 +436,13 @@ async function createProcedure(args: { clinicId: string; actor: Actor; body: Rec
     details: `${priced.displayProcedure} (${priced.pricing.cost} EGP) for ${result.patientName || patientId}`,
   });
 
+  if (result.ledgerId) {
+    void afterChargeCreate(
+      clinicId,
+      { type: "procedure", patientName: result.patientName, description: priced.displayProcedure, listPrice: priced.pricing.listPrice, discountAmount: priced.pricing.discountAmount },
+      actor,
+    );
+  }
   return NextResponse.json({ ok: true, noteId: result.noteId, ledgerId: result.ledgerId, cost: priced.pricing.cost });
 }
 
@@ -472,6 +547,7 @@ async function updateProcedure(args: { clinicId: string; actor: Actor; body: Rec
           serviceId: priced.pricing.serviceIds[0] || null,
           serviceName: priced.pricing.matchedServices[0]?.name || priced.displayProcedure,
           cost: priced.pricing.cost,
+          listPrice: priced.pricing.listPrice,
           status: priced.status,
         })
       );
@@ -723,8 +799,7 @@ export async function POST(request: Request) {
     if (e instanceof DiscountRefused) return bad(e.message, 403);
     const message = e instanceof Error ? e.message : "";
     switch (message) {
-      case "NO_DOCTOR":
-        return bad("Choose the dentist who performed this treatment.");
+      // No "NO_DOCTOR" case: a treatment with no dentist is allowed and is charged as General.
       case "DOCTOR_NOT_FOUND":
         return bad(
           "That dentist is no longer on this clinic's team, so the treatment cannot be attributed " +

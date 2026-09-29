@@ -1,4 +1,5 @@
 import type { BotFacts } from "@/types/whatsapp";
+import { adPromptLines, type AdReferral } from "./adReferral";
 
 /**
  * The WhatsApp assistant's system prompt, as a pure function of what the caller knows.
@@ -90,6 +91,14 @@ export interface BotPromptInput {
   medicineScreened?: boolean;
   /** Files the model may attach after its reply. */
   media?: Array<{ id: string; label: string; when: string }>;
+  /**
+   * The patient just sent a photo. `summary` is what is visible; `impression` (dental photos
+   * only) is a preliminary reading the model may pass on as an impression, never as a diagnosis —
+   * the caller appends the "not final, exam and x-ray needed" line in code.
+   */
+  photo?: { summary: string; impression?: string; urgent: boolean; category?: "dental" | "document" | "other" };
+  /** The ad or post this conversation started from: what the person saw before they typed. */
+  ad?: AdReferral;
 }
 
 /**
@@ -148,7 +157,9 @@ function nonNegotiables(clinical: boolean): string[] {
     `- ${LANGUAGE_RULE}`,
     "- جاوب فقط من المعلومات المكتوبة تحت. لو المعلومة مش موجودة، اختار handoff_other — ممنوع التخمين أو الاختراع. ممنوع تخترع سعر أو خصم أو عرض أو تقسيط أو رقم مش مكتوب تحت، وممنوع توعد بنتيجة علاج.",
     "- ممنوع منعاً باتاً تكتب اسم أي دوا (بروفين، كتافلام، بنادول، مضاد حيوي باسمه… أي اسم) إلا لو الاسم ده مكتوب في روشتة المريض تحت أو المريض هو اللي كتبه في رسالته. حتى \"زي البروفين\" على سبيل المثال ممنوعة — قول \"المسكّن اللي حضرتك متعوّد عليه\" وبس. وممنوع تحدد جرعة لأي حد.",
-    "- ممنوع تشخّص أو تربط أي معلومة عامة بحالة المريض نفسه: متقولش \"إنت غالباً عندك كذا\" ولا \"ده شكله عصب\" ولا \"السنة دي محتاجة خلع\". دي حاجة الدكتور بس اللي يقولها بعد ما يشوف ويصوّر.",
+    clinical
+      ? "- ممنوع تشخّص أو تربط أي معلومة عامة بحالة المريض نفسه: متقولش \"إنت غالباً عندك كذا\" ولا \"ده شكله عصب\" ولا \"السنة دي محتاجة خلع\". دي حاجة الدكتور بس اللي يقولها بعد ما يشوف ويصوّر. الاستثناء الوحيد: لو في \"قراءة مبدئية لصورة بعتها المريض\" مكتوبة تحت، تقدر تقولها له بأسلوبك كانطباع مبدئي مش تشخيص — والنظام هو اللي بيضيف التنويه بعد كلامك."
+      : "- ممنوع تشخّص أو تربط أي معلومة عامة بحالة المريض نفسه: متقولش \"إنت غالباً عندك كذا\" ولا \"ده شكله عصب\" ولا \"السنة دي محتاجة خلع\". دي حاجة الدكتور بس اللي يقولها بعد ما يشوف ويصوّر.",
     clinical
       ? `- علامات الخطر → handoff_medical فوراً وبدون نصايح: ${RED_FLAGS} وكذلك لو اللي بيسأل عن دوا أو مسكّن حامل أو مرضعة أو طفل أو عنده سكر أو ضغط أو قلب أو حساسية → handoff_medical. أي عرَض عادي غير دول (وجع، حساسية، ورم بسيط، كسر، نزيف بسيط) انت اللي بتجاوب عليه بسكريبت الدكتور اللي تحت — متحوّلوش.`
       : "- أي سؤال طبي (ألم، ورم، دواء، تشخيص، هل ده طبيعي): اختار handoff_medical.",
@@ -293,6 +304,23 @@ const ASSISTED_VOICE = [
  * Exported so a test can pin that it contains no clinic-specific text, and so the fixed prefix
  * can be measured (and one day cached) on its own.
  */
+/**
+ * A short fingerprint of the fixed layers, stamped on every logged reply.
+ *
+ * When a metric moves, the first question is "which prompt was live?" — and without a stamp the
+ * answer is a guess from commit dates. FNV-1a over the joined text; eight hex characters is
+ * enough to tell two prompts apart and short enough to read in a list.
+ */
+export function promptVersion(mode: "assisted" | "sales", clinical: boolean, canBook?: boolean): string {
+  const text = fixedPromptLayers(mode, clinical, canBook).filter(Boolean).join("\n");
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
 export function fixedPromptLayers(mode: "assisted" | "sales", clinical: boolean, canBook?: boolean): string[] {
   const sales = mode === "sales";
   return [
@@ -371,7 +399,19 @@ export function clinicAndPatientLayer(input: BotPromptInput): string[] {
       : "",
     input.flaggedForStaff ? "\nملاحظة: المحادثة دي متعلّم عليها إن حد من الاستقبال يتابعها، بس محدش رد لسه. كمّل مساعدة المريض عادي، ولو سأل عن حد قوله إن الاستقبال هيتواصل معاه أول ما يفتحوا." : "",
     input.bookingStep ? `\nالمريض دلوقتي في خطوة حجز: ${input.bookingStep}. جاوب على كلامه، ولو لسه عايز يحجز ذكّره باختصار إنه يختار من القايمة اللي فوق أو اعرض عليه ميعاد من \"أقرب مواعيد متاحة\".` : "",
+    input.photo
+      ? [
+          `\nالمريض بعت صورة دلوقتي. اللي باين فيها: ${input.photo.summary.trim().slice(0, 400)}`,
+          input.photo.impression?.trim()
+            ? `قراءة مبدئية لصورة بعتها المريض: ${input.photo.impression.trim().slice(0, 600)}\nالرد على الصورة حاجتين بس: القراءة دي بأسلوبك كانطباع مبدئي (مش تشخيص) في جملتين، وبعدها سؤال واحد. جملة فاضية بين الاتنين. متعرضش مواعيد في الرد ده ومتقولش \"عشان الدكتور يشوفها\" — الميعاد بييجي في الرد الجاي بعد ما يجاوب على سؤالك. متكتبش انت أي تنويه أو \"ده مش نهائي\" — النظام بيبعت الجملة دي لوحده بعد كلامك. ${input.photo.urgent ? "الصورة شكلها عاجل (ورم كبير، نزيف، صديد، إصابة): اختار handoff_medical واكتب جملة طمأنة." : ""}`
+            : "رد على الصورة زي ما موظف استقبال شاطر يرد: لو سكرين شوت أو روشتة أو فاتورة، قول إيه اللي فهمته منها وكمّل مساعدته؛ لو مش مفهومة اسأله سؤال واحد.",
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : "",
     input.dossierText,
+    // What they tapped before typing. Placed with the patient facts: it is a fact about them.
+    input.ad ? adPromptLines(input.ad) : "",
     input.memory?.trim() ? `\nذاكرة من محادثات سابقة مع المريض ده (ابدأ من مكان ما وقفتوا، ومتعيدش اللي هو عارفه):\n${input.memory.trim().slice(0, 900)}` : "",
     sales && input.offeredSlots.length
       ? `\nأقرب مواعيد متاحة (slotKey → إزاي تقولها للمريض):\n${input.offeredSlots.map((s) => `- ${s.id} → ${s.label}`).join("\n")}`

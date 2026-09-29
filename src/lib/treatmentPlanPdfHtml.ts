@@ -29,6 +29,15 @@ export type TreatmentPlanPdfPayload = {
   visits: TreatmentPlanPdfVisit[];
   total: number;
   currency: string;
+  /**
+   * Who the quote is made out to, or "" for the clinic's own work.
+   *
+   * On the patient's copy this is not decoration: the prices on this page are that company's
+   * tariff, and a patient handed a lower number with no explanation of whose number it is will
+   * bring the page back when a different one is charged privately. Empty prints nothing, so a
+   * clinic that does no insurance work sees the document it has always had.
+   */
+  payerName?: string;
   language: "en" | "ar";
 };
 
@@ -81,6 +90,7 @@ export function buildTreatmentPlanSrcDoc(p: TreatmentPlanPdfPayload): string {
     patientName: ar ? "اسم المريض" : "Patient Name",
     ageSex: ar ? "السن / النوع" : "Age / Sex",
     doctor: ar ? "الطبيب" : "Doctor",
+    payer: ar ? "جهة التحمل" : "Covered by",
     step: "#",
     procedure: ar ? "الإجراء" : "Procedure",
     teeth: ar ? "الأسنان" : "Tooth / Teeth",
@@ -197,6 +207,10 @@ export function buildTreatmentPlanSrcDoc(p: TreatmentPlanPdfPayload): string {
       <p style="margin:0 0 2px 0;font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">${L.doctor}</p>
       <p style="margin:0;font-size:14px;font-weight:700;color:#334155;">${esc(p.doctor || "—")}</p>
     </div>
+    ${p.payerName ? `<div>
+      <p style="margin:0 0 2px 0;font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">${L.payer}</p>
+      <p style="margin:0;font-size:14px;font-weight:700;color:#334155;">${esc(p.payerName)}</p>
+    </div>` : ""}
   </div>
 
   <h3 style="margin:0 0 8px 0;font-size:18px;font-weight:900;color:#0f172a;">${modelTextToInlineHtml(p.planTitle)}</h3>

@@ -63,7 +63,7 @@ const GROUP_ICON: Record<NotifyGroup, typeof Bell> = {
   unanswered: MessageSquareWarning,
   frontdesk: Calendar,
   leads: UserPlus,
-  briefs: Sunrise,
+  reports: Sunrise,
   money: CreditCard,
   clinic: Package,
   delivery: WifiOff,

@@ -1,4 +1,5 @@
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
+import { findStaffByPhone, respondToStaffMessage } from "@/lib/bot/staffLine";
 import { FieldValue } from "firebase-admin/firestore";
 import {
   computeAvailableSlots,
@@ -26,7 +27,8 @@ import type { MetaInteractive } from "@/lib/metaWhatsapp";
 import type { BotFacts, BotMedicine, BotScript } from "@/types/whatsapp";
 import { cleanScripts } from "./scripts";
 import { arabicClock, arabicDayLabel, arabicTimeLabel } from "@/lib/arabicDateTime";
-import { appendOptOutFooter, normalizeReplyText, WHATSAPP_OPT_OUT_FOOTER_AR } from "@/lib/patientMessaging";
+import { normalizeReplyText } from "@/lib/patientMessaging";
+import { claimKey, claimOnce } from "./replyClaims";
 import {
   conversationKey,
   humanClaimMsFromSetting,
@@ -45,12 +47,14 @@ import { DEFAULT_SCREENING, readScreeningAnswer } from "./medicineScreen";
 import { stripRepeatIntro } from "./repeatIntro";
 import { feminizeAddress } from "./voiceFix";
 import { SALES_CLOSE_REASONS, LEAD_INTEREST_REASONS, activeOffers, closingLine, offerForService } from "./sales";
-import { markBotLeadBooked, upsertBotLead } from "./botLeads";
+import { markBotLeadBooked, snoozeBotLead, upsertBotLead } from "./botLeads";
 import { recordThreadMessage } from "./thread";
+import { adSubjectText, adSystemLine, readStoredAd, type AdReferral } from "./adReferral";
 import { clinicalReplyText,
   urgentCallLine, decideBotReply, type BotContext } from "./engine";
 import { needsHuman } from "./clinicalTriage";
-import { mentionsRelative, quickIntent } from "./quickAnswers";
+import { isDecline, mentionsRelative, quickIntent } from "./quickAnswers";
+import { markConversationDeclined } from "./conversation";
 import { parseDayWord } from "./dayWords";
 import { guessGender, voiceFor } from "@/lib/arabicNames";
 import { normalizeAppointmentStatus } from "@/lib/appointmentStages";
@@ -393,6 +397,37 @@ function closedNote(schedule: ClinicScheduleConfig): string {
  * was the one word the desk did not get. Longest full-name match first; failing that, the first
  * word of a service name (≥ 3 letters) appearing in the message, so "تنظيف" finds "تنظيف الجير".
  */
+/**
+ * The ad this conversation started from, written where every reader will find it.
+ *
+ * Three places, one call: the conversation document (the Chats list badge, the report, and the
+ * context every later turn is answered with), a line at the top of the thread so the desk sees
+ * what the person saw, and a lead — created on the spot, whatever they typed. "مرحبا" from an ad
+ * click is the warmest enquiry a clinic gets and used to leave no trace unless it happened to
+ * contain a price question.
+ *
+ * The first ad wins. A person who taps two ads in a week is one person who came from the first;
+ * re-attributing them would count them twice and credit the wrong creative.
+ */
+async function recordAdReferral(clinicId: string, chatId: string, phone: string, ad: AdReferral, text: string): Promise<void> {
+  const key = conversationKey(chatId);
+  const ref = adminClinicDoc(clinicId, "whatsapp_conversations", key);
+  const snap = await ref.get();
+  if (readStoredAd(snap.data()?.ad)) return;
+  await ref.set({ ad, adAt: Date.now(), ...(text.trim() ? { adTypedAt: Date.now() } : {}) }, { merge: true });
+  await recordThreadMessage(clinicId, chatId, { direction: "in", author: "system", text: adSystemLine(ad), kind: "ad_referral" }).catch(() => {});
+  if (!phone) return;
+  const interest = (await matchService(clinicId, adSubjectText(ad)).catch(() => "")) || undefined;
+  await upsertBotLead({
+    clinicId,
+    phone,
+    interest,
+    question: text.trim() || "فتح المحادثة من الإعلان ولسه مكتبش",
+    reason: "ad_referral",
+    ad,
+  });
+}
+
 async function matchService(clinicId: string, text: string): Promise<string> {
   // With and without the definite article: "التبييض بكام" must find "تبييض الأسنان".
   const t0 = ` ${normalizeReplyText(text)} `;
@@ -472,15 +507,51 @@ export async function respondToPatientMessage(args: {
    * credits ARE spent — a rehearsal that costs nothing teaches nothing about cost.
    */
   dryRun?: boolean;
-  /** What the model saw in a photo, for staff. The patient is never shown it. */
-  mediaNote?: { summary: string; urgent: boolean; interest?: string };
+  /**
+   * What the model saw in a photo. `summary` and `urgent` are for staff; `impression` (dental
+   * photos only) may reach the patient as a preliminary reading, with the disclaimer added here.
+   */
+  mediaNote?: { summary: string; urgent: boolean; interest?: string; impression?: string; category?: "dental" | "document" | "other" };
+  /**
+   * The ad or post this message's conversation started from — present on the FIRST message of
+   * a Click-to-WhatsApp conversation only, on either channel. Recorded on the conversation
+   * before any gate, so the clinic knows where the person came from even when the bot is off.
+   */
+  ad?: AdReferral;
+  /**
+   * Not a message: the person opened the chat from an ad and has not typed. Sent by Meta only
+   * when the clinic switched the welcome message on. The bot greets and names the ad.
+   */
+  welcome?: boolean;
 }): Promise<BotOutcome> {
   const { clinicId, chatId, text } = args;
   const now = args.now ?? Date.now();
+
+  /*
+   * The clinic's own people first. A number entered on Settings → Alerts & reports is the owner
+   * or a colleague, whatever patient record happens to share it — the owner once wrote "Hi" to
+   * his own clinic and was greeted as a patient and offered a check-up. Checked before every
+   * patient gate (bot switch, plan, opt-out, strangers), because none of those is about them.
+   */
+  const senderPhone = /^\d{8,15}$/.test(args.phone || "") ? `+${args.phone}` : args.phone || "";
+  if (senderPhone && !args.dryRun) {
+    const staff = await findStaffByPhone(clinicId, senderPhone).catch(() => null);
+    if (staff) return respondToStaffMessage({ clinicId, to: senderPhone, text, sender: staff });
+  }
+
   // Every staff notification goes through this; the playground swaps in silence.
   const push: typeof sendClinicPush = args.dryRun
-    ? async () => ({ raised: false, bellWritten: false, pushed: 0 })
+    ? async () => ({ raised: false, bellWritten: false, pushed: 0, whatsapped: 0 })
     : sendClinicPush;
+
+  /*
+   * Where they came from, before whether we answer. The ad is on the wire for exactly one
+   * message; every gate below that ends the turn early (bot off, not in plan, stranger) would
+   * otherwise lose it, and the clinic paid for that click whether or not the bot is on.
+   */
+  if (args.ad && !args.dryRun) {
+    await recordAdReferral(clinicId, chatId, senderPhone, args.ad, text).catch((e) => console.warn("[bot] ad referral not recorded:", e));
+  }
 
   const settings = await loadBotSettings(clinicId);
   if (!settings.enabled) return skip("bot_disabled");
@@ -495,6 +566,12 @@ export async function respondToPatientMessage(args: {
   // conversation, it is a worse version of the message they already sent.
   const mode = await resolveWhatsappDeliveryMode(clinicId, { purpose: "bot" });
   if (mode !== "auto") return skip("no_gateway");
+
+  // The same words from the same number inside 20 seconds are one message — a double tap on a
+  // button, a message sent twice on a bad connection. Answered once. See lib/bot/replyClaims.
+  if (text.trim() && !args.dryRun && !(await claimOnce(clinicId, claimKey("in", conversationKey(chatId), text), 20_000, now))) {
+    return skip("duplicate_inbound");
+  }
 
   // Behind a lid, identity comes from what the system has already learned: every outgoing
   // message binds its lid to its patient (lib/whatsappLid). The gateway's own resolver is asked
@@ -585,6 +662,19 @@ export async function respondToPatientMessage(args: {
 
   const conversation = await loadConversation(clinicId, chatId, now, { humanClaimMs: settings.humanClaimMs });
 
+  // An ad tap opens a chat; this is the moment the person behind it actually said something.
+  // Once per number — the ads report separates "clicked" from "wrote" on it.
+  if (conversation.ad && !conversation.adTypedAt && text.trim() && !args.dryRun) {
+    void adminClinicDoc(clinicId, "whatsapp_conversations", conversation.phoneKey).set({ adTypedAt: now }, { merge: true }).catch(() => {});
+  }
+
+  // "Not now" is remembered before anything answers it, so the gracious one-line reply below is
+  // the LAST automated message this person gets until a human decides otherwise.
+  if (!args.dryRun && isDecline(text)) {
+    void markConversationDeclined(clinicId, chatId).catch(() => {});
+    if (phone) void snoozeBotLead(clinicId, phone).catch(() => {});
+  }
+
   // A stop request recorded against this sender directly — the only place it can live when a lid
   // hides the patient record. Survives conversation expiry; see markConversationOptedOut.
   if (conversation.optedOut) {
@@ -659,6 +749,20 @@ export async function respondToPatientMessage(args: {
   ctx.relative = mentionsRelative(text);
   ctx.forRelative = conversation.pendingForRelative === true;
   ctx.serviceMatch = (await matchService(clinicId, text)) || undefined;
+  /*
+   * The ad they came from, on every turn: the model is told each time (it is a fact about the
+   * person, like their name), and the greeting names it. The ad's SERVICE fills in only on the
+   * referral turn itself — "مرحبا" from someone who tapped the whitening ad is about whitening,
+   * so the lead and any booking that follows carry it — never on a message weeks later, where a
+   * question about braces must not be read as whitening because of an old click.
+   */
+  ctx.ad = args.ad ?? conversation.ad;
+  ctx.welcome = args.welcome === true;
+  if (ctx.ad) {
+    const adService = (await matchService(clinicId, adSubjectText(ctx.ad))) || "";
+    if (adService && offersActive) ctx.adOfferLine = offerForService(offersActive, adService) || undefined;
+    if (adService && !ctx.serviceMatch && (args.ad || ctx.welcome)) ctx.serviceMatch = adService;
+  }
   ctx.aiAvailable = settings.aiEnabled && (settings.aiMaxReplies === 0 || (conversation.aiReplies ?? 0) < settings.aiMaxReplies);
   ctx.aiFirst = settings.aiFirst;
   // Remembered so a tapped button, a bare digit or an emoji keeps the language the patient chose.
@@ -683,8 +787,27 @@ export async function respondToPatientMessage(args: {
    * Everything else gets a person, because the clinic cannot know what it did not see, and the
    * worst thing this branch can do is be slightly over-eager on a photo of a parking spot.
    */
-  const decision =
-    args.media && args.media !== "sticker" && !text.trim()
+  /*
+   * A photo the model has already read goes to the model, in sales mode: the reading (and, for
+   * a dental photo, the preliminary impression) is in its prompt, so it can answer the picture
+   * the way it answers a sentence — and, in dentist mode, as the desk dentist. The fixed "we got
+   * your photo, someone will look" stays for clinics without the salesperson, for voice notes
+   * that could not be transcribed, and for photos the describer could not read.
+   */
+  const photoToModel = args.media === "image" && !text.trim() && Boolean(args.mediaNote) && settings.aiFirst && ctx.aiAvailable;
+  const decision = photoToModel
+    ? {
+        reply: "",
+        action: {
+          type: "ai" as const,
+          question: `[المريض بعت صورة] ${args.mediaNote!.summary}`,
+          clinical: ctx.clinicalMode === "dentist" && args.mediaNote!.category === "dental",
+        },
+        next: "awaiting_choice" as const,
+        handoff: false,
+        reason: "photo_ai",
+      }
+    : args.media && args.media !== "sticker" && !text.trim()
       ? {
           reply:
             args.media === "audio"
@@ -1179,6 +1302,8 @@ ${urgentCallLine(ctx.clinicPhone)}`;
         flaggedForStaff: conversation.humanOwned && !conversation.staffActive,
         bookingStep: bookingStepLabel(conversation),
         sessionGapMinutes: salesContext?.gapMinutes,
+        photo: args.media === "image" && args.mediaNote ? args.mediaNote : undefined,
+        ad: ctx.ad,
       });
       /*
        * A pick the model turned into "let's open the booking" instead of "book this one".
@@ -1641,6 +1766,20 @@ ${askWho}` : askWho;
       structure = { body: replyText, buttons: menuButtons(Boolean(ctx.canOfferBooking)) };
     }
   }
+  /*
+   * The line after every photo reading, written by code so the model cannot forget it: what it
+   * said is an impression from a picture, not a diagnosis, and the exam and x-ray decide. Sent
+   * as its OWN bubble a few seconds after the reading — the owner's first live photo reply was
+   * five paragraphs in one bubble, and the verdict was "too much in one message".
+   */
+  let trailerBubble = "";
+  if (reason === "ai_answer" && args.media === "image" && args.mediaNote?.impression && replyText.trim()) {
+    const latinReply = /[A-Za-z]/.test(replyText) && !/[؀-ۿ]/.test(replyText);
+    trailerBubble = latinReply
+      ? "This is only an impression from the photo, not a diagnosis. An exam and an x-ray are a must."
+      : "ده انطباع من الصورة بس مش تشخيص، ولازم كشف وأشعة.";
+  }
+
   if (phone && !args.dryRun && ((!args.media && text.trim()) || args.mediaNote?.interest)) {
     if (reason === "booked" || reason === "rescheduled") {
       if (patient) void markBotLeadBooked(clinicId, phone, patient.id).catch(() => {});
@@ -1654,6 +1793,7 @@ ${askWho}` : askWho;
         reason,
         existingPatientId: patient?.id,
         existingPatientName: ctx.patientName,
+        ad: ctx.ad,
       }).catch(() => {});
     }
   }
@@ -1862,22 +2002,13 @@ ${askWho}` : askWho;
    * fresh conversation, so it qualified. Answering "yes I'll be there" with instructions for
    * unsubscribing is the one place this footer makes the ban risk worse rather than better.
    */
-  const courtesy = reason === "ack" || reason === "thanks";
-  let body =
-    conversation.state === "new" && !courtesy
-      ? appendOptOutFooter(replyText, latinPatient ? "— To stop these messages, reply: STOP" : WHATSAPP_OPT_OUT_FOOTER_AR)
-      : replyText;
   /*
-   * The footer belongs on the interactive body too.
-   *
-   * The old test was `structure.body === replyText`, which only holds for the plainest replies —
-   * every menu, day list and time list builds its own shorter heading, so the clinic's very first
-   * automated message to a number, the one message that most needs a STOP line, went out without
-   * one. The footer that was appended is appended there as well, whatever the body says.
+   * No opt-out footer on a conversation reply — the owner's call (2026-09-27). A person
+   * answering a question does not sign off with "reply STOP to unsubscribe"; that line belongs
+   * on the messages the clinic starts (reminders, receipts, campaigns), and those add it in
+   * deliverWhatsAppMessage. Stop words still work on any message, and are confirmed once.
    */
-  if (structure && body !== replyText) {
-    structure = { ...structure, body: `${structure.body}${body.slice(replyText.length)}` };
-  }
+  let body = replyText;
 
   /*
    * Human pacing.
@@ -1888,11 +2019,22 @@ ${askWho}` : askWho;
    * first paragraph break — the way a receptionist actually types on a phone. Lists and button
    * messages are never split; the playground skips the waits.
    */
-  const pace = settings.humanTouch && !args.dryRun && !args.media;
+  // A photo the model answered is a text turn in every way that matters here: it paces and
+  // splits like one. Other media turns are the fixed one-liners and stay as they are.
+  const pace = settings.humanTouch && !args.dryRun && (!args.media || photoToModel);
   let secondBubble = "";
   if (pace && !structure && body.length > 180) {
     const cut = body.indexOf("\n\n", Math.min(80, body.length));
     if (cut > 40 && body.length - cut > 40) {
+      secondBubble = body.slice(cut + 2).trim();
+      body = body.slice(0, cut).trim();
+    }
+  }
+  // A photo answer is always the reading, then the question — two bubbles whatever their length.
+  // The owner: "divide the message". A short question after a blank line is exactly the split.
+  if (pace && !structure && !secondBubble && photoToModel) {
+    const cut = body.indexOf("\n\n");
+    if (cut > 0 && body.slice(cut + 2).trim()) {
       secondBubble = body.slice(cut + 2).trim();
       body = body.slice(0, cut).trim();
     }
@@ -1912,6 +2054,11 @@ ${askWho}` : askWho;
   let firstSentAt = Date.now();
   let firstSent = false;
   try {
+    // Two invocations composing the same answer at the same moment (two quick messages from the
+    // patient, each answered): exactly one of them gets to send it. See lib/bot/replyClaims.
+    if (!args.dryRun && !(await claimOnce(clinicId, claimKey("out", conversationKey(replyTo), body), 90_000))) {
+      return skip("duplicate_reply");
+    }
     if (!args.dryRun) waMessageId = await sendPatientWhatsAppRich(clinicId, replyTo, body, structure);
     firstSentAt = Date.now();
     firstSent = true;
@@ -1919,6 +2066,11 @@ ${askWho}` : askWho;
       await new Promise((r) => setTimeout(r, Math.min(7000, 1500 + secondBubble.length * 30)));
       await sendPatientWhatsAppRich(clinicId, replyTo, secondBubble, undefined);
       await recordThreadMessage(clinicId, replyTo, { direction: "out", author: "bot", text: secondBubble, kind: reason }, Date.now()).catch(() => {});
+    }
+    if (trailerBubble && !args.dryRun) {
+      await new Promise((r) => setTimeout(r, pace ? 2500 : 0));
+      await sendPatientWhatsAppRich(clinicId, replyTo, trailerBubble, undefined);
+      await recordThreadMessage(clinicId, replyTo, { direction: "out", author: "bot", text: trailerBubble, kind: "photo_disclaimer" }, Date.now()).catch(() => {});
     }
     // The file the model chose to attach: a before/after photo, the price sheet. After the words.
     // Cast: the assignment happens inside the action dispatch and TS's flow analysis loses it here.

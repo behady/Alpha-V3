@@ -7,6 +7,7 @@ import { requireAdminUser } from "@/lib/apiStaffAuth";
 import { hasFeature } from "@/lib/subscriptions";
 import { scanDormantPatients } from "@/lib/automation/dormantPatients";
 import { createMessageDrafts, type DraftInput } from "@/lib/messageDrafts";
+import { withoutOptedOut } from "@/lib/messagingConsent";
 import { mergeWhatsAppTemplate } from "@/lib/whatsappTemplateMerge";
 import { getClinicProfileAdmin } from "@/lib/clinicProfileServer";
 import type { Clinic } from "@/types/saas";
@@ -126,6 +127,8 @@ async function scanSegment(clinicId: string, segment: CampaignSegment): Promise<
     for (const [patientId, plan] of byPatient) {
       const p = patients.get(patientId);
       if (!p) continue;
+      // Someone who said STOP is not an audience, however good the plan they left unfinished.
+      if (p.whatsappOptOut === true) continue;
       const phone = pickPhone(p);
       if (!phone) continue;
       out.push({
@@ -152,6 +155,7 @@ async function scanSegment(clinicId: string, segment: CampaignSegment): Promise<
   patientsSnap.forEach((doc) => {
     if (out.length >= MAX_RECIPIENTS) return;
     const p = doc.data() || {};
+    if (p.whatsappOptOut === true) return;
     const dob = parseDateValue(p.dateOfBirth);
     if (!dob) return;
     const key = `${String(dob.getMonth() + 1).padStart(2, "0")}-${String(dob.getDate()).padStart(2, "0")}`;
@@ -216,16 +220,27 @@ export async function POST(request: Request) {
       const profile = await getClinicProfileAdmin(clinicId);
       const clinicName = profile?.clinicName?.trim() || clinic.name || "our clinic";
 
+      // The list came from the browser, which may be showing a scan from before a patient said
+      // STOP — or a hand-edited list. The server checks every number itself before a draft exists.
+      const { kept: allowed, removed: optedOut } = await withoutOptedOut(clinicId, recipients, (r) => ({ phone: r.phone }));
+      if (allowed.length === 0) {
+        return NextResponse.json(
+          { ok: false, error: "Everyone on this list has asked not to receive messages." },
+          { status: 400 }
+        );
+      }
+
       const campaignRef = await adminClinicCollection(clinicId, "marketing_campaigns").add({
         name,
         segment,
         body: template,
-        recipientCount: recipients.length,
+        recipientCount: allowed.length,
+        skippedOptedOut: optedOut,
         createdAt: FieldValue.serverTimestamp(),
         createdBy: authz.uid,
       });
 
-      const inputs: DraftInput[] = recipients.map((r) => ({
+      const inputs: DraftInput[] = allowed.map((r) => ({
         patientId: r.patientId,
         patientName: r.name,
         phone: r.phone,
@@ -235,7 +250,7 @@ export async function POST(request: Request) {
       }));
 
       const drafted = await createMessageDrafts(clinicId, inputs);
-      return NextResponse.json({ ok: true, campaignId: campaignRef.id, ...drafted });
+      return NextResponse.json({ ok: true, campaignId: campaignRef.id, ...drafted, skippedOptedOut: optedOut });
     }
 
     // default: scan

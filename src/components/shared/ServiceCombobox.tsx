@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { Search, ChevronDown, Check } from "lucide-react";
 import { DENTAL_CATEGORIES, DentalIcon, categoryLabel, iconForService, suggestCategory } from "@/lib/dentalIcons";
+import { resolveListPrice } from "@/lib/discountMath";
 
 export interface ComboboxService {
   id: string | number;
@@ -22,12 +23,23 @@ interface ServiceComboboxProps {
   language?: string;
   className?: string;
   dropdownClassName?: string;
+  /**
+   * The list being charged from, so each row shows what THIS list costs.
+   *
+   * Without it every row showed `service.price`, the clinic's own rate, whatever list was
+   * selected above it. On an insurer that was worse than a cosmetic slip: the receptionist picked
+   * the AXA list, read "Orthodontic Consultation — EGP 300" off the menu, and had no way to know
+   * the case would actually be charged at AXA's 200. The number she is choosing from has to be
+   * the number she is choosing.
+   */
+  priceListId?: string | null;
 }
 
 export default function ServiceCombobox({
   services,
   value,
   onChange,
+  priceListId = null,
   valueKey = "id",
   placeholder,
   disabled = false,
@@ -228,7 +240,7 @@ export default function ServiceCombobox({
                       <div className="flex items-center gap-2 shrink-0">
                         {service.price !== undefined && service.price !== null && (
                           <span className="rounded-md bg-surface-muted px-2 py-0.5 text-xs font-bold text-ink-body">
-                            {service.price} EGP
+                            {resolveListPrice(service as { price?: number; prices?: Record<string, number> }, priceListId)} EGP
                           </span>
                         )}
                         {isSelected && <Check size={16} className="text-primary-600" />}

@@ -1,13 +1,15 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
-import { Network, ChevronDown, ChevronRight, FileBarChart, FileSpreadsheet, Download } from "lucide-react";
-import { exportToExcel, CHART_COLORS, parseMoney } from "./reportExcelUtils";
+import { Network, ChevronDown, ChevronRight, FileSpreadsheet, Download } from "lucide-react";
+import { exportToExcel, parseMoney } from "./reportExcelUtils";
 import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
 import { ledgerCashValue } from "@/lib/reportHelpers";
 import { useUI } from "@/context/UIContext";
 import { attributeService, buildProcedureIndex } from "@/lib/serviceAttribution";
+import { Bars, ChartFrame, GHOST, INK, MARK } from "@/components/reports/chartKit";
+import PatientDrilldown from "@/components/reports/PatientDrilldown";
+import { partitionRows, rollupPatients } from "@/lib/reportPatients";
 
 interface SourceStat {
   name: string;
@@ -16,7 +18,6 @@ interface SourceStat {
   commission: number;
   netIncome: number;
   services: { name: string; count: number; income: number }[];
-  patients: { name: string; phone?: string; paid: number }[];
 }
 
 interface PatientData {
@@ -66,7 +67,6 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
       services: Record<string, { name: string; count: number; income: number }>;
       commission: number;
       income: number;
-      patientPaid: Record<string, number>;
     }> = {};
 
     const procedureIndex = buildProcedureIndex(procedures);
@@ -78,7 +78,7 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
       const source = patientChannel(patient, proc.patientReferral);
 
       if (!map[source]) {
-        map[source] = { patientIds: new Set(), services: {}, commission: 0, income: 0, patientPaid: {} };
+        map[source] = { patientIds: new Set(), services: {}, commission: 0, income: 0 };
       }
       // Keyed on the catalogue id when the row has one — see lib/serviceAttribution.
       const svc = attributeService(proc, procedureIndex);
@@ -96,7 +96,7 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
       const source = patientChannel(patient, pay.patientReferral);
 
       if (!map[source]) {
-        map[source] = { patientIds: new Set(), services: {}, commission: 0, income: 0, patientPaid: {} };
+        map[source] = { patientIds: new Set(), services: {}, commission: 0, income: 0 };
       }
 
       // A payment is attributed through the procedure it settles, not by re-reading its own
@@ -110,10 +110,7 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
       map[source].services[svc.key].income += inc;
       map[source].income += inc;
       map[source].commission += parseMoney(pay.doctorCommissionAmount);
-      if (pid) {
-          map[source].patientIds.add(pid);
-          map[source].patientPaid[pid] = (map[source].patientPaid[pid] || 0) + inc;
-      }
+      if (pid) map[source].patientIds.add(pid);
     });
 
     return Object.entries(map)
@@ -126,20 +123,32 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
         services: Object.values(d.services)
           .map((s) => ({ name: s.name, count: s.count, income: s.income }))
           .sort((a, b) => b.income - a.income),
-        patients: Object.entries(d.patientPaid)
-          .map(([pId, paid]) => ({
-            name: patientMap[pId]?.name || "Unknown",
-            phone: patientMap[pId]?.phone,
-            paid,
-          }))
-          .sort((a, b) => b.paid - a.paid),
       }))
       .sort((a, b) => b.totalIncome - a.totalIncome);
   }, [procedures, payments, patientMap]);
 
+  /**
+   * Every patient a channel brought, not the ten who paid most.
+   *
+   * The old list was built off payments alone and cut at ten, so a patient who had treatment and
+   * has not paid yet — the one the desk most needs to see — was missing, and a channel with
+   * thirty patients showed a third of them. Same channel rule as the figures above.
+   */
+  const patientsBySource = useMemo(() => {
+    const keyOf = (row: Record<string, unknown>) => {
+      const pid = String(row.patientId || "");
+      return patientChannel(pid ? patientMap[pid] : null, row.patientReferral);
+    };
+    const groups = partitionRows(procedures, payments || [], keyOf);
+    const out = new Map<string, ReturnType<typeof rollupPatients>>();
+    groups.forEach((g, source) => {
+      out.set(source, rollupPatients(g.procedures, g.payments, patientMap, { unknownName: isAr ? "بدون اسم" : "Unknown" }));
+    });
+    return out;
+  }, [procedures, payments, patientMap, isAr]);
+
   const totalPatients = stats.reduce((a, s) => a + s.patientCount, 0);
   const totalIncome = stats.reduce((a, s) => a + s.totalIncome, 0);
-  const pieData = stats.map((s) => ({ name: s.name, value: s.totalIncome }));
 
   const handleExcelExport = () => {
     setExporting(true);
@@ -300,33 +309,41 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-        {/* Pie */}
-        <div className="xl:col-span-4 bg-surface rounded-2xl border border-line p-5 shadow-sm">
-          <h3 className="text-sm font-black text-ink mb-4">{isAr ? "توزيع الدخل" : "Income Distribution"}</h3>
-          <div ref={chartRef}>
-            <ResponsiveContainer width="100%" height={230}>
-              <PieChart>
-                <Pie data={pieData} cx="50%" cy="50%" outerRadius={90} innerRadius={60} paddingAngle={4} cornerRadius={8} stroke="none" dataKey="value">
-                  {pieData.map((_, i) => (
-                    <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(v) => [`${Number(v || 0).toLocaleString()} EGP`, isAr ? "الدخل" : "Income"]} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-          {/* Legend */}
-          <div className="space-y-1.5 mt-2">
-            {stats.slice(0, 6).map((s, i) => (
-              <div key={s.name} className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
-                  <span className="text-xs font-semibold text-slate-700">{s.name}</span>
-                </div>
-                <span className="text-xs font-black tabular-nums text-emerald-600">{s.totalIncome.toLocaleString()}</span>
-              </div>
-            ))}
-          </div>
+        {/*
+          The donut drew every source while its legend listed six, so the ring and the list below it
+          described different things. One labelled list now, with the remainder stated rather than
+          drawn and left unnamed.
+        */}
+        <div className="xl:col-span-4" ref={chartRef}>
+          <ChartFrame
+            title={isAr ? "الدخل حسب المصدر" : "Income by source"}
+            note={
+              stats.length > 6
+                ? isAr
+                  ? `أعلى ٦ من ${stats.length} مصدر.`
+                  : `The top 6 of ${stats.length} sources.`
+                : undefined
+            }
+          >
+            <Bars
+              rows={[
+                ...stats.slice(0, 6).map((s, i) => ({
+                  label: s.name,
+                  value: s.totalIncome,
+                  text: `${s.totalIncome.toLocaleString()} ${isAr ? "ج.م" : "EGP"}`,
+                  color: i === 0 ? MARK : INK,
+                })),
+                ...(stats.length > 6
+                  ? [{
+                      label: isAr ? `باقي المصادر (${stats.length - 6})` : `Other sources (${stats.length - 6})`,
+                      value: stats.slice(6).reduce((n, s) => n + s.totalIncome, 0),
+                      text: `${stats.slice(6).reduce((n, s) => n + s.totalIncome, 0).toLocaleString()} ${isAr ? "ج.م" : "EGP"}`,
+                      color: GHOST,
+                    }]
+                  : []),
+              ]}
+            />
+          </ChartFrame>
         </div>
 
         {/* Sources table with expandable rows */}
@@ -337,7 +354,7 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
               <button
                 onClick={handlePdfExport}
                 disabled={exporting}
-                className="px-4 py-2 bg-slate-800 text-ink-on-accent text-sm font-bold rounded-xl hover:bg-accent transition-colors flex items-center gap-2 disabled:opacity-50"
+                className="px-4 py-2 bg-ink-slab text-white text-sm font-bold rounded-xl hover:bg-ink-strong transition-colors flex items-center gap-2 disabled:opacity-50"
               >
                 <Download size={16} />
                 {exporting ? (isAr ? "جاري التصدير..." : "Exporting...") : "PDF"}
@@ -353,14 +370,13 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
             </div>
           </div>
           <div className="divide-y divide-slate-100">
-            {stats.map((s, i) => (
+            {stats.map((s) => (
               <div key={s.name}>
                 <button
                   type="button"
                   onClick={() => setExpanded(expanded === s.name ? null : s.name)}
                   className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-surface-subtle transition-colors text-start"
                 >
-                  <span className="w-3 h-3 rounded-full shrink-0" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
                   <span className="flex-1 font-bold text-sm text-slate-800">{s.name}</span>
                   <span className="text-xs text-ink-muted font-semibold">{s.patientCount} {isAr ? "مريض" : "patients"}</span>
                   <span className="text-xs font-black text-emerald-600 tabular-nums w-24 text-end">{s.totalIncome.toLocaleString()} EGP</span>
@@ -394,28 +410,18 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
                       </div>
                     </div>
 
-                    {/* Patients */}
+                    {/* Patients — all of them, with a file link, a phone and what they had. */}
                     <div>
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">{isAr ? "المرضى" : "Patients"}</p>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">
+                        {isAr ? `المرضى من ${s.name}` : `Patients from ${s.name}`}
+                      </p>
                       <div className="bg-surface rounded-xl border border-line overflow-hidden">
-                        <table className="w-full text-xs">
-                          <thead>
-                            <tr className="bg-surface-subtle text-[9px] font-black text-ink-muted uppercase">
-                              <th className="text-start py-2 px-3">{isAr ? "الاسم" : "Name"}</th>
-                              <th className="text-start py-2 px-3">{isAr ? "الهاتف" : "Phone"}</th>
-                              <th className="text-end py-2 px-3">{isAr ? "المدفوع" : "Paid (EGP)"}</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-50">
-                            {s.patients.slice(0, 10).map((p, j) => (
-                              <tr key={j}>
-                                <td className="py-2 px-3 font-semibold text-slate-700">{p.name}</td>
-                                <td className="py-2 px-3 text-ink-muted">{p.phone || "—"}</td>
-                                <td className="py-2 px-3 text-end font-bold text-emerald-600 tabular-nums">{p.paid.toLocaleString()}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                        <PatientDrilldown
+                          embedded
+                          rows={patientsBySource.get(s.name) || []}
+                          isAr={isAr}
+                          exportName={`Source_Patients_${s.name.replace(/[^\p{L}\p{N}]+/gu, "_")}`}
+                        />
                       </div>
                     </div>
                   </div>

@@ -15,13 +15,16 @@ import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { adminDb, adminMessaging } from "@/lib/firebaseAdmin";
 import {
+  inQuietHours,
   isMutedFor,
   notifyEvent,
+  personWhatsapp,
   pushAllowedNow,
   resolveNotify,
   type AlertPreferences,
   type NotifyRole,
 } from "@/lib/notificationCatalog";
+import { resolveStaffGateway, sendStaffDocument, sendStaffWhatsApp } from "@/lib/staffWhatsapp";
 
 /** The clinic's own day, for quiet hours. Same default as the Cloud Functions package. */
 const TIMEZONE = process.env.CLINIC_TIMEZONE || "Africa/Cairo";
@@ -41,17 +44,42 @@ export function clinicHourNow(now: Date = new Date()): number {
   }
 }
 
-/** Where this clinic's answers live. One document, read by both runtimes. */
+/**
+ * Where this clinic's answers live. One document, read by both runtimes — plus, on this side
+ * only, the ticks left on the old Settings → WhatsApp owner-alert grid, merged in as
+ * `legacyOwnerAlerts` so the six alerts that grid controlled keep their answer until the clinic
+ * touches them on the new page. The Cloud Functions half has no WhatsApp leg and does not need it.
+ */
 export async function readAlertPreferences(clinicId: string): Promise<AlertPreferences> {
+  let prefs: AlertPreferences = {};
   try {
     const snap = await adminClinicDoc(clinicId, "settings", "clinic_info").get();
-    const prefs = snap.data()?.alertPreferences;
-    return prefs && typeof prefs === "object" ? (prefs as AlertPreferences) : {};
+    const raw = snap.data()?.alertPreferences;
+    prefs = raw && typeof raw === "object" ? ({ ...(raw as AlertPreferences) }) : {};
   } catch {
     // A clinic whose settings cannot be read gets the catalogue's defaults, which is the same
     // behaviour it had before any of this was configurable. Failing silent here would mean a
     // transient read error silences a patient-is-waiting alert.
     return {};
+  }
+  try {
+    const wa = await adminClinicDoc(clinicId, "settings", "whatsapp").get();
+    const legacy = wa.data()?.ownerAlerts;
+    if (legacy && typeof legacy === "object") prefs.legacyOwnerAlerts = legacy as Record<string, boolean>;
+  } catch {
+    /* No grid answers to honour. */
+  }
+  return prefs;
+}
+
+/** The old owner number on Settings → WhatsApp: the owner's fallback when nobody entered theirs. */
+async function readOwnerNumber(clinicId: string): Promise<string> {
+  try {
+    const wa = await adminClinicDoc(clinicId, "settings", "whatsapp").get();
+    const n = wa.data()?.ownerNumber;
+    return typeof n === "string" ? n.trim() : "";
+  } catch {
+    return "";
   }
 }
 
@@ -118,6 +146,41 @@ export interface DeliverOptions {
   data?: Record<string, string>;
   /** Where the bell row navigates to. Falls back to the catalogue-free `/` if absent. */
   actionUrl?: string;
+  /**
+   * The WhatsApp body, when it should differ from the push. A push is a line; a WhatsApp is read
+   * at leisure and can carry the whole thing. Absent, the title in bold and the body are sent.
+   */
+  whatsappText?: string;
+  /**
+   * The WhatsApp body per person, for a message whose content depends on who reads it — a report
+   * with the money block only for those allowed to see money. Returning null skips that person.
+   * Wins over `whatsappText`.
+   */
+  whatsappTextFor?: (member: { uid: string; role: string }) => string | null | Promise<string | null>;
+  /**
+   * A file to follow the text, per person: the report as a PDF. Returning null sends no file.
+   * Called only for people whose text went out, so a dead gateway costs one failed send, not two.
+   */
+  whatsappDocumentFor?: (member: { uid: string; role: string }) => Promise<{ bytes: Uint8Array; filename: string; caption?: string } | null>;
+  /**
+   * WhatsApp and nothing else. For the scheduled reports, whose bell row and push already come
+   * from the Cloud Functions job at the same hour — sending them twice is how an owner learns to
+   * ignore both.
+   */
+  whatsappOnly?: boolean;
+  /**
+   * Let explicit `uids` include someone who is not on this clinic's staff. Only for a test
+   * requested by a platform superadmin standing in a clinic they do not belong to — they are
+   * treated as its owner for that one message. Never set from a clinic's own action.
+   */
+  allowOutsiders?: boolean;
+  /**
+   * Send on WhatsApp even when the clinic's switch for this alert is off: a report a staff member
+   * asked for by writing to the clinic's number. Only ever with explicit `uids`.
+   */
+  forceWhatsapp?: boolean;
+  /** This IS the batched digest going out; do not queue it again. Set by the sweep only. */
+  flushingBatch?: boolean;
 }
 
 export interface DeliverResult {
@@ -125,6 +188,12 @@ export interface DeliverResult {
   raised: boolean;
   bellWritten: boolean;
   pushed: number;
+  /** People whose WhatsApp actually accepted the message. */
+  whatsapped: number;
+  /** Held for the hourly or evening digest instead of pushed now. The bell row was still written. */
+  queued?: boolean;
+  /** Why nobody got it on WhatsApp although the alert has WhatsApp on. */
+  whatsappReason?: "off" | "quiet" | "no-gateway" | "platform-not-configured" | "no-phone" | "failed";
   reason?: "unknown-event" | "off" | "nobody" | "muted" | "quiet" | "no-devices";
 }
 
@@ -140,9 +209,9 @@ export async function deliverClinicNotification(
   notification: { title: string; body: string },
   options: DeliverOptions = {},
 ): Promise<DeliverResult> {
-  const none: DeliverResult = { raised: false, bellWritten: false, pushed: 0 };
+  const none: DeliverResult = { raised: false, bellWritten: false, pushed: 0, whatsapped: 0 };
   try {
-    const { event, uids = null, roles = null, channel = null, data = null, actionUrl } = options;
+    const { event, uids = null, roles = null, channel = null, data = null, actionUrl, whatsappText, whatsappTextFor, whatsappOnly = false, allowOutsiders = false, forceWhatsapp = false, whatsappDocumentFor, flushingBatch = false } = options;
 
     const prefs = event ? await readAlertPreferences(clinicId) : {};
     const resolved = event ? resolveNotify(event, prefs) : null;
@@ -151,7 +220,8 @@ export async function deliverClinicNotification(
       // dropping it: a silently swallowed alert is far worse than an unconfigurable one.
       console.warn(`deliverClinicNotification: unknown event "${event}" — sending ungated`);
     }
-    if (resolved && !resolved.bell && !resolved.push) {
+    const wantWhatsapp = resolved ? resolved.whatsapp || (forceWhatsapp && uids !== null) : false;
+    if (resolved && !resolved.bell && !resolved.push && !wantWhatsapp) {
       return { ...none, reason: "off" };
     }
 
@@ -162,7 +232,7 @@ export async function deliverClinicNotification(
     if (uids) {
       // Explicit uids are still checked against this clinic's own people — this helper must never
       // be able to notify another clinic's staff.
-      targetUids = [...new Set(uids.map((u) => String(u || "").trim()).filter((u) => allUids.has(u)))];
+      targetUids = [...new Set(uids.map((u) => String(u || "").trim()).filter((u) => u && (allowOutsiders || allUids.has(u))))];
     } else if (resolved) {
       targetUids = [...new Set(matchRoles(members, resolved.roles))];
     } else {
@@ -191,7 +261,7 @@ export async function deliverClinicNotification(
     const meta = event ? notifyEvent(event) : undefined;
 
     let bellWritten = false;
-    if (!resolved || resolved.bell) {
+    if (!whatsappOnly && (!resolved || resolved.bell)) {
       try {
         await adminClinicCollection(clinicId, "notifications").add({
           title: notification.title,
@@ -215,9 +285,100 @@ export async function deliverClinicNotification(
       }
     }
 
+    /*
+     * Batched alerts stop here: the bell row above is the record, and the buzz waits for the
+     * hourly or evening digest the sweep sends (lib/alerts/sweep.ts). A test addressed to one
+     * person, and the digest itself, go straight through.
+     */
+    if (resolved && resolved.batching !== "instant" && !uids && !flushingBatch && !forceWhatsapp) {
+      try {
+        await adminClinicCollection(clinicId, "alert_queue").add({
+          event,
+          title: notification.title,
+          body: notification.body,
+          whatsappText: whatsappText || `*${notification.title}*\n${notification.body}`,
+          bucket: resolved.batching,
+          date: new Intl.DateTimeFormat("en-CA", { timeZone: TIMEZONE }).format(new Date()),
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        return { raised: true, bellWritten, pushed: 0, whatsapped: 0, queued: true };
+      } catch (error) {
+        console.warn("Could not queue the alert; sending now instead:", error);
+      }
+    }
+
+    /*
+     * WhatsApp, before the push leg because that leg returns early when nobody has a device.
+     *
+     * Follows the phone's quiet hours: a WhatsApp at 03:00 buzzes a pocket exactly as a push
+     * does. The scheduled reports are exempt — they go out at the hour the clinic chose, which
+     * for the day's close-out is often inside the quiet window on purpose.
+     */
+    let whatsapped = 0;
+    let whatsappReason: DeliverResult["whatsappReason"];
+    if (resolved && wantWhatsapp) {
+      const hour = clinicHourNow();
+      const quiet = !forceWhatsapp && !resolved.event.ignoresQuietHours && !resolved.event.report && inQuietHours(prefs, hour);
+      if (quiet) {
+        whatsappReason = "quiet";
+      } else {
+        const roleOf = new Map(members.map((m) => [m.uid, m.role]));
+        // An outsider only gets here through `allowOutsiders`, i.e. a superadmin's own test.
+        const roleFor = (uid: string) => roleOf.get(uid) || (allowOutsiders ? "Owner" : "");
+        const { gateway, reason } = await resolveStaffGateway(clinicId);
+        if (!gateway) {
+          whatsappReason = reason === "platform_not_configured" ? "platform-not-configured" : "no-gateway";
+        } else {
+          let ownerNumber: string | null = null;
+          let anyPhone = false;
+          let anyFailed = false;
+          for (const snap of kept) {
+            const uid = snap.id;
+            const role = roleFor(uid);
+            const person = personWhatsapp(uid, prefs);
+            if (!person.enabled) continue;
+            let phone = person.phone;
+            if (!phone && role === "Owner") {
+              if (ownerNumber === null) ownerNumber = await readOwnerNumber(clinicId);
+              phone = ownerNumber;
+            }
+            if (!phone) continue;
+            anyPhone = true;
+            const text = whatsappTextFor
+              ? await whatsappTextFor({ uid, role })
+              : whatsappText || `*${notification.title}*\n${notification.body}`;
+            if (!text) continue;
+            const sent = await sendStaffWhatsApp({ clinicId, to: phone, text, gateway });
+            if (sent.sent) {
+              whatsapped += 1;
+              if (whatsappDocumentFor) {
+                try {
+                  const doc = await whatsappDocumentFor({ uid, role });
+                  if (doc) {
+                    const filed = await sendStaffDocument({ clinicId, to: phone, gateway, ...doc });
+                    if (!filed.sent) console.warn(`PDF to ${role || "member"} ${uid} failed: ${filed.reason}${filed.error ? ` — ${filed.error}` : ""}`);
+                  }
+                } catch (error) {
+                  console.warn("Report PDF failed:", error);
+                }
+              }
+            } else {
+              anyFailed = true;
+              console.warn(`WhatsApp to ${role || "member"} ${uid} failed: ${sent.reason}${sent.error ? ` — ${sent.error}` : ""}`);
+            }
+          }
+          if (whatsapped === 0) whatsappReason = !anyPhone ? "no-phone" : anyFailed ? "failed" : undefined;
+        }
+      }
+    } else {
+      whatsappReason = "off";
+    }
+
+    if (whatsappOnly) return { raised: true, bellWritten, pushed: 0, whatsapped, whatsappReason };
+
     if (event && !pushAllowedNow(event, prefs, clinicHourNow())) {
       // Quiet hours silence the buzz, never the record — the bell row above is already written.
-      return { raised: true, bellWritten, pushed: 0, reason: resolved?.push ? "quiet" : "off" };
+      return { raised: true, bellWritten, pushed: 0, whatsapped, whatsappReason, reason: resolved?.push ? "quiet" : "off" };
     }
 
     const tokenOwner = new Map<string, FirebaseFirestore.DocumentReference>();
@@ -229,7 +390,7 @@ export async function deliverClinicNotification(
       }
     }
     const tokens = [...tokenOwner.keys()];
-    if (tokens.length === 0) return { raised: true, bellWritten, pushed: 0, reason: "no-devices" };
+    if (tokens.length === 0) return { raised: true, bellWritten, pushed: 0, whatsapped, whatsappReason, reason: "no-devices" };
 
     const dataEntries = Object.entries({
       ...(data || {}),
@@ -264,7 +425,7 @@ export async function deliverClinicNotification(
       ),
     );
 
-    return { raised: true, bellWritten, pushed: result.successCount };
+    return { raised: true, bellWritten, pushed: result.successCount, whatsapped, whatsappReason };
   } catch (error) {
     console.warn("Clinic notification failed:", error);
     return none;

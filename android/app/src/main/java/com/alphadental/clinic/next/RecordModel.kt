@@ -18,13 +18,15 @@ import kotlinx.coroutines.launch
 
 /** Which part of the file is showing. */
 enum class RecordTab(val label: String) {
+    // The website's order, with its words. Clinical first because that is what the file is for.
+    Notes("Clinical"),
+    Plan("Treatment Plan"),
+    Ledger("Finance"),
+    Visits("Timeline"),
     Overview("Overview"),
-    Chart("Chart"),
-    Notes("Treatments"),
-    Visits("Visits"),
-    Photos("Photos"),
-    Rx("Scripts"),
-    Ledger("Ledger"),
+    Photos("X-Rays & Photos"),
+    Rx("Prescriptions"),
+    Ai("AI"),
 }
 
 /** The website's own gallery filters, stored by their English id. */
@@ -42,7 +44,7 @@ data class RecordState(
     val loading: Boolean = true,
     val who: Who? = null,
     val record: Record? = null,
-    val tab: RecordTab = RecordTab.Overview,
+    val tab: RecordTab = RecordTab.Notes,
     /** Which tooth the chart is showing the detail of. */
     val tooth: Int? = null,
     val error: String? = null,
@@ -54,6 +56,8 @@ data class RecordState(
     /** The price list and the dentists, for recording a treatment. */
     val services: List<com.alphadental.clinic.data.Service> = emptyList(),
     val doctors: List<com.alphadental.clinic.data.Doctor> = emptyList(),
+    /** The clinic's price lists and insurers, for the treatment pickers. */
+    val policy: com.alphadental.clinic.next.data.Pricing.Policy = com.alphadental.clinic.next.data.Pricing.Policy.NONE,
     val recording: Boolean = false,
     val recordError: String? = null,
     val recorded: String? = null,
@@ -89,6 +93,31 @@ data class RecordState(
     /** The prescription being printed, shared or sent, by id. */
     val busyScript: String? = null,
     val scriptResult: String? = null,
+
+    /**
+     * The ledger row being corrected.
+     *
+     * The statement was read-only, and a read-only ledger is a ledger with a wrong number in it
+     * forever: a payment entered as 500 instead of 5,000, a charge dated to the wrong day, a
+     * treatment recorded twice. All three happen at a busy desk, and all three used to mean
+     * opening a laptop.
+     */
+    /** The website's timeline toggle. */
+    val newestFirst: Boolean = true,
+    /** Every plan on this file, newest first. */
+    val plans: List<com.alphadental.clinic.data.TreatmentPlans.Plan> = emptyList(),
+
+    /** The recorded treatment being corrected. */
+    val editingNote: com.alphadental.clinic.data.ClinicalNote? = null,
+    val savingNote: Boolean = false,
+    val noteError: String? = null,
+
+    val editingRow: com.alphadental.clinic.next.data.Money? = null,
+    val savingMessaging: Boolean = false,
+    val messagingError: String? = null,
+    val savingRow: Boolean = false,
+    val rowError: String? = null,
+    val rowDone: String? = null,
 ) {
     /**
      * The photos the filter is showing.
@@ -98,13 +127,18 @@ data class RecordState(
      */
     val shownMedia: List<com.alphadental.clinic.data.PatientMedia>
         get() = if (mediaFilter.isBlank()) media else media.filter { it.category == mediaFilter }
-    val canTakePayment: Boolean get() = who?.can("payments.add") == true
+    val canTakePayment: Boolean get() = who?.can("finance.add") == true
 
     /** Adding a photo writes to the file, so it wants the clinical key. */
     val canAddPhoto: Boolean get() = who?.can("clinical.edit") == true
 
     /** Changing who somebody is, rather than what was done to them. */
     val canEditDetails: Boolean get() = who?.can("patients.edit") == true
+    val canDeletePatient: Boolean get() = who?.can("patients.delete") == true
+
+    /** What has been done to each tooth, for the chart's marks. Decided by price-list category. */
+    val treatments: Map<Int, List<com.alphadental.clinic.next.data.ToothTreatment>>
+        get() = com.alphadental.clinic.next.data.ToothTreatments.byTooth(notes, services)
 
     /** Treatments still only planned — the work this patient is waiting for. */
     val planned: List<com.alphadental.clinic.data.ClinicalNote>
@@ -112,6 +146,15 @@ data class RecordState(
 
     /** Recording treatment is the clinical write, gated on the clinical key. */
     val canRecord: Boolean get() = who?.can("clinical.edit") == true
+
+    /** Removing a treatment from the record. Separate from editing, as the website has it. */
+    val canDeleteNote: Boolean get() = who?.can("clinical.delete") == true
+
+    /** Correcting a row already on the books. The same key the website's ledger checks. */
+    val canEditLedger: Boolean get() = who?.can("finance.edit") == true
+
+    /** Removing one. Separate from editing on purpose — they are separate tick-boxes. */
+    val canDeleteLedger: Boolean get() = who?.can("finance.delete") == true
     /**
      * What has to be read before treating this patient.
      *
@@ -172,11 +215,14 @@ class RecordModel : ViewModel() {
             ClinicSource.record(who.clinicId, id)
                 .onSuccess {
                     _state.value = _state.value.copy(loading = false, who = who, record = it)
-                    if (who.can("payments.add")) loadUnpaid(who, id)
-                    if (who.can("clinical.edit")) loadLists(who)
+                    if (who.can("finance.add")) loadUnpaid(who, id)
+                    // For everyone, not only those who may record: the chart maps each procedure
+                    // to a mark through the price list's categories, and a reader needs that too.
+                    loadLists(who)
                     loadMedia(who, id)
                     loadNotes(who, id)
                     loadScripts(who, id)
+                    loadPlans(who, id)
                 }
                 .onFailure { _state.value = _state.value.copy(loading = false, who = who, error = it.message) }
         }
@@ -223,8 +269,6 @@ class RecordModel : ViewModel() {
                 ),
                 procedure = procedure,
                 amount = amount,
-                byName = who.name,
-                byUid = who.uid,
             )
                 .onSuccess {
                     _state.value = _state.value.copy(
@@ -271,7 +315,9 @@ class RecordModel : ViewModel() {
         val doctors = runCatching {
             com.alphadental.clinic.data.Repository.loadDoctors(who.clinicId)
         }.getOrDefault(emptyList())
-        _state.value = _state.value.copy(services = services, doctors = doctors)
+        val policy = runCatching { com.alphadental.clinic.next.data.Pricing.load(who.clinicId) }
+            .getOrDefault(com.alphadental.clinic.next.data.Pricing.Policy.NONE)
+        _state.value = _state.value.copy(services = services, doctors = doctors, policy = policy)
     }
 
     /**
@@ -289,15 +335,7 @@ class RecordModel : ViewModel() {
      * write the single-tooth price whatever was selected, which undercharged for
      * exactly the treatments worth the most.
      */
-    fun recordTreatment(
-        procedure: String,
-        teeth: List<String>,
-        note: String,
-        unitCost: Double,
-        doctor: com.alphadental.clinic.data.Doctor?,
-        service: com.alphadental.clinic.data.Service?,
-        done: Boolean,
-    ) {
+    fun recordTreatment(d: ProcedureDraft) {
         val who = _state.value.who ?: return
         val record = _state.value.record ?: return
         if (!_state.value.canRecord || _state.value.recording) return
@@ -310,19 +348,22 @@ class RecordModel : ViewModel() {
                     name = record.person.name,
                     phone = record.person.phone,
                 ),
-                procedure = procedure,
-                teeth = teeth,
-                noteText = note,
-                unitCost = unitCost,
-                status = if (done) "Completed" else "Planned",
-                doctor = doctor,
-                service = service,
-                byName = who.name,
+                procedure = d.procedure,
+                teeth = d.teeth,
+                noteText = d.note,
+                unitCost = d.unitCost,
+                status = d.status,
+                doctor = d.doctor,
+                service = d.service,
+                extra = d.extra,
+                date = d.date.takeIf { it.isNotBlank() },
+                pricingMode = d.pricingMode.takeIf { it.isNotBlank() },
+                priceListId = d.priceListId.takeIf { it.isNotBlank() },
             )
                 .onSuccess {
                     _state.value = _state.value.copy(
                         recording = false,
-                        recorded = if (unitCost > 0) "Recorded and charged." else "Recorded.",
+                        recorded = if ((d.unitCost ?: 0.0) > 0) "Recorded and charged." else "Recorded.",
                     )
                     reload()
                 }
@@ -339,6 +380,224 @@ class RecordModel : ViewModel() {
         _state.value = _state.value.copy(recorded = null, recordError = null)
     }
 
+    // ------------------------------------------------------------------ correcting a treatment
+
+    fun editNote(note: com.alphadental.clinic.data.ClinicalNote) {
+        if (!_state.value.canRecord) return
+        _state.value = _state.value.copy(editingNote = note, noteError = null)
+    }
+
+    fun closeNote() {
+        _state.value = _state.value.copy(editingNote = null, noteError = null)
+    }
+
+    /**
+     * Save a corrected treatment.
+     *
+     * Everything goes back, not just what changed, because the server reprices the note from the
+     * fields it receives — a partial body would blank the teeth and recharge the visit at the
+     * wrong figure. The charge behind the note follows it, which is the point of correcting it
+     * here rather than editing the ledger row.
+     */
+    fun saveNote(
+        procedure: String,
+        teeth: List<String>,
+        text: String,
+        unitCost: Double,
+        doctor: com.alphadental.clinic.data.Doctor?,
+        status: String,
+        priceListId: String = "",
+    ) {
+        val who = _state.value.who ?: return
+        val patientId = _state.value.record?.person?.id ?: return
+        val note = _state.value.editingNote ?: return
+        if (!_state.value.canRecord || _state.value.savingNote) return
+        _state.value = _state.value.copy(savingNote = true, noteError = null)
+
+        viewModelScope.launch {
+            com.alphadental.clinic.data.Repository.updateClinicalNote(
+                clinicId = who.clinicId,
+                patientId = patientId,
+                note = note,
+                procedure = procedure,
+                teeth = teeth,
+                noteText = text,
+                unitCost = unitCost.takeIf { it > 0 },
+                status = status,
+                // Picking General clears the dentist. The old fallback to the note's own id made
+                // that impossible; it survives only for the case it was really written for — a
+                // staff list that never loaded, where nobody could have chosen anything.
+                doctorId = doctor?.id ?: if (_state.value.doctors.isEmpty()) note.doctorId else "",
+                priceListId = priceListId.ifBlank { note.priceListId }.takeIf { it.isNotBlank() },
+            )
+                .onSuccess {
+                    _state.value = _state.value.copy(savingNote = false, editingNote = null)
+                    loadNotes(who, patientId)
+                    reload()
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(
+                        savingNote = false,
+                        noteError = e.message ?: "That treatment could not be changed.",
+                    )
+                }
+        }
+    }
+
+    /** Take a treatment off the record, and its charge with it. */
+    fun deleteNote() {
+        val who = _state.value.who ?: return
+        val patientId = _state.value.record?.person?.id ?: return
+        val note = _state.value.editingNote ?: return
+        if (!_state.value.canDeleteNote || _state.value.savingNote) return
+        _state.value = _state.value.copy(savingNote = true, noteError = null)
+
+        viewModelScope.launch {
+            com.alphadental.clinic.data.Repository.deleteClinicalNote(who.clinicId, note.id)
+                .onSuccess {
+                    _state.value = _state.value.copy(savingNote = false, editingNote = null)
+                    loadNotes(who, patientId)
+                    reload()
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(
+                        savingNote = false,
+                        noteError = e.message ?: "That treatment could not be removed.",
+                    )
+                }
+        }
+    }
+
+    // ------------------------------------------------------------------ messaging
+
+    /** Turn the automatic WhatsApp and SMS to this patient off, or back on. */
+    fun setMessaging(whatsappOn: Boolean, smsOn: Boolean) {
+        val who = _state.value.who ?: return
+        val record = _state.value.record ?: return
+        if (!_state.value.canEditDetails || _state.value.savingMessaging) return
+        _state.value = _state.value.copy(savingMessaging = true, messagingError = null)
+        viewModelScope.launch {
+            com.alphadental.clinic.data.Repository.setPatientMessaging(
+                clinicId = who.clinicId,
+                patientId = record.person.id,
+                whatsappOptOut = !whatsappOn,
+                smsOptOut = !smsOn,
+                byName = who.name,
+            )
+                .onSuccess {
+                    // Shown from the record, so the record is what changes.
+                    _state.value = _state.value.copy(
+                        savingMessaging = false,
+                        record = record.copy(whatsappOptOut = !whatsappOn, smsOptOut = !smsOn),
+                    )
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(
+                        savingMessaging = false,
+                        messagingError = e.message ?: "That could not be saved.",
+                    )
+                }
+        }
+    }
+
+    // ------------------------------------------------------------------ correcting the ledger
+
+    /**
+     * Open a ledger line.
+     *
+     * For anyone, not only those who may change it: the sheet shows who took the money and how a
+     * charge was split before it offers any fields, and it offers the fields only to an account
+     * with the finance tick-box.
+     */
+    fun editRow(row: com.alphadental.clinic.next.data.Money) {
+        _state.value = _state.value.copy(editingRow = row, rowError = null, rowDone = null)
+    }
+
+    fun closeRow() {
+        _state.value = _state.value.copy(editingRow = null, rowError = null, rowDone = null)
+    }
+
+    /**
+     * Save a correction.
+     *
+     * The patch is sent whole and the server keeps only the fields that row type allows — a
+     * payment takes its date, its wording, its amount and its method; a treatment charge takes its
+     * date and its wording, because the price of a treatment belongs to the treatment and is
+     * changed by editing that instead. Anything else is dropped there rather than refused, which
+     * is why this may send what it has.
+     */
+    fun saveRow(date: String, description: String, amount: Double, method: String) {
+        val who = _state.value.who ?: return
+        val row = _state.value.editingRow ?: return
+        if (!_state.value.canEditLedger || _state.value.savingRow) return
+        _state.value = _state.value.copy(savingRow = true, rowError = null)
+
+        val patch = buildMap<String, Any?> {
+            put("date", date.trim())
+            put("description", description.trim())
+            if (row.isPayment) {
+                put("paid", amount)
+                put("method", method.trim())
+            }
+        }
+
+        viewModelScope.launch {
+            com.alphadental.clinic.data.Repository.updateLedgerRow(who.clinicId, row.id, patch)
+                .onSuccess {
+                    _state.value = _state.value.copy(
+                        savingRow = false, editingRow = null, rowDone = "Saved.",
+                    )
+                    reload()
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(
+                        savingRow = false,
+                        // The server's own sentence, which is usually the useful one: "2 payments
+                        // have been recorded against this" beats a generic refusal.
+                        rowError = e.message ?: "That change could not be saved.",
+                    )
+                }
+        }
+    }
+
+    /**
+     * Remove a row.
+     *
+     * A treatment charge is deleted through the clinical route rather than the ledger one, because
+     * the charge and the note behind it are one act — deleting the money and leaving the treatment
+     * on the record produces a file that says work was done for free.
+     */
+    fun deleteRow() {
+        val who = _state.value.who ?: return
+        val patientId = _state.value.record?.person?.id ?: return
+        val row = _state.value.editingRow ?: return
+        if (!_state.value.canDeleteLedger || _state.value.savingRow) return
+        _state.value = _state.value.copy(savingRow = true, rowError = null)
+
+        viewModelScope.launch {
+            val note = _state.value.notes.firstOrNull { it.ledgerId == row.id }
+            val result = if (row.isCharge && note != null) {
+                com.alphadental.clinic.data.Repository.deleteClinicalNote(who.clinicId, note.id)
+            } else {
+                com.alphadental.clinic.data.Repository.deleteLedgerRow(who.clinicId, row.id)
+            }
+            result
+                .onSuccess {
+                    _state.value = _state.value.copy(
+                        savingRow = false, editingRow = null, rowDone = "Removed.",
+                    )
+                    loadNotes(who, patientId)
+                    reload()
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(
+                        savingRow = false,
+                        rowError = e.message ?: "That row could not be removed.",
+                    )
+                }
+        }
+    }
+
     private fun loadMedia(who: Who, patientId: String) = viewModelScope.launch {
         val rows = runCatching {
             com.alphadental.clinic.data.Repository.loadPatientMedia(who.clinicId, patientId)
@@ -346,11 +605,61 @@ class RecordModel : ViewModel() {
         _state.value = _state.value.copy(media = rows)
     }
 
+    private fun loadPlans(who: Who, patientId: String) = viewModelScope.launch {
+        val rows = runCatching { com.alphadental.clinic.data.TreatmentPlans.load(who.clinicId, patientId) }.getOrDefault(emptyList())
+        _state.value = _state.value.copy(plans = rows.sortedByDescending { it.createdAtMillis })
+    }
+
+    fun refreshPlans() {
+        val who = _state.value.who ?: return
+        val id = _state.value.record?.person?.id ?: return
+        loadPlans(who, id)
+    }
+
+    fun setPlanStatus(plan: com.alphadental.clinic.data.TreatmentPlans.Plan, status: String) {
+        val who = _state.value.who ?: return
+        if (!_state.value.canRecord) return
+        viewModelScope.launch {
+            com.alphadental.clinic.data.TreatmentPlans.setStatus(who.clinicId, plan.id, status)
+                .onSuccess { refreshPlans() }
+                .onFailure { e -> _state.value = _state.value.copy(error = e.message) }
+        }
+    }
+
+    fun toggleSort() {
+        _state.value = _state.value.copy(newestFirst = !_state.value.newestFirst)
+    }
+
+    /** The bin on a timeline row: the same delete, without opening the sheet first. */
+    fun deleteNoteNow(note: com.alphadental.clinic.data.ClinicalNote) {
+        _state.value = _state.value.copy(editingNote = note)
+        deleteNote()
+    }
+
+    fun deleteRowNow(row: com.alphadental.clinic.next.data.Money) {
+        _state.value = _state.value.copy(editingRow = row)
+        deleteRow()
+    }
+
     private fun loadNotes(who: Who, patientId: String) = viewModelScope.launch {
         val rows = runCatching {
             com.alphadental.clinic.data.Repository.loadClinicalNotes(who.clinicId, patientId)
         }.getOrDefault(emptyList())
         _state.value = _state.value.copy(notes = rows)
+    }
+
+    /**
+     * Read the prescriptions again.
+     *
+     * Called when one has just been written from the sheet that floats over this screen. The two
+     * are separate view models — the sheet does not know this file is behind it — so without this
+     * a script was saved correctly and the Scripts tab went on showing what it showed before,
+     * which is indistinguishable from the save having failed.
+     */
+    fun refreshScripts() {
+        val who = _state.value.who ?: return
+        val patientId = _state.value.record?.person?.id ?: return
+        loadScripts(who, patientId)
     }
 
     private fun loadScripts(who: Who, patientId: String) = viewModelScope.launch {
@@ -372,10 +681,14 @@ class RecordModel : ViewModel() {
      */
     fun setNoteStatus(noteId: String, status: String) {
         val who = _state.value.who ?: return
+        val patientId = _state.value.record?.person?.id ?: return
         if (!_state.value.canRecord || _state.value.busyNote != null) return
+        // The route reprices whatever it is sent, so the whole note goes back rather than the one
+        // word that changed. A note this screen has not loaded cannot be changed at all.
+        val note = _state.value.notes.firstOrNull { it.id == noteId } ?: return
         _state.value = _state.value.copy(busyNote = noteId, error = null)
         viewModelScope.launch {
-            com.alphadental.clinic.data.Repository.setNoteStatus(who.clinicId, noteId, status)
+            com.alphadental.clinic.data.Repository.setNoteStatus(who.clinicId, patientId, note, status)
                 .onSuccess {
                     _state.value = _state.value.copy(busyNote = null)
                     reload()
@@ -530,6 +843,50 @@ class RecordModel : ViewModel() {
         }
     }
 
+    /**
+     * The receipt for one payment, or the account statement, as a PDF — printed, shared, or
+     * handed to WhatsApp for the staff member to pick the chat. The website's receipt settings
+     * decide what prints; the number was minted when the money was saved.
+     */
+    fun receipt(context: android.content.Context, row: com.alphadental.clinic.next.data.Money, mode: String) {
+        val who = _state.value.who ?: return
+        val record = _state.value.record ?: return
+        if (_state.value.busyScript != null) return
+        _state.value = _state.value.copy(busyScript = row.id, error = null)
+        viewModelScope.launch {
+            val file = runCatching {
+                val clinic = runCatching { com.alphadental.clinic.data.Repository.loadClinicInfo(who.clinicId) }
+                    .getOrDefault(com.alphadental.clinic.data.ClinicInfo())
+                val settings = com.alphadental.clinic.data.ReceiptPdf.loadSettings(who.clinicId)
+                val ledger = record.ledger
+                if (row.isPayment) {
+                    val charge = ledger.firstOrNull { it.id == row.procedureId }
+                    val before = ledger.filter { it.isPayment && it.procedureId == row.procedureId && row.procedureId.isNotBlank() && it.date < row.date }.sumOf { it.amount }
+                    // Where the account stood after this payment: everything up to and including its day.
+                    val upTo = ledger.filter { it.date <= row.date }
+                    val balance = upTo.filter { it.isCharge }.sumOf { it.amount } - upTo.filter { it.isPayment }.sumOf { it.amount }
+                    com.alphadental.clinic.data.ReceiptPdf.writePayment(context, clinic, settings, record.person.name, record.person.phone, row, charge, before, balance)
+                } else {
+                    com.alphadental.clinic.data.ReceiptPdf.writeStatement(context, clinic, settings, record.person.name, record.person.phone, ledger)
+                }
+            }.getOrNull()
+            _state.value = _state.value.copy(busyScript = null, error = if (file == null) "The receipt could not be drawn." else null)
+            if (file == null) return@launch
+            val subject = if (row.isPayment) "Receipt ${row.receiptNumber}".trim() else "Account statement"
+            when (mode) {
+                "print" -> com.alphadental.clinic.ui.DocumentActions.print(context, file, subject)
+                "whatsapp" -> com.alphadental.clinic.ui.DocumentActions.shareToWhatsapp(context, file, subject)
+                else -> com.alphadental.clinic.ui.DocumentActions.share(context, file, subject)
+            }
+        }
+    }
+
+    /** The whole account as one PDF. */
+    fun statement(context: android.content.Context, mode: String) {
+        val any = _state.value.record?.ledger?.firstOrNull { it.isCharge } ?: _state.value.record?.ledger?.firstOrNull() ?: return
+        receipt(context, any.copy(type = "procedure"), mode)
+    }
+
     fun printScript(context: android.content.Context, script: com.alphadental.clinic.data.Prescription) =
         withPdf(context, script) { com.alphadental.clinic.ui.DocumentActions.print(context, it, "Prescription") }
 
@@ -637,6 +994,38 @@ class RecordModel : ViewModel() {
 
     fun view(url: String?) {
         _state.value = _state.value.copy(viewing = url)
+    }
+
+    /** The picture on screen, to the recycle bin. The file stays in storage until the bin is emptied. */
+    fun deleteViewing() {
+        val who = _state.value.who ?: return
+        val record = _state.value.record ?: return
+        val url = _state.value.viewing ?: return
+        val media = _state.value.media.firstOrNull { it.url == url } ?: return
+        if (!_state.value.canEditDetails) return
+        _state.value = _state.value.copy(viewing = null, mediaError = null)
+        viewModelScope.launch {
+            com.alphadental.clinic.data.RecycleBin.delete(who.clinicId, "patient_media", media.id)
+                .onSuccess { loadMedia(who, record.person.id) }
+                .onFailure { e -> _state.value = _state.value.copy(mediaError = e.message ?: "That picture could not be removed.") }
+        }
+    }
+
+    /**
+     * The whole file, to the recycle bin. The website's route bins the patient and carries the
+     * ledger and notes with it; thirty days to put it back. Refused when money is owed — the route
+     * says so and the sheet shows it.
+     */
+    fun deletePatient(onDone: () -> Unit) {
+        val who = _state.value.who ?: return
+        val record = _state.value.record ?: return
+        if (!_state.value.canDeletePatient) return
+        _state.value = _state.value.copy(error = null)
+        viewModelScope.launch {
+            com.alphadental.clinic.data.RecycleBin.delete(who.clinicId, "patients", record.person.id)
+                .onSuccess { onDone() }
+                .onFailure { e -> _state.value = _state.value.copy(error = e.message ?: "The file could not be removed.") }
+        }
     }
 
     /**

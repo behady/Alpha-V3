@@ -39,13 +39,26 @@ function pcmToWav(pcm, sampleRate, channels = 1, bits = 16) {
 }
 
 /** Pulls the narration column out of the script's markdown table, in order. */
-function readLines(scriptPath) {
-  const md = fs.readFileSync(scriptPath, "utf8");
+function readLines(scriptPath, section) {
+  let md = fs.readFileSync(scriptPath, "utf8");
+  /**
+   * `--section <slug>` narrows a long document to one part: the walkthrough keeps its parts as
+   * tables under `## slug` headings in one file, so it reads as one script and rebuilds one part
+   * at a time.
+   */
+  if (section) {
+    const heading = "## " + section;
+    const all = md.split(/\r?\n/);
+    const start = all.findIndex((l) => l.trim() === heading);
+    if (start === -1) throw new Error(`No "${heading}" heading in ${scriptPath}`);
+    let stop = all.findIndex((l, i) => i > start && l.startsWith("## "));
+    if (stop === -1) stop = all.length;
+    md = all.slice(start, stop).join(String.fromCharCode(10));
+  }
   const rows = [];
   for (const line of md.split(/\r?\n/)) {
     if (!line.startsWith("|")) continue;
     const cells = line.split("|").map((c) => c.trim());
-    // | n | time | screen | narration |  ->  ["", n, time, screen, narration, ""]
     // | n | time | screen | narration (EN) | subtitle (AR) |  ->  7 cells with the empty ends
     if (cells.length < 7) continue;
     if (!/^\d+$/.test(cells[1])) continue;
@@ -107,7 +120,8 @@ async function main() {
   if (!key) throw new Error("GEMINI_API_KEY missing from .env.local");
 
   fs.mkdirSync(outDir, { recursive: true });
-  const rows = readLines(scriptPath).filter((r) => only === null || r.n === only);
+  const section = args.includes("--section") ? args[args.indexOf("--section") + 1] : null;
+  const rows = readLines(scriptPath, section).filter((r) => only === null || r.n === only);
   console.log(`Voice: ${voice} — ${rows.length} line(s)`);
 
   const timings = [];

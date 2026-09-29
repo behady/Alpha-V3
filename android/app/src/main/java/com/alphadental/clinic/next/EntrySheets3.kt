@@ -2,6 +2,8 @@ package com.alphadental.clinic.next
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Surface
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -40,6 +42,10 @@ fun VisitSheet(
     onMove: (Stage) -> Unit,
     onOpenFile: () -> Unit,
     onReschedule: () -> Unit,
+    /** Open the patient's file with the treatment sheet already up. */
+    onRecordTreatment: () -> Unit,
+    /** Open the patient's file with the payment sheet already up. */
+    onTakePayment: () -> Unit,
     onCall: (String) -> Unit,
     onMessage: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -119,6 +125,30 @@ fun VisitSheet(
         Spacer(Modifier.height(6.dp))
         Rule()
 
+        /*
+         * What the website's appointment panel does, done the phone's way.
+         *
+         * The panel bills a treatment and takes a payment inline, in the appointment. Doing that
+         * here would mean a second treatment form and a second payment form, kept in step with the
+         * two on the patient's file by hand — and those two already know the patient's outstanding
+         * charges, which is the half that decides what a payment is allowed to settle.
+         *
+         * So these open the real ones, on the right patient, with the sheet already up. One tap,
+         * same forms, nothing to keep in step.
+         */
+        if (state.canRecordTreatment) {
+            SheetAction(
+                "Record a treatment",
+                "Writes the note and its charge on this patient",
+                onRecordTreatment,
+            )
+            Rule()
+        }
+        if (state.canTakePayment) {
+            SheetAction("Take a payment", "Against a treatment, or on account", onTakePayment)
+            Rule()
+        }
+
         SheetAction("Open the patient's file", "Notes, chart, ledger", onOpenFile)
         if (state.canEdit) {
             Rule()
@@ -164,16 +194,56 @@ fun PatientActionsSheet(
     onPlan: (() -> Unit)?,
     onBook: (() -> Unit)?,
     onOrtho: (() -> Unit)? = null,
+    /** The whole file to the recycle bin. Null when this account may not. */
+    onDelete: (() -> Unit)? = null,
+    deleteError: String? = null,
+    /** Whether the clinic may message this patient automatically. Null hides the switches. */
+    whatsappOn: Boolean? = null,
+    smsOn: Boolean? = null,
+    savingMessaging: Boolean = false,
+    messagingError: String? = null,
+    onMessaging: ((Boolean, Boolean) -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
     Sheet(
         title = "More",
         caption = patientName,
+        error = messagingError,
         action = "Close",
         ready = true,
         onAction = onDismiss,
         onDismiss = onDismiss,
     ) {
+        /*
+         * Whether this patient gets messaged at all.
+         *
+         * The two fields every reminder, receipt and bot reply check before sending, on both
+         * surfaces — the same ones a patient's own "stop" reply sets. Here so a receptionist who
+         * has just been asked, in person, not to be texted can honour it without a laptop.
+         */
+        if (whatsappOn != null && smsOn != null) {
+            Txt("Messages to this patient", Type.eyebrow, T.inkFaint, Modifier.padding(start = T.gutter, end = T.gutter, top = 14.dp), uppercase = true)
+            MessagingRow(
+                label = "WhatsApp",
+                hint = if (whatsappOn) "Reminders, receipts and the bot may message them" else "Nothing automatic goes to them on WhatsApp",
+                on = whatsappOn,
+                enabled = onMessaging != null && !savingMessaging,
+            ) { onMessaging?.invoke(it, smsOn) }
+            MessagingRow(
+                label = "SMS",
+                hint = if (smsOn) "Text reminders may be sent" else "No text messages",
+                on = smsOn,
+                enabled = onMessaging != null && !savingMessaging,
+            ) { onMessaging?.invoke(whatsappOn, it) }
+            if (onMessaging == null) {
+                Txt(
+                    "Changing this needs the patients tick-box under Settings → The team.",
+                    Type.caption, T.inkFaint, Modifier.padding(horizontal = T.gutter, vertical = 6.dp), maxLines = 2,
+                )
+            }
+            Rule()
+        }
+
         onPrescribe?.let {
             SheetAction("Write a prescription", "From the clinic's drug list", it)
             Rule()
@@ -190,7 +260,16 @@ fun PatientActionsSheet(
             SheetAction("Start orthodontic treatment", "Puts them on the ortho board", it)
             Rule()
         }
-        if (onPrescribe == null && onPlan == null && onBook == null && onOrtho == null) {
+        onDelete?.let { remove ->
+            var armed by remember(patientName) { mutableStateOf(false) }
+            SheetAction(
+                if (armed) "Tap again to remove the file" else "Remove this patient",
+                if (armed) "The file, its treatments and its money go to Recently deleted for thirty days." else "To Recently deleted, where it can be put back",
+            ) { if (armed) remove() else armed = true }
+            if (deleteError != null) Txt(deleteError, Type.caption, T.danger, Modifier.padding(horizontal = T.gutter, vertical = 6.dp), maxLines = 3)
+            Rule()
+        }
+        if (onPrescribe == null && onPlan == null && onBook == null && onOrtho == null && onDelete == null) {
             Txt(
                 "This account has nothing else it can do on a patient's file.",
                 Type.caption, T.inkMuted,
@@ -200,3 +279,32 @@ fun PatientActionsSheet(
         }
     }
 }
+
+@Composable
+private fun MessagingRow(label: String, hint: String, on: Boolean, enabled: Boolean, onToggle: (Boolean) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled) { onToggle(!on) }
+            .padding(horizontal = T.gutter, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Txt(label, Type.rowName, T.ink)
+            Txt(hint, Type.caption, T.inkMuted, maxLines = 2)
+        }
+        Spacer(Modifier.width(10.dp))
+        Surface(
+            shape = T.pill,
+            color = if (on) T.slab else T.surface,
+            border = if (on) null else androidx.compose.foundation.BorderStroke(1.dp, T.line),
+        ) {
+            Txt(
+                if (on) "On" else "Off", Type.label.copy(fontSize = 12.sp),
+                if (on) T.onSlab else T.inkMuted,
+                Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            )
+        }
+    }
+}
+

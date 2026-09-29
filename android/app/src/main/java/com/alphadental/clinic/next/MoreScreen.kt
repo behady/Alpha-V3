@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Groups
@@ -37,6 +38,11 @@ import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.material.icons.filled.Business
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -70,8 +76,12 @@ fun MoreScreen(
     onOpen: (Destination) -> Unit,
     onSignOut: () -> Unit,
     onRetry: () -> Unit = {},
+    onSwitchClinic: (String) -> Unit = {},
+    /** The person's own choice of what to show here, over and above what they are allowed. */
+    shows: (Destination) -> Boolean = { true },
 ) {
     val who = state.who
+    var picking by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize().background(T.ground)) {
 
@@ -86,6 +96,80 @@ fun MoreScreen(
             }
         }
 
+        /*
+         * Which clinic this phone is in.
+         *
+         * Shown whether or not it can be changed, because the question it answers is "why am I
+         * looking at somebody else's diary" — and that question cannot be asked at all by someone
+         * who has no way of seeing the answer.
+         */
+        if (who != null) {
+            Rule()
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .then(if (state.canSwitch) Modifier.clickable { picking = true } else Modifier)
+                    .padding(horizontal = T.gutter, vertical = 13.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Filled.Business, null, tint = T.inkFaint, modifier = Modifier.size(15.dp))
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Txt(
+                        state.clinicName.ifBlank { "Reading the clinic…" },
+                        Type.rowName, T.ink, maxLines = 2,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Txt(
+                        when {
+                            state.switching -> "Switching…"
+                            state.canSwitch -> "Tap to work at another clinic"
+                            state.clinics.size == 1 -> "The only clinic this account works at"
+                            else -> "This account's clinic"
+                        },
+                        Type.caption, T.inkMuted, maxLines = 2,
+                    )
+                }
+                if (state.canSwitch) {
+                    Txt("Change", Type.label.copy(fontSize = 12.sp), T.accentInk)
+                }
+            }
+        }
+
+        if (picking) {
+            Sheet(
+                title = "Which clinic?",
+                caption = "This phone only, and only until you change it again",
+                action = "Close",
+                ready = true,
+                onAction = { picking = false },
+                onDismiss = { picking = false },
+            ) {
+                state.clinics.forEach { membership ->
+                    Rule()
+                    SheetAction(
+                        membership.name,
+                        listOfNotNull(
+                            membership.role.takeIf { it.isNotBlank() },
+                            if (membership.id == who?.clinicId) "you are here" else null,
+                        ).joinToString(" · "),
+                    ) {
+                        picking = false
+                        onSwitchClinic(membership.id)
+                    }
+                }
+                Rule()
+                Txt(
+                    // Said because switching restarts the app, which otherwise reads as a crash.
+                    "Choosing another clinic starts the app again, so nothing is left showing the " +
+                        "one you were in. Your colleagues' phones and the website are not affected.",
+                    Type.caption, T.inkFaint,
+                    Modifier.padding(horizontal = T.gutter, vertical = 12.dp),
+                    maxLines = 3,
+                )
+            }
+        }
+
         // Until the account is read, nothing below it can be drawn honestly: a
         // menu built from permissions nobody has fetched yet is a menu missing
         // half its entries, which reads as the app having lost them.
@@ -94,8 +178,8 @@ fun MoreScreen(
             return
         }
 
-        val tools = Destination.entries.filter { it.area == Area.Tool && it.allowed(who) }
-        val admin = Destination.entries.filter { it.area == Area.Admin && it.allowed(who) }
+        val tools = Destination.entries.filter { it.area == Area.Tool && it.allowed(who) && shows(it) }
+        val admin = Destination.entries.filter { it.area == Area.Admin && it.allowed(who) && shows(it) }
 
         LazyColumn(
             Modifier.fillMaxSize(),
@@ -123,7 +207,7 @@ fun MoreScreen(
             item { SectionLabel("Account") }
             item {
                 RowGroup {
-                    Destination.entries.filter { it.area == Area.Account && it.allowed(who) }
+                    Destination.entries.filter { it.area == Area.Account && it.allowed(who) && shows(it) }
                         .forEach { d ->
                             DestinationRow(d) { onOpen(d) }
                             Rule()
@@ -216,7 +300,7 @@ private fun ToolCell(d: Destination, modifier: Modifier, onOpen: (Destination) -
         Icon(d.icon, null, tint = T.inkFaint, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(11.dp))
         Column(Modifier.weight(1f)) {
-            Txt(d.label, Type.label, T.ink)
+            Txt(if (d == Destination.Language) com.alphadental.clinic.next.data.AppLocale.switchLabel else d.label, Type.label, T.ink)
             if (!d.built) {
                 Spacer(Modifier.height(2.dp))
                 Txt("On the website", Type.chip, T.inkFaint, uppercase = true)
@@ -234,9 +318,13 @@ private fun DestinationRow(d: Destination, onOpen: () -> Unit) {
         Icon(d.icon, null, tint = T.inkFaint, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(13.dp))
         Column(Modifier.weight(1f)) {
-            Txt(d.label, Type.rowName, T.ink)
+            Txt(if (d == Destination.Language) com.alphadental.clinic.next.data.AppLocale.switchLabel else d.label, Type.rowName, T.ink)
             Spacer(Modifier.height(2.dp))
-            Txt(if (d.built) d.caption else "On the website", Type.caption, T.inkMuted, maxLines = 2)
+            Txt(
+                if (d == Destination.Language) "Reports, help and printed dates. The app's own words stay English for now."
+                else if (d.built) d.caption else "On the website",
+                Type.caption, T.inkMuted, maxLines = 2,
+            )
         }
         Icon(
             Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -296,6 +384,9 @@ enum class Destination(
     Settings("Settings", "How the clinic runs", Icons.Filled.Settings, Area.Admin, built = true, permission = "access.settings"),
     // Built, and not a website thing: it flips the app's own language.
     // No permission key: everybody is allowed to read how the thing works.
+    // Everyone's: which home, which tabs, which tools, and one's own profile. No permission,
+    // because the rules already let a person write their own preferences and their own row.
+    MyApp("My app", "Your home screen, your tabs, your profile", Icons.Filled.Tune, Area.Account, built = true),
     Help("Help", "How the system works, article by article", Icons.AutoMirrored.Filled.HelpOutline, Area.Account, built = true),
     Language("العربية", "Change the app's language", Icons.Filled.Language, Area.Account, built = true),
     ;

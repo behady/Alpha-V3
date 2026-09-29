@@ -34,6 +34,7 @@ import {
   pickChair, sortDay, waitingMinutes, type DentistIdentity, type Row,
 } from "@/lib/dentistHome";
 import PageHeader from "@/components/dashboard/PageHeader";
+import HomeViewTabs from "@/components/dashboard/HomeViewTabs";
 
 /**
  * What a dentist sees on sign-in, instead of the reception desk.
@@ -307,7 +308,7 @@ export default function DentistHome() {
       await fetch("/api/whatsapp/owner-alert", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ alertKey, message }),
+        body: JSON.stringify({ alertKey, message, clinicId }),
       });
     } catch (e) {
       console.warn("Owner WhatsApp alert", e);
@@ -379,7 +380,10 @@ export default function DentistHome() {
         <PageHeader
           title={<><span className="font-light">{greeting}</span> {isAr ? `د. ${firstName}` : `Dr. ${firstName}`}</>}
           subtitle={`${dateLine} · ${timeLine}${branches.length > 0 && activeBranch ? ` · ${activeBranch.name}` : ""}`}
-        />
+        >
+          {/* Renders nothing for a plain dentist — this screen is simply their home. */}
+          <HomeViewTabs />
+        </PageHeader>
 
         <div className="flex flex-wrap items-end justify-end gap-4 px-1">
           <div className="flex items-stretch bg-surface border border-line rounded-2xl shadow-sm px-1.5 py-2.5">

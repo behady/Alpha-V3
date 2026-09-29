@@ -148,10 +148,27 @@ object ClinicSource {
             val roles = (snap.get("clinicRoles") as? Map<String, String>).orEmpty()
             if (roles.isEmpty()) error("This account is not linked to any clinic.")
 
-            val preferred = snap.getString("defaultClinicId")?.takeIf { roles.containsKey(it) }
-            val candidates = listOfNotNull(preferred) + roles.keys
+            /*
+             * In order: what this person chose ON THIS PHONE, then the website's stored default,
+             * then whatever the roles map happens to list first.
+             *
+             * The last of those three was doing all the work, and a map has no order worth
+             * relying on — so an account holding roles at two clinics opened inside one of them
+             * for no reason anybody could see, permanently, with no switch anywhere in the app.
+             *
+             * Each is checked against `clinicRoles` first, because a remembered or stored id can
+             * outlive the role that made it legitimate; and then against the clinic actually
+             * existing, because deleting a clinic does not tidy the maps on the accounts that
+             * belonged to it, and opening a dead id makes every read come back empty — which
+             * looks exactly like a permissions fault and costs a day to diagnose.
+             */
+            val chosen = ClinicChoice.preferred(user.uid)?.takeIf { roles.containsKey(it) }
+            val default = snap.getString("defaultClinicId")?.takeIf { roles.containsKey(it) }
+            val candidates = listOfNotNull(chosen, default) + roles.keys
             val clinicId = candidates.distinct().firstOrNull { clinic(it).get().await().exists() }
                 ?: error("The clinic linked to this account no longer exists.")
+            // A choice that no longer resolves is dropped rather than retried on every sign-in.
+            if (chosen != null && chosen != clinicId) ClinicChoice.forget(user.uid)
 
             // A platform super admin is an Admin everywhere — that is how the
             // website has always read it. The phone once did not read it at all,
@@ -185,6 +202,42 @@ object ClinicSource {
                 permissions = granted?.mapNotNull { it as? String }?.toSet().orEmpty(),
             )
         }
+    }
+
+    /** One clinic this account works at, named well enough to choose between. */
+    data class Membership(val id: String, val name: String, val role: String, val current: Boolean)
+
+    /**
+     * Every clinic this account holds a role at.
+     *
+     * Named from the clinic document first and its profile second, because the two disagree
+     * surprisingly often — the document's name is what the platform calls it and the profile's is
+     * what the clinic renamed itself to. A clinic in the roles map that no longer exists is left
+     * out entirely rather than listed as a dead entry somebody would try to switch into.
+     */
+    suspend fun myClinics(): List<Membership> = withContext(Dispatchers.IO) {
+        runCatching {
+            val user = auth.currentUser ?: return@runCatching emptyList()
+            val snap = db.collection("users").document(user.uid).get().await()
+
+            @Suppress("UNCHECKED_CAST")
+            val roles = (snap.get("clinicRoles") as? Map<String, String>).orEmpty()
+            val active = signedIn().getOrNull()?.clinicId
+
+            roles.entries.mapNotNull { (id, role) ->
+                val doc = runCatching { clinic(id).get().await() }.getOrNull()
+                if (doc == null || !doc.exists()) return@mapNotNull null
+                val named = doc.getString("name").orEmpty().ifBlank {
+                    runCatching { clinicProfile(id).name }.getOrNull().orEmpty()
+                }
+                Membership(
+                    id = id,
+                    name = named.ifBlank { "Unnamed clinic" },
+                    role = role,
+                    current = id == active,
+                )
+            }.sortedBy { it.name.lowercase() }
+        }.getOrDefault(emptyList())
     }
 
     /** The clinic's own name, for the slab. Read once — it changes about once a lifetime. */
@@ -222,6 +275,17 @@ object ClinicSource {
      * here rather than in the query because the stored time is a display string
      * ("09:30 AM") that Firestore cannot order correctly.
      */
+    /** Every visit in a run of days, once. The week grid and the month calendar read this. */
+    suspend fun visitsBetween(clinicId: String, fromKey: String, toKey: String): List<Visit> =
+        withContext(Dispatchers.IO) {
+            clinic(clinicId).collection("appointments")
+                .whereGreaterThanOrEqualTo("date", fromKey)
+                .whereLessThanOrEqualTo("date", toKey)
+                .get().await()
+                .documents.map { it.toVisit() }
+                .sortedWith(compareBy({ it.date }, { it.minuteOfDay }, { it.patientName }))
+        }
+
     fun watchDay(clinicId: String, dateKey: String): Flow<List<Visit>> = callbackFlow {
         val reg: ListenerRegistration = clinic(clinicId)
             .collection("appointments")
@@ -417,6 +481,16 @@ object ClinicSource {
                         amount = value,
                         method = d.text("method"),
                         doctor = d.text("doctorName").ifBlank { d.text("doctor") },
+                        commission = d.number("doctorCommissionAmount") ?: 0.0,
+                        labFee = d.number("labFee") ?: 0.0,
+                        discount = d.number("discountAmount") ?: 0.0,
+                        by = d.text("addedBy"),
+                        procedureId = d.text("procedureId"),
+                        doctorId = d.text("doctorId"),
+                        patientName = d.text("patientName"),
+                        patientId = d.text("patientId"),
+                        receiptNumber = d.text("receiptNumber"),
+                        listPrice = d.number("listPrice") ?: 0.0,
                     )
                 }
 
@@ -432,6 +506,8 @@ object ClinicSource {
                     allergies = snap.text("allergies"),
                     medicalHistory = snap.text("medicalHistory"),
                     address = snap.text("address"),
+                    whatsappOptOut = snap.getBoolean("whatsappOptOut") == true,
+                    smsOptOut = snap.getBoolean("smsOptOut"),
                     balance = Balance(charged, paid),
                     upcoming = visits.filter { it.date >= today && !it.status.isFinished }
                         .sortedWith(compareBy({ it.date }, { it.minuteOfDay })),
@@ -543,11 +619,85 @@ object ClinicSource {
                     commission = d.number("doctorCommissionAmount") ?: 0.0,
                     labFee = d.number("labFee") ?: 0.0,
                     discount = d.number("discountAmount") ?: 0.0,
+                    by = d.text("addedBy"),
+                    procedureId = d.text("procedureId"),
+                    doctorId = d.text("doctorId"),
+                    patientName = d.text("patientName"),
+                    patientId = d.text("patientId"),
+                    receiptNumber = d.text("receiptNumber"),
+                    listPrice = d.number("listPrice") ?: 0.0,
                 )
             }.sortedByDescending { it.date }
         }
 
     // ---------------------------------------------------------------- writes
+
+    /**
+     * Claim, release, or take over a thread — the website's one-click rule. Taking a colleague's
+     * thread asks nothing: the common case is "she went to lunch".
+     */
+    suspend fun assignThread(clinicId: String, threadId: String, who: Who?, mine: Boolean): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            clinic(clinicId).collection("whatsapp_conversations").document(threadId).update(
+                if (mine || who == null) mapOf("assignedTo" to null, "assignedName" to null, "assignedAtMs" to System.currentTimeMillis())
+                else mapOf("assignedTo" to who.uid, "assignedName" to who.name, "assignedAtMs" to System.currentTimeMillis()),
+            ).await()
+            Unit
+        }
+    }
+
+    /**
+     * The bot switch. Pausing sets the flag; handing back clears every hold at once — the pause,
+     * an open hand-off, and the hour a reply claims — so "the bot is answering again" means that.
+     */
+    suspend fun setBotQuiet(clinicId: String, threadId: String, uid: String, quiet: Boolean): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            clinic(clinicId).collection("whatsapp_conversations").document(threadId).update(
+                if (quiet) mapOf("botPaused" to true, "botPausedBy" to uid, "botPausedAtMs" to System.currentTimeMillis())
+                else mapOf("botPaused" to false, "needsHuman" to false, "handledAtMs" to System.currentTimeMillis(), "handledBy" to uid, "humanActiveAtMs" to 0L),
+            ).await()
+            Unit
+        }
+    }
+
+    /** The desk's labels: eight at most, lower-case, as the website writes them. */
+    suspend fun setThreadTags(clinicId: String, threadId: String, tags: List<String>): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            clinic(clinicId).collection("whatsapp_conversations").document(threadId)
+                .update("tags", tags.map { it.trim().lowercase().take(24) }.filter { it.isNotBlank() }.distinct().take(8)).await()
+            Unit
+        }
+    }
+
+    /**
+     * A thumb on a bot bubble, to `bot_feedback` with the patient's question beside it — the same
+     * row the website writes, so the Bot tab's "asked X, bot said Y, staff said wrong" reads both.
+     * The same thumb twice withdraws it.
+     */
+    suspend fun rateBotLine(clinicId: String, threadId: String, line: Line, question: String, verdict: String, who: Who, withdraw: Boolean): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val ref = clinic(clinicId).collection("bot_feedback").document("${threadId}_${line.id}".replace(Regex("[^A-Za-z0-9_-]"), ""))
+            if (withdraw) ref.delete().await()
+            else ref.set(
+                mapOf(
+                    "chatKey" to threadId, "messageId" to line.id, "verdict" to verdict, "reason" to null,
+                    "text" to line.text.take(600), "kind" to line.kind.ifBlank { null }, "question" to question.take(400).ifBlank { null },
+                    "uid" to who.uid, "name" to who.name.ifBlank { who.email }, "atMs" to System.currentTimeMillis(),
+                ),
+            ).await()
+            Unit
+        }
+    }
+
+    /** The thumbs already given on this thread, line id → "up" / "down". */
+    fun watchFeedback(clinicId: String, threadId: String): Flow<Map<String, String>> = callbackFlow {
+        val reg = clinic(clinicId).collection("bot_feedback").whereEqualTo("chatKey", threadId)
+            .addSnapshotListener { snap, err ->
+                if (err != null) { close(err); return@addSnapshotListener }
+                trySend(snap?.documents.orEmpty().associate { it.getString("messageId").orEmpty() to it.getString("verdict").orEmpty() })
+            }
+        awaitClose { reg.remove() }
+    }
 
     /** Move a visit on. The only write the dashboard performs. */
     suspend fun setStage(clinicId: String, visitId: String, stage: Stage): Result<Unit> =

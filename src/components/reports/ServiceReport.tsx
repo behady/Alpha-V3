@@ -1,17 +1,20 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import {
-  PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
-} from "recharts";
-import { Download, FileBarChart, Stethoscope, FileSpreadsheet } from "lucide-react";
-import { exportToExcel, CHART_COLORS, parseMoney } from "./reportExcelUtils";
+import { Fragment, useMemo, useRef, useState } from "react";
+
+import { ChevronDown, ChevronRight, Download, FileBarChart, Stethoscope, FileSpreadsheet } from "lucide-react";
+import { exportToExcel, parseMoney } from "./reportExcelUtils";
 import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
 import { ledgerCashValue } from "@/lib/reportHelpers";
 import { useUI } from "@/context/UIContext";
 import { attributeService, buildProcedureIndex, type AttributableRow } from "@/lib/serviceAttribution";
+import { Bars, ChartFrame, Figure, INK, MARK } from "@/components/reports/chartKit";
+import PatientDrilldown from "@/components/reports/PatientDrilldown";
+import { partitionRows, rollupPatients, type ReportPatient } from "@/lib/reportPatients";
 
 interface ServiceStat {
+  /** The grouping key — catalogue id or normalised label — so a row can find its own patients. */
+  key: string;
   name: string;
   count: number;
   income: number;
@@ -23,24 +26,33 @@ interface ServiceStat {
 interface Props {
   procedures: Record<string, unknown>[];
   payments?: Record<string, unknown>[];
+  allPatients?: ReportPatient[];
   rangeLabel: string;
   isAr: boolean;
 }
 
-export default function ServiceReport({ procedures, payments, rangeLabel, isAr }: Props) {
+export default function ServiceReport({ procedures, payments, allPatients, rangeLabel, isAr }: Props) {
   const { showToast } = useUI();
   const chartRef = useRef<HTMLDivElement>(null);
   const [exporting, setExporting] = useState(false);
+  /** Which service row is open to its patients. One at a time: the table is a summary first. */
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const patientMap = useMemo(() => {
+    const m: Record<string, ReportPatient> = {};
+    (allPatients || []).forEach((p) => { if (p.id) m[p.id] = p; });
+    return m;
+  }, [allPatients]);
 
   const stats: ServiceStat[] = useMemo(() => {
-    const map: Record<string, { name: string; count: number; income: number; commission: number; labFee: number }> = {};
-    
+    const map: Record<string, { key: string; name: string; count: number; income: number; commission: number; labFee: number }> = {};
+
     // Grouped on the catalogue id when the row carries one — see lib/serviceAttribution for why
     // reading the description was never a safe way to answer "how much did crowns earn".
     const procedureIndex = buildProcedureIndex(procedures);
     const bucket = (row: AttributableRow) => {
       const { key, name } = attributeService(row, procedureIndex);
-      if (!map[key]) map[key] = { name, count: 0, income: 0, commission: 0, labFee: 0 };
+      if (!map[key]) map[key] = { key, name, count: 0, income: 0, commission: 0, labFee: 0 };
       return map[key];
     };
 
@@ -61,6 +73,7 @@ export default function ServiceReport({ procedures, payments, rangeLabel, isAr }
 
     return Object.values(map)
       .map((d) => ({
+        key: d.key,
         name: d.name,
         count: d.count,
         income: d.income,
@@ -70,6 +83,24 @@ export default function ServiceReport({ procedures, payments, rangeLabel, isAr }
       }))
       .sort((a, b) => b.income - a.income);
   }, [procedures, payments]);
+
+  /**
+   * The people behind each service row, grouped by the SAME key the figures use, so the drawer
+   * under "Crown · 4" lists the four crown patients and nobody else.
+   */
+  const patientsByService = useMemo(() => {
+    const procedureIndex = buildProcedureIndex(procedures);
+    return partitionRows(procedures, payments || [], (row) => attributeService(row, procedureIndex).key);
+  }, [procedures, payments]);
+
+  const expandedPatients = useMemo(() => {
+    if (!expanded) return [];
+    const group = patientsByService.get(expanded);
+    if (!group) return [];
+    return rollupPatients(group.procedures, group.payments, patientMap, {
+      unknownName: isAr ? "بدون اسم" : "Unknown",
+    });
+  }, [expanded, patientsByService, patientMap, isAr]);
 
   const totalCount = stats.reduce((s, r) => s + r.count, 0);
   const totalIncome = stats.reduce((s, r) => s + r.income, 0);
@@ -210,50 +241,47 @@ export default function ServiceReport({ procedures, payments, rangeLabel, isAr }
 
   return (
     <div className="space-y-6">
-      {/* KPI Strip */}
+      {/*
+        The figures, in one ink and in the figures font.
+        A strip of four numbers coloured blue, green, amber and black told the reader that three of
+        them were categories of something — which they are not; they are one sum broken into parts.
+        Colour is kept for the one thing it means here: money going the wrong way.
+      */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          { label: isAr ? "إجمالي الإجراءات" : "Total Services", value: totalCount.toString(), color: "text-blue-600" },
-          { label: isAr ? "إجمالي الدخل" : "Total Income", value: `${totalIncome.toLocaleString()} EGP`, color: "text-emerald-600" },
-          { label: isAr ? "العمولات" : "Commissions", value: `(${totalCommission.toLocaleString()}) EGP`, color: "text-amber-600" },
-          { label: isAr ? "صافي الدخل" : "Net Income", value: `${totalNet.toLocaleString()} EGP`, color: "text-ink" },
+          { label: isAr ? "إجمالي الإجراءات" : "Total Services", value: totalCount.toString() },
+          { label: isAr ? "إجمالي الدخل" : "Total Income", value: `${totalIncome.toLocaleString()} EGP` },
+          { label: isAr ? "العمولات" : "Commissions", value: `(${totalCommission.toLocaleString()}) EGP`, tone: "muted" as const },
+          { label: isAr ? "صافي الدخل" : "Net Income", value: `${totalNet.toLocaleString()} EGP` },
         ].map((k) => (
-          <div key={k.label} className="bg-surface border border-line shadow-sm rounded-2xl p-4 flex flex-col gap-1">
-            <p className="text-[10px] font-black text-ink-muted uppercase tracking-wider">{k.label}</p>
-            <p className={`text-xl font-black tabular-nums ${k.color}`}>{k.value}</p>
+          <div key={k.label} className="bg-surface border border-line shadow-sm rounded-2xl p-4">
+            <Figure value={k.value} label={k.label} tone={k.tone} />
           </div>
         ))}
       </div>
 
       {/* Chart + Table */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-        {/* Pie Chart */}
-        <div className="xl:col-span-5 bg-surface rounded-2xl border border-line p-5 shadow-sm">
-          <h3 className="text-sm font-black text-ink mb-4">
-            {isAr ? "توزيع الدخل حسب الخدمة" : "Income by Service"}
-          </h3>
-          <div ref={chartRef}>
-            <ResponsiveContainer width="100%" height={260}>
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={65}
-                  outerRadius={95}
-                  paddingAngle={4}
-                  cornerRadius={8}
-                  stroke="none"
-                  dataKey="value"
-                >
-                  {pieData.map((_, i) => (
-                    <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(v) => [`${Number(v || 0).toLocaleString()} EGP`, isAr ? "الدخل" : "Income"]} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
+        {/*
+          Eight coloured slices and a colour-matching exercise, replaced by eight labelled bars.
+          A treatment name sits against its own bar, which also means a long Arabic name is read
+          rather than truncated into a legend.
+        */}
+        <div className="xl:col-span-5" ref={chartRef}>
+          <ChartFrame
+            title={isAr ? "الدخل حسب الخدمة" : "Income by service"}
+            note={isAr ? "أعلى ٨ خدمات في الفترة." : "The eight biggest earners in this period."}
+          >
+            <Bars
+              rows={pieData.map((d, i) => ({
+                label: d.name,
+                value: d.value,
+                text: `${d.value.toLocaleString()} ${isAr ? "ج.م" : "EGP"}`,
+                // One mark, on the biggest — the row the chart exists to point at.
+                color: i === 0 ? MARK : INK,
+              }))}
+            />
+          </ChartFrame>
         </div>
 
         {/* Table */}
@@ -264,7 +292,7 @@ export default function ServiceReport({ procedures, payments, rangeLabel, isAr }
             <button
               data-tour="reports-export-pdf" onClick={handlePdfExport}
               disabled={exporting}
-              className="px-4 py-2 bg-slate-800 text-ink-on-accent text-sm font-bold rounded-xl hover:bg-accent transition-colors flex items-center gap-2 disabled:opacity-50"
+              className="px-4 py-2 bg-ink-slab text-white text-sm font-bold rounded-xl hover:bg-ink-strong transition-colors flex items-center gap-2 disabled:opacity-50"
             >
               <Download size={16} />
               {exporting ? (isAr ? "جاري التصدير..." : "Exporting...") : "PDF"}
@@ -291,22 +319,45 @@ export default function ServiceReport({ procedures, payments, rangeLabel, isAr }
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {stats.map((s, i) => (
-                  <tr key={i} className="hover:bg-surface-subtle transition-colors">
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
-                        <span className="font-semibold text-slate-800 text-xs">{s.name}</span>
-                      </div>
-                    </td>
-                    <td className="py-3 px-3 text-center">
-                      <span className="inline-flex items-center justify-center w-6 h-6 rounded-lg bg-blue-50 text-blue-700 text-[11px] font-black">{s.count}</span>
-                    </td>
-                    <td className="py-3 px-4 text-end font-bold text-emerald-600 tabular-nums text-xs">{s.income.toLocaleString()}</td>
-                    <td className="py-3 px-4 text-end text-amber-600 tabular-nums text-xs">({s.commission.toLocaleString()})</td>
-                    <td className="py-3 px-4 text-end font-black text-ink tabular-nums text-xs">{s.netIncome.toLocaleString()}</td>
-                  </tr>
-                ))}
+                {/* Each row opens to the patients it counts. The row is the button; the chevron
+                    only says so. */}
+                {stats.map((s) => {
+                  const isOpen = expanded === s.key;
+                  return (
+                    <Fragment key={s.key}>
+                      <tr
+                        onClick={() => setExpanded(isOpen ? null : s.key)}
+                        aria-expanded={isOpen}
+                        className={`cursor-pointer transition-colors ${isOpen ? "bg-surface-subtle" : "hover:bg-surface-subtle"}`}
+                      >
+                        <td className="py-3 px-4">
+                          <span className="flex items-center gap-1.5 font-semibold text-slate-800 text-xs">
+                            {isOpen ? <ChevronDown size={13} className="shrink-0 text-ink-faint" /> : <ChevronRight size={13} className="shrink-0 text-ink-faint rtl:rotate-180" />}
+                            {s.name}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-center">
+                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-lg bg-blue-50 text-blue-700 text-[11px] font-black">{s.count}</span>
+                        </td>
+                        <td className="py-3 px-4 text-end font-bold text-emerald-600 tabular-nums text-xs">{s.income.toLocaleString()}</td>
+                        <td className="py-3 px-4 text-end text-amber-600 tabular-nums text-xs">({s.commission.toLocaleString()})</td>
+                        <td className="py-3 px-4 text-end font-black text-ink tabular-nums text-xs">{s.netIncome.toLocaleString()}</td>
+                      </tr>
+                      {isOpen && (
+                        <tr className="bg-surface-subtle/60">
+                          <td colSpan={5} className="p-0">
+                            <PatientDrilldown
+                              embedded
+                              rows={expandedPatients}
+                              isAr={isAr}
+                              exportName={`Service_Patients_${s.name.replace(/[^\p{L}\p{N}]+/gu, "_")}`}
+                            />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
               <tfoot>
                 <tr className="bg-ink-strong text-white text-xs font-black">

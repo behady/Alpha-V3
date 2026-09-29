@@ -19,6 +19,7 @@ export const NAVIGABLE_EXACT: readonly string[] = [
   "/",
   "/appointments",
   "/attendance",
+  "/attendance/team",
   "/chats",
   "/finance",
   "/finance/recovery",

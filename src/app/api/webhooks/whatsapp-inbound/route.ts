@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { conversationKey, markConversationOptedOut } from "@/lib/bot/conversation";
@@ -8,16 +8,23 @@ import { findPatientByLid, learnPatientLid, lidChatFromEvent } from "@/lib/whats
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { sendWapilotTyping } from "@/lib/whatsapp";
 import { respondToPatientMessage } from "@/lib/bot/respond";
+import { interceptStaffInbound } from "@/lib/bot/staffLine";
+import { raiseComplaintIfAny } from "@/lib/alerts/complaint";
 import { attachTranscript, recordThreadMessage, updateThreadStatus } from "@/lib/bot/thread";
 import { extractDeliveryAck } from "@/lib/bot/wapilotAck";
 import { transcribeAudioBytes } from "@/lib/bot/transcribe";
 import { describeImageBytes } from "@/lib/bot/describeImage";
 import { extractInboundMedia, fetchInboundMediaBytes } from "@/lib/bot/wapilotMedia";
 import { applyInboundOptOut } from "@/lib/optOutInbound";
+import { confirmOptOut } from "@/lib/bot/optOutConfirm";
 import { reportServerError } from "@/lib/server/reportError";
+import { readStoredAd, type AdReferral } from "@/lib/bot/adReferral";
+import { gradeLeadByPhone } from "@/lib/leads/gradeLeadServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Room for the after() grading call (a short wait plus one model read) once the response is out.
+export const maxDuration = 60;
 
 /**
  * Inbound WhatsApp replies from the gateway, for the one purpose of honouring "STOP".
@@ -275,6 +282,17 @@ export async function POST(request: NextRequest) {
      */
     const parsedBody = obj(body);
     const media = parsedBody ? extractInboundMedia(candidateMessages(parsedBody)) : null;
+    // The ad this chat started from — our own gateway puts it at `_data.ad` on the first message.
+    let ad: AdReferral | undefined;
+    if (parsedBody) {
+      for (const m of candidateMessages(parsedBody)) {
+        const found = readStoredAd(m.ad);
+        if (found) {
+          ad = found;
+          break;
+        }
+      }
+    }
 
     let reply = extractReply(body);
     if (!reply && media && parsedBody) {
@@ -308,6 +326,29 @@ export async function POST(request: NextRequest) {
     }
 
     // Into the chat thread before any decision about answering — received is received.
+    // The clinic's own people are answered on the staff line and kept out of the inbox. Only
+    // possible when the sender's phone is visible; a lid hides it, and that owner stays a stranger.
+    if (
+      phone &&
+      (await interceptStaffInbound({
+        clinicId,
+        phone,
+        text: reply.text,
+        media: media?.kind,
+        transcribe:
+          media && media.kind === "audio"
+            ? async () => {
+                const got = await fetchInboundMediaBytes(clinicId, media);
+                if (!got.ok) return "";
+                const t = await transcribeAudioBytes(clinicId, got.bytes, got.mime, media.ref);
+                return t.ok ? t.text : "";
+              }
+            : undefined,
+      }))
+    ) {
+      return NextResponse.json({ ok: true, staffLine: true });
+    }
+
     const lineId = await recordThreadMessage(clinicId, chatId, {
       direction: "in",
       author: "patient",
@@ -318,6 +359,7 @@ export async function POST(request: NextRequest) {
       console.warn("[whatsapp-inbound] thread write failed:", e);
       return "";
     });
+    if (reply.text) void raiseComplaintIfAny({ clinicId, phone: phone || chatId, text: reply.text, chatId: conversationKey(chatId) });
 
     // Opt-out first, always. A patient asking to be left alone must never be answered by the
     // assistant instead — that is the single most effective way to turn a stop request into a
@@ -330,6 +372,7 @@ export async function POST(request: NextRequest) {
         channel: "whatsapp",
       });
       if (result.status !== "ignored") {
+        if (result.status === "opted_out" || result.status === "unknown_number") await confirmOptOut(clinicId, chatId, reply.text, "wapilot");
         return NextResponse.json({ ok: true, result: result.status });
       }
     } else if (!phone && isOptOutReply(reply.text)) {
@@ -381,7 +424,7 @@ export async function POST(request: NextRequest) {
 
     let text = reply.text;
     let mediaKind = media?.kind as "audio" | "image" | undefined;
-    let mediaNote: { summary: string; urgent: boolean; interest?: string } | undefined;
+    let mediaNote: { summary: string; urgent: boolean; interest?: string; impression?: string; category?: "dental" | "document" | "other" } | undefined;
 
     if (media && !text) {
       const gate = await adminClinicDoc(clinicId, "settings", "whatsapp").get().catch(() => null);
@@ -411,11 +454,11 @@ export async function POST(request: NextRequest) {
           if (d.ok) {
             // The description is for the team, never for the patient: a model's reading of a
             // swelling is exactly the message a clinic must never send.
-            mediaNote = { summary: d.summary, urgent: d.urgent, interest: d.interest || undefined };
+            mediaNote = { summary: d.summary, urgent: d.urgent, interest: d.interest || undefined, impression: d.impression, category: d.category };
             await recordThreadMessage(clinicId, chatId, {
               direction: "in",
               author: "system",
-              text: `🖼️ وصف الصورة (للفريق): ${d.summary}${d.urgent ? " — ⚠️ يبدو عاجل" : ""}`,
+              text: `🖼️ وصف الصورة (للفريق): ${d.summary}${d.urgent ? " — ⚠️ يبدو عاجل" : ""}${d.impression ? `\nقراءة مبدئية: ${d.impression}` : ""}`,
               kind: "image_note",
               channel: "wapilot",
             }).catch(() => {});
@@ -433,7 +476,12 @@ export async function POST(request: NextRequest) {
       text,
       media: mediaKind,
       mediaNote,
+      ad,
     });
+
+    // The lead behind this number, re-graded on what they just said — after the response has
+    // gone back to the gateway, so it never holds the webhook. See lib/leads/gradeLeadServer.
+    if (text.trim() && phone) after(() => gradeLeadByPhone(clinicId, phone, { trigger: "inbound", delayMs: 4000 }));
 
     return NextResponse.json({ ok: true, bot: bot.status, why: bot.reason });
   } catch (error) {

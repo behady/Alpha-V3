@@ -2,6 +2,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicDoc } from "@/lib/adminClinicDb";
 import { phoneMatchKey } from "@/lib/patientPhone";
 import type { BotState } from "./engine";
+import { readStoredAd, type AdReferral } from "./adReferral";
 
 /**
  * What the bot remembers between one message and the next.
@@ -182,6 +183,16 @@ export interface BotConversation {
    * that request can live when there is no patient document to hold it.
    */
   optedOut?: boolean;
+  /**
+   * The ad or post this number first arrived from.
+   *
+   * Written once by `recordAdReferral`, and — like the memory — it outlives the conversation on
+   * purpose: the ad is where this person came from, whichever hour they write back in, and the
+   * report that says which ad brought bookings needs it still there when the booking happens.
+   */
+  ad?: AdReferral;
+  /** When this ad-referred person first wrote something (an ad tap alone opens a chat). */
+  adTypedAt?: number;
 }
 
 /**
@@ -304,6 +315,8 @@ export async function loadConversation(
     windowStartedAt,
     repliesInWindow,
     optedOut: d.optedOut === true,
+    ad: readStoredAd(d.ad) || undefined,
+    adTypedAt: Number(d.adTypedAt) || undefined,
     // Expired options are not carried: a list of "tomorrow's" times from last week books the
     // wrong day if a stray "1" arrives after the chat lapses.
     pendingDays: !expired && Array.isArray(d.pendingDays) ? d.pendingDays.map(String) : undefined,
@@ -495,6 +508,20 @@ export async function markHumanActive(clinicId: string, address: string, uid?: s
       handledAtMs: Date.now(),
       ...(uid ? { handledBy: uid } : {}),
     },
+    { merge: true }
+  );
+}
+
+/**
+ * Record a "not now": the sender declined, politely, for the time being.
+ *
+ * Read by the quiet-nudge function and the lead follow-up job, both of which skip a conversation
+ * that carries it. Kept as a millisecond stamp like `nudgedAtMs`, so the Functions copy can compare
+ * it without a Timestamp import.
+ */
+export async function markConversationDeclined(clinicId: string, address: string): Promise<void> {
+  await ref(clinicId, conversationKey(address)).set(
+    { phone: address, declinedAtMs: Date.now(), updatedAt: FieldValue.serverTimestamp() },
     { merge: true }
   );
 }

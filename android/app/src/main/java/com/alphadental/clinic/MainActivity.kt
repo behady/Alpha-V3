@@ -134,6 +134,12 @@ import com.alphadental.clinic.sms.SmsWorker
 import com.alphadental.clinic.ui.SectionHeading
 import com.alphadental.clinic.ui.SmsSenderCard
 import com.alphadental.clinic.ui.ToolTile
+import com.alphadental.clinic.ui.AlphaRow
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.IntrinsicSize
+import com.alphadental.clinic.ui.RowHairline
+import com.alphadental.clinic.ui.RowGroup
 import com.alphadental.clinic.ui.UpdateBanner
 import com.alphadental.clinic.ui.rememberPunchAction
 
@@ -164,6 +170,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        com.alphadental.clinic.next.data.ClinicChoice.attach(this)
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         takeScreenRequest(intent)
@@ -348,22 +355,14 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                 containerColor = Alpha.Ground,
                 snackbarHost = { SnackbarHost(snackbars) },
                 bottomBar = {
-                    // A floating pill instead of the full-width system bar, with Book as
-                    // the big round button in the middle — the action the clinic performs
-                    // all day sits where a thumb naturally lands. Money left the bar and
-                    // lives as a dashboard shortcut instead, for the roles that see it.
+                    // Five equal destinations in a floating pill, as the website's
+                    // own mobile bar has. Book was the big round button in the
+                    // middle; it is a labelled tool on the dashboard now, where it
+                    // can say "New booking" instead of being a bare plus sign.
                     AlphaBottomBar(
                         current = state.tab,
                         arabic = state.arabic,
-                        // Only for people allowed to write. A button that opens a form
-                        // the server will reject is worse than no button.
-                        // The granted permission, not a guess from the role. An
-                        // Assistant ticked for "Book appointments" could not book,
-                        // because the old test matched "Receptionist" exactly and
-                        // Assistant is a different word for the same desk.
-                        canBook = session.can("appointments.add"),
                         onSelect = viewModel::selectTab,
-                        onBook = { viewModel.openBooking() },
                     )
                 },
             ) { padding ->
@@ -413,6 +412,15 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                                 onDismissUpdate = { viewModel.dismissUpdate(context) },
                                 onOpenLeads = if (session.can("access.marketing")) {
                                     { viewModel.openLeads() }
+                                } else null,
+                                clinicName = state.clinicName,
+                                takingsAverage = state.takingsAverage,
+                                owedTotal = state.owedTotal,
+                                onSetStatus = if (session.can("appointments.edit")) {
+                                    { appointment, next -> viewModel.setStatus(appointment, next) }
+                                } else null,
+                                onBook = if (session.can("appointments.add")) {
+                                    { viewModel.openBooking() }
                                 } else null,
                             )
                         }
@@ -1151,9 +1159,7 @@ private fun SplashScreen() {
 private fun AlphaBottomBar(
     current: Tab,
     arabic: Boolean,
-    canBook: Boolean,
     onSelect: (Tab) -> Unit,
-    onBook: () -> Unit,
 ) {
     Box(
         Modifier
@@ -1177,23 +1183,6 @@ private fun AlphaBottomBar(
             ) {
                 NavItem(Icons.Filled.Home, if (arabic) "الرئيسية" else "Home", current == Tab.HOME) { onSelect(Tab.HOME) }
                 NavItem(Icons.Filled.CalendarMonth, if (arabic) "اليوم" else "Day", current == Tab.DAY) { onSelect(Tab.DAY) }
-                if (canBook) {
-                    Box(
-                        Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
-                            .background(Color.White)
-                            .clickable(onClick = onBook),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            Icons.Filled.Add,
-                            contentDescription = if (arabic) "حجز" else "Book",
-                            tint = Alpha.Slab,
-                            modifier = Modifier.size(24.dp),
-                        )
-                    }
-                }
                 NavItem(Icons.Filled.People, if (arabic) "المرضى" else "Patients", current == Tab.PATIENTS) { onSelect(Tab.PATIENTS) }
                 NavItem(Icons.Filled.MoreHoriz, if (arabic) "المزيد" else "More", current == Tab.MORE) { onSelect(Tab.MORE) }
             }
@@ -1453,51 +1442,75 @@ private fun MoreScreen(
                     }
                 },
             )
-            tools.chunked(4).forEach { rowTools ->
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                    rowTools.forEach { tool ->
+            // Two columns, ruled, rather than four floating cards. At four across
+            // a phone every label had to be one short word, which is how "Find
+            // money" and "Send list" ended up as the names of things.
+            RowGroup {
+                tools.chunked(2).forEachIndexed { index, rowTools ->
+                    if (index > 0) RowHairline()
+                    Row(Modifier.height(IntrinsicSize.Min)) {
                         ToolTile(
-                            icon = tool.icon,
-                            label = tool.label,
-                            badge = tool.badge,
+                            icon = rowTools[0].icon,
+                            label = rowTools[0].label,
+                            badge = rowTools[0].badge,
                             modifier = Modifier.weight(1f),
-                            onClick = tool.onClick,
+                            onClick = rowTools[0].onClick,
                         )
+                        Box(
+                            Modifier
+                                .width(1.dp)
+                                .fillMaxHeight()
+                                .background(Alpha.Line)
+                        )
+                        if (rowTools.size > 1) {
+                            ToolTile(
+                                icon = rowTools[1].icon,
+                                label = rowTools[1].label,
+                                badge = rowTools[1].badge,
+                                modifier = Modifier.weight(1f),
+                                onClick = rowTools[1].onClick,
+                            )
+                        } else {
+                            Spacer(Modifier.weight(1f))
+                        }
                     }
-                    repeat(4 - rowTools.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
 
             SectionHeading(if (arabic) "الإعدادات" else "SETTINGS")
 
-            MoreRow(
-                icon = Icons.Filled.Palette,
-                label = if (arabic) "المظهر" else "Appearance",
-                caption = if (arabic) "الألوان والوضع الليلي" else "Colours and night mode",
-                onClick = onOpenAppearance,
-            )
-
-            MoreRow(
-                icon = Icons.Filled.Psychology,
-                label = if (arabic) "ما تعلّمه المساعد" else "What Alpha has learned",
-                caption = if (arabic) "راجع القواعد التي حفظها" else "Review the rules it has saved",
-                onClick = onOpenAiMemory,
-            )
-
-            MoreRow(
-                icon = Icons.Filled.Language,
-                label = if (arabic) "English" else "العربية",
-                caption = if (arabic) "تغيير لغة التطبيق" else "Change the app's language",
-                onClick = onToggleLanguage,
-            )
-
-            MoreRow(
-                icon = Icons.Filled.Logout,
-                label = if (arabic) "تسجيل الخروج" else "Sign out",
-                caption = email,
-                tint = Alpha.Danger,
-                onClick = onSignOut,
-            )
+            // One ruled surface, not four cards: this is a list to run an eye
+            // down, not four objects to weigh up against each other.
+            RowGroup {
+                MoreRow(
+                    icon = Icons.Filled.Palette,
+                    label = if (arabic) "المظهر" else "Appearance",
+                    caption = if (arabic) "الألوان والوضع الليلي" else "Colours and night mode",
+                    onClick = onOpenAppearance,
+                )
+                RowHairline()
+                MoreRow(
+                    icon = Icons.Filled.Psychology,
+                    label = if (arabic) "ما تعلّمه المساعد" else "What Alpha has learned",
+                    caption = if (arabic) "راجع القواعد التي حفظها" else "Review the rules it has saved",
+                    onClick = onOpenAiMemory,
+                )
+                RowHairline()
+                MoreRow(
+                    icon = Icons.Filled.Language,
+                    label = if (arabic) "English" else "العربية",
+                    caption = if (arabic) "تغيير لغة التطبيق" else "Change the app's language",
+                    onClick = onToggleLanguage,
+                )
+                RowHairline()
+                MoreRow(
+                    icon = Icons.Filled.Logout,
+                    label = if (arabic) "تسجيل الخروج" else "Sign out",
+                    caption = email,
+                    tint = Alpha.Danger,
+                    onClick = onSignOut,
+                )
+            }
             }
     }
 }
@@ -1520,42 +1533,31 @@ private fun MoreRow(
     tint: Color = Alpha.Slate700,
     onClick: () -> Unit,
 ) {
-    // The icon sits in its own soft circle so the rows scan as a settings list,
-    // and the label stays in text colour — only the icon carries the tint.
-    AlphaCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        shape = Alpha.CardShape,
-    ) {
-        Row(Modifier.padding(horizontal = 14.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(if (tint == Alpha.Slate700) Alpha.Slate100 else tint.copy(alpha = if (Alpha.dark) .22f else .12f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(19.dp))
-            }
-            Spacer(Modifier.size(13.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    label,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (tint == Alpha.Danger) tint else Alpha.Slate900,
-                )
-                Text(caption, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Alpha.Slate500)
-            }
+    // A ruled row, not a card. Each of these used to be its own rounded card
+    // carrying its own 38dp icon disc, so a settings list read as eight separate
+    // objects to weigh up rather than as one list to run your eye down.
+    AlphaRow(
+        title = label,
+        subtitle = caption,
+        titleColor = if (tint == Alpha.Danger) tint else Alpha.Slate900,
+        onClick = onClick,
+        leading = {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = if (tint == Alpha.Slate700) Alpha.Slate500 else tint,
+                modifier = Modifier.size(18.dp),
+            )
+        },
+        trailing = {
             Icon(
                 Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = null,
                 tint = Alpha.Slate300,
                 modifier = Modifier.size(20.dp),
             )
-        }
-    }
+        },
+    )
 }
 
 /** "Tue, 12 Aug" — the same shape the Day screen header uses. */

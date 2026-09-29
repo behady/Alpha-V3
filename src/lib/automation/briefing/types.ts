@@ -177,6 +177,11 @@ export interface ActionsSection {
 
 export interface GrowthSection {
   newPatients: number;
+  /**
+   * Of those, the ones who were actually seen at least once in the period. A file made for a
+   * WhatsApp enquiry, or for a visit booked next month, counts as a new patient above but not here.
+   */
+  newPatientsSeen: number;
   newLeads: number;
   leadsBySource: { source: string; count: number }[];
   leadsConverted: number;

@@ -44,10 +44,13 @@ This does the same job as Quick Pay on the dashboard. Use whichever you're neare
 
 ## Giving the patient a receipt
 
-Two buttons, side by side above the transaction history.
+There are two documents, and they are not the same thing.
 
-- **Download PDF receipt** — builds a PDF of the account and downloads it. Print it or hand it over. It takes a moment; the button shows *Generating…* while it works.
-- **Send Receipt on WhatsApp** — sends the same receipt straight to the patient's number, no printing and nothing to hand over.
+- **The receipt for one payment.** Every payment line has a printer icon. It opens the print dialog on a numbered receipt for that payment alone: the receipt number, what the money was for, how it was paid, what is still owed on that treatment and the account balance after it. Receipt numbers run in order and never repeat, so this is the paper the patient keeps. If the clinic has switched on *Open the print dialog as soon as a payment is saved* under Settings → Receipt, it comes out by itself the moment a payment is recorded.
+- **Print statement**, above the history, prints the whole account: every treatment, every payment, the balance. Hand it over when someone asks "where do I stand?".
+- **Send Receipt on WhatsApp** sends a text version of the statement straight to the patient's number.
+
+How the paper looks — colours, font, paper size, language, which lines print, the tax details — is set once under **Settings → Receipt** and applies to both.
 
 WhatsApp sending needs WhatsApp set up for your clinic, and it goes to the number on the patient's file — which is the practical reason the phone number has to be right when you create them.
 

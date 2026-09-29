@@ -352,6 +352,8 @@ object ClinicSettings {
         val category: String,
         val pricingMode: String,
         val icon: String,
+        /** The price on each other list, keyed by list id. Absent = the standard price. */
+        val prices: Map<String, Double> = emptyMap(),
     )
 
     suspend fun loadServices(clinicId: String): List<ServiceRow> {
@@ -366,8 +368,51 @@ object ClinicSettings {
                 category = d.getString("category").orEmpty(),
                 pricingMode = d.getString("pricingMode").orEmpty(),
                 icon = d.getString("icon").orEmpty(),
+                prices = (d.get("prices") as? Map<*, *>).orEmpty()
+                    .mapNotNull { (k, v) -> (v as? Number)?.let { k.toString() to it.toDouble() } }.toMap(),
             )
         }.sortedBy { it.name.lowercase() }
+    }
+
+    /** A dentist and what they keep, usually and per insurer. */
+    data class StaffRates(
+        val id: String,
+        val name: String,
+        val role: String,
+        val commissionPercentage: Double,
+        /** Keyed by payer id. Absent means the usual rate; 0 is a real answer. */
+        val commissionByPayer: Map<String, Double>,
+    )
+
+    suspend fun loadStaffRates(clinicId: String): List<StaffRates> {
+        val snap = clinic(clinicId).collection("staff").get().await()
+        return snap.documents.mapNotNull { d ->
+            val role = d.getString("role").orEmpty()
+            val pct = (d.get("commissionPercentage") as? Number)?.toDouble() ?: 0.0
+            val isDentist = role == "Dentist" || d.getBoolean("isDentist") == true
+            if (!isDentist && pct <= 0) return@mapNotNull null
+            StaffRates(
+                id = d.id,
+                name = d.getString("name").orEmpty().ifBlank { d.getString("email").orEmpty() },
+                role = role,
+                commissionPercentage = pct,
+                commissionByPayer = (d.get("commissionByPayer") as? Map<*, *>).orEmpty()
+                    .mapNotNull { (k, v) -> (v as? Number)?.let { k.toString() to it.toDouble() } }.toMap(),
+            )
+        }.sortedBy { it.name.lowercase() }
+    }
+
+    /**
+     * A dentist's per-insurer rates. A null clears the entry, which is "their usual rate" — never
+     * written as 0, because 0 is a different answer and would silently underpay a real person.
+     */
+    suspend fun saveStaffRates(clinicId: String, staffId: String, rates: Map<String, Double?>): Result<Unit> = runCatching {
+        rates.values.filterNotNull().forEach { require(it in 0.0..100.0) { "A percentage is between 0 and 100." } }
+        val body = mapOf(
+            "commissionByPayer" to rates.mapValues { (_, v) -> v ?: com.google.firebase.firestore.FieldValue.delete() },
+        )
+        clinic(clinicId).collection("staff").document(staffId).set(body, SetOptions.merge()).await()
+        Unit
     }
 
     suspend fun saveService(clinicId: String, row: ServiceRow): Result<Unit> = runCatching {
@@ -379,6 +424,8 @@ object ClinicSettings {
             "category" to row.category.trim(),
             "pricingMode" to row.pricingMode.trim(),
             "icon" to row.icon.trim(),
+            // The whole map, as the website writes it: a list with no price falls back to `price`.
+            "prices" to row.prices.filterValues { it > 0 },
         )
         val services = clinic(clinicId).collection("services")
         if (row.id.isBlank()) services.document().set(body).await()
@@ -399,6 +446,44 @@ object ClinicSettings {
     // ------------------------------------------------------------------ the team
 
     /** One member of staff, as the Users screen edits them. */
+    /**
+     * The part of a staff record that belongs to the person.
+     *
+     * The rules let anyone update their own row, but only these fields (`name`, `nickname`,
+     * `phone`, `bio`, plus the photo and the timestamp) — never the role, the permissions or the
+     * commission. Written with `update`, not `set`, so a missing row fails loudly instead of
+     * quietly creating a second one for the same person.
+     */
+    data class MyProfile(
+        val name: String = "",
+        val nickname: String = "",
+        val phone: String = "",
+        val bio: String = "",
+    )
+
+    suspend fun loadMyProfile(clinicId: String, staffId: String): MyProfile {
+        val d = clinic(clinicId).collection("staff").document(staffId).get().await()
+        return MyProfile(
+            name = d.getString("name").orEmpty(),
+            nickname = d.getString("nickname").orEmpty(),
+            phone = d.getString("phone").orEmpty(),
+            bio = d.getString("bio").orEmpty(),
+        )
+    }
+
+    suspend fun saveMyProfile(clinicId: String, staffId: String, p: MyProfile): Result<Unit> = runCatching {
+        clinic(clinicId).collection("staff").document(staffId).update(
+            mapOf(
+                "name" to p.name.trim(),
+                "nickname" to p.nickname.trim(),
+                "phone" to p.phone.trim(),
+                "bio" to p.bio.trim(),
+                "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
+            ),
+        ).await()
+        Unit
+    }
+
     data class StaffRow(
         val id: String,
         val uid: String,
@@ -525,6 +610,33 @@ object ClinicSettings {
      * website, or the same clinic would get different alerts depending which screen set them.
      */
     fun alertDefault(key: String): Boolean = key == "patientArrival"
+
+    /**
+     * The whole `alertPreferences` map, as the website's Alerts page reads and writes it — every
+     * event's bell/push/roles, the timings, quiet hours, and the two pre-catalogue keys under
+     * `inApp`, which are read as a fallback and never written.
+     */
+    @Suppress("UNCHECKED_CAST")
+    suspend fun loadAlertPrefs(clinicId: String): Map<String, Any?> =
+        (loadDoc(clinicId, "clinic_info")["alertPreferences"] as? Map<String, Any?>).orEmpty()
+
+    /** Merged at the document level: `set` with merge folds nested maps, so nothing else on clinic_info moves. */
+    suspend fun saveAlertPrefs(clinicId: String, prefs: Map<String, Any?>): Result<Unit> =
+        saveDoc(clinicId, "clinic_info", mapOf("alertPreferences" to prefs))
+
+    /** `users/{uid}.notificationMutes[clinicId]`: the alerts this person switched off for themselves. */
+    suspend fun loadMyMutes(uid: String, clinicId: String): List<String> {
+        if (uid.isBlank()) return emptyList()
+        val snap = Firebase.db().collection("users").document(uid).get().await()
+        val mutes = snap.get("notificationMutes") as? Map<*, *>
+        return (mutes?.get(clinicId) as? List<*>).orEmpty().mapNotNull { it?.toString() }
+    }
+
+    suspend fun saveMyMutes(uid: String, clinicId: String, mutes: List<String>): Result<Unit> = runCatching {
+        Firebase.db().collection("users").document(uid)
+            .set(mapOf("notificationMutes" to mapOf(clinicId to mutes)), SetOptions.merge()).await()
+        Unit
+    }
 
     suspend fun loadAlerts(clinicId: String): Map<String, Boolean> {
         val prefs = loadDoc(clinicId, "clinic_info")["alertPreferences"] as? Map<*, *>

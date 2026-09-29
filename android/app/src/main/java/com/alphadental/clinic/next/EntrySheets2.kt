@@ -1,6 +1,11 @@
 package com.alphadental.clinic.next
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -12,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.alphadental.clinic.data.Doctor
 import com.alphadental.clinic.data.LabCases
 import com.alphadental.clinic.data.Service
@@ -24,6 +30,9 @@ import com.alphadental.clinic.next.design.T
 import com.alphadental.clinic.next.design.Txt
 import com.alphadental.clinic.next.design.Type
 
+/** Where a half-recorded treatment waits. Suffixed with the patient, and cleared once saved. */
+const val DRAFT_TREATMENT = "treatment"
+
 /**
  * Record what was done, and bill it.
  *
@@ -31,184 +40,28 @@ import com.alphadental.clinic.next.design.Type
  * will actually charge, because those two numbers differ for most treatments and
  * the difference is the whole bill. Four fillings is four times the money.
  */
+/**
+ * The website's New Procedure modal, under the name every caller already uses.
+ *
+ * The phone's own sheet — searchable box, per-tooth price, tooth picker, dentist, done/planned —
+ * did the same job in a different order with different words. Two forms for one act is one too
+ * many to learn; the desk's is the one people know.
+ */
 @Composable
 fun TreatmentSheet(
     patientName: String,
     services: List<Service>,
     doctors: List<Doctor>,
-    /** What is already charted on this patient, so the picker can show it. */
     charted: Map<Int, com.alphadental.clinic.next.data.Tooth> = emptyMap(),
+    /** The tooth picked on the chart behind the sheet, if this was opened from one. */
+    preselected: Int? = null,
+    policy: com.alphadental.clinic.next.data.Pricing.Policy = com.alphadental.clinic.next.data.Pricing.Policy.NONE,
     busy: Boolean,
     error: String?,
-    onRecord: (String, List<String>, String, Double, Doctor?, Service?, Boolean) -> Unit,
+    onRecord: (ProcedureDraft) -> Unit,
     onDismiss: () -> Unit,
-) {
-    var service by remember { mutableStateOf<Service?>(null) }
-    var procedure by remember { mutableStateOf("") }
-    var price by remember { mutableStateOf("") }
-    var teeth by remember { mutableStateOf(setOf<Int>()) }
-    var doctor by remember { mutableStateOf(doctors.firstOrNull()) }
-    var note by remember { mutableStateOf("") }
-    var done by remember { mutableStateOf(true) }
-    /** True while the search results are worth showing under the box. */
-    var picking by remember { mutableStateOf(false) }
+) = NewProcedureSheet(patientName, services, doctors, charted, policy, preselected, busy, error, onRecord, onDismiss)
 
-    val unit = price.toDoubleOrNull() ?: 0.0
-    val mode = service?.pricingMode.orEmpty()
-    // The same rule the repository bills by, shown before it is applied rather
-    // than discovered on the ledger afterwards.
-    val units = when {
-        mode == "flat" -> 1
-        mode == "per_arch" -> listOf(
-            teeth.any { it in UPPER_RIGHT || it in UPPER_LEFT },
-            teeth.any { it in LOWER_RIGHT || it in LOWER_LEFT },
-        ).count { it }.coerceAtLeast(1)
-        else -> teeth.size.coerceAtLeast(1)
-    }
-    val total = unit * units
-
-    Sheet(
-        title = "Record treatment",
-        caption = patientName,
-        busy = busy,
-        error = error,
-        action = if (total > 0) "Record and charge ${total.toLong()}" else "Record",
-        ready = procedure.isNotBlank(),
-        onAction = { onRecord(procedure, teeth.map(Int::toString), note, unit, doctor, service, done) },
-        onDismiss = onDismiss,
-    ) {
-        // One box that both searches the price list and holds the answer.
-        // A separate row of chips above a separate text field asked the same
-        // question twice, and could only ever show the first two dozen prices —
-        // a clinic with a hundred of them could not reach the rest.
-        SheetField(
-            label = "What was done",
-            value = procedure,
-            onChange = { typed ->
-                procedure = typed
-                // Typing over a chosen treatment un-chooses it: the price on the
-                // line must not go on belonging to something no longer named.
-                if (service != null && !typed.equals(service?.name, ignoreCase = true)) service = null
-                picking = true
-            },
-            hint = "Composite filling",
-        )
-
-        val needle = procedure.trim().lowercase()
-        val matches = remember(needle, services, service) {
-            when {
-                service != null -> emptyList()
-                needle.isEmpty() -> services.take(8)
-                else -> services.filter { it.name.lowercase().contains(needle) }.take(8)
-            }
-        }
-
-        if (picking && matches.isNotEmpty()) {
-            matches.forEach { s ->
-                Rule()
-                SheetAction(
-                    s.name,
-                    if (s.price > 0) "${s.price.toLong()} EGP" else "No price set",
-                ) {
-                    service = s
-                    procedure = s.name
-                    if (s.price > 0) price = s.price.toLong().toString()
-                    picking = false
-                }
-            }
-            Rule()
-            Txt(
-                "Or leave it typed as it is — a treatment that is not on the price list is still " +
-                    "recorded, it just brings no price with it.",
-                Type.caption, T.inkFaint,
-                Modifier.padding(horizontal = T.gutter, vertical = 10.dp),
-                maxLines = 3,
-            )
-        }
-
-        service?.let { chosen ->
-            Txt(
-                "From the price list: ${chosen.name}" +
-                    (if (chosen.price > 0) " · lists at ${chosen.price.toLong()}" else ""),
-                Type.caption, T.accentInk,
-                Modifier.padding(horizontal = T.gutter, vertical = 8.dp),
-                maxLines = 2,
-            )
-        }
-
-        SheetField(
-            label = if (units > 1) "Price for one tooth" else "Price",
-            value = price,
-            onChange = { price = it.filter { c -> c.isDigit() || c == '.' } },
-            numeric = true,
-            hint = "0 for a follow-up",
-        )
-
-        if (unit > 0 && units > 1) {
-            Txt(
-                "$units × ${unit.toLong()} = ${total.toLong()}. " +
-                    when (mode) {
-                        "per_arch" -> "This treatment is charged per arch."
-                        else -> "This treatment is charged per tooth."
-                    },
-                Type.caption, T.accentInk,
-                Modifier.padding(horizontal = T.gutter, vertical = 8.dp),
-                maxLines = 2,
-            )
-        }
-        if (unit <= 0) {
-            Txt(
-                // Not an error: a review appointment genuinely costs nothing, and
-                // the website writes no ledger row for one either.
-                "At zero this is recorded as a note with no charge — a follow-up or a review.",
-                Type.caption, T.inkMuted,
-                Modifier.padding(horizontal = T.gutter, vertical = 8.dp),
-                maxLines = 2,
-            )
-        }
-
-        ToothPicker(teeth, charted) { teeth = it }
-
-        if (doctors.isNotEmpty()) {
-            SheetChoices("Done by") {
-                doctors.forEach { d ->
-                    SheetChoice(d.name, doctor?.id == d.id) {
-                        doctor = if (doctor?.id == d.id) null else d
-                    }
-                }
-            }
-        }
-
-        SheetChoices("Status") {
-            SheetChoice("Done", done) { done = true }
-            SheetChoice("Planned", !done) { done = false }
-        }
-
-        SheetField("Note", note, { note = it }, hint = "Anything worth remembering", lines = 2)
-
-        doctor?.takeIf { it.commissionPercentage > 0 && total > 0 }?.let { d ->
-            val labFee = service?.estimatedLabFee ?: 0.0
-            val net = (total - labFee).coerceAtLeast(0.0)
-            Txt(
-                "${d.name} is on ${d.commissionPercentage.toLong()}%" +
-                    (if (labFee > 0) ", after a lab fee of ${labFee.toLong()}" else "") +
-                    " — about ${(net * d.commissionPercentage / 100.0).toLong()} on this.",
-                Type.caption, T.inkMuted,
-                Modifier.padding(horizontal = T.gutter, vertical = 10.dp),
-                maxLines = 3,
-            )
-        }
-    }
-}
-
-/**
- * Which teeth — the mouth, not a row of numbers.
- *
- * The same chart the patient's file draws, with whatever is already charted on
- * each tooth still coloured underneath. Picking the teeth for a filling while
- * being able to see which of them are recorded as decayed is the entire reason a
- * dentist looks at a chart instead of reading out numbers.
- */
 @Composable
 private fun ToothPicker(
     chosen: Set<Int>,
@@ -252,8 +105,11 @@ fun LabMoveSheet(
     error: String?,
     onMove: (String) -> Unit,
     onDismiss: () -> Unit,
+    /** Null when this person may not delete lab cases. */
+    onDelete: (() -> Unit)? = null,
 ) {
     var next by remember(case.id) { mutableStateOf<String?>(null) }
+    var armed by remember(case.id) { mutableStateOf(false) }
     val options = LabCases.nextStatuses(case.status, case.needsTryIn)
 
     Sheet(
@@ -266,6 +122,28 @@ fun LabMoveSheet(
         onAction = { next?.let(onMove) },
         onDismiss = onDismiss,
     ) {
+        onDelete?.let { delete ->
+            // Two taps, the way a visit is deleted: the first only arms it.
+            Txt(
+                if (armed) "Sure? Tap again to delete ${case.code}" else "Delete this order",
+                Type.body, T.danger,
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = !busy) { if (armed) delete() else armed = true }
+                    .padding(horizontal = T.gutter, vertical = 14.dp),
+            )
+            if (armed) {
+                Txt(
+                    "For an order entered by mistake — it disappears for good. If the work really " +
+                        "went to the lab and was called off, move it to Cancelled instead.",
+                    Type.caption, T.inkMuted,
+                    Modifier.padding(start = T.gutter, end = T.gutter, bottom = 12.dp),
+                    maxLines = 4,
+                )
+            }
+            Rule()
+        }
+
         if (options.isEmpty()) {
             Txt(
                 "This case has nowhere left to go.",
@@ -365,3 +243,213 @@ fun FinanceEntrySheet(
         )
     }
 }
+
+/**
+ * Change a treatment that is already on the file, or take it off.
+ *
+ * The file could record work and never correct it. A price typed with a digit missing, the wrong
+ * tooth, the wrong dentist, the same filling entered twice — all of them permanent, and all of them
+ * things that happen at a chair between patients. The only buttons a recorded treatment had were
+ * "Mark done" and "Back to planned", which change a word and no money.
+ *
+ * Saving reprices the whole thing on the server, exactly as recording it did: the charge behind it
+ * moves with it, and the dentist's commission and the lab fee are worked out again from the new
+ * figures. That is why every field is sent rather than the one that changed.
+ */
+@Composable
+fun TreatmentEditSheet(
+    note: com.alphadental.clinic.data.ClinicalNote,
+    services: List<Service>,
+    doctors: List<Doctor>,
+    charted: Map<Int, com.alphadental.clinic.next.data.Tooth> = emptyMap(),
+    policy: com.alphadental.clinic.next.data.Pricing.Policy = com.alphadental.clinic.next.data.Pricing.Policy.NONE,
+    busy: Boolean,
+    error: String?,
+    canDelete: Boolean,
+    /** procedure, teeth, note, unit price, dentist, status, price list. */
+    onSave: (String, List<String>, String, Double, Doctor?, String, String) -> Unit,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var procedure by remember(note.id) { mutableStateOf(note.procedure) }
+    var price by remember(note.id) {
+        // The PER-TOOTH price, which is what the server wants back. A note written before that
+        // field existed only has its total, and dividing it by the teeth is the same sum the
+        // server did on the way in.
+        val unit = if (note.unitCost > 0) note.unitCost
+        else note.cost / note.teeth.size.coerceAtLeast(1)
+        mutableStateOf(if (unit > 0) unit.toLong().toString() else "")
+    }
+    var teeth by remember(note.id) {
+        mutableStateOf(note.teeth.mapNotNull { it.trim().toIntOrNull() }.toSet())
+    }
+    var doctor by remember(note.id) {
+        mutableStateOf(doctors.firstOrNull { it.id == note.doctorId })
+    }
+    var text by remember(note.id) { mutableStateOf(note.note) }
+    var done by remember(note.id) { mutableStateOf(note.status != "Planned") }
+    var picking by remember(note.id) { mutableStateOf(false) }
+    /** Removing money asks twice. The first tap arms it, the second does it. */
+    var armed by remember(note.id) { mutableStateOf(false) }
+    // The list the treatment was charged on, still usable; else the clinic's default.
+    var listId by remember(note.id) { mutableStateOf(policy.resolve(note.priceListId.ifBlank { null })) }
+    var listOpen by remember(note.id) { mutableStateOf(false) }
+    val priceOn = { sv: Service -> com.alphadental.clinic.next.data.Pricing.priceOf(sv, listId) }
+
+    val service = remember(procedure, services) {
+        services.firstOrNull { it.name.equals(procedure.trim(), ignoreCase = true) }
+    }
+    val unit = price.toDoubleOrNull() ?: 0.0
+    val units = when (service?.pricingMode.orEmpty()) {
+        "flat" -> 1
+        "per_arch" -> listOf(
+            teeth.any { it in UPPER_RIGHT || it in UPPER_LEFT },
+            teeth.any { it in LOWER_RIGHT || it in LOWER_LEFT },
+        ).count { it }.coerceAtLeast(1)
+        else -> teeth.size.coerceAtLeast(1)
+    }
+    val total = unit * units
+
+    Sheet(
+        title = "Change this treatment",
+        caption = noteDate(note.date),
+        busy = busy,
+        error = error,
+        action = if (total > 0) "Save · ${total.toLong()}" else "Save",
+        // No dentist is a valid answer (General), so only the procedure is required.
+        ready = procedure.isNotBlank(),
+        onAction = {
+            onSave(
+                procedure, teeth.map(Int::toString), text, unit, doctor,
+                if (done) "Completed" else "Planned",
+                if (policy.hasChoice) listId else "",
+            )
+        },
+        onDismiss = onDismiss,
+    ) {
+        SheetField(
+            label = "What was done",
+            value = procedure,
+            onChange = { procedure = it; picking = true },
+            hint = "Composite filling",
+            onFocus = { focused -> if (focused) picking = true },
+            trailing = if (services.isEmpty()) null else ({
+                Icon(
+                    if (picking) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    if (picking) "Hide the price list" else "Show the price list",
+                    tint = T.inkMuted,
+                    modifier = Modifier.clickable { picking = !picking }.padding(10.dp),
+                )
+            }),
+        )
+
+        if (policy.hasChoice) {
+            SheetChoices("Price list · " + policy.chargedTo(listId)) {
+                policy.activeLists.forEach { l ->
+                    SheetChoice(policy.label(l), listId == l.id) {
+                        listId = l.id
+                        listOpen = false
+                        val picked = services.firstOrNull { it.name.equals(procedure.trim(), ignoreCase = true) }
+                        if (picked != null) {
+                            if (!policy.covers(l.id, picked.id)) { procedure = ""; price = "" }
+                            else priceOn(picked).takeIf { it > 0 }?.let { price = it.toLong().toString() }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (picking && services.isNotEmpty()) {
+            val needle = procedure.trim().lowercase()
+            val offered = services.filter { policy.covers(listId, it.id) }
+            val matches = when {
+                needle.isEmpty() -> offered
+                offered.any { it.name.equals(needle, ignoreCase = true) } -> emptyList()
+                else -> offered.filter { it.name.lowercase().contains(needle) }
+            }
+            matches.take(40).forEach { s ->
+                Rule()
+                SheetAction(s.name, if (priceOn(s) > 0) "${priceOn(s).toLong()} EGP" else "No price set") {
+                    procedure = s.name
+                    if (priceOn(s) > 0) price = priceOn(s).toLong().toString()
+                    picking = false
+                }
+            }
+            if (matches.isNotEmpty()) Rule()
+        }
+
+        SheetField(
+            label = if (units > 1) "Price for one tooth" else "Price",
+            value = price,
+            onChange = { price = it.filter { c -> c.isDigit() || c == '.' } },
+            numeric = true,
+            hint = "0 for a follow-up",
+        )
+
+        if (unit > 0 && units > 1) {
+            Txt(
+                "$units × ${unit.toLong()} = ${total.toLong()}.",
+                Type.caption, T.accentInk,
+                Modifier.padding(horizontal = T.gutter, vertical = 8.dp),
+                maxLines = 2,
+            )
+        }
+
+        ToothPicker(teeth, charted) { teeth = it }
+
+        if (doctors.isNotEmpty()) {
+            SheetChoices("Done by") {
+                // General: work the clinic did rather than a person. Saved the same way, and the
+                // charge simply earns nobody a commission.
+                SheetChoice("General", doctor == null) { doctor = null }
+                doctors.forEach { d ->
+                    SheetChoice(d.name, doctor?.id == d.id) { doctor = d }
+                }
+            }
+            if (doctor == null) {
+                Txt(
+                    "No dentist on this treatment. It is charged to the clinic and earns nobody " +
+                        "a commission.",
+                    Type.caption, T.inkMuted,
+                    Modifier.padding(horizontal = T.gutter, vertical = 8.dp),
+                    maxLines = 3,
+                )
+            }
+        }
+
+        SheetChoices("Status") {
+            SheetChoice("Done", done) { done = true }
+            SheetChoice("Planned", !done) { done = false }
+        }
+
+        SheetField("Note", text, { text = it }, hint = "Anything worth remembering", lines = 2)
+
+        Txt(
+            "Saving works the charge out again from these figures, so the money on the account " +
+                "moves with the treatment.",
+            Type.caption, T.inkMuted,
+            Modifier.padding(horizontal = T.gutter, vertical = 10.dp),
+            maxLines = 3,
+        )
+
+        if (canDelete) {
+            Rule()
+            Txt(
+                if (armed) "Tap again to remove it for good" else "Remove this treatment",
+                Type.label.copy(fontSize = 13.sp),
+                T.danger,
+                Modifier
+                    .clickable(enabled = !busy) { if (armed) onDelete() else armed = true }
+                    .padding(horizontal = T.gutter, vertical = 16.dp),
+            )
+            Txt(
+                "The charge behind it goes too. If money has already been paid against it the " +
+                    "server refuses, and says so — the payment has to be removed first.",
+                Type.caption, T.inkFaint,
+                Modifier.padding(start = T.gutter, end = T.gutter, bottom = 14.dp),
+                maxLines = 4,
+            )
+        }
+    }
+}
+

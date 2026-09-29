@@ -1,7 +1,7 @@
 import { adminDb } from "@/lib/firebaseAdmin";
 import {
   CLINIC_SECRETS_COLLECTION,
-  LEGACY_WAPILOT_SETTINGS_DOC_REF,
+  PLATFORM_SECRETS_DOC,
   WAPILOT_SECRET_FIELD,
   type WapilotConfig,
   type WapilotConfigSource,
@@ -24,14 +24,12 @@ const DEFAULT_SEND_DOCUMENT_PATH = "/{instanceId}/send-file";
  * reserve for exactly this ("allow read, write: if false" — server-only, so no staff member can
  * read a token that sends messages as the clinic).
  *
- * Resolution order, most specific first:
- *   1. clinic_secrets/{clinicId}.wapilot  — this clinic's own connected number
- *   2. the legacy settings/wapilot doc, then WAPILOT_* env  — a shared platform number
- *
- * The shared fallback is deliberate and temporary: it keeps existing clinics sending while their
- * own numbers are connected one by one. A clinic on the fallback is reported as source
- * "platform", so the Settings screen can say plainly that messages are going out from a shared
- * number rather than the clinic's own.
+ * A clinic's credentials are its own or nothing: `clinic_secrets/{clinicId}.wapilot`, source
+ * "clinic", else source "none" and the send falls back to click-to-send. There used to be a
+ * second step — a shared platform number read from `settings/wapilot` or the WAPILOT_* env —
+ * that carried any clinic's patient messages. Removed 2026-09-27: the platform line now exists
+ * only for owner and staff alerts, is read by `loadPlatformWapilotConfig` alone, and is never
+ * offered as a clinic's own credentials. WAPILOT_* env still supplies the API root and paths.
  */
 
 type CacheEntry = { config: WapilotConfig; at: number };
@@ -120,23 +118,9 @@ export async function loadWapilotConfig(clinicId: string, forceRefresh = false):
     console.warn("loadWapilotConfig: clinic_secrets read failed", e);
   }
 
-  if (!resolved) {
-    // Shared platform credentials. Read second so a clinic that has connected its own number
-    // always wins, and so removing the shared fallback later changes nothing for those clinics.
-    try {
-      const legacy = await adminDb()
-        .collection(LEGACY_WAPILOT_SETTINGS_DOC_REF.collection)
-        .doc(LEGACY_WAPILOT_SETTINGS_DOC_REF.docId)
-        .get();
-      if (legacy.exists) {
-        resolved = configFromStored(legacy.data() as Record<string, unknown>, envFallback, "platform");
-      }
-    } catch (e) {
-      console.warn("loadWapilotConfig: legacy settings/wapilot read failed", e);
-    }
-  }
-
-  const config = resolved ?? envFallback;
+  // No shared fallback here, on purpose. The env's instance and token, if set, belong to the
+  // platform line and are reached through loadPlatformWapilotConfig only.
+  const config = resolved ?? { ...envFallback, instanceId: "", token: "", source: "none" as const };
   cache.set(key, { config, at: now });
   return config;
 }
@@ -145,6 +129,37 @@ export async function loadWapilotConfig(clinicId: string, forceRefresh = false):
 export function clearWapilotConfigCache(clinicId?: string): void {
   if (clinicId) cache.delete(String(clinicId).trim());
   else cache.clear();
+  platformCache = null;
+}
+
+let platformCache: CacheEntry | null = null;
+
+/**
+ * The platform's own alerts line.
+ *
+ * `clinic_secrets/platform.wapilot` first — the superadmin panel writes it there — then the
+ * WAPILOT_* env, which is how the line was configured before the panel existed. Source is
+ * "platform" when either yields credentials and "none" otherwise. Callers decide whether a clinic
+ * may use it; this only says whether it exists.
+ */
+export async function loadPlatformWapilotConfig(forceRefresh = false): Promise<WapilotConfig> {
+  const now = Date.now();
+  if (!forceRefresh && platformCache && now - platformCache.at < CACHE_MS) return platformCache.config;
+
+  const env = configFromEnv();
+  let resolved: WapilotConfig | null = null;
+  try {
+    const snap = await adminDb().collection(CLINIC_SECRETS_COLLECTION).doc(PLATFORM_SECRETS_DOC).get();
+    if (snap.exists) {
+      const wapilot = (snap.data() || {})[WAPILOT_SECRET_FIELD] as Record<string, unknown> | undefined;
+      resolved = configFromStored(wapilot, env, "platform");
+    }
+  } catch (e) {
+    console.warn("loadPlatformWapilotConfig: clinic_secrets/platform read failed", e);
+  }
+  const config = resolved ?? env;
+  platformCache = { config, at: now };
+  return config;
 }
 
 export function wapilotConfigErrorMessage(config: WapilotConfig): string {

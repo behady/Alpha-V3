@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * The settings shell: header, sidebar, search, and the guard that asks before losing your work.
+ * The settings shell: header, side list, search, and the guard that asks before losing your work.
  *
  * Every section shown here comes from the registry (src/config/settingsRegistry.ts) and every
  * access decision from one function (src/lib/settingsAccess.ts). That is the whole point of the
@@ -15,6 +15,15 @@
  *     and a typed `?tab=` still let them in.
  *
  * A section can no longer exist and be unreachable, because there is only one list to be on.
+ *
+ * The list is one column down the side with every group open at once. The version before it put
+ * four group tabs above a wrap of section buttons, and it failed in three ways the clinic owner
+ * named: you had to guess which tab held a setting before you could see it, the Clinic tab alone
+ * was a wall of thirteen buttons, and the menus filled the screen so the setting itself started
+ * below the fold. Here nothing is hidden behind a tab, and the setting sits beside the list.
+ *
+ * On a phone there is no room for both, so it works like a phone's own Settings: /settings is the
+ * list, a section is a page of its own, and the back arrow in the black band returns to the list.
  */
 
 import { useCallback, useMemo, useState } from "react";
@@ -33,10 +42,9 @@ import {
   SETTINGS_GROUP_LABELS,
   SETTINGS_GROUP_ORDER,
   SETTINGS_SECTIONS,
-  type SettingsGroup,
   type SettingsSection,
 } from "@/config/settingsRegistry";
-import { SETTINGS_GROUP_ICONS, SETTINGS_ICONS } from "@/components/settings/panels";
+import { SETTINGS_ICONS } from "@/components/settings/panels";
 import { visibleSections } from "@/lib/settingsAccess";
 import { isAnyUnlocked, type FeatureKey } from "@/lib/featureCatalog";
 
@@ -48,6 +56,19 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   );
 }
 
+/**
+ * Folds the spellings people type interchangeably into one, so a search does not miss on a hamza,
+ * a taa marbuta or a diacritic — "اسعار" has to find "الأسعار".
+ */
+function fold(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[ً-ْـ]/g, "")
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ة/g, "ه")
+    .replace(/ى/g, "ي");
+}
+
 function SettingsShell({ children }: { children: React.ReactNode }) {
   const { language, isRTL } = useLanguage();
   const { user } = useAuth();
@@ -55,13 +76,9 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
   const { confirmLeave } = useUnsavedChanges();
   const router = useRouter();
   const pathname = usePathname();
+  const ar = language === "ar";
 
   const [query, setQuery] = useState("");
-  /**
-   * Which group's sections are listed. Null means "follow the section you are on", which is the
-   * normal case — picking a group is only for looking around without leaving where you are.
-   */
-  const [browsingGroup, setBrowsingGroup] = useState<SettingsGroup | null>(null);
 
   const viewer = useMemo(
     () => ({
@@ -86,21 +103,25 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
     [pathname, sections]
   );
 
-  // Search matches either language, so an Arabic-speaking receptionist can find a section by the
-  // English name a colleague used on the phone, and the other way round.
-  const matches = useCallback(
-    (section: SettingsSection) => {
-      const needle = query.trim().toLowerCase();
-      if (!needle) return true;
-      return (
-        section.labelEn.toLowerCase().includes(needle) ||
-        section.labelAr.includes(query.trim())
-      );
-    },
-    [query]
-  );
-
-  const results = useMemo(() => sections.filter(matches), [sections, matches]);
+  // Search reads the name, the one-line hint and the keywords, in both languages — so an
+  // Arabic-speaking receptionist finds a section by the English word a colleague used, and
+  // anyone who learned an old name ("Recall", "Payers") still lands on it.
+  const needle = fold(query.trim());
+  const searching = needle.length > 0;
+  const results = useMemo(() => {
+    if (!needle) return sections;
+    return sections.filter((section) =>
+      fold(
+        [
+          section.labelEn,
+          section.labelAr,
+          section.hintEn,
+          section.hintAr,
+          ...section.keywords,
+        ].join(" ")
+      ).includes(needle)
+    );
+  }, [needle, sections]);
 
   /**
    * Every move between sections goes through here, so unsaved work gets a question rather than a
@@ -110,149 +131,145 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
     async (route: string) => {
       if (route === pathname) return;
       if (!(await confirmLeave())) return;
+      setQuery("");
       router.push(route);
     },
     [confirmLeave, pathname, router]
   );
 
-
   const txt = useSettingsText("shell");
 
-  const activeLabel = active
-    ? language === "ar"
-      ? active.labelAr
-      : active.labelEn
-    : txt.title;
+  const label = (s: SettingsSection) => (ar ? s.labelAr : s.labelEn);
+  const hint = (s: SettingsSection) => (ar ? s.hintAr : s.hintEn);
 
-  // The group whose sections are listed: whatever you are browsing, else the one you are in.
-  const shownGroup: SettingsGroup = browsingGroup ?? active?.group ?? SETTINGS_GROUP_ORDER[0];
-  const searching = query.trim().length > 0;
-  const listed = searching ? results : sections.filter((s) => s.group === shownGroup);
+  const renderItem = (section: SettingsSection, showHint: boolean) => {
+    const Icon = SETTINGS_ICONS[section.id] ?? Settings2;
+    const isActive = active?.id === section.id;
+    return (
+      <li key={section.id}>
+        <button
+          type="button"
+          onClick={() => void go(section.route)}
+          /* The four frozen lesson anchors keep their names; every other item gets one derived
+             from its id so Sara's tour can light any section. */
+          data-tour={section.tourAnchor ?? `settings-${section.id}`}
+          aria-current={isActive ? "page" : undefined}
+          title={hint(section)}
+          className={`group flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-start transition-colors ${
+            isActive
+              ? "bg-ink-slab text-white"
+              : "text-ink-body hover:bg-surface-muted hover:text-ink"
+          }`}
+        >
+          <Icon
+            size={17}
+            className={`mt-0.5 shrink-0 ${isActive ? "text-white" : "text-ink-muted group-hover:text-ink"}`}
+          />
+          <span className="min-w-0 flex-1">
+            <span className={`block text-[14px] leading-5 ${isActive ? "font-semibold" : "font-medium"}`}>
+              {label(section)}
+            </span>
+            {/* The hint answers "what is this?" before the click. It always shows in a search
+                result and in the phone's full-width list; beside a section on a wide screen the
+                same sentence is already under the title in the black band. */}
+            <span
+              className={`${showHint ? "block" : "block md:hidden"} mt-0.5 text-[12.5px] leading-snug ${
+                isActive ? "text-white/65" : "text-ink-muted"
+              }`}
+            >
+              {hint(section)}
+            </span>
+          </span>
+        </button>
+      </li>
+    );
+  };
 
   return (
     <div
-      className="mx-auto w-full max-w-[1400px] p-4 pb-24 font-sans animate-in fade-in duration-500 md:p-8 md:pb-10"
+      className="mx-auto w-full max-w-[1400px] p-4 pb-24 font-sans md:p-8 md:pb-10"
       dir={isRTL ? "rtl" : "ltr"}
     >
-      <div className="mb-8 overflow-hidden rounded-[2.5rem] border border-line bg-surface shadow-[0_4px_20px_rgba(0,0,0,0.03)] transition-shadow hover:shadow-[0_8px_30px_rgba(0,0,0,0.06)]">
-        {/* The name of the section you are in is in the layout's black band, with Settings as the
-            breadcrumb above it. The tile that used to carry it stayed behind on purpose: the
-            group colours belong to the section tiles, and a coloured square floating on black
-            reads as decoration rather than as where you are. */}
-        <PageHeader
-          eyebrow={active ? txt.title : undefined}
-          title={activeLabel}
-          backHref={active ? "/settings" : undefined}
-        />
+      <PageHeader
+        eyebrow={active ? txt.title : undefined}
+        title={active ? label(active) : txt.title}
+        subtitle={active ? hint(active) : undefined}
+        backHref={active ? "/settings" : undefined}
+      />
 
-        <div className="flex flex-col gap-4 px-6 pt-6 pb-5 sm:flex-row sm:items-center sm:justify-end md:px-8">
-          {/* Search spans every group: "where do I change X" is not a question you can answer by
-              picking a group first. */}
-          <div className="relative w-full shrink-0 sm:w-72">
-            <div className="absolute inset-y-0 start-0 flex items-center ps-4 pointer-events-none">
+      <div className="md:grid md:grid-cols-[17.5rem_minmax(0,1fr)] md:items-start md:gap-8">
+        {/* On a phone the list is the /settings page itself and steps aside inside a section. */}
+        <nav
+          aria-label={txt.allSettings}
+          className={`${active ? "hidden md:block" : "block"} md:sticky md:top-4 md:max-h-[calc(100dvh-13rem)] md:overflow-y-auto md:overscroll-contain no-scrollbar`}
+        >
+          <div className="relative mb-4">
+            <div className="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-3.5">
               <Search size={16} className="text-ink-muted" />
             </div>
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                // Enter opens the first match, so "hours ⏎" is the whole trip.
+                if (e.key === "Enter" && searching && results[0]) void go(results[0].route);
+                if (e.key === "Escape") setQuery("");
+              }}
               placeholder={txt.search}
               aria-label={txt.search}
-              className="block w-full rounded-2xl border-0 bg-surface-muted py-3 pe-10 ps-11 text-[14px] font-medium text-ink ring-1 ring-inset ring-line/50 transition-all hover:bg-surface-subtle focus:bg-surface focus:ring-2 focus:ring-inset focus:ring-accent focus:outline-none"
+              data-tour="settings-search"
+              className="block w-full rounded-xl border-0 bg-surface py-3 pe-10 ps-10 text-[14px] font-medium text-ink ring-1 ring-inset ring-line transition-shadow placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-ink"
             />
             {query && (
               <button
+                type="button"
                 onClick={() => setQuery("")}
                 aria-label={txt.clear}
-                className="absolute end-3 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-line/50 hover:text-ink"
+                className="absolute end-2.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-surface-muted hover:text-ink"
               >
                 <X size={14} />
               </button>
             )}
           </div>
-        </div>
 
-        {/* Groups. Hidden while searching, because a search already crosses all of them. */}
-        {!searching && (
-          <div className="flex justify-start sm:justify-center border-t border-line/50 bg-gradient-to-b from-surface-subtle/80 to-surface-muted/30 px-4 pt-4 md:px-8">
-            {/* A segmented control, not four coloured pills: one grey track, one white segment
-                that moves. The colour it used to carry now lives only in the tiles. */}
-            <div className="inline-flex gap-1.5 overflow-x-auto rounded-2xl bg-surface-muted/80 p-1.5 shadow-inner no-scrollbar w-full sm:w-auto">
-              {SETTINGS_GROUP_ORDER.filter((g) => sections.some((s) => s.group === g)).map((group) => {
-                const GroupIcon = SETTINGS_GROUP_ICONS[group] ?? Settings2;
-                const isShown = group === shownGroup;
+          {searching ? (
+            results.length === 0 ? (
+              <p className="px-3 py-6 text-[14px] font-medium text-ink-muted">{txt.noResults}</p>
+            ) : (
+              <ul className="space-y-0.5">{results.map((s) => renderItem(s, true))}</ul>
+            )
+          ) : (
+            <div className="space-y-5 pb-2">
+              {SETTINGS_GROUP_ORDER.map((group) => {
+                const inGroup = sections.filter((s) => s.group === group);
+                if (inGroup.length === 0) return null;
                 return (
-                  <button
-                    key={group}
-                    data-tour={`settings-group-${group}`}
-                    onClick={() => setBrowsingGroup(group)}
-                    aria-current={isShown ? "true" : undefined}
-                    className={`inline-flex flex-1 sm:flex-none items-center justify-center gap-2.5 whitespace-nowrap rounded-xl px-5 py-2.5 text-[14px] font-semibold transition-all duration-300 ${
-                      isShown
-                        ? "bg-surface text-ink shadow-[0_2px_8px_rgba(0,0,0,0.06)] scale-100"
-                        : "text-ink-body hover:bg-line/30 hover:text-ink scale-[0.98] hover:scale-100"
-                    }`}
-                  >
-                    <GroupIcon size={16} className={`transition-colors duration-300 ${isShown ? "text-ink" : "text-ink-muted"}`} />
-                    {SETTINGS_GROUP_LABELS[group][language === "ar" ? "ar" : "en"]}
-                  </button>
+                  <section key={group}>
+                    {/* The tour waits on this anchor before lighting a section in the group. */}
+                    <h2
+                      data-tour={`settings-group-${group}`}
+                      className="mb-1 px-3 text-[11px] font-bold uppercase tracking-[0.12em] text-ink-muted"
+                    >
+                      {SETTINGS_GROUP_LABELS[group][ar ? "ar" : "en"]}
+                    </h2>
+                    <ul className="space-y-0.5">{inGroup.map((s) => renderItem(s, false))}</ul>
+                  </section>
                 );
               })}
             </div>
-          </div>
-        )}
-
-        {/* Sections in the open group, or everything the search matched. Each chip's icon carries
-            its group's tone, so a search result across groups still says where it lives. */}
-        <div className={`flex flex-wrap justify-start sm:justify-center gap-2 bg-gradient-to-b from-surface-muted/30 to-surface-subtle/10 p-4 md:px-8 pb-6 ${searching ? "border-t border-line/50 pt-6" : "pt-4"}`}>
-          {listed.length === 0 && (
-            <div className="flex w-full flex-col items-center justify-center gap-3 py-8 text-center animate-in fade-in zoom-in-95">
-              <Search size={32} className="text-ink-faint/50" />
-              <p className="text-[14px] font-semibold text-ink-muted">{txt.noResults}</p>
-            </div>
           )}
-          {listed.map((section, index) => {
-            const Icon = SETTINGS_ICONS[section.id] ?? Settings2;
-            const isActive = active?.id === section.id;
-            return (
-              <button
-                key={section.id}
-                onClick={() => void go(section.route)}
-                /* The four frozen lesson anchors keep their names; every other chip gets one
-                   derived from its id so Sara's tour can light any section. */
-                data-tour={section.tourAnchor ?? `settings-${section.id}`}
-                aria-current={isActive ? "page" : undefined}
-                className={`inline-flex items-center gap-2.5 rounded-xl px-4 py-2 text-[14px] transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 ${
-                  isActive
-                    ? "bg-surface font-bold text-ink shadow-sm ring-1 ring-line"
-                    : "font-medium text-ink-body bg-transparent hover:bg-surface hover:text-ink hover:shadow-sm"
-                }`}
-                style={{ animationDelay: `${index * 30}ms`, animationFillMode: 'both' }}
-              >
-                <Icon size={16} className={`transition-colors duration-300 ${isActive ? "text-ink" : "text-ink-muted"}`} />
-                {language === "ar" ? section.labelAr : section.labelEn}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+        </nav>
 
-      {isReadOnly && (
-        <div className="mb-8 flex items-center gap-4 rounded-2xl border border-warn/30 bg-gradient-to-r from-warn-tint to-warn-tint/50 px-6 py-4 shadow-sm animate-in fade-in">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-warn/10 text-warn">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-            </svg>
+        <div className={active ? "block" : "hidden md:block"}>
+          {isReadOnly && (
+            <p className="mb-6 rounded-2xl border border-warn/30 bg-warn-tint px-5 py-4 text-[14px] font-bold text-warn">
+              {txt.readOnly}
+            </p>
+          )}
+
+          <div className="min-h-[600px] rounded-[2rem] border border-line bg-surface p-5 md:p-10">
+            {children}
           </div>
-          <p className="text-[15px] font-bold text-warn">
-            {txt.readOnly}
-          </p>
-        </div>
-      )}
-
-      <div className="min-h-[600px] overflow-hidden rounded-[2.5rem] border border-line bg-surface shadow-[0_4px_20px_rgba(0,0,0,0.03)] transition-shadow hover:shadow-[0_8px_30px_rgba(0,0,0,0.06)]">
-        <div className="h-full bg-gradient-to-br from-surface to-surface-subtle/30 p-5 md:p-10">
-          {children}
         </div>
       </div>
     </div>

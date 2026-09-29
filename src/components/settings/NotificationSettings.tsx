@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
-import { Bell, BellOff, Check, Loader2, Moon, RotateCcw, Save, Smartphone, User } from "lucide-react";
-import { doc, setDoc } from "firebase/firestore";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Bell, BellOff, Check, Loader2, MessageCircle, Moon, RotateCcw, Save, Smartphone, User, Users } from "lucide-react";
+import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import { db, auth } from "@/lib/firebase";
+import { getClinicCollection } from "@/lib/db-utils";
 import { useSettingsText } from "@/lib/useSettingsText";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
@@ -12,13 +13,22 @@ import {
   NOTIFY_EVENTS,
   NOTIFY_GROUPS,
   NOTIFY_ROLES,
+  BATCHING_MODES,
+  REPORT_MONEY_DETAILS,
+  REPORT_SECTIONS,
   mutedEventsFor,
   notifyTiming,
+  personWhatsapp,
+  reportPrefs,
   resolveNotify,
   withMute,
   type AlertPreferences,
   type NotifyEvent,
   type NotifyRole,
+  type BatchingMode,
+  type ReportMoneyDetail,
+  type ReportPrefs,
+  type ReportSection,
 } from "@/lib/notificationCatalog";
 
 /**
@@ -32,9 +42,16 @@ import {
  *
  * Three decisions visible in the layout:
  *
- *  - **Two columns, not one.** The bell and the phone are genuinely different questions. A clinic
- *    wants the evening money figure in the bell to read tomorrow, and does not want it buzzing a
- *    pocket at 21:00 in front of a patient.
+ *  - **Three columns, not one.** The bell, the phone and WhatsApp are genuinely different
+ *    questions. A clinic wants the evening money figure in the bell to read tomorrow, does not
+ *    want it buzzing a pocket at 21:00 in front of a patient, and wants the full close-out on
+ *    the owner's WhatsApp where it can be read in bed. WhatsApp is offered only on the alerts the
+ *    web server raises (`waReady`); the rest say so rather than offer a switch that does nothing.
+ *  - **Reports carry their own options.** The morning brief and the close-out are rows like any
+ *    other, with sections, money detail, comparisons and language underneath — what the owner
+ *    asked for was "super customizable", and the place for that is beside the switch.
+ *  - **A person, not a number.** WhatsApp goes to people by role, like the other two channels;
+ *    the recipients block below gives each person a number and a personal off switch.
  *  - **Who it goes to is on the row.** The audience was the least visible and most surprising part
  *    of the old behaviour — "why does reception see the money?" — so it is on the surface, and the
  *    alerts whose audience is part of what they *are* say so instead of offering a choice.
@@ -47,6 +64,11 @@ type Prefs = AlertPreferences;
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const hourLabel = (h: number) => `${String(h).padStart(2, "0")}:00`;
+const WEEKDAYS = {
+  en: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+  ar: ["الأحد", "الاتنين", "التلات", "الأربع", "الخميس", "الجمعة", "السبت"],
+};
+const MONTH_DAYS = Array.from({ length: 28 }, (_, i) => i + 1);
 
 /** One switch. Small, because a row carries two of them plus a role list. */
 function Toggle({
@@ -137,7 +159,7 @@ export default function NotificationSettings({
   const { language, isRTL } = useLanguage();
   const txt = useSettingsText("alerts");
   const { user } = useAuth();
-  const { clinicId } = useClinic();
+  const { clinicId, clinic } = useClinic();
   const isAr = language === "ar";
 
   // Memoised because the whole page derives from it: a fresh `{}` on every render would make
@@ -153,7 +175,7 @@ export default function NotificationSettings({
     [setClinicData],
   );
 
-  const setChannel = (eventId: string, key: "bell" | "push", value: boolean) =>
+  const setChannel = (eventId: string, key: "bell" | "push" | "whatsapp", value: boolean) =>
     patch((current) => ({
       ...current,
       events: { ...(current.events || {}), [eventId]: { ...(current.events?.[eventId] || {}), [key]: value } },
@@ -174,6 +196,12 @@ export default function NotificationSettings({
       };
     });
 
+  const setBatching = (eventId: string, value: BatchingMode) =>
+    patch((current) => ({
+      ...current,
+      events: { ...(current.events || {}), [eventId]: { ...(current.events?.[eventId] || {}), batching: value } },
+    }));
+
   const setTiming = (eventId: string, key: string, value: number) =>
     patch((current) => ({
       ...current,
@@ -183,15 +211,99 @@ export default function NotificationSettings({
   const setQuiet = (key: "enabled" | "fromHour" | "toHour", value: boolean | number) =>
     patch((current) => ({ ...current, quietHours: { ...(current.quietHours || {}), [key]: value } as never }));
 
+  const setReport = (eventId: string, next: (current: ReportPrefs) => ReportPrefs) =>
+    patch((current) => ({
+      ...current,
+      reports: { ...(current.reports || {}), [eventId]: next(current.reports?.[eventId] || {}) },
+    }));
+
+  const setPerson = (uid: string, key: "phone" | "whatsapp", value: string | boolean) =>
+    patch((current) => ({
+      ...current,
+      people: { ...(current.people || {}), [uid]: { ...(current.people?.[uid] || {}), [key]: value } },
+    }));
+
   const quiet = prefs.quietHours || {};
   const onCount = useMemo(
-    () => NOTIFY_EVENTS.filter((e) => { const r = resolveNotify(e.id, prefs); return r?.bell || r?.push; }).length,
+    () => NOTIFY_EVENTS.filter((e) => { const r = resolveNotify(e.id, prefs); return r?.bell || r?.push || r?.whatsapp; }).length,
     [prefs],
   );
 
+  /* --- where WhatsApp leaves from, and who is here to receive it ---------------------------- */
+  const [waStatus, setWaStatus] = useState<{ via: "meta" | "wapilot" | "platform" | "none"; reason?: string } | null>(null);
+  useEffect(() => {
+    if (!clinicId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const idToken = await auth.currentUser?.getIdToken();
+        const res = await fetch(`/api/notifications/whatsapp-status?clinicId=${encodeURIComponent(clinicId)}`, {
+          headers: { Authorization: `Bearer ${idToken || ""}` },
+        });
+        const json = (await res.json().catch(() => ({}))) as { ok?: boolean; via?: "meta" | "wapilot" | "platform" | "none"; reason?: string };
+        if (!cancelled && json.ok && json.via) setWaStatus({ via: json.via, reason: json.reason });
+      } catch {
+        /* The line stays blank; the switches still save. */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [clinicId]);
+
+  type Member = { uid: string; name: string; role: string };
+  const [members, setMembers] = useState<Member[]>([]);
+  useEffect(() => {
+    if (!clinicId) return;
+    const unsub = onSnapshot(
+      getClinicCollection("staff"),
+      (snap) => {
+        const rows: Member[] = [];
+        snap.forEach((d) => {
+          const data = d.data() as { uid?: string; name?: string; role?: string };
+          const uid = String(data.uid || "").trim();
+          if (uid) rows.push({ uid, name: String(data.name || "").trim(), role: String(data.role || "").trim() });
+        });
+        setMembers(rows);
+      },
+      () => setMembers([]),
+    );
+    return () => unsub();
+  }, [clinicId]);
+
+  // The owner has no staff row unless somebody added one; they are addressed by the clinic
+  // document, the same way the server addresses them.
+  const people = useMemo<Member[]>(() => {
+    const ownerId = String((clinic as { ownerId?: string } | null)?.ownerId || "").trim();
+    const list = members.map((m) => (m.uid === ownerId ? { ...m, role: "Owner" } : m));
+    if (ownerId && !list.some((m) => m.uid === ownerId)) {
+      list.unshift({ uid: ownerId, name: user?.uid === ownerId ? user?.name || "" : "", role: "Owner" });
+    }
+    // Whoever is looking at the page and is not on the list — a platform admin standing in a
+    // clinic — still needs a row, or their own "Test" button can never reach their WhatsApp.
+    if (user?.uid && !list.some((m) => m.uid === user.uid)) {
+      list.push({ uid: user.uid, name: user.name || "", role: "Admin" });
+    }
+    const order: Record<string, number> = { Owner: 0, Admin: 1, Dentist: 2, Receptionist: 3, Assistant: 4 };
+    return list.sort((a, b) => (order[a.role] ?? 9) - (order[b.role] ?? 9) || a.name.localeCompare(b.name));
+  }, [members, clinic, user]);
+
+  const waStatusText =
+    !waStatus
+      ? ""
+      : waStatus.via === "meta"
+        ? `${txt.waViaMeta} ${txt.waMetaWindow}`
+        : waStatus.via === "wapilot"
+          ? txt.waViaWapilot
+          : waStatus.via === "platform"
+            ? txt.waViaPlatform
+            : waStatus.reason === "platform_not_configured"
+              ? txt.waViaPlatformMissing
+              : txt.waViaNone;
+
   /* --- the test button ------------------------------------------------------------------------ */
   const [testing, setTesting] = useState<string | null>(null);
-  const [tested, setTested] = useState<Record<string, "ok" | "fail">>({});
+  const [tested, setTested] = useState<Record<string, "ok" | "fail" | "ok-nowa">>({});
   const sendTest = async (eventId: string) => {
     if (!clinicId) return;
     setTesting(eventId);
@@ -202,8 +314,11 @@ export default function NotificationSettings({
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken || ""}` },
         body: JSON.stringify({ clinicId, event: eventId, test: true }),
       });
-      const json = (await res.json().catch(() => ({}))) as { ok?: boolean };
-      setTested((t) => ({ ...t, [eventId]: res.ok && json.ok ? "ok" : "fail" }));
+      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; whatsapped?: number; whatsappReason?: string };
+      const wanted = resolveNotify(eventId, prefs)?.whatsapp === true;
+      const state: "ok" | "fail" | "ok-nowa" =
+        !(res.ok && json.ok) ? "fail" : wanted && !json.whatsapped && json.whatsappReason === "no-phone" ? "ok-nowa" : "ok";
+      setTested((t) => ({ ...t, [eventId]: state }));
     } catch {
       setTested((t) => ({ ...t, [eventId]: "fail" }));
     } finally {
@@ -295,6 +410,61 @@ export default function NotificationSettings({
         )}
       </section>
 
+      {/* --- WhatsApp recipients: a number per person, and a personal off switch. ------------ */}
+      <section>
+        <h3 className="mb-1 flex items-center gap-2 px-1 font-display text-[11px] font-black uppercase tracking-[0.18em] text-ink-muted">
+          <Users size={12} />
+          {txt.recipientsTitle}
+        </h3>
+        <p className="mb-3 max-w-2xl px-1 text-[12px] font-medium leading-relaxed text-ink-faint">{txt.recipientsNote}</p>
+        {waStatusText && (
+          <p className="mb-3 flex items-start gap-1.5 px-1 text-[12px] font-medium leading-relaxed text-ink-muted">
+            <MessageCircle size={12} className="mt-0.5 shrink-0" />
+            {waStatusText}
+          </p>
+        )}
+        <div className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface">
+          {people.length === 0 && (
+            <p className="px-4 py-3 text-[12.5px] font-medium text-ink-faint">{txt.noMembers}</p>
+          )}
+          {people.map((m) => {
+            const person = personWhatsapp(m.uid, prefs);
+            const roleName: Record<string, { en: string; ar: string }> = {
+              Owner: { en: txt.ownerLabel, ar: txt.ownerLabel },
+              Admin: { en: "Admin", ar: "مدير" },
+              Dentist: { en: "Dentist", ar: "دكتور" },
+              Receptionist: { en: "Reception", ar: "استقبال" },
+              Assistant: { en: "Assistant", ar: "مساعد" },
+            };
+            const role = roleName[m.role] ? (isAr ? roleName[m.role].ar : roleName[m.role].en) : m.role;
+            return (
+              <div key={m.uid} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13.5px] font-bold text-ink">{m.name || role}</span>
+                  <span className="text-[11px] font-bold text-ink-faint">{role}</span>
+                </span>
+                <input
+                  type="tel"
+                  dir="ltr"
+                  value={person.phone}
+                  onChange={(e) => setPerson(m.uid, "phone", e.target.value)}
+                  placeholder={m.role === "Owner" ? "+2010…" : txt.noPhone}
+                  className="w-44 rounded-xl border border-line bg-surface px-3 py-1.5 font-figure text-[13px] text-ink outline-none focus:border-accent"
+                />
+                <span className="flex items-center gap-2 text-[11px] font-bold text-ink-faint">
+                  {person.enabled ? txt.personOn : txt.personOff}
+                  <Toggle
+                    on={person.enabled}
+                    onChange={() => setPerson(m.uid, "whatsapp", !person.enabled)}
+                    label={person.enabled ? txt.personOn : txt.personOff}
+                  />
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
       {NOTIFY_GROUPS.map((group) => {
         const events = NOTIFY_EVENTS.filter((e) => e.group === group.id);
         if (events.length === 0) return null;
@@ -305,12 +475,21 @@ export default function NotificationSettings({
             </h3>
             <p className="mb-3 px-1 text-[12px] font-medium leading-relaxed text-ink-faint">
               {isAr ? group.noteAr : group.noteEn}
+              {group.id === "reports" && waStatusText ? (
+                <span className="mt-1 flex items-start gap-1.5 text-ink-muted">
+                  <MessageCircle size={12} className="mt-0.5 shrink-0" />
+                  {waStatusText}
+                </span>
+              ) : null}
             </p>
             <div className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface">
               {events.map((event) => {
                 const resolved = resolveNotify(event.id, prefs);
                 const bell = resolved?.bell === true;
                 const push = resolved?.push === true;
+                const whatsapp = resolved?.whatsapp === true;
+                const anyOn = bell || push || whatsapp;
+                const report = event.report ? reportPrefs(event.id, prefs) : null;
                 const roles = resolved?.roles || [];
                 const offered = event.rolesMax ? NOTIFY_ROLES.filter((r) => event.rolesMax!.includes(r)) : NOTIFY_ROLES;
                 const state = tested[event.id];
@@ -336,10 +515,99 @@ export default function NotificationSettings({
                           </span>
                           <Toggle on={push} onChange={() => setChannel(event.id, "push", !push)} label={txt.pushCol} />
                         </span>
+                        <span className="flex flex-col items-center gap-1">
+                          <span className="text-[9.5px] font-black uppercase tracking-wider text-ink-faint">
+                            {txt.waCol}
+                          </span>
+                          {event.waReady ? (
+                            <Toggle on={whatsapp} onChange={() => setChannel(event.id, "whatsapp", !whatsapp)} label={txt.waCol} />
+                          ) : (
+                            <span
+                              title={txt.waSoon}
+                              className="inline-flex h-[26px] w-[44px] items-center justify-center rounded-full border border-dashed border-line text-[10px] font-black text-ink-faint"
+                            >
+                              —
+                            </span>
+                          )}
+                        </span>
                       </div>
                     </div>
 
-                    {(bell || push) && (
+                    {anyOn && report && (
+                      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl bg-surface-subtle px-3 py-2.5">
+                        <span className={`flex flex-wrap items-center gap-1.5 ${event.report === "dentistDay" || event.report === "summary" || event.report === "payroll" ? "hidden" : ""}`}>
+                          <span className="me-1 text-[10.5px] font-black uppercase tracking-wider text-ink-faint">{txt.reportSections}</span>
+                          {(event.report === "dentistDay" || event.report === "summary" || event.report === "payroll" ? [] : REPORT_SECTIONS).map((key: ReportSection) => {
+                            const label = key === "money" ? txt.secMoney : key === "appointments" ? txt.secAppointments : key === "patients" ? txt.secPatients : txt.secTeam;
+                            const on = report.sections[key];
+                            return (
+                              <button
+                                key={key}
+                                type="button"
+                                aria-pressed={on}
+                                onClick={() => setReport(event.id, (c) => ({ ...c, sections: { ...(c.sections || {}), [key]: !on } }))}
+                                className={`rounded-full px-2.5 py-1 text-[11px] font-black transition-colors ${
+                                  on ? "bg-ink-slab text-white" : "border border-line bg-surface text-ink-faint hover:text-ink"
+                                }`}
+                              >
+                                {label}
+                              </button>
+                            );
+                          })}
+                        </span>
+                        {(event.report === "morning" || event.report === "evening" || event.report === "weekly" || event.report === "monthly") && report.sections.money && (
+                          <label className="flex items-center gap-2 text-[11.5px] font-bold text-ink-body">
+                            {txt.moneyDetail}
+                            <select
+                              value={report.moneyDetail}
+                              onChange={(e) => setReport(event.id, (c) => ({ ...c, moneyDetail: e.target.value as ReportMoneyDetail }))}
+                              className="rounded-xl border border-line bg-surface px-2 py-1 text-[12.5px] text-ink"
+                            >
+                              {REPORT_MONEY_DETAILS.map((d) => (
+                                <option key={d} value={d}>
+                                  {d === "totals" ? txt.detailTotals : d === "dentists" ? txt.detailDentists : txt.detailFull}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
+                        {(event.report === "morning" || event.report === "evening" || event.report === "weekly" || event.report === "monthly") && report.sections.money && (
+                          <label className="flex items-center gap-2 text-[11.5px] font-bold text-ink-body">
+                            <input
+                              type="checkbox"
+                              checked={report.comparisons}
+                              onChange={(e) => setReport(event.id, (c) => ({ ...c, comparisons: e.target.checked }))}
+                              className="h-4 w-4 rounded border-line-strong text-accent focus:ring-accent"
+                            />
+                            {txt.comparisons}
+                          </label>
+                        )}
+                        <label className="flex items-center gap-2 text-[11.5px] font-bold text-ink-body">
+                          {txt.reportLang}
+                          <select
+                            value={report.language}
+                            onChange={(e) => setReport(event.id, (c) => ({ ...c, language: e.target.value === "en" ? "en" : "ar" }))}
+                            className="rounded-xl border border-line bg-surface px-2 py-1 text-[12.5px] text-ink"
+                          >
+                            <option value="ar">العربية</option>
+                            <option value="en">English</option>
+                          </select>
+                        </label>
+                        {event.report !== "summary" && event.report !== "dentistDay" && (
+                          <label className="flex items-center gap-2 text-[11.5px] font-bold text-ink-body">
+                            <input
+                              type="checkbox"
+                              checked={report.pdf}
+                              onChange={(e) => setReport(event.id, (c) => ({ ...c, pdf: e.target.checked }))}
+                              className="h-4 w-4 rounded border-line-strong text-accent focus:ring-accent"
+                            />
+                            {txt.reportPdf}
+                          </label>
+                        )}
+                      </div>
+                    )}
+
+                    {anyOn && (
                       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
                         <span className="flex flex-wrap items-center gap-1.5">
                           <span className="me-1 text-[10.5px] font-black uppercase tracking-wider text-ink-faint">
@@ -379,6 +647,30 @@ export default function NotificationSettings({
                                   </option>
                                 ))}
                               </select>
+                            ) : timing.kind === "weekday" ? (
+                              <select
+                                value={notifyTiming(event.id, timing.key, prefs)}
+                                onChange={(e) => setTiming(event.id, timing.key, Number(e.target.value))}
+                                className="rounded-xl border border-line bg-surface px-2 py-1 text-[12.5px] text-ink"
+                              >
+                                {WEEKDAYS[isAr ? "ar" : "en"].map((d, i) => (
+                                  <option key={d} value={i}>
+                                    {d}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : timing.kind === "dayOfMonth" ? (
+                              <select
+                                value={notifyTiming(event.id, timing.key, prefs)}
+                                onChange={(e) => setTiming(event.id, timing.key, Number(e.target.value))}
+                                className="rounded-xl border border-line bg-surface px-2 py-1 font-figure text-[12.5px] text-ink"
+                              >
+                                {MONTH_DAYS.map((d) => (
+                                  <option key={d} value={d}>
+                                    {d}
+                                  </option>
+                                ))}
+                              </select>
                             ) : (
                               <span className="inline-flex items-center gap-1">
                                 <input
@@ -390,12 +682,39 @@ export default function NotificationSettings({
                                   className="w-16 rounded-xl border border-line bg-surface px-2 py-1 font-figure text-[12.5px] text-ink"
                                 />
                                 <span className="text-[11px] font-bold text-ink-faint">
-                                  {timing.kind === "hours" ? (isAr ? "ساعة" : "h") : isAr ? "دقيقة" : "min"}
+                                  {timing.kind === "hours"
+                                    ? (isAr ? "ساعة" : "h")
+                                    : timing.kind === "percent"
+                                      ? "%"
+                                      : timing.kind === "egp"
+                                        ? (isAr ? "ج.م" : "EGP")
+                                        : timing.kind === "days"
+                                          ? (isAr ? "يوم" : "days")
+                                          : timing.kind === "count"
+                                            ? ""
+                                            : isAr ? "دقيقة" : "min"}
                                 </span>
                               </span>
                             )}
                           </label>
                         ))}
+
+                        {event.waReady && !event.report && (push || whatsapp) && (
+                          <label className="flex items-center gap-2 text-[11.5px] font-bold text-ink-body">
+                            {txt.batching}
+                            <select
+                              value={resolved?.batching || "instant"}
+                              onChange={(e) => setBatching(event.id, e.target.value as BatchingMode)}
+                              className="rounded-xl border border-line bg-surface px-2 py-1 text-[12.5px] text-ink"
+                            >
+                              {BATCHING_MODES.map((mode) => (
+                                <option key={mode} value={mode}>
+                                  {mode === "instant" ? txt.batchInstant : mode === "hourly" ? txt.batchHourly : txt.batchDaily}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
 
                         <button
                           type="button"
@@ -410,12 +729,19 @@ export default function NotificationSettings({
                           ) : (
                             <Smartphone size={12} />
                           )}
-                          {state === "ok" ? txt.testSent : state === "fail" ? txt.testFailed : txt.test}
+                          {state === "ok" || state === "ok-nowa" ? txt.testSent : state === "fail" ? txt.testFailed : event.report ? txt.testReport : txt.test}
                         </button>
                       </div>
                     )}
 
-                    {!bell && !push && (
+                    {state === "ok-nowa" && (
+                      <p className="mt-2 flex items-start gap-1.5 text-[11.5px] font-bold text-warn">
+                        <MessageCircle size={12} className="mt-0.5 shrink-0" />
+                        {txt.waNoPhoneForYou}
+                      </p>
+                    )}
+
+                    {!anyOn && (
                       <p className="mt-2 inline-flex items-center gap-1.5 text-[11.5px] font-black text-ink-faint">
                         <BellOff size={12} />
                         {txt.offEverywhere}
@@ -439,7 +765,7 @@ export default function NotificationSettings({
         <div className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface">
           {NOTIFY_EVENTS.map((event) => {
             const resolved = resolveNotify(event.id, prefs);
-            const clinicHasIt = resolved?.bell || resolved?.push;
+            const clinicHasIt = resolved?.bell || resolved?.push || resolved?.whatsapp;
             const muted = myMutes.includes(event.id);
             return (
               <div key={event.id} className="flex items-center justify-between gap-4 px-4 py-2.5">

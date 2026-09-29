@@ -36,9 +36,16 @@ data class MoneyState(
     val saving: Boolean = false,
     val entryError: String? = null,
     val entered: String? = null,
+    /** The line whose sheet is open. Anyone may open one; the sheet decides what it offers. */
+    val editingRow: Money? = null,
+    val savingRow: Boolean = false,
+    val rowError: String? = null,
 ) {
     /** Adding a money line is a finance write, not merely seeing the screen. */
     val canAdd: Boolean get() = who?.can("finance.add") == true
+    /** The website's two tick-boxes, one each: correcting a line and removing one. */
+    val canEditLedger: Boolean get() = who?.can("finance.edit") == true
+    val canDeleteLedger: Boolean get() = who?.can("finance.delete") == true
     val monthStart: String get() = ClinicSource.dateKey(firstOfMonth(anchor))
     val monthEnd: String get() = ClinicSource.dateKey(lastOfMonth(anchor))
 
@@ -132,8 +139,12 @@ data class MoneyState(
             .sortedByDescending { it.total }
             .take(8)
 
-    /** The most recent movements, whichever way the money went. */
-    val recent: List<Money> get() = lines.filterNot { it.isCharge }.take(12)
+    /**
+     * The ledger, newest first — every line the website's table lists, charges included. A
+     * charge is not cash, and the figures above already say so; it is on the list because the
+     * treatment, its dentist and its price are what "what happened this month" means.
+     */
+    val recent: List<Money> get() = lines.sortedByDescending { it.date }.take(150)
 }
 
 private fun firstOfMonth(d: Date): Date = Calendar.getInstance().apply {
@@ -218,6 +229,53 @@ class MoneyModel : ViewModel() {
         }
     }
 
+    // ------------------------------------------------------------------ one line
+
+    fun editRow(row: Money) {
+        _state.value = _state.value.copy(editingRow = row, rowError = null)
+    }
+
+    fun closeRow() {
+        _state.value = _state.value.copy(editingRow = null, rowError = null)
+    }
+
+    /**
+     * Save a correction, the same route the patient's file uses: the server keeps only the fields
+     * that row type allows and answers with its own sentence when it refuses.
+     */
+    fun saveRow(date: String, description: String, amount: Double, method: String) {
+        val who = _state.value.who ?: return
+        val row = _state.value.editingRow ?: return
+        if (!_state.value.canEditLedger || _state.value.savingRow) return
+        _state.value = _state.value.copy(savingRow = true, rowError = null)
+        val patch = buildMap<String, Any?> {
+            put("date", date.trim())
+            put("description", description.trim())
+            if (row.isPayment) {
+                put("paid", amount)
+                put("method", method.trim())
+            }
+            if (row.isExpense) put("amount", amount)
+        }
+        viewModelScope.launch {
+            com.alphadental.clinic.data.Repository.updateLedgerRow(who.clinicId, row.id, patch)
+                .onSuccess { _state.value = _state.value.copy(savingRow = false, editingRow = null); load() }
+                .onFailure { e -> _state.value = _state.value.copy(savingRow = false, rowError = e.message ?: "That change could not be saved.") }
+        }
+    }
+
+    fun deleteRow() {
+        val who = _state.value.who ?: return
+        val row = _state.value.editingRow ?: return
+        if (!_state.value.canDeleteLedger || _state.value.savingRow) return
+        _state.value = _state.value.copy(savingRow = true, rowError = null)
+        viewModelScope.launch {
+            com.alphadental.clinic.data.Repository.deleteLedgerRow(who.clinicId, row.id)
+                .onSuccess { _state.value = _state.value.copy(savingRow = false, editingRow = null); load() }
+                .onFailure { e -> _state.value = _state.value.copy(savingRow = false, rowError = e.message ?: "That line could not be removed.") }
+        }
+    }
+
     fun clearEntry() {
         _state.value = _state.value.copy(entered = null, entryError = null)
     }
@@ -249,7 +307,17 @@ class MoneyModel : ViewModel() {
         val s = _state.value
         viewModelScope.launch {
             runCatching { ClinicSource.ledgerBetween(who.clinicId, s.from, s.to) }
-                .onSuccess { lines ->
+                .onSuccess { raw ->
+                    // A payment written before the server stamped dentists on payments carries
+                    // none; the charge it settles does. The website shows both rows, so the
+                    // dentist is visible either way — here it is copied across as well.
+                    val byId = raw.associateBy { it.id }
+                    val lines = raw.map { m ->
+                        if (m.isPayment && m.doctor.isBlank() && m.procedureId.isNotBlank()) {
+                            val charge = byId[m.procedureId]
+                            if (charge != null && charge.doctor.isNotBlank()) m.copy(doctor = charge.doctor, doctorId = m.doctorId.ifBlank { charge.doctorId }) else m
+                        } else m
+                    }
                     _state.value = _state.value.copy(loading = false, lines = lines, error = null)
                 }
                 .onFailure { e ->

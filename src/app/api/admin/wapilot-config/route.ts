@@ -3,7 +3,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
 import { resolveUserClinicId } from "@/lib/adminClinicDb";
-import { clearWapilotConfigCache, loadWapilotConfig } from "@/lib/wapilotConfig";
+import { clearWapilotConfigCache } from "@/lib/wapilotConfig";
 import {
   CLINIC_SECRETS_COLLECTION,
   WAPILOT_SECRET_FIELD,
@@ -52,7 +52,9 @@ export async function GET(request: Request) {
   if (!authz.ok) return authz.response;
 
   try {
-    const clinicId = await resolveUserClinicId(authz.uid);
+    // The clinic on screen; honoured only when the caller holds a role there, else their default.
+    const requestedClinicId = new URL(request.url).searchParams.get("clinicId")?.trim() || undefined;
+    const clinicId = await resolveUserClinicId(authz.uid, requestedClinicId);
     if (!clinicId) {
       return NextResponse.json({ ok: false, error: "No clinic for this user" }, { status: 400 });
     }
@@ -63,23 +65,9 @@ export async function GET(request: Request) {
     );
     if (own) return NextResponse.json({ ok: true, ...own });
 
-    // No connection of its own. Say plainly whether a shared platform number is carrying this
-    // clinic's messages, because "configured" and "configured as you" are different answers and
-    // the clinic owner needs to know which one applies to them.
-    const live = await loadWapilotConfig(clinicId, true);
-    if (live.source === "platform" && live.instanceId && live.token) {
-      return NextResponse.json({
-        ok: true,
-        configured: true,
-        source: "platform",
-        instanceId: live.instanceId,
-        tokenSet: true,
-        apiBaseUrl: live.apiRoot,
-        sendPath: live.sendPathTemplate,
-        sendDocumentPath: live.sendDocumentPathTemplate,
-      } satisfies WapilotConfigStatus & { ok: true });
-    }
-
+    // No connection of its own. There is no longer a shared number to fall back on for patient
+    // messages (the platform line carries staff alerts only — see lib/staffWhatsapp.ts), so the
+    // honest answer is "not connected" and the page offers click-to-send.
     return NextResponse.json({
       ok: true,
       configured: false,
@@ -98,12 +86,8 @@ export async function POST(request: Request) {
   if (!authz.ok) return authz.response;
 
   try {
-    const clinicId = await resolveUserClinicId(authz.uid);
-    if (!clinicId) {
-      return NextResponse.json({ ok: false, error: "No clinic for this user" }, { status: 400 });
-    }
-
     const body = (await request.json().catch(() => ({}))) as {
+      clinicId?: string;
       instanceId?: string;
       apiToken?: string;
       apiBaseUrl?: string;
@@ -111,6 +95,12 @@ export async function POST(request: Request) {
       sendDocumentPath?: string;
       connectedPhoneHint?: string;
     };
+    // The clinic on screen; honoured only when the caller holds a role there, else their default.
+    const clinicId = await resolveUserClinicId(authz.uid, typeof body.clinicId === "string" ? body.clinicId : undefined);
+    if (!clinicId) {
+      return NextResponse.json({ ok: false, error: "No clinic for this user" }, { status: 400 });
+    }
+
 
     const instanceId = typeof body.instanceId === "string" ? body.instanceId.trim() : "";
     if (!instanceId) {

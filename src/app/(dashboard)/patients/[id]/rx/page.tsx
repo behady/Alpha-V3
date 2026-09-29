@@ -82,7 +82,7 @@ function PrescriptionStudio() {
   const id = (params?.id as string) || "";
   const { showToast } = useUI();
   const { user } = useAuth();
-  const { clinic } = useClinic();
+  const { clinic, clinicId } = useClinic();
   // Sold as an add-on; the route refuses the send too, this only keeps a dead button off the screen.
   const canSendPdf = isUnlocked(clinic, "clinicalPdfs");
 
@@ -343,7 +343,7 @@ function PrescriptionStudio() {
       const res = await fetch("/api/whatsapp/send-prescription-pdf", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ patientId: id, pdfBase64 }),
+        body: JSON.stringify({ patientId: id, pdfBase64, clinicId }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {

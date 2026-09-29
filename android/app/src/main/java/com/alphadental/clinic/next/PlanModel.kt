@@ -41,6 +41,9 @@ data class Plans(
     val existing: List<TreatmentPlans.Plan> = emptyList(),
     val services: List<Service> = emptyList(),
     val doctors: List<String> = emptyList(),
+    /** A plan is one paper the patient signs, so it carries ONE price list — and so one payer. */
+    val policy: com.alphadental.clinic.next.data.Pricing.Policy = com.alphadental.clinic.next.data.Pricing.Policy.NONE,
+    val listId: String = "",
 
     /** Null while looking at the list; a draft while one is being written. */
     val draft: List<PlanLine>? = null,
@@ -67,9 +70,12 @@ data class Plans(
     val matches: List<Service>
         get() {
             val q = query.trim().lowercase()
-            val all = services.filter { it.name.isNotBlank() }
+            val all = services.filter { it.name.isNotBlank() && policy.covers(listId.ifBlank { null }, it.id) }
             return if (q.isEmpty()) all.take(12) else all.filter { it.name.lowercase().contains(q) }.take(12)
         }
+
+    /** A treatment's price on the plan's list. */
+    fun priceOn(service: Service): Double = com.alphadental.clinic.next.data.Pricing.priceOf(service, listId.ifBlank { null })
 }
 
 /**
@@ -101,12 +107,16 @@ class PlanModel : ViewModel() {
             val services = runCatching { Repository.loadServices(who.clinicId) }.getOrDefault(emptyList())
             val doctors = runCatching { Repository.loadDoctors(who.clinicId) }
                 .getOrDefault(emptyList()).map { it.name }
+            val policy = runCatching { com.alphadental.clinic.next.data.Pricing.load(who.clinicId) }
+                .getOrDefault(com.alphadental.clinic.next.data.Pricing.Policy.NONE)
             _state.value = _state.value.copy(
                 who = who,
                 loading = false,
                 existing = plans,
                 services = services,
                 doctors = doctors,
+                policy = policy,
+                listId = policy.defaultListId(),
                 doctor = doctors.firstOrNull { it.equals(who.name, ignoreCase = true) }
                     ?: doctors.firstOrNull().orEmpty(),
             )
@@ -138,6 +148,25 @@ class PlanModel : ViewModel() {
         _state.value = _state.value.copy(query = term)
     }
 
+    /**
+     * Change the plan's list. Steps still priced at the old list's figure move to the new one; a
+     * typed number is a decision and stays. Uncovered steps are kept — deleting a dentist's work
+     * because an insurer will not pay for it makes a worse plan, not a cleaner one.
+     */
+    fun setList(id: String) {
+        val s = _state.value
+        val next = s.policy.resolve(id)
+        val old = s.listId.ifBlank { null }
+        _state.value = s.copy(
+            listId = next,
+            draft = s.draft?.map { line ->
+                val sv = line.service ?: return@map line
+                val was = com.alphadental.clinic.next.data.Pricing.priceOf(sv, old)
+                if (line.unitPrice == was) line.copy(unitPrice = com.alphadental.clinic.next.data.Pricing.priceOf(sv, next)) else line
+            },
+        )
+    }
+
     fun addStep(service: Service?, typed: String = "") {
         val lines = _state.value.draft ?: return
         val name = service?.name ?: typed.trim()
@@ -147,7 +176,7 @@ class PlanModel : ViewModel() {
                 id = TreatmentPlans.newId("step"),
                 service = service,
                 name = name,
-                unitPrice = service?.price ?: 0.0,
+                unitPrice = service?.let { _state.value.priceOn(it) } ?: 0.0,
                 // New steps join the last visit rather than starting a new one.
                 // A plan is usually several things in one appointment, and
                 // splitting is the deliberate act.
@@ -231,6 +260,8 @@ class PlanModel : ViewModel() {
                 currency = "EGP",
                 doctorName = s.doctor.ifBlank { who.name },
                 uid = who.uid,
+                priceListId = if (s.policy.hasChoice) s.listId else "",
+                payer = s.policy.payerFor(s.listId.ifBlank { null }).let { it.id to it.name },
             )
                 .onSuccess {
                     _state.value = _state.value.copy(saving = false, draft = null, saved = "Plan saved as a draft.")

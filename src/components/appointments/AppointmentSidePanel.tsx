@@ -3,26 +3,19 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
-  X, Trash2, Wallet, User, Edit, Clock, FileText, Loader2, DollarSign, Check, Plus, CheckCircle2,
-  Stethoscope, Activity, Calendar, Hourglass, ClipboardList, ChevronDown, Sparkles, CloudOff
+  X, Trash2, Wallet, Clock, FileText, Loader2, Check,
+  Stethoscope, Calendar, Hourglass, ClipboardList, ChevronDown, Sparkles, CloudOff
 } from "lucide-react";
-import { db } from "@/lib/firebase";
-import { 
-  doc, updateDoc, collection, query, where, onSnapshot, serverTimestamp, 
-  getDocs, addDoc, getDoc, deleteDoc
-} from "firebase/firestore";
+import { getDoc } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useUI } from "@/context/UIContext";
-import { getAppointmentStatusStyles, APPOINTMENT_STAGES, getAppointmentStageLabel } from "@/lib/appointmentStages";
 import { saveBooking } from "@/lib/bookingService";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { getClinicDoc } from "@/lib/db-utils";
 import { autosaveVerdict } from "@/lib/appointmentAutosave";
-import { allocationMessage, allocationMessageAr, checkAllocation } from "@/lib/paymentAllocation";
-import { MoneyApiError, createPayment, createProcedure, deleteProcedure } from "@/lib/moneyApi";
-import { sendPatientPaymentWhatsApp } from "@/lib/sendPatientPaymentWhatsAppClient";
-import ServiceCombobox from "@/components/shared/ServiceCombobox";
+import { generalDoctorLabel } from "@/lib/generalDentist";
 import AppointmentStagePicker from "@/components/appointments/AppointmentStagePicker";
+import AppointmentMoneyTab from "@/components/appointments/AppointmentMoneyTab";
 
 /**
  * Exactly the fields this panel puts on screen — nothing more.
@@ -32,6 +25,24 @@ import AppointmentStagePicker from "@/components/appointments/AppointmentStagePi
  * stored value, counts as a change every render, and saves forever.
  */
 const EDITED_FIELDS = ["date", "time", "doctor", "treatment", "duration", "notes", "status"] as const;
+
+/**
+ * Two tabs: the booking, and the money.
+ *
+ * It was three — services and ledger sat apart — and they are the same fact. A receptionist read a
+ * price on one tab, switched to the other, found the same treatment again among charges and
+ * payments mixed into one list, and did the subtraction in her head with a patient waiting. Money
+ * now belongs to the treatment it is for, which is one tab.
+ *
+ * Each tab keeps its own colour. The icon is the thing you aim at when you have done this four
+ * hundred times this week and are not reading any more.
+ */
+type PanelTab = "appointment" | "money";
+
+const PANEL_TABS: { id: PanelTab; en: string; ar: string; icon: typeof Calendar; tint: string; tintActive: string }[] = [
+  { id: "appointment", en: "Visit", ar: "الموعد", icon: Calendar, tint: "text-sky-500", tintActive: "text-sky-300" },
+  { id: "money", en: "Money", ar: "الحساب", icon: Wallet, tint: "text-emerald-500", tintActive: "text-emerald-300" },
+];
 
 interface AppointmentSidePanelProps {
   selectedAppointment: any | null;
@@ -67,8 +78,6 @@ export default function AppointmentSidePanel({
   const router = useRouter();
 
   const [inlineEdit, setInlineEdit] = useState<Record<string, any>>({});
-  const [patientLedger, setPatientLedger] = useState<any[]>([]);
-  const [ledgerLoading, setLedgerLoading] = useState(false);
   const [visitReasonsOptions, setVisitReasonsOptions] = useState<string[]>(["كشف"]);
 
   useEffect(() => {
@@ -79,21 +88,7 @@ export default function AppointmentSidePanel({
     });
   }, []);
 
-  // Inline payment state
-  const [showInlinePayment, setShowInlinePayment] = useState(false);
-  const [unpaidProcedures, setUnpaidProcedures] = useState<any[]>([]);
-  const [selectedProcedure, setSelectedProcedure] = useState<any>(null);
-  const [inlinePayAmount, setInlinePayAmount] = useState<number | "">("");
-  const [inlinePayLoading, setInlinePayLoading] = useState(false);
-  const [unpaidLoading, setUnpaidLoading] = useState(false);
-
-  // Add procedure state
-  const [showAddProcedure, setShowAddProcedure] = useState(false);
-  const [procServiceId, setProcServiceId] = useState("");
-  const [procCost, setProcCost] = useState<number | "">("");
-  const [addProcToLedger, setAddProcToLedger] = useState(true);
-  const [addingProcedure, setAddingProcedure] = useState(false);
-  const [sessionProcedures, setSessionProcedures] = useState<{name: string, cost: number, clinicalNoteId: string, ledgerId: string | null}[]>([]);
+  const [activeTab, setActiveTab] = useState<PanelTab>("appointment");
 
   // Initialize inline edit form when appointment is selected
   useEffect(() => {
@@ -110,41 +105,19 @@ export default function AppointmentSidePanel({
         discountAmount: selectedAppointment.discountAmount || 0,
         services: selectedAppointment.services ? JSON.parse(JSON.stringify(selectedAppointment.services)) : [],
       });
-      setShowInlinePayment(false); // Reset payment view when switching appts
-      setShowAddProcedure(false);
-      setProcServiceId("");
-      setProcCost("");
-      setAddProcToLedger(true);
-      setSessionProcedures([]);
     }
   }, [selectedAppointment?.id, selectedAppointment]);
 
-  // Fetch ledger entries when selected appointment changes
+  /**
+   * A different visit starts on the visit tab again.
+   *
+   * Keyed on the id alone, not the appointment object: the effect above re-runs on every snapshot
+   * of the same visit, and tying the tab to that would throw someone out of the ledger they were
+   * reading the moment anything on the record changed.
+   */
   useEffect(() => {
-    if (!selectedAppointment?.patientId) {
-      setPatientLedger([]);
-      return;
-    }
-    setLedgerLoading(true);
-    const q = query(
-      getClinicCollection("ledger"),
-      where("patientId", "==", selectedAppointment.patientId)
-    );
-    const unsub = onSnapshot(q, (snap) => {
-      const records = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      records.sort((a: any, b: any) => {
-        const tA = a.createdAt?.toMillis?.() || 0;
-        const tB = b.createdAt?.toMillis?.() || 0;
-        return tB - tA;
-      });
-      setPatientLedger(records);
-      setLedgerLoading(false);
-    }, (error) => {
-      console.error("Ledger query error:", error);
-      setLedgerLoading(false);
-    });
-    return () => unsub();
-  }, [selectedAppointment?.patientId]);
+    setActiveTab("appointment");
+  }, [selectedAppointment?.id]);
 
   /**
    * Autosave.
@@ -170,7 +143,8 @@ export default function AppointmentSidePanel({
     if (!verdict.save) return;
     savingRef.current = true;
     setAutosaveState("saving");
-    const ok = await saveInlineEditRef.current();
+    const save = saveInlineEditRef.current;
+    const ok = save ? await save() : false;
     savingRef.current = false;
     setAutosaveState(ok ? "saved" : "error");
   }, []);
@@ -207,6 +181,12 @@ export default function AppointmentSidePanel({
         patientName: inlineEdit.patientName,
         treatment: inlineEdit.treatment,
         doctor: inlineEdit.doctor,
+        // Resolved from the list this panel renders. Without it the save wrote the new name over the
+        // old `doctorId`, so the screen said one dentist while every report still credited another —
+        // and picking General here left the visit still attributed to the dentist it just left.
+        doctorId: inlineEdit.doctor
+          ? (doctorsList.find((d: any) => d.name === inlineEdit.doctor)?.id ?? selectedAppointment.doctorId ?? null)
+          : null,
         date: inlineEdit.date,
         time: inlineEdit.time,
         duration: Number(inlineEdit.duration) || 30,
@@ -239,87 +219,18 @@ export default function AppointmentSidePanel({
   };
 
   // Read through a ref so the debounce above always calls the current closure without having to
-  // list every piece of state it touches as a dependency.
-  const saveInlineEditRef = useRef(saveInlineEdit);
-  saveInlineEditRef.current = saveInlineEdit;
-
-  const handleInlinePayment = async () => {
-    if (!selectedProcedure || !inlinePayAmount || isNaN(Number(inlinePayAmount)) || Number(inlinePayAmount) <= 0) {
-      showToast(language === 'ar' ? "يرجى تحديد إجراء وإدخال مبلغ صحيح" : "Please select a procedure and enter a valid amount", "error");
-      return;
-    }
-    
-    // This used to ask "Amount is greater than remaining. Continue?" and take yes for an answer,
-    // while the quick-payment modal refused the same thing outright and the patient ledger never
-    // checked at all. That disagreement is how 1,200 EGP came to settle a 200 EGP consultation.
-    // The server refuses it now; refusing here too means the receptionist finds out before the
-    // patient has handed the money over.
-    if (selectedProcedure.id !== 'general_payment') {
-      const verdict = checkAllocation({
-        cost: Number(selectedProcedure.cost) || 0,
-        otherPaymentsTotal: Number(selectedProcedure.paid) || 0,
-        amount: Number(inlinePayAmount),
-      });
-      if (!verdict.ok) {
-        showToast(
-          language === 'ar'
-            ? allocationMessageAr(verdict, selectedProcedure.description)
-            : allocationMessage(verdict, selectedProcedure.description),
-          "error"
-        );
-        return;
-      }
-    }
-
-    setInlinePayLoading(true);
-    try {
-      const today = new Date();
-      const localDate = new Date(today.getTime() - (today.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
-      
-      let ledgerDesc = `Payment`;
-      if (selectedProcedure.id !== 'general_payment') {
-         ledgerDesc = `Payment for ${selectedProcedure.description}`;
-      }
-
-      // This is the write that lost the dentist. It recorded the money and nothing else — no
-      // doctorId, no lab fee, no commission — so the treating dentist earned nothing on it and the
-      // clinic booked all of it as profit, while the commission report skipped the row entirely
-      // for having no commission on it. The server now resolves all of that from the procedure.
-      const { id: paymentId } = await createPayment({
-        patientId: selectedAppointment.patientId,
-        patientName: selectedAppointment.patientName,
-        amount: Number(inlinePayAmount),
-        method: "Cash",
-        description: ledgerDesc,
-        procedureId: selectedProcedure.id === 'general_payment' ? null : selectedProcedure.id,
-        date: localDate,
-      });
-
-      // The one payment screen of the four that never told the patient. Fire-and-forget, like
-      // the quick-payment modal: the money is recorded either way, and a messaging outage must
-      // not make it look like the payment failed.
-      void sendPatientPaymentWhatsApp({
-        patientId: String(selectedAppointment.patientId),
-        ledgerId: paymentId,
-        patientName: selectedAppointment.patientName,
-      });
-
-      showToast(language === 'ar' ? "تم تسجيل الدفعة بنجاح" : "Payment recorded successfully", "success");
-      setInlinePayAmount("");
-      setShowInlinePayment(false);
-      setSelectedProcedure(null);
-    } catch (e) {
-      console.error("Error inline payment:", e);
-      showToast(
-        e instanceof MoneyApiError
-          ? e.message
-          : language === 'ar' ? "خطأ في تسجيل الدفعة" : "Error recording payment",
-        "error"
-      );
-    } finally {
-      setInlinePayLoading(false);
-    }
-  };
+  // list every piece of state it touches as a dependency. Written after the render rather than
+  // during it: a ref handed to useRef may not be reassigned mid-render, and the autosave that
+  // reads it only ever fires from a timer, long after this has committed.
+  const saveInlineEditRef = useRef<(() => Promise<boolean>) | null>(null);
+  useEffect(() => {
+    // The compiler's immutability rule sees a ref that a useCallback closed over and refuses the
+    // assignment on principle. Refreshing a latest-closure ref from an effect is the sanctioned
+    // way to do exactly this, and the alternative — rebuilding the callback every render — would
+    // restart the autosave timer on every keystroke and mean nothing ever saved.
+    // eslint-disable-next-line react-hooks/immutability
+    saveInlineEditRef.current = saveInlineEdit;
+  });
 
   /**
    * Closing flushes whatever is still waiting, rather than asking.
@@ -398,8 +309,29 @@ export default function AppointmentSidePanel({
                   </div>
                 </div>
 
+                {/* Three faces of one panel: the visit, its services, the money. */}
+                <div className="shrink-0 px-4 pt-3 pb-3 flex items-center gap-1.5 border-b border-slate-200/60">
+                  {PANEL_TABS.map((tab) => {
+                    const Icon = tab.icon;
+                    const active = activeTab === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-full text-xs font-bold transition-all whitespace-nowrap ${
+                          active ? 'bg-ink-slab text-white shadow-sm' : 'text-ink-muted hover:bg-surface-muted'
+                        }`}
+                      >
+                        <Icon size={15} className={active ? tab.tintActive : tab.tint} />
+                        {language === 'ar' ? tab.ar : tab.en}
+                      </button>
+                    );
+                  })}
+                </div>
+
                 {/* Inline Edit Form */}
-                <div className="px-5 py-5 space-y-5 border-b border-slate-200/60">
+                {activeTab === "appointment" && (
+                <div className="px-5 py-5 space-y-5">
                   <div className="flex items-center justify-between">
                       <h3 className="font-light text-slate-800 text-base uppercase tracking-widest">{language === 'ar' ? 'تعديل التفاصيل' : 'Edit Details'}</h3>
                       <AutosaveChip state={autosaveState} language={language} />
@@ -413,7 +345,8 @@ export default function AppointmentSidePanel({
                           <Stethoscope size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-500 pointer-events-none" />
                           <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                           <select value={inlineEdit.doctor || ''} onChange={e => setInlineEdit(p => ({...p, doctor: e.target.value}))} className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-9 pr-8 text-sm font-bold text-slate-700 outline-none transition-all focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent/10 appearance-none shadow-sm">
-                              <option value="">--</option>
+                              {/* Was "--". Same meaning — no dentist on this visit — said out loud. */}
+                              <option value="">{generalDoctorLabel(language)}</option>
                               {doctorsList.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
                           </select>
                         </div>
@@ -478,191 +411,6 @@ export default function AppointmentSidePanel({
                       </div>
                   </div>
 
-                  {/* Add Procedure Section (Moved directly under Reason for Visit) */}
-                  {servicesList.length > 0 && (
-                    <div className="mt-2">
-                      <button
-                        onClick={() => setShowAddProcedure(prev => !prev)}
-                        className={`w-full text-sm font-bold rounded-xl py-3 flex items-center justify-center gap-2 transition-colors shadow-sm ${
-                          showAddProcedure
-                            ? 'text-ink-body bg-surface-muted border border-line hover:bg-slate-200'
-                            : 'text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100'
-                        }`}
-                      >
-                        <Plus size={16}/> {showAddProcedure ? (language === 'ar' ? 'إلغاء' : 'Cancel') : (language === 'ar' ? 'إضافة إجراء' : 'Add Procedure')}
-                      </button>
-
-                      {showAddProcedure && (
-                        <div className="bg-emerald-50/50 rounded-xl p-3 border border-emerald-100 mt-2 animate-in slide-in-from-top-2 duration-200">
-                          <div className="flex flex-col gap-3">
-                            {/* Service selector */}
-                            <div>
-                              <label className="text-xs font-extrabold text-ink-muted uppercase tracking-wider block mb-1.5">
-                                {language === 'ar' ? 'الخدمة' : 'Service'}
-                              </label>
-                              <ServiceCombobox
-                                services={servicesList}
-                                value={procServiceId}
-                                onChange={(val, svc) => {
-                                  setProcServiceId(val);
-                                  if (svc?.price) setProcCost(Number(svc.price));
-                                }}
-                                valueKey="id"
-                                placeholder={language === 'ar' ? 'اختر الخدمة...' : 'Select service...'}
-                                language={language}
-                                className="w-full text-sm py-2 font-bold border border-line rounded-lg bg-surface"
-                              />
-                            </div>
-                            {/* Cost */}
-                            <div>
-                              <label className="text-xs font-extrabold text-ink-muted uppercase tracking-wider block mb-1.5">
-                                {language === 'ar' ? 'التكلفة' : 'Cost'}
-                              </label>
-                              <div className="relative">
-                                <div className="absolute inset-y-0 start-0 ps-2.5 flex items-center pointer-events-none text-slate-400">
-                                  <DollarSign size={14}/>
-                                </div>
-                                <input
-                                  type="number"
-                                  value={procCost}
-                                  onChange={e => setProcCost(e.target.value ? Number(e.target.value) : "")}
-                                  className="w-full ps-9 pe-3 py-2.5 text-sm font-black text-slate-800 border border-line rounded-lg outline-none focus:ring-2 focus:ring-emerald-400 bg-surface"
-                                  placeholder="0"
-                                />
-                              </div>
-                            </div>
-                            {/* Add to ledger toggle */}
-                            <label className="flex items-center gap-2 cursor-pointer select-none">
-                              <input
-                                type="checkbox"
-                                checked={addProcToLedger}
-                                onChange={e => setAddProcToLedger(e.target.checked)}
-                                className="w-4 h-4 rounded border-line-strong text-emerald-600 focus:ring-emerald-500"
-                              />
-                              <span className="text-sm font-bold text-ink-body">
-                                {language === 'ar' ? 'إضافة للسجل المالي' : 'Add to Ledger'}
-                              </span>
-                            </label>
-                            {/* Confirm */}
-                            <button
-                              disabled={addingProcedure || !procServiceId || (!procCost && procCost !== 0)}
-                              onClick={async () => {
-                                const svc = servicesList.find(s => String(s.id) === String(procServiceId));
-                                if (!svc) { showToast(language === 'ar' ? 'اختر خدمة' : 'Select a service', 'error'); return; }
-                                const numCost = Number(procCost) || 0;
-
-                                setAddingProcedure(true);
-                                try {
-                                  const today = new Date();
-                                  const localDate = new Date(today.getTime() - (today.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
-
-                                  // The charge, the note and their back-link used to be three
-                                  // separate writes from here; a failure between them left a
-                                  // charge nobody could explain, or a treatment nobody was
-                                  // billed for. One call, one transaction.
-                                  //
-                                  // Attribution follows the appointment's dentist, never whoever
-                                  // is clicking — a receptionist recording a procedure must not
-                                  // become the person it pays out to.
-                                  if (!selectedAppointment.doctorId) {
-                                    showToast(
-                                      language === 'ar'
-                                        ? 'الموعد ده مش متسجل عليه دكتور — عدّل الموعد الأول'
-                                        : 'This visit has no dentist assigned. Set one on the appointment first.',
-                                      'error'
-                                    );
-                                    return;
-                                  }
-
-                                  const { noteId, ledgerId: newLedgerId } = await createProcedure({
-                                    patientId: selectedAppointment.patientId,
-                                    appointmentId: selectedAppointment.id,
-                                    procedures: [svc.name],
-                                    selectedTeeth: [],
-                                    tooth: "Gen",
-                                    unitCost: numCost,
-                                    doctorId: selectedAppointment.doctorId,
-                                    status: "Completed",
-                                    date: localDate,
-                                    addToLedger: addProcToLedger,
-                                  });
-
-                                  showToast(
-                                    addProcToLedger
-                                      ? (language === 'ar' ? 'تمت إضافة الإجراء للسجل المالي والملاحظات' : 'Procedure added to ledger & notes')
-                                      : (language === 'ar' ? 'تمت إضافة الإجراء للملاحظات السريرية' : 'Procedure added to clinical notes'),
-                                    'success'
-                                  );
-                                  // Reset form but keep add procedure open
-                                  setProcServiceId("");
-                                  setProcCost("");
-                                  setAddProcToLedger(true);
-                                  setSessionProcedures(prev => [...prev, { name: svc.name, cost: numCost, clinicalNoteId: noteId, ledgerId: newLedgerId }]);
-                                } catch (err) {
-                                  console.error('Error adding procedure:', err);
-                                  showToast(
-                                    err instanceof MoneyApiError
-                                      ? err.message
-                                      : language === 'ar' ? 'خطأ في إضافة الإجراء' : 'Error adding procedure',
-                                    'error'
-                                  );
-                                } finally {
-                                  setAddingProcedure(false);
-                                }
-                              }}
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-[38px] px-4 rounded-lg flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 w-full"
-                            >
-                              {addingProcedure ? <Loader2 size={16} className="animate-spin"/> : <Check size={16}/>}
-                              {language === 'ar' ? 'تأكيد الإجراء' : 'Confirm Procedure'}
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                      {/* Added Session Procedures Review List */}
-                      {sessionProcedures.length > 0 && (
-                        <div className="mt-3 flex flex-col gap-2">
-                          <label className="text-[10px] font-extrabold text-ink-muted uppercase tracking-wider block">
-                            {language === 'ar' ? 'الإجراءات المضافة' : 'Added Procedures'}
-                          </label>
-                          <div className="bg-surface rounded-xl border border-line divide-y divide-slate-100 overflow-hidden shadow-sm">
-                            {sessionProcedures.map((sp, idx) => (
-                              <div key={idx} className="flex items-center justify-between p-3 text-sm">
-                                <div className="flex items-center gap-2">
-                                  <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
-                                  <span className="font-bold text-slate-700">{sp.name}</span>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                  <span className="font-black text-ink">{sp.cost} {language === 'ar' ? 'ج.م' : 'EGP'}</span>
-                                  <button 
-                                    type="button"
-                                    onClick={async () => {
-                                      if (await confirm(language === 'ar' ? 'هل أنت متأكد من حذف هذا الإجراء؟' : 'Are you sure you want to delete this procedure?')) {
-                                        try {
-                                          // One call: the charge goes with the treatment, and the
-                                          // delete is refused outright if money has been taken
-                                          // against it.
-                                          await deleteProcedure(sp.clinicalNoteId);
-                                          setSessionProcedures(prev => prev.filter(p => p.clinicalNoteId !== sp.clinicalNoteId));
-                                          showToast(language === 'ar' ? 'تم الحذف بنجاح' : 'Deleted successfully', 'success');
-                                        } catch (e) {
-                                          console.error(e);
-                                          showToast(language === 'ar' ? 'خطأ في الحذف' : 'Error deleting', 'error');
-                                        }
-                                      }
-                                    }}
-                                    className="p-1 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded transition-colors"
-                                  >
-                                    <Trash2 size={16} />
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
                   {/* Notes */}
                   <div>
                       <label className="text-xs font-black text-ink-muted uppercase tracking-widest block mb-2">{language === 'ar' ? 'ملاحظات' : 'Notes'}</label>
@@ -689,156 +437,20 @@ export default function AppointmentSidePanel({
 
 
                 </div>
+                )}
 
-                {/* Ledger & Inline Payment */}
-                <div className="px-4 py-3 flex-1">
-                  <div className="flex items-center justify-between mb-3">
-                      <h3 className="font-light text-slate-800 text-base uppercase tracking-widest flex items-center gap-2">
-                        <FileText size={16} className="text-slate-400"/> {language === 'ar' ? 'سجل المريض المالي' : 'Patient Ledger'}
-                      </h3>
-                      <button
-                        onClick={async () => {
-                            if (showInlinePayment) { setShowInlinePayment(false); return; }
-                            setShowInlinePayment(true);
-                            setUnpaidLoading(true);
-                            setSelectedProcedure(null);
-                            setInlinePayAmount("");
-                            try {
-                              const q = query(getClinicCollection("ledger"), where("patientId", "==", selectedAppointment.patientId));
-                              const snap = await getDocs(q);
-                              const all = snap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
-                              const rawProcs = all.filter(r => r.type === "procedure");
-                              const payments = all.filter(r => r.type === "payment");
-                              const procs: any[] = [];
-                              rawProcs.forEach(proc => {
-                                  const cost = Number(proc.cost) || 0;
-                                  const paidForProc = payments.filter(p => p.procedureId === proc.id).reduce((sum, p) => sum + (Number(p.paid) || 0), 0);
-                                  const remaining = cost - paidForProc;
-                                  if (remaining > 0) procs.push({ ...proc, paid: paidForProc, remaining });
-                              });
-                              procs.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-                              setUnpaidProcedures(procs);
-                              if (procs.length === 0) setSelectedProcedure({ id: 'general_payment', description: 'General Payment', remaining: Infinity });
-                            } catch (e) { console.error(e); }
-                            finally { setUnpaidLoading(false); }
-                        }}
-                        className={`text-sm font-bold px-4 py-2 rounded-full transition-all flex items-center gap-1.5 shadow-sm ${showInlinePayment ? 'text-slate-600 bg-white border border-slate-200 hover:bg-slate-50' : 'text-white bg-ink-slab hover:bg-slate-800'}`}
-                      >
-                        <Wallet size={14}/> {showInlinePayment ? (language === 'ar' ? 'إلغاء' : 'Cancel') : (language === 'ar' ? 'دفع' : 'Pay')}
-                      </button>
-                  </div>
-
-                  {/* Financial Summary */}
-                  {(() => {
-                      const procedures = patientLedger.filter(e => e.type === 'procedure');
-                      const payments = patientLedger.filter(e => e.type === 'payment');
-                      const totalCost = procedures.reduce((sum, e) => sum + (Number(e.cost) || 0), 0);
-                      const totalPaid = payments.reduce((sum, e) => sum + (Number(e.paid) || 0), 0);
-                      const totalRemaining = totalCost - totalPaid;
-
-                      return (
-                        <div className="flex gap-2 mb-4">
-                            <div className="flex-1 bg-surface border border-line rounded-xl p-3 text-center shadow-sm">
-                              <p className="text-xs font-extrabold text-slate-400 uppercase tracking-wider mb-1">{language === 'ar' ? 'الإجمالي' : 'Total Cost'}</p>
-                              <p className="text-base font-black text-slate-800">{totalCost.toLocaleString()} <span className="text-[10px] text-slate-400">EGP</span></p>
-                            </div>
-                            <div className="flex-1 bg-white border border-slate-200 rounded-xl p-3 text-center shadow-sm">
-                              <p className="text-xs font-extrabold text-slate-400 uppercase tracking-wider mb-1">{language === 'ar' ? 'المدفوع' : 'Paid'}</p>
-                              <p className="text-base font-black text-emerald-600">{totalPaid.toLocaleString()} <span className="text-[10px] text-emerald-600/50">EGP</span></p>
-                            </div>
-                            <div className="flex-1 bg-ink-slab border border-ink-slab rounded-xl p-3 text-center shadow-md">
-                              <p className="text-xs font-extrabold text-slate-400 uppercase tracking-wider mb-1">{language === 'ar' ? 'المتبقي' : 'Remaining'}</p>
-                              <p className={`text-base font-black ${totalRemaining > 0 ? 'text-white' : 'text-slate-400'}`}>{totalRemaining.toLocaleString()} <span className="text-[10px] opacity-50">EGP</span></p>
-                            </div>
-                        </div>
-                      );
-                  })()}
-
-                  {/* Inline Payment Form */}
-                  {showInlinePayment && (
-                      <div className="bg-surface-subtle rounded-xl p-3 border border-line mb-4 animate-in slide-in-from-top-2 duration-200">
-                        {unpaidLoading ? (
-                            <div className="flex justify-center p-4"><Loader2 className="animate-spin text-slate-400" size={20}/></div>
-                        ) : (
-                            <div className="flex flex-col gap-3">
-                              <div>
-                                  <label className="text-xs font-extrabold text-ink-muted uppercase tracking-wider block mb-1.5">
-                                    {language === 'ar' ? 'اختر الإجراء لدفع حسابه' : 'Select Procedure to Pay'}
-                                  </label>
-                                  <select 
-                                    className="w-full text-sm font-bold border border-line rounded-lg px-3 py-2.5 bg-surface"
-                                    value={selectedProcedure?.id || ""}
-                                    onChange={(e) => {
-                                        if (e.target.value === 'general_payment') setSelectedProcedure({ id: 'general_payment', description: 'General Payment', remaining: Infinity });
-                                        else setSelectedProcedure(unpaidProcedures.find(p => p.id === e.target.value));
-                                    }}
-                                  >
-                                    <option value="" disabled>-- {language === 'ar' ? 'اختر' : 'Select'} --</option>
-                                    {unpaidProcedures.map(p => (
-                                        <option key={p.id} value={p.id}>
-                                          {p.description} ({language === 'ar' ? 'المتبقي:' : 'Remaining:'} {p.remaining} EGP)
-                                        </option>
-                                    ))}
-                                    <option value="general_payment">{language === 'ar' ? 'دفعة عامة (بدون إجراء محدد)' : 'General Payment'}</option>
-                                  </select>
-                              </div>
-                              <div className="flex gap-2 items-end">
-                                  <div className="flex-1">
-                                    <label className="text-xs font-extrabold text-ink-muted uppercase tracking-wider block mb-1.5">
-                                        {language === 'ar' ? 'المبلغ' : 'Amount'}
-                                    </label>
-                                    <div className="relative">
-                                        <div className="absolute inset-y-0 start-0 ps-2.5 flex items-center pointer-events-none text-slate-400">
-                                          <DollarSign size={14}/>
-                                        </div>
-                                        <input 
-                                          type="number" 
-                                          value={inlinePayAmount} 
-                                          onChange={e => setInlinePayAmount(Number(e.target.value))}
-                                          className="w-full ps-8 pe-3 py-2 text-sm font-black text-slate-800 border border-line rounded-lg outline-none focus:ring-2 focus:ring-emerald-400"
-                                          placeholder="0.00"
-                                        />
-                                    </div>
-                                  </div>
-                                    <button
-                                      disabled={inlinePayLoading || !selectedProcedure || !inlinePayAmount}
-                                      onClick={handleInlinePayment}
-                                      className="bg-accent hover:bg-accent-strong text-ink-on-accent font-bold h-[38px] px-4 rounded-lg flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
-                                    >
-                                    {inlinePayLoading ? <Loader2 size={16} className="animate-spin"/> : <Check size={16}/>}
-                                    {language === 'ar' ? 'تأكيد' : 'Confirm'}
-                                  </button>
-                              </div>
-                            </div>
-                        )}
-                      </div>
-                  )}
-
-                  {/* Ledger List */}
-                  <div className="space-y-2 mt-2 max-h-[380px] overflow-y-auto pr-1">
-                      {ledgerLoading ? (
-                        <div className="flex justify-center p-4"><Loader2 className="animate-spin text-slate-300" size={24}/></div>
-                      ) : patientLedger.length === 0 ? (
-                        <p className="text-sm text-center text-slate-400 italic py-4">{language === 'ar' ? 'لا توجد حركات مالية' : 'No financial records'}</p>
-                      ) : (
-                        patientLedger.map(entry => (
-                            <div key={entry.id} className="flex items-center justify-between py-3 border-b border-slate-100 last:border-b-0">
-                              <div>
-                                  <p className="text-sm font-bold text-slate-800">{entry.description || entry.type}</p>
-                                  <p className="text-xs text-slate-400 font-semibold mt-0.5">{entry.date}</p>
-                              </div>
-                              <div className="text-end">
-                                  {entry.type === 'payment' ? (
-                                    <p className="text-sm font-black text-emerald-500">+{Number(entry.paid).toLocaleString()} <span className="text-[10px]">EGP</span></p>
-                                  ) : (
-                                    <p className="text-sm font-black text-slate-800">-{Number(entry.cost).toLocaleString()} <span className="text-[10px] text-slate-400">EGP</span></p>
-                                  )}
-                              </div>
-                            </div>
-                        ))
-                      )}
-                  </div>
+                {/* Money — every treatment with what it cost, what is paid and what is left */}
+                {activeTab === "money" && (
+                <div className="px-4 py-4 flex-1">
+                  <AppointmentMoneyTab
+                    appointment={selectedAppointment}
+                    doctorsList={doctorsList}
+                    servicesList={servicesList}
+                    onQuickPay={onQuickPay}
+                  />
                 </div>
+                )}
+
 
             </div>
         </div>

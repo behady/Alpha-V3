@@ -1,0 +1,39 @@
+Photographs cropped for the tooth chart.
+
+--- Supplied by the clinic's owner, 2026-09-19 ------------------------------------------------
+Four of these are his own pictures, chosen by him and squared to 256px. They replaced the
+Wikimedia crops that stood in for them. No third-party licence applies to these four.
+
+gutta_percha.jpg    the obturated root
+crown_pfm.jpg       porcelain-fused-to-metal crown
+composite.jpg       composite filling surface
+crown_zirconia.jpg  zirconia / all-ceramic crown
+
+--- Wikimedia Commons ---------------------------------------------------------------------------
+The rest are small crops of the originals below.
+
+crown_metal.jpg
+  File:Crown dentistry gold 03 occlusal.jpg
+  CC BY-SA 3.0 - No machine-readable author provided. <a href="//commons.wiki
+  https://upload.wikimedia.org/wikipedia/commons/1/1f/Crown_dentistry_gold_03_occlusal.jpg
+
+amalgam.jpg
+  File:Complex-amalgam.jpg
+  Public domain - DRosenbach
+  https://upload.wikimedia.org/wikipedia/commons/e/ed/Complex-amalgam.jpg
+
+implant.jpg
+  File:Zahnimplantat.jpg
+  CC BY-SA 4.0 - <a href="//commons.wikimedia.org/w/index.php?title=User:ISeb
+  https://upload.wikimedia.org/wikipedia/commons/1/1e/Zahnimplantat.jpg
+
+veneer.jpg
+  File:Veneer No Prep web.jpg
+  CC BY-SA 3.0 - Dr. Mihail Cos, Hannover
+  https://upload.wikimedia.org/wikipedia/commons/5/5b/Veneer_No_Prep_web.jpg
+
+implant.jpg is a crop of an illustration, not a photograph: no bare titanium fixture was
+available under a free licence.
+
+To replace any of these, drop a same-named file in this folder and rebuild. Square, a few hundred
+pixels across; the chart masks it to the tooth's own outline.

@@ -57,6 +57,13 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
     multiBranch: boolean;
     /** Prescription and treatment-plan PDFs sent to the patient on WhatsApp. */
     clinicalPdfs: boolean;
+    /**
+     * Owner and staff alerts sent from Alpha's own WhatsApp line, for a clinic that has not
+     * connected a number of its own. Sold cheaply on its own; a clinic whose own number is
+     * connected does not need it because its alerts leave from that number. Staff only — the
+     * shared line never messages a patient (see lib/staffWhatsapp.ts).
+     */
+    ownerAlertsLine: boolean;
   }
 }> = {
   'Free Trial': {
@@ -90,6 +97,7 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       reports: true,
       multiBranch: true,
       clinicalPdfs: true,
+      ownerAlertsLine: false,
     }
   },
   'Basic': {
@@ -114,6 +122,7 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       reports: false,
       multiBranch: false,
       clinicalPdfs: false,
+      ownerAlertsLine: false,
     }
   },
   'Pro': {
@@ -139,6 +148,7 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       reports: true,
       multiBranch: false,
       clinicalPdfs: true,
+      ownerAlertsLine: false,
     }
   },
   'Premium': {
@@ -164,6 +174,7 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       reports: true,
       multiBranch: true,
       clinicalPdfs: true,
+      ownerAlertsLine: false,
     }
   }
 };

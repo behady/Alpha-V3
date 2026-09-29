@@ -30,6 +30,32 @@ function arg(name, fallback = null) {
   return i === -1 ? fallback : process.argv[i + 1];
 }
 
+async function listInteractive(page) {
+  return page.evaluate(() => {
+    const out = [];
+    const sel = 'button, a[href], [role="button"], [role="tab"], input, select, textarea, [contenteditable="true"]';
+    for (const el of document.querySelectorAll(sel)) {
+      const r = el.getBoundingClientRect();
+      if (r.width < 4 || r.height < 4) continue;
+      const style = getComputedStyle(el);
+      if (style.visibility === "hidden" || style.display === "none" || Number(style.opacity) === 0) continue;
+      const label = (el.innerText || el.value || el.placeholder || el.getAttribute("aria-label") || "")
+        .replace(/\s+/g, " ").trim().slice(0, 60);
+      out.push({
+        tag: el.tagName.toLowerCase(), role: el.getAttribute("role") || "", label,
+        href: el.getAttribute("href") || "",
+        x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height),
+      });
+    }
+    return out;
+  });
+}
+
+function fmt(f) {
+  return `${f.tag.padEnd(8)} ${String(f.role).padEnd(7)} ${String(f.x).padStart(4)},${String(f.y).padStart(4)} ` +
+    `${String(f.w).padStart(4)}x${String(f.h).padStart(3)}  ${f.label}${f.href ? `   -> ${f.href}` : ""}`;
+}
+
 async function main() {
   // Git Bash rewrites a leading-slash argument into a Windows path before node ever sees it,
   // so accept the bare form too and put the slash back on.
@@ -51,6 +77,43 @@ async function main() {
   }, CLINIC);
 
   const page = ctx.pages()[0] || (await ctx.newPage());
+
+  /**
+   * `--dismiss` clears the first-run overlays before anything else. A fresh profile copy shows
+   * the language picker and the welcome tour over the dashboard, and both sit ABOVE any dialog
+   * the probe opens — so "click New Patient, list the dialog" listed only the page behind it.
+   */
+  if (process.argv.includes("--dismiss")) {
+    await page.goto(BASE + "/", { waitUntil: "domcontentloaded" }).catch(() => {});
+    await sleep(9000);
+    const ar = page.locator('button:has-text("العربية")').first();
+    if (await ar.isVisible({ timeout: 4000 }).catch(() => false)) { await ar.click().catch(() => {}); await sleep(6000); }
+    const stop = page.locator("text=بطل الشرح خالص").first();
+    if (await stop.isVisible({ timeout: 4000 }).catch(() => false)) { await stop.click().catch(() => {}); await sleep(2500); }
+    await page.keyboard.press("Escape").catch(() => {});
+  }
+
+  /**
+   * `--paths a,b,c` visits several pages in one browser session and lists each. Launching the
+   * profile costs twenty seconds a time, which is most of a probe; scripting a twelve-part video
+   * means asking about thirty screens, and thirty launches is ten minutes of waiting.
+   */
+  const many = arg("paths");
+  if (many) {
+    for (const rel of many.split(",").map((x) => x.trim()).filter(Boolean)) {
+      const p = rel.startsWith("/") ? rel : "/" + rel;
+      await page.goto(BASE + p, { waitUntil: "domcontentloaded" }).catch(() => {});
+      await sleep(Number(arg("settle", 8000)));
+      const rows = await listInteractive(page);
+      console.log(`
+${p}
+${"-".repeat(72)}`);
+      for (const f of rows) if (f.label || f.href) console.log(fmt(f));
+    }
+    await ctx.close();
+    return;
+  }
+
   await page.goto(BASE + target, { waitUntil: "domcontentloaded" });
   await sleep(Number(arg("settle", 9000)));
 
@@ -97,37 +160,15 @@ ${"-".repeat(72)}`);
 
   const clickText = arg("click");
   if (clickText) {
-    const el = page.locator(`text=${clickText}`).first();
-    await el.click({ timeout: 8000 }).catch((e) => console.log(`  ! click failed: ${e.message.split("\n")[0]}`));
-    await sleep(Number(arg("after", 4000)));
+    // A comma list is clicked in order: search result, then a tab inside it, then a button.
+    for (const step of clickText.split(",").map((x) => x.trim()).filter(Boolean)) {
+      const el = page.locator(`text=${step}`).first();
+      await el.click({ timeout: 8000 }).catch((e) => console.log(`  ! click "${step}" failed: ${String(e.message).split(String.fromCharCode(10))[0]}`));
+      await sleep(Number(arg("after", 4000)));
+    }
   }
 
-  const found = await page.evaluate(() => {
-    const out = [];
-    const sel = 'button, a[href], [role="button"], [role="tab"], input, select, textarea, [contenteditable="true"]';
-    for (const el of document.querySelectorAll(sel)) {
-      const r = el.getBoundingClientRect();
-      if (r.width < 4 || r.height < 4) continue;
-      const style = getComputedStyle(el);
-      if (style.visibility === "hidden" || style.display === "none" || Number(style.opacity) === 0) continue;
-      const label =
-        (el.innerText || el.value || el.placeholder || el.getAttribute("aria-label") || "")
-          .replace(/\s+/g, " ")
-          .trim()
-          .slice(0, 60);
-      out.push({
-        tag: el.tagName.toLowerCase(),
-        role: el.getAttribute("role") || "",
-        label,
-        href: el.getAttribute("href") || "",
-        x: Math.round(r.x),
-        y: Math.round(r.y),
-        w: Math.round(r.width),
-        h: Math.round(r.height),
-      });
-    }
-    return out;
-  });
+  const found = await listInteractive(page);
 
   console.log(`\n${target}${clickText ? `  (after clicking "${clickText}")` : ""}\n${"-".repeat(72)}`);
   for (const f of found) {

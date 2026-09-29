@@ -21,7 +21,13 @@ const PW = "C:/Users/PC/AppData/Local/npm-cache/_npx/9833c18b2d85bc59/node_modul
 const { chromium } = require(PW);
 
 const BASE = "https://alpha-v3-live.vercel.app";
-const CLINIC = "Tbog4tv8bA4E0BqO6NWF";
+/**
+ * The clinic the browser is pinned to. The demo clinic by default; `--clinic <id>` swaps it,
+ * which the walkthrough needs — its first parts run on a clinic created on camera, whose id is
+ * only known after that take.
+ */
+const clinicArg = process.argv.includes("--clinic") ? process.argv[process.argv.indexOf("--clinic") + 1] : null;
+const CLINIC = clinicArg || "Tbog4tv8bA4E0BqO6NWF";
 /**
  * The patient the record beats open. Deliberately the fullest file the seed produces (29 ledger
  * rows, 15 notes) and the same person as the booking conversation, so the chart, the plan and the
@@ -29,7 +35,14 @@ const CLINIC = "Tbog4tv8bA4E0BqO6NWF";
  */
 const STAR = "REv947qYLGBe5SIQA2I9";
 
-const SRC_PROFILE = "C:/Users/PC/AppData/Local/ms-playwright-mcp/mcp-chrome-c0d885c";
+/**
+ * The signed-in profile to copy when the output folder has none yet. `--profile-from <dir>`
+ * points at a previous take's profile instead of the raw MCP one, which carries the language
+ * choice and the dismissed tour with it — the raw profile shows both overlays on the first shot.
+ */
+const SRC_PROFILE = process.argv.includes("--profile-from")
+  ? process.argv[process.argv.indexOf("--profile-from") + 1]
+  : "C:/Users/PC/AppData/Local/ms-playwright-mcp/mcp-chrome-c0d885c";
 
 /** The user's own display scaling. CSS_WIDTH * ZOOM is the recorded pixel size. */
 const ZOOM = 1.25;
@@ -140,6 +153,32 @@ async function runActions(page, actions, report) {
         await sleep(1200);
         continue;
       }
+      /**
+       * Clicks the first visible, enabled control whose text matches a pattern. For the things a
+       * page names differently every day — a time slot, a search result — where an exact label
+       * is not knowable in advance.
+       */
+      if (a.do === "clickMatch") {
+        const root = a.within ? page.locator(a.within).first() : page;
+        const re = new RegExp(a.pattern);
+        const cands = root.locator("button, [role=button], a, li, option, div[class*=cursor-pointer]");
+        const count = await cands.count();
+        let hit = null;
+        for (let i = 0; i < count && !hit; i++) {
+          const c = cands.nth(i);
+          const t = ((await c.innerText().catch(() => "")) || "").trim();
+          if (!t || !re.test(t)) continue;
+          if (!(await c.isVisible().catch(() => false))) continue;
+          if (await c.isDisabled().catch(() => false)) continue;
+          hit = c;
+        }
+        if (!hit) throw new Error(`nothing visible matches /${a.pattern}/`);
+        await hit.scrollIntoViewIfNeeded({ timeout: 3000 }).catch(() => {});
+        await sleep(400);
+        await hit.click({ timeout: 6000 });
+        await sleep(900);
+        continue;
+      }
       if (a.do === "press") { await page.keyboard.press(a.key); await sleep(600); continue; }
 
       if (a.do === "click" || a.do === "clickFirst") {
@@ -208,7 +247,9 @@ async function runActions(page, actions, report) {
           }
         }
         if (!target) throw new Error(`no visible select containing "${a.has}"`);
-        const idx = options.findIndex((t) => t.includes(a.pick));
+        // pickIndex chooses by position when the option text is not knowable — "the first real
+        // choice after the placeholder" on a select seeded with the clinic's own list.
+        const idx = Number.isInteger(a.pickIndex) ? a.pickIndex : options.findIndex((t) => t.includes(a.pick));
         if (idx === -1) throw new Error(`"${a.pick}" not among ${options.length} options of "${a.has}"`);
         await target.selectOption({ index: idx });
         await sleep(700);
@@ -314,15 +355,33 @@ async function main() {
     recordVideo: { dir: videoDir, size: { width: CSS_WIDTH * ZOOM, height: CSS_HEIGHT * ZOOM } },
   });
 
-  await ctx.addInitScript((id) => {
-    try { sessionStorage.setItem("preferredClinicId", id); } catch { /* private mode */ }
-  }, CLINIC);
+  /**
+   * `--no-pin` leaves the clinic choice to the app. The take that CREATES a clinic must not be
+   * dragged back to the demo clinic on its next navigation — the onboarding page sets
+   * preferredClinicId to the new clinic itself, and re-pinning would undo that.
+   */
+  const NO_PIN = process.argv.includes("--no-pin");
+  /**
+   * `--pin-once` pins the FIRST load only and then defers to the app. The take that creates a
+   * clinic needs both: without a pin its first screen is the account's default clinic — the real
+   * one, with real patients — and with a pin on every load the onboarding page's own switch to
+   * the new clinic is overwritten on the next navigation, so the setup wizard ran on the demo
+   * clinic while the narration talked about the new one.
+   */
+  const PIN_ONCE = process.argv.includes("--pin-once");
+  if (!NO_PIN) await ctx.addInitScript(({ id, once }) => {
+    try {
+      if (once && sessionStorage.getItem("preferredClinicId")) return;
+      sessionStorage.setItem("preferredClinicId", id);
+    } catch { /* private mode */ }
+  }, { id: CLINIC, once: PIN_ONCE });
 
   const page = ctx.pages()[0] || (await ctx.newPage());
   const t0 = Date.now();
   const cuts = [];
-  const source = chapterName ? loadChapter(chapterName).beats : BEATS;
-  if (chapterName) console.log(`Chapter: ${loadChapter(chapterName).title}`);
+  const loaded = chapterName ? await loadChapter(chapterName) : null;
+  const source = loaded ? loaded.beats : BEATS;
+  if (loaded) console.log(`Chapter: ${loaded.title}`);
   const beats = source.filter((b) => !only || only.has(b.n));
 
   // Land on the clinic-scoped root once: the app is superadmin here and a bare load
@@ -336,7 +395,7 @@ async function main() {
   const shown = await page.evaluate(() => {
     try { return sessionStorage.getItem("preferredClinicId"); } catch { return null; }
   });
-  if (shown !== CLINIC) throw new Error(`Clinic not pinned (sessionStorage=${shown}). Refusing to record.`);
+  if (!NO_PIN && shown !== CLINIC) throw new Error(`Clinic not pinned (sessionStorage=${shown}). Refusing to record.`);
 
   await dismissFirstRun(page);
 
@@ -344,7 +403,7 @@ async function main() {
   for (const beat of beats) {
     // A chapter beat without a url continues on the page the previous beat left behind — that
     // continuity IS the demo, so re-navigating between steps of one flow would undo it.
-    const url = beat.url ? withClinic(beat.url) : null;
+    const url = beat.url ? withClinic(beat.url.replace("__CLINIC__", CLINIC)) : null;
     if (url) {
       try {
         await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });

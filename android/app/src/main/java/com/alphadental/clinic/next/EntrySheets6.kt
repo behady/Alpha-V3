@@ -1,11 +1,19 @@
 package com.alphadental.clinic.next
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.clickable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.alphadental.clinic.data.Doctor
@@ -100,8 +108,8 @@ fun LabOrderSheet(state: LabOrder, actions: LabOrderActions) {
 
         if (state.labs.isEmpty() && !state.loading) {
             Txt(
-                "No laboratory is set up yet. Settings → Labs on the website is where they are " +
-                    "added, with the turnaround that makes a case late.",
+                "No laboratory is set up yet. Add one under Settings → Dental labs, with the " +
+                    "turnaround that makes a case late.",
                 Type.caption, T.warn,
                 Modifier.padding(horizontal = T.gutter, vertical = 14.dp),
                 maxLines = 3,
@@ -259,7 +267,7 @@ fun LabOrderSheet(state: LabOrder, actions: LabOrderActions) {
                     "case amber as that day approaches and red once it passes."
             } else {
                 "This lab has no turnaround set, so the case has no due date and can never show as " +
-                    "late. That is set on the website, under Labs."
+                    "late. Set it under Settings → Dental labs."
             },
             Type.caption, if (state.draft.dueDate.isNotBlank()) T.inkMuted else T.warn,
             Modifier.padding(horizontal = T.gutter, vertical = 12.dp),
@@ -287,3 +295,190 @@ private fun LabTeeth(chosen: Set<Int>, onToggle: (Int) -> Unit) {
         Spacer(Modifier.height(4.dp))
     }
 }
+
+/**
+ * Correct one line of a patient's account.
+ *
+ * What may be changed depends on what the line IS, and the difference is not arbitrary. A payment
+ * is a fact about money that came in, so its amount, its date, its method and its wording are all
+ * fair game. A treatment charge is the price of a piece of work, and the price belongs to the work
+ * — changing it here would leave the ledger saying one thing and the clinical note another, so the
+ * charge only offers its date and its description and says where the price lives.
+ *
+ * The server enforces exactly this. The sheet says it out loud so that a locked field reads as a
+ * decision rather than a bug.
+ */
+@Composable
+fun LedgerRowSheet(
+    row: com.alphadental.clinic.next.data.Money,
+    busy: Boolean,
+    error: String?,
+    /** Whether this account may change the line. Without it the sheet is the detail alone. */
+    canEdit: Boolean,
+    canDelete: Boolean,
+    /** On a charge: every payment recorded against it, so the sheet can say who took what. */
+    payments: List<com.alphadental.clinic.next.data.Money> = emptyList(),
+    onSave: (String, String, Double, String) -> Unit,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit,
+    /** "print", "share" or "whatsapp" — the receipt for a payment, the statement for a charge. */
+    onReceipt: ((String) -> Unit)? = null,
+) {
+    var date by remember(row.id) { mutableStateOf(row.date) }
+    var description by remember(row.id) { mutableStateOf(row.description) }
+    var amount by remember(row.id) { mutableStateOf(row.amount.toLong().toString()) }
+    var method by remember(row.id) { mutableStateOf(row.method.ifBlank { "Cash" }) }
+    /** Deleting money asks twice. The first tap arms it, the second does it. */
+    var armed by remember(row.id) { mutableStateOf(false) }
+
+    val value = amount.toDoubleOrNull() ?: 0.0
+
+    Sheet(
+        title = if (row.isCharge) "This charge" else "This payment",
+        caption = row.description.ifBlank { row.date },
+        busy = busy,
+        error = error,
+        action = if (canEdit) "Save" else "Close",
+        ready = !canEdit || (date.isNotBlank() && (row.isCharge || value > 0)),
+        onAction = { if (canEdit) onSave(date, description, value, method) else onDismiss() },
+        onDismiss = onDismiss,
+    ) {
+        /*
+         * The detail, before anything editable.
+         *
+         * "Who took that payment" and "how was this charge split" were the two questions the
+         * statement could not answer, and they are answered here for everybody — the money is
+         * the clinic's business, and reading how it was handled is not the same as changing it.
+         */
+        Column(Modifier.padding(horizontal = T.gutter, vertical = 12.dp)) {
+            DetailLine("Amount", "${row.amount.toLong()} EGP")
+            DetailLine("Date", noteDate(row.date))
+            if (row.patientName.isNotBlank()) DetailLine("Patient", row.patientName)
+            if (row.isPayment) {
+                DetailLine("Taken by", row.by.ifBlank { "Not recorded" })
+                DetailLine("Paid by", row.method.ifBlank { "Not recorded" })
+                if (row.doctor.isNotBlank()) DetailLine("Dentist", row.doctor)
+                if (row.commission > 0 || row.labFee > 0) {
+                    DetailLine("Dentist's share", "${row.commission.toLong()}")
+                    if (row.labFee > 0) DetailLine("Lab fee carried", "${row.labFee.toLong()}")
+                    DetailLine("Clinic keeps", "${(row.amount - row.commission - row.labFee).coerceAtLeast(0.0).toLong()}")
+                }
+            } else {
+                DetailLine("Charged by", row.by.ifBlank { row.doctor.ifBlank { "Not recorded" } })
+                if (row.doctor.isNotBlank()) DetailLine("Dentist", row.doctor)
+                if (row.discount > 0) DetailLine("Discount given", "${row.discount.toLong()}")
+                if (row.labFee > 0) DetailLine("Lab fee", "${row.labFee.toLong()}")
+                val paid = payments.sumOf { it.amount }
+                DetailLine("Paid so far", "${paid.toLong()} of ${row.amount.toLong()}")
+                if (payments.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Txt("Payments against this", Type.eyebrow, T.inkFaint, uppercase = true)
+                    payments.sortedBy { it.date }.forEach { p ->
+                        Spacer(Modifier.height(4.dp))
+                        Txt(
+                            listOf(noteDate(p.date), "${p.amount.toLong()}", p.method, p.by.takeIf { it.isNotBlank() }?.let { "by $it" }.orEmpty())
+                                .filter { it.isNotBlank() }.joinToString(" · "),
+                            Type.caption, T.inkMuted, maxLines = 2,
+                        )
+                    }
+                }
+            }
+        }
+
+        if (onReceipt != null) {
+            Rule()
+            val paper = if (row.isPayment) "receipt" else "statement"
+            if (row.isPayment) {
+                Txt(
+                    if (row.receiptNumber.isNotBlank()) "Receipt ${row.receiptNumber}" else "Recorded before receipts were numbered — it prints without a number.",
+                    Type.caption, T.inkMuted, Modifier.padding(start = T.gutter, end = T.gutter, top = 12.dp), maxLines = 2,
+                )
+            }
+            SheetAction("Print the $paper", "Any printer the phone knows, or Save as PDF") { onReceipt("print") }
+            SheetAction("Share the $paper as PDF", "Mail, Drive, or anything else") { onReceipt("share") }
+            SheetAction("Send on WhatsApp", "Opens WhatsApp with the PDF attached; you pick the chat") { onReceipt("whatsapp") }
+        }
+
+        if (!canEdit) {
+            Rule()
+            Txt(
+                "Correcting a line needs the finance tick-box under Settings → The team.",
+                Type.caption, T.inkFaint,
+                Modifier.padding(horizontal = T.gutter, vertical = 12.dp), maxLines = 2,
+            )
+            return@Sheet
+        }
+        Rule()
+
+        SheetField("Date", date, { date = it }, hint = "2026-09-18")
+        SheetField("Description", description, { description = it }, hint = "What this line is for", lines = 2)
+
+        if (row.isPayment) {
+            SheetField(
+                "Amount", amount,
+                { amount = it.filter { c -> c.isDigit() || c == '.' } },
+                numeric = true,
+            )
+            SheetChoices("Paid by") {
+                listOf("Cash", "Card", "Transfer", "Insurance").forEach { option ->
+                    SheetChoice(option, method.equals(option, ignoreCase = true)) { method = option }
+                }
+            }
+            Txt(
+                "Changing the amount re-splits the dentist's commission and the lab fee on the " +
+                    "treatment this settles. The server does that, not this phone.",
+                Type.caption, T.inkMuted,
+                Modifier.padding(horizontal = T.gutter, vertical = 10.dp),
+                maxLines = 3,
+            )
+        } else if (row.isExpense || row.type == "income") {
+            // A clinic's own line: the figure is the figure, no split behind it.
+            SheetField(
+                "Amount", amount,
+                { amount = it.filter { c -> c.isDigit() || c == '.' } },
+                numeric = true,
+            )
+        } else {
+            Txt(
+                "Charged ${row.amount.toLong()}. The price of a treatment is changed on the " +
+                    "treatment itself, under Treatments — it has to move with the work, not " +
+                    "away from it.",
+                Type.caption, T.inkMuted,
+                Modifier.padding(horizontal = T.gutter, vertical = 10.dp),
+                maxLines = 4,
+            )
+        }
+
+        if (canDelete) {
+            Rule()
+            Txt(
+                if (armed) "Tap again to remove it for good" else "Remove this line",
+                Type.label.copy(fontSize = 13.sp),
+                T.danger,
+                Modifier
+                    .clickable(enabled = !busy) { if (armed) onDelete() else armed = true }
+                    .padding(horizontal = T.gutter, vertical = 16.dp),
+            )
+            Txt(
+                if (row.isCharge) {
+                    "A charge with money already paid against it cannot be removed — the payment " +
+                        "has to go first. Removing it takes the treatment off the record with it."
+                } else {
+                    "The payment goes off the account and the treatment it settled is owed again."
+                },
+                Type.caption, T.inkFaint,
+                Modifier.padding(start = T.gutter, end = T.gutter, bottom = 14.dp),
+                maxLines = 4,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DetailLine(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+        Txt(label, Type.caption, T.inkMuted, Modifier.weight(1f))
+        Txt(value, Type.label.copy(fontSize = 13.sp), T.ink, maxLines = 2)
+    }
+}
+

@@ -46,6 +46,8 @@ fun LazyListScope.treatments(
     state: RecordState,
     onSetStatus: (String, String) -> Unit,
     onAdd: (() -> Unit)?,
+    /** Null when this account may not change what is on the record. Rows are then inert. */
+    onEdit: ((ClinicalNote) -> Unit)? = null,
 ) {
     val planned = state.planned
     val done = state.notes.filterNot { it.status == "Planned" }
@@ -58,13 +60,24 @@ fun LazyListScope.treatments(
         }
     }
 
+    if (onEdit != null && state.notes.isNotEmpty()) {
+        item {
+            Txt(
+                "Tap a treatment to change what was done, its price or its dentist.",
+                Type.caption, T.inkFaint,
+                Modifier.padding(horizontal = T.gutter, vertical = 4.dp),
+                maxLines = 2,
+            )
+        }
+    }
+
     if (planned.isNotEmpty()) {
         item { SectionLabel("Planned · ${planned.size}") }
         item {
             RowGroup {
                 planned.forEachIndexed { i, note ->
                     if (i > 0) Rule()
-                    NoteRow(note, state, onSetStatus)
+                    NoteRow(note, state, onSetStatus, onEdit)
                 }
             }
         }
@@ -76,7 +89,7 @@ fun LazyListScope.treatments(
             RowGroup {
                 done.forEachIndexed { i, note ->
                     if (i > 0) Rule()
-                    NoteRow(note, state, onSetStatus)
+                    NoteRow(note, state, onSetStatus, onEdit)
                 }
             }
         }
@@ -100,10 +113,16 @@ private fun NoteRow(
     note: ClinicalNote,
     state: RecordState,
     onSetStatus: (String, String) -> Unit,
+    onEdit: ((ClinicalNote) -> Unit)?,
 ) {
     val planned = note.status == "Planned"
 
-    Column(Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 13.dp)) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .then(if (onEdit == null) Modifier else Modifier.clickable { onEdit(note) })
+            .padding(horizontal = T.gutter, vertical = 13.dp),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Txt(
                 note.procedure.ifBlank { "Treatment" },
@@ -144,6 +163,9 @@ private fun NoteRow(
                 } else {
                     SettingsPill("Back to planned") { onSetStatus(note.id, "Planned") }
                 }
+                // A button, not just a tappable row. A whole card that quietly responds to a tap
+                // is a thing people find by accident or never.
+                onEdit?.let { edit -> SettingsPill("Edit") { edit(note) } }
             }
         } else if (planned) {
             Spacer(Modifier.height(4.dp))
@@ -173,7 +195,12 @@ private fun NoteRow(
  * right-hand side. That running figure is the column a receptionist's finger
  * follows.
  */
-fun LazyListScope.statement(state: RecordState, onTakePayment: (() -> Unit)?) {
+fun LazyListScope.statement(
+    state: RecordState,
+    onTakePayment: (() -> Unit)?,
+    /** Null when this account may not correct the books. The rows then do not react to a tap. */
+    onEditRow: ((com.alphadental.clinic.next.data.Money) -> Unit)? = null,
+) {
     val record = state.record ?: return
     val rows = record.ledger.filterNot { it.isExpense }
 
@@ -190,6 +217,17 @@ fun LazyListScope.statement(state: RecordState, onTakePayment: (() -> Unit)?) {
                 if (b.credit > 0) b.credit else b.owed,
                 Modifier.weight(1f),
                 strong = true,
+            )
+        }
+    }
+
+    if (onEditRow != null) {
+        item {
+            Txt(
+                // Said once, quietly, rather than putting a pencil on forty rows.
+                if (state.canEditLedger) "Tap any line to see its detail or correct it." else "Tap any line to see its detail.",
+                Type.caption, T.inkFaint,
+                Modifier.padding(horizontal = T.gutter, vertical = 4.dp),
             )
         }
     }
@@ -226,7 +264,7 @@ fun LazyListScope.statement(state: RecordState, onTakePayment: (() -> Unit)?) {
             RowGroup {
                 group.forEachIndexed { i, (m, after) ->
                     if (i > 0) Rule()
-                    StatementRow(m, after)
+                    StatementRow(m, after, onEditRow)
                 }
             }
         }
@@ -248,9 +286,16 @@ private fun Figure(label: String, amount: Double, modifier: Modifier, strong: Bo
 }
 
 @Composable
-private fun StatementRow(m: com.alphadental.clinic.next.data.Money, after: Double) {
+private fun StatementRow(
+    m: com.alphadental.clinic.next.data.Money,
+    after: Double,
+    onEdit: ((com.alphadental.clinic.next.data.Money) -> Unit)?,
+) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 12.dp),
+        Modifier
+            .fillMaxWidth()
+            .then(if (onEdit == null) Modifier else Modifier.clickable { onEdit(m) })
+            .padding(horizontal = T.gutter, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // A thin mark rather than a coloured amount: payments and charges are
@@ -270,8 +315,14 @@ private fun StatementRow(m: com.alphadental.clinic.next.data.Money, after: Doubl
             )
             Spacer(Modifier.height(2.dp))
             Txt(
-                listOf(noteDate(m.date), m.method, m.doctor).filter { it.isNotBlank() }.joinToString(" · "),
-                Type.caption, T.inkMuted, maxLines = 1,
+                listOf(
+                    noteDate(m.date),
+                    m.method,
+                    m.doctor,
+                    // Who took the money, on a payment. On a charge the dentist above already says whose work it was.
+                    if (m.isPayment && m.by.isNotBlank()) "taken by ${m.by}" else "",
+                ).filter { it.isNotBlank() }.joinToString(" · "),
+                Type.caption, T.inkMuted, maxLines = 2,
             )
         }
         Spacer(Modifier.width(10.dp))
@@ -549,7 +600,7 @@ fun DetailsSheet(
 }
 
 /** "2026-09-15" as "15 Sep". Anything unparseable is shown as stored. */
-private fun noteDate(key: String): String {
+fun noteDate(key: String): String {
     val d = runCatching {
         java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(key)
     }.getOrNull() ?: return key

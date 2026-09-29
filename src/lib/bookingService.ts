@@ -80,7 +80,7 @@ export interface BookingSavePayload {
   discountPercent?: number | null;
   discountFixed?: number | null;
   discountAmount?: number | null;
-  sessionProcedures?: { serviceId?: string | null; name: string; cost: number; addToLedger: boolean }[];
+  sessionProcedures?: { serviceId?: string | null; name: string; cost: number; addToLedger: boolean; priceListId?: string | null }[];
   status?: string;
   delayedPromptUntil?: number | null;
   services?: Array<{
@@ -123,9 +123,11 @@ export interface BookingUserContext {
  * which does all of it in one transaction and prices each procedure from the catalogue rather than
  * trusting the cost the browser worked out.
  *
- * A procedure whose dentist cannot be resolved is skipped rather than attributed to nobody: a
- * charge with no dentist pays no commission and is invisible to the payout report, which is the
- * failure this whole change exists to stop.
+ * A visit booked as General carries no dentist, and its procedures are written anyway: they are the
+ * clinic's work, they earn nobody a commission, and the whole amount is clinic profit. This used to
+ * be refused outright — the charge would have been attributed to nobody and invisible to the payout
+ * report — but a clinic that treats without naming a dentist still has money to take, and refusing
+ * the charge loses the money instead of the attribution.
  */
 async function writeSessionProcedures(
   data: BookingSavePayload,
@@ -134,9 +136,6 @@ async function writeSessionProcedures(
   userCtx: BookingUserContext
 ): Promise<void> {
   if (!data.sessionProcedures || data.sessionProcedures.length === 0) return;
-  if (!data.doctorId) {
-    throw new Error("NO_DOCTOR_FOR_PROCEDURE");
-  }
 
   for (const sp of data.sessionProcedures) {
     await createProcedure({
@@ -146,7 +145,10 @@ async function writeSessionProcedures(
       selectedTeeth: [],
       tooth: "Gen",
       unitCost: Number(sp.cost) || 0,
-      doctorId: data.doctorId,
+      // The list the treatment was staged against — and therefore the payer. Without it the
+      // server falls back to the clinic default and an insurance visit books as private.
+      priceListId: sp.priceListId ?? null,
+      doctorId: data.doctorId ?? null,
       status: "Completed",
       date,
       addToLedger: sp.addToLedger,
@@ -218,6 +220,11 @@ export async function saveBooking(
       patientName: data.patientName,
       treatment: data.treatment,
       doctor: data.doctor,
+      // The edit path used to write the display name and leave `doctorId` alone, so moving a visit
+      // to another dentist — or off every dentist, onto General — renamed it on screen while every
+      // report that groups on the id still credited the old one. `undefined` means the caller never
+      // touched the dentist (a status-only save), which must keep what was there.
+      doctorId: data.doctorId !== undefined ? data.doctorId || null : (prev.doctorId as string | undefined) ?? null,
       date: normalizedDate || data.date,
       time: normalizedTime || data.time,
       duration: Number(data.duration) || 30,
@@ -279,6 +286,23 @@ export async function saveBooking(
         ? `تعديل موعد: ${data.patientName} — ${normalizedDate || data.date} ${normalizedTime || data.time}`
         : `Appointment edited: ${data.patientName} — ${normalizedDate || data.date} ${normalizedTime || data.time}`
     );
+    // The flow alerts: a no-show, and a cancellation of today's own appointment.
+    if (nextStatus === "No Show" && prev.status !== "No Show") {
+      void fireOwnerWhatsAppAlert(
+        "appointment_no_show",
+        userCtx.language === "ar"
+          ? `مجاش: ${data.patientName} — ${normalizedTime || data.time} — ${data.doctor || ""}`
+          : `No-show: ${data.patientName} — ${normalizedTime || data.time} — ${data.doctor || ""}`
+      );
+    }
+    if (nextStatus === "Cancelled" && prev.status !== "Cancelled" && normalizeDateKey(String(normalizedDate || data.date || "")) === new Intl.DateTimeFormat("en-CA").format(new Date())) {
+      void fireOwnerWhatsAppAlert(
+        "appointment_same_day_cancel",
+        userCtx.language === "ar"
+          ? `إلغاء النهارده: ${data.patientName} — ${normalizedTime || data.time} — ${data.doctor || ""}`
+          : `Cancelled today: ${data.patientName} — ${normalizedTime || data.time} — ${data.doctor || ""}`
+      );
+    }
 
     const prevDate = normalizeDateKey(String(prev.date ?? ""));
     const prevTime = normalizeTimeKey(String(prev.time ?? ""));
@@ -385,6 +409,14 @@ export async function saveBooking(
       ? `موعد جديد: ${data.patientName} — ${normalizedDate || data.date} ${normalizedTime || data.time} — ${data.doctor || ""}`
       : `New appointment: ${data.patientName} — ${normalizedDate || data.date} ${normalizedTime || data.time} — ${data.doctor || ""}`
   );
+  if (normalizeDateKey(String(normalizedDate || data.date || "")) === new Intl.DateTimeFormat("en-CA").format(new Date())) {
+    void fireOwnerWhatsAppAlert(
+      "appointment_walk_in",
+      userCtx.language === "ar"
+        ? `حجز لنفس اليوم: ${data.patientName} — ${normalizedTime || data.time} — ${data.doctor || ""}`
+        : `Walk-in: ${data.patientName} — ${normalizedTime || data.time} — ${data.doctor || ""}`
+    );
+  }
 
   if (data.patientId) {
     void sendPatientAppointmentWhatsApp({

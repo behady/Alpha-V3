@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useState, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
+import { memo, useCallback, useMemo, useState, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import { X, Save, CheckCircle2, Loader2, Camera, Edit2 } from "lucide-react";
 import { auth, db } from "@/lib/firebase";
@@ -15,6 +15,7 @@ import ServiceCombobox from "@/components/shared/ServiceCombobox";
 import TeethChart, { type ToothData } from "@/components/TeethChart";
 import { TREATMENT_STATES, pendingTreatments, resolveTreatments, type ToothTreatment } from "@/lib/toothTreatments";
 import { isDentistStaff } from "@/lib/staffRoles";
+import { generalDoctorLabel } from "@/lib/generalDentist";
 import { Note, Service, Staff } from "./types";
 import {
   ALL_TEETH, UPPER_LEFT_TEETH, UPPER_RIGHT_TEETH, LOWER_LEFT_TEETH, LOWER_RIGHT_TEETH,
@@ -26,6 +27,7 @@ import type { LabCaseSeed } from "@/lib/labCases";
 import DiscountEditor, { EMPTY_DISCOUNT, discountPayload, type DiscountState } from "@/components/shared/DiscountEditor";
 import { isDiscountMode, type DiscountMode } from "@/lib/discountMath";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
+import { payerCoverageFilter } from "@/lib/payers";
 
 interface Props {
   isOpen: boolean;
@@ -255,8 +257,21 @@ export default function ServiceEditorDrawer({
   const [addToLedger, setAddToLedger] = useState(true);
   // Price list + discount for this line. The server recomputes and enforces both; this is the
   // preview and the input.
-  const { priceLists, discountSettings, maxDiscountPercent } = usePricingPolicy();
+  const { priceLists, payers, discountSettings, maxDiscountPercent } = usePricingPolicy();
+
   const [discount, setDiscount] = useState<DiscountState>(EMPTY_DISCOUNT);
+
+  /**
+   * Only what the selected list actually covers.
+   *
+   * A treatment the insurer does not pay for is not offered at all, so the menu means what it
+   * says. Leaving it visible and quietly recording it as private would be a screen that lets
+   * somebody pick a wrong answer and then overrules them without saying so.
+   */
+  const offeredServices = useMemo(() => {
+    const covers = payerCoverageFilter(payers, discount.priceListId || null);
+    return servicesList.filter((s) => covers(String(s.id)));
+  }, [servicesList, payers, discount.priceListId]);
 
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatusText, setSaveStatusText] = useState("");
@@ -306,6 +321,8 @@ export default function ServiceEditorDrawer({
           if (docObj) setSelectedDoctorId(docObj.id);
       }
       
+      // Same reasoning as the price list below: reopening a treatment must not move it onto a
+      // different payer, which would move the revenue AND the dentist's rate.
       // Reopen the note on the list and discount it was priced with, so re-saving never silently
       // re-prices it at today's rates.
       setDiscount({
@@ -371,7 +388,7 @@ export default function ServiceEditorDrawer({
     save: language === 'ar' ? "حفظ الإجراء" : "Log Procedure",
     cancel: language === 'ar' ? "إلغاء" : "Cancel",
     addToFinance: language === 'ar' ? "إضافة للمالية" : "Add to Ledger",
-    selectError: language === 'ar' ? "اختر الإجراء والطبيب" : "Select a procedure AND doctor",
+    selectError: language === 'ar' ? "اختر الإجراء" : "Name the procedure",
     extraProcedures: language === 'ar' ? "إجراءات إضافية" : "More procedures",
     hide: language === 'ar' ? "إخفاء" : "Hide",
   };
@@ -379,7 +396,9 @@ export default function ServiceEditorDrawer({
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSaving) return; // Fix Scenario 1: Double-click protection
-    if (!selectedDoctorId || (!procedure && !multiProceduresText)) return showToast(txt.selectError, "error");
+    // The dentist is no longer required: an empty picker means General, a treatment the clinic
+    // did rather than a person.
+    if (!procedure && !multiProceduresText) return showToast(txt.selectError, "error");
     if (Number(cost) < 0) return showToast(language === 'ar' ? "لا يمكن إضافة تكلفة بالسالب" : "Cannot add negative cost", "error"); // Fix Scenario 2: Negative typo protection
 
     setIsSaving(true);
@@ -584,8 +603,10 @@ export default function ServiceEditorDrawer({
   const doctorField = (
     <div>
       <label className={labelClass}>{txt.selectDoctor}</label>
-      <select value={selectedDoctorId} onChange={e => setSelectedDoctorId(e.target.value)} required className={inputClass}>
-        <option value="">Select doctor...</option>
+      <select value={selectedDoctorId} onChange={e => setSelectedDoctorId(e.target.value)} className={inputClass}>
+        {/* No dentist is a real answer here, not an empty field: the clinic did the work. It is
+            charged the same way and earns nobody a commission. */}
+        <option value="">{generalDoctorLabel(language)}</option>
         {doctors.map(d => (
           <option key={d.id} value={d.id}>{d.name}</option>
         ))}
@@ -627,7 +648,8 @@ export default function ServiceEditorDrawer({
         <div className="flex items-center gap-2">
           <div data-tour="clinical-procedure-name" className="flex-1 min-w-0">
             <ServiceCombobox
-              services={servicesList} value={procedure}
+              priceListId={discount.priceListId || null}
+              services={offeredServices} value={procedure}
               onChange={handleProcedureChange}
               placeholder="Search procedures..."
               valueKey="name"
@@ -669,11 +691,13 @@ export default function ServiceEditorDrawer({
     </div>
   );
 
+
   const discountField = (
     <DiscountEditor
       listTotal={previewTotal}
       priceLists={priceLists}
       branchId={branchId}
+      payers={payers}
       reasons={discountSettings.reasons}
       maxPercent={maxDiscountPercent}
       value={discount}
@@ -787,22 +811,30 @@ export default function ServiceEditorDrawer({
       className={`w-full bg-surface flex flex-col ${!inline ? (clinicalEditorMode === 'modal' ? 'h-full max-h-[90vh] rounded-[2rem] shadow-2xl overflow-hidden' : 'h-full min-h-0 shadow-[0_4px_20px_-4px_rgba(6,81,237,0.1)] rounded-t-3xl rounded-b-none lg:rounded-3xl border border-slate-100 overflow-hidden') : 'rounded-2xl border border-line mt-4'}`}
     >
       {!inline && (
-        <div className="flex items-center justify-between p-6 md:p-8 border-b border-slate-100 bg-surface shrink-0">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center shadow-sm">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+        /*
+          * A title bar, not a title page.
+          *
+          * It was 112px of chrome — `p-8`, a 48px icon tile and a 20px heading — above a window
+          * whose whole job is a teeth chart and a form. On a laptop that is the difference between
+          * the Save button being on screen and being one more scroll away, and the chart is the
+          * thing people came here to look at. Same words, a third of the height.
+          */
+        <div className="flex items-center justify-between gap-3 px-5 py-3 md:px-6 border-b border-slate-100 bg-surface shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shadow-sm shrink-0">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
             </div>
-            <div>
-              <h2 className="text-xl font-black text-ink tracking-tight">{txt.title}</h2>
-              <p className="text-sm font-medium text-ink-muted mt-0.5">{patientName}</p>
+            <div className="min-w-0">
+              <h2 className="text-base font-black text-ink tracking-tight leading-tight truncate">{txt.title}</h2>
+              <p className="text-xs font-medium text-ink-muted truncate">{patientName}</p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="w-10 h-10 rounded-full bg-surface-subtle hover:bg-surface-muted text-slate-400 hover:text-ink-body flex items-center justify-center transition-colors"
+            className="w-8 h-8 rounded-full bg-surface-subtle hover:bg-surface-muted text-slate-400 hover:text-ink-body flex items-center justify-center transition-colors shrink-0"
           >
-            <X size={20} />
+            <X size={18} />
           </button>
         </div>
       )}
@@ -826,7 +858,7 @@ export default function ServiceEditorDrawer({
         */}
       <div className="flex-1 min-h-0 flex flex-col">
         {!hideTeethSelector && (
-          <div className={`shrink-0 ${!inline ? "px-6 pt-6" : "px-4 pt-4"}`}>
+          <div className={`shrink-0 ${!inline ? "px-6 pt-4" : "px-4 pt-4"}`}>
             <TeethChartSelector
               selected={selectedTeeth}
               onToggle={toggleSelectedTooth}
@@ -856,6 +888,21 @@ export default function ServiceEditorDrawer({
 
           {costField}
 
+          {/*
+            The price list, in the drawer as well as in the compact editor.
+
+            It was only ever rendered in the inline form, which the tooth chart uses — so the
+            drawer that opens from the patient's file and from the appointment panel, which is
+            where the front desk actually records treatments, had no way to choose a list at all.
+            Every treatment recorded there silently took the clinic's default.
+
+            That was survivable while a list was only a discount sheet. It stopped being
+            survivable when the list became the insurer: an insurance case recorded from the desk
+            was charged at clinic prices and counted as private revenue, and the screen gave
+            nobody a way to say otherwise.
+          */}
+          {discountField}
+
           {billingStrip}
 
           {noteField(4)}
@@ -866,7 +913,7 @@ export default function ServiceEditorDrawer({
         </div>
       </div>
 
-      <div className={`p-6 border-t border-slate-100 bg-surface shrink-0 ${!inline ? 'pb-24 lg:pb-6' : ''}`}>
+      <div className={`px-6 py-4 border-t border-slate-100 bg-surface shrink-0 ${!inline ? 'pb-24 lg:pb-4' : ''}`}>
         {saveButton}
       </div>
     </div>

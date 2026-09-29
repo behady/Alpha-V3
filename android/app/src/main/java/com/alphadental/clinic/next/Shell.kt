@@ -82,8 +82,12 @@ fun Shell(preview: Boolean = false) {
     var openRecord by rememberSaveable { mutableStateOf<String?>(null) }
     /** Quick Pay opens the file straight onto the payment sheet. */
     var payOnOpen by rememberSaveable { mutableStateOf(false) }
+    /** Set when a file is opened in order to bill something, from an appointment. */
+    var recordOnOpen by rememberSaveable { mutableStateOf(false) }
     var addingPatient by rememberSaveable { mutableStateOf(false) }
     var quickPay by rememberSaveable { mutableStateOf(false) }
+    /** The patient chosen for a quick payment. The sheet opens over the dashboard, not their file. */
+    var quickPayFor by rememberSaveable { mutableStateOf<String?>(null) }
     var openMoney by rememberSaveable { mutableStateOf(false) }
     var openReports by rememberSaveable { mutableStateOf(false) }
     var openLab by rememberSaveable { mutableStateOf(false) }
@@ -95,7 +99,17 @@ fun Shell(preview: Boolean = false) {
     var openAttendance by rememberSaveable { mutableStateOf(false) }
     var openContent by rememberSaveable { mutableStateOf(false) }
     var openAssistant by rememberSaveable { mutableStateOf(false) }
+    /**
+     * The scans screen, reached from inside the chat rather than from the bar.
+     *
+     * The bar's orb now opens the conversation, which is what a chat bubble promises. The three
+     * paid scans are still one tap away — they are a different job, not a lesser one, and burying
+     * them behind the thing people actually tap is the right way round.
+     */
+    var openScans by rememberSaveable { mutableStateOf(false) }
     var openHelp by rememberSaveable { mutableStateOf(false) }
+    /** Settings, but only the personal pages: everyone may open it. */
+    var openMyApp by rememberSaveable { mutableStateOf(false) }
     // A screen can ask for the bar to go away. A conversation does: the bar
     // would cover its foot, and offer to walk away from a thread mid-read.
     var immersive by remember { mutableStateOf(false) }
@@ -104,7 +118,11 @@ fun Shell(preview: Boolean = false) {
     // belongs to whatever opened it, and the bar has no business offering to
     // navigate away in the middle of reading someone's allergies.
     openRecord?.let { id ->
-        RecordPane(id, preview, payOnOpen = payOnOpen) { openRecord = null; payOnOpen = false }
+        RecordPane(id, preview, payOnOpen = payOnOpen, recordOnOpen = recordOnOpen) {
+            openRecord = null
+            payOnOpen = false
+            recordOnOpen = false
+        }
         return
     }
 
@@ -114,7 +132,7 @@ fun Shell(preview: Boolean = false) {
     }
 
     if (openReports) {
-        ReportsPane(preview) { openReports = false }
+        ReportsPane(preview, onOpenPatient = { openRecord = it }) { openReports = false }
         return
     }
 
@@ -163,11 +181,25 @@ fun Shell(preview: Boolean = false) {
         return
     }
 
+    if (openMyApp) {
+        SettingsPane(preview, personal = true) { openMyApp = false }
+        return
+    }
+
     if (openAssistant) {
         AssistantPane(
             preview,
             onOpenPatient = { openAssistant = false; openRecord = it },
             onBack = { openAssistant = false },
+        )
+        return
+    }
+
+    if (openScans) {
+        AssistantPane(
+            preview,
+            onOpenPatient = { openScans = false; openRecord = it },
+            onBack = { openScans = false },
         )
         return
     }
@@ -203,6 +235,15 @@ fun Shell(preview: Boolean = false) {
 
     // The chats badge: the same model the Chats tab reads, started here so the
     // count is right before anybody opens that tab.
+    // How this person set the app up: which tabs the bar shows, which home the dashboard draws.
+    val interfaceModel: InterfaceModel? = if (preview) null else viewModel()
+    val liveUi by (interfaceModel?.state?.collectAsState()
+        ?: androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(InterfaceState()) })
+    // Preview drives the same bar filter and the same homes from a local, editable state, so
+    // the whole feature can be walked through with no account on the phone.
+    val uiState = if (preview) PreviewInterface.state else liveUi
+    androidx.compose.runtime.LaunchedEffect(interfaceModel) { interfaceModel?.start() }
+
     val chatsModel: ChatsModel? = if (preview) null else viewModel()
     val chatsState by (chatsModel?.state?.collectAsState()
         ?: androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(Chats()) })
@@ -214,6 +255,7 @@ fun Shell(preview: Boolean = false) {
         when (tab) {
             Tab.Today -> TodayTab(
                 preview,
+                ui = uiState,
                 onOpenAttendance = { openAttendance = true },
                 onBook = { booking?.open() },
                 onOpenVisit = { if (preview) shown = it else visits?.open(it) },
@@ -232,16 +274,36 @@ fun Shell(preview: Boolean = false) {
             )
             Tab.Patients -> PatientsTab(preview) { openRecord = it }
             Tab.Money -> MoneyPane(preview) { tab = Tab.Today }
-            Tab.Assistant -> AssistantPane(
+            Tab.Assistant -> AiChatPane(
                 preview,
                 onOpenPatient = { openRecord = it },
+                onGo = { target ->
+                    // The assistant answers in the website's routes; NavIntent has already turned
+                    // one into a screen this app actually has. Anything it could not translate
+                    // arrived as null and never reaches here.
+                    when (target) {
+                        is com.alphadental.clinic.ai.NavIntent.Target.PatientById -> openRecord = target.id
+                        com.alphadental.clinic.ai.NavIntent.Target.Day -> tab = Tab.Day
+                        com.alphadental.clinic.ai.NavIntent.Target.Money -> tab = Tab.Money
+                        com.alphadental.clinic.ai.NavIntent.Target.Patients -> tab = Tab.Patients
+                        com.alphadental.clinic.ai.NavIntent.Target.Leads -> openLeads = true
+                        com.alphadental.clinic.ai.NavIntent.Target.Reports -> openReports = true
+                        com.alphadental.clinic.ai.NavIntent.Target.Inventory -> openStock = true
+                        com.alphadental.clinic.ai.NavIntent.Target.Ortho -> openOrtho = true
+                        com.alphadental.clinic.ai.NavIntent.Target.WhatsappQueue -> tab = Tab.Chats
+                        else -> Unit
+                    }
+                },
+                onScans = { openScans = true },
                 onBack = { tab = Tab.Today },
             )
             // Not built yet. Saying so is better than a blank screen that reads
             // as a bug, and better than hiding the tab so the bar keeps moving.
-            Tab.Chats -> ChatsTab(preview) { immersive = it }
+            Tab.Chats -> ChatsTab(preview, onImmersive = { immersive = it }, onOpenPatient = { openRecord = it })
             Tab.More -> MoreTab(
                 preview,
+                shows = { uiState.showsTool(it.name) },
+                onOpenMyApp = { openMyApp = true },
                 onOpenMoney = { openMoney = true },
                 onOpenReports = { openReports = true },
                 onOpenLab = { openLab = true },
@@ -252,7 +314,7 @@ fun Shell(preview: Boolean = false) {
                 onOpenStock = { openStock = true },
                 onOpenAttendance = { openAttendance = true },
                 onOpenContent = { openContent = true },
-                onOpenAssistant = { openAssistant = true },
+                onOpenAssistant = { openScans = true },
                 onOpenHelp = { openHelp = true },
             )
         }
@@ -265,19 +327,48 @@ fun Shell(preview: Boolean = false) {
                 patientsState.added?.let { id ->
                     addingPatient = false
                     patientsModel.clearAdded()
+                    // The file exists now, so the half-typed one is finished with. Closing the
+                    // sheet deliberately does NOT do this — that is what makes the draft worth
+                    // keeping.
+                    SheetDrafts.clear(DRAFT_NEW_PATIENT)
                     openRecord = id
                 }
             }
             AddPatientSheet(
                 busy = patientsState.adding,
                 error = patientsState.addError,
+                sources = patientsState.sources,
                 onAdd = patientsModel::addPatient,
                 onDismiss = { addingPatient = false; patientsModel.clearAdded() },
             )
         }
 
-        // Quick Pay: find the person, land on their file with the payment sheet
-        // already up. The site's modal does the same two steps in one box.
+        // The site's Receive Payment modal, over the dashboard. Its own copy of the
+        // file's model, keyed apart, so opening a file afterwards is not confused
+        // about which patient it was last reading.
+        quickPayFor?.let { patientId ->
+            val qp: RecordModel = viewModel(key = "quickpay")
+            val qpState by qp.state.collectAsState()
+            androidx.compose.runtime.LaunchedEffect(patientId) { qp.open(patientId) }
+            androidx.compose.runtime.LaunchedEffect(qpState.paid) {
+                if (qpState.paid != null) { qp.clearPayment(); quickPayFor = null }
+            }
+            qpState.record?.let { record ->
+                ReceivePaymentSheet(
+                    patientName = record.person.name,
+                    charged = record.balance.charged,
+                    paid = record.balance.paid,
+                    unpaid = qpState.unpaid,
+                    busy = qpState.taking,
+                    error = qpState.payError,
+                    onTake = qp::takePayment,
+                    onDismiss = { qp.clearPayment(); quickPayFor = null },
+                )
+            }
+        }
+
+        // Quick Pay: find the person, then the site's Receive Payment modal opens
+        // right here on the dashboard.
         if (quickPay && patientsModel != null) {
             androidx.compose.runtime.LaunchedEffect(Unit) { patientsModel.start() }
             Sheet(
@@ -299,8 +390,7 @@ fun Shell(preview: Boolean = false) {
                         person?.let {
                             quickPay = false
                             patientsModel.search("")
-                            payOnOpen = true
-                            openRecord = it.id
+                            quickPayFor = it.id
                         }
                     },
                 )
@@ -313,26 +403,69 @@ fun Shell(preview: Boolean = false) {
             }
         }
 
-        if (visitState.isOpen) {
+        if (visitState.isOpen && visits != null) {
+            AppointmentSheet(
+                state = visitState,
+                a = AppointmentActions(
+                    setDoctor = visits::setDoctor,
+                    setStatus = visits::setStatus,
+                    shiftDay = visits::shiftDay,
+                    setTime = visits::setTime,
+                    setMinutes = visits::setMinutes,
+                    setReason = visits::setReason,
+                    setNotes = visits::setNotes,
+                    save = visits::save,
+                    addProcedure = visits::openRecording,
+                    pay = visits::openPayment,
+                    delete = visits::delete,
+                    openFile = {
+                        val id = visitState.visit?.patientId
+                        visits.close()
+                        if (!id.isNullOrBlank()) openRecord = id
+                    },
+                    close = visits::close,
+                ),
+            )
+            if (visitState.paying) {
+                visitState.visit?.let { visit ->
+                    ReceivePaymentSheet(
+                        patientName = visit.patientName,
+                        charged = visitState.charged,
+                        paid = visitState.paid,
+                        unpaid = visitState.unpaid,
+                        busy = visitState.takingPayment,
+                        error = visitState.payError,
+                        onTake = visits::takePayment,
+                        onDismiss = visits::closePayment,
+                    )
+                }
+            }
+            if (visitState.recording) {
+                visitState.visit?.let { visit ->
+                    TreatmentSheet(
+                        patientName = visit.patientName,
+                        services = visitState.services,
+                        doctors = visitState.doctors,
+                        policy = visitState.policy,
+                        busy = visitState.saving,
+                        error = visitState.recordError,
+                        onRecord = visits::recordTreatment,
+                        onDismiss = visits::closeRecording,
+                    )
+                }
+            }
+        } else if (visitState.isOpen) {
+            // The preview has no model behind it; the simpler sheet still draws.
             VisitSheet(
                 state = visitState,
-                onMove = { stage -> visits?.move(stage) ?: run { shown = shown?.copy(status = stage) } },
-                onOpenFile = {
-                    val id = visitState.visit?.patientId
-                    visits?.close()
-                    shown = null
-                    if (!id.isNullOrBlank()) openRecord = id
-                },
-                onReschedule = {
-                    visitState.visit?.let { visit ->
-                        visits?.close()
-                        shown = null
-                        booking?.edit(visit)
-                    }
-                },
+                onMove = { stage -> shown = shown?.copy(status = stage) },
+                onOpenFile = { shown = null },
+                onReschedule = { shown = null },
+                onRecordTreatment = { shown = null },
+                onTakePayment = { shown = null },
                 onCall = { context.dial(it) },
                 onMessage = { context.whatsapp(it) },
-                onDismiss = { visits?.close(); shown = null },
+                onDismiss = { shown = null },
             )
         }
 
@@ -344,6 +477,8 @@ fun Shell(preview: Boolean = false) {
                     choose = booking::choose,
                     setDoctor = booking::setDoctor,
                     setService = booking::setService,
+                    setTreatment = booking::setTreatment,
+                    setList = booking::setList,
                     shiftDay = booking::shiftDay,
                     setTime = booking::setTime,
                     setMinutes = booking::setMinutes,
@@ -386,15 +521,17 @@ fun Shell(preview: Boolean = false) {
 
         if (!immersive) FloatingBar(
             modifier = Modifier.align(Alignment.BottomCenter),
+            // Only the tabs this person kept. Today and Menu cannot be switched off, so the bar
+            // always has a way home and a way to everything else.
             items = listOf(
-                BarItem(Icons.Filled.Dashboard, "Dashboard", tab == Tab.Today) { tab = Tab.Today },
-                BarItem(Icons.AutoMirrored.Filled.Chat, "Chats", tab == Tab.Chats, badge = unread) { tab = Tab.Chats },
-                BarItem(Icons.Filled.AutoAwesome, "Assistant", tab == Tab.Assistant) { tab = Tab.Assistant },
-                BarItem(Icons.Filled.CalendarMonth, "Calendar", tab == Tab.Day) { tab = Tab.Day },
-                BarItem(Icons.Filled.AccountBalanceWallet, "Money", tab == Tab.Money) { tab = Tab.Money },
-                BarItem(Icons.Filled.People, "Patients", tab == Tab.Patients) { tab = Tab.Patients },
-                BarItem(Icons.Filled.Menu, "Menu", tab == Tab.More) { tab = Tab.More },
-            ),
+                Tab.Today to BarItem(Icons.Filled.Dashboard, "Dashboard", tab == Tab.Today) { tab = Tab.Today },
+                Tab.Chats to BarItem(Icons.AutoMirrored.Filled.Chat, "Chats", tab == Tab.Chats, badge = unread) { tab = Tab.Chats },
+                Tab.Assistant to BarItem(Icons.Filled.AutoAwesome, "Assistant", tab == Tab.Assistant) { tab = Tab.Assistant },
+                Tab.Day to BarItem(Icons.Filled.CalendarMonth, "Calendar", tab == Tab.Day) { tab = Tab.Day },
+                Tab.Money to BarItem(Icons.Filled.AccountBalanceWallet, "Money", tab == Tab.Money) { tab = Tab.Money },
+                Tab.Patients to BarItem(Icons.Filled.People, "Patients", tab == Tab.Patients) { tab = Tab.Patients },
+                Tab.More to BarItem(Icons.Filled.Menu, "Menu", tab == Tab.More) { tab = Tab.More },
+            ).filter { uiState.showsTab(it.first) }.map { it.second },
         )
     }
 }
@@ -402,6 +539,7 @@ fun Shell(preview: Boolean = false) {
 @Composable
 private fun TodayTab(
     preview: Boolean,
+    ui: InterfaceState,
     onOpenAttendance: () -> Unit,
     onBook: () -> Unit,
     onOpenVisit: (com.alphadental.clinic.next.data.Visit) -> Unit,
@@ -415,6 +553,7 @@ private fun TodayTab(
 ) {
     if (preview) {
         DashboardScreen(
+            ui = ui, extras = previewExtras(),
             state = previewDashboard(), onCheckOut = {}, onOpenVisit = onOpenVisit,
             onClock = onOpenAttendance, onBook = onBook,
             onLeads = onLeads, onReports = onReports, onBell = onBell, onAccount = onAccount,
@@ -430,15 +569,19 @@ private fun TodayTab(
         val shift by attendance.state.collectAsState()
         val context = LocalContext.current
         androidx.compose.runtime.LaunchedEffect(Unit) { model.start(); attendance.start() }
+        // The chosen home's extra figures, re-read when the choice or the staff link changes.
+        androidx.compose.runtime.LaunchedEffect(ui.home, ui.staffId, ui.prefs.loaded, state.who) { model.loadHome(ui) }
         DashboardScreen(
+            ui = ui, extras = state.extras,
             state = state, onCheckOut = model::checkOut, onOpenVisit = onOpenVisit,
             onClock = onOpenAttendance, onBook = onBook,
             onLeads = onLeads, onReports = onReports, onBell = onBell, onAccount = onAccount,
             shift = if (shift.who == null) null else shift.mine,
             onPunch = { attendance.punch(context) },
             onNewPatient = if (state.who?.can("patients.add") == true) onNewPatient else null,
-            onQuickPay = if (state.who?.can("payments.add") == true) onQuickPay else null,
-            onPickDay = onPickDay,
+            onQuickPay = if (state.who?.can("finance.add") == true) onQuickPay else null,
+            // In place. The calendar tab is still one tap away on the bar for anyone who wants it.
+            onPickDay = model::show,
         )
     }
 }
@@ -461,6 +604,7 @@ private fun PatientsTab(preview: Boolean, onOpen: (String) -> Unit) {
             state.added?.let { id ->
                 adding = false
                 model.clearAdded()
+                SheetDrafts.clear(DRAFT_NEW_PATIENT)
                 onOpen(id)
             }
         }
@@ -480,6 +624,7 @@ private fun PatientsTab(preview: Boolean, onOpen: (String) -> Unit) {
             AddPatientSheet(
                 busy = state.adding,
                 error = state.addError,
+                sources = state.sources,
                 onAdd = model::addPatient,
                 onDismiss = { adding = false; model.clearAdded() },
             )
@@ -495,7 +640,7 @@ private fun PatientsTab(preview: Boolean, onOpen: (String) -> Unit) {
  * conversation somebody is in the middle of reading.
  */
 @Composable
-private fun ChatsTab(preview: Boolean, onImmersive: (Boolean) -> Unit) {
+private fun ChatsTab(preview: Boolean, onImmersive: (Boolean) -> Unit, onOpenPatient: (String) -> Unit = {}) {
     if (preview) {
         var state by remember { mutableStateOf(previewChats()) }
         androidx.compose.runtime.LaunchedEffect(state.open?.id) { onImmersive(state.open != null) }
@@ -532,6 +677,11 @@ private fun ChatsTab(preview: Boolean, onImmersive: (Boolean) -> Unit) {
             onAttach = { model.attach(context, it) },
             onClearAttachment = model::clearAttachment,
             onSendAttachment = { model.sendAttachment(context, it) },
+            onAssign = model::toggleAssign,
+            onBot = model::toggleBot,
+            onTag = model::toggleTag,
+            onRate = model::rate,
+            onOpenPatient = onOpenPatient,
         )
     } else {
         ChatsScreen(state = state, onFilter = model::show, onOpen = model::open)
@@ -547,6 +697,8 @@ private fun ChatsTab(preview: Boolean, onImmersive: (Boolean) -> Unit) {
 @Composable
 private fun MoreTab(
     preview: Boolean,
+    shows: (Destination) -> Boolean,
+    onOpenMyApp: () -> Unit,
     onOpenMoney: () -> Unit,
     onOpenReports: () -> Unit,
     onOpenLab: () -> Unit,
@@ -561,8 +713,10 @@ private fun MoreTab(
     onOpenHelp: () -> Unit,
 ) {
     var confirmSignOut by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     var retry: (() -> Unit)? = null
+    var switch: ((String) -> Unit)? = null
     val state = if (preview) {
         MoreState(loading = false, who = previewDashboard().who)
     } else {
@@ -570,11 +724,14 @@ private fun MoreTab(
         val live by model.state.collectAsState()
         androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
         retry = model::retry
+        switch = { id -> model.switchTo(context, id) }
         live
     }
 
     MoreScreen(
         state = state,
+        shows = shows,
+        onSwitchClinic = { id -> switch?.invoke(id) },
         onRetry = { retry?.invoke() },
         onOpen = { d ->
             when (d) {
@@ -590,6 +747,8 @@ private fun MoreTab(
                 Destination.Content -> onOpenContent()
                 Destination.Assistant -> onOpenAssistant()
                 Destination.Help -> onOpenHelp()
+                Destination.MyApp -> onOpenMyApp()
+                Destination.Language -> com.alphadental.clinic.next.data.AppLocale.toggle(context)
                 else -> Unit
             }
         },
@@ -635,8 +794,14 @@ private fun DayTab(
         DayScreen(
             state = state, onShiftDay = {}, onToday = {},
             onOpenVisit = onOpenVisit,
-            onSpan = { span -> state = state.copy(span = span, counts = previewCounts(span)) },
+            onSpan = { span ->
+                val counts = previewCounts(span)
+                state = state.copy(span = span, counts = counts, spanVisits = previewSpanVisits(counts))
+            },
+            onSelectDay = { state = state.copy(dateKey = it) },
+            onOpenDay = { state = state.copy(dateKey = it, span = Span.Day) },
             onBookGap = { gap -> onBook(state.dateKey, clockOf(gap.minute)) },
+            onBookNow = { onBook(state.dateKey, "") },
         )
     } else {
         val model: DayModel = viewModel()
@@ -647,6 +812,8 @@ private fun DayTab(
             onOpenVisit = onOpenVisit,
             onSpan = model::show,
             onOpenDay = model::openDay,
+            onSelectDay = model::selectDay,
+            onBookNow = if (state.who?.can("appointments.add") == true) ({ onBook(state.dateKey, "") }) else null,
             // A free slot books into itself: the whole point of tapping one is
             // that the day and time are already decided.
             onBookGap = { gap -> onBook(state.dateKey, clockOf(gap.minute)) },
@@ -681,7 +848,13 @@ private fun Unbuilt(name: String) {
  * safer default when a wrong tap costs a patient a confusing call.
  */
 @Composable
-private fun RecordPane(patientId: String, preview: Boolean, payOnOpen: Boolean = false, onBack: () -> Unit) {
+private fun RecordPane(
+    patientId: String,
+    preview: Boolean,
+    payOnOpen: Boolean = false,
+    recordOnOpen: Boolean = false,
+    onBack: () -> Unit,
+) {
     BackHandler { onBack() }
     val context = LocalContext.current
 
@@ -848,7 +1021,7 @@ private fun RecordPane(patientId: String, preview: Boolean, payOnOpen: Boolean =
                 services = previewServices(),
                 doctors = previewDoctors(),
                 busy = false, error = null,
-                onRecord = { _, _, _, _, _, _, _ -> previewSheet = "" },
+                onRecord = { _ -> previewSheet = "" },
                 onDismiss = { previewSheet = "" },
             )
             "pay" -> PaymentSheet(
@@ -874,8 +1047,17 @@ private fun RecordPane(patientId: String, preview: Boolean, payOnOpen: Boolean =
     val planState by plans.state.collectAsState()
     val booking: BookingModel = viewModel()
     val bookingState by booking.state.collectAsState()
+    // The AI tab. Opened once the file has told us who is signed in and who the patient is,
+    // because every one of its calls names both.
+    val ai: AiClinicalModel = viewModel()
+    val aiState by ai.state.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(state.who?.uid, state.record?.person?.id) {
+        val who = state.who
+        val person = state.record?.person
+        if (who != null && person != null) ai.open(who, person.id, person.name)
+    }
     var taking by remember { mutableStateOf(payOnOpen) }
-    var recording by remember { mutableStateOf(false) }
+    var recording by remember { mutableStateOf(recordOnOpen) }
     var more by remember { mutableStateOf(false) }
 
     // Camera and gallery end at the same place: JPEG bytes, downscaled on the
@@ -897,10 +1079,62 @@ private fun RecordPane(patientId: String, preview: Boolean, payOnOpen: Boolean =
             com.alphadental.clinic.ui.readScaledJpeg(context, uri)?.let(model::addPhoto)
         }
     }
+    val aiActions = remember(ai, pickImage, takePicture) {
+        AiClinicalActions(
+            show = ai::show,
+            type = ai::type,
+            ask = { ai.ask(false) },
+            summarize = { ai.ask(true) },
+            setSuper = ai::setSuper,
+            pickPhotos = ai::pickPhotos,
+            toggleAttached = ai::toggleAttached,
+            upload = { camera, category ->
+                model.setUploadCategory(category)
+                if (camera) {
+                    runCatching {
+                        val dir = java.io.File(context.cacheDir, "camera").apply { mkdirs() }
+                        val file = java.io.File(dir, "capture_${System.currentTimeMillis()}.jpg")
+                        val uri = androidx.core.content.FileProvider.getUriForFile(
+                            context, com.alphadental.clinic.BuildConfig.APPLICATION_ID + ".files", file,
+                        )
+                        cameraUri = uri
+                        takePicture.launch(uri)
+                    }
+                } else {
+                    pickImage.launch(
+                        androidx.activity.result.PickVisualMediaRequest(
+                            androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly,
+                        )
+                    )
+                }
+            },
+            openChat = ai::openChat,
+            instruct = ai::instruct,
+            answer = ai::answer,
+            propose = ai::propose,
+            saveOption = ai::saveOption,
+            togglePicked = ai::togglePicked,
+            noteXray = ai::noteXray,
+            setDeep = ai::setDeep,
+            setCompare = ai::setCompare,
+            read = ai::read,
+            view = ai::view,
+            review = { verdicts, chart, sign -> ai.review(verdicts, chart, sign) },
+            clearErrors = ai::clearErrors,
+        )
+    }
     androidx.compose.runtime.LaunchedEffect(patientId) { model.open(patientId) }
+    // A photograph added from the file's Photos tab or from the AI tab itself lands in the AI
+    // tab's gallery at once, attached to the question or picked for the read, without a reload.
+    androidx.compose.runtime.LaunchedEffect(state.media, state.uploading, state.canAddPhoto) { ai.mediaChanged(state.media, state.uploading, state.canAddPhoto) }
 
     androidx.compose.runtime.LaunchedEffect(state.recorded) {
-        if (state.recorded != null) recording = false
+        if (state.recorded != null) {
+            recording = false
+            // On the file, so the draft has served its purpose. Keyed by patient, the same way
+            // the sheet keyed it.
+            state.record?.person?.name?.let { SheetDrafts.clear("$DRAFT_TREATMENT:$it") }
+        }
     }
 
     // Close the sheet once the money is in, and leave the confirmation on the
@@ -917,6 +1151,7 @@ private fun RecordPane(patientId: String, preview: Boolean, payOnOpen: Boolean =
         onCall = { context.dial(it) },
         onMessage = { context.whatsapp(it) },
         // A write, so only for someone the server would accept it from.
+        onStatement = { model.statement(context, "share") },
         onTakePayment = if (state.canTakePayment) ({ taking = true }) else null,
         onRecordTreatment = if (state.canRecord) ({ recording = true }) else null,
         onMore = { more = true },
@@ -956,7 +1191,22 @@ private fun RecordPane(patientId: String, preview: Boolean, payOnOpen: Boolean =
                 )
             )
         }) else null,
+        // Null for an account without the finance tick-box, which makes every row on the
+        // statement inert rather than offering a sheet the server would refuse.
+        // Everyone may open a line; the sheet decides whether it also offers to change it.
+        onEditRow = { model.editRow(it) },
+        onEditNote = if (state.canRecord) ({ model.editNote(it) }) else null,
+        ai = aiState,
+        aiActions = aiActions,
+        onPlan = if (state.canRecord) ({ state.record?.let { plans.open(it.person) } }) else null,
+        onOrtho = if (state.canRecord) ({ model.startOrtho() }) else null,
+        onSort = model::toggleSort,
+        onDeleteNote = if (state.canDeleteNote) ({ model.deleteNoteNow(it) }) else null,
+        onDeleteRow = if (state.canDeleteLedger) ({ model.deleteRowNow(it) }) else null,
+        onPlanStatus = if (state.canRecord) ({ plan, status -> model.setPlanStatus(plan, status) }) else null,
     )
+
+    if (aiState.viewing != null) XrayReportSheet(aiState, aiActions)
 
     if (state.charting != null) {
         ToothSheet(
@@ -988,7 +1238,13 @@ private fun RecordPane(patientId: String, preview: Boolean, payOnOpen: Boolean =
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(8.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    var armed by remember(url) { mutableStateOf(false) }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                        if (state.canEditDetails) {
+                            SettingsPill(if (armed) "Tap again to remove" else "Remove", danger = true) {
+                                if (armed) model.deleteViewing() else armed = true
+                            }
+                        }
                         SettingsPill("Close") { model.view(null) }
                     }
                 }
@@ -1000,6 +1256,11 @@ private fun RecordPane(patientId: String, preview: Boolean, payOnOpen: Boolean =
         state.record?.let { record ->
             PatientActionsSheet(
                 patientName = record.person.name,
+                whatsappOn = !record.whatsappOptOut,
+                smsOn = !record.smsBlocked,
+                savingMessaging = state.savingMessaging,
+                messagingError = state.messagingError,
+                onMessaging = if (state.canEditDetails) ({ w, t -> model.setMessaging(w, t) }) else null,
                 onPrescribe = if (state.canRecord) ({
                     more = false
                     prescriptions.open(record.person)
@@ -1016,8 +1277,26 @@ private fun RecordPane(patientId: String, preview: Boolean, payOnOpen: Boolean =
                     more = false
                     model.startOrtho()
                 }) else null,
+                onDelete = if (state.canDeletePatient) ({
+                    model.deletePatient { more = false; onBack() }
+                }) else null,
+                deleteError = state.error,
                 onDismiss = { more = false },
             )
+        }
+    }
+
+    // A prescription is written by a model that knows nothing about this screen, so the screen has
+    // to be told. Cleared straight after, or reopening the file would refresh it again forever.
+    androidx.compose.runtime.LaunchedEffect(planState.saved) {
+        if (planState.saved != null) model.refreshPlans()
+    }
+
+    androidx.compose.runtime.LaunchedEffect(script.saved) {
+        if (script.saved != null) {
+            model.refreshScripts()
+            prescriptions.clearSaved()
+            model.show(RecordTab.Rx)
         }
     }
 
@@ -1047,6 +1326,7 @@ private fun RecordPane(patientId: String, preview: Boolean, payOnOpen: Boolean =
                 startDraft = plans::startDraft,
                 cancelDraft = plans::cancelDraft,
                 search = plans::search,
+                setList = plans::setList,
                 addStep = plans::addStep,
                 setTeeth = plans::setTeeth,
                 setQuantity = plans::setQuantity,
@@ -1071,6 +1351,8 @@ private fun RecordPane(patientId: String, preview: Boolean, payOnOpen: Boolean =
                 choose = booking::choose,
                 setDoctor = booking::setDoctor,
                 setService = booking::setService,
+                setTreatment = booking::setTreatment,
+                    setList = booking::setList,
                 shiftDay = booking::shiftDay,
                 setTime = booking::setTime,
                 setMinutes = booking::setMinutes,
@@ -1081,17 +1363,51 @@ private fun RecordPane(patientId: String, preview: Boolean, payOnOpen: Boolean =
         )
     }
 
+    state.editingNote?.let { note ->
+        TreatmentEditSheet(
+            note = note,
+            services = state.services,
+            doctors = state.doctors,
+            charted = state.record?.teeth.orEmpty(),
+            policy = state.policy,
+            busy = state.savingNote,
+            error = state.noteError,
+            canDelete = state.canDeleteNote,
+            onSave = model::saveNote,
+            onDelete = model::deleteNote,
+            onDismiss = model::closeNote,
+        )
+    }
+
+    state.editingRow?.let { row ->
+        LedgerRowSheet(
+            row = row,
+            busy = state.savingRow,
+            error = state.rowError,
+            canEdit = state.canEditLedger,
+            canDelete = state.canDeleteLedger,
+            payments = state.record?.ledger.orEmpty().filter { it.isPayment && it.procedureId == row.id },
+            onSave = model::saveRow,
+            onDelete = model::deleteRow,
+            onDismiss = model::closeRow,
+            onReceipt = { mode -> model.receipt(context, row, mode) },
+        )
+    }
+
     if (recording) {
         state.record?.let { record ->
             TreatmentSheet(
                 patientName = record.person.name,
                 services = state.services,
                 doctors = state.doctors,
+                // The chart behind the sheet: what is already on each tooth, and which one the
+                // dentist tapped before reaching for this.
+                charted = record.teeth,
+                preselected = state.tooth,
+                policy = state.policy,
                 busy = state.recording,
                 error = state.recordError,
-                onRecord = { procedure, teeth, note, cost, doctor, service, done ->
-                    model.recordTreatment(procedure, teeth, note, cost, doctor, service, done)
-                },
+                onRecord = model::recordTreatment,
                 onDismiss = { recording = false; model.clearRecorded() },
             )
         }
@@ -1176,7 +1492,24 @@ private fun MoneyPane(preview: Boolean, onBack: () -> Unit) {
         onThisMonth = model::thisMonth,
         onAdd = if (state.canAdd) ({ adding = true }) else null,
         onPeriod = model::show,
+        onOpenRow = model::editRow,
     )
+
+    state.editingRow?.let { row ->
+        LedgerRowSheet(
+            row = row,
+            busy = state.savingRow,
+            error = state.rowError,
+            canEdit = state.canEditLedger,
+            // A treatment charge is removed from the patient's file, where the note behind it
+            // goes with it; from here it would leave a treatment that reads as done for free.
+            canDelete = state.canDeleteLedger && !row.isCharge,
+            payments = state.lines.filter { it.isPayment && it.procedureId == row.id },
+            onSave = model::saveRow,
+            onDelete = model::deleteRow,
+            onDismiss = model::closeRow,
+        )
+    }
 
     if (adding) {
         FinanceEntrySheet(
@@ -1220,6 +1553,12 @@ private fun AttendancePane(preview: Boolean, onBack: () -> Unit) {
         onBack = onBack,
         onPunch = { model.punch(context) },
         onPeriod = model::show,
+        team = TeamActions(
+            editStaff = model::editStaff,
+            closeStaff = model::closeStaff,
+            saveStaff = model::saveStaff,
+            decideOvertime = model::decideOvertime,
+        ),
     )
 }
 
@@ -1259,6 +1598,7 @@ private fun StockPane(preview: Boolean, onBack: () -> Unit) {
             close = model::close,
             adjust = model::adjust,
             save = model::save,
+            delete = model::delete,
         ),
     )
 }
@@ -1314,6 +1654,8 @@ private fun LeadsPane(preview: Boolean, onBack: () -> Unit) {
             add = { name, phone, source, interest -> model.add(name, phone, source, interest, "") },
             call = { context.dial(it) },
             message = { context.whatsapp(it) },
+            edit = { name, phone, interest, source -> model.edit(name, phone, interest, source) },
+            delete = model::delete,
         ),
     )
 }
@@ -1380,48 +1722,57 @@ private fun OrthoPane(preview: Boolean, onBack: () -> Unit) {
  * dashboard is not.
  */
 @Composable
-private fun SettingsPane(preview: Boolean, onBack: () -> Unit) {
+private fun SettingsPane(preview: Boolean, personal: Boolean = false, onBack: () -> Unit) {
     if (preview) {
-        var state by remember { mutableStateOf(previewSettings()) }
-        BackHandler { if (state.section != null) state = state.copy(section = null) else onBack() }
+        var stored by remember { mutableStateOf(previewSettings().copy(personal = personal)) }
+        val state = stored.copy(ui = PreviewInterface.state)
+        fun edit(prefs: (com.alphadental.clinic.next.data.AppPrefs) -> com.alphadental.clinic.next.data.AppPrefs) {
+            PreviewInterface.state = PreviewInterface.state.copy(prefs = prefs(PreviewInterface.state.prefs))
+        }
+        BackHandler { if (state.section != null) stored = stored.copy(section = null) else onBack() }
         SettingsScreen(
             state = state,
             onBack = onBack,
             actions = SettingsActions(
-                open = { state = state.copy(section = it) },
-                close = { state = state.copy(section = null) },
-                saveProfile = { state = state.copy(profile = it) },
-                saveArea = { state = state.copy(area = it) },
-                saveSchedule = { state = state.copy(schedule = it) },
+                open = { stored = stored.copy(section = it) },
+                close = { stored = stored.copy(section = null) },
+                saveProfile = { stored = stored.copy(profile = it) },
+                saveArea = { stored = stored.copy(area = it) },
+                saveSchedule = { stored = stored.copy(schedule = it) },
                 saveDrug = { _, _, _, _, _ -> },
                 hideDrug = { _, _, _ -> },
                 binDrug = {},
                 restoreDeleted = {},
                 purgeDeleted = {},
                 forget = {},
-                saveHomeTab = {},
-                setAlert = { key, on -> state = state.copy(alerts = state.alerts + (key to on)) },
-                saveBooking = { state = state.copy(booking = it) },
-                saveRecall = { state = state.copy(recall = it) },
-                saveBot = { state = state.copy(bot = it) },
-                setDentistShare = { state = state.copy(dentistShare = it) },
-                saveReasons = { state = state.copy(reasons = it) },
-                saveSources = { state = state.copy(sources = it) },
-                saveBranches = { state = state.copy(branches = it) },
-                saveLabs = { state = state.copy(labs = it) },
+                saveHomeTab = { stored = stored.copy(homeTab = it) },
+                setHome = { h -> edit { it.copy(home = h) } },
+                toggleTab = { t -> edit { p -> p.copy(hiddenTabs = if (t.name in p.hiddenTabs) p.hiddenTabs - t.name else p.hiddenTabs + t.name) } },
+                toggleTool = { n -> edit { p -> p.copy(hiddenTools = if (n in p.hiddenTools) p.hiddenTools - n else p.hiddenTools + n) } },
+                saveMyProfile = { stored = stored.copy(me = it) },
+                saveAlertPrefs = { stored = stored.copy(alertPrefs = it) },
+                setMute = { id, muted -> stored = stored.copy(myMutes = if (muted) stored.myMutes + id else stored.myMutes - id) },
+                saveBooking = { stored = stored.copy(booking = it) },
+                saveRecall = { stored = stored.copy(recall = it) },
+                saveBot = { stored = stored.copy(bot = it) },
+                setDentistShare = { stored = stored.copy(dentistShare = it) },
+                saveReasons = { stored = stored.copy(reasons = it) },
+                saveSources = { stored = stored.copy(sources = it) },
+                saveBranches = { stored = stored.copy(branches = it) },
+                saveLabs = { stored = stored.copy(labs = it) },
                 saveService = { row ->
-                    val list = state.services.toMutableList()
+                    val list = stored.services.toMutableList()
                     val at = list.indexOfFirst { it.id == row.id && row.id.isNotBlank() }
                     if (at >= 0) list[at] = row else list.add(row.copy(id = "new"))
-                    state = state.copy(services = list)
+                    stored = stored.copy(services = list)
                 },
                 saveStaff = { row ->
-                    val list = state.staff.toMutableList()
+                    val list = stored.staff.toMutableList()
                     val at = list.indexOfFirst { it.id == row.id && row.id.isNotBlank() }
                     if (at >= 0) list[at] = row else list.add(row.copy(id = "new"))
-                    state = state.copy(staff = list)
+                    stored = stored.copy(staff = list)
                 },
-                rejectRequest = { id -> state = state.copy(requests = state.requests.filterNot { it.id == id }) },
+                rejectRequest = { id -> stored = stored.copy(requests = stored.requests.filterNot { it.id == id }) },
             ),
         )
         return
@@ -1429,10 +1780,13 @@ private fun SettingsPane(preview: Boolean, onBack: () -> Unit) {
 
     val model: SettingsModel = viewModel()
     val state by model.state.collectAsState()
-    androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
+    // The same instance the shell reads, so a tab switched off here leaves the bar at once.
+    val interfaceModel: InterfaceModel = viewModel()
+    val uiState by interfaceModel.state.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(Unit) { model.start(personal); interfaceModel.start() }
     BackHandler { if (state.section != null) model.close() else onBack() }
     SettingsScreen(
-        state = state,
+        state = state.copy(ui = uiState, personal = personal),
         onBack = onBack,
         actions = SettingsActions(
             open = model::open,
@@ -1447,7 +1801,12 @@ private fun SettingsPane(preview: Boolean, onBack: () -> Unit) {
             purgeDeleted = model::purgeDeleted,
             forget = model::forget,
             saveHomeTab = model::saveHomeTab,
-            setAlert = model::setAlert,
+            setHome = interfaceModel::setHome,
+            toggleTab = interfaceModel::toggleTab,
+            toggleTool = interfaceModel::toggleTool,
+            saveMyProfile = model::saveMyProfile,
+            saveAlertPrefs = model::saveAlertPrefs,
+            setMute = model::setMute,
             saveBooking = model::saveBooking,
             saveRecall = model::saveRecall,
             saveBot = model::saveBot,
@@ -1459,6 +1818,8 @@ private fun SettingsPane(preview: Boolean, onBack: () -> Unit) {
             saveService = model::saveService,
             saveStaff = model::saveStaff,
             rejectRequest = model::rejectRequest,
+            savePayer = model::savePayer,
+            saveRates = model::saveRates,
         ),
     )
 }
@@ -1632,6 +1993,7 @@ private fun LabPane(preview: Boolean, onBack: () -> Unit) {
             error = state.error,
             onMove = { model.move(it); model.openCase(null) },
             onDismiss = { model.openCase(null) },
+            onDelete = if (state.canDelete) model::delete else null,
         )
     }
 
@@ -1670,19 +2032,31 @@ private fun LabPane(preview: Boolean, onBack: () -> Unit) {
 }
 
 
-/** How the clinic has been doing. Reached from More, like Money. */
+/** The reports, as the website computes them. Reached from More, like Money. */
 @Composable
-private fun ReportsPane(preview: Boolean, onBack: () -> Unit) {
+private fun ReportsPane(preview: Boolean, onOpenPatient: (String) -> Unit, onBack: () -> Unit) {
     BackHandler { onBack() }
     if (preview) {
         var state by remember { mutableStateOf(previewReports()) }
-        ReportsScreen(state, onBack = onBack, onWindow = { state = state.copy(window = it) })
+        ReportsScreen(
+            state, onBack = onBack,
+            onGroup = { id -> state = state.copy(groupId = id, reportId = state.groups.first { it.id == id }.reports.first().id) },
+            onReport = { state = state.copy(reportId = it) },
+            onPreset = { p -> val (f, t) = p.range(); state = state.copy(preset = p, from = f, to = t) },
+            onRange = { f, t -> state = state.copy(preset = null, from = f ?: state.from, to = t ?: state.to) },
+            onDrill = {}, onCloseDrill = {}, onOpenPatient = {},
+        )
         return
     }
     val model: ReportsModel = viewModel()
     val state by model.state.collectAsState()
     androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
-    ReportsScreen(state, onBack = onBack, onWindow = model::show)
+    ReportsScreen(
+        state, onBack = onBack,
+        onGroup = model::showGroup, onReport = model::showReport, onPreset = model::pick,
+        onRange = { f, t -> model.setRange(f, t) },
+        onDrill = model::drill, onCloseDrill = model::closeDrill, onOpenPatient = onOpenPatient,
+    )
 }
 
 /** Minutes past midnight as "14:30", for a slot that books into itself. */
@@ -1767,6 +2141,62 @@ private fun ContentPane(preview: Boolean, onBack: () -> Unit) {
     )
 }
 
+/**
+ * The assistant you talk to.
+ *
+ * What the orb opens. It used to open the scans screen, which is a page of paid buttons — a
+ * perfectly good screen and not remotely what a chat bubble promises.
+ */
+@Composable
+private fun AiChatPane(
+    preview: Boolean,
+    onOpenPatient: (String) -> Unit,
+    onGo: (com.alphadental.clinic.ai.NavIntent.Target) -> Unit,
+    onScans: () -> Unit,
+    onBack: () -> Unit,
+) {
+    val context = LocalContext.current
+    if (preview) {
+        var state by remember { mutableStateOf(previewChat()) }
+        AiChatScreen(
+            state = state,
+            onType = { state = state.copy(draft = it) },
+            onSend = {},
+            onAsk = { state = state.copy(draft = it) },
+            onAnswer = {},
+            onClear = { state = state.copy(messages = emptyList()) },
+            onScans = onScans,
+            onBack = onBack,
+        )
+        return
+    }
+
+    val model: AiChatModel = viewModel()
+    val state by model.state.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(Unit) { model.start(context) }
+    // Acted on here, then cleared, so returning to the chat later does not move the app again.
+    androidx.compose.runtime.LaunchedEffect(state.go) {
+        state.go?.let { target ->
+            if (target is com.alphadental.clinic.ai.NavIntent.Target.PatientById) {
+                onOpenPatient(target.id)
+            } else {
+                onGo(target)
+            }
+            model.clearGo()
+        }
+    }
+    AiChatScreen(
+        state = state,
+        onType = model::type,
+        onSend = { model.send() },
+        onAsk = { model.send(it) },
+        onAnswer = model::answer,
+        onClear = model::clearChat,
+        onScans = onScans,
+        onBack = onBack,
+    )
+}
+
 /** The three scans, over the top of everything. */
 @Composable
 private fun AssistantPane(preview: Boolean, onOpenPatient: (String) -> Unit, onBack: () -> Unit) {
@@ -1819,6 +2249,19 @@ private fun HelpPane(onBack: () -> Unit) {
  * to draw. The live screen counts real appointments; this only has to prove the
  * squares line up under the right weekday.
  */
+/** The demo's visits spread over the days of the span, so the week grid has blocks on it. */
+private fun previewSpanVisits(counts: List<DayCount>): List<com.alphadental.clinic.next.data.Visit> {
+    val days = counts.filter { it.inSpan }
+    if (days.isEmpty()) return emptyList()
+    val sample = previewDay().visits
+    return days.flatMapIndexed { d, day ->
+        val n = minOf(day.booked, sample.size)
+        sample.shuffled(java.util.Random(d.toLong())).take(n).mapIndexed { i, v ->
+            v.copy(id = "${day.dateKey}-$i", date = day.dateKey)
+        }
+    }
+}
+
 private fun previewCounts(span: Span): List<DayCount> {
     if (span == Span.Day) return emptyList()
     val busy = listOf(6, 0, 9, 11, 4, 7, 0, 3, 12, 8, 0, 5, 10, 2)

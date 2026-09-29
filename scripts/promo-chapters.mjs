@@ -295,8 +295,11 @@ export const CHAPTERS = {
 
 };
 
-export function chapter(name) {
-  const c = CHAPTERS[name];
-  if (!c) throw new Error(`Unknown chapter "${name}". Known: ${Object.keys(CHAPTERS).join(", ")}`);
+export async function chapter(name) {
+  // The long walkthrough lives in its own module and is loaded on demand: it imports constants
+  // from this file, and a static import both ways would be a cycle.
+  const { WALKTHROUGH } = await import("./walkthrough-chapters.mjs");
+  const c = CHAPTERS[name] || WALKTHROUGH[name];
+  if (!c) throw new Error(`Unknown chapter "${name}". Known: ${[...Object.keys(CHAPTERS), ...Object.keys(WALKTHROUGH)].join(", ")}`);
   return c;
 }

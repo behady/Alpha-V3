@@ -17,6 +17,8 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -252,6 +254,12 @@ fun ThreadScreen(
     onAttach: (android.net.Uri) -> Unit = {},
     onClearAttachment: () -> Unit = {},
     onSendAttachment: (String) -> Unit = {},
+    /** Claim or release the thread; pause or resume the bot; a label; a thumb; the patient's file. */
+    onAssign: (() -> Unit)? = null,
+    onBot: (() -> Unit)? = null,
+    onTag: ((String) -> Unit)? = null,
+    onRate: ((Line, String) -> Unit)? = null,
+    onOpenPatient: ((String) -> Unit)? = null,
 ) {
     val thread = state.open ?: return
     val listState = rememberLazyListState()
@@ -265,6 +273,9 @@ fun ThreadScreen(
     Column(Modifier.fillMaxSize().background(T.ground)) {
 
         ThreadBar(thread, onBack, onCall)
+        if (onAssign != null || onBot != null || onTag != null || onOpenPatient != null) {
+            ThreadActions(state, thread, onAssign, onBot, onTag, onOpenPatient)
+        }
 
         Box(Modifier.weight(1f)) {
             when {
@@ -285,7 +296,7 @@ fun ThreadScreen(
                     contentPadding = PaddingValues(horizontal = T.gutter, vertical = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(state.lines)
+                    items(state.lines, state.feedback, onRate)
                 }
             }
         }
@@ -635,9 +646,69 @@ private fun Note(text: String, fill: Color, ink: Color) {
     }
 }
 
-private fun androidx.compose.foundation.lazy.LazyListScope.items(lines: List<Line>) {
+private fun androidx.compose.foundation.lazy.LazyListScope.items(lines: List<Line>, feedback: Map<String, String>, onRate: ((Line, String) -> Unit)?) {
     lines.forEach { line ->
-        item(key = line.id) { Bubble(line) }
+        item(key = line.id) { Bubble(line, feedback[line.id], if (line.fromBot) onRate else null) }
+    }
+}
+
+/** The desk's labels, as the website offers them. Anything else is typed on the website. */
+private val PRESET_TAGS = listOf("lead" to "Lead", "followup" to "Follow up", "complaint" to "Complaint", "vip" to "VIP", "price" to "Asked prices")
+
+/**
+ * What a person can do to the thread as a whole, in one quiet row under the bar: take it or let
+ * it go, silence the bot or hand the thread back to it, open the file, and label it.
+ */
+@Composable
+private fun ThreadActions(state: Chats, thread: Thread, onAssign: (() -> Unit)?, onBot: (() -> Unit)?, onTag: ((String) -> Unit)?, onOpenPatient: ((String) -> Unit)?) {
+    Surface(color = T.surface, modifier = Modifier.fillMaxWidth()) {
+        Column {
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = T.gutter, vertical = 9.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (onAssign != null) ActionPill(if (state.mine) "Let it go" else if (thread.assignedTo.isNotBlank()) "Take over" else "Take it", solid = !state.mine, enabled = !state.acting, onClick = onAssign)
+                if (onBot != null) ActionPill(if (thread.botQuiet) "Hand back to the bot" else "Pause the bot", solid = false, enabled = !state.acting, onClick = onBot)
+                if (onOpenPatient != null && thread.patientId.isNotBlank()) ActionPill("Open file", solid = false, enabled = true) { onOpenPatient(thread.patientId) }
+            }
+            if (onTag != null) {
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()).padding(start = T.gutter, end = T.gutter, bottom = 9.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    PRESET_TAGS.forEach { (id, label) ->
+                        val on = id in thread.tags
+                        Surface(
+                            shape = T.pill,
+                            color = if (on) T.accentTint else T.surface,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, if (on) T.accent else T.line),
+                            modifier = Modifier.clickable(enabled = !state.acting) { onTag(id) },
+                        ) {
+                            Txt(label, Type.chip.copy(fontSize = 10.5.sp), if (on) T.accentInk else T.inkMuted, Modifier.padding(horizontal = 10.dp, vertical = 6.dp), uppercase = true)
+                        }
+                    }
+                    thread.tags.filter { t -> PRESET_TAGS.none { it.first == t } }.forEach { t ->
+                        Surface(shape = T.pill, color = T.accentTint, border = androidx.compose.foundation.BorderStroke(1.dp, T.accent), modifier = Modifier.clickable(enabled = !state.acting) { onTag(t) }) {
+                            Txt(t, Type.chip.copy(fontSize = 10.5.sp), T.accentInk, Modifier.padding(horizontal = 10.dp, vertical = 6.dp), uppercase = true)
+                        }
+                    }
+                }
+            }
+            Rule()
+        }
+    }
+}
+
+@Composable
+private fun ActionPill(label: String, solid: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    Surface(
+        shape = T.pill,
+        color = if (solid) T.slab else T.surface,
+        border = if (solid) null else androidx.compose.foundation.BorderStroke(1.dp, T.line),
+        modifier = Modifier.clickable(enabled = enabled, onClick = onClick),
+    ) {
+        Txt(label, Type.label.copy(fontSize = 12.sp), if (solid) T.onSlab else T.inkMuted, Modifier.padding(horizontal = 13.dp, vertical = 7.dp))
     }
 }
 
@@ -682,9 +753,9 @@ private fun ThreadBar(thread: Thread, onBack: () -> Unit, onCall: (String) -> Un
     }
 }
 
-/** One message. */
+/** One message. A bot's answer carries two thumbs, for the person deciding what to teach it next. */
 @Composable
-private fun Bubble(line: Line) {
+private fun Bubble(line: Line, verdict: String? = null, onRate: ((Line, String) -> Unit)? = null) {
     val mine = !line.fromPatient
     Row(
         Modifier.fillMaxWidth(),
@@ -743,6 +814,16 @@ private fun Bubble(line: Line) {
                 if (line.failed) {
                     Spacer(Modifier.width(6.dp))
                     Txt("Not delivered", Type.chip, Color(0xFFFB7185), uppercase = true)
+                }
+                if (onRate != null) {
+                    Spacer(Modifier.weight(1f))
+                    listOf("up" to "👍", "down" to "👎").forEach { (v, glyph) ->
+                        Txt(
+                            glyph, Type.caption.copy(fontSize = 13.sp),
+                            if (verdict == v) T.accent else T.onSlabFaint,
+                            Modifier.clickable { onRate(line, v) }.padding(horizontal = 4.dp),
+                        )
+                    }
                 }
             }
         }

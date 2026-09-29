@@ -33,6 +33,11 @@ import com.alphadental.clinic.next.design.T
 class NextActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Before anything asks who is signed in: the answer includes which clinic, and that is
+        // stored here.
+        com.alphadental.clinic.next.data.ClinicChoice.attach(this)
+        // The language the phone asks for: reports, help, printed dates.
+        com.alphadental.clinic.next.data.AppLocale.attach(this)
         // Edge to edge, because the slab has to paint under the status bar.
         enableEdgeToEdge()
         // Debug-only: draw the design's example data instead of reading the

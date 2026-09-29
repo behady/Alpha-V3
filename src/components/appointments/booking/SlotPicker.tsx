@@ -3,6 +3,7 @@
 import { Calendar, Clock, Stethoscope, Hourglass, Building2, DoorOpen } from "lucide-react";
 import AppointmentStagePicker from "@/components/appointments/AppointmentStagePicker";
 import type { ClinicBranch } from "@/lib/clinicLocations";
+import { GENERAL_DOCTOR_VALUE, generalDoctorLabel } from "@/lib/generalDentist";
 
 interface Props {
   language: string;
@@ -104,6 +105,9 @@ export default function SlotPicker({
             onChange={(e) => setDoctor(e.target.value)} data-tour="booking-doctor"
             className="w-full rounded-xl border-2 border-slate-100 bg-surface px-3 py-3 text-sm font-bold text-ink outline-none focus:border-primary-500"
           >
+            {/* A visit that belongs to the clinic, not to one dentist. First so it reads as the
+                neutral choice rather than something hidden under the staff list. */}
+            <option value={GENERAL_DOCTOR_VALUE}>{generalDoctorLabel(language)}</option>
             {doctors.length === 0 && <option>{txt.noDoctors}</option>}
             {doctors.map((d) => (
               <option key={d.id} value={d.name}>

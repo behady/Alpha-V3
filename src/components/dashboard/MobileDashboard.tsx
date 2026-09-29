@@ -38,6 +38,7 @@ import { logActivity } from "@/lib/logger";
 import { MoneyApiError, deleteAppointment } from "@/lib/moneyApi";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { parseClinicSchedule, clinicDayBoundsMinutes, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
+import { pickerValueFromDoctorField } from "@/lib/generalDentist";
 import { useActiveBranch } from "@/lib/useActiveBranch";
 import BranchSelector from "@/components/shared/BranchSelector";
 import type { OwnerAlertKey } from "@/types/whatsapp";
@@ -53,8 +54,9 @@ import { printPatientReceipt } from "@/lib/printPatientReceipt";
 
 import { getAppointmentStatusStyles, getAppointmentStageLabel } from "@/lib/appointmentStages";
 import UserClockWidget from "@/components/dashboard/UserClockWidget";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { currentClinicId, getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import PageHeader, { headerButtonPrimary, headerButtonGhost } from "@/components/dashboard/PageHeader";
+import HomeViewTabs from "@/components/dashboard/HomeViewTabs";
 function getLocalDateKey(): string {
   const d = new Date();
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split("T")[0];
@@ -305,7 +307,7 @@ export default function MobileDashboard() {
       await fetch("/api/whatsapp/owner-alert", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ alertKey, message }),
+        body: JSON.stringify({ alertKey, message, clinicId: currentClinicId() }),
       });
     } catch (e) {
       console.warn("Owner WhatsApp alert", e);
@@ -476,7 +478,7 @@ export default function MobileDashboard() {
     });
     const unsubServices = onSnapshot(
       getClinicCollection("services"),
-      (snap) => setServicesList(snap.docs.map((d) => ({ id: d.id, name: d.data().name, price: d.data().price })))
+      (snap) => setServicesList(snap.docs.map((d) => ({ id: d.id, name: d.data().name, price: d.data().price, /* the per-list overrides — without them an insurer's tariff can never reach this screen */ prices: d.data().prices, category: d.data().category, icon: d.data().icon })))
     );
     return () => {
       unsubPatients();
@@ -591,6 +593,14 @@ export default function MobileDashboard() {
       }
 
       await updateDoc(getClinicDoc("appointments", id), updatePayload);
+
+      // The flow alerts. Same keys the booking service sends; the server maps them to the catalogue.
+      if (nextStatus === "No Show") {
+        void fireOwnerWhatsAppAlert("appointment_no_show" as OwnerAlertKey, `No-show: ${appt.patientName || ""} — ${appt.time || ""} — ${appt.doctor || ""}`);
+      }
+      if (nextStatus === "Cancelled" && String(appt.date || "") === new Intl.DateTimeFormat("en-CA").format(new Date())) {
+        void fireOwnerWhatsAppAlert("appointment_same_day_cancel" as OwnerAlertKey, `Cancelled today: ${appt.patientName || ""} — ${appt.time || ""} — ${appt.doctor || ""}`);
+      }
 
       // Cancelling is the one status change the patient has to hear about — everything else is
       // clinic-side bookkeeping, but a cancelled patient is still expecting to be seen. It lives
@@ -885,6 +895,7 @@ export default function MobileDashboard() {
           title={<><span className="font-light">{language === 'ar' ? 'أهلاً بك،' : 'Welcome in,'}</span> {getWelcomeName(user?.name)}</>}
           eyebrow={<span className="inline-flex items-center gap-2"><DashboardClockWidget language={language} /></span>}
         >
+          <HomeViewTabs />
           <button onClick={() => setActiveModal('patient')} className={headerButtonPrimary}>
             <Plus size={17} strokeWidth={3} />
             <span className="hidden sm:inline">{language === 'ar' ? 'مريض جديد' : 'New Patient'}</span>
@@ -1581,7 +1592,8 @@ export default function MobileDashboard() {
                       id: selectedAppointment!.patientId!,
                       name: selectedAppointment!.patientName!
                     });
-                    setPreSelectedDoctor(selectedAppointment!.doctor || "");
+                    // A visit that was General stays General when it is rebooked.
+                    setPreSelectedDoctor(pickerValueFromDoctorField(selectedAppointment!.doctor));
                     setActiveModal("booking");
 
                     showToast(language === 'ar' ? 'تم تأجيل الموعد، افتح حجز جديد' : 'Appointment delayed, opening new booking...', 'success');

@@ -63,3 +63,52 @@ export function clinicDayBoundsMinutes(c: ClinicScheduleConfig): { start: number
   if (end <= start) end += 24 * 60;
   return { start, end };
 }
+
+export type DayBounds = {
+  /** Where the drawn day starts and ends, in minutes from midnight (end may pass 1440). */
+  start: number;
+  end: number;
+  /** The clinic's own hours, so the grid can shade what lies outside them. */
+  clinicStart: number;
+  clinicEnd: number;
+};
+
+/**
+ * A visit's start on the drawn day. A clinic that runs past midnight has an `end` beyond 1440,
+ * and a visit stored as "00:30" belongs at the end of that day, not before its start.
+ */
+export function visitStartInDay(startMin: number, bounds: { start: number; end: number }): number {
+  if (bounds.end > 24 * 60 && startMin < bounds.start && startMin + 24 * 60 < bounds.end) {
+    return startMin + 24 * 60;
+  }
+  return startMin;
+}
+
+/**
+ * The day's bounds, widened so every visit actually booked on it is on screen.
+ *
+ * The schedule used to draw exactly the clinic's hours and drop whatever fell outside them: a
+ * visit at 09:00 on a clinic set to open at 10:00 was filtered out of the day view and simply did
+ * not exist there, while the calendar page pinned it to the top edge. Both are wrong in the same
+ * way — the booking is real, and a screen that hides it is a screen the desk cannot trust. The
+ * common case is a clinic that changes its hours in Settings after visits were already booked.
+ *
+ * The widening is in whole slots, measured from the clinic's own opening time, so the slot rows
+ * stay aligned with the hours the clinic actually keeps.
+ */
+export function dayBoundsCovering(
+  c: ClinicScheduleConfig,
+  visits: ReadonlyArray<{ startMin: number; endMin: number }>,
+): DayBounds {
+  const clinic = clinicDayBoundsMinutes(c);
+  const slot = Number.isFinite(c.slotDuration) && c.slotDuration > 0 ? c.slotDuration : 30;
+  let { start, end } = clinic;
+  for (const v of visits) {
+    if (!Number.isFinite(v.startMin) || !Number.isFinite(v.endMin)) continue;
+    const s = visitStartInDay(v.startMin, clinic);
+    const e = s + Math.max(1, v.endMin - v.startMin);
+    if (s < start) start -= Math.ceil((start - s) / slot) * slot;
+    if (e > end) end += Math.ceil((e - end) / slot) * slot;
+  }
+  return { start: Math.max(0, start), end, clinicStart: clinic.start, clinicEnd: clinic.end };
+}

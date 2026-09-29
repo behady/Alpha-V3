@@ -605,6 +605,16 @@ object LabCases {
     }
 
     /**
+     * Remove an order entered by mistake — the website's `deleteLabCase`.
+     *
+     * Work that really went to the lab and was called off should be moved to "cancelled" instead,
+     * so the trip stays on the record. Gated on access.lab by the rules, like every lab_cases write.
+     */
+    suspend fun deleteCase(clinicId: String, id: String): Result<Unit> = runCatching {
+        cases(clinicId).document(id).delete().await()
+    }
+
+    /**
      * Edit a saved order. Status moves go through `advance` instead, which owns the event log.
      *
      * A field the person cleared is written as "" rather than omitted: compact() dropping it is

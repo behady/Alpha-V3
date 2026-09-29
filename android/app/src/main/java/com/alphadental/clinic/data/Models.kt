@@ -176,6 +176,11 @@ data class Service(
     val icon: String = "",
     /** "per_tooth", "flat" or "per_arch". Blank on services from before billing rules existed. */
     val pricingMode: String = "",
+    /**
+     * The price on each other price list, keyed by list id — an insurer's tariff. A list with no
+     * entry here charges [price]. See next/data/Pricing for which list is which insurer.
+     */
+    val prices: Map<String, Double> = emptyMap(),
 )
 
 /** One lead in the CRM inbox — same shape the website's Leads page reads. */
@@ -216,6 +221,25 @@ data class ClinicalNote(
     val doctor: String = "",
     val date: String = "",
     val ledgerId: String = "",
+    /**
+     * Everything below exists so this note can be sent BACK to the server.
+     *
+     * Changing a treatment — even just marking a planned one done — goes through
+     * /api/clinical/procedures, and that route reprices the whole thing from scratch: it wants the
+     * dentist, the teeth and the unit price, not a one-field patch. A note read without them can
+     * be displayed but never edited, which is how "Mark done" came to be a button that did
+     * nothing at all.
+     */
+    val doctorId: String = "",
+    val teeth: List<String> = emptyList(),
+    val unitCost: Double = 0.0,
+    val pricingMode: String = "",
+    val appointmentId: String = "",
+    /** The price-list entries this note was priced from. What decides the mark on the chart. */
+    val serviceIds: List<String> = emptyList(),
+    /** The list this treatment was charged on, and who that made the payer. Stamped by the server. */
+    val priceListId: String = "",
+    val payerName: String = "",
 )
 
 /**

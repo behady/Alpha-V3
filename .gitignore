@@ -60,6 +60,8 @@ clean_secret.ps1
 !tests/**/*.mjs
 !functions/*.js
 !scripts/*.mjs
+# Alpha's own WhatsApp gateway: plain JavaScript with its own package.json.
+!whatsapp-gateway/**/*.js
 
 # Reports and progress files written by the operator scripts during an incident. These name
 # document paths and, for the repair scripts, clinic data — one `git add -A` while recovering

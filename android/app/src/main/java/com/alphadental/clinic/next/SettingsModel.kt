@@ -4,6 +4,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.ListAlt
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.EventRepeat
@@ -14,6 +15,7 @@ import androidx.compose.material.icons.filled.LocalHospital
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Medication
@@ -56,6 +58,7 @@ enum class Section(
     Hours("Opening hours", "When the clinic is open, and for how long a slot", Icons.Filled.Schedule, SettingsGroup.Clinic),
 
     Prices("Price list", "What each treatment costs", Icons.Filled.Payments, SettingsGroup.Work),
+    Payers("Payers & insurance", "Who pays, at what prices, and what each dentist earns on it", Icons.Filled.HealthAndSafety, SettingsGroup.Work),
     Recall("Recall and dormancy", "When a patient is due back", Icons.Filled.EventRepeat, SettingsGroup.Work),
     Reasons("Visit reasons", "What reception picks when booking", Icons.AutoMirrored.Filled.ListAlt, SettingsGroup.Work),
     Sources("How patients hear of you", "The list behind every marketing figure", Icons.Filled.PersonSearch, SettingsGroup.Work),
@@ -67,7 +70,8 @@ enum class Section(
     Bot("WhatsApp bot", "What answers patients out of hours", Icons.AutoMirrored.Filled.Chat, SettingsGroup.Patients),
 
     Alerts("Alerts", "What rings the bell on this phone", Icons.Filled.Notifications, SettingsGroup.App),
-    Interface("Where the app opens", "The screen you see first", Icons.Filled.Smartphone, SettingsGroup.App),
+    Interface("The app, your way", "Your home screen, the tabs in the bar, the menu", Icons.Filled.Smartphone, SettingsGroup.App),
+    Profile("My profile", "Your name, nickname, phone and a line about you", Icons.Filled.Person, SettingsGroup.App),
     DentistHome("Dentist's home screen", "What a dentist sees of the money", Icons.Filled.LocalHospital, SettingsGroup.App),
 
     Drugs("Prescription drugs", "The clinic's edits to the built-in list", Icons.Filled.Medication, SettingsGroup.Work),
@@ -76,6 +80,15 @@ enum class Section(
     Ai("AI usage", "What the assistant has cost", Icons.Filled.AutoAwesome, SettingsGroup.Records),
     Memory("What the assistant learned", "Rules it applies to every answer", Icons.Filled.Psychology, SettingsGroup.Records),
 }
+
+/**
+ * A section that is about the person, not the clinic.
+ *
+ * These two are reachable by everyone from the menu's "My app", with or without the
+ * settings permission: which home screen a receptionist's phone opens on and what her own
+ * profile says are hers to decide, and the rules already let her write both.
+ */
+val Section.isPersonal: Boolean get() = this == Section.Interface || this == Section.Profile
 
 enum class SettingsGroup(val label: String) {
     Clinic("The clinic"),
@@ -103,7 +116,18 @@ data class SettingsState(
     val facts: List<String> = emptyList(),
     /** Which tab this account opens on; blank until it has been read. */
     val homeTab: String? = null,
-    val alerts: Map<String, Boolean> = emptyMap(),
+    /** Opened from "My app" on the menu: only the personal sections, no permission needed. */
+    val personal: Boolean = false,
+    /** How this person set the app up. Owned by [InterfaceModel]; copied in for the pages. */
+    val ui: InterfaceState = InterfaceState(),
+    /** My own staff row, for the profile page. Null until read; blank id means no row. */
+    val me: ClinicSettings.MyProfile? = null,
+    val myStaffId: String = "",
+    /** The clinic's `alertPreferences` map, whole. Null until read. */
+    val alertPrefs: Map<String, Any?>? = null,
+    /** My own mutes for this clinic, by event id. */
+    val myMutes: List<String> = emptyList(),
+    val mutesLoaded: Boolean = false,
     val booking: ClinicSettings.OnlineBooking? = null,
     val recall: ClinicSettings.Recall? = null,
     val bot: ClinicSettings.BotSettings? = null,
@@ -113,6 +137,9 @@ data class SettingsState(
     val branches: List<LabCases.Branch> = emptyList(),
     val labs: List<LabCases.Lab> = emptyList(),
     val services: List<ClinicSettings.ServiceRow> = emptyList(),
+    /** The clinic's price lists and insurers. Null until the Payers or Prices page has read them. */
+    val pricing: com.alphadental.clinic.next.data.Pricing.Policy? = null,
+    val rates: List<ClinicSettings.StaffRates> = emptyList(),
     val staff: List<ClinicSettings.StaffRow> = emptyList(),
     val requests: List<ClinicSettings.JoinRequest> = emptyList(),
     val logs: List<ClinicSettings.LogRow> = emptyList(),
@@ -153,12 +180,13 @@ class SettingsModel : ViewModel() {
     private val _state = MutableStateFlow(SettingsState())
     val state: StateFlow<SettingsState> = _state.asStateFlow()
 
-    fun start() {
+    fun start(personal: Boolean = false) {
         if (_state.value.who != null) return
         viewModelScope.launch {
             ClinicSource.signedIn()
                 .onSuccess { who ->
-                    _state.value = _state.value.copy(who = who, loading = false)
+                    _state.value = _state.value.copy(who = who, loading = false, personal = personal)
+                    if (personal) return@onSuccess
                     if (!who.can("access.settings")) {
                         _state.value = _state.value.copy(
                             error = "This account is not allowed to open the clinic's settings.",
@@ -187,13 +215,28 @@ class SettingsModel : ViewModel() {
             Section.Interface -> load {
                 it.copy(homeTab = ClinicSettings.loadHomeTab(_state.value.who?.uid.orEmpty()))
             }
+            Section.Profile -> load {
+                val who = it.who ?: return@load it
+                val staffId = Repository.findMyStaffId(id, who.uid, who.email)
+                it.copy(
+                    myStaffId = staffId,
+                    me = if (staffId.isBlank()) ClinicSettings.MyProfile() else ClinicSettings.loadMyProfile(id, staffId),
+                )
+            }
             Section.Memory -> load {
                 // Per account, not per clinic: the assistant learns from the
                 // person it is talking to, and the server reads the same
                 // ai_preferences/{uid} document.
                 it.copy(facts = Repository.loadAiFacts(id, _state.value.who?.uid.orEmpty()))
             }
-            Section.Prices -> load { it.copy(services = ClinicSettings.loadServices(id)) }
+            Section.Prices -> load { it.copy(services = ClinicSettings.loadServices(id), pricing = com.alphadental.clinic.next.data.Pricing.load(id)) }
+            Section.Payers -> load {
+                it.copy(
+                    pricing = com.alphadental.clinic.next.data.Pricing.load(id),
+                    services = ClinicSettings.loadServices(id),
+                    rates = ClinicSettings.loadStaffRates(id),
+                )
+            }
             Section.Recall -> load { it.copy(recall = ClinicSettings.loadRecall(id)) }
             Section.Reasons -> load { it.copy(reasons = ClinicSettings.loadList(id, ClinicSettings.VISIT_REASONS)) }
             Section.Sources -> load { it.copy(sources = ClinicSettings.loadList(id, ClinicSettings.PATIENT_SOURCES)) }
@@ -201,7 +244,19 @@ class SettingsModel : ViewModel() {
             Section.Requests -> load { it.copy(requests = ClinicSettings.loadJoinRequests(id)) }
             Section.Booking -> load { it.copy(booking = ClinicSettings.loadOnlineBooking(id)) }
             Section.Bot -> load { it.copy(bot = ClinicSettings.loadBot(id)) }
-            Section.Alerts -> load { it.copy(alerts = ClinicSettings.loadAlerts(id)) }
+            Section.Alerts -> load {
+                val uid = it.who?.uid.orEmpty()
+                // The old Settings → WhatsApp grid's ticks ride along as `legacyOwnerAlerts`, read-only,
+                // so the six migrated alerts resolve here as they do on the website. Stripped on save.
+                val legacy = ClinicSettings.loadDoc(id, "whatsapp")["ownerAlerts"] as? Map<*, *>
+                val prefs = ClinicSettings.loadAlertPrefs(id).let { p -> if (legacy != null) p + ("legacyOwnerAlerts" to legacy) else p }
+                it.copy(
+                    alertPrefs = prefs,
+                    staff = ClinicSettings.loadStaff(id),
+                    myMutes = ClinicSettings.loadMyMutes(uid, id),
+                    mutesLoaded = true,
+                )
+            }
             Section.DentistHome -> load { it.copy(dentistShare = ClinicSettings.loadDentistShowShare(id)) }
             Section.Logs -> load { it.copy(logs = ClinicSettings.loadLogs(id)) }
             Section.Ai -> load { it.copy(ai = ClinicSettings.loadAiUsage(id)) }
@@ -319,12 +374,37 @@ class SettingsModel : ViewModel() {
         }
     }
 
+    /** Mine to change, like [saveHomeTab]: the rules allow one's own row and nothing more. */
+    fun saveMyProfile(p: ClinicSettings.MyProfile) {
+        val who = _state.value.who ?: return
+        val staffId = _state.value.myStaffId
+        if (staffId.isBlank()) {
+            _state.value = _state.value.copy(error = "This account is not on the clinic's staff list yet.")
+            return
+        }
+        _state.value = _state.value.copy(busy = true, error = null)
+        viewModelScope.launch {
+            ClinicSettings.saveMyProfile(who.clinicId, staffId, p)
+                .onSuccess { _state.value = _state.value.copy(busy = false, me = p) }
+                .onFailure { e -> _state.value = _state.value.copy(busy = false, error = readable(e)) }
+        }
+    }
+
     fun saveArea(r: ClinicSettings.AttendanceRules) =
         write({ ClinicSettings.saveAttendanceRules(it, r) }) { s -> s.copy(area = r) }
 
-    fun setAlert(key: String, on: Boolean) {
-        val next = _state.value.alerts + (key to on)
-        write({ ClinicSettings.saveAlerts(it, next) }) { s -> s.copy(alerts = next) }
+    fun saveAlertPrefs(prefs: Map<String, Any?>) =
+        write({ ClinicSettings.saveAlertPrefs(it, prefs - "legacyOwnerAlerts") }) { s -> s.copy(alertPrefs = prefs) }
+
+    /** Mine, like [saveHomeTab]: written to my own record, no admin needed. */
+    fun setMute(eventId: String, muted: Boolean) {
+        val who = _state.value.who ?: return
+        val next = if (muted) (_state.value.myMutes + eventId).distinct() else _state.value.myMutes - eventId
+        _state.value = _state.value.copy(myMutes = next)
+        viewModelScope.launch {
+            ClinicSettings.saveMyMutes(who.uid, who.clinicId, next)
+                .onFailure { e -> _state.value = _state.value.copy(error = readable(e)) }
+        }
     }
 
     fun saveBooking(b: ClinicSettings.OnlineBooking) =
@@ -365,6 +445,33 @@ class SettingsModel : ViewModel() {
                         services = fresh ?: _state.value.services,
                         error = null,
                     )
+                }
+                .onFailure { e -> _state.value = _state.value.copy(busy = false, error = readable(e)) }
+        }
+    }
+
+    /** An insurer and the list it bills on, written together as the website's wizard writes them. */
+    fun savePayer(payer: com.alphadental.clinic.next.data.Pricing.Payer) {
+        val id = _state.value.who?.clinicId ?: return
+        val policy = _state.value.pricing ?: return
+        if (!_state.value.canEdit) return
+        _state.value = _state.value.copy(busy = true)
+        viewModelScope.launch {
+            runCatching { com.alphadental.clinic.next.data.Pricing.savePayer(id, policy, payer) }
+                .onSuccess { fresh -> _state.value = _state.value.copy(busy = false, pricing = fresh, error = null) }
+                .onFailure { e -> _state.value = _state.value.copy(busy = false, error = readable(e)) }
+        }
+    }
+
+    fun saveRates(staffId: String, rates: Map<String, Double?>) {
+        val id = _state.value.who?.clinicId ?: return
+        if (!_state.value.canEdit) return
+        _state.value = _state.value.copy(busy = true)
+        viewModelScope.launch {
+            ClinicSettings.saveStaffRates(id, staffId, rates)
+                .onSuccess {
+                    val fresh = runCatching { ClinicSettings.loadStaffRates(id) }.getOrNull()
+                    _state.value = _state.value.copy(busy = false, rates = fresh ?: _state.value.rates, error = null)
                 }
                 .onFailure { e -> _state.value = _state.value.copy(busy = false, error = readable(e)) }
         }
@@ -458,6 +565,8 @@ fun previewSettings(): SettingsState = SettingsState(
     loading = false,
     who = previewDashboard().who,
     homeTab = Tab.Today.name,
+    me = ClinicSettings.MyProfile(name = "Dr. Youssef", nickname = "Youssef", phone = "01001234567"),
+    myStaffId = "s1",
     schedule = ClinicSettings.Schedule(
         start = "09:00", end = "21:00", slotMinutes = 20,
         offDays = setOf("friday"), configured = true,
@@ -497,7 +606,8 @@ fun previewSettings(): SettingsState = SettingsState(
     sources = listOf("Walk-in", "Social Media", "Friend / Family", "Google", "Online Booking"),
     booking = ClinicSettings.OnlineBooking(enabled = true, enableDoctorSelection = true, defaultDurationMinutes = "30"),
     recall = ClinicSettings.Recall(intervalMonths = 6, reactivationMonths = 12),
-    alerts = mapOf("patientArrival" to true, "labReady" to false),
+    alertPrefs = emptyMap(),
+    mutesLoaded = true,
     dentistShare = true,
     bot = ClinicSettings.BotSettings(
         enabled = true,

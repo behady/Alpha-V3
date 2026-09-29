@@ -574,7 +574,16 @@ object Repository {
                 "mode" to "typed",
                 "createdAt" to FieldValue.serverTimestamp(),
             )
-        ).queueLocally("prescription")
+        /*
+         * Waited for, not queued.
+         *
+         * `queueLocally` hands the write to Firestore and carries on, logging a rejection where
+         * nobody will ever read it. That made sense when this app was meant to work with no
+         * signal; offline support was dropped, and what is left is a Save button that cannot fail
+         * in front of the person pressing it and cannot succeed either — it simply closes, and
+         * whether a prescription exists is found out later, or never.
+         */
+        ).await()
 
         ref.id
     }
@@ -779,6 +788,18 @@ object Repository {
                     doctor = doc.getString("doctor").orEmpty(),
                     date = doc.getString("date").orEmpty(),
                     ledgerId = doc.getString("ledgerId").orEmpty(),
+                    doctorId = doc.getString("doctorId").orEmpty(),
+                    // Written as `selectedTeeth` by the server and the website. The old flat
+                    // `tooth` string stays for display; this is the list the route wants back.
+                    teeth = (doc.get("selectedTeeth") as? List<*>)?.mapNotNull { it?.toString() }
+                        ?: emptyList(),
+                    unitCost = (doc.get("unitCost") as? Number)?.toDouble() ?: 0.0,
+                    pricingMode = doc.getString("pricingMode").orEmpty(),
+                    appointmentId = doc.getString("appointmentId").orEmpty(),
+                    serviceIds = ((doc.get("serviceIds") as? List<*>)?.mapNotNull { it?.toString() }.orEmpty()
+                        + listOfNotNull(doc.getString("serviceId"))).filter { it.isNotBlank() }.distinct(),
+                    priceListId = doc.getString("priceListId").orEmpty(),
+                    payerName = doc.getString("payerName").orEmpty(),
                 )
             }
             // Ordered here rather than in the query: sorting server-side on date would need a
@@ -808,107 +829,99 @@ object Repository {
         procedure: String,
         teeth: List<String>,
         noteText: String,
-        /** The price for ONE tooth. The total is this times the number of teeth — see pricingUnits. */
-        unitCost: Double,
+        /** The price for ONE tooth, as typed. Null leaves the pricing to the clinic's price list. */
+        unitCost: Double?,
         status: String,
         doctor: Doctor?,
         service: Service?,
-        byName: String,
+        appointmentId: String? = null,
+        /** Further procedures on the same note. The first one governs the billing rule. */
+        extra: List<String> = emptyList(),
+        date: String? = null,
+        /** per_tooth / flat / per_arch, when the dentist overrides the list's own rule. */
+        pricingMode: String? = null,
+        /** The list to charge on — and so the insurer. Null leaves it to the clinic's default. */
+        priceListId: String? = null,
     ): Result<String> = runCatching {
         require(procedure.isNotBlank()) { "Enter what was done." }
+        // No dentist is allowed: "General", work the clinic did rather than a person. The charge
+        // is priced the same and earns nobody a commission.
+        val doctorId = doctor?.id.orEmpty()
 
-        val today = todayKey()
-        val toothLabel = formatTeeth(teeth)
-        // Respects the service's billing rule: flat fees charge once, per-arch per
-        // jaw, everything else per tooth — the same maths the website applies.
-        val units = pricingUnitsFor(service?.pricingMode, teeth)
+        ClinicApi.createProcedure(
+            clinicId = clinicId,
+            patientId = patient.id,
+            procedures = listOf(procedure.trim()) + extra.map { it.trim() }.filter { it.isNotBlank() },
+            selectedTeeth = teeth,
+            doctorId = doctorId,
+            unitCost = unitCost,
+            pricingMode = pricingMode?.takeIf { it.isNotBlank() } ?: service?.pricingMode?.takeIf { it.isNotBlank() },
+            status = status,
+            note = noteText,
+            appointmentId = appointmentId,
+            date = date,
+            priceListId = priceListId,
+        ).noteId
+    }
 
-        // Four fillings is four times the money. The phone used to write the single-tooth price
-        // whatever was selected, so exactly the treatments worth the most were the ones it
-        // undercharged for.
-        val cost = unitCost * units
-
-        var ledgerId: String? = null
-
-        if (cost > 0) {
-            val commission = doctor?.commissionPercentage ?: 0.0
-            val labFee = service?.estimatedLabFee ?: 0.0
-
-            // Same split the payment screen uses, and the same reason: these numbers are what the
-            // clinic's profit and the dentist's payout are calculated from later.
-            val net = cost - labFee
-            val doctorCommissionAmount = if (net > 0) net * (commission / 100.0) else 0.0
-
-            val ledgerRow = mapOf(
-                "patientId" to patient.id,
-                "patientName" to patient.name,
-                "type" to "procedure",
-                "category" to "Treatment",
-                "amount" to cost,
-                "cost" to cost,
-                // The composite shape the website writes, so the price-list matcher in its reports
-                // can still recognise the service name at the front.
-                "description" to "$procedure (T: $toothLabel)",
-                "doctorId" to doctor?.id,
-                "doctorName" to doctor?.name,
-                "doctorCommissionPercentage" to commission,
-                "labFee" to labFee,
-                "doctorCommissionAmount" to doctorCommissionAmount,
-                "clinicProfit" to (cost - doctorCommissionAmount - labFee),
-                "date" to today,
-                "paid" to 0,
-                "createdAt" to FieldValue.serverTimestamp(),
-            )
-            val ledgerRef = ledger(clinicId).newDoc()
-            ledgerRef.set(ledgerRow).queueLocally("procedure charge")
-            ledgerId = ledgerRef.id
-        }
-
-        val noteRow = mapOf(
-            "patientId" to patient.id,
-            "procedure" to procedure.trim(),
-            "procedures" to listOf(procedure.trim()),
-            "tooth" to toothLabel,
-            "note" to noteText.trim(),
-            "cost" to cost,
-            // The arithmetic behind the total, written because the website's invoice explains a
-            // charge back to the patient as "350 × 3 teeth" rather than as a bare 1050.
-            "unitCost" to unitCost,
-            "unitsCount" to units,
-            "pricingFormula" to pricingFormula(unitCost, units),
-            "pricingMode" to (service?.pricingMode?.ifBlank { "per_tooth" } ?: "per_tooth"),
-            "status" to status,
-            "doctor" to (doctor?.name ?: ""),
-            "doctorId" to doctor?.id,
-            "serviceId" to service?.id,
-            "serviceName" to service?.name,
-            "serviceIds" to listOfNotNull(service?.id),
-            "date" to today,
-            "appointmentId" to null,
-            "ledgerId" to ledgerId,
-            "addedBy" to byName,
-            "createdAt" to FieldValue.serverTimestamp(),
+    /**
+     * Change a treatment already on the file.
+     *
+     * Everything is sent, not just what changed, because the server reprices the note from the
+     * fields it receives — a partial body would silently blank the teeth and recharge the visit at
+     * the wrong figure.
+     */
+    suspend fun updateClinicalNote(
+        clinicId: String,
+        patientId: String,
+        note: ClinicalNote,
+        procedure: String = note.procedure,
+        teeth: List<String> = note.teeth,
+        noteText: String = note.note,
+        unitCost: Double? = note.unitCost.takeIf { it > 0 },
+        status: String = note.status,
+        doctorId: String = note.doctorId,
+        priceListId: String? = note.priceListId.takeIf { it.isNotBlank() },
+    ): Result<Unit> = runCatching {
+        // A blank dentist is deliberate: "General", work the clinic did rather than a person. The
+        // server prices it the same and pays nobody a commission, so there is nothing to refuse.
+        ClinicApi.updateProcedure(
+            clinicId = clinicId,
+            noteId = note.id,
+            patientId = patientId,
+            procedures = listOf(procedure.trim().ifBlank { "Treatment" }),
+            selectedTeeth = teeth,
+            doctorId = doctorId,
+            unitCost = unitCost,
+            pricingMode = note.pricingMode.takeIf { it.isNotBlank() },
+            status = status,
+            note = noteText,
+            appointmentId = note.appointmentId.takeIf { it.isNotBlank() },
+            date = note.date.takeIf { it.isNotBlank() },
+            priceListId = priceListId,
         )
-
-        val noteRef = clinicalNotes(clinicId).newDoc()
-        noteRef.set(noteRow).queueLocally("clinical note")
-        val noteId = noteRef.id
-
-        // Back-link, so deleting the note on the website removes its charge too. Safe to write
-        // straight away even though the note has not reached the server: both writes are queued in
-        // order and Firestore sends them in that order, so the charge never points at a note the
-        // server has not seen.
-        if (ledgerId != null) {
-            ledger(clinicId).document(ledgerId).update("clinicalNoteId", noteId).queueLocally("note back-link")
-        }
-
-        noteId
+        Unit
     }
 
-    /** Move a procedure between Planned, Ongoing and Completed. */
-    suspend fun setNoteStatus(clinicId: String, noteId: String, status: String): Result<Unit> = runCatching {
-        clinicalNotes(clinicId).document(noteId).update("status", status).queueLocally("note status")
+    /** Remove a treatment and its charge. Refused by the server once money has been taken for it. */
+    suspend fun deleteClinicalNote(clinicId: String, noteId: String): Result<Unit> = runCatching {
+        ClinicApi.deleteProcedure(clinicId, noteId)
     }
+
+    /**
+     * Move a procedure between Planned, Ongoing and Completed.
+     *
+     * A one-word change that cannot be written as one. firestore.rules lets the client touch
+     * exactly one field on a clinical note — `sortIndex`, the drag order — so the direct update
+     * this used to make was refused every time, silently, and "Mark done" appeared to work until
+     * the file was reopened.
+     */
+    suspend fun setNoteStatus(
+        clinicId: String,
+        patientId: String,
+        note: ClinicalNote,
+        status: String,
+    ): Result<Unit> = updateClinicalNote(clinicId, patientId, note, status = status)
 
 
     /**
@@ -1503,100 +1516,41 @@ object Repository {
         patient: Patient,
         procedure: UnpaidProcedure?,
         amount: Double,
-        byName: String,
-        byUid: String,
+        method: String = "Cash",
     ): Result<String> = runCatching {
         require(amount > 0) { "Enter an amount greater than zero." }
+        // Checked here as well as on the server, so the receptionist is told before the money is
+        // sent anywhere. The server checks it again inside its transaction, which is the check
+        // that actually counts: only it can see the payments taken a second ago on another phone.
         procedure?.let {
-            require(amount <= it.remaining + 0.001) { "That is more than the ${it.remaining.toInt()} still owed on this treatment." }
-        }
-
-        val today = todayKey()
-
-        val data: Map<String, Any?> = if (procedure == null) {
-            mapOf(
-                "patientId" to patient.id,
-                "patientName" to patient.name,
-                "date" to today,
-                "type" to "payment",
-                "category" to "Advance Payment",
-                "description" to "General Account Payment (Advance/Deposit)",
-                "cost" to 0,
-                "paid" to amount,
-                "amount" to amount,
-                "method" to "Cash",
-                "addedBy" to byName,
-                "createdAt" to FieldValue.serverTimestamp(),
-            )
-        } else {
-            // The rate stored on the charge wins, because that is what the website pays out on:
-            // its commission maths reads doctorCommissionPercentage off the procedure's own ledger
-            // row. Reading the staff record instead meant a rate changed since the charge silently
-            // rewrote what this payment owed the dentist — and meant a payment could not be taken
-            // at all when the staff record was not in the offline cache. Only rows from before the
-            // field existed fall back to the live lookup, and if that lookup cannot be reached the
-            // payment records zero commission (recoverable by editing the row) rather than
-            // refusing the money.
-            val (doctorId, doctorName, commission) = if (procedure.commissionPercentage != null) {
-                Triple(procedure.doctorId, procedure.doctorName, procedure.commissionPercentage)
-            } else {
-                runCatching { resolveCommission(clinicId, procedure) }
-                    .getOrDefault(Triple(procedure.doctorId, procedure.doctorName, 0.0))
+            require(amount <= it.remaining + 0.001) {
+                "That is more than the ${it.remaining.toInt()} still owed on this treatment."
             }
-            val split = splitPayment(
-                amount = amount,
-                paidBefore = procedure.paidSoFar,
-                procedureLabFee = procedure.labFee,
-                commissionPercentage = commission,
-            )
-
-            mapOf(
-                "patientId" to patient.id,
-                "patientName" to patient.name,
-                "date" to today,
-                "type" to "payment",
-                "category" to "Treatment Payment",
-                "description" to "Payment for: ${procedure.description}",
-                "procedureId" to procedure.id,
-                "doctorId" to doctorId.ifBlank { null },
-                "doctorName" to doctorName.ifBlank { null },
-                "doctorCommissionPercentage" to split.doctorCommissionPercentage,
-                "labFee" to split.labFee,
-                "doctorCommissionAmount" to split.doctorCommissionAmount,
-                "clinicProfit" to split.clinicProfit,
-                "cost" to 0,
-                "paid" to amount,
-                "amount" to amount,
-                "method" to "Cash",
-                "addedBy" to byName,
-                "createdAt" to FieldValue.serverTimestamp(),
-            )
         }
 
-        val ref = ledger(clinicId).newDoc()
-        ref.set(data).queueLocally("payment")
-
-        // The same audit trail the website writes. Money moving with nothing in the log is the
-        // one thing nobody can reconstruct afterwards — so this is queued alongside the payment
-        // rather than skipped when there is no signal.
-        runCatching {
-            Firebase.db().collection("clinics").document(clinicId).collection("system_logs").newDoc().set(
-                mapOf(
-                    "action" to "Payment Received",
-                    "details" to if (procedure == null) {
-                        "General payment received from ${patient.name}: ${amount.toInt()} EGP"
-                    } else {
-                        "Treatment payment for ${patient.name}: ${amount.toInt()} EGP toward \"${procedure.description}\""
-                    },
-                    "userName" to byName,
-                    "userId" to byUid,
-                    "createdAt" to FieldValue.serverTimestamp(),
-                )
-            ).queueLocally("payment audit log")
-        }
-
-        ref.id
+        // The split — the dentist's commission, the lab's fee, the clinic's profit — is worked out
+        // by the route from the charge being settled. It is deliberately NOT sent: whether this
+        // payment is the one that carries the lab fee depends on the payments already recorded
+        // against that treatment, and only the server can read those without a race.
+        ClinicApi.createPayment(
+            clinicId = clinicId,
+            patientId = patient.id,
+            patientName = patient.name,
+            amount = amount,
+            method = method,
+            procedureId = procedure?.id,
+            description = procedure?.let { "Payment for: ${it.description}" },
+            category = if (procedure == null) "Advance Payment" else "Treatment Payment",
+        )
     }
+
+    /** Correct a row already on the ledger. See ClinicApi.updateRow for what each type accepts. */
+    suspend fun updateLedgerRow(clinicId: String, id: String, patch: Map<String, Any?>): Result<Unit> =
+        runCatching { ClinicApi.updateRow(clinicId, id, patch) }
+
+    /** Remove a ledger row. Refused with a sentence when money has been collected against it. */
+    suspend fun deleteLedgerRow(clinicId: String, id: String): Result<Unit> =
+        runCatching { ClinicApi.deleteRow(clinicId, id) }
 
     // ------------------------------------------------------------------------ sms
 
@@ -1984,6 +1938,9 @@ object Repository {
                 category = doc.getString("category").orEmpty(),
                 icon = doc.getString("icon").orEmpty(),
                 pricingMode = doc.getString("pricingMode").orEmpty(),
+                prices = (doc.get("prices") as? Map<*, *>).orEmpty()
+                    .mapNotNull { (k, v) -> (v as? Number)?.let { k.toString() to it.toDouble() } }
+                    .toMap(),
             )
         }.sortedBy { it.name }
     }
@@ -2130,6 +2087,18 @@ object Repository {
     }
 
     /** Whatever the person on the phone was told. Replaces the note rather than appending. */
+    /** Name, phone, interest and source, corrected at the desk. The stage and the money are untouched. */
+    suspend fun updateLeadDetails(clinicId: String, leadId: String, name: String, phone: String, interest: String, source: String): Result<Unit> = runCatching {
+        require(name.isNotBlank()) { "A lead needs a name." }
+        leads(clinicId).document(leadId).update(
+            mapOf(
+                "name" to name.trim(), "phone" to phone.trim(), "interest" to interest.trim(),
+                "source" to source.ifBlank { "Walk-in" }, "updatedAt" to FieldValue.serverTimestamp(),
+            )
+        ).await()
+        Unit
+    }
+
     suspend fun setLeadNotes(clinicId: String, leadId: String, notes: String): Result<Unit> = runCatching {
         leads(clinicId).document(leadId).update(
             mapOf("notes" to notes.trim(), "updatedAt" to FieldValue.serverTimestamp())
@@ -2313,6 +2282,37 @@ object Repository {
      * dropping empty strings would make that edit silently impossible. `fileId`
      * is never touched: it is issued once by the clinic's counter.
      */
+    /**
+     * Stop, or resume, the automatic messages to one patient.
+     *
+     * The same two fields the website reads before sending anything and the opt-out reply
+     * writes when a patient says "stop" — so a switch flipped here is honoured by every reminder,
+     * every receipt and the bot, on both surfaces. Both are written explicitly: an SMS flag left
+     * unset follows the WhatsApp one, and a desk that turned SMS off on purpose must not have it
+     * quietly come back when WhatsApp is turned on again.
+     */
+    suspend fun setPatientMessaging(
+        clinicId: String,
+        patientId: String,
+        whatsappOptOut: Boolean,
+        smsOptOut: Boolean,
+        byName: String,
+    ): Result<Unit> = runCatching {
+        Firebase.db().collection("clinics").document(clinicId)
+            .collection("patients").document(patientId)
+            .update(
+                mapOf(
+                    "whatsappOptOut" to whatsappOptOut,
+                    "smsOptOut" to smsOptOut,
+                    "optOutSource" to "staff",
+                    "optOutAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                    "updatedBy" to byName,
+                )
+            ).await()
+        Unit
+    }
+
     suspend fun updatePatient(
         clinicId: String,
         patientId: String,
@@ -2345,7 +2345,27 @@ object Repository {
         Unit
     }
 
-    suspend fun createPatient(clinicId: String, name: String, phone: String): Result<Patient> = runCatching {
+    suspend fun createPatient(
+        clinicId: String,
+        name: String,
+        phone: String,
+        /**
+         * Everything the website's own new-patient form asks for.
+         *
+         * They were missing here, and the sheet explained their absence away — "the rest is on the
+         * patient's file once it exists". It was not true in the way it mattered: where somebody
+         * came FROM is only ever known at the moment they are registered, and a marketing report
+         * that cannot say where its patients came from is the report nobody can act on. An address
+         * typed a week later is an address nobody typed.
+         */
+        address: String = "",
+        dateOfBirth: String = "",
+        gender: String = "",
+        referral: String = "",
+        allergies: String = "",
+        medicalHistory: String = "",
+        email: String = "",
+    ): Result<Patient> = runCatching {
         val clinic = Firebase.db().collection("clinics").document(clinicId)
         val counterRef = clinic.collection("settings").document("counters")
 
@@ -2364,16 +2384,47 @@ object Repository {
             )
         }
 
-        val data = mapOf(
-            "fileId" to "PT-$nextId",
-            "name" to name.trim(),
-            "phone" to phone.trim(),
-            "createdAt" to FieldValue.serverTimestamp(),
-        )
+        val data = buildMap<String, Any?> {
+            put("fileId", "PT-$nextId")
+            put("name", name.trim())
+            put("phone", phone.trim())
+            put("address", address.trim())
+            put("dateOfBirth", dateOfBirth.trim())
+            put("gender", gender.trim())
+            put("referral", referral.trim())
+            put("allergies", allergies.trim())
+            // Blank means NOT ASKED, never "healthy". The website used to write "None (Healthy)"
+            // here, which is an assertion of absence no clinician ever made.
+            put("medicalHistory", medicalHistory.trim())
+            if (email.isNotBlank()) put("email", email.trim())
+            put("status", "New")
+            put("teethData", emptyMap<String, Any>())
+            put("createdAt", FieldValue.serverTimestamp())
+        }
         val ref = clinic.collection("patients").newDoc()
         ref.set(data).queueLocally("new patient")
 
         Patient(id = ref.id, name = name.trim(), phone = phone.trim())
+    }
+
+    /**
+     * The clinic's own list of "where did they hear about us".
+     *
+     * Read from the same settings document the website's form reads, so a clinic that added
+     * "Instagram" sees it on the phone without an app update. The website's own defaults are the
+     * fallback rather than an empty list — a blank picker would quietly train everybody to leave
+     * the field alone.
+     */
+    suspend fun loadPatientSources(clinicId: String): List<String> {
+        val fallback = listOf("Walk-in", "Social Media", "Friend / Family", "Other Doctor", "Google")
+        val snap = runCatching {
+            Firebase.db().collection("clinics").document(clinicId)
+                .collection("settings").document("patient_sources").get().await()
+        }.getOrNull() ?: return fallback
+        val rows = (snap.get("sources") as? List<*>)?.mapNotNull { it?.toString()?.trim() }
+            ?.filter { it.isNotBlank() }
+            .orEmpty()
+        return rows.ifEmpty { fallback }
     }
 
     /**
@@ -2395,7 +2446,10 @@ object Repository {
         notes: String,
         service: Service?,
         byName: String,
+        /** The list the visit was priced on. Blank on a clinic with one list. */
+        priceListId: String = "",
     ): Result<String> = runCatching {
+        val listPrice = service?.let { com.alphadental.clinic.next.data.Pricing.priceOf(it, priceListId.ifBlank { null }) } ?: 0.0
         val data = hashMapOf<String, Any?>(
             "patientId" to patient.id,
             "patientName" to patient.name,
@@ -2411,12 +2465,13 @@ object Repository {
             // browser uses so the appointment opens identically there.
             "serviceId" to service?.id,
             "serviceName" to service?.name,
-            "listPrice" to (service?.price ?: 0.0),
+            "listPrice" to listPrice,
+            "priceListId" to priceListId.ifBlank { null },
             // What the visit is expected to cost. This is the figure on the appointment — it does
             // NOT post to the ledger. Invoicing is a separate, deliberate act on the patient's
             // file, and silently creating financial records from a booking screen is exactly the
             // kind of thing nobody would find until the month-end numbers were wrong.
-            "cost" to (service?.price ?: 0.0),
+            "cost" to listPrice,
             "status" to "Scheduled",
             "statusHistory" to listOf(
                 mapOf(
@@ -2453,6 +2508,7 @@ object Repository {
         service: Service?,
         cost: Double,
         byName: String,
+        priceListId: String = "",
     ): Result<Unit> = runCatching {
         val updates = mutableMapOf<String, Any>(
             "date" to normalizeDateKey(dateKey),
@@ -2469,16 +2525,19 @@ object Repository {
                 )
             ),
         )
-        doctor?.let {
-            updates["doctor"] = it.name
-            updates["doctorId"] = it.id
-        }
+        // No dentist means "General" — a visit the clinic owns rather than one dentist — and both
+        // fields are written rather than skipped. Leaving them behind kept the previous dentist on
+        // the visit, so the phone said the visit had moved off them while the website's reports,
+        // which group on the id, still credited them for it.
+        updates["doctor"] = doctor?.name ?: ""
+        updates["doctorId"] = doctor?.id ?: ""
         // Cleared explicitly rather than left behind when the service is removed: a stale
         // serviceName on an appointment whose treatment has changed is worse than none, because
         // the website's reports group by it.
         updates["serviceId"] = service?.id ?: ""
         updates["serviceName"] = service?.name ?: ""
-        if (service != null) updates["listPrice"] = service.price
+        if (service != null) updates["listPrice"] = cost
+        updates["priceListId"] = priceListId
 
         appointments(clinicId).document(appointment.id).update(updates).queueLocally("appointment edit")
     }
@@ -2611,9 +2670,37 @@ object Repository {
         byName: String,
     ): Result<Unit> = runCatching {
         require(bytes.isNotEmpty()) { "The image could not be read." }
-        val path = "patients/$patientId/media/${System.currentTimeMillis()}_0.jpg"
+        require(clinicId.isNotBlank()) { "No clinic selected." }
+        require(patientId.isNotBlank()) { "No patient selected." }
+
+        /*
+         * `clinics/{clinicId}/patients/...`, and the clinic segment is the whole point.
+         *
+         * This used to upload to `patients/{patientId}/media/...` — a top-level folder with no
+         * clinic anywhere in it, shared by every clinic on the platform. storage.rules denies that
+         * prefix outright and by name:
+         *
+         *     match /patients/{allPaths=**} { allow read, write: if false; }
+         *
+         * It is not a rule anyone can loosen. A path that does not say which clinic owns the file
+         * gives a rule nothing to check, so the only two rules expressible over it are "nobody"
+         * and "every signed-in account on the platform" — and the second one, over a folder of
+         * intraoral photographs, is not a choice. Putting the clinic in the path is what makes a
+         * real rule possible, which is exactly what the website did when it hit the same wall.
+         *
+         * The random suffix matters as much as the clinic: two photographs taken in the same
+         * millisecond, which a burst of camera shots genuinely produces, used to be the same
+         * filename and the second one overwrote the first.
+         */
+        val suffix = java.util.UUID.randomUUID().toString().take(6)
+        val path = "clinics/$clinicId/patients/$patientId/media/${System.currentTimeMillis()}_$suffix.jpg"
         val ref = com.google.firebase.storage.FirebaseStorage.getInstance().reference.child(path)
-        ref.putBytes(bytes).await()
+        // Stated rather than inferred. An unset content type makes the bucket serve the file as
+        // an octet-stream, which every <img> on the website then refuses to render.
+        val metadata = com.google.firebase.storage.StorageMetadata.Builder()
+            .setContentType("image/jpeg")
+            .build()
+        ref.putBytes(bytes, metadata).await()
         val url = ref.downloadUrl.await().toString()
         Firebase.db().collection("clinics").document(clinicId)
             .collection("patient_media")

@@ -186,4 +186,71 @@ assert.equal(
   "the lab is paid exactly once, however the payments change"
 );
 
+// --- the lab fee carries into the next payment when the first cannot absorb it ------------------------
+//
+// A 1,000 crown with a 500 lab fee, paid 200 then 800. The fee used to sit whole on the 200: that
+// row went 300 negative and earned nothing, and the 800 then paid the dentist 30% of 800 instead
+// of 30% of the 500 actually left after the lab — 90 EGP too much.
+{
+  const split = recalcProcedurePayments({
+    payments: [
+      { id: "first", date: "2026-09-01", paid: 200 },
+      { id: "second", date: "2026-09-10", paid: 800 },
+    ],
+    labFee: 500,
+    commissionPct: 30,
+  });
+  const s = Object.fromEntries(split.map((r) => [r.id, r]));
+  assert.equal(s.first.labFee, 200, "the first payment absorbs what it can");
+  assert.equal(s.second.labFee, 300, "the remainder carries into the next");
+  assert.equal(s.first.doctorCommissionAmount, 0, "nothing left after the lab on the first");
+  assert.equal(s.second.doctorCommissionAmount, 150, "(800 - 300) * 30% — not 240");
+  assert.equal(split.reduce((n, r) => n + r.labFee, 0), 500, "the lab is still paid exactly once");
+  assert.equal(split.reduce((n, r) => n + r.doctorCommissionAmount, 0), 150, "30% of the 500 left after the lab, in total");
+  assert.equal(split.reduce((n, r) => n + r.clinicProfit, 0), 350, "1000 - 500 lab - 150 share");
+
+  // Nothing paid yet: the fee still shows on the earliest row so it reads as owed, not lost.
+  const unpaid = recalcProcedurePayments({ payments: [{ id: "a", date: "2026-09-01", paid: 0 }], labFee: 500, commissionPct: 30 });
+  assert.equal(unpaid[0].labFee, 500, "an unabsorbed fee sits on the earliest row rather than vanishing");
+}
+
+/**
+ * A rate somebody typed by hand survives the next payment.
+ *
+ * This rebalance runs after ANY change to a procedure's payments, and it used to stamp the
+ * dentist's standing rate onto every row — so a one-off split typed into a single payment was
+ * silently undone the next time money came in against the same treatment. The figure changed back,
+ * with nothing on screen to say it had. `commissionSetManually` is written for exactly this reason
+ * (finance/ledger: "recomputing an override back to the standing rate silently reverses a decision
+ * someone made on purpose"), and this is the function that has to honour it.
+ */
+const withOverride = recalcProcedurePayments({
+  payments: [
+    { id: "a", date: "2026-08-01", paid: 1000 },
+    { id: "b", date: "2026-08-05", paid: 1000, commissionSetManually: true, doctorCommissionPercentage: 50 },
+  ],
+  labFee: 200,
+  commissionPct: 30,
+});
+const overrideById = Object.fromEntries(withOverride.map((r) => [r.id, r]));
+assert.equal(overrideById.a.doctorCommissionPercentage, 30, "an ordinary row takes the standing rate");
+assert.equal(overrideById.a.doctorCommissionAmount, 240, "(1000 - 200) * 30%");
+assert.equal(overrideById.b.doctorCommissionPercentage, 50, "a hand-set rate is kept, not overwritten");
+assert.equal(overrideById.b.doctorCommissionAmount, 500, "and the share is worked out from it");
+assert.equal(
+  overrideById.b.labFee,
+  0,
+  "the lab fee is still reallocated — which payment carries it is not a decision anybody made about the rate"
+);
+
+// A row flagged manual but carrying no percentage means 0%, which is a real answer: somebody
+// decided this payment earns nothing. It must not fall back to the standing rate.
+const manualZero = recalcProcedurePayments({
+  payments: [{ id: "z", date: "2026-08-01", paid: 1000, commissionSetManually: true }],
+  labFee: 0,
+  commissionPct: 30,
+});
+assert.equal(manualZero[0].doctorCommissionPercentage, 0, "manual with no rate is 0%, not the standing rate");
+assert.equal(manualZero[0].doctorCommissionAmount, 0);
+
 console.log("✓ ledgerWrite: every payment carries its dentist, and the lab fee is charged exactly once");

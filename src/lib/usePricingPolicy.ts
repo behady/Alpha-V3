@@ -25,9 +25,15 @@ import {
   type PriceList,
 } from "@/lib/priceLists";
 import { allowedDiscount } from "@/lib/discountMath";
+import { parsePayers, type Payer } from "@/lib/payers";
 
 export type PricingPolicy = {
   priceLists: PriceList[];
+  /**
+   * Who can be billed. Always at least Private, so a screen can render the picker unconditionally
+   * and a clinic that does no insurance work simply sees one option.
+   */
+  payers: Payer[];
   discountSettings: DiscountSettings;
   /** null = no ceiling (an Admin). */
   maxDiscountPercent: number | null;
@@ -37,6 +43,7 @@ export type PricingPolicy = {
 export function usePricingPolicy(): PricingPolicy {
   const { user } = useAuth();
   const [priceLists, setPriceLists] = useState<PriceList[]>(() => parsePriceLists(null));
+  const [payers, setPayers] = useState<Payer[]>(() => parsePayers(null));
   const [discountSettings, setDiscountSettings] = useState<DiscountSettings>(() => parseDiscountSettings(null));
   const [loading, setLoading] = useState(true);
 
@@ -45,7 +52,7 @@ export function usePricingPolicy(): PricingPolicy {
     let settled = 0;
     const done = () => {
       settled += 1;
-      if (settled >= 2) setLoading(false);
+      if (settled >= 3) setLoading(false);
     };
 
     const unsubLists = onSnapshot(
@@ -65,9 +72,19 @@ export function usePricingPolicy(): PricingPolicy {
       () => done()
     );
 
+    const unsubPayers = onSnapshot(
+      getClinicDoc("settings", "payers"),
+      (snap) => {
+        setPayers(parsePayers(snap.exists() ? snap.data() : null));
+        done();
+      },
+      () => done()
+    );
+
     return () => {
       unsubLists();
       unsubDiscounts();
+      unsubPayers();
     };
   }, [user]);
 
@@ -76,5 +93,5 @@ export function usePricingPolicy(): PricingPolicy {
     [user?.role, user?.permissions, discountSettings]
   );
 
-  return { priceLists, discountSettings, maxDiscountPercent, loading };
+  return { priceLists, payers, discountSettings, maxDiscountPercent, loading };
 }

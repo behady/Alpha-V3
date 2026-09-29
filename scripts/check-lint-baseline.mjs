@@ -15,7 +15,12 @@ import { spawnSync } from "node:child_process";
 // 80 → 78 on 2026-08-24, when the seven undeployed Cloud Functions exports and their private
 // helpers were deleted. Ratcheted rather than left slack: a baseline that stays above the real
 // count quietly re-admits two errors nobody asked for.
-const BASELINE = 78;
+//
+// 78 → 27 on 2026-09-29, when eslint.config.mjs stopped applying no-require-imports to
+// functions/ (a CommonJS package, where require() is correct). All 55 of those were that one rule.
+// The notification centre had pushed the real count to 82 and turned CI red for every pull
+// request; this closes that and tightens the gate at the same time.
+const BASELINE = 27;
 
 const result = spawnSync("npx", ["eslint", ".", "--format", "json"], {
   encoding: "utf8",

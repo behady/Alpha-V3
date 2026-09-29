@@ -47,6 +47,15 @@ import { buildDeleteContext, evaluateDelete, type DeleteTarget } from "@/lib/del
 import { applyProcedureSync, readProcedureCommissionBasis, readProcedurePayments } from "@/lib/server/ledgerSync";
 import { recordLedgerAudit, recordMoneyChange } from "@/lib/server/ledgerAudit";
 import { recalcCommissionFromPayment } from "@/lib/ledgerCommission";
+import { allowedDiscount, checkDiscountAllowed } from "@/lib/discountMath";
+import { afterLedgerCreate, afterLedgerDelete, afterLedgerUpdate } from "@/lib/alerts/moneyAlerts";
+import { DISCOUNTS_DOC, parseDiscountSettings } from "@/lib/priceLists";
+import {
+  RECEIPT_COUNTER_DOC,
+  RECEIPT_SETTINGS_DOC,
+  formatReceiptNumber,
+  normalizeReceiptSettings,
+} from "@/lib/receiptSettings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,6 +74,20 @@ function bad(error: string, status = 400) {
  * offer "record that much and put the rest on account" — a refusal that only says no leaves the
  * receptionist holding the patient's money with nowhere to put it.
  */
+/**
+ * A discount this person may not give, or one with no reason behind it.
+ *
+ * The clinical route has asked both questions since discounts existed; this one never did, so the
+ * same discount refused on the treatment screen went through unchallenged from any screen that
+ * edits a charge. A ceiling enforced in one of two doors is not a ceiling.
+ */
+class DiscountRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DiscountRefusedError";
+  }
+}
+
 class OverAllocationError extends Error {
   readonly verdict: Extract<AllocationVerdict, { ok: false }>;
   readonly description: string | null;
@@ -90,7 +113,7 @@ const EDITABLE_ENTRY_FIELDS = ["date", "description", "amount", "category", "met
  * which teeth, how many units, which dentist) belongs to the clinical route, which recomputes the
  * price, the lab fee and the payout together.
  */
-const EDITABLE_PROCEDURE_FIELDS = ["date", "description", "discountMode", "discountPercent", "discountFixed", "listPrice"] as const;
+const EDITABLE_PROCEDURE_FIELDS = ["date", "description", "discountMode", "discountPercent", "discountFixed", "discountReason", "listPrice"] as const;
 
 /**
  * Apply a discount to a charge, server-side.
@@ -179,6 +202,11 @@ async function createPayment(args: {
         doctor: typeof procedureData.doctor === "string" ? procedureData.doctor : null,
         labFee: Number(procedureData.labFee) || 0,
         description: typeof procedureData.description === "string" ? procedureData.description : null,
+        // Carried from the treatment, never from the request. Who paid for a case is settled when
+        // the case is recorded; a payment screen must not be able to move revenue between an
+        // insurer and the clinic's own books.
+        payerId: typeof procedureData.payerId === "string" ? procedureData.payerId : null,
+        payerName: typeof procedureData.payerName === "string" ? procedureData.payerName : null,
       };
 
       // Read the existing payments here, inside the transaction, rather than trusting a client
@@ -207,6 +235,17 @@ async function createPayment(args: {
       ? await readProcedureCommissionBasis(txn, clinicId, procedureData)
       : { labFee: 0, commissionPct: 0 };
 
+    // The receipt number, minted here so it can never be skipped or handed out twice: the counter
+    // and the payment land in the same transaction, and a retry replays both. Read before any
+    // write, as Firestore transactions require.
+    const [receiptSettingsSnap, counterSnap] = await Promise.all([
+      txn.get(adminClinicDoc(clinicId, "settings", RECEIPT_SETTINGS_DOC)),
+      txn.get(adminClinicDoc(clinicId, "settings", RECEIPT_COUNTER_DOC)),
+    ]);
+    const receiptSettings = normalizeReceiptSettings(receiptSettingsSnap.exists ? receiptSettingsSnap.data() : null);
+    const receiptSeq = (Number(counterSnap.exists ? counterSnap.data()?.last : 0) || 0) + 1;
+    const receiptNumber = formatReceiptNumber(receiptSettings, receiptSeq, date);
+
     const newRef = adminClinicCollection(clinicId, "ledger").doc();
 
     // The set as it will stand once this payment exists — a transaction cannot read its own
@@ -225,13 +264,19 @@ async function createPayment(args: {
       description: String(body.description || "").trim() || (procedure ? `Payment for ${procedure.description || "treatment"}` : "Payment on account"),
       date,
       procedure,
-      appliedLabFee: isFirst ? basis.labFee : 0,
+      // The share this payment can absorb; the rebalance below settles the rest across the others.
+      appliedLabFee: isFirst ? Math.min(basis.labFee, amount) : 0,
       staff,
       actor: { uid: actor.uid, name: actor.name },
       category: typeof body.category === "string" ? body.category : null,
     });
 
-    txn.set(newRef, { ...row, createdAt: FieldValue.serverTimestamp() });
+    txn.set(newRef, { ...row, receiptNumber, receiptSeq, createdAt: FieldValue.serverTimestamp() });
+    txn.set(
+      adminClinicDoc(clinicId, "settings", RECEIPT_COUNTER_DOC),
+      { last: receiptSeq, lastReceiptNumber: receiptNumber, updatedAt: new Date().toISOString() },
+      { merge: true }
+    );
 
     if (procedureId) {
       applyProcedureSync(txn, {
@@ -243,7 +288,7 @@ async function createPayment(args: {
       });
     }
 
-    return { id: newRef.id, row, patientName };
+    return { id: newRef.id, row: { ...row, receiptNumber, receiptSeq }, patientName, receiptNumber };
   });
 
   await recordMoneyChange({
@@ -260,7 +305,8 @@ async function createPayment(args: {
     details: `${amount} EGP from ${result.patientName || patientId}${procedureId ? ` toward ${procedureId}` : " (on account)"}`,
   });
 
-  return NextResponse.json({ ok: true, id: result.id });
+  void afterLedgerCreate(clinicId, result.row as Record<string, unknown>, actor);
+  return NextResponse.json({ ok: true, id: result.id, receiptNumber: result.receiptNumber });
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -299,6 +345,7 @@ async function createEntry(args: { clinicId: string; actor: Actor; body: Record<
     details: `${type.toUpperCase()} ${row.amount} EGP - ${row.description}`,
   });
 
+  void afterLedgerCreate(clinicId, row, actor);
   return NextResponse.json({ ok: true, id: ref.id });
 }
 
@@ -313,6 +360,17 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
   const patch = (body.patch || {}) as Record<string, unknown>;
 
   const staff = await loadStaff(clinicId);
+
+  // Only read the policy when the patch could change a discount — every other edit (a date, a
+  // description, a payment amount) has no business paying for a settings read.
+  const touchesDiscount =
+    patch.discountMode !== undefined ||
+    patch.discountPercent !== undefined ||
+    patch.discountFixed !== undefined ||
+    patch.listPrice !== undefined;
+  const discountSettings = touchesDiscount
+    ? parseDiscountSettings((await adminClinicDoc(clinicId, "settings", DISCOUNTS_DOC).get()).data() ?? null)
+    : null;
 
   const result = await adminDb().runTransaction(async (txn) => {
     const ref = adminClinicDoc(clinicId, "ledger", id);
@@ -478,7 +536,20 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
         const withoutThis = nextSiblings.filter((p) => p.id !== id);
         // The set as it will stand once this edit lands. The row may be joining the set for the
         // first time, so it is added rather than mapped over.
-        const paymentsAfter = [...withoutThis, { id, paid, amount: paid, date }];
+        // The flag and the rate come along: correcting an AMOUNT must not throw away a rate
+        // somebody set on this payment by hand.
+        const paymentsAfter = [
+          ...withoutThis,
+          {
+            id,
+            paid,
+            amount: paid,
+            date,
+            commissionSetManually: before.commissionSetManually === true,
+            doctorCommissionPercentage:
+              typeof before.doctorCommissionPercentage === "number" ? before.doctorCommissionPercentage : null,
+          },
+        ];
         applyProcedureSync(txn, {
           clinicId,
           procedureLedgerId: nextProcedureId,
@@ -527,6 +598,32 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
       });
       Object.assign(update, discounted, { amount: discounted.cost });
 
+      /**
+       * Who may take this much off, and what for.
+       *
+       * Asked only when the discount GROWS. An edit that re-sends the discount already on the row
+       * — which is what the patient's finance screen does on every save, discount or not — is not
+       * someone giving a discount, and making it fail for want of a reason would break editing a
+       * date on a charge that was discounted months ago by somebody else.
+       */
+      if (discountSettings) {
+        const beforeAmount = Number(before.discountAmount) || 0;
+        const reason = String(update.discountReason ?? before.discountReason ?? "");
+        if (discounted.discountAmount > beforeAmount + 0.001) {
+          const verdict = checkDiscountAllowed({
+            listPrice: discounted.listPrice,
+            discountAmount: discounted.discountAmount,
+            reason,
+            authority: allowedDiscount(actor.role, null, discountSettings),
+            availableReasons: discountSettings.reasons,
+          });
+          if (!verdict.ok) throw new DiscountRefusedError(verdict.error);
+        }
+        // A discount lifted off takes its reason with it; one left in place keeps the reason it
+        // was given under, even when this patch never mentioned it.
+        update.discountReason = discounted.discountAmount > 0 ? reason || null : null;
+      }
+
       // The dentist's share follows the discounted amount: the lab is paid in full either way, so
       // a discount comes out of what is left, not off the lab's invoice.
       const labFee = Number(before.labFee) || 0;
@@ -564,6 +661,7 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
     details: `${result.type} ${id}`,
   });
 
+  void afterLedgerUpdate(clinicId, result.before as Record<string, unknown>, result.update as Record<string, unknown>, actor);
   return NextResponse.json({ ok: true, id });
 }
 
@@ -820,6 +918,7 @@ async function deleteRow(args: { clinicId: string; actor: Actor; body: Record<st
     });
   }
 
+  void afterLedgerDelete(clinicId, target as Record<string, unknown>, actor);
   return NextResponse.json({ ok: true, deleted: verdict.cascade });
 }
 
@@ -896,6 +995,9 @@ export async function POST(request: Request) {
         { status: 409 }
       );
     }
+
+    // Carries a sentence written for the person who typed the discount, not a code.
+    if (e instanceof DiscountRefusedError) return bad(e.message, 403);
 
     const message = e instanceof Error ? e.message : "";
     switch (message) {

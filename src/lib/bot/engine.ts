@@ -1,6 +1,7 @@
 import { isOptOutReply, normalizeReplyText } from "@/lib/patientMessaging";
 import type { BotFacts, BotScript } from "@/types/whatsapp";
 import { voiceFor, type Gender } from "@/lib/arabicNames";
+import { adGreetingLine, adSubjectText, type AdReferral } from "./adReferral";
 
 /**
  * What the bot says next, given what it said last.
@@ -150,6 +151,19 @@ export interface BotContext {
   scripts?: BotScript[];
   /** The clinic wrote an offer and its end date has passed: `facts.offers` is blank on purpose. */
   offersExpired?: boolean;
+  /**
+   * The ad or post this person arrived from. The greeting names it, the clinic's scripts are
+   * matched against it, and the model is told — a person who tapped a whitening ad is asking
+   * about whitening before they have typed a word.
+   */
+  ad?: AdReferral;
+  /** The offer sentence for the ad's service, when the clinic wrote one (caller resolves it). */
+  adOfferLine?: string;
+  /**
+   * This turn is not a message: the person opened the chat from an ad and has not typed yet.
+   * Greet, name the ad, offer the menu — and nothing else, since there is nothing to answer.
+   */
+  welcome?: boolean;
   /** The patient has an appointment within two days — a one-word "تمام" then confirms it. */
   hasSoonAppointment?: boolean;
   /** Guessed from the patient's name, so the reply is not addressed to every woman as a man. */
@@ -237,6 +251,9 @@ function greeting(ctx: BotContext): string {
   const lines = [
     `أهلاً بحضرتك${who} 👋`,
     `${v.withYou} المساعد الآلي لـ *${ctx.clinicName}*.`,
+    // Somebody who tapped an ad is told, first, that they reached the place the ad was about.
+    // The menu below is the same; what changes is that the opening line is about THEIR reason.
+    ...(ctx.ad ? ["", adGreetingLine(ctx.ad, { offerLine: ctx.adOfferLine })] : []),
     "",
     `${v.send} رقم الاختيار:`,
     ctx.canOfferBooking ? "*1* — حجز موعد" : "*1* — التحدث مع الاستقبال للحجز",
@@ -520,6 +537,16 @@ export function decideBotReply(args: {
   // answering it would be the rudest possible response to "stop messaging me".
   if (isOptOutReply(text)) return SILENT("handed_off", "opt_out");
 
+  /*
+   * The chat was opened from an ad and nothing has been typed. There is no question to answer
+   * and no intent to read, so this is the greeting — with the ad named in it — and the menu.
+   * Deterministic and free on purpose: most ad taps never type, and spending a model call on
+   * each of them would be paying twice for the click. Only ever at the start of a conversation;
+   * a stray welcome event mid-booking must not reset the list the patient is answering.
+   */
+  if (!text.trim() && ctx.welcome && (state === "new" || state === "awaiting_choice")) {
+    return { reply: greeting(ctx), next: "awaiting_choice", handoff: false, reason: "ad_welcome" };
+  }
   if (!text.trim()) return SILENT(state, "empty_message");
 
   // Checked before everything, including the menu: a patient in pain who happens to type "2"
@@ -611,6 +638,16 @@ export function decideBotReply(args: {
     const script = matchScript(text, ctx.scripts);
     if (script) {
       return { reply: script.reply, next: state === "new" ? "awaiting_choice" : state, handoff: false, reason: "script" };
+    }
+    /*
+     * The first message of an ad conversation is matched against the AD too, not only the words
+     * typed. "مرحبا" from someone who tapped the whitening ad is a question about whitening, and
+     * a clinic that wrote a script for its whitening offer (trigger: تبييض) wants it to answer
+     * here — that is how a clinic gives each ad its own opening line without any new setting.
+     */
+    if (state === "new" && ctx.ad) {
+      const adScript = matchScript(adSubjectText(ctx.ad), ctx.scripts);
+      if (adScript) return { reply: adScript.reply, next: "awaiting_choice", handoff: false, reason: "ad_script" };
     }
   }
 

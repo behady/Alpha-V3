@@ -438,12 +438,20 @@ check("new patients and leads are counted on the clinic's calendar", () => {
         createdAt: new Date("2026-07-01T10:00:00Z"),
       },
     ],
+    // p1's file was made today and they were seen today; p3 (made last week) was seen too, but
+    // is not new; a Scheduled visit does not count as seen.
+    appointments: [
+      { patientId: "p1", status: "Completed" },
+      { patientId: "p3", status: "Completed" },
+      { patientId: "p2", status: "Scheduled" },
+    ],
     startDate: "2026-08-25",
     endDate: "2026-08-25",
     timeZone: TZ,
   });
 
   assert.equal(growth.newPatients, 1);
+  assert.equal(growth.newPatientsSeen, 1, "a new file counts as seen once one of its visits was attended");
   assert.equal(growth.newLeads, 1);
   assert.equal(growth.leadsConverted, 1);
   assert.equal(growth.leadsUntouched, 1);

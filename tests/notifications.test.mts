@@ -105,11 +105,23 @@ const read = (rel: string) => readFileSync(join(REPO, rel), "utf8");
     "src/app/api/public/review/route.ts",
     "src/app/api/whatsapp/send-patient-message/route.ts",
     "src/app/api/automation/reminders/route.ts",
+    "src/app/api/whatsapp/owner-alert/route.ts",
+    "src/lib/alerts/moneyAlerts.ts",
+    "src/lib/alerts/sweep.ts",
+    "src/lib/alerts/complaint.ts",
   ];
   const raised = new Set<string>();
   for (const rel of SOURCES) {
     const text = read(rel);
     for (const m of text.matchAll(/event:\s*"([a-zA-Z]+)"/g)) raised.add(m[1]);
+    // The alert modules name their event as the second argument of their own raise() helper.
+    if (rel.startsWith("src/lib/alerts/")) {
+      for (const m of text.matchAll(/raise\(\s*clinicId,\s*"([a-zA-Z]+)"/g)) raised.add(m[1]);
+    }
+    // The owner-alert route names its events in a key → event map.
+    if (rel.endsWith("owner-alert/route.ts")) {
+      for (const m of text.matchAll(/^\s+[a-z_]+: "([a-zA-Z]+)",$/gm)) if (notifyEvent(m[1])) raised.add(m[1]);
+    }
     // The escalation picks its event with a ternary, so both arms have to be counted.
     for (const m of text.matchAll(/\?\s*"([a-zA-Z]+)"\s*:\s*"([a-zA-Z]+)"/g)) {
       if (notifyEvent(m[1])) raised.add(m[1]);
@@ -118,6 +130,12 @@ const read = (rel: string) => readFileSync(join(REPO, rel), "utf8");
     // labNotify names its id through a constant.
     for (const m of text.matchAll(/LAB_READY_EVENT = "([a-zA-Z]+)"/g)) raised.add(m[1]);
   }
+
+  // The scheduled reports are sent by the hourly tick, which walks the catalogue's report events
+  // rather than naming each one.
+  const reportsTick = read("src/lib/reports/sendStaffReport.ts");
+  ok(/reportEvents\(\)/.test(reportsTick), "the reports tick no longer walks reportEvents(); a new report would never be sent");
+  for (const e of NOTIFY_EVENTS) if (e.report) raised.add(e.id);
 
   for (const id of raised) {
     ok(notifyEvent(id), `something sends "${id}", which is not in the catalogue — it cannot be switched off or seen`);
@@ -297,6 +315,9 @@ const read = (rel: string) => readFileSync(join(REPO, rel), "utf8");
     "patientRequestedChange",
     "unhappyReview",
     "aiCreditsOut",
+    // A patient physically in the waiting room past the clinic's own limit: by definition inside
+    // opening hours, and the person to tell is standing thirty feet away.
+    "patientWaitingLong",
   ]);
   for (const e of NOTIFY_EVENTS) {
     if (e.ignoresQuietHours) {
