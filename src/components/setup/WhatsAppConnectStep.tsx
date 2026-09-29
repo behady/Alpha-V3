@@ -77,8 +77,8 @@ export default function WhatsAppConnectStep({ onConnectedChange }: { onConnected
 
   const t = {
     intro: ar
-      ? "وصّل رقم واتساب العيادة بالسيستم، زي ما بتفتح واتساب ويب بالظبط. بعد كده التأكيدات والتذكيرات وردود البوت بتطلع من رقم العيادة نفسه."
-      : "Link the clinic's WhatsApp number to the system, exactly like opening WhatsApp Web. Confirmations, reminders and bot replies then go out from the clinic's own number.",
+      ? "بتوصّل رقم واتساب العيادة بالسيستم بالظبط زي ما بتفتح واتساب ويب — مسح كود واحد من الموبايل."
+      : "You link the clinic's WhatsApp number exactly like opening WhatsApp Web — one scan from the phone.",
     before: ar ? "قبل ما تمسح" : "Before you scan",
     tip1: ar
       ? "استخدم رقم العيادة، مش رقمك الشخصي — ويفضّل على تطبيق WhatsApp Business."
@@ -112,8 +112,8 @@ export default function WhatsAppConnectStep({ onConnectedChange }: { onConnected
       ? "الإرسال متوقف مؤقتاً — واتساب فصل الرقم أكتر من مرة. افتح واتساب على الموبايل واتأكد إن مفيش تحذير، وبعدين كمّل من الإعدادات ← واتساب."
       : "Sending is paused — WhatsApp logged this number out more than once. Check WhatsApp on the phone for a warning, then continue from Settings → WhatsApp.",
     notAvailable: ar
-      ? "الربط بمسح QR مش متاح على النسخة دي. تقدر توصّل بعدين من الإعدادات ← واتساب."
-      : "QR linking isn't available on this installation. You can connect later from Settings → WhatsApp.",
+      ? "الربط بمسح QR مش متاح على النسخة دي. تقدر توصّل بعدين من"
+      : "QR linking isn't available on this installation. You can connect later from",
     locked: ar
       ? "رسائل واتساب مش ضمن باقة العيادة. كلّمنا على واتساب وإحنا نفعّلها:"
       : "WhatsApp messages aren't in this clinic's plan. Message us and we'll switch it on:",

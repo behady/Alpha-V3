@@ -119,8 +119,8 @@ function SetupWizard() {
         : "If you work with insurers, each one gets its own prices, the treatments it covers, and the dentists' share on its cases.",
       insuranceAsk: isAr ? "العيادة بتتعامل مع شركات تأمين؟" : "Does the clinic work with insurance companies?",
       insuranceHowTo: isAr
-        ? "اضغط «إضافة شركة» وجاوب على ٣ أسئلة: اسمها، بتغطي إيه وبتدفع كام، والدكتور بياخد كام. ضيف كل الشركات وبعدين اضغط «التالي»."
-        : "Press “Add insurer” and answer three questions: its name, what it covers and pays, and what each dentist earns. Add them all, then press Next.",
+        ? "اضغط «ضيف شركة تأمين» تحت وجاوب على ٣ أسئلة: اسمها، بتغطي إيه وبتدفع كام، والدكتور بياخد كام. ضيف كل الشركات وبعدين اضغط «التالي»."
+        : "Press “Add an insurer” below and answer three questions: its name, what it covers and pays, and what each dentist earns. Add them all, then press Next.",
       insuranceAlready: (n: number) =>
         isAr ? `عندك ${n} ${n === 1 ? "شركة تأمين" : "شركات تأمين"} بالفعل. تقدر تضيف أو تعدّل هنا.` : `You already have ${n} insurer${n === 1 ? "" : "s"}. Add or edit them here.`,
       insuranceNo: isAr ? "كل المرضى هيتحاسبوا بأسعارك العادية. تقدر تضيف شركة في أي وقت من الإعدادات ← التأمين." : "Every patient is charged your normal prices. You can add an insurer any time in Settings → Payers & Insurance.",
@@ -341,7 +341,7 @@ function SetupWizard() {
       {/* The wizard's title moved into the layout's black band, so this card is now the step
           tracker alone — which is what a person here is actually watching. */}
       <PageHeader
-        eyebrow={isAr ? "الإعداد الأول" : "First-time setup"}
+        eyebrow={isRerun ? (isAr ? "إعداد سريع للعيادة" : "Quick clinic setup") : isAr ? "الإعداد الأول" : "First-time setup"}
         title={t.title}
         subtitle={t.sub}
       />
@@ -362,6 +362,8 @@ function SetupWizard() {
                     if (id !== step && (await confirmLeave())) setStep(id);
                   }}
                   aria-current={active ? "step" : undefined}
+                  aria-label={t.steps[id]}
+                  title={t.steps[id]}
                   // A save in flight moves on by itself when it lands; a jump now would be undone by it.
                   disabled={saving}
                   className="flex items-center gap-2 disabled:cursor-wait"
