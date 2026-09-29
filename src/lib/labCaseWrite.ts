@@ -139,6 +139,17 @@ export async function deleteLabPayment(id: string): Promise<void> {
   await deleteDoc(getClinicDoc(LAB_PAYMENTS_COLLECTION, id));
 }
 
+/**
+ * Remove a case that should never have existed — a mistyped order, a duplicate, the wrong patient.
+ *
+ * A case that really went to the lab and was called off should be CANCELLED instead, so its trip
+ * stays on the record. Deleting also takes it out of the lab's balance, which is exactly right for
+ * an order that was never real. A remake raised off this case keeps its printed `remakeOfCode`.
+ */
+export async function deleteLabCase(id: string): Promise<void> {
+  await deleteDoc(getClinicDoc(LAB_CASES_COLLECTION, id));
+}
+
 export type NewLabCaseInput = Omit<
   LabCase,
   "id" | "code" | "codeNumber" | "events" | "createdAt" | "updatedAt" | "createdBy"
