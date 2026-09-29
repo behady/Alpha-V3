@@ -15,7 +15,7 @@
 //      with nothing configured shows every shared treatment.
 import assert from "node:assert/strict";
 import { parsePriceLists, toStoredList, STANDARD_LIST_ID } from "../src/lib/priceLists.ts";
-import { ownedByAnotherList, serviceMenuFilter } from "../src/lib/serviceMenu.ts";
+import { ownedByAnotherList, serviceMenuFilter, serviceMenuById } from "../src/lib/serviceMenu.ts";
 import { PRIVATE_PAYER } from "../src/lib/payers.ts";
 
 const L = (id, extra = {}) => ({ id, name: id, generalDiscountPercent: 0, active: true, isDefault: false, ...extra });
@@ -102,6 +102,22 @@ assert.equal(ownedByAnotherList({ id: "x", listId: "" }, "axa"), false, "an empt
   for (const s of [stored, toStoredList(L("z"))]) {
     for (const [k, v] of Object.entries(s)) assert.notEqual(v, undefined, `${k} must never be undefined`);
   }
+}
+
+// --- the by-id form every picker actually calls ---
+{
+  const catalogue = [scaling, whitening, axaProphy, familyPack];
+  const onAxa = serviceMenuById(lists, payers, "axa", catalogue);
+  assert.equal(onAxa("scaling"), true);
+  assert.equal(onAxa("whitening"), false, "hidden on this list");
+  assert.equal(onAxa("axa_prophy"), true);
+  assert.equal(onAxa("family_pack"), false, "another list's own treatment");
+  assert.equal(onAxa(""), true, "no id = cannot judge = offered");
+  assert.equal(onAxa(null), true);
+  assert.equal(onAxa("unknown"), false, "not in the catalogue, not in the insurer's coverage: judged as a shared treatment, exactly as before");
+  const onStandard = serviceMenuById(lists, payers, STANDARD_LIST_ID, catalogue);
+  assert.equal(onStandard("unknown"), true, "not in the catalogue, but private covers everything");
+  assert.equal(onStandard("axa_prophy"), false);
 }
 
 console.log("listMenu: all assertions passed");

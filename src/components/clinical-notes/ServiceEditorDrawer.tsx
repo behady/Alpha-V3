@@ -27,7 +27,7 @@ import type { LabCaseSeed } from "@/lib/labCases";
 import DiscountEditor, { EMPTY_DISCOUNT, discountPayload, type DiscountState } from "@/components/shared/DiscountEditor";
 import { isDiscountMode, type DiscountMode } from "@/lib/discountMath";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
-import { payerCoverageFilter } from "@/lib/payers";
+import { serviceMenuById } from "@/lib/serviceMenu";
 
 interface Props {
   isOpen: boolean;
@@ -269,9 +269,9 @@ export default function ServiceEditorDrawer({
    * somebody pick a wrong answer and then overrules them without saying so.
    */
   const offeredServices = useMemo(() => {
-    const covers = payerCoverageFilter(payers, discount.priceListId || null);
+    const covers = serviceMenuById(priceLists, payers, discount.priceListId || null, servicesList);
     return servicesList.filter((s) => covers(String(s.id)));
-  }, [servicesList, payers, discount.priceListId]);
+  }, [servicesList, priceLists, payers, discount.priceListId]);
 
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatusText, setSaveStatusText] = useState("");

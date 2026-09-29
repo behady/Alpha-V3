@@ -22,7 +22,8 @@ import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import InsurerBadge from "@/components/shared/InsurerBadge";
 import { resolveListPrice } from "@/lib/discountMath";
 import { listsForBranch, resolveActiveListId } from "@/lib/priceLists";
-import { PRIVATE_PAYER_ID, findPayer, payerCoverageFilter, payerForPriceList, payerStamp } from "@/lib/payers";
+import { PRIVATE_PAYER_ID, findPayer, payerForPriceList, payerStamp } from "@/lib/payers";
+import { serviceMenuById } from "@/lib/serviceMenu";
 import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
 import { isUnlocked } from "@/lib/featureCatalog";
 import {
@@ -411,9 +412,9 @@ export default function PatientTreatmentPlanTab({
 
   /** Only what the payer on this quote actually pays for. Named for `tests/payers.test.mts`. */
   const offeredServices = useMemo(() => {
-    const covers = payerCoverageFilter(payers, formPriceListId);
+    const covers = serviceMenuById(priceLists, payers, formPriceListId, services);
     return services.filter((s) => covers(String(s.id)));
-  }, [services, payers, formPriceListId]);
+  }, [services, priceLists, payers, formPriceListId]);
 
   const defaultVisitLabel = (n: number) => (ar ? `الزيارة ${n}` : `Visit ${n}`);
 
@@ -779,7 +780,7 @@ export default function PatientTreatmentPlanTab({
     );
     if (repriced > 0) showToast(txt.repriced(repriced), "success");
 
-    const covers = payerCoverageFilter(payers, nextListId);
+    const covers = serviceMenuById(priceLists, payers, nextListId, services);
     const stranded = formVisits.flatMap((v) => v.steps).filter((st) => st.serviceId && !covers(String(st.serviceId)));
     if (stranded.length > 0) {
       showToast(txt.notCoveredNow(stranded.length, payerForPriceList(payers, nextListId).name), "error");
@@ -1887,7 +1888,7 @@ export default function PatientTreatmentPlanTab({
                           but the row says so, in the space the row already has.
                         */
                         const stranded =
-                          !!step.serviceId && !payerCoverageFilter(payers, formPriceListId)(String(step.serviceId));
+                          !!step.serviceId && !serviceMenuById(priceLists, payers, formPriceListId, services)(String(step.serviceId));
                         return (
                         <div key={step.id} className="bg-slate-50/70 border border-slate-100 rounded-2xl p-3.5">
                           <div className="flex items-start gap-2">

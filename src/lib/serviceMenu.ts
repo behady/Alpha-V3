@@ -65,3 +65,25 @@ export function serviceMenuFilter(
     return covers(id);
   };
 }
+
+/**
+ * The same filter, keyed by service id, for screens that hold an id and a catalogue.
+ *
+ * Every picker already ran the insurer's coverage as `covers(String(s.id))`; this is a drop-in
+ * for that call so the change to each screen is one line. An id the catalogue does not know is
+ * judged as a shared treatment — it is offered, the same as a service with no id at all.
+ */
+export function serviceMenuById(
+  lists: readonly PriceList[],
+  payers: readonly Payer[],
+  listId: string | null | undefined,
+  services: readonly MenuService[],
+): (serviceId: string | number | null | undefined) => boolean {
+  const offered = serviceMenuFilter(lists, payers, listId);
+  const byId = new Map(services.map((s) => [String(s.id), s]));
+  return (serviceId) => {
+    const id = serviceId === null || serviceId === undefined ? "" : String(serviceId);
+    if (!id) return true;
+    return offered(byId.get(id) ?? { id });
+  };
+}

@@ -55,7 +55,8 @@ import {
 import PatientPicker from "./appointments/booking/PatientPicker";
 
 import SlotPicker from "./appointments/booking/SlotPicker";
-import { PRIVATE_PAYER_ID, payerCoverageFilter, payerForPriceList } from "@/lib/payers";
+import { PRIVATE_PAYER_ID, payerForPriceList } from "@/lib/payers";
+import { serviceMenuById } from "@/lib/serviceMenu";
 import InsurerBadge from "@/components/shared/InsurerBadge";
 
 interface AppointmentData {
@@ -316,7 +317,7 @@ export default function BookingModal({
      * box either. Leaving it there would show a selection the dropdown cannot even display — the
      * field reads as chosen while the menu says that treatment does not exist here.
      */
-    if (!payerCoverageFilter(payers, effectiveListId)(String(procServiceId))) {
+    if (!serviceMenuById(priceLists, payers, effectiveListId, servicesList)(String(procServiceId))) {
       setProcServiceId("");
       setProcCost(0);
       return;
@@ -336,9 +337,9 @@ export default function BookingModal({
    * somebody pick a wrong answer and then overrules them without saying so.
    */
   const offeredServices = useMemo(() => {
-    const covers = payerCoverageFilter(payers, effectiveListId);
+    const covers = serviceMenuById(priceLists, payers, effectiveListId, servicesList);
     return servicesList.filter((s: { id?: unknown }) => covers(String(s?.id ?? "")));
-  }, [servicesList, payers, effectiveListId]);
+  }, [servicesList, priceLists, payers, effectiveListId]);
 
   // Local State: Financial & Payment
   const [chargeForVisit, setChargeForVisit] = useState(true);
