@@ -14,8 +14,13 @@
 
 export const SETUP_ROUTE = "/setup";
 
-export type SetupStepId = "hours" | "services" | "contact";
-export const SETUP_STEPS: SetupStepId[] = ["hours", "services", "contact"];
+/**
+ * The first three are the facts every clinic needs on day one. The last three came later
+ * ("quick clinic setup"): insurance, connecting the clinic's WhatsApp, and deciding what that
+ * WhatsApp does — each still optional, each still writing only what the Settings screens write.
+ */
+export type SetupStepId = "hours" | "services" | "contact" | "insurance" | "whatsapp" | "assistant";
+export const SETUP_STEPS: SetupStepId[] = ["hours", "services", "contact", "insurance", "whatsapp", "assistant"];
 
 /**
  * The hours most Egyptian dental clinics keep: an afternoon-to-late-evening day, Friday closed.
@@ -137,4 +142,134 @@ export function normalizePhone(value: string): string {
   if (/^\+201\d{9}$/.test(digits)) return "0" + digits.slice(3);
   if (/^201\d{9}$/.test(digits)) return "0" + digits.slice(2);
   return value.trim();
+}
+
+/* ---------- WhatsApp: the questions, and what each answer writes ------------------------------ */
+
+/**
+ * Who picks up when a patient writes — the same four choices as Settings → WhatsApp Bot, stored as
+ * the same three fields (botEnabled + botMode + botAiEnabled) the server reads.
+ */
+export type AnswerMode = "off" | "bot" | "both" | "ai";
+
+/**
+ * The bot facts the wizard asks for: the six questions patients ask most that every clinic can
+ * answer in one line. The rest of BotFacts (aftercare, sessions, dentists…) is longer writing and
+ * stays on the Bot screen.
+ */
+export const SETUP_FACT_KEYS = ["consultation", "installments", "walkIn", "parking", "mapsUrl", "insurance"] as const;
+export type SetupFactKey = (typeof SETUP_FACT_KEYS)[number];
+
+export type WhatsAppAnswers = {
+  /** Booking confirmations, the 24-hour reminder, the invoice — `isPatientAutomationEnabled`. */
+  autoMessages: boolean;
+  /** "We miss you" after six months without a visit — `isRecallEnabled`. */
+  recall: boolean;
+  /** Ask for a Google review the day after a visit — `isReviewRequestEnabled`. */
+  reviews: boolean;
+  answerMode: AnswerMode;
+  answerStrangers: boolean;
+  autoConfirm: boolean;
+  personaName: string;
+  facts: Record<SetupFactKey, string>;
+};
+
+/** What this clinic's plan allows, so an answer can never switch on something it has not bought. */
+export type WhatsAppAllowance = { messages: boolean; bot: boolean; ai: boolean };
+
+export function answerModeOf(doc: Record<string, unknown> | undefined): AnswerMode {
+  if (doc?.botEnabled !== true) return "off";
+  if (doc.botMode === "ai_first") return "ai";
+  return doc.botAiEnabled === true ? "both" : "bot";
+}
+
+/**
+ * The best choice the plan allows. AI modes fall back to the scripted bot rather than to nothing,
+ * because a clinic that asked for "AI" still asked for an answer; the bot itself falls back to
+ * "off" — nobody, which is what the clinic has without it.
+ */
+export function clampAnswerMode(mode: AnswerMode, allowed: WhatsAppAllowance): AnswerMode {
+  if (mode === "off") return "off";
+  if (!allowed.bot) return "off";
+  if ((mode === "both" || mode === "ai") && !allowed.ai) return "bot";
+  return mode;
+}
+
+/**
+ * The wizard's opening answers, read from what is already stored — so running it a second time
+ * shows the clinic's real settings and "Save" changes nothing that was not touched.
+ *
+ * A clinic that never opened the WhatsApp screens gets the recommended starting point instead:
+ * messages on, the scripted bot answering its own patients, bookings reviewed by the desk. Every
+ * one of those is the cautious setting of its pair.
+ */
+export function answersFromSettings(raw: Record<string, unknown> | undefined): WhatsAppAnswers {
+  const facts = (raw?.botFacts && typeof raw.botFacts === "object" ? raw.botFacts : {}) as Record<string, unknown>;
+  const fresh = !raw || Object.keys(raw).length === 0;
+  const str = (v: unknown) => (typeof v === "string" ? v : "");
+  return {
+    autoMessages: fresh ? true : raw.isPatientAutomationEnabled === true,
+    recall: raw?.isRecallEnabled === true,
+    reviews: raw?.isReviewRequestEnabled === true,
+    answerMode: fresh ? "bot" : answerModeOf(raw),
+    answerStrangers: raw?.botAnswerStrangers === true,
+    autoConfirm: raw?.botAutoConfirmBookings === true,
+    personaName: str(raw?.botPersonaName),
+    facts: Object.fromEntries(SETUP_FACT_KEYS.map((k) => [k, str(facts[k])])) as Record<SetupFactKey, string>,
+  };
+}
+
+/** A maps link pasted without its scheme still has to open. Anything empty stays empty. */
+export function normalizeLink(value: string): string {
+  const v = value.trim();
+  if (!v) return "";
+  return /^https?:\/\//i.test(v) ? v : `https://${v}`;
+}
+
+/**
+ * The fields to merge into `settings/whatsapp`.
+ *
+ * Only what the plan allows is written: an answer about a locked feature is left out entirely
+ * rather than written as off, so a clinic that later buys the add-on finds its old setting where
+ * it left it. No value is ever `undefined` — Firestore refuses the whole write for one.
+ *
+ * `botFacts` is written key by key, including empty strings: the fields were prefilled from the
+ * stored ones, so an emptied box is the clinic deleting that answer, and an empty fact already
+ * means "a person will confirm" everywhere it is read. `setDoc(..., { merge: true })` merges the
+ * map, so facts this wizard does not ask about are kept.
+ */
+export function whatsappDocFromAnswers(a: WhatsAppAnswers, allowed: WhatsAppAllowance): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (allowed.messages) {
+    out.isPatientAutomationEnabled = a.autoMessages;
+    out.isRecallEnabled = a.recall;
+    out.isReviewRequestEnabled = a.reviews;
+  }
+  const mode = clampAnswerMode(a.answerMode, allowed);
+  if (allowed.bot || mode === "off") {
+    out.botEnabled = mode !== "off";
+    out.botMode = mode === "ai" ? "ai_first" : "assisted";
+    out.botAiEnabled = mode === "both" || mode === "ai";
+  }
+  if (mode !== "off") {
+    out.botAnswerStrangers = a.answerStrangers;
+    out.botAutoConfirmBookings = a.autoConfirm;
+    out.botPersonaName = a.personaName.trim();
+    const facts: Record<string, string> = {};
+    for (const k of SETUP_FACT_KEYS) facts[k] = k === "mapsUrl" ? normalizeLink(a.facts[k]) : a.facts[k].trim();
+    out.botFacts = facts;
+  }
+  return out;
+}
+
+/**
+ * A starting answer to "do you take insurance?" from the insurers the clinic just set up. Only
+ * offered when the clinic has not written its own; the clinic can reword it.
+ */
+export function insuranceFactFrom(names: string[], language: "en" | "ar"): string {
+  const clean = names.map((n) => n.trim()).filter(Boolean);
+  if (clean.length === 0) return "";
+  return language === "ar"
+    ? `بنتعامل مع: ${clean.join("، ")}. هات كارت التأمين معاك في الزيارة.`
+    : `We work with: ${clean.join(", ")}. Please bring your insurance card to the visit.`;
 }
