@@ -104,8 +104,11 @@ fun LabMoveSheet(
     error: String?,
     onMove: (String) -> Unit,
     onDismiss: () -> Unit,
+    /** Null when this person may not delete lab cases. */
+    onDelete: (() -> Unit)? = null,
 ) {
     var next by remember(case.id) { mutableStateOf<String?>(null) }
+    var armed by remember(case.id) { mutableStateOf(false) }
     val options = LabCases.nextStatuses(case.status, case.needsTryIn)
 
     Sheet(
@@ -118,6 +121,28 @@ fun LabMoveSheet(
         onAction = { next?.let(onMove) },
         onDismiss = onDismiss,
     ) {
+        onDelete?.let { delete ->
+            // Two taps, the way a visit is deleted: the first only arms it.
+            Txt(
+                if (armed) "Sure? Tap again to delete ${case.code}" else "Delete this order",
+                Type.body, T.danger,
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = !busy) { if (armed) delete() else armed = true }
+                    .padding(horizontal = T.gutter, vertical = 14.dp),
+            )
+            if (armed) {
+                Txt(
+                    "For an order entered by mistake — it disappears for good. If the work really " +
+                        "went to the lab and was called off, move it to Cancelled instead.",
+                    Type.caption, T.inkMuted,
+                    Modifier.padding(start = T.gutter, end = T.gutter, bottom = 12.dp),
+                    maxLines = 4,
+                )
+            }
+            Rule()
+        }
+
         if (options.isEmpty()) {
             Txt(
                 "This case has nowhere left to go.",

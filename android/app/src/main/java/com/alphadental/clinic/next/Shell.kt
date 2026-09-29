@@ -1964,6 +1964,7 @@ private fun LabPane(preview: Boolean, onBack: () -> Unit) {
             error = state.error,
             onMove = { model.move(it); model.openCase(null) },
             onDismiss = { model.openCase(null) },
+            onDelete = if (state.canDelete) model::delete else null,
         )
     }
 
