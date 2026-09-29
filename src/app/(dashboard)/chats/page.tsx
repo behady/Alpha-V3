@@ -23,7 +23,7 @@ export default function ChatsPage() {
     <PermissionGuard permission="access.patients" allowedRoles={["Admin", "Owner"]}>
       {/* Compact: the thread list and the conversation both scroll inside themselves, so any
           height the header takes comes straight out of the messages on screen. */}
-      <PageHeader compact title={language === "ar" ? "المحادثات" : "WhatsApp"} />
+      <PageHeader compact title={language === "ar" ? "واتساب" : "WhatsApp"} />
       <div className="flex h-full min-h-0 flex-col p-3 md:p-5 lg:p-6 pb-24 lg:pb-6" dir={isRTL ? "rtl" : "ltr"}>
         {/* useSearchParams inside the panel needs a Suspense boundary above it to prerender. */}
         <Suspense fallback={null}>

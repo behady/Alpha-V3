@@ -611,8 +611,8 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
           : "e.g. Always mention the consultation is free. Push whitening this month. Don't overuse formal address. If someone asks about implants, say it's done in two stages.",
       botCoachingHint:
         language === "ar"
-          ? "بتتطبق فوراً على كل رد. الإجابات اللي فريقك بيكتبها والكتيب اللي بيتعلمه البوت من النتايج موجودين في صفحة الذكاء ← تبويب البوت."
-          : "Applies immediately to every reply. Staff-taught answers and the playbook learned from outcomes live on the Intelligence page → Bot tab.",
+          ? "بتتطبق فوراً على كل رد. الإجابات اللي فريقك بيكتبها والكتيب اللي بيتعلمه البوت من النتايج موجودين في واتساب ← تبويب «اللي فات البوت»."
+          : "Applies immediately to every reply. Staff-taught answers and the playbook learned from outcomes live on WhatsApp → the Bot misses tab.",
       botAi: language === "ar" ? "الرد الذكي على الأسئلة الحرة" : "AI answers for free-text questions",
       botAiHint:
         language === "ar"

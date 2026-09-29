@@ -68,7 +68,7 @@ function WhatsAppHub({ children }: { children: React.ReactNode }) {
     { key: "ai", href: "/chats/ai", icon: BrainCircuit, en: "AI", ar: "الذكاء الاصطناعي", feature: "aiChat", allowed: canViewSection(section("whatsapp_ai"), viewer).allowed },
     // Not an add-on of its own, and empty without a bot to miss anything — so hidden rather than
     // locked when there is none; the Bot tab's lock already says what to buy.
-    { key: "misses", href: "/chats/misses", icon: MessageSquareWarning, en: "Bot misses", ar: "اللي البوت معرفش يرد عليه", allowed: can("access.patients") && isAnyUnlocked(clinic, ["whatsappBot", "aiChat"]) },
+    { key: "misses", href: "/chats/misses", icon: MessageSquareWarning, en: "Bot misses", ar: "اللي فات البوت", allowed: can("access.patients") && isAnyUnlocked(clinic, ["whatsappBot", "aiChat"]) },
   ];
 
   const tabs = all
