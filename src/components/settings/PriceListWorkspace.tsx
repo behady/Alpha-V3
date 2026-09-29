@@ -29,26 +29,41 @@ import { useSettingsText } from "@/lib/useSettingsText";
 import {
   ArrowLeft,
   Check,
+  Eye,
+  EyeOff,
   Loader2,
   Percent,
+  Plus,
   RotateCcw,
   Search,
+  Trash2,
   Wand2,
   X,
 } from "lucide-react";
-import { onSnapshot, writeBatch, deleteField, doc } from "firebase/firestore";
+import { onSnapshot, writeBatch, deleteField, doc, addDoc, setDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { getClinicCollection } from "@/lib/db-utils";
+import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { getGlobalClinicId } from "@/lib/db-utils";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { useAuth } from "@/context/AuthContext";
+import { useClinic } from "@/context/ClinicContext";
 import { logActivity } from "@/lib/logger";
+import { deleteRecord, RecycleBinError } from "@/lib/recycleBinApi";
 import { matchesTokenizedSubstring } from "@/lib/flexibleSearch";
-import { STANDARD_LIST_ID, type PriceList } from "@/lib/priceLists";
+import { PRICE_LISTS_DOC, STANDARD_LIST_ID, toStoredLists, type PriceList } from "@/lib/priceLists";
 import { payerCoverageFilter } from "@/lib/payers";
+import { ownedByAnotherList } from "@/lib/serviceMenu";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
-import { DENTAL_CATEGORIES, DentalIcon, iconForService, suggestCategory } from "@/lib/dentalIcons";
+import { DEFAULT_PRICING_MODE, type PricingMode } from "@/components/clinical-notes/utils";
+import {
+  DENTAL_CATEGORIES,
+  DentalIcon,
+  categoryOf,
+  iconForService,
+  suggestCategory,
+  suggestIcon,
+} from "@/lib/dentalIcons";
 
 type ServiceRow = {
   id: string;
@@ -57,6 +72,8 @@ type ServiceRow = {
   category?: string;
   icon?: string;
   prices?: Record<string, number>;
+  /** The list this treatment belongs to. Absent = shared, offered on every list. */
+  listId?: string;
 };
 
 /** Firestore caps a batch at 500 operations; stay under it with room to spare. */
@@ -78,7 +95,8 @@ export default function PriceListWorkspace({
   const { language, isRTL } = useLanguage();
   const { showToast, confirm } = useUI();
   const { user } = useAuth();
-  const { payers } = usePricingPolicy();
+  const { clinicId } = useClinic();
+  const { payers, priceLists } = usePricingPolicy();
   const ar = language === "ar";
 
   const [services, setServices] = useState<ServiceRow[]>([]);
@@ -89,8 +107,18 @@ export default function PriceListWorkspace({
   /** serviceId → what is typed in the cell. "" means "charge the standard price". */
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [bulkPercent, setBulkPercent] = useState("");
+  /** The "add a treatment to this list" dialog. null = closed. */
+  const [newOwn, setNewOwn] = useState<{ name: string; price: string; category: string; pricingMode: PricingMode } | null>(null);
+  const [ownBusy, setOwnBusy] = useState(false);
 
   const isStandard = list.id === STANDARD_LIST_ID;
+  /**
+   * A treatment created ON this list. It has no standard price to fall back to, so its one
+   * price lives in the base `price` field — exactly where the Standard list keeps its own —
+   * and the cell here reads and writes that field directly.
+   */
+  const isOwn = (s: ServiceRow) => !!s.listId && s.listId === list.id;
+  const hiddenIds = useMemo(() => new Set(list.hiddenServiceIds ?? []), [list.hiddenServiceIds]);
 
   useEffect(() => {
     const unsub = onSnapshot(getClinicCollection("services"), (snap) => {
@@ -107,7 +135,7 @@ export default function PriceListWorkspace({
   const stored = useMemo(() => {
     const out: Record<string, string> = {};
     for (const s of services) {
-      if (isStandard) {
+      if (isStandard || isOwn(s)) {
         out[s.id] = Number.isFinite(Number(s.price)) ? String(s.price ?? "") : "";
       } else {
         const v = s.prices?.[list.id];
@@ -115,9 +143,13 @@ export default function PriceListWorkspace({
       }
     }
     return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [services, list.id, isStandard]);
 
   const valueFor = (id: string) => (id in drafts ? drafts[id] : (stored[id] ?? ""));
+
+  /** One extra narrow column on every list but Standard: the hide / delete control. */
+  const cols = isStandard ? "sm:grid-cols-[1fr_7rem_9rem_7rem]" : "sm:grid-cols-[1fr_7rem_9rem_7rem_2.75rem]";
 
   const changed = useMemo(
     () => Object.keys(drafts).filter((id) => (drafts[id] ?? "") !== (stored[id] ?? "")),
@@ -153,6 +185,14 @@ export default function PriceListWorkspace({
         ? `${n} علاج مش مغطى من الشركة دي، فمش ظاهر هنا. لو بتغطيهم، فعّلهم من الإعدادات ← التأمين.`
         : `${n} treatment${n === 1 ? " is" : "s are"} not covered by this company, so ${n === 1 ? "it is" : "they are"} not shown. To cover ${n === 1 ? "it" : "them"}, tick ${n === 1 ? "it" : "them"} under Settings → Insurance.`,
 
+    hiddenToast: (name: string) => (ar ? `"${name}" اتخفى من القائمة دي` : `"${name}" hidden on this list`),
+    shownToast: (name: string) => (ar ? `"${name}" رجع يظهر على القائمة دي` : `"${name}" shown on this list again`),
+    deleteOwnBody: (name: string) =>
+      ar
+        ? `"${name}" موجود على القائمة دي بس. هيتنقل للمحذوفات ومش هيظهر في أي شاشة.`
+        : `"${name}" exists on this list only. It moves to Recently Deleted and leaves every menu.`,
+    createdOwn: (name: string) => (ar ? `"${name}" اتضاف على القائمة دي بس` : `"${name}" added to this list only`),
+
     blanketNote: (pct: number) =>
       ar
         ? `كل خدمة من القائمة دي بتيجي وعليها خصم ${pct}% ظاهر وقابل للتعديل، فوق السعر ده.`
@@ -173,9 +213,12 @@ export default function PriceListWorkspace({
    */
   const covered = useMemo(() => {
     const covers = payerCoverageFilter(payers, list.id);
-    return services.filter((s) => covers(s.id));
+    // Another list's own treatments are not this list's business at all — they are neither
+    // priced here nor counted as "not covered". This list's own need no coverage tick.
+    return services.filter((s) => !ownedByAnotherList(s, list.id) && (isOwn(s) || covers(s.id)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [services, payers, list.id]);
-  const hiddenCount = services.length - covered.length;
+  const hiddenCount = services.filter((s) => !ownedByAnotherList(s, list.id)).length - covered.length;
 
   const filtered = useMemo(
     () =>
@@ -210,6 +253,9 @@ export default function PriceListWorkspace({
     if (!Number.isFinite(pct)) return;
     const next = { ...drafts };
     for (const s of filtered) {
+      // A hidden row is not on this list's menu, and an own row HAS no standard price to
+      // discount from — the fill would write nonsense onto both.
+      if (hiddenIds.has(s.id) || isOwn(s)) continue;
       const base = Number(s.price) || 0;
       next[s.id] = String(money(base * (1 - pct / 100)));
     }
@@ -218,8 +264,92 @@ export default function PriceListWorkspace({
 
   const clearAll = () => {
     const next = { ...drafts };
-    for (const s of filtered) next[s.id] = "";
+    for (const s of filtered) if (!hiddenIds.has(s.id) && !isOwn(s)) next[s.id] = "";
     setDrafts(next);
+  };
+
+  /**
+   * Hide or show a shared treatment on this list. Written at once, not on Save: it is one
+   * decision about one row, and leaving it as a draft next to sixty price cells would make
+   * "3 changes" mean two different kinds of thing.
+   */
+  const toggleHidden = async (s: ServiceRow) => {
+    const hide = !hiddenIds.has(s.id);
+    const nextIds = hide ? [...hiddenIds, s.id] : [...hiddenIds].filter((id) => id !== s.id);
+    const nextLists = priceLists.map((l) => (l.id === list.id ? { ...l, hiddenServiceIds: nextIds } : l));
+    try {
+      await setDoc(getClinicDoc("settings", PRICE_LISTS_DOC), { lists: toStoredLists(nextLists) }, { merge: true });
+      await logActivity(
+        { uid: user?.uid, name: user?.name, role: user?.role },
+        "Price Lists Updated",
+        `${hide ? "Hid" : "Showed"} "${s.name}" on "${list.name}"`
+      );
+      showToast(hide ? txt.hiddenToast(s.name) : txt.shownToast(s.name), "success");
+    } catch {
+      showToast(txt.failed, "error");
+    }
+  };
+
+  /** A treatment created on this list is deleted the way any treatment is: into the recycle bin. */
+  const deleteOwn = async (s: ServiceRow) => {
+    const ok = await confirm(txt.deleteOwnBody(s.name), { title: txt.deleteOwnTitle, confirmLabel: txt.deleteOwnConfirm, tone: "danger" });
+    if (!ok) return;
+    try {
+      await deleteRecord(clinicId || "", "services", s.id);
+      setDrafts((d) => {
+        const next = { ...d };
+        delete next[s.id];
+        return next;
+      });
+      showToast(txt.deletedOwn, "info");
+    } catch (err) {
+      showToast(err instanceof RecycleBinError ? err.message : txt.failed, "error");
+    }
+  };
+
+  const openNewOwn = () => setNewOwn({ name: "", price: "", category: "", pricingMode: DEFAULT_PRICING_MODE });
+
+  /**
+   * Create a treatment that exists on this list alone.
+   *
+   * The same record shape the Treatments page writes, so every picker, the reports and the
+   * phone read it like any other — plus `listId`, which is the whole difference. Category and
+   * icon are suggested from the name exactly as the Treatments page does, and stay editable
+   * there afterwards.
+   */
+  const createOwn = async () => {
+    if (!newOwn) return;
+    const name = newOwn.name.trim();
+    const price = Number(newOwn.price);
+    if (!name || !Number.isFinite(price) || price < 0) return;
+    const category = newOwn.category || suggestCategory(name);
+    setOwnBusy(true);
+    try {
+      await addDoc(getClinicCollection("services"), {
+        name,
+        price: money(price),
+        category,
+        icon: suggestIcon(name) || categoryOf(category).icon,
+        requiresLab: false,
+        estimatedLabFee: 0,
+        durationMinutes: null,
+        pricingMode: newOwn.pricingMode,
+        prices: {},
+        listId: list.id,
+        createdAt: new Date().toISOString(),
+      });
+      await logActivity(
+        { uid: user?.uid, name: user?.name, role: user?.role },
+        "Price Lists Updated",
+        `Added "${name}" to "${list.name}" only`
+      );
+      showToast(txt.createdOwn(name), "success");
+      setNewOwn(null);
+    } catch {
+      showToast(txt.failed, "error");
+    } finally {
+      setOwnBusy(false);
+    }
   };
 
   const handleBack = async () => {
@@ -240,7 +370,8 @@ export default function PriceListWorkspace({
         for (const id of changed.slice(i, i + BATCH_LIMIT)) {
           const ref = doc(db, `clinics/${clinicId}/services`, id);
           const raw = (drafts[id] ?? "").trim();
-          if (isStandard) {
+          const own = services.some((s) => s.id === id && isOwn(s));
+          if (isStandard || own) {
             // The standard list IS the `price` field — that is why adding lists needed no migration.
             batch.update(ref, { price: raw === "" ? 0 : money(Math.max(0, Number(raw))) });
           } else if (raw === "") {
@@ -297,6 +428,16 @@ export default function PriceListWorkspace({
           </div>
 
           <div className="flex items-center gap-2">
+            {!isStandard && (
+              <button
+                type="button"
+                onClick={openNewOwn}
+                disabled={saving}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-white/20 px-3 py-2.5 text-xs font-bold text-white/80 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
+              >
+                <Plus size={14} /> {txt.addOwn}
+              </button>
+            )}
             {changed.length > 0 && (
               <button
                 type="button"
@@ -425,11 +566,12 @@ export default function PriceListWorkspace({
                 </div>
 
                 {/* Column headings, shown once per group so the numbers never lose their labels. */}
-                <div className="hidden px-3 pb-1 text-[10px] font-black uppercase tracking-wider text-ink-muted sm:grid sm:grid-cols-[1fr_7rem_9rem_7rem] sm:gap-3">
+                <div className={`hidden px-3 pb-1 text-[10px] font-black uppercase tracking-wider text-ink-muted sm:grid sm:gap-3 ${cols}`}>
                   <span>{txt.treatment}</span>
                   <span className="text-end">{txt.standard}</span>
                   <span className="text-end">{txt.onThisList}</span>
                   <span className="text-end">{list.generalDiscountPercent > 0 ? txt.patientPays : ""}</span>
+                  {!isStandard && <span />}
                 </div>
 
                 <ul className="space-y-1.5">
@@ -439,23 +581,37 @@ export default function PriceListWorkspace({
                     const effective = raw === "" ? base : Math.max(0, Number(raw) || 0);
                     const afterBlanket = money(effective * (1 - list.generalDiscountPercent / 100));
                     const isDirty = (drafts[s.id] ?? stored[s.id] ?? "") !== (stored[s.id] ?? "");
+                    const own = isOwn(s);
+                    const isHidden = !own && hiddenIds.has(s.id);
 
                     return (
                       <li
                         key={s.id}
-                        className={`grid grid-cols-1 items-center gap-2 rounded-2xl border px-3 py-2.5 transition-colors sm:grid-cols-[1fr_7rem_9rem_7rem] sm:gap-3 ${
-                          isDirty ? "border-accent-soft bg-accent-tint/60" : "border-line bg-surface-subtle"
-                        }`}
+                        className={`grid grid-cols-1 items-center gap-2 rounded-2xl border px-3 py-2.5 transition-colors sm:gap-3 ${cols} ${
+                          isDirty ? "border-accent-soft bg-accent-tint/60" : isHidden ? "border-dashed border-line bg-surface" : "border-line bg-surface-subtle"
+                        } ${isHidden ? "opacity-60" : ""}`}
                       >
                         <div className="flex min-w-0 items-center gap-2.5">
                           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted">
                             <DentalIcon id={iconForService(s)} size={18} />
                           </span>
-                          <span className="truncate text-sm font-bold text-ink">{s.name}</span>
+                          <span className={`truncate text-sm font-bold ${isHidden ? "text-ink-muted line-through decoration-ink-muted/40" : "text-ink"}`}>
+                            {s.name}
+                          </span>
+                          {own && (
+                            <span className="shrink-0 rounded-md bg-ink-slab px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-white">
+                              {txt.onlyHere}
+                            </span>
+                          )}
+                          {isHidden && (
+                            <span className="shrink-0 rounded-md border border-line px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-ink-muted">
+                              {txt.hiddenTag}
+                            </span>
+                          )}
                         </div>
 
                         <span className="text-end font-figure text-sm font-semibold text-ink-muted">
-                          {base.toLocaleString()}
+                          {own ? "—" : base.toLocaleString()}
                         </span>
 
                         <span className="relative">
@@ -464,15 +620,15 @@ export default function PriceListWorkspace({
                             min={0}
                             inputMode="decimal"
                             value={valueFor(s.id)}
-                            disabled={saving}
+                            disabled={saving || isHidden}
                             onChange={(e) => setDrafts({ ...drafts, [s.id]: e.target.value })}
-                            placeholder={isStandard ? "0" : `${base} · ${txt.sameAsStandard}`}
+                            placeholder={isStandard || own ? "0" : `${base} · ${txt.sameAsStandard}`}
                             className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-end font-figure text-sm font-semibold text-ink outline-none transition focus:border-accent disabled:opacity-60"
                           />
                         </span>
 
                         <span className="text-end font-figure text-sm font-bold text-ink-body">
-                          {list.generalDiscountPercent > 0 ? (
+                          {list.generalDiscountPercent > 0 && !isHidden ? (
                             <>
                               {afterBlanket.toLocaleString()}{" "}
                               <span className="text-[10px] font-bold uppercase text-ink-muted">{currency}</span>
@@ -481,6 +637,36 @@ export default function PriceListWorkspace({
                             ""
                           )}
                         </span>
+
+                        {/* Hide a shared treatment from this list's menu, or delete one the list owns.
+                            The Standard list is the full menu and has neither. */}
+                        {!isStandard && (
+                          <span className="flex justify-end">
+                            {own ? (
+                              <button
+                                type="button"
+                                onClick={() => deleteOwn(s)}
+                                disabled={saving}
+                                title={txt.deleteOwn}
+                                aria-label={txt.deleteOwn}
+                                className="rounded-lg p-2 text-ink-muted transition hover:bg-danger-tint hover:text-danger disabled:opacity-50"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => toggleHidden(s)}
+                                disabled={saving}
+                                title={isHidden ? txt.show : txt.hide}
+                                aria-label={isHidden ? txt.show : txt.hide}
+                                className="rounded-lg p-2 text-ink-muted transition hover:bg-surface-muted hover:text-ink disabled:opacity-50"
+                              >
+                                {isHidden ? <EyeOff size={15} /> : <Eye size={15} />}
+                              </button>
+                            )}
+                          </span>
+                        )}
                       </li>
                     );
                   })}
@@ -490,6 +676,113 @@ export default function PriceListWorkspace({
           </div>
         )}
       </div>
+
+      {/* --- add a treatment that exists on this list alone --- */}
+      {newOwn && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-ink/40 p-4 backdrop-blur-sm">
+          <div className="flex max-h-[92vh] w-full max-w-md flex-col overflow-hidden rounded-[2rem] border border-line bg-surface shadow-2xl">
+            <div className="flex items-center justify-between border-b border-line px-6 pb-4 pt-5">
+              <h3 className="text-lg font-black tracking-tight text-ink">{txt.addOwnTitle}</h3>
+              <button
+                type="button"
+                onClick={() => setNewOwn(null)}
+                className="rounded-full bg-surface-subtle p-2 text-ink-muted transition-colors hover:bg-danger-tint hover:text-danger"
+              >
+                <X size={17} />
+              </button>
+            </div>
+
+            <div className="custom-scrollbar space-y-5 overflow-y-auto px-6 py-5">
+              <p className="text-xs font-medium text-ink-muted">{txt.addOwnBody}</p>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">{txt.ownName}</label>
+                <input
+                  autoFocus
+                  value={newOwn.name}
+                  onChange={(e) => setNewOwn({ ...newOwn, name: e.target.value })}
+                  placeholder={txt.ownNamePlaceholder}
+                  disabled={ownBusy}
+                  className="w-full rounded-xl border border-line bg-surface-subtle px-4 py-3 text-sm font-bold text-ink outline-none transition focus:border-accent focus:bg-surface disabled:opacity-60"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">{txt.ownPrice}</label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min={0}
+                    inputMode="decimal"
+                    value={newOwn.price}
+                    onChange={(e) => setNewOwn({ ...newOwn, price: e.target.value })}
+                    placeholder="0"
+                    disabled={ownBusy}
+                    className={`w-full rounded-xl border border-line bg-surface-subtle py-3 font-figure text-sm font-bold text-ink outline-none transition focus:border-accent focus:bg-surface disabled:opacity-60 ${isRTL ? "pl-14 pr-4" : "pl-4 pr-14"}`}
+                  />
+                  <span className={`absolute top-1/2 -translate-y-1/2 text-[10px] font-bold uppercase text-ink-muted ${isRTL ? "left-4" : "right-4"}`}>{currency}</span>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">{txt.ownCategory}</label>
+                <select
+                  value={newOwn.category || suggestCategory(newOwn.name)}
+                  onChange={(e) => setNewOwn({ ...newOwn, category: e.target.value })}
+                  disabled={ownBusy}
+                  className="w-full rounded-xl border border-line bg-surface-subtle px-4 py-3 text-sm font-bold text-ink outline-none transition focus:border-accent focus:bg-surface disabled:opacity-60"
+                >
+                  {DENTAL_CATEGORIES.map((c) => (
+                    <option key={c.key} value={c.key}>
+                      {ar ? c.ar : c.en}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">{txt.ownBilling}</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(["per_tooth", "flat", "per_arch"] as PricingMode[]).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setNewOwn({ ...newOwn, pricingMode: mode })}
+                      disabled={ownBusy}
+                      className={`rounded-xl border px-3 py-2.5 text-xs font-bold transition-all ${
+                        newOwn.pricingMode === mode
+                          ? "border-accent bg-accent-tint text-accent shadow-sm"
+                          : "border-line bg-surface-subtle text-ink-muted hover:border-line-strong"
+                      }`}
+                    >
+                      {txt[`mode_${mode}` as "mode_per_tooth" | "mode_flat" | "mode_per_arch"]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 border-t border-line px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setNewOwn(null)}
+                disabled={ownBusy}
+                className="flex-1 rounded-xl border border-line px-4 py-3 text-sm font-bold text-ink-body transition hover:bg-surface-subtle disabled:opacity-50"
+              >
+                {txt.cancel}
+              </button>
+              <button
+                type="button"
+                onClick={createOwn}
+                disabled={ownBusy || !newOwn.name.trim() || newOwn.price.trim() === "" || !(Number(newOwn.price) >= 0)}
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-accent px-4 py-3 text-sm font-bold text-ink-on-accent shadow-md transition hover:bg-accent-strong disabled:opacity-40"
+              >
+                {ownBusy ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />} {txt.ownCreate}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Sticky save bar — the list is long, and the Save button must never be a scroll away. */}
       {changed.length > 0 && (
