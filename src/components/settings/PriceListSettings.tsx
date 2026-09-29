@@ -18,6 +18,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useSettingsText } from "@/lib/useSettingsText";
 import { onSnapshot, setDoc, writeBatch, doc, getDocs } from "firebase/firestore";
 import { clearListPrices, countListUsage } from "@/lib/priceListUsage";
+import { deleteRecord } from "@/lib/recycleBinApi";
+import { useClinic } from "@/context/ClinicContext";
 import { Check, Loader2, Plus, Star, Tag, Trash2, X, Percent, Copy, SlidersHorizontal, Building2, Layers } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc, getGlobalClinicId } from "@/lib/db-utils";
@@ -66,6 +68,7 @@ export default function PriceListSettings({
   const { language, isRTL } = useLanguage();
   const { showToast, confirm } = useUI();
   const { user } = useAuth();
+  const { clinicId } = useClinic();
   const ar = language === "ar";
 
   const [saving, setSaving] = useState(false);
@@ -130,6 +133,13 @@ export default function PriceListSettings({
       ar
         ? `تحذف "${name}" نهائياً؟ الـ${n} سعر اللي كتبتهم عليها هيتشالوا. مفيش أي علاج اتسجل عليها، فمفيش حاجة في التقارير هتتأثر.`
         : `Permanently delete "${name}"? The ${n} price${n === 1 ? "" : "s"} you typed on it will be removed. No treatment has ever been recorded on it, so nothing in your reports changes.`,
+
+    // Its own treatments go with it — to Recently Deleted, not into thin air — and the sentence
+    // says so, because "delete a list" reads as "delete some numbers" until you learn otherwise.
+    ownGoToo: (n: number) =>
+      ar
+        ? ` كمان الـ${n} علاج اللي موجودين على القائمة دي بس هيتنقلوا للمحذوفات.`
+        : ` The ${n} treatment${n === 1 ? "" : "s"} that exist${n === 1 ? "s" : ""} on this list only will move to Recently Deleted too.`,
 
     inUseRecorded: (n: number) =>
       ar
@@ -376,11 +386,28 @@ export default function PriceListSettings({
     }
 
     const priced = pricedCounts[list.id] || 0;
+    const own = services.filter((svc) => svc.listId === list.id);
     const ok = await confirm(
-      priced > 0 ? txt.confirmDeletePriced(list.name, priced) : txt.confirmDelete(list.name),
+      (priced > 0 ? txt.confirmDeletePriced(list.name, priced) : txt.confirmDelete(list.name)) +
+        (own.length > 0 ? txt.ownGoToo(own.length) : ""),
       { title: txt.confirmDeleteTitle, confirmLabel: txt.remove, tone: "danger" },
     );
     if (!ok) return;
+
+    // Its own treatments first, into the recycle bin like any deleted treatment. A treatment
+    // left pointing at a list that no longer exists would be on no menu at all and invisible
+    // from every screen but the master page — which is a leak, not a feature.
+    if (own.length > 0) {
+      setSaving(true);
+      try {
+        for (const svc of own) await deleteRecord(clinicId || "", "services", svc.id);
+      } catch {
+        showToast(txt.failed, "error");
+        setSaving(false);
+        return;
+      }
+      setSaving(false);
+    }
 
     // The prices first: a service left holding `prices["payer-axa"]` after the list is gone is a
     // number no screen can explain, and it would be adopted by any future list minted under the

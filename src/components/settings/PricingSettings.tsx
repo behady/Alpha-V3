@@ -35,6 +35,12 @@ export interface ServiceRow {
   pricingMode?: PricingMode;
   /** Per-list overrides, keyed by list id. Absent entry = charge `price`. */
   prices?: Record<string, number>;
+  /**
+   * The one list this treatment is offered on. Absent = shared, on every list. Set only by the
+   * list's own screen (Settings → Prices → open a list → Add treatment); this page shows it
+   * and never changes it, so editing a treatment here cannot silently move it between lists.
+   */
+  listId?: string;
 }
 
 /**
@@ -89,6 +95,7 @@ export default function PricingSettings({
 
   const txt = {
     ...useSettingsText("pricing"),
+    onlyOn: (listName: string) => (ar ? `على "${listName}" بس` : `${listName} only`),
     billingModes: {
       per_tooth: ar ? "لكل سن" : "Per tooth",
       flat: ar ? "سعر ثابت" : "Flat fee",
@@ -316,6 +323,13 @@ export default function PricingSettings({
                         <span className="font-figure text-sm font-bold text-ink">
                           {s.price} <span className="text-[10px] font-bold uppercase text-ink-muted">{currency}</span>
                         </span>
+                        {/* A treatment that lives on one list alone. Named, so "why is this not in
+                            the booking menu?" answers itself. */}
+                        {s.listId && (
+                          <span className="inline-flex items-center rounded bg-ink-slab px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-white">
+                            {txt.onlyOn(priceLists.find((l) => l.id === s.listId)?.name || s.listId)}
+                          </span>
+                        )}
                         {Number(s.durationMinutes) > 0 && (
                           <span className="inline-flex items-center gap-1 text-[11px] font-bold text-ink-muted">
                             <Clock size={11} /> {s.durationMinutes} {txt.minutes}
