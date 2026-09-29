@@ -38,6 +38,9 @@ data class Lab(
     /** Moving a case along is a clinical write, as the rules have it. */
     val canMove: Boolean get() = who?.can("clinical.edit") == true
 
+    /** Deleting a mistyped order is gated on access.lab by the rules, as on the website. */
+    val canDelete: Boolean get() = who?.can("access.lab") == true
+
     val openCase: LabCases.LabCase? get() = cases.firstOrNull { it.id == openId }
     val today: String get() = ClinicSource.dateKey()
 
@@ -174,6 +177,28 @@ class LabModel : ViewModel() {
                             "This account is not allowed to move lab cases."
                         } else {
                             "That could not be saved."
+                        },
+                    )
+                }
+        }
+    }
+
+    /** Delete the open case — for an order entered by mistake. The board's listener drops the row. */
+    fun delete() {
+        val who = _state.value.who ?: return
+        val case = _state.value.openCase ?: return
+        if (!_state.value.canDelete || _state.value.moving) return
+        _state.value = _state.value.copy(moving = true, error = null)
+        viewModelScope.launch {
+            LabCases.deleteCase(who.clinicId, case.id)
+                .onSuccess { _state.value = _state.value.copy(moving = false, openId = null) }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(
+                        moving = false,
+                        error = if (e.message?.contains("PERMISSION_DENIED", true) == true) {
+                            "This account is not allowed to delete lab cases."
+                        } else {
+                            "That could not be deleted."
                         },
                     )
                 }
