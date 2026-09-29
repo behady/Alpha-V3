@@ -938,7 +938,7 @@ export default function FinancePage() {
                       {paginatedTransactions.map((tx) => {
                         const isExpense = tx.type === "expense";
                         return (
-                          <tr key={tx.id} className="hover:bg-slate-50/80 transition-colors group">
+                          <tr key={tx.id} className="hover:bg-slate-50/80 transition-colors">
                             <td className="py-4 px-6 align-top">
                               <span className="font-bold text-ink-body tabular-nums text-xs whitespace-nowrap">{tx.date}</span>
                             </td>
@@ -1028,7 +1028,7 @@ export default function FinancePage() {
                               </span>
                             </td>
                             <td className="py-4 px-4 align-top text-end">
-                              <div className="inline-flex items-center gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity justify-end">
+                              <div className="inline-flex items-center gap-1 justify-end">
                                 <Protect permission="finance.edit">
                                   {tx.type !== "payment" && tx.type !== "procedure" ? (
                                     <button
