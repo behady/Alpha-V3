@@ -80,6 +80,12 @@ function SetupWizard() {
   // Step 1
   const [schedule, setSchedule] = useState({ ...DEFAULT_SCHEDULE, offDays: [...DEFAULT_SCHEDULE.offDays] });
   const [hoursDone, setHoursDone] = useState(false);
+  /**
+   * The hours as stored, to tell "already set" from "already set and just edited". Before the
+   * Settings button existed nobody came back here, so a done step could simply say "Next"; on a
+   * re-run that button quietly dropped whatever the admin had just changed.
+   */
+  const [storedSchedule, setStoredSchedule] = useState("");
   // Step 2
   const [choices, setChoices] = useState<ServiceChoice[]>(initialServiceChoices);
   const [existingServices, setExistingServices] = useState(false);
@@ -197,12 +203,14 @@ function SetupWizard() {
         if (parsed.isConfigured) {
           setHoursDone(true);
           const stored = (data.schedule ?? {}) as Record<string, unknown>;
-          setSchedule({
+          const loaded = {
             start: typeof stored.start === "string" ? stored.start : DEFAULT_SCHEDULE.start,
             end: typeof stored.end === "string" ? stored.end : DEFAULT_SCHEDULE.end,
             slotDuration: String(stored.slotDuration ?? DEFAULT_SCHEDULE.slotDuration),
             offDays: Array.isArray(stored.offDays) ? stored.offDays.map(String) : [],
-          });
+          };
+          setSchedule(loaded);
+          setStoredSchedule(JSON.stringify(loaded));
         }
         setExistingServices(!svc.empty);
         if (typeof data.phone === "string") setPhone(data.phone);
@@ -255,6 +263,7 @@ function SetupWizard() {
         { merge: true }
       );
       setHoursDone(true);
+      setStoredSchedule(JSON.stringify(schedule));
       showToast(t.saved, "success");
       goNext();
     } catch {
@@ -313,6 +322,7 @@ function SetupWizard() {
     }));
 
   const selectedCount = choices.filter((c) => c.selected).length;
+  const hoursUnchanged = hoursDone && JSON.stringify(schedule) === storedSchedule;
   const isLast = stepIndex === SETUP_STEPS.length - 1;
 
   if (!clinicId || loadingState) {
@@ -352,7 +362,9 @@ function SetupWizard() {
                     if (id !== step && (await confirmLeave())) setStep(id);
                   }}
                   aria-current={active ? "step" : undefined}
-                  className="flex items-center gap-2"
+                  // A save in flight moves on by itself when it lands; a jump now would be undone by it.
+                  disabled={saving}
+                  className="flex items-center gap-2 disabled:cursor-wait"
                 >
                   <span
                     className={`w-6 h-6 rounded-full flex items-center justify-center font-figure text-[11px] ${
@@ -416,8 +428,8 @@ function SetupWizard() {
               </div>
             </div>
             <Footer
-              primary={hoursDone ? t.next : t.saveNext}
-              onPrimary={hoursDone && !saving ? goNext : saveHours}
+              primary={hoursUnchanged ? t.next : t.saveNext}
+              onPrimary={hoursUnchanged && !saving ? goNext : saveHours}
               onSkip={goNext}
               skipLabel={t.skip}
               saving={saving}
@@ -509,7 +521,9 @@ function SetupWizard() {
         {step === "insurance" && (
           <div className="space-y-6">
             <StepHeading icon={<ShieldPlus size={20} />} title={t.steps.insurance} why={t.insuranceWhy} />
-            {insurerCount === 0 && (
+            {/* Once "Yes" opens the editor the question goes away: a "No" pressed then would unmount
+                the editor, and a half-typed insurer with it, before anything could ask. */}
+            {insurerCount === 0 && takesInsurance !== true && (
               <div className="space-y-3">
                 <p className="text-base font-black text-ink">{t.insuranceAsk}</p>
                 <div className="grid grid-cols-2 gap-3 max-w-sm">

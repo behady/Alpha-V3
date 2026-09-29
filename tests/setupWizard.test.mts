@@ -150,9 +150,13 @@ assert.deepEqual(modeDoc("ai"), [true, "ai_first", true]);
 // Nothing locked is written — not even as "off" — so a later upgrade finds the old setting.
 const locked = whatsappDocFromAnswers({ ...fresh, answerMode: "ai" }, NONE);
 assert.ok(!("isPatientAutomationEnabled" in locked), "messages not in plan: not written");
-assert.equal(locked.botEnabled, false, "bot not in plan: clamped to off");
+assert.ok(!("botEnabled" in locked) && !("botMode" in locked), "bot not in plan: its stored mode is left alone, not switched off");
 const noAi = whatsappDocFromAnswers({ ...fresh, answerMode: "ai" }, { ...ALL, ai: false });
 assert.deepEqual([noAi.botEnabled, noAi.botMode, noAi.botAiEnabled], [true, "assisted", false], "AI locked: the bot answers");
+
+// "No automatic messages" switches off the two sweeps that do not check the master switch.
+const noMsgs = whatsappDocFromAnswers({ ...fresh, autoMessages: false, recall: true, reviews: true }, ALL);
+assert.deepEqual([noMsgs.isPatientAutomationEnabled, noMsgs.isRecallEnabled, noMsgs.isReviewRequestEnabled], [false, false, false]);
 
 // Firestore refuses a whole write for a single undefined.
 for (const [k, v] of Object.entries(whatsappDocFromAnswers(fresh, ALL))) assert.notEqual(v, undefined, `${k} is defined`);

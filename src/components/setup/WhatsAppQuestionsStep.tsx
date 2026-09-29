@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getDoc, setDoc } from "firebase/firestore";
 import { ArrowLeft, ArrowRight, Check, Loader2, Lock } from "lucide-react";
 import { useClinic } from "@/context/ClinicContext";
@@ -8,6 +8,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { useAuth } from "@/context/AuthContext";
 import { getClinicDoc } from "@/lib/db-utils";
+import { getClinicProfile } from "@/lib/clinicProfile";
 import { isUnlocked } from "@/lib/featureCatalog";
 import { logActivity } from "@/lib/logger";
 import { PRIVATE_PAYER_ID, parsePayers } from "@/lib/payers";
@@ -65,36 +66,47 @@ export default function WhatsAppQuestionsStep({ onDone, onSkip }: { onDone: () =
   const [hadMapsUrl, setHadMapsUrl] = useState(false);
   const [index, setIndex] = useState(0);
 
+  /**
+   * Set when the stored settings could not be read. Save is then refused: the screen would be
+   * showing the recommended defaults, and saving them would overwrite the clinic's real answers
+   * (every bot fact blanked, the bot mode reset) with no sign anything had gone wrong.
+   */
+  const [loadFailed, setLoadFailed] = useState(false);
+  /** Time of the last one-tap answer, so a double-click cannot also answer the next question. */
+  const lastAnswerAt = useRef(0);
+
   useEffect(() => {
     if (!clinicId) return;
     let cancelled = false;
     (async () => {
       try {
-        const [wa, info, payers] = await Promise.all([
+        const [wa, profile] = await Promise.all([
           getDoc(getClinicDoc(WHATSAPP_SETTINGS_DOC_REF.collection, WHATSAPP_SETTINGS_DOC_REF.docId)),
-          getDoc(getClinicDoc("settings", "clinic_info")),
-          getDoc(getClinicDoc("settings", "payers")),
+          // Reads the older profile document too, where some clinics' Google links still live.
+          getClinicProfile(),
         ]);
+        // Only a suggestion for one text box; failing to read it must not block the step.
+        const payers = await getDoc(getClinicDoc("settings", "payers")).catch(() => null);
         if (cancelled) return;
+        // Not clamped to the plan here: the plan may not have loaded yet, and clamping against an
+        // empty one would read every bot as "off". The screen and the save both clamp.
         const next = answersFromSettings(wa.exists() ? (wa.data() as Record<string, unknown>) : undefined);
-        next.answerMode = clampAnswerMode(next.answerMode, allowed);
-        const infoData = (info.data() ?? {}) as Record<string, unknown>;
-        const review = typeof infoData.googleReviewUrl === "string" ? infoData.googleReviewUrl.trim() : "";
-        const maps = typeof infoData.googleMapsUrl === "string" ? infoData.googleMapsUrl.trim() : "";
+        const review = (profile?.googleReviewUrl || "").trim();
+        const maps = (profile?.googleMapsUrl || "").trim();
         setHadReviewUrl(Boolean(review));
         setHadMapsUrl(Boolean(maps));
         setReviewUrl(review);
         if (!next.facts.mapsUrl && maps) next.facts.mapsUrl = maps;
         // The insurers the previous step just set up are the answer to "do you take insurance?".
         if (!next.facts.insurance) {
-          const names = parsePayers(payers.exists() ? payers.data() : null)
+          const names = parsePayers(payers?.exists() ? payers.data() : null)
             .filter((p) => p.id !== PRIVATE_PAYER_ID && p.active)
             .map((p) => (ar ? p.nameAr || p.name : p.name));
           next.facts.insurance = insuranceFactFrom(names, ar ? "ar" : "en");
         }
         setA(next);
       } catch {
-        // Unknown state reads as the recommended defaults; the summary shows exactly what will be saved.
+        if (!cancelled) setLoadFailed(true);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -130,6 +142,10 @@ export default function WhatsAppQuestionsStep({ onDone, onSkip }: { onDone: () =
   const back = () => setIndex((i) => Math.max(i - 1, 0));
   /** A yes/no answer moves on by itself — one tap per question. */
   const answer = (patch: Partial<WhatsAppAnswers>) => {
+    // The next question's Yes sits exactly where this one's did; a double-click would answer both.
+    const now = Date.now();
+    if (now - lastAnswerAt.current < 400) return;
+    lastAnswerAt.current = now;
     setA((prev) => ({ ...prev, ...patch }));
     // After the state update the question list may have grown or shrunk; advancing by position
     // is still right because every question an answer adds or removes comes after it.
@@ -284,10 +300,26 @@ export default function WhatsAppQuestionsStep({ onDone, onSkip }: { onDone: () =
     }
   };
 
-  if (!clinicId || loading) {
+  // The plan decides which questions exist, so wait for the clinic as well as for the settings.
+  if (!clinicId || !clinic || loading) {
     return (
       <div className="flex items-center justify-center py-10 text-ink-muted">
         <Loader2 size={20} className="animate-spin" />
+      </div>
+    );
+  }
+
+  if (loadFailed) {
+    return (
+      <div className="space-y-5">
+        <p className="text-sm font-bold text-danger bg-danger/5 border border-danger/25 rounded-xl px-4 py-3">
+          {ar
+            ? "مقدرناش نقرا إعدادات واتساب الحالية، فمش هنحفظ حاجة عشان مانمسحش إعداداتك. حدّث الصفحة وجرّب تاني، أو كمّل من الإعدادات ← واتساب."
+            : "We couldn't read the current WhatsApp settings, so nothing will be saved — that would overwrite them. Reload and try again, or continue from Settings → WhatsApp."}
+        </p>
+        <div className="flex justify-end">
+          <PrimaryButton onClick={onSkip}>{t.skip}</PrimaryButton>
+        </div>
       </div>
     );
   }

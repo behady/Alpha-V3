@@ -242,11 +242,14 @@ export function whatsappDocFromAnswers(a: WhatsAppAnswers, allowed: WhatsAppAllo
   const out: Record<string, unknown> = {};
   if (allowed.messages) {
     out.isPatientAutomationEnabled = a.autoMessages;
-    out.isRecallEnabled = a.recall;
-    out.isReviewRequestEnabled = a.reviews;
+    // "No automatic messages" has to mean none: the recall and review sweeps each check only
+    // their own switch (api/automation/recall, api/automation/reviews), not the master one, so
+    // leaving them as stored would keep sending after the owner said no.
+    out.isRecallEnabled = a.autoMessages && a.recall;
+    out.isReviewRequestEnabled = a.autoMessages && a.reviews;
   }
   const mode = clampAnswerMode(a.answerMode, allowed);
-  if (allowed.bot || mode === "off") {
+  if (allowed.bot) {
     out.botEnabled = mode !== "off";
     out.botMode = mode === "ai" ? "ai_first" : "assisted";
     out.botAiEnabled = mode === "both" || mode === "ai";

@@ -128,11 +128,18 @@ export default function WhatsAppConnectStep({ onConnectedChange }: { onConnected
         authedFetch(`/api/admin/wapilot-config/gateway${q}`),
         authedFetch(`/api/admin/wapilot-config${q}`),
       ]);
-      const g = gw.ok ? readGateway(gw.data) : { available: false, managed: false };
+      if (!gw.ok) {
+        // One failed poll (the route answers 502 on any gateway hiccup) must not repaint the card:
+        // keep what was on screen, and never conclude "Wapilot" from an answer we did not get.
+        setGateway((g) => g ?? { available: false, managed: false });
+        return;
+      }
+      const g = readGateway(gw.data);
       setGateway(g);
-      // "clinic" means this clinic has its own credentials; when they are not ours, it is Wapilot.
+      // "clinic" means this clinic has its own credentials; when the gateway says they are not
+      // ours, they are the clinic's own Wapilot account.
       const ownCreds = cfg.ok && cfg.data.configured === true && cfg.data.source === "clinic";
-      setViaWapilot(ownCreds && !g.managed ? String(cfg.data.connectedPhoneHint || "") || "✓" : null);
+      setViaWapilot(ownCreds && g.available && !g.managed ? String(cfg.data.connectedPhoneHint || "") || "✓" : null);
     } catch {
       setGateway((g) => g ?? { available: false, managed: false });
     } finally {
@@ -196,7 +203,7 @@ export default function WhatsAppConnectStep({ onConnectedChange }: { onConnected
   }
 
   if (viaWapilot !== null) {
-    return <Done text={t.wapilot} hint={viaWapilot !== "✓" ? viaWapilot : undefined} />;
+    return <Done text={t.wapilot} phone={viaWapilot !== "✓" ? viaWapilot : undefined} />;
   }
 
   if (!gateway?.available) {
@@ -209,7 +216,7 @@ export default function WhatsAppConnectStep({ onConnectedChange }: { onConnected
   }
 
   if (gateway.state === "open") {
-    return <Done text={t.connected} hint={`${gateway.phone ? `+${gateway.phone} · ` : ""}${t.connectedHint}`} />;
+    return <Done text={t.connected} phone={gateway.phone ? `+${gateway.phone}` : undefined} hint={t.connectedHint} />;
   }
 
   const steps = phoneKind === "android" ? t.stepsAndroid : t.stepsIphone;
@@ -302,13 +309,22 @@ export default function WhatsAppConnectStep({ onConnectedChange }: { onConnected
   );
 }
 
-function Done({ text, hint }: { text: string; hint?: string }) {
+function Done({ text, phone, hint }: { text: string; phone?: string; hint?: string }) {
   return (
     <div className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3.5">
       <CheckCircle2 size={20} className="text-emerald-600 shrink-0 mt-0.5" />
       <div>
-        <p className="text-sm font-black text-emerald-800">{text}</p>
-        {hint && <p className="text-xs font-medium text-emerald-700 mt-0.5" dir="auto">{hint}</p>}
+        <p className="text-sm font-black text-emerald-800">
+          {text}
+          {/* Its own ltr island, so "+20…" does not drag an Arabic sentence into left-to-right. */}
+          {phone && (
+            <>
+              {" "}
+              <span dir="ltr" className="font-figure">{phone}</span>
+            </>
+          )}
+        </p>
+        {hint && <p className="text-xs font-medium text-emerald-700 mt-0.5">{hint}</p>}
       </div>
     </div>
   );
