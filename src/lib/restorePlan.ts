@@ -45,6 +45,10 @@ export const ROOT_COLLECTIONS = [
   // must not resurrect another clinic's deleted review, or a rating a superadmin took down.
   "supply_reviews",
   "supply_review_stats",
+  // Keys that let an outside AI assistant into a clinic. A revoked key restored from a snapshot is
+  // a credential that was deliberately killed coming back to life — and the whole point of revoking
+  // one is that it stays dead, whatever else has to be rolled back.
+  "mcp_keys",
 ] as const;
 
 /**

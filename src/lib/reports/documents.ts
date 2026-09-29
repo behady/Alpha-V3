@@ -665,7 +665,7 @@ export function buildReportDoc(id: string, input: ReportInputs): ReportDoc {
       break;
     }
     case "ads": {
-      const s = adStats(d("conversations"), d("appointments"), [...input.procedures, ...input.payments], range);
+      const s = adStats(d("conversations"), d("appointments"), [...input.procedures, ...input.payments], range, input.leads);
       figure(isAr ? "محادثات من إعلانات" : "Chats from ads", fmt(s.totals.chats));
       figure(isAr ? "كتبوا رسالة" : "Wrote a message", fmt(s.totals.typed), "muted");
       figure(isAr ? "حجزوا" : "Booked", fmt(s.totals.booked));
@@ -681,12 +681,13 @@ export function buildReportDoc(id: string, input: ReportInputs): ReportDoc {
           { key: "label", label: isAr ? "الإعلان" : "Ad" },
           { key: "chats", label: isAr ? "محادثات" : "Chats", align: "end", kind: "int" },
           { key: "typed", label: isAr ? "كتبوا" : "Typed", align: "end", kind: "int" },
+          { key: "hot", label: isAr ? "ساخن" : "Hot", align: "end", kind: "int" },
           { key: "booked", label: isAr ? "حجزوا" : "Booked", align: "end", kind: "int" },
           { key: "attended", label: isAr ? "حضروا" : "Attended", align: "end", kind: "int" },
           { key: "revenue", label: isAr ? "دفعوا" : "Paid", align: "end", kind: "money" },
         ],
-        rows: s.rows.map((r) => ({ label: r.label, chats: r.chats, typed: r.typed, booked: r.booked, attended: r.attended, revenue: r.revenue })),
-        total: { label: isAr ? "الإجمالي" : "Total", chats: s.totals.chats, typed: s.totals.typed, booked: s.totals.booked, attended: s.totals.attended, revenue: s.totals.revenue },
+        rows: s.rows.map((r) => ({ label: r.label, chats: r.chats, typed: r.typed, hot: r.hot, booked: r.booked, attended: r.attended, revenue: r.revenue })),
+        total: { label: isAr ? "الإجمالي" : "Total", chats: s.totals.chats, typed: s.totals.typed, hot: s.totals.hot, booked: s.totals.booked, attended: s.totals.attended, revenue: s.totals.revenue },
       });
       note(isAr ? "تكلفة الحجز = اللي دفعته لميتا ÷ «حجزوا». «كتبوا» أقل من «محادثات» لأن ناس بتفتح الشات من الإعلان من غير ما تكتب." : "Cost per booking = what you paid Meta ÷ Booked. Typed is lower than Chats because people open the chat from an ad without writing.");
       break;

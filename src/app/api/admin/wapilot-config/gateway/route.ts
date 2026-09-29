@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { requireAdminUser, requireSuperAdmin } from "@/lib/apiStaffAuth";
-import { resolveUserClinicId } from "@/lib/adminClinicDb";
+import { adminClinicCollection, resolveUserClinicId } from "@/lib/adminClinicDb";
 import { clearWapilotConfigCache } from "@/lib/wapilotConfig";
 import {
   PLATFORM_GATEWAY_INSTANCE_ID,
@@ -45,6 +45,26 @@ async function resolveTarget(request: Request, requested: string | undefined): P
   const clinicId = await resolveUserClinicId(authz.uid, requested);
   if (!clinicId) return NextResponse.json({ ok: false, error: "No clinic for this user" }, { status: 400 });
   return { kind: "clinic", clinicId, uid: authz.uid };
+}
+
+/**
+ * How many of the clinic's patients have ever written to its WhatsApp.
+ *
+ * The number that matters most for the number's safety: a message to someone who wrote first is
+ * a reply, which WhatsApp never punishes; a message to someone who never did is cold outreach,
+ * which is what gets numbers restricted. Two aggregate counts, so it costs the same for a clinic
+ * of forty patients and one of four thousand.
+ */
+async function conversationWarmth(clinicId: string): Promise<{ written: number; patients: number } | null> {
+  try {
+    const [written, patients] = await Promise.all([
+      adminClinicCollection(clinicId, "whatsapp_conversations").where("lastInboundAt", ">", 0).count().get(),
+      adminClinicCollection(clinicId, "patients").count().get(),
+    ]);
+    return { written: written.data().count, patients: patients.data().count };
+  } catch {
+    return null;
+  }
 }
 
 const docFor = (t: Target) => adminDb().collection(CLINIC_SECRETS_COLLECTION).doc(t.kind === "platform" ? PLATFORM_SECRETS_DOC : t.clinicId);
@@ -92,6 +112,7 @@ async function describe(t: Target) {
     qrAt: status.qrAt,
     lastError: status.lastError,
     connectedAt: status.connectedAt,
+    warmth: t.kind === "clinic" ? await conversationWarmth(t.clinicId) : null,
     // Clinic hours, the day's allowance and what is waiting — so the card can say "12 messages
     // waiting, sending resumes at 10:00" instead of leaving the desk to wonder.
     sending: status.sending ?? null,

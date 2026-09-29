@@ -93,6 +93,18 @@ export interface Lead {
   firstContactedAt?: { seconds: number } | null;
   /** Last stage movement, so a lead nobody has touched in a month can say so. */
   stageChangedAt?: { seconds: number } | null;
+
+  // --- Grades: the desk's word and the AI's (see lib/leads/leadGrade.ts) ---
+  staffGrade?: "hot" | "warm" | "cold" | null;
+  staffGradeAtMs?: number | null;
+  staffGradeBy?: string | null;
+  staffGradeByName?: string | null;
+  aiGrade?: "hot" | "warm" | "cold" | null;
+  aiGradeReason?: string | null;
+  aiGradeScore?: number | null;
+  aiGradeBy?: "rules" | "model" | null;
+  aiGradeAtMs?: number | null;
+  aiGradeAgree?: boolean | null;
 }
 
 /** A lead with no movement for this long is stale — visible as such rather than "in progress". */

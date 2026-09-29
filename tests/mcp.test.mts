@@ -1,9 +1,9 @@
 import assert from "node:assert";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { mcpToolCatalogue, runMcpTool, type McpToolContext } from "../src/lib/mcp/tools.ts";
-import { isGlobalCollection } from "../src/lib/adminClinicDb.ts";
-import { resolveBriefingAccess } from "../src/lib/automation/briefing/build.ts";
+import { mcpToolCatalogue, runMcpTool, type McpToolContext } from "../src/lib/mcp/tools";
+import { isGlobalCollection } from "../src/lib/adminClinicDb";
+import { resolveBriefingAccess } from "../src/lib/automation/briefing/build";
 
 /**
  * The MCP connector's boundaries.
@@ -156,5 +156,18 @@ check(
   /createHash\("sha256"\)/.test(keysSource) && /timingSafeEqual/.test(keysSource),
   "keys must be stored hashed and compared in constant time"
 );
+
+// --- 6. Both mountings run the same checks --------------------------------------------------------
+//
+// The key arrives in a header on one route and in the path on the other, because claude.ai's
+// connector dialog takes a URL and nothing else. Two routes is a standing invitation for one of
+// them to drift — a second copy of the handler that forgets a guard — so neither may hold any
+// logic of its own: both must be thin wrappers over lib/mcp/handler.
+for (const route of ["src/app/api/mcp/route.ts", "src/app/api/mcp/[key]/route.ts"]) {
+  const text = readFileSync(join(REPO, route), "utf8");
+  check(text.includes('from "@/lib/mcp/handler"'), `${route} must delegate to the shared handler`);
+  check(!text.includes("verifyMcpKey"), `${route} must not authenticate on its own`);
+  check(!text.includes("runMcpTool"), `${route} must not dispatch tools on its own`);
+}
 
 console.log(`✓ mcp: ${checks} checks passed`);

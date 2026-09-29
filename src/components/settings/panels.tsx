@@ -24,6 +24,7 @@ import {
   CalendarClock,
   ClipboardList,
   Fingerprint,
+  Flame,
   FlaskConical,
   Globe,
   History,
@@ -72,6 +73,7 @@ export const SETTINGS_ICONS: Record<string, LucideIcon> = {
   receipt: Receipt,             // the paper a patient is handed
   online_booking: Globe,        // a public page on the internet
   recall: RotateCcw,
+  lead_grading: Flame,          // which leads burn hottest
   users: Users,
   join_requests: UserPlus,      // people asking to become users
   dentists: Armchair,           // the chair — what a dentist's own screen shows
@@ -123,6 +125,7 @@ export const SETTINGS_PANELS: Record<string, ComponentType<SettingsPanelProps>> 
   receipt: panel(() => import("@/components/settings/hosts/ReceiptHost")),
   online_booking: panel(() => import("@/components/settings/OnlineBookingSettings")),
   recall: panel(() => import("@/components/settings/RecallSettings")),
+  lead_grading: panel(() => import("@/components/settings/LeadGradingSettings")),
 
   // --- People ---
   users: panel(() => import("@/components/settings/hosts/UsersHost")),

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getDoc, getDocs, limit, orderBy, query } from "firebase/firestore";
-import { Loader2, Search, X, FlaskConical, Info } from "lucide-react";
+import { Loader2, Search, X, FlaskConical, Info, Trash2 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import Protect from "@/components/Protect";
@@ -30,7 +30,7 @@ import {
   type LabCaseSeed,
   type LabWorkTypeId,
 } from "@/lib/labCases";
-import { createLabCase, updateLabCase } from "@/lib/labCaseWrite";
+import { createLabCase, deleteLabCase, updateLabCase } from "@/lib/labCaseWrite";
 import type { ClinicBranch } from "@/lib/clinicLocations";
 import { branchCodeFor } from "@/lib/labCases";
 
@@ -75,11 +75,12 @@ export default function LabCaseModal({
   onSaved,
 }: Props) {
   const { language } = useLanguage();
-  const { showToast } = useUI();
+  const { showToast, confirm } = useUI();
   const isAr = language === "ar";
   const isEdit = Boolean(existing);
 
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // --- form state ---------------------------------------------------------
   const [labId, setLabId] = useState("");
@@ -523,6 +524,35 @@ export default function LabCaseModal({
       );
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!existing || saving || deleting) return;
+    const ok = await confirm(
+      isAr
+        ? `مسح الأمر ${existing.code} نهائيًا؟ استخدمه للأوامر الغلط بس — لو الشغل راح المعمل فعلًا واتلغى، غيّر الحالة لـ "ملغاة" بدل المسح.`
+        : `Delete order ${existing.code} for good? Use this for orders entered by mistake — if the work really went to the lab and was called off, set it to "Cancelled" instead.`,
+      {
+        title: isAr ? "مسح أمر المعمل" : "Delete lab order",
+        confirmLabel: isAr ? "مسح" : "Delete",
+        tone: "danger",
+      }
+    );
+    if (!ok) return;
+    setDeleting(true);
+    try {
+      await deleteLabCase(existing.id);
+      showToast(isAr ? `اتمسح الأمر ${existing.code}` : `Order ${existing.code} deleted`, "success");
+      onClose();
+    } catch (err) {
+      console.error("Lab case delete failed", err);
+      showToast(
+        isAr ? "فشل المسح — راجع صلاحياتك" : "Delete failed — check your permissions",
+        "error"
+      );
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -1063,6 +1093,16 @@ export default function LabCaseModal({
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-2 px-5 sm:px-7 py-4 border-t border-slate-100 bg-slate-50/60 shrink-0">
+          {isEdit && (
+            <button
+              onClick={() => void handleDelete()}
+              disabled={saving || deleting}
+              className="me-auto inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wide text-rose-600 hover:bg-rose-50 disabled:opacity-40 transition-colors"
+            >
+              {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+              {isAr ? "مسح" : "Delete"}
+            </button>
+          )}
           <button
             onClick={onClose}
             className="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wide text-ink-muted hover:bg-slate-200/60 transition-colors"

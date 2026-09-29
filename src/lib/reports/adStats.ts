@@ -34,6 +34,8 @@ export type AdRow = {
   attended: number;
   /** What those patients paid in the period. */
   revenue: number;
+  /** Leads from this ad the desk (or an approved AI flow) graded hot. */
+  hot: number;
   /** booked ÷ chats, as a percentage. */
   conversionPct: number | null;
 };
@@ -57,7 +59,16 @@ export function adStats(
   appointments: readonly Record<string, unknown>[],
   ledger: readonly Record<string, unknown>[],
   range: { start: string; end: string },
+  leads: readonly Record<string, unknown>[] = [],
 ): AdStats {
+  // The grade on the lead behind each chat, by phone digits. The desk's word first, else the AI's.
+  const gradeByPhone = new Map<string, string>();
+  for (const l of leads) {
+    const key = String(l.phone || "").replace(/\D/g, "").slice(-10);
+    if (!key) continue;
+    const g = String(l.staffGrade || l.aiGrade || "");
+    if (g) gradeByPhone.set(key, g);
+  }
   const inRange = (v: unknown) => {
     const d = toYmd(v);
     return d >= range.start && d <= range.end;
@@ -98,8 +109,9 @@ export function adStats(
     const sourceType = String(ad.sourceType || "ad").trim();
     const key = sourceId || headline || body.slice(0, 60) || "unknown";
     const label = headline || (body ? (body.length > 48 ? `${body.slice(0, 45).trim()}…` : body) : sourceId ? `#${sourceId.slice(-6)}` : "—");
-    const row = groups.get(key) || { key, label, sourceType, chats: 0, typed: 0, handoffs: 0, booked: 0, attended: 0, revenue: 0, conversionPct: null };
+    const row = groups.get(key) || { key, label, sourceType, chats: 0, typed: 0, handoffs: 0, booked: 0, attended: 0, revenue: 0, hot: 0, conversionPct: null };
     row.chats += 1;
+    if (gradeByPhone.get(String(c.phone || c.id || "").replace(/\D/g, "").slice(-10)) === "hot") row.hot += 1;
     if (num(c.adTypedAt) > 0 || (String(c.lastText || "").trim() && c.lastDirection === "in")) row.typed += 1;
     if (num(c.handoffAtMs) > 0 || c.needsHuman === true) row.handoffs += 1;
 
@@ -121,8 +133,8 @@ export function adStats(
     .sort((a, b) => b.booked - a.booked || b.chats - a.chats);
 
   const totals = rows.reduce(
-    (t, r) => ({ chats: t.chats + r.chats, typed: t.typed + r.typed, handoffs: t.handoffs + r.handoffs, booked: t.booked + r.booked, attended: t.attended + r.attended, revenue: t.revenue + r.revenue, conversionPct: null as number | null }),
-    { chats: 0, typed: 0, handoffs: 0, booked: 0, attended: 0, revenue: 0, conversionPct: null as number | null },
+    (t, r) => ({ chats: t.chats + r.chats, typed: t.typed + r.typed, handoffs: t.handoffs + r.handoffs, booked: t.booked + r.booked, attended: t.attended + r.attended, revenue: t.revenue + r.revenue, hot: t.hot + r.hot, conversionPct: null as number | null }),
+    { chats: 0, typed: 0, handoffs: 0, booked: 0, attended: 0, revenue: 0, hot: 0, conversionPct: null as number | null },
   );
   totals.conversionPct = totals.chats ? Number(((totals.booked / totals.chats) * 100).toFixed(1)) : null;
 

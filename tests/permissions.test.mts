@@ -581,6 +581,9 @@ const ALLOWED_INACTIVE = [
   "appointments/free-slots/route.ts", // POST by name, a query
   "marketing/cases/route.ts",      // GET: the case library, read
   "payroll/route.ts",              // GET: what staff are owed, read
+  "reports/route.ts",              // GET only: the phone's reports, computed from the clinic's own
+                                   // records. Writes nothing. A lapsed clinic keeps reading its own
+                                   // history, the same as the website's reports page does.
   "message-drafts/route.ts",       // GET: drafts, read
   "records/bin/route.ts",          // GET: what is in the bin. Seeing what you lost must never
                                    // depend on the subscription; restoring it does.

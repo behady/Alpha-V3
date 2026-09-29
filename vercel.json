@@ -55,6 +55,14 @@
     {
       "path": "/api/automation/alert-sweep",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/automation/lead-grades",
+      "schedule": "30 3 * * *"
+    },
+    {
+      "path": "/api/automation/lead-flow",
+      "schedule": "30 4 * * 1"
     }
   ]
 }

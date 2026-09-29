@@ -230,11 +230,15 @@ type GatewayView = {
   lastError?: string | null;
   /** Clinic hours and the queue, as the gateway reports them (whatsapp-gateway/src/policy.js). */
   sending?: { windowOpen: boolean; window: string; nextOpenAt: number | null; queued: number; waiting: number; dailyCap: number; sentToday: number } | null;
+  /** How many patients have ever written to this number — the ones it can message as replies. */
+  warmth?: { written: number; patients: number } | null;
 };
 
 function readGateway(data: Record<string, unknown>): GatewayView {
   const s = data.sending && typeof data.sending === "object" ? (data.sending as Record<string, unknown>) : null;
+  const w = data.warmth && typeof data.warmth === "object" ? (data.warmth as Record<string, unknown>) : null;
   return {
+    warmth: w ? { written: Number(w.written) || 0, patients: Number(w.patients) || 0 } : null,
     available: data.available === true,
     managed: data.managed === true,
     state: typeof data.state === "string" ? data.state : undefined,
@@ -845,6 +849,10 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
       gwResume: language === "ar" ? "استئناف" : "Resume",
       gwWaitingCount: (n: number, at: string) =>
         language === "ar" ? `${n} رسالة مستنية — الإرسال هيكمل الساعة ${at}` : `${n} message${n === 1 ? "" : "s"} waiting — sending resumes at ${at}`,
+      gwWarmth: (written: number, patients: number) =>
+        language === "ar"
+          ? `${written} من ${patients} مريض بعتوا رسالة للعيادة على واتساب — الرسائل ليهم بتتحسب ردود، مش رسايل باردة. كل ما الرقم ده يزيد، الرقم أأمن.`
+          : `${written} of ${patients} patients have written to the clinic on WhatsApp — messages to them count as replies, not cold outreach. The higher this is, the safer the number.`,
       gwSentToday: (used: number, cap: number) =>
         language === "ar" ? `النهارده: ${used} من ${cap} رسالة أولى مسموحة` : `Today: ${used} of ${cap} first-contact messages allowed`,
       wapilotHint:
@@ -1520,6 +1528,11 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
                   {gateway.sending.waiting > 0 && gateway.sending.nextOpenAt
                     ? txt.gwWaitingCount(gateway.sending.waiting, new Date(gateway.sending.nextOpenAt).toLocaleTimeString(language === "ar" ? "ar-EG" : "en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Cairo" }))
                     : txt.gwSentToday(gateway.sending.sentToday, gateway.sending.dailyCap)}
+                </p>
+              )}
+              {gateway.managed && gateway.state === "open" && gateway.warmth && gateway.warmth.patients > 0 && (
+                <p className="text-[11px] text-ink-muted leading-relaxed" dir="auto">
+                  {txt.gwWarmth(gateway.warmth.written, gateway.warmth.patients)}
                 </p>
               )}
             </div>
