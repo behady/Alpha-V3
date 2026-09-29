@@ -20,6 +20,7 @@ import { confirmOptOut } from "@/lib/bot/optOutConfirm";
 import { reportServerError } from "@/lib/server/reportError";
 import { readStoredAd, type AdReferral } from "@/lib/bot/adReferral";
 import { gradeLeadByPhone } from "@/lib/leads/gradeLeadServer";
+import { claimMediaTurn } from "@/lib/bot/burstGuard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -425,6 +426,13 @@ export async function POST(request: NextRequest) {
     let text = reply.text;
     let mediaKind = media?.kind as "audio" | "image" | undefined;
     let mediaNote: { summary: string; urgent: boolean; interest?: string; impression?: string; category?: "dental" | "document" | "other" } | undefined;
+
+    // The second photo of an album and every one after it: on the thread (above), read by
+    // nobody, answered by nobody — the first photo's answer was the answer. See lib/bot/burstGuard.
+    if (media && !text && !(await claimMediaTurn(clinicId, conversationKey(chatId)))) {
+      await adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(chatId)).set({ lastReason: "media_burst" }, { merge: true }).catch(() => {});
+      return NextResponse.json({ ok: true, bot: "skipped", why: "media_burst" });
+    }
 
     if (media && !text) {
       const gate = await adminClinicDoc(clinicId, "settings", "whatsapp").get().catch(() => null);

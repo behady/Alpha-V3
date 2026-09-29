@@ -19,6 +19,7 @@ import { clinicIdForPhoneNumberId } from "@/lib/metaWhatsapp";
 import { reportServerError } from "@/lib/server/reportError";
 import { parseMetaReferral, type AdReferral } from "@/lib/bot/adReferral";
 import { gradeLeadByPhone } from "@/lib/leads/gradeLeadServer";
+import { claimMediaTurn } from "@/lib/bot/burstGuard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -454,6 +455,17 @@ export async function POST(request: NextRequest) {
             messageId: msg.messageId,
             mimeHint: msg.mime,
           }).catch((e) => console.warn("[meta-whatsapp] media fetch failed:", e));
+        }
+        /*
+         * The second photo of an album, and every one after it. The file is on the thread by
+         * now (above); nothing reads it and nobody answers it — the first photo's answer was the
+         * answer. Stickers and locations are punctuation and never hold the slot.
+         */
+        if (!msg.text && (msg.media === "image" || msg.media === "audio" || msg.media === "video" || msg.media === "document")) {
+          if (!(await claimMediaTurn(clinicId, conversationKey(msg.from)))) {
+            await adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(msg.from)).set({ lastReason: "media_burst" }, { merge: true }).catch(() => {});
+            return;
+          }
         }
         try {
           /*

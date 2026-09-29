@@ -57,6 +57,7 @@
     "test:bot": "npx tsx tests/botEngine.test.mts",
     "test:ads": "npx tsx tests/adReferral.test.mts",
     "test:grade": "npx tsx tests/leadGrade.test.mts",
+    "test:burst": "npx tsx tests/burstGuard.test.mts",
     "test:gradeflow": "npx tsx tests/leadGradingFlow.test.mts",
     "test:botcases": "npx tsx tests/botTestCases.test.mts",
     "test:claims": "npx tsx tests/replyClaims.test.mts",

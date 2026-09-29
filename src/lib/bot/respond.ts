@@ -685,7 +685,7 @@ export async function respondToPatientMessage(args: {
     return skip("opted_out");
   }
 
-  const allowance = replyAllowance(conversation);
+  const allowance = replyAllowance(conversation, now);
   if (!allowance.allowed) {
     /*
      * Out of budget — but a budget is a ban-protection device, not a triage rule. A message that
@@ -694,6 +694,16 @@ export async function respondToPatientMessage(args: {
      * which is the whole point of the cap.
      */
     const urgent = needsHuman(text);
+    /*
+     * A burst is held, not handed over. The seven photos of a forwarded album are one event: the
+     * first was answered, the rest are on the thread for staff, and raising a handoff row for
+     * each would put six "needs reply" rows in the inbox for a message nobody sent on purpose.
+     * The state is left as it was, so the person's next message a minute later is answered.
+     */
+    if (allowance.reason === "burst" && !urgent) {
+      await saveConversation(clinicId, conversation, { state: conversation.state, replied: false, reason: "burst", pending: pendingFrom(conversation) }, now);
+      return skip("burst");
+    }
     await markHandoff(clinicId, conversation.phoneKey, urgent ? "limit_urgent" : allowance.reason || "limit", {
       text,
       phone,

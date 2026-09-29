@@ -3,6 +3,7 @@ import { adminClinicDoc } from "@/lib/adminClinicDb";
 import { phoneMatchKey } from "@/lib/patientPhone";
 import type { BotState } from "./engine";
 import { readStoredAd, type AdReferral } from "./adReferral";
+import { MAX_REPLIES_PER_MINUTE, REPLY_BURST_MS, repliesInLastMinute } from "./burstGuard";
 
 /**
  * What the bot remembers between one message and the next.
@@ -193,6 +194,14 @@ export interface BotConversation {
   ad?: AdReferral;
   /** When this ad-referred person first wrote something (an ad tap alone opens a chat). */
   adTypedAt?: number;
+  /**
+   * When the bot last spoke to this number, newest last, inside the last minute only.
+   *
+   * The hourly cap is ban protection; this is manners. Twelve bubbles in sixty seconds under a
+   * forwarded album stayed under the hourly cap and still read as a machine losing its mind.
+   * Appended atomically on every reply (see saveConversation), so racing deliveries count.
+   */
+  recentReplies?: number[];
 }
 
 /**
@@ -317,6 +326,7 @@ export async function loadConversation(
     optedOut: d.optedOut === true,
     ad: readStoredAd(d.ad) || undefined,
     adTypedAt: Number(d.adTypedAt) || undefined,
+    recentReplies: recentRepliesFrom(d.recentReplies, now, ref(clinicId, phoneKey)),
     // Expired options are not carried: a list of "tomorrow's" times from last week books the
     // wrong day if a stray "1" arrives after the chat lapses.
     pendingDays: !expired && Array.isArray(d.pendingDays) ? d.pendingDays.map(String) : undefined,
@@ -349,9 +359,29 @@ export async function loadConversation(
   };
 }
 
+/**
+ * The reply stamps that still matter, and a trim of the ones that do not.
+ *
+ * Only the last minute counts, so the stored list is filtered on read. The list grows by one
+ * per reply forever otherwise; once it is clearly stale it is rewritten in the background to
+ * the fresh stamps. Not atomic, and does not need to be: losing a stamp from a minute ago costs
+ * nothing, and the append on the reply path stays an arrayUnion.
+ */
+function recentRepliesFrom(raw: unknown, now: number, docRef: FirebaseFirestore.DocumentReference): number[] {
+  const all = Array.isArray(raw) ? raw.map(Number).filter((t) => Number.isFinite(t) && t > 0) : [];
+  const fresh = all.filter((t) => t > now - REPLY_BURST_MS);
+  if (all.length > 24 && fresh.length < all.length) {
+    void docRef.set({ recentReplies: fresh }, { merge: true }).catch(() => {});
+  }
+  return fresh;
+}
+
 /** Whether the bot is still allowed to speak to this number right now, and why not. */
-export function replyAllowance(c: BotConversation): { allowed: boolean; reason?: string } {
+export function replyAllowance(c: BotConversation, now: number = Date.now()): { allowed: boolean; reason?: string } {
   if (c.repliesInWindow >= MAX_REPLIES_PER_HOUR) return { allowed: false, reason: "rate_limited" };
+  // Too many things said in the last minute: hold this one. Not a handoff, not a state change —
+  // the next message a minute later is answered normally. See lib/bot/burstGuard.
+  if (repliesInLastMinute(c.recentReplies, now) >= MAX_REPLIES_PER_MINUTE) return { allowed: false, reason: "burst" };
   if (c.turns >= MAX_TURNS) return { allowed: false, reason: "too_many_turns" };
   return { allowed: true };
 }
@@ -419,6 +449,8 @@ export async function saveConversation(
     aiHistory: next.aiExchange
       ? [...(c.aiHistory ?? []), { q: next.aiExchange.q.slice(0, 300), a: next.aiExchange.a.slice(0, 300) }].slice(-3)
       : (c.aiHistory ?? []),
+    // Appended, never rewritten: three deliveries in the same second each add their own stamp.
+    ...(next.replied ? { recentReplies: FieldValue.arrayUnion(now) } : {}),
     updatedAt: FieldValue.serverTimestamp(),
   };
   // Firestore rejects an explicit undefined, and these are optional by nature.
