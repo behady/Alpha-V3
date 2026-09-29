@@ -643,7 +643,9 @@ function eq<T>(actual: T, expected: T, message: string) {
     "src/components/patients/PatientTreatmentPlanTab.tsx",
   ]) {
     const ui = read(rel);
-    ok(/payerCoverageFilter/.test(ui), `${rel} offers every treatment, including the ones this insurer does not cover`);
+    // `serviceMenuById` (src/lib/serviceMenu.ts) wraps `payerCoverageFilter` and adds the list's
+    // own menu on top, so either name proves the insurer's coverage is applied.
+    ok(/payerCoverageFilter|serviceMenuById/.test(ui), `${rel} offers every treatment, including the ones this insurer does not cover`);
     ok(
       /services=\{offeredServices\}/.test(ui),
       `${rel} still hands the picker the full catalogue — the filter above it is computed and then ignored`
