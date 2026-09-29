@@ -46,6 +46,15 @@ export type PriceList = {
    * empty string would be a branch id that matches nothing — see [[firestore-undefined-rejects-writes]].
    */
   branchId?: string;
+  /**
+   * Shared treatments this list does NOT offer. Absent = offers every shared treatment.
+   *
+   * Held here rather than on the service because hiding is the list's decision: the treatment
+   * itself is unchanged and still on every other list. Its opposite — a treatment that exists on
+   * one list alone — lives on the SERVICE as `listId`; `serviceMenu.ts` reads the two together.
+   * Absent rather than empty for the usual reason: see [[firestore-undefined-rejects-writes]].
+   */
+  hiddenServiceIds?: string[];
 };
 
 export type DiscountSettings = {
@@ -89,6 +98,18 @@ function clampPercent(value: unknown): number {
   return Math.min(100, Math.max(0, n));
 }
 
+/**
+ * `hiddenServiceIds` as a field to spread in: trimmed, de-duplicated, strings only, and ABSENT
+ * when there is nothing to hide. Shared by the read and the write so the two can never disagree.
+ */
+function hiddenField(value: unknown): { hiddenServiceIds?: string[] } {
+  if (!Array.isArray(value)) return {};
+  const ids = Array.from(
+    new Set(value.filter((v): v is string => typeof v === "string").map((v) => v.trim()).filter(Boolean)),
+  );
+  return ids.length > 0 ? { hiddenServiceIds: ids } : {};
+}
+
 /** Read the stored document into a usable set of lists. Always returns at least one. */
 export function parsePriceLists(data: Record<string, unknown> | null | undefined): PriceList[] {
   const raw = Array.isArray(data?.lists) ? (data!.lists as Record<string, unknown>[]) : [];
@@ -109,6 +130,7 @@ export function parsePriceLists(data: Record<string, unknown> | null | undefined
       ...(typeof entry?.branchId === "string" && entry.branchId.trim()
         ? { branchId: entry.branchId.trim() }
         : {}),
+      ...hiddenField(entry?.hiddenServiceIds),
       generalDiscountPercent: clampPercent(entry?.generalDiscountPercent),
       active: entry?.active !== false,
       isDefault: entry?.isDefault === true,
@@ -173,6 +195,7 @@ export function toStoredList(list: PriceList): Record<string, unknown> {
     name: list.name,
     ...(typeof list.nameAr === "string" && list.nameAr.trim() ? { nameAr: list.nameAr } : {}),
     ...(typeof list.branchId === "string" && list.branchId.trim() ? { branchId: list.branchId.trim() } : {}),
+    ...hiddenField(list.hiddenServiceIds),
     generalDiscountPercent: clampPercent(list.generalDiscountPercent),
     active: list.active !== false,
     isDefault: list.isDefault === true,
