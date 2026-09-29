@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { conversationKey, markConversationOptedOut } from "@/lib/bot/conversation";
@@ -19,9 +19,12 @@ import { applyInboundOptOut } from "@/lib/optOutInbound";
 import { confirmOptOut } from "@/lib/bot/optOutConfirm";
 import { reportServerError } from "@/lib/server/reportError";
 import { readStoredAd, type AdReferral } from "@/lib/bot/adReferral";
+import { gradeLeadByPhone } from "@/lib/leads/gradeLeadServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Room for the after() grading call (a short wait plus one model read) once the response is out.
+export const maxDuration = 60;
 
 /**
  * Inbound WhatsApp replies from the gateway, for the one purpose of honouring "STOP".
@@ -475,6 +478,10 @@ export async function POST(request: NextRequest) {
       mediaNote,
       ad,
     });
+
+    // The lead behind this number, re-graded on what they just said — after the response has
+    // gone back to the gateway, so it never holds the webhook. See lib/leads/gradeLeadServer.
+    if (text.trim() && phone) after(() => gradeLeadByPhone(clinicId, phone, { trigger: "inbound", delayMs: 4000 }));
 
     return NextResponse.json({ ok: true, bot: bot.status, why: bot.reason });
   } catch (error) {

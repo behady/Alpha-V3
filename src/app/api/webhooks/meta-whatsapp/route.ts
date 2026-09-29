@@ -18,6 +18,7 @@ import { isOptOutReply } from "@/lib/patientMessaging";
 import { clinicIdForPhoneNumberId } from "@/lib/metaWhatsapp";
 import { reportServerError } from "@/lib/server/reportError";
 import { parseMetaReferral, type AdReferral } from "@/lib/bot/adReferral";
+import { gradeLeadByPhone } from "@/lib/leads/gradeLeadServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -514,6 +515,9 @@ export async function POST(request: NextRequest) {
             welcome: msg.welcome,
             mediaNote,
           });
+          // The lead behind this number, re-graded on what they just said. Waits a moment for
+          // the bot's own lead write to land; the rules are free, the model reads once a day.
+          if (text.trim()) void gradeLeadByPhone(clinicId, msg.from, { trigger: "inbound", delayMs: 4000 });
         } catch (e) {
           // Nothing is waiting on this promise any more, so an error here would otherwise vanish.
           reportServerError("[meta-whatsapp] Background reply failed:", e);

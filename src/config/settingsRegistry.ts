@@ -300,6 +300,20 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     view: ADMIN,
     edit: ADMIN,
   },
+  {
+    id: "lead_grading",
+    route: "/settings/lead-grading",
+    group: "booking",
+    labelEn: "Lead grading (AI)",
+    labelAr: "تقييم العملاء المحتملين (AI)",
+    hintEn: "The assistant learns from the desk which leads are hot, and drafts the clinic's own grading flow for approval.",
+    hintAr: "المساعد بيتعلم من الاستقبال مين العميل الساخن، وبيكتب فلو التقييم بتاع العيادة عشان تعتمده.",
+    keywords: ["leads", "grade", "hot", "warm", "cold", "تقييم", "عملاء", "ساخن"],
+    writes: [{ kind: "server", route: "/api/leads/grading-flow", guardedBy: "tests/leadGradingFlow.test.mts" }],
+    view: ADMIN,
+    edit: ADMIN,
+    feature: "leads",
+  },
 
   // --- Treatment & money ----------------------------------------------------------------------------
   {

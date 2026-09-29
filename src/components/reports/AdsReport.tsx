@@ -13,8 +13,8 @@ import { adStats } from "@/lib/reports/adStats";
  * so — the owner divides their Ads Manager figure by the "booked" column. Everything above that
  * line is what the ad platform cannot tell them: whether the people who clicked turned up.
  */
-export default function AdsReport({ ledger, range, isAr, data }: ReportProps) {
-  const s = useMemo(() => adStats(data.conversations || [], data.appointments || [], ledger, range), [data.conversations, data.appointments, ledger, range]);
+export default function AdsReport({ ledger, leads, range, isAr, data }: ReportProps) {
+  const s = useMemo(() => adStats(data.conversations || [], data.appointments || [], ledger, range, leads), [data.conversations, data.appointments, ledger, range, leads]);
   const kind = (t: string) => (t === "post" ? (isAr ? "منشور" : "Post") : isAr ? "إعلان" : "Ad");
 
   return (
@@ -60,6 +60,7 @@ export default function AdsReport({ ledger, range, isAr, data }: ReportProps) {
             { key: "chats", label: isAr ? "محادثات" : "Chats", align: "end", render: (r) => <Num v={r.chats} bold />, total: <Num v={s.totals.chats} bold /> },
             { key: "typed", label: isAr ? "كتبوا" : "Typed", align: "end", render: (r) => <Num v={r.typed} muted />, total: <Num v={s.totals.typed} muted /> },
             { key: "handoffs", label: isAr ? "لشخص" : "To a person", align: "end", render: (r) => <Num v={r.handoffs} muted />, total: <Num v={s.totals.handoffs} muted /> },
+            { key: "hot", label: isAr ? "🔥 ساخن" : "🔥 Hot", align: "end", render: (r) => <Num v={r.hot} bold={r.hot > 0} muted={r.hot === 0} />, total: <Num v={s.totals.hot} bold /> },
             { key: "booked", label: isAr ? "حجزوا" : "Booked", align: "end", render: (r) => <Num v={r.booked} bold />, total: <Num v={s.totals.booked} bold /> },
             { key: "attended", label: isAr ? "حضروا" : "Attended", align: "end", render: (r) => <Num v={r.attended} muted />, total: <Num v={s.totals.attended} muted /> },
             { key: "conversionPct", label: isAr ? "تحويل" : "Conv.", align: "end", render: (r) => <span className="font-figure text-[13px] font-bold text-ink">{fmtPct(r.conversionPct, 0)}</span>, exportValue: (r) => r.conversionPct ?? "", total: <span className="font-figure text-[13px] font-bold text-ink">{fmtPct(s.totals.conversionPct, 0)}</span> },

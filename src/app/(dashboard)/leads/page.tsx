@@ -27,6 +27,7 @@ import {
   DEFAULT_COUNTRY_CODE, COUNTRY_CODE_OPTIONS, buildE164FromCountryCode,
 } from "@/lib/phoneNumber";
 import { SourceIcon } from "@/components/SourceIcon";
+import { LEAD_GRADES, effectiveGrade, gradeEmoji, gradeLabel, gradeRank, gradeStyles, type LeadGrade } from "@/lib/leads/leadGrade";
 import FeatureGate from "@/components/FeatureGate";
 
 /**
@@ -86,6 +87,13 @@ function LeadsPage() {
 
   const [stageFilter, setStageFilter] = useState<"active" | LeadStage>("active");
   const [sourceFilter, setSourceFilter] = useState("");
+  const [gradeFilter, setGradeFilter] = useState<"" | LeadGrade>("");
+  /**
+   * Whether the AI's grade may be shown: only once an admin approved a grading flow. Until then
+   * the AI grades silently and the weekly review says how often it agreed with the desk.
+   */
+  const [aiGradingApproved, setAiGradingApproved] = useState(false);
+  const [pendingFlowWeek, setPendingFlowWeek] = useState("");
   const [branchFilter, setBranchFilter] = useState("");
   const [searchText, setSearchText] = useState("");
 
@@ -123,6 +131,12 @@ function LeadsPage() {
     getDoc(getClinicDoc("settings", LOCATIONS_DOC)).then((snap) => {
       setBranches(parseClinicBranches(snap.exists() ? snap.data() : null));
     });
+    const unsubGrading = onSnapshot(getClinicDoc("settings", "lead_grading"), (snap) => {
+      const d = snap.data() || {};
+      const flow = d.approvedFlow && typeof d.approvedFlow === "object" ? (d.approvedFlow as { text?: string }) : null;
+      setAiGradingApproved(Boolean(flow?.text) && d.enabled !== false);
+      setPendingFlowWeek(typeof d.pendingWeek === "string" ? d.pendingWeek : "");
+    }, () => {});
     getDoc(getClinicDoc("settings", "patient_sources")).then((snap) => {
       const own = snap.exists() && Array.isArray(snap.data().sources) ? snap.data().sources : [];
       // The clinic's own sources first, then the CRM defaults they haven't defined themselves.
@@ -146,7 +160,7 @@ function LeadsPage() {
           .sort((a, b) => a.name.localeCompare(b.name))
       );
     });
-    return () => { unsubServices(); unsubStaff(); };
+    return () => { unsubServices(); unsubStaff(); unsubGrading(); };
   }, [user]);
 
   const todayStr = useMemo(() => {
@@ -162,6 +176,7 @@ function LeadsPage() {
         if (l.stage === "won" || l.stage === "lost") return false;
       } else if (l.stage !== stageFilter) return false;
       if (sourceFilter && l.source !== sourceFilter) return false;
+      if (gradeFilter && effectiveGrade(l, aiGradingApproved).grade !== gradeFilter) return false;
       if (ownerFilter === "me" && l.assignedToUid !== user?.uid) return false;
       if (ownerFilter === "none" && l.assignedToUid) return false;
       if (ownerFilter && ownerFilter !== "me" && ownerFilter !== "none" && l.assignedToUid !== ownerFilter) return false;
@@ -176,15 +191,19 @@ function LeadsPage() {
       }
       return true;
     });
-    // Due follow-ups first (oldest due first), then newest leads.
+    // Due follow-ups first (oldest due first), then the hottest, then newest leads. The grade
+    // sorts inside the due group too: two people due today, call the hot one first.
     return base.sort((a, b) => {
       const dueA = isDue(a) ? 0 : 1;
       const dueB = isDue(b) ? 0 : 1;
       if (dueA !== dueB) return dueA - dueB;
+      const gA = gradeRank(effectiveGrade(a, aiGradingApproved).grade);
+      const gB = gradeRank(effectiveGrade(b, aiGradingApproved).grade);
+      if (gA !== gB) return gA - gB;
       if (dueA === 0) return (a.followUpDate || "").localeCompare(b.followUpDate || "");
       return (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
     });
-  }, [leads, stageFilter, sourceFilter, branchFilter, ownerFilter, searchText, todayStr, user]);
+  }, [leads, stageFilter, sourceFilter, gradeFilter, aiGradingApproved, branchFilter, ownerFilter, searchText, todayStr, user]);
 
   // This month's numbers — the "is the marketing working" strip.
   const stats = useMemo(() => {
@@ -329,6 +348,29 @@ function LeadsPage() {
     }
   };
 
+  /**
+   * The receptionist's word on a lead: hot, warm or cold. Tapping the same word again clears it.
+   *
+   * This is the ground truth the AI learns from — the weekly review reads these against the
+   * AI's own silent grades and the outcomes, and drafts the clinic's grading flow from them.
+   */
+  const setGrade = async (lead: Lead, grade: LeadGrade) => {
+    try {
+      const clear = lead.staffGrade === grade;
+      await updateDoc(getClinicDoc("leads", lead.id), {
+        staffGrade: clear ? null : grade,
+        staffGradeAtMs: clear ? null : Date.now(),
+        staffGradeBy: clear ? null : user?.uid || null,
+        staffGradeByName: clear ? null : user?.name || user?.email || null,
+        aiGradeAgree: clear || !lead.aiGrade ? null : lead.aiGrade === grade,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (e) {
+      console.error("Grade error:", e);
+      showToast(isAr ? "حصل خطأ" : "Error", "error");
+    }
+  };
+
   /** Lead → patient. Links to an existing record when the phone already exists. */
   const handleConvert = async (lead: Lead) => {
     setConvertingId(lead.id);
@@ -407,6 +449,19 @@ function LeadsPage() {
             <Plus size={18} strokeWidth={3} /> {isAr ? "إضافة" : "Add lead"}
           </button>
         </PageHeader>
+
+        {/* The AI drafted this clinic's grading flow; an admin has to look at it. */}
+        {pendingFlowWeek && isAdmin && (
+          <button
+            type="button"
+            onClick={() => router.push("/settings/lead-grading")}
+            className="w-full mb-4 text-start rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-800 hover:bg-amber-100 transition-colors"
+          >
+            {isAr
+              ? "المساعد كتب فلو تقييم العملاء بتاع العيادة من تقييمات الاستقبال الأسبوع ده — راجعه واعتمده أو عدّله من الإعدادات"
+              : "The assistant drafted this clinic's lead-grading flow from the desk's grades this week — review and approve or edit it in Settings"}
+          </button>
+        )}
 
         {/* Month stats */}
         <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4">
@@ -497,6 +552,15 @@ function LeadsPage() {
               <option value="">{isAr ? "كل المصادر" : "All sources"}</option>
               {sources.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
+            <select
+              value={gradeFilter}
+              onChange={(e) => setGradeFilter(e.target.value as "" | LeadGrade)}
+              className="bg-surface border border-line rounded-xl px-3 py-2 text-xs font-bold text-ink-body outline-none focus:border-teal-500"
+              title={isAr ? "التقييم" : "Grade"}
+            >
+              <option value="">{isAr ? "كل التقييمات" : "Any grade"}</option>
+              {LEAD_GRADES.map((g) => <option key={g} value={g}>{gradeEmoji(g)} {gradeLabel(g, isAr ? "ar" : "en")}</option>)}
+            </select>
             {staff.length > 0 && (
               <select
                 value={ownerFilter}
@@ -549,6 +613,19 @@ function LeadsPage() {
                         <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${styles.pill}`}>
                           {leadStageLabel(lead.stage, isAr ? "ar" : "en")}
                         </span>
+                        {(() => {
+                          const eg = effectiveGrade(lead, aiGradingApproved);
+                          if (!eg.grade) return null;
+                          const reason = eg.by === "ai" ? lead.aiGradeReason || "" : "";
+                          return (
+                            <span
+                              className={`text-[10px] font-black px-2 py-0.5 rounded-full ${gradeStyles(eg.grade).pill}`}
+                              title={eg.by === "ai" ? `${isAr ? "تقييم المساعد" : "AI grade"}${reason ? `: ${reason}` : ""}` : isAr ? "تقييم الاستقبال" : "Graded by the desk"}
+                            >
+                              {gradeEmoji(eg.grade)} {gradeLabel(eg.grade, isAr ? "ar" : "en")}{eg.by === "ai" ? " · AI" : ""}
+                            </span>
+                          );
+                        })()}
                         {lead.stage === "new" && lead.createdAt?.seconds ? (() => {
                           const waited = Math.max(0, nowSec - lead.createdAt.seconds);
                           const late = waited >= SPEED_TO_LEAD_RED_MINUTES * 60;
@@ -637,6 +714,11 @@ function LeadsPage() {
                           ) : null}
                         </p>
                       )}
+                      {aiGradingApproved && !lead.staffGrade && lead.aiGrade && lead.aiGradeReason && (
+                        <p className="text-[11px] text-slate-500 font-semibold mt-1.5 line-clamp-1" dir="auto" title={lead.aiGradeReason}>
+                          🤖 {lead.aiGradeReason}
+                        </p>
+                      )}
                       {lead.notes && <p className="text-[11px] text-slate-500 bg-slate-50 rounded-lg p-2 font-medium mt-2 line-clamp-2" title={lead.notes}>{lead.notes}</p>}
                       {lead.stage === "lost" && lead.lostReason && (
                         <p className="text-[11px] text-rose-500 font-bold mt-2">{isAr ? "السبب:" : "Reason:"} {lead.lostReason}</p>
@@ -713,6 +795,26 @@ function LeadsPage() {
                             {staff.map((s) => <option key={s.uid} value={s.uid}>{s.name}</option>)}
                           </select>
                           <ChevronDown size={12} className="absolute end-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                        </div>
+                      )}
+                      {/* The desk's grade. Three taps, one of them lit; the AI learns from these. */}
+                      {lead.stage !== "won" && lead.stage !== "lost" && (
+                        <div className="flex items-center gap-1" data-tour="leads-grade" title={isAr ? "تقييمك للعميل — المساعد بيتعلم منه" : "Your grade — the assistant learns from it"}>
+                          {LEAD_GRADES.map((g) => {
+                            const on = lead.staffGrade === g;
+                            return (
+                              <button
+                                key={g}
+                                type="button"
+                                onClick={() => void setGrade(lead, g)}
+                                className={`px-2 py-1.5 rounded-lg border text-[11px] font-black transition-colors shadow-sm ${
+                                  on ? gradeStyles(g).active : "bg-surface border-slate-200 text-slate-500 hover:bg-slate-50"
+                                }`}
+                              >
+                                {gradeEmoji(g)}<span className="hidden sm:inline ms-1">{gradeLabel(g, isAr ? "ar" : "en")}</span>
+                              </button>
+                            );
+                          })}
                         </div>
                       )}
                     </div>

@@ -823,6 +823,8 @@ const NO_PENDING_EDITS = new Set([
                                              // only field is the label that names it
   "prescriptions",                           // a drug is added or removed immediately
   "services",                                // edits happen inside a modal that saves on submit
+  "lead_grading",                            // the draft box saves on blur through the server
+                                             // route; approve / reject / toggle act on a press
 ]);
 
 /**
