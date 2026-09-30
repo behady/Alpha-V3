@@ -20,7 +20,7 @@ import {
   reportPrefs,
   resolveNotify,
 } from "../src/lib/notificationCatalog";
-import { buildReportPdf, arabicPdfAvailable } from "../src/lib/reports/staffReportPdf";
+import { buildReportPdf, arabicPdfAvailable, buildCustomPdf, cleanCustomSections, hasArabicPresentationForms } from "../src/lib/reports/staffReportPdf";
 import { lastDayOfPreviousMonth, reportEndDate } from "../src/lib/reports/sendStaffReport";
 import { matchesComplaint } from "../src/lib/alerts/complaint";
 import { discountPercentOf } from "../src/lib/alerts/moneyAlerts";
@@ -557,6 +557,45 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
   for (const rel of ["src/app/api/webhooks/meta-whatsapp/route.ts", "src/app/api/webhooks/whatsapp-inbound/route.ts"]) {
     ok(read(rel).includes("raiseComplaintIfAny("), `${rel} never checks for complaints`);
   }
+}
+
+// --- 8. PDFs the assistant lays out -------------------------------------------------------------
+{
+  const route = read("src/app/api/gemini/route.ts");
+  ok(route.includes('f.name !== "send_pdf_document" || clientIsWhatsappStaff'), "the PDF tool is offered to a client with no phone to send it to");
+  ok(route.includes('f.name !== "dentist_shares" || resolveBriefingAccess(authz.role, authz.permissions).money'), "dentist shares are offered to people without finance access");
+  ok(/call\.name === "dentist_shares"[\s\S]{0,200}resolveBriefingAccess\(authz\.role, authz\.permissions\)\.money/.test(route), "the dentist-shares handler trusts the tool list instead of checking again");
+  ok(route.includes("...(documentToSend ? { document: documentToSend } : {})"), "the laid-out document never leaves the route");
+  ok(route.includes("person: { type: SchemaType.STRING"), "attendance_report cannot give one person's days — the assistant says the detail is 'not available'");
+  ok(read("src/lib/bot/staffAssistant.ts").includes("send_pdf_document, then reply"), "the WhatsApp instruction never mentions PDFs");
+  ok(read("src/lib/bot/staffLine.ts").includes("buildCustomPdf(") && read("src/lib/bot/staffLine.ts").includes("sendStaffDocument("), "the staff line never sends the document");
+
+  // The cleaner: bounded, strings only, empty sections dropped.
+  const cleaned = cleanCustomSections([
+    { heading: "Days", columns: ["Date", "In", "Out"], rows: [["2026-09-01", "10:02", "18:05"], ["2026-09-02", 10.5, null, "extra"]] },
+    { heading: "Empty", rows: [] },
+    "junk",
+  ]);
+  eq(cleaned.length, 1, "empty and junk sections survive");
+  eq(cleaned[0].rows, [["2026-09-01", "10:02", "18:05"], ["2026-09-02", "10.5", ""]], "cells are not strings, or rows wider than the header survive");
+  eq(cleanCustomSections("nope"), [], "a non-array is not a document");
+  eq(cleanCustomSections([{ columns: ["تأخير (د)", "Late (min)"], rows: [["1", "2"]] }])[0].columns, ["تأخير · د", "Late (min)"], "brackets in Arabic cells print mirrored");
+
+  // The render: a real PDF, English here (no Arabic font locally), with a safe filename.
+  const pdf = await buildCustomPdf({
+    clinicName: "Alpha Dental",
+    title: "Malak — attendance, September 2026",
+    subtitle: "1/9/2026 – 30/9/2026",
+    language: "en",
+    sections: cleaned.concat([{ heading: "Note", note: "Estimated from clock-in records." }]),
+  });
+  ok(pdf.bytes.length > 2000 && String.fromCharCode(...pdf.bytes.slice(0, 5)) === "%PDF-", "the custom PDF is not a PDF");
+  eq(pdf.filename, "Malak-attendance-September-2026.pdf", "custom PDF filename");
+
+  // The font guard: Cairo's web subset has no presentation forms and must be refused.
+  ok(!hasArabicPresentationForms(readFileSync(join(REPO, "public/fonts/Cairo-Regular.ttf"))), "a font with no Arabic presentation forms is accepted — Arabic PDFs would be blank");
+  ok(!hasArabicPresentationForms(Buffer.from("not a font")), "garbage passes the font check");
+  ok(read("src/lib/reports/staffReportPdf.ts").includes("process.env.VERCEL ? DEFAULT_ARABIC_FONT_URL"), "the CDN font is fetched off Vercel too — a local test would reach the network");
 }
 
 console.log(`staffReports: ${checks} checks passed`);

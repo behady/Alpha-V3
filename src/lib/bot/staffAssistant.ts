@@ -72,6 +72,7 @@ export const WHATSAPP_STAFF_INSTRUCTION =
   "(1) The acting tools (set_appointment_status, reschedule_appointment, record_payment, send_patient_whatsapp, db_delete) stage a preview and the system asks the person to reply yes or no — never say it is done until the system confirms. " +
   "(2) Before db_write or db_update, first state exactly what you will create or change (every field) and ask them to confirm in words; call the tool only after they have said yes in a later message. " +
   "For an open question — recommendations, how are we doing, what should I focus on, where are we losing money — call run_clinic_report (and generate_financial_summary if money is in scope) FIRST, then give at most three concrete recommendations, each tied to a number you actually read. Never advise from general knowledge when the clinic's own figures are one tool call away. " +
+  "When they ask for detail — every day, a statement, a sheet, a list, 'بالتفصيل', a PDF — read the data with the right tool (attendance_report with 'person' for one person's days, dentist_shares for shares, db_read on ledger for payments) and send it with send_pdf_document, then reply in one or two lines. Never say the detail is not available when a tool returns it. " +
   "Answer in the language the question was written in.";
 
 /** What the assistant staged and is waiting on. Mirrors PendingActionPreview, kept small. */
@@ -131,8 +132,16 @@ export function confirmPrompt(language: "ar" | "en"): string {
   return language === "ar" ? "رد بـ *نعم* للتنفيذ أو *لا* للإلغاء." : "Reply *yes* to do it or *no* to cancel.";
 }
 
+/** A PDF the assistant laid out; staffLine renders and sends it after the reply. */
+export interface StaffDocument {
+  title: string;
+  subtitle?: string;
+  language: "ar" | "en";
+  sections: unknown[];
+}
+
 export type StaffAnswer =
-  | { ok: true; reply: string; pending: StaffPending | null }
+  | { ok: true; reply: string; pending: StaffPending | null; document: StaffDocument | null }
   | { ok: false; reason: "no_reply" | "error"; error?: string };
 
 export async function askAssistantForStaff(args: { clinicId: string; uid: string; name: string; question: string }): Promise<StaffAnswer> {
@@ -151,14 +160,15 @@ export async function askAssistantForStaff(args: { clinicId: string; uid: string
         systemInstruction: WHATSAPP_STAFF_INSTRUCTION,
       }),
     });
-    const json = (await res.json().catch(() => ({}))) as { reply?: string; error?: string; pendingAction?: PreviewLike | null };
+    const json = (await res.json().catch(() => ({}))) as { reply?: string; error?: string; pendingAction?: PreviewLike | null; document?: StaffDocument | null };
     if (!res.ok) return { ok: false, reason: "error", error: json.error || `HTTP ${res.status}` };
     const reply = String(json.reply || "").trim();
     const pending = json.pendingAction ? toStaffPending(json.pendingAction) : null;
-    if (!reply && !pending) return { ok: false, reason: "no_reply" };
+    if (!reply && !pending && !json.document) return { ok: false, reason: "no_reply" };
     await saveHistory(clinicId, uid, [...history, { role: "user", content: question }, { role: "assistant", content: reply || pending?.title || "" }]);
     await adminClinicDoc(clinicId, "staff_line", uid).set({ pending: pending || FieldValue.delete() }, { merge: true }).catch(() => {});
-    return { ok: true, reply, pending };
+    const document = json.document && Array.isArray(json.document.sections) ? json.document : null;
+    return { ok: true, reply, pending, document };
   } catch (error) {
     return { ok: false, reason: "error", error: error instanceof Error ? error.message : String(error) };
   }

@@ -42,6 +42,7 @@ import { runClinicReport } from "@/lib/automation/clinicReports";
 import { loadBriefingData } from "@/lib/automation/briefing/data";
 import { buildHrSection } from "@/lib/automation/briefing/hr";
 import { resolveBriefingAccess } from "@/lib/automation/briefing/build";
+import { buildProductionSection } from "@/lib/automation/briefing/money";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import { suggestSlots } from "@/lib/automation/slotSuggestions";
 import { isFullAccessRole } from "@/lib/permissions";
@@ -959,9 +960,42 @@ export async function POST(req: Request) {
           type: SchemaType.OBJECT,
           properties: {
             startDate: { type: SchemaType.STRING, description: "Start date (YYYY-MM-DD)" },
-            endDate: { type: SchemaType.STRING, description: "End date (YYYY-MM-DD); today or earlier" }
+            endDate: { type: SchemaType.STRING, description: "End date (YYYY-MM-DD); today or earlier" },
+            person: { type: SchemaType.STRING, description: "Optional: one staff member's name. When given, the result also lists every day for that person — clock-in time, clock-out time, hours, minutes late — which is what 'in detail', 'every day', 'what time did X come and leave' ask for." }
           },
           required: ["startDate", "endDate"]
+        }
+      },
+      {
+        name: "dentist_shares",
+        description:
+          "Per dentist over a date range: patients seen, procedures, cash collected on their patients, their commission (their share), lab fees and the clinic's share. USE THIS for dentist shares, commissions, 'how much does Dr X get', or any per-dentist money statement. Computed from the ledger's recorded commission and lab fee — never recompute a share yourself. Repeat any note about money collected with no dentist recorded.",
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            startDate: { type: SchemaType.STRING, description: "Start date (YYYY-MM-DD)" },
+            endDate: { type: SchemaType.STRING, description: "End date (YYYY-MM-DD)" }
+          },
+          required: ["startDate", "endDate"]
+        }
+      },
+      {
+        name: "send_pdf_document",
+        description:
+          "Sends the person a PDF on WhatsApp, laid out from tables YOU fill with data your other tools just returned. USE THIS whenever they ask for details, a statement, a sheet, 'بالتفصيل', 'PDF', a list longer than about eight lines, or anything they would want to print or forward — attendance day by day, a dentist's share statement, payments in a period, a patient's account. Every row must come from a tool result in this conversation; never invent, round or fill in a value. After calling it, reply with one or two lines summarising what the PDF shows.",
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            title: { type: SchemaType.STRING, description: "Short title, e.g. 'Malak — attendance, September 2026'." },
+            subtitle: { type: SchemaType.STRING, description: "Optional: the period or scope, e.g. '1/9/2026 – 30/9/2026'." },
+            language: { type: SchemaType.STRING, description: "'ar' or 'en' — the language the person wrote in." },
+            sectionsJson: {
+              type: SchemaType.STRING,
+              description:
+                "A JSON array of sections: [{\"heading\": string, \"columns\": [string], \"rows\": [[string]], \"note\": string}]. Cells are strings, one value per cell (a date, a time, a number, a name) — never a sentence mixing words and numbers. Put totals as the last row. Put any caveat the tool returned in 'note'."
+            }
+          },
+          required: ["title", "language", "sectionsJson"]
         }
       },
       {
@@ -1198,6 +1232,9 @@ export async function POST(req: Request) {
       // The pay sheet's own gate, applied to the tool rather than trusted to the prompt: a
       // receptionist who is not offered it cannot call it, whatever they ask.
       .filter((f) => f.name !== "attendance_report" || resolveBriefingAccess(authz.role, authz.permissions).hr)
+      .filter((f) => f.name !== "dentist_shares" || resolveBriefingAccess(authz.role, authz.permissions).money)
+      // A PDF can only be delivered where there is a phone to deliver it to.
+      .filter((f) => f.name !== "send_pdf_document" || clientIsWhatsappStaff)
       .filter((f) => f.name !== "open_appointment" || clientHasAppointmentPanel)
       .filter((f) => f.name !== "start_tutorial" || clientCanRunTutorials)
       .filter((f) => f.name !== "open_tour_stop" || clientCanOpenTour)
@@ -1238,6 +1275,8 @@ export async function POST(req: Request) {
     // Set when a tool stages a destructive action instead of performing it. Travels out of the
     // tool loop so the final reply can carry the confirmation prompt to the widget.
     let pendingAction: PendingActionPreview | null = null;
+    /** A PDF the model laid out, for the WhatsApp staff line to render and send. */
+    let documentToSend: { title: string; subtitle?: string; language: "ar" | "en"; sections: unknown[] } | null = null;
     
     while (result.response.functionCalls()?.length && callCount < 5) {
       const calls = result.response.functionCalls()!;
@@ -1635,6 +1674,42 @@ export async function POST(req: Request) {
                    ];
                    if (section.withoutSchedule > 0) notes.push(`${section.withoutSchedule} staff have no work schedule set, so they cannot be judged late or absent and are excluded from those counts.`);
                    if (endDate > today) notes.push(`Days after ${today} are not judged.`);
+
+                   // One person, day by day: the punches themselves, in the clinic's clock.
+                   const personAsked = String((call.args as any).person || "").trim().toLowerCase();
+                   let personDays: Record<string, unknown> | undefined;
+                   if (personAsked) {
+                      const who = data.staff.find((st) => st.name.toLowerCase() === personAsked)
+                        || data.staff.find((st) => st.name.toLowerCase().includes(personAsked) || personAsked.includes(st.name.toLowerCase()));
+                      if (!who) {
+                         personDays = { error: `No staff member matches "${personAsked}". Staff: ${data.staff.map((st) => st.name).join(", ")}` };
+                      } else {
+                         const clock = (d: Date | null) => (d ? new Intl.DateTimeFormat("en-GB", { timeZone, hour12: false, hour: "2-digit", minute: "2-digit" }).format(d) : "");
+                         const minutesOf = (hhmm: string) => { const m = /^(\d{1,2}):(\d{2})/.exec(hhmm); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+                         const days = data.punches
+                            .filter((p) => (p.userId && p.userId === who.uid) || (p.staffId && p.staffId === who.id))
+                            .filter((p) => p.date >= startDate && p.date <= endDate)
+                            .sort((a, b) => (a.date === b.date ? (a.checkIn?.getTime() || 0) - (b.checkIn?.getTime() || 0) : a.date < b.date ? -1 : 1))
+                            .map((p) => {
+                               const weekday = new Date(`${p.date}T12:00:00Z`).getUTCDay();
+                               const plan = who.schedule?.[weekday];
+                               const inAt = clock(p.checkIn);
+                               const start = plan?.active ? minutesOf(plan.start) : null;
+                               const inMin = minutesOf(inAt);
+                               const late = start !== null && inMin !== null && inMin > start ? inMin - start : 0;
+                               return {
+                                  date: p.date,
+                                  checkIn: inAt,
+                                  checkOut: clock(p.checkOut) || (p.date < today ? "no clock-out" : "still in"),
+                                  hours: Math.round(((p.durationMinutes || 0) / 60) * 100) / 100,
+                                  scheduledStart: plan?.active ? plan.start : "",
+                                  minutesLate: late,
+                                  status: p.status,
+                               };
+                            });
+                         personDays = { name: who.name, role: who.role, days };
+                      }
+                   }
                    toolResult = {
                       success: true,
                       report: {
@@ -1646,8 +1721,66 @@ export async function POST(req: Request) {
                             activeNow: r.activeNow,
                          })),
                          totals: { onFloorNow: section.onFloorNow, lateDays: section.lateDays, absentDays: section.absentDays, openShifts: section.openShifts, hoursWorked: hours(section.totalMinutes), withoutSchedule: section.withoutSchedule },
+                         ...(personDays ? { person: personDays } : {}),
                          notes,
                       },
+                   };
+                }
+             }
+          } else if (call.name === "dentist_shares") {
+             if (!resolveBriefingAccess(authz.role, authz.permissions).money) {
+                toolResult = { success: false, error: "Dentist shares are limited to people with finance access." };
+             } else {
+                const startDate = String((call.args as any).startDate || "");
+                const endDate = String((call.args as any).endDate || "");
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate) || startDate > endDate) {
+                   toolResult = { success: false, error: "startDate and endDate must be YYYY-MM-DD, start on or before end." };
+                } else {
+                   // The per-dentist table the Reports screen and the scheduled reports use.
+                   const data = await loadBriefingData({
+                      clinicId, startDate, endDate, comparisonStart: startDate, previousStart: null, previousEnd: null,
+                      attendanceStart: startDate, needsMoney: true, needsHr: false,
+                   });
+                   const { section, unattributedCollected } = buildProductionSection({
+                      appointments: data.inRange, rows: data.ledgerWindow, startDate, endDate, schedule: data.schedule, includeGap: false,
+                   });
+                   const r = (n: number) => Math.round(n);
+                   const dentists = [...section.doctors].sort((a, b) => b.collected - a.collected).map((d) => ({
+                      name: d.name, patientsSeen: d.patientsSeen, procedures: d.procedures,
+                      collected: r(d.collected), dentistShare: r(d.commission), labFees: r(d.labFee), clinicShare: r(d.clinicProfit),
+                   }));
+                   const sum = (k: "collected" | "dentistShare" | "labFees" | "clinicShare") => dentists.reduce((t, d) => t + d[k], 0);
+                   const notes = ["Cash basis: money collected in the period, with the commission and lab fee recorded on each payment."];
+                   if (unattributedCollected > 0) notes.push(`${r(unattributedCollected)} EGP was collected with no dentist recorded; it is in no dentist's row.`);
+                   toolResult = {
+                      success: true,
+                      report: { startDate, endDate, currency: "EGP", dentists, totals: { collected: sum("collected"), dentistShare: sum("dentistShare"), labFees: sum("labFees"), clinicShare: sum("clinicShare") }, notes },
+                   };
+                }
+             }
+          } else if (call.name === "send_pdf_document") {
+             if (!clientIsWhatsappStaff) {
+                toolResult = { success: false, error: "PDFs can only be sent on the WhatsApp staff line." };
+             } else {
+                let sections: unknown[] = [];
+                try {
+                   const parsed = JSON.parse(String((call.args as any).sectionsJson || "[]"));
+                   sections = Array.isArray(parsed) ? parsed : [];
+                } catch {
+                   sections = [];
+                }
+                if (sections.length === 0) {
+                   toolResult = { success: false, error: "sectionsJson must be a JSON array of sections with rows. Read the data first, then lay it out." };
+                } else {
+                   documentToSend = {
+                      title: String((call.args as any).title || "Report").slice(0, 80),
+                      subtitle: (call.args as any).subtitle ? String((call.args as any).subtitle).slice(0, 120) : undefined,
+                      language: (call.args as any).language === "en" ? "en" : "ar",
+                      sections,
+                   };
+                   toolResult = {
+                      success: true,
+                      message: "The PDF will be sent right after your reply. Reply in one or two short lines saying what it contains. Do not repeat the table in the reply.",
                    };
                 }
              }
@@ -2086,7 +2219,7 @@ export async function POST(req: Request) {
 
       await chargeCredits?.();
       if (!pendingAction) await rememberTourAnswer({ reply: replyText });
-      return NextResponse.json({ reply: replyText, pendingAction });
+      return NextResponse.json({ reply: replyText, pendingAction, ...(documentToSend ? { document: documentToSend } : {}) });
 
   } catch (error: any) {
     // The stack matters more than the message here — most failures in this route come from the

@@ -5,7 +5,8 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { notifyEvent } from "@/lib/notificationCatalog";
 import { readAlertPreferences, readClinicMembers } from "@/lib/notificationDelivery";
 import { reportAccessForRole, sendStaffReport } from "@/lib/reports/sendStaffReport";
-import { sendStaffWhatsApp } from "@/lib/staffWhatsapp";
+import { sendStaffDocument, sendStaffWhatsApp } from "@/lib/staffWhatsapp";
+import { buildCustomPdf, cleanCustomSections } from "@/lib/reports/staffReportPdf";
 import {
   askAssistantForStaff,
   clearStaffPending,
@@ -277,8 +278,30 @@ export async function respondToStaffMessage(args: {
       const reply = echo + (answer.pending
         ? [answer.reply, "", `📋 *${answer.pending.title}*`, ...answer.pending.lines, "", confirmPrompt(language)].filter((l, i, a) => !(l === "" && a[i - 1] === "")).join("\n").trim()
         : answer.reply);
-      const sent = await sendStaffWhatsApp({ clinicId, to, text: reply });
-      return sent.sent ? { status: "replied", text: reply, handoff: false, reason: answer.pending ? "staff_staged" : "staff_ask" } : { status: "skipped", reason: "staff_send_failed" };
+      const sent = reply.trim() ? await sendStaffWhatsApp({ clinicId, to, text: reply }) : { sent: true as const, via: "meta" as const };
+      if (answer.document) {
+        // The document the assistant laid out, as a PDF under its reply.
+        try {
+          const sections = cleanCustomSections(answer.document.sections);
+          if (sections.length > 0) {
+            const pdf = await buildCustomPdf({
+              clinicName: await clinicName(clinicId),
+              title: answer.document.title,
+              subtitle: answer.document.subtitle,
+              language: answer.document.language,
+              sections,
+            });
+            const filed = await sendStaffDocument({ clinicId, to, bytes: pdf.bytes, filename: pdf.filename, caption: answer.document.title });
+            if (!filed.sent) {
+              console.warn(`staff line: PDF failed for ${sender.uid}: ${filed.reason}${filed.error ? ` — ${filed.error}` : ""}`);
+              await sendStaffWhatsApp({ clinicId, to, text: language === "ar" ? "معرفتش أبعت ملف الـ PDF دلوقتي — جرّب تاني بعد شوية." : "I could not send the PDF just now — try again in a moment." });
+            }
+          }
+        } catch (error) {
+          console.warn("staff line: PDF build failed:", error);
+        }
+      }
+      return sent.sent ? { status: "replied", text: reply, handoff: false, reason: answer.document ? "staff_pdf" : answer.pending ? "staff_staged" : "staff_ask" } : { status: "skipped", reason: "staff_send_failed" };
     }
     console.warn(`staff line: assistant failed for ${sender.uid}: ${answer.reason}${answer.error ? ` — ${answer.error}` : ""}`);
     const sorry =

@@ -38,24 +38,83 @@ export const ARABIC_FONT_FILES = ["NotoNaskhArabic-Regular.ttf", "Amiri-Regular.
 
 let arabicFontCache: { base64: string } | null | undefined;
 
+/**
+ * Where the deployed server fetches an Arabic font when none ships in public/fonts: Amiri, OFL,
+ * from Google's own font repository on jsDelivr. Only on Vercel — a local run or a test never
+ * reaches the network for it. REPORT_ARABIC_FONT_URL overrides; "none" switches it off.
+ */
+export const DEFAULT_ARABIC_FONT_URL = "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/amiri/Amiri-Regular.ttf";
+
+/**
+ * Does this TrueType font map the Arabic presentation forms?
+ *
+ * jsPDF shapes Arabic by swapping each letter for its contextual form (U+FE70–FEFC) and then
+ * drawing that glyph. A font that carries only the base letters (U+0600–06FF) — Cairo's web
+ * subset is one — produces a page of blanks, not an error. Checked on the cmap so a font that
+ * cannot do it is refused before a clinic receives an empty PDF.
+ */
+export function hasArabicPresentationForms(buf: Buffer): boolean {
+  try {
+    const u16 = (o: number) => buf.readUInt16BE(o);
+    const u32 = (o: number) => buf.readUInt32BE(o);
+    const numTables = u16(4);
+    let cmap = 0;
+    for (let i = 0; i < numTables; i++) {
+      if (buf.toString("ascii", 12 + i * 16, 16 + i * 16) === "cmap") cmap = u32(12 + i * 16 + 8);
+    }
+    if (!cmap) return false;
+    const want = [0xfe8d /* alef isolated */, 0xfee3 /* meem initial */, 0xfeea /* heh final */];
+    const found = new Set<number>();
+    const subtables = u16(cmap + 2);
+    for (let i = 0; i < subtables; i++) {
+      const off = cmap + u32(cmap + 4 + i * 8 + 4);
+      const format = u16(off);
+      if (format === 4) {
+        const segX2 = u16(off + 6);
+        for (let seg = 0; seg < segX2 / 2; seg++) {
+          const end = u16(off + 14 + seg * 2);
+          const start = u16(off + 16 + segX2 + seg * 2);
+          for (const c of want) if (c >= start && c <= end) found.add(c);
+        }
+      } else if (format === 12) {
+        const groups = u32(off + 12);
+        for (let g = 0; g < groups; g++) {
+          const start = u32(off + 16 + g * 12);
+          const end = u32(off + 20 + g * 12);
+          for (const c of want) if (c >= start && c <= end) found.add(c);
+        }
+      }
+    }
+    return want.every((c) => found.has(c));
+  } catch {
+    return false;
+  }
+}
+
 async function loadArabicFont(): Promise<{ base64: string } | null> {
   if (arabicFontCache !== undefined) return arabicFontCache;
   for (const name of ARABIC_FONT_FILES) {
     try {
       const buf = await readFile(path.join(process.cwd(), "public", "fonts", name));
+      if (!hasArabicPresentationForms(buf)) continue;
       arabicFontCache = { base64: buf.toString("base64") };
       return arabicFontCache;
     } catch {
       /* next candidate */
     }
   }
-  const url = process.env.REPORT_ARABIC_FONT_URL?.trim();
+  const configured = process.env.REPORT_ARABIC_FONT_URL?.trim();
+  const url = configured === "none" ? "" : configured || (process.env.VERCEL ? DEFAULT_ARABIC_FONT_URL : "");
   if (url) {
     try {
       const res = await fetch(url);
       if (res.ok) {
-        arabicFontCache = { base64: Buffer.from(await res.arrayBuffer()).toString("base64") };
-        return arabicFontCache;
+        const buf = Buffer.from(await res.arrayBuffer());
+        if (hasArabicPresentationForms(buf)) {
+          arabicFontCache = { base64: buf.toString("base64") };
+          return arabicFontCache;
+        }
+        console.warn("Arabic report font has no presentation forms; PDFs fall back to English.");
       }
     } catch {
       /* no font */
@@ -467,4 +526,155 @@ function rangeLabelRaw(a: string, z: string): string {
 
 function hrLateMinutes(b: Briefing): number {
   return (b.hr?.staff || []).reduce((sum, s) => sum + s.lateMinutes, 0);
+}
+
+/* --- a document the assistant lays out ------------------------------------------------------- */
+
+/**
+ * One table in a document the assistant composed: a day-by-day attendance sheet, a dentist-share
+ * statement, a list of payments. The assistant fills it from what its tools returned; this only
+ * lays it out, the same way as the scheduled reports.
+ */
+export interface CustomPdfSection {
+  heading?: string;
+  columns?: string[];
+  rows?: string[][];
+  /** A short line under the table: a caveat the tool reported, a total. */
+  note?: string;
+}
+
+export interface CustomPdfInput {
+  clinicName: string;
+  title: string;
+  subtitle?: string;
+  language: L;
+  sections: CustomPdfSection[];
+}
+
+const MAX_ROWS = 400;
+const MAX_COLS = 10;
+
+/** Trims and bounds what a model sent, so a malformed document cannot crash the render. */
+export function cleanCustomSections(raw: unknown): CustomPdfSection[] {
+  if (!Array.isArray(raw)) return [];
+  const cell = (v: unknown) => {
+    let text = (v === null || v === undefined ? "" : String(v)).replace(/\s+/g, " ").trim().slice(0, 120);
+    // jsPDF does not mirror brackets inside Arabic, so "(تأخير د)" prints as "(تأخير )د".
+    if (/[؀-ۿ]/.test(text)) text = text.replace(/\s*\(\s*([^()]*?)\s*\)\s*/g, " · $1 ").replace(/\s+/g, " ").trim();
+    return text;
+  };
+  return raw
+    .slice(0, 20)
+    .map((sec): CustomPdfSection => {
+      const x = (sec || {}) as Record<string, unknown>;
+      const columns = Array.isArray(x.columns) ? x.columns.slice(0, MAX_COLS).map(cell) : [];
+      const width = columns.length || MAX_COLS;
+      const rows = Array.isArray(x.rows)
+        ? x.rows.slice(0, MAX_ROWS).map((r) => (Array.isArray(r) ? r.slice(0, width).map(cell) : [cell(r)]))
+        : [];
+      return {
+        heading: typeof x.heading === "string" ? x.heading.trim().slice(0, 120) : undefined,
+        columns,
+        rows,
+        note: typeof x.note === "string" ? x.note.trim().slice(0, 400) : undefined,
+      };
+    })
+    .filter((sec) => (sec.rows && sec.rows.length > 0) || sec.note);
+}
+
+export async function buildCustomPdf(input: CustomPdfInput): Promise<ReportPdfResult> {
+  const wantAr = input.language === "ar";
+  const font = wantAr ? await loadArabicFont() : null;
+  // Arabic cells need the Arabic font even in an English document: patient names are Arabic.
+  const anyArabic = /[\u0600-\u06FF]/.test(JSON.stringify(input.sections) + input.title + (input.subtitle || ""));
+  const fontForCells = font || (anyArabic ? await loadArabicFont() : null);
+  const l: L = wantAr && font ? "ar" : "en";
+  const rtl = l === "ar";
+
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const M = 40;
+  let fontName = "helvetica";
+  if (fontForCells) {
+    doc.addFileToVFS("ArabicReport.ttf", fontForCells.base64);
+    doc.addFont("ArabicReport.ttf", "ArabicReport", "normal");
+    fontName = "ArabicReport";
+  }
+  doc.setFont(fontName, "normal");
+  const align = rtl ? "right" : "left";
+  const at = (leftX: number) => (rtl ? W - leftX : leftX);
+
+  doc.setFillColor(17, 17, 17);
+  doc.rect(0, 0, W, 96, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(12);
+  doc.text(input.clinicName, at(M), 36, { align });
+  doc.setFontSize(20);
+  doc.text(input.title.slice(0, 80), at(M), 64, { align });
+  if (input.subtitle) {
+    doc.setFontSize(10);
+    doc.setTextColor(200, 200, 200);
+    doc.text(input.subtitle.slice(0, 120), at(M), 84, { align });
+  }
+
+  let y = 122;
+  for (const sec of input.sections) {
+    if (y > H - 120) {
+      doc.addPage();
+      y = M;
+    }
+    if (sec.heading) {
+      doc.setFontSize(13);
+      doc.setTextColor(20, 20, 20);
+      doc.text(sec.heading, at(M), y, { align });
+      y += 8;
+    }
+    if (sec.rows && sec.rows.length > 0) {
+      const flip = <T,>(r: T[]) => (rtl ? [...r].reverse() : r);
+      const width = Math.max(sec.columns?.length || 0, ...sec.rows.map((r) => r.length));
+      const pad = (r: string[]) => [...r, ...Array(Math.max(0, width - r.length)).fill("")];
+      const numeric = (col: number) => sec.rows!.every((r) => !r[col] || /^[\d.,:%+\-− ]+$/.test(r[col]));
+      const colStyles: Record<number, Record<string, unknown>> = {};
+      if (!rtl) for (let c = 0; c < width; c++) if (numeric(c)) colStyles[c] = { halign: "right" };
+      autoTable(doc, {
+        startY: y,
+        ...(sec.columns && sec.columns.length ? { head: [flip(pad(sec.columns))] } : {}),
+        body: sec.rows.map((r) => flip(pad(r))),
+        theme: "grid",
+        margin: { left: M, right: M },
+        styles: { font: fontName, fontStyle: "normal", fontSize: 9.5, halign: rtl ? "right" : "left", cellPadding: 5, textColor: [30, 30, 30], lineColor: [225, 225, 222] },
+        headStyles: { fillColor: [17, 17, 17], textColor: [255, 255, 255], fontStyle: "normal" },
+        alternateRowStyles: { fillColor: [250, 250, 249] },
+        columnStyles: colStyles,
+      });
+      y = ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || y) + 16;
+    }
+    if (sec.note) {
+      doc.setFontSize(9);
+      doc.setTextColor(110, 110, 110);
+      const lines = doc.splitTextToSize(sec.note, W - 2 * M) as string[];
+      for (const line of lines) {
+        if (y > H - 50) {
+          doc.addPage();
+          y = M;
+        }
+        doc.text(line, at(M), y, { align });
+        y += 12;
+      }
+      y += 10;
+    }
+  }
+
+  const pages = doc.getNumberOfPages();
+  for (let p = 1; p <= pages; p++) {
+    doc.setPage(p);
+    doc.setFontSize(8);
+    doc.setTextColor(150, 150, 150);
+    doc.text(`${t("generated", l)} · ${new Date().toISOString().slice(0, 16).replace("T", " ")}`, rtl ? W - M : M, H - 24, { align });
+    doc.text(`${t("page", l)} ${p}/${pages}`, rtl ? M : W - M, H - 24, { align: rtl ? "left" : "right" });
+  }
+
+  const stem = input.title.replace(/[^\w\u0600-\u06FF]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "report";
+  return { bytes: new Uint8Array(doc.output("arraybuffer")), language: l, filename: `${stem}.pdf` };
 }
