@@ -2,6 +2,8 @@ import { Edit2, ArrowRightLeft, Copy, Trash2, RefreshCcw, GripVertical, ChevronU
 import { Note } from "./types";
 import { useLanguage } from "@/context/LanguageContext";
 import Protect from "@/components/Protect";
+import InsurerBadge from "@/components/shared/InsurerBadge";
+import { PRIVATE_PAYER_ID } from "@/lib/payers";
 
 interface Props {
   note: Note;
@@ -22,6 +24,8 @@ interface Props {
 
 export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue, compact = false, reorder }: Props) {
   const { language } = useLanguage();
+  /** The insurer this note is charged to; nothing for the clinic's own work or for older notes. */
+  const insurer = note.payerId && note.payerId !== PRIVATE_PAYER_ID && note.payerName ? note.payerName : null;
 
   const txt = {
     edit: language === "ar" ? "تعديل" : "Edit",
@@ -110,6 +114,8 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
           </span>
         )}
 
+        {insurer && <InsurerBadge name={insurer} size={16} />}
+
         {Number(note.cost) > 0 && (
           <span className="text-xs font-black text-ink-body shrink-0">EGP {Number(note.cost).toLocaleString()}</span>
         )}
@@ -165,6 +171,11 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
           {note.isContinued && (
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-50 text-blue-600 border border-blue-200 uppercase tracking-widest flex items-center gap-1">
               <RefreshCcw size={10} /> {language === 'ar' ? 'متابعة' : 'Follow Up'}
+            </span>
+          )}
+          {insurer && (
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-surface-subtle text-ink-body border border-line flex items-center gap-1.5">
+              <InsurerBadge name={insurer} size={14} /> {insurer}
             </span>
           )}
         </div>

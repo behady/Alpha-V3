@@ -20,7 +20,8 @@ import { CircleDashed, UserX, Wallet } from "lucide-react";
 import { parseApptTimeToMinutes, updateBookingTime } from "@/lib/bookingService";
 import { dayBoundsCovering, visitStartInDay, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import { getAppointmentStageLabel, getAppointmentStatusStyles, normalizeAppointmentStatus } from "@/lib/appointmentStages";
-import { medicalAlert, timeRange, type PatientHistory } from "@/lib/scheduleCard";
+import { medicalAlert, timeRange, type PatientHistory, type VisitMoney } from "@/lib/scheduleCard";
+import InsurerBadge from "@/components/shared/InsurerBadge";
 import { doctorCardLabel } from "@/lib/generalDentist";
 import { AlertBadge } from "@/components/dashboard/ScheduleCardDetails";
 import {
@@ -56,6 +57,8 @@ interface WeeklyScheduleViewProps {
     canSeeMoney: boolean;
     /** What each patient owes from before the week, keyed by patient id. */
     patientHistory: Map<string, PatientHistory>;
+    /** The week's treatment rows per appointment — read here only for the insurer mark. */
+    visitMoney?: Map<string, VisitMoney>;
 }
 
 export default function WeeklyScheduleView({
@@ -69,6 +72,7 @@ export default function WeeklyScheduleView({
     todayKey,
     canSeeMoney,
     patientHistory,
+    visitMoney,
 }: WeeklyScheduleViewProps) {
     const isAr = language === 'ar';
     const locale = isAr ? 'ar-EG' : 'en-US';
@@ -290,6 +294,7 @@ export default function WeeklyScheduleView({
                                                 const unconfirmed = isUnconfirmed(apt.status);
                                                 const noShow = status === "No Show";
                                                 const owed = canSeeMoney ? (patientHistory.get(String(apt.patientId))?.owedBefore ?? 0) : 0;
+                                                const insurers = visitMoney?.get(apt.id)?.payers ?? [];
                                                 const what = `${apt.treatment || (isAr ? 'كشف' : 'Consultation')} · ${doctorCardLabel(apt.doctor, language)}`;
                                                 const when = timeRange(minutesToClock(apt.startMin), apt.dur);
 
@@ -322,6 +327,11 @@ export default function WeeklyScheduleView({
                                                             <span className="flex items-center gap-1 min-w-0">
                                                                 <span className="text-sm font-bold text-ink truncate leading-tight">{apt.patientName}</span>
                                                                 <AlertBadge alert={alert} isAr={isAr} />
+                                                                {insurers.length > 0 && (
+                                                                    <span className="shrink-0 inline-flex items-center gap-0.5" title={insurers.join(", ")}>
+                                                                        {insurers.slice(0, 2).map((p) => <InsurerBadge key={p} name={p} size={13} />)}
+                                                                    </span>
+                                                                )}
                                                                 {unconfirmed && (
                                                                     <CircleDashed size={12} className="shrink-0 text-ink-muted" aria-label={isAr ? 'لسه مأكدش' : 'Not confirmed'}>
                                                                         <title>{isAr ? 'لسه مأكدش' : 'Not confirmed'}</title>
@@ -354,6 +364,11 @@ export default function WeeklyScheduleView({
                                                         <div className={`absolute hidden group-hover:flex flex-col gap-1 z-[100] bg-ink-slab text-white shadow-xl rounded-lg p-3 w-60 top-0 ${i >= 4 ? 'end-full me-2' : 'start-full ms-2'}`}>
                                                             <div className="text-[15px] font-bold leading-tight">{apt.patientName}</div>
                                                             <div className="text-xs text-white/80">{what}</div>
+                                                            {insurers.length > 0 && (
+                                                                <div className="flex items-center gap-1.5 text-xs text-white/80">
+                                                                    <InsurerBadge name={insurers[0]} size={14} /> {isAr ? "على حساب" : "Charged to"} {insurers.join(", ")}
+                                                                </div>
+                                                            )}
                                                             <div className="font-figure text-xs text-white/80" dir="ltr">{when}</div>
                                                             {phone && <div className="text-xs text-white/60" dir="ltr">{phone}</div>}
                                                             <div className="mt-1 text-[11px] font-semibold text-white/60">

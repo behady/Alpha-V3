@@ -45,6 +45,7 @@ import { isDentistStaff } from "@/lib/staffRoles";
 import { doctorCardLabel, pickerValueFromDoctorField } from "@/lib/generalDentist";
 import { parseClinicSchedule, dayBoundsCovering, visitStartInDay, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import { weekDaysFrom } from "@/lib/weekSchedule";
+import InsurerBadge from "@/components/shared/InsurerBadge";
 import { holdsPermission } from "@/lib/permissions";
 import { useClinic } from "@/context/ClinicContext";
 import { useActiveBranch, ALL_BRANCHES } from "@/lib/useActiveBranch";
@@ -272,13 +273,16 @@ export default function DesktopDashboard() {
 
   useEffect(() => {
     if (!scheduleViewDate) return;
+    // The week view marks its cards from the same map, so in week mode the whole week's treatment
+    // rows are read — seven days, not one — and the day view keeps its single-day query.
+    const days = viewMode === "week" ? weekDaysFrom(scheduleViewDate) : [scheduleViewDate];
     const unsub = onSnapshot(
-      query(getClinicCollection("ledger"), where("date", "==", scheduleViewDate)),
+      query(getClinicCollection("ledger"), where("date", ">=", days[0]), where("date", "<=", days[days.length - 1])),
       (snap) => setVisitMoney(moneyByAppointment(snap.docs.map((d) => d.data() as Record<string, unknown>))),
       () => setVisitMoney(new Map()),
     );
     return () => unsub();
-  }, [scheduleViewDate]);
+  }, [scheduleViewDate, viewMode]);
 
   /**
    * What the clinic already knows about each patient on the day being viewed: what they still owe
@@ -1343,6 +1347,7 @@ export default function DesktopDashboard() {
                                     todayKey={getLocalDateKey()}
                                     canSeeMoney={canSeeMoney}
                                     patientHistory={patientHistory}
+                                    visitMoney={visitMoney}
                                 />
                             ) : (() => {
                                 const sched = config;
@@ -1575,6 +1580,13 @@ export default function DesktopDashboard() {
                                                                                 {apt.patientName}
                                                                             </h4>
                                                                             <AlertBadge alert={alert} isAr={language === "ar"} />
+                                                                            {/* An insurance visit wears the insurer's mark beside the name, so
+                                                                                the desk can tell it apart before opening the card. */}
+                                                                            {visit && visit.payers.length > 0 && (
+                                                                                <span className="shrink-0 inline-flex items-center gap-0.5" title={visit.payers.join(", ")}>
+                                                                                    {visit.payers.slice(0, 2).map((p) => <InsurerBadge key={p} name={p} size={16} />)}
+                                                                                </span>
+                                                                            )}
                                                                             {/* Only while looking at every branch at once — inside a single
                                                                                 branch the chip would repeat the same word on every card. */}
                                                                             {activeBranchId === ALL_BRANCHES && apt.branchName && (

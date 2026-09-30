@@ -34,6 +34,8 @@ import {
 import { loadReceiptSettings } from "@/lib/receiptSettingsClient";
 import { printPaymentReceipt } from "@/lib/printPatientReceipt";
 import { parseLedgerProcedureDescription } from "@/lib/ledgerProcedureParse";
+import InsurerBadge from "@/components/shared/InsurerBadge";
+import { PRIVATE_PAYER_ID } from "@/lib/payers";
 import { sendPatientPaymentWhatsApp } from "@/lib/sendPatientPaymentWhatsAppClient";
 import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
 import {
@@ -121,7 +123,16 @@ interface LedgerItem {
     receiptNumber?: string | null;
     addedBy?: string | null;
     receivedBy?: string | null;
+    /** Who the row is charged to; a payment inherits its treatment's. Absent (Private) on older rows. */
+    payerId?: string | null;
+    payerName?: string | null;
   }
+
+/** The insurer's name for a row, or null for the clinic's own work and rows from before payers existed. */
+function insurerOf(row: { payerId?: string | null; payerName?: string | null }): string | null {
+  return row.payerId && row.payerId !== PRIVATE_PAYER_ID && row.payerName ? row.payerName : null;
+}
+
 export default function PatientFinance({ patientId }: { patientId: string }) {
   const { showToast, confirm } = useUI();
   const { discountSettings, maxDiscountPercent } = usePricingPolicy();
@@ -991,6 +1002,11 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                          )}
                                                        </div>
                                                    )}
+                                                   {insurerOf(item) && (
+                                                     <span className="mt-2 px-1.5 py-0.5 rounded bg-surface-subtle text-ink-body border border-line text-[9px] font-bold inline-flex items-center gap-1 me-2">
+                                                       <InsurerBadge name={insurerOf(item)!} size={12} /> {insurerOf(item)}
+                                                     </span>
+                                                   )}
                                                    {item.doctorName && <span className="mt-2 px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-100 text-[9px] uppercase font-bold inline-flex items-center gap-1 me-2"><User size={8}/> {item.doctorName.replace(/^Dr\.\s*/i, '')}</span>}
                                                    {getTxUser(item) && getTxUser(item) !== item.doctorName?.replace(/^Dr\.\s*/i, '') && (
                                                      <span className="mt-2 px-1.5 py-0.5 rounded bg-surface-muted text-ink-body border border-line text-[9px] uppercase font-bold inline-flex items-center gap-1 me-2">
@@ -1066,6 +1082,11 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                             {payment.method && (
                                                                 <span className="px-2 py-0.5 rounded bg-surface-muted text-ink-body text-[9px] uppercase font-extrabold inline-block border border-line">
                                                                     {payment.method}
+                                                                </span>
+                                                            )}
+                                                            {insurerOf(payment) && (
+                                                                <span className="px-2 py-0.5 rounded bg-surface-subtle text-ink-body border border-line text-[9px] font-bold inline-flex items-center gap-1">
+                                                                    <InsurerBadge name={insurerOf(payment)!} size={12} /> {insurerOf(payment)}
                                                                 </span>
                                                             )}
                                                             {payUser && (
