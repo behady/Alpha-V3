@@ -427,10 +427,10 @@ export function renderStaffReport(input: StaffReportInput): string {
     if (prefs.sections.money && access.money && input.yesterday?.money) {
       blocks.push(moneyBlock(input.yesterday, { ...prefs, moneyDetail: prefs.moneyDetail === "full" ? "dentists" : "totals" }, l, t("yesterdayMoney", l), true));
     }
-    if (prefs.sections.patients) {
-      const chase = chaseBlock(input.yesterday || today, access, l);
-      if (chase.length) blocks.push(chase);
-      if (input.handoffsWaiting && input.handoffsWaiting > 0) blocks.push([`${t("handoffs", l)}: ${input.handoffsWaiting}`]);
+    // No "to chase" block in the morning: the owner called the running counts of old
+    // appointments and overdue follow-ups noise at 07:00. They stay in the week and the month.
+    if (prefs.sections.patients && input.handoffsWaiting && input.handoffsWaiting > 0) {
+      blocks.push([`*${t("patients", l)}*`, `${t("handoffs", l)}: ${input.handoffsWaiting}`]);
     }
     if (prefs.sections.team && access.hr) {
       const roster = input.yesterday ? rosterBlock(input.yesterday, l) : [];

@@ -246,7 +246,8 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
   ok(morning.includes("صباح الخير"), "morning greeting missing");
   ok(morning.includes("2 ميعاد") && morning.includes("أول ميعاد 10:00"), "today's diary missing (cancelled ones must not count)");
   ok(morning.includes("إمبارح") && morning.includes("12,500"), "yesterday's money missing");
-  ok(morning.includes("محتاج متابعة") && morning.includes("حسابات عليها رصيد وساكتة: 1 حساب"), "the chase block is missing");
+  ok(!morning.includes("محتاج متابعة") && !morning.includes("رصيد وساكتة"), "the morning brief carries the 'to chase' counts the owner called noise");
+  ok(morning.includes("مستنية حد يرد: 1"), "the morning brief lost the handoffs line");
   ok(!morning.includes("الفريق"), "the morning brief shows attendance although team is off by default");
 
   // A dentist's own day lists only their patients.

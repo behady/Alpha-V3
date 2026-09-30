@@ -384,13 +384,14 @@ export async function buildReportPdf(input: ReportPdfInput): Promise<ReportPdfRe
     table(t("growth", l), head("", ""), rows, numCols(1));
 
     const a = b.actions;
+    // Same call as the text: the "to chase" list is a week's or a month's business, not the morning's.
     const chase: string[][] = [];
     if (a.unresolvedCount > 0) chase.push(row(t("unresolved", l), String(a.unresolvedCount)));
     if (a.seenWithoutNextVisitCount > 0) chase.push(row(t("seenNoNext", l), String(a.seenWithoutNextVisitCount)));
     if (a.billedWithoutBookingCount > 0) chase.push(row(t("billedNoBooking", l), String(a.billedWithoutBookingCount)));
     if (a.overdueFollowUpCount > 0) chase.push(row(t("overdueFollowups", l), String(a.overdueFollowUpCount)));
     if (access.money && a.staleBalanceTotal !== null && a.staleBalances.length > 0) chase.push(row(t("staleBalances", l), `${a.staleBalances.length} · ${fmt(a.staleBalanceTotal)}`));
-    table(t("chase", l), head("", ""), chase, numCols(1));
+    if (periodic) table(t("chase", l), head("", ""), chase, numCols(1));
   }
 
   // --- team / payroll ----------------------------------------------------------------------------
