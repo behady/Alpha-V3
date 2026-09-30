@@ -101,11 +101,12 @@ export function staffIntent(text: string): StaffIntent {
   if (!t) return "help";
   const words = t.split(/\s+/).filter(Boolean);
   if (words.length <= 2 && /^(hi+|hello|hey|help|menu|start|السلام عليكم|سلام|ازيك|إزيك|أهلا|اهلا|مرحبا|صباح الخير|مساء الخير|مساعدة|القايمة|القائمة|ابدأ)$/.test(t)) return "help";
-  if (words.length <= 3) {
-    if (/(تقرير|اقفال|إقفال|الاقفال|الإقفال|close|report|حساب اليوم|فلوس)/.test(t)) return "evening";
-    if (/(ملخص|summary|سطور|lines)/.test(t)) return "summary";
-    if (/(النهارده|النهاردة|اليوم|صباح|مواعيد|today|morning|schedule|brief)/.test(t)) return "morning";
-  }
+  // The shortcuts are the bare word and nothing else. "تقرير الأطباء" is a request for a doctors'
+  // report the assistant should build, not the close-out; a shortcut that fires on a substring is
+  // exactly the scripted feel the owner complained about.
+  if (/^(تقرير|التقرير|اقفال|إقفال|الاقفال|الإقفال|report|close-out|closeout)$/.test(t)) return "evening";
+  if (/^(ملخص|الملخص|summary)$/.test(t)) return "summary";
+  if (/^(النهارده|النهاردة|اليوم|مواعيد النهارده|today|schedule|today's schedule)$/.test(t)) return "morning";
   return "ask";
 }
 

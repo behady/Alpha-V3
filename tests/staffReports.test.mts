@@ -305,8 +305,12 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
 // --- 5. The staff line ---------------------------------------------------------------------------
 {
   eq(staffIntent("تقرير"), "evening", "Arabic 'report'");
-  eq(staffIntent("ابعتلي الاقفال"), "evening", "Arabic close-out");
-  eq(staffIntent("report please"), "evening", "English report");
+  eq(staffIntent("الاقفال"), "evening", "Arabic close-out");
+  eq(staffIntent("Report"), "evening", "English report");
+  // A shortcut word inside a longer request is a request for the assistant, not the canned report.
+  eq(staffIntent("تقرير الأطباء"), "ask", "a doctors' report is the assistant's job, not the close-out");
+  eq(staffIntent("ابعتلي الاقفال"), "ask", "a sentence goes to the assistant even with the shortcut word in it");
+  eq(staffIntent("report please"), "ask", "same in English");
   eq(staffIntent("النهارده"), "morning", "Arabic today");
   eq(staffIntent("today"), "morning", "English today");
   eq(staffIntent("ملخص"), "summary", "Arabic summary");
