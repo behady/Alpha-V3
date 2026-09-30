@@ -109,6 +109,8 @@
     "_comment_test_tokens": "The AI token meter: one credit spans several API rounds, and the counts must survive a response that carries no usage block. No network, no emulator.",
     "test:tokens": "npx tsx tests/aiTokenUsage.test.mts",
     "test:backup": "npx tsx tests/backupImport.test.mts",
+    "_comment_test_excel_backup": "The human-readable Excel export an Owner downloads from Settings (not the migration importer above). Pure workbook builder against fixtures: sheet order, bilingual headers, balances agreeing with the Reports Center, the placeholder-zero payment trap, deleted rows kept but not counted, no undefined cells.",
+    "test:excel-backup": "npx tsx tests/clinicBackup.test.mts",
     "_comment_test_ainav": "The allowlist behind the assistant's navigate_to tool. Guards the failure where it announces 'Opening the patient's file' and pushes a 404. No network, no emulator.",
     "test:ai-nav": "npx tsx tests/aiNavigation.test.mts",
     "test:tour": "npx tsx tests/grandTour.test.mts",
