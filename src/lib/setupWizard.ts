@@ -16,16 +16,25 @@ export const SETUP_ROUTE = "/setup";
 
 /**
  * The clinic first, then what it offers, then who works there, then how patients reach it: its
- * details, its hours, its prices, the online booking page, the team, insurance, connecting the
- * clinic's WhatsApp, and deciding what that WhatsApp does. Each is optional, and each writes only
- * what the Settings screens write.
+ * details, where it is (the pin phone clock-ins are checked against), its hours, its prices, the
+ * online booking page, the team, insurance, connecting the clinic's WhatsApp, and deciding what
+ * that WhatsApp does. Each is optional, and each writes only what the Settings screens write.
  *
  * The booking page comes after the details and hours it shows patients. It is asked before the
  * team, so "may patients pick their dentist?" can be answered before any dentist exists — the page
  * shows the choice only once there are dentists to choose from.
  */
-export type SetupStepId = "contact" | "hours" | "services" | "booking" | "team" | "insurance" | "whatsapp" | "assistant";
-export const SETUP_STEPS: SetupStepId[] = ["contact", "hours", "services", "booking", "team", "insurance", "whatsapp", "assistant"];
+export type SetupStepId =
+  | "contact"
+  | "location"
+  | "hours"
+  | "services"
+  | "booking"
+  | "team"
+  | "insurance"
+  | "whatsapp"
+  | "assistant";
+export const SETUP_STEPS: SetupStepId[] = ["contact", "location", "hours", "services", "booking", "team", "insurance", "whatsapp", "assistant"];
 
 /**
  * Where a re-run goes when it finishes: the page the person pressed "Quick setup" on, passed as
@@ -187,6 +196,92 @@ export function normalizePhone(value: string): string {
   if (/^\+201\d{9}$/.test(digits)) return "0" + digits.slice(3);
   if (/^201\d{9}$/.test(digits)) return "0" + digits.slice(2);
   return value.trim();
+}
+
+/* ---------- Where the clinic is, for clock-in ------------------------------------------------ */
+
+/**
+ * How far from the pin a phone clock-in counts. 50 m is what the Time Clock assumes when nothing is
+ * stored; the wider two are for a clinic in a large building, where indoor GPS wanders.
+ */
+export const CLOCK_IN_RADII = ["50", "100", "200"] as const;
+export const DEFAULT_CLOCK_IN_RADIUS = "50";
+
+/** The pin as Settings → Clock-in rules stores it on `clinic_info`: three strings. */
+export type ClockInPin = { lat: string; lng: string; radius: string };
+
+function coordinate(value: unknown): number | null {
+  const n = typeof value === "number" ? value : Number(String(value ?? "").trim());
+  return String(value ?? "").trim() !== "" && Number.isFinite(n) ? n : null;
+}
+
+/** A latitude and longitude that are numbers, on the planet, and not the 0,0 of an empty form. */
+export function isUsablePin(lat: unknown, lng: unknown): boolean {
+  const a = coordinate(lat);
+  const b = coordinate(lng);
+  if (a === null || b === null) return false;
+  if (Math.abs(a) > 90 || Math.abs(b) > 180) return false;
+  return !(a === 0 && b === 0);
+}
+
+/** The step's opening pin from `clinic_info`. An unusable stored pin reads as none. */
+export function clockInPinFrom(data: Record<string, unknown> | undefined): ClockInPin {
+  const lat = String(data?.attendanceLat ?? "").trim();
+  const lng = String(data?.attendanceLng ?? "").trim();
+  const radius = String(data?.attendanceRadius ?? "").trim();
+  const usable = isUsablePin(lat, lng);
+  return {
+    lat: usable ? lat : "",
+    lng: usable ? lng : "",
+    radius: Number(radius) > 0 ? String(Math.round(Number(radius))) : DEFAULT_CLOCK_IN_RADIUS,
+  };
+}
+
+/**
+ * Coordinates from what an owner setting up at home can paste: "30.0444, 31.2357" copied from a
+ * right-click in Google Maps, or a full Google Maps address from the browser bar.
+ *
+ * A place's own pin (`!3d…!4d…`) wins over the `@…` of the map's centre, which is only where the
+ * view happened to be. Short share links (maps.app.goo.gl/…) carry no coordinates at all, so they
+ * return null and the screen says what to paste instead.
+ */
+export function coordsFromText(text: string): { lat: number; lng: number } | null {
+  let s = text.trim().replace(/\+/g, " ");
+  try {
+    s = decodeURIComponent(s);
+  } catch {
+    // A stray "%" in pasted text is not a reason to refuse the coordinates beside it.
+  }
+  if (!s) return null;
+  const num = "(-?\\d{1,3}(?:\\.\\d+)?)";
+  const patterns = [
+    new RegExp(`!3d${num}!4d${num}`),
+    new RegExp(`[?&](?:q|query|ll|destination|center)=${num}\\s*,\\s*${num}`),
+    new RegExp(`@${num},${num}`),
+    new RegExp(`^${num}\\s*[, ]\\s*${num}$`),
+  ];
+  for (const re of patterns) {
+    const m = s.match(re);
+    if (m && isUsablePin(m[1], m[2])) return { lat: Number(m[1]), lng: Number(m[2]) };
+  }
+  return null;
+}
+
+/** The fields to merge into `clinic_info`, or null when there is no usable pin to save. */
+export function clockInDocFrom(pin: ClockInPin): Record<string, unknown> | null {
+  if (!isUsablePin(pin.lat, pin.lng)) return null;
+  const radius = Number(pin.radius) > 0 ? String(Math.round(Number(pin.radius))) : DEFAULT_CLOCK_IN_RADIUS;
+  return {
+    // Six decimals is about 10 cm — finer than any phone can tell, coarse enough to read.
+    attendanceLat: Number(pin.lat).toFixed(6),
+    attendanceLng: Number(pin.lng).toFixed(6),
+    attendanceRadius: radius,
+  };
+}
+
+/** A link that opens the pin in Google Maps, so the owner can see where it landed. */
+export function pinMapLink(lat: string | number, lng: string | number): string {
+  return `https://www.google.com/maps?q=${Number(lat)},${Number(lng)}`;
 }
 
 /* ---------- The team ------------------------------------------------------------------------- */

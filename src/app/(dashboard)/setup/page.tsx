@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { getDoc, getDocs, limit, onSnapshot, query, setDoc, writeBatch, doc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import dynamic from "next/dynamic";
-import { Bot, Check, ChevronRight, Clock, Copy, ExternalLink, Globe, Loader2, ListChecks, Lock, MessageCircle, Phone, Plus, ShieldPlus, Sparkles, Trash2, Users } from "lucide-react";
+import { Bot, Check, ChevronRight, Clock, Copy, ExternalLink, Globe, Loader2, ListChecks, Lock, MapPin, MessageCircle, Phone, Plus, ShieldPlus, Sparkles, Trash2, Users } from "lucide-react";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
@@ -21,6 +21,8 @@ import {
   WEEK_DAYS,
   bookingAnswersFrom,
   bookingDocFrom,
+  clockInDocFrom,
+  clockInPinFrom,
   customServiceChoice,
   initialServiceChoices,
   normalizePhone,
@@ -28,6 +30,7 @@ import {
   serviceDocsFrom,
   setupReturnPath,
   type BookingAnswers,
+  type ClockInPin,
   type ServiceChoice,
   type SetupStepId,
 } from "@/lib/setupWizard";
@@ -39,6 +42,7 @@ import { PRIVATE_PAYER_ID, parsePayers } from "@/lib/payers";
 import WhatsAppConnectStep from "@/components/setup/WhatsAppConnectStep";
 import WhatsAppQuestionsStep from "@/components/setup/WhatsAppQuestionsStep";
 import TeamStep, { type TeamMember } from "@/components/setup/TeamStep";
+import ClockInLocationStep from "@/components/setup/ClockInLocationStep";
 
 // The insurer editor is the Settings screen itself, loaded only when the clinic says it has insurers.
 const PayersSettings = dynamic(() => import("@/components/settings/PayersSettings"), {
@@ -49,8 +53,9 @@ const PayersSettings = dynamic(() => import("@/components/settings/PayersSetting
  * The clinic setup a new clinic lands on right after it is created — and that any admin can run
  * again from the "Quick clinic setup" button in Settings or the wand in the top bar.
  *
- * Eight screens. The clinic's phone and address (so prescriptions print with them), its opening
- * hours (so the calendar stops offering times you are closed), a starting price list (so the first
+ * Nine screens. The clinic's phone and address (so prescriptions print with them), where it is (so
+ * a phone clock-in only counts from inside it), its opening hours (so the calendar stops offering
+ * times you are closed), a starting price list (so the first
  * invoice has something to pick from), and the online booking page (which shows patients all
  * three). Then the team (so each colleague has a login and the dentists exist to be booked), which
  * insurers it works with, linking its WhatsApp number by QR, and what that WhatsApp should do —
@@ -87,6 +92,9 @@ function SetupWizard() {
   const [loadingState, setLoadingState] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  // Clinic location — the pin phone clock-ins are checked against, and the pin as stored.
+  const [pin, setPin] = useState<ClockInPin>(() => clockInPinFrom(undefined));
+  const [storedPin, setStoredPin] = useState<ClockInPin>(() => clockInPinFrom(undefined));
   // Hours
   const [schedule, setSchedule] = useState({ ...DEFAULT_SCHEDULE, offDays: [...DEFAULT_SCHEDULE.offDays] });
   const [hoursDone, setHoursDone] = useState(false);
@@ -124,9 +132,10 @@ function SetupWizard() {
     () => ({
       title: isAr ? `يلا نجهّز ${clinic?.name || "العيادة"}` : `Let's set up ${clinic?.name || "your clinic"}`,
       sub: isAr
-        ? "٨ خطوات، حوالي ١٠ دقايق. تقدر تعدّي أي خطوة وترجعلها في أي وقت من زرار «إعداد سريع» اللي فوق."
-        : "Eight steps, about ten minutes. Skip any of them and come back any time from the Quick setup button at the top.",
+        ? "٩ خطوات، حوالي ١٠ دقايق. تقدر تعدّي أي خطوة وترجعلها في أي وقت من زرار «إعداد سريع» اللي فوق."
+        : "Nine steps, about ten minutes. Skip any of them and come back any time from the Quick setup button at the top.",
       steps: {
+        location: isAr ? "موقع العيادة" : "Clinic location",
         hours: isAr ? "مواعيد العمل" : "Working hours",
         team: isAr ? "فريق العمل" : "Team",
         services: isAr ? "قائمة الأسعار" : "Price list",
@@ -136,6 +145,13 @@ function SetupWizard() {
         whatsapp: isAr ? "ربط واتساب" : "Connect WhatsApp",
         assistant: isAr ? "مهام واتساب" : "WhatsApp tasks",
       } as Record<SetupStepId, string>,
+      locationWhy: isAr
+        ? "عشان تسجيل الحضور من الموبايل يتحسب بس لما الموظف يكون في العيادة فعلاً. ثبّت مكان العيادة مرة واحدة، وكل تسجيل حضور بيتقارن بيه."
+        : "So a clock-in from a phone only counts when the person is actually at the clinic. Pin the clinic once, and every phone clock-in is checked against it.",
+      locationLater: isAr ? "هثبّته وأنا في العيادة" : "I'll pin it from the clinic",
+      locationLocked: isAr
+        ? "تسجيل الحضور من الموبايل جزء من «الحضور والرواتب»، ومش ضمن باقة العيادة. كلّمنا على واتساب وإحنا نفعّله:"
+        : "Clocking in from a phone is part of Attendance & Payroll, which isn't in this clinic's plan. Message us and we'll switch it on:",
       teamWhy: isAr
         ? "ضيف الأطباء والاستقبال والمساعدين. كل واحد بيدخل بحسابه وبيشوف اللي دوره يسمح بيه بس، والأطباء بيظهروا في المواعيد."
         : "Add your dentists, reception and assistants. Each signs in with their own login and sees only what their role allows; dentists show up in the calendar.",
@@ -262,6 +278,9 @@ function SetupWizard() {
         setInsurerCount(insurers);
         // Insurers already on file answer the question for the clinic.
         if (insurers > 0) setTakesInsurance(true);
+        const storedClockIn = clockInPinFrom(data);
+        setPin(storedClockIn);
+        setStoredPin(storedClockIn);
         const parsed = parseClinicSchedule(data);
         let slotDuration = DEFAULT_SCHEDULE.slotDuration;
         if (parsed.isConfigured) {
@@ -407,6 +426,22 @@ function SetupWizard() {
     }
   };
 
+  const saveLocation = async () => {
+    const fields = clockInDocFrom(pin);
+    if (!fields) return goNext();
+    setSaving(true);
+    try {
+      await setDoc(getClinicDoc("settings", "clinic_info"), { ...fields, updatedAt: new Date().toISOString() }, { merge: true });
+      setStoredPin(pin);
+      showToast(t.saved, "success");
+      goNext();
+    } catch {
+      showToast(t.failed, "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const saveBooking = async () => {
     setSaving(true);
     try {
@@ -440,6 +475,9 @@ function SetupWizard() {
   const selectedCount = choices.filter((c) => c.selected).length;
   const hoursUnchanged = hoursDone && JSON.stringify(schedule) === storedSchedule;
   const isLast = stepIndex === SETUP_STEPS.length - 1;
+  const clockInInPlan = isUnlocked(clinic, "attendance");
+  const pinFields = clockInDocFrom(pin);
+  const pinChanged = pinFields !== null && JSON.stringify(pinFields) !== JSON.stringify(clockInDocFrom(storedPin));
   const bookingInPlan = isUnlocked(clinic, "onlineBooking");
   const bookingChanged =
     JSON.stringify(bookingDocFrom({ ...booking, enabled: bookingOn === true })) !== JSON.stringify(bookingDocFrom(storedBooking));
@@ -468,7 +506,7 @@ function SetupWizard() {
       />
 
       <div className="rounded-[2rem] bg-ink-slab text-white p-6 sm:p-8 mb-6">
-        {/* Eight labels do not fit a phone in one row: there, only the current step keeps its name
+        {/* Nine labels do not fit a phone in one row: there, only the current step keeps its name
             and the rest are numbered dots. Every dot is a button — a step is optional, so jumping
             to it is too. */}
         <ol className="flex flex-wrap items-center gap-x-2 gap-y-3 text-xs font-bold">
@@ -522,7 +560,36 @@ function SetupWizard() {
           </div>
         )}
 
-        {/* ---------- Step 2: hours ---------- */}
+        {/* ---------- Step 2: clinic location (for clock-in) ---------- */}
+        {step === "location" && (
+          <div className="space-y-6">
+            <StepHeading icon={<MapPin size={20} />} title={t.steps.location} why={t.locationWhy} />
+            {!clockInInPlan ? (
+              <>
+                <p className="flex flex-wrap items-center gap-2 text-sm font-bold text-ink-body bg-surface-subtle border border-line rounded-xl px-4 py-3">
+                  <Lock size={15} className="text-ink-muted" /> {t.locationLocked}
+                  <a href={`https://wa.me/${SUPPORT_WHATSAPP.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="underline" dir="ltr">
+                    {SUPPORT_WHATSAPP}
+                  </a>
+                </p>
+                <Footer primary={t.next} onPrimary={() => void goNext()} saving={false} />
+              </>
+            ) : (
+              <>
+                <ClockInLocationStep pin={pin} stored={storedPin} onChange={setPin} />
+                <Footer
+                  primary={pinChanged ? t.saveNext : t.next}
+                  onPrimary={pinChanged && !saving ? saveLocation : () => void goNext()}
+                  onSkip={pinFields === null ? goNext : undefined}
+                  skipLabel={t.locationLater}
+                  saving={saving}
+                />
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ---------- Step 3: hours ---------- */}
         {step === "hours" && (
           <div className="space-y-6">
             <StepHeading icon={<Clock size={20} />} title={t.steps.hours} why={t.hoursWhy} />
@@ -576,7 +643,7 @@ function SetupWizard() {
           </div>
         )}
 
-        {/* ---------- Step 3: services ---------- */}
+        {/* ---------- Step 4: services ---------- */}
         {step === "services" && (
           <div className="space-y-6">
             <StepHeading icon={<ListChecks size={20} />} title={t.steps.services} why={t.servicesWhy} />
@@ -675,7 +742,7 @@ function SetupWizard() {
           </div>
         )}
 
-        {/* ---------- Step 4: online booking ---------- */}
+        {/* ---------- Step 5: online booking ---------- */}
         {step === "booking" && (
           <div className="space-y-6">
             <StepHeading icon={<Globe size={20} />} title={t.steps.booking} why={t.bookingWhy} />
@@ -788,7 +855,7 @@ function SetupWizard() {
           </div>
         )}
 
-        {/* ---------- Step 5: team ---------- */}
+        {/* ---------- Step 6: team ---------- */}
         {step === "team" && (
           <div className="space-y-6">
             <StepHeading icon={<Users size={20} />} title={t.steps.team} why={t.teamWhy} />
@@ -803,7 +870,7 @@ function SetupWizard() {
           </div>
         )}
 
-        {/* ---------- Step 6: insurance ---------- */}
+        {/* ---------- Step 7: insurance ---------- */}
         {step === "insurance" && (
           <div className="space-y-6">
             <StepHeading icon={<ShieldPlus size={20} />} title={t.steps.insurance} why={t.insuranceWhy} />
@@ -846,7 +913,7 @@ function SetupWizard() {
           </div>
         )}
 
-        {/* ---------- Step 7: connect WhatsApp ---------- */}
+        {/* ---------- Step 8: connect WhatsApp ---------- */}
         {step === "whatsapp" && (
           <div className="space-y-6">
             <StepHeading icon={<MessageCircle size={20} />} title={t.steps.whatsapp} why={t.whatsappWhy} />
@@ -861,7 +928,7 @@ function SetupWizard() {
           </div>
         )}
 
-        {/* ---------- Step 8: what WhatsApp does ---------- */}
+        {/* ---------- Step 9: what WhatsApp does ---------- */}
         {step === "assistant" && (
           <div className="space-y-6">
             <StepHeading icon={<Bot size={20} />} title={t.steps.assistant} why={t.assistantWhy} />

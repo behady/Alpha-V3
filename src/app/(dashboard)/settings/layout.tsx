@@ -207,8 +207,8 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
           className={`${active ? "hidden md:block" : "block"} md:sticky md:top-4 md:max-h-[calc(100dvh-13rem)] md:overflow-y-auto md:overscroll-contain no-scrollbar`}
         >
           {/* The new-clinic setup, reachable again (the wand in the top bar opens it too): details,
-              hours, prices, online booking, team, insurance, WhatsApp by QR, and what WhatsApp
-              should do — one guided walk instead of eight screens. Admins only, because the wizard
+              the clock-in pin, hours, prices, online booking, team, insurance, WhatsApp by QR, and
+              what WhatsApp should do — one guided walk instead of nine screens. Admins only, because the wizard
               itself sends anyone else back to the dashboard. */}
           {isAdmin && !isReadOnly && (
             <button
@@ -225,7 +225,7 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
                   {ar ? "إعداد سريع للعيادة" : "Quick clinic setup"}
                 </span>
                 <span className="mt-0.5 block text-[12.5px] leading-snug text-white/65">
-                  {ar ? "البيانات، المواعيد، الأسعار، الحجز أونلاين، الفريق، التأمين، وواتساب — خطوة بخطوة" : "Details, hours, prices, online booking, team, insurance and WhatsApp — step by step"}
+                  {ar ? "البيانات، الموقع، المواعيد، الأسعار، الحجز أونلاين، الفريق، التأمين، وواتساب — خطوة بخطوة" : "Details, location, hours, prices, online booking, team, insurance and WhatsApp — step by step"}
                 </span>
               </span>
             </button>

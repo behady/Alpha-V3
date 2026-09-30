@@ -10,6 +10,8 @@ import { join } from "node:path";
 import { parseClinicSchedule } from "../src/lib/clinicSchedule";
 import {
   BOOKING_DURATIONS,
+  CLOCK_IN_RADII,
+  DEFAULT_CLOCK_IN_RADIUS,
   DEFAULT_SCHEDULE,
   CUSTOM_SERVICE_MINUTES,
   MIN_STAFF_PASSWORD,
@@ -22,6 +24,10 @@ import {
   answersFromSettings,
   bookingAnswersFrom,
   bookingDocFrom,
+  clockInDocFrom,
+  clockInPinFrom,
+  coordsFromText,
+  isUsablePin,
   clampAnswerMode,
   customServiceChoice,
   initialServiceChoices,
@@ -134,7 +140,8 @@ assert.equal(normalizePhone(" 02 2735 1234 "), "02 2735 1234", "a landline is ke
 // are one decision on that screen; these pin that the wizard stores it the same way.
 
 // The clinic, what it offers, who works there, then how patients reach it.
-assert.deepEqual(SETUP_STEPS, ["contact", "hours", "services", "booking", "team", "insurance", "whatsapp", "assistant"]);
+assert.deepEqual(SETUP_STEPS, ["contact", "location", "hours", "services", "booking", "team", "insurance", "whatsapp", "assistant"]);
+assert.equal(SETUP_STEPS.indexOf("location"), SETUP_STEPS.indexOf("contact") + 1, "the clock-in pin is asked right after the address");
 for (const shown of ["contact", "hours"] as const) {
   assert.ok(SETUP_STEPS.indexOf(shown) < SETUP_STEPS.indexOf("booking"), `the booking page is set up after the ${shown} it shows`);
 }
@@ -226,6 +233,49 @@ assert.equal(insuranceFactFrom([], "ar"), "");
 assert.ok(insuranceFactFrom(["AXA", " MedNet "], "en").includes("AXA, MedNet"));
 assert.ok(insuranceFactFrom(["AXA", "ميدنت"], "ar").includes("AXA، ميدنت"));
 
+// --- the clinic's location, for clock-in -------------------------------------------------------
+//
+// The same three strings Settings → Clock-in rules stores on clinic_info, which the Time Clock
+// parses with parseFloat / parseInt.
+
+assert.deepEqual(clockInPinFrom(undefined), { lat: "", lng: "", radius: DEFAULT_CLOCK_IN_RADIUS });
+assert.deepEqual(
+  clockInPinFrom({ attendanceLat: "30.0444", attendanceLng: "31.2357", attendanceRadius: "75" }),
+  { lat: "30.0444", lng: "31.2357", radius: "75" },
+  "a radius typed on the Settings screen is kept"
+);
+assert.deepEqual(clockInPinFrom({ attendanceLat: "abc", attendanceLng: "31.2", attendanceRadius: "" }).lat, "", "an unusable stored pin reads as none");
+assert.equal(DEFAULT_CLOCK_IN_RADIUS, "50", "the Time Clock's own default when nothing is stored");
+assert.ok((CLOCK_IN_RADII as readonly string[]).includes(DEFAULT_CLOCK_IN_RADIUS));
+
+assert.equal(isUsablePin("0", "0"), false, "0,0 is an empty form, not a clinic in the Gulf of Guinea");
+assert.equal(isUsablePin("91", "31"), false);
+assert.equal(isUsablePin("", "31"), false);
+assert.equal(isUsablePin("30.0444", "31.2357"), true);
+
+assert.deepEqual(clockInDocFrom({ lat: "30.04441234", lng: "31.2357", radius: "100" }), {
+  attendanceLat: "30.044412",
+  attendanceLng: "31.235700",
+  attendanceRadius: "100",
+});
+assert.equal(clockInDocFrom({ lat: "", lng: "", radius: "100" }), null, "no pin, nothing written — a radius alone is not a geofence");
+assert.equal(clockInDocFrom({ lat: "30", lng: "31", radius: "" })?.attendanceRadius, "50");
+
+// What an owner setting up from home can paste.
+assert.deepEqual(coordsFromText("30.0444, 31.2357"), { lat: 30.0444, lng: 31.2357 }, "copied from a right-click in Google Maps");
+assert.deepEqual(coordsFromText("  30.0444,31.2357 "), { lat: 30.0444, lng: 31.2357 });
+assert.deepEqual(
+  coordsFromText("https://www.google.com/maps/place/Clinic/@30.05,31.20,17z/data=!3m1!4b1!4m6!3m5!1s0x0:0x0!8m2!3d30.0444!4d31.2357"),
+  { lat: 30.0444, lng: 31.2357 },
+  "the place's own pin wins over the map's centre"
+);
+assert.deepEqual(coordsFromText("https://www.google.com/maps/@30.05,31.2,15z"), { lat: 30.05, lng: 31.2 });
+assert.deepEqual(coordsFromText("https://maps.google.com/?q=30.0444,31.2357"), { lat: 30.0444, lng: 31.2357 });
+assert.deepEqual(coordsFromText("https://www.google.com/maps/search/?api=1&query=30.0444%2C31.2357"), { lat: 30.0444, lng: 31.2357 });
+assert.equal(coordsFromText("https://maps.app.goo.gl/AbCdEf123"), null, "a short share link carries no coordinates");
+assert.equal(coordsFromText("100% Dental, Nasr City"), null, "a stray % does not throw");
+assert.equal(coordsFromText(""), null);
+
 // --- the team ----------------------------------------------------------------------------------
 
 const person = { name: "Mona", email: "mona@clinic.eg", password: "secret1" };
@@ -293,5 +343,8 @@ const usersHost = readFileSync(join(REPO, "src/components/settings/hosts/UsersHo
 assert.ok(usersHost.includes("createStaffLogin("), "Staff & logins and the wizard share one create call");
 assert.ok(page.includes('"onlineBooking"') && page.includes("bookingDocFrom("), "the booking step writes the document the Online booking screen does");
 assert.ok(page.includes('isUnlocked(clinic, "onlineBooking")'), "the booking step respects the plan");
+assert.ok(page.includes('isUnlocked(clinic, "attendance")') && page.includes("clockInDocFrom("), "the location step writes the clock-in pin, for plans with the Time Clock");
+const locationStep = readFileSync(join(REPO, "src/components/setup/ClockInLocationStep.tsx"), "utf8");
+assert.ok(locationStep.includes("acquireBestPosition("), "the pin is taken the way the Time Clock takes a position, not from one coarse fix");
 
 console.log("setupWizard: all assertions passed");
