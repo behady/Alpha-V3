@@ -444,6 +444,24 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     view: MEMBER,
     edit: MEMBER,
   },
+  {
+    id: "backup",
+    route: "/settings/backup",
+    group: "system",
+    labelEn: "Backup",
+    labelAr: "النسخ الاحتياطي",
+    // One button that downloads the whole clinic as a readable Excel workbook. The route reads
+    // every collection on the Admin SDK and writes nothing; it is Admin/Owner-only on its own,
+    // and a lapsed clinic may still use it (tests/permissions.test.mts, ALLOWED_INACTIVE).
+    writes: [
+      {
+        kind: "readOnly",
+        reads: "every clinic collection, through /api/records/backup on the Admin SDK; the route is Admin/Owner-only",
+      },
+    ],
+    view: ADMIN,
+    edit: ADMIN,
+  },
 ];
 
 /** Sidebar order. A group with no sections is a bug, not an empty state. */

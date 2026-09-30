@@ -40,6 +40,7 @@ import {
   Sparkles,
   Tag,
   Trash2,
+  DatabaseBackup,
   UserCircle,
   UserPlus,
   UserRound,
@@ -82,6 +83,7 @@ export const SETTINGS_ICONS: Record<string, LucideIcon> = {
   ai_credits: Sparkles,
   ai_connector: PlugZap,       // the door an outside assistant knocks on
   recently_deleted: Trash2,
+  backup: DatabaseBackup,
 };
 
 /**
@@ -160,6 +162,7 @@ export const SETTINGS_PANELS: Record<string, ComponentType<SettingsPanelProps>> 
   ai_credits: panel(() => import("@/components/settings/AiCreditsSettings")),
   ai_connector: panel(() => import("@/components/settings/AiConnectorSettings")),
   recently_deleted: panel(() => import("@/components/settings/RecentlyDeleted")),
+  backup: panel(() => import("@/components/settings/BackupSettings")),
 };
 
 /**

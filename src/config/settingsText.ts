@@ -738,6 +738,28 @@ export const SETTINGS_TEXT = {
     created: { en: "Account created!", ar: "تم إنشاء الحساب!" },
     failed: { en: "Operation failed", ar: "لم تتم العملية" },
   },
+  backup: {
+    title: { en: "Backup", ar: "النسخ الاحتياطي" },
+    sub: { en: "Download everything the clinic has recorded as one Excel file you can open, read and keep anywhere.", ar: "نزّل كل ما سجلته العيادة في ملف Excel واحد يمكنك فتحه وقراءته وحفظه في أي مكان." },
+    notRestore: { en: "This file is for reading and keeping. It cannot be imported back into the system.", ar: "هذا الملف للقراءة والحفظ فقط. لا يمكن استيراده مرة أخرى إلى النظام." },
+    includesTitle: { en: "What is in the file", ar: "محتويات الملف" },
+    button: { en: "Download Excel backup", ar: "تنزيل نسخة Excel" },
+    preparing: { en: "Preparing your file — a large clinic can take a minute.", ar: "جارٍ تجهيز الملف — العيادة الكبيرة قد تستغرق دقيقة." },
+    done: { en: "Backup downloaded.", ar: "تم تنزيل النسخة الاحتياطية." },
+    failed: { en: "Could not build the backup. Try again in a minute.", ar: "تعذّر إنشاء النسخة الاحتياطية. حاول مرة أخرى بعد دقيقة." },
+    sheet_1: { en: "About: clinic, date, row counts, what the money columns mean", ar: "نبذة: العيادة والتاريخ وعدد الصفوف ومعنى أعمدة المال" },
+    sheet_2: { en: "Patients, with total charged, paid and balance owed", ar: "المرضى، مع إجمالي المستحق والمدفوع والرصيد" },
+    sheet_3: { en: "Appointments: every visit with its date, dentist and status", ar: "المواعيد: كل زيارة بتاريخها وطبيبها وحالتها" },
+    sheet_4: { en: "Ledger: every charge and payment, cash in and cash out", ar: "السجل المالي: كل رسوم ودفعة، نقد وارد وصادر" },
+    sheet_5: { en: "Expenses", ar: "المصروفات" },
+    sheet_6: { en: "Lab orders", ar: "طلبات المعمل" },
+    sheet_7: { en: "Lab payments", ar: "مدفوعات المعامل" },
+    sheet_8: { en: "Labs: what each lab is owed", ar: "المعامل: رصيد كل معمل" },
+    sheet_9: { en: "Staff, salaries and working days", ar: "الفريق والرواتب وأيام العمل" },
+    sheet_10: { en: "Prices: every service on every price list", ar: "الأسعار: كل خدمة في كل قائمة أسعار" },
+    sheet_11: { en: "Attendance: every clock-in and clock-out", ar: "الحضور: كل تسجيل حضور وانصراف" },
+    sheet_12: { en: "Payroll: hours, lateness and estimated pay per month", ar: "الرواتب: الساعات والتأخير والأجر التقديري لكل شهر" },
+  },
 } as const;
 
 export type SettingsTextSection = keyof typeof SETTINGS_TEXT;

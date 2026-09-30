@@ -817,6 +817,7 @@ const isGuarded = (sectionId: string) =>
  */
 const NO_PENDING_EDITS = new Set([
   "logs", "ai_credits", "recently_deleted", // read-only
+  "backup",                                  // one button; the file is built on the server
   "appearance", "interface",                 // save on click, nothing pending
   "join_requests", "users",                  // act through server routes on a button press
   "ai_connector",                            // same: a key is minted by pressing Create, and the
