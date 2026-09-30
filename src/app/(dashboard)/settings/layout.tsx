@@ -30,7 +30,8 @@ import { useCallback, useMemo, useState } from "react";
 import PageHeader from "@/components/dashboard/PageHeader";
 import { useSettingsText } from "@/lib/useSettingsText";
 import { usePathname, useRouter } from "next/navigation";
-import { Search, Settings2, X } from "lucide-react";
+import { Search, Settings2, Wand2, X } from "lucide-react";
+import { SETUP_ROUTE } from "@/lib/setupWizard";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
@@ -205,6 +206,30 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
           aria-label={txt.allSettings}
           className={`${active ? "hidden md:block" : "block"} md:sticky md:top-4 md:max-h-[calc(100dvh-13rem)] md:overflow-y-auto md:overscroll-contain no-scrollbar`}
         >
+          {/* The new-clinic setup, reachable again: hours, prices, details, insurance, WhatsApp by
+              QR, and what WhatsApp should do — one guided walk instead of six screens. Admins only,
+              because the wizard itself sends anyone else back to the dashboard. */}
+          {isAdmin && !isReadOnly && (
+            <button
+              type="button"
+              onClick={() => void go(SETUP_ROUTE)}
+              data-tour="settings-quick-setup"
+              className="mb-4 flex w-full items-center gap-3 rounded-2xl bg-ink-slab px-4 py-3.5 text-start text-white transition-colors hover:bg-ink"
+            >
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent text-ink">
+                <Wand2 size={17} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[14px] font-semibold leading-5">
+                  {ar ? "إعداد سريع للعيادة" : "Quick clinic setup"}
+                </span>
+                <span className="mt-0.5 block text-[12.5px] leading-snug text-white/65">
+                  {ar ? "المواعيد، الأسعار، التأمين، وواتساب — خطوة بخطوة" : "Hours, prices, insurance and WhatsApp — step by step"}
+                </span>
+              </span>
+            </button>
+          )}
+
           <div className="relative mb-4">
             <div className="pointer-events-none absolute inset-y-0 start-0 flex items-center ps-3.5">
               <Search size={16} className="text-ink-muted" />

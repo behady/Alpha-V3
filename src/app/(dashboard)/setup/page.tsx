@@ -4,7 +4,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getDoc, getDocs, limit, query, setDoc, writeBatch, doc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Check, ChevronRight, Clock, Loader2, ListChecks, Phone, Sparkles } from "lucide-react";
+import dynamic from "next/dynamic";
+import { Bot, Check, ChevronRight, Clock, Loader2, ListChecks, MessageCircle, Phone, ShieldPlus, Sparkles } from "lucide-react";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
@@ -25,25 +26,50 @@ import {
   type SetupStepId,
 } from "@/lib/setupWizard";
 import PageHeader from "@/components/dashboard/PageHeader";
+import { UnsavedChangesProvider, useUnsavedChanges } from "@/context/UnsavedChangesContext";
+import { PRIVATE_PAYER_ID, parsePayers } from "@/lib/payers";
+import WhatsAppConnectStep from "@/components/setup/WhatsAppConnectStep";
+import WhatsAppQuestionsStep from "@/components/setup/WhatsAppQuestionsStep";
+
+// The insurer editor is the Settings screen itself, loaded only when the clinic says it has insurers.
+const PayersSettings = dynamic(() => import("@/components/settings/PayersSettings"), {
+  loading: () => <div className="h-40 rounded-3xl bg-surface-muted animate-pulse" aria-hidden />,
+});
 
 /**
- * The two-minute setup a new clinic lands on right after it is created.
+ * The clinic setup a new clinic lands on right after it is created — and that any admin can run
+ * again from the "Quick clinic setup" button in Settings.
  *
- * Three screens, each one fact the rest of the app needs on day one: opening hours (so the
- * calendar stops offering times you are closed), a starting price list (so the first invoice has
- * something to pick from), and the clinic's phone and address (so prescriptions print with them).
+ * Six screens. The first three are the facts the rest of the app needs on day one: opening hours
+ * (so the calendar stops offering times you are closed), a starting price list (so the first
+ * invoice has something to pick from), and the clinic's phone and address (so prescriptions print
+ * with them). The last three make the clinic reachable: which insurers it works with, linking its
+ * WhatsApp number by QR, and what that WhatsApp should do — asked as plain questions.
+ *
  * Every step can be skipped; nothing here is a gate. Steps already done — by this wizard, or by
  * someone who went straight to Settings — are shown as done and passed through.
  *
  * Writes exactly what the Settings screens write, to the same documents, so this is a second
- * door into the same records and not a parallel copy of them.
+ * door into the same records and not a parallel copy of them. The insurance step goes further:
+ * it IS the Settings screen, embedded.
  */
 export default function SetupWizardPage() {
+  // The embedded insurer editor flags unsaved work; this provider is what turns that flag into a
+  // question before "Next" throws a half-typed insurer away.
+  return (
+    <UnsavedChangesProvider>
+      <SetupWizard />
+    </UnsavedChangesProvider>
+  );
+}
+
+function SetupWizard() {
   const router = useRouter();
   const { clinicId, clinic, isAdmin } = useClinic();
   const { language } = useLanguage();
   const { showToast } = useUI();
   const welcome = useWelcomeOptional();
+  const { confirmLeave } = useUnsavedChanges();
   const isAr = language === "ar";
   const lang: "en" | "ar" = isAr ? "ar" : "en";
 
@@ -54,24 +80,59 @@ export default function SetupWizardPage() {
   // Step 1
   const [schedule, setSchedule] = useState({ ...DEFAULT_SCHEDULE, offDays: [...DEFAULT_SCHEDULE.offDays] });
   const [hoursDone, setHoursDone] = useState(false);
+  /**
+   * The hours as stored, to tell "already set" from "already set and just edited". Before the
+   * Settings button existed nobody came back here, so a done step could simply say "Next"; on a
+   * re-run that button quietly dropped whatever the admin had just changed.
+   */
+  const [storedSchedule, setStoredSchedule] = useState("");
   // Step 2
   const [choices, setChoices] = useState<ServiceChoice[]>(initialServiceChoices);
   const [existingServices, setExistingServices] = useState(false);
   // Step 3
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
+  // Step 4
+  const [insurerCount, setInsurerCount] = useState(0);
+  const [takesInsurance, setTakesInsurance] = useState<boolean | null>(null);
+  // Step 5
+  const [waConnected, setWaConnected] = useState(false);
+  /** Run before: finishing returns to Settings instead of to the new-clinic welcome guide. */
+  const [isRerun, setIsRerun] = useState(false);
 
   const t = useMemo(
     () => ({
       title: isAr ? `يلا نجهّز ${clinic?.name || "العيادة"}` : `Let's set up ${clinic?.name || "your clinic"}`,
       sub: isAr
-        ? "٣ خطوات، حوالي دقيقتين. تقدر تعدّي أي خطوة وترجعلها بعدين من الإعدادات."
-        : "Three steps, about two minutes. Skip any of them and come back later from Settings.",
+        ? "٦ خطوات، حوالي ٥ دقايق. تقدر تعدّي أي خطوة وترجعلها بعدين من الإعدادات."
+        : "Six steps, about five minutes. Skip any of them and come back later from Settings.",
       steps: {
         hours: isAr ? "مواعيد العمل" : "Working hours",
         services: isAr ? "قائمة الأسعار" : "Price list",
         contact: isAr ? "بيانات العيادة" : "Clinic details",
+        insurance: isAr ? "التأمين" : "Insurance",
+        whatsapp: isAr ? "ربط واتساب" : "Connect WhatsApp",
+        assistant: isAr ? "مهام واتساب" : "WhatsApp tasks",
       } as Record<SetupStepId, string>,
+      insuranceWhy: isAr
+        ? "لو بتتعامل مع شركات تأمين، كل شركة ليها أسعارها والعلاجات اللي بتغطيها ونسبة الدكاترة عليها."
+        : "If you work with insurers, each one gets its own prices, the treatments it covers, and the dentists' share on its cases.",
+      insuranceAsk: isAr ? "العيادة بتتعامل مع شركات تأمين؟" : "Does the clinic work with insurance companies?",
+      insuranceHowTo: isAr
+        ? "اضغط «ضيف شركة تأمين» تحت وجاوب على ٣ أسئلة: اسمها، بتغطي إيه وبتدفع كام، والدكتور بياخد كام. ضيف كل الشركات وبعدين اضغط «التالي»."
+        : "Press “Add an insurer” below and answer three questions: its name, what it covers and pays, and what each dentist earns. Add them all, then press Next.",
+      insuranceAlready: (n: number) =>
+        isAr ? `عندك ${n} ${n === 1 ? "شركة تأمين" : "شركات تأمين"} بالفعل. تقدر تضيف أو تعدّل هنا.` : `You already have ${n} insurer${n === 1 ? "" : "s"}. Add or edit them here.`,
+      insuranceNo: isAr ? "كل المرضى هيتحاسبوا بأسعارك العادية. تقدر تضيف شركة في أي وقت من الإعدادات ← التأمين." : "Every patient is charged your normal prices. You can add an insurer any time in Settings → Payers & Insurance.",
+      yes: isAr ? "أيوه" : "Yes",
+      no: isAr ? "لأ" : "No",
+      whatsappWhy: isAr
+        ? "عشان التأكيدات والتذكيرات وردود المرضى تطلع من رقم العيادة."
+        : "So confirmations, reminders and replies to patients come from the clinic's own number.",
+      whatsappLater: isAr ? "هوصّل بعدين" : "I'll connect later",
+      assistantWhy: isAr
+        ? "كام سؤال بسيط، وإحنا نظبط الرسائل والبوت على إجاباتك."
+        : "A few simple questions, and we set up the messages and the bot from your answers.",
       hoursWhy: isAr
         ? "عشان التقويم يبطل يعرض مواعيد وانت قافل، والمساعد يحجز صح."
         : "So the calendar stops offering times you're closed, and the assistant books correctly.",
@@ -126,22 +187,30 @@ export default function SetupWizardPage() {
     let cancelled = false;
     (async () => {
       try {
-        const [info, svc] = await Promise.all([
+        const [info, svc, payers] = await Promise.all([
           getDoc(getClinicDoc("settings", "clinic_info")),
           getDocs(query(getClinicCollection("services"), limit(1))),
+          getDoc(getClinicDoc("settings", "payers")),
         ]);
         if (cancelled) return;
         const data = (info.data() ?? {}) as Record<string, unknown>;
+        setIsRerun(typeof data.setupWizardAt === "string");
+        const insurers = parsePayers(payers.exists() ? payers.data() : null).filter((p) => p.id !== PRIVATE_PAYER_ID && p.active).length;
+        setInsurerCount(insurers);
+        // Insurers already on file answer the question for the clinic.
+        if (insurers > 0) setTakesInsurance(true);
         const parsed = parseClinicSchedule(data);
         if (parsed.isConfigured) {
           setHoursDone(true);
           const stored = (data.schedule ?? {}) as Record<string, unknown>;
-          setSchedule({
+          const loaded = {
             start: typeof stored.start === "string" ? stored.start : DEFAULT_SCHEDULE.start,
             end: typeof stored.end === "string" ? stored.end : DEFAULT_SCHEDULE.end,
             slotDuration: String(stored.slotDuration ?? DEFAULT_SCHEDULE.slotDuration),
             offDays: Array.isArray(stored.offDays) ? stored.offDays.map(String) : [],
-          });
+          };
+          setSchedule(loaded);
+          setStoredSchedule(JSON.stringify(loaded));
         }
         setExistingServices(!svc.empty);
         if (typeof data.phone === "string") setPhone(data.phone);
@@ -157,21 +226,32 @@ export default function SetupWizardPage() {
     };
   }, [clinicId]);
 
+  // `?step=whatsapp` opens the wizard on one step — the Settings button starts at the top, but a
+  // link from the WhatsApp screen can land straight on the QR. Read once, from the URL, so the
+  // page needs no Suspense boundary for useSearchParams.
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("step");
+    if (requested && (SETUP_STEPS as string[]).includes(requested)) setStep(requested as SetupStepId);
+  }, []);
+
   const stepIndex = SETUP_STEPS.indexOf(step);
-  const goNext = () => {
+  const goNext = async () => {
+    // The insurer editor may hold a half-typed insurer; leaving the step would drop it silently.
+    if (!(await confirmLeave())) return;
     const next = SETUP_STEPS[stepIndex + 1];
     if (next) setStep(next);
-    else finish();
+    else void finish();
   };
 
   const finish = async () => {
+    if (!(await confirmLeave())) return;
     try {
       await setDoc(getClinicDoc("settings", "clinic_info"), { setupWizardAt: new Date().toISOString() }, { merge: true });
     } catch {
       /* the stamp is informational */
     }
     welcome?.refresh();
-    router.replace("/welcome");
+    router.replace(isRerun ? "/settings" : "/welcome");
   };
 
   const saveHours = async () => {
@@ -183,6 +263,7 @@ export default function SetupWizardPage() {
         { merge: true }
       );
       setHoursDone(true);
+      setStoredSchedule(JSON.stringify(schedule));
       showToast(t.saved, "success");
       goNext();
     } catch {
@@ -241,6 +322,7 @@ export default function SetupWizardPage() {
     }));
 
   const selectedCount = choices.filter((c) => c.selected).length;
+  const hoursUnchanged = hoursDone && JSON.stringify(schedule) === storedSchedule;
   const isLast = stepIndex === SETUP_STEPS.length - 1;
 
   if (!clinicId || loadingState) {
@@ -259,26 +341,42 @@ export default function SetupWizardPage() {
       {/* The wizard's title moved into the layout's black band, so this card is now the step
           tracker alone — which is what a person here is actually watching. */}
       <PageHeader
-        eyebrow={isAr ? "الإعداد الأول" : "First-time setup"}
+        eyebrow={isRerun ? (isAr ? "إعداد سريع للعيادة" : "Quick clinic setup") : isAr ? "الإعداد الأول" : "First-time setup"}
         title={t.title}
         subtitle={t.sub}
       />
 
       <div className="rounded-[2rem] bg-ink-slab text-white p-6 sm:p-8 mb-6">
-        <ol className="flex items-center gap-2 text-xs font-bold">
+        {/* Six labels do not fit a phone in one row: there, only the current step keeps its name
+            and the rest are numbered dots. Every dot is a button — a step is optional, so jumping
+            to it is too. */}
+        <ol className="flex flex-wrap items-center gap-x-2 gap-y-3 text-xs font-bold">
           {SETUP_STEPS.map((id, i) => {
             const done = i < stepIndex;
             const active = id === step;
             return (
               <li key={id} className="flex items-center gap-2">
-                <span
-                  className={`w-6 h-6 rounded-full flex items-center justify-center font-figure text-[11px] ${
-                    active ? "bg-white text-slate-900" : done ? "bg-emerald-400 text-slate-900" : "bg-white/15 text-white/60"
-                  }`}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (id !== step && (await confirmLeave())) setStep(id);
+                  }}
+                  aria-current={active ? "step" : undefined}
+                  aria-label={t.steps[id]}
+                  title={t.steps[id]}
+                  // A save in flight moves on by itself when it lands; a jump now would be undone by it.
+                  disabled={saving}
+                  className="flex items-center gap-2 disabled:cursor-wait"
                 >
-                  {done ? <Check size={13} /> : i + 1}
-                </span>
-                <span className={active ? "text-white" : "text-white/50"}>{t.steps[id]}</span>
+                  <span
+                    className={`w-6 h-6 rounded-full flex items-center justify-center font-figure text-[11px] ${
+                      active ? "bg-white text-slate-900" : done ? "bg-emerald-400 text-slate-900" : "bg-white/15 text-white/60"
+                    }`}
+                  >
+                    {done ? <Check size={13} /> : i + 1}
+                  </span>
+                  <span className={active ? "text-white" : "hidden lg:inline text-white/50 hover:text-white/80"}>{t.steps[id]}</span>
+                </button>
                 {i < SETUP_STEPS.length - 1 && <ChevronRight size={14} className={`text-white/30 ${isAr ? "rotate-180" : ""}`} />}
               </li>
             );
@@ -332,8 +430,8 @@ export default function SetupWizardPage() {
               </div>
             </div>
             <Footer
-              primary={hoursDone ? t.next : t.saveNext}
-              onPrimary={hoursDone && !saving ? goNext : saveHours}
+              primary={hoursUnchanged ? t.next : t.saveNext}
+              onPrimary={hoursUnchanged && !saving ? goNext : saveHours}
               onSkip={goNext}
               skipLabel={t.skip}
               saving={saving}
@@ -417,7 +515,73 @@ export default function SetupWizardPage() {
               <span className="block text-[11px] font-black text-ink-muted uppercase tracking-widest mb-2">{t.address}</span>
               <input type="text" value={address} onChange={(e) => setAddress(e.target.value)} className={inputCls} autoComplete="street-address" />
             </label>
-            <Footer primary={t.finish} onPrimary={saveContact} onSkip={finish} skipLabel={t.skip} saving={saving} />
+            <Footer primary={t.saveNext} onPrimary={saveContact} onSkip={goNext} skipLabel={t.skip} saving={saving} />
+          </div>
+        )}
+
+        {/* ---------- Step 4: insurance ---------- */}
+        {step === "insurance" && (
+          <div className="space-y-6">
+            <StepHeading icon={<ShieldPlus size={20} />} title={t.steps.insurance} why={t.insuranceWhy} />
+            {/* Once "Yes" opens the editor the question goes away: a "No" pressed then would unmount
+                the editor, and a half-typed insurer with it, before anything could ask. */}
+            {insurerCount === 0 && takesInsurance !== true && (
+              <div className="space-y-3">
+                <p className="text-base font-black text-ink">{t.insuranceAsk}</p>
+                <div className="grid grid-cols-2 gap-3 max-w-sm">
+                  {([true, false] as const).map((v) => (
+                    <button
+                      key={String(v)}
+                      type="button"
+                      aria-pressed={takesInsurance === v}
+                      onClick={() => {
+                        setTakesInsurance(v);
+                        // "No" is a complete answer; there is nothing else on this step to do.
+                        if (!v) void goNext();
+                      }}
+                      className={`rounded-xl border px-4 py-3.5 text-base font-black transition-colors ${
+                        takesInsurance === v ? "border-accent bg-accent/5 ring-1 ring-accent text-ink" : "border-line bg-surface-subtle text-ink-body hover:bg-surface-muted"
+                      }`}
+                    >
+                      {v ? t.yes : t.no}
+                    </button>
+                  ))}
+                </div>
+                {takesInsurance === false && <p className="text-sm font-medium text-ink-muted">{t.insuranceNo}</p>}
+              </div>
+            )}
+            {takesInsurance === true && (
+              <>
+                <Notice text={insurerCount > 0 ? t.insuranceAlready(insurerCount) : t.insuranceHowTo} tone={insurerCount > 0 ? "done" : "info"} />
+                <div className="rounded-2xl border border-line p-4 sm:p-6">
+                  <PayersSettings canEdit />
+                </div>
+              </>
+            )}
+            <Footer primary={t.next} onPrimary={() => void goNext()} onSkip={takesInsurance === null ? goNext : undefined} skipLabel={t.skip} saving={false} />
+          </div>
+        )}
+
+        {/* ---------- Step 5: connect WhatsApp ---------- */}
+        {step === "whatsapp" && (
+          <div className="space-y-6">
+            <StepHeading icon={<MessageCircle size={20} />} title={t.steps.whatsapp} why={t.whatsappWhy} />
+            <WhatsAppConnectStep onConnectedChange={setWaConnected} />
+            <Footer
+              primary={t.next}
+              onPrimary={() => void goNext()}
+              onSkip={waConnected ? undefined : goNext}
+              skipLabel={t.whatsappLater}
+              saving={false}
+            />
+          </div>
+        )}
+
+        {/* ---------- Step 6: what WhatsApp does ---------- */}
+        {step === "assistant" && (
+          <div className="space-y-6">
+            <StepHeading icon={<Bot size={20} />} title={t.steps.assistant} why={t.assistantWhy} />
+            <WhatsAppQuestionsStep onDone={() => void finish()} onSkip={() => void finish()} />
           </div>
         )}
       </div>
@@ -445,10 +609,13 @@ function StepHeading({ icon, title, why }: { icon: React.ReactNode; title: strin
   );
 }
 
-function Notice({ text }: { text: string }) {
+function Notice({ text, tone = "done" }: { text: string; tone?: "done" | "info" }) {
+  if (tone === "info") {
+    return <p className="text-sm font-semibold text-ink-body bg-surface-subtle border border-line rounded-xl px-4 py-3 leading-relaxed">{text}</p>;
+  }
   return (
     <p className="flex items-center gap-2 text-sm font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5">
-      <Check size={16} /> {text}
+      <Check size={16} className="shrink-0" /> {text}
     </p>
   );
 }

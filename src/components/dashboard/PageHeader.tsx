@@ -58,7 +58,9 @@ export default function PageHeader({
     <div
       className={`flex w-full items-center justify-between gap-4 ${compact ? "flex-row" : "flex-col items-start gap-3 sm:flex-row sm:items-center"}`}
     >
-      <div className="flex min-w-0 items-center gap-3">
+      {/* max-w-full: in the phone's column layout `items-start` sizes this to its content, so a
+          long title or subtitle pushed the whole page sideways instead of truncating. */}
+      <div className="flex min-w-0 max-w-full items-center gap-3">
         {backHref && (
           <Link
             href={backHref}
