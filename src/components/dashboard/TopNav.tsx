@@ -14,6 +14,7 @@ import {
   Settings,
   ShieldCheck,
   Sparkles,
+  Wand2,
 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
@@ -24,6 +25,7 @@ import NotificationBell from "@/components/NotificationBell";
 import { SECTION_GROUPS, type NavItem } from "@/components/dashboard/navGroups";
 import { useTourOptional } from "@/context/TourContext";
 import { TOUR_GUIDE } from "@/lib/grandTour";
+import { SETUP_ROUTE } from "@/lib/setupWizard";
 
 /**
  * The black bar across the top of the app, replacing the left rail.
@@ -48,7 +50,7 @@ export default function TopNav({
   const pathname = usePathname();
   const { t, language, toggleLanguage } = useLanguage();
   const { user } = useAuth();
-  const { clinicId, role } = useClinic();
+  const { clinicId, role, isAdmin, isReadOnly } = useClinic();
   const tour = useTourOptional();
 
   const [logoUrl, setLogoUrl] = useState("");
@@ -98,6 +100,16 @@ export default function TopNav({
 
   const dashboard = items.find((i) => i.key === "dashboard");
   const settingsLabel = labelFor("settings");
+
+  /**
+   * The clinic setup, one press from anywhere: hours, team, prices, details, online booking,
+   * insurance and WhatsApp. Admins only, as the wizard itself is — it sends anyone else home.
+   * It carries the page it was pressed on, so finishing returns there rather than to Settings.
+   */
+  const showQuickSetup = isAdmin && !isReadOnly;
+  const onSetup = pathname === SETUP_ROUTE;
+  const quickSetupHref = onSetup ? SETUP_ROUTE : `${SETUP_ROUTE}?back=${encodeURIComponent(pathname)}`;
+  const quickSetupLabel = language === "ar" ? "إعداد سريع للعيادة" : "Quick clinic setup";
 
   const groups = SECTION_GROUPS.map((section) => {
     const groupItems = items.filter((item) => section.keys.includes(item.key));
@@ -223,6 +235,27 @@ export default function TopNav({
 
       {/* --- SETTINGS / BELL / ACCOUNT --- */}
       <div className="ms-auto flex shrink-0 items-center gap-2">
+        {/* Shown on a phone too, unlike the gear beside it: the phone has Settings in its menu
+            sheet, but this is the button people are told to press to finish setting up. */}
+        {showQuickSetup && (
+          <Link
+            href={quickSetupHref}
+            data-tour="nav-quick-setup"
+            title={quickSetupLabel}
+            aria-label={quickSetupLabel}
+            aria-current={onSetup ? "page" : undefined}
+            // Spelled out rather than layered on `iconButton`: two text colours on one element are
+            // settled by stylesheet order, not by which is written last.
+            className={`grid size-9 place-items-center rounded-full border transition-colors ${
+              onSetup
+                ? "border-[#FACC15]/40 bg-[#FACC15] text-ink"
+                : "border-white/15 bg-white/5 text-[#FACC15] hover:bg-white/15"
+            }`}
+          >
+            <Wand2 size={17} />
+          </Link>
+        )}
+
         {showSettings && (
           <Link
             href="/settings"
@@ -269,6 +302,12 @@ export default function TopNav({
                 <p className="truncate text-[11px] font-medium text-ink-muted">{role || ""}</p>
               </div>
 
+              {showQuickSetup && (
+                <Link href={quickSetupHref} className={`${menuRow} text-ink-body hover:bg-surface-subtle hover:text-ink`}>
+                  <Wand2 size={18} className="shrink-0" />
+                  {quickSetupLabel}
+                </Link>
+              )}
               <Link href="/welcome" data-tour="menu-welcome" className={`${menuRow} text-ink-body hover:bg-surface-subtle hover:text-ink`}>
                 <Rocket size={18} className="shrink-0" />
                 {language === "ar" ? "البداية" : "Getting started"}

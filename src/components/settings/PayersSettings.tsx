@@ -728,7 +728,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
                                 type="button"
                                 onClick={() => removeAdded(row.id)}
                                 aria-label={isAr ? "حذف الصف" : "Remove row"}
-                                className="grid size-8 shrink-0 place-items-center rounded-lg text-ink-faint transition-colors hover:bg-red-50 hover:text-red-600"
+                                className="grid size-8 shrink-0 place-items-center rounded-lg text-ink-faint transition-colors hover:bg-danger-tint hover:text-danger"
                               >
                                 <Trash2 size={14} />
                               </button>

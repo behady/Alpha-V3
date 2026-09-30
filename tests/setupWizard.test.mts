@@ -9,8 +9,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseClinicSchedule } from "../src/lib/clinicSchedule";
 import {
+  BOOKING_DURATIONS,
   DEFAULT_SCHEDULE,
   CUSTOM_SERVICE_MINUTES,
+  MIN_STAFF_PASSWORD,
   SERVICE_TEMPLATES,
   SETUP_FACT_KEYS,
   SETUP_ROUTE,
@@ -18,6 +20,8 @@ import {
   WEEK_DAYS,
   answerModeOf,
   answersFromSettings,
+  bookingAnswersFrom,
+  bookingDocFrom,
   clampAnswerMode,
   customServiceChoice,
   initialServiceChoices,
@@ -27,6 +31,8 @@ import {
   normalizePhone,
   scheduleDocFrom,
   serviceDocsFrom,
+  setupReturnPath,
+  teamMemberProblem,
 } from "../src/lib/setupWizard";
 
 const REPO = join(import.meta.dirname, "..");
@@ -127,7 +133,9 @@ assert.equal(normalizePhone(" 02 2735 1234 "), "02 2735 1234", "a landline is ke
 // Every answer lands on a switch the WhatsApp settings screens already own. The three bot fields
 // are one decision on that screen; these pin that the wizard stores it the same way.
 
-assert.deepEqual(SETUP_STEPS, ["hours", "services", "contact", "insurance", "whatsapp", "assistant"]);
+assert.deepEqual(SETUP_STEPS, ["hours", "team", "services", "contact", "booking", "insurance", "whatsapp", "assistant"]);
+assert.ok(SETUP_STEPS.indexOf("team") < SETUP_STEPS.indexOf("services"), "the team is asked before the price list");
+assert.ok(SETUP_STEPS.indexOf("team") < SETUP_STEPS.indexOf("booking"), "dentists exist before the booking step asks about picking one");
 
 const ALL = { messages: true, bot: true, ai: true };
 const NONE = { messages: false, bot: false, ai: false };
@@ -215,6 +223,45 @@ assert.equal(insuranceFactFrom([], "ar"), "");
 assert.ok(insuranceFactFrom(["AXA", " MedNet "], "en").includes("AXA, MedNet"));
 assert.ok(insuranceFactFrom(["AXA", "ميدنت"], "ar").includes("AXA، ميدنت"));
 
+// --- the team ----------------------------------------------------------------------------------
+
+const person = { name: "Mona", email: "mona@clinic.eg", password: "secret1" };
+assert.equal(teamMemberProblem(person), null);
+assert.equal(teamMemberProblem({ ...person, name: "  " }), "name");
+assert.equal(teamMemberProblem({ ...person, email: "mona@clinic" }), "email");
+assert.equal(teamMemberProblem({ ...person, email: " mona@clinic.eg " }), null, "surrounding spaces are not a typo");
+assert.equal(teamMemberProblem({ ...person, password: "x".repeat(MIN_STAFF_PASSWORD - 1) }), "password", "Firebase's minimum, said before the round trip");
+
+// --- online booking ----------------------------------------------------------------------------
+//
+// The same fields Settings → Online booking writes, as it writes them (the length is a string).
+
+const freshBooking = bookingAnswersFrom(undefined, "45");
+assert.deepEqual(freshBooking, { enabled: false, enableDoctorSelection: false, defaultDurationMinutes: "45" }, "a new page holds the clinic's own slot");
+assert.equal(bookingAnswersFrom(undefined, "20").defaultDurationMinutes, "30", "a slot the booking screen does not offer falls back to 30");
+assert.equal(bookingAnswersFrom({ enabled: true, defaultDurationMinutes: "15" }, "45").defaultDurationMinutes, "15", "a stored length wins over the slot");
+for (const m of BOOKING_DURATIONS) assert.equal(typeof m, "string");
+
+assert.deepEqual(bookingDocFrom({ enabled: true, enableDoctorSelection: true, defaultDurationMinutes: "60" }), {
+  enabled: true,
+  enableDoctorSelection: true,
+  defaultDurationMinutes: "60",
+});
+assert.deepEqual(bookingDocFrom({ enabled: false, enableDoctorSelection: true, defaultDurationMinutes: "60" }), { enabled: false }, "off writes only the switch");
+assert.ok(!("heroImage" in bookingDocFrom({ ...freshBooking, enabled: true })), "the cover image is left to the merge");
+assert.equal(bookingDocFrom({ ...freshBooking, enabled: true, defaultDurationMinutes: "7" }).defaultDurationMinutes, "30");
+
+// --- where a re-run returns ------------------------------------------------------------------
+
+assert.equal(setupReturnPath("/appointments"), "/appointments");
+assert.equal(setupReturnPath("/patients/abc"), "/patients/abc");
+assert.equal(setupReturnPath(null), null);
+assert.equal(setupReturnPath("https://evil.example"), null, "never off-site");
+assert.equal(setupReturnPath("//evil.example"), null, "a protocol-relative URL is off-site too");
+assert.equal(setupReturnPath("/\\evil.example"), null);
+assert.equal(setupReturnPath("/setup"), null, "not back into itself");
+assert.equal(setupReturnPath("/setup?step=team"), null);
+
 // --- wiring ------------------------------------------------------------------------------------
 
 assert.equal(SETUP_ROUTE, "/setup");
@@ -235,5 +282,13 @@ const connect = readFileSync(join(REPO, "src/components/setup/WhatsAppConnectSte
 assert.ok(connect.includes("/api/admin/wapilot-config/gateway"), "the QR comes from the same route Settings uses");
 const settingsShell = readFileSync(join(REPO, "src/app/(dashboard)/settings/layout.tsx"), "utf8");
 assert.ok(settingsShell.includes("SETUP_ROUTE"), "Settings has the Quick clinic setup button");
+const topNav = readFileSync(join(REPO, "src/components/dashboard/TopNav.tsx"), "utf8");
+assert.ok(topNav.includes("SETUP_ROUTE") && topNav.includes("isAdmin && !isReadOnly"), "the top bar has the quick setup button, for admins only");
+const team = readFileSync(join(REPO, "src/components/setup/TeamStep.tsx"), "utf8");
+assert.ok(team.includes("createStaffLogin(") && team.includes("<InviteLinks"), "the team step creates logins the way Staff & logins does, and embeds its invite links");
+const usersHost = readFileSync(join(REPO, "src/components/settings/hosts/UsersHost.tsx"), "utf8");
+assert.ok(usersHost.includes("createStaffLogin("), "Staff & logins and the wizard share one create call");
+assert.ok(page.includes('"onlineBooking"') && page.includes("bookingDocFrom("), "the booking step writes the document the Online booking screen does");
+assert.ok(page.includes('isUnlocked(clinic, "onlineBooking")'), "the booking step respects the plan");
 
 console.log("setupWizard: all assertions passed");
