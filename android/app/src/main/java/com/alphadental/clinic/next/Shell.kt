@@ -1885,6 +1885,11 @@ private fun SettingsPane(preview: Boolean, personal: Boolean = false, onBack: ()
             rejectRequest = model::rejectRequest,
             savePayer = model::savePayer,
             saveRates = model::saveRates,
+            approveRequest = model::approveRequest,
+            createInvite = model::createInvite,
+            revokeInvite = model::revokeInvite,
+            binService = model::binService,
+            saveReceipt = model::saveReceipt,
         ),
     )
 }

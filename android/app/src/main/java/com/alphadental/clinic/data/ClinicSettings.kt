@@ -298,23 +298,162 @@ object ClinicSettings {
      */
     suspend fun saveBranchesKeepingRooms(clinicId: String, branches: List<LabCases.Branch>): Result<Unit> = runCatching {
         val existing = (loadDoc(clinicId, "locations")["branches"] as? List<*>).orEmpty()
-        val roomsById = existing.mapNotNull { entry ->
+        val storedById = existing.mapNotNull { entry ->
             val m = entry as? Map<*, *> ?: return@mapNotNull null
             val id = m["id"]?.toString() ?: return@mapNotNull null
-            id to (m["rooms"] ?: emptyList<Any>())
+            id to m
         }.toMap()
-        val payload = branches.map {
-            mapOf(
-                "id" to it.id,
-                "name" to it.name.trim(),
-                "code" to it.code.trim().uppercase(),
-                "rooms" to (roomsById[it.id] ?: emptyList<Any>()),
+        val payload = branches.map { b ->
+            val stored = storedById[b.id]
+            // The rooms the phone was shown are the rooms it writes; anything else the desk keeps on a
+            // branch (address, phone) rides along untouched.
+            val kept = stored?.filterKeys { k -> k !in setOf("id", "name", "code", "rooms") }
+                ?.mapNotNull { (k, v) -> (k?.toString() ?: return@mapNotNull null) to v }?.toMap().orEmpty()
+            kept + mapOf(
+                "id" to b.id,
+                "name" to b.name.trim(),
+                "code" to b.code.trim().uppercase(),
+                "rooms" to b.rooms.filter { it.name.isNotBlank() }.map { mapOf("id" to it.id, "name" to it.name.trim()) },
             )
         }
         saveDoc(clinicId, "locations", mapOf("branches" to payload, "updatedAt" to java.time.Instant.now().toString())).getOrThrow()
     }
 
     fun newBranchId(): String = "loc_${System.currentTimeMillis().toString(36)}"
+    fun newRoomId(): String = "room_${System.currentTimeMillis().toString(36)}_${(100..999).random()}"
+
+    // ------------------------------------------------------------------ letting people in, and inviting them
+
+    /**
+     * The website's `/api/join-requests/approve`: grants the role on the person's account, which
+     * no Firestore rule lets a client do. Owner, Admin, Dentist, Receptionist or Assistant.
+     */
+    suspend fun approveJoinRequest(clinicId: String, requestId: String, role: String): Result<Unit> = runCatching {
+        ClinicRoutes.post(
+            "/api/join-requests/approve",
+            org.json.JSONObject().put("requestId", requestId).put("clinicId", clinicId).put("role", role),
+        )
+        Unit
+    }
+
+    /** One invite link, as `/api/invites` lists it. */
+    data class Invite(
+        val code: String,
+        val role: String,
+        /** active · used · expired · revoked */
+        val status: String,
+        val maxUses: Int,
+        val usedCount: Int,
+        val expiresAt: String,
+        val createdByName: String,
+    ) {
+        val active: Boolean get() = status == "active"
+    }
+
+    val INVITABLE_ROLES = listOf("Dentist", "Receptionist", "Assistant")
+
+    suspend fun loadInvites(clinicId: String): List<Invite> {
+        val json = ClinicRoutes.get("/api/invites?clinicId=" + java.net.URLEncoder.encode(clinicId, "UTF-8"))
+        val rows = json.optJSONArray("items") ?: return emptyList()
+        return (0 until rows.length()).mapNotNull { i ->
+            val r = rows.optJSONObject(i) ?: return@mapNotNull null
+            Invite(
+                code = r.optString("code"),
+                role = r.optString("role"),
+                status = r.optString("status"),
+                maxUses = r.optInt("maxUses", 1),
+                usedCount = r.optInt("usedCount", 0),
+                expiresAt = r.optString("expiresAt").takeIf { it != "null" }.orEmpty(),
+                createdByName = r.optString("createdByName").takeIf { it != "null" }.orEmpty(),
+            )
+        }
+    }
+
+    suspend fun createInvite(clinicId: String, role: String, maxUses: Int): Result<String> = runCatching {
+        val json = ClinicRoutes.post(
+            "/api/invites",
+            org.json.JSONObject().put("action", "create").put("clinicId", clinicId).put("role", role).put("maxUses", maxUses.coerceIn(1, 50)),
+        )
+        json.optString("code")
+    }
+
+    suspend fun revokeInvite(clinicId: String, code: String): Result<Unit> = runCatching {
+        ClinicRoutes.post("/api/invites", org.json.JSONObject().put("action", "revoke").put("clinicId", clinicId).put("code", code))
+        Unit
+    }
+
+    /** The link a person opens: the website's `/join/<code>`. */
+    fun inviteLink(code: String): String = com.alphadental.clinic.BuildConfig.WEB_URL.trimEnd('/') + "/join/" + code
+
+    // ------------------------------------------------------------------ receipts
+
+    /**
+     * `settings/receipt`, the parts a phone can sensibly edit: which lines print, the note under
+     * the title, the footer, the numbering, the language and the paper. The template, colours,
+     * fonts and the tax-authority (ETA) block stay on the website, where they can be previewed.
+     */
+    data class ReceiptSettings(
+        val language: String = "ar",
+        val paper: String = "a4",
+        val headerNote: String = "",
+        val footerText: String = "",
+        val numberPrefix: String = "R-",
+        val numberIncludesYear: Boolean = true,
+        val autoPrintAfterPayment: Boolean = false,
+        val show: Map<String, Boolean> = RECEIPT_SHOW_DEFAULTS,
+    )
+
+    /** In the website's order, with the website's defaults. */
+    val RECEIPT_SHOW_DEFAULTS: Map<String, Boolean> = linkedMapOf(
+        "clinicPhone" to true, "clinicAddress" to true, "clinicEmail" to false, "leadDoctor" to true,
+        "patientPhone" to true, "patientAddress" to false, "patientAgeSex" to true, "patientFileNumber" to true,
+        "teeth" to true, "pricingBreakdown" to true, "doctorPerItem" to true, "discounts" to true,
+        "paymentMethod" to true, "collectedBy" to true, "chargeProgress" to true, "accountBalance" to true,
+        "paymentsHistory" to true, "signatureLine" to false, "footer" to true,
+    )
+
+    val RECEIPT_SHOW_LABELS: Map<String, String> = linkedMapOf(
+        "clinicPhone" to "Clinic phone", "clinicAddress" to "Clinic address", "clinicEmail" to "Clinic email", "leadDoctor" to "Lead dentist",
+        "patientPhone" to "Patient phone", "patientAddress" to "Patient address", "patientAgeSex" to "Patient age and sex", "patientFileNumber" to "File number",
+        "teeth" to "Teeth", "pricingBreakdown" to "Price breakdown", "doctorPerItem" to "Dentist per line", "discounts" to "Discounts",
+        "paymentMethod" to "Payment method", "collectedBy" to "Collected by", "chargeProgress" to "Paid so far on the treatment", "accountBalance" to "Account balance",
+        "paymentsHistory" to "Earlier payments", "signatureLine" to "Signature line", "footer" to "Footer",
+    )
+
+    suspend fun loadReceipt(clinicId: String): ReceiptSettings {
+        val d = loadDoc(clinicId, "receipt")
+        val show = (d["show"] as? Map<*, *>).orEmpty()
+        return ReceiptSettings(
+            language = d["language"]?.toString().orEmpty().ifBlank { "ar" },
+            paper = d["paper"]?.toString().orEmpty().ifBlank { "a4" },
+            headerNote = d["headerNote"]?.toString().orEmpty(),
+            footerText = d["footerText"]?.toString().orEmpty(),
+            numberPrefix = d["numberPrefix"]?.toString() ?: "R-",
+            numberIncludesYear = (d["numberIncludesYear"] as? Boolean) ?: true,
+            autoPrintAfterPayment = d["autoPrintAfterPayment"] == true,
+            show = RECEIPT_SHOW_DEFAULTS.mapValues { (k, v) -> (show[k] as? Boolean) ?: v },
+        )
+    }
+
+    /** Merged, so the template, colours and ETA block the website keeps are untouched. */
+    suspend fun saveReceipt(clinicId: String, r: ReceiptSettings): Result<Unit> = runCatching {
+        val existingShow = (loadDoc(clinicId, "receipt")["show"] as? Map<*, *>).orEmpty()
+            .mapNotNull { (k, v) -> (k?.toString() ?: return@mapNotNull null) to v }.toMap()
+        saveDoc(
+            clinicId, "receipt",
+            mapOf(
+                "language" to if (r.language == "en") "en" else "ar",
+                "paper" to r.paper,
+                "headerNote" to r.headerNote.trim().take(200),
+                "footerText" to r.footerText.trim().take(300),
+                "numberPrefix" to r.numberPrefix.trim().take(8),
+                "numberIncludesYear" to r.numberIncludesYear,
+                "autoPrintAfterPayment" to r.autoPrintAfterPayment,
+                "show" to (existingShow + r.show),
+                "updatedAt" to java.time.Instant.now().toString(),
+            ),
+        ).getOrThrow()
+    }
 
     // ------------------------------------------------------------------ dental labs
 
@@ -710,7 +849,23 @@ object ClinicSettings {
         val personaName: String = "",
         /** The sentences the bot quotes verbatim, shown on the phone as quick replies too. */
         val facts: Map<String, String> = emptyMap(),
+        /** "When a patient says any of these words, send exactly this." Free; no model involved. */
+        val scripts: List<BotScript> = emptyList(),
     )
+
+    data class BotScript(
+        val id: String,
+        val title: String = "",
+        /** As typed: one trigger per line or comma. */
+        val triggers: String = "",
+        val reply: String = "",
+        val enabled: Boolean = true,
+    ) {
+        /** Split on commas (both kinds) and newlines, as the website's parseTriggers does. */
+        val triggerList: List<String> get() = triggers.split(Regex("[,،\n]+")).map { it.trim() }.filter { it.isNotBlank() }.distinct()
+    }
+
+    fun newScriptId(): String = "s_${System.currentTimeMillis().toString(36)}"
 
     /** The fact rows the phone offers, matching the website's list and its order. */
     val BOT_FACT_KEYS = listOf(
@@ -743,6 +898,17 @@ object ClinicSettings {
             humanClaimMinutes = (d["botHumanClaimMinutes"] as? Number)?.toInt() ?: 15,
             personaName = d["botPersonaName"]?.toString().orEmpty(),
             facts = facts,
+            scripts = (d["botScripts"] as? List<*>).orEmpty().mapNotNull { raw ->
+                val m = raw as? Map<*, *> ?: return@mapNotNull null
+                val id = m["id"]?.toString().orEmpty().ifBlank { return@mapNotNull null }
+                BotScript(
+                    id = id,
+                    title = m["title"]?.toString().orEmpty(),
+                    triggers = (m["triggers"] as? List<*>).orEmpty().mapNotNull { it?.toString() }.joinToString(", "),
+                    reply = m["reply"]?.toString().orEmpty(),
+                    enabled = m["enabled"] != false,
+                )
+            },
         )
     }
 
@@ -762,6 +928,15 @@ object ClinicSettings {
                 "botHumanClaimMinutes" to b.humanClaimMinutes.coerceIn(0, 1440),
                 "botPersonaName" to b.personaName.trim(),
                 "botFacts" to (existing + b.facts.filterValues { it.isNotBlank() }),
+                // The website's cleanScripts, so no key is ever undefined: a script with no trigger
+                // or no reply is dropped rather than written half-made.
+                "botScripts" to b.scripts.filter { it.triggerList.isNotEmpty() && it.reply.isNotBlank() }.map { s ->
+                    buildMap<String, Any> {
+                        put("id", s.id); put("triggers", s.triggerList); put("reply", s.reply.trim())
+                        if (s.title.isNotBlank()) put("title", s.title.trim())
+                        if (!s.enabled) put("enabled", false)
+                    }
+                },
             )
         ).getOrThrow()
     }

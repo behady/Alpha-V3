@@ -11,6 +11,8 @@ import androidx.compose.material.icons.filled.EventRepeat
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.HowToReg
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.LocalHospital
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Notifications
@@ -65,6 +67,8 @@ enum class Section(
 
     Team("The team", "Who works here, and what they may open", Icons.Filled.Groups, SettingsGroup.People),
     Requests("People asking to join", "Accounts waiting to be let in", Icons.Filled.HowToReg, SettingsGroup.People),
+    Invites("Invite links", "A link that lets somebody join with a role", Icons.Filled.Link, SettingsGroup.People),
+    Receipts("Receipts", "What prints on a receipt, and how they are numbered", Icons.Filled.Receipt, SettingsGroup.Work),
 
     Booking("Online booking", "The clinic's public booking page", Icons.Filled.CalendarMonth, SettingsGroup.Patients),
     Bot("WhatsApp bot", "What answers patients out of hours", Icons.AutoMirrored.Filled.Chat, SettingsGroup.Patients),
@@ -142,6 +146,10 @@ data class SettingsState(
     val rates: List<ClinicSettings.StaffRates> = emptyList(),
     val staff: List<ClinicSettings.StaffRow> = emptyList(),
     val requests: List<ClinicSettings.JoinRequest> = emptyList(),
+    val invites: List<ClinicSettings.Invite> = emptyList(),
+    /** The link just minted, so it can be shared without hunting for it in the list. */
+    val newInvite: String? = null,
+    val receipt: ClinicSettings.ReceiptSettings? = null,
     val logs: List<ClinicSettings.LogRow> = emptyList(),
     val ai: List<ClinicSettings.AiMonth> = emptyList(),
 ) {
@@ -242,6 +250,8 @@ class SettingsModel : ViewModel() {
             Section.Sources -> load { it.copy(sources = ClinicSettings.loadList(id, ClinicSettings.PATIENT_SOURCES)) }
             Section.Team -> load { it.copy(staff = ClinicSettings.loadStaff(id)) }
             Section.Requests -> load { it.copy(requests = ClinicSettings.loadJoinRequests(id)) }
+            Section.Invites -> load { it.copy(invites = ClinicSettings.loadInvites(id), newInvite = null) }
+            Section.Receipts -> load { it.copy(receipt = ClinicSettings.loadReceipt(id)) }
             Section.Booking -> load { it.copy(booking = ClinicSettings.loadOnlineBooking(id)) }
             Section.Bot -> load { it.copy(bot = ClinicSettings.loadBot(id)) }
             Section.Alerts -> load {
@@ -503,6 +513,35 @@ class SettingsModel : ViewModel() {
      * here would mark the request accepted and grant nothing, which is worse than
      * not offering it. Letting somebody in stays on the website.
      */
+    /** Let somebody in with a role. The website's route grants it; the phone only asks. */
+    fun approveRequest(id: String, role: String) =
+        act({ ClinicSettings.approveJoinRequest(it, id, role) }) { clinicId ->
+            copy(requests = ClinicSettings.loadJoinRequests(clinicId))
+        }
+
+    fun createInvite(role: String, maxUses: Int) {
+        val id = _state.value.who?.clinicId ?: return
+        if (!_state.value.canEdit) return
+        _state.value = _state.value.copy(busy = true, error = null)
+        viewModelScope.launch {
+            ClinicSettings.createInvite(id, role, maxUses)
+                .onSuccess { code -> _state.value = _state.value.copy(busy = false, newInvite = code, invites = runCatching { ClinicSettings.loadInvites(id) }.getOrDefault(_state.value.invites)) }
+                .onFailure { e -> _state.value = _state.value.copy(busy = false, error = e.message ?: "The link could not be made.") }
+        }
+    }
+
+    fun revokeInvite(code: String) =
+        act({ ClinicSettings.revokeInvite(it, code) }) { clinicId -> copy(invites = ClinicSettings.loadInvites(clinicId), newInvite = null) }
+
+    /** A treatment off the price list, to the bin — thirty days to put it back. */
+    fun binService(docId: String) =
+        act({ com.alphadental.clinic.data.RecycleBin.delete(it, "services", docId) }) { clinicId ->
+            copy(services = ClinicSettings.loadServices(clinicId))
+        }
+
+    fun saveReceipt(r: ClinicSettings.ReceiptSettings) =
+        write({ ClinicSettings.saveReceipt(it, r) }) { it.copy(receipt = r) }
+
     fun rejectRequest(id: String) {
         if (!_state.value.canEdit) return
         _state.value = _state.value.copy(busy = true)
