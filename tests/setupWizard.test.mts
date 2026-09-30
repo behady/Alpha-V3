@@ -133,9 +133,12 @@ assert.equal(normalizePhone(" 02 2735 1234 "), "02 2735 1234", "a landline is ke
 // Every answer lands on a switch the WhatsApp settings screens already own. The three bot fields
 // are one decision on that screen; these pin that the wizard stores it the same way.
 
-assert.deepEqual(SETUP_STEPS, ["hours", "team", "services", "contact", "booking", "insurance", "whatsapp", "assistant"]);
-assert.ok(SETUP_STEPS.indexOf("team") < SETUP_STEPS.indexOf("services"), "the team is asked before the price list");
-assert.ok(SETUP_STEPS.indexOf("team") < SETUP_STEPS.indexOf("booking"), "dentists exist before the booking step asks about picking one");
+// The clinic, what it offers, who works there, then how patients reach it.
+assert.deepEqual(SETUP_STEPS, ["contact", "hours", "services", "booking", "team", "insurance", "whatsapp", "assistant"]);
+for (const shown of ["contact", "hours"] as const) {
+  assert.ok(SETUP_STEPS.indexOf(shown) < SETUP_STEPS.indexOf("booking"), `the booking page is set up after the ${shown} it shows`);
+}
+assert.equal(SETUP_STEPS.indexOf("team"), SETUP_STEPS.indexOf("booking") + 1, "the booking step says dentists are added in the next step");
 
 const ALL = { messages: true, bot: true, ai: true };
 const NONE = { messages: false, bot: false, ai: false };
