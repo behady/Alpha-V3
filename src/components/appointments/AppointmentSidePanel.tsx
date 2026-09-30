@@ -370,7 +370,7 @@ export default function AppointmentSidePanel({
                           {language === 'ar' ? 'على حساب' : 'Charged to'} {visitPayers.join(language === 'ar' ? '، ' : ', ')}
                         </p>
                         <p className="text-[11px] font-semibold text-ink-muted">
-                          {language === 'ar' ? 'بتتحدد لكل علاج من تبويب الفلوس' : 'Set per treatment on the Money tab'}
+                          {language === 'ar' ? 'بتتحدد لكل علاج من تبويب الحساب' : 'Set per treatment on the Money tab'}
                         </p>
                       </div>
                     </div>
