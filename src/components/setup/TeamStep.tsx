@@ -32,7 +32,7 @@ export type TeamMember = {
  *
  * The list comes from the page, which listens to `staff`, so a colleague who opens an invite link
  * while the owner is still on this step appears in it without a refresh — and the booking step
- * later knows how many dentists there are to choose from.
+ * knows how many dentists there are to choose from, whichever order the two are visited in.
  */
 export default function TeamStep({ team }: { team: TeamMember[] }) {
   const { user } = useAuth();

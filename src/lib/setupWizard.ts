@@ -15,17 +15,17 @@
 export const SETUP_ROUTE = "/setup";
 
 /**
- * Hours, prices and contact details are the facts every clinic needs on day one. The rest came
- * later ("quick clinic setup"): the team, the online booking page, insurance, connecting the
- * clinic's WhatsApp, and deciding what that WhatsApp does — each still optional, each still
- * writing only what the Settings screens write.
+ * The clinic first, then what it offers, then who works there, then how patients reach it: its
+ * details, its hours, its prices, the online booking page, the team, insurance, connecting the
+ * clinic's WhatsApp, and deciding what that WhatsApp does. Each is optional, and each writes only
+ * what the Settings screens write.
  *
- * The team comes before the price list, and the booking page after the clinic's details: by the
- * time the booking step asks whether patients may pick their dentist, the dentists exist, and the
- * page it switches on already has the address and phone it shows.
+ * The booking page comes after the details and hours it shows patients. It is asked before the
+ * team, so "may patients pick their dentist?" can be answered before any dentist exists — the page
+ * shows the choice only once there are dentists to choose from.
  */
-export type SetupStepId = "hours" | "team" | "services" | "contact" | "booking" | "insurance" | "whatsapp" | "assistant";
-export const SETUP_STEPS: SetupStepId[] = ["hours", "team", "services", "contact", "booking", "insurance", "whatsapp", "assistant"];
+export type SetupStepId = "contact" | "hours" | "services" | "booking" | "team" | "insurance" | "whatsapp" | "assistant";
+export const SETUP_STEPS: SetupStepId[] = ["contact", "hours", "services", "booking", "team", "insurance", "whatsapp", "assistant"];
 
 /**
  * Where a re-run goes when it finishes: the page the person pressed "Quick setup" on, passed as

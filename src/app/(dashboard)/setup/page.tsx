@@ -49,10 +49,10 @@ const PayersSettings = dynamic(() => import("@/components/settings/PayersSetting
  * The clinic setup a new clinic lands on right after it is created — and that any admin can run
  * again from the "Quick clinic setup" button in Settings or the wand in the top bar.
  *
- * Eight screens. Opening hours (so the calendar stops offering times you are closed), the team (so
- * each colleague has a login and the dentists exist to be booked), a starting price list (so the
- * first invoice has something to pick from), and the clinic's phone and address (so prescriptions
- * print with them). Then the ones that make the clinic reachable: the online booking page, which
+ * Eight screens. The clinic's phone and address (so prescriptions print with them), its opening
+ * hours (so the calendar stops offering times you are closed), a starting price list (so the first
+ * invoice has something to pick from), and the online booking page (which shows patients all
+ * three). Then the team (so each colleague has a login and the dentists exist to be booked), which
  * insurers it works with, linking its WhatsApp number by QR, and what that WhatsApp should do —
  * asked as plain questions.
  *
@@ -83,11 +83,11 @@ function SetupWizard() {
   const isAr = language === "ar";
   const lang: "en" | "ar" = isAr ? "ar" : "en";
 
-  const [step, setStep] = useState<SetupStepId>("hours");
+  const [step, setStep] = useState<SetupStepId>(SETUP_STEPS[0]);
   const [loadingState, setLoadingState] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // Step 1
+  // Hours
   const [schedule, setSchedule] = useState({ ...DEFAULT_SCHEDULE, offDays: [...DEFAULT_SCHEDULE.offDays] });
   const [hoursDone, setHoursDone] = useState(false);
   /**
@@ -156,8 +156,8 @@ function SetupWizard() {
       bookingDoctorHint: (n: number) =>
         n === 0
           ? isAr
-            ? "مفيش أطباء في الفريق لسه — ضيفهم من خطوة «فريق العمل»، أو سيبها مقفولة والاستقبال يحدد."
-            : "No dentists on the team yet — add them in the Team step, or leave this off and the desk assigns one."
+            ? "هتضيف الأطباء في الخطوة الجاية. لو فتحتها دلوقتي، الاختيار هيظهر للمرضى أول ما يبقى فيه أطباء. لو مقفولة، الاستقبال بيحدد."
+            : "You add your dentists in the next step. Switch this on now and patients see the choice once there are dentists; off, and the desk assigns one."
           : isAr
             ? `عندك ${n === 1 ? "طبيب واحد" : `${n} أطباء`} في الفريق. لو مقفولة، الاستقبال بيحدد مين المتاح.`
             : `${n} dentist${n === 1 ? "" : "s"} on the team. Off, and the desk assigns whoever is free.`,
@@ -506,7 +506,23 @@ function SetupWizard() {
       </div>
 
       <div className="bg-surface rounded-[2rem] border border-line shadow-sm p-6 sm:p-8">
-        {/* ---------- Step 1: hours ---------- */}
+        {/* ---------- Step 1: contact ---------- */}
+        {step === "contact" && (
+          <div className="space-y-6">
+            <StepHeading icon={<Phone size={20} />} title={t.steps.contact} why={t.contactWhy} />
+            <label className="block">
+              <span className="block text-[11px] font-black text-ink-muted uppercase tracking-widest mb-2">{t.phone}</span>
+              <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="01xxxxxxxxx" dir="ltr" className={inputCls} autoComplete="tel" />
+            </label>
+            <label className="block">
+              <span className="block text-[11px] font-black text-ink-muted uppercase tracking-widest mb-2">{t.address}</span>
+              <input type="text" value={address} onChange={(e) => setAddress(e.target.value)} className={inputCls} autoComplete="street-address" />
+            </label>
+            <Footer primary={t.saveNext} onPrimary={saveContact} onSkip={goNext} skipLabel={t.skip} saving={saving} />
+          </div>
+        )}
+
+        {/* ---------- Step 2: hours ---------- */}
         {step === "hours" && (
           <div className="space-y-6">
             <StepHeading icon={<Clock size={20} />} title={t.steps.hours} why={t.hoursWhy} />
@@ -556,21 +572,6 @@ function SetupWizard() {
               onSkip={goNext}
               skipLabel={t.skip}
               saving={saving}
-            />
-          </div>
-        )}
-
-        {/* ---------- Step 2: team ---------- */}
-        {step === "team" && (
-          <div className="space-y-6">
-            <StepHeading icon={<Users size={20} />} title={t.steps.team} why={t.teamWhy} />
-            <TeamStep team={team} />
-            <Footer
-              primary={t.next}
-              onPrimary={() => void goNext()}
-              onSkip={team.length <= 1 ? goNext : undefined}
-              skipLabel={t.teamLater}
-              saving={false}
             />
           </div>
         )}
@@ -674,23 +675,7 @@ function SetupWizard() {
           </div>
         )}
 
-        {/* ---------- Step 4: contact ---------- */}
-        {step === "contact" && (
-          <div className="space-y-6">
-            <StepHeading icon={<Phone size={20} />} title={t.steps.contact} why={t.contactWhy} />
-            <label className="block">
-              <span className="block text-[11px] font-black text-ink-muted uppercase tracking-widest mb-2">{t.phone}</span>
-              <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="01xxxxxxxxx" dir="ltr" className={inputCls} autoComplete="tel" />
-            </label>
-            <label className="block">
-              <span className="block text-[11px] font-black text-ink-muted uppercase tracking-widest mb-2">{t.address}</span>
-              <input type="text" value={address} onChange={(e) => setAddress(e.target.value)} className={inputCls} autoComplete="street-address" />
-            </label>
-            <Footer primary={t.saveNext} onPrimary={saveContact} onSkip={goNext} skipLabel={t.skip} saving={saving} />
-          </div>
-        )}
-
-        {/* ---------- Step 5: online booking ---------- */}
+        {/* ---------- Step 4: online booking ---------- */}
         {step === "booking" && (
           <div className="space-y-6">
             <StepHeading icon={<Globe size={20} />} title={t.steps.booking} why={t.bookingWhy} />
@@ -800,6 +785,21 @@ function SetupWizard() {
                 />
               </>
             )}
+          </div>
+        )}
+
+        {/* ---------- Step 5: team ---------- */}
+        {step === "team" && (
+          <div className="space-y-6">
+            <StepHeading icon={<Users size={20} />} title={t.steps.team} why={t.teamWhy} />
+            <TeamStep team={team} />
+            <Footer
+              primary={t.next}
+              onPrimary={() => void goNext()}
+              onSkip={team.length <= 1 ? goNext : undefined}
+              skipLabel={t.teamLater}
+              saving={false}
+            />
           </div>
         )}
 

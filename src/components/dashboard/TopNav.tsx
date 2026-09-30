@@ -102,7 +102,7 @@ export default function TopNav({
   const settingsLabel = labelFor("settings");
 
   /**
-   * The clinic setup, one press from anywhere: hours, team, prices, details, online booking,
+   * The clinic setup, one press from anywhere: details, hours, prices, online booking, team,
    * insurance and WhatsApp. Admins only, as the wizard itself is — it sends anyone else home.
    * It carries the page it was pressed on, so finishing returns there rather than to Settings.
    */
