@@ -160,6 +160,39 @@ async function clinicName(clinicId: string): Promise<string> {
 export type StaffLineOutcome = { status: "replied"; text: string; handoff: false; reason: string } | { status: "skipped"; reason: string };
 
 /**
+ * Whether to answer this message at all, from when the line last spoke to this person.
+ *
+ * The owner's own number turned out to run a bot of its own (his new gateway), which answered the
+ * evening report as if a patient had written, and the staff line answered THAT — two machines
+ * politely replying to each other. A person cannot read a report and type a reply in eight
+ * seconds, and no person needs more than five answers in two minutes; anything faster is a machine
+ * and is left unanswered. Pure, so the arithmetic is pinned by a test.
+ */
+export function staffThrottle(replyTimesMs: number[], now: number): { allow: boolean; reason?: "echo" | "burst" } {
+  const recent = replyTimesMs.filter((t) => now - t < 2 * 60 * 1000);
+  const last = Math.max(0, ...replyTimesMs);
+  if (last && now - last < 8_000) return { allow: false, reason: "echo" };
+  if (recent.length >= 5) return { allow: false, reason: "burst" };
+  return { allow: true };
+}
+
+async function readReplyTimes(clinicId: string, uid: string): Promise<number[]> {
+  try {
+    const snap = await adminClinicDoc(clinicId, "staff_line", uid).get();
+    const raw = snap.data()?.replyTimesMs;
+    return Array.isArray(raw) ? raw.map((x) => Number(x)).filter((x) => Number.isFinite(x)) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function noteReply(clinicId: string, uid: string, times: number[]): Promise<void> {
+  await adminClinicDoc(clinicId, "staff_line", uid)
+    .set({ replyTimesMs: [...times, Date.now()].slice(-10) }, { merge: true })
+    .catch(() => {});
+}
+
+/**
  * Answer a staff member. Reports go through the same sender as the scheduled ones, redacted by
  * role the same way; the greeting goes out over the clinic's own gateway.
  */
@@ -173,6 +206,12 @@ export async function respondToStaffMessage(args: {
 }): Promise<StaffLineOutcome> {
   const { clinicId, to, text, sender } = args;
   const echo = args.heard ? `🎙️ "${args.heard.slice(0, 200)}"\n\n` : "";
+
+  const replyTimes = await readReplyTimes(clinicId, sender.uid);
+  const gate = staffThrottle(replyTimes, Date.now());
+  if (!gate.allow) return { status: "skipped", reason: `staff_${gate.reason}` };
+  // Every send below counts as one reply; recorded once here rather than at each return.
+  void noteReply(clinicId, sender.uid, replyTimes);
   const intent = staffIntent(text);
   const language = staffLanguage(text);
 
@@ -196,7 +235,7 @@ export async function respondToStaffMessage(args: {
     await clearStaffPending(clinicId, sender.uid);
   }
 
-  if (intent !== "help") {
+  if (intent === "evening" || intent === "morning" || intent === "summary") {
     const eventId =
       intent === "evening" ? "eveningDigest" : intent === "summary" ? "ownerSummary" : sender.role === "Dentist" ? "morningBriefDentist" : "morningBriefClinic";
     const event = notifyEvent(eventId);

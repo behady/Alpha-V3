@@ -27,7 +27,7 @@ import { discountPercentOf } from "../src/lib/alerts/moneyAlerts";
 import { groupQueued } from "../src/lib/alerts/sweep";
 import { notifyTiming } from "../src/lib/notificationCatalog";
 import { renderStaffReport, reportPushLine } from "../src/lib/reports/staffReportText";
-import { samePhone, staffHelpText, staffIntent, staffLanguage } from "../src/lib/bot/staffLine";
+import { samePhone, staffHelpText, staffIntent, staffLanguage, staffThrottle } from "../src/lib/bot/staffLine";
 import { confirmPrompt, pendingToLines, staffDecision, toStaffPending } from "../src/lib/bot/staffAssistant";
 import type { Briefing } from "../src/lib/automation/briefing/types";
 import { FEATURE_CATALOG } from "../src/lib/featureCatalog";
@@ -337,7 +337,7 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
   eq(toStaffPending({ kind: "delete" }), null, "a preview without an id must not become a pending action");
   ok(confirmPrompt("ar").includes("نعم") && confirmPrompt("en").includes("yes"), "confirm prompt");
   const line = read("src/lib/bot/staffLine.ts");
-  ok(line.indexOf("loadStaffPending(") < line.indexOf('if (intent !== "help")'), "a pending action is not checked before the report keywords — 'yes' would fetch nothing");
+  ok(line.indexOf("loadStaffPending(") < line.indexOf('if (intent === "evening" || intent === "morning" || intent === "summary")'), "a pending action is not checked before the report keywords — 'yes' would fetch nothing");
   ok(read("src/lib/bot/staffAssistant.ts").includes("/api/gemini/confirm-action"), "the staff line does not use the app's own confirm route");
 
   // Voice notes: both webhooks hand the staff line a transcriber; the staff line echoes what it heard.
@@ -372,6 +372,20 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
   ok(/needsHuman: false/.test(read("src/lib/bot/staffLine.ts")), "an owner's old handoff row keeps paging staff about a waiting patient");
   const respond = read("src/lib/bot/respond.ts");
   ok(respond.indexOf("findStaffByPhone(") < respond.indexOf("if (!settings.enabled)"), "the staff check runs after the patient gates — the owner is a patient again when the bot is off");
+
+  // The regression the owner hit: every free question came back as the morning brief, because the
+  // report branch caught everything that was not a greeting. Only the three report words may.
+  const staffLine = read("src/lib/bot/staffLine.ts");
+  ok(!staffLine.includes('if (intent !== "help")'), "the report branch still swallows free questions — 'ايه اخبار الأسبوع' becomes the morning brief");
+  ok(staffLine.includes('if (intent === "evening" || intent === "morning" || intent === "summary")'), "the report branch is not limited to the report intents");
+
+  // Two bots must not talk to each other.
+  const now = 1_000_000;
+  eq(staffThrottle([], now), { allow: true }, "first message is answered");
+  eq(staffThrottle([now - 30_000], now), { allow: true }, "a reply half a minute later is answered");
+  eq(staffThrottle([now - 3_000], now).reason, "echo", "a reply three seconds after our own message is a machine");
+  eq(staffThrottle([now - 100_000, now - 80_000, now - 60_000, now - 40_000, now - 20_000], now).reason, "burst", "six answers in two minutes is a loop");
+  eq(staffThrottle([now - 130_000, now - 125_000, now - 124_000, now - 123_000, now - 122_000], now), { allow: true }, "old bursts expire");
 }
 
 // --- 6. The week, the month, the pay sheet ---------------------------------------------------------
