@@ -67,7 +67,21 @@ data class Day(
     val counting: Boolean = false,
     /** Every visit in the week or month on screen, for the grid. Empty in the day view. */
     val spanVisits: List<Visit> = emptyList(),
+    /** The clinic's branches and their rooms, for the filter pills. One branch and no rooms hides them. */
+    val branches: List<com.alphadental.clinic.data.LabCases.Branch> = emptyList(),
+    /** A branch or room to show alone. A booking made before branches existed has neither and always shows. */
+    val branchFilter: String = "",
+    val roomFilter: String = "",
 ) {
+    val hasPlaces: Boolean get() = branches.size > 1 || branches.any { it.rooms.isNotEmpty() }
+    val rooms: List<com.alphadental.clinic.data.LabCases.Room>
+        get() = (if (branchFilter.isBlank()) branches else branches.filter { it.id == branchFilter }).flatMap { it.rooms }
+
+    /** The website's rule: a filter hides only bookings that name a DIFFERENT place. */
+    private fun inPlace(v: Visit): Boolean =
+        (branchFilter.isBlank() || v.branchId.isBlank() || v.branchId == branchFilter) &&
+            (roomFilter.isBlank() || v.roomId.isBlank() || v.roomId == roomFilter)
+
     val isToday: Boolean get() = dateKey == ClinicSource.dateKey()
     val unconfirmed: Int get() = visits.count { it.status == Stage.Unconfirmed }
     val done: Int get() = visits.count { it.status == Stage.Completed }
@@ -84,6 +98,7 @@ data class Day(
         get() {
             val booked = visits
                 .filterNot { it.status == Stage.Cancelled }
+                .filter { inPlace(it) }
                 .sortedBy { it.minuteOfDay }
             if (!hours.configured) return booked.map { DayEntry.Booking(it) }
 
@@ -139,6 +154,7 @@ class DayModel : ViewModel() {
                 .onSuccess { who ->
                     _state.value = _state.value.copy(who = who, loading = false)
                     _state.value = _state.value.copy(hours = ClinicSource.hours(who.clinicId))
+                    _state.value = _state.value.copy(branches = runCatching { com.alphadental.clinic.data.LabCases.loadBranches(who.clinicId) }.getOrDefault(emptyList()))
                     watch(who, _state.value.dateKey)
                 }
                 .onFailure { e ->
@@ -219,6 +235,14 @@ class DayModel : ViewModel() {
     }
 
     /** Tapping a square in the week or the month drops back into that day. */
+    fun filterBranch(id: String) {
+        _state.value = _state.value.copy(branchFilter = id, roomFilter = "")
+    }
+
+    fun filterRoom(id: String) {
+        _state.value = _state.value.copy(roomFilter = id)
+    }
+
     fun openDay(dateKey: String) {
         if (dateKey.isBlank()) return
         _state.value = _state.value.copy(span = Span.Day, counts = emptyList(), spanVisits = emptyList())

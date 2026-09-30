@@ -35,7 +35,87 @@ data class TeamActions(
     val closeStaff: () -> Unit,
     val saveStaff: (Double, Double, Double, Map<Int, Attendance.DaySchedule>) -> Unit,
     val decideOvertime: (String, Boolean) -> Unit,
+    val openProfile: (String?) -> Unit = {},
 )
+
+/**
+ * One person, the way the website's Team page reads them: today, the period on screen, and what
+ * they earn. Commission is the STORED figure on payments, summed as Reports does — never
+ * recalculated here, so this sheet and Dentist Performance cannot disagree.
+ */
+@Composable
+fun StaffProfileSheet(state: AttendanceState, a: TeamActions) {
+    val id = state.profileId ?: return
+    val member = state.staff.firstOrNull { it.id == id } ?: return
+    val today = state.roster.firstOrNull { it.member.id == id }
+    val pay = state.payroll?.staff?.firstOrNull { it.staffId == id }
+    val commission = state.commissions[id] ?: 0.0
+    val (from, to) = state.period.range()
+    val money = { n: Double -> java.text.NumberFormat.getIntegerInstance(java.util.Locale.US).format(n.toLong()) }
+    val hours = { min: Int -> "${min / 60}h ${min % 60}m" }
+
+    Sheet(
+        title = member.name.ifBlank { "Unnamed" },
+        caption = listOfNotNull(member.role.takeIf { it.isNotBlank() }, if (member.isDentist) "dentist" else null, if (!member.hasSchedule) "default hours" else null).joinToString(" · "),
+        action = "Pay and hours",
+        ready = true,
+        onAction = { a.openProfile(null); a.editStaff(member) },
+        onDismiss = { a.openProfile(null) },
+    ) {
+        SectionLabel("Today")
+        RowGroup {
+            Line("Status", when (today?.state) {
+                Attendance.State.ON_SHIFT -> "On shift" + (today.punch?.checkInMillis?.let { " since ${java.text.SimpleDateFormat("h:mm a", java.util.Locale.US).format(java.util.Date(it))}" } ?: "")
+                Attendance.State.DONE -> "Finished"
+                Attendance.State.NOT_ARRIVED -> "Not arrived"
+                Attendance.State.EXPECTED -> "Expected"
+                Attendance.State.DAY_OFF -> "Day off"
+                null -> "—"
+            })
+            Rule()
+            Line("Late", if ((today?.lateMinutes ?: 0) > 0) "${today?.lateMinutes} min" else "On time")
+            Rule()
+            Line("Worked so far", hours(today?.minutesToday ?: 0))
+        }
+        SectionLabel("$from to $to")
+        RowGroup {
+            if (pay == null) {
+                Txt(if (state.payrollLoading) "Counting…" else "Nothing for this period yet.", Type.body, T.inkMuted, Modifier.padding(horizontal = T.gutter, vertical = 14.dp))
+            } else {
+                Line("Days worked", pay.daysWorked.toString()); Rule()
+                Line("Hours", hours(pay.minutesWorked)); Rule()
+                Line("Late", if (pay.lateMinutes > 0) "${pay.lateMinutes} min" else "Never"); Rule()
+                Line("Absent", pay.absentDays.toString()); Rule()
+                Line("Overtime approved", hours(pay.overtimeApprovedMinutes)); Rule()
+                Line("Overtime waiting", hours(pay.overtimePendingMinutes)); Rule()
+                Line("Pay for the period", "${money(pay.estimatedPay)} EGP")
+            }
+            if (member.isDentist) {
+                Rule()
+                Line("Commission earned", "${money(commission)} EGP")
+            }
+        }
+        SectionLabel("Contract")
+        RowGroup {
+            Line("Base salary", if (member.baseSalary > 0) "${money(member.baseSalary)} EGP" else "Not set"); Rule()
+            if (member.isDentist) { Line("Commission", "${member.commissionPercentage}%"); Rule() }
+            Line("Overtime rate", "× ${member.overtimeMultiplier}"); Rule()
+            Line("Schedule", if (member.hasSchedule) member.schedule.entries.filter { it.value.active }.sortedBy { it.key }.joinToString(", ") { DAY_NAMES[it.key] } else "Clinic default (assumed)")
+        }
+        Txt(
+            "Lateness and absence are only asserted for a person with their own schedule; on assumed hours they would be facts about the assumption.",
+            Type.caption, T.inkFaint, Modifier.padding(horizontal = T.gutter, vertical = 12.dp), maxLines = 3,
+        )
+    }
+}
+
+@Composable
+private fun Line(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+        Txt(label, Type.caption, T.inkMuted, Modifier.weight(1f))
+        Txt(value, Type.label.copy(fontSize = 13.sp), T.ink, maxLines = 2)
+    }
+}
 
 private val DAY_NAMES = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
 

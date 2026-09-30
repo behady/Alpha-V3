@@ -1,5 +1,7 @@
 package com.alphadental.clinic.next
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
@@ -66,6 +68,8 @@ fun DayScreen(
     onSelectDay: (String) -> Unit = {},
     /** Book into the day on screen. On the slab, where the assistant's bubble cannot cover it. */
     onBookNow: (() -> Unit)? = null,
+    onBranch: (String) -> Unit = {},
+    onRoom: (String) -> Unit = {},
 ) {
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
@@ -82,6 +86,25 @@ fun DayScreen(
                 ) {
                     Span.entries.forEach { s ->
                         SettingsPill(s.label, solid = state.span == s) { onSpan(s) }
+                    }
+                }
+            }
+
+            // Which branch, which chair — only for a clinic that has more than one.
+            if (state.hasPlaces) {
+                item {
+                    Row(
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = T.gutter, end = T.gutter, bottom = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (state.branches.size > 1) {
+                            SettingsPill("All branches", solid = state.branchFilter.isBlank()) { onBranch("") }
+                            state.branches.forEach { b -> SettingsPill(b.name.ifBlank { "Branch" }, solid = state.branchFilter == b.id) { onBranch(if (state.branchFilter == b.id) "" else b.id) } }
+                        }
+                        if (state.rooms.isNotEmpty()) {
+                            SettingsPill("Any room", solid = state.roomFilter.isBlank()) { onRoom("") }
+                            state.rooms.forEach { r -> SettingsPill(r.name, solid = state.roomFilter == r.id) { onRoom(if (state.roomFilter == r.id) "" else r.id) } }
+                        }
                     }
                 }
             }

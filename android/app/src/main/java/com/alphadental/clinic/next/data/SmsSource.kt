@@ -75,6 +75,15 @@ object SmsSource {
         Invoice("invoice", "Invoice and payment", "Sent when money is recorded"),
     }
 
+    /** The website's default wording, character for character (`DEFAULT_SMS_TEMPLATES` in `sms/config.ts`). */
+    val DEFAULT_TEMPLATES: Map<String, String> = mapOf(
+        "reminder24h" to "تذكير: موعدك في {{clinic_name}} غدًا {{date}} الساعة {{time}}.",
+        "new" to "تم حجز موعدك {{date}} الساعة {{time}} — {{clinic_name}}",
+        "edit" to "تغيّر موعدك إلى {{date}} الساعة {{time}} — {{clinic_name}}",
+        "cancel" to "أُلغي موعدك يوم {{date}} — {{clinic_name}}. للحجز تواصل معنا.",
+        "invoice" to "استلمنا {{amount}} جنيه. المتبقي {{balance}} جنيه. {{clinic_name}}",
+    )
+
     /** Exactly the website's defaults. See DEFAULT_SMS_EVENTS in `sms/config.ts`. */
     private val DEFAULT_EVENTS = mapOf(
         "reminder24h" to true,
@@ -109,6 +118,9 @@ object SmsSource {
     ) {
         fun sends(event: Event): Boolean = events[event.stored] ?: (DEFAULT_EVENTS[event.stored] == true)
         fun body(event: Event): String = templates[event.stored].orEmpty()
+
+        /** What actually goes out: the clinic's wording, or the website's default when none is saved. */
+        fun effectiveBody(event: Event): String = body(event).ifBlank { DEFAULT_TEMPLATES[event.stored].orEmpty() }
 
         /** "10:00". The hour is the clinic's own, not UTC. */
         val sendHourLabel: String get() = "%02d:00".format(sendHour)

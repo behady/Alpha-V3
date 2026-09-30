@@ -858,6 +858,8 @@ private fun DayTab(
             // A free slot books into itself: the whole point of tapping one is
             // that the day and time are already decided.
             onBookGap = { gap -> onBook(state.dateKey, clockOf(gap.minute)) },
+            onBranch = model::filterBranch,
+            onRoom = model::filterRoom,
         )
     }
 }
@@ -1095,7 +1097,7 @@ private fun RecordPane(
     androidx.compose.runtime.LaunchedEffect(state.who?.uid, state.record?.person?.id) {
         val who = state.who
         val person = state.record?.person
-        if (who != null && person != null) ai.open(who, person.id, person.name)
+        if (who != null && person != null) ai.open(who, person.id, person.name, person.phone)
     }
     var taking by remember { mutableStateOf(payOnOpen) }
     var recording by remember { mutableStateOf(recordOnOpen) }
@@ -1122,6 +1124,12 @@ private fun RecordPane(
     }
     val aiActions = remember(ai, pickImage, takePicture) {
         AiClinicalActions(
+            sendSummary = { text ->
+                val digits = aiState.patientPhone.filter { it.isDigit() }
+                if (digits.isNotEmpty()) runCatching {
+                    context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://wa.me/$digits?text=" + java.net.URLEncoder.encode(text, "UTF-8"))))
+                }
+            },
             show = ai::show,
             type = ai::type,
             ask = { ai.ask(false) },
@@ -1599,6 +1607,7 @@ private fun AttendancePane(preview: Boolean, onBack: () -> Unit) {
             closeStaff = model::closeStaff,
             saveStaff = model::saveStaff,
             decideOvertime = model::decideOvertime,
+            openProfile = model::openProfile,
         ),
     )
 }
@@ -1938,6 +1947,7 @@ private fun SmsPane(preview: Boolean, onBack: () -> Unit) {
         onHour = model::setSendHour,
         onEvent = model::setEvent,
         onFooter = model::setFooter,
+        onTemplate = model::setTemplate,
         onBecomeSender = model::becomeSender,
         onStopSending = model::stopSending,
         onCheckNow = model::checkNow,

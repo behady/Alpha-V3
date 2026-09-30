@@ -175,6 +175,11 @@ class SmsModel(app: Application) : AndroidViewModel(app) {
 
     fun setFooter(on: Boolean) = save { it.copy(optOutFooter = on) }
 
+    /** The wording for one event. Blank puts the website's default back. */
+    fun setTemplate(event: SmsSource.Event, text: String) = save {
+        it.copy(templates = if (text.isBlank()) it.templates - event.stored else it.templates + (event.stored to text.trim()))
+    }
+
     private fun save(change: (SmsSource.Setup) -> SmsSource.Setup) {
         val s = _state.value
         val who = s.who ?: return

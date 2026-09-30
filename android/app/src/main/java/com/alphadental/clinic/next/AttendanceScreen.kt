@@ -66,6 +66,7 @@ fun AttendanceScreen(
     team: TeamActions? = null,
 ) {
     if (state.editingStaff != null && team != null) StaffPaySheet(state, team)
+    if (state.profileId != null && team != null) StaffProfileSheet(state, team)
 
     Column(Modifier.fillMaxSize().background(T.ground)) {
 
@@ -127,7 +128,7 @@ fun AttendanceScreen(
                     }
                     state.roster.forEachIndexed { i, row ->
                         if (i > 0) Rule()
-                        RosterRow(row)
+                        RosterRow(row, onOpen = team?.let { t -> { t.openProfile(row.member.id) } })
                     }
                 }
             }
@@ -236,7 +237,7 @@ private fun MyShiftCard(state: AttendanceState, onPunch: () -> Unit) {
 
 /** One person, today. The stripe is whether they are here. */
 @Composable
-private fun RosterRow(row: Attendance.RosterRow) {
+private fun RosterRow(row: Attendance.RosterRow, onOpen: (() -> Unit)? = null) {
     val stripe = when (row.state) {
         Attendance.State.ON_SHIFT -> if (row.lateMinutes > 0) T.warn else T.ok
         Attendance.State.NOT_ARRIVED -> T.danger
@@ -246,7 +247,7 @@ private fun RosterRow(row: Attendance.RosterRow) {
     }
 
     Row(
-        Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+        Modifier.fillMaxWidth().height(IntrinsicSize.Min).then(if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.width(3.dp).fillMaxHeight().background(stripe))

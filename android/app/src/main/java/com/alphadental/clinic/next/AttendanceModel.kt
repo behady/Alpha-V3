@@ -97,6 +97,8 @@ data class AttendanceState(
     /** Staff id → commission earned on payments in the period. */
     val commissions: Map<String, Double> = emptyMap(),
     val editingStaff: Attendance.StaffMember? = null,
+    /** The person whose profile sheet is open, by staff id. */
+    val profileId: String? = null,
     val savingStaff: Boolean = false,
     val staffError: String? = null,
     /** The punch whose overtime is being decided. */
@@ -258,6 +260,10 @@ class AttendanceModel : ViewModel() {
                 .mapValues { (_, list) -> list.sumOf { it.commission } }
             _state.value = _state.value.copy(periodPunches = punches, commissions = commissions)
         }
+    }
+
+    fun openProfile(id: String?) {
+        _state.value = _state.value.copy(profileId = id)
     }
 
     fun editStaff(member: Attendance.StaffMember) {

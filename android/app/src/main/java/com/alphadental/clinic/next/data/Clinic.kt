@@ -33,6 +33,9 @@ data class Visit(
     val duration: Int,
     /** The dentist by staff id, when the booking carries one. `doctor` is the display name. */
     val doctorId: String = "",
+    /** Where it is booked. Blank on bookings made before branches and rooms existed. */
+    val branchId: String = "",
+    val roomId: String = "",
 ) {
     /**
      * Minutes past midnight, for ordering.
@@ -162,6 +165,8 @@ internal fun DocumentSnapshot.toVisit(): Visit = Visit(
     status = Stage.from(text("status")),
     duration = number("duration")?.toInt()?.takeIf { it > 0 } ?: 30,
     doctorId = text("doctorId"),
+    branchId = text("branchId"),
+    roomId = text("roomId"),
 )
 
 /**

@@ -72,6 +72,7 @@ fun SmsScreen(
     onHour: (Int) -> Unit,
     onEvent: (SmsSource.Event, Boolean) -> Unit,
     onFooter: (Boolean) -> Unit,
+    onTemplate: (SmsSource.Event, String) -> Unit = { _, _ -> },
     onBecomeSender: () -> Unit,
     onStopSending: () -> Unit,
     onCheckNow: () -> Unit,
@@ -175,13 +176,15 @@ fun SmsScreen(
                 item { SectionLabel("Phones that send") }
                 item { Senders(state) { id, name -> confirm = Confirm.Retire(id, name) } }
 
+                item { SectionLabel("Message wording") }
+                item { Wording(state, onTemplate) }
                 item {
                     Column(Modifier.padding(horizontal = T.gutter, vertical = 16.dp)) {
                         Txt(
-                            "Message wording is edited on the website. A text is billed to the " +
-                                "SIM that sends it, and one Arabic character cuts a message from " +
-                                "160 characters to 70.",
-                            Type.caption, T.inkMuted, maxLines = 4,
+                            "{{clinic_name}}, {{date}}, {{time}}, {{amount}} and {{balance}} are filled in when the text is sent. " +
+                                "A text is billed to the SIM that sends it, and one Arabic character cuts a message from " +
+                                "160 characters to 70 — the defaults are written to fit in one.",
+                            Type.caption, T.inkMuted, maxLines = 5,
                         )
                     }
                 }
@@ -520,6 +523,30 @@ private fun MessageRow(m: SmsSource.Outgoing) {
  * receptionist wondering why a patient was not texted deserves to see how the
  * clinic is set up even if they may not change it.
  */
+/** One box per event, prefilled with what actually goes out. Blank puts the default back. */
+@Composable
+private fun Wording(state: Sms, onTemplate: (SmsSource.Event, String) -> Unit) {
+    RowGroup {
+        SmsSource.Event.entries.forEachIndexed { i, event ->
+            if (i > 0) Rule()
+            val stored = state.setup.body(event)
+            var text by remember(event, stored) { mutableStateOf(state.setup.effectiveBody(event)) }
+            val segments = if (text.any { it.code > 127 }) (text.length + 69) / 70 else (text.length + 159) / 160
+            SettingsField(event.label, text, { text = it }, state.canEdit, hint = SmsSource.DEFAULT_TEMPLATES[event.stored].orEmpty(), lines = 3)
+            Row(Modifier.fillMaxWidth().padding(start = T.gutter, end = T.gutter, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Txt("${text.length} characters · ${segments.coerceAtLeast(1)} text${if (segments > 1) "s" else ""}", Type.caption, if (segments > 1) T.warn else T.inkFaint, Modifier.weight(1f))
+                if (state.canEdit && text.trim() != state.setup.effectiveBody(event)) {
+                    SettingsPill("Save", solid = true) { onTemplate(event, text) }
+                }
+                if (state.canEdit && stored.isNotBlank()) {
+                    Spacer(Modifier.width(8.dp))
+                    SettingsPill("Default") { onTemplate(event, "") }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun WhatGetsSent(
     state: Sms,

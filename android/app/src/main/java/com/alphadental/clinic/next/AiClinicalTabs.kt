@@ -69,6 +69,8 @@ data class AiClinicalActions(
     val read: () -> Unit,
     val view: (AiClinical.XrayRow?) -> Unit,
     val review: (Map<String, String>, Map<String, String>, Boolean) -> Unit,
+    /** Opens WhatsApp to the patient with the plain-words explanation typed in. Null when the file has no phone. */
+    val sendSummary: ((String) -> Unit)? = null,
     val clearErrors: () -> Unit,
 )
 
@@ -648,10 +650,14 @@ fun XrayReportSheet(state: AiClinicalState, a: AiClinicalActions) {
             Rule()
             Txt("In the patient's words", Type.eyebrow, T.inkFaint, Modifier.padding(horizontal = T.gutter, vertical = 10.dp), uppercase = true)
             Txt(r.patientSummary, Type.body, T.inkMuted, Modifier.padding(horizontal = T.gutter, vertical = 2.dp), maxLines = 12)
-            Txt(
-                "Sent to the patient only from the website, and only once this report is signed.",
-                Type.caption, T.inkFaint, Modifier.padding(horizontal = T.gutter, vertical = 8.dp), maxLines = 2,
-            )
+            if (row.signed && a.sendSummary != null && state.patientPhone.isNotBlank()) {
+                SheetAction("Send to the patient on WhatsApp", "Opens WhatsApp with these words typed in; you press send") { a.sendSummary.invoke(r.patientSummary) }
+            } else {
+                Txt(
+                    if (!row.signed) "Sign the report first; the patient only ever sees signed words." else "The website can also send it as a PDF with the outlined picture.",
+                    Type.caption, T.inkFaint, Modifier.padding(horizontal = T.gutter, vertical = 8.dp), maxLines = 2,
+                )
+            }
         }
 
         Rule()

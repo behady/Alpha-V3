@@ -27,6 +27,7 @@ data class AiClinicalState(
     val who: Who? = null,
     val patientId: String = "",
     val patientName: String = "",
+    val patientPhone: String = "",
     val section: AiSection = AiSection.Diagnosis,
     /** The gallery, for attaching photos to a question and for picking x-rays to read. */
     val media: List<PatientMedia> = emptyList(),
@@ -93,9 +94,9 @@ class AiClinicalModel : ViewModel() {
     private val _state = MutableStateFlow(AiClinicalState())
     val state: StateFlow<AiClinicalState> = _state.asStateFlow()
 
-    fun open(who: Who, patientId: String, patientName: String) {
+    fun open(who: Who, patientId: String, patientName: String, patientPhone: String = "") {
         if (_state.value.patientId == patientId && _state.value.who != null) return
-        _state.value = AiClinicalState(who = who, patientId = patientId, patientName = patientName)
+        _state.value = AiClinicalState(who = who, patientId = patientId, patientName = patientName, patientPhone = patientPhone)
         refresh()
     }
 
