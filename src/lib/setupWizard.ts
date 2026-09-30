@@ -15,12 +15,30 @@
 export const SETUP_ROUTE = "/setup";
 
 /**
- * The first three are the facts every clinic needs on day one. The last three came later
- * ("quick clinic setup"): insurance, connecting the clinic's WhatsApp, and deciding what that
- * WhatsApp does — each still optional, each still writing only what the Settings screens write.
+ * Hours, prices and contact details are the facts every clinic needs on day one. The rest came
+ * later ("quick clinic setup"): the team, the online booking page, insurance, connecting the
+ * clinic's WhatsApp, and deciding what that WhatsApp does — each still optional, each still
+ * writing only what the Settings screens write.
+ *
+ * The team comes before the price list, and the booking page after the clinic's details: by the
+ * time the booking step asks whether patients may pick their dentist, the dentists exist, and the
+ * page it switches on already has the address and phone it shows.
  */
-export type SetupStepId = "hours" | "services" | "contact" | "insurance" | "whatsapp" | "assistant";
-export const SETUP_STEPS: SetupStepId[] = ["hours", "services", "contact", "insurance", "whatsapp", "assistant"];
+export type SetupStepId = "hours" | "team" | "services" | "contact" | "booking" | "insurance" | "whatsapp" | "assistant";
+export const SETUP_STEPS: SetupStepId[] = ["hours", "team", "services", "contact", "booking", "insurance", "whatsapp", "assistant"];
+
+/**
+ * Where a re-run goes when it finishes: the page the person pressed "Quick setup" on, passed as
+ * `?back=`. Only a path inside this app is accepted — a `//host` or `\` would leave it, and a link
+ * that sends someone off-site after they finish setting up is a phishing link with extra steps.
+ */
+export function setupReturnPath(raw: string | null | undefined): string | null {
+  if (typeof raw !== "string") return null;
+  const path = raw.trim();
+  if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\")) return null;
+  if (path === SETUP_ROUTE || path.startsWith(`${SETUP_ROUTE}?`) || path.startsWith(`${SETUP_ROUTE}/`)) return null;
+  return path;
+}
 
 /**
  * The hours most Egyptian dental clinics keep: an afternoon-to-late-evening day, Friday closed.
@@ -169,6 +187,68 @@ export function normalizePhone(value: string): string {
   if (/^\+201\d{9}$/.test(digits)) return "0" + digits.slice(3);
   if (/^201\d{9}$/.test(digits)) return "0" + digits.slice(2);
   return value.trim();
+}
+
+/* ---------- The team ------------------------------------------------------------------------- */
+
+/** The roles the wizard offers, as the Staff & logins form offers them — Owner is never one. */
+export const SETUP_TEAM_ROLES = ["Dentist", "Receptionist", "Assistant", "Admin"] as const;
+
+/** Firebase Auth refuses a shorter password; saying so before the round trip saves one. */
+export const MIN_STAFF_PASSWORD = 6;
+
+/**
+ * The first thing wrong with a new colleague's login, or null when it can be sent. The server
+ * checks again; this only spares a failed request for a typo the screen can see.
+ */
+export function teamMemberProblem(form: { name: string; email: string; password: string }): "name" | "email" | "password" | null {
+  if (!form.name.trim()) return "name";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) return "email";
+  if (form.password.length < MIN_STAFF_PASSWORD) return "password";
+  return null;
+}
+
+/* ---------- Online booking ------------------------------------------------------------------- */
+
+/** The lengths the Online booking screen offers, stored as it stores them — strings. */
+export const BOOKING_DURATIONS = ["15", "30", "45", "60"] as const;
+
+export type BookingAnswers = {
+  enabled: boolean;
+  enableDoctorSelection: boolean;
+  defaultDurationMinutes: string;
+};
+
+function bookingDuration(value: unknown): string | null {
+  const v = String(value ?? "");
+  return (BOOKING_DURATIONS as readonly string[]).includes(v) ? v : null;
+}
+
+/**
+ * The booking step's opening answers from `settings/onlineBooking`. A clinic that never set a
+ * length gets its own appointment length when the booking screen offers it — a clinic that books
+ * in 45-minute slots should not have its online requests hold 30.
+ */
+export function bookingAnswersFrom(raw: Record<string, unknown> | undefined, slotDuration: string): BookingAnswers {
+  return {
+    enabled: raw?.enabled === true,
+    enableDoctorSelection: raw?.enableDoctorSelection === true,
+    defaultDurationMinutes: bookingDuration(raw?.defaultDurationMinutes) ?? bookingDuration(slotDuration) ?? "30",
+  };
+}
+
+/**
+ * The fields to merge into `settings/onlineBooking` — the ones the Online booking screen writes,
+ * minus the cover image, which the wizard never touches. Switching the page off writes only the
+ * switch, so turning it back on later finds the clinic's other choices where it left them.
+ */
+export function bookingDocFrom(a: BookingAnswers): Record<string, unknown> {
+  if (!a.enabled) return { enabled: false };
+  return {
+    enabled: true,
+    enableDoctorSelection: a.enableDoctorSelection,
+    defaultDurationMinutes: bookingDuration(a.defaultDurationMinutes) ?? "30",
+  };
 }
 
 /* ---------- WhatsApp: the questions, and what each answer writes ------------------------------ */

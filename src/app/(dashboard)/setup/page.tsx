@@ -2,10 +2,10 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getDoc, getDocs, limit, query, setDoc, writeBatch, doc } from "firebase/firestore";
+import { getDoc, getDocs, limit, onSnapshot, query, setDoc, writeBatch, doc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import dynamic from "next/dynamic";
-import { Bot, Check, ChevronRight, Clock, Loader2, ListChecks, MessageCircle, Phone, Plus, ShieldPlus, Sparkles, Trash2 } from "lucide-react";
+import { Bot, Check, ChevronRight, Clock, Copy, ExternalLink, Globe, Loader2, ListChecks, Lock, MessageCircle, Phone, Plus, ShieldPlus, Sparkles, Trash2, Users } from "lucide-react";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
@@ -14,23 +14,31 @@ import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { parseClinicSchedule } from "@/lib/clinicSchedule";
 import { categoryOf, suggestCategory, suggestIcon } from "@/lib/dentalIcons";
 import {
+  BOOKING_DURATIONS,
   DEFAULT_SCHEDULE,
   SERVICE_TEMPLATES,
   SETUP_STEPS,
   WEEK_DAYS,
+  bookingAnswersFrom,
+  bookingDocFrom,
   customServiceChoice,
   initialServiceChoices,
   normalizePhone,
   scheduleDocFrom,
   serviceDocsFrom,
+  setupReturnPath,
+  type BookingAnswers,
   type ServiceChoice,
   type SetupStepId,
 } from "@/lib/setupWizard";
+import { isUnlocked, SUPPORT_WHATSAPP } from "@/lib/featureCatalog";
+import { isDentistStaff } from "@/lib/staffRoles";
 import PageHeader from "@/components/dashboard/PageHeader";
 import { UnsavedChangesProvider, useUnsavedChanges } from "@/context/UnsavedChangesContext";
 import { PRIVATE_PAYER_ID, parsePayers } from "@/lib/payers";
 import WhatsAppConnectStep from "@/components/setup/WhatsAppConnectStep";
 import WhatsAppQuestionsStep from "@/components/setup/WhatsAppQuestionsStep";
+import TeamStep, { type TeamMember } from "@/components/setup/TeamStep";
 
 // The insurer editor is the Settings screen itself, loaded only when the clinic says it has insurers.
 const PayersSettings = dynamic(() => import("@/components/settings/PayersSettings"), {
@@ -39,13 +47,14 @@ const PayersSettings = dynamic(() => import("@/components/settings/PayersSetting
 
 /**
  * The clinic setup a new clinic lands on right after it is created — and that any admin can run
- * again from the "Quick clinic setup" button in Settings.
+ * again from the "Quick clinic setup" button in Settings or the wand in the top bar.
  *
- * Six screens. The first three are the facts the rest of the app needs on day one: opening hours
- * (so the calendar stops offering times you are closed), a starting price list (so the first
- * invoice has something to pick from), and the clinic's phone and address (so prescriptions print
- * with them). The last three make the clinic reachable: which insurers it works with, linking its
- * WhatsApp number by QR, and what that WhatsApp should do — asked as plain questions.
+ * Eight screens. Opening hours (so the calendar stops offering times you are closed), the team (so
+ * each colleague has a login and the dentists exist to be booked), a starting price list (so the
+ * first invoice has something to pick from), and the clinic's phone and address (so prescriptions
+ * print with them). Then the ones that make the clinic reachable: the online booking page, which
+ * insurers it works with, linking its WhatsApp number by QR, and what that WhatsApp should do —
+ * asked as plain questions.
  *
  * Every step can be skipped; nothing here is a gate. Steps already done — by this wizard, or by
  * someone who went straight to Settings — are shown as done and passed through.
@@ -87,34 +96,83 @@ function SetupWizard() {
    * re-run that button quietly dropped whatever the admin had just changed.
    */
   const [storedSchedule, setStoredSchedule] = useState("");
-  // Step 2
+  // Team — listened to for the whole wizard, not just its step: the booking step counts the dentists.
+  const [team, setTeam] = useState<TeamMember[]>([]);
+  // Services
   const [choices, setChoices] = useState<ServiceChoice[]>(initialServiceChoices);
   const [existingServices, setExistingServices] = useState(false);
-  // Step 3
+  // Contact
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
-  // Step 4
+  // Online booking
+  const [booking, setBooking] = useState<BookingAnswers>(() => bookingAnswersFrom(undefined, DEFAULT_SCHEDULE.slotDuration));
+  /** As stored, to tell "Next" from "Save & next" — and a page being switched off from one never on. */
+  const [storedBooking, setStoredBooking] = useState<BookingAnswers>(() => bookingAnswersFrom(undefined, DEFAULT_SCHEDULE.slotDuration));
+  /** The yes/no answer; unasked until pressed, unless the page is already live. */
+  const [bookingOn, setBookingOn] = useState<boolean | null>(null);
+  // Insurance
   const [insurerCount, setInsurerCount] = useState(0);
   const [takesInsurance, setTakesInsurance] = useState<boolean | null>(null);
-  // Step 5
+  // WhatsApp
   const [waConnected, setWaConnected] = useState(false);
-  /** Run before: finishing returns to Settings instead of to the new-clinic welcome guide. */
+  /** Run before: finishing returns to where it was opened from instead of the new-clinic welcome guide. */
   const [isRerun, setIsRerun] = useState(false);
+  /** The page the top-bar button was pressed on (`?back=`); Settings when there is none. */
+  const [returnTo, setReturnTo] = useState<string | null>(null);
 
   const t = useMemo(
     () => ({
       title: isAr ? `يلا نجهّز ${clinic?.name || "العيادة"}` : `Let's set up ${clinic?.name || "your clinic"}`,
       sub: isAr
-        ? "٦ خطوات، حوالي ٥ دقايق. تقدر تعدّي أي خطوة وترجعلها بعدين من الإعدادات."
-        : "Six steps, about five minutes. Skip any of them and come back later from Settings.",
+        ? "٨ خطوات، حوالي ١٠ دقايق. تقدر تعدّي أي خطوة وترجعلها في أي وقت من زرار «إعداد سريع» اللي فوق."
+        : "Eight steps, about ten minutes. Skip any of them and come back any time from the Quick setup button at the top.",
       steps: {
         hours: isAr ? "مواعيد العمل" : "Working hours",
+        team: isAr ? "فريق العمل" : "Team",
         services: isAr ? "قائمة الأسعار" : "Price list",
         contact: isAr ? "بيانات العيادة" : "Clinic details",
+        booking: isAr ? "الحجز أونلاين" : "Online booking",
         insurance: isAr ? "التأمين" : "Insurance",
         whatsapp: isAr ? "ربط واتساب" : "Connect WhatsApp",
         assistant: isAr ? "مهام واتساب" : "WhatsApp tasks",
       } as Record<SetupStepId, string>,
+      teamWhy: isAr
+        ? "ضيف الأطباء والاستقبال والمساعدين. كل واحد بيدخل بحسابه وبيشوف اللي دوره يسمح بيه بس، والأطباء بيظهروا في المواعيد."
+        : "Add your dentists, reception and assistants. Each signs in with their own login and sees only what their role allows; dentists show up in the calendar.",
+      teamLater: isAr ? "هضيفهم بعدين" : "I'll add them later",
+      bookingWhy: isAr
+        ? "صفحة حجز باسم عيادتك، المريض يفتحها من لينك ويطلب ميعاد في مواعيد شغلك. كل طلب بيوصل التقويم ويستنى الاستقبال يأكده."
+        : "A booking page in your clinic's name: patients open a link and ask for a time within your hours. Every request lands in the calendar for the desk to confirm.",
+      bookingAsk: isAr ? "عايز المرضى يحجزوا أونلاين؟" : "Let patients book online?",
+      bookingLink: isAr ? "لينك الحجز" : "Your booking link",
+      bookingShare: isAr
+        ? "حطّه في البايو بتاع إنستجرام، وعلى جوجل مابس، وفي ستيتس واتساب."
+        : "Put it in your Instagram bio, on Google Maps, and in your WhatsApp status.",
+      bookingOpen: isAr ? "افتح الصفحة" : "Open the page",
+      bookingCopy: isAr ? "نسخ" : "Copy",
+      bookingCopied: isAr ? "تم نسخ الرابط" : "Link copied",
+      bookingCopyFailed: isAr ? "تعذّر النسخ — حدّد الرابط وانسخه" : "Couldn't copy — select the link and copy it",
+      bookingDoctor: isAr ? "المريض يختار الطبيب" : "Let patients pick the dentist",
+      bookingDoctorHint: (n: number) =>
+        n === 0
+          ? isAr
+            ? "مفيش أطباء في الفريق لسه — ضيفهم من خطوة «فريق العمل»، أو سيبها مقفولة والاستقبال يحدد."
+            : "No dentists on the team yet — add them in the Team step, or leave this off and the desk assigns one."
+          : isAr
+            ? `عندك ${n === 1 ? "طبيب واحد" : `${n} أطباء`} في الفريق. لو مقفولة، الاستقبال بيحدد مين المتاح.`
+            : `${n} dentist${n === 1 ? "" : "s"} on the team. Off, and the desk assigns whoever is free.`,
+      bookingLength: isAr ? "الطلب بيحجز قد إيه في الجدول" : "How long a request holds on the schedule",
+      minutes: isAr ? "دقيقة" : "minutes",
+      bookingMore: isAr
+        ? "لينك لكل قناة (الإعلانات، إنستجرام، جوجل) وصورة الغلاف في الإعدادات ← الحجز الإلكتروني."
+        : "One link per channel (ads, Instagram, Google) and a cover image are under Settings → Online booking.",
+      bookingOff: isAr
+        ? "صفحة الحجز هتتقفل، واللينك هيبطل يشتغل لحد ما تفتحها تاني."
+        : "The booking page will be switched off; the link stops working until you turn it back on.",
+      bookingNo: isAr ? "تمام. تقدر تفتحها في أي وقت من الإعدادات ← الحجز الإلكتروني." : "Fine. You can switch it on any time in Settings → Online booking.",
+      bookingLocked: isAr
+        ? "الحجز الإلكتروني مش ضمن باقة العيادة. كلّمنا على واتساب وإحنا نفعّله:"
+        : "Online booking isn't in this clinic's plan. Message us and we'll switch it on:",
       insuranceWhy: isAr
         ? "لو بتتعامل مع شركات تأمين، كل شركة ليها أسعارها والعلاجات اللي بتغطيها ونسبة الدكاترة عليها."
         : "If you work with insurers, each one gets its own prices, the treatments it covers, and the dentists' share on its cases.",
@@ -191,10 +249,11 @@ function SetupWizard() {
     let cancelled = false;
     (async () => {
       try {
-        const [info, svc, payers] = await Promise.all([
+        const [info, svc, payers, bookingSnap] = await Promise.all([
           getDoc(getClinicDoc("settings", "clinic_info")),
           getDocs(query(getClinicCollection("services"), limit(1))),
           getDoc(getClinicDoc("settings", "payers")),
+          getDoc(getClinicDoc("settings", "onlineBooking")),
         ]);
         if (cancelled) return;
         const data = (info.data() ?? {}) as Record<string, unknown>;
@@ -204,6 +263,7 @@ function SetupWizard() {
         // Insurers already on file answer the question for the clinic.
         if (insurers > 0) setTakesInsurance(true);
         const parsed = parseClinicSchedule(data);
+        let slotDuration = DEFAULT_SCHEDULE.slotDuration;
         if (parsed.isConfigured) {
           setHoursDone(true);
           const stored = (data.schedule ?? {}) as Record<string, unknown>;
@@ -215,7 +275,13 @@ function SetupWizard() {
           };
           setSchedule(loaded);
           setStoredSchedule(JSON.stringify(loaded));
+          slotDuration = loaded.slotDuration;
         }
+        const bookingAnswers = bookingAnswersFrom(bookingSnap.exists() ? bookingSnap.data() : undefined, slotDuration);
+        setBooking(bookingAnswers);
+        setStoredBooking(bookingAnswers);
+        // A page already live answers the question; one switched off is asked again.
+        if (bookingAnswers.enabled) setBookingOn(true);
         setExistingServices(!svc.empty);
         // The template is only for an empty clinic; with services on file the list starts blank.
         if (!svc.empty) setChoices([]);
@@ -232,12 +298,27 @@ function SetupWizard() {
     };
   }, [clinicId]);
 
-  // `?step=whatsapp` opens the wizard on one step — the Settings button starts at the top, but a
-  // link from the WhatsApp screen can land straight on the QR. Read once, from the URL, so the
-  // page needs no Suspense boundary for useSearchParams.
+  // The team, live: someone who opens an invite link while the owner is still here appears at once.
   useEffect(() => {
-    const requested = new URLSearchParams(window.location.search).get("step");
+    if (!clinicId) return;
+    return onSnapshot(
+      getClinicCollection("staff"),
+      (snap) => setTeam(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as TeamMember)),
+      () => {
+        /* the list is a courtesy; adding people still works without it */
+      }
+    );
+  }, [clinicId]);
+
+  // `?step=whatsapp` opens the wizard on one step — the Settings button starts at the top, but a
+  // link from the WhatsApp screen can land straight on the QR. `?back=` is where the top-bar button
+  // was pressed, to return there at the end. Read once, from the URL, so the page needs no Suspense
+  // boundary for useSearchParams.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const requested = params.get("step");
     if (requested && (SETUP_STEPS as string[]).includes(requested)) setStep(requested as SetupStepId);
+    setReturnTo(setupReturnPath(params.get("back")));
   }, []);
 
   const stepIndex = SETUP_STEPS.indexOf(step);
@@ -257,7 +338,7 @@ function SetupWizard() {
       /* the stamp is informational */
     }
     welcome?.refresh();
-    router.replace(isRerun ? "/settings" : "/welcome");
+    router.replace(isRerun ? returnTo ?? "/settings" : "/welcome");
   };
 
   const saveHours = async () => {
@@ -270,6 +351,11 @@ function SetupWizard() {
       );
       setHoursDone(true);
       setStoredSchedule(JSON.stringify(schedule));
+      // A booking page not yet switched on follows the appointment length just chosen.
+      if (bookingOn !== true) {
+        const { defaultDurationMinutes } = bookingAnswersFrom(undefined, schedule.slotDuration);
+        setBooking((b) => ({ ...b, defaultDurationMinutes }));
+      }
       showToast(t.saved, "success");
       goNext();
     } catch {
@@ -321,6 +407,30 @@ function SetupWizard() {
     }
   };
 
+  const saveBooking = async () => {
+    setSaving(true);
+    try {
+      const answers = { ...booking, enabled: bookingOn === true };
+      await setDoc(getClinicDoc("settings", "onlineBooking"), bookingDocFrom(answers), { merge: true });
+      setStoredBooking(answers);
+      showToast(t.saved, "success");
+      goNext();
+    } catch {
+      showToast(t.failed, "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const copyBookingLink = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast(t.bookingCopied, "success");
+    } catch {
+      showToast(t.bookingCopyFailed, "error");
+    }
+  };
+
   const toggleDay = (day: string) =>
     setSchedule((s) => ({
       ...s,
@@ -330,6 +440,11 @@ function SetupWizard() {
   const selectedCount = choices.filter((c) => c.selected).length;
   const hoursUnchanged = hoursDone && JSON.stringify(schedule) === storedSchedule;
   const isLast = stepIndex === SETUP_STEPS.length - 1;
+  const bookingInPlan = isUnlocked(clinic, "onlineBooking");
+  const bookingChanged =
+    JSON.stringify(bookingDocFrom({ ...booking, enabled: bookingOn === true })) !== JSON.stringify(bookingDocFrom(storedBooking));
+  const dentistCount = team.filter(isDentistStaff).length;
+  const bookingUrl = typeof window !== "undefined" && clinicId ? `${window.location.origin}/book/${clinicId}` : "";
 
   if (!clinicId || loadingState) {
     return (
@@ -353,7 +468,7 @@ function SetupWizard() {
       />
 
       <div className="rounded-[2rem] bg-ink-slab text-white p-6 sm:p-8 mb-6">
-        {/* Six labels do not fit a phone in one row: there, only the current step keeps its name
+        {/* Eight labels do not fit a phone in one row: there, only the current step keeps its name
             and the rest are numbered dots. Every dot is a button — a step is optional, so jumping
             to it is too. */}
         <ol className="flex flex-wrap items-center gap-x-2 gap-y-3 text-xs font-bold">
@@ -445,7 +560,22 @@ function SetupWizard() {
           </div>
         )}
 
-        {/* ---------- Step 2: services ---------- */}
+        {/* ---------- Step 2: team ---------- */}
+        {step === "team" && (
+          <div className="space-y-6">
+            <StepHeading icon={<Users size={20} />} title={t.steps.team} why={t.teamWhy} />
+            <TeamStep team={team} />
+            <Footer
+              primary={t.next}
+              onPrimary={() => void goNext()}
+              onSkip={team.length <= 1 ? goNext : undefined}
+              skipLabel={t.teamLater}
+              saving={false}
+            />
+          </div>
+        )}
+
+        {/* ---------- Step 3: services ---------- */}
         {step === "services" && (
           <div className="space-y-6">
             <StepHeading icon={<ListChecks size={20} />} title={t.steps.services} why={t.servicesWhy} />
@@ -544,7 +674,7 @@ function SetupWizard() {
           </div>
         )}
 
-        {/* ---------- Step 3: contact ---------- */}
+        {/* ---------- Step 4: contact ---------- */}
         {step === "contact" && (
           <div className="space-y-6">
             <StepHeading icon={<Phone size={20} />} title={t.steps.contact} why={t.contactWhy} />
@@ -560,7 +690,120 @@ function SetupWizard() {
           </div>
         )}
 
-        {/* ---------- Step 4: insurance ---------- */}
+        {/* ---------- Step 5: online booking ---------- */}
+        {step === "booking" && (
+          <div className="space-y-6">
+            <StepHeading icon={<Globe size={20} />} title={t.steps.booking} why={t.bookingWhy} />
+            {!bookingInPlan ? (
+              <>
+                <p className="flex flex-wrap items-center gap-2 text-sm font-bold text-ink-body bg-surface-subtle border border-line rounded-xl px-4 py-3">
+                  <Lock size={15} className="text-ink-muted" /> {t.bookingLocked}
+                  <a href={`https://wa.me/${SUPPORT_WHATSAPP.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="underline" dir="ltr">
+                    {SUPPORT_WHATSAPP}
+                  </a>
+                </p>
+                <Footer primary={t.next} onPrimary={() => void goNext()} saving={false} />
+              </>
+            ) : (
+              <>
+                <div className="space-y-3">
+                  <p className="text-base font-black text-ink">{t.bookingAsk}</p>
+                  <div className="grid grid-cols-2 gap-3 max-w-sm">
+                    {([true, false] as const).map((v) => (
+                      <button
+                        key={String(v)}
+                        type="button"
+                        aria-pressed={bookingOn === v}
+                        onClick={() => {
+                          setBookingOn(v);
+                          // "No" to a page that was never on is a complete answer; "No" to a live
+                          // one switches it off, which waits for the Save below.
+                          if (!v && !storedBooking.enabled) void goNext();
+                        }}
+                        className={`rounded-xl border px-4 py-3.5 text-base font-black transition-colors ${
+                          bookingOn === v ? "border-accent bg-accent/5 ring-1 ring-accent text-ink" : "border-line bg-surface-subtle text-ink-body hover:bg-surface-muted"
+                        }`}
+                      >
+                        {v ? t.yes : t.no}
+                      </button>
+                    ))}
+                  </div>
+                  {bookingOn === false && (
+                    <p className="text-sm font-medium text-ink-muted">{storedBooking.enabled ? t.bookingOff : t.bookingNo}</p>
+                  )}
+                </div>
+
+                {bookingOn === true && (
+                  <div className="space-y-5">
+                    <div className="rounded-2xl bg-ink-slab text-white px-5 py-4 space-y-2">
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/50">{t.bookingLink}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <code className="min-w-0 break-all font-figure text-[13px] text-white/85 select-all" dir="ltr">{bookingUrl}</code>
+                        <button
+                          type="button"
+                          onClick={() => void copyBookingLink(bookingUrl)}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-white/10 px-2.5 py-1.5 text-xs font-bold text-white/80 hover:bg-white/20 hover:text-white"
+                        >
+                          <Copy size={13} /> {t.bookingCopy}
+                        </button>
+                        {/* The page answers "not found" until the switch is saved, so it is only
+                            offered once it is live. */}
+                        {storedBooking.enabled && (
+                          <a
+                            href={bookingUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-white/10 px-2.5 py-1.5 text-xs font-bold text-white/80 hover:bg-white/20 hover:text-white"
+                          >
+                            <ExternalLink size={13} /> {t.bookingOpen}
+                          </a>
+                        )}
+                      </div>
+                      <p className="text-xs font-medium text-white/60">{t.bookingShare}</p>
+                    </div>
+
+                    <div className="rounded-2xl border border-line divide-y divide-line">
+                      <div className="flex items-center justify-between gap-4 px-4 py-3.5">
+                        <div className="min-w-0">
+                          <p className="text-sm font-black text-ink">{t.bookingDoctor}</p>
+                          <p className="text-xs font-medium text-ink-muted mt-0.5 leading-relaxed">{t.bookingDoctorHint(dentistCount)}</p>
+                        </div>
+                        <Toggle
+                          checked={booking.enableDoctorSelection}
+                          onChange={(next) => setBooking((b) => ({ ...b, enableDoctorSelection: next }))}
+                          label={t.bookingDoctor}
+                        />
+                      </div>
+                      <label className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 py-3.5">
+                        <span className="text-sm font-black text-ink">{t.bookingLength}</span>
+                        <select
+                          value={booking.defaultDurationMinutes}
+                          onChange={(e) => setBooking((b) => ({ ...b, defaultDurationMinutes: e.target.value }))}
+                          className="sm:w-40 px-3 py-2 bg-surface-subtle border border-line rounded-xl font-bold text-ink outline-none focus:border-accent-soft"
+                        >
+                          {BOOKING_DURATIONS.map((m) => (
+                            <option key={m} value={m}>{m} {t.minutes}</option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    <p className="text-xs font-medium text-ink-muted">{t.bookingMore}</p>
+                  </div>
+                )}
+
+                <Footer
+                  primary={bookingChanged ? t.saveNext : t.next}
+                  onPrimary={bookingChanged && !saving ? saveBooking : () => void goNext()}
+                  onSkip={bookingOn === null ? goNext : undefined}
+                  skipLabel={t.skip}
+                  saving={saving}
+                />
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ---------- Step 6: insurance ---------- */}
         {step === "insurance" && (
           <div className="space-y-6">
             <StepHeading icon={<ShieldPlus size={20} />} title={t.steps.insurance} why={t.insuranceWhy} />
@@ -603,7 +846,7 @@ function SetupWizard() {
           </div>
         )}
 
-        {/* ---------- Step 5: connect WhatsApp ---------- */}
+        {/* ---------- Step 7: connect WhatsApp ---------- */}
         {step === "whatsapp" && (
           <div className="space-y-6">
             <StepHeading icon={<MessageCircle size={20} />} title={t.steps.whatsapp} why={t.whatsappWhy} />
@@ -618,7 +861,7 @@ function SetupWizard() {
           </div>
         )}
 
-        {/* ---------- Step 6: what WhatsApp does ---------- */}
+        {/* ---------- Step 8: what WhatsApp does ---------- */}
         {step === "assistant" && (
           <div className="space-y-6">
             <StepHeading icon={<Bot size={20} />} title={t.steps.assistant} why={t.assistantWhy} />
@@ -647,6 +890,22 @@ function StepHeading({ icon, title, why }: { icon: React.ReactNode; title: strin
         <p className="text-sm font-medium text-ink-muted mt-0.5">{why}</p>
       </div>
     </div>
+  );
+}
+
+/** An on/off switch whose knob slides toward the reading direction's end, in both languages. */
+function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (next: boolean) => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      onClick={() => onChange(!checked)}
+      className={`relative h-8 w-14 shrink-0 rounded-full transition-colors ${checked ? "bg-accent" : "bg-surface-muted"}`}
+    >
+      <span className={`absolute top-1 h-6 w-6 rounded-full bg-surface shadow-md transition-all ${checked ? "start-7" : "start-1"}`} />
+    </button>
   );
 }
 

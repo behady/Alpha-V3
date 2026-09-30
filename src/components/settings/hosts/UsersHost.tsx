@@ -8,8 +8,9 @@
  * one clinic and only their staff row is scoped to this one.
  *
  * The invite form is unchanged from the old page apart from where it lives. Creating the login
- * goes through /api/staff/create on the Admin SDK: the browser cannot create an Auth account, and
- * the route also refuses to hand an existing account a second clinic without saying so.
+ * goes through /api/staff/create on the Admin SDK (via lib/staffLogin, which the clinic setup's
+ * team step calls too): the browser cannot create an Auth account, and the route also refuses to
+ * hand an existing account a second clinic without saying so.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -21,10 +22,10 @@ import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
-import { auth } from "@/lib/firebase";
 import { getClinicCollection } from "@/lib/db-utils";
 import { logActivity } from "@/lib/logger";
 import { isFullAccessRole } from "@/lib/permissions";
+import { createStaffLogin } from "@/lib/staffLogin";
 
 /**
  * Matches the shape UserManagement expects. The index signature is load-bearing: staff rows carry
@@ -90,23 +91,7 @@ export default function UsersHost() {
     event.preventDefault();
     setSaving(true);
     try {
-      const isDentist = isFullAccessRole(form.role) ? form.isDentist : false;
-      const token = await auth.currentUser?.getIdToken();
-      const response = await fetch("/api/staff/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          email: form.email.toLowerCase(),
-          password: form.password,
-          name: form.name,
-          role: form.role,
-          createDbRecords: true,
-          clinicId,
-          isDentist,
-        }),
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Failed to create auth login");
+      const result = await createStaffLogin({ clinicId, ...form });
 
       await logActivity(
         { uid: user?.uid, name: user?.name, role: user?.role },
@@ -114,7 +99,7 @@ export default function UsersHost() {
         `Created user ${form.name} (${form.email.toLowerCase()})`
       );
 
-      if (result.isNewUser === false) showToast(result.message, "info");
+      if (!result.isNewUser && result.message) showToast(result.message, "info");
       else showToast(txt.created, "success");
 
       setIsModalOpen(false);
