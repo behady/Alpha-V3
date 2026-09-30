@@ -85,7 +85,14 @@ assert.equal(exp[colIndex(ledger, "col_ledger_type")], "Expense - مصروف");
 const del = find(ledger, "col_ledger_row_id", "pay-deleted");
 assert.equal(del[colIndex(ledger, "col_ledger_status")], "deleted");
 const crown = find(ledger, "col_ledger_row_id", "proc-crown");
-assert.equal(crown[colIndex(ledger, "col_ledger_cash_in")], 1350);   // a procedure's cash is what was paid against it
+// A treatment charge is not cash: its payments are their own rows. Showing `paid` here again would
+// double-count every treatment payment for anyone who sums the column (finding C2).
+assert.equal(crown[colIndex(ledger, "col_ledger_cash_in")], "");
+assert.equal(crown[colIndex(ledger, "col_ledger_paid_against")], 1350);
+assert.equal(crown[colIndex(ledger, "col_ledger_commission")], "");     // projected on the charge, realised on the payments
+assert.equal(crown[colIndex(ledger, "col_ledger_clinic_profit")], "");
+assert.equal(ph[colIndex(ledger, "col_ledger_paid_against")], "");
+assert.equal(ph[colIndex(ledger, "col_ledger_commission")], 105);
 assert.equal(crown[colIndex(ledger, "col_ledger_discount")], 200);
 assert.equal(crown[colIndex(ledger, "col_ledger_lab_fee")], 600);
 // Oldest first.
@@ -94,7 +101,8 @@ assert.deepEqual(ledgerDates, [...ledgerDates].sort());
 
 // Expenses: exactly the expense rows.
 const expenses = rows(wb, "Expenses - المصروفات");
-assert.equal(expenses.length - 1, 1);
+assert.equal(expenses.length - 1, 1);   // the deleted duplicate is not spending
+assert.equal(find(ledger, "col_ledger_row_id", "exp-deleted")[colIndex(ledger, "col_ledger_status")], "deleted");
 assert.equal(expenses[1][colIndex(expenses, "col_expenses_amount")], 640);
 assert.equal(expenses[1][colIndex(expenses, "col_expenses_notes")], "3 boxes");
 
@@ -115,8 +123,8 @@ assert.equal(aboutPatients?.[1], fixture.patients.length);
 assert.ok(about.some((r) => String(r[0]).includes("cannot be imported back")));
 
 // RTL follows the language; widths are set.
-assert.equal((wb.Sheets["Patients - المرضى"]["!views"] as Array<{ rightToLeft?: boolean }> | undefined)?.[0]?.rightToLeft, true);
-assert.equal(buildClinicWorkbook(fixture, { language: "en", today: TODAY }).Sheets["Patients - المرضى"]["!views"], undefined);
+assert.equal(wb.Workbook?.Views?.[0]?.RTL, true);
+assert.ok(!buildClinicWorkbook(fixture, { language: "en", today: TODAY }).Workbook?.Views?.[0]?.RTL);
 assert.ok((wb.Sheets["Patients - المرضى"]["!cols"] ?? []).length > 5);
 
 // No "undefined"/"null"/"NaN" anywhere in any sheet.
@@ -126,6 +134,12 @@ for (const name of wb.SheetNames) {
   }
 }
 
+// The RTL flag must survive being written: xlsx 0.18.5 ignores a sheet's !views and only writes the
+// workbook-level view (finding I1). Read the bytes back and check what Excel will actually see.
+assert.equal(XLSX.read(workbookToBuffer(wb), { type: "buffer" }).Workbook?.Views?.[0]?.RTL, true);
+assert.ok(!XLSX.read(workbookToBuffer(buildClinicWorkbook(fixture, { language: "en", today: TODAY })), { type: "buffer" }).Workbook?.Views?.[0]?.RTL);
+// Written compressed: the same workbook uncompressed must be larger.
+assert.ok(workbookToBuffer(wb).length < (XLSX.write(wb, { type: "buffer", bookType: "xlsx", compression: false }) as Buffer).length);
 // The buffer is a real xlsx (a zip: "PK").
 assert.equal(workbookToBuffer(wb).subarray(0, 2).toString(), "PK");
 console.log("clinicBackup: core sheets ok");
@@ -241,4 +255,54 @@ assert.ok(route.includes("Content-Disposition"), "the browser must receive a dow
 assert.ok(route.includes("logActivityServer("), "every download is written to the activity log");
 assert.ok(!route.includes(".limit("), "the route must never cap what it exports");
 assert.ok(route.includes("resolveUserClinicId("), "the clinic comes from membership, not the query string alone");
+assert.ok(route.includes("clinicId is required"), "a request without a clinic must be refused, never resolved from a self-writable default clinic (finding C1)");
 console.log("clinicBackup: route source ok");
+
+// --- 7. The loader: paging reads everything; mappers write what is stored and invent nothing --------
+import { readAllDocs } from "../src/lib/backup/readAllDocs";
+import { mapBackupAppointment, mapBackupLedger, mapPatient } from "../src/lib/backup/mapDocs";
+
+// A fake collection of 5 documents, read 2 at a time: every document once, in id order, in 3 reads.
+const fakeDocs = ["a", "b", "c", "d", "e"].map((id) => ({ id, data: () => ({ n: id }) }));
+let reads = 0;
+const fakeQuery = (after: string | null, limit: number) => ({
+  limit: (n: number) => fakeQuery(after, n),
+  startAfter: (cursor: { id: string }) => fakeQuery(cursor.id, limit),
+  get: async () => {
+    reads += 1;
+    const start = after ? fakeDocs.findIndex((d) => d.id === after) + 1 : 0;
+    return { docs: fakeDocs.slice(start, start + limit) };
+  },
+});
+const paged = await readAllDocs({ orderBy: () => fakeQuery(null, 1000) }, 2);
+assert.deepEqual(paged.map((d) => d.id), ["a", "b", "c", "d", "e"]);
+assert.deepEqual(paged[4].data, { n: "e" });
+assert.equal(reads, 3);
+reads = 0;
+assert.equal((await readAllDocs({ orderBy: () => fakeQuery(null, 1000) }, 5)).length, 5);
+assert.equal(reads, 2);   // a full page cannot know it is the last: one more (empty) read confirms it
+
+// Ledger rows: an expense has no patient, a treatment charge has no payment method. The briefing
+// mappers default those to "Unnamed patient" and "Cash" for a summary; a backup must not (finding I4).
+const bareExpense = mapBackupLedger("x", { type: "expense", cost: 100, date: "2026-09-01" }, "Africa/Cairo");
+assert.equal(bareExpense.patientName, "");
+assert.equal(bareExpense.method, "");
+assert.equal(bareExpense.category, "");
+// A date stored as a Timestamp-shaped object still becomes yyyy-mm-dd; a row with no date falls back
+// to createdAt, as the Reports Center does.
+assert.equal(mapBackupLedger("y", { type: "payment", paid: 5, date: { seconds: 1788400000 } }, "Africa/Cairo").date, "2026-09-02");
+assert.equal(mapBackupLedger("z", { type: "payment", paid: 5, createdAt: "2026-08-15T10:00:00.000Z" }, "Africa/Cairo").date, "2026-08-15");
+assert.equal(mapBackupLedger("w", { type: "payment", paid: 5 }, "Africa/Cairo").date, "");
+// Appointments: a missing name, status or duration stays empty rather than "Unnamed patient", "Scheduled" or 30.
+const bareAppt = mapBackupAppointment("a", { date: "2026-09-01", time: "10:00" });
+assert.equal(bareAppt.patientName, "");
+assert.equal(bareAppt.status, "");
+assert.equal(bareAppt.duration, null);
+assert.equal(mapBackupAppointment("b", { status: "Arrived" }).status, "Checked In");   // a legacy alias is still normalised
+// Patients: absent fields are "", a Timestamp createdAt becomes a date, `referral` backs up `source`.
+const barePatient = mapPatient("p", { name: "X", referral: "Instagram", createdAt: { seconds: 1788400000 } }, "Africa/Cairo");
+assert.equal(barePatient.gender, "");
+assert.equal(barePatient.source, "Instagram");
+assert.equal(barePatient.createdAt, "2026-09-02");
+console.log("clinicBackup: loader paging and mappers ok");
+

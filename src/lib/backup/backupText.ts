@@ -102,6 +102,7 @@ export const BACKUP_TEXT = {
   col_ledger_discount: { en: "Discount", ar: "الخصم" },
   col_ledger_cash_in: { en: "Cash in", ar: "نقد وارد" },
   col_ledger_cash_out: { en: "Cash out", ar: "نقد صادر" },
+  col_ledger_paid_against: { en: "Paid against this treatment", ar: "المدفوع من هذا العلاج" },
   col_ledger_lab_fee: { en: "Lab fee", ar: "تكلفة المعمل" },
   col_ledger_commission: { en: "Dentist commission", ar: "نسبة الطبيب" },
   col_ledger_clinic_profit: { en: "Clinic profit", ar: "ربح العيادة" },

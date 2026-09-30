@@ -43,7 +43,7 @@ export type BackupAppointment = {
   doctor: string;
   treatment: string;
   status: string;
-  duration: number;
+  duration: number | null;
   branchName: string;
   roomName: string;
   source: string;

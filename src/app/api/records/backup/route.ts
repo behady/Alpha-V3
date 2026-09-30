@@ -31,8 +31,15 @@ export const maxDuration = 300;
  */
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const requestedClinicId = url.searchParams.get("clinicId")?.trim() || undefined;
+  const requestedClinicId = url.searchParams.get("clinicId")?.trim() || "";
   const language = url.searchParams.get("lang") === "ar" ? "ar" : "en";
+
+  // Never resolve the clinic from the caller's defaultClinicId: that field is self-writable, and
+  // without a clinic here requireAdminUser would accept an Admin of ANY clinic. The panel always
+  // sends the clinic on screen, so a request without one is not a real one.
+  if (!requestedClinicId) {
+    return NextResponse.json({ ok: false, error: "clinicId is required" }, { status: 400 });
+  }
 
   const authz = await requireAdminUser(request, requestedClinicId, { allowInactive: true });
   if (!authz.ok) return authz.response;

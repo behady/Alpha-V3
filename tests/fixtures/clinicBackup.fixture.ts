@@ -53,6 +53,8 @@ export const fixture: ClinicBackupData = {
     { id: "proc-filling", type: "procedure", date: "2026-09-20", description: "Filling (T: 36)", category: "Treatment", method: "Cash", patientId: OMAR, patientName: "Omar Ali", doctorId: "staff-sara", doctorName: "Dr. Sara", amount: 800, paid: 0, cost: 800, discountAmount: 0, labFee: 0, doctorCommissionAmount: 0, clinicProfit: 0, payerName: "", status: "", notes: "" },
     // Clinic money with no patient.
     { id: "inc-1", type: "income", date: "2026-09-02", description: "Sold old chair", category: "Other", method: "Cash", patientId: "", patientName: "", doctorId: "", doctorName: "", amount: 2000, paid: 2000, cost: 0, discountAmount: 0, labFee: 0, doctorCommissionAmount: 0, clinicProfit: 2000, payerName: "", status: "", notes: "" },
+    // Removed after being entered twice: listed on the Ledger sheet with its status, never summed as spending.
+    { id: "exp-deleted", type: "expense", date: "2026-09-04", description: "Gloves (dup)", category: "Supplies", method: "Cash", patientId: "", patientName: "", doctorId: "", doctorName: "", amount: 640, paid: 0, cost: 640, discountAmount: 0, labFee: 0, doctorCommissionAmount: 0, clinicProfit: 0, payerName: "", status: "deleted", notes: "" },
     { id: "exp-1", type: "expense", date: "2026-09-03", description: "Gloves", category: "Supplies", method: "Cash", patientId: "", patientName: "", doctorId: "", doctorName: "", amount: 640, paid: 0, cost: 640, discountAmount: 0, labFee: 0, doctorCommissionAmount: 0, clinicProfit: 0, payerName: "", status: "", notes: "3 boxes" },
   ],
 

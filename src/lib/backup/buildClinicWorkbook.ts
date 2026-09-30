@@ -174,13 +174,19 @@ function ledgerSheet(data: ClinicBackupData): Sheet {
   const rows = [...data.ledger]
     .sort((a, b) => a.date.localeCompare(b.date))
     .map((r): Cell[] => {
-      const cash = ledgerCashValue(r as unknown as Record<string, unknown>);
       const isExpense = r.type === "expense";
+      // A treatment charge is not money that moved: its payments are their own rows, and
+      // applyProcedureSync copies their sum back onto the charge as `paid`. Showing that sum in
+      // Cash in would count every treatment payment twice for anyone who totals the column, and
+      // the commission and profit stamped on a charge are projections of the same payments.
+      const isCharge = r.type === "procedure";
+      const cash = isCharge ? 0 : ledgerCashValue(r as unknown as Record<string, unknown>);
       return [
         text(r.date), ledgerTypeLabel(r.type), text(r.patientName), text(r.doctorName), text(r.description),
         text(r.category), text(r.method), num(r.amount), num(r.discountAmount),
-        isExpense ? "" : money(cash), isExpense ? money(cash) : "",
-        num(r.labFee), num(r.doctorCommissionAmount), num(r.clinicProfit),
+        isExpense || isCharge ? "" : money(cash), isExpense ? money(cash) : "",
+        isCharge ? money(r.paid) : "",
+        num(r.labFee), isCharge ? "" : num(r.doctorCommissionAmount), isCharge ? "" : num(r.clinicProfit),
         text(r.payerName), text(r.status), text(r.patientId), text(r.id),
       ];
     });
@@ -189,7 +195,7 @@ function ledgerSheet(data: ClinicBackupData): Sheet {
     header: [
       "col_ledger_date", "col_ledger_type", "col_ledger_patient", "col_ledger_dentist", "col_ledger_description",
       "col_ledger_category", "col_ledger_method", "col_ledger_listed_amount", "col_ledger_discount",
-      "col_ledger_cash_in", "col_ledger_cash_out", "col_ledger_lab_fee", "col_ledger_commission",
+      "col_ledger_cash_in", "col_ledger_cash_out", "col_ledger_paid_against", "col_ledger_lab_fee", "col_ledger_commission",
       "col_ledger_clinic_profit", "col_ledger_payer", "col_ledger_status", "col_ledger_patient_id",
       "col_ledger_row_id",
     ].map((k) => bi(k as BackupTextKey)),
@@ -198,7 +204,7 @@ function ledgerSheet(data: ClinicBackupData): Sheet {
 }
 
 function expensesSheet(data: ClinicBackupData): Sheet {
-  const rows = data.ledger
+  const rows = activeLedgerRows(data.ledger)
     .filter((r) => r.type === "expense")
     .sort((a, b) => a.date.localeCompare(b.date))
     .map((r): Cell[] => [
@@ -466,11 +472,10 @@ function columnWidths(header: string[], rows: Cell[][]): XLSX.ColInfo[] {
   return widths.map((w) => ({ wch: Math.min(60, Math.max(8, w + 2)) }));
 }
 
-function toWorksheet(sheet: Sheet, language: "en" | "ar"): XLSX.WorkSheet {
+function toWorksheet(sheet: Sheet): XLSX.WorkSheet {
   const aoa: Cell[][] = sheet.header.length ? [sheet.header, ...sheet.rows] : sheet.rows;
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws["!cols"] = columnWidths(sheet.header, sheet.rows);
-  if (language === "ar") ws["!views"] = [{ rightToLeft: true }];
   return ws;
 }
 
@@ -492,12 +497,15 @@ export function buildClinicWorkbook(data: ClinicBackupData, opts: BuildOptions):
 
   const wb = XLSX.utils.book_new();
   for (const sheet of all) {
-    XLSX.utils.book_append_sheet(wb, toWorksheet(sheet, opts.language), sheet.name);
+    XLSX.utils.book_append_sheet(wb, toWorksheet(sheet), sheet.name);
   }
+  // Right-to-left for an Arabic reader. xlsx 0.18.5 writes only the workbook-level view (a
+  // sheet's own `!views` is dropped on write), so this is the one place the flag can live.
+  if (opts.language === "ar") wb.Workbook = { ...(wb.Workbook || {}), Views: [{ RTL: true }] };
   return wb;
 }
 
 /** The bytes a route streams back. */
 export function workbookToBuffer(wb: XLSX.WorkBook): Buffer {
-  return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  return XLSX.write(wb, { type: "buffer", bookType: "xlsx", compression: true }) as Buffer;
 }
