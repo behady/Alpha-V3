@@ -1984,6 +1984,8 @@ private fun LabPane(preview: Boolean, onBack: () -> Unit) {
         onFilter = model::show,
         onOpenCase = { if (state.canMove) model.openCase(it) },
         onNewCase = if (state.canMove) ({ orders.open() }) else null,
+        onTab = model::showTab,
+        onOpenLab = model::openLab,
     )
 
     state.openCase?.let { case ->
@@ -1994,7 +1996,49 @@ private fun LabPane(preview: Boolean, onBack: () -> Unit) {
             onMove = { model.move(it); model.openCase(null) },
             onDismiss = { model.openCase(null) },
             onDelete = if (state.canDelete) model::delete else null,
+            onRemake = if (state.canMove && case.status != "cancelled" && case.status != "draft") ({ model.startRemake(case.id) }) else null,
         )
+    }
+
+    state.remaking?.let { case ->
+        LabRemakeSheet(
+            case = case,
+            busy = state.moving,
+            error = state.error,
+            onConfirm = { reason, fault, price -> model.remake(reason, fault, price) },
+            onDismiss = { model.startRemake(null) },
+        )
+    }
+
+    state.openAccount?.let { account ->
+        if (state.paying) {
+            LabPaymentSheet(
+                account = account,
+                today = state.today,
+                busy = state.moving,
+                error = state.error,
+                onSave = { amount, date, method, reference, note -> model.recordPayment(amount, date, method, reference, note) },
+                onDismiss = { model.pay(false) },
+            )
+        } else {
+            LabAccountSheet(
+                account = account,
+                lines = state.openStatement,
+                busy = state.moving,
+                error = state.error,
+                onPay = if (state.canPay) ({ model.pay(true) }) else null,
+                onDeletePayment = if (state.canDeletePayment) model::deletePayment else null,
+                onDismiss = { model.openLab(null) },
+            )
+        }
+    }
+
+    val toastContext = androidx.compose.ui.platform.LocalContext.current
+    state.created?.let { code ->
+        androidx.compose.runtime.LaunchedEffect(code) {
+            android.widget.Toast.makeText(toastContext, "Remake $code raised", android.widget.Toast.LENGTH_LONG).show()
+            model.clearCreated()
+        }
     }
 
     if (order.open) {

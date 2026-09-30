@@ -107,6 +107,8 @@ fun LabMoveSheet(
     onDismiss: () -> Unit,
     /** Null when this person may not delete lab cases. */
     onDelete: (() -> Unit)? = null,
+    /** Null when this person may not raise cases, or the case cannot be remade. */
+    onRemake: (() -> Unit)? = null,
 ) {
     var next by remember(case.id) { mutableStateOf<String?>(null) }
     var armed by remember(case.id) { mutableStateOf(false) }
@@ -144,6 +146,14 @@ fun LabMoveSheet(
             Rule()
         }
 
+        onRemake?.let { remake ->
+            SheetAction(
+                "Raise a remake",
+                if (case.remakeOfCode.isNotBlank()) "Another round; this one is already a remake of ${case.remakeOfCode}" else "A new case with an -R2 code, pointing back to this one",
+            ) { remake() }
+            Rule()
+        }
+
         if (options.isEmpty()) {
             Txt(
                 "This case has nowhere left to go.",
@@ -178,6 +188,172 @@ fun LabMoveSheet(
             )
         }
 
+    }
+}
+
+/**
+ * Raising a remake, and recording whose it was.
+ *
+ * Fault is asked as a plain question rather than assumed, because it decides the money: a remake
+ * the lab owns costs nothing, one the clinic or patient caused is charged again. The price box
+ * follows the answer and stays editable, because "normally no charge" is not "never".
+ */
+@Composable
+fun LabRemakeSheet(
+    case: LabCases.LabCase,
+    busy: Boolean,
+    error: String?,
+    onConfirm: (String, String, Double) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val faults = listOf(
+        Triple("lab", "The lab", "Their mistake — normally no charge."),
+        Triple("clinic", "The clinic", "A re-prep or a new impression. Chargeable."),
+        Triple("patient", "The patient", "Changed their mind, or broke it. Chargeable."),
+        Triple("unknown", "Not sure", "Decide later."),
+    )
+    val reasons = listOf("Shade too dark", "Shade too light", "Does not seat", "Open contact", "High bite", "Poor fit", "Broken in transit")
+    var fault by remember(case.id) { mutableStateOf("lab") }
+    var reason by remember(case.id) { mutableStateOf("") }
+    var price by remember(case.id) { mutableStateOf("0") }
+    val value = price.toDoubleOrNull() ?: 0.0
+
+    Sheet(
+        title = "Remake ${case.code}",
+        caption = "${case.patientName} · ${case.workDescription.ifBlank { LabCases.workTypeLabel(case.workType, false) }} · ${case.labName}",
+        busy = busy,
+        error = error,
+        action = "Raise the remake",
+        ready = reason.isNotBlank(),
+        onAction = { onConfirm(reason.trim(), fault, value) },
+        onDismiss = onDismiss,
+    ) {
+        SheetChoices("What went wrong") {
+            reasons.forEach { r -> SheetChoice(r, reason == r) { reason = r } }
+        }
+        SheetField("Or in your own words", reason, { reason = it }, hint = "Margin open on the distal")
+        SheetChoices("Whose fault") {
+            faults.forEach { (id, label, _) ->
+                SheetChoice(label, fault == id) {
+                    fault = id
+                    price = if (id == "lab") "0" else case.agreedPrice.toLong().toString()
+                }
+            }
+        }
+        Txt(faults.first { it.first == fault }.third, Type.caption, T.inkMuted, Modifier.padding(horizontal = T.gutter), maxLines = 2)
+        SheetField("Price for the remake", price, { price = it.filter { c -> c.isDigit() || c == '.' } }, hint = "0", numeric = true)
+        Txt(
+            "The original stays as it is. The remake copies every detail, gets its own number with an -R suffix, and goes out today.",
+            Type.caption, T.inkFaint, Modifier.padding(horizontal = T.gutter, vertical = 10.dp), maxLines = 3,
+        )
+    }
+}
+
+/**
+ * One lab's statement, and the door to paying it.
+ *
+ * Deliveries and payments interleaved by date with a running balance — the way the lab reads its
+ * own book. Removing a payment is two taps and needs finance.delete.
+ */
+@Composable
+fun LabAccountSheet(
+    account: com.alphadental.clinic.data.LabAccounts.Account,
+    lines: List<com.alphadental.clinic.data.LabAccounts.Line>,
+    busy: Boolean,
+    error: String?,
+    onPay: (() -> Unit)?,
+    onDeletePayment: ((String) -> Unit)?,
+    onDismiss: () -> Unit,
+) {
+    var armed by remember(account.labId) { mutableStateOf<String?>(null) }
+    val fmt = { n: Double -> String.format(java.util.Locale.US, "%,.0f", n) }
+    Sheet(
+        title = account.labName,
+        caption = "Outstanding ${fmt(account.outstanding)} · delivered ${fmt(account.delivered)} · paid ${fmt(account.paid)}",
+        busy = busy,
+        error = error,
+        action = "Record a payment",
+        ready = onPay != null,
+        onAction = { onPay?.invoke() },
+        onDismiss = onDismiss,
+    ) {
+        if (account.committedCount > 0) {
+            Txt("${account.committedCount} case(s) still at the lab, ${fmt(account.committed)} — coming, not owed yet.", Type.caption, T.inkMuted, Modifier.padding(horizontal = T.gutter, vertical = 8.dp), maxLines = 2)
+        }
+        if (account.remakesTotal > 0) {
+            Txt("${account.remakesTotal} remake(s), ${account.remakesAtLabCost} at the lab's own cost.", Type.caption, T.inkMuted, Modifier.padding(horizontal = T.gutter, vertical = 4.dp), maxLines = 2)
+        }
+        if (lines.isEmpty()) {
+            Txt("Nothing delivered and nothing paid yet.", Type.body, T.inkMuted, Modifier.padding(horizontal = T.gutter, vertical = 16.dp))
+            return@Sheet
+        }
+        Rule()
+        // Newest at the top: the last delivery and the last payment are what the call is about.
+        lines.asReversed().forEach { l ->
+            val isPayment = l.payment > 0
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .then(if (isPayment && onDeletePayment != null) Modifier.clickable(enabled = !busy) { if (armed == l.paymentId) onDeletePayment(l.paymentId) else armed = l.paymentId } else Modifier)
+                    .padding(horizontal = T.gutter, vertical = 10.dp),
+            ) {
+                androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Txt(if (isPayment) "Payment" else "${l.code} · ${l.patient}".trim(' ', '·'), Type.rowName, if (isPayment) T.accentInk else T.ink)
+                        Txt(listOf(l.date, l.work).filter { it.isNotBlank() }.joinToString(" · "), Type.caption, T.inkMuted, maxLines = 2)
+                    }
+                    Column(horizontalAlignment = androidx.compose.ui.Alignment.End) {
+                        Txt(if (isPayment) "−${fmt(l.payment)}" else fmt(l.charge), Type.label.copy(fontSize = 14.sp), if (isPayment) T.accentInk else T.ink)
+                        Txt("bal. ${fmt(l.balance)}", Type.caption, T.inkFaint)
+                    }
+                }
+                if (isPayment && armed == l.paymentId) {
+                    Txt("Tap again to remove this payment. For a mistyped amount or a duplicate.", Type.caption, T.danger, Modifier.padding(top = 4.dp), maxLines = 2)
+                }
+            }
+            Rule()
+        }
+    }
+}
+
+/** Settling a lab: amount, day, how, and the reference a bank transfer carries. */
+@Composable
+fun LabPaymentSheet(
+    account: com.alphadental.clinic.data.LabAccounts.Account,
+    today: String,
+    busy: Boolean,
+    error: String?,
+    onSave: (Double, String, String, String, String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    // Offered, not imposed: a clinic usually settles the whole balance.
+    var amount by remember(account.labId) { mutableStateOf(if (account.outstanding > 0) Math.round(account.outstanding).toString() else "") }
+    var date by remember(account.labId) { mutableStateOf(today) }
+    var method by remember(account.labId) { mutableStateOf("cash") }
+    var reference by remember(account.labId) { mutableStateOf("") }
+    var note by remember(account.labId) { mutableStateOf("") }
+    val value = amount.toDoubleOrNull() ?: 0.0
+    Sheet(
+        title = "Pay ${account.labName}",
+        caption = "Outstanding ${String.format(java.util.Locale.US, "%,.0f", account.outstanding)}",
+        busy = busy,
+        error = error,
+        action = "Record the payment",
+        ready = value > 0 && date.length == 10,
+        onAction = { onSave(value, date, method, reference, note) },
+        onDismiss = onDismiss,
+    ) {
+        SheetField("Amount", amount, { amount = it.filter { c -> c.isDigit() || c == '.' } }, hint = "0", numeric = true)
+        SheetField("Date", date, { date = it.filter { c -> c.isDigit() || c == '-' }.take(10) }, hint = "yyyy-mm-dd")
+        SheetChoices("How") {
+            com.alphadental.clinic.data.LabAccounts.METHODS.forEach { m -> SheetChoice(m.en, method == m.id) { method = m.id } }
+        }
+        SheetField("Reference", reference, { reference = it }, hint = "Transfer number, cheque number")
+        SheetField("Note", note, { note = it }, hint = "Settles August", lines = 2)
+        Txt(
+            "This settles the lab and touches nothing else: the lab fee was already counted as a cost when the treatment was saved.",
+            Type.caption, T.inkFaint, Modifier.padding(horizontal = T.gutter, vertical = 10.dp), maxLines = 3,
+        )
     }
 }
 

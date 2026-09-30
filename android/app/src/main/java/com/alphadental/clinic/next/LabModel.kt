@@ -2,6 +2,7 @@ package com.alphadental.clinic.next
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.alphadental.clinic.data.LabAccounts
 import com.alphadental.clinic.data.LabCases
 import com.alphadental.clinic.next.data.ClinicSource
 import com.alphadental.clinic.next.data.Who
@@ -25,6 +26,9 @@ enum class LabFilter(val label: String) {
     All("All"),
 }
 
+/** The board, or the money. */
+enum class LabTab(val label: String) { Board("Board"), Accounts("Accounts") }
+
 data class Lab(
     val loading: Boolean = true,
     val who: Who? = null,
@@ -34,7 +38,30 @@ data class Lab(
     /** The case being looked at, by id. Not `open` — that already means the open cases. */
     val openId: String? = null,
     val moving: Boolean = false,
+    val tab: LabTab = LabTab.Board,
+    val labs: List<LabCases.Lab> = emptyList(),
+    val payments: List<LabAccounts.Payment> = emptyList(),
+    /** The lab whose statement is open, by id. */
+    val openLabId: String? = null,
+    /** The payment sheet is up for the open lab. */
+    val paying: Boolean = false,
+    /** The case a remake is being raised off. */
+    val remakingId: String? = null,
+    val created: String? = null,
 ) {
+    /** A payment is a finance write, as the rules have it; removing one needs finance.delete. */
+    val canPay: Boolean get() = who?.can("finance.add") == true
+    val canDeletePayment: Boolean get() = who?.can("finance.delete") == true
+
+    val accounts: List<LabAccounts.Account> get() = LabAccounts.accounts(labs, cases, payments)
+    val owed: Double get() = accounts.sumOf { it.outstanding }
+    val paidTotal: Double get() = accounts.sumOf { it.paid }
+    val atLabs: Double get() = accounts.sumOf { it.committed }
+    val unpriced: Int get() = accounts.sumOf { it.unpriced }
+    val openAccount: LabAccounts.Account? get() = accounts.firstOrNull { it.labId == openLabId }
+    val openStatement: List<LabAccounts.Line> get() = openLabId?.let { LabAccounts.statement(it, cases, payments) }.orEmpty()
+    val remaking: LabCases.LabCase? get() = cases.firstOrNull { it.id == remakingId }
+
     /** Moving a case along is a clinical write, as the rules have it. */
     val canMove: Boolean get() = who?.can("clinical.edit") == true
 
@@ -98,6 +125,7 @@ class LabModel : ViewModel() {
     val state: StateFlow<Lab> = _state.asStateFlow()
 
     private var watch: Job? = null
+    private var watchPayments: Job? = null
 
     fun start() {
         if (_state.value.who != null) return
@@ -119,6 +147,16 @@ class LabModel : ViewModel() {
     }
 
     private fun observe(who: Who) {
+        viewModelScope.launch {
+            val labs = runCatching { LabCases.loadLabs(who.clinicId) }.getOrDefault(emptyList())
+            _state.value = _state.value.copy(labs = labs)
+        }
+        watchPayments?.cancel()
+        watchPayments = viewModelScope.launch {
+            LabAccounts.observePayments(who.clinicId).collect { result ->
+                result.onSuccess { payments -> _state.value = _state.value.copy(payments = payments) }
+            }
+        }
         watch?.cancel()
         watch = viewModelScope.launch {
             LabCases.observeCases(who.clinicId).collect { result ->
@@ -208,6 +246,84 @@ class LabModel : ViewModel() {
     fun show(filter: LabFilter) {
         _state.value = _state.value.copy(filter = filter)
     }
+
+    fun showTab(tab: LabTab) {
+        _state.value = _state.value.copy(tab = tab, error = null)
+    }
+
+    fun openLab(labId: String?) {
+        _state.value = _state.value.copy(openLabId = labId, paying = false, error = null)
+    }
+
+    fun pay(open: Boolean) {
+        _state.value = _state.value.copy(paying = open, error = null)
+    }
+
+    /**
+     * Settle part or all of what a lab is owed. Writes `lab_payments` and nothing else — the lab
+     * fee was already booked as a cost when the treatment was saved.
+     */
+    fun recordPayment(amount: Double, date: String, method: String, reference: String, note: String) {
+        val who = _state.value.who ?: return
+        val account = _state.value.openAccount ?: return
+        if (!_state.value.canPay || _state.value.moving) return
+        _state.value = _state.value.copy(moving = true, error = null)
+        viewModelScope.launch {
+            LabAccounts.record(who.clinicId, account.labId, account.labName, amount, date, method, reference, note, who.name)
+                .onSuccess { _state.value = _state.value.copy(moving = false, paying = false) }
+                .onFailure { e -> _state.value = _state.value.copy(moving = false, error = readable(e, "That payment could not be saved.")) }
+        }
+    }
+
+    /** A mistyped amount or a duplicate. The listener drops the row. */
+    fun deletePayment(id: String) {
+        val who = _state.value.who ?: return
+        if (!_state.value.canDeletePayment || _state.value.moving) return
+        _state.value = _state.value.copy(moving = true, error = null)
+        viewModelScope.launch {
+            LabAccounts.delete(who.clinicId, id)
+                .onSuccess { _state.value = _state.value.copy(moving = false) }
+                .onFailure { e -> _state.value = _state.value.copy(moving = false, error = readable(e, "That payment could not be removed.")) }
+        }
+    }
+
+    fun startRemake(caseId: String?) {
+        _state.value = _state.value.copy(remakingId = caseId, openId = null, error = null, created = null)
+    }
+
+    /**
+     * Raise a remake off the open case — the website's `createRemake`.
+     *
+     * The original stays as it is: it happened, and rewriting it would lose the fact that the
+     * first attempt failed. The replacement copies every detail, gets its own number with an
+     * `-R2` suffix and a pointer back, and goes out today. Whose fault it was decides the money:
+     * a remake the lab owns costs nothing, and 0 is a real price here.
+     */
+    fun remake(reason: String, fault: String, price: Double) {
+        val who = _state.value.who ?: return
+        val original = _state.value.remaking ?: return
+        if (!_state.value.canMove || _state.value.moving) return
+        _state.value = _state.value.copy(moving = true, error = null)
+        viewModelScope.launch {
+            val lab = _state.value.labs.firstOrNull { it.id == original.labId }
+            val draft = LabCases.draftOf(original).copy(
+                status = "at_lab",
+                sentAt = ClinicSource.dateKey(),
+                dueDate = if (lab != null && lab.turnaroundDays > 0) LabCases.dueInDays(lab.turnaroundDays) else "",
+                agreedPrice = price.coerceAtLeast(0.0),
+            )
+            LabCases.createCase(who.clinicId, draft, who.name, remakeOf = original, remakeReason = reason, remakeFault = fault)
+                .onSuccess { made -> _state.value = _state.value.copy(moving = false, remakingId = null, created = made.code) }
+                .onFailure { e -> _state.value = _state.value.copy(moving = false, error = readable(e, "The remake could not be raised.")) }
+        }
+    }
+
+    fun clearCreated() {
+        _state.value = _state.value.copy(created = null)
+    }
+
+    private fun readable(e: Throwable, fallback: String): String =
+        if (e.message?.contains("PERMISSION_DENIED", true) == true) "This account is not allowed to do that." else e.message?.takeIf { it.isNotBlank() && !it.contains("firestore", true) } ?: fallback
 }
 
 /** The board, filled with the design's example data. See [previewDashboard]. */
@@ -220,16 +336,18 @@ fun previewLab(): Lab {
         status: String, due: Int?, units: Int, doctor: String,
         remakeOf: String = "", received: Int? = null,
     ) = LabCases.LabCase(
-        id = code, code = code, codeNumber = 0, branchName = "",
+        id = code, code = code, codeNumber = 0, branchId = "", branchCode = "MAD", branchName = "",
         patientId = "", patientName = patient, patientPhone = "",
-        doctorName = doctor, labId = "", labName = lab,
+        doctorId = "", doctorName = doctor, labId = lab, labName = lab,
         workType = work, workDescription = work, units = units, teeth = emptyList(),
         bodyShade = "A2", cervicalShade = "", gumShade = "", material = "Zirconia",
-        implantSystem = "", notes = "", agreedPrice = 0.0, sentVia = "driver",
+        implantSystem = "", implantPlatform = "", abutmentType = "", retention = "", guideType = "", sleeveSystem = "",
+        notes = "", agreedPrice = 1200.0, sentVia = "driver",
         status = status, needsTryIn = false,
         sentAt = day(-10), dueDate = due?.let { day(it) }.orEmpty(),
         receivedAt = received?.let { day(it) }.orEmpty(), fittedAt = "", events = emptyList(),
-        remakeOfCode = remakeOf, remakeRound = if (remakeOf.isBlank()) 0 else 1,
+        remakeOfId = remakeOf, remakeOfCode = remakeOf, remakeFault = if (remakeOf.isBlank()) "" else "lab", remakeReason = "",
+        remakeRound = if (remakeOf.isBlank()) 0 else 2,
     )
     return Lab(
         loading = false,

@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.alphadental.clinic.data.LabAccounts
 import com.alphadental.clinic.data.LabCases
 import com.alphadental.clinic.next.design.Chip
 import com.alphadental.clinic.next.design.RowGroup
@@ -61,7 +62,13 @@ fun LabScreen(
     onFilter: (LabFilter) -> Unit,
     onOpenCase: (String) -> Unit = {},
     onNewCase: (() -> Unit)? = null,
+    onTab: (LabTab) -> Unit = {},
+    onOpenLab: (String) -> Unit = {},
 ) {
+    if (state.tab == LabTab.Accounts) {
+        AccountsScreen(state, onBack, onTab, onOpenLab)
+        return
+    }
     Column(Modifier.fillMaxSize().background(T.ground)) {
 
         Slab(
@@ -86,6 +93,7 @@ fun LabScreen(
             ),
         )
 
+        TabSwitch(state.tab, onTab)
         Filters(state, onFilter)
 
         when {
@@ -123,6 +131,119 @@ fun LabScreen(
         }
     }
 }
+
+/** Board or Accounts: the work, or the money the work costs. */
+@Composable
+private fun TabSwitch(tab: LabTab, onTab: (LabTab) -> Unit) {
+    Surface(color = T.surface, modifier = Modifier.fillMaxWidth()) {
+        Column {
+            Row(Modifier.padding(horizontal = T.gutter, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LabTab.entries.forEach { t ->
+                    val selected = t == tab
+                    Surface(
+                        shape = T.pill,
+                        color = if (selected) T.ink else T.surface,
+                        border = if (selected) null else androidx.compose.foundation.BorderStroke(1.dp, T.line),
+                        modifier = Modifier.clickable { onTab(t) },
+                    ) {
+                        Txt(t.label, Type.label.copy(fontSize = 12.sp), if (selected) T.surface else T.inkMuted, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                    }
+                }
+            }
+            Rule()
+        }
+    }
+}
+
+/**
+ * What the clinic owes each lab.
+ *
+ * Owed counts delivered work only — a crown still at the lab is a commitment, not a debt — and a
+ * delivered case with no agreed price is called out by count, because that gap is the usual
+ * reason this figure and the lab's own invoice disagree.
+ */
+@Composable
+private fun AccountsScreen(state: Lab, onBack: () -> Unit, onTab: (LabTab) -> Unit, onOpenLab: (String) -> Unit) {
+    val accounts = state.accounts
+    Column(Modifier.fillMaxSize().background(T.ground)) {
+        Slab(
+            title = "Lab accounts",
+            eyebrow = if (state.owed > 0) "${money(state.owed)} owed" else "Nothing owed",
+            bar = { SlabIcon(Icons.AutoMirrored.Filled.ArrowBack, "Back", onClick = onBack); Spacer(Modifier.weight(1f)) },
+            stats = if (state.loading || state.error != null) emptyList() else listOf(
+                Stat("Owed", money(state.owed)),
+                Stat("Paid", money(state.paidTotal)),
+                Stat("At labs", money(state.atLabs)),
+                Stat("Unpriced", state.unpriced.toString()),
+            ),
+        )
+        TabSwitch(state.tab, onTab)
+        when {
+            state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = T.inkFaint, strokeWidth = 2.dp, modifier = Modifier.size(26.dp))
+            }
+            state.error != null && accounts.isEmpty() -> Box(Modifier.fillMaxSize().padding(T.gutter), contentAlignment = Alignment.Center) {
+                Txt(state.error, Type.body, T.inkFaint, maxLines = 3)
+            }
+            accounts.isEmpty() -> Box(Modifier.fillMaxSize().padding(T.gutter), contentAlignment = Alignment.Center) {
+                Txt("No labs yet. Add one under Settings → Labs on the website, or raise a case.", Type.body, T.inkFaint, maxLines = 3)
+            }
+            else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = T.barClearance)) {
+                if (state.unpriced > 0) {
+                    item {
+                        Txt(
+                            "${state.unpriced} delivered case(s) carry no agreed price, so they are not in these totals. " +
+                                "That is the usual reason your figure and a lab's invoice disagree — open the case and add the price.",
+                            Type.caption, T.warn, Modifier.padding(horizontal = T.gutter, vertical = 10.dp), maxLines = 4,
+                        )
+                    }
+                }
+                item {
+                    RowGroup {
+                        accounts.forEachIndexed { i, a ->
+                            if (i > 0) Rule()
+                            AccountRow(a) { onOpenLab(a.labId) }
+                        }
+                    }
+                }
+                item {
+                    Txt(
+                        "Owed = delivered cases at their agreed price, minus what was paid. Work still at the lab is not owed yet. " +
+                            "Payments here settle the lab; the lab fee was already counted as a cost when the treatment was saved.",
+                        Type.caption, T.inkFaint, Modifier.padding(horizontal = T.gutter, vertical = 12.dp), maxLines = 5,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccountRow(a: LabAccounts.Account, onOpen: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(horizontal = T.gutter, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Txt(a.labName, Type.rowName, T.ink)
+            Spacer(Modifier.height(2.dp))
+            Txt(
+                listOfNotNull(
+                    "${a.deliveredCount} delivered",
+                    a.committedCount.takeIf { it > 0 }?.let { "$it at the lab" },
+                    a.remakesAtLabCost.takeIf { it > 0 }?.let { "$it remade at their cost" },
+                ).joinToString(" · "),
+                Type.caption, T.inkMuted, maxLines = 2,
+            )
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            Txt("Outstanding", Type.chip, T.inkFaint, uppercase = true)
+            Txt(money(a.outstanding), Type.label.copy(fontSize = 15.sp), if (a.outstanding > 0) T.danger else T.inkFaint)
+        }
+    }
+}
+
+private fun money(n: Double): String = String.format(Locale.US, "%,.0f", n)
 
 @Composable
 private fun Filters(state: Lab, onFilter: (LabFilter) -> Unit) {
