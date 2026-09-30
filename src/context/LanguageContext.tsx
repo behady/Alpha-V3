@@ -15,6 +15,7 @@ const translations = {
     patients: "Patients",
     appointments: "Appointments",
     lab: "Lab Tracking",
+    ortho: "Orthodontics",
     inventory: "Inventory",
     // Sits beside Inventory on purpose: one screen says what you have left, the next says where
     // to get more. Only appears when a partner shop is actually connected.
@@ -435,6 +436,7 @@ const translations = {
     patients: "سجل المرضى",
     appointments: "المواعيد",
     lab: "متابعة المعمل",
+    ortho: "التقويم",
     inventory: "المخزون",
     store: "متجر المستلزمات",
     finance: "الحسابات",

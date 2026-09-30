@@ -18,6 +18,8 @@ import { useClinic } from "@/context/ClinicContext";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import PermissionGuard from "@/components/PermissionGuard";
 import PageHeader from "@/components/dashboard/PageHeader";
+import FeatureGate from "@/components/FeatureGate";
+import OrthoAiPanel from "@/components/ortho/OrthoAiPanel";
 
 interface OrthoVisit {
   visitNo: number;
@@ -52,9 +54,20 @@ interface OrthoCase {
   visits?: OrthoVisit[];
   diagnosis?: string;
   cephData?: Record<string, string>;
+  /** The clinical examination the AI diagnosis rests on; owned by the AI panel's form. */
+  clinicalFindings?: unknown;
 }
 
-export default function IsolatedOrthoWorkspace() {
+/** Sold as an add-on: the list page had this gate, the case page did not. */
+export default function IsolatedOrthoWorkspaceGated() {
+  return (
+    <FeatureGate feature="ortho">
+      <IsolatedOrthoWorkspace />
+    </FeatureGate>
+  );
+}
+
+function IsolatedOrthoWorkspace() {
   const { t } = useLanguage();
   const params = useParams();
   const router = useRouter();
@@ -485,7 +498,7 @@ export default function IsolatedOrthoWorkspace() {
                 <div className="text-center py-16 border-2 border-dashed border-slate-100 rounded-3xl">
                   <CalendarDays className="mx-auto text-slate-300 mb-4" size={48} />
                   <p className="font-black text-slate-700 text-lg">{t("orthoNoVisits")}</p>
-                  <p className="text-xs font-medium text-slate-400 mt-1">Click t("orthoAddVisit") to log the first adjustment.</p>
+                  <p className="text-xs font-medium text-slate-400 mt-1">Click “{t("orthoAddVisit")}” to log the first adjustment.</p>
                 </div>
               ) : (
                 <div className="overflow-x-auto rounded-2xl border border-slate-100">
@@ -548,6 +561,19 @@ export default function IsolatedOrthoWorkspace() {
                 </div>
               )}
             </div>
+
+            {/* The AI half: ceph analysis, diagnosis, plan, follow-up, and the lesson book. */}
+            <OrthoAiPanel
+              patientId={id}
+              patientName={patientData.name || ""}
+              orthoCase={{
+                clinicalFindings: orthoCase.clinicalFindings,
+                visits: orthoCase.visits,
+                diagnosis: orthoCase.diagnosis,
+                startDate: orthoCase.startDate,
+                status: orthoCase.status,
+              }}
+            />
           </div>
         )}
       </main>
