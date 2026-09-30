@@ -1,5 +1,7 @@
 package com.alphadental.clinic.next
 
+import kotlinx.coroutines.flow.first
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -56,7 +58,63 @@ data class HomeExtras(
     val overtimePendingMinutes: Int = 0,
     val hoursWorkedMinutes: Int = 0,
     val staffOnShift: Int = 0,
+    // ---- what needs the owner, the website's list in the website's order
+    val needs: List<Need> = emptyList(),
+    /** Yesterday in three lines, from the website's owner summary. Empty until it answers. */
+    val summary: List<String> = emptyList(),
+    val summaryDate: String = "",
+    val summaryAi: Boolean = false,
+    /** The three biggest balances, and the whole figure behind them. */
+    val debtors: List<Triple<String, String, Double>> = emptyList(),
 )
+
+/** One line at the top of the owner's home: what is wrong, and where to go about it. */
+data class Need(val key: String, val text: String, val cta: String, val high: Boolean)
+
+/**
+ * The website's `needsYou`, rule for rule: cash a fifth or more behind the same weekday last week
+ * (prorated by how much of the clinic's day has gone), lab cases late or due today, staff absent
+ * or late, tomorrow unconfirmed, a no-show spike (three or more, and half again the usual), and
+ * overtime waiting. Only what is actually wrong — an empty list is the good news.
+ */
+object NeedsYou {
+    const val BEHIND_RATIO = 0.8
+
+    fun cashPace(collected: Double, previous: Double?, elapsed: Double): Triple<Double, Double?, Double> {
+        val prev = previous ?: 0.0
+        if (prev <= 0.0) return Triple(0.0, null, 0.0)
+        val expected = prev * elapsed.coerceIn(0.0, 1.0)
+        if (expected <= 0.0) return Triple(0.0, null, 0.0)
+        return Triple(expected, collected / expected, (expected - collected).coerceAtLeast(0.0))
+    }
+
+    fun build(
+        pace: Triple<Double, Double?, Double>,
+        labLate: Int, labDueToday: Int,
+        absentToday: Int, lateToday: Int,
+        unconfirmedTomorrow: Int,
+        noShowsThisWeek: Int, noShowsUsual: Double,
+        overtimePending: Int,
+        fmt: (Double) -> String,
+    ): List<Need> {
+        val items = mutableListOf<Need>()
+        val ratio = pace.second
+        if (ratio != null && ratio < BEHIND_RATIO) {
+            items += Need("cash_behind", "Cash is ${((1 - ratio) * 100).toInt()}% behind the same weekday last week (${fmt(pace.third)} EGP short)", "Money", true)
+        }
+        if (labLate > 0 || labDueToday > 0) {
+            items += Need("lab_late", if (labLate > 0) "$labLate lab case(s) late" + (if (labDueToday > 0) " · $labDueToday due today" else "") else "$labDueToday lab case(s) due today", "Lab", labLate > 0)
+        }
+        if (absentToday > 0) items += Need("staff_absent", "$absentToday staff absent today", "Attendance", true)
+        if (lateToday > 0) items += Need("staff_late", "$lateToday staff late today", "Attendance", false)
+        if (unconfirmedTomorrow > 0) items += Need("unconfirmed", "$unconfirmedTomorrow visit(s) tomorrow still unconfirmed", "Diary", false)
+        if (noShowsThisWeek >= 3 && noShowsThisWeek >= noShowsUsual * 1.5) {
+            items += Need("noshow_spike", "$noShowsThisWeek no-shows this week (usually ${Math.round(noShowsUsual)})", "Diary", false)
+        }
+        if (overtimePending > 0) items += Need("overtime", "$overtimePending staff with overtime waiting for your approval", "Attendance", false)
+        return items.sortedBy { if (it.high) 0 else 1 }
+    }
+}
 
 object HomeExtrasLoader {
 
@@ -84,8 +142,72 @@ object HomeExtrasLoader {
         )
     }
 
+    /** Sunday-based week start for a yyyy-MM-dd key, the website's `weekDaysFrom` rule. */
+    private fun weekStartOf(key: String): String = runCatching {
+        val d = java.time.LocalDate.parse(key)
+        d.minusDays(d.dayOfWeek.value % 7L).toString()
+    }.getOrDefault(key)
+
     /** The clinic's week, the way the website's owner home lays it out. */
     suspend fun owner(who: Who): HomeExtras {
+        val base = ownerWeek(who)
+        val today = ClinicSource.dateKey()
+        val clinicId = who.clinicId
+
+        // Cash today against the same weekday last week, by how much of the day has gone.
+        val hours = runCatching { ClinicSource.hours(clinicId) }.getOrDefault(com.alphadental.clinic.next.data.Hours())
+        val nowMin = java.util.Calendar.getInstance().let { it.get(java.util.Calendar.HOUR_OF_DAY) * 60 + it.get(java.util.Calendar.MINUTE) }
+        val span = (hours.closes - hours.startMinute).coerceAtLeast(60)
+        val elapsed = ((nowMin - hours.startMinute).toDouble() / span).coerceIn(0.0, 1.0)
+        val collected = runCatching { ClinicSource.takings(clinicId, today) }.getOrDefault(0.0)
+        val lastWeekSameDay = runCatching { ClinicSource.takings(clinicId, key(7)) }.getOrDefault(0.0)
+        val pace = NeedsYou.cashPace(collected, lastWeekSameDay, elapsed)
+
+        // The lab board, once: late and due today.
+        val cases = if (who.can("access.lab")) runCatching {
+            kotlinx.coroutines.withTimeout(8_000) { com.alphadental.clinic.data.LabCases.observeCases(clinicId).first().getOrDefault(emptyList()) }
+        }.getOrDefault(emptyList()) else emptyList()
+        val labLate = cases.count { com.alphadental.clinic.data.LabCases.dueStateFor(it, today) == com.alphadental.clinic.data.LabCases.Due.OVERDUE }
+        val labDueToday = cases.count { com.alphadental.clinic.data.LabCases.dueStateFor(it, today) == com.alphadental.clinic.data.LabCases.Due.DUE_TODAY }
+
+        // Today's roster: who has not turned up past their start, and who came late.
+        val staff = runCatching { Attendance.loadStaff(clinicId) }.getOrDefault(emptyList())
+        val now = System.currentTimeMillis()
+        val todayPunches = runCatching { Attendance.punchesBetween(clinicId, Attendance.startOfToday(now), now + 1) }.getOrDefault(emptyList())
+        val roster = Attendance.roster(staff, todayPunches, now)
+        val absentToday = roster.count { it.state == Attendance.State.NOT_ARRIVED && it.lateMinutes > 0 }
+        val lateToday = roster.count { (it.state == Attendance.State.ON_SHIFT || it.state == Attendance.State.DONE) && it.lateMinutes > 0 }
+        val overtimePeople = todayPunches.filter { it.overtimeStatus != "approved" && it.overtimeStatus != "rejected" }
+            .filter { p -> Attendance.owner(p, staff)?.let { Attendance.overtimeMinutes(p, it) > 0 } == true }
+            .map { it.staffId }.distinct().size
+
+        // Tomorrow's diary, and four weeks of no-shows by week.
+        val tomorrow = key(-1)
+        val unconfirmedTomorrow = runCatching { ClinicSource.visitsBetween(clinicId, tomorrow, tomorrow) }.getOrDefault(emptyList())
+            .count { it.status == com.alphadental.clinic.next.data.Stage.Unconfirmed }
+        val month = runCatching { ClinicSource.visitsBetween(clinicId, key(27), today) }.getOrDefault(emptyList())
+        val thisWeekStart = weekStartOf(today)
+        val byWeek = month.groupBy { weekStartOf(it.date) }
+        val noShowsThisWeek = byWeek[thisWeekStart].orEmpty().count { it.status == com.alphadental.clinic.next.data.Stage.NoShow }
+        val before = byWeek.filterKeys { it != thisWeekStart }.values
+        val usual = if (before.isEmpty()) 0.0 else before.map { w -> w.count { it.status == com.alphadental.clinic.next.data.Stage.NoShow } }.average()
+
+        val fmt = { n: Double -> java.text.NumberFormat.getIntegerInstance(java.util.Locale.US).format(n.toLong()) }
+        val needs = NeedsYou.build(pace, labLate, labDueToday, absentToday, lateToday, unconfirmedTomorrow, noShowsThisWeek, usual, overtimePeople, fmt)
+
+        val debtors = runCatching { ClinicSource.debtors(clinicId, 3) }.getOrDefault(emptyList()).map { Triple(it.id, it.name, it.balance) }
+        val summary = runCatching { com.alphadental.clinic.next.data.OwnerSummaryClient.yesterday(clinicId, com.alphadental.clinic.next.data.AppLocale.language.value) }.getOrNull()
+
+        return base.copy(
+            needs = needs,
+            summary = summary?.lines.orEmpty(),
+            summaryDate = summary?.dateKey.orEmpty(),
+            summaryAi = summary?.ai == true,
+            debtors = debtors,
+        )
+    }
+
+    private suspend fun ownerWeek(who: Who): HomeExtras {
         val today = ClinicSource.dateKey()
         val thisWeek = runCatching { ClinicSource.ledgerBetween(who.clinicId, key(6), today) }.getOrDefault(emptyList())
         val lastWeek = runCatching { ClinicSource.ledgerBetween(who.clinicId, key(13), key(7)) }.getOrDefault(emptyList())
@@ -203,7 +325,44 @@ fun LazyListScope.dentistHome(
 // ====================================================================== the owner's overview
 
 /** The website's owner home, under the desk's daily overview: the week, per dentist, and the floor. */
-fun LazyListScope.ownerOverview(extras: HomeExtras) {
+fun LazyListScope.ownerOverview(extras: HomeExtras, onGo: (String) -> Unit = {}, onOpenPatient: (String) -> Unit = {}) {
+    // ---- What is wrong, first. An empty list says so rather than showing six zeros.
+    item { Eyebrow("Needs you") }
+    item {
+        Card {
+            if (!extras.loaded) {
+                Txt("Looking…", Type.body, T.inkFaint, Modifier.padding(16.dp))
+            } else if (extras.needs.isEmpty()) {
+                Txt("Nothing needs you right now.", Type.body, T.inkFaint, Modifier.padding(16.dp))
+            }
+            extras.needs.forEachIndexed { i, n ->
+                if (i > 0) Rule()
+                Row(
+                    Modifier.fillMaxWidth().clickable { onGo(n.cta) }.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(8.dp).background(if (n.high) T.danger else T.warn, androidx.compose.foundation.shape.CircleShape))
+                    Spacer(Modifier.width(10.dp))
+                    Txt(n.text, Type.body, T.ink, Modifier.weight(1f), maxLines = 3)
+                    Spacer(Modifier.width(8.dp))
+                    Txt(n.cta, Type.chip, T.inkFaint, uppercase = true)
+                }
+            }
+        }
+    }
+
+    // ---- Yesterday in three lines: the same text the website shows and the evening digest sends.
+    if (extras.summary.isNotEmpty()) {
+        item { Eyebrow("Yesterday · ${extras.summaryDate}${if (extras.summaryAi) " · AI" else ""}") }
+        item {
+            Card {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    extras.summary.forEach { line -> Txt(line, Type.body, T.ink, maxLines = 4) }
+                }
+            }
+        }
+    }
+
     item { Eyebrow("This week vs last") }
     item {
         Card {
@@ -220,6 +379,25 @@ fun LazyListScope.ownerOverview(extras: HomeExtras) {
                     Type.caption, if (delta >= 0) Color(0xFF16A34A) else Color(0xFFDC2626),
                     Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                 )
+            }
+        }
+    }
+
+    // ---- Who owes the clinic the most. The whole figure is on the card above; these are the calls.
+    if (extras.debtors.isNotEmpty()) {
+        item { Eyebrow("Still owed to the clinic") }
+        item {
+            Card {
+                extras.debtors.forEachIndexed { i, (id, name, owed) ->
+                    if (i > 0) Rule()
+                    Row(
+                        Modifier.fillMaxWidth().clickable { onOpenPatient(id) }.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Txt(name.ifBlank { "Unnamed" }, Type.rowName, T.ink, Modifier.weight(1f), maxLines = 1)
+                        Txt("${fmt(owed)} EGP", Type.label.copy(fontSize = 13.sp), Color(0xFFDC2626))
+                    }
+                }
             }
         }
     }

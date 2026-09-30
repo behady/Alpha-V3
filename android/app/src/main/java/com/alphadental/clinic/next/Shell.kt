@@ -95,6 +95,7 @@ fun Shell(preview: Boolean = false) {
     var openSettings by rememberSaveable { mutableStateOf(false) }
     var openOrtho by rememberSaveable { mutableStateOf(false) }
     var openLeads by rememberSaveable { mutableStateOf(false) }
+    var openInbox by rememberSaveable { mutableStateOf(false) }
     var openStock by rememberSaveable { mutableStateOf(false) }
     var openAttendance by rememberSaveable { mutableStateOf(false) }
     var openContent by rememberSaveable { mutableStateOf(false) }
@@ -158,6 +159,27 @@ fun Shell(preview: Boolean = false) {
 
     if (openLeads) {
         LeadsPane(preview) { openLeads = false }
+        return
+    }
+
+    if (openInbox) {
+        InboxPane(
+            preview,
+            onBack = { openInbox = false },
+            onGo = { url ->
+                openInbox = false
+                when {
+                    url.startsWith("/patients/") -> openRecord = url.removePrefix("/patients/").substringBefore("?").substringBefore("/")
+                    url.startsWith("/lab") -> openLab = true
+                    url.startsWith("/leads") -> openLeads = true
+                    url.startsWith("/attendance") -> openAttendance = true
+                    url.startsWith("/inventory") -> openStock = true
+                    url.startsWith("/chats") -> tab = Tab.Chats
+                    url.startsWith("/appointments") -> tab = Tab.Day
+                    url.startsWith("/reports") || url.startsWith("/finance") -> tab = Tab.Money
+                }
+            },
+        )
         return
     }
 
@@ -250,6 +272,12 @@ fun Shell(preview: Boolean = false) {
     androidx.compose.runtime.LaunchedEffect(chatsModel) { chatsModel?.start() }
     val unread = if (preview) 3 else chatsState.unread
 
+    // The bell's count rides on the shell, so the dot is right before the list is ever opened.
+    val inboxModel: InboxModel? = if (preview) null else viewModel()
+    val inboxState by (inboxModel?.state?.collectAsState()
+        ?: androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(previewInbox()) })
+    androidx.compose.runtime.LaunchedEffect(inboxModel) { inboxModel?.start() }
+
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
         when (tab) {
@@ -261,8 +289,18 @@ fun Shell(preview: Boolean = false) {
                 onOpenVisit = { if (preview) shown = it else visits?.open(it) },
                 onLeads = { openLeads = true },
                 onReports = { openReports = true },
-                onBell = { tab = Tab.Day },
+                onBell = { openInbox = true },
                 onAccount = { tab = Tab.More },
+                unreadAlerts = inboxState.unread,
+                onGo = { where ->
+                    when (where) {
+                        "Money" -> tab = Tab.Money
+                        "Lab" -> openLab = true
+                        "Attendance" -> openAttendance = true
+                        "Diary" -> tab = Tab.Day
+                    }
+                },
+                onOpenPatient = { openRecord = it },
                 onNewPatient = { addingPatient = true },
                 onQuickPay = { quickPay = true },
                 onPickDay = { date -> dayModel?.openDay(date); tab = Tab.Day },
@@ -547,6 +585,9 @@ private fun TodayTab(
     onReports: () -> Unit,
     onBell: () -> Unit,
     onAccount: () -> Unit,
+    unreadAlerts: Int = 0,
+    onGo: (String) -> Unit = {},
+    onOpenPatient: (String) -> Unit = {},
     onNewPatient: () -> Unit,
     onQuickPay: () -> Unit,
     onPickDay: (String) -> Unit,
@@ -556,7 +597,7 @@ private fun TodayTab(
             ui = ui, extras = previewExtras(),
             state = previewDashboard(), onCheckOut = {}, onOpenVisit = onOpenVisit,
             onClock = onOpenAttendance, onBook = onBook,
-            onLeads = onLeads, onReports = onReports, onBell = onBell, onAccount = onAccount,
+            onLeads = onLeads, onReports = onReports, onBell = onBell, onAccount = onAccount, unreadAlerts = unreadAlerts, onGo = onGo, onOpenPatient = onOpenPatient,
             shift = previewAttendance().mine, onPunch = {},
             onNewPatient = onNewPatient, onQuickPay = onQuickPay, onPickDay = onPickDay,
         )
@@ -575,7 +616,7 @@ private fun TodayTab(
             ui = ui, extras = state.extras,
             state = state, onCheckOut = model::checkOut, onOpenVisit = onOpenVisit,
             onClock = onOpenAttendance, onBook = onBook,
-            onLeads = onLeads, onReports = onReports, onBell = onBell, onAccount = onAccount,
+            onLeads = onLeads, onReports = onReports, onBell = onBell, onAccount = onAccount, unreadAlerts = unreadAlerts, onGo = onGo, onOpenPatient = onOpenPatient,
             shift = if (shift.who == null) null else shift.mine,
             onPunch = { attendance.punch(context) },
             onNewPatient = if (state.who?.can("patients.add") == true) onNewPatient else null,
@@ -1611,6 +1652,28 @@ private fun StockPane(preview: Boolean, onBack: () -> Unit) {
  * they do on a patient's file: the dialler shows the number before it rings it,
  * which is the safer default when a wrong tap rings a stranger.
  */
+/** The bell's list. Preview draws example rows; live listens to the clinic's own. */
+@Composable
+private fun InboxPane(preview: Boolean, onBack: () -> Unit, onGo: (String) -> Unit) {
+    if (preview) {
+        var state by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(previewInbox()) }
+        InboxScreen(
+            state = state, onBack = onBack, onOpen = { onGo(it.actionUrl) },
+            onDismiss = { id -> state = state.copy(alerts = state.alerts.filterNot { it.id == id }) },
+            onDismissAll = { state = state.copy(alerts = emptyList()) },
+            onSeen = {},
+        )
+        return
+    }
+    val model: InboxModel = viewModel()
+    val state by model.state.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
+    InboxScreen(
+        state = state, onBack = onBack, onOpen = { onGo(it.actionUrl) },
+        onDismiss = model::dismiss, onDismissAll = model::dismissAll, onSeen = model::markAllRead,
+    )
+}
+
 @Composable
 private fun LeadsPane(preview: Boolean, onBack: () -> Unit) {
     val context = LocalContext.current

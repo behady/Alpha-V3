@@ -100,6 +100,11 @@ fun DashboardScreen(
     /** Which home this person chose, and who they are on the staff list. */
     ui: InterfaceState = InterfaceState(),
     extras: HomeExtras = HomeExtras(),
+    /** Alerts addressed to me that I have not looked at. The dot on the bell. */
+    unreadAlerts: Int = 0,
+    /** "Money", "Lab", "Attendance", "Diary" — where a needs-you line points. */
+    onGo: (String) -> Unit = {},
+    onOpenPatient: (String) -> Unit = {},
 ) {
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
@@ -107,7 +112,7 @@ fun DashboardScreen(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = T.barClearance),
         ) {
-            item { DashboardSlab(state, onBell, onAccount, shift, onPunch, onClock) }
+            item { DashboardSlab(state, onBell, onAccount, shift, onPunch, onClock, unreadAlerts) }
 
             state.error?.let { message ->
                 item { Notice(message) }
@@ -150,7 +155,7 @@ fun DashboardScreen(
             }
 
             // ---- The owner's home is the desk with the week, the dentists and the floor under it.
-            if (ui.home == "owner") ownerOverview(extras)
+            if (ui.home == "owner") ownerOverview(extras, onGo, onOpenPatient)
 
             // ---- The three things a desk does, stacked, the site's way.
             item {
@@ -224,6 +229,7 @@ private fun DashboardSlab(
     shift: MyShift?,
     onPunch: () -> Unit,
     onOpenAttendance: () -> Unit,
+    unreadAlerts: Int = 0,
 ) {
     Slab(
         aside = shift?.let { mine -> { ClockPill(mine, onPunch, onOpenAttendance) } },
@@ -239,11 +245,10 @@ private fun DashboardSlab(
                 Modifier.weight(1f, fill = false),
             )
             Spacer(Modifier.weight(1f))
-            // The dot means somebody is in the waiting room; the tap goes to
-            // the diary, which is where that somebody is dealt with.
+            // The bell is the clinic's alerts, as on the website; the dot means one is unread.
             SlabIcon(
-                Icons.Filled.Notifications, "Waiting room",
-                marked = state.waiting.isNotEmpty(), onClick = onBell,
+                Icons.Filled.Notifications, if (unreadAlerts > 0) "$unreadAlerts new alerts" else "Alerts",
+                marked = unreadAlerts > 0, onClick = onBell,
             )
             Spacer(Modifier.width(8.dp))
             Box(Modifier.clickable(onClick = onAccount)) { Initials(state.who?.name.orEmpty()) }
