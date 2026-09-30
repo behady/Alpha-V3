@@ -117,6 +117,15 @@ export const FEATURE_CATALOG: FeatureInfo[] = [
     requires: "aiChat",
   },
   {
+    key: "aiOrtho",
+    group: "ai",
+    labelEn: "AI Orthodontics",
+    labelAr: "الذكاء الاصطناعي للتقويم",
+    descEn: "Cephalometric tracing and analysis, an orthodontic diagnosis, treatment options and follow-up reviews — each confirmed by the orthodontist, who can teach the AI the clinic's own way.",
+    descAr: "تحليل سيفالومتري، وتشخيص تقويمي، وخيارات علاج ومراجعات متابعة — يأكدها أخصائي التقويم ويقدر يعلّم الذكاء الاصطناعي طريقة العيادة.",
+    requires: "aiChat",
+  },
+  {
     key: "onlineBooking",
     group: "modules",
     labelEn: "Online Booking",

@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Users, Calendar, Wallet, Settings, Sparkles,
   FileBarChart, Menu, X, LogOut, Languages,
   Package, Clock, FlaskConical, ShieldCheck,
-  LifeBuoy, Inbox, Megaphone, Rocket, ShoppingBag, Lock
+  LifeBuoy, Inbox, Megaphone, Rocket, ShoppingBag, Lock, Activity
 } from "lucide-react";
 import { isAnyUnlocked, type FeatureKey } from "@/lib/featureCatalog";
 
@@ -51,6 +51,7 @@ const NAV_FEATURES: Record<string, FeatureKey | FeatureKey[]> = {
   leads: "leads",
   inventory: "inventory",
   lab: "lab",
+  ortho: "ortho",
   attendance: "attendance",
   reports: "reports",
   marketing: "marketingText",
@@ -262,6 +263,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     // Gated on access.lab, which canAccessNavItem derives from the key. The permission and both
     // translations of this label already existed and pointed at nothing until the page was built.
     { key: "lab", href: "/lab", icon: FlaskConical },
+    // Gated on access.ortho (Dentists hold it by role) and the ortho add-on. The page existed and
+    // was reachable only from a button inside the patient profile, so a clinic that bought the
+    // module could not find its own case list.
+    { key: "ortho", href: "/ortho", icon: Activity },
     { key: "finance", href: "/finance", icon: Wallet },
     { key: "reports", href: "/reports", icon: FileBarChart },
     { key: "attendance", href: "/attendance", icon: Clock },

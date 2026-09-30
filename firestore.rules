@@ -246,7 +246,12 @@ service cloud.firestore {
         // client that could write here could forge a "report" nobody paid for, or edit what the
         // model said after the fact and leave it looking machine-written. Read by the clinic,
         // deleted through the recycle bin only.
-        && sub != 'xray_reports';
+        && sub != 'xray_reports'
+        // AI orthodontic reports and the clinic's coaching of the model (lessons, its own ceph
+        // norms, the landmark-correction tally). Written by /api/ai/ortho/* after credits are
+        // charged, or by the dentist through the coach route; a client that could write here could
+        // forge a report, or teach the model something nobody signed. Read by the clinic.
+        && sub != 'ortho_ai_reports' && sub != 'ortho_coaching';
     }
 
     // Two accounts that work at the same clinic. Used to scope who may read whose profile.
@@ -657,6 +662,23 @@ service cloud.firestore {
       // the credits are charged; deleted only through /api/records/delete so the recycle bin
       // keeps a copy. Any clinic member may read them — they sit in the patient's file.
       match /xray_reports/{reportId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow write: if false;
+      }
+
+      // AI orthodontic reports (ceph, diagnosis, plan, follow-up). Created by /api/ai/ortho/analyze
+      // where the credits are charged; the dentist's review goes through /api/ai/ortho/review so
+      // the model's text is never overwritten; deleted only through the recycle bin.
+      match /ortho_ai_reports/{reportId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow write: if false;
+      }
+
+      // What the clinic's orthodontist has taught the model: lessons, the clinic's own
+      // cephalometric norms, and the tally of corrected landmarks. Every ortho prompt reads these,
+      // so writes stay behind /api/ai/ortho/coach, which checks the same clinical gate the analysis
+      // does and never stores a lesson the model suggested without the dentist approving it.
+      match /ortho_coaching/{docId} {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
         allow write: if false;
       }

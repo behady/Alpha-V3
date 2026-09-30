@@ -93,6 +93,11 @@ export default function AiCreditsSettings() {
     plan_translation: { label: ar ? "ترجمة خطط العلاج" : "Plan translation", icon: Languages },
     diagnosis_chat: { label: ar ? "مناقشة التشخيص" : "Diagnosis discussion", icon: Stethoscope },
     xray_report: { label: ar ? "قراءة الأشعة" : "X-ray reading", icon: ScanLine },
+    ortho_ceph: { label: ar ? "تحليل سيفالومتري" : "Ceph analysis", icon: ScanLine },
+    ortho_diagnosis: { label: ar ? "تشخيص تقويم" : "Ortho diagnosis", icon: Stethoscope },
+    ortho_plan: { label: ar ? "خطة تقويم" : "Ortho treatment plan", icon: ClipboardList },
+    ortho_followup: { label: ar ? "متابعة تقويم" : "Ortho follow-up", icon: ClipboardList },
+    ortho_coach: { label: ar ? "تعليم الذكاء الاصطناعي للتقويم" : "Ortho AI coaching", icon: Sparkles },
     marketing: { label: ar ? "المحتوى التسويقي" : "Marketing content", icon: Megaphone },
   };
   const featureMeta = (key: string) =>

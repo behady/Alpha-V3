@@ -39,6 +39,12 @@ jobs:
         run: npx tsc --noEmit -p tsconfig.json
       - name: Permissions catalogue + rules drift checks
         run: npm run --silent test:permissions
+      - name: Add-on catalogue vs tier presets
+        run: npm run --silent test:features
+      - name: AI x-ray report shape
+        run: npm run --silent test:xray
+      - name: AI orthodontics (ceph geometry, reports, review, lessons)
+        run: npm run --silent test:ortho
       - name: Ledger arithmetic
         run: npm run --silent test:ledger
       - name: Delete policy

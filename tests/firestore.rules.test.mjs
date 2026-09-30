@@ -243,6 +243,17 @@ async function main() {
       body: "We miss you",
       status: "pending_review",
     });
+    await setDoc(doc(db, "clinics/clinicA/ortho_ai_reports/orthoA1"), {
+      patientId: "patA1",
+      kind: "diagnosis",
+      report: { summary: "Class II div 1" },
+      signed: false,
+    });
+    await setDoc(doc(db, "clinics/clinicA/ortho_coaching/lessonA1"), {
+      kind: "plan",
+      text: "Prefer non-extraction under 5 mm of crowding.",
+      active: true,
+    });
     await setDoc(doc(db, "clinics/clinicA/ai_pending_actions/actA1"), {
       kind: "whatsapp",
       status: "pending",
@@ -561,6 +572,39 @@ async function main() {
   await check(
     "nobody can erase evidence from the AI deletion log",
     deleteDoc(doc(admin1, "clinics/clinicA/ai_deletion_log/delA1")),
+    "deny"
+  );
+  // AI orthodontics. The report is what the credits bought and the review is the dentist's
+  // signed word; a lesson is read into every later prompt. None of it may be written from a
+  // browser, and all of it may be read by the clinic.
+  await check(
+    "staff can read an AI ortho report",
+    getDoc(doc(admin1, "clinics/clinicA/ortho_ai_reports/orthoA1")),
+    "allow"
+  );
+  await check(
+    "nobody can forge or edit an AI ortho report from the browser",
+    updateDoc(doc(admin1, "clinics/clinicA/ortho_ai_reports/orthoA1"), { signed: true }),
+    "deny"
+  );
+  await check(
+    "nobody can create an AI ortho report from the browser",
+    setDoc(doc(admin1, "clinics/clinicA/ortho_ai_reports/forged"), { patientId: "patA1", kind: "plan", report: { summary: "x" } }),
+    "deny"
+  );
+  await check(
+    "staff can read the ortho lesson book",
+    getDoc(doc(admin1, "clinics/clinicA/ortho_coaching/lessonA1")),
+    "allow"
+  );
+  await check(
+    "nobody can teach the ortho model from the browser (the coach route is the door)",
+    setDoc(doc(admin1, "clinics/clinicA/ortho_coaching/lessonB"), { kind: "general", text: "Always extract.", active: true }),
+    "deny"
+  );
+  await check(
+    "nobody can delete an ortho lesson from the browser",
+    deleteDoc(doc(admin1, "clinics/clinicA/ortho_coaching/lessonA1")),
     "deny"
   );
   await check(

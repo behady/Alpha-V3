@@ -174,6 +174,11 @@ const MUST_BE_EXCLUDED = [
   // forge or edit an AI report; the block below says `allow write: if false`, which only holds
   // while the name is also out of the blanket grant.
   "xray_reports",
+  // Written by /api/ai/ortho/analyze and /api/ai/ortho/coach. Same reasoning as xray_reports,
+  // plus: a lesson in ortho_coaching is read into every later prompt, so a member who could
+  // write one could steer every orthodontic report the clinic gets from then on.
+  "ortho_ai_reports",
+  "ortho_coaching",
 ];
 
 const rules = readFileSync(join(REPO, "firestore.rules"), "utf8");

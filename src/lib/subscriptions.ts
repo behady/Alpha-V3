@@ -30,6 +30,11 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
     /** AI reading of a patient's x-rays into a structured report the dentist confirms. */
     aiXray: boolean;
     /**
+     * AI orthodontics: cephalometric tracing and analysis, diagnosis, treatment planning and
+     * follow-up reviews, each confirmed by the orthodontist and coachable by them.
+     */
+    aiOrtho: boolean;
+    /**
      * Marketing add-on, level 1 (Text & Strategy). False on every tier on purpose: it is sold as
      * a separate add-on, switched on per clinic via the feature overrides in the superadmin panel.
      */
@@ -87,6 +92,7 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       aiEmbedded: true,
       aiVoice: true,
       aiXray: true,
+      aiOrtho: true,
       marketingText: true,
       marketingDesign: true,
       whatsappBot: true,
@@ -112,6 +118,7 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       aiEmbedded: false,
       aiVoice: false,
       aiXray: false,
+      aiOrtho: false,
       marketingText: false,
       marketingDesign: false,
       whatsappBot: false,
@@ -138,6 +145,7 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       aiEmbedded: false,
       aiVoice: false,
       aiXray: true,
+      aiOrtho: true,
       marketingText: false,
       marketingDesign: false,
       whatsappBot: false,
@@ -164,6 +172,7 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       aiEmbedded: true,
       aiVoice: true,
       aiXray: true,
+      aiOrtho: true,
       marketingText: false,
       marketingDesign: false,
       whatsappBot: true,

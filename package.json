@@ -34,6 +34,8 @@
     "test:daybounds": "npx tsx tests/dayBounds.test.mts",
     "_comment_test_xray": "The AI x-ray report as a pure shape: an unusable model answer must normalise to null (so no credits are charged), a sloppy one is cleaned not rejected, and the disclaimer is added by code so a model cannot forget it.",
     "test:xray": "npx tsx tests/xrayReport.test.mts",
+    "_comment_test_ortho": "AI orthodontics as pure shapes: the cephalometric geometry (a synthetic face must read back its own angles, mirrored or not, square film or not), the report normalisers (an unusable answer is null and never charged), the dentist's review (a patch touches only rows the report has, an edit is a verdict, a signature is kept), and the lessons the clinic teaches the model.",
+    "test:ortho": "npx tsx tests/orthoAi.test.mts",
     "test:scripts": "npx tsx tests/botScripts.test.mts",
     "test:signup": "npx tsx tests/onboardingSignup.test.mts",
     "test:trash": "npx tsx tests/clinicTrash.test.mts",
