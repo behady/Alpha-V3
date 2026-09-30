@@ -413,5 +413,10 @@ data class SettingsActions(
     val saveStaff: (com.alphadental.clinic.data.ClinicSettings.StaffRow) -> Unit,
     val rejectRequest: (String) -> Unit,
     val savePayer: (com.alphadental.clinic.next.data.Pricing.Payer) -> Unit = {},
+    val approveRequest: (String, String) -> Unit = { _, _ -> },
+    val createInvite: (String, Int) -> Unit = { _, _ -> },
+    val revokeInvite: (String) -> Unit = {},
+    val binService: (String) -> Unit = {},
+    val saveReceipt: (com.alphadental.clinic.data.ClinicSettings.ReceiptSettings) -> Unit = {},
     val saveRates: (String, Map<String, Double?>) -> Unit = { _, _ -> },
 )

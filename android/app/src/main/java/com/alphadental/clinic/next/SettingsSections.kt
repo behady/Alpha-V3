@@ -77,6 +77,8 @@ fun SettingsSection(
         )
         Section.Team -> TeamPage(state, onBack, actions)
         Section.Requests -> RequestsPage(state, onBack, actions)
+        Section.Invites -> InvitesPage(state, onBack, actions)
+        Section.Receipts -> ReceiptsPage(state, onBack, actions)
         Section.Booking -> BookingPage(state, onBack, actions)
         Section.Bot -> BotPage(state, onBack, actions)
         Section.Alerts -> AlertsPage(state, onBack, actions)
@@ -925,6 +927,34 @@ private fun BranchesPage(state: SettingsState, onBack: () -> Unit, actions: Sett
                                 Spacer(Modifier.width(T.gutter))
                             }
                         }
+                        // The rooms the diary books into. A chip each; tap to take one off.
+                        var newRoom by remember(branch.id) { mutableStateOf("") }
+                        Row(
+                            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = T.gutter, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            if (branch.rooms.isEmpty()) Txt("No rooms yet", Type.caption, T.inkFaint)
+                            branch.rooms.forEach { room ->
+                                SettingsPill(if (state.canEdit) "${room.name} ×" else room.name) {
+                                    if (state.canEdit) rows = rows.toMutableList().also { l -> l[i] = branch.copy(rooms = branch.rooms.filterNot { it.id == room.id }) }
+                                }
+                            }
+                        }
+                        if (state.canEdit) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                                Column(Modifier.weight(1f)) {
+                                    SettingsField("Add a room", newRoom, { newRoom = it }, true, hint = "Chair 2")
+                                }
+                                SettingsPill("Add") {
+                                    val name = newRoom.trim()
+                                    if (name.isNotBlank() && branch.rooms.none { it.name.equals(name, ignoreCase = true) }) {
+                                        rows = rows.toMutableList().also { l -> l[i] = branch.copy(rooms = branch.rooms + LabCases.Room(ClinicSettings.newRoomId(), name)) }
+                                        newRoom = ""
+                                    }
+                                }
+                                Spacer(Modifier.width(T.gutter))
+                            }
+                        }
                     }
                 }
                 if (rows.isEmpty()) SettingsEmpty("No branches yet.")
@@ -956,7 +986,7 @@ private fun BranchesPage(state: SettingsState, onBack: () -> Unit, actions: Sett
         }
         item {
             Txt(
-                "Rooms are kept as they are. The website's Locations screen edits those.",
+                "Rooms are what the diary books into. Removing one does not move the appointments already in it.",
                 Type.caption, T.inkFaint,
                 Modifier.padding(horizontal = T.gutter, vertical = 10.dp),
                 maxLines = 2,
@@ -1117,7 +1147,7 @@ private fun PricesPage(state: SettingsState, onBack: () -> Unit, actions: Settin
     var editing by remember { mutableStateOf<ClinicSettings.ServiceRow?>(null) }
 
     editing?.let { row ->
-        PriceEditor(row, state, onBack = { editing = null }) {
+        PriceEditor(row, state, onBack = { editing = null }, onDelete = if (state.canEdit && row.id.isNotBlank()) ({ actions.binService(row.id); editing = null }) else null) {
             actions.saveService(it)
             editing = null
         }
@@ -1171,10 +1201,7 @@ private fun PricesPage(state: SettingsState, onBack: () -> Unit, actions: Settin
         }
         item {
             Txt(
-                // Not an oversight worth hiding: the rules closed client deletes
-                // so a removed price can be recovered, and that route is the
-                // website's.
-                "Removing a treatment is done on the website, so a deleted price can be recovered.",
+                "A removed treatment goes to Recently deleted, where it can be put back for thirty days. Open one to remove it.",
                 Type.caption, T.inkFaint,
                 Modifier.padding(horizontal = T.gutter, vertical = 12.dp),
                 maxLines = 2,
@@ -1188,10 +1215,12 @@ private fun PriceEditor(
     row: ClinicSettings.ServiceRow,
     state: SettingsState,
     onBack: () -> Unit,
+    onDelete: (() -> Unit)? = null,
     onSave: (ClinicSettings.ServiceRow) -> Unit,
 ) {
     BackHandler { onBack() }
     var form by remember(row.id) { mutableStateOf(row) }
+    var armed by remember(row.id) { mutableStateOf(false) }
     var price by remember(row.id) { mutableStateOf(if (row.price > 0) trimNumber(row.price) else "") }
     var labFee by remember(row.id) { mutableStateOf(if (row.estimatedLabFee > 0) trimNumber(row.estimatedLabFee) else "") }
     var minutes by remember(row.id) { mutableStateOf(row.durationMinutes.takeIf { it > 0 }?.toString() ?: "") }
@@ -1274,6 +1303,19 @@ private fun PriceEditor(
         item {
             SettingsSave(dirty = edited != row, enabled = state.canEdit && form.name.isNotBlank()) {
                 onSave(edited)
+            }
+        }
+        if (onDelete != null) {
+            item {
+                Row(Modifier.padding(horizontal = T.gutter, vertical = 10.dp)) {
+                    SettingsPill(if (armed) "Tap again to remove it" else "Remove this treatment", danger = true) {
+                        if (armed) onDelete() else armed = true
+                    }
+                }
+                Txt(
+                    "It goes to Recently deleted for thirty days. Treatments already on patients' files keep their name and price.",
+                    Type.caption, T.inkFaint, Modifier.padding(horizontal = T.gutter), maxLines = 3,
+                )
             }
         }
     }
@@ -1594,6 +1636,8 @@ private fun StaffEditor(
     }
 }
 
+private val APPROVABLE_ROLES = listOf("Assistant", "Receptionist", "Dentist", "Admin")
+
 @Composable
 private fun RequestsPage(state: SettingsState, onBack: () -> Unit, actions: SettingsActions) {
     SettingsPage(
@@ -1628,19 +1672,26 @@ private fun RequestsPage(state: SettingsState, onBack: () -> Unit, actions: Sett
                             SettingsPill("Turn away", danger = true) { actions.rejectRequest(r.id) }
                         }
                     }
+                    if (state.canEdit) {
+                        var role by remember(r.id) { mutableStateOf(r.role.ifBlank { "Assistant" }.let { if (it in APPROVABLE_ROLES) it else "Assistant" }) }
+                        Row(
+                            Modifier.horizontalScroll(rememberScrollState()).padding(start = T.gutter, end = T.gutter, bottom = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            APPROVABLE_ROLES.forEach { opt -> SettingsPill(opt, solid = role == opt) { role = opt } }
+                            SettingsPill("Let in as $role", solid = true) { actions.approveRequest(r.id, role) }
+                        }
+                    }
                 }
             }
         }
         item {
             Txt(
-                // Stated rather than left as a missing button, because the absence
-                // looks like an oversight otherwise.
-                "Letting somebody in has to grant a role on their account, and no Firestore rule " +
-                    "lets any client write another person's roles — an approval sent from here " +
-                    "would mark the request accepted and grant nothing. That stays on the website.",
+                "Letting somebody in grants the role on their account through the website's own route, " +
+                    "with the same checks. An Admin can open everything; pick it deliberately.",
                 Type.caption, T.inkMuted,
                 Modifier.padding(horizontal = T.gutter, vertical = 12.dp),
-                maxLines = 5,
+                maxLines = 4,
             )
         }
     }
@@ -1802,6 +1853,45 @@ private fun BotPage(state: SettingsState, onBack: () -> Unit, actions: SettingsA
                 Type.caption, T.inkMuted,
                 Modifier.padding(horizontal = T.gutter, vertical = 12.dp),
                 maxLines = 3,
+            )
+        }
+
+        item { SectionLabel("Your scripts") }
+        item {
+            RowGroup {
+                if (form.scripts.isEmpty()) SettingsEmpty("No scripts yet. Start with the questions you get every week.")
+                form.scripts.forEachIndexed { i, s ->
+                    if (i > 0) Rule()
+                    fun put(next: ClinicSettings.BotScript) { form = form.copy(scripts = form.scripts.toMutableList().also { l -> l[i] = next }) }
+                    SettingsField("Name (optional)", s.title, { put(s.copy(title = it)) }, state.canEdit, hint = "Instalments")
+                    SettingsField("When they write any of", s.triggers, { put(s.copy(triggers = it)) }, state.canEdit, hint = "تقسيط, instalments, installment", lines = 2)
+                    SettingsField("Send exactly", s.reply, { put(s.copy(reply = it)) }, state.canEdit, hint = "نعم، بنقسّط على ٦ شهور بدون فوايد.", lines = 3)
+                    SettingsToggle(
+                        title = "Live", caption = if (s.triggerList.isEmpty() || s.reply.isBlank()) "Needs a trigger and a reply before it can go live" else "Off keeps it here without sending",
+                        checked = s.enabled, enabled = state.canEdit,
+                    ) { put(s.copy(enabled = it)) }
+                    if (state.canEdit) {
+                        Row(Modifier.padding(horizontal = T.gutter, vertical = 8.dp)) {
+                            SettingsPill("Remove", danger = true) { form = form.copy(scripts = form.scripts.filterIndexed { n, _ -> n != i }) }
+                        }
+                    }
+                }
+            }
+        }
+        if (state.canEdit) {
+            item {
+                Row(Modifier.padding(horizontal = T.gutter, vertical = 8.dp)) {
+                    SettingsPill("Add a script") { form = form.copy(scripts = form.scripts + ClinicSettings.BotScript(ClinicSettings.newScriptId())) }
+                }
+            }
+        }
+        item {
+            Txt(
+                "When a patient writes any of the words, the bot sends the reply word for word. Free — no AI involved. " +
+                    "Triggers are matched with or without the Arabic \"ال\"; the longest matching trigger wins.",
+                Type.caption, T.inkMuted,
+                Modifier.padding(horizontal = T.gutter, vertical = 12.dp),
+                maxLines = 4,
             )
         }
         item { SettingsSave(dirty = form != stored, enabled = state.canEdit) { actions.saveBot(form) } }
@@ -2038,4 +2128,167 @@ private fun stamp(millis: Long): String {
 private fun monthName(key: String): String {
     val d = runCatching { SimpleDateFormat("yyyy-MM", Locale.US).parse(key) }.getOrNull() ?: return key
     return SimpleDateFormat("MMMM yyyy", Locale.US).format(d)
+}
+
+
+// ---------------------------------------------------------------------------
+// Invite links
+// ---------------------------------------------------------------------------
+
+/**
+ * A link that lets somebody join with a role already chosen — the website's Invite links, minted
+ * by the same route. Sharing goes through the phone's share sheet, so it lands in WhatsApp in two
+ * taps, which is how a dentist actually gets one.
+ */
+@Composable
+private fun InvitesPage(state: SettingsState, onBack: () -> Unit, actions: SettingsActions) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var role by remember { mutableStateOf("Dentist") }
+    var uses by remember { mutableStateOf(1) }
+    fun share(code: String) {
+        val link = ClinicSettings.inviteLink(code)
+        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(android.content.Intent.EXTRA_TEXT, "Join ${state.profile?.name ?: "our clinic"} on Alpha Dental: $link")
+        }
+        runCatching { context.startActivity(android.content.Intent.createChooser(send, "Send the invite")) }
+    }
+    SettingsPage(
+        title = Section.Invites.label,
+        caption = state.invites.count { it.active }.let { if (it == 0) "No open links" else "$it open" },
+        state = state,
+        onBack = onBack,
+    ) {
+        state.newInvite?.let { code ->
+            item { SectionLabel("Your new link") }
+            item {
+                RowGroup {
+                    Txt(ClinicSettings.inviteLink(code), Type.body, T.ink, Modifier.padding(horizontal = T.gutter, vertical = 12.dp), maxLines = 2)
+                    Row(Modifier.padding(start = T.gutter, end = T.gutter, bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SettingsPill("Share", solid = true) { share(code) }
+                    }
+                }
+            }
+        }
+        if (state.canEdit) {
+            item { SectionLabel("Make a link") }
+            item {
+                RowGroup {
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = T.gutter, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ClinicSettings.INVITABLE_ROLES.forEach { r -> SettingsPill(r, solid = role == r) { role = r } }
+                    }
+                    Rule()
+                    SettingsStepper(
+                        title = "How many people may use it",
+                        caption = "One is the ordinary invite. More for a batch of new staff.",
+                        value = uses, suffix = if (uses == 1) "person" else "people", enabled = true, min = 1, max = 20,
+                    ) { uses = it }
+                    Rule()
+                    Row(Modifier.padding(horizontal = T.gutter, vertical = 12.dp)) {
+                        SettingsPill("Make a $role link", solid = true) { actions.createInvite(role, uses) }
+                    }
+                }
+            }
+        } else {
+            item { SettingsReadOnly() }
+        }
+        item { SectionLabel("Links") }
+        item {
+            RowGroup {
+                if (state.invites.isEmpty()) SettingsEmpty("No links yet.")
+                state.invites.forEachIndexed { i, inv ->
+                    if (i > 0) Rule()
+                    Row(Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Txt("${inv.role} · ${inv.code}", Type.rowName, if (inv.active) T.ink else T.inkFaint)
+                            Txt(
+                                listOfNotNull(
+                                    inv.status.replaceFirstChar { it.uppercase() },
+                                    "${inv.usedCount}/${inv.maxUses} used",
+                                    inv.expiresAt.takeIf { it.isNotBlank() }?.let { "until ${it.take(10)}" },
+                                    inv.createdByName.takeIf { it.isNotBlank() }?.let { "by $it" },
+                                ).joinToString(" · "),
+                                Type.caption, T.inkMuted, maxLines = 2,
+                            )
+                        }
+                        if (inv.active) {
+                            SettingsPill("Share") { share(inv.code) }
+                            if (state.canEdit) {
+                                Spacer(Modifier.width(8.dp))
+                                SettingsPill("Cancel", danger = true) { actions.revokeInvite(inv.code) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        item {
+            Txt(
+                "A link grants exactly the role on it, nothing more; an admin can widen it later under The team. Links expire on their own.",
+                Type.caption, T.inkFaint, Modifier.padding(horizontal = T.gutter, vertical = 12.dp), maxLines = 3,
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Receipts
+// ---------------------------------------------------------------------------
+
+/** What prints on a receipt. The template, colours and the tax block stay on the website, where they can be previewed. */
+@Composable
+private fun ReceiptsPage(state: SettingsState, onBack: () -> Unit, actions: SettingsActions) {
+    val stored = state.receipt ?: ClinicSettings.ReceiptSettings()
+    var form by remember(state.receipt) { mutableStateOf(stored) }
+    SettingsPage(
+        title = Section.Receipts.label,
+        caption = "Numbered ${form.numberPrefix}${if (form.numberIncludesYear) "2026-" else ""}0001",
+        state = state,
+        onBack = onBack,
+    ) {
+        item { SectionLabel("Numbering and paper") }
+        item {
+            RowGroup {
+                SettingsField("Number prefix", form.numberPrefix, { form = form.copy(numberPrefix = it.take(8)) }, state.canEdit, hint = "R-")
+                SettingsToggle("Year in the number", "R-2026-0001 rather than R-0001", form.numberIncludesYear, state.canEdit) { form = form.copy(numberIncludesYear = it) }
+                Rule()
+                SettingsToggle("Print after every payment", "The website opens the receipt as soon as money is saved", form.autoPrintAfterPayment, state.canEdit) { form = form.copy(autoPrintAfterPayment = it) }
+                Rule()
+                Row(Modifier.padding(horizontal = T.gutter, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SettingsPill("Arabic", solid = form.language != "en") { if (state.canEdit) form = form.copy(language = "ar") }
+                    SettingsPill("English", solid = form.language == "en") { if (state.canEdit) form = form.copy(language = "en") }
+                    Spacer(Modifier.width(8.dp))
+                    SettingsPill("A4", solid = form.paper == "a4") { if (state.canEdit) form = form.copy(paper = "a4") }
+                    SettingsPill("A5", solid = form.paper == "a5") { if (state.canEdit) form = form.copy(paper = "a5") }
+                    SettingsPill("Thermal", solid = form.paper == "thermal") { if (state.canEdit) form = form.copy(paper = "thermal") }
+                }
+            }
+        }
+        item { SectionLabel("Words on it") }
+        item {
+            RowGroup {
+                SettingsField("Note under the title", form.headerNote, { form = form.copy(headerNote = it) }, state.canEdit, hint = "Thank you for choosing us", lines = 2)
+                SettingsField("Footer", form.footerText, { form = form.copy(footerText = it) }, state.canEdit, hint = "Keep this receipt for your records", lines = 2)
+            }
+        }
+        item { SectionLabel("What prints") }
+        item {
+            RowGroup {
+                ClinicSettings.RECEIPT_SHOW_LABELS.entries.forEachIndexed { i, (key, label) ->
+                    if (i > 0) Rule()
+                    SettingsToggle(label, "", form.show[key] ?: true, state.canEdit) { form = form.copy(show = form.show + (key to it)) }
+                }
+            }
+        }
+        item { SettingsSave(dirty = form != stored, enabled = state.canEdit) { actions.saveReceipt(form) } }
+        item {
+            Txt(
+                "The receipt's look — template, colour, font, logo — and the tax-authority e-receipt are set on the website, where they can be previewed. Numbers are minted when the money is saved and never reused.",
+                Type.caption, T.inkFaint, Modifier.padding(horizontal = T.gutter, vertical = 12.dp), maxLines = 4,
+            )
+        }
+    }
 }

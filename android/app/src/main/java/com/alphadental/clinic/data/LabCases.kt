@@ -187,8 +187,10 @@ object LabCases {
         val messagingNumber: String get() = whatsapp.ifBlank { phone }.trim()
     }
 
-    /** One branch, for the code its cases are stamped with. */
-    data class Branch(val id: String, val name: String, val code: String)
+    /** One branch, for the code its cases are stamped with — and its rooms, which the diary books into. */
+    data class Branch(val id: String, val name: String, val code: String, val rooms: List<Room> = emptyList())
+
+    data class Room(val id: String, val name: String)
 
     /** The three letters a branch stamps: its own if set, else derived from the name. */
     fun branchCodeFor(branch: Branch?, index: Int = 0): String {
@@ -240,7 +242,13 @@ object LabCases {
             val id = m["id"]?.toString().orEmpty()
             val name = m["name"]?.toString().orEmpty()
             if (id.isBlank()) return@mapNotNull null
-            Branch(id, name, m["code"]?.toString().orEmpty())
+            val rooms = (m["rooms"] as? List<*>).orEmpty().mapNotNull { r ->
+                val rm = r as? Map<*, *> ?: return@mapNotNull null
+                val rid = rm["id"]?.toString().orEmpty()
+                val rname = rm["name"]?.toString().orEmpty()
+                if (rid.isBlank() || rname.isBlank()) null else Room(rid, rname)
+            }
+            Branch(id, name, m["code"]?.toString().orEmpty(), rooms)
         }
     }
 
