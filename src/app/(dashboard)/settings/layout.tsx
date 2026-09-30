@@ -176,7 +176,7 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
                 result and in the phone's full-width list; beside a section on a wide screen the
                 same sentence is already under the title in the black band. */}
             <span
-              className={`${showHint ? "block" : "block md:hidden"} mt-0.5 text-[12.5px] leading-snug ${
+              className={`${showHint ? "block" : "block lg:hidden"} mt-0.5 text-[12.5px] leading-snug ${
                 isActive ? "text-white/65" : "text-ink-muted"
               }`}
             >
@@ -200,11 +200,13 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
         backHref={active ? "/settings" : undefined}
       />
 
-      <div className="md:grid md:grid-cols-[17.5rem_minmax(0,1fr)] md:items-start md:gap-8">
-        {/* On a phone the list is the /settings page itself and steps aside inside a section. */}
+      <div className="lg:grid lg:grid-cols-[17.5rem_minmax(0,1fr)] lg:items-start lg:gap-8">
+        {/* Below 1024px the list is the /settings page itself and steps aside inside a section.
+            That covers phones AND tablets held upright: at ~800px the two side by side left the
+            setting a column a few words wide beside a list that owned the screen. */}
         <nav
           aria-label={txt.allSettings}
-          className={`${active ? "hidden md:block" : "block"} md:sticky md:top-4 md:max-h-[calc(100dvh-13rem)] md:overflow-y-auto md:overscroll-contain no-scrollbar`}
+          className={`${active ? "hidden lg:block" : "block"} lg:sticky lg:top-4 lg:max-h-[calc(100dvh-13rem)] lg:overflow-y-auto lg:overscroll-contain no-scrollbar`}
         >
           {/* The new-clinic setup, reachable again (the wand in the top bar opens it too): details,
               hours, prices, online booking, team, insurance, WhatsApp by QR, and what WhatsApp
@@ -290,14 +292,14 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
           )}
         </nav>
 
-        <div className={active ? "block" : "hidden md:block"}>
+        <div className={active ? "block" : "hidden lg:block"}>
           {isReadOnly && (
             <p className="mb-6 rounded-2xl border border-warn/30 bg-warn-tint px-5 py-4 text-[14px] font-bold text-warn">
               {txt.readOnly}
             </p>
           )}
 
-          <div className="min-h-[600px] rounded-[2rem] border border-line bg-surface p-5 md:p-10">
+          <div className="min-h-[600px] rounded-[2rem] border border-line bg-surface p-5 lg:p-10">
             {children}
           </div>
         </div>
