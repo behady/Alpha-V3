@@ -887,9 +887,12 @@ export default function PatientMediaGallery({
         </div>
       )}
 
-      {/* UPLOAD STAGING MODAL */}
-      {stagingFiles.length > 0 && (
-        <div className="fixed inset-0 bg-slate-950/70 z-[130] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
+      {/* UPLOAD STAGING MODAL
+          Through a portal, like the lightbox below: drawn inline, this fixed overlay sat inside
+          the dashboard's <main> stacking context and on a tablet was clipped out of view — the
+          picker opened, the photos were staged, and nothing appeared to confirm them. */}
+      {mounted && stagingFiles.length > 0 && createPortal(
+        <div dir={isRTL ? "rtl" : "ltr"} className="fixed inset-0 bg-slate-950/70 z-[130] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl space-y-5 border border-slate-100 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
@@ -995,12 +998,13 @@ export default function PatientMediaGallery({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* SINGLE DELETE CONFIRMATION MODAL */}
-      {mediaToDelete && (
-        <div className="fixed inset-0 bg-slate-950/70 z-[140] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-150">
+      {mounted && mediaToDelete && createPortal(
+        <div dir={isRTL ? "rtl" : "ltr"} className="fixed inset-0 bg-slate-950/70 z-[140] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-150">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 border border-slate-100 text-center">
             <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
               <AlertTriangle size={26} />
@@ -1030,12 +1034,13 @@ export default function PatientMediaGallery({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* BATCH DELETE CONFIRMATION MODAL */}
-      {showBatchDeleteModal && (
-        <div className="fixed inset-0 bg-slate-950/70 z-[140] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-150">
+      {mounted && showBatchDeleteModal && createPortal(
+        <div dir={isRTL ? "rtl" : "ltr"} className="fixed inset-0 bg-slate-950/70 z-[140] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-150">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 border border-slate-100 text-center">
             <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
               <AlertTriangle size={26} />
@@ -1067,7 +1072,8 @@ export default function PatientMediaGallery({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* A SAVED AI REPORT, opened from a card badge or the lightbox */}
