@@ -290,7 +290,7 @@ assert.equal(bareExpense.method, "");
 assert.equal(bareExpense.category, "");
 // A date stored as a Timestamp-shaped object still becomes yyyy-mm-dd; a row with no date falls back
 // to createdAt, as the Reports Center does.
-assert.equal(mapBackupLedger("y", { type: "payment", paid: 5, date: { seconds: 1788400000 } }, "Africa/Cairo").date, "2026-09-02");
+assert.equal(mapBackupLedger("y", { type: "payment", paid: 5, date: { seconds: 1788400000 } }, "Africa/Cairo").date, "2026-09-03");
 assert.equal(mapBackupLedger("z", { type: "payment", paid: 5, createdAt: "2026-08-15T10:00:00.000Z" }, "Africa/Cairo").date, "2026-08-15");
 assert.equal(mapBackupLedger("w", { type: "payment", paid: 5 }, "Africa/Cairo").date, "");
 // Appointments: a missing name, status or duration stays empty rather than "Unnamed patient", "Scheduled" or 30.
@@ -303,6 +303,6 @@ assert.equal(mapBackupAppointment("b", { status: "Arrived" }).status, "Checked I
 const barePatient = mapPatient("p", { name: "X", referral: "Instagram", createdAt: { seconds: 1788400000 } }, "Africa/Cairo");
 assert.equal(barePatient.gender, "");
 assert.equal(barePatient.source, "Instagram");
-assert.equal(barePatient.createdAt, "2026-09-02");
+assert.equal(barePatient.createdAt, "2026-09-03");
 console.log("clinicBackup: loader paging and mappers ok");
 
