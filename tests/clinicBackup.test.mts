@@ -129,3 +129,59 @@ for (const name of wb.SheetNames) {
 // The buffer is a real xlsx (a zip: "PK").
 assert.equal(workbookToBuffer(wb).subarray(0, 2).toString(), "PK");
 console.log("clinicBackup: core sheets ok");
+
+// --- 3. Lab orders, Lab payments, Labs, Staff, Prices --------------------------------------------
+import { labAccounts } from "../src/lib/labAccounts";
+
+assert.deepEqual(wb.SheetNames.slice(5, 10), [
+  "Lab orders - طلبات المعمل", "Lab payments - مدفوعات المعامل", "Labs - المعامل", "Staff - الفريق", "Prices - الأسعار",
+]);
+
+const labs = rows(wb, "Labs - المعامل");
+assert.equal(labs.length - 1, fixture.labs.length);
+const madina = find(labs, "col_labs_lab", "Madina Lab");
+const madinaAccount = labAccounts(fixture.labs, fixture.labCases, fixture.labPayments)[0];
+assert.equal(madina[colIndex(labs, "col_labs_balance")], madinaAccount.outstanding);
+assert.equal(madina[colIndex(labs, "col_labs_paid")], 700);
+assert.equal(madina[colIndex(labs, "col_labs_delivered_count")], madinaAccount.deliveredCount);
+
+const orders = rows(wb, "Lab orders - طلبات المعمل");
+assert.equal(orders.length - 1, fixture.labCases.length);
+const remake = find(orders, "col_laborders_code", "MAD-0001-R2");
+assert.equal(remake[colIndex(orders, "col_laborders_remake_of")], "MAD-0001");
+assert.equal(remake[colIndex(orders, "col_laborders_fault")], "The lab - المعمل");
+const first = find(orders, "col_laborders_code", "MAD-0001");
+assert.equal(first[colIndex(orders, "col_laborders_teeth")], "14, 15");
+assert.equal(first[colIndex(orders, "col_laborders_status")], "Fitted - تم التركيب");
+assert.equal(first[colIndex(orders, "col_laborders_agreed_price")], 1200);
+assert.equal(find(orders, "col_laborders_code", "NIL-0001")[colIndex(orders, "col_laborders_received")], "");
+
+const labPays = rows(wb, "Lab payments - مدفوعات المعامل");
+assert.equal(labPays.length - 1, 2);
+assert.equal(find(labPays, "col_labpayments_id", "lp-2")[colIndex(labPays, "col_labpayments_method")], "Bank transfer - تحويل بنكي");
+assert.equal(find(labPays, "col_labpayments_id", "lp-2")[colIndex(labPays, "col_labpayments_reference")], "TRX-9");
+
+const staff = rows(wb, "Staff - الفريق");
+assert.equal(staff.length - 1, fixture.staff.length);
+const sara = find(staff, "col_staff_name", "Dr. Sara");
+assert.equal(sara[colIndex(staff, "col_staff_working_days")], "Sun 10:00-18:00; Mon 10:00-18:00");
+assert.equal(sara[colIndex(staff, "col_staff_base_salary")], 8000);
+assert.equal(sara[colIndex(staff, "col_staff_dentist")], "Yes - نعم");
+assert.equal(sara[colIndex(staff, "col_staff_active")], "Yes - نعم");
+const mona = find(staff, "col_staff_name", "Mona");
+assert.equal(mona[colIndex(staff, "col_staff_working_days")], "");
+assert.equal(mona[colIndex(staff, "col_staff_active")], "No - لا");
+
+const prices = rows(wb, "Prices - الأسعار");
+assert.equal(prices.length - 1, fixture.services.length);
+assert.ok(prices[0].includes("Standard"), JSON.stringify(prices[0]));
+assert.ok(prices[0].includes("AXA - أكسا (inactive - غير نشطة)"), JSON.stringify(prices[0]));
+const crownPrice = find(prices, "col_prices_service", "Crown");
+assert.equal(crownPrice[prices[0].indexOf("AXA - أكسا (inactive - غير نشطة)")], 2500);
+assert.equal(crownPrice[prices[0].indexOf("Standard")], "");        // no override → blank; the base price column holds 3000
+assert.equal(crownPrice[colIndex(prices, "col_prices_base_price")], 3000);
+assert.equal(crownPrice[colIndex(prices, "col_prices_needs_lab")], "Yes - نعم");
+const consult = find(prices, "col_prices_service", "Consultation");
+assert.equal(consult[prices[0].indexOf("Standard")], 150);
+assert.equal(consult[prices[0].indexOf("AXA - أكسا (inactive - غير نشطة)")], 0);   // an explicit free price is 0, not blank
+console.log("clinicBackup: lab, staff and price sheets ok");

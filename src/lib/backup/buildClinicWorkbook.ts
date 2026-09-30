@@ -21,6 +21,9 @@ import * as XLSX from "xlsx";
 import { ledgerCashValue } from "@/lib/reportHelpers";
 import { rollupPatients, type PatientRollup, type ReportLedgerRow } from "@/lib/reportPatients";
 import { getAppointmentStageLabel } from "@/lib/appointmentStages";
+import { labAccounts, LAB_PAYMENT_METHODS } from "@/lib/labAccounts";
+import { statusLabel, workTypeLabel } from "@/lib/labCases";
+import { formatStaffRoleLabel } from "@/lib/staffRoles";
 import { BACKUP_TEXT, bi, biRaw, type BackupTextKey } from "./backupText";
 import type { BackupLedgerRow, ClinicBackupData } from "./types";
 
@@ -210,6 +213,136 @@ function expensesSheet(data: ClinicBackupData): Sheet {
   };
 }
 
+
+/** A code-valued field written bilingual through a `prefix_<code>` key when one exists, else as-is. */
+function codeLabel(prefix: "fault" | "mode", code: unknown): string {
+  const c = text(code);
+  if (!c) return "";
+  const key = `${prefix}_${c}` as BackupTextKey;
+  return key in BACKUP_TEXT ? bi(key) : c;
+}
+
+function labOrdersSheet(data: ClinicBackupData): Sheet {
+  const rows = [...data.labCases]
+    .sort((a, b) => text(a.sentAt).localeCompare(text(b.sentAt)) || a.code.localeCompare(b.code))
+    .map((c): Cell[] => [
+      text(c.code), text(c.sentAt), text(c.dueDate), text(c.receivedAt), text(c.fittedAt),
+      text(c.patientName), text(c.doctorName), text(c.labName),
+      biRaw(workTypeLabel(c.workType, "en"), workTypeLabel(c.workType, "ar")),
+      (c.teeth || []).join(", "), num(c.units), text(c.bodyShade), text(c.material), num(c.agreedPrice),
+      biRaw(statusLabel(c.status, "en"), statusLabel(c.status, "ar")),
+      text(c.remakeOfCode), text(c.remakeReason), codeLabel("fault", c.remakeFault), text(c.id),
+    ]);
+  return {
+    name: bi("sheet_laborders"),
+    header: [
+      "col_laborders_code", "col_laborders_sent", "col_laborders_due", "col_laborders_received",
+      "col_laborders_fitted", "col_laborders_patient", "col_laborders_dentist", "col_laborders_lab",
+      "col_laborders_work_type", "col_laborders_teeth", "col_laborders_units", "col_laborders_body_shade",
+      "col_laborders_material", "col_laborders_agreed_price", "col_laborders_status", "col_laborders_remake_of",
+      "col_laborders_remake_reason", "col_laborders_fault", "col_laborders_id",
+    ].map((k) => bi(k as BackupTextKey)),
+    rows,
+  };
+}
+
+function labPaymentMethodLabel(method: string): string {
+  const m = LAB_PAYMENT_METHODS.find((x) => x.id === method);
+  return m ? biRaw(m.en, m.ar) : text(method);
+}
+
+function labPaymentsSheet(data: ClinicBackupData): Sheet {
+  const rows = [...data.labPayments]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((p): Cell[] => [
+      text(p.date), text(p.labName), money(p.amount), labPaymentMethodLabel(p.method),
+      text(p.reference), text(p.note), text(p.id),
+    ]);
+  return {
+    name: bi("sheet_labpayments"),
+    header: [
+      "col_labpayments_date", "col_labpayments_lab", "col_labpayments_amount", "col_labpayments_method",
+      "col_labpayments_reference", "col_labpayments_note", "col_labpayments_id",
+    ].map((k) => bi(k as BackupTextKey)),
+    rows,
+  };
+}
+
+function labsSheet(data: ClinicBackupData): Sheet {
+  const rows = labAccounts(data.labs, data.labCases, data.labPayments).map((a): Cell[] => [
+    text(a.labName), a.deliveredCount, money(a.delivered), money(a.committed), money(a.paid),
+    money(a.outstanding), a.remakesAtLabCost,
+  ]);
+  return {
+    name: bi("sheet_labs"),
+    header: [
+      "col_labs_lab", "col_labs_delivered_count", "col_labs_delivered", "col_labs_committed", "col_labs_paid",
+      "col_labs_balance", "col_labs_remakes_lab_cost",
+    ].map((k) => bi(k as BackupTextKey)),
+    rows,
+  };
+}
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** `Sun 10:00-18:00; Mon 10:00-18:00` — the active days of a staff schedule, in week order. */
+function workingDays(schedule: ClinicBackupData["staff"][number]["schedule"]): string {
+  if (!schedule) return "";
+  return WEEKDAYS.map((name, i) => {
+    const day = schedule[i];
+    return day && day.active ? `${name} ${day.start}-${day.end}` : "";
+  })
+    .filter(Boolean)
+    .join("; ");
+}
+
+function staffSheet(data: ClinicBackupData): Sheet {
+  const rows = [...data.staff]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((s): Cell[] => [
+      text(s.name), biRaw(formatStaffRoleLabel(s, false), formatStaffRoleLabel(s, true)), yesNo(s.isDentist),
+      text(s.email), text(s.phone), yesNo(s.active), num(s.baseSalary), num(s.commissionPercentage),
+      num(s.overtimeMultiplier), workingDays(s.schedule), text(s.id),
+    ]);
+  return {
+    name: bi("sheet_staff"),
+    header: [
+      "col_staff_name", "col_staff_role", "col_staff_dentist", "col_staff_email", "col_staff_phone",
+      "col_staff_active", "col_staff_base_salary", "col_staff_commission_pct", "col_staff_overtime_multiplier",
+      "col_staff_working_days", "col_staff_id",
+    ].map((k) => bi(k as BackupTextKey)),
+    rows,
+  };
+}
+
+/** One column per price list, inactive ones included: old rows were priced from them. */
+function priceListHeader(list: ClinicBackupData["priceLists"][number]): string {
+  const name = list.nameAr ? biRaw(list.name, list.nameAr) : text(list.name);
+  return list.active ? name : `${name} (${bi("inactive")})`;
+}
+
+function pricesSheet(data: ClinicBackupData): Sheet {
+  const lists = data.priceLists;
+  const rows = [...data.services]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((s): Cell[] => [
+      text(s.name), text(s.category), codeLabel("mode", s.pricingMode), yesNo(s.requiresLab),
+      num(s.estimatedLabFee), num(s.price),
+      ...lists.map((l): Cell => (l.id in s.prices ? num(s.prices[l.id]) : "")),
+    ]);
+  return {
+    name: bi("sheet_prices"),
+    header: [
+      ...[
+        "col_prices_service", "col_prices_category", "col_prices_pricing_mode", "col_prices_needs_lab",
+        "col_prices_est_lab_fee", "col_prices_base_price",
+      ].map((k) => bi(k as BackupTextKey)),
+      ...lists.map(priceListHeader),
+    ],
+    rows,
+  };
+}
+
 /** The first sheet: what this is, when it was made, how many rows each sheet holds, what the money words mean. */
 function aboutSheet(data: ClinicBackupData, sheets: Sheet[]): Sheet {
   const rows: Cell[][] = [
@@ -257,6 +390,11 @@ export function buildClinicWorkbook(data: ClinicBackupData, opts: BuildOptions):
     appointmentsSheet(data),
     ledgerSheet(data),
     expensesSheet(data),
+    labOrdersSheet(data),
+    labPaymentsSheet(data),
+    labsSheet(data),
+    staffSheet(data),
+    pricesSheet(data),
   ];
   const all = [aboutSheet(data, sheets), ...sheets];
 

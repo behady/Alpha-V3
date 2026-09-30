@@ -208,6 +208,13 @@ export const BACKUP_TEXT = {
   type_payment: { en: "Payment", ar: "دفعة" },
   type_income: { en: "Income", ar: "إيراد" },
   type_expense: { en: "Expense", ar: "مصروف" },
+  fault_lab: { en: "The lab", ar: "المعمل" },
+  fault_clinic: { en: "The clinic", ar: "العيادة" },
+  fault_patient: { en: "The patient", ar: "المريض" },
+  fault_unknown: { en: "Not sure", ar: "غير محدد" },
+  mode_per_tooth: { en: "Per tooth", ar: "لكل سن" },
+  mode_flat: { en: "Flat", ar: "سعر ثابت" },
+  mode_per_arch: { en: "Per arch", ar: "لكل فك" },
   yes: { en: "Yes", ar: "نعم" },
   no: { en: "No", ar: "لا" },
 } as const satisfies Record<string, { en: string; ar: string }>;
