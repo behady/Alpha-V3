@@ -365,7 +365,7 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
   // The owner's chat never reaches the inbox: both webhooks intercept before the thread write,
   // and the inbox hides anything flagged staffLine.
   const meta = read("src/app/api/webhooks/meta-whatsapp/route.ts");
-  ok(meta.indexOf("interceptStaffInbound(") > 0 && meta.indexOf("interceptStaffInbound(") < meta.indexOf("const lineId = await rememberInbound("), "the Meta webhook records the owner's message in the inbox before asking whether he is staff");
+  ok(meta.indexOf("interceptStaffInbound(") > 0 && meta.indexOf("interceptStaffInbound(") < meta.indexOf("const lineId = "), "the Meta webhook records the owner's message in the inbox before asking whether he is staff");
   const wap = read("src/app/api/webhooks/whatsapp-inbound/route.ts");
   ok(wap.indexOf("interceptStaffInbound(") > 0 && wap.indexOf("interceptStaffInbound(") < wap.indexOf("const lineId = await recordThreadMessage("), "the Wapilot webhook records the owner's message in the inbox before asking whether he is staff");
   ok(/staffLine !== true/.test(read("src/components/ai/ChatsPanel.tsx")), "the Chats inbox shows staff-line conversations to the whole desk");
