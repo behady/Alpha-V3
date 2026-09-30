@@ -202,6 +202,11 @@ data class Lead(
     val existingPatientName: String = "",
     val hasFirstContact: Boolean = false,
     val createdAtMillis: Long = 0L,
+    /** Stamped by the Meta webhook when the connected token may read ads; blank otherwise. */
+    val campaign: String = "",
+    val adName: String = "",
+    /** Who is chasing it. Blank is a real state: the lead that belongs to everyone is the one nobody calls. */
+    val assignedToName: String = "",
 )
 
 /**

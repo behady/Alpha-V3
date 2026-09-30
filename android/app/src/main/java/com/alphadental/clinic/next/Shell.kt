@@ -1656,6 +1656,8 @@ private fun LeadsPane(preview: Boolean, onBack: () -> Unit) {
             message = { context.whatsapp(it) },
             edit = { name, phone, interest, source -> model.edit(name, phone, interest, source) },
             delete = model::delete,
+            search = model::search,
+            campaign = model::pickCampaign,
         ),
     )
 }

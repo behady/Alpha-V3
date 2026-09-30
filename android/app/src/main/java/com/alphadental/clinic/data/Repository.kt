@@ -1975,6 +1975,9 @@ object Repository {
                 existingPatientName = doc.getString("existingPatientName").orEmpty(),
                 hasFirstContact = doc.get("firstContactedAt") != null,
                 createdAtMillis = doc.getTimestamp("createdAt")?.toDate()?.time ?: 0L,
+                campaign = (doc.get("meta") as? Map<*, *>)?.get("campaignName")?.toString().orEmpty(),
+                adName = (doc.get("meta") as? Map<*, *>)?.get("adName")?.toString().orEmpty(),
+                assignedToName = doc.getString("assignedToName").orEmpty(),
             )
         }
     }

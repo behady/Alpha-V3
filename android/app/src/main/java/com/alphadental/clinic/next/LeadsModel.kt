@@ -112,7 +112,24 @@ data class Leads(
     val converted: String? = null,
     /** The clinic's own source list, merged with the defaults. */
     val sources: List<String> = DEFAULT_LEAD_SOURCES,
+    /** Typed into the search box: name, phone, what they asked about, notes, or the campaign. */
+    val query: String = "",
+    /** One Meta campaign, or null for all of them. */
+    val campaign: String? = null,
 ) {
+    /** Every campaign the inbox has heard of, busiest first. Empty for a clinic that runs no ads. */
+    val campaigns: List<Pair<String, Int>>
+        get() = leads.map { it.lead.campaign.ifBlank { it.lead.adName } }.filter { it.isNotBlank() }
+            .groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.map { it.key to it.value }
+
+    private fun LeadRow.matches(): Boolean {
+        val q = query.trim().lowercase()
+        if (campaign != null && lead.campaign.ifBlank { lead.adName } != campaign) return false
+        if (q.isEmpty()) return true
+        return listOf(lead.name, lead.phone, lead.interest, lead.notes, lead.campaign, lead.adName, lead.source)
+            .joinToString(" ").lowercase().contains(q)
+    }
+
     val canEdit: Boolean get() = who?.can("access.marketing") == true
     val canDelete: Boolean get() = who?.can("leads.delete") == true || who?.isAdmin == true
 
@@ -133,7 +150,7 @@ data class Leads(
             LeadFilter.Won -> won
             LeadFilter.Lost -> lost
             LeadFilter.All -> leads
-        }.sortedWith(
+        }.filter { it.matches() }.sortedWith(
             // Overdue follow-ups, then oldest-uncalled. Both ahead of anything
             // tidy: the cost of a lead is entirely in how long it waits, and a
             // list in arrival order buries the one that has waited longest.
@@ -216,6 +233,14 @@ class LeadsModel : ViewModel() {
     }
 
     fun refresh() = load()
+
+    fun search(query: String) {
+        _state.value = _state.value.copy(query = query)
+    }
+
+    fun pickCampaign(name: String?) {
+        _state.value = _state.value.copy(campaign = name)
+    }
 
     fun show(filter: LeadFilter) {
         _state.value = _state.value.copy(filter = filter)

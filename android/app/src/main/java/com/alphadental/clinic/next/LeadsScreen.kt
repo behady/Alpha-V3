@@ -101,6 +101,7 @@ fun LeadsScreen(
         )
 
         Filters(state, actions.filter)
+        Campaigns(state, actions)
 
         when {
             state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -173,6 +174,34 @@ private fun Filters(state: Leads, onFilter: (LeadFilter) -> Unit) {
     }
 }
 
+/**
+ * The search box, and one pill per Meta campaign.
+ *
+ * The campaign row only appears for a clinic whose leads actually carry one — a clinic that runs
+ * no ads should never see a filter it cannot use. "Which ad is bringing people" is the question
+ * that decides next month's budget, so the answer is a tap, not a report.
+ */
+@Composable
+private fun Campaigns(state: Leads, actions: LeadActions) {
+    Surface(color = T.surface, modifier = Modifier.fillMaxWidth()) {
+        Column {
+            SettingsField("Search", state.query, actions.search, hint = "Name, phone, or campaign")
+            if (state.campaigns.isNotEmpty()) {
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()).padding(start = T.gutter, end = T.gutter, bottom = 11.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    SettingsPill("All campaigns", solid = state.campaign == null) { actions.campaign(null) }
+                    state.campaigns.forEach { (name, n) ->
+                        SettingsPill("$name · $n", solid = state.campaign == name) { actions.campaign(if (state.campaign == name) null else name) }
+                    }
+                }
+            }
+            Rule()
+        }
+    }
+}
+
 /** One lead. The stripe is how long somebody has been waiting. */
 @Composable
 private fun LeadRowView(row: LeadRow, onOpen: () -> Unit) {
@@ -204,6 +233,17 @@ private fun LeadRowView(row: LeadRow, onOpen: () -> Unit) {
                 ).joinToString(" · ").ifBlank { "No details" },
                 Type.caption, T.inkMuted, maxLines = 1,
             )
+            val campaign = row.lead.campaign.ifBlank { row.lead.adName }
+            if (campaign.isNotBlank() || row.lead.assignedToName.isNotBlank()) {
+                Spacer(Modifier.height(2.dp))
+                Txt(
+                    listOfNotNull(
+                        campaign.takeIf { it.isNotBlank() }?.let { "Campaign: $it" },
+                        row.lead.assignedToName.takeIf { it.isNotBlank() }?.let { "with $it" },
+                    ).joinToString(" · "),
+                    Type.caption, T.inkFaint, maxLines = 1,
+                )
+            }
             Spacer(Modifier.height(3.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Txt(
@@ -467,6 +507,9 @@ private fun LeadScreen(state: Leads, onBack: () -> Unit, actions: LeadActions) {
                 RowGroup {
                     Fact("Source", row.lead.source.ifBlank { "Not recorded" })
                     Rule()
+                    if (row.lead.campaign.isNotBlank()) { Fact("Campaign", row.lead.campaign); Rule() }
+                    if (row.lead.adName.isNotBlank()) { Fact("Ad", row.lead.adName); Rule() }
+                    if (row.lead.assignedToName.isNotBlank()) { Fact("Chased by", row.lead.assignedToName); Rule() }
                     Fact("Asked about", row.lead.interest.ifBlank { "Not recorded" })
                     Rule()
                     Fact("Arrived", row.ageLabel)
@@ -704,4 +747,6 @@ data class LeadActions(
     /** Name, phone, what they asked about, where they came from. */
     val edit: (String, String, String, String) -> Unit = { _, _, _, _ -> },
     val delete: () -> Unit = {},
+    val search: (String) -> Unit = {},
+    val campaign: (String?) -> Unit = {},
 )
