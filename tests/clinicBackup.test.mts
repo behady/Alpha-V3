@@ -185,3 +185,46 @@ const consult = find(prices, "col_prices_service", "Consultation");
 assert.equal(consult[prices[0].indexOf("Standard")], 150);
 assert.equal(consult[prices[0].indexOf("AXA - أكسا (inactive - غير نشطة)")], 0);   // an explicit free price is 0, not blank
 console.log("clinicBackup: lab, staff and price sheets ok");
+
+// --- 4. Attendance and Payroll ---------------------------------------------------------------------
+import { payrollMonths } from "../src/lib/backup/buildClinicWorkbook";
+import { buildHrSection } from "../src/lib/automation/briefing/hr";
+
+assert.deepEqual(wb.SheetNames.slice(10), ["Attendance - الحضور", "Payroll - الرواتب"]);
+assert.equal(wb.SheetNames.length, 12);
+
+assert.deepEqual(payrollMonths(fixture.punches, TODAY).map((m) => m.month), ["2026-08", "2026-09"]);
+assert.equal(payrollMonths(fixture.punches, TODAY)[0].start, "2026-08-01");
+assert.equal(payrollMonths(fixture.punches, TODAY)[0].end, "2026-08-31");
+assert.equal(payrollMonths(fixture.punches, TODAY)[1].end, "2026-09-30");   // the current month ends today
+assert.equal(payrollMonths(fixture.punches, "2026-09-15")[1].end, "2026-09-15");
+assert.deepEqual(payrollMonths([], TODAY), []);
+
+const att = rows(wb, "Attendance - الحضور");
+assert.equal(att.length - 1, fixture.punches.length);
+const p2 = find(att, "col_attendance_id", "p-2");
+assert.equal(p2[colIndex(att, "col_attendance_check_in")], "10:05");     // 07:05Z is 10:05 in Cairo (UTC+3 in September)
+assert.equal(p2[colIndex(att, "col_attendance_check_out")], "18:00");
+assert.equal(p2[colIndex(att, "col_attendance_hours")], 7.92);
+assert.equal(p2[colIndex(att, "col_attendance_staff")], "Dr. Sara");
+const p4 = find(att, "col_attendance_id", "p-4");
+assert.equal(p4[colIndex(att, "col_attendance_check_out")], "");
+assert.equal(p4[colIndex(att, "col_attendance_hours")], 0);
+const attDates = att.slice(1).map((r) => String(r[0]));
+assert.deepEqual(attDates, [...attDates].sort());
+
+const pay = rows(wb, "Payroll - الرواتب");
+// One row per staff per month with punches: 2 months × 2 staff.
+assert.equal(pay.length - 1, 4);
+const expectedSep = buildHrSection({
+  staff: fixture.staff, punches: fixture.punches, startDate: "2026-09-01", endDate: "2026-09-30", today: TODAY,
+  nowMinutes: 1440, timeZone: "Africa/Cairo", geofenceRadiusM: 0, monthStart: "2026-09-01",
+}).section.staff.find((r) => r.name === "Dr. Sara")!;
+const sepSara = pay.find((r) => r[0] === "2026-09" && r[1] === "Dr. Sara")!;
+assert.ok(sepSara, "no September row for Dr. Sara");
+assert.equal(sepSara[colIndex(pay, "col_payroll_estimated_pay")], Number(expectedSep.estimatedPay.toFixed(2)));
+assert.equal(sepSara[colIndex(pay, "col_payroll_hours")], Math.round((expectedSep.minutesWorked / 60) * 100) / 100);
+assert.equal(sepSara[colIndex(pay, "col_payroll_days_worked")], expectedSep.daysWorked);
+assert.equal(sepSara[colIndex(pay, "col_payroll_overtime_pending")], Math.round((expectedSep.overtimePendingMinutes / 60) * 100) / 100);
+assert.ok(expectedSep.daysWorked === 2, `fixture sanity: Sara worked ${expectedSep.daysWorked} days in September`);
+console.log("clinicBackup: attendance and payroll ok");

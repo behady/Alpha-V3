@@ -24,6 +24,8 @@ import { getAppointmentStageLabel } from "@/lib/appointmentStages";
 import { labAccounts, LAB_PAYMENT_METHODS } from "@/lib/labAccounts";
 import { statusLabel, workTypeLabel } from "@/lib/labCases";
 import { formatStaffRoleLabel } from "@/lib/staffRoles";
+import { buildHrSection } from "@/lib/automation/briefing/hr";
+import type { PunchRecord } from "@/lib/automation/briefing/data";
 import { BACKUP_TEXT, bi, biRaw, type BackupTextKey } from "./backupText";
 import type { BackupLedgerRow, ClinicBackupData } from "./types";
 
@@ -343,6 +345,94 @@ function pricesSheet(data: ClinicBackupData): Sheet {
   };
 }
 
+
+/** HH:mm on the clinic's clock, or "" for a punch that never happened. */
+function timeInZone(at: Date | null, timeZone: string): string {
+  if (!at || Number.isNaN(at.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", hour12: false })
+    .formatToParts(at);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+  return `${get("hour") === "24" ? "00" : get("hour")}:${get("minute")}`;
+}
+
+function hours(minutes: number): number {
+  return Math.round((minutes / 60) * 100) / 100;
+}
+
+function attendanceSheet(data: ClinicBackupData): Sheet {
+  const tz = data.clinic.timeZone;
+  const rows = [...data.punches]
+    .sort((a, b) => a.date.localeCompare(b.date) || (a.checkIn?.getTime() ?? 0) - (b.checkIn?.getTime() ?? 0))
+    .map((p): Cell[] => [
+      text(p.date), text(p.userName), timeInZone(p.checkIn, tz), timeInZone(p.checkOut, tz),
+      hours(p.durationMinutes), text(p.status), text(p.overtimeStatus), text(p.id),
+    ]);
+  return {
+    name: bi("sheet_attendance"),
+    header: [
+      "col_attendance_date", "col_attendance_staff", "col_attendance_check_in", "col_attendance_check_out",
+      "col_attendance_hours", "col_attendance_status", "col_attendance_overtime_status", "col_attendance_id",
+    ].map((k) => bi(k as BackupTextKey)),
+    rows,
+  };
+}
+
+/** Last day of a yyyy-mm month, as yyyy-mm-dd. Day 0 of the next month, read in UTC so no zone shifts it. */
+function lastDayOf(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m, 0));
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * The calendar months the payroll sheet is computed for: every month that has at least one punch.
+ *
+ * The current month runs only up to `today`, exactly as the Attendance screen and /api/payroll cut
+ * it — a day that has not happened yet is not an absence.
+ */
+export function payrollMonths(punches: PunchRecord[], today: string): Array<{ month: string; start: string; end: string }> {
+  const months = Array.from(new Set(punches.map((p) => text(p.date).slice(0, 7)).filter((m) => /^\d{4}-\d{2}$/.test(m)))).sort();
+  const currentMonth = today.slice(0, 7);
+  return months.map((month) => ({
+    month,
+    start: `${month}-01`,
+    end: month === currentMonth ? today : lastDayOf(month),
+  }));
+}
+
+function payrollSheet(data: ClinicBackupData, today: string): Sheet {
+  const rows: Cell[][] = [];
+  for (const { month, start, end } of payrollMonths(data.punches, today)) {
+    const { section } = buildHrSection({
+      staff: data.staff,
+      punches: data.punches.filter((p) => p.date >= start && p.date <= end),
+      startDate: start,
+      endDate: end,
+      today,
+      // End of day: nobody is judged "on the floor now" in a historical sheet.
+      nowMinutes: 24 * 60,
+      timeZone: data.clinic.timeZone,
+      geofenceRadiusM: 0,
+      monthStart: start,
+    });
+    for (const r of section.staff) {
+      rows.push([
+        month, text(r.name), text(r.role), r.scheduledDays, r.daysWorked, hours(r.minutesWorked), r.lateDays,
+        r.absentDays, hours(r.overtimeApprovedMinutes), hours(r.overtimePendingMinutes), money(r.estimatedPay),
+      ]);
+    }
+  }
+  return {
+    name: bi("sheet_payroll"),
+    header: [
+      "col_payroll_month", "col_payroll_staff", "col_payroll_role", "col_payroll_scheduled_days",
+      "col_payroll_days_worked", "col_payroll_hours", "col_payroll_late_days", "col_payroll_absent_days",
+      "col_payroll_overtime_approved", "col_payroll_overtime_pending", "col_payroll_estimated_pay",
+    ].map((k) => bi(k as BackupTextKey)),
+    rows,
+  };
+}
+
 /** The first sheet: what this is, when it was made, how many rows each sheet holds, what the money words mean. */
 function aboutSheet(data: ClinicBackupData, sheets: Sheet[]): Sheet {
   const rows: Cell[][] = [
@@ -395,6 +485,8 @@ export function buildClinicWorkbook(data: ClinicBackupData, opts: BuildOptions):
     labsSheet(data),
     staffSheet(data),
     pricesSheet(data),
+    attendanceSheet(data),
+    payrollSheet(data, opts.today),
   ];
   const all = [aboutSheet(data, sheets), ...sheets];
 
