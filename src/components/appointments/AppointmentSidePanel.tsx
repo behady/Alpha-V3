@@ -6,12 +6,14 @@ import {
   X, Trash2, Wallet, Clock, FileText, Loader2, Check,
   Stethoscope, Calendar, Hourglass, ClipboardList, ChevronDown, Sparkles, CloudOff
 } from "lucide-react";
-import { getDoc } from "firebase/firestore";
+import { getDoc, onSnapshot, query, where } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useUI } from "@/context/UIContext";
 import { saveBooking } from "@/lib/bookingService";
-import { getClinicDoc } from "@/lib/db-utils";
+import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { moneyByAppointment } from "@/lib/scheduleCard";
+import InsurerBadge from "@/components/shared/InsurerBadge";
 import { autosaveVerdict } from "@/lib/appointmentAutosave";
 import { generalDoctorLabel } from "@/lib/generalDentist";
 import AppointmentStagePicker from "@/components/appointments/AppointmentStagePicker";
@@ -89,6 +91,29 @@ export default function AppointmentSidePanel({
   }, []);
 
   const [activeTab, setActiveTab] = useState<PanelTab>("appointment");
+
+  /**
+   * The insurers this visit is charged to, read off its treatment rows.
+   *
+   * The payer lives on the PROCEDURE, never on the appointment (lib/payers.ts), so the visit tab
+   * has nothing of its own to show — and a desk that opened an insurance visit and saw no trace of
+   * the insurer anywhere on it reported exactly that. This is a read-only line; it is changed per
+   * treatment on the Money tab, which is where the price list is picked.
+   */
+  const [visitPayers, setVisitPayers] = useState<string[]>([]);
+  useEffect(() => {
+    const id = selectedAppointment?.id;
+    if (!id) { setVisitPayers([]); return; }
+    const unsub = onSnapshot(
+      query(getClinicCollection("ledger"), where("appointmentId", "==", id)),
+      (snap) => {
+        const rows = snap.docs.map((d) => d.data() as Record<string, unknown>);
+        setVisitPayers(moneyByAppointment(rows).get(id)?.payers ?? []);
+      },
+      () => setVisitPayers([])
+    );
+    return () => unsub();
+  }, [selectedAppointment?.id]);
 
   // Initialize inline edit form when appointment is selected
   useEffect(() => {
@@ -336,6 +361,20 @@ export default function AppointmentSidePanel({
                       <h3 className="font-light text-slate-800 text-base uppercase tracking-widest">{language === 'ar' ? 'تعديل التفاصيل' : 'Edit Details'}</h3>
                       <AutosaveChip state={autosaveState} language={language} />
                   </div>
+
+                  {visitPayers.length > 0 && (
+                    <div className="flex items-center gap-2 rounded-xl border border-line bg-surface-subtle px-3 py-2.5">
+                      <InsurerBadge name={visitPayers[0]} size={22} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-ink-body truncate">
+                          {language === 'ar' ? 'على حساب' : 'Charged to'} {visitPayers.join(language === 'ar' ? '، ' : ', ')}
+                        </p>
+                        <p className="text-[11px] font-semibold text-ink-muted">
+                          {language === 'ar' ? 'بتتحدد لكل علاج من تبويب الفلوس' : 'Set per treatment on the Money tab'}
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-2 gap-4">
                       {/* Doctor */}

@@ -25,6 +25,8 @@
  */
 
 /** Height of the part of a card that is always there: header, treatment line, footer, padding. */
+import { PRIVATE_PAYER_ID } from "@/lib/payers";
+
 export const CARD_BASE_PX = 126;
 /** One line of detail. */
 export const CARD_LINE_PX = 20;
@@ -126,7 +128,17 @@ export function cardTiming(
   return { kind: "none" };
 }
 
-export type VisitMoney = { charged: number; paid: number; owed: number };
+export type VisitMoney = {
+  charged: number;
+  paid: number;
+  owed: number;
+  /**
+   * The insurers this visit's treatments are charged to, each named once, in the order they were
+   * recorded. Private is the clinic's own work and is left out: it is the baseline, not a label.
+   * An old row with no payer at all is Private too — nothing back-fills (see lib/payers.ts).
+   */
+  payers: string[];
+};
 
 /**
  * What each visit came to and what was paid against it, from the day's ledger.
@@ -145,9 +157,14 @@ export function moneyByAppointment(rows: readonly Record<string, unknown>[]): Ma
     if (["deleted", "cancelled"].includes(String(row.status ?? "").toLowerCase())) continue;
     const charged = Number(row.cost ?? row.amount ?? 0) || 0;
     const paid = Number(row.paid ?? 0) || 0;
-    const prev = out.get(appointmentId) || { charged: 0, paid: 0, owed: 0 };
+    const prev = out.get(appointmentId) || { charged: 0, paid: 0, owed: 0, payers: [] };
     prev.charged += charged;
     prev.paid += paid;
+    const payerId = String(row.payerId ?? "").trim();
+    const payerName = String(row.payerName ?? "").trim();
+    if (payerId && payerId !== PRIVATE_PAYER_ID && payerName && !prev.payers.includes(payerName)) {
+      prev.payers.push(payerName);
+    }
     out.set(appointmentId, prev);
   }
   for (const m of out.values()) {

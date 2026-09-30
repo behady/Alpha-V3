@@ -200,8 +200,11 @@ function eq<T>(actual: T, expected: T, message: string) {
 // --- 4. Money: from the treatment rows, so it survives payments on another day ------------------
 {
   const rows = [
-    { type: "procedure", appointmentId: "a1", cost: 1000, paid: 400 },
-    { type: "procedure", appointmentId: "a1", cost: 500, paid: 500 },
+    { type: "procedure", appointmentId: "a1", cost: 1000, paid: 400, payerId: "metlife", payerName: "MetLife Egypt" },
+    { type: "procedure", appointmentId: "a1", cost: 500, paid: 500, payerId: "private", payerName: "Private" },
+    // Twice on the same insurer is still one insurer on the card.
+    { type: "procedure", appointmentId: "a4", cost: 100, paid: 0, payerId: "metlife", payerName: "MetLife Egypt" },
+    { type: "procedure", appointmentId: "a4", cost: 100, paid: 0, payerId: "metlife", payerName: "MetLife Egypt" },
     // A payment row is not a second charge — the treatment's `paid` already counts it.
     { type: "payment", appointmentId: "a1", paid: 400 },
     { type: "procedure", appointmentId: "a2", cost: 300, paid: 350 },
@@ -209,10 +212,14 @@ function eq<T>(actual: T, expected: T, message: string) {
     { type: "procedure", cost: 900, paid: 0 },
   ];
   const map = moneyByAppointment(rows);
-  eq(map.get("a1"), { charged: 1500, paid: 900, owed: 600 }, "two treatments on one visit add up, and payments are not counted twice");
+  eq(map.get("a1"), { charged: 1500, paid: 900, owed: 600, payers: ["MetLife Egypt"] }, "two treatments on one visit add up, and payments are not counted twice");
   eq(map.get("a2")?.owed, 0, "an overpaid visit is settled, not negative debt");
   eq(map.has("a3"), false, "a cancelled treatment is not money owed");
-  eq(map.size, 2, "a treatment recorded on no appointment belongs to no card");
+  eq(map.size, 3, "a treatment recorded on no appointment belongs to no card");
+  // An insurance visit says so on the card. Private is the baseline, so it is not named; an old
+  // row with no payer at all is Private too (nothing back-fills — see lib/payers.ts).
+  eq(map.get("a2")?.payers, [], "private work names no payer");
+  eq(map.get("a4")?.payers, ["MetLife Egypt"], "the same insurer twice is named once");
 }
 
 // --- 5. Small things that are easy to get wrong -------------------------------------------------

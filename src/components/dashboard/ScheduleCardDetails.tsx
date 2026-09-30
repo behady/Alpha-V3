@@ -120,22 +120,26 @@ export default function ScheduleCardDetails({
         }
         return null;
 
-      case "money":
+      case "money": {
         if (!visit) return null;
+        // An insurance visit is a different kind of visit for the desk (claim paperwork, a co-pay
+        // to explain), so the insurer is named where the money is, not hidden two taps away.
+        const insurer = visit.payers.length ? ` · ${visit.payers.join(", ")}` : "";
         return (
           <span key={key} className={`${chip} ${visit.owed > 0 ? "!text-danger" : ""}`}>
             <Wallet size={12} className="shrink-0" />
             <span className="truncate font-figure">
               {visit.owed > 0
                 ? isAr
-                  ? `الزيارة ${money(visit.charged)} ج · باقي ${money(visit.owed)}`
-                  : `This visit ${money(visit.charged)} EGP · ${money(visit.owed)} owed`
+                  ? `الزيارة ${money(visit.charged)} ج · باقي ${money(visit.owed)}${insurer}`
+                  : `This visit ${money(visit.charged)} EGP · ${money(visit.owed)} owed${insurer}`
                 : isAr
-                  ? `الزيارة ${money(visit.charged)} ج · مدفوعة`
-                  : `This visit ${money(visit.charged)} EGP · paid`}
+                  ? `الزيارة ${money(visit.charged)} ج · مدفوعة${insurer}`
+                  : `This visit ${money(visit.charged)} EGP · paid${insurer}`}
             </span>
           </span>
         );
+      }
 
       case "owes":
         if (!history || history.owedBefore <= 0) return null;

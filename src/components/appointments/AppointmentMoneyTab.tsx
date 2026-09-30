@@ -48,6 +48,8 @@ type Charge = {
   discountAmount: number;
   clinicalNoteId: string | null;
   remaining: number;
+  /** Who this treatment is charged to; null for the clinic's own (Private) work and for old rows. */
+  payerName: string | null;
 };
 
 type Payment = {
@@ -278,6 +280,10 @@ export default function AppointmentMoneyTab({
             discountAmount: money(r.discountAmount),
             clinicalNoteId: typeof r.clinicalNoteId === "string" ? r.clinicalNoteId : null,
             remaining: money(cost - paid),
+            payerName:
+              typeof r.payerId === "string" && r.payerId && r.payerId !== PRIVATE_PAYER_ID && r.payerName
+                ? String(r.payerName)
+                : null,
           };
         })
         .sort((a, b) => a.date.localeCompare(b.date)),
@@ -636,6 +642,15 @@ export default function AppointmentMoneyTab({
               {charge.date}
               {note?.tooth && note.tooth !== "Gen" ? ` · ${note.tooth}` : ""}
             </p>
+            {/* The insurer is a fact of the charge, not of the patient: say it on the row it belongs to. */}
+            {charge.payerName && (
+              <p className="mt-1 flex items-center gap-1.5 text-[11px] font-bold text-ink-body">
+                <InsurerBadge name={charge.payerName} size={14} />
+                <span className="truncate">
+                  {isAr ? "على حساب" : "Charged to"} {charge.payerName}
+                </span>
+              </p>
+            )}
           </div>
           <span className="text-sm font-black text-ink shrink-0">{charge.cost.toLocaleString()}</span>
         </div>
