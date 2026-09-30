@@ -582,6 +582,10 @@ const ALLOWED_INACTIVE = [
   "marketing/cases/route.ts",      // GET: the case library, read
   "payroll/route.ts",              // GET: what staff are owed, read
   "message-drafts/route.ts",       // GET: drafts, read
+  "records/backup/route.ts",       // GET: the Excel backup of the whole clinic, read. A clinic
+                                   // whose subscription lapsed must still be able to take its
+                                   // own data out; that promise is what makes it safe to put
+                                   // the data in. Admin/Owner only, writes nothing.
   "records/bin/route.ts",          // GET: what is in the bin. Seeing what you lost must never
                                    // depend on the subscription; restoring it does.
   "invites/route.ts",              // GET: the clinic's existing invite links, read. The POST that

@@ -228,3 +228,17 @@ assert.equal(sepSara[colIndex(pay, "col_payroll_days_worked")], expectedSep.days
 assert.equal(sepSara[colIndex(pay, "col_payroll_overtime_pending")], Math.round((expectedSep.overtimePendingMinutes / 60) * 100) / 100);
 assert.ok(expectedSep.daysWorked === 2, `fixture sanity: Sara worked ${expectedSep.daysWorked} days in September`);
 console.log("clinicBackup: attendance and payroll ok");
+
+// --- 6. The route: admin-only, exempt from the expiry gate, never capped, audited ------------------
+// Source-text assertions, the repo's pattern for routes (see clinicTrash.test.mts).
+import { readFileSync } from "node:fs";
+const route = readFileSync("src/app/api/records/backup/route.ts", "utf8");
+assert.ok(route.includes("requireAdminUser("), "the backup must be Owner/Admin only");
+assert.ok(route.includes("allowInactive: true"), "a lapsed clinic must still be able to take its data out");
+assert.ok(route.includes('export const maxDuration = 300'), "a big clinic takes minutes to page through");
+assert.ok(route.includes('export const runtime = "nodejs"'), "xlsx needs Node, not the edge runtime");
+assert.ok(route.includes("Content-Disposition"), "the browser must receive a download, not a page");
+assert.ok(route.includes("logActivityServer("), "every download is written to the activity log");
+assert.ok(!route.includes(".limit("), "the route must never cap what it exports");
+assert.ok(route.includes("resolveUserClinicId("), "the clinic comes from membership, not the query string alone");
+console.log("clinicBackup: route source ok");
