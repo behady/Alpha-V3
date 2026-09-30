@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { getDoc, getDocs, limit, query, setDoc, writeBatch, doc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import dynamic from "next/dynamic";
-import { Bot, Check, ChevronRight, Clock, Loader2, ListChecks, MessageCircle, Phone, ShieldPlus, Sparkles } from "lucide-react";
+import { Bot, Check, ChevronRight, Clock, Loader2, ListChecks, MessageCircle, Phone, Plus, ShieldPlus, Sparkles, Trash2 } from "lucide-react";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
@@ -18,6 +18,7 @@ import {
   SERVICE_TEMPLATES,
   SETUP_STEPS,
   WEEK_DAYS,
+  customServiceChoice,
   initialServiceChoices,
   normalizePhone,
   scheduleDocFrom,
@@ -145,10 +146,13 @@ function SetupWizard() {
         ? "أسعار مبدئية لعيادة عامة في مصر. عدّل الأرقام، شيل اللي مش بتعمله، وضيف الباقي بعدين من الإعدادات ← الأسعار."
         : "Starting prices for a general practice in Egypt. Edit the numbers, untick what you don't do, and add the rest later under Settings → Prices.",
       servicesAlready: isAr
-        ? "عندك خدمات بالفعل، فمش هنضيف قائمة جاهزة فوقها."
-        : "You already have services, so we won't add a template on top of them.",
+        ? "عندك خدمات بالفعل، فمش هنضيف القائمة الجاهزة فوقها. ضيف اللي ناقصك تحت."
+        : "You already have services, so the template is not added on top of them. Add any you are missing below.",
       selectAll: isAr ? "تحديد الكل" : "Select all",
       selectNone: isAr ? "إلغاء الكل" : "Clear all",
+      addService: isAr ? "ضيف خدمة تانية" : "Add another service",
+      serviceName: isAr ? "اسم الخدمة" : "Service name",
+      remove: isAr ? "حذف" : "Remove",
       contactWhy: isAr
         ? "بيتطبعوا على الروشتة والفاتورة، والمرضى بيتصلوا على الرقم ده."
         : "Printed on every prescription and invoice; the number patients call or WhatsApp.",
@@ -213,6 +217,8 @@ function SetupWizard() {
           setStoredSchedule(JSON.stringify(loaded));
         }
         setExistingServices(!svc.empty);
+        // The template is only for an empty clinic; with services on file the list starts blank.
+        if (!svc.empty) setChoices([]);
         if (typeof data.phone === "string") setPhone(data.phone);
         if (typeof data.address === "string") setAddress(data.address);
       } catch {
@@ -443,63 +449,98 @@ function SetupWizard() {
         {step === "services" && (
           <div className="space-y-6">
             <StepHeading icon={<ListChecks size={20} />} title={t.steps.services} why={t.servicesWhy} />
-            {existingServices ? (
-              <>
-                <Notice text={t.servicesAlready} />
-                <Footer primary={t.next} onPrimary={goNext} saving={false} />
-              </>
-            ) : (
-              <>
-                <div className="flex items-center justify-between text-xs font-bold">
-                  <span className="text-ink-muted">
-                    {isAr ? `${selectedCount} من ${SERVICE_TEMPLATES.length} محددة` : `${selectedCount} of ${SERVICE_TEMPLATES.length} selected`}
-                  </span>
-                  <span className="flex gap-3">
-                    <button type="button" className="text-accent hover:underline" onClick={() => setChoices((c) => c.map((x) => ({ ...x, selected: true })))}>{t.selectAll}</button>
-                    <button type="button" className="text-ink-muted hover:underline" onClick={() => setChoices((c) => c.map((x) => ({ ...x, selected: false })))}>{t.selectNone}</button>
-                  </span>
-                </div>
-                <ul className="divide-y divide-line border border-line rounded-2xl overflow-hidden max-h-[46vh] overflow-y-auto">
-                  {SERVICE_TEMPLATES.map((tpl) => {
-                    const choice = choices.find((c) => c.key === tpl.key)!;
-                    return (
-                      <li key={tpl.key} className={`flex items-center gap-3 px-4 py-2.5 ${choice.selected ? "" : "opacity-50"}`}>
-                        <input
-                          type="checkbox"
-                          checked={choice.selected}
-                          onChange={(e) => setChoices((c) => c.map((x) => (x.key === tpl.key ? { ...x, selected: e.target.checked } : x)))}
-                          className="w-4 h-4 accent-slate-900"
-                          aria-label={tpl.name[lang]}
-                        />
-                        <span className="flex-1 min-w-0 text-sm font-semibold text-ink truncate">
-                          {tpl.name[lang]}
-                          {tpl.requiresLab && <span className="ms-2 text-[10px] font-black uppercase tracking-wider text-amber-600">{t.lab}</span>}
-                        </span>
-                        <span className="flex items-center gap-1.5">
-                          <input
-                            type="number"
-                            min={0}
-                            inputMode="numeric"
-                            value={choice.price}
-                            onChange={(e) => setChoices((c) => c.map((x) => (x.key === tpl.key ? { ...x, price: Number(e.target.value) } : x)))}
-                            className="w-24 px-2 py-1.5 bg-surface-subtle border border-line rounded-lg font-figure font-bold text-ink text-end outline-none focus:border-accent-soft"
-                            aria-label={`${tpl.name[lang]} ${t.egp}`}
-                          />
-                          <span className="text-xs font-bold text-ink-muted w-8">{t.egp}</span>
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ul>
-                <Footer
-                  primary={selectedCount > 0 ? t.saveNext : t.next}
-                  onPrimary={saveServices}
-                  onSkip={goNext}
-                  skipLabel={t.skip}
-                  saving={saving}
-                />
-              </>
+            {/* A clinic that already has services is not offered the template again — but the
+                list below still takes rows, so a re-run can add what the clinic is missing
+                without a trip to the Prices screen. */}
+            {existingServices && <Notice text={t.servicesAlready} />}
+            {!existingServices && (
+              <div className="flex items-center justify-between text-xs font-bold">
+                <span className="text-ink-muted">
+                  {isAr ? `${selectedCount} من ${choices.length} محددة` : `${selectedCount} of ${choices.length} selected`}
+                </span>
+                <span className="flex gap-3">
+                  <button type="button" className="text-accent hover:underline" onClick={() => setChoices((c) => c.map((x) => ({ ...x, selected: true })))}>{t.selectAll}</button>
+                  <button type="button" className="text-ink-muted hover:underline" onClick={() => setChoices((c) => c.map((x) => ({ ...x, selected: false })))}>{t.selectNone}</button>
+                </span>
+              </div>
             )}
+            {/* Every name is a box, not a label: a clinic that calls a scaling a "cleaning"
+                should not have to save the template and rename it on the Prices screen. A
+                template row's box is empty until edited and shows the template name as its
+                placeholder, so clearing it puts the default back rather than saving a blank.
+                Rows the clinic adds have no default, and a bin beside the price. */}
+            {choices.length > 0 && (
+              <ul className="divide-y divide-line border border-line rounded-2xl overflow-hidden max-h-[46vh] overflow-y-auto">
+                {choices.map((choice) => {
+                  const tpl = choice.custom ? undefined : SERVICE_TEMPLATES.find((x) => x.key === choice.key);
+                  const shownName = (choice.name ?? "").trim() || tpl?.name[lang] || t.serviceName;
+                  const update = (patch: Partial<ServiceChoice>) =>
+                    setChoices((c) => c.map((x) => (x.key === choice.key ? { ...x, ...patch } : x)));
+                  return (
+                    <li key={choice.key} className={`flex items-center gap-3 px-3 sm:px-4 py-2 ${choice.selected ? "" : "opacity-50"}`}>
+                      <input
+                        type="checkbox"
+                        checked={choice.selected}
+                        onChange={(e) => update({ selected: e.target.checked })}
+                        className="w-4 h-4 accent-slate-900 shrink-0"
+                        aria-label={shownName}
+                      />
+                      <span className="flex-1 min-w-0 flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={choice.name ?? ""}
+                          placeholder={tpl ? tpl.name[lang] : t.serviceName}
+                          onChange={(e) => update({ name: e.target.value })}
+                          className={`flex-1 min-w-0 px-2 py-1.5 -mx-2 bg-transparent border border-transparent rounded-lg text-sm font-semibold text-ink outline-none transition-colors truncate hover:border-line focus:bg-surface-subtle focus:border-accent-soft ${
+                            tpl ? "placeholder:text-ink placeholder:font-semibold" : "placeholder:text-ink-faint placeholder:font-medium"
+                          }`}
+                          aria-label={t.serviceName}
+                          autoFocus={choice.custom && !(choice.name ?? "").trim()}
+                        />
+                        {tpl?.requiresLab && <span className="text-[10px] font-black uppercase tracking-wider text-amber-600 shrink-0">{t.lab}</span>}
+                      </span>
+                      <span className="flex items-center gap-1.5 shrink-0">
+                        <input
+                          type="number"
+                          min={0}
+                          inputMode="numeric"
+                          value={choice.price}
+                          onChange={(e) => update({ price: Number(e.target.value) })}
+                          className="w-20 sm:w-24 px-2 py-1.5 bg-surface-subtle border border-line rounded-lg font-figure font-bold text-ink text-end outline-none focus:border-accent-soft"
+                          aria-label={`${shownName} ${t.egp}`}
+                        />
+                        <span className="text-xs font-bold text-ink-muted w-8">{t.egp}</span>
+                        {choice.custom && (
+                          <button
+                            type="button"
+                            onClick={() => setChoices((c) => c.filter((x) => x.key !== choice.key))}
+                            aria-label={`${t.remove} ${shownName}`}
+                            title={t.remove}
+                            className="w-8 h-8 -me-1 grid place-items-center rounded-lg text-ink-faint hover:text-red-600 hover:bg-red-50 transition-colors"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        )}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            <button
+              type="button"
+              onClick={() => setChoices((c) => [...c, customServiceChoice(c)])}
+              className="inline-flex items-center gap-1.5 text-sm font-bold text-accent-ink hover:underline"
+            >
+              <Plus size={15} /> {t.addService}
+            </button>
+            <Footer
+              primary={selectedCount > 0 ? t.saveNext : t.next}
+              onPrimary={saveServices}
+              onSkip={goNext}
+              skipLabel={t.skip}
+              saving={saving}
+            />
           </div>
         )}
 

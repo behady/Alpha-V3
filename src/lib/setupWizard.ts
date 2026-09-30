@@ -75,11 +75,33 @@ export const SERVICE_TEMPLATES: ServiceTemplate[] = [
   { key: "denture", name: { en: "Complete Denture", ar: "طقم كامل" }, price: 8000, durationMinutes: 60, requiresLab: true, estimatedLabFee: 3000 },
 ];
 
-export type ServiceChoice = { key: string; price: number; selected: boolean };
+export type ServiceChoice = {
+  key: string;
+  price: number;
+  selected: boolean;
+  /**
+   * The name as the clinic typed it. Absent or blank on a template row means "the template's
+   * name" — the box shows that name as its placeholder, so an emptied box reads as the default,
+   * not as a service called nothing. A custom row has no template to fall back on: blank drops it.
+   */
+  name?: string;
+  /** A row the clinic added itself, below the template. */
+  custom?: boolean;
+};
 
 /** Every template ticked, at its template price: the wizard's opening state. */
 export function initialServiceChoices(): ServiceChoice[] {
   return SERVICE_TEMPLATES.map((t) => ({ key: t.key, price: t.price, selected: true }));
+}
+
+/** Default length for a service the clinic typed itself; the Prices screen can change it later. */
+export const CUSTOM_SERVICE_MINUTES = 30;
+
+/** A blank row for a service that is not on the template, with a key no other row has. */
+export function customServiceChoice(existing: ServiceChoice[]): ServiceChoice {
+  let n = 1;
+  while (existing.some((c) => c.key === `custom-${n}`)) n++;
+  return { key: `custom-${n}`, name: "", price: 0, selected: true, custom: true };
 }
 
 /**
@@ -97,18 +119,23 @@ export function serviceDocsFrom(
   const out: Array<{ englishName: string; doc: Record<string, unknown> }> = [];
   for (const choice of choices) {
     if (!choice.selected) continue;
-    const t = SERVICE_TEMPLATES.find((x) => x.key === choice.key);
-    if (!t) continue;
+    const t = choice.custom ? undefined : SERVICE_TEMPLATES.find((x) => x.key === choice.key);
+    if (!t && !choice.custom) continue;
+    const typed = (choice.name ?? "").trim();
+    const name = typed || (t ? t.name[language] : "");
+    if (!name) continue;
     const price = Number(choice.price);
     if (!Number.isFinite(price) || price <= 0) continue;
     out.push({
-      englishName: t.name.en,
+      // The category matcher only knows English keywords. A template row keeps its English
+      // name for that even when renamed; a typed row has only what was typed.
+      englishName: t ? t.name.en : name,
       doc: {
-        name: t.name[language],
+        name,
         price,
-        requiresLab: t.requiresLab === true,
-        estimatedLabFee: t.estimatedLabFee ?? 0,
-        durationMinutes: t.durationMinutes,
+        requiresLab: t?.requiresLab === true,
+        estimatedLabFee: t?.estimatedLabFee ?? 0,
+        durationMinutes: t?.durationMinutes ?? CUSTOM_SERVICE_MINUTES,
         pricingMode: "per_tooth",
         prices: {},
         createdAt: new Date().toISOString(),

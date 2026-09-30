@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { parseClinicSchedule } from "../src/lib/clinicSchedule";
 import {
   DEFAULT_SCHEDULE,
+  CUSTOM_SERVICE_MINUTES,
   SERVICE_TEMPLATES,
   SETUP_FACT_KEYS,
   SETUP_ROUTE,
@@ -18,6 +19,7 @@ import {
   answerModeOf,
   answersFromSettings,
   clampAnswerMode,
+  customServiceChoice,
   initialServiceChoices,
   insuranceFactFrom,
   normalizeLink,
@@ -78,6 +80,40 @@ const some = serviceDocsFrom(
 );
 assert.deepEqual(some.map((d) => [d.englishName, d.doc.price]), [["Consultation", 250]],
   "edited price kept; zero price, unticked, and unknown keys dropped");
+
+// Renamed template rows and rows the clinic typed itself.
+const renamed = serviceDocsFrom(
+  [
+    { key: "consult", price: 200, selected: true, name: "  First visit  " },
+    { key: "scaling", price: 600, selected: true, name: "   " },
+    { key: "custom-1", price: 900, selected: true, name: "Night guard", custom: true },
+    { key: "custom-2", price: 900, selected: true, name: "", custom: true },
+    { key: "custom-3", price: 0, selected: true, name: "Free thing", custom: true },
+    { key: "custom-4", price: 500, selected: false, name: "Unticked", custom: true },
+  ],
+  "en"
+);
+assert.deepEqual(
+  renamed.map((d) => [d.englishName, d.doc.name, d.doc.price]),
+  [
+    ["Consultation", "First visit", 200],
+    ["Scaling & Polishing", "Scaling & Polishing", 600],
+    ["Night guard", "Night guard", 900],
+  ],
+  "a renamed template keeps its English name for the category matcher; a blank rename falls back to the template; a blank, free or unticked custom row is dropped"
+);
+const guard = renamed[2].doc;
+assert.equal(guard.requiresLab, false);
+assert.equal(guard.estimatedLabFee, 0);
+assert.equal(guard.durationMinutes, CUSTOM_SERVICE_MINUTES);
+assert.equal(guard.pricingMode, "per_tooth");
+
+const first = customServiceChoice(initialServiceChoices());
+assert.equal(first.key, "custom-1");
+assert.equal(first.custom, true);
+assert.equal(first.selected, true, "a row you just added is one you want");
+assert.equal(customServiceChoice([first]).key, "custom-2", "keys never collide");
+assert.equal(customServiceChoice([first, { ...first, key: "custom-2" }]).key, "custom-3");
 
 // --- phones ------------------------------------------------------------------------------------
 

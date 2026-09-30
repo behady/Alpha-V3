@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getDoc, getDocs, setDoc, writeBatch } from "firebase/firestore";
+import { doc, getDoc, getDocs, setDoc, writeBatch } from "firebase/firestore";
 import { clearListPrices, countListUsage } from "@/lib/priceListUsage";
 import { db } from "@/lib/firebase";
 import {
@@ -22,6 +22,8 @@ import { useDirtyFlag } from "@/context/UnsavedChangesContext";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { PRICE_LISTS_DOC, parsePriceLists, toStoredLists, type PriceList } from "@/lib/priceLists";
 import InsurerBadge from "@/components/shared/InsurerBadge";
+import { categoryOf, suggestCategory, suggestIcon } from "@/lib/dentalIcons";
+import { CUSTOM_SERVICE_MINUTES } from "@/lib/setupWizard";
 import { INSURER_GROUPS, presetsIn } from "@/lib/insurerPresets";
 import {
   PRIVATE_PAYER_ID,
@@ -75,6 +77,15 @@ function pct(raw: unknown): number {
   return Number.isFinite(n) ? Math.min(Math.max(n, 0), 100) : 0;
 }
 
+/** A treatment typed into the coverage table that does not exist as a service yet. */
+type AddedRow = {
+  /** A Firestore id minted on the client, so the row can be covered and priced before it is saved. */
+  id: string;
+  name: string;
+  /** The clinic's own price — what every other patient pays. */
+  price: number;
+};
+
 /** An insurer being added or edited. Absent entries mean "no exception", never zero. */
 type Draft = {
   /** Empty for a new insurer; the payer id when editing one. */
@@ -87,6 +98,10 @@ type Draft = {
   covered: Set<string>;
   /** Staff id → percentage on this insurer's cases. */
   rates: Record<string, number>;
+  /** Service id → the name as retyped in the table. Saved only when it differs. */
+  renamed: Record<string, string>;
+  /** Treatments added from the table; a nameless or free row is dropped on save. */
+  added: AddedRow[];
 };
 
 export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
@@ -202,7 +217,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
     // A new insurer starts covering everything, then the clinic unticks what it does not.
     // Starting empty would mean the first treatment recorded on it silently falls to private,
     // which reads as the insurer not working rather than as a list nobody has filled in.
-    setDraft({ payerId: "", name: "", nameAr: "", prices: {}, rates: {}, covered: new Set(services.map((s) => s.id)) });
+    setDraft({ payerId: "", name: "", nameAr: "", prices: {}, rates: {}, renamed: {}, added: [], covered: new Set(services.map((s) => s.id)) });
     setStep(1);
   };
 
@@ -224,6 +239,8 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
       nameAr: payer.nameAr || "",
       prices,
       rates,
+      renamed: {},
+      added: [],
       // No stored list means this insurer predates separate lists and covers everything.
       covered: new Set(payer.services ?? services.map((s) => s.id)),
     });
@@ -323,7 +340,14 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
       const isNew = !draft.payerId;
       // Written in the services' own order so two saves of the same list produce the same
       // document, rather than a fresh permutation that reads as a change in every audit.
-      const coveredList = services.filter((svc) => draft.covered.has(svc.id)).map((svc) => svc.id);
+      // Rows typed into the table become services of their own; a blank or free one is noise.
+      const newRows = draft.added
+        .map((r) => ({ ...r, name: r.name.trim() }))
+        .filter((r) => r.name && Number.isFinite(r.price) && r.price > 0);
+      const coveredList = [
+        ...services.filter((svc) => draft.covered.has(svc.id)).map((svc) => svc.id),
+        ...newRows.filter((r) => draft.covered.has(r.id)).map((r) => r.id),
+      ];
       const payerId = draft.payerId || payerIdFrom(name, payers);
       const nameAr = draft.nameAr.trim() || undefined;
 
@@ -363,6 +387,35 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
         if (afterSet) nextPrices[listId] = after;
         else delete nextPrices[listId];
         batch.update(getClinicDoc("services", service.id), { prices: nextPrices });
+        writes++;
+      }
+      for (const row of newRows) {
+        // Shaped like a service the Prices screen would create; category and icon are
+        // keyword-matched from the name, as they are there.
+        const category = suggestCategory(row.name);
+        const icon = suggestIcon(row.name) || categoryOf(category).icon;
+        const pays = draft.prices[row.id];
+        const prices: Record<string, number> = {};
+        if (draft.covered.has(row.id) && typeof pays === "number") prices[listId] = pays;
+        batch.set(getClinicDoc("services", row.id), {
+          name: row.name,
+          price: row.price,
+          requiresLab: false,
+          estimatedLabFee: 0,
+          durationMinutes: CUSTOM_SERVICE_MINUTES,
+          pricingMode: "per_tooth",
+          prices,
+          category,
+          icon,
+          createdAt: new Date().toISOString(),
+        });
+        writes++;
+      }
+      for (const [id, raw] of Object.entries(draft.renamed)) {
+        const name = raw.trim();
+        const current = services.find((svc) => svc.id === id);
+        if (!current || !name || name === current.name) continue;
+        batch.update(getClinicDoc("services", id), { name });
         writes++;
       }
       for (const member of staff) {
@@ -416,6 +469,52 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
         ? "سيب الخانة فاضية لو الدكتور بياخد نسبته العادية. املا بس اللي بيختلف."
         : "Leave a box empty if the dentist earns their normal percentage. Only fill in what differs.",
     ];
+
+    // The coverage table, rows the clinic is adding included.
+    const allRowIds = [...services.map((s) => s.id), ...draft.added.map((r) => r.id)];
+    const toggleCovered = (id: string) => {
+      const covered = new Set(draft.covered);
+      if (covered.has(id)) covered.delete(id);
+      else covered.add(id);
+      setDraft({ ...draft, covered });
+    };
+    const addRow = () => {
+      // The id is minted now so the row can be ticked and priced like any other before it exists.
+      const id = doc(getClinicCollection("services")).id;
+      const covered = new Set(draft.covered);
+      covered.add(id);
+      setDraft({ ...draft, covered, added: [...draft.added, { id, name: "", price: 0 }] });
+    };
+    const updateAdded = (id: string, patch: Partial<AddedRow>) =>
+      setDraft({ ...draft, added: draft.added.map((r) => (r.id === id ? { ...r, ...patch } : r)) });
+    const removeAdded = (id: string) => {
+      const covered = new Set(draft.covered);
+      covered.delete(id);
+      const prices = { ...draft.prices };
+      delete prices[id];
+      setDraft({ ...draft, covered, prices, added: draft.added.filter((r) => r.id !== id) });
+    };
+    const nameBoxCls =
+      "w-full min-w-0 rounded-lg border border-transparent bg-transparent px-2 py-1 text-[13.5px] font-bold text-ink outline-none transition placeholder:font-medium placeholder:text-ink-faint hover:border-line focus:border-accent focus:bg-surface";
+    const notCovered = (
+      <span className="text-[11.5px] font-bold text-ink-faint">{isAr ? "مش مغطّى" : "Not covered"}</span>
+    );
+    const paysBox = (id: string, yourPrice: number) => (
+      <input
+        type="number"
+        min={0}
+        value={typeof draft.prices[id] === "number" ? String(draft.prices[id]) : ""}
+        placeholder={String(yourPrice)}
+        onChange={(e) => {
+          const raw = e.target.value.trim();
+          const next = { ...draft.prices };
+          if (raw === "") delete next[id];
+          else next[id] = Math.max(0, Number(raw) || 0);
+          setDraft({ ...draft, prices: next });
+        }}
+        className="w-24 rounded-xl border border-line bg-surface px-2 py-1.5 text-end font-figure text-[13px] text-ink outline-none transition focus:border-accent"
+      />
+    );
 
     return (
       <div className="w-full space-y-6 pb-4" dir={isRTL ? "rtl" : "ltr"}>
@@ -523,97 +622,144 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
         )}
 
         {step === 2 && (
-          <div className="overflow-hidden rounded-2xl border border-line bg-surface">
-            {services.length === 0 ? (
-              <p className="px-4 py-8 text-center text-[13px] font-medium text-ink-faint">
-                {isAr ? "مفيش علاجات بأسعار لسه." : "No treatments priced yet."}
-              </p>
-            ) : (
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr className="border-b border-line bg-surface-subtle">
-                    <th className="w-10 px-3 py-3 text-center">
-                      {/* All or nothing, because the two common shapes are "covers nearly
-                          everything, minus cosmetics" and "covers a short agreed list". Both are
-                          faster from an extreme than from wherever the list happens to be. */}
-                      <input
-                        type="checkbox"
-                        aria-label={isAr ? "تحديد الكل" : "Select all"}
-                        checked={draft.covered.size === services.length && services.length > 0}
-                        onChange={(e) =>
-                          setDraft({
-                            ...draft,
-                            covered: e.target.checked ? new Set(services.map((x) => x.id)) : new Set<string>(),
-                          })
-                        }
-                        className="size-4 accent-[color:var(--accent,#FACC15)]"
-                      />
-                    </th>
-                    <th className="px-4 py-3 text-start text-[10.5px] font-black uppercase tracking-wider text-ink-muted">
-                      {isAr ? "العلاج" : "Treatment"}
-                    </th>
-                    <th className="px-3 py-3 text-end text-[10.5px] font-black uppercase tracking-wider text-ink-muted">
-                      {isAr ? "سعرك" : "Your price"}
-                    </th>
-                    <th className="px-3 py-3 text-end text-[10.5px] font-black uppercase tracking-wider text-ink-muted">
-                      {isAr ? "بيدفعوا" : "They pay"}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {services.map((s) => {
-                    const on = draft.covered.has(s.id);
-                    return (
-                      <tr key={s.id} className={`border-b border-line last:border-b-0 ${on ? "" : "opacity-45"}`}>
-                        <td className="px-3 py-2 text-center">
-                          <input
-                            type="checkbox"
-                            aria-label={s.name}
-                            checked={on}
-                            onChange={() => {
-                              const covered = new Set(draft.covered);
-                              if (on) covered.delete(s.id);
-                              else covered.add(s.id);
-                              setDraft({ ...draft, covered });
-                            }}
-                            className="size-4 accent-[color:var(--accent,#FACC15)]"
-                          />
-                        </td>
-                        <td className="px-4 py-2 text-[13.5px] font-bold text-ink">{s.name}</td>
-                        <td className="px-3 py-2 text-end font-figure text-[13px] text-ink-muted">
-                          {s.price.toLocaleString()}
-                        </td>
-                        <td className="px-3 py-2 text-end">
-                          {/* A price on a treatment this insurer does not cover is a number that
-                              can never be charged, so the box goes away rather than being
-                              disabled — a greyed-out field invites somebody to try. */}
-                          {on ? (
+          <div className="space-y-3">
+            {/* The treatment names are boxes, not labels, and the last row is blank: an insurer's
+                list is where the clinic finds out a treatment is misnamed or missing, and sending
+                it to the Prices screen and back would lose the half-filled draft. A row added
+                here becomes an ordinary service — priced at "your price" for everyone, and at
+                "they pay" for this insurer — so the Prices screen sees it like any other. */}
+            <div className="overflow-hidden rounded-2xl border border-line bg-surface">
+              {services.length === 0 && draft.added.length === 0 ? (
+                <p className="px-4 py-8 text-center text-[13px] font-medium text-ink-faint">
+                  {isAr ? "مفيش علاجات بأسعار لسه. ضيف أول علاج تحت." : "No treatments priced yet. Add the first one below."}
+                </p>
+              ) : (
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr className="border-b border-line bg-surface-subtle">
+                      <th className="w-10 px-3 py-3 text-center">
+                        {/* All or nothing, because the two common shapes are "covers nearly
+                            everything, minus cosmetics" and "covers a short agreed list". Both are
+                            faster from an extreme than from wherever the list happens to be. */}
+                        <input
+                          type="checkbox"
+                          aria-label={isAr ? "تحديد الكل" : "Select all"}
+                          checked={draft.covered.size === allRowIds.length && allRowIds.length > 0}
+                          onChange={(e) =>
+                            setDraft({
+                              ...draft,
+                              covered: e.target.checked ? new Set(allRowIds) : new Set<string>(),
+                            })
+                          }
+                          className="size-4 accent-[color:var(--accent,#FACC15)]"
+                        />
+                      </th>
+                      <th className="px-3 py-3 text-start text-[10.5px] font-black uppercase tracking-wider text-ink-muted">
+                        {isAr ? "العلاج" : "Treatment"}
+                      </th>
+                      <th className="px-3 py-3 text-end text-[10.5px] font-black uppercase tracking-wider text-ink-muted">
+                        {isAr ? "سعرك" : "Your price"}
+                      </th>
+                      <th className="px-3 py-3 text-end text-[10.5px] font-black uppercase tracking-wider text-ink-muted">
+                        {isAr ? "بيدفعوا" : "They pay"}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {services.map((s) => {
+                      const on = draft.covered.has(s.id);
+                      return (
+                        <tr key={s.id} className={`border-b border-line last:border-b-0 ${on ? "" : "opacity-45"}`}>
+                          <td className="px-3 py-2 text-center">
+                            <input
+                              type="checkbox"
+                              aria-label={s.name}
+                              checked={on}
+                              onChange={() => toggleCovered(s.id)}
+                              className="size-4 accent-[color:var(--accent,#FACC15)]"
+                            />
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <input
+                              type="text"
+                              value={draft.renamed[s.id] ?? s.name}
+                              onChange={(e) => setDraft({ ...draft, renamed: { ...draft.renamed, [s.id]: e.target.value } })}
+                              aria-label={isAr ? "اسم العلاج" : "Treatment name"}
+                              className={nameBoxCls}
+                            />
+                          </td>
+                          <td className="px-3 py-2 text-end font-figure text-[13px] text-ink-muted">
+                            {s.price.toLocaleString()}
+                          </td>
+                          <td className="px-3 py-2 text-end">
+                            {/* A price on a treatment this insurer does not cover is a number that
+                                can never be charged, so the box goes away rather than being
+                                disabled — a greyed-out field invites somebody to try. */}
+                            {on ? paysBox(s.id, s.price) : notCovered}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {draft.added.map((row) => {
+                      const on = draft.covered.has(row.id);
+                      return (
+                        <tr key={row.id} className={`border-b border-line last:border-b-0 ${on ? "" : "opacity-45"}`}>
+                          <td className="px-3 py-2 text-center">
+                            <input
+                              type="checkbox"
+                              aria-label={row.name || (isAr ? "علاج جديد" : "New treatment")}
+                              checked={on}
+                              onChange={() => toggleCovered(row.id)}
+                              className="size-4 accent-[color:var(--accent,#FACC15)]"
+                            />
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <span className="flex items-center gap-1">
+                              <input
+                                type="text"
+                                autoFocus={!row.name}
+                                value={row.name}
+                                placeholder={isAr ? "اسم العلاج" : "Treatment name"}
+                                onChange={(e) => updateAdded(row.id, { name: e.target.value })}
+                                aria-label={isAr ? "اسم العلاج الجديد" : "New treatment name"}
+                                className={nameBoxCls}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => removeAdded(row.id)}
+                                aria-label={isAr ? "حذف الصف" : "Remove row"}
+                                className="grid size-8 shrink-0 place-items-center rounded-lg text-ink-faint transition-colors hover:bg-red-50 hover:text-red-600"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </span>
+                          </td>
+                          <td className="px-2 py-1.5 text-end">
                             <input
                               type="number"
                               min={0}
-                              value={typeof draft.prices[s.id] === "number" ? String(draft.prices[s.id]) : ""}
-                              placeholder={String(s.price)}
-                              onChange={(e) => {
-                                const raw = e.target.value.trim();
-                                const next = { ...draft.prices };
-                                if (raw === "") delete next[s.id];
-                                else next[s.id] = Math.max(0, Number(raw) || 0);
-                                setDraft({ ...draft, prices: next });
-                              }}
+                              value={row.price > 0 ? String(row.price) : ""}
+                              placeholder="0"
+                              onChange={(e) => updateAdded(row.id, { price: Math.max(0, Number(e.target.value) || 0) })}
+                              aria-label={isAr ? "سعرك" : "Your price"}
                               className="w-24 rounded-xl border border-line bg-surface px-2 py-1.5 text-end font-figure text-[13px] text-ink outline-none transition focus:border-accent"
                             />
-                          ) : (
-                            <span className="text-[11.5px] font-bold text-ink-faint">
-                              {isAr ? "مش مغطّى" : "Not covered"}
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
+                          </td>
+                          <td className="px-3 py-2 text-end">{on ? paysBox(row.id, row.price) : notCovered}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={addRow}
+              className="inline-flex items-center gap-1.5 text-[13px] font-bold text-accent-ink hover:underline"
+            >
+              <Plus size={15} /> {isAr ? "ضيف علاج مش في القائمة" : "Add a treatment that is not on the list"}
+            </button>
           </div>
         )}
 
