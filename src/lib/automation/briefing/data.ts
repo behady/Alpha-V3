@@ -127,7 +127,8 @@ function str(v: unknown, fallback = ""): string {
   return typeof v === "string" && v.trim() ? v.trim() : fallback;
 }
 
-function toDate(v: unknown): Date | null {
+/** A Firestore Timestamp, a {seconds} object, or a date string, as a Date. Exported for the Excel backup. */
+export function toDate(v: unknown): Date | null {
   if (!v) return null;
   if (typeof v === "object" && v !== null && "toDate" in v) {
     try {
@@ -144,7 +145,8 @@ function toDate(v: unknown): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function mapAppointment(id: string, d: Record<string, unknown>): BriefingAppointment {
+/** One appointment document, normalised. Exported so the Excel backup reads rows the same way. */
+export function mapAppointment(id: string, d: Record<string, unknown>): BriefingAppointment {
   return {
     id,
     date: str(d.date),
@@ -158,7 +160,8 @@ function mapAppointment(id: string, d: Record<string, unknown>): BriefingAppoint
   };
 }
 
-function mapLedger(id: string, d: Record<string, unknown>): LedgerRow {
+/** One ledger document, normalised. Exported so the Excel backup reads rows the same way. */
+export function mapLedger(id: string, d: Record<string, unknown>): LedgerRow {
   return {
     id,
     type: str(d.type),
@@ -177,6 +180,58 @@ function mapLedger(id: string, d: Record<string, unknown>): LedgerRow {
     labFee: num(d.labFee),
     doctorCommissionAmount: num(d.doctorCommissionAmount),
     clinicProfit: num(d.clinicProfit),
+  };
+}
+
+/** One staff document, normalised. Exported so the Excel backup and the brief agree on a schedule. */
+export function mapStaff(id: string, d: Record<string, unknown>): StaffRecord {
+    const raw = d.attendanceSchedule;
+  let schedule: StaffRecord["schedule"] = null;
+  if (raw && typeof raw === "object") {
+    const parsed: Record<number, { active: boolean; start: string; end: string }> = {};
+    let any = false;
+    for (let day = 0; day < 7; day++) {
+      const cfg = (raw as Record<string, unknown>)[String(day)] as Record<string, unknown> | undefined;
+      if (!cfg || typeof cfg !== "object") continue;
+      any = true;
+      parsed[day] = {
+        active: Boolean(cfg.active),
+        start: str(cfg.start, "00:00"),
+        end: str(cfg.end, "00:00"),
+      };
+    }
+    if (any) schedule = parsed;
+  }
+
+  return {
+    id,
+    uid: str(d.uid),
+    name: str(d.name, "Unnamed staff"),
+    role: str(d.role, "Staff"),
+    baseSalary: num(d.baseSalary),
+    commissionPercentage: num(d.commissionPercentage),
+    overtimeMultiplier: num(d.overtimeMultiplier) || 1.5,
+    registeredDeviceId: str(d.registeredDeviceId) || null,
+    schedule,
+  };
+}
+
+/** One attendance punch, normalised. Exported so the Excel backup reads punches the same way. */
+export function mapPunch(id: string, d: Record<string, unknown>): PunchRecord {
+  return {
+    id,
+    userId: str(d.userId),
+    staffId: str(d.staffId),
+    userName: str(d.userName),
+    date: str(d.date),
+    checkIn: toDate(d.checkIn),
+    checkOut: toDate(d.checkOut),
+    durationMinutes: num(d.durationMinutes),
+    status: str(d.status),
+    overtimeStatus: str(d.overtimeStatus),
+    checkInDistanceM: d.checkInDistanceM == null ? null : num(d.checkInDistanceM),
+    checkInAccuracyM: d.checkInAccuracyM == null ? null : num(d.checkInAccuracyM),
+    deviceId: str(d.deviceId) || null,
   };
 }
 
@@ -268,38 +323,7 @@ export async function loadBriefingData(args: {
     if (created) patientCreatedAt.set(doc.id, created);
   });
 
-  const staff: StaffRecord[] = staffSnap.docs.map((doc) => {
-    const d = (doc.data() || {}) as Record<string, unknown>;
-    const raw = d.attendanceSchedule;
-    let schedule: StaffRecord["schedule"] = null;
-    if (raw && typeof raw === "object") {
-      const parsed: Record<number, { active: boolean; start: string; end: string }> = {};
-      let any = false;
-      for (let day = 0; day < 7; day++) {
-        const cfg = (raw as Record<string, unknown>)[String(day)] as Record<string, unknown> | undefined;
-        if (!cfg || typeof cfg !== "object") continue;
-        any = true;
-        parsed[day] = {
-          active: Boolean(cfg.active),
-          start: str(cfg.start, "00:00"),
-          end: str(cfg.end, "00:00"),
-        };
-      }
-      if (any) schedule = parsed;
-    }
-
-    return {
-      id: doc.id,
-      uid: str(d.uid),
-      name: str(d.name, "Unnamed staff"),
-      role: str(d.role, "Staff"),
-      baseSalary: num(d.baseSalary),
-      commissionPercentage: num(d.commissionPercentage),
-      overtimeMultiplier: num(d.overtimeMultiplier) || 1.5,
-      registeredDeviceId: str(d.registeredDeviceId) || null,
-      schedule,
-    };
-  });
+  const staff: StaffRecord[] = staffSnap.docs.map((doc) => mapStaff(doc.id, (doc.data() || {}) as Record<string, unknown>));
 
   /**
    * The `attendance` collection holds two unrelated kinds of document: staff punches, and
@@ -308,24 +332,7 @@ export async function loadBriefingData(args: {
    * and the userId check makes that explicit rather than accidental.
    */
   const punches: PunchRecord[] = punchSnap.docs
-    .map((doc) => {
-      const d = (doc.data() || {}) as Record<string, unknown>;
-      return {
-        id: doc.id,
-        userId: str(d.userId),
-        staffId: str(d.staffId),
-        userName: str(d.userName),
-        date: str(d.date),
-        checkIn: toDate(d.checkIn),
-        checkOut: toDate(d.checkOut),
-        durationMinutes: num(d.durationMinutes),
-        status: str(d.status),
-        overtimeStatus: str(d.overtimeStatus),
-        checkInDistanceM: d.checkInDistanceM == null ? null : num(d.checkInDistanceM),
-        checkInAccuracyM: d.checkInAccuracyM == null ? null : num(d.checkInAccuracyM),
-        deviceId: str(d.deviceId) || null,
-      };
-    })
+    .map((doc) => mapPunch(doc.id, (doc.data() || {}) as Record<string, unknown>))
     .filter((p) => p.userId !== "");
 
   const leads: LeadRecord[] = leadsSnap.docs.map((doc) => {
