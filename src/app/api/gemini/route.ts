@@ -39,6 +39,10 @@ import {
 } from "@/lib/aiPendingActions";
 import { APPOINTMENT_STAGES } from "@/lib/appointmentStages";
 import { runClinicReport } from "@/lib/automation/clinicReports";
+import { loadBriefingData } from "@/lib/automation/briefing/data";
+import { buildHrSection } from "@/lib/automation/briefing/hr";
+import { resolveBriefingAccess } from "@/lib/automation/briefing/build";
+import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import { suggestSlots } from "@/lib/automation/slotSuggestions";
 import { isFullAccessRole } from "@/lib/permissions";
 import {
@@ -270,6 +274,10 @@ REPORTING ("how many / how much"):
 - ALWAYS use 'run_clinic_report'. Never count rows yourself from db_read and never estimate — a number someone acts on has to be reproducible.
 - The result has a 'coverage' section. If 'unattributed' is above zero, say plainly that the breakdown excludes that many records and therefore adds up to less than the total. If 'unmatchedProcedureNames' is non-empty, name them as uncounted.
 - Never present a partial figure as if it were the complete picture, and never fill a gap with an estimate.
+- Attendance, hours, late or absent staff: ALWAYS use 'attendance_report' when it is offered. It is offered only to people who administer attendance; if you were not given it, say that attendance is limited to the owner and attendance admins.
+
+WHEN YOU HAVE NO TOOL FOR IT:
+- If nothing you were given can answer the question, say plainly that it is not available here and where in the app it lives. NEVER invent a policy, privacy or security reason — a reason you made up is a lie the clinic will repeat to its staff.
 
 CONTINUOUS LEARNING & MEMORY:
 - If the user explicitly corrects your behavior, tells you a new clinic rule (e.g., "Dr. Ahmed doesn't work Tuesdays"), or tells you to remember something, you MUST autonomously call the 'learn_fact' tool to save it permanently. Do not just say "I will remember that", you MUST actually use the tool.
@@ -944,6 +952,19 @@ export async function POST(req: Request) {
         }
       },
       {
+        name: "attendance_report",
+        description:
+          "Staff attendance for a date range: per person, days worked, hours, late days and minutes, absent days, open shifts and pending overtime — the same figures as the Attendance screen's payroll table. USE THIS for any question about who came in, who was late or absent, or how many hours someone worked. Never derive attendance from other collections. Repeat every line of 'notes' that qualifies the figures.",
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            startDate: { type: SchemaType.STRING, description: "Start date (YYYY-MM-DD)" },
+            endDate: { type: SchemaType.STRING, description: "End date (YYYY-MM-DD); today or earlier" }
+          },
+          required: ["startDate", "endDate"]
+        }
+      },
+      {
         name: "suggest_appointment_slots",
         description:
           "Finds free appointment times on a given date, taking the clinic's opening hours, the dentist's working hours, existing bookings and the treatment's duration into account. USE THIS instead of guessing availability. The result includes a 'basis' section and 'notes'; you MUST repeat any caveat there — especially when clinic hours were never configured, the dentist has no hours on file, or the treatment has no recorded duration — because each of those means the times are partly assumed.",
@@ -1174,6 +1195,9 @@ export async function POST(req: Request) {
             ? functionDeclarations.filter((f) => !WHATSAPP_STAFF_EXCLUDED_TOOLS.has(f.name))
             : functionDeclarations
     )
+      // The pay sheet's own gate, applied to the tool rather than trusted to the prompt: a
+      // receptionist who is not offered it cannot call it, whatever they ask.
+      .filter((f) => f.name !== "attendance_report" || resolveBriefingAccess(authz.role, authz.permissions).hr)
       .filter((f) => f.name !== "open_appointment" || clientHasAppointmentPanel)
       .filter((f) => f.name !== "start_tutorial" || clientCanRunTutorials)
       .filter((f) => f.name !== "open_tour_stop" || clientCanOpenTour)
@@ -1578,6 +1602,55 @@ export async function POST(req: Request) {
                 toolResult = { success: true, report };
              }
 
+          } else if (call.name === "attendance_report") {
+             // Checked again here, not only at the offer: the tool list is filtered per request,
+             // but a handler that trusts the list is one refactor away from leaking salaries.
+             if (!resolveBriefingAccess(authz.role, authz.permissions).hr) {
+                toolResult = { success: false, error: "Attendance is limited to the owner and attendance admins." };
+             } else {
+                const startDate = String((call.args as any).startDate || "");
+                const endDate = String((call.args as any).endDate || "");
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate) || startDate > endDate) {
+                   toolResult = { success: false, error: "startDate and endDate must be YYYY-MM-DD, start on or before end." };
+                } else {
+                   // The same calculation the Attendance screen, the weekly brief and /api/payroll
+                   // use — one arithmetic, so the assistant cannot disagree with the desk.
+                   const timeZone = clinicTimeZone();
+                   const today = ymdInTimeZone(timeZone);
+                   const data = await loadBriefingData({
+                      clinicId, startDate, endDate, comparisonStart: startDate, previousStart: null, previousEnd: null,
+                      attendanceStart: startDate, needsMoney: false, needsHr: true,
+                   });
+                   const nowParts = new Intl.DateTimeFormat("en-GB", { timeZone, hour12: false, hour: "2-digit", minute: "2-digit" }).formatToParts(new Date());
+                   const nowMinutes = (Number(nowParts.find((p) => p.type === "hour")?.value ?? 0) % 24) * 60 + Number(nowParts.find((p) => p.type === "minute")?.value ?? 0);
+                   const { section } = buildHrSection({
+                      staff: data.staff, punches: data.punches, startDate, endDate, today, nowMinutes, timeZone,
+                      geofenceRadiusM: data.geofenceRadiusM, monthStart: startDate,
+                   });
+                   const hours = (m: number) => Math.round((m / 60) * 10) / 10;
+                   const notes = [
+                      "Estimated from clock-in records. Commission is not included.",
+                      "Overtime counts only once approved; pending overtime is listed separately.",
+                      "Nothing records leave or sick days, so a scheduled day with no punch reads as absent even when agreed in advance.",
+                   ];
+                   if (section.withoutSchedule > 0) notes.push(`${section.withoutSchedule} staff have no work schedule set, so they cannot be judged late or absent and are excluded from those counts.`);
+                   if (endDate > today) notes.push(`Days after ${today} are not judged.`);
+                   toolResult = {
+                      success: true,
+                      report: {
+                         startDate, endDate,
+                         staff: section.staff.map((r) => ({
+                            name: r.name, role: r.role, hasSchedule: r.hasSchedule, scheduledDays: r.scheduledDays, daysWorked: r.daysWorked,
+                            hoursWorked: hours(r.minutesWorked), lateDays: r.lateDays, lateMinutes: r.lateMinutes, absentDays: r.absentDays,
+                            openShifts: r.openShifts, overtimeApprovedHours: hours(r.overtimeApprovedMinutes), overtimePendingHours: hours(r.overtimePendingMinutes),
+                            activeNow: r.activeNow,
+                         })),
+                         totals: { onFloorNow: section.onFloorNow, lateDays: section.lateDays, absentDays: section.absentDays, openShifts: section.openShifts, hoursWorked: hours(section.totalMinutes), withoutSchedule: section.withoutSchedule },
+                         notes,
+                      },
+                   };
+                }
+             }
           } else if (call.name === "get_diagnosis_catalog") {
              toolResult = { success: true, catalog: DIAGNOSIS_OPTIONS.map(o => ({ id: o.id, category: o.cat, label: o.labelEn })) };
           } else if (call.name === "update_odontogram") {

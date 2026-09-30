@@ -4,7 +4,7 @@ import { conversationKey } from "@/lib/bot/conversation";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { notifyEvent } from "@/lib/notificationCatalog";
 import { readAlertPreferences, readClinicMembers } from "@/lib/notificationDelivery";
-import { sendStaffReport } from "@/lib/reports/sendStaffReport";
+import { reportAccessForRole, sendStaffReport } from "@/lib/reports/sendStaffReport";
 import { sendStaffWhatsApp } from "@/lib/staffWhatsapp";
 import {
   askAssistantForStaff,
@@ -87,7 +87,7 @@ export async function findStaffByPhone(clinicId: string, phone: string): Promise
   return { uid, role: roleOf.get(uid) || "Admin", name };
 }
 
-export type StaffIntent = "evening" | "morning" | "summary" | "help" | "ask";
+export type StaffIntent = "evening" | "morning" | "summary" | "payroll" | "help" | "ask";
 
 /**
  * What a staff member asked for.
@@ -107,6 +107,10 @@ export function staffIntent(text: string): StaffIntent {
   if (/^(تقرير|التقرير|اقفال|إقفال|الاقفال|الإقفال|report|close-out|closeout)$/.test(t)) return "evening";
   if (/^(ملخص|الملخص|summary)$/.test(t)) return "summary";
   if (/^(النهارده|النهاردة|اليوم|مواعيد النهارده|today|schedule|today's schedule)$/.test(t)) return "morning";
+  // The pay sheet: hours, lates and absences per person for the month so far. Asked for by its
+  // own names, because "تقرير حضور الموظفين" used to fall through to the assistant, which had no
+  // attendance tool and answered with an invented privacy rule instead of the report.
+  if (/^(حضور|الحضور|تقرير الحضور|تقرير حضور|حضور الموظفين|تقرير حضور الموظفين|حضور الفريق|تقرير حضور الفريق|attendance|attendance report|staff attendance|payroll|hours)$/.test(t)) return "payroll";
   return "ask";
 }
 
@@ -129,6 +133,7 @@ export function staffHelpText(sender: StaffSender, clinicName: string, language:
       "• *تقرير* — إقفال اليوم",
       "• *النهارده* — مواعيد اليوم",
       "• *ملخص* — اليوم في تلات سطور",
+      "• *حضور* — ساعات الفريق وتأخيراته للشهر ده (للمدير)",
       "",
       "أو اسألني أي سؤال عن العيادة بكلامك — مين محجوز بكرة، كام اتحصّل الأسبوع ده، رصيد مريض معين.",
       "وأقدر أنفّذ: احجز، انقل ميعاد، سجّل دفعة، ابعت رسالة لمريض — بأكّد معاك بـ نعم/لا قبل أي خطوة.",
@@ -143,6 +148,7 @@ export function staffHelpText(sender: StaffSender, clinicName: string, language:
     "• *report* — the day's close-out",
     "• *today* — today's appointments",
     "• *summary* — the day in three lines",
+    "• *attendance* — the team's hours and lates this month (admins)",
     "",
     "Or just ask me anything about the clinic in your own words — who is booked tomorrow, what came in this week, a patient's balance.",
     "I can also act: book, move an appointment, record a payment, message a patient — I confirm with you (yes/no) before every step.",
@@ -236,9 +242,19 @@ export async function respondToStaffMessage(args: {
     await clearStaffPending(clinicId, sender.uid);
   }
 
-  if (intent === "evening" || intent === "morning" || intent === "summary") {
+  if (intent === "payroll" && !reportAccessForRole(sender.role).hr) {
+    // Said plainly, and only about this channel: the sheet exists, this person may not read it.
+    const no =
+      language === "ar"
+        ? "تقرير الحضور والساعات للمالك والمدير بس. لو محتاجه، اطلبه من المدير."
+        : "The attendance and hours report is for the owner and admins only. Ask an admin if you need it.";
+    const sent = await sendStaffWhatsApp({ clinicId, to, text: no });
+    return sent.sent ? { status: "replied", text: no, handoff: false, reason: "staff_payroll_denied" } : { status: "skipped", reason: "staff_send_failed" };
+  }
+
+  if (intent === "evening" || intent === "morning" || intent === "summary" || intent === "payroll") {
     const eventId =
-      intent === "evening" ? "eveningDigest" : intent === "summary" ? "ownerSummary" : sender.role === "Dentist" ? "morningBriefDentist" : "morningBriefClinic";
+      intent === "evening" ? "eveningDigest" : intent === "summary" ? "ownerSummary" : intent === "payroll" ? "payrollReport" : sender.role === "Dentist" ? "morningBriefDentist" : "morningBriefClinic";
     const event = notifyEvent(eventId);
     if (event) {
       // Asked for by name, so the clinic's switch for that report does not apply — but the role

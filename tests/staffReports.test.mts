@@ -314,6 +314,11 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
   eq(staffIntent("النهارده"), "morning", "Arabic today");
   eq(staffIntent("today"), "morning", "English today");
   eq(staffIntent("ملخص"), "summary", "Arabic summary");
+  // The owner typed exactly this and got an invented privacy rule back.
+  eq(staffIntent("تقرير حضور الموظفين"), "payroll", "the attendance report by its full Arabic name");
+  eq(staffIntent("حضور"), "payroll", "Arabic attendance, bare");
+  eq(staffIntent("attendance"), "payroll", "English attendance");
+  eq(staffIntent("مين اتأخر الأسبوع ده؟"), "ask", "a question about lateness is the assistant's, with its attendance tool");
   eq(staffIntent("Hi"), "help", "a greeting is help");
   eq(staffIntent("ازيك"), "help", "an Arabic greeting is help");
   eq(staffIntent("Do you know who am i?"), "ask", "a free question goes to the assistant");
@@ -322,6 +327,14 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
   eq(staffIntent("رصيد محمد علي"), "ask", "a balance question goes to the assistant");
   const route = read("src/app/api/gemini/route.ts");
   ok(/WHATSAPP_STAFF_EXCLUDED_TOOLS/.test(route) && route.includes('client === "whatsapp-staff"'), "the assistant route has no tool rule for the staff line");
+  // Attendance is a tool, gated where the pay sheet is gated, and the model is told not to make
+  // up a reason when it lacks one — the failure that started this.
+  ok(route.includes('name: "attendance_report"'), "the assistant has no attendance tool, so it answers attendance questions with an invented refusal");
+  ok(route.includes('f.name !== "attendance_report" || resolveBriefingAccess(authz.role, authz.permissions).hr'), "attendance_report is offered without the pay sheet's own gate");
+  ok(route.includes("NEVER invent a policy, privacy or security reason"), "the prompt no longer forbids invented refusals");
+  const staffLineSrc = read("src/lib/bot/staffLine.ts");
+  ok(staffLineSrc.includes('intent === "payroll" ? "payrollReport"'), "the attendance shortcut does not send the payroll report");
+  ok(staffLineSrc.includes("reportAccessForRole(sender.role).hr"), "the attendance shortcut is not role-gated on the line itself");
   const excluded = route.slice(route.indexOf("const WHATSAPP_STAFF_EXCLUDED_TOOLS"), route.indexOf("]);", route.indexOf("const WHATSAPP_STAFF_EXCLUDED_TOOLS")));
   // Screens cannot be shown in a WhatsApp bubble; everything else stays, gated by the person's own permissions.
   for (const screenOnly of ["navigate_to", "trigger_pdf_generation", "open_appointment", "start_tutorial", "open_tour_stop", "file_bug_report", "file_feature_request"]) {
@@ -342,7 +355,7 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
   eq(toStaffPending({ kind: "delete" }), null, "a preview without an id must not become a pending action");
   ok(confirmPrompt("ar").includes("نعم") && confirmPrompt("en").includes("yes"), "confirm prompt");
   const line = read("src/lib/bot/staffLine.ts");
-  ok(line.indexOf("loadStaffPending(") < line.indexOf('if (intent === "evening" || intent === "morning" || intent === "summary")'), "a pending action is not checked before the report keywords — 'yes' would fetch nothing");
+  ok(line.indexOf("loadStaffPending(") < line.indexOf('if (intent === "evening" || intent === "morning" || intent === "summary" || intent === "payroll")'), "a pending action is not checked before the report keywords — 'yes' would fetch nothing");
   ok(read("src/lib/bot/staffAssistant.ts").includes("/api/gemini/confirm-action"), "the staff line does not use the app's own confirm route");
 
   // Voice notes: both webhooks hand the staff line a transcriber; the staff line echoes what it heard.
@@ -382,7 +395,7 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
   // report branch caught everything that was not a greeting. Only the three report words may.
   const staffLine = read("src/lib/bot/staffLine.ts");
   ok(!staffLine.includes('if (intent !== "help")'), "the report branch still swallows free questions — 'ايه اخبار الأسبوع' becomes the morning brief");
-  ok(staffLine.includes('if (intent === "evening" || intent === "morning" || intent === "summary")'), "the report branch is not limited to the report intents");
+  ok(staffLine.includes('if (intent === "evening" || intent === "morning" || intent === "summary" || intent === "payroll")'), "the report branch is not limited to the report intents");
 
   // Two bots must not talk to each other.
   const now = 1_000_000;
