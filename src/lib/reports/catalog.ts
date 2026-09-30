@@ -60,6 +60,9 @@ export const REPORT_CATALOG: ReportMeta[] = [
   { id: "heatmap", group: "overview", en: "Days & Hours", ar: "الأيام والساعات", hintEn: "When patients and money actually happen.", hintAr: "المرضى والفلوس بييجوا إمتى بالظبط.", needs: ["appointments"] },
 
   { id: "pnl", group: "money", en: "Profit & Loss", ar: "الأرباح والخسائر", hintEn: "Gross to net, the way an accountant lays it out.", hintAr: "من الإجمالي للصافي زي ما المحاسب بيكتبها.", needs: ["ledgerMonths12"] },
+  { id: "incomeSources", group: "money", en: "Income Sources", ar: "مصادر الدخل", hintEn: "Where the money came from: treatment, dentist, payer, method, new or returning.", hintAr: "الفلوس جت منين: العلاج والدكتور وجهة الدفع وطريقة الدفع وجديد ولا راجع.", needs: ["ledgerPrev", "ledgerMonths12"] },
+  { id: "expenseTrend", group: "money", en: "Expense Comparison", ar: "مقارنة المصروفات", hintEn: "Each category month by month, against last month and last year.", hintAr: "كل تصنيف شهر بشهر، مقابل الشهر اللي فات والسنة اللي فاتت.", needs: ["ledgerMonths12", "ledgerPrev", "ledgerLastYear"] },
+  { id: "cashflow", group: "money", en: "Cash Flow", ar: "التدفق النقدي", hintEn: "In against out, month by month, and the running total.", hintAr: "الداخل مقابل الخارج شهر بشهر، والرصيد التراكمي.", needs: ["ledgerMonths12"] },
   { id: "service", group: "money", en: "Service Analysis", ar: "تحليل الخدمات", hintEn: "What each treatment earned.", hintAr: "كل علاج جاب كام.", needs: [] },
   { id: "dentist", group: "money", en: "Dentist Performance", ar: "أداء الأطباء", hintEn: "Income, commission and cases per dentist.", hintAr: "دخل وعمولة وحالات كل دكتور.", needs: [] },
   { id: "dentistTrend", group: "money", en: "Dentist Trend", ar: "الأطباء شهر بشهر", hintEn: "Each dentist over the last twelve months.", hintAr: "كل دكتور على مدار ١٢ شهر.", needs: ["ledgerMonths12"] },

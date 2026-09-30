@@ -25,6 +25,7 @@ import { demographics, lifetimeValue, recallDue, retention, toYmd, type PatientD
 import { appointmentStats, inventoryStats, labStats, outcomeOf, staffLines, type OutcomeCounts, type PayrollRow } from "@/lib/reports/opsStats";
 import { planStats, type PlanStatus } from "@/lib/reports/plansStats";
 import { whatsappStats } from "@/lib/reports/whatsappStats";
+import { cashflow, compareExpenseCategories, expenseMatrix, incomeSources, INCOME_LABELS_AR, INCOME_LABELS_EN, type SourceGroup } from "@/lib/reports/financeStats";
 import { adStats } from "@/lib/reports/adStats";
 import { doctorLabel, partitionRows, rollupPatients, rowDate, type PatientRollup, type ReportLedgerRow, type ReportPatient } from "@/lib/reportPatients";
 import { attributeService, buildProcedureIndex, type AttributableRow } from "@/lib/serviceAttribution";
@@ -410,6 +411,82 @@ export function buildReportDoc(id: string, input: ReportInputs): ReportDoc {
       const withYear = months[0].slice(0, 4) !== months[11].slice(0, 4);
       sections.push({ type: "months", title: isAr ? "المصروفات شهر بشهر" : "Expenses, month by month", unit: "money", points: trend.map((m) => ({ label: monthLabel(m.month, isAr, withYear), value: m.expenses })) });
       sections.push({ type: "table", title: isAr ? "كل البنود" : "Every entry", columns: [{ key: "date", label: isAr ? "التاريخ" : "Date", kind: "date" }, { key: "category", label: isAr ? "التصنيف" : "Category" }, { key: "description", label: isAr ? "البيان" : "Description" }, { key: "amount", label: isAr ? "المبلغ" : "Amount", align: "end", kind: "money" }], rows: lines.map((l) => ({ date: l.date, category: l.category, description: (l.description || "—") + (l.recurring ? (isAr ? " · شهري" : " · recurring") : ""), amount: l.amount })), total: { date: isAr ? "الإجمالي" : "Total", amount: t.expenses } });
+      break;
+    }
+    case "incomeSources": {
+      const prevRange = previousRange(range);
+      const labels = isAr ? INCOME_LABELS_AR : INCOME_LABELS_EN;
+      const src = incomeSources(ledger, d("ledgerPrev"), input.allPatients, range, prevRange, labels);
+      const top = (g: SourceGroup[]) => (g[0] && g[0].total > 0 ? `${g[0].name} · ${g[0].share}%` : "—");
+      const newShare = src.newness.find((g) => g.name === labels.newPatient)?.share ?? 0;
+      figures.push({ label: isAr ? "الدخل" : "Income", value: money(src.total), delta: deltaFigure(delta(src.prevTotal, src.total), "up", isAr) });
+      figure(isAr ? "من مرضى جدد" : "From new patients", pct(newShare, 0), "muted");
+      figure(isAr ? "أكبر علاج" : "Top treatment", top(src.services), "muted");
+      figure(isAr ? "أكبر دكتور" : "Top dentist", top(src.dentists), "muted");
+      figure(isAr ? "أكبر قناة" : "Top channel", top(src.channels), "muted");
+      const moved = (g: SourceGroup) => (g.delta.pct === null ? (isAr ? "جديد" : "new") : `${g.delta.abs > 0 ? "▲" : g.delta.abs < 0 ? "▼" : "•"} ${Math.abs(g.delta.pct)}%`);
+      const bars = (title: string, g: SourceGroup[], note?: string) =>
+        sections.push({ type: "bars", title, note, rows: g.map((x, i) => ({ label: x.count ? `${x.name} · ${x.count}` : x.name, value: x.total, text: `${money(x.total)} · ${x.share}% · ${moved(x)}`, mark: i === 0 && x.total > 0, warn: x.prev > 0 && x.total === 0 })) });
+      bars(isAr ? "حسب العلاج" : "By treatment", src.services);
+      bars(isAr ? "حسب الدكتور" : "By dentist", src.dentists, isAr ? "الدفعة اللي من غير دكتور بتاخد دكتور العلاج." : "A payment with no dentist borrows the treatment's.");
+      bars(isAr ? "جديد ولا راجع" : "New or returning", src.newness, isAr ? "جديد = الملف اتفتح جوه الفترة." : "New = the file was opened inside the period.");
+      bars(isAr ? "حسب القناة" : "By channel", src.channels, isAr ? "من خانة المصدر في ملف المريض." : "From the source on the patient's file.");
+      bars(isAr ? "حسب جهة الدفع" : "By payer", src.payers);
+      bars(isAr ? "حسب طريقة الدفع" : "By payment method", src.methods);
+      const { months } = trailingMonths(range.end, 12);
+      const withYear = months[0].slice(0, 4) !== months[11].slice(0, 4);
+      sections.push({ type: "months", title: isAr ? "الدخل شهر بشهر" : "Income, month by month", unit: "money", points: totalsByMonth(d("ledgerMonths12"), months).map((m) => ({ label: monthLabel(m.month, isAr, withYear), value: m.income })) });
+      note(isAr ? `الدخل = الفلوس اللي دخلت فعلاً. النسبة المئوية من إجمالي الفترة؛ السهم مقابل ${rangeText(prevRange, true)}. المصدر اللي جاب فلوس المرة اللي فاتت ومجابش المرة دي بيفضل في القائمة بصفر.` : `Income is cash actually received. Shares are of the period's total; arrows are against ${rangeText(prevRange, false)}. A source that paid last time and nothing this time stays on the list at zero.`);
+      break;
+    }
+    case "expenseTrend": {
+      const { months } = trailingMonths(range.end, 12);
+      const mx = expenseMatrix(d("ledgerMonths12"), months);
+      const now = summarizeLedger(ledger);
+      const prevRange = previousRange(range);
+      const vsPrev = compareExpenseCategories(ledger, d("ledgerPrev"));
+      const vsYear = compareExpenseCategories(ledger, d("ledgerLastYear"));
+      const thenPrev = summarizeLedger(d("ledgerPrev")).expenses;
+      const thenYear = summarizeLedger(d("ledgerLastYear")).expenses;
+      const withYear = months[0].slice(0, 4) !== months[11].slice(0, 4);
+      figures.push({ label: isAr ? "مصروفات الفترة" : "This period", value: money(now.expenses), delta: deltaFigure(delta(thenPrev, now.expenses), "down", isAr) });
+      figures.push({ label: isAr ? "نفس الفترة السنة اللي فاتت" : "Same period last year", value: money(thenYear), delta: deltaFigure(delta(thenYear, now.expenses), "down", isAr) });
+      figure(isAr ? "متوسط الشهر" : "Monthly average", money(mx.average), "muted");
+      figure(isAr ? "أعلى شهر" : "Heaviest month", mx.peak ? `${monthLabel(mx.peak.month, isAr, true)} · ${money(mx.peak.value)}` : "—", "muted");
+      const mover = [...vsPrev].filter((c) => c.then > 0 && c.now > 0).sort((a, b) => Math.abs(b.delta.pct || 0) - Math.abs(a.delta.pct || 0))[0];
+      figure(isAr ? "أكبر تغيّر" : "Biggest mover", mover ? `${mover.category} ${mover.delta.abs > 0 ? "▲" : "▼"} ${Math.abs(mover.delta.pct || 0)}%` : "—", mover && mover.delta.abs > 0 ? "bad" : "muted");
+      const cols: DocColumn[] = [{ key: "category", label: isAr ? "التصنيف" : "Category" }, ...months.map((m, i) => ({ key: `m${i}`, label: monthLabel(m, isAr, withYear), align: "end" as const, kind: "money" as const })), { key: "total", label: isAr ? "الإجمالي" : "Total", align: "end", kind: "money" }, { key: "average", label: isAr ? "المتوسط" : "Average", align: "end", kind: "money" }];
+      const monthRow = (vals: number[]) => Object.fromEntries(vals.map((v, i) => [`m${i}`, v]));
+      sections.push({ type: "table", title: isAr ? "كل تصنيف، شهر بشهر" : "Every category, month by month", note: isAr ? "المتوسط على الشهور اللي فيها حركة بس." : "The average is over months that had any activity.",
+        columns: cols, rows: mx.categories.map((c) => ({ category: c.category, ...monthRow(c.byMonth), total: c.total, average: c.average, _bad: c.before > 0 && (c.delta.pct || 0) >= 25 })),
+        total: { category: isAr ? "الإجمالي" : "Total", ...monthRow(mx.totals), total: mx.total, average: mx.average } });
+      sections.push({ type: "months", title: isAr ? "المصروفات من الدخل" : "Expenses as a share of income", note: isAr ? "فوق ١٠٠٪ يعني الشهر صرف أكتر ما دخّل." : "Above 100% means the month spent more than it took in.", unit: "pct", points: mx.incomeShare.map((v, i) => ({ label: monthLabel(months[i], isAr, withYear), value: v ?? 0 })) });
+      const cmpTable = (title: string, rows: typeof vsPrev, then: number, against: string) =>
+        sections.push({ type: "table", title, note: isAr ? `مقابل ${against}، مرتّبة حسب حجم التغيّر.` : `Against ${against}, sorted by the size of the change.`,
+          columns: [{ key: "category", label: isAr ? "التصنيف" : "Category" }, { key: "then", label: isAr ? "قبل" : "Before", align: "end", kind: "money" }, { key: "now", label: isAr ? "دلوقتي" : "Now", align: "end", kind: "money" }, { key: "d", label: isAr ? "التغيّر" : "Change", align: "end", kind: "delta" }, { key: "share", label: isAr ? "الحصة" : "Share", align: "end", kind: "pct" }],
+          rows: rows.map((c) => ({ category: c.category, then: c.then, now: c.now, d: c.delta.pct, share: c.share, _bad: c.delta.abs > 0 })), total: { category: isAr ? "الإجمالي" : "Total", then, now: now.expenses, d: delta(then, now.expenses).pct } });
+      cmpTable(isAr ? "مقابل الفترة اللي قبلها" : "Against the period before", vsPrev, thenPrev, rangeText(prevRange, isAr));
+      cmpTable(isAr ? "مقابل نفس الفترة السنة اللي فاتت" : "Against the same period last year", vsYear, thenYear, rangeText(lastYearRange(range), isAr));
+      note(isAr ? "المصروفات هي اللي اتسجلت في صفحة المالية. نِسَب الأطباء ومصاريف المعمل ليهم تقاريرهم؛ الأحمر = تصنيف زاد." : "Expenses are what was entered on the Finance page. Commissions and lab fees have their own tabs. Red marks a category that grew.");
+      break;
+    }
+    case "cashflow": {
+      const { months } = trailingMonths(range.end, 12);
+      const cf = cashflow(d("ledgerMonths12"), months);
+      const withYear = months[0].slice(0, 4) !== months[11].slice(0, 4);
+      figure(isAr ? "دخل" : "Money in", money(cf.inflow));
+      figure(isAr ? "خرج" : "Money out", `(${fmt(cf.outflow)}) ${egp}`, "muted");
+      figure(isAr ? "الصافي" : "Net", money(cf.net), cf.net < 0 ? "bad" : "ink");
+      figure(isAr ? "متوسط الصافي في الشهر" : "Average net per month", money(cf.averageNet), cf.averageNet < 0 ? "bad" : "muted");
+      figure(isAr ? "شهور بالسالب" : "Months in the red", fmt(cf.monthsInRed), cf.monthsInRed > 0 ? "bad" : "muted");
+      figure(isAr ? "أحسن شهر" : "Best month", cf.best ? `${monthLabel(cf.best.month, isAr, true)} · ${money(cf.best.net)}` : "—", "muted");
+      sections.push({ type: "months", title: isAr ? "الداخل" : "Money in", unit: "money", points: cf.months.map((m) => ({ label: monthLabel(m.month, isAr, withYear), value: m.inflow })) });
+      sections.push({ type: "months", title: isAr ? "الخارج" : "Money out", note: isAr ? "مصروفات + معمل + نِسَب." : "Expenses + lab + commissions.", unit: "money", points: cf.months.map((m) => ({ label: monthLabel(m.month, isAr, withYear), value: m.outflow })) });
+      sections.push({ type: "table", title: isAr ? "شهر بشهر" : "Month by month",
+        columns: [{ key: "month", label: isAr ? "الشهر" : "Month" }, { key: "inflow", label: isAr ? "داخل" : "In", align: "end", kind: "money" }, { key: "expenses", label: isAr ? "مصروفات" : "Expenses", align: "end", kind: "money" }, { key: "lab", label: isAr ? "المعمل" : "Lab", align: "end", kind: "money" }, { key: "commissions", label: isAr ? "النِسَب" : "Commissions", align: "end", kind: "money" }, { key: "outflow", label: isAr ? "خارج" : "Out", align: "end", kind: "money" }, { key: "net", label: isAr ? "الصافي" : "Net", align: "end", kind: "money" }, { key: "running", label: isAr ? "التراكمي" : "Running", align: "end", kind: "money" }],
+        rows: cf.months.map((m) => ({ month: monthLongLabel(m.month, isAr), inflow: m.inflow, expenses: m.expenses, lab: m.lab, commissions: m.commissions, outflow: m.outflow, net: m.net, running: m.running, _bad: m.net < 0 })),
+        total: { month: isAr ? "الإجمالي" : "Total", inflow: cf.inflow, expenses: cf.months.reduce((s, m) => s + m.expenses, 0), lab: cf.months.reduce((s, m) => s + m.lab, 0), commissions: cf.months.reduce((s, m) => s + m.commissions, 0), outflow: cf.outflow, net: cf.net } });
+      note(isAr ? "الداخل = الفلوس اللي اتقبضت. الخارج = المصروفات + مصاريف المعمل + نِسَب الأطباء، بشهر العلاج أو الدفعة مش بشهر ما اتدفعوا. الرصيد التراكمي بيبدأ من أول شهر في الشاشة." : "In is cash received. Out is expenses + lab fees + dentist commissions, counted in the month of the treatment or payment, not the month they were paid out. The running total starts at the first month on screen.");
       break;
     }
     case "discounts": {

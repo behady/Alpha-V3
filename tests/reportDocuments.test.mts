@@ -114,6 +114,29 @@ const returning = buildDrillDoc("clinic", "returning", inputs("en"));
 ok(returning.type === "table" && returning.rows.length === 1 && returning.rows[0].name === "Karim Said", "returning drill: Karim's file predates the period");
 const leadsDrill = buildDrillDoc("leads", "leads:Instagram", inputs("en"));
 ok(leadsDrill.type === "table" && leadsDrill.rows[0].stage === "In the chair", "leads drill: the won lead, with its stage in words");
+const srcDoc = buildReportDoc("incomeSources", inputs("en"));
+ok(srcDoc.figures[0].value === "1,500 EGP" && srcDoc.figures[0].delta?.text.startsWith("▲ 50%"), "income sources: 1,500 now against 1,000 before, up 50%");
+const byTreatment = srcDoc.sections.find((s) => s.type === "bars" && s.title === "By treatment");
+ok(byTreatment?.type === "bars" && byTreatment.rows[0].label.startsWith("Crown") && byTreatment.rows[0].value === 1500, "income sources: the crown is the top treatment");
+const newness = srcDoc.sections.find((s) => s.type === "bars" && s.title === "New or returning");
+ok(newness?.type === "bars" && newness.rows[0].label.startsWith("New patients") && newness.rows[0].text.includes("100%"), "income sources: Mona's file opened in September, so all of it is new-patient money");
+const srcAr = buildReportDoc("incomeSources", inputs("ar"));
+ok(srcAr.sections.some((s) => s.type === "bars" && s.rows.some((r) => r.label.startsWith("مرضى جدد"))), "income sources: the newness labels follow the language");
+
+const trendDoc = buildReportDoc("expenseTrend", inputs("en"));
+ok(trendDoc.figures[0].value === "5,000 EGP" && trendDoc.figures[0].delta?.pct === null, "expense comparison: 5,000 this period, nothing before, so the delta is 'new'");
+const matrix = trendDoc.sections.find((s) => s.type === "table" && s.title === "Every category, month by month");
+ok(matrix?.type === "table" && matrix.columns.length === 15 && matrix.rows[0].category === "Rent" && matrix.rows[0].m11 === 5000 && matrix.rows[0].total === 5000, "expense comparison: category × twelve months, rent in the last column");
+ok(matrix?.type === "table" && matrix.rows[0].average === 5000, "expense comparison: one active month, so the average is the month itself");
+const vsPrev = trendDoc.sections.find((s) => s.type === "table" && s.title === "Against the period before");
+ok(vsPrev?.type === "table" && vsPrev.rows[0].category === "Rent" && vsPrev.rows[0].then === 0 && vsPrev.rows[0].now === 5000, "expense comparison: rent against a period that had none");
+
+const cfDoc = buildReportDoc("cashflow", inputs("en"));
+ok(cfDoc.figures.map((f) => f.value).slice(0, 3).join("|") === "1,500 EGP|(5,700) EGP|-4,200 EGP", "cash flow: 1,500 in, 5,700 out (5,000 rent + 400 lab + 300 commission), net −4,200");
+ok(cfDoc.figures[2].tone === "bad" && cfDoc.figures[4].value === "1", "cash flow: the net is red and one month is in the red");
+const cfTable = cfDoc.sections.find((s) => s.type === "table");
+ok(cfTable?.type === "table" && cfTable.rows.length === 12 && cfTable.rows[11].running === -4200 && cfTable.rows[11]._bad === true, "cash flow: twelve rows, the running total ends at −4,200, the bad month is marked");
+
 const nothing = buildDrillDoc("pnl", "nope:x", inputs("en"));
 eq(nothing.type, "note", "an unknown drill says so rather than throwing");
 

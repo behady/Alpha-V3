@@ -13,7 +13,7 @@
 
 import type { ComponentType, ReactNode } from "react";
 import {
-  Activity, BarChart3, Building2, CalendarDays, CalendarRange, Clock, FlaskConical, Grid3x3, Heart, Landmark, MessageCircle, Network, Package, Percent, PieChart, Receipt, Repeat, Stethoscope, TableProperties, TrendingUp, UserCheck, UserPlus, Users, Wallet, Megaphone, ClipboardCheck, BellRing, Cake,
+  Activity, BarChart3, Building2, CalendarDays, CalendarRange, Clock, FlaskConical, Grid3x3, Heart, Landmark, MessageCircle, Network, Package, Percent, PieChart, Receipt, Repeat, Stethoscope, TableProperties, TrendingUp, UserCheck, UserPlus, Users, Wallet, Megaphone, ClipboardCheck, BellRing, Cake, ArrowLeftRight, Coins, Layers,
 } from "lucide-react";
 import { REPORT_CATALOG, REPORT_GROUP_META, type ReportGroupId, type ReportMeta } from "@/lib/reports/catalog";
 import type { ReportProps } from "@/components/reports/types";
@@ -31,6 +31,9 @@ import HeatmapReport from "@/components/reports/HeatmapReport";
 import DentistTrendReport from "@/components/reports/DentistTrendReport";
 import PnlReport from "@/components/reports/PnlReport";
 import ExpensesReport from "@/components/reports/ExpensesReport";
+import IncomeSourcesReport from "@/components/reports/IncomeSourcesReport";
+import ExpenseTrendReport from "@/components/reports/ExpenseTrendReport";
+import CashflowReport from "@/components/reports/CashflowReport";
 import ReceivablesReport from "@/components/reports/ReceivablesReport";
 import DiscountsReport from "@/components/reports/DiscountsReport";
 import PaymentMethodsReport from "@/components/reports/PaymentMethodsReport";
@@ -68,6 +71,9 @@ const RENDERERS: Record<string, { icon: ComponentType<{ size?: number; className
   year: { icon: BarChart3, render: (p) => <YearReviewReport {...p} /> },
   heatmap: { icon: Grid3x3, render: (p) => <HeatmapReport {...p} /> },
   pnl: { icon: Landmark, render: (p) => <PnlReport {...p} /> },
+  incomeSources: { icon: Coins, render: (p) => <IncomeSourcesReport {...p} /> },
+  expenseTrend: { icon: Layers, render: (p) => <ExpenseTrendReport {...p} /> },
+  cashflow: { icon: ArrowLeftRight, render: (p) => <CashflowReport {...p} /> },
   service: { icon: Stethoscope, render: (p) => <ServiceReport procedures={p.procedures} payments={p.payments} allPatients={p.allPatients} rangeLabel={p.rangeLabel} isAr={p.isAr} /> },
   dentist: { icon: UserCheck, render: (p) => <DentistReport procedures={p.procedures} payments={p.payments} allPatients={p.allPatients} rangeLabel={p.rangeLabel} isAr={p.isAr} /> },
   dentistTrend: { icon: TrendingUp, render: (p) => <DentistTrendReport {...p} /> },

@@ -14,6 +14,7 @@ import { retention, lifetimeValue, demographics, recallDue, ageBand, ageOf } fro
 import { appointmentStats, outcomeOf, labStats, inventoryStats, staffLines } from "../src/lib/reports/opsStats";
 import { planStats } from "../src/lib/reports/plansStats";
 import { whatsappStats } from "../src/lib/reports/whatsappStats";
+import { incomeSources, expenseMatrix, compareExpenseCategories, cashflow } from "../src/lib/reports/financeStats";
 
 let checks = 0;
 function eq<T>(actual: T, expected: T, message: string) {
@@ -283,5 +284,52 @@ eq(ws.reschedulesByBot, 1, "and one move");
 eq(ws.sends, [{ type: "appointment_reminder24h", sent: 1, failed: 1, queued: 0, manual: 0 }], "reminder sends and failures");
 eq(ws.sms, [{ type: "reminder24h", sent: 1, failed: 0, queued: 0 }], "sms sends");
 eq(ws.optOuts, { inPeriod: 1, total: 2 }, "one opted out this month, two ever");
+
+// --- finance: sources, expense comparison, cash flow ---------------------------------------------------
+
+const FP = [
+  { id: "p1", referral: "Instagram", createdAt: "2026-09-02" },
+  { id: "p2", source: "whatsapp_bot", createdAt: "2025-01-01" },
+  { id: "p3", createdAt: "2025-06-01" },
+];
+const FPREV = [
+  { id: "c0", type: "procedure", patientId: "p2", doctorName: "Sara", serviceName: "Filling", serviceId: "svc-fill", cost: 300, normDate: "2026-08-10", date: "2026-08-10" },
+  { id: "y0", type: "payment", patientId: "p2", procedureId: "c0", paid: 300, method: "cash", normDate: "2026-08-10", date: "2026-08-10" },
+  { id: "y00", type: "payment", patientId: "p9", serviceName: "Whitening", serviceId: "svc-white", paid: 900, method: "cash", normDate: "2026-08-11", date: "2026-08-11" },
+];
+const src = incomeSources(L, FPREV, FP, { start: "2026-09-01", end: "2026-09-30" }, { start: "2026-08-01", end: "2026-08-31" });
+eq([src.total, src.prevTotal], [1800, 1200], "income both sides by the one rule: payments + income rows");
+eq(src.dentists.map((g) => [g.name, g.total, g.share]), [["Omar", 1500, 83.3], ["Unassigned", 300, 16.7], ["Sara", 0, 0]], "by dentist: the payment names Omar; the rest are unassigned; Sara earned last period so she is kept at zero");
+eq(src.methods.map((g) => [g.name, g.total]), [["Card", 1500], ["InstaPay", 200], ["Cash", 100]], "by method, folded into the five buckets");
+eq(src.methods.find((g) => g.name === "Cash")?.prev, 1200, "and what cash was worth the period before");
+eq(src.newness.map((g) => [g.name, g.total]), [["New patients", 1500], ["Returning patients", 200], ["Other income", 100]], "new = file opened inside the period; the X-ray CD has no patient");
+eq(src.channels.map((g) => [g.name, g.total]), [["Instagram", 1500], ["Unknown / Walk-in", 300], ["whatsapp_bot", 0]], "by channel, off the patient's file; the bot's patient paid last period only");
+eq(src.payers.map((g) => [g.name, g.total, g.prev]), [["Private (patient pays)", 1800, 1200]], "no payer stamped anywhere = private");
+const gone = src.services.find((g) => g.name === "Whitening");
+eq([gone?.total, gone?.prev, gone?.delta.pct], [0, 900, -100], "a service that earned last period and nothing this period still appears, at zero");
+
+const M3 = ["2026-07", "2026-08", "2026-09"];
+const FM = [
+  ...L,
+  { id: "e3", type: "expense", cost: 5000, category: "Rent", normDate: "2026-08-01", date: "2026-08-01" },
+  { id: "e4", type: "expense", cost: 750, category: "Supplies", normDate: "2026-08-15", date: "2026-08-15" },
+  { id: "y3", type: "payment", patientId: "p2", paid: 4000, normDate: "2026-08-15", date: "2026-08-15" },
+];
+const mx = expenseMatrix(FM, M3);
+eq(mx.totals, [0, 5750, 5250], "expenses per month, July empty");
+eq(mx.activeMonths, 2, "July had nothing at all, so it does not drag the average down");
+eq([mx.total, mx.average], [11000, 5500], "total and the average over active months");
+eq(mx.categories.map((c) => [c.category, c.byMonth, c.total, c.share]), [["Rent", [0, 5000, 5000], 10000, 90.9], ["Supplies", [0, 750, 250], 1000, 9.1]], "category by month, largest first");
+eq(mx.categories[1].delta.pct, -66.7, "supplies fell two thirds on the month before");
+eq(mx.incomeShare, [null, 143.8, 291.7], "expenses as a share of that month's income; null when nothing came in");
+eq(mx.peak, { month: "2026-08", value: 5750 }, "the heaviest month");
+
+const cmp = compareExpenseCategories(L, [{ id: "e3", type: "expense", cost: 5000, category: "Rent", normDate: "2026-08-01" }, { id: "e5", type: "expense", cost: 400, category: "Lab", normDate: "2026-08-02" }]);
+eq(cmp.map((c) => [c.category, c.then, c.now, c.delta.pct]), [["Lab", 400, 0, -100], ["Supplies", 0, 250, null], ["Rent", 5000, 5000, 0]], "category against the period before, biggest move first; a category that vanished is kept at zero");
+
+const cf = cashflow(FM, M3);
+eq(cf.months.map((m) => [m.inflow, m.outflow, m.net, m.running]), [[0, 0, 0, 0], [4000, 5750, -1750, -1750], [1800, 5950, -4150, -5900]], "in, out (expenses + lab + commissions), net and the running total");
+eq([cf.inflow, cf.outflow, cf.net, cf.averageNet, cf.monthsInRed], [5800, 11700, -5900, -2950, 2], "totals over the window, the average over active months, months in the red");
+eq([cf.best?.month, cf.worst?.month], ["2026-08", "2026-09"], "best and worst month by net");
 
 console.log(`reportSuite: ${checks} checks passed`);
