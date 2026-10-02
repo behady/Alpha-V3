@@ -184,7 +184,8 @@
     "recharts": "^3.6.0",
     "remark-gfm": "^4.0.1",
     "tailwindcss-animate": "^1.0.7",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "xlsx-js-style": "^1.2.0"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.1",
