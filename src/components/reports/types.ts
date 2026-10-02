@@ -18,4 +18,6 @@ export type ReportProps = {
   isAr: boolean;
   clinic: Clinic | null;
   data: ReportData;
+  /** Lets a report move the page's own range — the statement tab picks a month. Absent on the phone. */
+  setRange?: (range: DateRange) => void;
 };
