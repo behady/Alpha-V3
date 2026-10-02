@@ -71,3 +71,82 @@ const empty = buildInsuranceStatement({ rows, payerId: "nextcare", payerName: "N
 assert.deepEqual(empty.cases, []);
 assert.equal(empty.total, 0);
 console.log("insuranceStatement: model ok");
+
+// --- 4. The workbook, in the insurer's layout ----------------------------------------------------------
+import XLSX from "xlsx-js-style";
+import { statementFileName, statementToWorkbook } from "../src/lib/insuranceStatementXlsx";
+
+const header = { line1: "DENT INN dental clinic\nد.أحمد رشدي أبو النجا", line2: "برج القاهرة للمبيعات - ميدان السبع عمارات - مصر الجديدة", line3: "01093888153 - 22907666" };
+const wb = statementToWorkbook(s, header);
+const ws = wb.Sheets.Sheet1;
+assert.deepEqual(wb.SheetNames, ["Sheet1"]);
+assert.equal(ws.A1.v, header.line1);
+assert.equal(ws.A2.v, header.line2);
+assert.equal(ws.A3.v, header.line3);
+assert.deepEqual([ws.A4.v, ws.B4.v, ws.C4.v, ws.D4.v], ["المسلسل", "اسم الحالة", "بيان الخدمة", "قيمة الخدمة"]);
+// Case 1 occupies rows 5-7: two lines and a subtotal with a real SUM.
+assert.equal(ws.A5.v, 1);
+assert.equal(ws.B5.v, "(A1B2)كريم يوسف سعيد");
+assert.equal(ws.C5.v, "2طربوش زركونيا رقم 4-5");
+assert.equal(ws.D5.v, 4800);
+assert.equal(ws.C6.v, "علاج لثه صديديه");
+assert.equal(ws.C7.v, "الاجمالي");
+assert.equal(ws.D7.f, "SUM(D5:D6)");
+// Case 2 starts right after: rows 8-10.
+assert.equal(ws.A8.v, 2);
+assert.equal(ws.D10.f, "SUM(D8:D9)");
+// Styles: the sample's fonts, fill and borders.
+assert.equal(ws.A1.s.font.name, "Arial");
+assert.equal(ws.A1.s.font.sz, 36);
+assert.equal(ws.A1.s.font.bold, true);
+assert.equal(ws.A1.s.border.top.style, "medium");
+assert.equal(ws.A1.s.alignment.wrapText, true);
+assert.equal(ws.A4.s.fill.fgColor.rgb, "938953");
+assert.equal(ws.A4.s.font.sz, 36);
+assert.equal(ws.A5.s.fill.fgColor.rgb, "938953");   // the serial cell is shaded
+assert.equal(ws.B5.s.fill, undefined);               // the name is not
+assert.equal(ws.C5.s.font.sz, 20);
+assert.equal(ws.C5.s.border.top.style, "thin");
+assert.equal(ws.C7.s.font.sz, 22);
+assert.equal(ws.C7.s.fill.fgColor.rgb, "938953");
+assert.equal(ws.D7.s.fill.fgColor.rgb, "938953");
+// Merges: the header lines across A:D, and A/B over each case's rows.
+const merges = (ws["!merges"] as XLSX.Range[]).map((m) => XLSX.utils.encode_range(m));
+for (const m of ["A1:D1", "A2:D2", "A3:D3", "A5:A7", "B5:B7", "A8:A10", "B8:B10"]) assert.ok(merges.includes(m), `missing merge ${m}: ${merges.join(" ")}`);
+// Footer: four rows, A:C merged with الاجمالي in 36pt, D merged with a SUM of every subtotal.
+const last = XLSX.utils.decode_range(ws["!ref"] as string).e.r;
+const footTop = last - 3;
+assert.ok(merges.includes(XLSX.utils.encode_range({ s: { r: footTop, c: 0 }, e: { r: last, c: 2 } })), "footer A:C merge");
+assert.ok(merges.includes(XLSX.utils.encode_range({ s: { r: footTop, c: 3 }, e: { r: last, c: 3 } })), "footer D merge");
+const footLabel = ws[XLSX.utils.encode_cell({ r: footTop, c: 0 })];
+assert.equal(footLabel.v, "الاجمالي");
+assert.equal(footLabel.s.font.sz, 36);
+const totalCell = ws[XLSX.utils.encode_cell({ r: footTop, c: 3 })];
+assert.equal(totalCell.f, "SUM(D7,D10,D14,D16,D20)");
+// Widths and heights from the sample; RTL at workbook level (the only place the writer honours).
+assert.deepEqual((ws["!cols"] as XLSX.ColInfo[]).map((c) => c.wch), [19.1, 45, 63.9, 44.3]);
+assert.deepEqual((ws["!rows"] as XLSX.RowInfo[]).slice(0, 3).map((r) => r.hpt), [90, 45.8, 35.2]);
+assert.equal(wb.Workbook?.Views?.[0]?.RTL, true);
+// And all of it survives being written: read the bytes back.
+const back = XLSX.read(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }), { type: "buffer" });
+assert.equal(back.Workbook?.Views?.[0]?.RTL, true);
+assert.equal(back.Sheets.Sheet1.D7.f, "SUM(D5:D6)");
+assert.equal(back.Sheets.Sheet1.B5.v, "(A1B2)كريم يوسف سعيد");
+assert.equal((back.Sheets.Sheet1["!merges"] as XLSX.Range[]).length, merges.length);
+assert.equal(statementFileName(s), "statement-nextcare-2026-02.xlsx");
+// An empty statement still writes a valid sheet: header, column titles, a footer totalling nothing.
+const emptyWs = statementToWorkbook(empty, header).Sheets.Sheet1;
+assert.equal(emptyWs.A4.v, "المسلسل");
+assert.equal(emptyWs.A5.v, "الاجمالي");
+assert.equal(emptyWs.D5.v, 0);
+console.log("insuranceStatement: workbook ok");
+
+// --- 5. The member number on the patient record ----------------------------------------------------------
+import { readMemberNumbers, writeInsurance } from "../src/lib/patientInsurance";
+
+assert.deepEqual(readMemberNumbers({ insurance: { nextcare: { memberNumber: " A1B2 " }, axa: {}, bad: "x" } }), { nextcare: "A1B2" });
+assert.deepEqual(readMemberNumbers({}), {});
+assert.deepEqual(readMemberNumbers({ insurance: null }), {});
+assert.deepEqual(writeInsurance({ nextcare: " A1B2 ", axa: "   ", "Not A Payer": "1" }), { nextcare: { memberNumber: "A1B2" } });
+assert.deepEqual(writeInsurance({}), {});
+console.log("insuranceStatement: patient member numbers ok");
