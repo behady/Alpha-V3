@@ -121,6 +121,8 @@
     "test:payers": "npx tsx tests/payers.test.mts",
     "_comment_test_cases": "The case sheet: a line per treatment, filtered, totalled and paged. The assertions that matter are the quiet ones - money attaches only to the case that names it (an expense sharing the id is not income), the totals describe the FILTERED rows rather than the period, a page number cannot survive a filter and strand the reader on an empty page, and an Arabic name written without the hamza still finds the patient written with it.",
     "test:cases": "npx tsx tests/caseSheet.test.mts",
+    "_comment_test_insurance_statement": "The monthly claim statement to an insurer, in the insurer's own sheet layout (docs/samples). Fixture reproduces a real accepted statement; pins the line wording (count, name, tooth positions), case grouping by visit, exclusions, totals, and the written workbook's merges, formulas and RTL.",
+    "test:insurance-statement": "npx tsx tests/insuranceStatement.test.mts",
     "test:report-patients": "npx tsx tests/reportPatients.test.mts",
     "test:report-suite": "npx tsx tests/reportSuite.test.mts",
     "test:report-docs": "npx tsx tests/reportDocuments.test.mts",
