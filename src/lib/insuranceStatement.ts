@@ -130,16 +130,20 @@ export function buildInsuranceStatement(args: {
   rows: StatementRowLite[];
   payerId: string;
   payerName: string;
+  /** yyyy-mm: the statement's month, and the filter unless `range` is given. */
   month: string;
+  /** When set, rows inside these dates are taken instead of the month's — the phone builds over the range on screen. */
+  range?: { start: string; end: string };
   memberNumbers: ReadonlyMap<string, string>;
 }): Statement {
-  const { rows, payerId, payerName, month, memberNumbers } = args;
+  const { rows, payerId, payerName, month, range, memberNumbers } = args;
 
+  const inPeriod = (date: string) => (range ? date >= range.start && date <= range.end : date.slice(0, 7) === month);
   const inScope = rows.filter(
     (r) =>
       text(r.type) === "procedure" &&
       text(r.payerId) === payerId &&
-      text(r.date).slice(0, 7) === month &&
+      inPeriod(text(r.date).slice(0, 10)) &&
       !INACTIVE.has(text(r.status).toLowerCase())
   );
 

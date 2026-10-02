@@ -13,7 +13,7 @@
 
 import type { ComponentType, ReactNode } from "react";
 import {
-  Activity, BarChart3, Building2, CalendarDays, CalendarRange, Clock, FlaskConical, Grid3x3, Heart, Landmark, MessageCircle, Network, Package, Percent, PieChart, Receipt, Repeat, Stethoscope, TableProperties, TrendingUp, UserCheck, UserPlus, Users, Wallet, Megaphone, ClipboardCheck, BellRing, Cake, ArrowLeftRight, Coins, Layers,
+  Activity, BarChart3, Building2, CalendarDays, CalendarRange, Clock, FileSpreadsheet, FlaskConical, Grid3x3, Heart, Landmark, MessageCircle, Network, Package, Percent, PieChart, Receipt, Repeat, Stethoscope, TableProperties, TrendingUp, UserCheck, UserPlus, Users, Wallet, Megaphone, ClipboardCheck, BellRing, Cake, ArrowLeftRight, Coins, Layers,
 } from "lucide-react";
 import { REPORT_CATALOG, REPORT_GROUP_META, type ReportGroupId, type ReportMeta } from "@/lib/reports/catalog";
 import type { ReportProps } from "@/components/reports/types";
@@ -24,6 +24,7 @@ import SourceReport from "@/components/reports/SourceReport";
 import ClinicReport from "@/components/reports/ClinicReport";
 import LeadFunnelReport from "@/components/reports/LeadFunnelReport";
 import PayerReport from "@/components/reports/PayerReport";
+import InsuranceStatementReport from "@/components/reports/InsuranceStatementReport";
 import CaseSheetReport from "@/components/reports/CaseSheetReport";
 import CompareReport from "@/components/reports/CompareReport";
 import YearReviewReport from "@/components/reports/YearReviewReport";
@@ -78,6 +79,7 @@ const RENDERERS: Record<string, { icon: ComponentType<{ size?: number; className
   dentist: { icon: UserCheck, render: (p) => <DentistReport procedures={p.procedures} payments={p.payments} allPatients={p.allPatients} rangeLabel={p.rangeLabel} isAr={p.isAr} /> },
   dentistTrend: { icon: TrendingUp, render: (p) => <DentistTrendReport {...p} /> },
   payers: { icon: Wallet, render: (p) => <PayerReport procedures={p.procedures as LedgerRowLite[]} payments={p.payments as LedgerRowLite[]} payers={p.payers} rangeLabel={p.rangeLabel} isAr={p.isAr} /> },
+  insurance: { icon: FileSpreadsheet, render: (p) => <InsuranceStatementReport {...p} /> },
   receivables: { icon: Receipt, render: (p) => <ReceivablesReport {...p} /> },
   expenses: { icon: PieChart, render: (p) => <ExpensesReport {...p} /> },
   discounts: { icon: Percent, render: (p) => <DiscountsReport {...p} /> },

@@ -66,6 +66,9 @@ assert.deepEqual(s.missingMemberNumber, [{ patientId: "pat-nomember", patientNam
 assert.equal(caseLabel({ memberNumber: "", patientName: "X" }), "X");
 // Rows without an appointment group by patient and day.
 assert.equal(s.cases[4].lines.length, 3);
+// A range instead of a month: the phone builds over the dates on screen.
+const ranged = buildInsuranceStatement({ rows, payerId: "nextcare", payerName: "Nextcare", month: "2026-02", range: { start: "2026-01-01", end: "2026-02-03" }, memberNumbers });
+assert.deepEqual(ranged.cases.map((c) => c.subtotal), [30, 4828, 85, 1685]);   // January's case comes first
 // An empty month is an empty statement, not a crash.
 const empty = buildInsuranceStatement({ rows, payerId: "nextcare", payerName: "Nextcare", month: "2025-12", memberNumbers });
 assert.deepEqual(empty.cases, []);

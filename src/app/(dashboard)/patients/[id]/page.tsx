@@ -22,6 +22,9 @@ import { generalDoctorLabel } from "@/lib/generalDentist";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { logActivity } from "@/lib/logger";
+import { usePricingPolicy } from "@/lib/usePricingPolicy";
+import { PRIVATE_PAYER_ID } from "@/lib/payers";
+import { readMemberNumbers, writeInsurance } from "@/lib/patientInsurance";
 import PermissionGuard from "@/components/PermissionGuard";
 import Protect from "@/components/Protect";
 import PatientFinance from "@/components/PatientFinance";
@@ -237,6 +240,10 @@ export default function PatientProfile() {
   const [editStatus, setEditStatus] = useState("Active");
   const [historyTags, setHistoryTags] = useState<string[]>([]);
   const [editMedicalHistory, setEditMedicalHistory] = useState("");
+  // One member number per insurer: what the insurer's claim statement prints in front of the name.
+  const [editInsurance, setEditInsurance] = useState<Record<string, string>>({});
+  const { payers } = usePricingPolicy();
+  const insurers = payers.filter((p) => p.id !== PRIVATE_PAYER_ID && p.active);
 
   // Set the SMART default tab based on roles
   useEffect(() => {
@@ -335,6 +342,7 @@ export default function PatientProfile() {
         setEditAllergies(data.allergies || "");
         setEditGender(data.gender || "Male");
         setEditStatus(data.status || "Active");
+        setEditInsurance(readMemberNumbers(data));
         
         if (data.medicalHistory && data.medicalHistory !== "None (Healthy)") {
           setHistoryTags(data.medicalHistory.split(', ').filter((s: string) => s.trim() !== ""));
@@ -576,7 +584,8 @@ export default function PatientProfile() {
         medicalHistory: finalHistory,
         allergies: editAllergies,
         gender: editGender,
-        status: editStatus
+        status: editStatus,
+        insurance: writeInsurance(editInsurance),
       });
       await logActivity(
         { uid: user?.uid, name: user?.name, role: user?.role },
@@ -2141,6 +2150,33 @@ export default function PatientProfile() {
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">{language === 'ar' ? 'التاريخ الطبي' : 'Medical history'}</label>
                         <input value={editMedicalHistory} onChange={e => setEditMedicalHistory(e.target.value)} placeholder={language === 'ar' ? 'مثال: سكري، ضغط — اتركه فارغاً إن لم يُسأل' : 'e.g. Diabetes, hypertension — leave blank if not asked'} className="w-full px-4 py-3 bg-surface-subtle border border-line rounded-xl font-bold text-ink outline-none focus:bg-surface focus:ring-4 focus:ring-primary-500/10 focus:border-primary-400 transition-all placeholder:font-medium placeholder:text-slate-300"/>
                     </div>
+
+                    {/* Only clinics that do insurance work see this: a clinic with no insurer configured has
+                        no number to record, and the block would only ask a question nobody can answer. */}
+                    {insurers.length > 0 && (
+                      <div className="pt-4 border-t border-slate-100">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 block">
+                          {language === 'ar' ? 'أرقام العضوية في التأمين' : 'Insurance member numbers'}
+                        </label>
+                        <p className="text-[11px] font-semibold text-slate-400 mb-3">
+                          {language === 'ar' ? 'يُطبع قبل الاسم في كشف حساب شركة التأمين، مثل (07B5).' : "Printed in front of the name on the insurer's claim statement, e.g. (07B5)."}
+                        </p>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {insurers.map((p) => (
+                            <div key={p.id}>
+                              <label className="text-[11px] font-bold text-ink-body mb-1 block">{language === 'ar' ? (p.nameAr || p.name) : p.name}</label>
+                              <input
+                                value={editInsurance[p.id] || ""}
+                                onChange={(e) => setEditInsurance((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                                placeholder="07B5"
+                                dir="ltr"
+                                className="w-full px-4 py-3 bg-surface-subtle border border-line rounded-xl font-bold text-ink outline-none focus:bg-surface focus:ring-4 focus:ring-primary-500/10 focus:border-primary-400 transition-all placeholder:font-medium placeholder:text-slate-300"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     
                     <div className="flex gap-4 pt-6 border-t border-slate-100 mt-6">
                        <Protect permission="patients.delete">
