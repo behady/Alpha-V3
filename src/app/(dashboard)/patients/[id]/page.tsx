@@ -24,7 +24,7 @@ import { useClinic } from "@/context/ClinicContext";
 import { logActivity } from "@/lib/logger";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import { PRIVATE_PAYER_ID } from "@/lib/payers";
-import { readMemberNumbers, writeInsurance } from "@/lib/patientInsurance";
+import { readInsurance, writeInsurance, type PatientInsuranceEntry } from "@/lib/patientInsurance";
 import PermissionGuard from "@/components/PermissionGuard";
 import Protect from "@/components/Protect";
 import PatientFinance from "@/components/PatientFinance";
@@ -241,9 +241,17 @@ export default function PatientProfile() {
   const [historyTags, setHistoryTags] = useState<string[]>([]);
   const [editMedicalHistory, setEditMedicalHistory] = useState("");
   // One member number per insurer: what the insurer's claim statement prints in front of the name.
-  const [editInsurance, setEditInsurance] = useState<Record<string, string>>({});
+  const [editInsurance, setEditInsurance] = useState<Record<string, PatientInsuranceEntry | string>>({});
   const { payers } = usePricingPolicy();
   const insurers = payers.filter((p) => p.id !== PRIVATE_PAYER_ID && p.active);
+  // A plain insurer takes one member-number string; a MetLife-format one takes the entry's three boxes.
+  const insuranceEntry = (id: string): PatientInsuranceEntry => {
+    const v = editInsurance[id];
+    return typeof v === "object" && v ? v : { memberNumber: v || "" };
+  };
+  const setMetlifeBox = (id: string, field: "policyNumber" | "certificateNumber" | "dependentCode", value: string) =>
+    // Certificate and dependent make the member number, so a stale one must not outlive an edit to them.
+    setEditInsurance((prev) => ({ ...prev, [id]: { ...insuranceEntry(id), [field]: value, ...(field === "policyNumber" ? {} : { memberNumber: "" }) } }));
 
   // Set the SMART default tab based on roles
   useEffect(() => {
@@ -342,7 +350,7 @@ export default function PatientProfile() {
         setEditAllergies(data.allergies || "");
         setEditGender(data.gender || "Male");
         setEditStatus(data.status || "Active");
-        setEditInsurance(readMemberNumbers(data));
+        setEditInsurance(readInsurance(data));
         
         if (data.medicalHistory && data.medicalHistory !== "None (Healthy)") {
           setHistoryTags(data.medicalHistory.split(', ').filter((s: string) => s.trim() !== ""));
@@ -2162,11 +2170,32 @@ export default function PatientProfile() {
                           {language === 'ar' ? 'يُطبع قبل الاسم في كشف حساب شركة التأمين، مثل (A1B2).' : "Printed in front of the name on the insurer's claim statement, e.g. (A1B2)."}
                         </p>
                         <div className="grid gap-3 sm:grid-cols-2">
-                          {insurers.map((p) => (
+                          {insurers.map((p) => p.format === "metlife" ? (
+                            <div key={p.id} className="sm:col-span-2">
+                              <label className="text-[11px] font-bold text-ink-body mb-1 block">{language === 'ar' ? (p.nameAr || p.name) : p.name}</label>
+                              <div className="grid gap-3 sm:grid-cols-3">
+                                {([
+                                  ["policyNumber", language === 'ar' ? 'رقم الوثيقة' : 'Policy number'],
+                                  ["certificateNumber", language === 'ar' ? 'رقم الشهادة' : 'Certificate number'],
+                                  ["dependentCode", language === 'ar' ? 'كود المعال' : 'Dependent code'],
+                                ] as const).map(([field, label]) => (
+                                  <div key={field}>
+                                    <label className="text-[10px] font-bold text-slate-400 mb-1 block">{label}</label>
+                                    <input
+                                      value={insuranceEntry(p.id)[field] || ""}
+                                      onChange={(e) => setMetlifeBox(p.id, field, e.target.value)}
+                                      dir="ltr"
+                                      className="w-full px-4 py-3 bg-surface-subtle border border-line rounded-xl font-bold text-ink outline-none focus:bg-surface focus:ring-4 focus:ring-primary-500/10 focus:border-primary-400 transition-all placeholder:font-medium placeholder:text-slate-300"
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : (
                             <div key={p.id}>
                               <label className="text-[11px] font-bold text-ink-body mb-1 block">{language === 'ar' ? (p.nameAr || p.name) : p.name}</label>
                               <input
-                                value={editInsurance[p.id] || ""}
+                                value={insuranceEntry(p.id).memberNumber}
                                 onChange={(e) => setEditInsurance((prev) => ({ ...prev, [p.id]: e.target.value }))}
                                 placeholder="A1B2"
                                 dir="ltr"

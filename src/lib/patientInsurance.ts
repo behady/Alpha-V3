@@ -10,7 +10,7 @@
  * entry would print `()` on the statement.
  */
 
-export type PatientInsurance = Record<string, { memberNumber: string }>;
+export type PatientInsurance = Record<string, PatientInsuranceEntry>;
 
 const PAYER_ID = /^[a-z0-9_-]+$/;
 
@@ -55,13 +55,33 @@ export function readMemberNumbers(patient: Record<string, unknown>): Record<stri
   return out;
 }
 
-/** The map to store, from what was typed. Trimmed; blank entries and malformed ids are left out. */
-export function writeInsurance(edits: Record<string, string>): PatientInsurance {
+/**
+ * The map to store, from what was typed. Trimmed; blank entries and malformed ids are left out.
+ * A string is a plain member number. An entry is MetLife's three boxes: certificate and dependent
+ * together make the member number (`987/1`); without both, only a typed member number is kept.
+ * Blank fields are left out, never written as `undefined`.
+ */
+export function writeInsurance(edits: Record<string, PatientInsuranceEntry | string>): PatientInsurance {
   const out: PatientInsurance = {};
   for (const [payerId, typed] of Object.entries(edits)) {
     if (!PAYER_ID.test(payerId)) continue;
-    const member = String(typed ?? "").trim();
-    if (member) out[payerId] = { memberNumber: member };
+    if (typeof typed !== "object" || typed === null) {
+      const member = String(typed ?? "").trim();
+      if (member) out[payerId] = { memberNumber: member };
+      continue;
+    }
+    const certificate = String(typed.certificateNumber ?? "").trim();
+    const dependent = String(typed.dependentCode ?? "").trim();
+    const policy = String(typed.policyNumber ?? "").trim();
+    const both = certificate !== "" && dependent !== "";
+    const memberNumber = both ? metlifeMemberNumber(certificate, dependent) : String(typed.memberNumber ?? "").trim();
+    // Neither box filled: nothing identifies the member, so only a typed member number keeps the entry.
+    if (!both && !memberNumber && !(certificate || dependent)) continue;
+    const entry: PatientInsuranceEntry = { memberNumber };
+    if (certificate) entry.certificateNumber = certificate;
+    if (dependent) entry.dependentCode = dependent;
+    if (policy) entry.policyNumber = policy;
+    out[payerId] = entry;
   }
   return out;
 }

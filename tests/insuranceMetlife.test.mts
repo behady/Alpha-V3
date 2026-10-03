@@ -24,7 +24,7 @@ import {
   type MetlifeLine,
 } from "../src/lib/insurance/metlife";
 import { latinSkeleton, matchPatient, nameSimilarity } from "../src/lib/insurance/matchPatient";
-import { metlifeMemberNumber, readInsurance, readMemberNumbers } from "../src/lib/patientInsurance";
+import { metlifeMemberNumber, readInsurance, readMemberNumbers, writeInsurance } from "../src/lib/patientInsurance";
 import { SAMPLE_RAW } from "./fixtures/insuranceMetlife.fixture";
 
 const ctx = { today: "2026-10-03", providerCode: "DNC0001" };
@@ -425,5 +425,28 @@ assert.deepEqual(
   readMemberNumbers({ insurance: { x: { memberNumber: "A1", dependentCode: "2" } } }),
   "readInsurance agrees with readMemberNumbers on the member number",
 );
+
+// --- 6. Writing the patient's insurance back: plain member numbers and MetLife's three boxes ----------
+assert.deepEqual(writeInsurance({ nextcare: " A1B2 ", blank: "  ", "Bad Id": "X" }), { nextcare: { memberNumber: "A1B2" } }, "a string is the plain member number, as before");
+assert.deepEqual(writeInsurance({ metlife: { certificateNumber: " 987 ", dependentCode: "1", policyNumber: "6481234567", memberNumber: "" } }), { metlife: { memberNumber: "987/1", certificateNumber: "987", dependentCode: "1", policyNumber: "6481234567" } });
+assert.deepEqual(writeInsurance({ nextcare: "A1B2", metlife: { certificateNumber: "", dependentCode: "", memberNumber: "" } }), { nextcare: { memberNumber: "A1B2" } });
+// the derived member number wins over a stale typed one
+assert.deepEqual(writeInsurance({ metlife: { certificateNumber: "5", dependentCode: "2", memberNumber: "OLD" } }), { metlife: { memberNumber: "5/2", certificateNumber: "5", dependentCode: "2" } });
+// blank policy number is left out, never written as ""
+assert.deepEqual(writeInsurance({ metlife: { certificateNumber: "5", dependentCode: "0", policyNumber: "  ", memberNumber: "" } }), { metlife: { memberNumber: "5/0", certificateNumber: "5", dependentCode: "0" } });
+// no certificate and dependent: only a typed member number survives
+assert.deepEqual(writeInsurance({ metlife: { policyNumber: "999", memberNumber: " M7 " } }), { metlife: { memberNumber: "M7", policyNumber: "999" } });
+assert.deepEqual(writeInsurance({ metlife: { policyNumber: "999", memberNumber: "" } }), {});
+// only one of the two: what is there is kept, and nothing is ever undefined
+{
+  const out = writeInsurance({ metlife: { certificateNumber: "987", dependentCode: " ", memberNumber: "" } });
+  assert.deepEqual(out, { metlife: { memberNumber: "", certificateNumber: "987" } });
+  assert.ok(Object.values(out.metlife).every((v) => v !== undefined), "Firestore refuses undefined");
+}
+// what the editor reads, it can write back unchanged
+{
+  const stored = { metlife: { memberNumber: "987/1", certificateNumber: "987", dependentCode: "1", policyNumber: "6481234567" }, nextcare: { memberNumber: "A1B2" } };
+  assert.deepEqual(writeInsurance(readInsurance({ insurance: stored })), stored);
+}
 
 console.log("insurance metlife reader: ok");
