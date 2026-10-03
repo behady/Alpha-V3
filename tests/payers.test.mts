@@ -802,4 +802,24 @@ function eq<T>(actual: T, expected: T, message: string) {
   );
 }
 
+// --- the insurer's document format and provider code ------------------------------------------
+{
+  // parsePayers puts Private first, so each payer is looked up by id rather than taken from [0].
+  const only = (raw: unknown, id: string) => parsePayers(raw).find((x) => x.id === id) as Payer;
+  const p = only({
+    payers: [{ id: "metlife", name: "MetLife", active: true, isDefault: false, format: "metlife", providerCode: " DNC8144 " }],
+  }, "metlife");
+  eq(p.format, "metlife", "a known document format is kept");
+  eq(p.providerCode, "DNC8144", "the provider code is trimmed");
+  const q = only({ payers: [{ id: "x", name: "X", active: true, isDefault: false, format: "bogus" }] }, "x");
+  eq(q.format, undefined, "an unknown format is dropped, not stored");
+  ok(!("format" in payersDocFrom([q]).payers.find((x) => x.id === "x")!), "no undefined written");
+  const blank = only({
+    payers: [{ id: "y", name: "Y", active: true, isDefault: false, format: "metlife", providerCode: "   " }],
+  }, "y");
+  ok(!("providerCode" in blank), "a blank provider code is omitted rather than stored as an empty string");
+  const written = payersDocFrom([p]).payers.find((x) => x.id === "metlife")!;
+  eq([written.format, written.providerCode], ["metlife", "DNC8144"], "both survive the round trip to the stored document");
+}
+
 console.log(`payers: ${checks} checks passed`);

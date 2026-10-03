@@ -34,6 +34,17 @@
 /** The id of the payer every clinic starts with, and the one nothing can delete. */
 export const PRIVATE_PAYER_ID = "private";
 
+/**
+ * Which insurer-specific reader and statement layout a payer uses. Each one names a document the
+ * system knows how to read; a payer with none set is simply not an insurer the approvals feature
+ * handles. Held as ids so the stored document stays small and the labels can be translated.
+ */
+export type InsurerFormat = "metlife";
+
+export const INSURER_FORMATS: { id: InsurerFormat; en: string; ar: string }[] = [
+  { id: "metlife", en: "MetLife", ar: "متلايف" },
+];
+
 export type Payer = {
   id: string;
   name: string;
@@ -59,6 +70,10 @@ export type Payer = {
    * happen to share a name.
    */
   services?: string[];
+  /** Which insurer's approval document this payer sends. Absent = none of the known formats. */
+  format?: InsurerFormat;
+  /** The clinic's own code with this insurer, as printed on its approvals and statements. */
+  providerCode?: string;
   /** Retired payers stop being offered on new treatments and stay readable on old ones. */
   active: boolean;
   /** Preselected on a new treatment when the patient has no payer of their own. */
@@ -131,6 +146,12 @@ export function parsePayers(raw: unknown): Payer[] {
         // by setDoc and rejected by Firestore, and "absent" is a meaningful answer we must keep.
         ...(Array.isArray(p.services)
           ? { services: p.services.filter((x): x is string => typeof x === "string" && !!x.trim()) }
+          : {}),
+        // Both conditionally spread for the same reason as the rest: an undefined would be
+        // written back and rejected by Firestore. An unknown format is dropped, not stored.
+        ...(INSURER_FORMATS.some((f) => f.id === p.format) ? { format: p.format } : {}),
+        ...(typeof p.providerCode === "string" && p.providerCode.trim()
+          ? { providerCode: p.providerCode.trim() }
           : {}),
         active: p.active !== false,
         isDefault: p.isDefault === true,
