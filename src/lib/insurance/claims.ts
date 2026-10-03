@@ -10,6 +10,7 @@
  */
 
 import { normalizeMetlife, type MetlifeExtraction, type MetlifeHeader, type MetlifeLine } from "./metlife";
+import { readInsurance, writeInsurance, type PatientInsuranceEntry } from "../patientInsurance";
 
 export const CLAIMS_COLLECTION = "insurance_claims";
 export const DOCS_COLLECTION = "insurance_docs";
@@ -211,4 +212,74 @@ export function parseClaim(id: string, raw: unknown): InsuranceClaim | null {
     totals: claimTotals(x.lines),
     doc: parseDoc(r.doc),
   };
+}
+
+// --- Edits and the patient's membership ------------------------------------------------------------
+
+/**
+ * The treated date a status change implies. `undefined` means "leave the stored one".
+ *
+ * - `approved` (not treated yet): always null, whatever date came with it.
+ * - `treated`: the date sent, else the one already stored, else the approval date (the card's default).
+ * - anything else, or no status change: the date sent when one was sent, else unchanged.
+ */
+export function treatedDateAfter(args: {
+  status?: ClaimStatus;
+  treatedDate?: string | null;
+  current: string | null;
+  approvalDate: string;
+}): string | null | undefined {
+  if (args.status === "approved") return null;
+  if (args.status === "treated") {
+    if (args.treatedDate) return args.treatedDate;
+    return args.current ?? (args.approvalDate || null);
+  }
+  return args.treatedDate === undefined ? undefined : args.treatedDate;
+}
+
+/**
+ * The claim as an extraction again, with an edit's `lines` and/or `metlife` laid over it, so the
+ * reader's hard checks can be run on what the claim would become. The claim's own approval number,
+ * date and paper name always win over anything in the patched `metlife`; no header confidence is
+ * carried (a saved claim was already looked at by a person).
+ */
+export function claimExtraction(claim: InsuranceClaim, patch: { lines?: unknown[]; metlife?: Record<string, unknown> } = {}): MetlifeExtraction {
+  const header = normalizeConfirmed({
+    header: {
+      // claim.metlife carries employer and physician, so this is the split shape normalizeConfirmed keeps.
+      ...claim.metlife,
+      ...(patch.metlife ?? {}),
+      approvalNumber: claim.approvalNumber,
+      approvalDate: claim.approvalDate,
+      paperPatientName: claim.paperPatientName,
+      confidence: {},
+    },
+    lines: [],
+  }).header;
+  const lines = patch.lines ? normalizeMetlife({ lines: patch.lines }).lines : claim.lines.map((l) => ({ ...l }));
+  return { header, lines };
+}
+
+/**
+ * What to write to `patients/{id}.insurance.{payerId}` for this paper, or null when the stored entry
+ * already says the same (or the payer id is not storable). The paper's certificate, dependent code and
+ * policy number win; a policy number the paper leaves blank keeps the one the clinic typed.
+ */
+export function insuranceEntryToWrite(
+  payerId: string,
+  paper: { certificateNumber: string; dependentCode: string; policyNumber: string },
+  patient: Record<string, unknown>,
+): PatientInsuranceEntry | null {
+  const stored = readInsurance(patient)[payerId];
+  const entry = writeInsurance({
+    [payerId]: {
+      memberNumber: "",
+      certificateNumber: paper.certificateNumber,
+      dependentCode: paper.dependentCode,
+      policyNumber: paper.policyNumber || stored?.policyNumber || "",
+    },
+  })[payerId];
+  if (!entry) return null;
+  const same = stored && (["memberNumber", "certificateNumber", "dependentCode", "policyNumber"] as const).every((k) => (stored[k] ?? "") === (entry[k] ?? ""));
+  return same ? null : entry;
 }

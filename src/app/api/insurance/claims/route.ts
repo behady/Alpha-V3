@@ -8,21 +8,26 @@ import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import { findPayer, parsePayers, PRIVATE_PAYER_ID } from "@/lib/payers";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
-import { readInsurance, writeInsurance, type PatientInsuranceEntry } from "@/lib/patientInsurance";
+import { writeInsurance } from "@/lib/patientInsurance";
 import { stripUndefined } from "@/lib/server/recycleBinStore";
 import { nameSimilarity } from "@/lib/insurance/matchPatient";
-import { checkMetlife, hasHardFailure, normalizeMetlife, type MetlifeLine } from "@/lib/insurance/metlife";
+import { checkMetlife, hasHardFailure, normalizeMetlife, type Check } from "@/lib/insurance/metlife";
 import {
   claimDocId,
+  claimExtraction,
   claimFromExtraction,
   claimMetlifeFrom,
   claimTotals,
   CLAIMS_COLLECTION,
   DOCS_COLLECTION,
+  insuranceEntryToWrite,
   isClaimStatus,
   isIsoDate,
   normalizeConfirmed,
+  parseClaim,
+  treatedDateAfter,
   WORDING_DOC,
+  type ClaimStatus,
   type InsuranceClaim,
 } from "@/lib/insurance/claims";
 
@@ -61,11 +66,6 @@ function savedAtOf(data: DocumentData | undefined): string | null {
   return at ? at.toISOString() : null;
 }
 
-function sameEntry(a: PatientInsuranceEntry | undefined, b: PatientInsuranceEntry): boolean {
-  if (!a) return false;
-  return (["memberNumber", "certificateNumber", "dependentCode", "policyNumber"] as const).every((k) => (a[k] ?? "") === (b[k] ?? ""));
-}
-
 /** The settings wording a desk typed on the card: code → Arabic, only for codes on this paper. */
 function postedWording(raw: unknown, codes: Set<string>): Record<string, string> {
   const out: Record<string, string> = {};
@@ -99,6 +99,7 @@ function docFactsOf(data: DocumentData | undefined): DocFacts | null {
  *        status: "approved" | "treated", treatedDate?, wording?: { [code]: arabic }, docPath? }
  *   → 201 { ok: true, claimId, patientId }
  *   → 409 { ok: false, duplicate: { claimId, savedAt } } when this approval is already a claim
+ *   → 409 { ok: false, error, claimId } when this document is already attached to another claim
  *   → 400 { ok: false, error, checks } when the extraction fails a hard check
  *
  * Gates, as in /api/insurance/read: body → staff with `patients.edit` → the `insurance` add-on → an
@@ -106,10 +107,11 @@ function docFactsOf(data: DocumentData | undefined): DocFacts | null {
  * button is not the only way to reach this route.
  *
  * One transaction does every write, so two tabs saving the same paper make exactly one claim: it reads
- * the claim (exists → 409), the document row, the patient (or the patient counter when creating one)
+ * the claim (exists → 409), the document row (linked to another claim → 409), the patient (or the patient counter when creating one)
  * and the wording table, then creates the claim, links the document row to it (set+merge: a read that
  * failed leaves no row), writes `insurance.{payerId}` on the patient when it is missing or different,
  * and adds any Arabic wording the clinic did not have yet. Existing wording is never overwritten here.
+ * The claim keeps `read: { checks, at }`: the soft warnings the desk saved over.
  *
  * `docPath` is optional and only used when no document row exists (the read failed and the desk typed
  * the paper in): it must sit in this clinic's `insurance_docs/{docId}/` folder, and the file's type
@@ -181,6 +183,7 @@ export async function POST(req: Request) {
     if (hasHardFailure(checks)) {
       return fail(400, "The approval does not add up yet. Fix the marked fields and save again.", { checks });
     }
+    const softChecks: Check[] = checks.filter((c) => c.severity === "soft");
     const claimId = claimDocId(format, h.approvalNumber);
     const treatedDate = status === "treated" ? (isIsoDate(body.treatedDate) ? body.treatedDate : h.approvalDate) : null;
     const wording = postedWording(body.wording, new Set(extraction.lines.map((l) => l.code).filter(Boolean)));
@@ -215,7 +218,11 @@ export async function POST(req: Request) {
     const patientRef: DocumentReference = existingId ? patients.doc(existingId) : patients.doc();
     const paperEntry = { certificateNumber: h.certificateNumber, dependentCode: h.dependentCode, policyNumber: h.policyNumber, memberNumber: "" };
 
-    type Outcome = { kind: "duplicate"; savedAt: string | null } | { kind: "no_patient" } | { kind: "saved" };
+    type Outcome =
+      | { kind: "duplicate"; savedAt: string | null }
+      | { kind: "doc_taken"; claimId: string }
+      | { kind: "no_patient" }
+      | { kind: "saved" };
     let outcome: Outcome;
     try {
       outcome = await adminDb().runTransaction(async (tx): Promise<Outcome> => {
@@ -227,6 +234,8 @@ export async function POST(req: Request) {
         const patientSnap = existingId ? await tx.get(patientRef) : null;
         const counterSnap = existingId ? null : await tx.get(counterRef);
         if (patientSnap && !patientSnap.exists) return { kind: "no_patient" };
+        const linked = docsSnap.get("claimId");
+        if (typeof linked === "string" && linked && linked !== claimId) return { kind: "doc_taken", claimId: linked };
 
         const stamp = { updatedAt: FieldValue.serverTimestamp(), updatedBy: authz.uid };
         let patientName = newName;
@@ -234,14 +243,9 @@ export async function POST(req: Request) {
         if (patientSnap) {
           const data = patientSnap.data() ?? {};
           patientName = typeof data.name === "string" ? data.name : "";
-          // Keep what the clinic typed that the paper does not print (a policy number left blank on it).
-          const stored = readInsurance(data)[payerId];
-          const entry = writeInsurance({
-            [payerId]: { ...paperEntry, policyNumber: paperEntry.policyNumber || stored?.policyNumber || "" },
-          })[payerId];
-          if (entry && !sameEntry(stored, entry)) {
-            tx.update(patientRef, { [`insurance.${payerId}`]: stripUndefined(entry) });
-          }
+          // Only when missing or different; a dotted path, so other payers' entries are untouched.
+          const entry = insuranceEntryToWrite(payerId, paperEntry, data);
+          if (entry) tx.update(patientRef, { [`insurance.${payerId}`]: stripUndefined(entry) });
         } else {
           // The shape NewPatientModal writes, with the file number from the same counter.
           const counter = counterSnap?.data();
@@ -270,6 +274,8 @@ export async function POST(req: Request) {
         tx.create(claimRef, {
           ...stripUndefined(claim),
           sentAt: null,
+          // The warnings the desk saw and saved over; the model's raw answer and cost are in the usage log.
+          read: { checks: stripUndefined(softChecks), at: FieldValue.serverTimestamp() },
           createdAt: FieldValue.serverTimestamp(),
           createdBy: authz.uid,
           ...stamp,
@@ -308,6 +314,9 @@ export async function POST(req: Request) {
     if (outcome.kind === "duplicate") {
       return NextResponse.json({ ok: false, duplicate: { claimId, savedAt: outcome.savedAt } }, { status: 409 });
     }
+    if (outcome.kind === "doc_taken") {
+      return fail(409, "This document is already attached to another claim.", { claimId: outcome.claimId });
+    }
     if (outcome.kind === "no_patient") return fail(404, "That patient was not found.");
     return NextResponse.json({ ok: true, claimId, patientId: patientRef.id }, { status: 201 });
   } catch (error) {
@@ -321,11 +330,19 @@ export async function POST(req: Request) {
  *
  * PATCH { clinicId, claimId, patch: { status?, treatedDate?, patientId?, lines?, metlife? } } → 200 { ok: true }
  *
- * Only those five keys; anything else is a 400, so a typo never silently does nothing. `lines` and
- * `metlife` go through the reader's own normaliser and the totals are recomputed from the lines.
- * `status: "sent"` stamps `sentAt`; a new `patientId` re-snapshots the patient's name (404 when the
- * patient does not exist). Every edit stamps `updatedAt`/`updatedBy`. The hard checks are not re-run
- * here: a treated claim may legitimately claim less than the paper approved.
+ * Only those five keys; anything else is a 400, so a typo never silently does nothing.
+ *
+ * - `lines` / `metlife`: laid over the stored claim, read through the reader's own normaliser, and the
+ *   hard checks run again with the same context as a save (400 { ok: false, error, checks } on a hard
+ *   failure; nothing written). Totals are recomputed from the lines. To claim less than the paper
+ *   approved, the printed totals in `metlife` are edited along with the lines.
+ * - `status`: `approved` clears the treated date; `treated` without a date keeps the stored one or takes
+ *   the approval date; `sent` stamps `sentAt`.
+ * - `patientId`: re-snapshots the patient's name (404 when the patient does not exist) and writes
+ *   `insurance.{payerId}` on that patient when missing or different, as a save does. A `metlife` edit
+ *   is never pushed to the patient: the patient's own editor owns that.
+ *
+ * Every edit stamps `updatedAt`/`updatedBy`.
  */
 export async function PATCH(req: Request) {
   try {
@@ -340,29 +357,34 @@ export async function PATCH(req: Request) {
     const unknown = keys.filter((k) => !PATCH_KEYS.has(k));
     if (unknown.length) return fail(400, `Unknown field: ${unknown.join(", ")}.`);
 
-    const changes: Record<string, unknown> = {};
+    let status: ClaimStatus | undefined;
     if ("status" in patch) {
       if (!isClaimStatus(patch.status)) return fail(400, 'status must be "approved", "treated", "sent" or "cancelled".');
-      changes.status = patch.status;
+      status = patch.status;
     }
+    let treatedDate: string | null | undefined;
     if ("treatedDate" in patch) {
       if (patch.treatedDate !== null && !isIsoDate(patch.treatedDate)) return fail(400, "treatedDate must be a yyyy-mm-dd date or null.");
-      changes.treatedDate = patch.treatedDate;
+      treatedDate = patch.treatedDate;
     }
     let newPatientId = "";
     if ("patientId" in patch) {
       newPatientId = segment(patch.patientId);
       if (!newPatientId) return fail(400, "patientId must name a patient.");
     }
-    let lines: MetlifeLine[] | null = null;
+    let rawLines: unknown[] | undefined;
     if ("lines" in patch) {
       if (!Array.isArray(patch.lines) || patch.lines.length === 0 || patch.lines.length > MAX_LINES) {
         return fail(400, "lines must be a list of 1 to 100 service lines.");
       }
-      lines = normalizeMetlife({ lines: patch.lines }).lines;
-      if (lines.length === 0) return fail(400, "lines must hold at least one service line.");
+      rawLines = patch.lines;
+      if (normalizeMetlife({ lines: rawLines }).lines.length === 0) return fail(400, "lines must hold at least one service line.");
     }
-    if ("metlife" in patch && !isRecord(patch.metlife)) return fail(400, "metlife must be an object.");
+    let rawMetlife: Record<string, unknown> | undefined;
+    if ("metlife" in patch) {
+      if (!isRecord(patch.metlife)) return fail(400, "metlife must be an object.");
+      rawMetlife = patch.metlife;
+    }
 
     // --- who --------------------------------------------------------------------------------
     const authz = await requireStaffPermission(req, clinicId, PERMISSION);
@@ -374,39 +396,81 @@ export async function PATCH(req: Request) {
     }
 
     const claimRef = adminClinicDoc(clinicId, CLAIMS_COLLECTION, claimId);
-    const result = await adminDb().runTransaction(async (tx): Promise<"ok" | "no_claim" | "no_patient"> => {
+    type PatchOutcome =
+      | { kind: "ok" }
+      | { kind: "no_claim" }
+      | { kind: "unreadable" }
+      | { kind: "no_patient" }
+      | { kind: "checks"; checks: Check[] };
+    const result = await adminDb().runTransaction(async (tx): Promise<PatchOutcome> => {
+      // Reads first: the claim, the new patient, the payer's provider code.
       const claimSnap = await tx.get(claimRef);
-      if (!claimSnap.exists) return "no_claim";
-      const stored = claimSnap.data() ?? {};
-      const update: Record<string, unknown> = { ...changes };
+      if (!claimSnap.exists) return { kind: "no_claim" };
+      const claim = parseClaim(claimId, claimSnap.data());
+      if (!claim) return { kind: "unreadable" };
+      const patientRef = newPatientId ? adminClinicDoc(clinicId, "patients", newPatientId) : null;
+      const patientSnap = patientRef ? await tx.get(patientRef) : null;
+      if (patientSnap && !patientSnap.exists) return { kind: "no_patient" };
+      const reshape = rawLines !== undefined || rawMetlife !== undefined;
+      const payersSnap = reshape ? await tx.get(adminClinicDoc(clinicId, "settings", "payers")) : null;
 
-      if (newPatientId) {
-        const patientSnap = await tx.get(adminClinicDoc(clinicId, "patients", newPatientId));
-        if (!patientSnap.exists) return "no_patient";
+      const update: Record<string, unknown> = {};
+      if (status !== undefined) update.status = status;
+      const treated = treatedDateAfter({
+        status,
+        treatedDate,
+        current: claim.treatedDate,
+        approvalDate: claim.approvalDate,
+      });
+      if (treated !== undefined) update.treatedDate = treated;
+
+      let patientName = claim.patientName;
+      if (patientSnap) {
+        patientName = typeof patientSnap.get("name") === "string" ? (patientSnap.get("name") as string) : "";
         update.patientId = newPatientId;
-        update.patientName = typeof patientSnap.get("name") === "string" ? patientSnap.get("name") : "";
-      }
-      if (isRecord(patch.metlife)) {
-        // Over what is stored, in the split shape (employer/physician present), through the reader's normaliser.
-        const header = { employer: "", physician: "", ...(isRecord(stored.metlife) ? stored.metlife : {}), ...patch.metlife };
-        update.metlife = claimMetlifeFrom(normalizeConfirmed({ header, lines: [] }).header);
-      }
-      if (lines) {
-        update.lines = lines;
-        update.totals = claimTotals(lines);
+        update.patientName = patientName;
       }
 
+      let metlife = claim.metlife;
+      if (reshape) {
+        const merged = claimExtraction(claim, { lines: rawLines, metlife: rawMetlife });
+        const payer = findPayer(parsePayers(payersSnap?.data()), claim.payerId);
+        const checks = checkMetlife(merged, {
+          today: ymdInTimeZone(clinicTimeZone()),
+          providerCode: payer?.providerCode,
+          ...(patientName ? { matchedPatientName: patientName, nameScore: nameSimilarity(merged.header.paperPatientName, patientName) } : {}),
+        });
+        if (hasHardFailure(checks)) return { kind: "checks", checks };
+        if (rawMetlife !== undefined) {
+          metlife = claimMetlifeFrom(merged.header);
+          update.metlife = metlife;
+        }
+        if (rawLines !== undefined) {
+          update.lines = merged.lines;
+          update.totals = claimTotals(merged.lines);
+        }
+      }
+
+      // Writes.
+      if (patientRef && patientSnap) {
+        const entry = insuranceEntryToWrite(claim.payerId, metlife, patientSnap.data() ?? {});
+        if (entry) tx.update(patientRef, { [`insurance.${claim.payerId}`]: stripUndefined(entry) });
+      }
       tx.update(claimRef, {
         ...stripUndefined(update),
-        ...(changes.status === "sent" ? { sentAt: FieldValue.serverTimestamp() } : {}),
+        ...(status === "sent" ? { sentAt: FieldValue.serverTimestamp() } : {}),
         updatedAt: FieldValue.serverTimestamp(),
         updatedBy: authz.uid,
       });
-      return "ok";
+      return { kind: "ok" };
     });
 
-    if (result === "no_claim") return fail(404, "That claim was not found.");
-    if (result === "no_patient") return fail(404, "That patient was not found.");
+    if (result.kind === "no_claim") return fail(404, "That claim was not found.");
+    if (result.kind === "unreadable") return fail(500, "That claim could not be read. Please contact support.");
+    if (result.kind === "no_patient") return fail(404, "That patient was not found.");
+    if (result.kind === "checks") {
+      return fail(400, "The edit does not add up. Fix the marked fields and save again.", { checks: result.checks });
+    }
     return NextResponse.json({ ok: true });
   } catch (error) {
     reportServerError("Insurance claim edit failed:", error);

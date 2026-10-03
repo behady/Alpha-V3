@@ -25,7 +25,18 @@ import {
 } from "../src/lib/insurance/metlife";
 import { latinSkeleton, matchPatient, nameSimilarity } from "../src/lib/insurance/matchPatient";
 import { metlifeMemberNumber, readInsurance, readMemberNumbers, writeInsurance } from "../src/lib/patientInsurance";
-import { CLAIM_STATUSES, claimDocId, claimFromExtraction, claimTotals, normalizeConfirmed, parseClaim } from "../src/lib/insurance/claims";
+import {
+  CLAIM_STATUSES,
+  claimDocId,
+  claimExtraction,
+  claimFromExtraction,
+  claimMetlifeFrom,
+  claimTotals,
+  insuranceEntryToWrite,
+  normalizeConfirmed,
+  parseClaim,
+  treatedDateAfter,
+} from "../src/lib/insurance/claims";
 import { SAMPLE_RAW } from "./fixtures/insuranceMetlife.fixture";
 
 const ctx = { today: "2026-10-03", providerCode: "DNC0001" };
@@ -535,6 +546,62 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   const dashed = normalizeConfirmed({ ...once, header: { ...once.header, policyNumber: "648-123", employer: "CO" } });
   assert.equal(dashed.header.policyNumber, "648-123");
   assert.equal(dashed.header.employer, "CO");
+}
+
+// --- 8. Editing a claim: the status's treated date, the re-check, the patient's membership -----------
+
+{
+  const doc = { path: "clinics/c1/insurance_docs/d1/approval.pdf", contentType: "application/pdf", bytes: 1234, pages: null };
+  const claim = { id: "metlife_d6000001", ...claimFromExtraction({ payerId: "metlife", extraction: normalizeMetlife(SAMPLE_RAW), patientId: "p3", patientName: "x", status: "approved", treatedDate: null, doc }) };
+
+  // status → treated date
+  const at = (a: Partial<Parameters<typeof treatedDateAfter>[0]>) => treatedDateAfter({ current: null, approvalDate: "2026-10-03", ...a });
+  assert.equal(at({ status: "treated" }), "2026-10-03", "treated with no date: the approval date");
+  assert.equal(at({ status: "treated", treatedDate: null }), "2026-10-03");
+  assert.equal(at({ status: "treated", treatedDate: "2026-10-04" }), "2026-10-04");
+  assert.equal(at({ status: "treated", current: "2026-10-05" }), "2026-10-05", "re-marking treated keeps the stored date");
+  assert.equal(at({ status: "approved", treatedDate: "2026-10-04", current: "2026-10-05" }), null, "approved is never treated");
+  assert.equal(at({ status: "cancelled", current: "2026-10-05" }), undefined, "cancelled leaves it");
+  assert.equal(at({ status: "sent" }), undefined);
+  assert.equal(at({ status: "sent", treatedDate: "2026-10-06" }), "2026-10-06");
+  assert.equal(at({ treatedDate: null, current: "2026-10-05" }), null, "a date cleared on its own");
+  assert.equal(at({}), undefined);
+
+  // the claim read back as an extraction passes the same checks it was saved with
+  const back = claimExtraction(claim);
+  assert.equal(hasHardFailure(checkMetlife(back, ctx)), false);
+  assert.deepEqual(claimMetlifeFrom(back.header), claim.metlife, "nothing lost on the way back");
+  assert.deepEqual(back.lines, claim.lines);
+
+  // a line whose gross no longer matches its units is refused
+  const badLines = claim.lines.map((l, i) => (i === 0 ? { ...l, grossTotal: 70 } : l));
+  const badChecks = checkMetlife(claimExtraction(claim, { lines: badLines }), ctx);
+  assert.equal(hasHardFailure(badChecks), true);
+  assert.ok(badChecks.some((c) => c.id === "line_gross" && c.severity === "hard"));
+  // a share moved onto the patient without the printed totals: the sums catch it
+  const shared = claim.lines.map((l, i) => (i === 0 ? { ...l, patientShare: 15, approvedAmount: 45 } : l));
+  assert.equal(hasHardFailure(checkMetlife(claimExtraction(claim, { lines: shared }), ctx)), true);
+  // ...and with the printed totals edited to match, it passes
+  const fixed = claimExtraction(claim, { lines: shared, metlife: { approvedTotal: 1245, patientShareTotal: 15, collectNote: 15 } });
+  assert.equal(hasHardFailure(checkMetlife(fixed, ctx)), false, JSON.stringify(checkMetlife(fixed, ctx).map((c) => c.id)));
+  assert.deepEqual(claimTotals(fixed.lines), { requested: 1260, approved: 1245, patientShare: 15 });
+  // a printed total edited out of line with the lines is refused
+  assert.equal(hasHardFailure(checkMetlife(claimExtraction(claim, { metlife: { approvedTotal: 1000 } }), ctx)), true);
+  // the approval's identity cannot be edited through metlife
+  const sneaky = claimExtraction(claim, { metlife: { approvalNumber: "D9999999", paperPatientName: "SOMEONE", employer: "NEW CO" } });
+  assert.equal(sneaky.header.approvalNumber, "D6000001");
+  assert.equal(sneaky.header.paperPatientName, "EXAMPLE PATIENT NAME");
+  assert.equal(sneaky.header.employer, "NEW CO");
+
+  // the patient's membership: written when missing or different, never when the same
+  const paper = { certificateNumber: "987", dependentCode: "1", policyNumber: "6481234567" };
+  const full = { memberNumber: "987/1", certificateNumber: "987", dependentCode: "1", policyNumber: "6481234567" };
+  assert.deepEqual(insuranceEntryToWrite("metlife", paper, {}), full, "missing: written");
+  assert.equal(insuranceEntryToWrite("metlife", paper, { insurance: { metlife: full, nextcare: { memberNumber: "A1" } } }), null, "the same: nothing");
+  assert.deepEqual(insuranceEntryToWrite("metlife", { ...paper, dependentCode: "2" }, { insurance: { metlife: full } }), { ...full, memberNumber: "987/2", dependentCode: "2" }, "different: written");
+  assert.equal(insuranceEntryToWrite("metlife", { ...paper, policyNumber: "" }, { insurance: { metlife: full } }), null, "a blank policy on the paper keeps the typed one");
+  assert.deepEqual(insuranceEntryToWrite("metlife", { ...paper, policyNumber: "" }, { insurance: { metlife: { memberNumber: "" , policyNumber: "555" } } }), { ...full, policyNumber: "555" });
+  assert.equal(insuranceEntryToWrite("Bad.Id", paper, {}), null, "a payer id that cannot be a field name is never written");
 }
 
 console.log("insurance metlife reader: ok");
