@@ -123,6 +123,8 @@
     "test:cases": "npx tsx tests/caseSheet.test.mts",
     "_comment_test_insurance_statement": "The monthly claim statement to an insurer, in the insurer's own sheet layout (docs/samples). Fixture reproduces a real accepted statement; pins the line wording (count, name, tooth positions), case grouping by visit, exclusions, totals, and the written workbook's merges, formulas and RTL.",
     "test:insurance-statement": "npx tsx tests/insuranceStatement.test.mts",
+    "_comment_test_insurance_metlife": "The MetLife pre-approval reader: the model's JSON for a scanned approval is normalised (dates, money, split policy and provider strings), then checked. Hard checks (approval number, date, line gross, the three totals, certificate) block the save; soft ones (status, provider, low confidence, reduced lines, name) warn. Fixture is invented, in the real sample's structure. Pure module, no Gemini.",
+    "test:insurance-metlife": "npx tsx tests/insuranceMetlife.test.mts",
     "test:report-patients": "npx tsx tests/reportPatients.test.mts",
     "test:report-suite": "npx tsx tests/reportSuite.test.mts",
     "test:report-docs": "npx tsx tests/reportDocuments.test.mts",
