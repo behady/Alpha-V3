@@ -74,7 +74,10 @@ const idCell = (v: string, style: Style): XLSX.CellObject => (/^\d+$/.test(v) ? 
 function dateCell(iso: string, style: Style): XLSX.CellObject {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
   if (!m) return s(iso, style);
-  const days = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / 86_400_000 + EXCEL_EPOCH_DAYS;
+  const ms = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  // Date.UTC rolls 2026-13-45 over into a different day; only a date that reads back the same is a date.
+  if (new Date(ms).toISOString().slice(0, 10) !== iso) return s(iso, style);
+  const days = ms / 86_400_000 + EXCEL_EPOCH_DAYS;
   return { v: days, t: "n", z: "mm-dd-yy", s: style };
 }
 
@@ -120,7 +123,8 @@ export function metlifeStatementToWorkbook(statement: MetlifeStatement, header: 
     const last = rows.length - 1;
     const subtotalRow = rows.length;
     // The case's details span its service lines only; the subtotal row beneath is its own, bordered, row.
-    for (let col = 0; col < LINE_COL; col++) mergeBlock(first, col, last, col);
+    // A one-line case has nothing to merge, and Excel calls a one-cell merge corrupt.
+    if (last > first) for (let col = 0; col < LINE_COL; col++) mergeBlock(first, col, last, col);
     push(
       [
         ...empties(LINE_COL, STYLE.gap),
@@ -151,7 +155,10 @@ export function metlifeStatementToWorkbook(statement: MetlifeStatement, header: 
   mergeBlock(footTop, 0, footEnd, 5);
   mergeBlock(footTop, LAST_COL, footEnd, LAST_COL);
 
-  const ws = XLSX.utils.aoa_to_sheet(rows);
+  // The writer copies a cell's number format onto its style object in place, so no two cells may share one: a date
+  // cell sharing the case style would stamp mm-dd-yy on every id cell written after it.
+  const own = rows.map((r) => r.map((cell) => (cell ? { ...cell, s: structuredClone(cell.s) } : cell)));
+  const ws = XLSX.utils.aoa_to_sheet(own);
   ws["!merges"] = merges;
   ws["!cols"] = COL_WIDTHS.map((wch) => ({ wch }));
   ws["!rows"] = heights.map((hpt) => ({ hpt }));

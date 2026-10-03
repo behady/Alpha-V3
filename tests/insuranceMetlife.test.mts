@@ -668,8 +668,9 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
 {
   const L = (text: string, count: number, requested: number, approved: number) => ({ text, count, requested, approved });
   const caseA = { serial: 1, patientName: "Patient 1", policyNumber: "6481234567", certificateNumber: "987", dependentCode: "1", approvalNumber: "D6000001", date: "2026-01-28", lines: [L("كشف", 1, 60, 60), L("اشعه عاديه", 1, 60, 60)], subtotal: 120 };
-  const caseB = { serial: 2, patientName: "Patient 2", policyNumber: "6481234567 - EXAMPLE", certificateNumber: "12A", dependentCode: "2", approvalNumber: "D6000002", date: "2026-02-27", lines: [L("كشف", 1, 60, 60), L("حشو كمبوزيت", 2, 2700, 500), L("اشعه عاديه", 0, 60, 0)], subtotal: 560 };
-  const st: MetlifeStatement = { from: "2026-01-26", to: "2026-02-27", cases: [caseA, caseB], total: 680, missingWording: [], heldBack: 0 };
+  const caseB = { serial: 2, patientName: "Patient 2", policyNumber: "6481234568", certificateNumber: "988", dependentCode: "2", approvalNumber: "D6000002", date: "2026-02-27", lines: [L("كشف", 1, 60, 60), L("حشو كمبوزيت", 2, 2700, 500), L("اشعه عاديه", 0, 60, 0)], subtotal: 560 };
+  const caseC = { serial: 3, patientName: "Patient 3", policyNumber: "6481234567 - EXAMPLE", certificateNumber: "12A", dependentCode: "3", approvalNumber: "D6000003", date: "2026-02-28", lines: [L("كشف", 1, 60, 60)], subtotal: 60 };
+  const st: MetlifeStatement = { from: "2026-01-26", to: "2026-02-28", cases: [caseA, caseB, caseC], total: 740, missingWording: [], heldBack: 0 };
   const head = { line1: "Clinic", line2: "Address", line3: "Phones" };
 
   const wb = metlifeStatementToWorkbook(st, head);
@@ -687,7 +688,10 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   const bFirst = aSub + 1;
   const bLast = bFirst + caseB.lines.length - 1;
   const bSub = bLast + 1;
-  const footTop = bSub + 1;
+  const cFirst = bSub + 1;
+  const cLast = cFirst + caseC.lines.length - 1; // a one-line case
+  const cSub = cLast + 1;
+  const footTop = cSub + 1;
   const footEnd = footTop + 2;
   assert.equal(XLSX.utils.decode_range(ws["!ref"] as string).e.r, footEnd, "the sheet ends with the three footer rows");
 
@@ -706,7 +710,7 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   assert.ok(Math.abs(((ws["!cols"] as XLSX.ColInfo[])[7].wch as number) - 40) < 0.5);
   const heights = (ws["!rows"] as XLSX.RowInfo[]).map((r) => r.hpt);
   assert.deepEqual(heights.slice(0, 4), [79.5, 30.75, 31.5, 27.75]);
-  for (let r = aFirst; r <= bSub; r++) assert.equal(heights[r], 26.25, "case and subtotal rows are 26.25 high (row " + (r + 1) + ")");
+  for (let r = aFirst; r <= cSub; r++) assert.equal(heights[r], 26.25, "case and subtotal rows are 26.25 high (row " + (r + 1) + ")");
   assert.equal(wb.Workbook?.Views?.[0]?.RTL, true);
   assert.equal(back.Workbook?.Views?.[0]?.RTL, true);
 
@@ -724,7 +728,7 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
 
   // merges: header lines A:K; each case's details A..G down its lines only (not over the subtotal row)
   for (const m of ["A1:K1", "A2:K2", "A3:K3"]) assert.ok(merges.includes(m), "missing merge " + m + ": " + merges.join(" "));
-  for (const [first, last] of [[aFirst, aLast], [bFirst, bLast]]) {
+  for (const [first, last] of [[aFirst, aLast], [bFirst, bLast]]) { // case C has one line: nothing to merge
     for (let c = 0; c < 7; c++) {
       const m = XLSX.utils.encode_range({ s: { r: first, c }, e: { r: last, c } });
       assert.ok(merges.includes(m), "missing case merge " + m);
@@ -752,10 +756,13 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   assert.equal(ws.G5.w, "01-28-26");
   assert.equal(ws[ref({ r: bFirst, c: 6 })].w, "02-27-26");
   // case B: text where the value is not all digits
-  assert.equal(ws[ref({ r: bFirst, c: 2 })].t, "s");
-  assert.equal(ws[ref({ r: bFirst, c: 2 })].v, "6481234567 - EXAMPLE");
-  assert.equal(ws[ref({ r: bFirst, c: 3 })].v, "12A");
-  assert.equal(ws[ref({ r: bFirst, c: 4 })].t, "n");
+  assert.equal(ws[ref({ r: cFirst, c: 2 })].t, "s");
+  assert.equal(ws[ref({ r: cFirst, c: 2 })].v, "6481234567 - EXAMPLE");
+  assert.equal(ws[ref({ r: cFirst, c: 3 })].v, "12A");
+  assert.equal(ws[ref({ r: cFirst, c: 4 })].t, "n");
+  // a one-line case merges nothing (a one-cell merge is what Excel calls corrupt): every merge spans more than one cell
+  assert.ok(merges.every((m) => m.includes(":") && m.split(":")[0] !== m.split(":")[1]), "no one-cell merges: " + merges.join(" "));
+  assert.equal(merges.filter((m) => new RegExp("^[A-G]" + (cFirst + 1) + "(:|$)").test(m)).length, 0, "case C (one line) has no merge at all");
   // case styles
   assert.equal(mem.A5.s.font.sz, 24);
   assert.equal(mem.A5.s.fill.fgColor.rgb, "EEECE1");
@@ -794,6 +801,23 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
     assert.ok(cell.v === "" || cell.v === undefined, "subtotal row A-G is empty");
   }
 
+  // regression: the writer copies a cell's date format onto its style object in place, so a style shared with the date cell
+  // spread "mm-dd-yy" over every later id cell (case 2 showed #VALUE! and dates in policy/certificate/dependent)
+  const nf = XLSX.read(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }), { type: "buffer", cellStyles: true, cellNF: true }).Sheets.Sheet1;
+  for (const first of [aFirst, bFirst, cFirst]) {
+    for (let c = 1; c <= 5; c++) {
+      const cell = nf[ref({ r: first, c })];
+      assert.ok(cell.z === undefined || cell.z === "General", "row " + (first + 1) + " col " + c + " has number format " + cell.z);
+    }
+    assert.equal(nf[ref({ r: first, c: 6 })].z, "mm-dd-yy", "only the date column carries the date format");
+  }
+  assert.deepEqual([nf[ref({ r: bFirst, c: 2 })].w, nf[ref({ r: bFirst, c: 3 })].w, nf[ref({ r: bFirst, c: 4 })].w], ["6481234568", "988", "2"]);
+  assert.deepEqual([nf[ref({ r: cFirst, c: 3 })].w, nf[ref({ r: cFirst, c: 4 })].w], ["12A", "3"]);
+  // writing the same workbook object twice gives the same cells: the first write must not leave anything behind for the second
+  const again = XLSX.read(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }), { type: "buffer", cellStyles: true, cellNF: true }).Sheets.Sheet1;
+  for (const a of ["C5", "D5", "E5", "G5"]) assert.equal(again[a].w, nf[a].w, "second write changed " + a);
+  assert.deepEqual([again.C5.w, again.D5.w, again.E5.w], ["6481234567", "987", "1"]);
+
   // footer: three rows, A:F label (48pt), G..J shaded and empty, K merged with a SUM of every subtotal cell
   assert.ok(merges.includes(XLSX.utils.encode_range({ s: { r: footTop, c: 0 }, e: { r: footEnd, c: 5 } })), "footer A:F merge");
   assert.ok(merges.includes(XLSX.utils.encode_range({ s: { r: footTop, c: 10 }, e: { r: footEnd, c: 10 } })), "footer K merge");
@@ -809,10 +833,15 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
     }
   }
   const footK = mem[ref({ r: footTop, c: 10 })];
-  assert.equal(footK.f, "SUM(" + ref({ r: aSub, c: 10 }) + "," + ref({ r: bSub, c: 10 }) + ")");
-  assert.equal(footK.v, 680);
+  assert.equal(footK.f, "SUM(" + ref({ r: aSub, c: 10 }) + "," + ref({ r: bSub, c: 10 }) + "," + ref({ r: cSub, c: 10 }) + ")");
+  assert.equal(footK.v, 740);
   assert.equal(footK.s.font.sz, 24);
   assert.equal(footK.s.fill.fgColor.rgb, "938953");
+
+  // a date that is not a real calendar day is text, never a rolled-over other day
+  const bad = metlifeStatementToWorkbook({ ...st, cases: [{ ...caseA, date: "2026-13-45" }, { ...caseC, date: "2026-02-30" }] }, head).Sheets.Sheet1;
+  assert.deepEqual([bad.G5.t, bad.G5.v], ["s", "2026-13-45"]);
+  assert.deepEqual([bad.G8.t, bad.G8.v], ["s", "2026-02-30"]);
 
   // a statement with no cases is still a valid sheet: header, titles, a footer holding a plain 0
   const none = XLSX.read(XLSX.write(metlifeStatementToWorkbook({ ...st, cases: [], total: 0 }, head), { type: "buffer", bookType: "xlsx" }), { type: "buffer" }).Sheets.Sheet1;
