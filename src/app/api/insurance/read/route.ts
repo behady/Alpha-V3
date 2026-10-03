@@ -242,16 +242,19 @@ export async function POST(req: Request) {
 
     // --- bookkeeping: which file, which payer, who -----------------------------------------
     // create() first so a re-read of the same document never clears the claim it was saved as.
+    // A second copy of an approval that is already a claim is linked to that claim straight away,
+    // or it would sit in "Uploaded, not saved" for ever: it can never be saved again.
     const docRef = adminClinicDoc(clinicId, "insurance_docs", docId);
     const fileFacts = { path: docPath, contentType, bytes: data.length, pages: null, payerId };
+    const claimLink = duplicate ? { claimId: duplicate.claimId } : {};
     try {
-      await docRef.create({ ...fileFacts, uploadedAt: FieldValue.serverTimestamp(), uploadedBy: authz.uid, claimId: null });
+      await docRef.create({ ...fileFacts, uploadedAt: FieldValue.serverTimestamp(), uploadedBy: authz.uid, claimId: duplicate?.claimId ?? null });
     } catch (err) {
       const code = (err as { code?: unknown })?.code;
       if (code !== 6 && code !== "already-exists" && code !== "ALREADY_EXISTS") throw err;
       // A row already linked to its claim keeps the facts it was saved with: the claim points at them.
       const existing = await docRef.get();
-      if (existing.get("claimId") == null) await docRef.set(fileFacts, { merge: true });
+      if (existing.get("claimId") == null) await docRef.set({ ...fileFacts, ...claimLink }, { merge: true });
     }
 
     await logUsage(

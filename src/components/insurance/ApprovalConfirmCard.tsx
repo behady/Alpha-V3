@@ -27,10 +27,11 @@ import { nameSimilarity } from "@/lib/insurance/matchPatient";
 import { patientMatchesSearch } from "@/lib/flexibleSearch";
 import { DEFAULT_METLIFE_WORDING } from "@/lib/insuranceStatementMetlife";
 import type { Payer } from "@/lib/payers";
+import type { PatientInsuranceEntry } from "@/lib/patientInsurance";
 import { cairoToday, InsuranceCallError, saveClaim, type ReadResult, type SaveBody } from "./api";
 import { tr } from "./text";
 
-export type PatientOption = { id: string; name: string; phone: string };
+export type PatientOption = { id: string; name: string; phone: string; insurance?: Record<string, PatientInsuranceEntry> };
 
 type TextField = "approvalNumber" | "statusText" | "policyNumber" | "employer" | "certificateNumber" | "dependentCode" | "paperPatientName" | "providerCode" | "physician" | "diagnosisCode" | "comment";
 type DateField = "approvalDate" | "terminationDate";
@@ -121,6 +122,16 @@ export default function ApprovalConfirmCard({
     picker.mode === "create"
       ? newName.trim()
       : patients.find((p) => p.id === picker.patientId)?.name ?? candidates.find((c) => c.patientId === picker.patientId)?.name ?? "";
+  // The claims route writes the paper's certificate and dependent onto the patient. When the patient
+  // already holds different ones for this payer, say so first: saving is still allowed.
+  const membershipDiffers = useMemo(() => {
+    if (picker.mode !== "existing" || !picker.patientId) return false;
+    const stored = patients.find((p) => p.id === picker.patientId)?.insurance?.[payer.id];
+    if (!stored) return false;
+    const paperCert = x.header.certificateNumber.trim();
+    const paperDep = x.header.dependentCode.trim();
+    return (!!stored.certificateNumber && stored.certificateNumber !== paperCert) || (!!stored.dependentCode && stored.dependentCode !== paperDep);
+  }, [picker, patients, payer.id, x.header.certificateNumber, x.header.dependentCode]);
   const searchResults = useMemo(() => {
     if (!search.trim()) return [];
     const offered = new Set(candidates.map((c) => c.patientId));
@@ -353,6 +364,11 @@ export default function ApprovalConfirmCard({
           <div className="space-y-2">
             {hard.length > 0 && <CheckList tone="hard" title={t("checksHard")} items={hard.map(say)} />}
             {soft.length > 0 && <CheckList tone="soft" title={t("checksSoft")} items={soft.map(say)} />}
+            {membershipDiffers && (
+              <p className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] font-semibold text-amber-900">
+                <AlertTriangle size={15} className="mt-0.5 shrink-0" /> {t("membershipDiffers")}
+              </p>
+            )}
             {checks.length === 0 && (
               <p className="flex items-center gap-2 text-[13px] font-bold text-emerald-700">
                 <CheckCircle2 size={15} /> {t("checksClean")}

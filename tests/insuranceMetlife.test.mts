@@ -307,13 +307,25 @@ softLines(x, (l, h) => { l[2].approvedAmount = 500; h.approvedTotal = 1160; }, "
 }
 softLines(x, (l, h) => { l[0].unitsApproved = 0; l[0].approvedAmount = 0; h.approvedTotal = 1200; }, "reduced");
 {
-  // a null printed total: that sum is skipped and the field is flagged for a look instead
+  // a null printed approved total is a hard stop: a scan that missed the Total row must not save half the lines
   const y = clone(x);
   y.header.approvedTotal = null;
   const checks = checkMetlife(y, ctx);
-  assert.equal(hasHardFailure(checks), false);
-  assert.equal(checks.filter((c) => c.id === "approved_total").length, 0);
-  assert.equal(only(checks, "low_confidence", "soft").field, "approvedTotal");
+  assert.equal(hasHardFailure(checks), true);
+  const missing = only(checks, "approved_total", "hard");
+  assert.equal(missing.field, "approvedTotal");
+  assert.equal(missing.en, "Type the approved total from the paper");
+  assert.equal(checks.filter((c) => c.id === "low_confidence").length, 0, "the hard check replaces the soft one");
+  // the same paper with only some of its lines read is still stopped
+  const half = clone(y);
+  half.lines = half.lines.slice(0, 2);
+  assert.equal(hasHardFailure(checkMetlife(half, ctx)), true);
+  // a null requested total stays a soft look
+  const z = clone(x);
+  z.header.requestedTotal = null;
+  const zc = checkMetlife(z, ctx);
+  assert.equal(hasHardFailure(zc), false);
+  assert.equal(only(zc, "low_confidence", "soft").field, "requestedTotal");
 }
 {
   // the paper's name against the matched patient's

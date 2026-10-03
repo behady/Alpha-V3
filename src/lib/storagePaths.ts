@@ -135,9 +135,9 @@ export function botMediaPath(clinicId: string | null | undefined, filename: stri
 /**
  * The scanned or photographed approval document attached to an insurance claim.
  *
- * Written by the server (the approval reader route), never by the browser, so there is no upload
- * site to drift — but the clinic still has to be in the path for the same reason as every other
- * file here: a Storage rule can only judge what the path tells it. The docId segment is the
+ * Uploaded by the browser (the Insurance page's drop zone); the approval reader route only reads it.
+ * The clinic has to be in the path for the same reason as every other file here: a Storage rule can
+ * only judge what the path tells it. The docId segment is the
  * claim's own folder, so one claim's document can be found and erased without a listing.
  *
  * `slice(-80)` keeps the TAIL like `botMediaPath`: these are PDFs as often as photographs and the

@@ -383,6 +383,7 @@ const CHECK_TEXT: Record<string, Text> = {
   certificate: { en: "Certificate number is missing", ar: "رقم الشهادة ناقص" },
   dependent: { en: "Dependent code is missing", ar: "كود التابع ناقص" },
   no_lines: { en: "No service lines were read", ar: "مفيش بنود خدمة اتقرأت" },
+  approved_total_missing: { en: "Type the approved total from the paper", ar: "اكتب إجمالي الموافقة من الورقة" },
   line_gross: { en: "{line}: gross must equal units x price per unit", ar: "{line}: الإجمالي لازم يساوي العدد × سعر الوحدة" },
   sum_mismatch: { en: "The lines add up to {got} but the printed {field} is {printed}", ar: "البنود مجموعها {got} لكن {field} المطبوع {printed}" },
   collect_note: { en: "The note says collect {printed} but the lines' patient share adds up to {got}", ar: "الملاحظة بتقول تحصيل {printed} لكن حصة المريض في البنود مجموعها {got}" },
@@ -458,7 +459,11 @@ export function checkMetlife(x: MetlifeExtraction, ctx: MetlifeCheckContext): Ch
     ];
     for (const s of sums) {
       const printed = h[s.field];
-      if (printed === null) {
+      if (printed === null && s.field === "approvedTotal") {
+        // The approved total is what MetLife pays: without it a page read upside down, or a scan that
+        // missed the Total row, would save with only some of its lines. A person must type it in.
+        checks.push(make("hard", s.id, s.field, "approved_total_missing"));
+      } else if (printed === null) {
         // Nothing to compare against: a person should look at that field.
         checks.push(lowConfidence(s.field));
         // The "Kindly collect" figure is the same number as the patient share total: check against it instead.

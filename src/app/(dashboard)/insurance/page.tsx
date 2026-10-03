@@ -27,6 +27,7 @@ import { useClinic } from "@/context/ClinicContext";
 import { useUI } from "@/context/UIContext";
 import { db, storage } from "@/lib/firebase";
 import { parsePayers, PRIVATE_PAYER_ID, type Payer } from "@/lib/payers";
+import { readInsurance } from "@/lib/patientInsurance";
 import { CLAIMS_COLLECTION, DOCS_COLLECTION, parseClaim, WORDING_DOC, type InsuranceClaim } from "@/lib/insurance/claims";
 import { DEFAULT_METLIFE_WORDING } from "@/lib/insuranceStatementMetlife";
 import { useStatementHeader } from "@/lib/insuranceStatementHeader";
@@ -116,7 +117,13 @@ function InsurancePage() {
           snap.docs
             .map((d) => {
               const p = d.data() as { name?: unknown; phone?: unknown };
-              return { id: d.id, name: typeof p.name === "string" ? p.name : "", phone: typeof p.phone === "string" ? p.phone : "" };
+              return {
+                id: d.id,
+                name: typeof p.name === "string" ? p.name : "",
+                phone: typeof p.phone === "string" ? p.phone : "",
+                // The stored membership, so the card can warn before a save overwrites it.
+                insurance: readInsurance(d.data()),
+              };
             })
             .filter((p) => p.name)
             .sort((a, b) => a.name.localeCompare(b.name)),

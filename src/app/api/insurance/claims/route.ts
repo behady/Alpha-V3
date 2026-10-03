@@ -274,7 +274,8 @@ export async function POST(req: Request) {
         tx.create(claimRef, {
           ...stripUndefined(claim),
           sentAt: null,
-          // The warnings the desk saw and saved over; the model's raw answer and cost are in the usage log.
+          // The warnings the desk saw and saved over. The model's raw answer is not stored anywhere; the
+          // read's token count is in the AI usage log.
           read: { checks: stripUndefined(softChecks), at: FieldValue.serverTimestamp() },
           createdAt: FieldValue.serverTimestamp(),
           createdBy: authz.uid,

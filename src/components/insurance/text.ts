@@ -93,6 +93,10 @@ export const TEXT = {
   checksSoft: { en: "Worth a look", ar: "يستاهل نظرة" },
   checksClean: { en: "Everything adds up", ar: "كل حاجة مظبوطة" },
   checkFallback: { en: "This field needs a look", ar: "الخانة دي محتاجة مراجعة" },
+  membershipDiffers: {
+    en: "This patient's stored MetLife certificate/dependent differs from the paper; saving will overwrite it.",
+    ar: "بيانات متلايف المحفوظة لهذا المريض مختلفة عن الورقة؛ الحفظ هيستبدلها.",
+  },
 
   patient: { en: "Patient", ar: "المريض" },
   matchedExact: { en: "Matched by certificate and dependent code", ar: "اتعرف من رقم الشهادة وكود التابع" },
