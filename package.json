@@ -125,6 +125,7 @@
     "test:insurance-statement": "npx tsx tests/insuranceStatement.test.mts",
     "_comment_test_insurance_metlife": "The MetLife pre-approval reader: the model's JSON for a scanned approval is normalised (dates, money, split policy and provider strings), then checked. Hard checks (approval number, date, no lines, line gross, the three totals, certificate, dependent) block the save; soft ones (status, provider, low confidence, reduced lines, share above gross, name) warn. Fixture is invented, in the real sample's structure. Pure module, no Gemini.",
     "test:insurance-metlife": "npx tsx tests/insuranceMetlife.test.mts",
+    "probe:insurance-read": "node scripts/probe-insurance-read.mjs",
     "test:report-patients": "npx tsx tests/reportPatients.test.mts",
     "test:report-suite": "npx tsx tests/reportSuite.test.mts",
     "test:report-docs": "npx tsx tests/reportDocuments.test.mts",
