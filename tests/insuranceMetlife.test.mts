@@ -23,6 +23,8 @@ import {
   type MetlifeHeader,
   type MetlifeLine,
 } from "../src/lib/insurance/metlife";
+import { latinSkeleton, matchPatient, nameSimilarity } from "../src/lib/insurance/matchPatient";
+import { metlifeMemberNumber, readInsurance, readMemberNumbers } from "../src/lib/patientInsurance";
 import { SAMPLE_RAW } from "./fixtures/insuranceMetlife.fixture";
 
 const ctx = { today: "2026-10-03", providerCode: "DNC0001" };
@@ -331,5 +333,55 @@ assert.equal(hasHardFailure(checkMetlife(normalizeMetlife(null), ctx)), true, "a
   const p = buildMetlifePrompt();
   for (const needle of ["MetLife", "dd/mm/yyyy", "9999-12-31", "null", "confidence"]) assert.ok(p.includes(needle), `the prompt mentions ${needle}`);
 }
+
+// --- 5. The patient matcher: certificate + dependent first, then a transliteration-tolerant name -----
+assert.deepEqual(latinSkeleton("NADER MAGED SALEM"), ["ndr", "mgd", "slm"]);
+assert.deepEqual(latinSkeleton("نادر ماجد سالم"), ["ndr", "mgd", "slm"]);
+assert.deepEqual(latinSkeleton("محمود محمد"), ["mhmd", "mhmd"]);
+assert.deepEqual(latinSkeleton("  "), [], "blank in, no tokens out");
+assert.ok(nameSimilarity("AHMED MOHAMED ALI", "أحمد محمد علي") >= 0.99);
+assert.ok(nameSimilarity("AHMED MOHAMED ALI", "سارة فتحي") < 0.2);
+assert.equal(nameSimilarity("", "نادر ماجد"), 0, "an empty name matches nothing");
+assert.ok(nameSimilarity("OMAR KHALED FAHMY", "عمر خالد فهمي") >= 0.99, "kh and the Arabic kha agree");
+{
+  const fam = [
+    { id: "p1", name: "ليلى خالد فهمي", insurance: { metlife: { memberNumber: "8700001/3", certificateNumber: "8700001", dependentCode: "3" } } },
+    { id: "p2", name: "عمر خالد فهمي", insurance: { metlife: { memberNumber: "8700001/2", certificateNumber: "8700001", dependentCode: "2" } } },
+    { id: "p3", name: "نادر ماجد سالم" },
+  ];
+  assert.deepEqual(
+    matchPatient({ payerId: "metlife", certificateNumber: "8700001", dependentCode: "2", paperPatientName: "OMAR KHALED FAHMY" }, fam),
+    { kind: "exact", patientId: "p2" },
+  );
+  const m = matchPatient({ payerId: "metlife", certificateNumber: "987", dependentCode: "1", paperPatientName: "NADER MAGED SALEM" }, fam);
+  assert.equal(m.kind, "candidates");
+  if (m.kind === "candidates") assert.equal(m.candidates[0].patientId, "p3");
+  assert.equal(matchPatient({ payerId: "metlife", certificateNumber: "9", dependentCode: "9", paperPatientName: "ZZZ QQQ" }, fam).kind, "none");
+
+  // the family case: same certificate, a different dependent, a near-identical name — never a match
+  const sibling = matchPatient({ payerId: "metlife", certificateNumber: "8700001", dependentCode: "4", paperPatientName: "OMAR KHALED FAHMY" }, fam);
+  assert.equal(sibling.kind, "none", "p1 and p2 hold this certificate under other dependents; neither may be offered");
+  // the same certificate printed under another insurer is not this family
+  assert.equal(matchPatient({ payerId: "other", certificateNumber: "8700001", dependentCode: "2", paperPatientName: "OMAR KHALED FAHMY" }, fam).kind, "candidates");
+  // blank paper identity never claims an exact match
+  assert.notEqual(matchPatient({ payerId: "metlife", certificateNumber: "", dependentCode: "", paperPatientName: "OMAR KHALED FAHMY" }, fam).kind, "exact");
+  // at most three candidates, best first, ties by name
+  const many = ["د", "ج", "ب", "أ"].map((x, i) => ({ id: "q" + i, name: "نادر ماجد " + x }));
+  const top = matchPatient({ payerId: "metlife", certificateNumber: "5", dependentCode: "1", paperPatientName: "NADER MAGED SALEM" }, many);
+  assert.equal(top.kind, "candidates");
+  if (top.kind === "candidates") assert.equal(top.candidates.length, 3);
+}
+assert.equal(metlifeMemberNumber("987", "1"), "987/1");
+assert.deepEqual(
+  readInsurance({ insurance: { metlife: { memberNumber: " 987/1 ", certificateNumber: "987", dependentCode: "1", policyNumber: "  " }, bad: 5, blank: { memberNumber: " " } } }),
+  { metlife: { memberNumber: "987/1", certificateNumber: "987", dependentCode: "1" } },
+);
+assert.deepEqual(readInsurance({}), {});
+assert.deepEqual(readInsurance({ insurance: { x: { memberNumber: "A1" } } }), { x: { memberNumber: "A1" } });
+assert.deepEqual(
+  Object.fromEntries(Object.entries(readInsurance({ insurance: { x: { memberNumber: "A1", dependentCode: "2" } } })).map(([k, v]) => [k, v.memberNumber])),
+  readMemberNumbers({ insurance: { x: { memberNumber: "A1", dependentCode: "2" } } }),
+  "readInsurance agrees with readMemberNumbers on the member number",
+);
 
 console.log("insurance metlife reader: ok");

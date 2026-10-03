@@ -14,6 +14,34 @@ export type PatientInsurance = Record<string, { memberNumber: string }>;
 
 const PAYER_ID = /^[a-z0-9_-]+$/;
 
+/** What the insurer's own paper identifies the patient by; only the member number is always known. */
+export type PatientInsuranceEntry = { memberNumber: string; certificateNumber?: string; dependentCode?: string; policyNumber?: string };
+
+/** MetLife prints the member as certificate and dependent code: `987/1`. */
+export function metlifeMemberNumber(certificate: string, dependent: string): string {
+  return `${certificate.trim()}/${dependent.trim()}`;
+}
+
+/** payerId → full entry. Same member-number rule as `readMemberNumbers`; the rest only when present. */
+export function readInsurance(patient: Record<string, unknown>): Record<string, PatientInsuranceEntry> {
+  const out: Record<string, PatientInsuranceEntry> = {};
+  const raw = patient.insurance;
+  if (!raw || typeof raw !== "object") return out;
+  for (const [payerId, entry] of Object.entries(raw as Record<string, unknown>)) {
+    if (!entry || typeof entry !== "object") continue;
+    const e = entry as Record<string, unknown>;
+    const memberNumber = String(e.memberNumber ?? "").trim();
+    if (!memberNumber) continue;
+    const read: PatientInsuranceEntry = { memberNumber };
+    for (const key of ["certificateNumber", "dependentCode", "policyNumber"] as const) {
+      const value = String(e[key] ?? "").trim();
+      if (value) read[key] = value;
+    }
+    out[payerId] = read;
+  }
+  return out;
+}
+
 /** payerId → member number, for the patient document as read from Firestore. */
 export function readMemberNumbers(patient: Record<string, unknown>): Record<string, string> {
   const out: Record<string, string> = {};
