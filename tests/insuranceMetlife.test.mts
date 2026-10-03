@@ -131,6 +131,48 @@ for (const junk of [null, undefined, 5, "text", [], {}, { header: 7, lines: "x" 
 assert.equal(normalizeMetlife({ lines: [null, 3] }).lines.length, 2, "an unreadable row is kept as an empty line, not dropped silently");
 assert.equal(normalizeMetlife({ lines: [null] }).lines[0].confidence, 0, "an empty row is not trusted");
 
+// A lone dash is the paper's "empty", not a value.
+for (const dash of ["-", " - ", "–", "—"]) {
+  const d = normalizeMetlife({ header: { dependentCode: dash, certificateNumber: dash, statusText: dash, comment: dash }, lines: [{ code: dash, comment: dash }] });
+  assert.equal(d.header.dependentCode, "");
+  assert.equal(d.header.certificateNumber, "");
+  assert.equal(d.header.statusText, "");
+  assert.equal(d.header.comment, "");
+  assert.equal(d.lines[0].code, "");
+}
+
+// The split does not depend on the spaces around the dash, and stops at the first one.
+{
+  const t = normalizeMetlife({ header: { policyNumber: "6481234567-EXAMPLE TRAVEL", providerCode: "DNC0001-DR. EXAMPLE - DENTAL" } });
+  assert.equal(t.header.policyNumber, "6481234567");
+  assert.equal(t.header.employer, "EXAMPLE TRAVEL");
+  assert.equal(t.header.providerCode, "DNC0001");
+  assert.equal(t.header.physician, "DR. EXAMPLE - DENTAL");
+}
+
+// The Total row is not a service line, wherever the model puts it.
+{
+  const raw = JSON.parse(JSON.stringify(SAMPLE_RAW));
+  raw.lines.push({ code: "", description: "Total", unitsRequested: 5, grossPerUnit: null, grossTotal: 1260, unitsApproved: 5, patientShare: 0, approvedAmount: 1260, comment: "", confidence: 0.9 });
+  assert.equal(normalizeMetlife(raw).lines.length, 5);
+}
+
+// A number the model could not read (null) counts as 0 and flags that row for a look.
+{
+  const raw = JSON.parse(JSON.stringify(SAMPLE_RAW));
+  raw.lines[1].grossPerUnit = null;
+  const n = normalizeMetlife(raw);
+  assert.equal(n.lines[1].grossPerUnit, 0);
+  assert.equal(n.lines[1].confidence, 0);
+  assert.equal(n.lines[0].confidence, 0.95, "the other rows keep theirs");
+  const checks = checkMetlife(n, ctx);
+  assert.equal(only(checks, "low_confidence", "soft").field, "lines[1]");
+  only(checks, "line_gross", "hard"); // 1 x 0 is not 60: the arithmetic catches it as well
+}
+
+// Confidence is kept only for the header fields that exist.
+assert.deepEqual(normalizeMetlife({ header: { confidence: { approvalNumber: 0.9, bogus: 0.1, statusText: 2 } } }).header.confidence, { approvalNumber: 0.9, statusText: 1 });
+
 // --- 3. The checks ---------------------------------------------------------------------------------
 assert.deepEqual(checkMetlife(x, ctx), [], "the clean sample passes");
 assert.deepEqual(checkMetlife(x, { ...ctx, matchedPatientName: "EXAMPLE PATIENT NAME", nameScore: 0.9 }), [], "a good name match raises nothing");
@@ -163,6 +205,37 @@ hardLines(x, (l) => (l[1].patientShare = 10), "patient_share_total");
 hard(x, (h) => (h.collectNote = 15), "patient_share_total");
 hard(x, (h) => (h.certificateNumber = ""), "certificate");
 hard(x, (h) => (h.dependentCode = ""), "dependent");
+{
+  // as the model really returns it: a dash where the paper has nothing
+  const raw = JSON.parse(JSON.stringify(SAMPLE_RAW));
+  raw.header.dependentCode = "-";
+  raw.header.certificateNumber = "-";
+  const checks = checkMetlife(normalizeMetlife(raw), ctx);
+  only(checks, "dependent", "hard");
+  only(checks, "certificate", "hard");
+}
+{
+  // no printed share total, but the "Kindly collect" note was read: the lines are checked against it
+  const y = clone(x);
+  y.header.patientShareTotal = null;
+  y.header.collectNote = 0;
+  const clean = checkMetlife(y, ctx);
+  assert.equal(hasHardFailure(clean), false);
+  assert.equal(only(clean, "low_confidence", "soft").field, "patientShareTotal");
+  y.lines[1].patientShare = 10;
+  y.lines[1].approvedAmount = 50; // keeps the approved column adding up as printed
+  y.header.approvedTotal = 1250;
+  const bad = checkMetlife(y, ctx);
+  assert.equal(only(bad, "patient_share_total", "hard").field, "collectNote");
+  assert.equal(hasHardFailure(bad), true);
+}
+{
+  // a nonsense "today" never throws; it only skips the future-date check
+  const future = clone(x);
+  future.header.approvalDate = "2030-01-01";
+  assert.doesNotThrow(() => checkMetlife(future, { today: "not a date" }));
+  assert.equal(checkMetlife(future, { today: "" }).filter((c) => c.id === "approval_date_future").length, 0);
+}
 {
   const none = clone(x);
   none.lines = [];
@@ -197,6 +270,23 @@ soft(x, (h) => (h.providerCode = "DNC9999"), "provider_code");
 assert.equal(soft(x, (h) => (h.confidence.approvalNumber = 0.5), "low_confidence").field, "approvalNumber");
 softLines(x, (l) => (l[3].confidence = 0.4), "low_confidence");
 softLines(x, (l, h) => { l[2].approvedAmount = 500; h.approvedTotal = 1160; }, "reduced"); // totals still add up, so only the soft check fires
+{
+  // an ordinary copay is not a cut: MetLife pays 540, the patient 60, the gross 600 is covered
+  const y = clone(x);
+  y.lines[2].approvedAmount = 540;
+  y.lines[2].patientShare = 60;
+  y.header.approvedTotal = 1200;
+  y.header.patientShareTotal = 60;
+  y.header.collectNote = 60;
+  assert.deepEqual(checkMetlife(y, ctx), [], "a copay line raises nothing");
+  // paying the patient's share on top of the full amount is odd, though
+  y.lines[2].approvedAmount = 600;
+  y.header.approvedTotal = 1260;
+  const checks = checkMetlife(y, ctx);
+  assert.equal(hasHardFailure(checks), false);
+  assert.equal(only(checks, "share_exceeds", "soft").field, "lines[2]");
+  assert.equal(checks.filter((c) => c.id === "reduced").length, 0);
+}
 softLines(x, (l, h) => { l[0].unitsApproved = 0; l[0].approvedAmount = 0; h.approvedTotal = 1200; }, "reduced");
 {
   // a null printed total: that sum is skipped and the field is flagged for a look instead

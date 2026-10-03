@@ -48,7 +48,7 @@ export type MetlifeHeader = {
   certificateNumber: string;
   dependentCode: string;
   paperPatientName: string;
-  /** The code part of "DNC8144 - DR. AHMED ROSHDY - DENTAL". */
+  /** The code part of "DNC0001 - DR. EXAMPLE - DENTAL". */
   providerCode: string;
   /** The rest of the same string. */
   physician: string;
@@ -158,12 +158,12 @@ export const METLIFE_RESPONSE_SCHEMA = {
         properties: {
           code: str,
           description: str,
-          unitsRequested: num,
-          grossPerUnit: num,
-          grossTotal: num,
-          unitsApproved: num,
-          patientShare: num,
-          approvedAmount: num,
+          unitsRequested: numOrNull,
+          grossPerUnit: numOrNull,
+          grossTotal: numOrNull,
+          unitsApproved: numOrNull,
+          patientShare: numOrNull,
+          approvedAmount: numOrNull,
           comment: str,
           confidence: num,
         },
@@ -183,11 +183,12 @@ export function buildMetlifePrompt(): string {
     "- approvalNumber: the Pre-Approval ID, the letter D followed by seven digits.",
     "- approvalDate and terminationDate: dates are printed dd/mm/yyyy. Copy them as printed. A termination date of 9999-12-31 means there is no end.",
     "- policyNumber: the Policy Number line as printed, number then employer, for example \"6481234567 - EXAMPLE TRAVEL EGYPT\".",
-    "- providerCode: the Provider line as printed, for example \"DNC8144 - DR. AHMED ROSHDY - DENTAL\".",
+    "- providerCode: the Provider line as printed, for example \"DNC0001 - DR. EXAMPLE - DENTAL\".",
     "- certificateNumber and dependentCode: as printed. paperPatientName: the patient's name as printed, in capitals.",
     "- statusText: the Status line, for example AUTO APPROVED.",
     "- estimatedCost, requestedTotal, approvedTotal, patientShareTotal: the figures in the Total row and the header. collectNote: the figure in the sentence \"Kindly collect the patient share of EGP x\".",
     "- A dash (-) or a blank means empty: use an empty string for text, null for a number or date.",
+    "- The Total row at the bottom of the table is not a service line: never return it as a row; its figures go in requestedTotal, approvedTotal and patientShareTotal.",
     "- Copy the service table row by row, in the order printed, one entry per row, with each row's code, description, submitted units, gross per unit, gross for the code, approved units, patient share, MetLife approved amount and comment. Do not merge, skip or reorder rows, and do not do arithmetic: copy the printed numbers.",
     "- If you cannot read something, return null (or an empty string for text) rather than guessing. A wrong number is worse than a missing one.",
     "- confidence: a number from 0 to 1 for each header field you were asked to rate, and for every table row. Use a low number for anything faint, cut off, smudged or ambiguous.",
@@ -200,8 +201,14 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+/** The paper prints a lone dash for "empty"; a dash is not a value. */
+const LONE_DASH = /^[-\u2013\u2014]$/;
+
 function text(v: unknown): string {
-  if (typeof v === "string") return v.trim();
+  if (typeof v === "string") {
+    const t = v.trim();
+    return LONE_DASH.test(t) ? "" : t;
+  }
   if (typeof v === "number" && Number.isFinite(v)) return String(v);
   return "";
 }
@@ -244,11 +251,11 @@ export function parseMoney(s: unknown): number | null {
   return Number.isFinite(n) ? round2(n) : null;
 }
 
-/** "number - rest" → [number, rest], split on the first " - " only. */
+/** "6481234567 - EXAMPLE TRAVEL" → [number, rest]: split at the first dash after the leading token, spaces or not. */
 function splitDash(s: string): [string, string] {
-  const i = s.indexOf(" - ");
-  if (i < 0) return [s.trim(), ""];
-  return [s.slice(0, i).trim(), s.slice(i + 3).trim()];
+  const m = /^\s*([A-Z0-9]+)\s*-\s*(.*)$/i.exec(s);
+  if (!m) return [s.trim(), ""];
+  return [m[1], m[2].trim()];
 }
 
 function moneyOr0(v: unknown): number {
@@ -258,7 +265,8 @@ function moneyOr0(v: unknown): number {
 function normalizeConfidence(v: unknown): Record<string, number> {
   const out: Record<string, number> = {};
   if (!isRecord(v)) return out;
-  for (const [k, raw] of Object.entries(v)) {
+  for (const k of CONFIDENCE_FIELDS) {
+    const raw = v[k];
     if (typeof raw === "number" && Number.isFinite(raw)) out[k] = Math.min(1, Math.max(0, raw));
   }
   return out;
@@ -266,7 +274,9 @@ function normalizeConfidence(v: unknown): Record<string, number> {
 
 function normalizeLine(raw: unknown): MetlifeLine {
   const r = isRecord(raw) ? raw : {};
-  const c = typeof r.confidence === "number" && Number.isFinite(r.confidence) ? Math.min(1, Math.max(0, r.confidence)) : 0;
+  let c = typeof r.confidence === "number" && Number.isFinite(r.confidence) ? Math.min(1, Math.max(0, r.confidence)) : 0;
+  // A number the model could not read becomes 0 (the sums will catch it) and the row is flagged for a look.
+  if ([r.unitsRequested, r.grossPerUnit, r.grossTotal, r.unitsApproved, r.patientShare, r.approvedAmount].some((n) => parseMoney(n) === null)) c = 0;
   return {
     code: code(r.code),
     description: text(r.description),
@@ -280,6 +290,11 @@ function normalizeLine(raw: unknown): MetlifeLine {
     // A row the model gave no confidence for (or an unreadable one) is not trusted.
     confidence: c,
   };
+}
+
+/** The table's Total row is not a service; a model sometimes copies it as a row. */
+function isTotalRow(l: MetlifeLine): boolean {
+  return l.code === "" && l.description.toLowerCase() === "total";
 }
 
 /** Turns the model's JSON into a typed extraction. Tolerates anything: junk gives empty strings, nulls and no lines. */
@@ -310,7 +325,7 @@ export function normalizeMetlife(raw: unknown): MetlifeExtraction {
       comment: text(h.comment),
       confidence: normalizeConfidence(h.confidence),
     },
-    lines: Array.isArray(root.lines) ? root.lines.map(normalizeLine) : [],
+    lines: Array.isArray(root.lines) ? root.lines.map(normalizeLine).filter((l) => !isTotalRow(l)) : [],
   };
 }
 
@@ -335,7 +350,7 @@ function nextDay(iso: string): string {
 }
 
 /** Names of header fields in both languages, for the messages. */
-const FIELD_LABEL: Record<string, { en: string; ar: string }> = {
+const FIELD_LABEL: Record<string, Text> = {
   approvalNumber: { en: "approval number", ar: "رقم الموافقة" },
   approvalDate: { en: "approval date", ar: "تاريخ الموافقة" },
   policyNumber: { en: "policy number", ar: "رقم البوليصة" },
@@ -348,22 +363,61 @@ const FIELD_LABEL: Record<string, { en: string; ar: string }> = {
   requestedTotal: { en: "requested total", ar: "إجمالي المطلوب" },
   approvedTotal: { en: "approved total", ar: "إجمالي الموافقة" },
   patientShareTotal: { en: "patient share total", ar: "إجمالي حصة المريض" },
-  collectNote: { en: "the patient share in the note", ar: "حصة المريض في الملاحظة" },
+  collectNote: { en: "patient share in the note", ar: "حصة المريض في الملاحظة" },
 };
 
-function label(field: string): { en: string; ar: string } {
+type Text = { en: string; ar: string };
+
+function label(field: string): Text {
   return FIELD_LABEL[field] ?? { en: field, ar: field };
 }
 
-function hardCheck(id: string, field: string, en: string, ar: string): Check {
-  return { id, severity: "hard", field, en, ar };
+/**
+ * Every message a check can show, in both languages, in one place. `{name}` is filled from the values
+ * the check passes; a value is a plain string or an en/ar pair (field names, line labels).
+ */
+const CHECK_TEXT: Record<string, Text> = {
+  approval_number: { en: "Approval number must be D followed by 7 digits", ar: "رقم الموافقة لازم يكون D و7 أرقام" },
+  approval_date: { en: "Approval date could not be read", ar: "تاريخ الموافقة مش مقروء" },
+  approval_date_future: { en: "Approval date is in the future", ar: "تاريخ الموافقة في المستقبل" },
+  certificate: { en: "Certificate number is missing", ar: "رقم الشهادة ناقص" },
+  dependent: { en: "Dependent code is missing", ar: "كود التابع ناقص" },
+  no_lines: { en: "No service lines were read", ar: "مفيش بنود خدمة اتقرأت" },
+  line_gross: { en: "{line}: gross must equal units x price per unit", ar: "{line}: الإجمالي لازم يساوي العدد × سعر الوحدة" },
+  sum_mismatch: { en: "The lines add up to {got} but the printed {field} is {printed}", ar: "البنود مجموعها {got} لكن {field} المطبوع {printed}" },
+  collect_note: { en: "The note says collect {printed} but the lines' patient share adds up to {got}", ar: "الملاحظة بتقول تحصيل {printed} لكن حصة المريض في البنود مجموعها {got}" },
+  collect_note_total: { en: "The note says collect {printed} but the patient share total is {got}", ar: "الملاحظة بتقول تحصيل {printed} لكن إجمالي حصة المريض {got}" },
+  status: { en: 'Status is "{status}", not approved', ar: 'الحالة "{status}" مش موافقة' },
+  provider_code: { en: "Provider code {provider} differs from the clinic's {clinic}", ar: "كود مقدم الخدمة {provider} مختلف عن كود العيادة {clinic}" },
+  low_confidence: { en: "The {field} was hard to read: please check it", ar: "{field} كان صعب القراءة: راجعه" },
+  reduced: { en: "{line}: MetLife approved less than requested", ar: "{line}: ميتلايف وافقت على أقل من المطلوب" },
+  share_exceeds: { en: "{line}: approved amount plus patient share is more than the gross", ar: "{line}: مبلغ الموافقة مع حصة المريض أكبر من الإجمالي" },
+  name_mismatch: { en: "The name on the paper does not look like {name}", ar: "الاسم في الورقة مش شبه {name}" },
+};
+
+const EMPTY_WORD: Text = { en: "empty", ar: "فاضية" };
+const NONE_WORD: Text = { en: "none", ar: "بدون" };
+
+function say(key: string, vars: Record<string, string | Text> = {}): Text {
+  const t = CHECK_TEXT[key];
+  const fill = (lang: "en" | "ar") =>
+    t[lang].replace(/\{(\w+)\}/g, (_, k: string) => {
+      const v = vars[k];
+      return v === undefined ? "" : typeof v === "string" ? v : v[lang];
+    });
+  return { en: fill("en"), ar: fill("ar") };
 }
-function softCheck(id: string, field: string, en: string, ar: string): Check {
-  return { id, severity: "soft", field, en, ar };
+
+function make(severity: "hard" | "soft", id: string, field: string, textKey: string, vars?: Record<string, string | Text>): Check {
+  return { id, severity, field, ...say(textKey, vars) };
+}
+
+function lineLabel(i: number, l: MetlifeLine): Text {
+  return { en: `Line ${i + 1} (${l.code || NONE_WORD.en})`, ar: `البند ${i + 1} (${l.code || NONE_WORD.ar})` };
 }
 
 export type MetlifeCheckContext = {
-  /** Today as ISO `yyyy-mm-dd`, passed in so the checks stay pure. */
+  /** Today as ISO `yyyy-mm-dd`, passed in so the checks stay pure. A malformed value skips the future-date check. */
   today: string;
   /** The payer's provider code in the clinic's settings. */
   providerCode?: string;
@@ -376,37 +430,23 @@ export type MetlifeCheckContext = {
 export function checkMetlife(x: MetlifeExtraction, ctx: MetlifeCheckContext): Check[] {
   const checks: Check[] = [];
   const h = x.header;
+  const today = parseMetlifeDate(ctx.today);
 
   // Hard: identity of the approval.
-  if (!APPROVAL_NUMBER_RE.test(h.approvalNumber)) {
-    checks.push(hardCheck("approval_number", "approvalNumber", "Approval number must be D followed by 7 digits", "رقم الموافقة لازم يكون D و7 أرقام"));
-  }
+  if (!APPROVAL_NUMBER_RE.test(h.approvalNumber)) checks.push(make("hard", "approval_number", "approvalNumber", "approval_number"));
   if (!h.approvalDate) {
-    checks.push(hardCheck("approval_date", "approvalDate", "Approval date could not be read", "تاريخ الموافقة مش مقروء"));
-  } else if (h.approvalDate > nextDay(ctx.today)) {
-    checks.push(hardCheck("approval_date_future", "approvalDate", "Approval date is in the future", "تاريخ الموافقة في المستقبل"));
+    checks.push(make("hard", "approval_date", "approvalDate", "approval_date"));
+  } else if (today && h.approvalDate > nextDay(today)) {
+    checks.push(make("hard", "approval_date_future", "approvalDate", "approval_date_future"));
   }
-  if (!h.certificateNumber) {
-    checks.push(hardCheck("certificate", "certificateNumber", "Certificate number is missing", "رقم الشهادة ناقص"));
-  }
-  if (!h.dependentCode) {
-    checks.push(hardCheck("dependent", "dependentCode", "Dependent code is missing", "كود التابع ناقص"));
-  }
+  if (!h.certificateNumber) checks.push(make("hard", "certificate", "certificateNumber", "certificate"));
+  if (!h.dependentCode) checks.push(make("hard", "dependent", "dependentCode", "dependent"));
 
   // Hard: the service table and its sums.
-  if (x.lines.length === 0) {
-    checks.push(hardCheck("no_lines", "lines", "No service lines were read", "مفيش بنود خدمة اتقرأت"));
-  }
+  if (x.lines.length === 0) checks.push(make("hard", "no_lines", "lines", "no_lines"));
   x.lines.forEach((l, i) => {
     if (!close(l.grossTotal, round2(l.unitsRequested * l.grossPerUnit))) {
-      checks.push(
-        hardCheck(
-          "line_gross",
-          `lines[${i}].grossTotal`,
-          `Line ${i + 1} (${l.code || "no code"}): gross must equal units x price per unit`,
-          `البند ${i + 1} (${l.code || "بدون كود"}): الإجمالي لازم يساوي العدد × سعر الوحدة`,
-        ),
-      );
+      checks.push(make("hard", "line_gross", `lines[${i}].grossTotal`, "line_gross", { line: lineLabel(i, l) }));
     }
   });
 
@@ -420,92 +460,49 @@ export function checkMetlife(x: MetlifeExtraction, ctx: MetlifeCheckContext): Ch
       const printed = h[s.field];
       if (printed === null) {
         // Nothing to compare against: a person should look at that field.
-        checks.push(lowConfidence(s.field, label(s.field)));
+        checks.push(lowConfidence(s.field));
+        // The "Kindly collect" figure is the same number as the patient share total: check against it instead.
+        if (s.field === "patientShareTotal" && h.collectNote !== null && !close(s.got, h.collectNote)) {
+          checks.push(make("hard", "patient_share_total", "collectNote", "collect_note", { printed: String(h.collectNote), got: String(s.got) }));
+        }
       } else if (!close(s.got, printed)) {
-        checks.push(
-          hardCheck(
-            s.id,
-            s.field,
-            `The lines add up to ${s.got} but the printed ${label(s.field).en} is ${printed}`,
-            `البنود مجموعها ${s.got} لكن ${label(s.field).ar} المطبوع ${printed}`,
-          ),
-        );
+        checks.push(make("hard", s.id, s.field, "sum_mismatch", { got: String(s.got), printed: String(printed), field: label(s.field) }));
       }
     }
   }
   if (h.collectNote !== null && h.patientShareTotal !== null && !close(h.collectNote, h.patientShareTotal)) {
-    checks.push(
-      hardCheck(
-        "patient_share_total",
-        "collectNote",
-        `The note says collect ${h.collectNote} but the patient share total is ${h.patientShareTotal}`,
-        `الملاحظة بتقول تحصيل ${h.collectNote} لكن إجمالي حصة المريض ${h.patientShareTotal}`,
-      ),
-    );
+    checks.push(make("hard", "patient_share_total", "collectNote", "collect_note_total", { printed: String(h.collectNote), got: String(h.patientShareTotal) }));
   }
 
   // Soft: worth a look, never blocks.
   if (h.statusText !== "AUTO APPROVED" && h.statusText !== "APPROVED") {
-    checks.push(
-      softCheck(
-        "status",
-        "statusText",
-        `Status is "${h.statusText || "empty"}", not approved`,
-        `الحالة "${h.statusText || "فاضية"}" مش موافقة`,
-      ),
-    );
+    checks.push(make("soft", "status", "statusText", "status", { status: h.statusText || EMPTY_WORD }));
   }
   if (ctx.providerCode && h.providerCode !== ctx.providerCode.trim().toUpperCase()) {
-    checks.push(
-      softCheck(
-        "provider_code",
-        "providerCode",
-        `Provider code ${h.providerCode || "(empty)"} differs from the clinic's ${ctx.providerCode}`,
-        `كود مقدم الخدمة ${h.providerCode || "(فاضي)"} مختلف عن كود العيادة ${ctx.providerCode}`,
-      ),
-    );
+    checks.push(make("soft", "provider_code", "providerCode", "provider_code", { provider: h.providerCode || `(${EMPTY_WORD.en})`, clinic: ctx.providerCode }));
   }
   for (const [field, c] of Object.entries(h.confidence)) {
     // A null printed total already raised this above: one check per field.
-    if (c < LOW_CONFIDENCE && !checks.some((k) => k.id === "low_confidence" && k.field === field)) checks.push(lowConfidence(field, label(field)));
+    if (c < LOW_CONFIDENCE && !checks.some((k) => k.id === "low_confidence" && k.field === field)) checks.push(lowConfidence(field));
   }
   x.lines.forEach((l, i) => {
-    if (l.confidence < LOW_CONFIDENCE) {
-      checks.push(
-        softCheck(
-          "low_confidence",
-          `lines[${i}]`,
-          `Line ${i + 1} (${l.code || "no code"}) was hard to read: please check it`,
-          `البند ${i + 1} (${l.code || "بدون كود"}) كان صعب القراءة: راجعه`,
-        ),
-      );
+    const line = lineLabel(i, l);
+    if (l.confidence < LOW_CONFIDENCE) checks.push(make("soft", "low_confidence", `lines[${i}]`, "low_confidence", { field: line }));
+    // MetLife covers part of the gross and the patient the rest; only a gap is a cut.
+    const covered = round2(l.approvedAmount + l.patientShare);
+    if (l.unitsApproved < l.unitsRequested || l.grossTotal - covered > TOLERANCE + 1e-9) {
+      checks.push(make("soft", "reduced", `lines[${i}]`, "reduced", { line }));
     }
-    if (l.unitsApproved < l.unitsRequested || l.approvedAmount < l.grossTotal) {
-      checks.push(
-        softCheck(
-          "reduced",
-          `lines[${i}]`,
-          `Line ${i + 1} (${l.code || "no code"}): MetLife approved less than requested`,
-          `البند ${i + 1} (${l.code || "بدون كود"}): ميتلايف وافقت على أقل من المطلوب`,
-        ),
-      );
-    }
+    if (covered - l.grossTotal > TOLERANCE + 1e-9) checks.push(make("soft", "share_exceeds", `lines[${i}]`, "share_exceeds", { line }));
   });
   if (ctx.matchedPatientName && typeof ctx.nameScore === "number" && ctx.nameScore < NAME_MATCH_FLOOR) {
-    checks.push(
-      softCheck(
-        "name_mismatch",
-        "paperPatientName",
-        `The name on the paper does not look like ${ctx.matchedPatientName}`,
-        `الاسم في الورقة مش شبه ${ctx.matchedPatientName}`,
-      ),
-    );
+    checks.push(make("soft", "name_mismatch", "paperPatientName", "name_mismatch", { name: ctx.matchedPatientName }));
   }
   return checks;
 }
 
-function lowConfidence(field: string, l: { en: string; ar: string }): Check {
-  return softCheck("low_confidence", field, `The ${l.en} was hard to read: please check it`, `${l.ar} كان صعب القراءة: راجعه`);
+function lowConfidence(field: string): Check {
+  return make("soft", "low_confidence", field, "low_confidence", { field: label(field) });
 }
 
 export function hasHardFailure(checks: Check[]): boolean {
