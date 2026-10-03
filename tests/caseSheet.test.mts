@@ -214,8 +214,10 @@ const PAYMENTS = [
     "export takes the filtered rows; an export that widened back to everything would be a different document from the one on screen"
   );
   ok(/pageOf\(rows, page, size\)/.test(ui), "the table pages the filtered rows");
-  const page = readFileSync(join(REPO, "src/app/(dashboard)/reports/page.tsx"), "utf8");
-  ok(/id: "cases"/.test(page) && /CaseSheetReport/.test(page), "the tab is registered and rendered");
+  // The reports page reads its tabs from the catalogue and renders them through the registry.
+  const catalog = readFileSync(join(REPO, "src/lib/reports/catalog.ts"), "utf8");
+  const registry = readFileSync(join(REPO, "src/components/reports/registry.tsx"), "utf8");
+  ok(/id: "cases"/.test(catalog) && /cases: \{[^\n]*CaseSheetReport/.test(registry), "the tab is registered and rendered");
 }
 
 console.log(`caseSheet: ${checks} checks passed`);
