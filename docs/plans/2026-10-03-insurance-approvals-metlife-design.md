@@ -1,7 +1,7 @@
 # Insurance approvals — MetLife reader, claims register and the MetLife statement — design
 
 **Date:** 2026-10-03
-**Status:** decisions taken in chat with the owner on 2026-10-03; this is the write-up to build from.
+**Status:** built 2026-10-04 on branch claude/insurance-approvals (11 tasks, each reviewed); the live probe, the browser check, the Firestore index deploy and the demo-clinic walk-through are owed to the owner — see the plan's Task 12 checklist.
 **Samples:** `C:\Users\PC\Downloads\METLIFE APPROVAL.pdf` (one scanned MetLife pre-approval, 2 pages, page 2
 blank) and `C:\Users\PC\Downloads\metlife 2-2026.xlsx` (the prospect's real February 2026 statement to
 MetLife: 44 cases, 89,520 EGP approved). **They stay out of the repo**: both hold real patient names, policy
