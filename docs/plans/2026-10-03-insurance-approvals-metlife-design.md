@@ -131,9 +131,11 @@ The branch stores `{ memberNumber }` per payer. MetLife extends it:
 working; it is derived as `certificate/dependent`. `patientInsurance.ts` gains `metlifeMemberNumber(cert,
 dep)` and the modal shows the two MetLife boxes instead of one free text when the payer is MetLife.
 
-### Payer: `settings/payers` entries gain `providerCode?: string`
+### Payer: `settings/payers` entries gain `format?: "metlife"` and `providerCode?: string`
 
-Typed once in Settings → Payers for MetLife (`DNC8144`). A paper whose provider code differs gets a soft
+`format` says which reader and which sheet layout this payer uses (a select in Settings → Payers; MetLife is the
+only option this round; a payer without a format cannot receive uploads). `providerCode` is typed once for
+MetLife (`DNC8144`). A paper whose provider code differs gets a soft
 warning ("this approval names provider DNC9999, yours is DNC8144"). Not a hard stop: the owner may run two
 provider codes.
 
