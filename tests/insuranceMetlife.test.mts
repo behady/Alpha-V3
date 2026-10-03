@@ -436,12 +436,24 @@ assert.deepEqual(writeInsurance({ metlife: { certificateNumber: "5", dependentCo
 assert.deepEqual(writeInsurance({ metlife: { certificateNumber: "5", dependentCode: "0", policyNumber: "  ", memberNumber: "" } }), { metlife: { memberNumber: "5/0", certificateNumber: "5", dependentCode: "0" } });
 // no certificate and dependent: only a typed member number survives
 assert.deepEqual(writeInsurance({ metlife: { policyNumber: "999", memberNumber: " M7 " } }), { metlife: { memberNumber: "M7", policyNumber: "999" } });
-assert.deepEqual(writeInsurance({ metlife: { policyNumber: "999", memberNumber: "" } }), {});
+// a policy-only entry is kept, with an empty member number, and survives the round trip into the editor
+{
+  const stored = writeInsurance({ metlife: { policyNumber: "999", memberNumber: "" } });
+  assert.deepEqual(stored, { metlife: { memberNumber: "", policyNumber: "999" } });
+  assert.deepEqual(readInsurance({ insurance: stored }), stored);
+  assert.deepEqual(readMemberNumbers({ insurance: stored }), {}, "the statement's reader still wants a member number");
+}
+assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: "" } }), {}, "all four blank: nothing stored");
 // only one of the two: what is there is kept, and nothing is ever undefined
 {
   const out = writeInsurance({ metlife: { certificateNumber: "987", dependentCode: " ", memberNumber: "" } });
   assert.deepEqual(out, { metlife: { memberNumber: "", certificateNumber: "987" } });
   assert.ok(Object.values(out.metlife).every((v) => v !== undefined), "Firestore refuses undefined");
+  assert.deepEqual(readInsurance({ insurance: out }), out, "a cert-only entry round-trips");
+  assert.deepEqual(readMemberNumbers({ insurance: out }), {});
+  // ...and it is never an exact match: that needs the certificate and the dependent code
+  const m = matchPatient({ payerId: "metlife", certificateNumber: "987", dependentCode: "1", paperPatientName: "ZZ" }, [{ id: "p1", name: "ZZ", insurance: out }]);
+  assert.notEqual(m.kind, "exact");
 }
 // what the editor reads, it can write back unchanged
 {

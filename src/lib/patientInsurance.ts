@@ -22,7 +22,7 @@ export function metlifeMemberNumber(certificate: string, dependent: string): str
   return `${certificate.trim()}/${dependent.trim()}`;
 }
 
-/** payerId → full entry. Same member-number rule as `readMemberNumbers`; the rest only when present. */
+/** payerId → full entry. Kept when any of its four fields is filled; the optional ones only when present. */
 export function readInsurance(patient: Record<string, unknown>): Record<string, PatientInsuranceEntry> {
   const out: Record<string, PatientInsuranceEntry> = {};
   const raw = patient.insurance;
@@ -31,13 +31,14 @@ export function readInsurance(patient: Record<string, unknown>): Record<string, 
     if (!entry || typeof entry !== "object") continue;
     const e = entry as Record<string, unknown>;
     const memberNumber = String(e.memberNumber ?? "").trim();
-    if (!memberNumber) continue;
     const read: PatientInsuranceEntry = { memberNumber };
+    let any = memberNumber !== "";
     for (const key of ["certificateNumber", "dependentCode", "policyNumber"] as const) {
       const value = String(e[key] ?? "").trim();
-      if (value) read[key] = value;
+      if (value) { read[key] = value; any = true; }
     }
-    out[payerId] = read;
+    // A half-filled or policy-only entry is still the clinic's data: the editor must show it again.
+    if (any) out[payerId] = read;
   }
   return out;
 }
@@ -58,8 +59,9 @@ export function readMemberNumbers(patient: Record<string, unknown>): Record<stri
 /**
  * The map to store, from what was typed. Trimmed; blank entries and malformed ids are left out.
  * A string is a plain member number. An entry is MetLife's three boxes: certificate and dependent
- * together make the member number (`987/1`); without both, only a typed member number is kept.
- * Blank fields are left out, never written as `undefined`.
+ * together make the member number (`987/1`); without both it is the typed member number, possibly
+ * "". An entry is stored when any of its four fields is filled. Blank optional fields are left out,
+ * never written as `undefined`.
  */
 export function writeInsurance(edits: Record<string, PatientInsuranceEntry | string>): PatientInsurance {
   const out: PatientInsurance = {};
@@ -75,8 +77,7 @@ export function writeInsurance(edits: Record<string, PatientInsuranceEntry | str
     const policy = String(typed.policyNumber ?? "").trim();
     const both = certificate !== "" && dependent !== "";
     const memberNumber = both ? metlifeMemberNumber(certificate, dependent) : String(typed.memberNumber ?? "").trim();
-    // Neither box filled: nothing identifies the member, so only a typed member number keeps the entry.
-    if (!both && !memberNumber && !(certificate || dependent)) continue;
+    if (!memberNumber && !certificate && !dependent && !policy) continue;
     const entry: PatientInsuranceEntry = { memberNumber };
     if (certificate) entry.certificateNumber = certificate;
     if (dependent) entry.dependentCode = dependent;
