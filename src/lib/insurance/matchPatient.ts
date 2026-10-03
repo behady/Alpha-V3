@@ -24,7 +24,7 @@ export type PatientMatch =
 const LETTERS: Record<string, string> = {
   "ا": "a", "أ": "a", "إ": "a", "آ": "a", "ع": "a", "ة": "a",
   "ب": "b", "ت": "t", "ط": "t", "ث": "t", "ج": "g",
-  "ح": "h", "ه": "h", "خ": "h", "د": "d", "ض": "d", "ذ": "z", "ز": "z", "ر": "r",
+  "ح": "h", "ه": "h", "خ": "h", "د": "d", "ض": "d", "ذ": "z", "ز": "z", "ظ": "z", "ر": "r",
   "س": "s", "ص": "s", "ش": "sh", "غ": "gh", "ف": "f", "ق": "k", "ك": "k",
   "ل": "l", "م": "m", "ن": "n", "و": "w", "ؤ": "w", "ي": "y", "ى": "y", "ئ": "y",
   "ء": "",
@@ -41,7 +41,10 @@ export function latinSkeleton(name: string): string[] {
   const text = String(name ?? "")
     .replace(DIACRITICS, "")
     .toLowerCase()
-    .replace(/kh/g, "h"); // KHALED and خالد: the Latin digraph is one Arabic letter
+    // the Latin digraphs that are one Arabic letter: KHALED = خالد, THAMER = ثامر, DHAKI = ذكي
+    .replace(/kh/g, "h")
+    .replace(/th/g, "t")
+    .replace(/dh/g, "z");
   return text
     .split(/\s+/)
     .map((word) =>
@@ -54,10 +57,29 @@ export function latinSkeleton(name: string): string[] {
     .filter(Boolean);
 }
 
-/** Matched tokens / the longer name's token count, 0..1. Tokens pair one-to-one on equal skeletons. */
-export function nameSimilarity(a: string, b: string): number {
-  const left = latinSkeleton(a);
-  const right = latinSkeleton(b);
+/**
+ * Words that are written apart in Latin (ABDEL RAHMAN, EL SAYED) and together in Arabic (عبدالرحمن,
+ * السيد), in skeleton form: abd, abdel/abdul, el/al, abu/abou.
+ */
+const PREFIXES = new Set(["bd", "bdl", "l", "b"]);
+
+/** Each prefix word joined onto the word that follows it, so both scripts split the name the same way. */
+function mergePrefixes(tokens: string[]): string[] {
+  const out: string[] = [];
+  let pending = "";
+  for (const token of tokens) {
+    if (PREFIXES.has(token)) {
+      pending += token;
+      continue;
+    }
+    out.push(pending + token);
+    pending = "";
+  }
+  if (pending) out.push(pending);
+  return out;
+}
+
+function pairedShare(left: string[], right: string[]): number {
   const longest = Math.max(left.length, right.length);
   if (longest === 0) return 0;
   const free = [...right];
@@ -71,6 +93,16 @@ export function nameSimilarity(a: string, b: string): number {
   return matched / longest;
 }
 
+/** Share of one-to-one matching tokens, 0..1; the better of the plain and the prefix-merged reading. */
+function skeletonSimilarity(left: string[], right: string[]): number {
+  return Math.max(pairedShare(left, right), pairedShare(mergePrefixes(left), mergePrefixes(right)));
+}
+
+/** Matched tokens / the longer name's token count, 0..1. Tokens pair one-to-one on equal skeletons. */
+export function nameSimilarity(a: string, b: string): number {
+  return skeletonSimilarity(latinSkeleton(a), latinSkeleton(b));
+}
+
 const CANDIDATE_FLOOR = 0.5;
 const CANDIDATE_LIMIT = 3;
 
@@ -78,17 +110,22 @@ export function matchPatient(
   x: { payerId: string; certificateNumber: string; dependentCode: string; paperPatientName: string },
   patients: PatientLite[],
 ): PatientMatch {
-  const certificate = x.certificateNumber.trim();
-  const dependent = x.dependentCode.trim();
+  const payerId = String(x.payerId ?? "");
+  const certificate = String(x.certificateNumber ?? "").trim();
+  const dependent = String(x.dependentCode ?? "").trim();
+  const paper = latinSkeleton(String(x.paperPatientName ?? ""));
   const scored = (list: PatientLite[]) =>
     list
-      .map((p) => ({ patientId: p.id, name: p.name, score: nameSimilarity(x.paperPatientName, p.name) }))
+      .map((p) => {
+        const name = String(p.name ?? "");
+        return { patientId: p.id, name, score: skeletonSimilarity(paper, latinSkeleton(name)) };
+      })
       .sort((p, q) => q.score - p.score || p.name.localeCompare(q.name));
 
   const sameCertificate: PatientLite[] = [];
   const identical: PatientLite[] = [];
   for (const p of patients) {
-    const held = certificate ? readInsurance({ insurance: p.insurance })[x.payerId] : undefined;
+    const held = certificate ? readInsurance({ insurance: p.insurance })[payerId] : undefined;
     if (!held || held.certificateNumber !== certificate) continue;
     if (dependent && held.dependentCode === dependent) identical.push(p);
     else sameCertificate.push(p);
@@ -97,9 +134,11 @@ export function matchPatient(
   // two records claim the same certificate and dependent: let the desk choose by name
   if (identical.length > 1) return { kind: "candidates", candidates: scored(identical) };
 
+  // No dependent code on the paper: the certificate's own family is the likeliest match, so offer it
+  // first, whatever the names look like. With a code, those people are other members, never offered.
   const family = new Set(sameCertificate.map((p) => p.id));
-  const candidates = scored(patients.filter((p) => !family.has(p.id)))
-    .filter((c) => c.score >= CANDIDATE_FLOOR)
-    .slice(0, CANDIDATE_LIMIT);
+  const offered = dependent ? [] : scored(sameCertificate);
+  const byName = scored(patients.filter((p) => !family.has(p.id))).filter((c) => c.score >= CANDIDATE_FLOOR);
+  const candidates = [...offered, ...byName].slice(0, CANDIDATE_LIMIT);
   return candidates.length ? { kind: "candidates", candidates } : { kind: "none" };
 }

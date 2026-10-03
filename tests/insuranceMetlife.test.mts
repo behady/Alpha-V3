@@ -366,11 +366,53 @@ assert.ok(nameSimilarity("OMAR KHALED FAHMY", "عمر خالد فهمي") >= 0.9
   // blank paper identity never claims an exact match
   assert.notEqual(matchPatient({ payerId: "metlife", certificateNumber: "", dependentCode: "", paperPatientName: "OMAR KHALED FAHMY" }, fam).kind, "exact");
   // at most three candidates, best first, ties by name
-  const many = ["د", "ج", "ب", "أ"].map((x, i) => ({ id: "q" + i, name: "نادر ماجد " + x }));
+  const many = [
+    { id: "q0", name: "نادر ماجد د" },
+    { id: "q1", name: "نادر ماجد ج" },
+    { id: "q2", name: "نادر ماجد سالم" },
+    { id: "q3", name: "نادر ماجد أ" },
+    { id: "q4", name: "نادر" },
+  ];
   const top = matchPatient({ payerId: "metlife", certificateNumber: "5", dependentCode: "1", paperPatientName: "NADER MAGED SALEM" }, many);
   assert.equal(top.kind, "candidates");
-  if (top.kind === "candidates") assert.equal(top.candidates.length, 3);
+  if (top.kind === "candidates") assert.deepEqual(top.candidates.map((c) => c.patientId), ["q2", "q3", "q1"], "best first, the tie on 2/3 broken by name, capped at three");
+
+  // two records claim the same certificate and dependent: the desk chooses, best name first
+  const twins = [
+    { id: "t1", name: "سارة فتحي", insurance: { metlife: { memberNumber: "5/1", certificateNumber: "5", dependentCode: "1" } } },
+    { id: "t2", name: "نادر ماجد سالم", insurance: { metlife: { memberNumber: "5/1", certificateNumber: "5", dependentCode: "1" } } },
+  ];
+  const dup = matchPatient({ payerId: "metlife", certificateNumber: "5", dependentCode: "1", paperPatientName: "NADER MAGED SALEM" }, twins);
+  assert.equal(dup.kind, "candidates");
+  if (dup.kind === "candidates") assert.deepEqual(dup.candidates.map((c) => c.patientId), ["t2", "t1"]);
+
+  // no dependent code on the paper: the certificate's family is offered, the best name first
+  const noDep = matchPatient({ payerId: "metlife", certificateNumber: "8700001", dependentCode: "", paperPatientName: "OMAR KHALED FAHMY" }, fam);
+  assert.equal(noDep.kind, "candidates");
+  if (noDep.kind === "candidates") assert.deepEqual(noDep.candidates.map((c) => c.patientId), ["p2", "p1"]);
+  const noDepStranger = matchPatient({ payerId: "metlife", certificateNumber: "8700001", dependentCode: " ", paperPatientName: "ZZZ QQQ" }, fam);
+  assert.equal(noDepStranger.kind, "candidates", "the family is offered even when the name is unreadable");
+
+  // records and papers with fields missing never throw
+  assert.doesNotThrow(() =>
+    matchPatient(
+      { payerId: "metlife", certificateNumber: "5", dependentCode: undefined as unknown as string, paperPatientName: undefined as unknown as string },
+      [{ id: "n1", name: undefined as unknown as string, insurance: { metlife: { memberNumber: "5/1", certificateNumber: "5", dependentCode: "1" } } }, { id: "n2", name: undefined as unknown as string }],
+    ),
+  );
 }
+// the score does not depend on which side is which
+for (const [a, b] of [["AHMED MOHAMED ALI", "أحمد محمد"], ["NADER MAGED SALEM", "نادر ماجد"], ["ABDEL RAHMAN SALEM", "عبد الرحمن"]]) {
+  assert.equal(nameSimilarity(a, b), nameSimilarity(b, a), `${a} / ${b}`);
+}
+// letters and digraphs the first map missed
+assert.ok(nameSimilarity("HAFEZ NAZER", "حافظ ناظر") >= 0.99, "ظ is z");
+assert.ok(nameSimilarity("THAMER DHAKI", "ثامر ذكي") >= 0.99, "th and dh are one Arabic letter each");
+// compound names: written apart in Latin, together in Arabic
+assert.ok(nameSimilarity("ABDEL RAHMAN SALEM", "عبدالرحمن سالم") >= 0.99);
+assert.ok(nameSimilarity("EL SAYED AHMED", "السيد احمد") >= 0.99);
+assert.ok(nameSimilarity("ABDEL RAHMAN", "عبد الرحمن") >= 0.99);
+assert.ok(nameSimilarity("ABDEL RAHMAN SALEM", "سارة فتحي") < 0.2, "merging prefixes does not make strangers match");
 assert.equal(metlifeMemberNumber("987", "1"), "987/1");
 assert.deepEqual(
   readInsurance({ insurance: { metlife: { memberNumber: " 987/1 ", certificateNumber: "987", dependentCode: "1", policyNumber: "  " }, bad: 5, blank: { memberNumber: " " } } }),
