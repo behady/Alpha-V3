@@ -29,15 +29,17 @@ const TITLES = ["المسلسل", "اسم الحالة", "بيان الخدمة"
 const TOTAL_LABEL = "الاجمالي";
 const FOOTER_ROWS = 4;
 
-type Style = NonNullable<XLSX.CellObject["s"]>;
-type Cell = XLSX.CellObject | null;
+export type Style = NonNullable<XLSX.CellObject["s"]>;
+export type Cell = XLSX.CellObject | null;
 
 const side = (style: "thin" | "medium") => ({ style, color: { rgb: "000000" } });
-const box = (style: "thin" | "medium") => ({ top: side(style), bottom: side(style), left: side(style), right: side(style) });
-const centered = { horizontal: "center", vertical: "center" } as const;
-const shaded = { patternType: "solid", fgColor: { rgb: FILL } } as const;
+export const box = (style: "thin" | "medium") => ({ top: side(style), bottom: side(style), left: side(style), right: side(style) });
+export const centered = { horizontal: "center", vertical: "center" } as const;
+/** A solid fill of one colour; the Nextcare sheet uses one, the MetLife sheet two. */
+export const fillOf = (rgb: string) => ({ patternType: "solid", fgColor: { rgb } }) as const;
+const shaded = fillOf(FILL);
 
-const font = (sz: number) => ({ name: "Arial", sz, bold: true });
+export const font = (sz: number) => ({ name: "Arial", sz, bold: true });
 
 const STYLE = {
   headerLine: { font: font(36), alignment: { ...centered, wrapText: true }, border: box("medium") } satisfies Style,
@@ -49,11 +51,11 @@ const STYLE = {
   footerTotal: { font: font(20), fill: shaded, alignment: centered, border: box("thin") } satisfies Style,
 };
 
-const s = (v: string, style: Style): XLSX.CellObject => ({ v, t: "s", s: style });
-const n = (v: number, style: Style): XLSX.CellObject => ({ v, t: "n", s: style });
+export const s = (v: string, style: Style): XLSX.CellObject => ({ v, t: "s", s: style });
+export const n = (v: number, style: Style): XLSX.CellObject => ({ v, t: "n", s: style });
 /** A formula with its computed value cached beside it: viewers that never recalculate still show the number. */
-const f = (formula: string, value: number, style: Style): XLSX.CellObject => ({ f: formula, v: value, t: "n", s: style });
-const cellRef = (r: number, c: number) => XLSX.utils.encode_cell({ r, c });
+export const f = (formula: string, value: number, style: Style): XLSX.CellObject => ({ f: formula, v: value, t: "n", s: style });
+export const cellRef = (r: number, c: number) => XLSX.utils.encode_cell({ r, c });
 
 /** The whole statement as cells, merges and sizes. Rows are 0-based here; Excel shows them +1. */
 export function statementToWorkbook(statement: Statement, header: StatementHeader): XLSX.WorkBook {

@@ -39,6 +39,9 @@ import {
 } from "../src/lib/insurance/claims";
 import { DEFAULT_METLIFE_WORDING, buildMetlifeStatement } from "../src/lib/insuranceStatementMetlife";
 import { SAMPLE_RAW, claimFixture, lineFixture } from "./fixtures/insuranceMetlife.fixture";
+import XLSX from "xlsx-js-style";
+import { METLIFE_TITLES, metlifeStatementToWorkbook } from "../src/lib/insuranceStatementMetlifeXlsx";
+import type { MetlifeStatement } from "../src/lib/insuranceStatementMetlife";
 
 const ctx = { today: "2026-10-03", providerCode: "DNC0001" };
 
@@ -659,6 +662,164 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   });
   assert.equal(cents.cases[0].subtotal, 0.3);
   assert.equal(cents.total, 0.3);
+}
+
+// --- 10. The MetLife workbook: the statement as MetLife's sheet, cell for cell ---------------------------------
+{
+  const L = (text: string, count: number, requested: number, approved: number) => ({ text, count, requested, approved });
+  const caseA = { serial: 1, patientName: "Patient 1", policyNumber: "6481234567", certificateNumber: "987", dependentCode: "1", approvalNumber: "D6000001", date: "2026-01-28", lines: [L("كشف", 1, 60, 60), L("اشعه عاديه", 1, 60, 60)], subtotal: 120 };
+  const caseB = { serial: 2, patientName: "Patient 2", policyNumber: "6481234567 - EXAMPLE", certificateNumber: "12A", dependentCode: "2", approvalNumber: "D6000002", date: "2026-02-27", lines: [L("كشف", 1, 60, 60), L("حشو كمبوزيت", 2, 2700, 500), L("اشعه عاديه", 0, 60, 0)], subtotal: 560 };
+  const st: MetlifeStatement = { from: "2026-01-26", to: "2026-02-27", cases: [caseA, caseB], total: 680, missingWording: [], heldBack: 0 };
+  const head = { line1: "Clinic", line2: "Address", line3: "Phones" };
+
+  const wb = metlifeStatementToWorkbook(st, head);
+  const back = XLSX.read(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }), { type: "buffer", cellStyles: true });
+  const ws = back.Sheets.Sheet1; // values, types, formulas, merges: what the bytes say
+  // styles: a second, never-written build (the reader does not hand fonts back, and the writer rewrites colours to FFrrggbb in place)
+  const mem = metlifeStatementToWorkbook(st, head).Sheets.Sheet1;
+  const merges = (ws["!merges"] as XLSX.Range[]).map((m) => XLSX.utils.encode_range(m));
+  const ref = XLSX.utils.encode_cell;
+
+  // where things land, derived from the fixture: three header rows and the title, then each case's lines and a subtotal
+  const aFirst = 4;
+  const aLast = aFirst + caseA.lines.length - 1; // 0-based; the subtotal is the next row
+  const aSub = aLast + 1;
+  const bFirst = aSub + 1;
+  const bLast = bFirst + caseB.lines.length - 1;
+  const bSub = bLast + 1;
+  const footTop = bSub + 1;
+  const footEnd = footTop + 2;
+  assert.equal(XLSX.utils.decode_range(ws["!ref"] as string).e.r, footEnd, "the sheet ends with the three footer rows");
+
+  assert.deepEqual(wb.SheetNames, ["Sheet1"]);
+  assert.equal(METLIFE_TITLES.length, 11);
+  for (let c = 0; c < 11; c++) assert.equal(ws[ref({ r: 3, c })].v, METLIFE_TITLES[c]);
+  assert.equal(ws.A4.v, "المسلسل");
+  assert.equal(ws.K4.v, "الموافق عليه");
+  assert.deepEqual([ws.A1.v, ws.A2.v, ws.A3.v], ["Clinic", "Address", "Phones"]);
+
+  // widths, heights, view
+  const WIDTHS = [18.8, 35.5, 26.2, 27.8, 19.2, 23.6, 26.0, 40.0, 21.0, 26.1, 29.8];
+  assert.deepEqual((wb.Sheets.Sheet1["!cols"] as XLSX.ColInfo[]).map((c) => c.wch), WIDTHS);
+  // the writer pads a width by a fraction of a character on the way out, so the bytes read back within half a character
+  (ws["!cols"] as XLSX.ColInfo[]).forEach((c, i) => assert.ok(Math.abs((c.wch as number) - WIDTHS[i]) < 0.5, "column " + i + " width " + c.wch));
+  assert.ok(Math.abs(((ws["!cols"] as XLSX.ColInfo[])[7].wch as number) - 40) < 0.5);
+  const heights = (ws["!rows"] as XLSX.RowInfo[]).map((r) => r.hpt);
+  assert.deepEqual(heights.slice(0, 4), [79.5, 30.75, 31.5, 27.75]);
+  for (let r = aFirst; r <= bSub; r++) assert.equal(heights[r], 26.25, "case and subtotal rows are 26.25 high (row " + (r + 1) + ")");
+  assert.equal(wb.Workbook?.Views?.[0]?.RTL, true);
+  assert.equal(back.Workbook?.Views?.[0]?.RTL, true);
+
+  // header and title styles
+  for (const a of ["A1", "A2", "A3"]) {
+    assert.equal(mem[a].s.font.sz, 22);
+    assert.equal(mem[a].s.font.name, "Arial");
+    assert.equal(mem[a].s.font.bold, true);
+    assert.equal(mem[a].s.border.top.style, "thin");
+  }
+  assert.equal(mem.A1.s.alignment.wrapText, true);
+  assert.equal(mem.A4.s.font.sz, 22);
+  assert.equal(mem.A4.s.fill.fgColor.rgb, "938953");
+  assert.equal(mem.K4.s.fill.fgColor.rgb, "938953");
+
+  // merges: header lines A:K; each case's details A..G down its lines only (not over the subtotal row)
+  for (const m of ["A1:K1", "A2:K2", "A3:K3"]) assert.ok(merges.includes(m), "missing merge " + m + ": " + merges.join(" "));
+  for (const [first, last] of [[aFirst, aLast], [bFirst, bLast]]) {
+    for (let c = 0; c < 7; c++) {
+      const m = XLSX.utils.encode_range({ s: { r: first, c }, e: { r: last, c } });
+      assert.ok(merges.includes(m), "missing case merge " + m);
+    }
+  }
+  assert.ok(merges.includes("A5:A6") && merges.includes("G5:G6"), "case A (two lines) merges over its two rows");
+  assert.ok(!merges.some((m) => /^[A-G]5:[A-G]7$/.test(m)), "no merge runs over the subtotal row");
+
+  // case A cells: ids are numbers when all digits, text otherwise; the date is a real date shown mm-dd-yy
+  assert.equal(ws.A5.v, 1);
+  assert.equal(ws.B5.v, "Patient 1");
+  assert.equal(ws.C5.t, "n");
+  assert.equal(ws.C5.v, 6481234567);
+  assert.equal(ws.D5.t, "n");
+  assert.equal(ws.D5.v, 987);
+  assert.equal(ws.E5.t, "n");
+  assert.equal(ws.E5.v, 1);
+  assert.equal(ws.F5.v, "D6000001");
+  assert.equal(ws.F5.t, "s");
+  // pinned: the library hands a date back as a number with a date format (as Excel stores it), a whole day, not a fraction
+  assert.equal(ws.G5.t, "n");
+  assert.equal(ws.G5.z, "mm-dd-yy");
+  assert.equal(ws.G5.v, Date.UTC(2026, 0, 28) / 86_400_000 + 25569);
+  assert.equal(Number.isInteger(ws.G5.v), true);
+  assert.equal(ws.G5.w, "01-28-26");
+  assert.equal(ws[ref({ r: bFirst, c: 6 })].w, "02-27-26");
+  // case B: text where the value is not all digits
+  assert.equal(ws[ref({ r: bFirst, c: 2 })].t, "s");
+  assert.equal(ws[ref({ r: bFirst, c: 2 })].v, "6481234567 - EXAMPLE");
+  assert.equal(ws[ref({ r: bFirst, c: 3 })].v, "12A");
+  assert.equal(ws[ref({ r: bFirst, c: 4 })].t, "n");
+  // case styles
+  assert.equal(mem.A5.s.font.sz, 24);
+  assert.equal(mem.A5.s.fill.fgColor.rgb, "EEECE1");
+  assert.equal(mem.B5.s.fill, undefined);
+  assert.equal(mem.B5.s.font.sz, 24);
+  assert.equal(mem.G5.s.font.sz, 24);
+
+  // service lines in H..K
+  assert.deepEqual([ws.H5.v, ws.I5.v, ws.J5.v, ws.K5.v], ["كشف", 1, 60, 60]);
+  assert.deepEqual([ws.H6.v, ws.I6.v, ws.J6.v, ws.K6.v], ["اشعه عاديه", 1, 60, 60]);
+  for (const a of ["H5", "I5", "J5", "K5"]) {
+    assert.equal(mem[a].s.font.sz, 20);
+    assert.equal(mem[a].s.font.bold, true);
+    assert.equal(mem[a].s.border.top.style, "thin");
+  }
+  assert.equal(ws[ref({ r: bFirst + 1, c: 9 })].v, 2700);
+  assert.equal(ws[ref({ r: bFirst + 1, c: 10 })].v, 500);
+  assert.equal(ws[ref({ r: bFirst + 2, c: 10 })].v, 0, "a rejected line prints 0 approved");
+
+  // subtotal rows: the label in H, a real SUM in K, H..K shaded, A..G bordered but empty
+  assert.equal(ws[ref({ r: aSub, c: 7 })].v, "الاجمالي");
+  assert.equal(ws[ref({ r: aSub, c: 10 })].f, "SUM(" + ref({ r: aFirst, c: 10 }) + ":" + ref({ r: aLast, c: 10 }) + ")");
+  assert.equal(ws.K7.f, "SUM(K5:K6)");
+  assert.equal(ws.K7.v, 120);
+  assert.equal(ws[ref({ r: bSub, c: 10 })].f, "SUM(" + ref({ r: bFirst, c: 10 }) + ":" + ref({ r: bLast, c: 10 }) + ")");
+  assert.equal(ws[ref({ r: bSub, c: 10 })].v, 560);
+  for (let c = 7; c <= 10; c++) {
+    const cell = mem[ref({ r: aSub, c })];
+    assert.equal(cell.s.fill.fgColor.rgb, "938953");
+    assert.equal(cell.s.font.sz, 20);
+    assert.equal(cell.s.font.bold, true);
+  }
+  for (let c = 0; c < 7; c++) {
+    const cell = mem[ref({ r: aSub, c })];
+    assert.ok(cell && cell.s.border.top.style === "thin", "subtotal row A-G is bordered");
+    assert.ok(cell.v === "" || cell.v === undefined, "subtotal row A-G is empty");
+  }
+
+  // footer: three rows, A:F label (48pt), G..J shaded and empty, K merged with a SUM of every subtotal cell
+  assert.ok(merges.includes(XLSX.utils.encode_range({ s: { r: footTop, c: 0 }, e: { r: footEnd, c: 5 } })), "footer A:F merge");
+  assert.ok(merges.includes(XLSX.utils.encode_range({ s: { r: footTop, c: 10 }, e: { r: footEnd, c: 10 } })), "footer K merge");
+  const footLabel = mem[ref({ r: footTop, c: 0 })];
+  assert.equal(footLabel.v, "الاجمالي");
+  assert.equal(footLabel.s.font.sz, 48);
+  assert.equal(footLabel.s.fill.fgColor.rgb, "938953");
+  for (let r = footTop; r <= footEnd; r++) {
+    for (let c = 6; c <= 9; c++) {
+      const cell = mem[ref({ r, c })];
+      assert.equal(cell.s.fill.fgColor.rgb, "938953", "footer G-J is shaded");
+      assert.ok(cell.v === "" || cell.v === undefined, "footer G-J is empty");
+    }
+  }
+  const footK = mem[ref({ r: footTop, c: 10 })];
+  assert.equal(footK.f, "SUM(" + ref({ r: aSub, c: 10 }) + "," + ref({ r: bSub, c: 10 }) + ")");
+  assert.equal(footK.v, 680);
+  assert.equal(footK.s.font.sz, 24);
+  assert.equal(footK.s.fill.fgColor.rgb, "938953");
+
+  // a statement with no cases is still a valid sheet: header, titles, a footer holding a plain 0
+  const none = XLSX.read(XLSX.write(metlifeStatementToWorkbook({ ...st, cases: [], total: 0 }, head), { type: "buffer", bookType: "xlsx" }), { type: "buffer" }).Sheets.Sheet1;
+  assert.equal(none.A4.v, "المسلسل");
+  assert.equal(none.A5.v, "الاجمالي");
+  assert.equal(none.K5.v, 0);
+  assert.equal(none.K5.f, undefined, "no subtotal cells, so no formula");
 }
 
 console.log("insurance metlife reader: ok");
