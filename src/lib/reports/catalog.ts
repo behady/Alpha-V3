@@ -67,6 +67,9 @@ export const REPORT_CATALOG: ReportMeta[] = [
   { id: "dentist", group: "money", en: "Dentist Performance", ar: "أداء الأطباء", hintEn: "Income, commission and cases per dentist.", hintAr: "دخل وعمولة وحالات كل دكتور.", needs: [] },
   { id: "dentistTrend", group: "money", en: "Dentist Trend", ar: "الأطباء شهر بشهر", hintEn: "Each dentist over the last twelve months.", hintAr: "كل دكتور على مدار ١٢ شهر.", needs: ["ledgerMonths12"] },
   { id: "payers", group: "money", en: "Insurance & Payers", ar: "التأمين وجهات الدفع", hintEn: "Charged against collected, per payer.", hintAr: "المطلوب مقابل المحصّل لكل جهة.", needs: [] },
+  // The sheet an insured clinic sends each insurer every month to get paid. Built to the layout the
+  // insurer already accepts (docs/samples), so the receptionist stops retyping it.
+  { id: "insurance", group: "money", en: "Insurance Statement", ar: "كشف حساب التأمين", hintEn: "One insurer, one month, in the insurer's own layout.", hintAr: "شركة تأمين واحدة، شهر واحد، بالشكل اللي الشركة عايزاه.", needs: [] },
   { id: "receivables", group: "money", en: "Outstanding Balances", ar: "المستحقات", hintEn: "Who owes what, and for how long.", hintAr: "مين عليه كام، ومن إمتى.", needs: ["ledgerAll"], allTime: true },
   { id: "expenses", group: "money", en: "Expenses", ar: "المصروفات", hintEn: "Where the clinic's own money goes.", hintAr: "فلوس العيادة بتروح فين.", needs: ["ledgerMonths12"] },
   { id: "discounts", group: "money", en: "Discounts", ar: "الخصومات", hintEn: "What was given away, by whom, and why.", hintAr: "اتخصم كام، من مين، وليه.", needs: [] },

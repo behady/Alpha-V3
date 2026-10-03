@@ -32,6 +32,8 @@ import { attributeService, buildProcedureIndex, type AttributableRow } from "@/l
 import { buildPayerReport, type LedgerRowLite } from "@/lib/payerReport";
 import { PRIVATE_PAYER_ID, type Payer } from "@/lib/payers";
 import { buildCaseSheet, settlementOf, sumCases } from "@/lib/caseSheet";
+import { buildInsuranceStatement, caseLabel, type StatementRowLite } from "@/lib/insuranceStatement";
+import { readMemberNumbers } from "@/lib/patientInsurance";
 import { parseApptTimeToMinutes } from "@/lib/appointmentTime";
 import { statusLabel, workTypeLabel } from "@/lib/labCases";
 
@@ -531,6 +533,33 @@ export function buildReportDoc(id: string, input: ReportInputs): ReportDoc {
         rows: all.map((c) => ({ _patientId: c.patientId, date: c.date, payer: c.payerName, patient: c.patientName, service: c.service, price: c.price, paid: c.paid, doctor: c.doctorName, share: c.share, _bad: settlementOf(c) !== "paid" })),
         total: { date: `${totals.cases} ${isAr ? "حالة" : "cases"}`, price: totals.price, paid: totals.paid, share: totals.share } });
       note(isAr ? "المدفوع لكل حالة، مش رصيد المريض. الحالة اللي مش مدفوعة بالكامل بتظهر بالأحمر." : "Paid is per case, not the patient's balance. A case not fully paid is shown in red.");
+      break;
+    }
+    case "insurance": {
+      // The claim statement the clinic sends each insurer. On the phone: one table per insurer with
+      // cases in the range, the same lines and subtotals the website's Excel carries.
+      const insurers = input.payers.filter((p) => p.id !== PRIVATE_PAYER_ID && p.active);
+      const month = range.start.slice(0, 7);
+      let totalAll = 0;
+      let casesAll = 0;
+      for (const p of insurers) {
+        const memberNumbers = new Map<string, string>();
+        input.allPatients.forEach((pt) => { const n = readMemberNumbers(pt)[p.id]; if (n) memberNumbers.set(String(pt.id), n); });
+        const st = buildInsuranceStatement({ rows: input.procedures as unknown as StatementRowLite[], payerId: p.id, payerName: isAr ? p.nameAr || p.name : p.name, month, range, memberNumbers });
+        if (st.cases.length === 0) continue;
+        totalAll += st.total;
+        casesAll += st.cases.length;
+        sections.push({ type: "table", title: st.payerName, note: isAr ? "كل حالة بسطر لكل خدمة، وإجمالي الحالة في آخر سطر." : "One line per service; the case's subtotal on its last line.",
+          columns: [{ key: "serial", label: isAr ? "م" : "#", align: "end", kind: "int" }, { key: "name", label: isAr ? "اسم الحالة" : "Case" }, { key: "service", label: isAr ? "بيان الخدمة" : "Service" }, { key: "value", label: isAr ? "القيمة" : "Value", align: "end", kind: "money" }],
+          rows: st.cases.flatMap((c) => c.lines.map((l, i) => ({ _patientId: c.patientId, serial: i === 0 ? c.serial : null, name: i === 0 ? caseLabel(c) : "", service: l.text, value: l.amount, _bad: !c.memberNumber && i === 0 }))),
+          total: { name: `${st.cases.length} ${isAr ? "حالة" : "cases"}`, value: st.total } });
+        if (st.missingMemberNumber.length) note(isAr ? `بدون رقم عضوية: ${st.missingMemberNumber.map((m) => m.patientName).join("، ")}` : `No member number: ${st.missingMemberNumber.map((m) => m.patientName).join(", ")}`);
+      }
+      figure(isAr ? "شركات التأمين" : "Insurers", fmt(insurers.length));
+      figure(isAr ? "الحالات" : "Cases", fmt(casesAll));
+      figure(isAr ? "إجمالي المطالبات" : "Claimed", money(totalAll));
+      if (insurers.length === 0) note(isAr ? "لا توجد شركة تأمين مضافة. أضفها من الإعدادات ← جهات الدفع." : "No insurer is configured. Add one in Settings → Payers.");
+      else if (casesAll === 0) note(isAr ? "لا توجد علاجات مسجلة على أي شركة تأمين في هذه الفترة." : "No treatments were recorded under an insurer in this period.");
       break;
     }
     // --- patients --------------------------------------------------------------------------------------

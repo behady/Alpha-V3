@@ -150,6 +150,14 @@ export const FEATURE_CATALOG: FeatureInfo[] = [
     descAr: "الحالات المرسلة للمعامل ومتابعتها لحد ما ترجع.",
   },
   {
+    key: "insurance",
+    group: "modules",
+    labelEn: "Insurance approvals",
+    labelAr: "موافقات التأمين",
+    descEn: "Upload the insurer's approval, the system reads and logs it, and the monthly statement is built from it.",
+    descAr: "ارفع موافقة شركة التأمين، النظام يقرأها ويسجلها، وكشف الشهر يتبني منها.",
+  },
+  {
     key: "ortho",
     group: "modules",
     labelEn: "Orthodontics",

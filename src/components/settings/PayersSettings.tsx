@@ -26,11 +26,13 @@ import { categoryOf, suggestCategory, suggestIcon } from "@/lib/dentalIcons";
 import { CUSTOM_SERVICE_MINUTES } from "@/lib/setupWizard";
 import { INSURER_GROUPS, presetsIn } from "@/lib/insurerPresets";
 import {
+  INSURER_FORMATS,
   PRIVATE_PAYER_ID,
   parsePayers,
   payerIdFrom,
   payersDocFrom,
   withCommissionRate,
+  type InsurerFormat,
   type Payer,
 } from "@/lib/payers";
 
@@ -92,6 +94,10 @@ type Draft = {
   payerId: string;
   name: string;
   nameAr: string;
+  /** Which insurer's approval document this payer sends; empty = none of the known formats. */
+  format: InsurerFormat | "";
+  /** The clinic's own code with this insurer. */
+  providerCode: string;
   /** Service id → what this insurer pays. */
   prices: Record<string, number>;
   /** The treatments on this insurer's own list. Every insurer keeps its own. */
@@ -217,7 +223,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
     // A new insurer starts covering everything, then the clinic unticks what it does not.
     // Starting empty would mean the first treatment recorded on it silently falls to private,
     // which reads as the insurer not working rather than as a list nobody has filled in.
-    setDraft({ payerId: "", name: "", nameAr: "", prices: {}, rates: {}, renamed: {}, added: [], covered: new Set(services.map((s) => s.id)) });
+    setDraft({ payerId: "", name: "", nameAr: "", format: "", providerCode: "", prices: {}, rates: {}, renamed: {}, added: [], covered: new Set(services.map((s) => s.id)) });
     setStep(1);
   };
 
@@ -237,6 +243,8 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
       payerId: payer.id,
       name: payer.name,
       nameAr: payer.nameAr || "",
+      format: payer.format ?? "",
+      providerCode: payer.providerCode || "",
       prices,
       rates,
       renamed: {},
@@ -350,6 +358,10 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
       ];
       const payerId = draft.payerId || payerIdFrom(name, payers);
       const nameAr = draft.nameAr.trim() || undefined;
+      // Optional, and left off the payer entirely when blank: payersDocFrom drops an undefined, so a
+      // cleared field removes the stored value instead of leaving the old one behind.
+      const format = draft.format || undefined;
+      const providerCode = draft.providerCode.trim() || undefined;
 
       // The list the rest of the app charges from. Created here, named after the insurer, and
       // never called a "price list" on this screen.
@@ -368,8 +380,8 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
       await setDoc(getClinicDoc("settings", PRICE_LISTS_DOC), { lists: toStoredLists(lists) }, { merge: true });
 
       const nextPayers: Payer[] = isNew
-        ? [...payers, { id: payerId, name, nameAr, priceListId: listId, services: coveredList, active: true, isDefault: false }]
-        : payers.map((p) => (p.id === payerId ? { ...p, name, nameAr, priceListId: listId, services: coveredList } : p));
+        ? [...payers, { id: payerId, name, nameAr, format, providerCode, priceListId: listId, services: coveredList, active: true, isDefault: false }]
+        : payers.map((p) => (p.id === payerId ? { ...p, name, nameAr, format, providerCode, priceListId: listId, services: coveredList } : p));
       await setDoc(getClinicDoc("settings", "payers"), payersDocFrom(nextPayers), { merge: true });
 
       // Only the services and the staff whose answer actually changed. Clearing a box removes the
@@ -615,6 +627,36 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
                 value={draft.nameAr}
                 onChange={(e) => setDraft({ ...draft, nameAr: e.target.value })}
                 dir="rtl"
+                className="w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-[15px] font-bold text-ink outline-none transition focus:border-accent"
+              />
+            </div>
+            {/* Only an insurer reaches this wizard — Private is never edited here — so these two
+                never appear for it. */}
+            <div>
+              <label className="mb-1 block text-xs font-bold text-ink-muted">
+                {isAr ? "صيغة المستند" : "Document format"}
+              </label>
+              <select
+                value={draft.format}
+                onChange={(e) => setDraft({ ...draft, format: e.target.value as InsurerFormat | "" })}
+                className="w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-[15px] font-bold text-ink outline-none transition focus:border-accent"
+              >
+                <option value="">—</option>
+                {INSURER_FORMATS.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {isAr ? f.ar : f.en}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-bold text-ink-muted">
+                {isAr ? "كود مقدم الخدمة" : "Provider code"}
+              </label>
+              <input
+                value={draft.providerCode}
+                onChange={(e) => setDraft({ ...draft, providerCode: e.target.value })}
+                dir="ltr"
                 className="w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-[15px] font-bold text-ink outline-none transition focus:border-accent"
               />
             </div>

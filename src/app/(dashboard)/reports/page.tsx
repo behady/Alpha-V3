@@ -350,6 +350,7 @@ function ReportsPage() {
                     clinic,
                     data: extras.data,
                     payers,
+                    setRange,
                   })}
                 </div>
               )}

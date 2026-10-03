@@ -15,6 +15,7 @@ const translations = {
     patients: "Patients",
     appointments: "Appointments",
     lab: "Lab Tracking",
+    insurance: "Insurance",
     ortho: "Orthodontics",
     inventory: "Inventory",
     // Sits beside Inventory on purpose: one screen says what you have left, the next says where
@@ -436,6 +437,7 @@ const translations = {
     patients: "سجل المرضى",
     appointments: "المواعيد",
     lab: "متابعة المعمل",
+    insurance: "التأمين",
     ortho: "التقويم",
     inventory: "المخزون",
     store: "متجر المستلزمات",

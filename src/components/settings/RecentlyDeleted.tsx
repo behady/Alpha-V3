@@ -128,6 +128,7 @@ export default function RecentlyDeleted() {
       treatment_plans: ["خطط العلاج", "Treatment plan"],
       diagnosis_chats: ["مناقشات التشخيص", "Diagnosis chat"],
       xray_reports: ["تقارير الأشعة", "X-ray report"],
+      insurance_claims: ["موافقات التأمين", "Insurance approval"],
       services: ["الأسعار", "Service"],
       drugs: ["الأدوية", "Drug"],
       inventory: ["المخزون", "Inventory"],

@@ -17,7 +17,7 @@ export const SECTION_GROUPS = [
     titleAr: "العمليات",
     // `store` sits next to `inventory` because that is where someone stands when they notice
     // they have run out of something.
-    keys: ["finance", "inventory", "store", "lab", "ortho", "attendance"],
+    keys: ["finance", "inventory", "store", "lab", "insurance", "ortho", "attendance"],
   },
   {
     titleEn: "Insights & Growth",

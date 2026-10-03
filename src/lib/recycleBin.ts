@@ -42,6 +42,9 @@ export const BIN_COLLECTIONS: Record<string, BinCollectionRule> = {
   diagnosis_chats: { permission: "clinical.delete", adminOnly: false, refFields: ["patientId"] },
   xray_reports: { permission: "clinical.delete", adminOnly: false, refFields: ["patientId"] },
   ortho_ai_reports: { permission: "clinical.delete", adminOnly: false, refFields: ["patientId"] },
+  // Insurance approvals are created by /api/insurance/* (Admin SDK). They sit in the patient's file
+  // and are edited by anyone who may edit that patient, so the same gate decides the delete.
+  insurance_claims: { permission: "patients.edit", adminOnly: false, refFields: ["patientId"] },
   inventory: { permission: "inventory.delete", adminOnly: false, refFields: [], uniqueBy: ["name"] },
   drugs: { permission: "access.settings", adminOnly: false, refFields: [], uniqueBy: ["name", "dose"] },
   marketing_content: { permission: "access.marketing", adminOnly: false, refFields: [] },
@@ -317,6 +320,7 @@ export function logModuleFor(collections: string[]): "patients" | "clinical" | "
     switch (c) {
       case "patients":
       case "patient_media":
+      case "insurance_claims":
         return "patients" as const;
       case "prescriptions":
       case "treatment_plans":
@@ -358,6 +362,12 @@ export function labelFor(collection: string, snapshot: Record<string, unknown>):
       return s("title") || "Diagnosis chat";
     case "xray_reports":
       return s("patientName") ? `X-ray report — ${s("patientName")}` : "X-ray report";
+    case "insurance_claims":
+      return s("approvalNumber") && s("patientName")
+        ? `Approval ${s("approvalNumber")} — ${s("patientName")}`
+        : s("approvalNumber")
+          ? `Approval ${s("approvalNumber")}`
+          : "Insurance approval";
     case "ortho_ai_reports":
       return s("patientName") ? `Ortho AI ${s("kind") || "report"} — ${s("patientName")}` : `Ortho AI ${s("kind") || "report"}`;
     case "services":

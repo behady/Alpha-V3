@@ -13,8 +13,10 @@ import {
   checkRestorable,
   checkRestoreAllowed,
   labelFor,
+  logModuleFor,
   restoreOverrides,
 } from "../src/lib/recycleBin.ts";
+import { storagePathsFrom } from "../src/lib/server/recycleBinStore.ts";
 
 // --- what the route will touch at all ------------------------------------------------------------
 
@@ -198,6 +200,21 @@ assert.equal(labelFor("patient_media", { fileName: "xray.jpg" }), "xray.jpg");
 assert.equal(labelFor("services", { name: "Crown" }), "Crown");
 assert.equal(labelFor("attendance", { staffName: "Malak", date: "2026-08-01" }), "Malak — 2026-08-01");
 assert.equal(labelFor("patients", {}), "Patient", "a label is never blank");
+
+// Insurance approvals: binnable with the patient-edit gate, labelled by approval number, and the
+// uploaded document's path is recorded (it lives at snapshot.doc.path, a nested object).
+assert.equal(checkBinnable("insurance_claims", "c1").ok, true);
+assert.deepEqual(BIN_COLLECTIONS.insurance_claims, { permission: "patients.edit", adminOnly: false, refFields: ["patientId"] });
+assert.equal(logModuleFor(["insurance_claims"]), "patients");
+assert.equal(labelFor("insurance_claims", { approvalNumber: "D6000001", patientName: "Test" }), "Approval D6000001 — Test");
+assert.equal(labelFor("insurance_claims", {}), "Insurance approval", "a label is never blank");
+assert.deepEqual(
+  storagePathsFrom("insurance_claims", { doc: { path: "clinics/c/insurance_docs/d/a.pdf" } }),
+  ["clinics/c/insurance_docs/d/a.pdf"]
+);
+assert.deepEqual(storagePathsFrom("insurance_claims", {}), [], "a claim with no document names no file");
+// insurance_docs is bookkeeping only — never binnable.
+assert.equal(checkBinnable("insurance_docs", "x").ok, false);
 
 console.log(
   `✓ recycleBin: ${Object.keys(BIN_COLLECTIONS).length} collections binnable, ` +

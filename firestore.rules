@@ -247,6 +247,12 @@ service cloud.firestore {
         // model said after the fact and leave it looking machine-written. Read by the clinic,
         // deleted through the recycle bin only.
         && sub != 'xray_reports'
+        // Insurance approvals. A claim is written by /api/insurance/* after the payer's document
+        // has been read; a client that could write here could invent an approval the payer never
+        // issued, or edit the amounts a statement is built from. insurance_docs only records which
+        // Storage object belongs to which claim. Read by the clinic; claims are deleted through the
+        // recycle bin only.
+        && sub != 'insurance_claims' && sub != 'insurance_docs'
         // AI orthodontic reports and the clinic's coaching of the model (lessons, its own ceph
         // norms, the landmark-correction tally). Written by /api/ai/ortho/* after credits are
         // charged, or by the dentist through the coach route; a client that could write here could
@@ -662,6 +668,21 @@ service cloud.firestore {
       // the credits are charged; deleted only through /api/records/delete so the recycle bin
       // keeps a copy. Any clinic member may read them — they sit in the patient's file.
       match /xray_reports/{reportId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow write: if false;
+      }
+
+      // Insurance approval claims. Created and edited only by /api/insurance/* (Admin SDK);
+      // deleted only through /api/records/delete so the recycle bin keeps a copy. Any clinic member
+      // may read them — they sit in the patient's file.
+      match /insurance_claims/{claimId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow write: if false;
+      }
+
+      // Bookkeeping for the approval documents in Cloud Storage: which object belongs to which claim.
+      // Written by the server alongside the upload; read-only to the clinic.
+      match /insurance_docs/{docId} {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
         allow write: if false;
       }

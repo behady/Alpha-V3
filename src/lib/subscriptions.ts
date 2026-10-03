@@ -54,6 +54,8 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
     leads: boolean;
     /** Lab tracking board. */
     lab: boolean;
+    /** Insurance approvals: the insurer's approval is read, logged, and rolled into the monthly statement. */
+    insurance: boolean;
     /** Orthodontic case tracking. */
     ortho: boolean;
     /** The reports centre. */
@@ -99,6 +101,7 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       onlineBooking: true,
       leads: true,
       lab: true,
+      insurance: true,
       ortho: true,
       reports: true,
       multiBranch: true,
@@ -125,6 +128,7 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       onlineBooking: false,
       leads: false,
       lab: false,
+      insurance: false,
       ortho: false,
       reports: false,
       multiBranch: false,
@@ -152,6 +156,7 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       onlineBooking: true,
       leads: true,
       lab: true,
+      insurance: true,
       ortho: true,
       reports: true,
       multiBranch: false,
@@ -179,6 +184,7 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       onlineBooking: true,
       leads: true,
       lab: true,
+      insurance: true,
       ortho: true,
       reports: true,
       multiBranch: true,

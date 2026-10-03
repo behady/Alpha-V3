@@ -70,3 +70,6 @@ restore-*-differs-*.csv
 restore-*-failures-*.csv
 restore-*.state.json
 clinic-permissions-backfill-*.csv
+
+# Real insurer sample workbooks hold real patient names; they never enter the repo.
+docs/samples/

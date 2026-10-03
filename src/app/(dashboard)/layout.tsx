@@ -51,6 +51,7 @@ const NAV_FEATURES: Record<string, FeatureKey | FeatureKey[]> = {
   leads: "leads",
   inventory: "inventory",
   lab: "lab",
+  insurance: "insurance",
   ortho: "ortho",
   attendance: "attendance",
   reports: "reports",
@@ -263,6 +264,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     // Gated on access.lab, which canAccessNavItem derives from the key. The permission and both
     // translations of this label already existed and pointed at nothing until the page was built.
     { key: "lab", href: "/lab", icon: FlaskConical },
+    // Insurance approvals: the MetLife reader, the claims register and the monthly sheet. Gated on
+    // the insurance add-on and on the same `patients` access the desk already holds (the routes
+    // behind it check patients.edit).
+    { key: "insurance", href: "/insurance", icon: ShieldCheck },
     // Gated on access.ortho (Dentists hold it by role) and the ortho add-on. The page existed and
     // was reachable only from a button inside the patient profile, so a clinic that bought the
     // module could not find its own case list.
@@ -325,6 +330,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     // Same key the message queue has always used, so reception has it without a permissions edit.
     if (key === 'chats') return canAccessNavItem('patients', user, isAdmin);
 
+    // Approvals are patient paperwork: whoever works the patient list works this page.
+    if (key === 'insurance') return canAccessNavItem('patients', user, isAdmin);
+
     return canAccessNavItem(key, user, isAdmin);
   }, [user, isAdmin, appointmentsVisibility, clinic, supplyStore.connected]);
 
@@ -351,6 +359,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       "/welcome": language === "ar" ? "البداية" : "Getting started",
       "/help": language === "ar" ? "مركز المساعدة" : "Help Center",
       "/ortho": language === "ar" ? "التقويم" : "Orthodontics",
+      "/insurance": language === "ar" ? "التأمين" : "Insurance",
       "/setup": language === "ar" ? "الإعداد" : "Setup",
       "/migrate": language === "ar" ? "استيراد البيانات" : "Import data",
     };

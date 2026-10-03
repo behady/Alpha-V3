@@ -46,4 +46,11 @@ assert.equal(isUnlocked(clinic("Premium", { lab: false }), "lab"), false);
 assert.equal(isUnlocked(clinic("Basic", { lab: true }), "lab"), true);
 assert.equal(isUnlocked(null, "lab"), false);
 
+// Insurance approvals is sold alongside lab tracking: on exactly the plans that include the lab board.
+assert.ok(FEATURE_CATALOG.some((f) => f.key === "insurance" && f.group === "modules"), "insurance is a listed module");
+for (const tier of Object.keys(TIER_LIMITS) as (keyof typeof TIER_LIMITS)[]) {
+  assert.equal(TIER_LIMITS[tier].features.insurance, TIER_LIMITS[tier].features.lab, `${tier}: insurance follows lab`);
+}
+assert.equal(isUnlocked(clinic("Basic", { insurance: true }), "insurance"), true);
+
 console.log("featureCatalog: ok");

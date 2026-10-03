@@ -50,6 +50,7 @@ export interface Clinic {
     onlineBooking?: boolean;
     leads?: boolean;
     lab?: boolean;
+    insurance?: boolean;
     ortho?: boolean;
     reports?: boolean;
     multiBranch?: boolean;
