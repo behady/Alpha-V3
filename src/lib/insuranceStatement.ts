@@ -8,7 +8,7 @@
  * already recorded, so the statement and the books cannot disagree.
  *
  * Pure and Firebase-free: ledger rows in, statement out. The layout of the file itself is in
- * insuranceStatementXlsx.ts; the sample it copies is docs/samples/insurance-statement-nextcare-2026-02.xlsx.
+ * insuranceStatementXlsx.ts; the sample it copies stays outside the repo (it holds real patient names).
  *
  * Wording rules, taken from that sample and pinned by tests/insuranceStatement.test.mts:
  *   - `2حشو كمبوزيت رقم 5-6`: the count (only when more than one unit, and never for a flat price),

@@ -1,7 +1,7 @@
 /**
  * The claim statement as the insurer's spreadsheet.
  *
- * Reproduces docs/samples/insurance-statement-nextcare-2026-02.xlsx cell for cell: the three
+ * Reproduces the insurer's sample sheet cell for cell (the sample stays outside the repo; it holds real patient names): the three
  * header lines in 36pt across A:D, the brown title row, one block per case with the serial and
  * the name merged down the block, a shaded subtotal row with a real SUM, and a four-row footer
  * holding the grand total. Right-to-left, A4 portrait, Arial throughout.

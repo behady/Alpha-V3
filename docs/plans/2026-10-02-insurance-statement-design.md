@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-02
 **Status:** decisions taken in chat with the owner; this is the write-up to build from.
-**Sample:** `docs/samples/insurance-statement-nextcare-2026-02.xlsx` — the prospect's real February 2026
+**Sample:** kept outside the repo (it holds real patient names) — the prospect's real February 2026
 statement to Nextcare (40 cases, 85,931 EGP). The export must look like this file.
 
 ## What this is

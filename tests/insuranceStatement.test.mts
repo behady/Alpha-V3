@@ -1,7 +1,7 @@
 // The insurance claim statement: one insurer, one month, in the insurer's own layout.
 //
 // Built for the first prospect (DENT INN), whose receptionist retypes every month's cases into the
-// sheet kept at docs/samples/insurance-statement-nextcare-2026-02.xlsx. The fixture reproduces its
+// sheet. The real sheet stays outside the repo (it holds real patient names). The fixture reproduces its
 // first three cases; the assertions below are the sample's own numbers, so a wrong line text or a
 // moved subtotal is caught against something the insurer has already accepted.
 //
