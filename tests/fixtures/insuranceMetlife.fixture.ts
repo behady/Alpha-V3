@@ -1,3 +1,6 @@
+import { claimFromExtraction, type InsuranceClaim } from "../../src/lib/insurance/claims";
+import { normalizeMetlife, type MetlifeLine } from "../../src/lib/insurance/metlife";
+
 // What the model returns for one invented MetLife Egypt dental pre-approval, in the structure of the real
 // sample (five lines, 1,260 requested and approved, nothing for the patient to pay). The real paper holds a
 // real patient, so it stays outside the repo; every name and number here is made up. Money is a mix of
@@ -44,3 +47,22 @@ export const SAMPLE_RAW = {
     { code: "D4220", description: "GINGIVAL CURETTAGE", unitsRequested: 1, grossPerUnit: 240, grossTotal: 240, unitsApproved: 1, patientShare: 0, approvedAmount: 240, comment: "", confidence: 0.93 },
   ],
 };
+
+/** A saved claim from the sample paper, with any field overridden; a line is `{ ...sample line, ...override }`. */
+export function claimFixture(overrides: Partial<InsuranceClaim> = {}): InsuranceClaim {
+  const base = claimFromExtraction({
+    payerId: "metlife",
+    extraction: normalizeMetlife(SAMPLE_RAW),
+    patientId: "p1",
+    patientName: "Example Patient",
+    status: "treated",
+    treatedDate: null,
+    doc: { path: "clinics/c1/insurance/x.pdf", contentType: "application/pdf", bytes: 1, pages: 1 },
+  });
+  return { id: "metlife_d6000001", ...base, ...overrides };
+}
+
+/** One line of a claim: the sample's D0120 row with the given fields replaced. */
+export function lineFixture(overrides: Partial<MetlifeLine> = {}): MetlifeLine {
+  return { ...normalizeMetlife(SAMPLE_RAW).lines[0], ...overrides };
+}

@@ -37,7 +37,8 @@ import {
   parseClaim,
   treatedDateAfter,
 } from "../src/lib/insurance/claims";
-import { SAMPLE_RAW } from "./fixtures/insuranceMetlife.fixture";
+import { DEFAULT_METLIFE_WORDING, buildMetlifeStatement } from "../src/lib/insuranceStatementMetlife";
+import { SAMPLE_RAW, claimFixture, lineFixture } from "./fixtures/insuranceMetlife.fixture";
 
 const ctx = { today: "2026-10-03", providerCode: "DNC0001" };
 
@@ -602,6 +603,62 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   assert.equal(insuranceEntryToWrite("metlife", { ...paper, policyNumber: "" }, { insurance: { metlife: full } }), null, "a blank policy on the paper keeps the typed one");
   assert.deepEqual(insuranceEntryToWrite("metlife", { ...paper, policyNumber: "" }, { insurance: { metlife: { memberNumber: "" , policyNumber: "555" } } }), { ...full, policyNumber: "555" });
   assert.equal(insuranceEntryToWrite("Bad.Id", paper, {}), null, "a payer id that cannot be a field name is never written");
+}
+
+// --- 9. The MetLife statement: the month's claims as the sheet MetLife is paid against ---------------
+{
+  const mk = (n: number, date: string, status: "approved" | "treated" | "sent" | "cancelled", lines = claimFixture().lines) =>
+    claimFixture({ id: `metlife_d600000${n}`, approvalNumber: `D600000${n}`, approvalDate: date, status, patientName: `Patient ${n}`, lines });
+  const A = mk(1, "2026-01-28", "treated");
+  const B = mk(2, "2026-02-27", "sent", [
+    lineFixture({ code: "D0120" }),
+    lineFixture({ code: "D9999", description: " SOME DESCRIPTION ", grossTotal: 80, approvedAmount: 80 }),
+    lineFixture({ code: "D2650", grossTotal: 2700, approvedAmount: 500 }),
+    lineFixture({ code: "D0270", unitsApproved: 0, approvedAmount: 0 }),
+  ]);
+  const C = mk(3, "2026-02-15", "approved");
+  const F = mk(9, "2026-02-28", "approved"); // approved but outside the range: not even held back
+  const D = mk(4, "2026-01-25", "treated");
+  const E = mk(5, "2026-02-01", "cancelled", [lineFixture({ code: "D8888" })]);
+  const args = { from: "2026-01-26", to: "2026-02-27", wording: DEFAULT_METLIFE_WORDING };
+
+  const s = buildMetlifeStatement({ claims: [C, A, D, B, E, F], ...args });
+  assert.deepEqual(s.cases.map((c) => c.approvalNumber), [A.approvalNumber, B.approvalNumber]);
+  assert.deepEqual(s.cases.map((c) => c.serial), [1, 2]);
+  assert.equal(s.heldBack, 1);
+  assert.deepEqual([s.from, s.to], ["2026-01-26", "2026-02-27"]);
+  assert.deepEqual(s.missingWording, ["D9999"], "the cancelled claim's D8888 is not listed, so not missing");
+  assert.equal(s.cases[0].lines[0].text, "كشف");
+  assert.equal(s.cases[1].lines[1].text, "SOME DESCRIPTION", "no wording: the paper's description, trimmed");
+  assert.deepEqual([s.cases[1].lines[2].requested, s.cases[1].lines[2].approved], [2700, 500]);
+  assert.deepEqual(s.cases[1].lines[3], { text: "اشعه عاديه", count: 0, requested: 60, approved: 0 }, "a rejected line is still printed");
+  assert.equal(s.cases[1].subtotal, 60 + 80 + 500);
+  assert.equal(s.cases[0].subtotal, 1260);
+  assert.equal(s.total, s.cases[0].subtotal + s.cases[1].subtotal);
+  assert.deepEqual(
+    [s.cases[0].patientName, s.cases[0].policyNumber, s.cases[0].certificateNumber, s.cases[0].dependentCode, s.cases[0].date],
+    ["Patient 1", A.metlife.policyNumber, "987", "1", "2026-01-28"],
+  );
+  assert.equal(s.cases[0].lines[0].count, 1);
+
+  // the range is inclusive at both ends
+  const edge = buildMetlifeStatement({ claims: [A, B, D], from: "2026-01-28", to: "2026-02-27", wording: DEFAULT_METLIFE_WORDING });
+  assert.deepEqual(edge.cases.map((c) => c.approvalNumber), [A.approvalNumber, B.approvalNumber]);
+  // the same day: approval number decides; a blank wording falls back to the paper
+  const same = buildMetlifeStatement({ claims: [mk(7, "2026-02-02", "sent"), mk(6, "2026-02-02", "treated")], from: "2026-02-01", to: "2026-02-03", wording: { D0120: "  " } });
+  assert.deepEqual(same.cases.map((c) => c.approvalNumber), ["D6000006", "D6000007"]);
+  assert.equal(same.cases[0].lines[0].text, "PERIODIC ORAL EVALUATION");
+  assert.deepEqual(same.missingWording, ["D0120", "D0270", "D2650", "D3120", "D4220"], "distinct codes, first-seen order");
+  // nothing in range: an empty, zero statement
+  const none = buildMetlifeStatement({ claims: [A], from: "2026-03-01", to: "2026-03-31", wording: DEFAULT_METLIFE_WORDING });
+  assert.deepEqual([none.cases.length, none.total, none.heldBack, none.missingWording.length], [0, 0, 0, 0]);
+  // cents add without floating drift
+  const cents = buildMetlifeStatement({
+    claims: [mk(8, "2026-02-02", "treated", [lineFixture({ approvedAmount: 0.1 }), lineFixture({ approvedAmount: 0.2 })])],
+    ...args,
+  });
+  assert.equal(cents.cases[0].subtotal, 0.3);
+  assert.equal(cents.total, 0.3);
 }
 
 console.log("insurance metlife reader: ok");
