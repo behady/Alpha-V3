@@ -52,6 +52,7 @@ const CHILD_COLLECTIONS = [
   "treatment_plans",
   "diagnosis_chats",
   "xray_reports",
+  "insurance_claims",
 ];
 
 export async function POST(request: Request) {

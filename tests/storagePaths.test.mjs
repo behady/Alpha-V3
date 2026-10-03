@@ -19,6 +19,7 @@ import {
   bookingHeroPath,
   botMediaPath,
   clinicLogoPath,
+  insuranceDocPath,
   patientAvatarPath,
   patientMediaPath,
   staffProfilePath,
@@ -41,6 +42,7 @@ const clinicScoped = [
   clinicLogoPath(CLINIC, "my logo.png"),
   bookingHeroPath(CLINIC),
   botMediaPath(CLINIC, "before after.jpg"),
+  insuranceDocPath(CLINIC, "d1", "METLIFE APPROVAL.pdf"),
 ];
 for (const path of clinicScoped) {
   assert.ok(path.startsWith(`clinics/${CLINIC}/`), `not clinic-scoped: ${path}`);
@@ -101,6 +103,16 @@ assert.match(botMediaPath(CLINIC, `${"n".repeat(200)}.pdf`), /\.pdf$/);
 assert.match(botMediaPath(CLINIC, ""), /\d+_file$/);
 // A name that scrubs away to nothing must not leave a path ending in a bare separator.
 assert.match(botMediaPath(CLINIC, "..."), /\d+_file$/);
+
+// Insurance approval documents: the claim's own folder, filename scrubbed, extension kept.
+assert.equal(insuranceDocPath("c1", "d1", "METLIFE APPROVAL.pdf"), "clinics/c1/insurance_docs/d1/METLIFE_APPROVAL.pdf");
+assert.throws(() => insuranceDocPath("", "d1", "a.pdf"), /No clinic selected/);
+assert.throws(() => insuranceDocPath("null", "d1", "a.pdf"), /Invalid clinic id/);
+assert.throws(() => insuranceDocPath("c1", "../x", "a.pdf"), /Invalid document id/);
+assert.ok(!insuranceDocPath("c1", "d1", "../../etc/passwd").includes(".."));
+assert.match(insuranceDocPath("c1", "d1", `${"n".repeat(200)}.pdf`), /\.pdf$/);
+assert.ok(insuranceDocPath("c1", "d1", `${"n".repeat(200)}.pdf`).split("/").pop().length <= 80);
+assert.match(insuranceDocPath("c1", "d1", ""), /\/d1\/file$/);
 
 // Free-text that reaches a filename is scrubbed rather than trusted.
 assert.ok(!clinicLogoPath(CLINIC, "../../../etc/passwd").includes(".."));

@@ -133,6 +133,27 @@ export function botMediaPath(clinicId: string | null | undefined, filename: stri
 }
 
 /**
+ * The scanned or photographed approval document attached to an insurance claim.
+ *
+ * Written by the server (the approval reader route), never by the browser, so there is no upload
+ * site to drift — but the clinic still has to be in the path for the same reason as every other
+ * file here: a Storage rule can only judge what the path tells it. The docId segment is the
+ * claim's own folder, so one claim's document can be found and erased without a listing.
+ *
+ * `slice(-80)` keeps the TAIL like `botMediaPath`: these are PDFs as often as photographs and the
+ * extension is the half worth keeping when a long name has to be cut.
+ */
+export function insuranceDocPath(clinicId: string | null | undefined, docId: string, filename: string): string {
+  const safe = (filename || "file")
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .replace(/\.{2,}/g, ".")
+    .slice(-80)
+    // After the slice, not before: cutting a long name can land the window on a dot.
+    .replace(/^[.]+/, "") || "file";
+  return `clinics/${requireClinic(clinicId)}/insurance_docs/${requireSegment(docId, "document id")}/${safe}`;
+}
+
+/**
  * A staff member's own profile picture.
  *
  * Deliberately NOT under a clinic: one person can work at several, the picture is theirs rather

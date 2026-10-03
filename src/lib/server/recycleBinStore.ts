@@ -144,5 +144,10 @@ export function storagePathsFrom(collection: string, snapshot: Record<string, un
       }
     }
   }
+  if (collection === "insurance_claims") {
+    // The uploaded approval document is a nested object: { doc: { path, ... } }.
+    const doc = snapshot.doc;
+    if (doc && typeof doc === "object") add((doc as Record<string, unknown>).path);
+  }
   return [...paths];
 }
