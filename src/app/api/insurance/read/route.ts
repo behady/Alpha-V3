@@ -17,6 +17,7 @@ import {
   normalizeMetlife,
   type MetlifeExtraction,
 } from "@/lib/insurance/metlife";
+import { claimDocId, CLAIMS_COLLECTION } from "@/lib/insurance/claims";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,10 +25,10 @@ export const maxDuration = 90;
 
 const MODEL = "gemini-flash-latest";
 const MAX_BYTES = 8 * 1024 * 1024;
-const TIMEOUT_MS = 80_000;
+const TIMEOUT_MS = 72_000;
 const MAX_PATIENTS = 5000;
 const FEATURE = "insurance_read";
-const ACCEPTED_TYPES = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
+const ACCEPTED_TYPES = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]);
 
 /** Thrown inside the model step so every way the model can fail ends in the same 502. */
 class ModelFailure extends Error {}
@@ -139,7 +140,7 @@ export async function POST(req: Request) {
       throw err;
     }
     if (!ACCEPTED_TYPES.has(contentType)) {
-      return fail(400, "Only a PDF or a JPG, PNG or WebP picture can be read.");
+      return fail(400, "Only a PDF or a JPG, PNG, WebP or HEIC picture can be read.");
     }
     if (declaredBytes > MAX_BYTES) return fail(400, "The document is larger than 8 MB.");
     let data: Buffer;
@@ -167,7 +168,7 @@ export async function POST(req: Request) {
           // Plain data in lib/insurance/metlife.ts (so tests can import it without the SDK); the
           // SDK's ResponseSchema type wants its own enum for `type`, but the wire format is identical.
           responseSchema: METLIFE_RESPONSE_SCHEMA as unknown as ResponseSchema,
-          temperature: 0,
+          temperature: 0.2,
         },
       });
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -219,11 +220,9 @@ export async function POST(req: Request) {
 
     // --- already saved? ---------------------------------------------------------------------
     let duplicate: { claimId: string; savedAt: string | null } | null = null;
-    // TODO(task 8): use claimDocId
-    const approvalKey = h.approvalNumber.toLowerCase().replace(/[^a-z0-9]/g, "");
-    if (approvalKey) {
-      const claimId = `metlife_${approvalKey}`;
-      const claimSnap = await adminClinicDoc(clinicId, "insurance_claims", claimId).get();
+    if (h.approvalNumber.replace(/[^a-z0-9]/gi, "")) {
+      const claimId = claimDocId(payer.format, h.approvalNumber);
+      const claimSnap = await adminClinicDoc(clinicId, CLAIMS_COLLECTION, claimId).get();
       if (claimSnap.exists) {
         const createdAt = (claimSnap.get("createdAt") as { toDate?: () => Date } | undefined)?.toDate?.();
         duplicate = { claimId, savedAt: createdAt ? createdAt.toISOString() : null };
@@ -250,7 +249,9 @@ export async function POST(req: Request) {
     } catch (err) {
       const code = (err as { code?: unknown })?.code;
       if (code !== 6 && code !== "already-exists" && code !== "ALREADY_EXISTS") throw err;
-      await docRef.set(fileFacts, { merge: true });
+      // A row already linked to its claim keeps the facts it was saved with: the claim points at them.
+      const existing = await docRef.get();
+      if (existing.get("claimId") == null) await docRef.set(fileFacts, { merge: true });
     }
 
     await logUsage(

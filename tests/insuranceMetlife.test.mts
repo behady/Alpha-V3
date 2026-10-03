@@ -25,6 +25,7 @@ import {
 } from "../src/lib/insurance/metlife";
 import { latinSkeleton, matchPatient, nameSimilarity } from "../src/lib/insurance/matchPatient";
 import { metlifeMemberNumber, readInsurance, readMemberNumbers, writeInsurance } from "../src/lib/patientInsurance";
+import { CLAIM_STATUSES, claimDocId, claimFromExtraction, claimTotals, normalizeConfirmed, parseClaim } from "../src/lib/insurance/claims";
 import { SAMPLE_RAW } from "./fixtures/insuranceMetlife.fixture";
 
 const ctx = { today: "2026-10-03", providerCode: "DNC0001" };
@@ -459,6 +460,81 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
 {
   const stored = { metlife: { memberNumber: "987/1", certificateNumber: "987", dependentCode: "1", policyNumber: "6481234567" }, nextcare: { memberNumber: "A1B2" } };
   assert.deepEqual(writeInsurance(readInsurance({ insurance: stored })), stored);
+}
+
+// --- 7. The claim record: one document per approval number ------------------------------------------
+
+{
+  // The brief's second case was "D-69/257.66", which strips to d6925766, not d6000001: the case is
+  // kept as written in intent (separators are dropped, the digits stay) with digits that do strip to it.
+  assert.equal(claimDocId("metlife", " D6000001 "), "metlife_d6000001");
+  assert.equal(claimDocId("metlife", "D-60/000.01"), "metlife_d6000001");
+  assert.equal(claimDocId("MetLife", "d6000001"), "metlife_d6000001", "the insurer part is tidied too");
+
+  const doc = { path: "clinics/c1/insurance_docs/d1/approval.pdf", contentType: "application/pdf", bytes: 1234, pages: null };
+  const c = claimFromExtraction({ payerId: "metlife", extraction: normalizeMetlife(SAMPLE_RAW), patientId: "p3", patientName: "نادر ماجد سالم", status: "treated", treatedDate: "2026-10-03", doc });
+  assert.equal(c.approvalDate, "2026-10-03");
+  assert.deepEqual(c.totals, { requested: 1260, approved: 1260, patientShare: 0 });
+  assert.equal(JSON.stringify(c).includes("undefined"), false);
+  assert.equal(parseClaim("x", { ...c, status: "bogus" }), null);
+
+  // nothing in the record is undefined, at any depth: Firestore refuses the whole write for one
+  const undefinedAt = (v: unknown, at: string): string | null => {
+    if (v === undefined) return at;
+    if (v && typeof v === "object") {
+      for (const [k, x] of Object.entries(v)) {
+        const found = undefinedAt(x, `${at}.${k}`);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+  assert.equal(undefinedAt(c, "claim"), null);
+
+  // the record carries what the paper said, minus what sits on the claim itself
+  assert.equal(c.insurer, "metlife");
+  assert.equal(c.approvalNumber, "D6000001");
+  assert.equal(c.paperPatientName, "EXAMPLE PATIENT NAME");
+  assert.equal(c.patientName, "نادر ماجد سالم");
+  assert.equal(c.metlife.policyNumber, "6481234567");
+  assert.equal(c.metlife.employer, "EXAMPLE TRAVEL");
+  assert.equal(c.metlife.providerCode, "DNC0001");
+  assert.equal(c.metlife.physician, "DR. EXAMPLE - DENTAL");
+  assert.equal("approvalNumber" in c.metlife || "confidence" in c.metlife || "paperPatientName" in c.metlife, false);
+  assert.equal(c.lines.length, 5);
+  assert.deepEqual(c.doc, doc);
+
+  // what is stored reads back as the same claim
+  const parsed = parseClaim("metlife_d6000001", JSON.parse(JSON.stringify(c)));
+  assert.ok(parsed);
+  assert.deepEqual(parsed, { id: "metlife_d6000001", ...c });
+  // an approved-not-treated claim keeps a null treated date
+  const held = claimFromExtraction({ payerId: "metlife", extraction: normalizeMetlife(SAMPLE_RAW), patientId: "p3", patientName: "x", status: "approved", treatedDate: null, doc });
+  assert.equal(parseClaim("y", held)?.treatedDate, null);
+  // junk is refused, never half-read
+  assert.equal(parseClaim("x", null), null);
+  assert.equal(parseClaim("x", { ...c, patientId: "" }), null, "a claim always names its patient");
+  assert.equal(parseClaim("x", { ...c, insurer: "nextcare" }), null);
+  assert.equal(parseClaim("x", { ...c, treatedDate: "03/10/2026" }), null);
+  for (const s of CLAIM_STATUSES) assert.equal(parseClaim("x", { ...c, status: s })?.status, s);
+
+  // totals come from the lines
+  const lines = normalizeMetlife(SAMPLE_RAW).lines.map((l, i) => (i === 0 ? { ...l, patientShare: 15, approvedAmount: 45 } : l));
+  assert.deepEqual(claimTotals(lines), { requested: 1260, approved: 1245, patientShare: 15 });
+
+  // what the confirm card posts back is the normalised extraction; reading it again changes nothing,
+  // and the employer and physician the first pass split off are not lost
+  const once = normalizeMetlife(SAMPLE_RAW);
+  assert.deepEqual(normalizeConfirmed(JSON.parse(JSON.stringify(once))), once);
+  const edited = normalizeConfirmed({ ...once, header: { ...once.header, employer: " NEW CO ", physician: "DR. OTHER" } });
+  assert.equal(edited.header.employer, "NEW CO");
+  assert.equal(edited.header.physician, "DR. OTHER");
+  // a raw model answer still goes through the same way
+  assert.deepEqual(normalizeConfirmed(SAMPLE_RAW), once);
+  // in the split shape, a policy number typed with a dash is not cut in two again
+  const dashed = normalizeConfirmed({ ...once, header: { ...once.header, policyNumber: "648-123", employer: "CO" } });
+  assert.equal(dashed.header.policyNumber, "648-123");
+  assert.equal(dashed.header.employer, "CO");
 }
 
 console.log("insurance metlife reader: ok");
