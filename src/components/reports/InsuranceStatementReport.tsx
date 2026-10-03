@@ -8,20 +8,24 @@
  * ledger: pick the insurer and the month, check the cases on screen, press Excel.
  *
  * Nothing here writes to Firestore. The three header lines (clinic and doctor, address, phones)
- * are typed once and remembered in this browser; a member number is recorded on the patient's own
- * file, which this tab links to when one is missing.
+ * are typed once and remembered in this browser (`insuranceStatementHeader`, shared with the
+ * Insurance page); a member number is recorded on the patient's own file, which this tab links to
+ * when one is missing.
+ *
+ * MetLife's statement is not built here: it comes from the saved approvals on the Insurance page,
+ * which this tab links to.
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, FileSpreadsheet, Loader2 } from "lucide-react";
+import Link from "next/link";
+import { AlertTriangle, ArrowUpRight, FileSpreadsheet, Loader2 } from "lucide-react";
 import { useClinic } from "@/context/ClinicContext";
 import type { ReportProps } from "@/components/reports/types";
 import { Note, PatientLink, ReportState, SectionTitle } from "@/components/reports/reportKit";
 import { PRIVATE_PAYER_ID, type Payer } from "@/lib/payers";
-import { getClinicProfile } from "@/lib/clinicProfile";
 import { readMemberNumbers } from "@/lib/patientInsurance";
 import { buildInsuranceStatement, caseLabel, type StatementRowLite } from "@/lib/insuranceStatement";
-import type { StatementHeader } from "@/lib/insuranceStatementXlsx";
+import { useStatementHeader } from "@/lib/insuranceStatementHeader";
 
 const TEXT = {
   insurer: { en: "Insurer", ar: "شركة التأمين" },
@@ -51,36 +55,13 @@ const TEXT = {
   cases: { en: "cases", ar: "حالة" },
   preview: { en: "Statement", ar: "الكشف" },
   failed: { en: "Could not build the file. Try again.", ar: "تعذّر إنشاء الملف. حاول مرة أخرى." },
+  metlifeHere: { en: "MetLife statements are built from approvals on the Insurance page", ar: "كشوف ميتلايف بتطلع من الموافقات في صفحة التأمين" },
+  metlifeOpen: { en: "Open Insurance", ar: "افتح التأمين" },
 } as const;
-
-const EMPTY_HEADER: StatementHeader = { line1: "", line2: "", line3: "" };
 
 function lastDayOf(month: string): string {
   const [y, m] = month.split("-").map(Number);
   return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
-}
-
-function storageKey(clinicId: string | null): string {
-  return `insurance-statement-header:${clinicId || "clinic"}`;
-}
-
-function loadHeader(clinicId: string | null): StatementHeader | null {
-  try {
-    const raw = localStorage.getItem(storageKey(clinicId));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<StatementHeader>;
-    return { line1: String(parsed.line1 || ""), line2: String(parsed.line2 || ""), line3: String(parsed.line3 || "") };
-  } catch {
-    return null;
-  }
-}
-
-function saveHeader(clinicId: string | null, header: StatementHeader): void {
-  try {
-    localStorage.setItem(storageKey(clinicId), JSON.stringify(header));
-  } catch {
-    // Private mode or a full store: the header is still on screen, just not remembered.
-  }
 }
 
 const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -104,32 +85,7 @@ export default function InsuranceStatementReport({ procedures, allPatients, rang
     setRange({ start: `${m}-01`, end: lastDayOf(m) });
   };
 
-  const [header, setHeader] = useState<StatementHeader>(EMPTY_HEADER);
-  useEffect(() => {
-    let cancelled = false;
-    const saved = loadHeader(clinicId);
-    if (saved) {
-      setHeader(saved);
-      return;
-    }
-    // First time on this machine: start from the clinic profile, which is what the sample's header is.
-    getClinicProfile()
-      .then((profile) => {
-        if (cancelled || !profile) return;
-        setHeader({ line1: profile.clinicName || "", line2: profile.address || "", line3: profile.phone || "" });
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [clinicId]);
-  const editHeader = (key: keyof StatementHeader, value: string) => {
-    setHeader((prev) => {
-      const next = { ...prev, [key]: value };
-      saveHeader(clinicId, next);
-      return next;
-    });
-  };
+  const [header, editHeader] = useStatementHeader(clinicId);
 
   const memberNumbers = useMemo(() => {
     const map = new Map<string, string>();
@@ -182,6 +138,14 @@ export default function InsuranceStatementReport({ procedures, allPatients, rang
 
   return (
     <div className="space-y-6">
+      {/* --- MetLife lives on the Insurance page ---------------------------------------------- */}
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-2xl border border-line bg-surface-subtle px-4 py-3 text-[12px] font-semibold text-ink-body">
+        <span>{t("metlifeHere")}</span>
+        <Link href="/insurance" className="inline-flex items-center gap-1 font-black text-ink hover:underline">
+          {t("metlifeOpen")} <ArrowUpRight size={13} />
+        </Link>
+      </p>
+
       {/* --- controls ------------------------------------------------------------------------ */}
       <section className="grid gap-4 rounded-2xl border border-line bg-surface p-5 lg:grid-cols-[14rem_11rem_1fr]">
         <label className="block">
