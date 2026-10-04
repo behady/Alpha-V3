@@ -18,6 +18,8 @@ import {
   type MetlifeExtraction,
 } from "@/lib/insurance/metlife";
 import { claimDocId, CLAIMS_COLLECTION } from "@/lib/insurance/claims";
+import { binNoticeOf, type BinNotice } from "@/lib/recycleBin";
+import { binEntry, liveEntryId } from "@/lib/server/recycleBinStore";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -229,6 +231,16 @@ export async function POST(req: Request) {
       }
     }
 
+    // --- in Recently Deleted? ---------------------------------------------------------------
+    // The approval's id comes from its number, and the bin keeps one copy per id: a paper saved
+    // again after its approval was deleted could never be deleted a second time. Say so now, while
+    // the desk can still restore the old one instead of typing the paper in again.
+    let inBin: BinNotice | null = null;
+    if (!duplicate && h.approvalNumber.replace(/[^a-z0-9]/gi, "")) {
+      const entry = await binEntry(liveEntryId(clinicId, CLAIMS_COLLECTION, claimDocId(payer.format, h.approvalNumber))).get();
+      inBin = binNoticeOf(entry.data());
+    }
+
     // --- the clinic's own Arabic wording for each code --------------------------------------
     const wordingSnap = await adminClinicDoc(clinicId, "settings", "insurance_wording").get();
     const stored = wordingSnap.get("metlife") as Record<string, unknown> | undefined;
@@ -262,7 +274,7 @@ export async function POST(req: Request) {
       matched ? { id: matched.id, name: matched.name } : undefined,
     );
 
-    return NextResponse.json({ ok: true, docId, format: "metlife", extraction, checks, match, duplicate, wording });
+    return NextResponse.json({ ok: true, docId, format: "metlife", extraction, checks, match, duplicate, inBin, wording });
   } catch (error) {
     reportServerError("Insurance read failed:", error);
     // The tokens were spent even if a later step fell over.

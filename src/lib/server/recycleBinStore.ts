@@ -73,7 +73,31 @@ export function approximateBytes(value: unknown): number {
  * entry it describes and nothing deletes it.
  */
 export async function writeHistory(entry: Record<string, unknown>, transition: string): Promise<void> {
-  await binHistory().add({
+  await binHistory().add(historyRow(entry, transition));
+}
+
+/**
+ * Close a parent entry and its children in ONE commit: a history row each, then the saved copies
+ * and the entries themselves. Children first in the batch, though the batch is atomic anyway — the
+ * point is that no failure can leave children behind a parent that is gone, hidden from the list
+ * and refused on their own.
+ */
+export async function closeEntries(
+  entries: Array<{ id: string; data: Record<string, unknown> }>,
+  transition: string,
+  extra: Record<string, unknown>
+): Promise<void> {
+  const batch = adminDb().batch();
+  for (const e of entries) {
+    batch.create(binHistory().doc(), historyRow({ ...e.data, ...extra }, transition));
+    batch.delete(binPayload(e.id));
+    batch.delete(binEntry(e.id));
+  }
+  await batch.commit();
+}
+
+function historyRow(entry: Record<string, unknown>, transition: string): Record<string, unknown> {
+  return {
     clinicId: entry.clinicId ?? null,
     collection: entry.collection ?? null,
     documentId: entry.documentId ?? null,
@@ -84,7 +108,7 @@ export async function writeHistory(entry: Record<string, unknown>, transition: s
     storagePaths: entry.storagePaths ?? [],
     transition,
     at: FieldValue.serverTimestamp(),
-  });
+  };
 }
 
 /**

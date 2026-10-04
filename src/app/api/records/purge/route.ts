@@ -4,8 +4,8 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
 import { logActivityServer } from "@/lib/server/systemLog";
 import { reportServerError } from "@/lib/server/reportError";
-import { logModuleFor } from "@/lib/recycleBin";
-import { binCollection, binEntry, binPayload, writeHistory } from "@/lib/server/recycleBinStore";
+import { checkNotCascadeChild, logModuleFor } from "@/lib/recycleBin";
+import { binCollection, binEntry, closeEntries } from "@/lib/server/recycleBinStore";
 
 /**
  * "Delete permanently" — the answer to an erasure request.
@@ -48,8 +48,21 @@ export async function POST(request: Request) {
     if (entry.clinicId !== clinicId) {
       return NextResponse.json({ ok: false, error: "That entry belongs to another clinic." }, { status: 403 });
     }
+    const notChild = checkNotCascadeChild(entry);
+    if (notChild !== true) {
+      return NextResponse.json({ ok: false, error: notChild.error, reason: notChild.reason }, { status: notChild.status });
+    }
 
-    const paths: string[] = Array.isArray(entry.storagePaths) ? entry.storagePaths : [];
+    // Records binned as children of this one (an approval's treatment rows, a patient's whole file)
+    // are never listed on their own, so they go with it rather than lingering where nobody can
+    // reach them — and the files they name are recorded with the parent's.
+    const children = (await binCollection().where("cascadeOf", "==", entryId).get()).docs.filter((c) => c.data().clinicId === clinicId);
+    const paths: string[] = [
+      ...new Set([
+        ...(Array.isArray(entry.storagePaths) ? entry.storagePaths : []),
+        ...children.flatMap((c) => (Array.isArray(c.data().storagePaths) ? (c.data().storagePaths as string[]) : [])),
+      ]),
+    ];
     if (paths.length > 0) {
       await adminDb().collection("storage_orphans").add({
         clinicId,
@@ -61,24 +74,19 @@ export async function POST(request: Request) {
       });
     }
 
-    await writeHistory({ ...entry, purgedByUid: auth.uid }, "purged");
-    await binPayload(entryId).delete().catch(() => {});
-    await ref.delete();
-    // Records binned as children of this one (an approval's treatment rows) are never listed on
-    // their own, so they go with it rather than lingering where nobody can reach them.
-    const children = await binCollection().where("cascadeOf", "==", entryId).get();
-    for (const child of children.docs) {
-      if (child.data().clinicId !== clinicId) continue;
-      await writeHistory({ ...child.data(), purgedByUid: auth.uid }, "purged");
-      await binPayload(child.id).delete().catch(() => {});
-      await child.ref.delete();
-    }
+    // Children and parent in one commit: a purge that stopped halfway would strand children no
+    // screen lists and no route will take on their own.
+    await closeEntries(
+      [...children.map((c) => ({ id: c.id, data: c.data() })), { id: entryId, data: entry }],
+      "purged",
+      { purgedByUid: auth.uid },
+    );
 
     await logActivityServer({
       clinicId,
       user: { uid: auth.uid, name: auth.name, role: auth.role },
       action: "Record Permanently Deleted",
-      details: `Purged ${entry.collection}/${entry.documentId} (${entry.label || "record"}) from Recently Deleted`,
+      details: `Purged ${entry.collection}/${entry.documentId} (${entry.label || "record"})${children.length ? ` with ${children.length} linked record(s)` : ""} from Recently Deleted`,
       severity: "CRITICAL",
       module: logModuleFor([String(entry.collection || "")]),
     });

@@ -131,6 +131,14 @@ export const TEXT = {
   alreadySavedNoDate: { en: "Already saved", ar: "اتحفظت قبل كده" },
   open: { en: "open", ar: "افتح" },
   docTaken: { en: "This document is already attached to another claim", ar: "المستند ده متربط بمطالبة تانية" },
+  inBinTitle: { en: "This approval is in Recently Deleted", ar: "الموافقة دي في المحذوفات" },
+  inBinRestore: {
+    en: "Restore it from there instead of saving it again, or ask an admin to delete it permanently first.",
+    ar: "رجّعها من هناك بدل ما تحفظها تاني، أو اطلب من الأدمن يحذفها نهائي الأول.",
+  },
+  inBinWithPatient: { en: "This approval was deleted together with", ar: "الموافقة دي اتحذفت مع" },
+  inBinRestorePatient: { en: "Restore the patient and it comes back too.", ar: "رجّع المريض وهي هترجع معاه." },
+  openBin: { en: "Open Recently Deleted", ar: "افتح المحذوفات" },
   saveFailed: { en: "Saving failed. Try again.", ar: "الحفظ فشل. جرّب تاني." },
 
   // --- claims list --------------------------------------------------------------------------

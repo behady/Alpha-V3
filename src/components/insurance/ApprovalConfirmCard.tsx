@@ -36,6 +36,7 @@ import { LINE_STATUSES, type LineStatus } from "@/lib/insurance/claims";
 import type { Payer } from "@/lib/payers";
 import type { PatientInsuranceEntry } from "@/lib/patientInsurance";
 import { cairoToday, InsuranceCallError, saveClaim, type ReadResult, type SaveBody } from "./api";
+import type { BinNotice } from "@/lib/recycleBin";
 import { STATE_KEY, tr, type TextKey } from "./text";
 
 /** Who did one service line ("" = nobody yet) and where it stands. */
@@ -57,6 +58,8 @@ type Picker =
 
 type Problem =
   | { kind: "duplicate"; claimId: string; savedAt: string | null }
+  /** `approval` is the number it was found under: correcting a misread number lifts the block. */
+  | { kind: "in_bin"; notice: BinNotice; approval: string }
   | { kind: "doc_taken"; claimId: string }
   | { kind: "checks"; checks: Check[]; error: string }
   | { kind: "error"; error: string };
@@ -67,6 +70,11 @@ function cloneExtraction(x: MetlifeExtraction): MetlifeExtraction {
 
 function blankLine(): MetlifeLine {
   return { code: "", description: "", unitsRequested: 1, grossPerUnit: 0, grossTotal: 0, unitsApproved: 1, patientShare: 0, approvedAmount: 0, comment: "", confidence: 1 };
+}
+
+/** An approval number as its id sees it (claimDocId): case and punctuation do not count. */
+function approvalKey(n: string): string {
+  return String(n ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 function savedOn(iso: string | null, isAr: boolean): string {
@@ -143,7 +151,11 @@ export default function ApprovalConfirmCard({
   const [wordingDraft, setWordingDraft] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<Problem | null>(
-    result.duplicate ? { kind: "duplicate", claimId: result.duplicate.claimId, savedAt: result.duplicate.savedAt } : null,
+    result.duplicate
+      ? { kind: "duplicate", claimId: result.duplicate.claimId, savedAt: result.duplicate.savedAt }
+      : result.inBin
+        ? { kind: "in_bin", notice: result.inBin, approval: approvalKey(result.extraction.header.approvalNumber) }
+        : null,
   );
 
   // --- the patient ------------------------------------------------------------------------------
@@ -229,7 +241,10 @@ export default function ApprovalConfirmCard({
 
   // --- save --------------------------------------------------------------------------------------
   const patientReady = picker.mode === "create" ? newName.trim().length > 0 : !!picker.patientId;
-  const canSave = !saving && !blocked && patientReady && !!clinicId;
+  // An approval still in Recently Deleted is restored, never saved twice: the bin keeps one copy
+  // per approval number, so a second one could never be deleted again.
+  const inBin = problem?.kind === "in_bin" && problem.approval === approvalKey(x.header.approvalNumber) ? problem.notice : null;
+  const canSave = !saving && !blocked && patientReady && !!clinicId && !inBin;
 
   const save = async () => {
     if (!canSave || !clinicId) return;
@@ -268,6 +283,7 @@ export default function ApprovalConfirmCard({
         return;
       }
       if (outcome.kind === "duplicate") setProblem({ kind: "duplicate", claimId: outcome.claimId, savedAt: outcome.savedAt });
+      else if (outcome.kind === "in_bin") setProblem({ kind: "in_bin", notice: outcome.notice, approval: approvalKey(x.header.approvalNumber) });
       else if (outcome.kind === "doc_taken") setProblem({ kind: "doc_taken", claimId: outcome.claimId });
       else if (outcome.kind === "checks") setProblem({ kind: "checks", checks: outcome.checks, error: outcome.error });
       else setProblem({ kind: "error", error: outcome.error || t("saveFailed") });
@@ -309,6 +325,21 @@ export default function ApprovalConfirmCard({
           <button type="button" onClick={() => onOpenClaim(problem.claimId)} className="underline underline-offset-2 hover:no-underline">
             {t("open")}
           </button>
+        </div>
+      )}
+
+      {inBin && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-line bg-amber-50 px-5 py-3 text-[13px] font-bold text-amber-900" data-tour="insurance-in-bin">
+          <AlertTriangle size={15} className="shrink-0" />
+          <span>
+            {inBin.withParent
+              ? `${t("inBinWithPatient")} ${inBin.withParent}. ${t("inBinRestorePatient")}`
+              : `${t("inBinTitle")}${inBin.deletedAt ? ` (${savedOn(inBin.deletedAt, isAr)})` : ""}. ${t("inBinRestore")}`}
+          </span>
+          <span aria-hidden>—</span>
+          <Link href="/settings/recently-deleted" className="underline underline-offset-2 hover:no-underline">
+            {t("openBin")}
+          </Link>
         </div>
       )}
 

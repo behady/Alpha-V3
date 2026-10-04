@@ -96,6 +96,7 @@
     "test:allocation": "npx tsx tests/paymentAllocation.test.mjs",
     "_comment_test_recyclebin": "The recycle bin's boundaries. A server route bypasses firestore.rules entirely, so every limit the rules enforce is re-enforced here or it is gone: path escapes, audit trails, the Admin short-circuit, and a restore that never overwrites.",
     "test:recyclebin": "npx tsx tests/recycleBin.test.mjs",
+    "test:bin-cascade": "npx tsx tests/recycleBinCascade.test.mts",
     "_comment_test_clinicstatus": "Does the server agree with firestore.rules about whether a clinic may still be written to? The rules gate browser writes; the Admin SDK routes bypass rules entirely, so the same decision has to exist in code or an expired clinic keeps taking payments through a route that never asked.",
     "test:clinicstatus": "npx tsx tests/clinicStatus.test.mjs",
     "_comment_test_storage": "Where uploaded files land. Four of six upload sites had no clinic in the path, two of them flat folders every clinic shares — and a Storage rule cannot scope what the path does not name. Also asserts storage.rules exists and is deployed, since it did not exist at all until 2026-08-24.",

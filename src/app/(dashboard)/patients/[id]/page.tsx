@@ -2,6 +2,7 @@
 import { patientAvatarPath, patientMediaPath } from "@/lib/storagePaths";
 
 import { deleteRecord, isOrphanWarning, RecycleBinError } from "@/lib/recycleBinApi";
+import { describeLinked } from "@/lib/recycleBin";
 import { useState, useEffect, useMemo } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { 
@@ -610,11 +611,14 @@ export default function PatientProfile() {
   };
 
   const handleDeletePatient = async () => {
+    const ar = language === "ar";
     const isConfirmed = await confirm(
-      t('confirmDeletePatient') || "Are you sure you want to permanently delete this patient? All their clinical and financial records will be lost.",
+      ar
+        ? "سيُنقل المريض إلى المحذوفات، ويمكن استعادته من الإعدادات ← المحذوفات."
+        : "The patient moves to Recently Deleted, and can be restored from Settings → Recently deleted.",
       {
-        title: language === "ar" ? "حذف المريض نهائياً" : "Delete patient permanently",
-        confirmLabel: language === "ar" ? "احذف" : "Delete",
+        title: ar ? "حذف المريض" : "Delete patient",
+        confirmLabel: ar ? "احذف" : "Delete",
         tone: "danger",
       }
     );
@@ -623,34 +627,35 @@ export default function PatientProfile() {
 
     try {
       setIsDeleting(true);
-      const patientName = patient?.name || id;
-      // Deleting a patient does not cascade — their charges, images and notes stay behind. The
-      // route counts them and refuses the first time so the choice is made with the number in
-      // view, rather than discovered later as records belonging to nobody.
+      // The patient's whole file goes with them — charges and payments, visits, notes, approvals —
+      // and comes back with them. The route answers the first call with what that file holds, so
+      // the choice is made with the numbers in view.
+      let result;
       try {
-        await deleteRecord(clinicId || "", "patients", id);
+        result = await deleteRecord(clinicId || "", "patients", id);
       } catch (err) {
-        if (isOrphanWarning(err)) {
-          const summary = Object.entries(err.counts || {})
-            .map(([collection, n]) => `${n} ${collection.replace(/_/g, " ")}`)
-            .join(", ");
-          const goAhead = await confirm(
-            language === "ar"
-              ? `سيبقى لهذا المريض: ${summary}. هل تريد المتابعة؟`
-              : `This patient still has ${summary}. These will be left behind. Delete anyway?`,
-            { confirmLabel: language === "ar" ? "حذف" : "Delete", tone: "danger" }
-          );
-          if (!goAhead) {
-            setIsDeleting(false);
-            return;
-          }
-          await deleteRecord(clinicId || "", "patients", id, { acknowledgeOrphans: true });
-        } else {
-          throw err;
+        if (!isOrphanWarning(err)) throw err;
+        const goAhead = await confirm(
+          ar
+            ? `سيُنقل معه إلى المحذوفات: ${describeLinked(err.counts, true)}. استعادة المريض تُعيد كل ذلك معه.`
+            : `This also moves ${describeLinked(err.counts, false)} to Recently Deleted. Restoring the patient brings all of it back.`,
+          { confirmLabel: ar ? "احذف" : "Delete", tone: "danger" }
+        );
+        if (!goAhead) {
+          setIsDeleting(false);
+          return;
         }
+        result = await deleteRecord(clinicId || "", "patients", id, { acknowledgeOrphans: true });
+      }
+      // The route answers per item: a patient whose file could not move comes back with the reason.
+      const item = result.results?.[0];
+      if (item && item.status !== "deleted") {
+        setIsDeleting(false);
+        showToast(item.error || t('deleteError') || "Failed to delete patient.", "error");
+        return;
       }
       showToast(
-        language === "ar" ? "تم نقل المريض إلى المحذوفات" : "Patient moved to Recently Deleted.",
+        ar ? "تم نقل المريض وملفه إلى المحذوفات" : "Patient and their file moved to Recently Deleted.",
         "success"
       );
       router.push("/patients");

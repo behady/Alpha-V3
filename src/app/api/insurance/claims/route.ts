@@ -15,7 +15,8 @@ import { recordMoneyChange } from "@/lib/server/ledgerAudit";
 import { afterLedgerCreate } from "@/lib/alerts/moneyAlerts";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { writeInsurance } from "@/lib/patientInsurance";
-import { stripUndefined } from "@/lib/server/recycleBinStore";
+import { binEntry, liveEntryId, stripUndefined } from "@/lib/server/recycleBinStore";
+import { binNoticeOf, type BinNotice } from "@/lib/recycleBin";
 import { patientPortion } from "@/lib/ledgerInsurer";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { nameSimilarity } from "@/lib/insurance/matchPatient";
@@ -360,6 +361,7 @@ export async function POST(req: Request) {
 
     type Outcome =
       | { kind: "duplicate"; savedAt: string | null }
+      | { kind: "in_bin"; notice: BinNotice }
       | { kind: "doc_taken"; claimId: string }
       | { kind: "no_patient" }
       | { kind: "no_staff" }
@@ -371,6 +373,11 @@ export async function POST(req: Request) {
         // Reads first: a transaction may not read after it writes.
         const claimSnap = await tx.get(claimRef);
         if (claimSnap.exists) return { kind: "duplicate", savedAt: savedAtOf(claimSnap.data()) };
+        // The same approval, deleted and still in Recently Deleted: saving it again would make a
+        // second copy the bin could never take (it keeps one per approval number). Restore instead.
+        const binSnap = await tx.get(binEntry(liveEntryId(clinicId, CLAIMS_COLLECTION, claimId)));
+        const inBin = binNoticeOf(binSnap.data());
+        if (inBin) return { kind: "in_bin", notice: inBin };
         const docsSnap = await tx.get(docsRef);
         const wordingSnap = await tx.get(wordingRef);
         const payersSnap = await tx.get(adminClinicDoc(clinicId, "settings", "payers"));
@@ -498,6 +505,15 @@ export async function POST(req: Request) {
 
     if (outcome.kind === "duplicate") {
       return NextResponse.json({ ok: false, duplicate: { claimId, savedAt: outcome.savedAt } }, { status: 409 });
+    }
+    if (outcome.kind === "in_bin") {
+      return fail(
+        409,
+        outcome.notice.withParent
+          ? `This approval was deleted together with ${outcome.notice.withParent}. Restore the patient from Recently Deleted to bring it back.`
+          : "This approval is in Recently Deleted. Restore it from there instead of saving the paper again.",
+        { inBin: outcome.notice },
+      );
     }
     if (outcome.kind === "doc_taken") {
       return fail(409, "This document is already attached to another claim.", { claimId: outcome.claimId });
