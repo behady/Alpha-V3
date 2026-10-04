@@ -701,7 +701,7 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   const caseA = { serial: 1, patientName: "Patient 1", policyNumber: "6481234567", certificateNumber: "987", dependentCode: "1", approvalNumber: "D6000001", date: "2026-01-28", lines: [L("كشف", 1, 60, 60), L("اشعه عاديه", 1, 60, 60)], subtotal: 120 };
   const caseB = { serial: 2, patientName: "Patient 2", policyNumber: "6481234568", certificateNumber: "988", dependentCode: "2", approvalNumber: "D6000002", date: "2026-02-27", lines: [L("كشف", 1, 60, 60), L("حشو كمبوزيت", 2, 2700, 500), L("اشعه عاديه", 0, 60, 0)], subtotal: 560 };
   const caseC = { serial: 3, patientName: "Patient 3", policyNumber: "6481234567 - EXAMPLE", certificateNumber: "12A", dependentCode: "3", approvalNumber: "D6000003", date: "2026-02-28", lines: [L("كشف", 1, 60, 60)], subtotal: 60 };
-  const st: MetlifeStatement = { from: "2026-01-26", to: "2026-02-28", cases: [caseA, caseB, caseC], total: 740, missingWording: [], heldBack: 0, pendingLines: 0 };
+  const st: MetlifeStatement = { from: "2026-01-26", to: "2026-02-28", cases: [caseA, caseB, caseC], total: 740, missingWording: [], heldBack: 0 };
   const head = { line1: "Clinic", line2: "Address", line3: "Phones" };
 
   const wb = metlifeStatementToWorkbook(st, head);
@@ -1059,7 +1059,7 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   void _dropped;
   assert.deepEqual(parseClaim("x", oldShape)!.lineStatus, {});
 
-  // the statement prints only Completed lines; a case with none is left out and takes no serial
+  // the statement prints every service line, done or planned (the owner's rule, 2026-10-05)
   const mk = (n: number, date: string, status: "approved" | "treated" | "sent", lineStatus: Record<number, LineStatus>, lines = claimFixture().lines) =>
     claimFixture({ id: `metlife_d600010${n}`, approvalNumber: `D600010${n}`, approvalDate: date, status, lineStatus, lines });
   const partly = mk(1, "2026-03-02", "treated", { 1: "Planned", 4: "Ongoing" });          // 60, [60], 600, 300, [240]
@@ -1067,15 +1067,12 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   const whole = mk(3, "2026-03-04", "treated", {});
   const notYet = mk(4, "2026-03-05", "approved", { 0: "Planned" });
   const s = buildMetlifeStatement({ claims: [whole, planned, notYet, partly], from: "2026-03-01", to: "2026-03-31", wording: DEFAULT_METLIFE_WORDING });
-  assert.deepEqual(s.cases.map((c) => [c.serial, c.approvalNumber]), [[1, "D6000101"], [2, "D6000103"]], "the fully planned case is out and the serials close up");
-  assert.deepEqual(s.cases[0].lines.map((l) => l.approved), [60, 600, 300]);
-  assert.equal(s.cases[0].subtotal, 960);
-  assert.equal(s.cases[1].subtotal, 1260, "a claim with no states prints every line");
-  assert.equal(s.total, 960 + 1260);
-  assert.equal(s.pendingLines, 3, "2 on the partly done case + 1 on the planned one; the approved claim is held back, not pending");
-  assert.equal(s.heldBack, 1);
-  assert.deepEqual(s.missingWording, [], "a code only on a planned line is not printed, so not missing");
-  assert.equal(buildMetlifeStatement({ claims: [whole], from: "2026-03-01", to: "2026-03-31", wording: {} }).pendingLines, 0);
+  assert.deepEqual(s.cases.map((c) => [c.serial, c.approvalNumber]), [[1, "D6000101"], [2, "D6000102"], [3, "D6000103"]], "a fully planned case is on the sheet too");
+  assert.deepEqual(s.cases[0].lines.map((l) => l.approved), [60, 60, 600, 300, 240], "planned and ongoing lines print beside the done ones");
+  assert.equal(s.cases[0].subtotal, 1260);
+  assert.equal(s.cases[2].subtotal, 1260, "a claim with no states prints every line");
+  assert.equal(s.heldBack, 1, "an approved (not yet saved as treated) claim is still held back");
+  assert.deepEqual(s.missingWording, ["D7777"], "a code only on a planned line is printed now, so its missing wording is reported");
 
   // payroll counts only Completed lines; a planned line is neither earned nor "unassigned"
   const omar = { staffId: "s1", name: "Dr Omar", rate: 25, share: 15 };
