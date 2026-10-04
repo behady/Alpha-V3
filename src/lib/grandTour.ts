@@ -259,15 +259,15 @@ const WELCOME_STOPS: TourStop[] = [
       walk: PHONE_BAR_WALK,
     },
     say: {
-      en: "Everything in the system is reached from this black bar. Dashboard is a direct link, and the three menus next to it — Front Desk, Operations, Insights & Growth — hold every page. On a phone the same pages sit behind the menu button at the bottom.",
-      ar: "كل حاجة في النظام بتوصلها من الشريط الأسود ده. لوحة التحكم لينك مباشر، والتلات قوايم اللي جنبها — الاستقبال، العمليات، الرؤى والنمو — فيهم كل الصفحات. على الموبايل نفس الصفحات ورا زرار القايمة اللي تحت.",
+      en: "Everything in the system is reached from this black bar. Dashboard and Patients are direct links, Accounting holds the money pages, and More holds everything else. On a phone the same pages sit behind the menu button at the bottom.",
+      ar: "كل حاجة في النظام بتوصلها من الشريط الأسود ده. لوحة التحكم والمرضى لينكات مباشرة، المحاسبة فيها صفحات الفلوس، والمزيد فيه كل الباقي. على الموبايل نفس الصفحات ورا زرار القايمة اللي تحت.",
     },
     ask: [
       { en: "Why are some pages missing from my menus?", ar: "ليه فيه صفحات مش ظاهرة في القوايم؟" },
       { en: "Can I use this on my phone?", ar: "أقدر أستخدمه من الموبايل؟" },
     ],
     knowledge:
-      "The app's navigation is one black bar at the top (desktop) with: the clinic logo/name, a clinic switcher (only when the person belongs to more than one clinic), a direct Dashboard link, and three dropdown menus — Front Desk (WhatsApp, Patients, Appointments, Leads), Operations (Finance, Inventory, Supply Store, Lab Tracking, Time Clock), Insights & Growth (Intelligence, Marketing, Reports). On the right: the Settings gear (admins and people with the settings permission), the notification bell, and the account menu. On phones (below the lg breakpoint) there is a bottom bar with Dashboard, WhatsApp, Intelligence, Appointments, Finance, Patients and a Menu button that opens a full sheet with every page plus language, Settings, Getting started, Help and Logout. A page missing from someone's menus means their role/permissions do not include it (Settings → Users → Manage access), or the clinic's plan does not include the feature (Inventory, Time Clock, Marketing, WhatsApp are plan-gated), or — for the Supply Store — no supplier shop is connected. The web app works in any modern browser on phone, tablet and desktop; there is also a native Android app that talks to the same clinic data.",
+      "The app's navigation is one black bar at the top (desktop) with: the clinic logo/name, a clinic switcher (only when the person belongs to more than one clinic), direct Dashboard and Patients links, and two dropdown menus — Accounting (Insurance, Finance, Reports, Lab Tracking) and More (WhatsApp, Appointments, Leads, Inventory, Supply Store, Orthodontics, Time Clock, Team, Intelligence, Marketing). On the right: the Settings gear (admins and people with the settings permission), the notification bell, and the account menu. On phones (below the lg breakpoint) there is a bottom bar with Dashboard, WhatsApp, Intelligence, Appointments, Finance, Patients and a Menu button that opens a full sheet with every page plus language, Settings, Getting started, Help and Logout. A page missing from someone's menus means their role/permissions do not include it (Settings → Users → Manage access), or the clinic's plan does not include the feature (Inventory, Time Clock, Marketing, WhatsApp are plan-gated), or — for the Supply Store — no supplier shop is connected. The web app works in any modern browser on phone, tablet and desktop; there is also a native Android app that talks to the same clinic data.",
   },
   {
     id: "account-menu",
