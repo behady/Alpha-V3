@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, Fragment } from "react";
+import { useState, useEffect, useMemo, useRef, Fragment } from "react";
 import { 
   Plus, Wallet, Trash2, Printer, CreditCard, Edit2, 
   X, Save, Link as LinkIcon, ChevronDown, ChevronRight, Check, User, MessageCircle, Loader2, ScrollText, Clock,
@@ -205,6 +205,8 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isAddingPaymentStateLocked, setIsAddingPaymentStateLocked] = useState(false); // Fix Scenario 1: Double submit state lock
   const [selectedProcedureId, setSelectedProcedureId] = useState<string>("");
+  const payFormRef = useRef<HTMLFormElement>(null);
+  const payAmountRef = useRef<HTMLInputElement>(null);
   const [whatsappSendingId, setWhatsappSendingId] = useState<string | null>(null);
   const [sendingReceipt, setSendingReceipt] = useState(false);
   const [expandedProcs, setExpandedProcs] = useState<Record<string, boolean>>({});
@@ -246,6 +248,9 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
     deleteConfirm: language === 'ar' ? "حذف هذه المعاملة؟" : "Delete this transaction?",
     deleteSuccess: language === 'ar' ? "تم الحذف" : "Transaction deleted",
     paidLabel: language === 'ar' ? "مكتمل" : "Paid",
+    payCol: language === 'ar' ? "الدفع" : "Pay",
+    payNow: language === 'ar' ? "ادفع" : "Pay",
+    onInsurer: language === 'ar' ? "على التأمين" : "On insurer",
     linked: language === 'ar' ? "مرتبط" : "Linked",
     method: language === 'ar' ? "الطريقة" : "Method",
     paidAmount: language === 'ar' ? "المبلغ المدفوع" : "Paid Amount",
@@ -364,6 +369,27 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
         return { ...proc, remaining: remaining > 0 ? remaining : 0, isPaid: remaining <= 0, paidForThis };
     });
   }, [transactions]);
+
+  /**
+   * The Pay button on a treatment row: the usual payment form, already pointed at that treatment
+   * with what is left of it (the patient's part only, on an insurance row). The receptionist checks
+   * the amount and method and confirms — nothing is recorded by the button itself, so the same
+   * checks, receipt and WhatsApp run as for any other payment.
+   */
+  const openQuickPay = (procId: string) => {
+    const target = proceduresWithBalance.find((p) => p.id === procId);
+    if (!target || target.remaining <= 0) return;
+    setSelectedProcedureId(procId);
+    setPayAmount(String(target.remaining));
+    setPayNote("");
+    setIsDropdownOpen(false);
+    setIsAddingPayment(true);
+    requestAnimationFrame(() => {
+      payFormRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      payAmountRef.current?.focus({ preventScroll: true });
+      payAmountRef.current?.select();
+    });
+  };
 
   const handleAddPayment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -761,7 +787,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
         </div>
 
         {isAddingPayment && (
-            <form onSubmit={handleAddPayment} className="bg-green-50/50 p-6 rounded-2xl border border-green-100 animate-in slide-in-from-top-2">
+            <form ref={payFormRef} onSubmit={handleAddPayment} className="bg-green-50/50 p-6 rounded-2xl border border-green-100 animate-in slide-in-from-top-2">
             <h4 className="font-black text-green-800 mb-4 flex items-center gap-2 text-sm uppercase"><CreditCard size={16}/> {txt.receivePayment}</h4>
             
             <div className="mb-4 relative">
@@ -828,7 +854,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                 </div>
                 <div>
                     <label className="text-[10px] font-black text-green-700 uppercase mb-1 block">{txt.amount}</label>
-                    <input data-tour="finance-pay-amount" type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)} placeholder="0.00" className="w-full p-3.5 rounded-xl border border-green-200 text-sm font-black focus:border-green-500 outline-none" />
+                    <input ref={payAmountRef} data-tour="finance-pay-amount" type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)} placeholder="0.00" className="w-full p-3.5 rounded-xl border border-green-200 text-sm font-black focus:border-green-500 outline-none" />
                 </div>
                 <div>
                     <button data-tour="finance-pay-confirm" type="submit" className="w-full bg-green-600 text-white py-3.5 rounded-xl font-black text-xs uppercase shadow-lg hover:bg-green-700 flex items-center justify-center gap-2 transition-all active:scale-95">
@@ -986,11 +1012,11 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
             <div className="overflow-x-auto custom-scrollbar">
                 <table className="w-full text-sm text-start min-w-[700px]">
                     <thead className="bg-gray-50 text-gray-500 font-black text-[10px] uppercase tracking-wider">
-                    <tr><th className="p-4 whitespace-nowrap">{txt.date}</th><th className="p-4 whitespace-nowrap">{txt.description}</th><th className="p-4 text-center whitespace-nowrap">{txt.type}</th><th className="p-4 text-end whitespace-nowrap">{txt.cost}</th><th className="p-4 text-end whitespace-nowrap">{txt.paid}</th><th className="p-4 text-center whitespace-nowrap no-print">{txt.action}</th></tr>
+                    <tr><th className="p-4 text-start whitespace-nowrap">{txt.date}</th><th className="p-4 text-start whitespace-nowrap">{txt.description}</th><th className="p-4 text-center whitespace-nowrap no-print">{txt.payCol}</th><th className="p-4 text-center whitespace-nowrap">{txt.type}</th><th className="p-4 text-end whitespace-nowrap">{txt.cost}</th><th className="p-4 text-end whitespace-nowrap">{txt.paid}</th><th className="p-4 text-center whitespace-nowrap no-print">{txt.action}</th></tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                     {transactions.length === 0 ? (
-                        <tr><td colSpan={6} className="p-8 text-center text-gray-400 font-bold text-xs uppercase">{txt.noRecords}</td></tr>
+                        <tr><td colSpan={7} className="p-8 text-center text-gray-400 font-bold text-xs uppercase">{txt.noRecords}</td></tr>
                     ) : (
                         (() => {
                             const rawProcs = transactions.filter(t => t.type === 'procedure');
@@ -1086,6 +1112,29 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                        ></div>
                                                    </div>
                                                 </td>
+                                                <td className="p-4 text-center whitespace-nowrap no-print">
+                                                    {(() => {
+                                                        const left = proceduresWithBalance.find((p) => p.id === item.id)?.remaining ?? 0;
+                                                        if (left > 0) {
+                                                            return (
+                                                                <button
+                                                                  type="button"
+                                                                  onClick={(e) => { e.stopPropagation(); openQuickPay(item.id); }}
+                                                                  className="inline-flex items-center gap-1.5 rounded-lg bg-green-500 px-3 py-1.5 text-[11px] font-black text-white shadow-sm hover:bg-green-600 transition-colors"
+                                                                >
+                                                                  <CreditCard size={13} /> {txt.payNow} <span className="font-figure tabular-nums">{left.toLocaleString()}</span>
+                                                                </button>
+                                                            );
+                                                        }
+                                                        if (insurerOutstanding(item) > 0) {
+                                                            return <span className="inline-block rounded-lg border border-line bg-surface-subtle px-2 py-1 text-[10px] font-black text-ink-muted">{txt.onInsurer}</span>;
+                                                        }
+                                                        if ((Number(item.cost) || 0) > 0) {
+                                                            return <span className="inline-flex items-center gap-1 rounded-lg bg-green-50 px-2 py-1 text-[10px] font-black text-green-700"><Check size={12} /> {txt.paidLabel}</span>;
+                                                        }
+                                                        return <span className="text-gray-300">-</span>;
+                                                    })()}
+                                                </td>
                                                 <td className="p-4 text-center"><span className="px-2 py-1 rounded-lg text-[10px] font-black uppercase bg-blue-50 text-blue-600">{item.type}</span></td>
                                                 <td className="p-4 text-end font-bold text-gray-900">{item.cost > 0 ? item.cost.toLocaleString() : "-"}</td>
                                                 <td className="p-4 text-end font-bold text-green-600">{item.paidForThis > 0 ? item.paidForThis.toLocaleString() : "-"}</td>
@@ -1151,7 +1200,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                             )}
                                                         </div>
                                                     </td>
-                                                    <td className="p-4 text-center"><span className="px-2 py-1 rounded-lg text-[10px] font-black uppercase bg-green-50 text-green-600">{payment.type}</span></td>
+                                                    <td className="no-print" /><td className="p-4 text-center"><span className="px-2 py-1 rounded-lg text-[10px] font-black uppercase bg-green-50 text-green-600">{payment.type}</span></td>
                                                     <td className="p-4 text-end font-bold text-gray-400">-</td>
                                                     <td className="p-4 text-end font-bold text-green-600">{payment.paid > 0 ? payment.paid.toLocaleString() : "-"}</td>
                                                     <td className="p-4 text-center no-print">
@@ -1211,7 +1260,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                    )}
                                                </div>
                                             </td>
-                                            <td className="p-4 text-center"><span className="px-2 py-1 rounded-lg text-[10px] font-black uppercase bg-green-50 text-green-600">{payment.type}</span></td>
+                                            <td className="no-print" /><td className="p-4 text-center"><span className="px-2 py-1 rounded-lg text-[10px] font-black uppercase bg-green-50 text-green-600">{payment.type}</span></td>
                                             <td className="p-4 text-end font-bold text-gray-900">-</td>
                                             <td className="p-4 text-end font-bold text-green-600">{payment.paid > 0 ? payment.paid.toLocaleString() : "-"}</td>
                                             <td className="p-4 text-center no-print">
