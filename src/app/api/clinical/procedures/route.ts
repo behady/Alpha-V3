@@ -112,8 +112,11 @@ async function loadPricingPolicy(clinicId: string) {
  * `doctorId` is the treating dentist and is what the payout follows. It is separate from the actor,
  * who is whoever is at the keyboard — an assistant typing up a session is a different person, and
  * the note is only trustworthy if it says which is which.
+ *
+ * `fallbackPayerId` is the payer an EDITED treatment already carries. A request that names no
+ * payer keeps it while that payer is still active, instead of re-deriving one from the list.
  */
-async function priceRequest(clinicId: string, body: Record<string, unknown>, actor: Actor) {
+async function priceRequest(clinicId: string, body: Record<string, unknown>, actor: Actor, fallbackPayerId: string | null = null) {
   const services = await loadServices(clinicId);
   const { priceLists, discountSettings, payers } = await loadPricingPolicy(clinicId);
 
@@ -168,12 +171,16 @@ async function priceRequest(clinicId: string, body: Record<string, unknown>, act
    * and the price list only PREFILLS a price for a catalogue service — the typed price wins.
    *
    * A request with no payer (older screens, the phone) still falls back to the list's owner, so
-   * nothing that worked yesterday records differently today.
+   * nothing that worked yesterday records differently today — except on an edit, where the
+   * treatment's own stored payer comes first. The phone's edit sends no payer, and re-deriving
+   * one from the list silently moved a treatment's revenue to whoever owns that list.
    */
   const requestedPayerId = String(body.payerId || "").trim();
   const explicitPayer = requestedPayerId ? findPayer(payers, requestedPayerId) : null;
   if (requestedPayerId && (!explicitPayer || !explicitPayer.active)) throw new Error("PAYER_NOT_FOUND");
-  const askedPayer = explicitPayer ?? payerForPriceList(payers, priceListId);
+  const storedPayer = !requestedPayerId && fallbackPayerId ? findPayer(payers, fallbackPayerId) : null;
+  const keptPayer = storedPayer && storedPayer.active ? storedPayer : null;
+  const askedPayer = explicitPayer ?? keptPayer ?? payerForPriceList(payers, priceListId);
   // The list to read catalogue prices from: the one named, else the payer's own prefill list,
   // else the clinic default. It never changes who pays.
   const namedListId = typeof body.priceListId === "string" && body.priceListId.trim() ? priceListId : null;
@@ -527,7 +534,13 @@ async function updateProcedure(args: { clinicId: string; actor: Actor; body: Rec
     return await updateApprovalNote({ clinicId, actor, body, noteId, before: current.data() || {} });
   }
 
-  const priced = await priceRequest(clinicId, body, actor);
+  const storedPayerId = current.exists ? current.data()?.payerId : null;
+  const priced = await priceRequest(
+    clinicId,
+    body,
+    actor,
+    typeof storedPayerId === "string" && storedPayerId.trim() ? storedPayerId.trim() : null
+  );
   const addToLedger = body.addToLedger !== false;
 
   const result = await adminDb().runTransaction(async (txn) => {

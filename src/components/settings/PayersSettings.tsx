@@ -95,7 +95,7 @@ function pct(raw: unknown): number {
 
 /** A treatment typed into the coverage table that does not exist as a service yet. */
 type AddedRow = {
-  /** A Firestore id minted on the client, so the row can be covered and priced before it is saved. */
+  /** A Firestore id minted on the client, so the row can be priced before it is saved. */
   id: string;
   name: string;
   /** The clinic's own price — what every other patient pays. */
@@ -114,8 +114,6 @@ type Draft = {
   providerCode: string;
   /** Service id → what this insurer pays. */
   prices: Record<string, number>;
-  /** The treatments on this insurer's own list. Every insurer keeps its own. */
-  covered: Set<string>;
   /** Staff id → percentage on this insurer's cases. */
   rates: Record<string, number>;
   /** Service id → the name as retyped in the table. Saved only when it differs. */
@@ -232,10 +230,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
   };
 
   const startNew = () => {
-    // A new insurer starts covering everything, then the clinic unticks what it does not.
-    // Starting empty would mean the first treatment recorded on it silently falls to private,
-    // which reads as the insurer not working rather than as a list nobody has filled in.
-    setDraft({ payerId: "", name: "", nameAr: "", format: "", providerCode: "", prices: {}, rates: {}, renamed: {}, added: [], covered: new Set(services.map((s) => s.id)) });
+    setDraft({ payerId: "", name: "", nameAr: "", format: "", providerCode: "", prices: {}, rates: {}, renamed: {}, added: [] });
     setStep(1);
   };
 
@@ -261,8 +256,6 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
       rates,
       renamed: {},
       added: [],
-      // No stored list means this insurer predates separate lists and covers everything.
-      covered: new Set(payer.services ?? services.map((s) => s.id)),
     });
     setStep(1);
   };
@@ -358,16 +351,10 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
     setSaving(true);
     try {
       const isNew = !draft.payerId;
-      // Written in the services' own order so two saves of the same list produce the same
-      // document, rather than a fresh permutation that reads as a change in every audit.
       // Rows typed into the table become services of their own; a blank or free one is noise.
       const newRows = draft.added
         .map((r) => ({ ...r, name: r.name.trim() }))
         .filter((r) => r.name && Number.isFinite(r.price) && r.price > 0);
-      const coveredList = [
-        ...services.filter((svc) => draft.covered.has(svc.id)).map((svc) => svc.id),
-        ...newRows.filter((r) => draft.covered.has(r.id)).map((r) => r.id),
-      ];
       const payerId = draft.payerId || payerIdFrom(name, payers);
       const nameAr = draft.nameAr.trim() || undefined;
       // Optional, and left off the payer entirely when blank: payersDocFrom drops an undefined, so a
@@ -433,7 +420,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
         const icon = suggestIcon(row.name) || categoryOf(category).icon;
         const pays = draft.prices[row.id];
         const prices: Record<string, number> = {};
-        if (draft.covered.has(row.id) && typeof pays === "number") prices[listId] = pays;
+        if (typeof pays === "number") prices[listId] = pays;
         batch.set(getClinicDoc("services", row.id), {
           name: row.name,
           price: row.price,
@@ -507,28 +494,21 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
         : "Leave a box empty if the dentist earns their normal percentage. Only fill in what differs.",
     ];
 
-    // The coverage table, rows the clinic is adding included.
+    // The price table, rows the clinic is adding included.
     const addRow = () => {
-      // The id is minted now so the row can be ticked and priced like any other before it exists.
+      // The id is minted now so the row can be priced like any other before it exists.
       const id = doc(getClinicCollection("services")).id;
-      const covered = new Set(draft.covered);
-      covered.add(id);
-      setDraft({ ...draft, covered, added: [...draft.added, { id, name: "", price: 0 }] });
+      setDraft({ ...draft, added: [...draft.added, { id, name: "", price: 0 }] });
     };
     const updateAdded = (id: string, patch: Partial<AddedRow>) =>
       setDraft({ ...draft, added: draft.added.map((r) => (r.id === id ? { ...r, ...patch } : r)) });
     const removeAdded = (id: string) => {
-      const covered = new Set(draft.covered);
-      covered.delete(id);
       const prices = { ...draft.prices };
       delete prices[id];
-      setDraft({ ...draft, covered, prices, added: draft.added.filter((r) => r.id !== id) });
+      setDraft({ ...draft, prices, added: draft.added.filter((r) => r.id !== id) });
     };
     const nameBoxCls =
       "w-full min-w-0 rounded-lg border border-transparent bg-transparent px-2 py-1 text-[13.5px] font-bold text-ink outline-none transition placeholder:font-medium placeholder:text-ink-faint hover:border-line focus:border-accent focus:bg-surface";
-    const notCovered = (
-      <span className="text-[11.5px] font-bold text-ink-faint">{isAr ? "مش مغطّى" : "Not covered"}</span>
-    );
     const paysBox = (id: string, yourPrice: number) => (
       <input
         type="number"
@@ -710,7 +690,6 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
                   </thead>
                   <tbody>
                     {services.map((s) => {
-                      const on = true;
                       return (
                         <tr key={s.id} className="border-b border-line last:border-b-0">
                           <td className="px-2 py-1.5">
@@ -725,17 +704,11 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
                           <td className="px-3 py-2 text-end font-figure text-[13px] text-ink-muted">
                             {s.price.toLocaleString()}
                           </td>
-                          <td className="px-3 py-2 text-end">
-                            {/* A price on a treatment this insurer does not cover is a number that
-                                can never be charged, so the box goes away rather than being
-                                disabled — a greyed-out field invites somebody to try. */}
-                            {on ? paysBox(s.id, s.price) : notCovered}
-                          </td>
+                          <td className="px-3 py-2 text-end">{paysBox(s.id, s.price)}</td>
                         </tr>
                       );
                     })}
                     {draft.added.map((row) => {
-                      const on = true;
                       return (
                         <tr key={row.id} className="border-b border-line last:border-b-0">
                           <td className="px-2 py-1.5">
@@ -770,7 +743,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
                               className="w-24 rounded-xl border border-line bg-surface px-2 py-1.5 text-end font-figure text-[13px] text-ink outline-none transition focus:border-accent"
                             />
                           </td>
-                          <td className="px-3 py-2 text-end">{on ? paysBox(row.id, row.price) : notCovered}</td>
+                          <td className="px-3 py-2 text-end">{paysBox(row.id, row.price)}</td>
                         </tr>
                       );
                     })}

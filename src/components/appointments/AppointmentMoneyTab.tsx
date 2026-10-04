@@ -119,7 +119,13 @@ export default function AppointmentMoneyTab({
   const pickPayer = (id: string) => {
     setProcPayerId(id);
     const own = findPayer(payers, id)?.priceListId;
-    if (own && activeLists.some((l) => l.id === own)) setProcListId(own);
+    if (own && activeLists.some((l) => l.id === own)) {
+      setProcListId(own);
+    } else if (payerForPriceList(payers, procListId).id !== PRIVATE_PAYER_ID && activeLists.length > 0) {
+      // A payer with no list of its own (Private, always) must not keep another payer's list:
+      // that recorded a private case at the insurer's tariff. Back to the default list.
+      setProcListId((activeLists.find((l) => l.isDefault) || activeLists[0]).id);
+    }
   };
 
   const patientId = appointment?.patientId as string | undefined;
@@ -253,6 +259,13 @@ export default function AppointmentMoneyTab({
    */
   // Every service, whoever pays: the price box is the price.
   const offeredServices = services;
+  /**
+   * A name that is not in the catalogue has no price to fall back on: a blank box would record the
+   * treatment with no charge and still say "Service added". 0 typed is a real answer and allowed.
+   */
+  const quickNeedsPrice =
+    !!procName.trim() && procCost === "" && !services.some((s) => String(s.name) === procName.trim());
+  const quickNeedsPriceText = isAr ? "اكتب سعر للعلاج اللي مش في قائمتك" : "Type a price for a treatment that is not in your list";
 
   const treatments = useMemo(() => {
     const categoryById = new Map(services.map((s) => [s.id, s.category]));
@@ -550,6 +563,10 @@ export default function AppointmentMoneyTab({
     const name = procName.trim();
     if (!name) {
       showToast(isAr ? "اكتب اسم الخدمة" : "Name the treatment", "error");
+      return;
+    }
+    if (quickNeedsPrice) {
+      showToast(quickNeedsPriceText, "error");
       return;
     }
     setAddingProcedure(true);
@@ -1007,7 +1024,7 @@ export default function AppointmentMoneyTab({
               className="flex-1 min-w-0 rounded-lg border border-line bg-surface px-3 py-2 text-sm font-black text-slate-800 outline-none focus:ring-2 focus:ring-emerald-300"
             />
             <button
-              disabled={addingProcedure || !procName.trim()}
+              disabled={addingProcedure || !procName.trim() || quickNeedsPrice}
               onClick={handleQuickAdd}
               className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-lg px-4 flex items-center gap-1.5 transition-colors disabled:opacity-50"
             >
@@ -1022,6 +1039,7 @@ export default function AppointmentMoneyTab({
               {isAr ? "تفاصيل" : "More"}
             </button>
           </div>
+          {quickNeedsPrice && <p className="text-[11px] font-semibold text-amber-700">{quickNeedsPriceText}</p>}
         </div>
       </div>
 

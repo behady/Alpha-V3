@@ -59,21 +59,19 @@ export default function ServiceCombobox({
     [services, value, valueKey]
   );
 
-  // Sync internal search state with selected value
-  useEffect(() => {
-    if (!isOpen) {
-      if (selectedService) {
-        setSearch(selectedService.name);
-      } else if (allowFreeText) {
-        setSearch(value || "");
-      } else {
-        setSearch("");
-      }
-    } else if (value && !search && allowFreeText) {
-       // Backup sync if opened and empty
-       setSearch(value);
-    }
-  }, [isOpen, selectedService, value, allowFreeText, search]);
+  /**
+   * What the box shows while the list is shut: the picked service, or the typed name.
+   *
+   * Derived rather than copied into `search` by an effect. The effect version re-synced `search`
+   * from `value` whenever the list closed, which is how a typed name was wiped out: a click
+   * elsewhere shut the list before blur had committed the text. `search` is now only the text
+   * being typed while the list is open, and it starts from this whenever the list opens.
+   */
+  const closedText = selectedService ? selectedService.name : allowFreeText ? value || "" : "";
+  const open = () => {
+    if (!isOpen) setSearch(closedText);
+    setIsOpen(true);
+  };
 
   // Handle outside click
   useEffect(() => {
@@ -139,18 +137,13 @@ export default function ServiceCombobox({
     } else if (e.key === "Escape") {
       setIsOpen(false);
     } else if (e.key === "ArrowDown") {
-      setIsOpen(true);
+      open();
     }
   };
 
-  const handleBlur = () => {
-    // Delay slightly so onClick on items can fire
-    setTimeout(() => {
-      if (allowFreeText && search.trim() && !selectedService && isOpen) {
-        onChange(search.trim());
-      }
-    }, 150);
-  };
+  // No commit on blur. Free text already reaches the parent on every keystroke, and the delayed
+  // blur commit read this render's values: typing "fil" and then clicking "Filling" in the list
+  // fired it after the pick, and put "fil" back over the service just chosen.
 
   return (
     <div className={`relative ${className}`} ref={containerRef} dir={language === "ar" ? "rtl" : "ltr"}>
@@ -159,18 +152,23 @@ export default function ServiceCombobox({
           ref={inputRef}
           type="text"
           disabled={disabled}
-          value={search || (allowFreeText ? value : "")}
+          value={isOpen ? search : closedText}
           onChange={(e) => {
             setSearch(e.target.value);
-            if (!isOpen) setIsOpen(true);
-            // If they clear the input, clear the value
-            if (e.target.value === "") {
-                onChange("");
+            setIsOpen(true);
+            if (allowFreeText) {
+              // Free text is the value, every keystroke. Committing it only on blur lost it: a
+              // click on the price box closes the list on mousedown, before blur runs, so blur saw
+              // the list shut and committed nothing, and the box went back to the old value.
+              onChange(e.target.value);
+            } else if (e.target.value === "") {
+              // If they clear the input, clear the value
+              onChange("");
             }
           }}
           onFocus={() => {
             if (!disabled) {
-              setIsOpen(true);
+              open();
               if (selectedService) {
                  // Select all text on focus to make replacing easy
                  setTimeout(() => inputRef.current?.select(), 0);
@@ -178,7 +176,6 @@ export default function ServiceCombobox({
             }
           }}
           onKeyDown={handleKeyDown}
-          onBlur={handleBlur}
           placeholder={placeholder || (language === "ar" ? "ابحث عن خدمة..." : "Search services...")}
           className={`w-full rounded-xl border border-line bg-surface px-3 py-3 text-sm font-bold text-ink outline-none transition-all focus:border-primary-400 focus:ring-2 focus:ring-primary-100 disabled:cursor-not-allowed disabled:bg-surface-subtle disabled:opacity-70 ${
             language === "ar" ? "pr-10 pl-8" : "pl-10 pr-8"
@@ -197,7 +194,8 @@ export default function ServiceCombobox({
           } ${language === "ar" ? "left-3" : "right-3"} cursor-pointer`}
           onClick={() => {
              if (!disabled) {
-                 setIsOpen(!isOpen);
+                 if (isOpen) setIsOpen(false);
+                 else open();
                  inputRef.current?.focus();
              }
           }}

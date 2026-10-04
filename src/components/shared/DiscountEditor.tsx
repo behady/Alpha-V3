@@ -153,11 +153,19 @@ export default function DiscountEditor({
   };
 
   const set = (patch: Partial<DiscountState>) => onChange({ ...value, ...patch });
-  /** Picking an insurer also points the prefill at its own list, when it has one that is live here. */
+  /**
+   * Picking an insurer also points the prefill at its own list, when it has one that is live here.
+   *
+   * A payer with no list of its own (Private, always) must not inherit another payer's: switching
+   * back to Private used to keep the insurer's list, so the case was recorded as private at the
+   * insurer's tariff. It drops back to the default list here instead.
+   */
   const pickPayer = (payerId: string) => {
     const payer = findPayer(payers, payerId);
     const ownList = payer?.priceListId && activeLists.some((l) => l.id === payer.priceListId) ? payer.priceListId : null;
-    onChange({ ...value, payerId, ...(ownList ? { priceListId: ownList } : {}) });
+    const listOfAnother = !ownList && payerForPriceList(payers, value.priceListId).id !== PRIVATE_PAYER_ID;
+    const priceListId = ownList || (listOfAnother ? resolveActiveListId(activeLists, null, null, branchId) : value.priceListId);
+    onChange({ ...value, payerId, priceListId });
   };
 
   return (

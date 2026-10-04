@@ -680,18 +680,22 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
   return (
     <div className="space-y-6 relative">
       {/* The same editor the clinical tab uses: name, price, payer, dentist. The treatment is
-          written through /api/clinical/procedures and appears here through the ledger listener. */}
-      <ServiceEditorDrawer
-        isOpen={addingTreatment}
-        onClose={() => setAddingTreatment(false)}
-        patientId={patientId}
-        patientName={patientName}
-        appointmentId={null}
-        initialNote={null}
-        servicesList={servicesList}
-        doctors={doctors as EditorStaff[]}
-        onSaved={() => setAddingTreatment(false)}
-      />
+          written through /api/clinical/procedures and appears here through the ledger listener.
+          Mounted only while open: outside `inline` mode the drawer ignores isOpen and always
+          portals its full-screen backdrop, which would cover this tab for good. */}
+      {addingTreatment && (
+        <ServiceEditorDrawer
+          isOpen
+          onClose={() => setAddingTreatment(false)}
+          patientId={patientId}
+          patientName={patientName}
+          appointmentId={null}
+          initialNote={null}
+          servicesList={servicesList}
+          doctors={doctors as EditorStaff[]}
+          onSaved={() => setAddingTreatment(false)}
+        />
+      )}
       
       {/* 💻 SCREEN UI */}
       <div className="print:hidden space-y-6">

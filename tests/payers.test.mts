@@ -632,6 +632,10 @@ function eq<T>(actual: T, expected: T, message: string) {
     !/throw new Error\("NOT_COVERED/.test(route),
     "an uncovered treatment is refused rather than recorded as private — clinics get one-off approvals"
   );
+  ok(
+    /explicitPayer \?\? keptPayer \?\? payerForPriceList/.test(route) && /storedPayer && storedPayer\.active/.test(route),
+    "an edit that names no payer (the phone's) must keep the treatment's stored payer, not re-derive it from the list"
+  );
 
   const wizard = read("src/components/settings/PayersSettings.tsx");
   ok(!/toggleCovered/.test(wizard), "the wizard shows coverage ticks again — coverage lists are gone");
@@ -703,8 +707,8 @@ function eq<T>(actual: T, expected: T, message: string) {
   // The AI half. Without it the assistant quotes the clinic's own rates and the plan it saves
   // claims they are the insurer's — a document that lies rather than one that is merely wrong.
   const aiRoute = read("src/app/api/ai/treatment-plan/route.ts");
-  ok(/resolveListPrice\(svc, coversService\(payer, svc\.id\) \? listId : fallbackListId\)/.test(aiRoute),
-    "the AI plan prices every step on the clinic's own list, whatever payer it was asked for");
+  ok(/resolveListPrice\(svc, listId\)/.test(aiRoute) && !/coversService/.test(aiRoute),
+    "the AI plan must price every step on the chosen list — coverage lists are gone, so no coverage branch");
   ok(/priceListId: listId/.test(aiRoute),
     "the route does not return the list it actually priced on, so the client stamps what it asked for instead");
   ok(

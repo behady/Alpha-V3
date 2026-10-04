@@ -11,7 +11,6 @@ import { logAiCreditUsage, createUsageMeter } from "@/lib/aiCreditLog";
 import { suggestSlots, type SlotSuggestion } from "@/lib/automation/slotSuggestions";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import { parsePriceLists, resolveActiveListId } from "@/lib/priceLists";
-import { parsePayers, coversService, payerForPriceList } from "@/lib/payers";
 import { resolveListPrice } from "@/lib/discountMath";
 
 export const runtime = "nodejs";
@@ -149,7 +148,7 @@ export async function POST(req: Request) {
         id: d.id,
         name: String(s.name || ""),
         price: Number(s.price) || 0,
-        // Kept so a step can be priced on the payer's tariff rather than the clinic's own.
+        // Kept so a step can be priced on the chosen list rather than the clinic's own.
         prices: (s.prices && typeof s.prices === "object" ? s.prices : {}) as Record<string, number>,
         category: typeof s.category === "string" ? s.category : "",
         requiresLab: s.requiresLab === true,
@@ -170,23 +169,17 @@ export async function POST(req: Request) {
     }
 
     /**
-     * Who this plan is being quoted for, and what they cover.
+     * Which list this plan is being quoted on.
      *
      * The MODEL is deliberately not told. It proposes the dentistry the patient needs; narrowing
-     * its catalogue to the insurer's list would turn a clinical suggestion into a billing one, and
+     * its catalogue to an insurer's list would turn a clinical suggestion into a billing one, and
      * a plan that omits the crown because AXA will not pay for it is a worse plan, not a cheaper
-     * one. The money is settled here instead: covered work is priced on the payer's tariff,
-     * anything else on the clinic's own — which is exactly what will happen when it is charged.
+     * one. The money is settled here instead: every step is priced on the chosen list. Coverage
+     * lists are gone — any service can be billed to any payer, the list only prefills.
      */
-    const [listsSnap, payersSnap] = await Promise.all([
-      adminClinicDoc(clinicId, "settings", "price_lists").get(),
-      adminClinicDoc(clinicId, "settings", "payers").get(),
-    ]);
+    const listsSnap = await adminClinicDoc(clinicId, "settings", "price_lists").get();
     const priceLists = parsePriceLists((listsSnap.data() || {}) as Record<string, unknown>);
-    const payers = parsePayers(payersSnap.data() || null);
     const listId = resolveActiveListId(priceLists, askedListId || null, null, null);
-    const fallbackListId = resolveActiveListId(priceLists, null, null, null);
-    const payer = payerForPriceList(payers, listId);
 
     const priceListText = services
       .map((s) => `${s.id} | ${s.name}${s.category ? ` [${s.category}]` : ""}${s.requiresLab ? " (needs lab)" : ""}`)
@@ -336,9 +329,8 @@ ${priceListText}`;
                   serviceName: svc ? svc.name : wantedName || "Unnamed procedure",
                   teeth: String(st.teeth || "").trim().slice(0, 80),
                   quantity,
-                  // Priced on the payer's list where the payer covers it, on the clinic's own
-                  // where it does not — never on a number the model produced.
-                  unitPrice: svc ? resolveListPrice(svc, coversService(payer, svc.id) ? listId : fallbackListId) : 0,
+                  // Priced on the chosen list — never on a number the model produced.
+                  unitPrice: svc ? resolveListPrice(svc, listId) : 0,
                   estimatedMinutes: Math.min(240, Math.max(5, Math.round(Number(st.estimatedMinutes) || 30))),
                   note: String(st.note || "").trim().slice(0, 300),
                   unmatched: !svc,
