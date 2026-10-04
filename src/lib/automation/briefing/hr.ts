@@ -289,3 +289,32 @@ export function rosteredOn(staff: StaffRecord[], dateKey: string): string[] {
     .map((person) => person.name)
     .sort((a, b) => a.localeCompare(b));
 }
+
+/**
+ * The extra time in ONE finished shift, split exactly the way `buildHrSection` splits it: the part
+ * that overlaps the roster is regular, the rest is overtime, and a shift on a day off is all
+ * overtime.
+ *
+ * The team page used to put an "Overtime: pending · Approve · Reject" strip under every single
+ * shift, including the ones that ended on time — so an owner was asked to approve overtime that did
+ * not exist. With this, the question is only asked where there is something to decide. A test holds
+ * it to the engine's totals so the two cannot drift.
+ */
+export function shiftOvertimeMinutes(
+  punch: Pick<PunchRecord, "date" | "checkIn" | "checkOut" | "durationMinutes">,
+  schedule: StaffRecord["schedule"],
+  timeZone: string,
+): number {
+  if (!punch.checkIn) return 0;
+  const worked = Math.max(0, punch.durationMinutes);
+  const dayConfig = schedule?.[weekdayOf(punch.date)];
+  if (!dayConfig || !dayConfig.active) return worked;
+  const inMinutes = minutesInZone(punch.checkIn, timeZone);
+  let outMinutes = punch.checkOut ? minutesInZone(punch.checkOut, timeZone) : inMinutes + worked;
+  if (outMinutes < inMinutes) outMinutes += 24 * 60;
+  const overlap = Math.max(
+    0,
+    Math.min(timeToMinutes(dayConfig.end), outMinutes) - Math.max(timeToMinutes(dayConfig.start), inMinutes),
+  );
+  return Math.max(0, worked - overlap);
+}

@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Users, Calendar, Wallet, Settings, Sparkles,
   FileBarChart, Menu, X, LogOut, Languages,
   Package, Clock, FlaskConical, ShieldCheck,
-  LifeBuoy, Inbox, Megaphone, Rocket, ShoppingBag, Lock, Activity
+  LifeBuoy, Inbox, Megaphone, Rocket, ShoppingBag, Lock, Activity, UserRound
 } from "lucide-react";
 import { isAnyUnlocked, type FeatureKey } from "@/lib/featureCatalog";
 
@@ -54,6 +54,7 @@ const NAV_FEATURES: Record<string, FeatureKey | FeatureKey[]> = {
   insurance: "insurance",
   ortho: "ortho",
   attendance: "attendance",
+  team: "attendance",
   reports: "reports",
   marketing: "marketingText",
 };
@@ -275,6 +276,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { key: "finance", href: "/finance", icon: Wallet },
     { key: "reports", href: "/reports", icon: FileBarChart },
     { key: "attendance", href: "/attendance", icon: Clock },
+    /**
+     * The team: one profile per person with their hours, pay and roster. It used to hang off the
+     * time clock as a small link, which is where staff clock in — so the owner's payroll screen
+     * sat behind the page everybody else uses for something else. Gated in navAccess.
+     */
+    { key: "team", href: "/team", icon: UserRound },
     /**
      * It replaces three separate items — the brief, the WhatsApp send queue and patient no-shows —
      * which are now three tabs of one page. Their old URLs redirect into it.

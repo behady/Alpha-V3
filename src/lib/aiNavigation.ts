@@ -20,6 +20,8 @@ export const NAVIGABLE_EXACT: readonly string[] = [
   "/appointments",
   "/attendance",
   "/attendance/team",
+  // The team moved out of the time clock to its own page; the old address above redirects here.
+  "/team",
   "/chats",
   // The WhatsApp page's other tabs; /chats itself is the inbox.
   "/chats/ai",

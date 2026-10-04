@@ -28,6 +28,8 @@ const nextConfig: NextConfig = {
       { source: "/messages", destination: "/ai?tab=messages", permanent: false },
       { source: "/ai/briefing", destination: "/ai?tab=brief", permanent: false },
       { source: "/ai/attendance", destination: "/ai?tab=noshows", permanent: false },
+      // The team page left the time clock. The query (?staff=) is carried across by Next.
+      { source: "/attendance/team", destination: "/team", permanent: false },
     ];
   },
 };

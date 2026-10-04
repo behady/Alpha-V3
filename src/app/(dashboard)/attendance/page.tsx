@@ -1173,8 +1173,8 @@ export default function AttendancePage() {
     <div className="max-w-[1600px] mx-auto p-4 md:p-8 space-y-8 animate-in fade-in pb-24 font-sans text-slate-800">
       
       <PageHeader
-        title={canAdmin && viewMode === 'team' ? 'Team Control Center' : 'My Worksheet'}
-        subtitle="Track shifts, log attendance, and run payroll invoices."
+        title={language === 'ar' ? 'حضوري وانصرافي' : 'My Time Clock'}
+        subtitle={language === 'ar' ? 'سجّل دخولك وخروجك، وشوف ساعاتك.' : 'Clock in, clock out, and see your own hours.'}
       />
 
       {/* The date range and the personal/team switch stayed on the page: they re-scope everything
@@ -1219,18 +1219,11 @@ export default function AttendancePage() {
             {/* ADMIN TOGGLE */}
             {canAdmin ? (
                 /*
-                  The team is its own page now, so this is a LINK rather than a second mode of this
-                  one. Team Overview was a wide table with two modals hanging off every row, and
-                  none of the three agreed about the period; /attendance/team gives each person a
-                  profile instead. This screen goes back to being one thing: your own worksheet.
-
-                  The old in-page mode is left in the file rather than deleted, so nothing that
-                  still reaches it breaks while the new page is being lived with.
+                  The team is its own page at /team, with its own entry in the top menu. This screen
+                  is only the clock: your own punches and hours. The link stays for owners who still
+                  come here first out of habit.
                 */
-                <div className="bg-surface-muted p-1 rounded-xl flex items-center shadow-inner border border-line shrink-0">
-                    <button onClick={() => setViewMode('personal')} className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${viewMode === 'personal' ? 'bg-surface text-ink shadow-sm border border-line' : 'text-ink-muted hover:text-slate-700'}`}>{language === 'ar' ? 'تعقبي' : 'My Tracker'}</button>
-                    <Link href="/attendance/team" className="px-5 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 text-ink-muted hover:text-slate-700"><Users size={16}/> {language === 'ar' ? 'الفريق' : 'Team'}</Link>
-                </div>
+                <Link href="/team" className="bg-surface px-5 py-2.5 rounded-xl border border-line shadow-sm text-sm font-bold flex items-center gap-2 text-ink-body hover:text-ink shrink-0"><Users size={16}/> {language === 'ar' ? 'صفحة الفريق' : 'Team page'}</Link>
             ) : (
                 <div className="bg-surface px-4 py-2 rounded-xl border border-line shadow-sm flex items-center gap-2 shrink-0">
                     <CalendarDays size={16} className="text-slate-400"/>
