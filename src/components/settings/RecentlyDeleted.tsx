@@ -107,7 +107,7 @@ export default function RecentlyDeleted() {
 
   const handlePurge = async (entry: BinEntry) => {
     if (!clinicId) return;
-    if (!(await confirm(t.purgeConfirm, { confirmLabel: t.purge, tone: "danger" }))) return;
+    if (!(await confirm(entry.linked ? t.purgeConfirmLinked : t.purgeConfirm, { confirmLabel: t.purge, tone: "danger" }))) return;
     setBusyId(entry.id);
     try {
       await purgeRecord(clinicId, entry.id);
@@ -212,6 +212,14 @@ export default function RecentlyDeleted() {
                     {entry.hasFiles && (
                       <span className="flex items-center gap-1 rounded-lg border border-warn/25 bg-warn-tint px-2 py-0.5 text-[10px] font-bold text-warn">
                         <ImageIcon size={10} /> {t.hasFiles}
+                      </span>
+                    )}
+                    {(entry.linked ?? 0) > 0 && (
+                      <span
+                        title={t.linkedHint}
+                        className="rounded-lg border border-line bg-surface px-2 py-0.5 text-[10px] font-bold text-ink-muted"
+                      >
+                        +{entry.linked} {t.linked}
                       </span>
                     )}
                     {entry.actionSize > 1 && (

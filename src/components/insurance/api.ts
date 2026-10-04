@@ -14,6 +14,7 @@ import { auth } from "@/lib/firebase";
 import type { Check, MetlifeExtraction, MetlifeHeader } from "@/lib/insurance/metlife";
 import type { PatientMatch } from "@/lib/insurance/matchPatient";
 import type { ClaimStatus, LineStatus } from "@/lib/insurance/claims";
+import type { BinNotice } from "@/lib/recycleBin";
 
 export type ApiAnswer = { status: number; data: Record<string, unknown> };
 
@@ -58,6 +59,8 @@ export type ReadResult = {
   checks: Check[];
   match: PatientMatch;
   duplicate: { claimId: string; savedAt: string | null } | null;
+  /** This approval was deleted and is still in Recently Deleted: restore it, do not save it again. */
+  inBin: BinNotice | null;
   /** The clinic's own sheet wording per code on the paper; null = none stored yet. */
   wording: Record<string, string | null>;
 };
@@ -89,6 +92,7 @@ export async function readDocument(args: { clinicId: string; payerId: string; do
         checks: Array.isArray(data.checks) ? (data.checks as Check[]) : [],
         match: (data.match as PatientMatch) || { kind: "none" },
         duplicate: (data.duplicate as ReadResult["duplicate"]) ?? null,
+        inBin: (data.inBin as ReadResult["inBin"]) ?? null,
         wording: data.wording && typeof data.wording === "object" ? (data.wording as Record<string, string | null>) : {},
       },
     };
@@ -120,6 +124,7 @@ export type SaveBody = {
 export type SaveOutcome =
   | { kind: "saved"; claimId: string; patientId: string }
   | { kind: "duplicate"; claimId: string; savedAt: string | null }
+  | { kind: "in_bin"; notice: BinNotice; error: string }
   | { kind: "doc_taken"; claimId: string; error: string }
   | { kind: "checks"; checks: Check[]; error: string }
   | { kind: "error"; error: string };
@@ -138,6 +143,7 @@ export async function saveClaim(body: SaveBody): Promise<SaveOutcome> {
     const d = data.duplicate as { claimId?: unknown; savedAt?: unknown };
     return { kind: "duplicate", claimId: String(d.claimId || ""), savedAt: typeof d.savedAt === "string" ? d.savedAt : null };
   }
+  if (status === 409 && data.inBin && typeof data.inBin === "object") return { kind: "in_bin", notice: data.inBin as BinNotice, error };
   if (status === 409 && typeof data.claimId === "string") return { kind: "doc_taken", claimId: data.claimId, error };
   if (status === 400 && Array.isArray(data.checks)) return { kind: "checks", checks: data.checks as Check[], error };
   return { kind: "error", error };
@@ -192,7 +198,7 @@ export function blankHeader(): MetlifeHeader {
 
 /** What the confirm card opens with when the desk types the paper in. */
 export function blankResult(docId: string): ReadResult {
-  return { docId, extraction: { header: blankHeader(), lines: [] }, checks: [], match: { kind: "none" }, duplicate: null, wording: {} };
+  return { docId, extraction: { header: blankHeader(), lines: [] }, checks: [], match: { kind: "none" }, duplicate: null, inBin: null, wording: {} };
 }
 
 /** The file's type for Storage; the read route refuses `application/octet-stream`. */

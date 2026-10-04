@@ -20,6 +20,12 @@ import { binCollection } from "@/lib/server/recycleBinStore";
  * GET ?clinicId=...
  */
 
+/** How many records went into the bin with this one. */
+function linkedCountOf(counts: unknown): number {
+  if (!counts || typeof counts !== "object") return 0;
+  return Object.values(counts as Record<string, unknown>).reduce<number>((sum, n) => sum + (typeof n === "number" && n > 0 ? n : 0), 0);
+}
+
 export async function GET(request: Request) {
   try {
     const clinicId = new URL(request.url).searchParams.get("clinicId")?.trim() || "";
@@ -41,18 +47,32 @@ export async function GET(request: Request) {
     // `select()` keeps the payload subdocument out of the read entirely, and the projection keeps
     // the row small — a diagnosis chat's transcript or a full odontogram would otherwise be
     // downloaded just to render a label.
-    const snap = await binCollection()
+    //
+    // A record deleted with a parent (a patient's charges, an approval's treatment rows) is
+    // restored and purged with it, so it is counted on the parent's row instead of listed. One
+    // deleted patient can bring hundreds of those, so the list pages past them rather than letting
+    // them use up the 500 rows meant for things a person can act on.
+    const query = binCollection()
       .where("clinicId", "==", clinicId)
       .where("status", "==", "deleted")
       .orderBy("deletedAt", "desc")
-      .limit(500)
       .select(
         "collection", "documentId", "label", "deletedByName", "deletedAt",
-        "expiresAt", "actionId", "actionSize", "reason", "snapshotBytes", "storagePaths"
-      )
-      .get();
+        "expiresAt", "actionId", "actionSize", "reason", "snapshotBytes", "storagePaths",
+        "cascadeOf", "cascadeCounts"
+      );
+    const LIST_LIMIT = 500;
+    const parents: FirebaseFirestore.QueryDocumentSnapshot[] = [];
+    let cursor: FirebaseFirestore.QueryDocumentSnapshot | null = null;
+    for (let page = 0; page < 10 && parents.length < LIST_LIMIT; page++) {
+      const snap: FirebaseFirestore.QuerySnapshot = await (cursor ? query.startAfter(cursor) : query).limit(LIST_LIMIT).get();
+      parents.push(...snap.docs.filter((d) => !d.data().cascadeOf));
+      if (snap.size < LIST_LIMIT) break;
+      cursor = snap.docs[snap.docs.length - 1];
+    }
 
-    const entries = snap.docs
+    const entries = parents
+      .slice(0, LIST_LIMIT)
       .map((d) => {
         const data = d.data();
         return {
@@ -68,6 +88,7 @@ export async function GET(request: Request) {
           reason: data.reason ?? null,
           snapshotBytes: data.snapshotBytes ?? 0,
           hasFiles: Array.isArray(data.storagePaths) && data.storagePaths.length > 0,
+          linked: linkedCountOf(data.cascadeCounts),
         };
       })
       // Filtered here rather than with an `in` clause: Firestore caps `in` at 30 values and a

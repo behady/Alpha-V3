@@ -728,6 +728,10 @@ export const SETTINGS_TEXT = {
     filesNote: { en: "Deleting a record is not erasure — image files are retained. For a true erasure request, use Delete permanently.", ar: "حذف السجل ليس محواً: ملفات الصور يُحتفظ بها. للمحو النهائي استخدم الحذف النهائي." },
     hasFiles: { en: "has files", ar: "يحتوي على ملفات" },
     purgeConfirm: { en: "This removes the record for good and it cannot be restored afterwards. Are you sure?", ar: "سيُحذف هذا السجل نهائياً ولا يمكن استعادته بعدها. متأكد؟" },
+    // A patient's row carries their whole file; the chip says how much comes back with them.
+    linked: { en: "linked records", ar: "سجلات مرتبطة" },
+    linkedHint: { en: "Deleted together with this one; restoring it brings them back too.", ar: "اتحذفت معاه، ولما تسترجعه بترجع معاه." },
+    purgeConfirmLinked: { en: "This removes the record and everything deleted with it for good. It cannot be restored afterwards. Are you sure?", ar: "سيُحذف هذا السجل وكل ما حُذف معه نهائياً ولا يمكن استعادته بعدها. متأكد؟" },
   },
   schedule: {
     scheduleTitle: { en: "Clinic Schedule", ar: "جدول العيادة" },

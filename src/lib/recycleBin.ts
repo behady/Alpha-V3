@@ -80,6 +80,142 @@ export const ROUTED_ELSEWHERE: Record<string, string> = {
  */
 export const CASCADE_CHILD_COLLECTIONS = ["ledger", "clinical_notes"] as const;
 
+/**
+ * What a patient takes into the bin with them: every record that finds its patient by `patientId`.
+ *
+ * Deleting a patient used to bin the card alone and leave the rest behind — the charges and
+ * payments kept counting in Finance, the approvals stayed on the Insurance page, all of it pointing
+ * at a patient no screen could open. Now the whole file goes, as children of the patient's entry
+ * (`cascadeOf`), and restoring the patient brings every one of them back. Money with payments
+ * against it goes too, and the payments with it: unlike an approval binned on its own, nothing is
+ * left behind for the payments to settle.
+ *
+ * Logs and message queues are deliberately absent (system_logs, ledger_audit, sms_outbox, …): they
+ * are the record that things happened, not part of the patient's file.
+ */
+export const PATIENT_CASCADE_COLLECTIONS = [
+  "ledger",
+  "clinical_notes",
+  "appointments",
+  "prescriptions",
+  "patient_media",
+  "treatment_plans",
+  "diagnosis_chats",
+  "xray_reports",
+  "insurance_claims",
+  "ortho_ai_reports",
+  "ortho_cases",
+  "ortho_sessions",
+  "lab_cases",
+] as const;
+
+/** The collections an entry of this collection may carry as children; empty = none. */
+export function cascadeCollectionsFor(parentCollection: string): readonly string[] {
+  if (parentCollection === "patients") return PATIENT_CASCADE_COLLECTIONS;
+  if (parentCollection === "insurance_claims") return CASCADE_CHILD_COLLECTIONS;
+  return [];
+}
+
+/** How many of each kind went with a parent, for the confirm prompt and the bin list. */
+export function cascadeCounts(children: ReadonlyArray<{ collection: string }>): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const c of children) counts[c.collection] = (counts[c.collection] || 0) + 1;
+  return counts;
+}
+
+/**
+ * May this patient go into the bin with everything linked to them?
+ *
+ * Two refusals. A linked record whose slot in the bin is already taken (an approval deleted on its
+ * own earlier, then saved again from the same paper — approval ids come from the approval number)
+ * would overwrite the older copy, which may be the one someone means to restore. And one action
+ * is one Firestore commit, which refuses anything over 10 MiB.
+ */
+export function checkPatientCascade(args: { alreadyInBin: readonly string[]; totalBytes: number }): true | BinRefusal {
+  if (args.alreadyInBin.length > 0) {
+    return {
+      ok: false,
+      status: 409,
+      error: `"${args.alreadyInBin[0]}" is already in Recently Deleted from an earlier delete. Delete that copy permanently from Recently Deleted, then delete the patient again.`,
+      reason: "CHILD_ALREADY_IN_BIN",
+    };
+  }
+  if (args.totalBytes > MAX_ACTION_BYTES) {
+    return {
+      ok: false,
+      status: 413,
+      error: "This patient's file is too large to move to Recently Deleted in one go. Export it first.",
+      reason: "TOO_LARGE",
+    };
+  }
+  return true;
+}
+
+/** What each linked kind is called on screen, [English, Arabic]. */
+const LINKED_NAMES: Record<string, [string, string]> = {
+  ledger: ["charges & payments", "حسابات ومدفوعات"],
+  clinical_notes: ["treatment notes", "ملاحظات علاج"],
+  appointments: ["appointments", "مواعيد"],
+  prescriptions: ["prescriptions", "روشتات"],
+  patient_media: ["images", "صور"],
+  treatment_plans: ["treatment plans", "خطط علاج"],
+  diagnosis_chats: ["diagnosis chats", "مناقشات تشخيص"],
+  xray_reports: ["x-ray reports", "تقارير أشعة"],
+  insurance_claims: ["insurance approvals", "موافقات تأمين"],
+  ortho_ai_reports: ["ortho AI reports", "تقارير تقويم"],
+  ortho_cases: ["ortho case", "ملف تقويم"],
+  ortho_sessions: ["ortho visits", "زيارات تقويم"],
+  lab_cases: ["lab cases", "حالات معمل"],
+};
+
+/**
+ * "5 charges & payments, 3 appointments" — what goes with a patient, for the confirm prompt.
+ * Arabic puts the number after the noun in brackets, which reads right for every count without
+ * needing the dual and plural forms.
+ */
+export function describeLinked(counts: Record<string, number> | null | undefined, ar: boolean): string {
+  return Object.entries(counts ?? {})
+    .filter(([, n]) => n > 0)
+    .map(([collection, n]) => {
+      const names = LINKED_NAMES[collection] ?? [collection.replace(/_/g, " "), collection.replace(/_/g, " ")];
+      return ar ? `${names[1]} (${n})` : `${n} ${names[0]}`;
+    })
+    .join(ar ? "، " : ", ");
+}
+
+/** What a screen needs to say "this is in Recently Deleted": when, by whom, and with what. */
+export type BinNotice = { deletedAt: string | null; deletedByName: string; withParent: string | null };
+
+/** A live bin entry's data → its notice; null when the entry is absent or no longer in the bin. */
+export function binNoticeOf(data: Record<string, unknown> | null | undefined): BinNotice | null {
+  if (!data || data.status !== "deleted") return null;
+  const at = (data.deletedAt as { toDate?: () => Date } | null | undefined)?.toDate?.();
+  const by = typeof data.deletedByName === "string" && data.deletedByName.trim() ? data.deletedByName.trim() : "Unknown";
+  const parent =
+    typeof data.cascadeOf === "string" && data.cascadeOf
+      ? typeof data.cascadeParentLabel === "string" && data.cascadeParentLabel.trim()
+        ? data.cascadeParentLabel.trim()
+        : "another record"
+      : null;
+  return { deletedAt: at ? at.toISOString() : null, deletedByName: by, withParent: parent };
+}
+
+/**
+ * A record that went into the bin with a parent is restored or purged with it, never alone: alone,
+ * a charge would come back without its patient, and a purge would leave the parent's restore
+ * missing a piece.
+ */
+export function checkNotCascadeChild(entry: { cascadeOf?: unknown; cascadeParentLabel?: unknown }): true | BinRefusal {
+  if (typeof entry.cascadeOf !== "string" || !entry.cascadeOf) return true;
+  const parent = typeof entry.cascadeParentLabel === "string" && entry.cascadeParentLabel.trim() ? `"${entry.cascadeParentLabel.trim()}"` : "another record";
+  return {
+    ok: false,
+    status: 409,
+    error: `This was deleted together with ${parent}. Restore or delete that instead.`,
+    reason: "CASCADE_CHILD",
+  };
+}
+
 /** A plain document id: present, short, and unable to step out of its collection. */
 function isPlainDocId(v: unknown): v is string {
   return typeof v === "string" && v.trim() === v && v.length > 0 && v.length <= 200 && !/[/\\]/.test(v) && v !== "." && v !== "..";
@@ -123,6 +259,12 @@ export const MAX_SNAPSHOT_BYTES = 900_000;
 
 /** One user action may not bin more than this many documents. */
 export const MAX_ITEMS_PER_ACTION = 200;
+
+/**
+ * One action is one commit, and Firestore refuses a commit over 10 MiB. The count of writes is no
+ * longer capped, so bytes are the limit that matters; this leaves room for the entry fields.
+ */
+export const MAX_ACTION_BYTES = 8_000_000;
 
 export type BinRefusal = { ok: false; status: number; error: string; reason: string };
 export type BinApproval = { ok: true; rule: BinCollectionRule };
@@ -415,6 +557,14 @@ export function labelFor(collection: string, snapshot: Record<string, unknown>):
       return s("description") || "Treatment charge";
     case "clinical_notes":
       return s("procedure") || "Treatment note";
+    case "appointments":
+      return [s("date"), s("time")].filter(Boolean).join(" ") || "Appointment";
+    case "ortho_cases":
+      return "Ortho case";
+    case "ortho_sessions":
+      return s("date") ? `Ortho visit — ${s("date")}` : "Ortho visit";
+    case "lab_cases":
+      return s("code") ? `Lab case ${s("code")}` : "Lab case";
     case "services":
     case "drugs":
     case "inventory":

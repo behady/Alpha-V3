@@ -102,6 +102,8 @@ export type BinEntry = {
   reason: string | null;
   snapshotBytes: number;
   hasFiles: boolean;
+  /** Records deleted together with this one (a patient's charges, visits, approvals…). */
+  linked?: number;
 };
 
 export async function listBin(clinicId: string): Promise<{

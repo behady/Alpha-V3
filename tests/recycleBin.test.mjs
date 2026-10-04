@@ -9,6 +9,14 @@ import {
   BIN_COLLECTIONS,
   ROUTED_ELSEWHERE,
   CASCADE_CHILD_COLLECTIONS,
+  MAX_ACTION_BYTES,
+  PATIENT_CASCADE_COLLECTIONS,
+  binNoticeOf,
+  describeLinked,
+  cascadeCollectionsFor,
+  cascadeCounts,
+  checkNotCascadeChild,
+  checkPatientCascade,
   checkBinnable,
   checkClaimCascade,
   checkDeleteAllowed,
@@ -243,6 +251,74 @@ assert.equal(paidVerdict.error, "This approval has payments recorded; reverse th
 assert.equal(paidVerdict.status, 409);
 assert.equal(labelFor("ledger", { description: "Crown (T: Gen) | MetLife D1" }), "Crown (T: Gen) | MetLife D1");
 assert.equal(labelFor("clinical_notes", {}), "Treatment note", "a label is never blank");
+
+// --- a patient takes their whole file into the bin ------------------------------------------------
+
+// Every record that finds its patient by patientId goes with them — money, visits, approvals and
+// the ortho and lab work included — so Finance and Insurance stop showing a deleted patient.
+for (const c of ["ledger", "clinical_notes", "appointments", "prescriptions", "patient_media", "insurance_claims", "lab_cases", "ortho_cases"]) {
+  assert.ok(PATIENT_CASCADE_COLLECTIONS.includes(c), `${c} goes with its patient`);
+}
+// The logs are the record that things happened, not part of the file.
+for (const c of ["system_logs", "ledger_audit", "sms_outbox", "whatsapp_outbox", "notifications"]) {
+  assert.ok(!PATIENT_CASCADE_COLLECTIONS.includes(c), `${c} stays when a patient is deleted`);
+}
+// Children of a patient are children only: the cascade never makes a collection binnable alone.
+for (const c of ["ledger", "clinical_notes", "appointments", "ortho_cases", "lab_cases"]) {
+  assert.equal(checkBinnable(c, "x").ok, false, `${c} is still never binned by itself`);
+}
+assert.deepEqual(cascadeCollectionsFor("patients"), PATIENT_CASCADE_COLLECTIONS);
+assert.deepEqual(cascadeCollectionsFor("insurance_claims"), CASCADE_CHILD_COLLECTIONS);
+assert.deepEqual(cascadeCollectionsFor("services"), [], "a price is deleted alone");
+assert.deepEqual(
+  cascadeCounts([{ collection: "ledger" }, { collection: "ledger" }, { collection: "appointments" }]),
+  { ledger: 2, appointments: 1 }
+);
+
+assert.equal(checkPatientCascade({ alreadyInBin: [], totalBytes: 1000 }), true);
+const taken = checkPatientCascade({ alreadyInBin: ["Approval D7000102 — Omar"], totalBytes: 1000 });
+assert.equal(taken.reason, "CHILD_ALREADY_IN_BIN", "an older copy in the bin is never overwritten");
+assert.match(taken.error, /Approval D7000102 — Omar/, "the refusal names the record in the way");
+assert.match(taken.error, /permanently/, "and says how to clear it");
+assert.equal(checkPatientCascade({ alreadyInBin: [], totalBytes: MAX_ACTION_BYTES + 1 }).reason, "TOO_LARGE");
+assert.ok(MAX_ACTION_BYTES < 10 * 1024 * 1024, "one action must fit one Firestore commit");
+
+// A child comes back, or goes for good, only with its parent.
+assert.equal(checkNotCascadeChild({}), true);
+const child = checkNotCascadeChild({ cascadeOf: "abc", cascadeParentLabel: "Omar Khaled" });
+assert.equal(child.reason, "CASCADE_CHILD");
+assert.match(child.error, /"Omar Khaled"/);
+assert.match(checkNotCascadeChild({ cascadeOf: "abc" }).error, /another record/, "no label still reads as a sentence");
+
+assert.equal(labelFor("appointments", { date: "2026-10-04", time: "19:30" }), "2026-10-04 19:30");
+assert.equal(labelFor("appointments", {}), "Appointment");
+assert.equal(labelFor("lab_cases", { code: "ALX-0042" }), "Lab case ALX-0042");
+
+// The confirm prompt reads as words, not collection names, in both languages.
+assert.equal(describeLinked({ ledger: 5, appointments: 3 }, false), "5 charges & payments, 3 appointments");
+assert.equal(describeLinked({ ledger: 5, appointments: 3 }, true), "حسابات ومدفوعات (5)، مواعيد (3)");
+assert.equal(describeLinked({ ledger: 0, insurance_claims: 2 }, false), "2 insurance approvals", "a zero is not listed");
+assert.equal(describeLinked({ something_new: 1 }, false), "1 something new", "an unnamed kind still reads");
+assert.equal(describeLinked(undefined, false), "");
+for (const c of PATIENT_CASCADE_COLLECTIONS) {
+  assert.doesNotMatch(describeLinked({ [c]: 1 }, false), /_/, `${c} has an English name`);
+  assert.doesNotMatch(describeLinked({ [c]: 1 }, true), /[a-z]/, `${c} has an Arabic name`);
+}
+
+// --- "this is in Recently Deleted", for the screens that must say so ----------------------------------
+
+const when = new Date("2026-10-04T10:00:00.000Z");
+assert.deepEqual(
+  binNoticeOf({ status: "deleted", deletedAt: { toDate: () => when }, deletedByName: "Malak" }),
+  { deletedAt: "2026-10-04T10:00:00.000Z", deletedByName: "Malak", withParent: null }
+);
+assert.deepEqual(
+  binNoticeOf({ status: "deleted", cascadeOf: "p1", cascadeParentLabel: "Omar Khaled" }),
+  { deletedAt: null, deletedByName: "Unknown", withParent: "Omar Khaled" },
+  "deleted with its patient: the notice names the patient to restore"
+);
+assert.equal(binNoticeOf({ status: "restored" }), null, "a restored entry is not in the bin");
+assert.equal(binNoticeOf(undefined), null);
 
 console.log(
   `✓ recycleBin: ${Object.keys(BIN_COLLECTIONS).length} collections binnable, ` +

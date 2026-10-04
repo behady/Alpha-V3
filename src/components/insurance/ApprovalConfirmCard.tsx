@@ -36,6 +36,7 @@ import { LINE_STATUSES, type LineStatus } from "@/lib/insurance/claims";
 import type { Payer } from "@/lib/payers";
 import type { PatientInsuranceEntry } from "@/lib/patientInsurance";
 import { cairoToday, InsuranceCallError, saveClaim, type ReadResult, type SaveBody } from "./api";
+import type { BinNotice } from "@/lib/recycleBin";
 import { STATE_KEY, tr, type TextKey } from "./text";
 
 /** Who did one service line ("" = nobody yet) and where it stands. */
@@ -57,6 +58,7 @@ type Picker =
 
 type Problem =
   | { kind: "duplicate"; claimId: string; savedAt: string | null }
+  | { kind: "in_bin"; notice: BinNotice }
   | { kind: "doc_taken"; claimId: string }
   | { kind: "checks"; checks: Check[]; error: string }
   | { kind: "error"; error: string };
@@ -143,7 +145,11 @@ export default function ApprovalConfirmCard({
   const [wordingDraft, setWordingDraft] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<Problem | null>(
-    result.duplicate ? { kind: "duplicate", claimId: result.duplicate.claimId, savedAt: result.duplicate.savedAt } : null,
+    result.duplicate
+      ? { kind: "duplicate", claimId: result.duplicate.claimId, savedAt: result.duplicate.savedAt }
+      : result.inBin
+        ? { kind: "in_bin", notice: result.inBin }
+        : null,
   );
 
   // --- the patient ------------------------------------------------------------------------------
@@ -229,7 +235,9 @@ export default function ApprovalConfirmCard({
 
   // --- save --------------------------------------------------------------------------------------
   const patientReady = picker.mode === "create" ? newName.trim().length > 0 : !!picker.patientId;
-  const canSave = !saving && !blocked && patientReady && !!clinicId;
+  // An approval still in Recently Deleted is restored, never saved twice: the bin keeps one copy
+  // per approval number, so a second one could never be deleted again.
+  const canSave = !saving && !blocked && patientReady && !!clinicId && problem?.kind !== "in_bin";
 
   const save = async () => {
     if (!canSave || !clinicId) return;
@@ -268,6 +276,7 @@ export default function ApprovalConfirmCard({
         return;
       }
       if (outcome.kind === "duplicate") setProblem({ kind: "duplicate", claimId: outcome.claimId, savedAt: outcome.savedAt });
+      else if (outcome.kind === "in_bin") setProblem({ kind: "in_bin", notice: outcome.notice });
       else if (outcome.kind === "doc_taken") setProblem({ kind: "doc_taken", claimId: outcome.claimId });
       else if (outcome.kind === "checks") setProblem({ kind: "checks", checks: outcome.checks, error: outcome.error });
       else setProblem({ kind: "error", error: outcome.error || t("saveFailed") });
@@ -309,6 +318,21 @@ export default function ApprovalConfirmCard({
           <button type="button" onClick={() => onOpenClaim(problem.claimId)} className="underline underline-offset-2 hover:no-underline">
             {t("open")}
           </button>
+        </div>
+      )}
+
+      {problem?.kind === "in_bin" && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-line bg-amber-50 px-5 py-3 text-[13px] font-bold text-amber-900" data-tour="insurance-in-bin">
+          <AlertTriangle size={15} className="shrink-0" />
+          <span>
+            {problem.notice.withParent
+              ? `${t("inBinWithPatient")} ${problem.notice.withParent}. ${t("inBinRestorePatient")}`
+              : `${t("inBinTitle")}${problem.notice.deletedAt ? ` (${savedOn(problem.notice.deletedAt, isAr)})` : ""}. ${t("inBinRestore")}`}
+          </span>
+          <span aria-hidden>—</span>
+          <Link href="/settings/recently-deleted" className="underline underline-offset-2 hover:no-underline">
+            {t("openBin")}
+          </Link>
         </div>
       )}
 
