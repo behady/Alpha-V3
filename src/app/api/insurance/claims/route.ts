@@ -16,6 +16,7 @@ import { afterLedgerCreate } from "@/lib/alerts/moneyAlerts";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { writeInsurance } from "@/lib/patientInsurance";
 import { stripUndefined } from "@/lib/server/recycleBinStore";
+import { patientPortion } from "@/lib/ledgerInsurer";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { nameSimilarity } from "@/lib/insurance/matchPatient";
 import { checkMetlife, hasHardFailure, normalizeMetlife, type Check } from "@/lib/insurance/metlife";
@@ -719,7 +720,11 @@ export async function PATCH(req: Request) {
           const data = chargeSnaps.get(l.ledgerId)?.data() ?? {};
           const cost = Number(data.cost) || Number(data.amount) || 0;
           const wanted = collectShare ? line.patientShare : line.approvedAmount;
-          const amount = cappedPayment(wanted, cost, sumPayments(siblingsByRow.get(l.ledgerId) ?? []));
+          // The share is capped at the PATIENT'S open part (the insurer's part is not theirs to
+          // pay), so a share already taken at the Finance counter is never recorded twice; the
+          // insurer's payment is capped at whatever is still open on the row.
+          const ceiling = collectShare ? patientPortion({ type: "procedure", cost, insurerCovered: data.insurerCovered, insurerPaidAt: data.insurerPaidAt }) : cost;
+          const amount = cappedPayment(wanted, ceiling, sumPayments(siblingsByRow.get(l.ledgerId) ?? []));
           if (amount > 0) plan.push({ index: l.index, ledgerId: l.ledgerId, amount, labFee: Math.max(0, Number(data.labFee) || 0) });
         }
         // Nothing recorded, nothing stamped: a claim marked collected with no cash behind it is

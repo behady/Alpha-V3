@@ -244,7 +244,14 @@ function InsurancePage() {
   const onDelete = async (claim: InsuranceClaim) => {
     if (!clinicId) return;
     try {
-      await deleteRecord(clinicId, CLAIMS_COLLECTION, claim.id);
+      const result = await deleteRecord(clinicId, CLAIMS_COLLECTION, claim.id);
+      // The route answers per item: an approval whose share or insurer payment is already in the
+      // books comes back "blocked" with the reason, not deleted.
+      const item = result.results?.[0];
+      if (item && item.status !== "deleted") {
+        showToast(item.error || t("deleteFailed"), "error");
+        return;
+      }
       showToast(t("deleted"), "success");
     } catch (err) {
       showToast(err instanceof RecycleBinError ? err.message : t("deleteFailed"), "error");
