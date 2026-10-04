@@ -37,6 +37,7 @@ import ApprovalConfirmCard, { type PatientOption } from "@/components/insurance/
 import ClaimsTable from "@/components/insurance/ClaimsTable";
 import ClaimsExportBar from "@/components/insurance/ClaimsExportBar";
 import { useClaims } from "@/components/insurance/useClaims";
+import type { LinkedAppointmentLite } from "@/lib/insurance/appointments";
 import { cairoToday, InsuranceCallError, monthRange, patchClaim, readDocument, type ClaimPatch, type OpenDoc } from "@/components/insurance/api";
 import { tr } from "@/components/insurance/text";
 
@@ -103,6 +104,22 @@ function InsurancePage() {
   const [range, setRange] = useState(() => monthRange(cairoToday()));
   const [header, setHeaderLine] = useStatementHeader(clinicId);
   const { claims, loading: claimsLoading, failed: claimsFailed } = useClaims(clinicId, payerId, range.from, range.to);
+
+  // --- the visits booked for approved services, for the progress line under each status ----------
+  // One listener for the clinic: `claimId > ""` is every appointment that carries a link, and the
+  // table matches them to its rows. Cancelled and no-show visits are filtered when counted.
+  const [claimAppointments, setClaimAppointments] = useState<LinkedAppointmentLite[]>([]);
+  useEffect(() => {
+    if (!clinicId) return;
+    return onSnapshot(
+      query(collection(db, "clinics", clinicId, "appointments"), where("claimId", ">", "")),
+      (snap) => setClaimAppointments(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) }) as LinkedAppointmentLite)),
+      (err) => {
+        console.error("Insurance appointments subscription failed", err);
+        setClaimAppointments([]);
+      },
+    );
+  }, [clinicId]);
 
   // --- the clinic's patients, for the picker -----------------------------------------------------
   const [patients, setPatients] = useState<PatientOption[]>([]);
@@ -372,7 +389,7 @@ function InsurancePage() {
                 {t("claimsTitle")} · {range.from} → {range.to}
               </p>
               {claimsFailed && <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-[13px] font-bold text-rose-800">{t("claimsFailed")}</p>}
-              <ClaimsTable claims={claims} loading={claimsLoading} onPatch={onPatch} onDelete={onDelete} highlightId={highlightId} payerName={payer?.name} />
+              <ClaimsTable claims={claims} loading={claimsLoading} onPatch={onPatch} onDelete={onDelete} highlightId={highlightId} payerName={payer?.name} appointments={claimAppointments} />
             </section>
           </>
         )}

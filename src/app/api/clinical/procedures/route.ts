@@ -44,6 +44,8 @@ import { buildDeleteContext, evaluateDelete } from "@/lib/deletePolicy";
 import { applyProcedureSync, readProcedureCommissionBasis, readProcedurePayments } from "@/lib/server/ledgerSync";
 import { recordLedgerAudit, recordMoneyChange } from "@/lib/server/ledgerAudit";
 import { isApprovalRow } from "@/lib/ledgerInsurer";
+import { isDentistStaff } from "@/lib/staffRoles";
+import { CLAIMS_COLLECTION, applyDentistPicks, dentistRowPatch, isLineStatus, parseClaim } from "@/lib/insurance/claims";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -493,33 +495,109 @@ function approvalNoteChanges(body: Record<string, unknown>, before: Record<strin
   return changed;
 }
 
+/** What the clinical editor may change on an approval's treatment: where it stands, and who did it. */
+const APPROVAL_LINE_FIELDS = new Set(["status", "doctorId"]);
+const NOT_A_DENTIST_MESSAGE = "Only a dentist can be put on an insurance approval's service.";
+const LINE_STATUS_MESSAGE = "An insurance service is Completed, Planned or Ongoing.";
+
 /**
- * An edit to a treatment an insurance approval wrote. Its price, dentist and payer come from the
- * approval and change on the patient's Insurance tab; repricing it from the catalogue here would
- * charge the paper's list price. Only the free-text note may change.
+ * An edit to a treatment an insurance approval wrote. Its price and payer come from the approval
+ * and change on the patient's Insurance tab; repricing it from the catalogue here would charge the
+ * paper's list price. The free-text note, the state and the dentist may change — the dentist marks
+ * a service done from the clinical tab the way he does private work — and state and dentist are
+ * written to the approval in the same transaction, so the Insurance tab, the monthly sheet and
+ * payroll see exactly what the clinical tab shows.
  */
 async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: Record<string, unknown>; noteId: string; before: Record<string, unknown> }) {
   const { clinicId, actor, body, noteId, before } = args;
-  if (approvalNoteChanges(body, before).length > 0) return bad(APPROVAL_NOTE_MESSAGE, 409);
+  const changed = approvalNoteChanges(body, before);
+  if (changed.some((field) => !APPROVAL_LINE_FIELDS.has(field))) return bad(APPROVAL_NOTE_MESSAGE, 409);
   const note = String(body.note || "");
-  if (note === String(before.note || "")) {
-    return NextResponse.json({ ok: true, noteId, ledgerId: typeof before.ledgerId === "string" ? before.ledgerId : null, cost: Number(before.cost) || 0 });
-  }
-  await adminClinicDoc(clinicId, "clinical_notes", noteId).update({
-    note,
-    updatedByUid: actor.uid,
-    updatedByName: actor.name,
-    updatedAt: FieldValue.serverTimestamp(),
+  const noteChanged = note !== String(before.note || "");
+  const status = changed.includes("status") ? body.status : undefined;
+  if (status !== undefined && !isLineStatus(status)) return bad(LINE_STATUS_MESSAGE);
+  const doctorId = changed.includes("doctorId") ? String(body.doctorId || "").trim() : undefined;
+  const answer = () => NextResponse.json({ ok: true, noteId, ledgerId: typeof before.ledgerId === "string" ? before.ledgerId : null, cost: Number(before.cost) || 0 });
+  if (!noteChanged && status === undefined && doctorId === undefined) return answer();
+
+  const claimId = String(before.claimId || "");
+  const claimRef = adminClinicDoc(clinicId, CLAIMS_COLLECTION, claimId);
+  const noteRef = adminClinicDoc(clinicId, "clinical_notes", noteId);
+  type Outcome = { kind: "no_line" } | { kind: "no_staff" } | { kind: "not_dentist" } | { kind: "ok"; after: Record<string, unknown> };
+  const outcome = await adminDb().runTransaction(async (tx): Promise<Outcome> => {
+    const claimSnap = await tx.get(claimRef);
+    const claim = claimSnap.exists ? parseClaim(claimId, claimSnap.data()) : null;
+    // Which line this row is: the approval remembers the note it wrote for each one.
+    const entry = claim ? Object.entries(claim.ledgerIds).find(([, link]) => link.noteId === noteId) : undefined;
+    if (!claim || !entry) return { kind: "no_line" };
+    const i = Number(entry[0]);
+    const line = claim.lines[i];
+    if (!line) return { kind: "no_line" };
+
+    const staffById = new Map<string, { id: string; name: string; commissionPercentage?: number | null; commissionByPayer?: Record<string, unknown> | null }>();
+    if (doctorId) {
+      const staffSnap = await tx.get(adminClinicDoc(clinicId, "staff", doctorId));
+      if (!staffSnap.exists) return { kind: "no_staff" };
+      const d = staffSnap.data() ?? {};
+      if (!isDentistStaff(d)) return { kind: "not_dentist" };
+      staffById.set(doctorId, {
+        id: doctorId,
+        name: typeof d.name === "string" ? d.name : "",
+        commissionPercentage: d.commissionPercentage as number | null | undefined,
+        commissionByPayer: d.commissionByPayer && typeof d.commissionByPayer === "object" ? (d.commissionByPayer as Record<string, unknown>) : null,
+      });
+    }
+    const ledgerRef = adminClinicDoc(clinicId, "ledger", entry[1].ledgerId);
+    const ledgerSnap = doctorId !== undefined ? await tx.get(ledgerRef) : null;
+
+    const claimUpdate: Record<string, unknown> = {};
+    const noteUpdate: Record<string, unknown> = { updatedByUid: actor.uid, updatedByName: actor.name, updatedAt: FieldValue.serverTimestamp() };
+    if (noteChanged) noteUpdate.note = note;
+    if (status !== undefined) {
+      claimUpdate.lineStatus = { ...claim.lineStatus, [i]: status };
+      noteUpdate.status = status;
+    }
+    if (doctorId !== undefined) {
+      // The same stamping the Insurance tab does: rate and share fixed at assignment time, and the
+      // ledger row's attribution follows so the payer report and payroll agree.
+      const applied = applyDentistPicks(claim, { [i]: doctorId || null }, staffById);
+      claimUpdate.dentists = applied.dentists;
+      const rowPatch = dentistRowPatch(line, applied.dentists[i] ?? null);
+      noteUpdate.doctorId = rowPatch.doctorId;
+      noteUpdate.doctor = rowPatch.doctor;
+      if (ledgerSnap?.exists) {
+        tx.update(ledgerRef, {
+          doctorId: rowPatch.doctorId,
+          doctorName: rowPatch.doctorName,
+          doctorCommissionPercentage: rowPatch.doctorCommissionPercentage,
+          doctorCommissionAmount: rowPatch.doctorCommissionAmount,
+          clinicProfit: rowPatch.clinicProfit,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
+    }
+    if (Object.keys(claimUpdate).length > 0) tx.update(claimRef, { ...claimUpdate, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid });
+    tx.update(noteRef, noteUpdate);
+    const { updatedAt: _stamp, ...after } = noteUpdate;
+    void _stamp;
+    return { kind: "ok", after };
   });
+
+  if (outcome.kind === "no_staff") return bad("That dentist is not on staff any more.");
+  if (outcome.kind === "not_dentist") return bad(NOT_A_DENTIST_MESSAGE);
+  // The approval no longer knows this row (deleted, or saved again): the row is frozen as before.
+  if (outcome.kind === "no_line") return bad(APPROVAL_NOTE_MESSAGE, 409);
+
+  const what = [noteChanged ? "note" : "", status !== undefined ? `state ${String(status)}` : "", doctorId !== undefined ? "dentist" : ""].filter(Boolean).join(", ");
   await recordMoneyChange({
     entry: {
       clinicId, action: "update", collection: "clinical_notes", documentId: noteId,
-      before, after: { note }, actor, via: "clinical/procedures:update",
+      before, after: outcome.after, actor, via: "clinical/procedures:update",
     },
     action: "Procedure Updated",
-    details: `Note on ${String(before.procedure || "treatment")} (insurance approval)`,
+    details: `${what} on ${String(before.procedure || "treatment")} (insurance approval ${claimId})`,
   });
-  return NextResponse.json({ ok: true, noteId, ledgerId: typeof before.ledgerId === "string" ? before.ledgerId : null, cost: Number(before.cost) || 0 });
+  return answer();
 }
 
 async function updateProcedure(args: { clinicId: string; actor: Actor; body: Record<string, unknown> }) {

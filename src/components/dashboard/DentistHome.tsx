@@ -24,6 +24,7 @@ import { LAB_CASES_COLLECTION, workTypeLabel } from "@/lib/labCases";
 import { treatmentsByTooth } from "@/lib/toothTreatments";
 import { suggestCategory } from "@/lib/dentalIcons";
 import { saveBooking } from "@/lib/bookingService";
+import { syncClaimLineFromAppointment } from "@/lib/insurance/appointmentSync";
 import BookingModal from "@/components/BookingModal";
 import ServiceEditorDrawer from "@/components/clinical-notes/ServiceEditorDrawer";
 import DentistReport from "@/components/dashboard/DentistReport";
@@ -259,6 +260,8 @@ export default function DentistHome() {
       };
       if (nextStatus === "Checking Out" && !apt.checkOutTime) payload.checkOutTime = serverTimestamp();
       await updateDoc(getClinicDoc("appointments", String(apt.id)), payload);
+      // "Done" from the chair marks the insurance service done on its approval, with this dentist on it.
+      void syncClaimLineFromAppointment(clinicId, { ...apt, status: nextStatus });
     } catch (e) {
       console.error("Status change failed:", e);
       showToast(isAr ? "حصل خطأ" : "Could not update", "error");
@@ -539,6 +542,7 @@ export default function DentistHome() {
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-bold text-ink truncate">{String(a.patientName || "")}</p>
                         <p className="text-xs font-semibold text-ink-muted truncate">
+                          {a.claimId ? (isAr ? "تأمين · " : "Insurance · ") : ""}
                           {String(a.serviceName || a.treatment || "")}
                           {a.serviceName || a.treatment ? " · " : ""}
                           {getAppointmentStageLabel(String(a.status || ""), isAr ? "ar" : "en")}
