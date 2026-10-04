@@ -723,6 +723,7 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   const heights = (ws["!rows"] as XLSX.RowInfo[]).map((r) => r.hpt);
   assert.deepEqual(heights.slice(0, 4), [79.5, 30.75, 31.5, 27.75]);
   for (let r = aFirst; r <= cSub; r++) assert.equal(heights[r], 26.25, "case and subtotal rows are 26.25 high (row " + (r + 1) + ")");
+  for (let r = footTop; r <= footEnd; r++) assert.equal(heights[r], 30, "the three grand-total rows are 30 high (row " + (r + 1) + ")");
   assert.equal(wb.Workbook?.Views?.[0]?.RTL, true);
   assert.equal(back.Workbook?.Views?.[0]?.RTL, true);
 
@@ -738,16 +739,15 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   assert.equal(mem.A4.s.fill.fgColor.rgb, "938953");
   assert.equal(mem.K4.s.fill.fgColor.rgb, "938953");
 
-  // merges: header lines A:K; each case's details A..G down its lines only (not over the subtotal row)
+  // merges: header lines A:K; each case's details A..G down its lines AND its subtotal row, as the dentist's sheet does
   for (const m of ["A1:K1", "A2:K2", "A3:K3"]) assert.ok(merges.includes(m), "missing merge " + m + ": " + merges.join(" "));
-  for (const [first, last] of [[aFirst, aLast], [bFirst, bLast]]) { // case C has one line: nothing to merge
+  for (const [first, last] of [[aFirst, aSub], [bFirst, bSub], [cFirst, cSub]]) { // a one-line case still spans its line + subtotal
     for (let c = 0; c < 7; c++) {
       const m = XLSX.utils.encode_range({ s: { r: first, c }, e: { r: last, c } });
       assert.ok(merges.includes(m), "missing case merge " + m);
     }
   }
-  assert.ok(merges.includes("A5:A6") && merges.includes("G5:G6"), "case A (two lines) merges over its two rows");
-  assert.ok(!merges.some((m) => /^[A-G]5:[A-G]7$/.test(m)), "no merge runs over the subtotal row");
+  assert.ok(merges.includes("A5:A7") && merges.includes("G5:G7"), "case A (two lines + subtotal) merges A5:A7, like the dentist's A5:A9");
 
   // case A cells: ids are numbers when all digits, text otherwise; the date is a real date shown mm-dd-yy
   assert.equal(ws.A5.v, 1);
@@ -772,9 +772,9 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   assert.equal(ws[ref({ r: cFirst, c: 2 })].v, "6481234567 - EXAMPLE");
   assert.equal(ws[ref({ r: cFirst, c: 3 })].v, "12A");
   assert.equal(ws[ref({ r: cFirst, c: 4 })].t, "n");
-  // a one-line case merges nothing (a one-cell merge is what Excel calls corrupt): every merge spans more than one cell
+  // a one-line case spans its line and the subtotal row: every merge is at least two cells (a one-cell merge is what Excel calls corrupt)
   assert.ok(merges.every((m) => m.includes(":") && m.split(":")[0] !== m.split(":")[1]), "no one-cell merges: " + merges.join(" "));
-  assert.equal(merges.filter((m) => new RegExp("^[A-G]" + (cFirst + 1) + "(:|$)").test(m)).length, 0, "case C (one line) has no merge at all");
+  assert.ok(merges.includes(XLSX.utils.encode_range({ s: { r: cFirst, c: 0 }, e: { r: cSub, c: 0 } })), "case C (one line) merges over its line and subtotal row");
   // case styles
   assert.equal(mem.A5.s.font.sz, 24);
   assert.equal(mem.A5.s.fill.fgColor.rgb, "EEECE1");

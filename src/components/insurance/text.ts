@@ -62,6 +62,7 @@ export const TEXT = {
   sectionTotals: { en: "Printed totals", ar: "الإجماليات المطبوعة" },
   sectionLines: { en: "Services", ar: "الخدمات" },
   approvalNumber: { en: "Approval number", ar: "رقم الموافقة" },
+  approvalNumberHint: { en: "Check every digit against the paper: a 6 and a 0 look alike on a faint scan, and this number is what MetLife pays against.", ar: "راجع كل رقم مع الورقة: الـ6 والـ0 بيتشابهوا في السكان الباهت، وده الرقم اللي متلايف بتدفع عليه." },
   approvalDate: { en: "Approval date", ar: "تاريخ الموافقة" },
   statusText: { en: "Status on the paper", ar: "الحالة في الورقة" },
   policyNumber: { en: "Policy number", ar: "رقم الوثيقة" },

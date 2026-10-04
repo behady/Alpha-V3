@@ -180,7 +180,7 @@ export function buildMetlifePrompt(): string {
     "The page may be skewed, rotated, photographed at an angle or faint. Read it carefully anyway.",
     "",
     "Return the header fields and the service table as JSON in the schema you were given.",
-    "- approvalNumber: the Pre-Approval ID, the letter D followed by seven digits.",
+    "- approvalNumber: the Pre-Approval ID, the letter D followed by seven digits. This is the most important field on the page: read it digit by digit, twice. On a faint scan 6 and 0, 8 and 3, 1 and 7 are easily confused; if any digit is not crisp, lower its confidence well below 0.7.",
     "- approvalDate and terminationDate: dates are printed dd/mm/yyyy. Copy them as printed. A termination date of 9999-12-31 means there is no end.",
     "- policyNumber: the Policy Number line as printed, number then employer, for example \"6481234567 - EXAMPLE TRAVEL EGYPT\".",
     "- providerCode: the Provider line as printed, for example \"DNC0001 - DR. EXAMPLE - DENTAL\".",

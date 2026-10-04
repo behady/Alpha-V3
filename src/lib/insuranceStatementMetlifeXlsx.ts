@@ -27,6 +27,8 @@ const HEADER_HEIGHTS = [79.5, 30.75, 31.5];
 const TITLE_HEIGHT = 27.75;
 const ROW_HEIGHT = 26.25;
 const FOOTER_ROWS = 3;
+/** The dentist's sheet gives the three grand-total rows a little more room than a case row. */
+const FOOTER_HEIGHT = 30;
 const LAST_COL = COL_WIDTHS.length - 1; // K
 const LINE_COL = 7; // H: where a case's service lines start (A-G are merged down the block)
 /** Days from Excel's day 0 (1899-12-30) to the Unix epoch. */
@@ -52,6 +54,7 @@ const makeStyles = () => {
   const brown = () => fillOf(BROWN);
   return {
     headerLine: { font: font(22), alignment: { ...centered, wrapText: true }, border: box("thin") } satisfies Style,
+    headerPlain: { font: font(22), alignment: centered, border: box("thin") } satisfies Style,
     title: { font: font(22), fill: brown(), alignment: centered, border: box("thin") } satisfies Style,
     serial: { font: font(24), fill: fillOf(CREAM), alignment: centered, border: box("thin") } satisfies Style,
     caseCell: { font: font(24), alignment: centered, border: box("thin") } satisfies Style,
@@ -97,7 +100,9 @@ export function metlifeStatementToWorkbook(statement: MetlifeStatement, header: 
   const empties = (count: number, style: Style): Cell[] => Array.from({ length: count }, () => blank(style));
 
   [header.line1, header.line2, header.line3].forEach((line, i) => {
-    push([s(line, STYLE.headerLine), ...empties(LAST_COL, STYLE.headerLine)], HEADER_HEIGHTS[i]);
+    // Only the first line (clinic + doctor) wraps on the dentist's sheet.
+    const style = i === 0 ? STYLE.headerLine : STYLE.headerPlain;
+    push([s(line, style), ...empties(LAST_COL, style)], HEADER_HEIGHTS[i]);
     mergeAcross(rows.length - 1, 0, LAST_COL);
   });
   push(METLIFE_TITLES.map((t) => s(t, STYLE.title)), TITLE_HEIGHT);
@@ -122,9 +127,10 @@ export function metlifeStatementToWorkbook(statement: MetlifeStatement, header: 
     });
     const last = rows.length - 1;
     const subtotalRow = rows.length;
-    // The case's details span its service lines only; the subtotal row beneath is its own, bordered, row.
-    // A one-line case has nothing to merge, and Excel calls a one-cell merge corrupt.
-    if (last > first) for (let col = 0; col < LINE_COL; col++) mergeBlock(first, col, last, col);
+    // The case's details span its service lines AND the subtotal row beneath them, exactly as the
+    // dentist's sheet does (A5:A9 when the subtotal sits on row 9). A one-line case still spans two
+    // rows, so no merge is ever one cell, which Excel calls corrupt.
+    for (let col = 0; col < LINE_COL; col++) mergeBlock(first, col, subtotalRow, col);
     push(
       [
         ...empties(LINE_COL, STYLE.gap),
@@ -149,7 +155,7 @@ export function metlifeStatementToWorkbook(statement: MetlifeStatement, header: 
           : n(0, STYLE.footerTotal);
     push(
       [i === 0 ? s(TOTAL_LABEL, STYLE.footerLabel) : blank(STYLE.footerLabel), ...empties(5, STYLE.footerLabel), ...empties(4, STYLE.footerFill), total],
-      ROW_HEIGHT,
+      FOOTER_HEIGHT,
     );
   }
   mergeBlock(footTop, 0, footEnd, 5);
