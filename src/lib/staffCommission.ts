@@ -31,6 +31,8 @@ export type CommissionRow = {
   patientName?: unknown;
   serviceName?: unknown;
   procedureId?: unknown;
+  /** Set on a treatment written from an insurance approval, and on the payments the claims route takes. */
+  claimId?: unknown;
 };
 
 export type StaffLite = { id: string; uid?: string; name?: string };
@@ -79,6 +81,10 @@ export function staffIdForRow(staff: readonly StaffLite[], row: CommissionRow): 
   return staff.find((s) => normalizeName(s.name) === name)?.id ?? null;
 }
 
+function hasClaim(row: CommissionRow): boolean {
+  return typeof row.claimId === "string" && row.claimId.trim() !== "";
+}
+
 /** The treatment a payment settled, from whatever the row carries. */
 function serviceOf(row: CommissionRow): string {
   const named = String(row.serviceName ?? "").trim();
@@ -94,14 +100,27 @@ function serviceOf(row: CommissionRow): string {
  *
  * Only `payment` rows count. A treatment row carries the commission it WOULD earn once collected,
  * and this clinic pays on collection — counting both would pay twice for the same work.
+ *
+ * Payments on insurance work are left out too. The dentist's insurance share is earned on the
+ * APPROVED amount when the line is assigned (`staffInsurance.ts`), so every payment on that work
+ * carries 0%; listed here, an insurer's cheque read as private commission the dentist was denied.
+ * A payment is insurance work when the claims route stamped it with `claimId`, or when it settles
+ * a treatment row that belongs to a claim: one of `rows` carrying `claimId`, or an id in
+ * `insuranceRowIds` for the rows dated outside the period.
  */
 export function commissionByStaff(
   rows: readonly CommissionRow[],
   staff: readonly StaffLite[],
+  insuranceRowIds: ReadonlySet<string> = new Set(),
 ): Map<string, StaffCommission> {
+  const insuranceRows = new Set(insuranceRowIds);
+  for (const row of rows) {
+    if (String(row.type ?? "") !== "payment" && hasClaim(row)) insuranceRows.add(String(row.id ?? ""));
+  }
   const out = new Map<string, StaffCommission>();
   for (const row of rows) {
     if (String(row.type ?? "") !== "payment") continue;
+    if (hasClaim(row) || insuranceRows.has(String(row.procedureId ?? ""))) continue;
     const id = staffIdForRow(staff, row);
     if (!id) continue;
 

@@ -3,8 +3,8 @@
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
-  AlertTriangle, CalendarCheck, CheckCircle2, Clock, Edit2, ExternalLink, Hourglass,
-  MapPin, Save, ShieldCheck, Smartphone, Timer, Trash2, UserX,
+  AlertTriangle, CalendarCheck, CheckCircle2, Clock, Edit2, ExternalLink, FileSpreadsheet, Hourglass,
+  Loader2, MapPin, Save, ShieldCheck, Smartphone, Timer, Trash2, UserX,
 } from "lucide-react";
 import type { HrStaffRow } from "@/lib/automation/briefing/types";
 import type { PunchRecord } from "@/lib/automation/briefing/data";
@@ -119,10 +119,13 @@ export type PayDraft = {
  * note under a small title. Here there are five sections and the owner reads them one at a time, so
  * the heading is 19px and the explanation is a 14px sentence rather than a footnote.
  */
-function Section({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
+function Section({ title, note, action, children }: { title: string; note?: string; action?: ReactNode; children: ReactNode }) {
   return (
     <section className="rounded-3xl border border-line bg-surface p-5 sm:p-7">
-      <h3 className="text-[19px] font-extrabold leading-tight text-ink">{title}</h3>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <h3 className="text-[19px] font-extrabold leading-tight text-ink">{title}</h3>
+        {action}
+      </div>
       {note && <p className="mt-1.5 max-w-3xl text-[14px] font-medium leading-relaxed text-ink-muted">{note}</p>}
       <div className="mt-5">{children}</div>
     </section>
@@ -188,6 +191,7 @@ export default function StaffProfile({
   onOvertime,
   onUnlinkDevice,
   onSetPct,
+  onExportCommission,
 }: {
   staff: ProfileStaff;
   row: HrStaffRow | null;
@@ -207,6 +211,8 @@ export default function StaffProfile({
   onUnlinkDevice: () => void;
   /** Set one payment's rate by hand. Recomputed and audited server-side. */
   onSetPct: (paymentId: string, pct: number) => void;
+  /** Download this dentist's commission for the period, both tables, as an Excel file. */
+  onExportCommission: () => Promise<void>;
 }) {
   const [editingLog, setEditingLog] = useState<string | null>(null);
   const [logIn, setLogIn] = useState("");
@@ -220,6 +226,7 @@ export default function StaffProfile({
    * and so the table keeps showing the stored figure until the box is left.
    */
   const [pctDraft, setPctDraft] = useState<Record<string, string>>({});
+  const [exporting, setExporting] = useState(false);
 
   const days = isAr ? DAYS_AR : DAYS_EN;
   const dentist = isDentistStaff(staff);
@@ -608,6 +615,28 @@ export default function StaffProfile({
       {dentist && (
         <Section
           title={isAr ? "العمولة من كل دفعة" : "Commission from each payment"}
+          action={
+            /*
+              One file for both tables: insurance work is commission too, and a dentist with only
+              insurance cases would otherwise download an empty sheet.
+            */
+            <button
+              type="button"
+              className={btnGhost + " disabled:opacity-50"}
+              disabled={exporting || (commission.entries.length === 0 && insurance.entries.length === 0)}
+              onClick={async () => {
+                setExporting(true);
+                try {
+                  await onExportCommission();
+                } finally {
+                  setExporting(false);
+                }
+              }}
+            >
+              {exporting ? <Loader2 size={16} className="animate-spin" /> : <FileSpreadsheet size={16} />}
+              {isAr ? "تنزيل Excel" : "Download Excel"}
+            </button>
+          }
           note={
             isAr
               ? canEdit

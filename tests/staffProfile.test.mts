@@ -11,6 +11,9 @@ import { join } from "node:path";
 import { NO_COMMISSION, commissionByStaff, staffIdForRow } from "../src/lib/staffCommission";
 import { defaultSchedule, expectedScheduleFor, hoursText, scheduleFrom, weeklyMinutes } from "../src/lib/hrClient";
 import { buildHrSection, shiftOvertimeMinutes } from "../src/lib/automation/briefing/hr";
+import XLSX from "xlsx-js-style";
+import { commissionFileName, commissionWorkbook } from "../src/lib/staffCommissionXlsx";
+import type { StaffInsuranceWork } from "../src/lib/staffInsurance";
 
 const REPO = join(import.meta.dirname, "..");
 const read = (rel: string) => readFileSync(join(REPO, rel), "utf8");
@@ -78,6 +81,107 @@ const STAFF = [
   eq(unstamped.get("s_hana")!.total, 0, "and contributes nothing, rather than a figure worked out now");
 
   eq(NO_COMMISSION.total, 0, "the empty case is a value, so a profile needs no null check");
+}
+
+// --- 2b. Insurance payments are not private commission ----------------------------------------
+// The owner's screenshot (2026-10-04): a dentist with no private patients had a "Commission from
+// each payment" table full of "MetLife Egypt paid - approval …" rows at 0%. The share for that
+// work is earned on the approved amount and shown in its own table, so those rows only read as
+// commission the dentist had been denied.
+{
+  const rows = [
+    // The claims route stamps its own payments (insurer's cheque, patient's share) with claimId.
+    { id: "ins1", type: "payment", date: "2026-10-04", doctorId: "s_hana", paid: 600, claimId: "metlife_D6925760", doctorCommissionPercentage: 0, doctorCommissionAmount: 0, description: "MetLife Egypt paid - approval D6925760" },
+    { id: "ins2", type: "payment", date: "2026-10-04", doctorId: "s_hana", paid: 60, claimId: "metlife_D6925760", doctorCommissionAmount: 0 },
+    // A payment taken in Finance on a treatment row written from an approval carries no claimId;
+    // its treatment row does.
+    { id: "chg1", type: "procedure", date: "2026-10-03", doctorId: "s_hana", claimId: "metlife_D7000104", cost: 60 },
+    { id: "fin1", type: "payment", date: "2026-10-04", doctorId: "s_hana", paid: 20, procedureId: "chg1", doctorCommissionAmount: 0 },
+    // …and when that treatment row is dated before the period, the claim names it instead.
+    { id: "fin2", type: "payment", date: "2026-10-04", doctorId: "s_hana", paid: 30, procedureId: "chg_september", doctorCommissionAmount: 0 },
+    // Private work is untouched.
+    { id: "priv", type: "payment", date: "2026-10-02", doctorId: "s_hana", paid: 1000, procedureId: "chg2", doctorCommissionPercentage: 10, doctorCommissionAmount: 100 },
+    { id: "blank", type: "payment", date: "2026-10-02", doctorId: "s_hana", paid: 500, claimId: "  ", doctorCommissionAmount: 50 },
+  ];
+  const hana = commissionByStaff(rows, STAFF, new Set(["chg_september"])).get("s_hana")!;
+  eq(hana.entries.map((e) => e.id).sort(), ["blank", "priv"], "only private payments are listed; a blank claimId is not a claim");
+  eq(hana.payments, 2, "and only they are counted");
+  eq(hana.total, 150, "the total is what private work earned");
+
+  const onlyInsurance = commissionByStaff(rows.slice(0, 2), STAFF);
+  eq(onlyInsurance.has("s_hana"), false, "a dentist with only insurance payments has no private commission rows at all");
+
+  const page = read("src/app/(dashboard)/team/page.tsx");
+  ok(/c\.ledgerIds/.test(page) && /commissionByStaff\([^;]*insuranceRowIds\)/.test(page), "the page must hand the claims' treatment rows to the commission list, or a payment on an older approval reappears as 0% private work");
+}
+
+// --- 2c. The Excel download says what the page says --------------------------------------------
+{
+  const commission = commissionByStaff(
+    [
+      { id: "p2", type: "payment", date: "2026-10-03", doctorId: "s_hana", paid: 2000, labFee: 500, doctorCommissionPercentage: 20, doctorCommissionAmount: 300, patientName: "Mona", serviceName: "Crown" },
+      { id: "p1", type: "payment", date: "2026-10-01", doctorId: "s_hana", paid: 1000, doctorCommissionPercentage: 10, doctorCommissionAmount: 100, patientName: "Ahmed", serviceName: "Filling" },
+      { id: "old", type: "payment", date: "2026-10-02", doctorId: "s_hana", paid: 400, patientName: "Old", serviceName: "Scaling" },
+    ],
+    STAFF,
+  ).get("s_hana")!;
+  const insurance: StaffInsuranceWork = {
+    total: 30,
+    approved: 300,
+    entries: [
+      { claimId: "c1", lineIndex: 0, date: "2026-10-03", patientName: "ميرنا", payerId: "metlife", approvalNumber: "D6925760", service: "كشف", approved: 60, rate: 10, share: 6 },
+      { claimId: "c1", lineIndex: 1, date: "2026-10-03", patientName: "ميرنا", payerId: "metlife", approvalNumber: "D6925760", service: "علاج لثة", approved: 240, rate: 10, share: 24 },
+    ],
+  };
+  // Read the BYTES back: the library drops some settings on write, so the in-memory object proves nothing.
+  const readBack = (isAr: boolean, c = commission, i = insurance) => {
+    const buf = XLSX.write(commissionWorkbook({ dentistName: "Dr. Hana", start: "2026-10-01", end: "2026-10-04", commission: c, insurance: i, isAr }), { type: "buffer", bookType: "xlsx" });
+    const wb = XLSX.read(buf, { type: "buffer", cellFormula: true, cellNF: true });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const grid = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: true, defval: null });
+    return { wb, ws, grid };
+  };
+
+  const { wb, ws, grid } = readBack(false);
+  const rowOf = (label: string, from = 0) => grid.findIndex((r, i) => i >= from && r[0] === label);
+  eq(grid[0][0], "Commission — Dr. Hana", "the sheet says whose commission it is");
+  eq(grid[1][0], "Period: 01/10/2026 to 04/10/2026", "and for which days");
+
+  const privHead = rowOf("Date");
+  eq(grid[privHead], ["Date", "Patient", "Treatment", "Lab fee", "Paid", "%", "Their share"], "private columns, in order");
+  eq(grid.slice(privHead + 1, privHead + 4).map((r) => r[1]), ["Ahmed", "Old", "Mona"], "oldest payment first, like a statement");
+  eq(grid[privHead + 1][0], 46296, "the date is a real Excel date (1 Oct 2026), not text, so it sorts and filters");
+  eq(ws[XLSX.utils.encode_cell({ r: privHead + 1, c: 0 })].z, "dd/mm/yyyy", "and it is shown day first, the way the clinic writes dates");
+  eq(grid[privHead + 2][5], "—", "a payment from before rates were stamped says so rather than claiming 0%");
+  eq(grid[privHead + 3].slice(3), [500, 2000, 20, 300], "lab fee, paid, rate and share are numbers, as stored");
+  const privTotal = rowOf("Total");
+  eq([grid[privTotal][4], grid[privTotal][6]], [3400, 400], "the private total matches the page");
+  eq(ws[XLSX.utils.encode_cell({ r: privTotal, c: 6 })].f, `SUM(G${privHead + 2}:G${privHead + 4})`, "and is a live SUM over its rows");
+
+  const insHead = rowOf("Date", privTotal);
+  eq(grid[insHead], ["Date", "Patient", "Service", "Approval no.", "Approved", "%", "Their share"], "insurance columns line up: amount, rate, share in the same places");
+  eq(grid[insHead + 2].slice(2), ["علاج لثة", "D6925760", 240, 10, 24], "an insurance line is the one on the page");
+  const insTotal = rowOf("Total", insHead);
+  eq([grid[insTotal][4], grid[insTotal][6]], [300, 30], "the insurance total matches the page");
+
+  const grand = rowOf("Total commission");
+  eq(grid[grand][6], 430, "the bottom line is private plus insurance");
+  eq(ws[XLSX.utils.encode_cell({ r: grand, c: 6 })].f, `G${privTotal + 1}+G${insTotal + 1}`, "and adds the two totals rather than a typed figure");
+  ok(!wb.Workbook?.Views?.[0]?.RTL, "an English sheet reads left to right");
+
+  const ar = readBack(true);
+  eq(ar.wb.Workbook?.Views?.[0]?.RTL, true, "an Arabic sheet opens right to left");
+  eq(ar.grid[0][0], "عمولة Dr. Hana", "with Arabic headings");
+
+  // The owner's case: insurance work, no private payments. The file must still be worth opening.
+  const only = readBack(false, { total: 0, payments: 0, entries: [] }).grid;
+  ok(only.some((r) => r[0] === "No private payments in this period."), "an empty private half says so instead of printing an empty table");
+  eq(only.find((r) => r[0] === "Total commission")![6], 30, "and the bottom line is the insurance share");
+  const noInsurance = readBack(false, commission, { total: 0, approved: 0, entries: [] }).grid;
+  ok(!noInsurance.some((r) => r[0] === "Insurance work"), "no insurance heading when there is no insurance work, as on the page");
+
+  eq(commissionFileName("Dr. Hana Mostafa", "2026-10-01", "2026-10-04"), "commission-dr-hana-mostafa-2026-10-01-to-2026-10-04.xlsx", "a readable ASCII file name");
+  eq(commissionFileName("د. أحمد", "2026-10-01", "2026-10-31"), "commission-2026-10-01-to-2026-10-31.xlsx", "an Arabic name drops out rather than becoming a row of dashes");
 }
 
 // --- 3. The roster, and the assumption made when there is none ----------------------------------
