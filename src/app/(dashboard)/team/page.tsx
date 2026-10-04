@@ -174,10 +174,13 @@ function TeamPage() {
     return new Map(section.staff.map((r) => [r.staffId, r]));
   }, [staffRecords, punches, range.start, range.end, clinic]);
 
-  const commissions: Map<string, StaffCommission> = useMemo(
-    () => commissionByStaff(ledger, staffDocs.map((d) => ({ id: d.id, name: String(d.name ?? "") }))),
-    [ledger, staffDocs],
-  );
+  // Payments on insurance work earn nothing here (the share is on the approved amount, above), so
+  // they are left out of the private list. The claims name their treatment rows, which may be dated
+  // outside the period a payment falls in.
+  const commissions: Map<string, StaffCommission> = useMemo(() => {
+    const insuranceRowIds = new Set(claims.flatMap((c) => Object.values(c.ledgerIds).map((l) => l.ledgerId)));
+    return commissionByStaff(ledger, staffDocs.map((d) => ({ id: d.id, name: String(d.name ?? "") })), insuranceRowIds);
+  }, [ledger, staffDocs, claims]);
 
   /**
    * The rail, from the STAFF list rather than from the payroll result.
@@ -383,6 +386,32 @@ function TeamPage() {
     [clinicId, showToast, isAr],
   );
 
+  /**
+   * The open dentist's commission for the period as an Excel file: the same two tables the profile
+   * shows, built from the same values. The spreadsheet library loads only on the click.
+   */
+  const exportCommission = useCallback(async () => {
+    if (!profileStaff) return;
+    try {
+      const [{ default: XLSX }, { commissionWorkbook, commissionFileName }] = await Promise.all([
+        import("xlsx-js-style"),
+        import("@/lib/staffCommissionXlsx"),
+      ]);
+      const wb = commissionWorkbook({
+        dentistName: profileStaff.name,
+        start: range.start,
+        end: range.end,
+        commission: commissions.get(profileStaff.id) ?? NO_COMMISSION,
+        insurance: insuranceWork.get(profileStaff.id) ?? NO_INSURANCE_WORK,
+        isAr,
+      });
+      XLSX.writeFile(wb, commissionFileName(profileStaff.name, range.start, range.end), { compression: true });
+    } catch (err) {
+      console.error("Commission export failed:", err);
+      showToast(isAr ? "مقدرناش نجهّز ملف الإكسل" : "Could not make the Excel file", "error");
+    }
+  }, [profileStaff, range.start, range.end, commissions, insuranceWork, isAr, showToast]);
+
   const unlinkDevice = useCallback(async () => {
     if (!selectedDoc) return;
     const ok = await confirm(
@@ -498,6 +527,7 @@ function TeamPage() {
                   onOvertime={decideOvertime}
                   onUnlinkDevice={unlinkDevice}
                   onSetPct={setPct}
+                  onExportCommission={exportCommission}
                 />
               </div>
             )}
