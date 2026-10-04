@@ -10,6 +10,7 @@
  */
 
 import { normalizeMetlife, type MetlifeExtraction, type MetlifeHeader, type MetlifeLine } from "./metlife";
+import { commissionRateFor, type CommissionRates } from "@/lib/payers";
 import { readInsurance, writeInsurance, type PatientInsuranceEntry } from "../patientInsurance";
 
 export const CLAIMS_COLLECTION = "insurance_claims";
@@ -37,7 +38,18 @@ export type InsuranceClaim = {
   lines: MetlifeLine[];
   totals: { requested: number; approved: number; patientShare: number };
   doc: { path: string; contentType: string; bytes: number; pages: number | null };
+  /**
+   * Who did each service line, keyed by the line's index, with the rate and share stamped at
+   * assignment time — a payroll figure that moved when a setting changed is a figure nobody
+   * can sign. Lines with no entry are unassigned. Never printed on the insurer's sheet.
+   */
+  dentists: Record<number, LineDentist>;
+  /** The patient's share, once the desk took it as cash; null until then. */
+  shareCollected: ShareCollected | null;
 };
+
+export type LineDentist = { staffId: string; name: string; rate: number; share: number };
+export type ShareCollected = { ledgerId: string; amount: number; date: string };
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -164,6 +176,8 @@ export function claimFromExtraction(args: {
       bytes: args.doc.bytes,
       pages: args.doc.pages,
     },
+    dentists: {},
+    shareCollected: null,
   };
 }
 
@@ -211,6 +225,8 @@ export function parseClaim(id: string, raw: unknown): InsuranceClaim | null {
     lines: x.lines,
     totals: claimTotals(x.lines),
     doc: parseDoc(r.doc),
+    dentists: parseLineDentists(r.dentists, x.lines.length),
+    shareCollected: parseShareCollected(r.shareCollected),
   };
 }
 
@@ -282,4 +298,77 @@ export function insuranceEntryToWrite(
   if (!entry) return null;
   const same = stored && (["memberNumber", "certificateNumber", "dependentCode", "policyNumber"] as const).every((k) => (stored[k] ?? "") === (entry[k] ?? ""));
   return same ? null : entry;
+}
+
+// --- The dentist on each line, and the patient's share ---------------------------------------------
+
+/** `dentists` as stored: a map of line index -> entry; junk and out-of-range indices are dropped. */
+export function parseLineDentists(raw: unknown, lineCount: number): Record<number, LineDentist> {
+  const out: Record<number, LineDentist> = {};
+  if (!isRecord(raw)) return out;
+  for (const [k, v] of Object.entries(raw)) {
+    const i = Number(k);
+    if (!Number.isInteger(i) || i < 0 || i >= lineCount || !isRecord(v)) continue;
+    const staffId = trimmed(v.staffId);
+    if (!staffId) continue;
+    const rate = Number(v.rate);
+    const share = Number(v.share);
+    out[i] = {
+      staffId,
+      name: typeof v.name === "string" ? v.name : "",
+      rate: Number.isFinite(rate) ? Math.min(Math.max(rate, 0), 100) : 0,
+      share: Number.isFinite(share) ? round2(share) : 0,
+    };
+  }
+  return out;
+}
+
+export function parseShareCollected(raw: unknown): ShareCollected | null {
+  if (!isRecord(raw)) return null;
+  const ledgerId = trimmed(raw.ledgerId);
+  const amount = Number(raw.amount);
+  if (!ledgerId || !Number.isFinite(amount) || amount <= 0) return null;
+  return { ledgerId, amount: round2(amount), date: isIsoDate(raw.date) ? raw.date : "" };
+}
+
+/**
+ * The entry to stamp when a dentist is picked for a line: their rate on this payer, and the share
+ * that rate earns on the line's APPROVED amount (the owner's rule: approved, not requested, and not
+ * what the insurer eventually pays).
+ */
+export function lineDentistFor(
+  line: { approvedAmount: number },
+  staff: { id: string; name: string } & CommissionRates,
+  payerId: string,
+): LineDentist {
+  const rate = commissionRateFor(staff, payerId);
+  return { staffId: staff.id, name: staff.name, rate, share: round2((line.approvedAmount * rate) / 100) };
+}
+
+/**
+ * Apply a set of picks to the stored map: a staff id assigns the line, null clears it, lines not
+ * named keep what they had. Returns the new map, never mutating the old one.
+ */
+export function applyDentistPicks(
+  claim: Pick<InsuranceClaim, "lines" | "dentists" | "payerId">,
+  picks: Record<string, string | null>,
+  staffById: ReadonlyMap<string, { id: string; name: string } & CommissionRates>,
+): { dentists: Record<number, LineDentist>; unknownStaff: string[] } {
+  const dentists: Record<number, LineDentist> = { ...claim.dentists };
+  const unknownStaff: string[] = [];
+  for (const [k, staffId] of Object.entries(picks)) {
+    const i = Number(k);
+    if (!Number.isInteger(i) || i < 0 || i >= claim.lines.length) continue;
+    if (staffId === null) {
+      delete dentists[i];
+      continue;
+    }
+    const staff = staffById.get(staffId);
+    if (!staff) {
+      unknownStaff.push(staffId);
+      continue;
+    }
+    dentists[i] = lineDentistFor(claim.lines[i], staff, claim.payerId);
+  }
+  return { dentists, unknownStaff };
 }

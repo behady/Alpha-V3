@@ -282,7 +282,7 @@ export default function ApprovalConfirmCard({
         {/* --- the fields --------------------------------------------------------------------- */}
         <div className="space-y-5 p-5">
           <Group title={t("sectionApproval")}>
-            <TextInput label={t("approvalNumber")} value={x.header.approvalNumber} flag={flag("approvalNumber")} onChange={(v) => setText("approvalNumber", v)} ltr />
+            <TextInput label={t("approvalNumber")} value={x.header.approvalNumber} flag={flag("approvalNumber")} onChange={(v) => setText("approvalNumber", v)} ltr hint={t("approvalNumberHint")} />
             <DateInput label={t("approvalDate")} value={x.header.approvalDate} flag={flag("approvalDate")} onChange={(v) => setDate("approvalDate", v)} />
             <TextInput label={t("statusText")} value={x.header.statusText} flag={flag("statusText")} onChange={(v) => setText("statusText", v)} ltr />
           </Group>
@@ -555,10 +555,11 @@ function Labelled({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
-function TextInput({ label, value, flag, onChange, ltr }: { label: string; value: string; flag: "hard" | "soft" | null; onChange: (v: string) => void; ltr?: boolean }) {
+function TextInput({ label, value, flag, onChange, ltr, hint }: { label: string; value: string; flag: "hard" | "soft" | null; onChange: (v: string) => void; ltr?: boolean; hint?: string }) {
   return (
     <Labelled label={label}>
       <input value={value} onChange={(e) => onChange(e.target.value)} className={fieldInput(flag)} dir={ltr ? "ltr" : undefined} />
+      {hint ? <p className="mt-1 text-xs text-amber-700">{hint}</p> : null}
     </Labelled>
   );
 }

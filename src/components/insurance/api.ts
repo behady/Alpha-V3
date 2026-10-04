@@ -138,7 +138,14 @@ export async function saveClaim(body: SaveBody): Promise<SaveOutcome> {
   return { kind: "error", error };
 }
 
-export type ClaimPatch = { status?: ClaimStatus; treatedDate?: string | null; patientId?: string };
+export type ClaimPatch = {
+  status?: ClaimStatus;
+  treatedDate?: string | null;
+  patientId?: string;
+  /** Line index -> staff id to assign, or null to clear. The server stamps the rate and share. */
+  dentists?: Record<number, string | null>;
+  shareCollected?: { ledgerId: string; amount: number };
+};
 
 /** PATCH /api/insurance/claims. Resolves to the server's message on a refusal, null on success. */
 export async function patchClaim(clinicId: string, claimId: string, patch: ClaimPatch): Promise<string | null> {
@@ -197,4 +204,27 @@ export function monthRange(ymd: string): { from: string; to: string } {
   const [y, m] = ymd.split("-").map(Number);
   const last = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
   return { from: `${ymd.slice(0, 7)}-01`, to: last };
+}
+
+/**
+ * Take the patient's share as cash: one income row in the daily ledger (no patient balance is
+ * touched — the patient owes nothing in the books for insurance work), then the claim remembers
+ * which row it was. Resolves to the server's message on a refusal, null on success.
+ */
+export async function collectPatientShare(args: { clinicId: string; claimId: string; amount: number; description: string; date: string }): Promise<string | null> {
+  const posted = await call("POST", "/api/finance/ledger", {
+    clinicId: args.clinicId,
+    action: "create-entry",
+    type: "income",
+    amount: args.amount,
+    description: args.description,
+    category: "insurance_patient_share",
+    method: "cash",
+    date: args.date,
+  });
+  const ledgerId = typeof posted.data.id === "string" ? posted.data.id : "";
+  if (posted.status !== 200 || posted.data.ok !== true || !ledgerId) {
+    return typeof posted.data.error === "string" && posted.data.error ? posted.data.error : `HTTP ${posted.status}`;
+  }
+  return patchClaim(args.clinicId, args.claimId, { shareCollected: { ledgerId, amount: args.amount } });
 }
