@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useRef, Fragment } from "react";
 import { 
   Plus, Wallet, Trash2, Printer, CreditCard, Edit2, 
-  X, Save, Link as LinkIcon, ChevronDown, ChevronRight, Check, User, MessageCircle, Loader2, ScrollText, Clock,
+  X, Save, Link as LinkIcon, ChevronDown, ChevronRight, Check, User, MessageCircle, Loader2, ScrollText, Clock, ShieldCheck,
   AlertTriangle
 } from "lucide-react";
 import { auth, db } from "@/lib/firebase";
@@ -38,6 +38,7 @@ import InsurerBadge from "@/components/shared/InsurerBadge";
 import ServiceEditorDrawer from "@/components/clinical-notes/ServiceEditorDrawer";
 import type { Service as EditorService, Staff as EditorStaff } from "@/components/clinical-notes/types";
 import { PRIVATE_PAYER_ID } from "@/lib/payers";
+import { patchClaim } from "@/components/insurance/api";
 import { insurerOutstanding, isApprovalRow, patientPortion } from "@/lib/ledgerInsurer";
 import { sendPatientPaymentWhatsApp } from "@/lib/sendPatientPaymentWhatsAppClient";
 import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
@@ -134,7 +135,30 @@ interface LedgerItem {
     insurerPaidAt?: string | null;
     /** The approval that wrote this treatment; its price changes on the Insurance tab only. */
     claimId?: string | null;
+    approvalNumber?: string | null;
+    /** On an approval's row: the part the patient pays at the counter. */
+    patientShare?: number | null;
   }
+
+/**
+ * How a treatment's open amount splits between the insurer and the patient.
+ *
+ * `open` is what is not yet paid on the row. On a row charged to an insurer the insurer's part is
+ * its approved amount (`insurerCovered`), or, on a row with no approval behind it, everything but
+ * the patient's share; once the insurer's payment is stamped (`insurerPaidAt`) nothing more is the
+ * insurer's. The patient's part is whatever is left. A private row is all the patient's.
+ */
+function openParts(item: LedgerItem, paidForThis: number): { insurer: number; patient: number } {
+  const cost = Number(item.cost) || 0;
+  const open = Math.max(0, cost - paidForThis);
+  const insured = !!item.claimId || (!!item.payerId && item.payerId !== PRIVATE_PAYER_ID);
+  if (!insured || item.insurerPaidAt) return { insurer: 0, patient: open };
+  const covered = item.insurerCovered != null && Number.isFinite(Number(item.insurerCovered))
+    ? Number(item.insurerCovered)
+    : cost - (Number(item.patientShare) || 0);
+  const insurer = Math.max(0, Math.min(open, covered));
+  return { insurer, patient: Math.max(0, open - insurer) };
+}
 
 /** The insurer's name for a row, or null for the clinic's own work and rows from before payers existed. */
 function insurerOf(row: { payerId?: string | null; payerName?: string | null }): string | null {
@@ -205,6 +229,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isAddingPaymentStateLocked, setIsAddingPaymentStateLocked] = useState(false); // Fix Scenario 1: Double submit state lock
   const [selectedProcedureId, setSelectedProcedureId] = useState<string>("");
+  const [insurerPayingId, setInsurerPayingId] = useState<string | null>(null);
   const payFormRef = useRef<HTMLFormElement>(null);
   const payAmountRef = useRef<HTMLInputElement>(null);
   const [whatsappSendingId, setWhatsappSendingId] = useState<string | null>(null);
@@ -251,6 +276,10 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
     payCol: language === 'ar' ? "الدفع" : "Pay",
     payNow: language === 'ar' ? "ادفع" : "Pay",
     onInsurer: language === 'ar' ? "على التأمين" : "On insurer",
+    insurerPaidBtn: language === 'ar' ? "التأمين دفع" : "Insurer paid",
+    insurerPaidDone: language === 'ar' ? "التأمين دفع" : "Insurer paid",
+    insurerPaidOk: language === 'ar' ? "اتسجلت دفعة التأمين" : "Insurer payment recorded",
+    insurerPaidFail: language === 'ar' ? "ما قدرناش نسجل دفعة التأمين" : "Could not record the insurer's payment",
     linked: language === 'ar' ? "مرتبط" : "Linked",
     method: language === 'ar' ? "الطريقة" : "Method",
     paidAmount: language === 'ar' ? "المبلغ المدفوع" : "Paid Amount",
@@ -378,9 +407,11 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
    */
   const openQuickPay = (procId: string) => {
     const target = proceduresWithBalance.find((p) => p.id === procId);
-    if (!target || target.remaining <= 0) return;
+    if (!target) return;
+    const { patient } = openParts(target, target.paidForThis);
+    if (patient <= 0) return;
     setSelectedProcedureId(procId);
-    setPayAmount(String(target.remaining));
+    setPayAmount(String(patient));
     setPayNote("");
     setIsDropdownOpen(false);
     setIsAddingPayment(true);
@@ -389,6 +420,54 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
       payAmountRef.current?.focus({ preventScroll: true });
       payAmountRef.current?.select();
     });
+  };
+
+  /**
+   * "Insurer paid" on a treatment row. A row from an approval goes through the approval: the
+   * insurer pays the approval as a whole, so every service on it is settled together, each row
+   * stamped and its receipt numbered (the same call as the Insurance tab's button). A row charged
+   * to an insurer by hand has no approval behind it, so it is one payment, method Insurance.
+   */
+  const recordInsurerPaid = async (item: LedgerItem, insurerPart: number) => {
+    if (insurerPayingId || insurerPart <= 0) return;
+    const insurer = item.payerName || (language === 'ar' ? "التأمين" : "the insurer");
+    const siblings = item.claimId ? proceduresWithBalance.filter((p) => p.claimId === item.claimId) : [];
+    const total = item.claimId ? siblings.reduce((sum, p) => sum + openParts(p, p.paidForThis).insurer, 0) : insurerPart;
+    const question = item.claimId
+      ? language === 'ar'
+        ? `تسجيل إن ${insurer} دفعت ${total.toLocaleString()} جنيه لموافقة ${item.approvalNumber || ""}؟ كل خدمات الموافقة (${siblings.length}) هتتعلّم اتسددت.`
+        : `Record that ${insurer} paid ${total.toLocaleString()} EGP for approval ${item.approvalNumber || ""}? All ${siblings.length} services on it will be marked settled.`
+      : language === 'ar'
+        ? `تسجيل إن ${insurer} دفعت ${total.toLocaleString()} جنيه للعلاج ده؟`
+        : `Record that ${insurer} paid ${total.toLocaleString()} EGP for this treatment?`;
+    if (!(await confirm(question, { confirmLabel: txt.insurerPaidBtn }))) return;
+    setInsurerPayingId(item.id);
+    try {
+      if (item.claimId) {
+        const cid = clinicId || clinic?.id;
+        if (!cid) throw new Error("no clinic");
+        const error = await patchClaim(cid, item.claimId, { insurerPaid: true });
+        if (error) {
+          showToast(error, "error");
+          return;
+        }
+      } else {
+        await createPayment({
+          patientId,
+          patientName,
+          amount: insurerPart,
+          method: "Insurance",
+          description: `${insurer} ${language === 'ar' ? "دفعت" : "paid"} - ${item.description.split('(')[0].trim()}`,
+          procedureId: item.id,
+          clinicId: clinic?.id,
+        });
+      }
+      showToast(txt.insurerPaidOk, "success");
+    } catch (err) {
+      showToast(err instanceof MoneyApiError ? err.message : txt.insurerPaidFail, "error");
+    } finally {
+      setInsurerPayingId(null);
+    }
   };
 
   const handleAddPayment = async (e: React.FormEvent) => {
@@ -1114,25 +1193,41 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                 </td>
                                                 <td className="p-4 text-center whitespace-nowrap no-print">
                                                     {(() => {
-                                                        const left = proceduresWithBalance.find((p) => p.id === item.id)?.remaining ?? 0;
-                                                        if (left > 0) {
+                                                        // Two buttons on an insurance row: the insurer's part and the
+                                                        // patient's part are settled by different people.
+                                                        const parts = openParts(item, item.paidForThis);
+                                                        if (parts.insurer <= 0 && parts.patient <= 0) {
+                                                            if ((Number(item.cost) || 0) <= 0) return <span className="text-gray-300">-</span>;
                                                             return (
-                                                                <button
-                                                                  type="button"
-                                                                  onClick={(e) => { e.stopPropagation(); openQuickPay(item.id); }}
-                                                                  className="inline-flex items-center gap-1.5 rounded-lg bg-green-500 px-3 py-1.5 text-[11px] font-black text-white shadow-sm hover:bg-green-600 transition-colors"
-                                                                >
-                                                                  <CreditCard size={13} /> {txt.payNow} <span className="font-figure tabular-nums">{left.toLocaleString()}</span>
-                                                                </button>
+                                                                <span className="inline-flex items-center gap-1 rounded-lg bg-green-50 px-2 py-1 text-[10px] font-black text-green-700">
+                                                                    <Check size={12} /> {item.insurerPaidAt ? txt.insurerPaidDone : txt.paidLabel}
+                                                                </span>
                                                             );
                                                         }
-                                                        if (insurerOutstanding(item) > 0) {
-                                                            return <span className="inline-block rounded-lg border border-line bg-surface-subtle px-2 py-1 text-[10px] font-black text-ink-muted">{txt.onInsurer}</span>;
-                                                        }
-                                                        if ((Number(item.cost) || 0) > 0) {
-                                                            return <span className="inline-flex items-center gap-1 rounded-lg bg-green-50 px-2 py-1 text-[10px] font-black text-green-700"><Check size={12} /> {txt.paidLabel}</span>;
-                                                        }
-                                                        return <span className="text-gray-300">-</span>;
+                                                        return (
+                                                            <div className="flex flex-col items-center gap-1.5">
+                                                                {parts.insurer > 0 && (
+                                                                    <button
+                                                                      type="button"
+                                                                      disabled={!!insurerPayingId}
+                                                                      onClick={(e) => { e.stopPropagation(); void recordInsurerPaid(item, parts.insurer); }}
+                                                                      className="inline-flex items-center gap-1.5 rounded-lg bg-ink px-3 py-1.5 text-[11px] font-black text-white shadow-sm hover:opacity-90 transition-opacity disabled:opacity-50"
+                                                                    >
+                                                                      {insurerPayingId === item.id ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}
+                                                                      {txt.insurerPaidBtn} <span className="font-figure tabular-nums">{parts.insurer.toLocaleString()}</span>
+                                                                    </button>
+                                                                )}
+                                                                {parts.patient > 0 && (
+                                                                    <button
+                                                                      type="button"
+                                                                      onClick={(e) => { e.stopPropagation(); openQuickPay(item.id); }}
+                                                                      className="inline-flex items-center gap-1.5 rounded-lg bg-green-500 px-3 py-1.5 text-[11px] font-black text-white shadow-sm hover:bg-green-600 transition-colors"
+                                                                    >
+                                                                      <CreditCard size={13} /> {txt.payNow} <span className="font-figure tabular-nums">{parts.patient.toLocaleString()}</span>
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        );
                                                     })()}
                                                 </td>
                                                 <td className="p-4 text-center"><span className="px-2 py-1 rounded-lg text-[10px] font-black uppercase bg-blue-50 text-blue-600">{item.type}</span></td>
