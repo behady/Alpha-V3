@@ -28,7 +28,7 @@ import { useUI } from "@/context/UIContext";
 import { db, storage } from "@/lib/firebase";
 import { parsePayers, PRIVATE_PAYER_ID, type Payer } from "@/lib/payers";
 import { readInsurance } from "@/lib/patientInsurance";
-import { CLAIMS_COLLECTION, DOCS_COLLECTION, parseClaim, WORDING_DOC, type InsuranceClaim } from "@/lib/insurance/claims";
+import { CLAIMS_COLLECTION, claimExtraction, DOCS_COLLECTION, parseClaim, WORDING_DOC, type InsuranceClaim } from "@/lib/insurance/claims";
 import { DEFAULT_METLIFE_WORDING } from "@/lib/insuranceStatementMetlife";
 import { useStatementHeader } from "@/lib/insuranceStatementHeader";
 import { deleteRecord, RecycleBinError } from "@/lib/recycleBinApi";
@@ -231,6 +231,21 @@ function InsurancePage() {
     window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "center" }), 600);
   };
 
+  // --- editing a saved approval ------------------------------------------------------------------
+  const [editing, setEditing] = useState<{ claim: InsuranceClaim; docUrl: string } | null>(null);
+  const openEdit = async (claim: InsuranceClaim) => {
+    let docUrl = "";
+    if (claim.doc.path) {
+      try {
+        docUrl = await getDownloadURL(ref(storage, claim.doc.path));
+      } catch (err) {
+        console.error("Approval document link failed", err);
+      }
+    }
+    setEditing({ claim, docUrl });
+    window.setTimeout(() => document.getElementById("insurance-edit-card")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  };
+
   const onSaved = (docId: string, claimId: string) => {
     closeCard(docId);
     showToast(t("savedToast"), "success");
@@ -348,6 +363,40 @@ function InsurancePage() {
               </section>
             )}
 
+            {/* --- a saved approval being corrected ------------------------------------------- */}
+            {editing && insurers.find((p) => p.id === editing.claim.payerId) && (
+              <div id="insurance-edit-card">
+                <ApprovalConfirmCard
+                  key={`edit-${editing.claim.id}`}
+                  editing={editing.claim}
+                  payer={insurers.find((p) => p.id === editing.claim.payerId)!}
+                  docId=""
+                  docPath={editing.claim.doc.path}
+                  docUrl={editing.docUrl}
+                  contentType={editing.claim.doc.contentType}
+                  result={{
+                    docId: "",
+                    extraction: claimExtraction(editing.claim),
+                    checks: [],
+                    match: { kind: "exact", patientId: editing.claim.patientId },
+                    duplicate: null,
+                    inBin: null,
+                    wording: {},
+                  }}
+                  typed={false}
+                  patients={patients}
+                  storedWording={storedWording}
+                  onSaved={(claimId) => {
+                    setEditing(null);
+                    showToast(t("editedToast"), "success");
+                    void showClaim(claimId);
+                  }}
+                  onDismiss={() => setEditing(null)}
+                  onOpenClaim={(claimId) => void showClaim(claimId)}
+                />
+              </div>
+            )}
+
             {/* --- cards waiting to be confirmed --------------------------------------------- */}
             {open.map((d) => {
               const cardPayer = insurers.find((p) => p.id === d.payerId);
@@ -389,7 +438,7 @@ function InsurancePage() {
                 {t("claimsTitle")} · {range.from} → {range.to}
               </p>
               {claimsFailed && <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-[13px] font-bold text-rose-800">{t("claimsFailed")}</p>}
-              <ClaimsTable claims={claims} loading={claimsLoading} onPatch={onPatch} onDelete={onDelete} highlightId={highlightId} payerName={payer?.name} appointments={claimAppointments} />
+              <ClaimsTable claims={claims} loading={claimsLoading} onPatch={onPatch} onDelete={onDelete} onEdit={(c) => void openEdit(c)} highlightId={highlightId} payerName={payer?.name} appointments={claimAppointments} />
             </section>
           </>
         )}

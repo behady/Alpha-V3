@@ -13,7 +13,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ref, getDownloadURL } from "firebase/storage";
-import { Banknote, CheckCircle2, FileText, Landmark, Loader2, RotateCcw, Send, Trash2 } from "lucide-react";
+import { Banknote, CheckCircle2, FileText, Landmark, Loader2, Pencil, RotateCcw, Send, Trash2 } from "lucide-react";
 import { storage } from "@/lib/firebase";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
@@ -35,6 +35,7 @@ export default function ClaimsTable({
   claims,
   onPatch,
   onDelete,
+  onEdit,
   highlightId,
   loading,
   payerName,
@@ -44,6 +45,8 @@ export default function ClaimsTable({
   /** Resolves true when the change is saved; the page reports a failure itself. */
   onPatch: (claim: InsuranceClaim, patch: ClaimPatch) => Promise<boolean>;
   onDelete: (claim: InsuranceClaim) => Promise<void>;
+  /** Open the saved approval in the confirm card to correct it. */
+  onEdit?: (claim: InsuranceClaim) => void;
   /** A claim the page asked to show (from "already saved — open"). */
   highlightId?: string | null;
   loading?: boolean;
@@ -218,6 +221,19 @@ export default function ClaimsTable({
                     <Action label={t("openPdf")} disabled={!c.doc.path} onClick={() => openDoc(c)}>
                       <FileText size={14} />
                     </Action>
+                    {onEdit && c.status !== "cancelled" && (
+                      <Action
+                        label={t("edit")}
+                        disabled={busy}
+                        onClick={() => {
+                          void (async () => {
+                            if (await sentOk(c)) onEdit(c);
+                          })();
+                        }}
+                      >
+                        <Pencil size={14} />
+                      </Action>
+                    )}
                     <Action label={t("delete")} disabled={busy} onClick={() => remove(c)} danger>
                       <Trash2 size={14} />
                     </Action>

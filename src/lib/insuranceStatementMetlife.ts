@@ -11,15 +11,14 @@
  *   - A claim is listed when its approval date is in [from, to] (inclusive) and it is `treated` or `sent`.
  *   - `approved` (not yet treated) claims in the range are not listed but counted in `heldBack`, so the
  *     desk can see what is missing; `cancelled` and out-of-range claims are ignored.
- *   - Only a line whose state is Completed is printed (no state stored = Completed, as every claim saved
- *     before states existed). Planned and Ongoing lines on listed claims are counted in `pendingLines`;
- *     a claim with no Completed line is left out entirely and takes no serial.
+ *   - Every service line is printed, whatever its state (Completed, Planned or Ongoing): the sheet is
+ *     the approvals the clinic holds for the period, as the owner sends it (his rule, 2026-10-05).
  *   - Cases run by approval date, then approval number. Lines keep the paper's order, rejected ones included.
  *   - A line's text is the clinic's wording for its code, else the paper's own description; the codes with
  *     no wording (on printed lines) come back in `missingWording` so the desk can fill them in.
  */
 
-import { lineStatusOf, type InsuranceClaim } from "@/lib/insurance/claims";
+import type { InsuranceClaim } from "@/lib/insurance/claims";
 
 export type MetlifeStatementLine = { text: string; count: number; requested: number; approved: number };
 
@@ -44,8 +43,6 @@ export type MetlifeStatement = {
   missingWording: string[];
   /** Approved-but-not-yet-treated claims inside the range: left off the sheet. */
   heldBack: number;
-  /** Service lines on treated/sent claims in the range that are not Completed yet: left off the sheet. */
-  pendingLines: number;
 };
 
 /** The wording the clinic uses for the services MetLife approves most; the clinic's own list overrides it. */
@@ -78,14 +75,10 @@ export function buildMetlifeStatement(args: {
   const listed = inRange.filter((c) => c.status === "treated" || c.status === "sent").sort(byApproval);
 
   const missing = new Set<string>();
-  let pendingLines = 0;
   const cases: MetlifeStatementCase[] = [];
   for (const c of listed) {
-    const done = c.lines.filter((_, i) => lineStatusOf(c, i) === "Completed");
-    pendingLines += c.lines.length - done.length;
-    // Nothing done on this approval yet: not a case on this sheet, and it takes no serial.
-    if (done.length === 0) continue;
-    const lines = done.map((l): MetlifeStatementLine => {
+    if (c.lines.length === 0) continue;
+    const lines = c.lines.map((l): MetlifeStatementLine => {
       const worded = (wording[l.code] ?? "").trim();
       if (!worded) missing.add(l.code);
       return { text: worded || l.description.trim(), count: l.unitsApproved, requested: l.grossTotal, approved: l.approvedAmount };
@@ -110,6 +103,5 @@ export function buildMetlifeStatement(args: {
     total: money(cases.reduce((sum, c) => sum + c.subtotal, 0)),
     missingWording: [...missing],
     heldBack,
-    pendingLines,
   };
 }

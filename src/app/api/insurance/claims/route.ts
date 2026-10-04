@@ -670,6 +670,7 @@ export async function PATCH(req: Request) {
       | { kind: "not_dentist" }
       | { kind: "bad_line" }
       | { kind: "rows_exist" }
+      | { kind: "rows_paid_edit" }
       | { kind: "not_treated" }
       | { kind: "rows_paid" }
       | { kind: "already_collected"; share: ShareCollected }
@@ -678,7 +679,7 @@ export async function PATCH(req: Request) {
       | { kind: "no_rows" }
       | { kind: "nothing_left" }
       | { kind: "checks"; checks: Check[] }
-      | { kind: "ok"; created: Charge[]; removed: Charge[]; payments: Charge[] | null; what: "share" | "insurer"; collected: Collected | null };
+      | { kind: "ok"; created: Charge[]; removed: Charge[]; payments: Charge[] | null; what: "share" | "insurer"; collected: Collected | null; rebuilt: boolean };
     const result = await adminDb().runTransaction(async (tx): Promise<PatchOutcome> => {
       // --- reads: every one of them before the first write --------------------------------------
       const claimSnap = await tx.get(claimRef);
@@ -687,9 +688,12 @@ export async function PATCH(req: Request) {
       if (!claim) return { kind: "unreadable" };
       const links = Object.entries(claim.ledgerIds).map(([k, link]) => ({ index: Number(k), ...link }));
       const hasRows = links.length > 0;
-      // The rows are the record of what was done and to whom: once they exist, the services and the
-      // patient are fixed. Changing them means deleting the approval and saving the paper again.
-      if (hasRows && (rawLines !== undefined || rawMetlife !== undefined || newPatientId)) return { kind: "rows_exist" };
+      // Editing a saved approval (its services, its header or its patient) rewrites the treatment
+      // rows it put in the patient's file: the old ones leave, the new ones are written from the
+      // edited paper in the same transaction. Not while money sits on them (checked below), and not
+      // together with a status change or a payment, which act on the rows being replaced.
+      const rebuild = hasRows && (rawLines !== undefined || rawMetlife !== undefined || !!newPatientId);
+      if (rebuild && (status !== undefined || paying)) return { kind: "rows_exist" };
       if (paying && claim.status !== "treated" && claim.status !== "sent") return { kind: "not_treated" };
       if (collectShare && claim.shareCollected) return { kind: "already_collected", share: claim.shareCollected };
       if (collectShare && claim.totals.patientShare <= 0) return { kind: "nothing_to_collect" };
@@ -701,8 +705,8 @@ export async function PATCH(req: Request) {
       const patientSnap = patientRef ? await tx.get(patientRef) : null;
       if (patientSnap && !patientSnap.exists) return { kind: "no_patient" };
       const reshape = rawLines !== undefined || rawMetlife !== undefined;
-      const payersSnap = reshape || paying || rowsAction === "write" ? await tx.get(adminClinicDoc(clinicId, "settings", "payers")) : null;
-      const wordingSnap = rowsAction === "write" ? await tx.get(adminClinicDoc(clinicId, "settings", WORDING_DOC)) : null;
+      const payersSnap = reshape || rebuild || paying || rowsAction === "write" ? await tx.get(adminClinicDoc(clinicId, "settings", "payers")) : null;
+      const wordingSnap = rowsAction === "write" || rebuild ? await tx.get(adminClinicDoc(clinicId, "settings", WORDING_DOC)) : null;
       // The staff records behind the picks, read inside the transaction so the stamped rate is the
       // one on file at this moment. Only a dentist can be paid for a line.
       const staffById = new Map<string, { id: string; name: string } & CommissionRates>();
@@ -728,16 +732,17 @@ export async function PATCH(req: Request) {
       // whole transaction).
       const chargeSnaps = new Map<string, DocumentSnapshot>();
       const noteSnaps = new Map<string, DocumentSnapshot>();
-      if (hasRows && (rowsAction === "remove" || paying || picks)) {
+      if (hasRows && (rowsAction === "remove" || paying || picks || rebuild)) {
         const snaps = await Promise.all(links.map((l) => tx.get(adminClinicDoc(clinicId, "ledger", l.ledgerId))));
         links.forEach((l, i) => chargeSnaps.set(l.ledgerId, snaps[i]));
       }
-      if (hasRows && (picks || statePicks) && rowsAction !== "remove") {
+      if (hasRows && (picks || statePicks) && rowsAction !== "remove" && !rebuild) {
         const snaps = await Promise.all(links.map((l) => tx.get(adminClinicDoc(clinicId, "clinical_notes", l.noteId))));
         links.forEach((l, i) => noteSnaps.set(l.noteId, snaps[i]));
       }
       const paidOn = (snap: DocumentSnapshot | undefined) => (snap?.exists ? Number(snap.get("paid")) || 0 : 0);
       if (rowsAction === "remove" && links.some((l) => paidOn(chargeSnaps.get(l.ledgerId)) > 0)) return { kind: "rows_paid" };
+      if (rebuild && links.some((l) => paidOn(chargeSnaps.get(l.ledgerId)) > 0)) return { kind: "rows_paid_edit" };
       // Payments settle the treatment rows, so every read they need comes now: the receipt
       // counter, and each live row's existing payments (the rebalance must see the real set).
       const liveLinks = links.filter((l) => chargeSnaps.get(l.ledgerId)?.exists);
@@ -791,19 +796,24 @@ export async function PATCH(req: Request) {
         }
       }
 
-      let dentists = claim.dentists;
+      // Lines removed by the edit take their dentist and state with them.
+      const onLines = <T,>(m: Record<number, T>): Record<number, T> =>
+        Object.fromEntries(Object.entries(m).filter(([k]) => Number(k) < lines.length)) as Record<number, T>;
+      let dentists = rawLines !== undefined ? onLines(claim.dentists) : claim.dentists;
+      if (rawLines !== undefined) update.dentists = dentists;
       if (picks) {
-        const applied = applyDentistPicks({ lines, dentists: claim.dentists, payerId: claim.payerId }, picks, staffById);
+        const applied = applyDentistPicks({ lines, dentists, payerId: claim.payerId }, picks, staffById);
         if (applied.unknownStaff.length) return { kind: "no_staff", ids: applied.unknownStaff };
         if (notDentist) return { kind: "not_dentist" };
         dentists = applied.dentists;
         update.dentists = dentists;
       }
 
-      let lineStatus = claim.lineStatus;
+      let lineStatus = rawLines !== undefined ? onLines(claim.lineStatus) : claim.lineStatus;
+      if (rawLines !== undefined) update.lineStatus = lineStatus;
       if (statePicks) {
         if (Object.keys(statePicks).some((k) => Number(k) >= lines.length)) return { kind: "bad_line" };
-        lineStatus = { ...claim.lineStatus, ...statePicks };
+        lineStatus = { ...lineStatus, ...statePicks };
         update.lineStatus = lineStatus;
       }
 
@@ -835,7 +845,7 @@ export async function PATCH(req: Request) {
       // into the clinical note. One update per note, whatever changed on it.
       const noteUpdates = new Map<string, Record<string, unknown>>();
       const noteUpdate = (noteId: string, fields: Record<string, unknown>) => noteUpdates.set(noteId, { ...(noteUpdates.get(noteId) ?? {}), ...fields });
-      if (picks && rowsAction !== "remove") {
+      if (picks && rowsAction !== "remove" && !rebuild) {
         for (const k of Object.keys(picks)) {
           const i = Number(k);
           const link: LineLedger | undefined = claim.ledgerIds[i];
@@ -849,7 +859,7 @@ export async function PATCH(req: Request) {
           if (noteSnaps.get(link.noteId)?.exists) noteUpdate(link.noteId, { doctorId: rowPatch.doctorId, doctor: rowPatch.doctor });
         }
       }
-      if (statePicks && rowsAction !== "remove") {
+      if (statePicks && rowsAction !== "remove" && !rebuild) {
         for (const [k, state] of Object.entries(statePicks)) {
           const link: LineLedger | undefined = claim.ledgerIds[Number(k)];
           if (link && noteSnaps.get(link.noteId)?.exists) noteUpdate(link.noteId, { status: state, updatedAt: FieldValue.serverTimestamp() });
@@ -857,9 +867,20 @@ export async function PATCH(req: Request) {
       }
       for (const [noteId, fields] of noteUpdates) tx.update(adminClinicDoc(clinicId, "clinical_notes", noteId), fields);
 
+      // An edited approval: its old rows leave the patient's file before the new ones are written.
+      const removed: Charge[] = [];
+      if (rebuild) {
+        for (const l of links) {
+          const snap = chargeSnaps.get(l.ledgerId);
+          if (snap?.exists) tx.delete(adminClinicDoc(clinicId, "ledger", l.ledgerId));
+          tx.delete(adminClinicDoc(clinicId, "clinical_notes", l.noteId));
+          if (snap?.exists) removed.push({ id: l.ledgerId, row: snap.data() ?? {} });
+        }
+      }
+
       // The work is done: record it in the patient's file now, dated the treated day.
       let created: Charge[] = [];
-      if (rowsAction === "write") {
+      if (rowsAction === "write" || rebuild) {
         const payerName = findPayer(parsePayers(payersSnap?.data()), claim.payerId)?.name ?? claim.payerId;
         const written = writeTreatmentRows(tx, clinicId, {
           claimId,
@@ -884,7 +905,6 @@ export async function PATCH(req: Request) {
 
       // The work did not happen after all: its rows leave the patient's file (nothing is paid on
       // them, checked above). The dentist picks stay on the claim for when it is treated again.
-      const removed: Charge[] = [];
       if (rowsAction === "remove") {
         for (const l of links) {
           const snap = chargeSnaps.get(l.ledgerId);
@@ -975,7 +995,7 @@ export async function PATCH(req: Request) {
         updatedAt: FieldValue.serverTimestamp(),
         updatedBy: authz.uid,
       });
-      return { kind: "ok", created, removed, payments, what: collectShare ? "share" : "insurer", collected };
+      return { kind: "ok", created, removed, payments, what: collectShare ? "share" : "insurer", collected, rebuilt: rebuild };
     });
 
     if (result.kind === "no_claim") return fail(404, "That claim was not found.");
@@ -985,7 +1005,10 @@ export async function PATCH(req: Request) {
     if (result.kind === "not_dentist") return fail(400, "That staff member is not a dentist.");
     if (result.kind === "bad_line") return fail(400, "lineStatus names a service line that is not on this approval.");
     if (result.kind === "rows_exist") {
-      return fail(409, "This approval already has treatment rows; delete it through Recently Deleted and save the paper again to change its services.");
+      return fail(409, "Save the approval's edits first, then change its status or record a payment.");
+    }
+    if (result.kind === "rows_paid_edit") {
+      return fail(409, "Payments are recorded against this approval's treatments. Delete those payments in the patient's Finance tab first, then edit the approval.");
     }
     if (result.kind === "not_treated") return fail(400, "Mark the approval treated before recording payments against it.");
     if (result.kind === "rows_paid") return fail(409, "This approval has payments recorded against its treatments; reverse them first.");
@@ -998,14 +1021,14 @@ export async function PATCH(req: Request) {
       return fail(400, "The edit does not add up. Fix the marked fields and save again.", { checks: result.checks });
     }
 
-    if (result.created.length) await auditCharges(clinicId, result.created, actor, "insurance/claims:treated");
+    if (result.created.length) await auditCharges(clinicId, result.created, actor, result.rebuilt ? "insurance/claims:edited" : "insurance/claims:treated");
     if (result.removed.length) {
       await Promise.all(
         result.removed.map((c) =>
           recordMoneyChange({
-            entry: { clinicId, action: "delete", collection: "ledger", documentId: c.id, before: c.row, actor, via: "insurance/claims:not-treated" },
+            entry: { clinicId, action: "delete", collection: "ledger", documentId: c.id, before: c.row, actor, via: result.rebuilt ? "insurance/claims:edited" : "insurance/claims:not-treated" },
             action: "Procedure Deleted",
-            details: `${String(c.row.description)} - the approval is no longer marked treated`,
+            details: `${String(c.row.description)} - ${result.rebuilt ? "replaced by the edited approval" : "the approval is no longer marked treated"}`,
           }).catch((err) => reportServerError("Insurance treatment removal audit failed:", err)),
         ),
       );

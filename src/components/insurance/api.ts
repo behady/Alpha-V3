@@ -11,7 +11,7 @@
  */
 
 import { auth } from "@/lib/firebase";
-import type { Check, MetlifeExtraction, MetlifeHeader } from "@/lib/insurance/metlife";
+import type { Check, MetlifeExtraction, MetlifeHeader, MetlifeLine } from "@/lib/insurance/metlife";
 import type { PatientMatch } from "@/lib/insurance/matchPatient";
 import type { ClaimStatus, LineStatus } from "@/lib/insurance/claims";
 import type { BinNotice } from "@/lib/recycleBin";
@@ -153,6 +153,9 @@ export type ClaimPatch = {
   status?: ClaimStatus;
   treatedDate?: string | null;
   patientId?: string;
+  /** An edit of the paper: every service line, and the header fields (approval number and date stay). */
+  lines?: MetlifeLine[];
+  metlife?: Partial<MetlifeHeader>;
   /** Line index -> staff id to assign, or null to clear. The server stamps the rate and share. */
   dentists?: Record<number, string | null>;
   /** Line index -> where that service stands; follows into the treatment row's note. */

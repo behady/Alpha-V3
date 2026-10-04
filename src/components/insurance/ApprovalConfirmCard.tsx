@@ -32,10 +32,10 @@ import { checkMetlife, hasHardFailure, normalizeMetlife, type Check, type Metlif
 import { nameSimilarity } from "@/lib/insurance/matchPatient";
 import { patientMatchesSearch } from "@/lib/flexibleSearch";
 import { DEFAULT_METLIFE_WORDING } from "@/lib/insuranceStatementMetlife";
-import { LINE_STATUSES, type LineStatus } from "@/lib/insurance/claims";
+import { LINE_STATUSES, lineStatusOf, type InsuranceClaim, type LineStatus } from "@/lib/insurance/claims";
 import type { Payer } from "@/lib/payers";
 import type { PatientInsuranceEntry } from "@/lib/patientInsurance";
-import { cairoToday, InsuranceCallError, saveClaim, type ReadResult, type SaveBody } from "./api";
+import { cairoToday, InsuranceCallError, patchClaim, saveClaim, type ReadResult, type SaveBody } from "./api";
 import type { BinNotice } from "@/lib/recycleBin";
 import { STATE_KEY, tr, type TextKey } from "./text";
 
@@ -96,7 +96,14 @@ export default function ApprovalConfirmCard({
   onSaved,
   onDismiss,
   onOpenClaim,
+  editing = null,
 }: {
+  /**
+   * A saved approval being edited: the card opens on what was saved (services, dentists, states,
+   * patient) and saves with a PATCH that rewrites its treatment rows. Its approval number and date
+   * cannot change: the number is the claim's identity.
+   */
+  editing?: InsuranceClaim | null;
   payer: Payer;
   docId: string;
   docPath: string;
@@ -118,7 +125,9 @@ export default function ApprovalConfirmCard({
 
   const [x, setX] = useState<MetlifeExtraction>(() => cloneExtraction(result.extraction));
   const [picker, setPicker] = useState<Picker>(() =>
-    result.match.kind === "exact"
+    editing
+      ? { mode: "existing", patientId: editing.patientId, locked: true }
+      : result.match.kind === "exact"
       ? { mode: "existing", patientId: result.match.patientId, locked: true }
       : result.match.kind === "candidates"
         ? { mode: "existing", patientId: "", locked: false }
@@ -129,10 +138,15 @@ export default function ApprovalConfirmCard({
   const [newPhone, setNewPhone] = useState("");
   const [search, setSearch] = useState("");
   // Per service line, kept in step with `x.lines` (added and removed together).
-  const [meta, setMeta] = useState<LineMeta[]>(() => result.extraction.lines.map(() => ({ dentistId: "", status: "Completed" })));
+  // A freshly read paper starts every service as Planned (the owner's rule); an edit opens on what was saved.
+  const [meta, setMeta] = useState<LineMeta[]>(() =>
+    result.extraction.lines.map((_, i) =>
+      editing ? { dentistId: editing.dentists[i]?.staffId ?? "", status: lineStatusOf(editing, i) } : { dentistId: "", status: "Planned" },
+    ),
+  );
   // The "same for all services" row: what it last set, and what a newly added line starts with.
   const [allDentist, setAllDentist] = useState("");
-  const [allStatus, setAllStatus] = useState<LineStatus>("Completed");
+  const [allStatus, setAllStatus] = useState<LineStatus>("Planned");
   const [dentists, setDentists] = useState<Array<{ id: string; name: string }>>([]);
   useEffect(() => {
     if (!clinicId) return;
@@ -240,7 +254,7 @@ export default function ApprovalConfirmCard({
   };
 
   // --- save --------------------------------------------------------------------------------------
-  const patientReady = picker.mode === "create" ? newName.trim().length > 0 : !!picker.patientId;
+  const patientReady = picker.mode === "create" ? !editing && newName.trim().length > 0 : !!picker.patientId;
   // An approval still in Recently Deleted is restored, never saved twice: the bin keeps one copy
   // per approval number, so a second one could never be deleted again.
   const inBin = problem?.kind === "in_bin" && problem.approval === approvalKey(x.header.approvalNumber) ? problem.notice : null;
@@ -263,9 +277,36 @@ export default function ApprovalConfirmCard({
     x.lines.forEach((l, i) => {
       // Exactly the server's rule: a row the normaliser drops (the table's Total row) takes no number.
       if (normalizeMetlife({ lines: [l] }).lines.length === 0) return;
-      const m = meta[i] ?? { dentistId: "", status: "Completed" };
+      const m = meta[i] ?? { dentistId: "", status: "Planned" };
       lines[k++] = { dentistId: m.dentistId || null, status: m.status };
     });
+    if (editing) {
+      try {
+        const dentistsPick: Record<number, string | null> = {};
+        const statePick: Record<number, LineStatus> = {};
+        for (const [idx, m] of Object.entries(lines)) {
+          dentistsPick[Number(idx)] = m.dentistId ?? null;
+          if (m.status) statePick[Number(idx)] = m.status;
+        }
+        // The header as typed, less what the claim keeps fixed (its number, date and the paper's name).
+        const { approvalNumber: _n, approvalDate: _d, paperPatientName: _p, confidence: _c, ...metlife } = x.header;
+        void _n; void _d; void _p; void _c;
+        const error = await patchClaim(clinicId, editing.id, {
+          lines: x.lines,
+          metlife,
+          ...(picker.mode === "existing" && picker.patientId !== editing.patientId ? { patientId: picker.patientId } : {}),
+          dentists: dentistsPick,
+          ...(Object.keys(statePick).length ? { lineStatus: statePick } : {}),
+        });
+        if (error) setProblem({ kind: "error", error });
+        else onSaved(editing.id);
+      } catch (err) {
+        setProblem({ kind: "error", error: err instanceof InsuranceCallError ? t(err.kind === "signed_out" ? "signedOut" : "networkFailed") : t("saveFailed") });
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     const body: SaveBody = {
       clinicId,
       docId,
@@ -301,7 +342,7 @@ export default function ApprovalConfirmCard({
     <article className="overflow-hidden rounded-3xl border border-line bg-surface shadow-sm" data-tour="insurance-card">
       <header className="flex flex-wrap items-center justify-between gap-3 bg-ink-slab px-5 py-4 text-white">
         <div className="min-w-0">
-          <p className="text-[10.5px] font-black uppercase tracking-[0.18em] text-white/50">{typed ? t("typedTitle") : t("cardTitle")}</p>
+          <p className="text-[10.5px] font-black uppercase tracking-[0.18em] text-white/50">{editing ? t("editTitle") : typed ? t("typedTitle") : t("cardTitle")}</p>
           <p className="font-display text-xl font-black tracking-tight" dir="ltr">
             {x.header.approvalNumber || "—"}
           </p>
@@ -366,8 +407,8 @@ export default function ApprovalConfirmCard({
         {/* --- the fields --------------------------------------------------------------------- */}
         <div className="space-y-5 p-5">
           <Group title={t("sectionApproval")}>
-            <TextInput label={t("approvalNumber")} value={x.header.approvalNumber} flag={flag("approvalNumber")} onChange={(v) => setText("approvalNumber", v)} ltr hint={t("approvalNumberHint")} />
-            <DateInput label={t("approvalDate")} value={x.header.approvalDate} flag={flag("approvalDate")} onChange={(v) => setDate("approvalDate", v)} />
+            <TextInput label={t("approvalNumber")} value={x.header.approvalNumber} flag={flag("approvalNumber")} onChange={(v) => setText("approvalNumber", v)} ltr hint={editing ? t("lockedOnEdit") : t("approvalNumberHint")} readOnly={!!editing} />
+            <DateInput label={t("approvalDate")} value={x.header.approvalDate} flag={flag("approvalDate")} onChange={(v) => setDate("approvalDate", v)} readOnly={!!editing} />
             <TextInput label={t("statusText")} value={x.header.statusText} flag={flag("statusText")} onChange={(v) => setText("statusText", v)} ltr />
           </Group>
 
@@ -429,7 +470,7 @@ export default function ApprovalConfirmCard({
                           <DentistSelect value={meta[i]?.dentistId ?? ""} dentists={dentists} label={t("colDentist")} placeholder={t("pickDentist")} onChange={(v) => setLineMeta(i, { dentistId: v })} className={`${cellInput(null)} min-w-[9rem]`} />
                         </td>
                         <td className="p-1">
-                          <StateSelect value={meta[i]?.status ?? "Completed"} label={t("colState")} t={t} onChange={(v) => setLineMeta(i, { status: v })} className={`${cellInput(null)} min-w-[7rem]`} />
+                          <StateSelect value={meta[i]?.status ?? "Planned"} label={t("colState")} t={t} onChange={(v) => setLineMeta(i, { status: v })} className={`${cellInput(null)} min-w-[7rem]`} />
                         </td>
                         {(["unitsRequested", "grossPerUnit", "grossTotal", "unitsApproved", "patientShare", "approvedAmount"] as const satisfies readonly LineNumber[]).map((f) => (
                           <td key={f} className="p-1">
@@ -549,7 +590,7 @@ export default function ApprovalConfirmCard({
           </div>
 
           {/* --- wording for codes the clinic has not named yet -------------------------------- */}
-          {unworded.length > 0 && (
+          {!editing && unworded.length > 0 && (
             <div className="space-y-2 rounded-2xl border border-line bg-surface-subtle p-4">
               <p className="text-[13px] font-black text-ink">{t("wordingTitle")}</p>
               <p className="text-[12px] font-semibold text-ink-muted">{t("wordingHint")}</p>
@@ -582,6 +623,9 @@ export default function ApprovalConfirmCard({
               )}
             </div>
           )}
+          {editing && Object.keys(editing.ledgerIds).length > 0 && (
+            <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-[12px] font-bold text-amber-900">{t("editHint")}</p>
+          )}
           <div className="flex flex-wrap items-center justify-end gap-2">
             {!patientReady && <span className="text-[12px] font-semibold text-ink-muted">{t("pickPatient")}</span>}
             <button type="button" onClick={onDismiss} className={smallButton}>
@@ -594,7 +638,7 @@ export default function ApprovalConfirmCard({
               className="inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-[13px] font-black text-ink-on-accent transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving && <Loader2 size={14} className="animate-spin" />}
-              {saving ? t("saving") : t("save")}
+              {saving ? t("saving") : editing ? t("saveChanges") : t("save")}
             </button>
           </div>
         </div>
@@ -643,19 +687,19 @@ function Labelled({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
-function TextInput({ label, value, flag, onChange, ltr, hint }: { label: string; value: string; flag: "hard" | "soft" | null; onChange: (v: string) => void; ltr?: boolean; hint?: string }) {
+function TextInput({ label, value, flag, onChange, ltr, hint, readOnly }: { label: string; value: string; flag: "hard" | "soft" | null; onChange: (v: string) => void; ltr?: boolean; hint?: string; readOnly?: boolean }) {
   return (
     <Labelled label={label}>
-      <input value={value} onChange={(e) => onChange(e.target.value)} className={fieldInput(flag)} dir={ltr ? "ltr" : undefined} />
+      <input value={value} onChange={(e) => onChange(e.target.value)} readOnly={readOnly} className={`${fieldInput(flag)} ${readOnly ? "cursor-not-allowed opacity-60" : ""}`} dir={ltr ? "ltr" : undefined} />
       {hint ? <p className="mt-1 text-xs text-amber-700">{hint}</p> : null}
     </Labelled>
   );
 }
 
-function DateInput({ label, value, flag, onChange }: { label: string; value: string | null; flag: "hard" | "soft" | null; onChange: (v: string) => void }) {
+function DateInput({ label, value, flag, onChange, readOnly }: { label: string; value: string | null; flag: "hard" | "soft" | null; onChange: (v: string) => void; readOnly?: boolean }) {
   return (
     <Labelled label={label}>
-      <input type="date" value={value ?? ""} onChange={(e) => onChange(e.target.value)} className={fieldInput(flag)} dir="ltr" />
+      <input type="date" value={value ?? ""} onChange={(e) => onChange(e.target.value)} readOnly={readOnly} className={`${fieldInput(flag)} ${readOnly ? "cursor-not-allowed opacity-60" : ""}`} dir="ltr" />
     </Labelled>
   );
 }

@@ -55,6 +55,15 @@ export const TEXT = {
 
   // --- confirm card -------------------------------------------------------------------------
   cardTitle: { en: "Check the approval", ar: "راجع الموافقة" },
+  editTitle: { en: "Edit the approval", ar: "تعديل الموافقة" },
+  edit: { en: "Edit", ar: "تعديل" },
+  saveChanges: { en: "Save changes", ar: "احفظ التعديل" },
+  editedToast: { en: "Approval updated", ar: "الموافقة اتعدّلت" },
+  editHint: {
+    en: "Saving replaces this approval's treatments in the patient's file with the edited services. If payments are recorded on them, delete those first.",
+    ar: "الحفظ بيبدّل علاجات الموافقة دي في ملف المريض بالخدمات بعد التعديل. لو فيه مدفوعات مسجلة عليها، امسحها الأول.",
+  },
+  lockedOnEdit: { en: "Fixed once saved", ar: "ثابت بعد الحفظ" },
   typedTitle: { en: "Type the approval", ar: "اكتب الموافقة" },
   noPreview: { en: "The document cannot be shown here.", ar: "المستند مش هيظهر هنا." },
   openDoc: { en: "Open the document", ar: "افتح المستند" },
@@ -191,10 +200,6 @@ export const TEXT = {
   heldBack: {
     en: "approvals not yet marked treated — not on the sheet",
     ar: "موافقات لسه ما اتعلّمتش اتعالجت — مش في الكشف",
-  },
-  pendingLines: {
-    en: "{n} services not completed yet are not on the sheet",
-    ar: "{n} خدمة لسه ما خلصتش ومش في الكشف",
   },
   missingWording: {
     en: "No sheet wording yet for these codes; the paper's English is printed instead:",
