@@ -6,7 +6,7 @@ import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffPermission } from "@/lib/apiStaffAuth";
 import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
-import { findPayer, parsePayers, PRIVATE_PAYER_ID } from "@/lib/payers";
+import { findPayer, parsePayers, PRIVATE_PAYER_ID, type CommissionRates } from "@/lib/payers";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { writeInsurance } from "@/lib/patientInsurance";
 import { stripUndefined } from "@/lib/server/recycleBinStore";
@@ -29,6 +29,7 @@ import {
   WORDING_DOC,
   type ClaimStatus,
   type InsuranceClaim,
+  applyDentistPicks,
 } from "@/lib/insurance/claims";
 
 export const runtime = "nodejs";
@@ -38,7 +39,7 @@ const PERMISSION = "patients.edit";
 const MAX_LINES = 100;
 const MAX_NAME = 200;
 const MAX_WORDING = 200;
-const PATCH_KEYS = new Set(["status", "treatedDate", "patientId", "lines", "metlife"]);
+const PATCH_KEYS = new Set(["status", "treatedDate", "patientId", "lines", "metlife", "dentists", "shareCollected"]);
 
 function fail(status: number, error: string, extra?: Record<string, unknown>) {
   return NextResponse.json({ ok: false, error, ...extra }, { status });
@@ -386,6 +387,28 @@ export async function PATCH(req: Request) {
       if (!isRecord(patch.metlife)) return fail(400, "metlife must be an object.");
       rawMetlife = patch.metlife;
     }
+    // Who did each line: { "<lineIndex>": staffId | null }. The rate and share are stamped here,
+    // from the staff record, never trusted from the browser.
+    let picks: Record<string, string | null> | undefined;
+    if ("dentists" in patch) {
+      if (!isRecord(patch.dentists)) return fail(400, "dentists must map a line index to a staff id or null.");
+      picks = {};
+      for (const [k, v] of Object.entries(patch.dentists)) {
+        if (!/^\d{1,3}$/.test(k)) return fail(400, "dentists keys must be line indices.");
+        if (v !== null && !segment(v)) return fail(400, "dentists values must be a staff id or null.");
+        picks[k] = v === null ? null : segment(v);
+      }
+      if (Object.keys(picks).length === 0) return fail(400, "dentists is empty.");
+    }
+    // The patient's share taken as cash: the ledger row the desk just posted, and how much.
+    let share: { ledgerId: string; amount: number } | undefined;
+    if ("shareCollected" in patch) {
+      if (!isRecord(patch.shareCollected)) return fail(400, "shareCollected must be an object.");
+      const ledgerId = segment(patch.shareCollected.ledgerId);
+      const amount = Number(patch.shareCollected.amount);
+      if (!ledgerId || !Number.isFinite(amount) || amount <= 0) return fail(400, "shareCollected needs a ledgerId and an amount above zero.");
+      share = { ledgerId, amount: Math.round(amount * 100) / 100 };
+    }
 
     // --- who --------------------------------------------------------------------------------
     const authz = await requireStaffPermission(req, clinicId, PERMISSION);
@@ -402,6 +425,8 @@ export async function PATCH(req: Request) {
       | { kind: "no_claim" }
       | { kind: "unreadable" }
       | { kind: "no_patient" }
+      | { kind: "no_staff"; ids: string[] }
+      | { kind: "ledger_missing" }
       | { kind: "checks"; checks: Check[] };
     const result = await adminDb().runTransaction(async (tx): Promise<PatchOutcome> => {
       // Reads first: the claim, the new patient, the payer's provider code.
@@ -414,6 +439,25 @@ export async function PATCH(req: Request) {
       if (patientSnap && !patientSnap.exists) return { kind: "no_patient" };
       const reshape = rawLines !== undefined || rawMetlife !== undefined;
       const payersSnap = reshape ? await tx.get(adminClinicDoc(clinicId, "settings", "payers")) : null;
+      // The staff records behind the picks, read inside the transaction so the stamped rate is the
+      // one on file at this moment.
+      const staffById = new Map<string, { id: string; name: string } & CommissionRates>();
+      if (picks) {
+        const ids = [...new Set(Object.values(picks).filter((v): v is string => typeof v === "string"))];
+        const snaps = await Promise.all(ids.map((id) => tx.get(adminClinicDoc(clinicId, "staff", id))));
+        snaps.forEach((snap, i) => {
+          if (!snap.exists) return;
+          const d = snap.data() ?? {};
+          staffById.set(ids[i], {
+            id: ids[i],
+            name: typeof d.name === "string" ? d.name : "",
+            commissionPercentage: typeof d.commissionPercentage === "number" ? d.commissionPercentage : null,
+            commissionByPayer: isRecord(d.commissionByPayer) ? d.commissionByPayer : null,
+          });
+        });
+      }
+      const ledgerSnap = share ? await tx.get(adminClinicDoc(clinicId, "ledger", share.ledgerId)) : null;
+      if (ledgerSnap && !ledgerSnap.exists) return { kind: "ledger_missing" };
 
       const update: Record<string, unknown> = {};
       if (status !== undefined) update.status = status;
@@ -452,6 +496,13 @@ export async function PATCH(req: Request) {
         }
       }
 
+      if (picks) {
+        const applied = applyDentistPicks({ lines: rawLines !== undefined ? claimExtraction(claim, { lines: rawLines }).lines : claim.lines, dentists: claim.dentists, payerId: claim.payerId }, picks, staffById);
+        if (applied.unknownStaff.length) return { kind: "no_staff", ids: applied.unknownStaff };
+        update.dentists = applied.dentists;
+      }
+      if (share) update.shareCollected = { ...share, date: ymdInTimeZone(clinicTimeZone()) };
+
       // Writes.
       if (patientRef && patientSnap) {
         const entry = insuranceEntryToWrite(claim.payerId, metlife, patientSnap.data() ?? {});
@@ -469,6 +520,8 @@ export async function PATCH(req: Request) {
     if (result.kind === "no_claim") return fail(404, "That claim was not found.");
     if (result.kind === "unreadable") return fail(500, "That claim could not be read. Please contact support.");
     if (result.kind === "no_patient") return fail(404, "That patient was not found.");
+    if (result.kind === "no_staff") return fail(404, `Staff not found: ${result.ids.join(", ")}.`);
+    if (result.kind === "ledger_missing") return fail(404, "That ledger row was not found.");
     if (result.kind === "checks") {
       return fail(400, "The edit does not add up. Fix the marked fields and save again.", { checks: result.checks });
     }

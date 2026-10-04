@@ -45,6 +45,9 @@ import type { HrStaffRow } from "@/lib/automation/briefing/types";
 import type { PunchRecord, StaffRecord } from "@/lib/automation/briefing/data";
 import { expectedScheduleFor, punchRecordFrom, staffRecordFrom, type Schedule } from "@/lib/hrClient";
 import { commissionByStaff, NO_COMMISSION, type StaffCommission } from "@/lib/staffCommission";
+import { insuranceWorkByStaff, NO_INSURANCE_WORK, type StaffInsuranceWork } from "@/lib/staffInsurance";
+import { CLAIMS_COLLECTION, parseClaim, type InsuranceClaim } from "@/lib/insurance/claims";
+import { useWording } from "@/components/insurance/useWording";
 import { presetOf, rangeFor, rangeText, getFirstDay, getToday, type DateRange, type RangePreset } from "@/lib/reportHelpers";
 import { isDentistStaff } from "@/lib/staffRoles";
 import TeamRail, { type RailPerson } from "./TeamRail";
@@ -83,6 +86,7 @@ function TeamPage() {
   const [staffDocs, setStaffDocs] = useState<StaffDoc[]>([]);
   const [punches, setPunches] = useState<PunchRecord[]>([]);
   const [ledger, setLedger] = useState<Record<string, unknown>[]>([]);
+  const [claims, setClaims] = useState<InsuranceClaim[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -127,12 +131,26 @@ function TeamPage() {
       ),
       (snap) => setLedger(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
     );
+    // Insurance work is paid apart from private work: the claims register, not the ledger. A
+    // clinic without the add-on simply has no claims, so the listener costs it nothing.
+    const unsubClaims = onSnapshot(
+      query(
+        getClinicCollection(CLAIMS_COLLECTION),
+        where("approvalDate", ">=", range.start),
+        where("approvalDate", "<=", range.end),
+      ),
+      (snap) => setClaims(snap.docs.map((d) => parseClaim(d.id, d.data())).filter((c): c is InsuranceClaim => c !== null)),
+      () => setClaims([]),
+    );
     return () => {
       unsubStaff();
       unsubPunches();
       unsubLedger();
+      unsubClaims();
     };
   }, [canAdmin, clinicId, range.start, range.end]);
+  const wording = useWording(clinicId);
+  const insuranceWork: Map<string, StaffInsuranceWork> = useMemo(() => insuranceWorkByStaff(claims, wording), [claims, wording]);
 
   const staffRecords: StaffRecord[] = useMemo(
     () => staffDocs.map((d) => staffRecordFrom(d.id, d as Record<string, unknown>)),
@@ -472,6 +490,7 @@ function TeamPage() {
                       ? commissions.get(profileStaff.id) ?? NO_COMMISSION
                       : NO_COMMISSION
                   }
+                  insurance={isDentistStaff(profileStaff) ? insuranceWork.get(profileStaff.id) ?? NO_INSURANCE_WORK : NO_INSURANCE_WORK}
                   canEdit={canEdit}
                   isAr={isAr}
                   saving={saving}

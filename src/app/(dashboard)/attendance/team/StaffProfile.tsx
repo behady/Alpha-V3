@@ -12,6 +12,7 @@ import { hoursText, weeklyMinutes, type Schedule } from "@/lib/hrClient";
 import { formatStaffRoleLabel, isDentistStaff } from "@/lib/staffRoles";
 import { ChartFrame, Figure, ReportEmpty } from "@/components/reports/chartKit";
 import type { StaffCommission } from "@/lib/staffCommission";
+import type { StaffInsuranceWork } from "@/lib/staffInsurance";
 
 const DAYS_EN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const DAYS_AR = ["الأحد", "الاتنين", "التلات", "الأربع", "الخميس", "الجمعة", "السبت"];
@@ -76,6 +77,7 @@ export default function StaffProfile({
   scheduleAssumed,
   punches,
   commission,
+  insurance,
   canEdit,
   isAr,
   saving,
@@ -92,6 +94,8 @@ export default function StaffProfile({
   scheduleAssumed: boolean;
   punches: readonly PunchRecord[];
   commission: StaffCommission;
+  /** Insurance work assigned to this dentist in the period: paid apart from private commission. */
+  insurance: StaffInsuranceWork;
   canEdit: boolean;
   isAr: boolean;
   saving: boolean;
@@ -119,7 +123,7 @@ export default function StaffProfile({
   const days = isAr ? DAYS_AR : DAYS_EN;
   const dentist = isDentistStaff(staff);
   const basePay = row?.estimatedPay ?? 0;
-  const total = basePay + commission.total;
+  const total = basePay + commission.total + insurance.total;
 
   const openPay = () => {
     setDraft({
@@ -168,6 +172,7 @@ export default function StaffProfile({
             { v: hoursText(row?.minutesWorked ?? 0), l: isAr ? "ساعات الفترة" : "Hours this period" },
             { v: money(basePay), l: isAr ? "الأساسي التقديري" : "Estimated base pay" },
             { v: money(commission.total), l: isAr ? "العمولة" : "Commission" },
+            ...(dentist ? [{ v: money(insurance.total), l: isAr ? "نصيب التأمين" : "Insurance share" }] : []),
             { v: money(total), l: isAr ? "الإجمالي" : "Total" },
           ].map((k) => (
             <div key={k.l} className="min-w-0">
@@ -374,6 +379,59 @@ export default function StaffProfile({
           </ul>
         )}
       </ChartFrame>
+
+      {/* --- insurance work, line by line: paid apart from private work --------------------- */}
+      {dentist && (
+        <ChartFrame
+          title={isAr ? "شغل التأمين، خدمة خدمة" : "Insurance work, service by service"}
+          note={
+            isAr
+              ? "الخدمات المتعلّم عليها الطبيب ده في موافقات التأمين اللي اتعالجت أو اتبعتت. النسبة والنصيب محفوظين وقت الاختيار على المبلغ الموافق عليه، منفصل عن الشغل الخاص."
+              : "The services assigned to this dentist on treated or sent insurance approvals. The rate and share were stamped when the line was assigned, on the approved amount, and are kept apart from private work."
+          }
+        >
+          {insurance.entries.length === 0 ? (
+            <ReportEmpty reason="money" isAr={isAr} />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[34rem] border-collapse text-[12.5px]">
+                <thead>
+                  <tr className="border-b border-line text-[10px] font-black uppercase tracking-wider text-ink-muted">
+                    <th className="py-2 pe-3 text-start">{isAr ? "التاريخ" : "Date"}</th>
+                    <th className="py-2 pe-3 text-start">{isAr ? "المريض" : "Patient"}</th>
+                    <th className="py-2 pe-3 text-start">{isAr ? "الموافقة" : "Approval"}</th>
+                    <th className="py-2 pe-3 text-start">{isAr ? "الخدمة" : "Service"}</th>
+                    <th className="py-2 pe-3 text-end">{isAr ? "الموافق عليه" : "Approved"}</th>
+                    <th className="py-2 pe-3 text-end">%</th>
+                    <th className="py-2 text-end">{isAr ? "نصيبه" : "Their share"}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {insurance.entries.map((e) => (
+                    <tr key={e.claimId + "-" + e.lineIndex} className="border-b border-line/60">
+                      <td className="py-2.5 pe-3 font-figure font-semibold text-ink-muted">{e.date}</td>
+                      <td className="py-2.5 pe-3 font-semibold text-ink">{e.patientName}</td>
+                      <td className="py-2.5 pe-3 font-figure font-semibold text-ink-body" dir="ltr">{e.approvalNumber}</td>
+                      <td className="py-2.5 pe-3 font-semibold text-ink-body">{e.service}</td>
+                      <td className="py-2.5 pe-3 text-end font-figure font-semibold text-ink-body">{money(e.approved)}</td>
+                      <td className="py-2.5 pe-3 text-end font-figure font-semibold text-ink-body">{e.rate}%</td>
+                      <td className="py-2.5 text-end font-figure font-extrabold text-ink">{money(e.share)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td colSpan={4} className="py-2.5 pe-3 text-[11px] font-black uppercase tracking-wider text-ink-muted">{isAr ? "الإجمالي" : "Total"}</td>
+                    <td className="py-2.5 pe-3 text-end font-figure text-[15px] font-extrabold text-ink">{money(insurance.approved)}</td>
+                    <td />
+                    <td className="py-2.5 text-end font-figure text-[15px] font-extrabold text-ink">{money(insurance.total)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </ChartFrame>
+      )}
 
       {/* --- what they earned, payment by payment -------------------------------------------- */}
       {dentist && (

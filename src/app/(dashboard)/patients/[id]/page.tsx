@@ -9,7 +9,7 @@ import {
   Activity, User, CalendarDays, Stethoscope, Trash2, 
   ChevronDown, MessageCircle, AlertCircle, Wallet, LayoutDashboard, Users, History, CreditCard,
   PhoneForwarded, CheckCircle2, UserX, Globe, MessageCircleOff, MessageSquare, MessageSquareOff, ScrollText,
-  Star, Printer, Pill, Check, Calendar, Camera, UploadCloud, FilePlus, Eye, Download, StickyNote, ClipboardList
+  Star, Printer, Pill, Check, Calendar, Camera, UploadCloud, FilePlus, Eye, Download, StickyNote, ClipboardList, ShieldCheck
 } from "lucide-react";
 import { auth, db, storage } from "@/lib/firebase";
 import { doc, onSnapshot, updateDoc, deleteDoc, collection, query, where, limit, orderBy, addDoc, serverTimestamp } from "firebase/firestore";
@@ -25,6 +25,8 @@ import { logActivity } from "@/lib/logger";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import { PRIVATE_PAYER_ID } from "@/lib/payers";
 import { readInsurance, writeInsurance, type PatientInsuranceEntry } from "@/lib/patientInsurance";
+import PatientInsuranceTab from "@/components/insurance/PatientInsuranceTab";
+import { isAnyUnlocked } from "@/lib/featureCatalog";
 import PermissionGuard from "@/components/PermissionGuard";
 import Protect from "@/components/Protect";
 import PatientFinance from "@/components/PatientFinance";
@@ -214,7 +216,7 @@ export default function PatientProfile() {
   const canViewOrtho = isAdmin || user?.role === "Admin" || user?.role === "Dentist" || user?.permissions?.includes("access.ortho");
 
   // Start empty so we don't flash the wrong tab during auth load
-  const [activeTab, setActiveTab] = useState<"overview" | "clinical" | "plan" | "finance" | "timeline" | "xrays" | "prescriptions" | "notes" | "">("");
+  const [activeTab, setActiveTab] = useState<"overview" | "clinical" | "plan" | "finance" | "insurance" | "timeline" | "xrays" | "prescriptions" | "notes" | "">("");
   const [hasSetInitialTab, setHasSetInitialTab] = useState(false);
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -905,10 +907,12 @@ export default function PatientProfile() {
   ];
   const avatarGradient = avatarPalette[(patient.name || "").length % avatarPalette.length];
 
-  const tabs: Array<{ id: "clinical" | "overview" | "plan" | "finance" | "timeline" | "xrays" | "prescriptions" | "notes"; label: string; icon: any; show: boolean }> = [
+  const tabs: Array<{ id: "clinical" | "overview" | "plan" | "finance" | "insurance" | "timeline" | "xrays" | "prescriptions" | "notes"; label: string; icon: any; show: boolean }> = [
     { id: "clinical", label: language === "ar" ? "السجل السريري" : "Clinical", icon: Activity, show: !!canViewClinical },
     { id: "plan", label: language === "ar" ? "خطة العلاج" : "Treatment Plan", icon: ClipboardList, show: !!canViewClinical },
     { id: "finance", label: language === "ar" ? "المالية" : "Finance", icon: Wallet, show: true },
+    // Only a clinic with the insurance add-on has approvals to show; others never see the tab.
+    { id: "insurance", label: language === "ar" ? "التأمين" : "Insurance", icon: ShieldCheck, show: !!clinic && isAnyUnlocked(clinic, "insurance") },
     { id: "timeline", label: language === "ar" ? "سجل الزيارات" : "Timeline", icon: History, show: true },
     { id: "overview", label: language === "ar" ? "نظرة عامة" : "Overview", icon: LayoutDashboard, show: true },
     { id: "xrays", label: language === "ar" ? "الأشعة والصور" : "X-Rays & Photos", icon: Camera, show: true },
@@ -1751,6 +1755,12 @@ export default function PatientProfile() {
           {activeTab === "finance" && (
             <div className="animate-in fade-in duration-300 mt-6">
                 <PatientFinance patientId={id} />
+            </div>
+          )}
+
+          {activeTab === "insurance" && (
+            <div className="animate-in fade-in duration-300 mt-6">
+                <PatientInsuranceTab patientId={id} patient={patient} />
             </div>
           )}
 

@@ -36,7 +36,12 @@ import {
   normalizeConfirmed,
   parseClaim,
   treatedDateAfter,
+  applyDentistPicks,
+  lineDentistFor,
+  parseLineDentists,
+  parseShareCollected,
 } from "../src/lib/insurance/claims";
+import { insuranceWorkByStaff, unassignedLines } from "../src/lib/staffInsurance";
 import { DEFAULT_METLIFE_WORDING, buildMetlifeStatement } from "../src/lib/insuranceStatementMetlife";
 import { SAMPLE_RAW, claimFixture, lineFixture } from "./fixtures/insuranceMetlife.fixture";
 import XLSX from "xlsx-js-style";
@@ -861,6 +866,50 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   assert.equal(none.A5.v, "الاجمالي");
   assert.equal(none.K5.v, 0);
   assert.equal(none.K5.f, undefined, "no subtotal cells, so no formula");
+}
+
+// --- 12. The dentist on each line, their stamped share, and the payroll view ----------------------
+{
+  const omar = { id: "s1", name: "Dr Omar", commissionPercentage: 40, commissionByPayer: { metlife: 25 } };
+  const mona = { id: "s2", name: "Dr Mona", commissionPercentage: 30, commissionByPayer: null };
+  const staff = new Map<string, { id: string; name: string; commissionPercentage: number; commissionByPayer: Record<string, unknown> | null }>([["s1", omar], ["s2", mona]]);
+  const claim = claimFixture();                                   // 5 lines: 60, 60, 600, 300, 240 approved
+  // the rate is the dentist's rate on THIS payer, the share is on the approved amount
+  assert.deepEqual(lineDentistFor(claim.lines[2], omar, "metlife"), { staffId: "s1", name: "Dr Omar", rate: 25, share: 150 });
+  assert.deepEqual(lineDentistFor(claim.lines[2], mona, "metlife"), { staffId: "s2", name: "Dr Mona", rate: 30, share: 180 });
+  assert.equal(lineDentistFor({ approvedAmount: 33.33 }, omar, "metlife").share, 8.33, "share rounds to cents");
+  // picks: assign, keep, clear, unknown
+  const first = applyDentistPicks(claim, { 0: "s1", 2: "s2" }, staff);
+  assert.deepEqual(first.unknownStaff, []);
+  assert.deepEqual(Object.keys(first.dentists), ["0", "2"]);
+  assert.equal(first.dentists[2].share, 180);
+  const second = applyDentistPicks({ ...claim, dentists: first.dentists }, { 0: null, 1: "s1", 9: "s1" }, staff);
+  assert.deepEqual(Object.keys(second.dentists), ["1", "2"], "0 cleared, 1 added, 2 kept, 9 is out of range");
+  assert.deepEqual(applyDentistPicks(claim, { 0: "ghost" }, staff).unknownStaff, ["ghost"]);
+  assert.deepEqual(claim.dentists, {}, "the stored map is never mutated");
+  // stored shape survives a read; junk is dropped
+  assert.deepEqual(parseLineDentists({ 1: { staffId: "s1", name: "Dr Omar", rate: 25, share: 15 }, 7: { staffId: "x" }, a: {}, 2: { staffId: "", rate: 1 } }, 5), { 1: { staffId: "s1", name: "Dr Omar", rate: 25, share: 15 } });
+  assert.equal(parseLineDentists("junk", 5) && Object.keys(parseLineDentists("junk", 5)).length, 0);
+  assert.deepEqual(parseShareCollected({ ledgerId: "L1", amount: "120.5", date: "2026-10-04" }), { ledgerId: "L1", amount: 120.5, date: "2026-10-04" });
+  assert.equal(parseShareCollected({ ledgerId: "L1", amount: 0 }), null);
+  const stored = parseClaim("metlife_d6000001", { ...claimFixture(), dentists: first.dentists, shareCollected: { ledgerId: "L1", amount: 50, date: "2026-10-04" } });
+  assert.ok(stored);
+  assert.deepEqual(stored.dentists, first.dentists);
+  assert.deepEqual(stored.shareCollected, { ledgerId: "L1", amount: 50, date: "2026-10-04" });
+  assert.deepEqual(parseClaim("x", claimFixture()), { ...claimFixture(), id: "x" }, "a claim with no picks reads back as none");
+
+  // payroll: only treated/sent claims count; lines group by dentist; the stamped share is what is summed
+  const treated = claimFixture({ id: "a", approvalDate: "2026-02-10", dentists: { 0: { staffId: "s1", name: "Dr Omar", rate: 25, share: 15 }, 2: { staffId: "s2", name: "Dr Mona", rate: 30, share: 180 } } });
+  const sent = claimFixture({ id: "b", approvalDate: "2026-02-01", status: "sent", treatedDate: "2026-02-03", dentists: { 1: { staffId: "s1", name: "Dr Omar", rate: 99, share: 7 } } });
+  const notYet = claimFixture({ id: "c", status: "approved", dentists: { 0: { staffId: "s1", name: "Dr Omar", rate: 25, share: 15 } } });
+  const work = insuranceWorkByStaff([treated, sent, notYet], { D0120: "كشف" });
+  assert.deepEqual([...work.keys()].sort(), ["s1", "s2"]);
+  const omarWork = work.get("s1")!;
+  assert.equal(omarWork.total, 22, "15 + 7; the approved-only claim earns nothing yet");
+  assert.equal(omarWork.approved, 120);
+  assert.deepEqual(omarWork.entries.map((e) => [e.date, e.approvalNumber, e.service, e.share]), [["2026-02-03", "D6000001", "BITEWING - SINGLE FILM", 7], ["2026-02-10", "D6000001", "كشف", 15]], "treated date first; the learned wording where there is one, else the paper's description");
+  assert.equal(work.get("s2")!.total, 180);
+  assert.deepEqual(unassignedLines([treated, sent, notYet]), { count: 7, approved: 600 + 1200 }, "3 of 5 on a (600), 4 of 5 on b (1200); c does not count");
 }
 
 console.log("insurance metlife reader: ok");

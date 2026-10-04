@@ -198,6 +198,27 @@ export const TEXT = {
   markSentPartial: { en: "Some were not marked; try again", ar: "شوية ما اتعلّموش، جرّب تاني" },
   approvedSum: { en: "Approved", ar: "الموافق عليه" },
   cases: { en: "cases", ar: "حالة" },
+  // patient file -> Insurance tab
+  tabMembership: { en: "Membership", ar: "العضوية" },
+  tabClaims: { en: "Approvals", ar: "الموافقات" },
+  noPatientClaims: { en: "No approvals saved for this patient yet.", ar: "مفيش موافقات محفوظة للمريض ده لسه." },
+  noMembership: { en: "No insurance membership recorded. Edit the patient to add one.", ar: "مفيش عضوية تأمين مسجلة. عدّل بيانات المريض عشان تضيفها." },
+  colService: { en: "Service", ar: "بيان الخدمة" },
+  colCount: { en: "Count", ar: "العدد" },
+  colRequested: { en: "Requested", ar: "القيمة المطلوبة" },
+  colDentist: { en: "Dentist", ar: "الطبيب" },
+  pickDentist: { en: "— pick —", ar: "— اختار —" },
+  dentistSaved: { en: "Dentist saved", ar: "اتحفظ الطبيب" },
+  dentistFailed: { en: "Could not save the dentist", ar: "ما قدرناش نحفظ الطبيب" },
+  share: { en: "Patient share", ar: "حصة المريض" },
+  collectShare: { en: "Collect patient share", ar: "تحصيل حصة المريض" },
+  shareCollectedOn: { en: "Collected on", ar: "اتحصّلت يوم" },
+  shareCollectedToast: { en: "Patient share recorded in today's cash", ar: "حصة المريض اتسجلت في كاش النهاردة" },
+  shareFailed: { en: "Could not record the patient share", ar: "ما قدرناش نسجل حصة المريض" },
+  shareDescription: { en: "Patient share — {insurer} approval {number} — {patient}", ar: "حصة المريض — موافقة {insurer} {number} — {patient}" },
+  confirmShare: { en: "Record {amount} EGP cash from the patient for approval {number}?", ar: "تسجيل {amount} جنيه كاش من المريض لموافقة {number}؟" },
+  memberNumber: { en: "Member number", ar: "رقم العضوية" },
+  insuranceNotOn: { en: "Insurance approvals are not part of this clinic's subscription.", ar: "موافقات التأمين مش ضمن اشتراك العيادة." },
 } as const satisfies Record<string, Lang>;
 
 export type TextKey = keyof typeof TEXT;
