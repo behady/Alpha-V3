@@ -24,6 +24,7 @@ import {
   type MetlifeLine,
 } from "../src/lib/insurance/metlife";
 import { latinSkeleton, matchPatient, nameSimilarity } from "../src/lib/insurance/matchPatient";
+import { bookLineUrl, claimProgress, lineBooking, lineSyncPatch, openLines, parseClaimLink } from "../src/lib/insurance/appointments";
 import { metlifeMemberNumber, readInsurance, readMemberNumbers, writeInsurance } from "../src/lib/patientInsurance";
 import {
   CLAIM_STATUSES,
@@ -1097,6 +1098,65 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   assert.equal(rows.length, 5, "the charge exists whatever the state");
   assert.deepEqual(rows.map((r) => r.note.status), ["Completed", "Planned", "Ongoing", "Completed", "Completed"]);
   assert.equal("status" in rows[1].charge, false, "the ledger charge carries no state, as in the clinical editor");
+}
+
+// --- 15. Appointments booked for one service line of an approval -----------------------------------
+{
+  // the link on an appointment: claim id + line index, or nothing for a private booking
+  assert.deepEqual(parseClaimLink({ claimId: "metlife_1", claimLine: 2 }), { claimId: "metlife_1", claimLine: 2 });
+  assert.deepEqual(parseClaimLink({ claimId: "metlife_1", claimLine: "1" }), { claimId: "metlife_1", claimLine: 1 });
+  assert.equal(parseClaimLink({ claimId: "", claimLine: 0 }), null);
+  assert.equal(parseClaimLink({ claimId: "metlife_1", claimLine: -1 }), null);
+  assert.equal(parseClaimLink({ claimId: "metlife_1", claimLine: 1.5 }), null);
+  assert.equal(parseClaimLink({ treatment: "Filling" } as never), null);
+  assert.equal(parseClaimLink(null), null);
+
+  // which lines can still be booked: not Completed, and never on a cancelled approval
+  const three = claimFixture({ lines: [lineFixture(), lineFixture({ code: "D2740" }), lineFixture({ code: "D7140" })], lineStatus: { 1: "Planned", 2: "Ongoing" } });
+  assert.deepEqual(openLines(three), [1, 2]);
+  assert.deepEqual(openLines({ ...three, status: "cancelled" }), []);
+  assert.deepEqual(openLines(claimFixture()), [], "no state stored = Completed = nothing to book");
+
+  // where a line stands in the calendar
+  const visits = [
+    { id: "a1", claimId: three.id, claimLine: 1, status: "Cancelled", date: "2026-10-05", time: "10:00", doctor: "Dr A" },
+    { id: "a2", claimId: three.id, claimLine: 1, status: "Scheduled", date: "2026-10-12", time: "11:00", doctor: "Dr B" },
+    { id: "a3", claimId: three.id, claimLine: 1, status: "Scheduled", date: "2026-10-08", time: "09:30", doctor: "Dr A" },
+    { id: "a4", claimId: three.id, claimLine: 2, status: "Completed", date: "2026-10-01", time: "12:00", doctor: "Dr A" },
+    { id: "a5", claimId: three.id, claimLine: 2, status: "Scheduled", date: "2026-10-20", time: "12:00", doctor: "Dr A" },
+    { id: "a6", claimId: "metlife_other", claimLine: 1, status: "Completed", date: "2026-10-02", time: "12:00", doctor: "Dr A" },
+    { id: "a7", patientId: "p1", status: "Completed", date: "2026-10-02", time: "12:00" },
+  ];
+  assert.deepEqual(lineBooking(visits, three.id, 1), { kind: "booked", date: "2026-10-08", time: "09:30", doctor: "Dr A", appointmentId: "a3" }, "the soonest live visit, the cancelled one ignored");
+  assert.deepEqual(lineBooking(visits, three.id, 2), { kind: "done", date: "2026-10-01", appointmentId: "a4" }, "a completed visit wins over a later booking");
+  assert.deepEqual(lineBooking(visits, three.id, 0), { kind: "none" });
+  assert.deepEqual(lineBooking(visits, "metlife_other", 0), { kind: "none" }, "another approval's visits do not count");
+
+  // the progress line on the Insurance page
+  assert.deepEqual(claimProgress(three, visits), { total: 3, done: 1, booked: 1 }, "done comes from the claim's own states; booked from open lines with a visit");
+  assert.deepEqual(claimProgress(claimFixture(), []), { total: 5, done: 5, booked: 0 }, "no states stored: every line of the sample counts as done");
+
+  // the Book button's destination
+  assert.equal(bookLineUrl("p 1", { claimId: "metlife_1", claimLine: 2 }), "/appointments?book=p%201&claim=metlife_1&line=2");
+
+  // what a finished visit changes on the approval
+  const planned = claimFixture({ lines: [lineFixture(), lineFixture({ code: "D2740" })], lineStatus: { 1: "Planned" } });
+  assert.deepEqual(
+    lineSyncPatch(planned, { claimId: planned.id, claimLine: 1, status: "Completed", doctorId: "s1" }),
+    { lineStatus: { 1: "Completed" }, dentists: { 1: "s1" } },
+    "a Planned line completes and takes the visit's dentist",
+  );
+  assert.deepEqual(lineSyncPatch(planned, { claimId: planned.id, claimLine: 1, status: "Checking Out", doctorId: "s1" })?.lineStatus, { 1: "Completed" }, "the dentist's own done counts too");
+  assert.deepEqual(lineSyncPatch(planned, { claimId: planned.id, claimLine: 1, status: "Completed" }), { lineStatus: { 1: "Completed" } }, "a visit with no dentist leaves the line's dentist alone");
+  assert.equal(lineSyncPatch(planned, { claimId: planned.id, claimLine: 1, status: "In Chair", doctorId: "s1" }), null, "nothing until the visit is done");
+  assert.equal(lineSyncPatch(planned, { claimId: planned.id, claimLine: 1, status: "Cancelled", doctorId: "s1" }), null);
+  assert.equal(lineSyncPatch(planned, { claimId: planned.id, claimLine: 5, status: "Completed", doctorId: "s1" }), null, "a line that does not exist");
+  assert.equal(lineSyncPatch(planned, { status: "Completed", doctorId: "s1" }), null, "a private booking");
+  assert.equal(lineSyncPatch({ ...planned, status: "cancelled" }, { claimId: planned.id, claimLine: 1, status: "Completed", doctorId: "s1" }), null, "a cancelled approval is not revived by a visit");
+  const ongoing = claimFixture({ lines: [lineFixture(), lineFixture({ code: "D2740" })], lineStatus: { 1: "Ongoing" }, dentists: { 1: { staffId: "s1", name: "Dr A", rate: 10, share: 10 } } });
+  assert.equal(lineSyncPatch(ongoing, { claimId: ongoing.id, claimLine: 1, status: "Completed", doctorId: "s1" }), null, "an Ongoing line with the same dentist: several visits make one service, nothing to change");
+  assert.deepEqual(lineSyncPatch(ongoing, { claimId: ongoing.id, claimLine: 1, status: "Completed", doctorId: "s2" }), { dentists: { 1: "s2" } }, "a different dentist did the visit: the line follows, the state does not");
+  assert.equal(lineSyncPatch(claimFixture(), { claimId: "metlife_d6000001", claimLine: 0, status: "Completed" }), null, "already Completed, no dentist on the visit: nothing");
 }
 
 console.log("insurance metlife reader: ok");

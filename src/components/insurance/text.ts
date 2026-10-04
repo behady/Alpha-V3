@@ -234,6 +234,14 @@ export const TEXT = {
   shareFailed: { en: "Could not record the patient share", ar: "ما قدرناش نسجل حصة المريض" },
   confirmShare: { en: "Record {amount} EGP cash from the patient for approval {number}?", ar: "تسجيل {amount} جنيه كاش من المريض لموافقة {number}؟" },
   memberNumber: { en: "Member number", ar: "رقم العضوية" },
+  // appointments booked for one service of an approval
+  colVisit: { en: "Visit", ar: "الزيارة" },
+  book: { en: "Book", ar: "احجز" },
+  bookAnother: { en: "Book another visit", ar: "احجز زيارة كمان" },
+  bookedOn: { en: "Booked", ar: "محجوز" },
+  doneOn: { en: "Done", ar: "خلصت" },
+  notBooked: { en: "Not booked", ar: "مش محجوز" },
+  progress: { en: "{done} of {total} done · {booked} booked", ar: "{done} من {total} خلصت · {booked} محجوز" },
   insuranceNotOn: { en: "Insurance approvals are not part of this clinic's subscription.", ar: "موافقات التأمين مش ضمن اشتراك العيادة." },
 } as const satisfies Record<string, Lang>;
 

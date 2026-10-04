@@ -33,7 +33,9 @@ import {
 } from "@/lib/phoneNumber";
 import { db } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
-import { collection, query, where, getDocs, doc, getDoc, addDoc, updateDoc, serverTimestamp, deleteDoc } from "firebase/firestore";
+import { collection, query, where, getDocs, doc, getDoc, addDoc, updateDoc, serverTimestamp, deleteDoc, onSnapshot } from "firebase/firestore";
+import { openLines, type ClaimLink } from "@/lib/insurance/appointments";
+import { CLAIMS_COLLECTION, parseClaim, type InsuranceClaim } from "@/lib/insurance/claims";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { useAuth } from "@/context/AuthContext";
@@ -83,6 +85,9 @@ interface AppointmentData {
   /** Final amount after discount (ledger / balance) */
   cost: number;
   clinicalNoteId?: string | null;
+  /** The insurance approval service this visit is for; null = a plain visit. */
+  claimId?: string | null;
+  claimLine?: number | null;
   newProcedureName?: string | null;
   /** false = follow-up on existing case, no extra charge unless staff adds an extra procedure */
   chargeForVisit?: boolean;
@@ -122,6 +127,8 @@ export type BookingEditSnapshot = {
   branchId?: string | null;
   roomId?: string | null;
   clinicalNoteId?: string | null;
+  claimId?: string | null;
+  claimLine?: number | null;
   cost?: number;
   listPrice?: number | null;
   discountMode?: string | null;
@@ -171,6 +178,12 @@ interface Props {
    * between branches has to be a deliberate act, not a side effect of who opened the screen.
    */
   preSelectedBranchId?: string;
+  /**
+   * An insurance approval's service to book this visit for (the Book button on the patient's
+   * Insurance tab). Fills the dentist and the reason from the approval; the desk can still change
+   * either. Ignored in edit mode, where the link comes from the appointment itself.
+   */
+  preSelectedClaimLine?: ClaimLink | null;
 }
 
 /**
@@ -206,6 +219,7 @@ export default function BookingModal({
   inlineDesktop = false,
   servicesList = [],
   preSelectedBranchId = "",
+  preSelectedClaimLine = null,
 }: Props) {
   const { language } = useLanguage();
   const { showToast, confirm } = useUI();
@@ -343,6 +357,65 @@ export default function BookingModal({
   
   const [sourcesOptions, setSourcesOptions] = useState<string[]>(["Walk-in", "Social Media", "Friend / Family", "Other Doctor", "Google"]);
   const [visitReasonsOptions, setVisitReasonsOptions] = useState<string[]>(["كشف"]);
+
+  // --- insurance: which approved service this visit is for --------------------------------------
+  const [claimLink, setClaimLink] = useState<ClaimLink | null>(null);
+  const [patientClaims, setPatientClaims] = useState<{ patientId: string; claims: InsuranceClaim[] }>({ patientId: "", claims: [] });
+  const claimPatientId = selectedPatient && !isNewPatient ? String(selectedPatient.id) : "";
+  useEffect(() => {
+    if (!isOpen || !claimPatientId) return;
+    // Clinic members may read claims; only the server writes them. A clinic without the insurance
+    // add-on simply gets no rows (or a denied read), and the picker stays hidden either way.
+    return onSnapshot(
+      query(getClinicCollection(CLAIMS_COLLECTION), where("patientId", "==", claimPatientId)),
+      (snap) => setPatientClaims({ patientId: claimPatientId, claims: snap.docs.map((d) => parseClaim(d.id, d.data())).filter((c): c is InsuranceClaim => c !== null) }),
+      () => setPatientClaims({ patientId: claimPatientId, claims: [] }),
+    );
+  }, [isOpen, claimPatientId]);
+  const claimsLoaded = !!claimPatientId && patientClaims.patientId === claimPatientId;
+  /** Every service still open on this patient's approvals, plus the one already on the appointment. */
+  const lineOptions = useMemo(() => {
+    if (!claimsLoaded) return [];
+    const out: { value: string; link: ClaimLink; label: string; dentistName: string; reason: string }[] = [];
+    for (const c of patientClaims.claims) {
+      const open = new Set(openLines(c));
+      c.lines.forEach((line, i) => {
+        const current = claimLink && claimLink.claimId === c.id && claimLink.claimLine === i;
+        if (!open.has(i) && !current) return;
+        const dentistName = c.dentists[i]?.name ?? "";
+        out.push({ value: `${c.id}|${i}`, link: { claimId: c.id, claimLine: i }, label: `${line.description} · ${c.approvalNumber}${dentistName ? ` · ${dentistName}` : ""}`, dentistName, reason: line.description });
+      });
+    }
+    return out;
+  }, [claimsLoaded, patientClaims, claimLink]);
+  const pickLine = (value: string) => {
+    const opt = lineOptions.find((o) => o.value === value) ?? null;
+    setClaimLink(opt ? opt.link : null);
+    if (!opt) return;
+    setTreatment(opt.reason);
+    if (opt.dentistName && doctors.some((d) => d.name === opt.dentistName)) setDoctor(opt.dentistName);
+  };
+  // A link that does not belong to the patient on screen (the picker moved to someone else) is dropped.
+  useEffect(() => {
+    if (!claimsLoaded || !claimLink) return;
+    if (!patientClaims.claims.some((c) => c.id === claimLink.claimId)) setClaimLink(null);
+  }, [claimsLoaded, patientClaims, claimLink]);
+  // The Book button's pick fills the form once its approval has loaded.
+  const appliedPreselect = useRef("");
+  useEffect(() => {
+    if (!isOpen || editAppointment || !preSelectedClaimLine || !claimsLoaded) return;
+    const k = `${claimPatientId}|${preSelectedClaimLine.claimId}|${preSelectedClaimLine.claimLine}`;
+    if (appliedPreselect.current === k) return;
+    const opt = lineOptions.find((o) => o.link.claimId === preSelectedClaimLine.claimId && o.link.claimLine === preSelectedClaimLine.claimLine);
+    if (!opt) return;
+    appliedPreselect.current = k;
+    pickLine(opt.value);
+  });
+  useEffect(() => {
+    if (!isOpen) appliedPreselect.current = "";
+  }, [isOpen]);
+  /** The reason box must be able to show the approved service's wording even when the clinic's list lacks it. */
+  const reasonOptions = treatment && !visitReasonsOptions.includes(treatment) ? [treatment, ...visitReasonsOptions] : visitReasonsOptions;
 
   useEffect(() => {
     getDoc(getClinicDoc("settings", "patient_sources")).then((snap) => {
@@ -564,6 +637,9 @@ export default function BookingModal({
       setTreatment(editAppointment.treatment || "");
       setVisitNotes(editAppointment.notes || "");
       setAppointmentStatus(editAppointment.status || "Scheduled");
+      setClaimLink(
+        editAppointment.claimId && Number.isInteger(editAppointment.claimLine) ? { claimId: editAppointment.claimId, claimLine: editAppointment.claimLine as number } : null,
+      );
     } else {
       setIsNewPatient(false);
       setNewPatientName("");
@@ -584,8 +660,9 @@ export default function BookingModal({
       setAppointmentStatus("Scheduled");
       setBranchId("");
       setRoomId("");
+      setClaimLink(preSelectedClaimLine ?? null);
     }
-  }, [isOpen, editAppointment, doctors, sched.slotDuration, preSelectedDoctor, preSelectedPatient, preSelectedDate, preSelectedTime]);
+  }, [isOpen, editAppointment, doctors, sched.slotDuration, preSelectedDoctor, preSelectedPatient, preSelectedDate, preSelectedTime, preSelectedClaimLine]);
 
   // A clinic with exactly one branch shouldn't have to pick it on every booking.
   useEffect(() => {
@@ -766,6 +843,8 @@ export default function BookingModal({
         notes: visitNotes.trim(),
         cost: editAppointment ? (editAppointment.cost || 0) : 0,
         clinicalNoteId: editAppointment ? editAppointment.clinicalNoteId : null,
+        claimId: claimLink?.claimId ?? null,
+        claimLine: claimLink?.claimLine ?? null,
         newProcedureName: null,
         listPrice: editAppointment ? (editAppointment.listPrice || 0) : 0,
         // `as const` because this is now a returned object rather than an inline argument — without
@@ -1022,6 +1101,28 @@ export default function BookingModal({
 
           {selectedPatient && (
   <div className="border-t border-slate-100 bg-slate-50/50 p-6">
+    {(lineOptions.length > 0 || claimLink) && (
+      <div className="mb-4">
+        <label className="mb-2 block text-sm font-black uppercase tracking-wider text-indigo-900/40">
+          {language === "ar" ? "خدمة موافقة التأمين" : "Approved insurance service"}
+        </label>
+        <select
+          value={claimLink ? `${claimLink.claimId}|${claimLink.claimLine}` : ""}
+          onChange={(e) => pickLine(e.target.value)}
+          className="w-full rounded-xl border border-line bg-surface py-3 px-4 text-sm font-bold text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10"
+        >
+          <option value="">{language === "ar" ? "— زيارة عادية —" : "— none, a private visit —"}</option>
+          {lineOptions.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+        <p className="mt-1.5 text-[11px] font-semibold text-slate-500">
+          {language === "ar"
+            ? "لما الزيارة تتعلّم خلصت، الخدمة دي بتتعلّم خلصت على الموافقة."
+            : "When this visit is marked done, the service is marked completed on the approval."}
+        </p>
+      </div>
+    )}
     <label className="mb-2 block text-sm font-black uppercase tracking-wider text-indigo-900/40">
       {language === "ar" ? "السبب الرئيسي للزيارة" : "Primary Reason for Visit"}
     </label>
@@ -1034,7 +1135,7 @@ export default function BookingModal({
         className="w-full rounded-xl border border-line bg-surface py-3 pl-10 pr-10 text-sm font-bold text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10 appearance-none"
       >
         <option value="" disabled>{language === "ar" ? "اختر سبب الزيارة" : "Select Reason for Visit"}</option>
-        {visitReasonsOptions.map(r => (
+        {reasonOptions.map(r => (
           <option key={r} value={r}>{r}</option>
         ))}
       </select>

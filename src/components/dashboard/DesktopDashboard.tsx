@@ -69,6 +69,7 @@ import {
 import ScheduleCardDetails, { AlertBadge, ChairProgress } from "@/components/dashboard/ScheduleCardDetails";
 import UserClockWidget from "@/components/dashboard/UserClockWidget";
 import { currentClinicId, getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { syncClaimLineFromAppointment } from "@/lib/insurance/appointmentSync";
 function getLocalDateKey(): string {
   const d = new Date();
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split("T")[0];
@@ -434,6 +435,7 @@ export default function DesktopDashboard() {
       });
 
       await updateDoc(getClinicDoc("appointments", selectedAppointment.id), updatePayload);
+      void syncClaimLineFromAppointment(currentClinicId(), { ...selectedAppointment, status: inlineEdit.status });
       showToast(language === 'ar' ? 'تم الحفظ' : 'Saved!', 'success');
       return true;
     } catch (e) {
@@ -686,6 +688,8 @@ export default function DesktopDashboard() {
       }
 
       await updateDoc(getClinicDoc("appointments", id), updatePayload);
+      // A finished visit for an insurance service marks that service done on its approval.
+      void syncClaimLineFromAppointment(currentClinicId(), { ...appt, status: nextStatus });
 
       // The flow alerts. Same keys the booking service sends; the server maps them to the catalogue.
       if (nextStatus === "No Show") {

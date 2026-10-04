@@ -55,6 +55,7 @@ import { printPatientReceipt } from "@/lib/printPatientReceipt";
 import { getAppointmentStatusStyles, getAppointmentStageLabel } from "@/lib/appointmentStages";
 import UserClockWidget from "@/components/dashboard/UserClockWidget";
 import { currentClinicId, getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { syncClaimLineFromAppointment } from "@/lib/insurance/appointmentSync";
 import PageHeader, { headerButtonPrimary, headerButtonGhost } from "@/components/dashboard/PageHeader";
 import HomeViewTabs from "@/components/dashboard/HomeViewTabs";
 function getLocalDateKey(): string {
@@ -406,6 +407,7 @@ export default function MobileDashboard() {
       });
 
       await updateDoc(getClinicDoc("appointments", selectedAppointment.id), updatePayload);
+      void syncClaimLineFromAppointment(currentClinicId(), { ...selectedAppointment, status: inlineEdit.status });
       showToast(language === 'ar' ? 'تم الحفظ' : 'Saved!', 'success');
       return true;
     } catch (e) {
@@ -593,6 +595,8 @@ export default function MobileDashboard() {
       }
 
       await updateDoc(getClinicDoc("appointments", id), updatePayload);
+      // A finished visit for an insurance service marks that service done on its approval.
+      void syncClaimLineFromAppointment(currentClinicId(), { ...appt, status: nextStatus });
 
       // The flow alerts. Same keys the booking service sends; the server maps them to the catalogue.
       if (nextStatus === "No Show") {

@@ -20,15 +20,17 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { collection, doc, getDocs, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import { ref, getDownloadURL } from "firebase/storage";
-import { FileText, Loader2, Banknote, CheckCircle2, RefreshCw, RotateCcw, Send } from "lucide-react";
+import { CalendarPlus, FileText, Loader2, Banknote, CheckCircle2, RefreshCw, RotateCcw, Send } from "lucide-react";
 import { db, storage } from "@/lib/firebase";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { isAnyUnlocked } from "@/lib/featureCatalog";
 import { CLAIMS_COLLECTION, LINE_STATUSES, lineStatusOf, parseClaim, type ClaimStatus, type InsuranceClaim, type LineStatus } from "@/lib/insurance/claims";
+import { bookLineUrl, lineBooking, type LinkedAppointmentLite } from "@/lib/insurance/appointments";
 import { readInsurance } from "@/lib/patientInsurance";
 import { parsePayers, PRIVATE_PAYER_ID, type Payer } from "@/lib/payers";
 import { isDentistStaff } from "@/lib/staffRoles";
@@ -58,6 +60,8 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
   const [payers, setPayers] = useState<Payer[]>([]);
   const [dentists, setDentists] = useState<Dentist[]>([]);
   const [claims, setClaims] = useState<InsuranceClaim[]>([]);
+  /** This patient's appointments, for the Visit column: which approved service is booked, done, or neither. */
+  const [appointments, setAppointments] = useState<LinkedAppointmentLite[]>([]);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -81,6 +85,11 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
       (snap) => setPayers(parsePayers(snap.data())),
       () => setPayers([]),
     );
+    const unsubAppts = onSnapshot(
+      query(collection(db, "clinics", clinicId, "appointments"), where("patientId", "==", patientId)),
+      (snap) => setAppointments(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) }) as LinkedAppointmentLite)),
+      (err) => console.error("Patient appointments failed", err),
+    );
     getDocs(collection(db, "clinics", clinicId, "staff"))
       .then((snap) =>
         setDentists(
@@ -95,6 +104,7 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
     return () => {
       stop();
       unsubPayers();
+      unsubAppts();
     };
   }, [clinicId, patientId]);
 
@@ -305,7 +315,8 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                   <th className="py-2 pe-3 text-end">{t("colRequested")}</th>
                   <th className="py-2 pe-3 text-end">{t("colApproved")}</th>
                   <th className="py-2 pe-3 text-start">{t("colDentist")}</th>
-                  <th className="py-2 text-start">{t("colState")}</th>
+                  <th className="py-2 pe-3 text-start">{t("colState")}</th>
+                  <th className="py-2 text-start">{t("colVisit")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -410,7 +421,7 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                         )}
                         </div>
                       </td>
-                      <td className="py-2">
+                      <td className="py-2 pe-3">
                         <select
                           value={lineStatusOf(c, i)}
                           disabled={isBusy || c.status === "cancelled"}
@@ -424,6 +435,42 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                             </option>
                           ))}
                         </select>
+                      </td>
+                      {/* The calendar's view of this service: booked, done, or a Book button that opens the
+                          booking page on this patient with this service and its dentist already picked. */}
+                      <td className="py-2 text-[12px] font-semibold text-ink-muted">
+                        {(() => {
+                          const visit = lineBooking(appointments, c.id, i);
+                          const open = c.status !== "cancelled" && lineStatusOf(c, i) !== "Completed";
+                          if (visit.kind === "done") {
+                            return (
+                              <span className="inline-flex items-center gap-1 text-emerald-800" dir="ltr">
+                                <CheckCircle2 size={12} /> {t("doneOn")} {visit.date}
+                              </span>
+                            );
+                          }
+                          if (visit.kind === "booked") {
+                            return (
+                              <span className="inline-flex flex-wrap items-center gap-x-1.5">
+                                <span className="font-figure tabular-nums text-ink" dir="ltr">
+                                  {t("bookedOn")} {visit.date} {visit.time}
+                                </span>
+                                {visit.doctor && <span>· {visit.doctor}</span>}
+                                {open && (
+                                  <Link href={bookLineUrl(patientId, { claimId: c.id, claimLine: i })} title={t("bookAnother")} className="rounded-lg border border-line p-1 text-ink-muted hover:text-ink">
+                                    <CalendarPlus size={12} />
+                                  </Link>
+                                )}
+                              </span>
+                            );
+                          }
+                          if (!open) return <span>—</span>;
+                          return (
+                            <Link href={bookLineUrl(patientId, { claimId: c.id, claimLine: i })} className="inline-flex items-center gap-1 rounded-lg border border-line bg-surface-subtle px-2 py-1 text-[11px] font-bold text-ink hover:bg-surface">
+                              <CalendarPlus size={12} /> {t("book")}
+                            </Link>
+                          );
+                        })()}
                       </td>
                     </tr>
                   ));

@@ -18,6 +18,7 @@ import { storage } from "@/lib/firebase";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import type { ClaimStatus, InsuranceClaim } from "@/lib/insurance/claims";
+import { claimProgress, type LinkedAppointmentLite } from "@/lib/insurance/appointments";
 import type { ClaimPatch } from "./api";
 import { tr, type TextKey } from "./text";
 
@@ -37,6 +38,7 @@ export default function ClaimsTable({
   highlightId,
   loading,
   payerName,
+  appointments = [],
 }: {
   claims: InsuranceClaim[];
   /** Resolves true when the change is saved; the page reports a failure itself. */
@@ -47,6 +49,8 @@ export default function ClaimsTable({
   loading?: boolean;
   /** The insurer's name, for the payment questions; the claim's payer id stands in without it. */
   payerName?: string;
+  /** Every appointment booked for an approved service, for the "2 of 3 done · 1 booked" line. */
+  appointments?: LinkedAppointmentLite[];
 }) {
   const { language } = useLanguage();
   const isAr = language === "ar";
@@ -170,6 +174,18 @@ export default function ClaimsTable({
                 <td className="px-3 py-2.5 text-end text-[13px] font-bold tabular-nums text-ink-body">{money(c.totals.patientShare)}</td>
                 <td className="px-3 py-2.5">
                   <span className={`inline-block rounded-full border px-2.5 py-0.5 text-[11px] font-black ${status.pill}`}>{t(status.key)}</span>
+                  {(() => {
+                    // Only when there is something to say: an approval with every service done and
+                    // nothing on the calendar is just its status.
+                    if (c.status === "cancelled") return null;
+                    const p = claimProgress(c, appointments);
+                    if (p.done === p.total && p.booked === 0) return null;
+                    return (
+                      <div className="mt-1 text-[11px] font-semibold tabular-nums text-ink-muted">
+                        {t("progress").replace("{done}", String(p.done)).replace("{total}", String(p.total)).replace("{booked}", String(p.booked))}
+                      </div>
+                    );
+                  })()}
                 </td>
                 <td className="px-3 py-2">
                   <div className="flex flex-wrap items-center gap-1">

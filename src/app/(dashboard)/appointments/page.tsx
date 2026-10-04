@@ -19,6 +19,7 @@ import { saveBooking, normalizeDateKey, normalizeTimeKey, parseApptTimeToMinutes
 import { MoneyApiError, deleteAppointment } from "@/lib/moneyApi";
 import DeleteAppointmentDialog from "@/components/appointments/DeleteAppointmentDialog";
 import { currentClinicId, getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import type { ClaimLink } from "@/lib/insurance/appointments";
 import { parseClinicSchedule, clinicDayBoundsMinutes, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import Protect from "@/components/Protect";
 import StarRating from "@/components/StarRating";
@@ -77,6 +78,9 @@ interface Appointment {
   roomId?: string | null;
   roomName?: string | null;
   serviceName?: string | null;
+  /** Set when the visit is for one service of an insurance approval (lib/insurance/appointments). */
+  claimId?: string | null;
+  claimLine?: number | null;
 }
 
 export default function AppointmentsPage() {
@@ -125,6 +129,7 @@ export default function AppointmentsPage() {
   const [showDelayPrompt, setShowDelayPrompt] = useState(false);
   const [delayedApptData, setDelayedApptData] = useState<any>(null);
   const [preSelectedPatient, setPreSelectedPatient] = useState<{ id: string; name: string } | null>(null);
+  const [preSelectedClaimLine, setPreSelectedClaimLine] = useState<ClaimLink | null>(null);
   const [preSelectedDoctor, setPreSelectedDoctor] = useState<string>("");
 
   // Navigation State
@@ -209,18 +214,23 @@ export default function AppointmentsPage() {
   // /appointments?book=<patientId> — how the Leads screen hands a fresh convert straight to
   // booking. Waits for the patients list so the picker shows the name, then clears the param
   // so refresh/back doesn't reopen the form.
+  // &claim=<claimId>&line=<n> — the patient's Insurance tab booking one approved service.
   const bookPatientId = searchParams?.get("book") || "";
+  const bookClaimId = searchParams?.get("claim") || "";
+  const bookClaimLine = searchParams?.get("line") || "";
   useEffect(() => {
     if (!bookPatientId || patientsList.length === 0) return;
     const patient = patientsList.find(p => String(p.id) === bookPatientId);
     if (patient) {
       setPreSelectedPatient({ id: String(patient.id), name: patient.name });
+      const line = Number(bookClaimLine);
+      setPreSelectedClaimLine(bookClaimId && Number.isInteger(line) && line >= 0 ? { claimId: bookClaimId, claimLine: line } : null);
       setAppointmentToEdit(null);
       setSelectedTimeForBooking("");
       setIsBookingModalOpen(true);
     }
     router.replace("/appointments");
-  }, [bookPatientId, patientsList, router]);
+  }, [bookPatientId, bookClaimId, bookClaimLine, patientsList, router]);
 
   // Fetch Appointments
   useEffect(() => {
@@ -468,6 +478,7 @@ export default function AppointmentsPage() {
       );
       setIsBookingModalOpen(false);
       setPreSelectedPatient(null);
+      setPreSelectedClaimLine(null);
       setPreSelectedDoctor("");
       setAppointmentToEdit(null);
       showToast(language === "ar" ? "تم الحفظ بنجاح" : "Saved Successfully", "success");
@@ -978,6 +989,7 @@ export default function AppointmentsPage() {
               <div className="flex justify-between items-end w-full gap-2 mt-auto min-h-0 shrink-0">
                 <div className="flex flex-col gap-1 min-w-0">
                   <p className={`text-slate-800 truncate font-bold bg-white/60 lg:bg-white/80 backdrop-blur-sm px-1.5 py-0.5 rounded-md shadow-sm min-w-0 ${infoFontSize}`}>
+                    {appt.claimId && <span className="me-1 rounded bg-ink px-1 py-px text-[9px] font-black uppercase tracking-wider text-white align-middle">{language === 'ar' ? 'تأمين' : 'Insurance'}</span>}
                     {appt.treatment || 'Consultation'} <span className="text-slate-400 mx-1 font-normal">•</span> {doctorCardLabel(appt.doctor, language)}
                   </p>
                   {(appt.roomName || (!selectedBranchId && branches.length > 1 && appt.branchName)) && (
@@ -1086,6 +1098,7 @@ export default function AppointmentsPage() {
                        onClose={() => {
                           setIsBookingModalOpen(false);
                           setPreSelectedPatient(null);
+                          setPreSelectedClaimLine(null);
                           setPreSelectedDoctor("");
                           setAppointmentToEdit(null);
                        }}
@@ -1095,6 +1108,7 @@ export default function AppointmentsPage() {
                        preSelectedDate={selectedDateForBooking}
                        preSelectedTime={selectedTimeForBooking}
                        preSelectedPatient={preSelectedPatient}
+                       preSelectedClaimLine={preSelectedClaimLine}
                        preSelectedDoctor={preSelectedDoctor}
                        editAppointment={appointmentToEdit}
                        patients={patientsList}
@@ -1331,6 +1345,7 @@ export default function AppointmentsPage() {
                                                 <span className="font-extrabold text-sm text-ink truncate">{appt.patientName}</span>
                                              </div>
                                              <p className="text-xs text-ink-muted font-bold truncate mt-0.5">
+                                                {appt.claimId && <span className="me-1 rounded bg-ink px-1 py-px text-[9px] font-black uppercase tracking-wider text-white align-middle">{language === 'ar' ? 'تأمين' : 'Insurance'}</span>}
                                                 {appt.treatment || 'Consultation'} <span className="text-slate-300 mx-0.5">•</span> {doctorCardLabel(appt.doctor, language)}
                                              </p>
                                              {(appt.roomName || appt.branchName) && (
@@ -1444,6 +1459,7 @@ export default function AppointmentsPage() {
           onClose={() => {
             setIsBookingModalOpen(false);
             setPreSelectedPatient(null);
+            setPreSelectedClaimLine(null);
             setPreSelectedDoctor("");
           }}
           onSave={handleSaveBooking}
@@ -1452,6 +1468,7 @@ export default function AppointmentsPage() {
           preSelectedDate={selectedDateForBooking}
           preSelectedTime={selectedTimeForBooking}
           preSelectedPatient={preSelectedPatient}
+          preSelectedClaimLine={preSelectedClaimLine}
           preSelectedDoctor={preSelectedDoctor}
           editAppointment={appointmentToEdit}
           patients={patientsList}
