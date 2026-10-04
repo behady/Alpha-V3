@@ -105,8 +105,9 @@ export default function AppointmentMoneyTab({
 
   // Re-price a catalogue pick when the prefill list changes; a free-typed name keeps its typed price.
   useEffect(() => {
-    if (!procName) return;
-    const svc = services.find((x) => String(x.name) === procName);
+    const name = procName.trim();
+    if (!name) return;
+    const svc = services.find((x) => String(x.name) === name);
     if (svc) setProcCost(resolveListPrice(svc as { price?: number; prices?: Record<string, number> }, procListId));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [procListId]);

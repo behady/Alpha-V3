@@ -87,14 +87,21 @@ export default function DiscountEditor({
     return [...live.filter((p) => p.id === PRIVATE_PAYER_ID), ...live.filter((p) => p.id !== PRIVATE_PAYER_ID)];
   }, [payers]);
   // The payer is its own choice now; the list only prefills. An unresolved "" renders a select's
-  // first option while the state holds nothing (the placeholder trap), so it is pinned to Private.
+  // first option while the state holds nothing (the placeholder trap), so a BLANK is pinned to
+  // Private. A stored payer is never replaced here: the payers arrive a beat after the note does,
+  // and resolving "AXA" against a list that only holds Private yet would move the case to Private
+  // and save it that way. A retired payer stays as recorded and is shown as such.
   const editorPayer = useMemo(() => findPayer(payers, value.payerId) ?? payerForPriceList(payers, value.priceListId), [payers, value.payerId, value.priceListId]);
   useEffect(() => {
-    if (activePayers.length === 0) return;
-    if (activePayers.some((p) => p.id === value.payerId)) return;
+    if (activePayers.length === 0 || value.payerId) return;
     onChange({ ...value, payerId: PRIVATE_PAYER_ID });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activePayers, value.payerId]);
+  /** The options: every active payer, plus the stored one when it has been retired since. */
+  const payerOptions = useMemo(() => {
+    const stored = value.payerId ? payers.find((p) => p.id === value.payerId) : null;
+    return stored && !activePayers.some((p) => p.id === stored.id) ? [...activePayers, stored] : activePayers;
+  }, [activePayers, payers, value.payerId]);
 
   /**
    * Make the selected list real before anything reads it.
@@ -178,14 +185,15 @@ export default function DiscountEditor({
             {ar ? "مين بيدفع" : "Who pays"}
           </label>
           <select
-            value={editorPayer.id}
+            value={value.payerId || editorPayer.id}
             disabled={disabled}
             onChange={(e) => pickPayer(e.target.value)}
             className="w-full rounded-xl border border-line bg-slate-50/50 px-3 py-2.5 text-sm font-bold text-slate-700 outline-none transition focus:border-primary-500 focus:bg-surface disabled:opacity-60"
           >
-            {activePayers.map((p) => (
+            {payerOptions.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.id === PRIVATE_PAYER_ID ? (ar ? "خاص (العيادة)" : "Private (the clinic)") : ar ? p.nameAr || p.name : p.name}
+                {p.active ? "" : ar ? " (موقوفة)" : " (retired)"}
               </option>
             ))}
           </select>
