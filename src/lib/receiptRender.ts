@@ -1,5 +1,6 @@
 import { parseLedgerProcedureDescription } from "@/lib/ledgerProcedureParse";
 import type { ClinicLogoAsset } from "@/lib/clinicLogo";
+import { patientPortion } from "@/lib/ledgerInsurer";
 import {
   DEFAULT_RECEIPT_SETTINGS,
   etaBlockReady,
@@ -796,6 +797,9 @@ export type ReceiptLedgerTransaction = {
   procedureId?: string | null;
   receiptNumber?: string | null;
   addedBy?: string | null;
+  /** On a treatment from an insurance approval: the insurer's approved part, and when it paid. */
+  insurerCovered?: number | null;
+  insurerPaidAt?: string | null;
 };
 
 export function buildDentalReceiptPayloadFromLedger(options: {
@@ -933,7 +937,8 @@ export function buildPaymentReceiptPayload(options: {
       listPrice: Number(charge.listPrice) || undefined,
       discountAmount: Number(charge.discountAmount) || undefined,
       paidBefore,
-      remainingAfter: Math.max(0, cost - paidBefore - (Number(payment.paid) || 0)),
+      // What is left for the PATIENT: the insurer's unpaid part of an approval's treatment is not.
+      remainingAfter: Math.max(0, patientPortion(charge) - paidBefore - (Number(payment.paid) || 0)),
     };
   }
 
@@ -945,7 +950,9 @@ export function buildPaymentReceiptPayload(options: {
       (t.type === "payment" &&
         ((t.date || "") < (payment.date || "") || ((t.date || "") === (payment.date || "") && t.id <= payment.id)))
   );
-  const totalTreatment = upToHere.reduce((s, t) => s + (t.type === "procedure" ? Number(t.cost) || 0 : 0), 0);
+  // The patient's part of each treatment: the insurer's unpaid part of an approval's treatment is
+  // the insurer's to pay, not a balance on the patient's receipt.
+  const totalTreatment = upToHere.reduce((s, t) => s + (t.type === "procedure" ? patientPortion(t) : 0), 0);
   const totalPaid = upToHere.reduce((s, t) => s + (t.type === "payment" ? Number(t.paid) || 0 : 0), 0);
 
   return {

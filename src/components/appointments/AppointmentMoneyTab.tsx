@@ -23,7 +23,7 @@ import ServiceCombobox from "@/components/shared/ServiceCombobox";
 import ServiceEditorDrawer from "@/components/clinical-notes/ServiceEditorDrawer";
 import type { Note, Service, Staff } from "@/components/clinical-notes/types";
 import { resolveListPrice } from "@/lib/discountMath";
-import { PRIVATE_PAYER_ID, payerCoverageFilter, payerForPriceList } from "@/lib/payers";
+import { PRIVATE_PAYER_ID, findPayer, payerForPriceList } from "@/lib/payers";
 import InsurerBadge from "@/components/shared/InsurerBadge";
 
 /**
@@ -103,24 +103,31 @@ export default function AppointmentMoneyTab({
     setProcListId((activeLists.find((l) => l.isDefault) || activeLists[0]).id);
   }, [activeLists, procListId]);
 
-  // Re-price when the list changes, so switching to an insurer updates the figure in front of you
-  // rather than leaving the clinic's own price sitting in the box.
+  // Re-price a catalogue pick when the prefill list changes; a free-typed name keeps its typed price.
   useEffect(() => {
-    if (!procServiceId) return;
-    /**
-     * A treatment the new list does not cover is no longer on the menu, so it must not stay in the
-     * box either. Leaving it there would show a selection the dropdown cannot even display — the
-     * field reads as chosen while the menu says that treatment does not exist here.
-     */
-    if (!payerCoverageFilter(payers, procListId)(String(procServiceId))) {
-      setProcServiceId("");
-      setProcCost(0);
-      return;
-    }
-    const svc = services.find((x) => String(x.id) === String(procServiceId));
+    const name = procName.trim();
+    if (!name) return;
+    const svc = services.find((x) => String(x.name) === name);
     if (svc) setProcCost(resolveListPrice(svc as { price?: number; prices?: Record<string, number> }, procListId));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [procListId]);
+  // Who pays, chosen outright. Picking an insurer points the prefill at its own list when it has one.
+  const [procPayerId, setProcPayerId] = useState(PRIVATE_PAYER_ID);
+  const activePayers = useMemo(() => {
+    const live = payers.filter((p) => p.active);
+    return [...live.filter((p) => p.id === PRIVATE_PAYER_ID), ...live.filter((p) => p.id !== PRIVATE_PAYER_ID)];
+  }, [payers]);
+  const pickPayer = (id: string) => {
+    setProcPayerId(id);
+    const own = findPayer(payers, id)?.priceListId;
+    if (own && activeLists.some((l) => l.id === own)) {
+      setProcListId(own);
+    } else if (payerForPriceList(payers, procListId).id !== PRIVATE_PAYER_ID && activeLists.length > 0) {
+      // A payer with no list of its own (Private, always) must not keep another payer's list:
+      // that recorded a private case at the insurer's tariff. Back to the default list.
+      setProcListId((activeLists.find((l) => l.isDefault) || activeLists[0]).id);
+    }
+  };
 
   const patientId = appointment?.patientId as string | undefined;
   const appointmentId = appointment?.id as string | undefined;
@@ -154,7 +161,8 @@ export default function AppointmentMoneyTab({
   const [discounting, setDiscounting] = useState(false);
 
   // Quick add
-  const [procServiceId, setProcServiceId] = useState("");
+  /** The service as typed or picked: a catalogue name prefills the price, anything else is recorded as typed. */
+  const [procName, setProcName] = useState("");
   const [procCost, setProcCost] = useState<number | "">("");
   const [addingProcedure, setAddingProcedure] = useState(false);
 
@@ -250,13 +258,15 @@ export default function AppointmentMoneyTab({
    * says. Leaving it visible and quietly recording it as private would be a screen that lets
    * somebody pick a wrong answer and then overrules them without saying so.
    */
-  const offeredServices = useMemo(() => {
-    const covers = payerCoverageFilter(payers, procListId);
-    return services.filter((s) => covers(String(s.id)));
-  }, [services, payers, procListId]);
-
-  /** Who this treatment will actually be recorded against — shown, not assumed. */
-  const addPayer = useMemo(() => payerForPriceList(payers, procListId), [payers, procListId]);
+  // Every service, whoever pays: the price box is the price.
+  const offeredServices = services;
+  /**
+   * A name that is not in the catalogue has no price to fall back on: a blank box would record the
+   * treatment with no charge and still say "Service added". 0 typed is a real answer and allowed.
+   */
+  const quickNeedsPrice =
+    !!procName.trim() && procCost === "" && !services.some((s) => String(s.name) === procName.trim());
+  const quickNeedsPriceText = isAr ? "اكتب سعر للعلاج اللي مش في قائمتك" : "Type a price for a treatment that is not in your list";
 
   const treatments = useMemo(() => {
     const categoryById = new Map(services.map((s) => [s.id, s.category]));
@@ -551,9 +561,13 @@ export default function AppointmentMoneyTab({
   };
 
   const handleQuickAdd = async () => {
-    const svc = services.find((s) => String(s.id) === String(procServiceId));
-    if (!svc) {
-      showToast(isAr ? "اختاري خدمة" : "Select a service", "error");
+    const name = procName.trim();
+    if (!name) {
+      showToast(isAr ? "اكتب اسم الخدمة" : "Name the treatment", "error");
+      return;
+    }
+    if (quickNeedsPrice) {
+      showToast(quickNeedsPriceText, "error");
       return;
     }
     setAddingProcedure(true);
@@ -566,20 +580,20 @@ export default function AppointmentMoneyTab({
       await createProcedure({
         patientId: appointment.patientId,
         appointmentId: appointment.id,
-        procedures: [svc.name],
+        procedures: [name],
         selectedTeeth: [],
         tooth: "Gen",
-        unitCost: Number(procCost) || 0,
-        // Without this the server falls back to the clinic default and the case is private,
-        // however carefully the list was chosen above.
+        // The box is the price; blank means "price it from the catalogue".
+        unitCost: procCost === "" ? null : Number(procCost),
         priceListId: procListId || null,
+        payerId: procPayerId || null,
         doctorId: appointment.doctorId || null,
         status: "Completed",
         date: localDate,
         addToLedger: true,
       });
       showToast(isAr ? "اتضافت الخدمة" : "Service added", "success");
-      setProcServiceId("");
+      setProcName("");
       setProcCost("");
     } catch (err) {
       showToast(
@@ -974,28 +988,31 @@ export default function AppointmentMoneyTab({
               })}
             </select>
           )}
-          {activeLists.length > 1 && (
-            <p className="flex items-center gap-1.5 text-[11px] font-bold text-ink-muted">
-              {isAr ? "هتتحسب على" : "Charged to"}:
-              {addPayer.id === PRIVATE_PAYER_ID ? (
-                <span className="text-ink-body">{isAr ? "خاص (العيادة)" : "Private (the clinic)"}</span>
-              ) : (
-                <span className="flex items-center gap-1.5 text-ink-body">
-                  <InsurerBadge name={addPayer.name} size={13} /> {addPayer.name}
-                </span>
-              )}
-            </p>
+          {activePayers.length > 1 && (
+            <select
+              value={procPayerId}
+              onChange={(e) => pickPayer(e.target.value)}
+              aria-label={isAr ? "مين بيدفع" : "Who pays"}
+              className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm font-bold text-ink outline-none"
+            >
+              {activePayers.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.id === PRIVATE_PAYER_ID ? (isAr ? "خاص (العيادة)" : "Private (the clinic)") : isAr ? p.nameAr || p.name : p.name}
+                </option>
+              ))}
+            </select>
           )}
           <ServiceCombobox
             priceListId={procListId}
             services={offeredServices}
-            value={procServiceId}
+            value={procName}
             onChange={(val: string, svc: any) => {
-              setProcServiceId(val);
+              setProcName(svc ? svc.name : val);
               if (svc) setProcCost(resolveListPrice(svc, procListId));
             }}
-            valueKey="id"
-            placeholder={isAr ? "اختاري الخدمة..." : "Select service..."}
+            valueKey="name"
+            allowFreeText
+            placeholder={isAr ? "اكتب أو اختار الخدمة..." : "Type or pick a treatment..."}
             language={language}
             className="w-full text-sm py-2 font-bold border border-line rounded-lg bg-surface"
           />
@@ -1008,7 +1025,7 @@ export default function AppointmentMoneyTab({
               className="flex-1 min-w-0 rounded-lg border border-line bg-surface px-3 py-2 text-sm font-black text-slate-800 outline-none focus:ring-2 focus:ring-emerald-300"
             />
             <button
-              disabled={addingProcedure || !procServiceId || (!procCost && procCost !== 0)}
+              disabled={addingProcedure || !procName.trim() || quickNeedsPrice}
               onClick={handleQuickAdd}
               className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold rounded-lg px-4 flex items-center gap-1.5 transition-colors disabled:opacity-50"
             >
@@ -1023,6 +1040,7 @@ export default function AppointmentMoneyTab({
               {isAr ? "تفاصيل" : "More"}
             </button>
           </div>
+          {quickNeedsPrice && <p className="text-[11px] font-semibold text-amber-700">{quickNeedsPriceText}</p>}
         </div>
       </div>
 

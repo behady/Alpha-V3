@@ -107,6 +107,8 @@ export type SaveBody = {
   payerId: string;
   extraction: MetlifeExtraction;
   patient: { id: string } | { create: { name: string; phone?: string } };
+  /** The dentist who did the work: every line is assigned to them and the treatment rows carry them. */
+  dentistId?: string;
   status: "approved" | "treated";
   wording?: Record<string, string>;
   docPath?: string;
@@ -144,7 +146,10 @@ export type ClaimPatch = {
   patientId?: string;
   /** Line index -> staff id to assign, or null to clear. The server stamps the rate and share. */
   dentists?: Record<number, string | null>;
-  shareCollected?: { ledgerId: string; amount: number };
+  /** Take the patient's share as cash: the server posts the ledger row and stamps the claim in one transaction. */
+  collectShare?: true;
+  /** Record the insurer's payment against the treatment rows, and mark them settled. */
+  insurerPaid?: true;
 };
 
 /** PATCH /api/insurance/claims. Resolves to the server's message on a refusal, null on success. */
@@ -207,24 +212,15 @@ export function monthRange(ymd: string): { from: string; to: string } {
 }
 
 /**
- * Take the patient's share as cash: one income row in the daily ledger (no patient balance is
- * touched — the patient owes nothing in the books for insurance work), then the claim remembers
- * which row it was. Resolves to the server's message on a refusal, null on success.
+ * Take the patient's share as cash. One call: the server writes the income row and the claim's
+ * stamp together, so a failure can never leave a cash row with nothing pointing at it. Resolves to
+ * the server's message on a refusal (409 when it was already collected), null on success.
  */
-export async function collectPatientShare(args: { clinicId: string; claimId: string; amount: number; description: string; date: string }): Promise<string | null> {
-  const posted = await call("POST", "/api/finance/ledger", {
-    clinicId: args.clinicId,
-    action: "create-entry",
-    type: "income",
-    amount: args.amount,
-    description: args.description,
-    category: "insurance_patient_share",
-    method: "cash",
-    date: args.date,
-  });
-  const ledgerId = typeof posted.data.id === "string" ? posted.data.id : "";
-  if (posted.status !== 200 || posted.data.ok !== true || !ledgerId) {
-    return typeof posted.data.error === "string" && posted.data.error ? posted.data.error : `HTTP ${posted.status}`;
-  }
-  return patchClaim(args.clinicId, args.claimId, { shareCollected: { ledgerId, amount: args.amount } });
+export async function collectPatientShare(clinicId: string, claimId: string): Promise<string | null> {
+  return patchClaim(clinicId, claimId, { collectShare: true });
+}
+
+/** Record the insurer's payment for an approval. Resolves to the server's message on a refusal, null on success. */
+export async function recordInsurerPayment(clinicId: string, claimId: string): Promise<string | null> {
+  return patchClaim(clinicId, claimId, { insurerPaid: true });
 }

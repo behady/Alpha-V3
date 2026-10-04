@@ -46,7 +46,18 @@ export type InsuranceClaim = {
   dentists: Record<number, LineDentist>;
   /** The patient's share, once the desk took it as cash; null until then. */
   shareCollected: ShareCollected | null;
+  /**
+   * The treatment rows this approval wrote into the patient's file, keyed by line index: the
+   * clinical note and its ledger charge. Lines the insurer rejected outright (nothing approved,
+   * no patient share) have no row.
+   */
+  ledgerIds: Record<number, LineLedger>;
+  /** Stamped when the insurer's payment was recorded against those rows; null until then. */
+  insurerPaid: InsurerPaid | null;
 };
+
+export type LineLedger = { ledgerId: string; noteId: string };
+export type InsurerPaid = { date: string; amount: number };
 
 export type LineDentist = { staffId: string; name: string; rate: number; share: number };
 export type ShareCollected = { ledgerId: string; amount: number; date: string };
@@ -178,6 +189,8 @@ export function claimFromExtraction(args: {
     },
     dentists: {},
     shareCollected: null,
+    ledgerIds: {},
+    insurerPaid: null,
   };
 }
 
@@ -227,6 +240,8 @@ export function parseClaim(id: string, raw: unknown): InsuranceClaim | null {
     doc: parseDoc(r.doc),
     dentists: parseLineDentists(r.dentists, x.lines.length),
     shareCollected: parseShareCollected(r.shareCollected),
+    ledgerIds: parseLineLedger(r.ledgerIds, x.lines.length),
+    insurerPaid: parseInsurerPaid(r.insurerPaid),
   };
 }
 
@@ -237,6 +252,8 @@ export function parseClaim(id: string, raw: unknown): InsuranceClaim | null {
  *
  * - `approved` (not treated yet): always null, whatever date came with it.
  * - `treated`: the date sent, else the one already stored, else the approval date (the card's default).
+ * - `sent`: sent work was done, so a claim with no treated date yet gets one exactly as `treated` does
+ *   (the date sent, else the approval date); one that has a date keeps it unless a new one is sent.
  * - anything else, or no status change: the date sent when one was sent, else unchanged.
  */
 export function treatedDateAfter(args: {
@@ -249,6 +266,9 @@ export function treatedDateAfter(args: {
   if (args.status === "treated") {
     if (args.treatedDate) return args.treatedDate;
     return args.current ?? (args.approvalDate || null);
+  }
+  if (args.status === "sent" && args.current === null) {
+    return args.treatedDate || args.approvalDate || null;
   }
   return args.treatedDate === undefined ? undefined : args.treatedDate;
 }
@@ -371,4 +391,186 @@ export function applyDentistPicks(
     dentists[i] = lineDentistFor(claim.lines[i], staff, claim.payerId);
   }
   return { dentists, unknownStaff };
+}
+
+export function parseLineLedger(raw: unknown, lineCount: number): Record<number, LineLedger> {
+  const out: Record<number, LineLedger> = {};
+  if (!isRecord(raw)) return out;
+  for (const [k, v] of Object.entries(raw)) {
+    const i = Number(k);
+    if (!Number.isInteger(i) || i < 0 || i >= lineCount || !isRecord(v)) continue;
+    const ledgerId = trimmed(v.ledgerId);
+    const noteId = trimmed(v.noteId);
+    if (!ledgerId || !noteId) continue;
+    out[i] = { ledgerId, noteId };
+  }
+  return out;
+}
+
+export function parseInsurerPaid(raw: unknown): InsurerPaid | null {
+  if (!isRecord(raw)) return null;
+  const amount = Number(raw.amount);
+  if (!isIsoDate(raw.date) || !Number.isFinite(amount) || amount < 0) return null;
+  return { date: raw.date, amount: round2(amount) };
+}
+
+// --- The treatment rows an approval writes into the patient's file --------------------------------
+
+/** What a line is worth to the clinic: the insurer's approved part plus what the patient pays. */
+export function lineCharge(line: Pick<MetlifeLine, "approvedAmount" | "patientShare">): number {
+  return round2(line.approvedAmount + line.patientShare);
+}
+
+export type TreatmentRowArgs = {
+  claimId: string;
+  claim: Pick<InsuranceClaim, "payerId" | "approvalNumber" | "approvalDate" | "treatedDate" | "patientId" | "patientName" | "lines" | "dentists">;
+  payerName: string;
+  /** The clinic's own name per code, else the paper's description prints. */
+  wording: Record<string, string>;
+  actor: { uid: string; name: string; role: string };
+};
+
+export type TreatmentRow = {
+  lineIndex: number;
+  note: Record<string, unknown>;
+  charge: Record<string, unknown>;
+};
+
+/**
+ * One clinical note and one ledger charge per line the insurer approved (or the patient pays for),
+ * in the shape `/api/clinical/procedures` writes, so every report, the patient's finance tab and
+ * the payer report read them as ordinary treatments under this insurer.
+ *
+ * The charge is what the clinic will actually receive — the approved amount plus the patient's
+ * share. The paper's requested figure is kept as the list price, and the gap as a discount with
+ * its reason, so a crown asked at 2,700 and approved at 500 is not silently a 500 crown.
+ *
+ * The dentist's share is NOT the ordinary commission-on-payment: by the owner's rule it is the
+ * stamped rate on the approved amount, earned when the line is assigned. It is written onto the
+ * charge so the row reads correctly, and the payments made later carry no commission of their own.
+ */
+export function insuranceTreatmentRows(args: TreatmentRowArgs): TreatmentRow[] {
+  const { claim, claimId, payerName, wording, actor } = args;
+  const out: TreatmentRow[] = [];
+  claim.lines.forEach((line, i) => {
+    const charge = lineCharge(line);
+    if (charge <= 0) return;
+    const name = wording[line.code]?.trim() || line.description.trim() || line.code;
+    const dentist = claim.dentists[i] ?? null;
+    const units = Math.max(1, line.unitsApproved || line.unitsRequested || 1);
+    const unitCost = round2(charge / units);
+    const listPrice = round2(line.grossTotal);
+    const discountAmount = Math.max(0, round2(listPrice - charge));
+    const commissionAmount = dentist ? dentist.share : 0;
+    const base = {
+      cost: charge,
+      unitCost,
+      unitsCount: units,
+      pricingFormula: `${units} x ${unitCost}`,
+      pricingMode: "flat",
+      listPrice,
+      priceListId: null,
+      priceListName: null,
+      // The app's own discount vocabulary ("percent" | "fixed" | "none"): an unknown mode reads
+      // as no discount, and any editor that re-saved the row would then charge the full list price.
+      discountMode: discountAmount > 0 ? "fixed" : "none",
+      discountFixed: discountAmount > 0 ? discountAmount : null,
+      discountPercent: null,
+      discountValue: discountAmount > 0 ? discountAmount : null,
+      discountAmount,
+      discountReason: discountAmount > 0 ? `${payerName} approved ${round2(line.approvedAmount)} of ${listPrice}` : null,
+      payerId: claim.payerId,
+      payerName,
+      doctorId: dentist?.staffId ?? null,
+      serviceId: null,
+      serviceIds: [] as string[],
+      serviceName: name,
+      // The day the work was done: the treated date, else the approval's own date.
+      date: claim.treatedDate ?? claim.approvalDate,
+      claimId,
+      approvalNumber: claim.approvalNumber,
+      serviceCode: line.code,
+      insurerCovered: round2(line.approvedAmount),
+      patientShare: round2(line.patientShare),
+    };
+    out.push({
+      lineIndex: i,
+      note: {
+        patientId: claim.patientId,
+        appointmentId: null,
+        tooth: "Gen",
+        procedure: name,
+        procedures: [name],
+        ...base,
+        note: `${payerName} approval ${claim.approvalNumber}`,
+        doctor: dentist?.name ?? "",
+        unmatchedProcedures: [] as string[],
+        status: "Completed",
+        createdByUid: actor.uid,
+        createdByName: actor.name,
+        createdByRole: actor.role,
+      },
+      charge: {
+        patientId: claim.patientId,
+        patientName: claim.patientName,
+        type: "procedure",
+        category: "Treatment",
+        amount: charge,
+        ...base,
+        description: `${name} (T: Gen) | ${payerName} ${claim.approvalNumber}`,
+        doctorName: dentist?.name ?? "",
+        doctorCommissionPercentage: dentist?.rate ?? 0,
+        doctorCommissionAmount: commissionAmount,
+        clinicProfit: round2(charge - commissionAmount),
+        labFee: 0,
+        labFeePerUnit: 0,
+        labOrderService: "",
+        appointmentId: null,
+        paid: 0,
+        createdBy: actor.uid,
+      },
+    });
+  });
+  return out;
+}
+
+/**
+ * What a payment against a treatment row may actually be: what was asked, capped at what is still
+ * open on the row (its cost less the payments already against it), never below zero. A row the
+ * patient already paid in full at the counter takes nothing more from the insurer's settlement.
+ */
+export function cappedPayment(wanted: number, cost: number, alreadyPaid: number): number {
+  const open = round2(Number(cost) - Number(alreadyPaid));
+  return Math.max(0, round2(Math.min(Number(wanted) || 0, Number.isFinite(open) ? open : 0)));
+}
+
+/**
+ * What a status change does to the treatment rows an approval writes.
+ *
+ * - `write`: the claim becomes `treated` or `sent` and has no rows yet — the work is done (a claim
+ *   sent to the insurer was treated, even if nobody marked it so first), record it.
+ * - `remove`: the claim goes back to `approved` or is `cancelled` while rows exist — the work did
+ *   not happen (the caller refuses when any row already has money against it).
+ * - `none`: anything else, including `treated` ↔ `sent` and a claim that already has its rows.
+ */
+export function rowsActionForStatus(args: { from: ClaimStatus; to: ClaimStatus | undefined; hasRows: boolean }): "write" | "remove" | "none" {
+  const { from, to, hasRows } = args;
+  if (to === undefined || to === from) return "none";
+  if ((to === "treated" || to === "sent") && !hasRows) return "write";
+  if ((to === "approved" || to === "cancelled") && hasRows) return "remove";
+  return "none";
+}
+
+/** The doctor fields to write on an existing row when a line's dentist changes. */
+export function dentistRowPatch(line: Pick<MetlifeLine, "approvedAmount" | "patientShare">, dentist: LineDentist | null): Record<string, unknown> {
+  const charge = lineCharge(line);
+  const commissionAmount = dentist ? dentist.share : 0;
+  return {
+    doctorId: dentist?.staffId ?? null,
+    doctorName: dentist?.name ?? "",
+    doctor: dentist?.name ?? "",
+    doctorCommissionPercentage: dentist?.rate ?? 0,
+    doctorCommissionAmount: commissionAmount,
+    clinicProfit: round2(charge - commissionAmount),
+  };
 }

@@ -22,7 +22,7 @@ import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import InsurerBadge from "@/components/shared/InsurerBadge";
 import { resolveListPrice } from "@/lib/discountMath";
 import { listsForBranch, resolveActiveListId } from "@/lib/priceLists";
-import { PRIVATE_PAYER_ID, findPayer, payerCoverageFilter, payerForPriceList, payerStamp } from "@/lib/payers";
+import { PRIVATE_PAYER_ID, findPayer, payerForPriceList, payerStamp } from "@/lib/payers";
 import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
 import { isUnlocked } from "@/lib/featureCatalog";
 import {
@@ -407,13 +407,9 @@ export default function PatientTreatmentPlanTab({
    * so nothing new appears on screen until there is a real choice to make.
    */
   const activeLists = useMemo(() => listsForBranch(priceLists, null).filter((l) => l.active), [priceLists]);
-  const formPayer = useMemo(() => payerForPriceList(payers, formPriceListId), [payers, formPriceListId]);
 
-  /** Only what the payer on this quote actually pays for. Named for `tests/payers.test.mts`. */
-  const offeredServices = useMemo(() => {
-    const covers = payerCoverageFilter(payers, formPriceListId);
-    return services.filter((s) => covers(String(s.id)));
-  }, [services, payers, formPriceListId]);
+  /** Every service, whoever pays: the quote's prices are typed or prefilled, never gated. */
+  const offeredServices = services;
 
   const defaultVisitLabel = (n: number) => (ar ? `الزيارة ${n}` : `Visit ${n}`);
 
@@ -453,13 +449,6 @@ export default function PatientTreatmentPlanTab({
       ar
         ? `اتغيّر سعر ${n} إجراء على القائمة الجديدة.`
         : `${n} treatment${n === 1 ? "" : "s"} repriced on the new list.`,
-    // Said plainly rather than fixed silently: these are treatments the patient was quoted, and
-    // deleting somebody's quoted work without asking is not a thing a screen should do.
-    notCoveredNow: (n: number, payer: string) =>
-      ar
-        ? `${n} إجراء في الخطة دي ${payer} مش بتغطيهم. سيبهم وهيتحاسبوا خاص، أو شيلهم.`
-        : `${n} treatment${n === 1 ? " is" : "s are"} not covered by ${payer}. Leave ${n === 1 ? "it" : "them"} and ${n === 1 ? "it will" : "they will"} be charged privately, or remove ${n === 1 ? "it" : "them"}.`,
-    notCoveredStep: (payer: string) => (ar ? `${payer} مش بتغطي ده` : `Not covered by ${payer}`),
     planTitlePh: ar ? "مثال: الخيار الأول — علاج شامل" : "e.g. Option A — Comprehensive treatment",
     description: ar ? "وصف الخطة (اختياري)" : "Plan description (optional)",
     descriptionPh: ar
@@ -779,11 +768,6 @@ export default function PatientTreatmentPlanTab({
     );
     if (repriced > 0) showToast(txt.repriced(repriced), "success");
 
-    const covers = payerCoverageFilter(payers, nextListId);
-    const stranded = formVisits.flatMap((v) => v.steps).filter((st) => st.serviceId && !covers(String(st.serviceId)));
-    if (stranded.length > 0) {
-      showToast(txt.notCoveredNow(stranded.length, payerForPriceList(payers, nextListId).name), "error");
-    }
   };
 
   const updateVisit = (visitId: string, patch: Partial<PlanVisit>) => {
@@ -1881,21 +1865,11 @@ export default function PatientTreatmentPlanTab({
                     {/* Steps in this visit */}
                     <div className="p-3.5 space-y-3">
                       {visit.steps.map((step) => {
-                        /*
-                          A treatment that was on the plan before the list changed, and that the new
-                          payer does not cover. It is not removed — it is the patient's quoted work —
-                          but the row says so, in the space the row already has.
-                        */
-                        const stranded =
-                          !!step.serviceId && !payerCoverageFilter(payers, formPriceListId)(String(step.serviceId));
                         return (
                         <div key={step.id} className="bg-slate-50/70 border border-slate-100 rounded-2xl p-3.5">
                           <div className="flex items-start gap-2">
                             <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-2">
-                              <div
-                                className={`md:col-span-5 rounded-xl ${stranded ? "ring-1 ring-amber-300" : ""}`}
-                                title={stranded ? txt.notCoveredStep(formPayer.name) : undefined}
-                              >
+                              <div className="md:col-span-5 rounded-xl">
                                 <ServiceCombobox
                                   services={offeredServices}
                                   priceListId={formPriceListId}
@@ -1969,11 +1943,6 @@ export default function PatientTreatmentPlanTab({
                             </button>
                           </div>
                           <div className="flex items-center justify-end gap-2 mt-2">
-                            {stranded && (
-                              <span className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-amber-600">
-                                <AlertTriangle size={11} /> {txt.notCoveredStep(formPayer.name)}
-                              </span>
-                            )}
                             <span className="text-xs font-black text-ink-muted">
                               {money(step.unitPrice * step.quantity)} {currency}
                             </span>

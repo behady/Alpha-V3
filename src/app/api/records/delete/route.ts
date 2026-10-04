@@ -9,7 +9,9 @@ import {
   MAX_ITEMS_PER_ACTION,
   MAX_SNAPSHOT_BYTES,
   checkBinnable,
+  checkClaimCascade,
   checkDeleteAllowed,
+  claimLinkedRows,
   labelFor,
   logModuleFor,
 } from "@/lib/recycleBin";
@@ -41,6 +43,11 @@ import {
  * actionId, one batch.
  *
  * POST { clinicId, items: [{ collection, documentId }], reason?, acknowledgeOrphans? }
+ *
+ * An insurance approval takes its treatment rows with it: the ledger charge and the clinical note
+ * it wrote for each approved line go into the bin in the same batch, as children of the approval's
+ * entry (`cascadeOf`), hidden from the list and restored with it. Refused per item ("blocked") once
+ * any of those charges has money against it.
  */
 
 const CHILD_COLLECTIONS = [
@@ -153,10 +160,59 @@ export async function POST(request: Request) {
       results.push({ ...missing.item, status: "notFound" });
     }
 
+    // An approval's treatment rows, read before anything is queued: whether any has been paid
+    // decides whether the approval may go at all.
+    type Child = { collection: string; documentId: string; ref: FirebaseFirestore.DocumentReference; data: Record<string, unknown> };
+    const childrenOf = new Map<string, Child[] | { blocked: string }>();
+    for (const row of present) {
+      if (row.item.collection !== "insurance_claims") continue;
+      const links = claimLinkedRows(row.data as Record<string, unknown>);
+      if (links.length === 0) continue;
+      const targets = links.flatMap((l) => [
+        { collection: "ledger", documentId: l.ledgerId },
+        { collection: "clinical_notes", documentId: l.noteId },
+      ]);
+      const snaps = await Promise.all(targets.map((t) => adminClinicDoc(clinicId, t.collection, t.documentId).get()));
+      const charges = snaps.filter((_, i) => targets[i].collection === "ledger").map((snap) => (snap.exists ? snap.data() : null));
+      const verdict = checkClaimCascade(charges);
+      if (verdict !== true) {
+        childrenOf.set(row.item.documentId, { blocked: verdict.error });
+        continue;
+      }
+      childrenOf.set(
+        row.item.documentId,
+        snaps.flatMap((snap, i) => {
+          const data = snap.data();
+          if (!snap.exists || !data) return [];
+          if (!snap.ref.path.startsWith(`clinics/${clinicId}/`)) throw new Error(`Refusing to touch a path outside the clinic: ${snap.ref.path}`);
+          return [{ ...targets[i], ref: snap.ref, data }];
+        }),
+      );
+    }
+
     const batch = adminDb().batch();
     let queued = 0;
 
     for (const [index, row] of present.entries()) {
+      const cascade = row.item.collection === "insurance_claims" ? childrenOf.get(row.item.documentId) : undefined;
+      if (cascade && "blocked" in cascade) {
+        results.push({ ...row.item, status: "blocked", error: cascade.blocked });
+        continue;
+      }
+      const children = (cascade ?? []).map((c) => {
+        const childSnapshot = stripUndefined(c.data);
+        return { ...c, snapshot: childSnapshot, bytes: approximateBytes(childSnapshot), entryId: liveEntryId(clinicId, c.collection, c.documentId) };
+      });
+      if (children.some((c) => c.bytes > MAX_SNAPSHOT_BYTES)) {
+        results.push({ ...row.item, status: "tooLarge", error: "This record is too large to move to the bin. Export it first." });
+        continue;
+      }
+      const childEntries = await Promise.all(children.map((c) => binEntry(c.entryId).get()));
+      if (childEntries.some((e) => e.exists && e.data()?.status === "deleted")) {
+        results.push({ ...row.item, status: "alreadyInBin", error: "An earlier version of this record is already in Recently Deleted." });
+        continue;
+      }
+
       const snapshot = stripUndefined(row.data as Record<string, unknown>);
       const bytes = approximateBytes(snapshot);
       if (bytes > MAX_SNAPSHOT_BYTES) {
@@ -202,6 +258,30 @@ export async function POST(request: Request) {
       });
       batch.set(binPayload(entryId), { snapshot });
       batch.delete(row.ref);
+      // The approval's treatment rows, binned exactly like it and tied to its entry, so Recently
+      // Deleted holds all of them and restoring the approval brings them all back.
+      for (const c of children) {
+        batch.set(binEntry(c.entryId), {
+          clinicId,
+          collection: c.collection,
+          documentId: c.documentId,
+          label: labelFor(c.collection, c.snapshot),
+          deletedByUid: auth.uid,
+          deletedByName: auth.name,
+          deletedAt: FieldValue.serverTimestamp(),
+          expiresAt: expiryTimestamp(),
+          actionId,
+          actionIndex: index,
+          actionSize: present.length,
+          reason,
+          storagePaths: [],
+          snapshotBytes: c.bytes,
+          status: "deleted",
+          cascadeOf: entryId,
+        });
+        batch.set(binPayload(c.entryId), { snapshot: c.snapshot });
+        batch.delete(c.ref);
+      }
       queued++;
       results.push({ ...row.item, status: "deleted" });
     }

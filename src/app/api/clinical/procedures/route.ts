@@ -35,14 +35,15 @@ import {
 } from "@/lib/priceLists";
 import {
   commissionRateFor,
+  findPayer,
   parsePayers,
   payerStamp,
-  coversService,
   payerForPriceList,
 } from "@/lib/payers";
 import { buildDeleteContext, evaluateDelete } from "@/lib/deletePolicy";
 import { applyProcedureSync, readProcedureCommissionBasis, readProcedurePayments } from "@/lib/server/ledgerSync";
 import { recordLedgerAudit, recordMoneyChange } from "@/lib/server/ledgerAudit";
+import { isApprovalRow } from "@/lib/ledgerInsurer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -111,8 +112,11 @@ async function loadPricingPolicy(clinicId: string) {
  * `doctorId` is the treating dentist and is what the payout follows. It is separate from the actor,
  * who is whoever is at the keyboard — an assistant typing up a session is a different person, and
  * the note is only trustworthy if it says which is which.
+ *
+ * `fallbackPayerId` is the payer an EDITED treatment already carries. A request that names no
+ * payer keeps it while that payer is still active, instead of re-deriving one from the list.
  */
-async function priceRequest(clinicId: string, body: Record<string, unknown>, actor: Actor) {
+async function priceRequest(clinicId: string, body: Record<string, unknown>, actor: Actor, fallbackPayerId: string | null = null) {
   const services = await loadServices(clinicId);
   const { priceLists, discountSettings, payers } = await loadPricingPolicy(clinicId);
 
@@ -159,25 +163,29 @@ async function priceRequest(clinicId: string, body: Record<string, unknown>, act
     patientDefaultListId
   );
   /**
-   * An insurer only bills for the treatments on its own list.
+   * Who is paying is chosen outright, on the treatment, by the person recording it.
    *
-   * Each insurer's list is genuinely separate, so a treatment it does not cover — whitening, most
-   * cosmetic work — is simply not that insurer's case. It is NOT refused: clinics get one-off
-   * approvals, and a desk that cannot record the work it just did writes it on paper instead.
-   * Instead it falls back to the clinic's own prices and is stamped Private, which is the honest
-   * reading and stops the insurer's column claiming money it will never pay.
+   * It used to be derived from the price list ("charge on the AXA list and it is AXA's case"),
+   * which forced every service through a catalogue and a coverage list before it could be
+   * recorded at all. Now the payer is its own field, any service can be billed to any payer,
+   * and the price list only PREFILLS a price for a catalogue service — the typed price wins.
    *
-   * Decided by the FIRST matched treatment. A multi-treatment case charged in one line is one
-   * case with one payer, and half-covering it is not a state the books can represent.
+   * A request with no payer (older screens, the phone) still falls back to the list's owner, so
+   * nothing that worked yesterday records differently today — except on an edit, where the
+   * treatment's own stored payer comes first. The phone's edit sends no payer, and re-deriving
+   * one from the list silently moved a treatment's revenue to whoever owns that list.
    */
-  const askedPayer = payerForPriceList(payers, priceListId);
-  const matchedIds = procedures
-    .map((name) => services.find((svc) => String(svc.name || "").trim() === name))
-    .filter(Boolean)
-    .map((svc) => String((svc as { id: string }).id));
-  const covered = coversService(askedPayer, matchedIds[0] ?? null);
-  const effectiveListId = covered ? priceListId : resolveActiveListId(priceLists, null, null);
-  const payer = payerStamp(payers, covered ? askedPayer.id : payerForPriceList(payers, effectiveListId).id);
+  const requestedPayerId = String(body.payerId || "").trim();
+  const explicitPayer = requestedPayerId ? findPayer(payers, requestedPayerId) : null;
+  if (requestedPayerId && (!explicitPayer || !explicitPayer.active)) throw new Error("PAYER_NOT_FOUND");
+  const storedPayer = !requestedPayerId && fallbackPayerId ? findPayer(payers, fallbackPayerId) : null;
+  const keptPayer = storedPayer && storedPayer.active ? storedPayer : null;
+  const askedPayer = explicitPayer ?? keptPayer ?? payerForPriceList(payers, priceListId);
+  // The list to read catalogue prices from: the one named, else the payer's own prefill list,
+  // else the clinic default. It never changes who pays.
+  const namedListId = typeof body.priceListId === "string" && body.priceListId.trim() ? priceListId : null;
+  const effectiveListId = namedListId ?? resolveActiveListId(priceLists, askedPayer.priceListId ?? null, patientDefaultListId);
+  const payer = payerStamp(payers, askedPayer.id);
   const payerId = payer.payerId;
 
   const priceList = findPriceList(priceLists, effectiveListId);
@@ -450,12 +458,89 @@ async function createProcedure(args: { clinicId: string; actor: Actor; body: Rec
 // update
 // ---------------------------------------------------------------------------------------------
 
+const APPROVAL_NOTE_MESSAGE = "This treatment comes from an insurance approval; change it on the patient's Insurance tab.";
+const APPROVAL_DELETE_MESSAGE = "This treatment comes from an insurance approval; delete the approval instead.";
+
+/**
+ * Which of the treatment's own facts an edit to an approval's note would change. The editor sends
+ * the whole form every time, so a field is only a change when it differs from what is stored.
+ */
+function approvalNoteChanges(body: Record<string, unknown>, before: Record<string, unknown>): string[] {
+  const blank = (v: unknown) => v === undefined || v === null || v === "";
+  const differs = (posted: unknown, stored: unknown) => {
+    if (blank(posted) && blank(stored)) return false;
+    if (blank(posted) || blank(stored)) return true;
+    const a = Number(posted);
+    const b = Number(stored);
+    if (Number.isFinite(a) && Number.isFinite(b)) return Math.abs(a - b) > 0.005;
+    return String(posted) !== String(stored);
+  };
+  const changed: string[] = [];
+  const procedures = asStringArray(body.procedures);
+  const storedProcedures = asStringArray(before.procedures);
+  if (procedures.join("\u0000") !== (storedProcedures.length ? storedProcedures : [String(before.procedure || "")]).join("\u0000")) changed.push("procedures");
+  if (differs(String(body.doctorId || "").trim(), before.doctorId)) changed.push("doctorId");
+  const teeth = asStringArray(body.selectedTeeth);
+  const tooth = teeth.length > 0 ? teeth.join(",") : String(body.tooth || "").trim() || "Gen";
+  if (tooth !== String(before.tooth || "Gen")) changed.push("tooth");
+  if (body.status !== undefined && differs(body.status, before.status)) changed.push("status");
+  if (body.date !== undefined && differs(body.date, before.date)) changed.push("date");
+  if (!blank(body.unitCost) && differs(body.unitCost, before.unitCost)) changed.push("unitCost");
+  if (!blank(body.priceListId) && differs(body.priceListId, before.priceListId)) changed.push("priceListId");
+  if (typeof body.discountMode === "string" && differs(body.discountMode, before.discountMode ?? "none")) changed.push("discountMode");
+  if (!blank(body.discountValue) && differs(body.discountValue, before.discountValue)) changed.push("discountValue");
+  if (body.addToLedger === false) changed.push("addToLedger");
+  return changed;
+}
+
+/**
+ * An edit to a treatment an insurance approval wrote. Its price, dentist and payer come from the
+ * approval and change on the patient's Insurance tab; repricing it from the catalogue here would
+ * charge the paper's list price. Only the free-text note may change.
+ */
+async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: Record<string, unknown>; noteId: string; before: Record<string, unknown> }) {
+  const { clinicId, actor, body, noteId, before } = args;
+  if (approvalNoteChanges(body, before).length > 0) return bad(APPROVAL_NOTE_MESSAGE, 409);
+  const note = String(body.note || "");
+  if (note === String(before.note || "")) {
+    return NextResponse.json({ ok: true, noteId, ledgerId: typeof before.ledgerId === "string" ? before.ledgerId : null, cost: Number(before.cost) || 0 });
+  }
+  await adminClinicDoc(clinicId, "clinical_notes", noteId).update({
+    note,
+    updatedByUid: actor.uid,
+    updatedByName: actor.name,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+  await recordMoneyChange({
+    entry: {
+      clinicId, action: "update", collection: "clinical_notes", documentId: noteId,
+      before, after: { note }, actor, via: "clinical/procedures:update",
+    },
+    action: "Procedure Updated",
+    details: `Note on ${String(before.procedure || "treatment")} (insurance approval)`,
+  });
+  return NextResponse.json({ ok: true, noteId, ledgerId: typeof before.ledgerId === "string" ? before.ledgerId : null, cost: Number(before.cost) || 0 });
+}
+
 async function updateProcedure(args: { clinicId: string; actor: Actor; body: Record<string, unknown> }) {
   const { clinicId, actor, body } = args;
   const noteId = String(body.noteId || "").trim();
   if (!noteId) return bad("Which treatment?");
 
-  const priced = await priceRequest(clinicId, body, actor);
+  // A treatment from an insurance approval is decided before anything is priced: the catalogue
+  // has no say over what the insurer approved.
+  const current = await adminClinicDoc(clinicId, "clinical_notes", noteId).get();
+  if (current.exists && isApprovalRow(current.data())) {
+    return await updateApprovalNote({ clinicId, actor, body, noteId, before: current.data() || {} });
+  }
+
+  const storedPayerId = current.exists ? current.data()?.payerId : null;
+  const priced = await priceRequest(
+    clinicId,
+    body,
+    actor,
+    typeof storedPayerId === "string" && storedPayerId.trim() ? storedPayerId.trim() : null
+  );
   const addToLedger = body.addToLedger !== false;
 
   const result = await adminDb().runTransaction(async (txn) => {
@@ -463,6 +548,7 @@ async function updateProcedure(args: { clinicId: string; actor: Actor; body: Rec
     const noteSnap = await txn.get(noteRef);
     if (!noteSnap.exists) throw new Error("NOT_FOUND");
     const before = noteSnap.data() || {};
+    if (isApprovalRow(before)) throw new Error("APPROVAL_NOTE");
     const patientId = String(before.patientId || "");
 
     // The note may point at its charge, or the charge may point back at the note — both link
@@ -581,9 +667,12 @@ async function deleteProcedure(args: { clinicId: string; actor: Actor; body: Rec
   const noteSnap = await adminClinicDoc(clinicId, "clinical_notes", noteId).get();
   if (!noteSnap.exists) return bad("That treatment no longer exists.", 404);
   const note = noteSnap.data() || {};
+  // The approval keeps a link to this note and its charge; deleting them here strands it.
+  if (isApprovalRow(note)) return bad(APPROVAL_DELETE_MESSAGE, 409);
 
   // Both link directions, then every payment settling any charge among them.
   const linkedSnap = await adminClinicCollection(clinicId, "ledger").where("clinicalNoteId", "==", noteId).get();
+  if (linkedSnap.docs.some((d) => isApprovalRow(d.data()))) return bad(APPROVAL_DELETE_MESSAGE, 409);
   const related: Array<{ id: string; type?: string; procedureId?: string | null; clinicalNoteId?: string | null }> =
     linkedSnap.docs.map((d) => ({ id: d.id, type: String(d.data().type || ""), clinicalNoteId: noteId }));
 
@@ -709,6 +798,9 @@ async function continueProcedure(args: { clinicId: string; actor: Actor; body: R
     // Never carry the charge forward: a continuation is the same treatment across two visits, and
     // copying its ledger link would bill the patient a second time for work already invoiced.
     delete clone.ledgerId;
+    // Nor the approval link: the continuation is not a row the approval wrote, and carrying it
+    // would lock the new note as an approval's (no edits, no delete) with no approval behind it.
+    delete clone.claimId;
 
     const newRef = adminClinicCollection(clinicId, "clinical_notes").doc();
     const continued = {
@@ -807,12 +899,16 @@ export async function POST(request: Request) {
         );
       case "NO_PROCEDURE_NAME":
         return bad("Name the procedure.");
+      case "PAYER_NOT_FOUND":
+        return bad("That payer is not on this clinic's list any more. Pick another under Settings → Payers.");
       case "NO_PATIENT":
         return bad("That patient no longer exists.", 404);
       case "NOT_FOUND":
         return bad("That treatment no longer exists. Refresh and try again.", 404);
       case "NO_APPOINTMENT":
         return bad("That visit no longer exists. Refresh and try again.", 404);
+      case "APPROVAL_NOTE":
+        return bad(APPROVAL_NOTE_MESSAGE, 409);
       case "HAS_PAYMENTS":
         return NextResponse.json(
           { ok: false, reason: "HAS_PAYMENTS", error: "Payments have been recorded against this treatment. Delete them before removing its charge." },

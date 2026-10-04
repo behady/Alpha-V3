@@ -8,8 +8,11 @@ import assert from "node:assert/strict";
 import {
   BIN_COLLECTIONS,
   ROUTED_ELSEWHERE,
+  CASCADE_CHILD_COLLECTIONS,
   checkBinnable,
+  checkClaimCascade,
   checkDeleteAllowed,
+  claimLinkedRows,
   checkRestorable,
   checkRestoreAllowed,
   labelFor,
@@ -215,6 +218,31 @@ assert.deepEqual(
 assert.deepEqual(storagePathsFrom("insurance_claims", {}), [], "a claim with no document names no file");
 // insurance_docs is bookkeeping only — never binnable.
 assert.equal(checkBinnable("insurance_docs", "x").ok, false);
+
+// An approval takes its treatment rows into the bin with it. The rows are children only: a client
+// still cannot bin, list or restore a ledger row or a note on its own.
+for (const child of CASCADE_CHILD_COLLECTIONS) {
+  assert.equal(checkBinnable(child, "x").ok, false, `${child} is never binned by itself`);
+  assert.equal(BIN_COLLECTIONS[child], undefined, `${child} never appears in the bin list`);
+}
+assert.deepEqual(
+  claimLinkedRows({ ledgerIds: { 0: { ledgerId: "L0", noteId: "N0" }, 2: { ledgerId: "L2", noteId: "N2" } } }),
+  [{ ledgerId: "L0", noteId: "N0" }, { ledgerId: "L2", noteId: "N2" }]
+);
+assert.deepEqual(claimLinkedRows({}), [], "an approval saved before treatment rows links none");
+assert.deepEqual(claimLinkedRows({ ledgerIds: [] }), []);
+assert.deepEqual(
+  claimLinkedRows({ ledgerIds: { 0: { ledgerId: "../patients/p1", noteId: "N0" }, 1: { ledgerId: "L1" }, 2: "junk", 3: { ledgerId: " L3", noteId: "N3" } } }),
+  [],
+  "an id that could step out of its collection, half a link, or junk is never followed"
+);
+assert.equal(checkClaimCascade([{ paid: 0 }, null, { paid: "0" }]), true, "unpaid rows (and rows already gone) go with the approval");
+const paidVerdict = checkClaimCascade([{ paid: 0 }, { paid: 100 }]);
+assert.equal(paidVerdict.ok, false, "one paid row blocks the whole approval");
+assert.equal(paidVerdict.error, "This approval has payments recorded; reverse them first.");
+assert.equal(paidVerdict.status, 409);
+assert.equal(labelFor("ledger", { description: "Crown (T: Gen) | MetLife D1" }), "Crown (T: Gen) | MetLife D1");
+assert.equal(labelFor("clinical_notes", {}), "Treatment note", "a label is never blank");
 
 console.log(
   `✓ recycleBin: ${Object.keys(BIN_COLLECTIONS).length} collections binnable, ` +

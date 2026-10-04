@@ -25,9 +25,9 @@ import {
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import type { LabCaseSeed } from "@/lib/labCases";
 import DiscountEditor, { EMPTY_DISCOUNT, discountPayload, type DiscountState } from "@/components/shared/DiscountEditor";
-import { isDiscountMode, type DiscountMode } from "@/lib/discountMath";
+import { isDiscountMode, resolveListPrice, type DiscountMode } from "@/lib/discountMath";
+import { listsForBranch } from "@/lib/priceLists";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
-import { payerCoverageFilter } from "@/lib/payers";
 
 interface Props {
   isOpen: boolean;
@@ -268,10 +268,28 @@ export default function ServiceEditorDrawer({
    * says. Leaving it visible and quietly recording it as private would be a screen that lets
    * somebody pick a wrong answer and then overrules them without saying so.
    */
-  const offeredServices = useMemo(() => {
-    const covers = payerCoverageFilter(payers, discount.priceListId || null);
-    return servicesList.filter((s) => covers(String(s.id)));
-  }, [servicesList, payers, discount.priceListId]);
+  // Every service, whoever pays: coverage lists are gone, the price box is the price.
+  const offeredServices = servicesList;
+
+  /**
+   * Re-price a catalogue pick when the prefill list is changed; a free-typed name keeps its price.
+   *
+   * Only a change made FROM a list that was on screen counts. The first list a form receives —
+   * the reopened note's own list, or the editor resolving a blank or retired one — is not a
+   * decision, and re-pricing on it would move a saved treatment to today's rate just by opening
+   * it. Declared ahead of the seeding effect so the seed can mark its list as already priced.
+   */
+  const pricedListRef = useRef(discount.priceListId);
+  useEffect(() => {
+    const prev = pricedListRef.current;
+    const next = discount.priceListId;
+    pricedListRef.current = next;
+    if (!next || prev === next) return;
+    if (!listsForBranch(priceLists, branchId).some((l) => l.active && l.id === prev)) return;
+    const svc = servicesList.find((s) => s.name === procedure.trim());
+    if (svc) setCost(String(resolveListPrice(svc, next)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [discount.priceListId]);
 
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatusText, setSaveStatusText] = useState("");
@@ -325,7 +343,9 @@ export default function ServiceEditorDrawer({
       // different payer, which would move the revenue AND the dentist's rate.
       // Reopen the note on the list and discount it was priced with, so re-saving never silently
       // re-prices it at today's rates.
+      pricedListRef.current = (initialNote as { priceListId?: string }).priceListId || "";
       setDiscount({
+        payerId: (initialNote as { payerId?: string }).payerId || "",
         priceListId: (initialNote as { priceListId?: string }).priceListId || "",
         mode: isDiscountMode((initialNote as { discountMode?: string }).discountMode)
           ? ((initialNote as { discountMode?: DiscountMode }).discountMode as DiscountMode)
@@ -349,6 +369,7 @@ export default function ServiceEditorDrawer({
       setProcedure(""); setMultiProceduresText(""); setCost(""); setNoteText("");
       setProcedureStatus('Planned');
       setAddToLedger(true);
+      pricedListRef.current = EMPTY_DISCOUNT.priceListId;
       setDiscount(EMPTY_DISCOUNT);
       setIsChangingService(false);
       setPricingModeOverride(null);
@@ -391,6 +412,7 @@ export default function ServiceEditorDrawer({
     selectError: language === 'ar' ? "اختر الإجراء" : "Name the procedure",
     extraProcedures: language === 'ar' ? "إجراءات إضافية" : "More procedures",
     hide: language === 'ar' ? "إخفاء" : "Hide",
+    needsPrice: language === 'ar' ? "اكتب سعر للعلاج اللي مش في قائمتك" : "Type a price for a treatment that is not in your list",
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -400,6 +422,7 @@ export default function ServiceEditorDrawer({
     // did rather than a person.
     if (!procedure && !multiProceduresText) return showToast(txt.selectError, "error");
     if (Number(cost) < 0) return showToast(language === 'ar' ? "لا يمكن إضافة تكلفة بالسالب" : "Cannot add negative cost", "error"); // Fix Scenario 2: Negative typo protection
+    if (needsTypedPrice) return showToast(txt.needsPrice, "error");
 
     setIsSaving(true);
     setSaveStatusText("Saving to Database...");
@@ -484,12 +507,19 @@ export default function ServiceEditorDrawer({
     }
   };
 
-  const handleProcedureChange = (val: string, svc?: any) => {
-    const matchedSvc = svc || servicesList.find(s => s.name === val || String(s.id) === val);
-    setProcedure(matchedSvc ? matchedSvc.name : val);
-    if (matchedSvc) {
-      setCost(matchedSvc.price.toString());
+  /**
+   * A pick from the list prefills its price on the list being charged from; anything else is just
+   * the name. The combobox reports free text on every keystroke, so a typed name must not be
+   * matched against ids (typing "1" would become service 1) or prefill a price half-way through
+   * a longer name that happens to start like a catalogue one.
+   */
+  const handleProcedureChange = (val: string, svc?: { name: string; price?: number; prices?: Record<string, number> }) => {
+    if (svc) {
+      setProcedure(svc.name);
+      setCost(String(resolveListPrice(svc, discount.priceListId || null)));
+      return;
     }
+    setProcedure(val);
   };
 
   /** A service's own billing rule, taken from the main procedure. */
@@ -508,8 +538,18 @@ export default function ServiceEditorDrawer({
     .map((name) => servicesList.find((s) => s.name === name))
     .filter((s): s is Service => Boolean(s));
   const previewMode = pricingModeOverride ?? servicePricingMode(previewMatched);
+  // The same figure the server charges: a blank box is the catalogue on the chosen list, anything
+  // typed — 0 included — is the price.
   const previewUnitCost =
-    Number(cost) || previewMatched.reduce((sum, s) => sum + (Number(s.price) || 0), 0);
+    cost === ""
+      ? previewMatched.reduce((sum, s) => sum + resolveListPrice(s, discount.priceListId || null), 0)
+      : Math.max(0, Number(cost) || 0);
+  /**
+   * A name that is not in the catalogue has no price to fall back on, so a blank box would record
+   * the treatment with no charge and still report it added. Only matters when it is being billed.
+   */
+  const needsTypedPrice =
+    addToLedger && cost === "" && previewMatched.length < previewProcedures.length;
   const previewUnits = pricingUnitsFor(previewMode, selectedTeeth);
   const previewTotal = previewUnitCost * previewUnits;
   /** True when the picked service predates billing rules, so the fallback is being used. */
@@ -621,6 +661,9 @@ export default function ServiceEditorDrawer({
         type="number" min="0" step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} placeholder="0"
         className={inputClass}
       />
+      {needsTypedPrice && (
+        <p className="mt-1 text-[11px] font-semibold text-amber-700">{txt.needsPrice}</p>
+      )}
     </div>
   );
 
@@ -720,7 +763,7 @@ export default function ServiceEditorDrawer({
     <button
       type="submit" data-tour="clinical-save"
       form="service-form"
-      disabled={isSaving}
+      disabled={isSaving || needsTypedPrice}
       className={`w-full flex justify-center items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-2xl shadow-lg shadow-blue-500/30 transition-all disabled:opacity-70 ${compact ? "py-2.5 text-sm" : "py-4"}`}
     >
       {isSaving ? (

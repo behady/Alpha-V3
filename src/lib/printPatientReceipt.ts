@@ -7,6 +7,7 @@ import {
   type ReceiptLedgerTransaction,
 } from "@/lib/receiptPdfHtml";
 import { loadReceiptSettings } from "@/lib/receiptSettingsClient";
+import { patientPortion } from "@/lib/ledgerInsurer";
 
 function patientAgeSex(
   dateOfBirth?: string,
@@ -97,6 +98,8 @@ async function loadReceiptContext(
         status: typeof data.status === "string" ? data.status : undefined,
         procedureId: typeof data.procedureId === "string" ? data.procedureId : null,
         receiptNumber: typeof data.receiptNumber === "string" ? data.receiptNumber : null,
+        insurerCovered: typeof data.insurerCovered === "number" ? data.insurerCovered : null,
+        insurerPaidAt: typeof data.insurerPaidAt === "string" ? data.insurerPaidAt : null,
         addedBy:
           typeof data.receivedBy === "string"
             ? data.receivedBy
@@ -173,7 +176,8 @@ export async function printPatientReceipt(
     };
   }
 
-  const totalTreatment = ctx.rows.reduce((s, t) => s + (t.type === "procedure" ? t.cost : 0), 0);
+  // The patient's part: an insurance approval's unpaid insurer part is not the patient's balance.
+  const totalTreatment = ctx.rows.reduce((s, t) => s + (t.type === "procedure" ? patientPortion(t) : 0), 0);
   const totalPaid = ctx.rows.reduce((s, t) => s + (t.type === "payment" ? t.paid : 0), 0);
 
   const payload = buildDentalReceiptPayloadFromLedger({

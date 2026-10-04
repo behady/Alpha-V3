@@ -24,10 +24,11 @@ import { Tag, Percent, Info } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { applyDiscount, effectiveDiscountPercent, type DiscountMode } from "@/lib/discountMath";
 import { listsForBranch, resolveActiveListId, type PriceList } from "@/lib/priceLists";
-import { PRIVATE_PAYER_ID, payerForPriceList, type Payer } from "@/lib/payers";
-import InsurerBadge from "@/components/shared/InsurerBadge";
+import { PRIVATE_PAYER_ID, findPayer, payerForPriceList, type Payer } from "@/lib/payers";
 
 export type DiscountState = {
+  /** Who pays: a payer id. "" until the editor resolves it to Private. */
+  payerId: string;
   priceListId: string;
   mode: DiscountMode;
   /** The percentage or the fixed amount, as typed. Empty string while the field is being cleared. */
@@ -81,7 +82,26 @@ export default function DiscountEditor({
     [priceLists, branchId]
   );
   const selectedList = activeLists.find((l) => l.id === value.priceListId) || null;
-  const editorPayer = useMemo(() => payerForPriceList(payers, value.priceListId), [payers, value.priceListId]);
+  const activePayers = useMemo(() => {
+    const live = payers.filter((p) => p.active);
+    return [...live.filter((p) => p.id === PRIVATE_PAYER_ID), ...live.filter((p) => p.id !== PRIVATE_PAYER_ID)];
+  }, [payers]);
+  // The payer is its own choice now; the list only prefills. An unresolved "" renders a select's
+  // first option while the state holds nothing (the placeholder trap), so a BLANK is pinned to
+  // Private. A stored payer is never replaced here: the payers arrive a beat after the note does,
+  // and resolving "AXA" against a list that only holds Private yet would move the case to Private
+  // and save it that way. A retired payer stays as recorded and is shown as such.
+  const editorPayer = useMemo(() => findPayer(payers, value.payerId) ?? payerForPriceList(payers, value.priceListId), [payers, value.payerId, value.priceListId]);
+  useEffect(() => {
+    if (activePayers.length === 0 || value.payerId) return;
+    onChange({ ...value, payerId: PRIVATE_PAYER_ID });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePayers, value.payerId]);
+  /** The options: every active payer, plus the stored one when it has been retired since. */
+  const payerOptions = useMemo(() => {
+    const stored = value.payerId ? payers.find((p) => p.id === value.payerId) : null;
+    return stored && !activePayers.some((p) => p.id === stored.id) ? [...activePayers, stored] : activePayers;
+  }, [activePayers, payers, value.payerId]);
 
   /**
    * Make the selected list real before anything reads it.
@@ -140,9 +160,45 @@ export default function DiscountEditor({
   };
 
   const set = (patch: Partial<DiscountState>) => onChange({ ...value, ...patch });
+  /**
+   * Picking an insurer also points the prefill at its own list, when it has one that is live here.
+   *
+   * A payer with no list of its own (Private, always) must not inherit another payer's: switching
+   * back to Private used to keep the insurer's list, so the case was recorded as private at the
+   * insurer's tariff. It drops back to the default list here instead.
+   */
+  const pickPayer = (payerId: string) => {
+    const payer = findPayer(payers, payerId);
+    const ownList = payer?.priceListId && activeLists.some((l) => l.id === payer.priceListId) ? payer.priceListId : null;
+    const listOfAnother = !ownList && payerForPriceList(payers, value.priceListId).id !== PRIVATE_PAYER_ID;
+    const priceListId = ownList || (listOfAnother ? resolveActiveListId(activeLists, null, null, branchId) : value.priceListId);
+    onChange({ ...value, payerId, priceListId });
+  };
 
   return (
     <div className="space-y-3">
+      {/* Who pays, chosen outright. Any service can be billed to any payer; the price box is the price. */}
+      {activePayers.length > 1 && (
+        <div>
+          <label className="mb-1 block text-[11px] font-black uppercase tracking-widest text-slate-400">
+            <Info size={11} className="mr-1 inline" />
+            {ar ? "مين بيدفع" : "Who pays"}
+          </label>
+          <select
+            value={value.payerId || editorPayer.id}
+            disabled={disabled}
+            onChange={(e) => pickPayer(e.target.value)}
+            className="w-full rounded-xl border border-line bg-slate-50/50 px-3 py-2.5 text-sm font-bold text-slate-700 outline-none transition focus:border-primary-500 focus:bg-surface disabled:opacity-60"
+          >
+            {payerOptions.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.id === PRIVATE_PAYER_ID ? (ar ? "خاص (العيادة)" : "Private (the clinic)") : ar ? p.nameAr || p.name : p.name}
+                {p.active ? "" : ar ? " (موقوفة)" : " (retired)"}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       {/* Always shown, even with one list. Which prices a treatment was charged at is part of
           the record, and a clinic with a single list still benefits from seeing it named rather
           than having to remember that "no list shown" meant the standard one. */}
@@ -151,6 +207,7 @@ export default function DiscountEditor({
           <label className="mb-1 block text-[11px] font-black uppercase tracking-widest text-slate-400">
             <Tag size={11} className="mr-1 inline" />
             {txt.priceList}
+            <span className="ms-1 normal-case tracking-normal text-slate-400">{ar ? "(بيملّي السعر بس)" : "(prefills the price only)"}</span>
           </label>
           {activeLists.length > 1 ? (
             <select
@@ -175,19 +232,6 @@ export default function DiscountEditor({
           ) : (
             <p className="rounded-xl border border-line bg-slate-50/50 px-3 py-2.5 text-sm font-bold text-ink-body">
               {ar && activeLists[0].nameAr ? activeLists[0].nameAr : activeLists[0].name}
-            </p>
-          )}
-          {/* Who the treatment will be recorded against, said where it is decided. */}
-          {activeLists.length > 1 && (
-            <p className="mt-1 flex items-center gap-1.5 text-[11px] font-bold text-ink-muted">
-              {ar ? "هتتحسب على" : "Charged to"}:
-              {editorPayer.id === PRIVATE_PAYER_ID ? (
-                <span className="text-ink-body">{ar ? "خاص (العيادة)" : "Private (the clinic)"}</span>
-              ) : (
-                <span className="flex items-center gap-1.5 text-ink-body">
-                  <InsurerBadge name={editorPayer.name} size={13} /> {editorPayer.name}
-                </span>
-              )}
             </p>
           )}
           {selectedList && selectedList.generalDiscountPercent > 0 && (
@@ -291,6 +335,7 @@ export default function DiscountEditor({
 /** Everything a caller needs to send to the API, from the editor's state. */
 export function discountPayload(state: DiscountState) {
   return {
+    payerId: state.payerId || null,
     priceListId: state.priceListId || null,
     discountMode: state.mode,
     discountValue: state.value === "" ? null : Number(state.value),
@@ -299,6 +344,7 @@ export function discountPayload(state: DiscountState) {
 }
 
 export const EMPTY_DISCOUNT: DiscountState = {
+  payerId: "",
   priceListId: "",
   mode: "none",
   value: "",

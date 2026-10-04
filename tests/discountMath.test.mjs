@@ -171,6 +171,15 @@ assert.equal(undiscounted.cost, 3000);
 assert.equal(undiscounted.labFee, 400);
 assert.equal(undiscounted.doctorCommissionAmount, 780, "(3000 - 400) * 30%");
 
+// The price box is the price: a typed 0 is a free treatment, and only a blank box prices from the catalogue.
+const free = computeProcedurePricing({ procedures: ["Crown"], services, selectedTeeth: ["11"], commissionPct: 30, typedUnitCost: 0 });
+assert.equal(free.listPrice, 0, "a typed 0 means free, not 'use the catalogue'");
+assert.equal(free.cost, 0);
+const blank = computeProcedurePricing({ procedures: ["Crown"], services, selectedTeeth: ["11"], commissionPct: 30, typedUnitCost: null });
+assert.equal(blank.listPrice, 3000, "a blank box prices from the catalogue");
+const typed = computeProcedurePricing({ procedures: ["Anything typed"], services, selectedTeeth: [], commissionPct: 30, typedUnitCost: 250 });
+assert.equal(typed.cost, 250, "a free-typed name is priced at the typed price");
+
 const discounted = computeProcedurePricing({
   procedures: ["Crown"], services, selectedTeeth: ["11"], commissionPct: 30,
   discountMode: "percent", discountValue: 10, discountReason: "Promotion",

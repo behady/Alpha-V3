@@ -69,6 +69,47 @@ export const ROUTED_ELSEWHERE: Record<string, string> = {
   appointments: "/api/appointments/delete",
 };
 
+/**
+ * Collections that only ever enter the bin as part of a parent's deletion, never on their own.
+ *
+ * An insurance approval writes one treatment charge and one clinical note per approved line;
+ * deleting the approval alone would leave those rows in the patient's file pointing at nothing,
+ * and saving the paper again would record the work twice. So they go into the bin WITH the
+ * approval, as children of its entry (`cascadeOf`), and come back with it. They stay out of
+ * BIN_COLLECTIONS: a client still cannot bin, list or restore a ledger row or a note by itself.
+ */
+export const CASCADE_CHILD_COLLECTIONS = ["ledger", "clinical_notes"] as const;
+
+/** A plain document id: present, short, and unable to step out of its collection. */
+function isPlainDocId(v: unknown): v is string {
+  return typeof v === "string" && v.trim() === v && v.length > 0 && v.length <= 200 && !/[/\\]/.test(v) && v !== "." && v !== "..";
+}
+
+/** The treatment rows an approval snapshot links to: its `ledgerIds` map of `{ ledgerId, noteId }`. */
+export function claimLinkedRows(snapshot: Record<string, unknown>): Array<{ ledgerId: string; noteId: string }> {
+  const raw = snapshot.ledgerIds;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+  const out: Array<{ ledgerId: string; noteId: string }> = [];
+  for (const v of Object.values(raw as Record<string, unknown>)) {
+    if (!v || typeof v !== "object") continue;
+    const { ledgerId, noteId } = v as { ledgerId?: unknown; noteId?: unknown };
+    if (isPlainDocId(ledgerId) && isPlainDocId(noteId)) out.push({ ledgerId, noteId });
+  }
+  return out;
+}
+
+/**
+ * May an approval go into the bin with its treatment rows? Not once money has been recorded
+ * against any of them: binning a paid charge would leave its payments settling nothing, and the
+ * payments are the clinic's books. Missing rows (null) are simply not there to block.
+ */
+export function checkClaimCascade(charges: ReadonlyArray<{ paid?: unknown } | null | undefined>): true | BinRefusal {
+  if (charges.some((c) => c && Number(c.paid) > 0)) {
+    return { ok: false, status: 409, error: "This approval has payments recorded; reverse them first.", reason: "CLAIM_HAS_PAYMENTS" };
+  }
+  return true;
+}
+
 /** Collections that live at the database root; clinicId does not scope them. */
 const GLOBAL_COLLECTION_NAMES = new Set(["users", "clinics", "join_requests", "clinic_secrets"]);
 
@@ -370,6 +411,10 @@ export function labelFor(collection: string, snapshot: Record<string, unknown>):
           : "Insurance approval";
     case "ortho_ai_reports":
       return s("patientName") ? `Ortho AI ${s("kind") || "report"} — ${s("patientName")}` : `Ortho AI ${s("kind") || "report"}`;
+    case "ledger":
+      return s("description") || "Treatment charge";
+    case "clinical_notes":
+      return s("procedure") || "Treatment note";
     case "services":
     case "drugs":
     case "inventory":

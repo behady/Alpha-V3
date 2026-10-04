@@ -2,6 +2,7 @@ import { adminClinicCollection } from "@/lib/adminClinicDb";
 import { pickPatientPhone } from "@/lib/patientPhone";
 import { chargeAmount, overAllocation } from "@/lib/paymentAllocation";
 import { rowAmount } from "@/lib/revenueRecovery";
+import { patientPortion } from "@/lib/ledgerInsurer";
 
 /**
  * The collection list for the Recover Payments screen: who owes the clinic money, and how to
@@ -172,7 +173,8 @@ export function buildRecoveryList(
     if (type === "expense") continue;
 
     const tally = tallyFor(patientId, String(row.patientName || ""));
-    if (type === "procedure") tally.charged += rowAmount(row);
+    // The patient's part: an insurance approval's unpaid insurer part is owed by the insurer.
+    if (type === "procedure") tally.charged += patientPortion({ ...row, cost: rowAmount(row) });
     else tally.paid += rowAmount(row);
 
     const when = parseDate(row.date);

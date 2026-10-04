@@ -293,6 +293,36 @@ function eq<T>(actual: T, expected: T, message: string) {
   eq(byDoctor(empty).length, 0, "and nobody on the payroll sheet");
 }
 
+// --- 6b. Insurance approval work: the dentist's share is on the charge, counted once ---------
+{
+  const payers = parsePayers({
+    payers: [
+      { id: PRIVATE_PAYER_ID, name: "Private", active: true, isDefault: true },
+      { id: "metlife", name: "MetLife", active: true, isDefault: false },
+    ],
+  });
+  // One approved crown: 500 from the insurer, 100 from the patient, Dr Mona at 30% of the approved 500.
+  const procedures = [
+    { type: "procedure", payerId: "metlife", payerName: "MetLife", patientId: "p1", doctorId: "d1", doctorName: "Mona", cost: 600, labFee: 0, claimId: "metlife_d1", doctorCommissionAmount: 150, doctorCommissionPercentage: 30 },
+  ];
+  const payments = [
+    { type: "payment", payerId: "metlife", payerName: "MetLife", patientId: "p1", doctorId: "d1", doctorName: "Mona", paid: 100, claimId: "metlife_d1", doctorCommissionAmount: 0, doctorCommissionPercentage: 0 },
+    { type: "payment", payerId: "metlife", payerName: "MetLife", patientId: "p1", doctorId: "d1", doctorName: "Mona", paid: 500, claimId: "metlife_d1", doctorCommissionAmount: 0, doctorCommissionPercentage: 0 },
+  ];
+  const report = buildPayerReport(procedures, payments, payers);
+  const metlife = report.payers.find((p) => p.payerId === "metlife")!;
+  eq(metlife.commission, 150, "the stamped share counts once, from the charge; the share and the insurer's payment add nothing");
+  eq(metlife.collected, 600, "both payments are money collected");
+  eq(metlife.clinicNet, 450, "clinic net is collected less the dentist's share");
+  const mona = metlife.doctors.find((d) => d.doctorId === "d1")!;
+  eq(mona.commission, 150, "the dentist's line carries the same share");
+  eq(mona.ratePct, 30, "and the rate that earned it, not the payments' zero");
+  eq(byDoctor(report).find((r) => r.doctorId === "d1")!.totalCommission, 150, "the payroll view agrees");
+  // A payment row carrying a stale commission on an approval is still not counted.
+  const stale = buildPayerReport(procedures, [{ ...payments[0], doctorCommissionAmount: 30, doctorCommissionPercentage: 30 }], payers);
+  eq(stale.payers.find((p) => p.payerId === "metlife")!.commission, 150, "a payment against an approval never adds commission of its own");
+}
+
 // --- 7. The wiring, which is what makes any of the above reach real money ---------------------
 {
   const procedures = read("src/app/api/clinical/procedures/route.ts");
@@ -304,10 +334,14 @@ function eq<T>(actual: T, expected: T, message: string) {
     procedures.includes("commissionRateFor(staff, payerId)"),
     "the treatment route is back on the dentist's single rate — insurance work would pay the private percentage"
   );
-  // One control, not two. A "paid by" picker beside the price list is what billed an insurance
-  // case at the clinic's own prices: both claimed the same decision and the list quietly won.
+  // The payer is its own control now (the owner's 2026-10-05 decision): the price list only
+  // prefills a price, and the choice travels in the discount payload every screen already sends.
   const editor = read("src/components/clinical-notes/ServiceEditorDrawer.tsx");
-  ok(!/payerId/.test(editor), "the treatment editor has a payer picker again — the price list is the only control");
+  ok(/payerId/.test(editor), "the treatment editor no longer reopens a note on its own payer");
+  const discountEditor = read("src/components/shared/DiscountEditor.tsx");
+  ok(/payerId: state\.payerId \|\| null/.test(discountEditor), "the discount payload no longer carries the chosen payer");
+  ok(/Who pays/.test(discountEditor), "the shared pricing panel lost its payer dropdown");
+  ok(/body\.payerId/.test(procedures) && /PAYER_NOT_FOUND/.test(procedures), "the treatment route ignores the payer the screen chose");
   /**
    * The control has to be in BOTH layouts, and this is not a style point.
    *
@@ -589,23 +623,23 @@ function eq<T>(actual: T, expected: T, message: string) {
   // The route must not simply refuse. A desk that cannot record what it just did writes it on
   // paper, and the books lose the case entirely.
   const route = read("src/app/api/clinical/procedures/route.ts");
-  ok(route.includes("coversService"), "the treatment route no longer checks what the insurer covers");
+  ok(!route.includes("coversService"), "the treatment route gates on coverage again — any service can be billed to any payer");
   ok(
     /effectiveListId/.test(route) && /priceListId: effectiveListId/.test(route),
-    "an uncovered treatment must be priced from the clinic's own list, not the insurer's"
+    "the list a treatment was priced from must still be stamped on it"
   );
   ok(
     !/throw new Error\("NOT_COVERED/.test(route),
     "an uncovered treatment is refused rather than recorded as private — clinics get one-off approvals"
   );
+  ok(
+    /explicitPayer \?\? keptPayer \?\? payerForPriceList/.test(route) && /storedPayer && storedPayer\.active/.test(route),
+    "an edit that names no payer (the phone's) must keep the treatment's stored payer, not re-derive it from the list"
+  );
 
   const wizard = read("src/components/settings/PayersSettings.tsx");
-  ok(/covered: new Set/.test(wizard), "the wizard no longer edits which treatments an insurer covers");
-  ok(
-    /covered: new Set\(services\.map/.test(wizard),
-    "a new insurer must start covering everything — starting empty makes the first case fall to private, which reads as the insurer not working"
-  );
-  ok(/services: coveredList/.test(wizard), "the wizard does not save the list it just edited");
+  ok(!/toggleCovered/.test(wizard), "the wizard shows coverage ticks again — coverage lists are gone");
+  ok(/services: undefined/.test(wizard), "the wizard must save an insurer as covering everything (absent = all)");
 }
 
 // --- 12. What the insurer does not cover is not on the menu ------------------------------------
@@ -636,30 +670,17 @@ function eq<T>(actual: T, expected: T, message: string) {
   // Every screen where a treatment is picked next to a price list. This feature was missed on four
   // screens in a row for exactly one reason: each one is a separate picker, and finding them is
   // not something anybody does twice.
+  // Reversed 2026-10-05 by the owner: any service can be billed to any payer, so no screen hides
+  // a treatment behind a coverage list any more. The pure filter above stays for old data.
   for (const rel of [
     "src/components/BookingModal.tsx",
     "src/components/appointments/AppointmentMoneyTab.tsx",
     "src/components/clinical-notes/ServiceEditorDrawer.tsx",
     "src/components/patients/PatientTreatmentPlanTab.tsx",
+    "src/components/settings/PriceListWorkspace.tsx",
   ]) {
-    const ui = read(rel);
-    ok(/payerCoverageFilter/.test(ui), `${rel} offers every treatment, including the ones this insurer does not cover`);
-    ok(
-      /services=\{offeredServices\}/.test(ui),
-      `${rel} still hands the picker the full catalogue — the filter above it is computed and then ignored`
-    );
+    ok(!/payerCoverageFilter/.test(read(rel)), `${rel} hides treatments behind a coverage list again`);
   }
-
-  // The insurer's own price sheet has to agree with the ticks. A price box for a treatment that
-  // insurer does not pay for invites a number that can never be charged, and the treatment is not
-  // on the receptionist's menu anyway.
-  const sheet = read("src/components/settings/PriceListWorkspace.tsx");
-  ok(/payerCoverageFilter/.test(sheet), "an insurer's price sheet still prices treatments it does not cover");
-  ok(
-    /covered\.filter\(/.test(sheet),
-    "the search and category chips still run over every service — the coverage filter above them is computed and then ignored"
-  );
-  ok(/txt\.hidden\(hiddenCount\)/.test(sheet), "treatments vanish from the sheet with nothing said about where they went");
 
   /**
    * The treatment plan is a QUOTE, so it carries its payer rather than deriving one.
@@ -686,8 +707,8 @@ function eq<T>(actual: T, expected: T, message: string) {
   // The AI half. Without it the assistant quotes the clinic's own rates and the plan it saves
   // claims they are the insurer's — a document that lies rather than one that is merely wrong.
   const aiRoute = read("src/app/api/ai/treatment-plan/route.ts");
-  ok(/resolveListPrice\(svc, coversService\(payer, svc\.id\) \? listId : fallbackListId\)/.test(aiRoute),
-    "the AI plan prices every step on the clinic's own list, whatever payer it was asked for");
+  ok(/resolveListPrice\(svc, listId\)/.test(aiRoute) && !/coversService/.test(aiRoute),
+    "the AI plan must price every step on the chosen list — coverage lists are gone, so no coverage branch");
   ok(/priceListId: listId/.test(aiRoute),
     "the route does not return the list it actually priced on, so the client stamps what it asked for instead");
   ok(
@@ -695,14 +716,6 @@ function eq<T>(actual: T, expected: T, message: string) {
     "the model's catalogue is narrowed to what the insurer covers — a plan that omits the crown because AXA will not pay for it is a worse plan, not a cheaper one"
   );
 
-  // Switching to an insurer that does not cover what is already picked must empty the box. A
-  // selection the dropdown cannot display reads as chosen while the menu says it does not exist.
-  for (const rel of ["src/components/BookingModal.tsx", "src/components/appointments/AppointmentMoneyTab.tsx"]) {
-    ok(
-      /setProcServiceId\(""\)/.test(read(rel)),
-      `${rel} keeps a treatment selected after switching to a list that does not cover it`
-    );
-  }
 }
 
 // --- 13. A list says who it bills, where the choice is made ------------------------------------
@@ -712,25 +725,16 @@ function eq<T>(actual: T, expected: T, message: string) {
 // recorded as private and went missing from the insurer's report, with the mistake invisible at
 // every step: the dropdown said AXA, the price was AXA's, and the report was right.
 {
-  for (const rel of [
-    "src/components/BookingModal.tsx",
-    "src/components/appointments/AppointmentMoneyTab.tsx",
-    "src/components/shared/DiscountEditor.tsx",
-  ]) {
+  for (const rel of ["src/components/BookingModal.tsx", "src/components/appointments/AppointmentMoneyTab.tsx", "src/components/shared/DiscountEditor.tsx"]) {
     const ui = read(rel);
-    ok(
-      /payerForPriceList\(payers, l(ist)?\.id\)/.test(ui),
-      `${rel} lists price lists without naming the company behind each one`
-    );
-    ok(
-      /Charged to/.test(ui),
-      `${rel} does not say who the treatment will be recorded against — the one line that makes a wrong list obvious`
-    );
-    ok(
-      /PRIVATE_PAYER_ID/.test(ui),
-      `${rel} does not distinguish the private case, so an unlinked list would print a company name it does not have`
-    );
+    ok(/payerForPriceList\(payers, l(ist)?\.id\)/.test(ui), `${rel} lists price lists without naming the company behind each one`);
+    ok(/PRIVATE_PAYER_ID/.test(ui), `${rel} does not distinguish the private case`);
   }
+  // Where a treatment is recorded, who pays is a dropdown of its own (the owner's 2026-10-05 rule).
+  for (const rel of ["src/components/appointments/AppointmentMoneyTab.tsx", "src/components/shared/DiscountEditor.tsx"]) {
+    ok(/Who pays/.test(read(rel)), `${rel} lost its payer dropdown`);
+  }
+  ok(/Charged to/.test(read("src/components/BookingModal.tsx")), "the booking modal no longer says who the visit will be recorded against");
 
   // The note editor can only say it if it is given the payers.
   ok(

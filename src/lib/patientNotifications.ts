@@ -14,6 +14,7 @@ import { applyPatientOptOutFooter, deliverWhatsAppMessage } from "@/lib/whatsapp
 import { mergeWhatsAppTemplate } from "@/lib/whatsappTemplateMerge";
 import type { WhatsAppTemplateType } from "@/types/whatsapp";
 import { arabicDayLabel, arabicTimeLabel } from "@/lib/arabicDateTime";
+import { patientPortion } from "@/lib/ledgerInsurer";
 
 /**
  * Telling the patient what just happened to them — booked, moved, cancelled, paid.
@@ -86,7 +87,8 @@ export async function computePatientBalance(clinicId: string, patientId: string)
   snap.forEach((doc) => {
     const d = doc.data();
     if (isDeletedLedger(d)) return;
-    if (d.type === "procedure") billed += Number(d.cost) || 0;
+    // The patient's part: an insurance approval's unpaid insurer part is not the patient's debt.
+    if (d.type === "procedure") billed += patientPortion({ ...d, cost: Number(d.cost) || 0, amount: 0 });
     if (d.type === "payment") paid += Number(d.paid) || 0;
   });
   return billed - paid;

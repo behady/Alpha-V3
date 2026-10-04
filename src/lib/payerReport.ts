@@ -44,7 +44,14 @@ export type LedgerRowLite = {
   labFee?: unknown;
   doctorCommissionAmount?: unknown;
   doctorCommissionPercentage?: unknown;
+  /** Set on rows an insurance approval wrote, and on the payments that settle them. */
+  claimId?: unknown;
 };
+
+/** A row written by (or settling) an insurance approval. */
+function fromApproval(row: LedgerRowLite): boolean {
+  return typeof row.claimId === "string" && row.claimId.trim() !== "";
+}
 
 function num(raw: unknown): number {
   const n = Number(raw);
@@ -230,11 +237,21 @@ export function buildPayerReport(
       totals.people.set(patientId, person);
     }
 
+    // Insurance approval work pays the dentist differently: by the owner's rule the share is the
+    // stamped rate on the approved amount, earned when the line is assigned, and it lives on the
+    // charge itself — the payments against it carry none. So it is counted here, once.
+    const approvalShare = fromApproval(row) ? num(row.doctorCommissionAmount) : 0;
+    totals.commission += approvalShare;
+
     const doctorId = String(row.doctorId ?? "").trim();
     if (doctorId) {
       const doctor = ensureDoctor(payerId, doctorId, String(row.doctorName ?? "").trim());
       doctor.cases++;
       doctor.charged += num(row.cost) || num(row.amount);
+      if (fromApproval(row)) {
+        doctor.commission += approvalShare;
+        if (approvalShare > 0) doctor.rates.add(num(row.doctorCommissionPercentage));
+      }
       // Keyed by id so one patient seen three times is one name, and the display name is
       // whatever the row carried — a patient renamed since still reads as they were recorded.
       if (patientId) {
@@ -253,7 +270,9 @@ export function buildPayerReport(
     const totals = ensure(payerId, payerName);
     const received = num(row.paid) || num(row.amount);
     totals.collected += received;
-    totals.commission += num(row.doctorCommissionAmount);
+    // A payment settling an approval's treatment carries no commission (it is on the charge).
+    const approvalPayment = fromApproval(row);
+    if (!approvalPayment) totals.commission += num(row.doctorCommissionAmount);
 
     const payingPatient = String(row.patientId ?? "").trim();
     if (payingPatient) {
@@ -271,11 +290,13 @@ export function buildPayerReport(
     if (doctorId) {
       const doctor = ensureDoctor(payerId, doctorId, String(row.doctorName ?? "").trim());
       doctor.collected += received;
-      doctor.commission += num(row.doctorCommissionAmount);
-      const pct = num(row.doctorCommissionPercentage);
-      // Only rates that actually paid something. A zero on an unattributed row would look like a
-      // rate change that never happened.
-      if (received > 0) doctor.rates.add(pct);
+      if (!approvalPayment) {
+        doctor.commission += num(row.doctorCommissionAmount);
+        const pct = num(row.doctorCommissionPercentage);
+        // Only rates that actually paid something. A zero on an unattributed row would look like a
+        // rate change that never happened.
+        if (received > 0) doctor.rates.add(pct);
+      }
     }
   }
 

@@ -1,5 +1,6 @@
 import { adminClinicCollection } from "@/lib/adminClinicDb";
 import { normalizeAppointmentStatus } from "@/lib/appointmentStages";
+import { patientPortion } from "@/lib/ledgerInsurer";
 
 /**
  * What the clinic already knows about the person who just wrote, gathered for the assistant.
@@ -59,7 +60,8 @@ export async function loadPatientDossier(clinicId: string, patientId: string): P
     const date = String(r.date || "");
     if (type === "procedure") {
       const cost = Number(r.cost) || 0;
-      charged += cost;
+      // The patient's part: an insurance approval's unpaid insurer part is not theirs to pay.
+      charged += patientPortion({ ...r, cost, amount: 0 });
       const name = String(r.labOrderService || r.description || r.category || "").trim();
       if (name) treatments.push({ name: name.slice(0, 60), date, doctor: String(r.doctorName || "") || undefined, cost: cost || undefined });
     } else {

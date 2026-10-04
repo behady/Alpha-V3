@@ -35,7 +35,10 @@ import { loadReceiptSettings } from "@/lib/receiptSettingsClient";
 import { printPaymentReceipt } from "@/lib/printPatientReceipt";
 import { parseLedgerProcedureDescription } from "@/lib/ledgerProcedureParse";
 import InsurerBadge from "@/components/shared/InsurerBadge";
+import ServiceEditorDrawer from "@/components/clinical-notes/ServiceEditorDrawer";
+import type { Service as EditorService, Staff as EditorStaff } from "@/components/clinical-notes/types";
 import { PRIVATE_PAYER_ID } from "@/lib/payers";
+import { insurerOutstanding, isApprovalRow, patientPortion } from "@/lib/ledgerInsurer";
 import { sendPatientPaymentWhatsApp } from "@/lib/sendPatientPaymentWhatsAppClient";
 import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
 import {
@@ -126,6 +129,11 @@ interface LedgerItem {
     /** Who the row is charged to; a payment inherits its treatment's. Absent (Private) on older rows. */
     payerId?: string | null;
     payerName?: string | null;
+    /** Rows recorded from an insurance approval: the insurer's approved part, and when it paid. */
+    insurerCovered?: number | null;
+    insurerPaidAt?: string | null;
+    /** The approval that wrote this treatment; its price changes on the Insurance tab only. */
+    claimId?: string | null;
   }
 
 /** The insurer's name for a row, or null for the clinic's own work and rows from before payers existed. */
@@ -169,6 +177,8 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
   
   const [transactions, setTransactions] = useState<LedgerItem[]>([]);
   const [doctors, setDoctors] = useState<any[]>([]); // NEW: Store doctors for commissions
+  const [servicesList, setServicesList] = useState<EditorService[]>([]);
+  const [addingTreatment, setAddingTreatment] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isAddingPayment, setIsAddingPayment] = useState(false);
   
@@ -187,6 +197,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
   const [totalCost, setTotalCost] = useState(0);
   const [totalPaid, setTotalPaid] = useState(0);
   const [balance, setBalance] = useState(0);
+  const [awaitingInsurer, setAwaitingInsurer] = useState(0);
 
   const [payAmount, setPayAmount] = useState("");
   const [payMethod, setPayMethod] = useState("Cash");
@@ -288,6 +299,9 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
     });
 
     // Fetch Doctors for Commission Calculations
+    getDocs(getClinicCollection("services")).then((snap) => {
+      setServicesList(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as EditorService));
+    }).catch(() => setServicesList([]));
     getDocs(getClinicCollection("staff")).then(snap => {
         setDoctors(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter((d: any) => isDentistStaff(d)));
     });
@@ -308,9 +322,13 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
       
       const cost = data.reduce((sum, item) => sum + (item.type === "procedure" ? (Number(item.cost) || 0) : 0), 0);
       const paid = data.reduce((sum, item) => sum + (item.type === "payment" ? (Number(item.paid) || 0) : 0), 0);
+      // What the insurer still owes on approval-recorded rows is the clinic's receivable from the
+      // insurer, not this patient's debt: it leaves the balance until the insurer's payment lands.
+      const awaitingInsurer = data.reduce((sum, item) => sum + insurerOutstanding(item), 0);
       setTotalCost(cost);
       setTotalPaid(paid);
-      setBalance(cost - paid);
+      setAwaitingInsurer(awaitingInsurer);
+      setBalance(cost - paid - awaitingInsurer);
       setLoading(false);
     });
 
@@ -339,7 +357,10 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
 
     return rawProcs.map(proc => {
         const paidForThis = payments.filter(p => p.procedureId === proc.id).reduce((sum, p) => sum + (Number(p.paid) || 0), 0);
-        const remaining = (Number(proc.cost) || 0) - paidForThis;
+        // The patient's part only: on a treatment from an insurance approval the insurer's approved
+        // amount is the insurer's to pay until its payment is recorded, so the pay box pre-fills
+        // the patient's share rather than the whole charge.
+        const remaining = patientPortion(proc) - paidForThis;
         return { ...proc, remaining: remaining > 0 ? remaining : 0, isPaid: remaining <= 0, paidForThis };
     });
   }, [transactions]);
@@ -447,8 +468,12 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
       // Inputs only. The charged amount, the commission and the linked note's copy of the cost are
       // all derived server-side — this screen used to compute them and send the answer, which meant
       // the stored figure was whatever the browser decided it was.
+      // A treatment from an insurance approval is priced by the approval: only its date and
+      // wording change here; the server refuses anything that would re-price it.
       const patch: Record<string, unknown> =
-        editingItem.type === "procedure"
+        editingItem.type === "procedure" && isApprovalRow(editingItem)
+          ? { date: editingItem.date, description: editingItem.description }
+          : editingItem.type === "procedure"
           ? {
               date: editingItem.date,
               description: editingItem.description,
@@ -654,6 +679,23 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
 
   return (
     <div className="space-y-6 relative">
+      {/* The same editor the clinical tab uses: name, price, payer, dentist. The treatment is
+          written through /api/clinical/procedures and appears here through the ledger listener.
+          Mounted only while open: outside `inline` mode the drawer ignores isOpen and always
+          portals its full-screen backdrop, which would cover this tab for good. */}
+      {addingTreatment && (
+        <ServiceEditorDrawer
+          isOpen
+          onClose={() => setAddingTreatment(false)}
+          patientId={patientId}
+          patientName={patientName}
+          appointmentId={null}
+          initialNote={null}
+          servicesList={servicesList}
+          doctors={doctors as EditorStaff[]}
+          onSaved={() => setAddingTreatment(false)}
+        />
+      )}
       
       {/* 💻 SCREEN UI */}
       <div className="print:hidden space-y-6">
@@ -675,6 +717,11 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
             <div className={`p-5 rounded-2xl border shadow-sm flex flex-col items-center justify-center gap-2 ${balance > 0 ? 'bg-red-50 border-red-100' : balance < 0 ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-100'}`}>
             <span className={`text-[10px] font-black uppercase tracking-widest ${balance > 0 ? 'text-red-400' : balance < 0 ? 'text-amber-600' : 'text-green-500'}`}>{balance < 0 ? txt.creditBalance : txt.balanceDue}</span>
             <span className={`text-2xl font-black ${balance > 0 ? 'text-red-600' : balance < 0 ? 'text-amber-700' : 'text-green-600'}`}>{Math.abs(balance).toLocaleString()} <span className="text-xs opacity-50">EGP</span></span>
+            {awaitingInsurer > 0 && (
+              <span className="text-[11px] font-bold text-ink-muted">
+                {language === 'ar' ? `في انتظار شركة التأمين: ${awaitingInsurer.toLocaleString()} ج.م` : `Awaiting the insurer: ${awaitingInsurer.toLocaleString()} EGP`}
+              </span>
+            )}
             </div>
         </div>
 
@@ -699,6 +746,13 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
             >
               {sendingReceipt ? <Loader2 size={16} className="animate-spin shrink-0" /> : <ScrollText size={16} className="shrink-0" />}
               <span className="min-w-0 break-words">{txt.sendReceiptWhatsapp}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setAddingTreatment(true)}
+              className="min-w-0 justify-center text-xs font-bold text-slate-700 hover:text-ink flex items-center gap-2 px-3 py-2.5 hover:bg-surface-muted rounded-xl transition-colors border border-line bg-surface leading-tight whitespace-normal text-center"
+            >
+              <Plus size={16} className="shrink-0" /> <span className="min-w-0 break-words">{language === 'ar' ? 'إضافة علاج' : 'Add treatment'}</span>
             </button>
             <button data-tour="finance-add-payment" onClick={() => { setIsAddingPayment(!isAddingPayment); setIsDropdownOpen(false); }} className="min-w-0 col-span-2 sm:col-span-1 justify-center bg-green-500 text-white px-3 py-2.5 rounded-xl font-black text-xs uppercase shadow-md shadow-green-100 hover:bg-green-600 transition-all flex items-center gap-2 leading-tight whitespace-normal text-center">
                 <Plus size={16} className="shrink-0"/> <span className="min-w-0 break-words">{txt.addPayment}</span>

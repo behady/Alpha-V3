@@ -73,6 +73,20 @@ type ServiceRow = {
 
 const DENTIST_ROLES = new Set(["Dentist", "Owner", "Admin"]);
 const STEPS = 3;
+/**
+ * The steps an insurer's wizard shows. An insurer with a document format (MetLife) gets its prices
+ * from the approval paper, so the "what do they cover and pay" step would only invite the clinic
+ * to type a tariff nobody reads; it is skipped, and no price list is kept for such an insurer.
+ */
+const stepsOf = (d: { format: string }): number[] => (d.format ? [1, 3] : [1, 2, 3]);
+const nextStep = (d: { format: string }, step: number): number => {
+  const steps = stepsOf(d);
+  return steps[Math.min(steps.indexOf(step) + 1, steps.length - 1)];
+};
+const prevStep = (d: { format: string }, step: number): number => {
+  const steps = stepsOf(d);
+  return steps[Math.max(steps.indexOf(step) - 1, 0)];
+};
 
 function pct(raw: unknown): number {
   const n = Number(raw);
@@ -81,7 +95,7 @@ function pct(raw: unknown): number {
 
 /** A treatment typed into the coverage table that does not exist as a service yet. */
 type AddedRow = {
-  /** A Firestore id minted on the client, so the row can be covered and priced before it is saved. */
+  /** A Firestore id minted on the client, so the row can be priced before it is saved. */
   id: string;
   name: string;
   /** The clinic's own price — what every other patient pays. */
@@ -100,8 +114,6 @@ type Draft = {
   providerCode: string;
   /** Service id → what this insurer pays. */
   prices: Record<string, number>;
-  /** The treatments on this insurer's own list. Every insurer keeps its own. */
-  covered: Set<string>;
   /** Staff id → percentage on this insurer's cases. */
   rates: Record<string, number>;
   /** Service id → the name as retyped in the table. Saved only when it differs. */
@@ -214,16 +226,11 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
     const listId = payer.priceListId || "";
     const priced = listId ? services.filter((s) => typeof s.prices[listId] === "number").length : 0;
     const rated = staff.filter((s) => typeof s.commissionByPayer[payer.id] === "number").length;
-    // Absent means everything, which is what an insurer set up before separate lists means.
-    const covered = payer.services ? payer.services.length : services.length;
-    return { priced, rated, covered, total: services.length };
+    return { priced, rated };
   };
 
   const startNew = () => {
-    // A new insurer starts covering everything, then the clinic unticks what it does not.
-    // Starting empty would mean the first treatment recorded on it silently falls to private,
-    // which reads as the insurer not working rather than as a list nobody has filled in.
-    setDraft({ payerId: "", name: "", nameAr: "", format: "", providerCode: "", prices: {}, rates: {}, renamed: {}, added: [], covered: new Set(services.map((s) => s.id)) });
+    setDraft({ payerId: "", name: "", nameAr: "", format: "", providerCode: "", prices: {}, rates: {}, renamed: {}, added: [] });
     setStep(1);
   };
 
@@ -249,8 +256,6 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
       rates,
       renamed: {},
       added: [],
-      // No stored list means this insurer predates separate lists and covers everything.
-      covered: new Set(payer.services ?? services.map((s) => s.id)),
     });
     setStep(1);
   };
@@ -346,16 +351,10 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
     setSaving(true);
     try {
       const isNew = !draft.payerId;
-      // Written in the services' own order so two saves of the same list produce the same
-      // document, rather than a fresh permutation that reads as a change in every audit.
       // Rows typed into the table become services of their own; a blank or free one is noise.
       const newRows = draft.added
         .map((r) => ({ ...r, name: r.name.trim() }))
         .filter((r) => r.name && Number.isFinite(r.price) && r.price > 0);
-      const coveredList = [
-        ...services.filter((svc) => draft.covered.has(svc.id)).map((svc) => svc.id),
-        ...newRows.filter((r) => draft.covered.has(r.id)).map((r) => r.id),
-      ];
       const payerId = draft.payerId || payerIdFrom(name, payers);
       const nameAr = draft.nameAr.trim() || undefined;
       // Optional, and left off the payer entirely when blank: payersDocFrom drops an undefined, so a
@@ -366,22 +365,35 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
       // The list the rest of the app charges from. Created here, named after the insurer, and
       // never called a "price list" on this screen.
       const existing = payers.find((p) => p.id === payerId);
-      const listId = existing?.priceListId || `payer-${payerId}`;
+      // An insurer with a document format carries no price list and no coverage: its prices are
+      // whatever the approval paper says. A list it had before the format was set is retired
+      // (deactivated, never deleted: past work may still point at it).
+      const listId = format ? "" : existing?.priceListId || `payer-${payerId}`;
       let lists = priceLists;
-      // Adopt an existing list under this id rather than appending a second one. The id is
-      // derived from the payer, so a payer document that lost its link (a stale screen, a failed
-      // save) would otherwise mint a duplicate — which is exactly what happened in production:
-      // two "AXA" lists, same id, and every price the clinic typed claimed by both.
-      if (lists.some((l) => l.id === listId)) {
-        lists = lists.map((l) => (l.id === listId ? { ...l, name, nameAr } : l));
+      if (format) {
+        const old = existing?.priceListId || "";
+        const sharedWithAnotherPayer = payers.some((p) => p.id !== payerId && p.priceListId === old);
+        if (old && !sharedWithAnotherPayer && lists.some((l) => l.id === old && l.active && !l.isDefault)) {
+          lists = lists.map((l) => (l.id === old ? { ...l, active: false } : l));
+          await setDoc(getClinicDoc("settings", PRICE_LISTS_DOC), { lists: toStoredLists(lists) }, { merge: true });
+        }
       } else {
-        lists = [...lists, { id: listId, name, nameAr, generalDiscountPercent: 0, active: true, isDefault: false }];
+        // Adopt an existing list under this id rather than appending a second one. The id is
+        // derived from the payer, so a payer document that lost its link (a stale screen, a failed
+        // save) would otherwise mint a duplicate — which is exactly what happened in production:
+        // two "AXA" lists, same id, and every price the clinic typed claimed by both.
+        if (lists.some((l) => l.id === listId)) {
+          lists = lists.map((l) => (l.id === listId ? { ...l, name, nameAr } : l));
+        } else {
+          lists = [...lists, { id: listId, name, nameAr, generalDiscountPercent: 0, active: true, isDefault: false }];
+        }
+        await setDoc(getClinicDoc("settings", PRICE_LISTS_DOC), { lists: toStoredLists(lists) }, { merge: true });
       }
-      await setDoc(getClinicDoc("settings", PRICE_LISTS_DOC), { lists: toStoredLists(lists) }, { merge: true });
 
+      const base = { name, nameAr, format, providerCode, priceListId: listId || undefined, services: undefined }; // absent = covers everything: coverage lists are gone, any service can be billed to any payer
       const nextPayers: Payer[] = isNew
-        ? [...payers, { id: payerId, name, nameAr, format, providerCode, priceListId: listId, services: coveredList, active: true, isDefault: false }]
-        : payers.map((p) => (p.id === payerId ? { ...p, name, nameAr, format, providerCode, priceListId: listId, services: coveredList } : p));
+        ? [...payers, { id: payerId, ...base, active: true, isDefault: false }]
+        : payers.map((p) => (p.id === payerId ? { ...p, ...base } : p));
       await setDoc(getClinicDoc("settings", "payers"), payersDocFrom(nextPayers), { merge: true });
 
       // Only the services and the staff whose answer actually changed. Clearing a box removes the
@@ -389,7 +401,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
       // different answers and the store has to keep them apart.
       const batch = writeBatch(db);
       let writes = 0;
-      for (const service of services) {
+      for (const service of format ? [] : services) {
         const before = service.prices[listId];
         const after = draft.prices[service.id];
         const beforeSet = typeof before === "number";
@@ -401,14 +413,14 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
         batch.update(getClinicDoc("services", service.id), { prices: nextPrices });
         writes++;
       }
-      for (const row of newRows) {
+      for (const row of format ? [] : newRows) {
         // Shaped like a service the Prices screen would create; category and icon are
         // keyword-matched from the name, as they are there.
         const category = suggestCategory(row.name);
         const icon = suggestIcon(row.name) || categoryOf(category).icon;
         const pays = draft.prices[row.id];
         const prices: Record<string, number> = {};
-        if (draft.covered.has(row.id) && typeof pays === "number") prices[listId] = pays;
+        if (typeof pays === "number") prices[listId] = pays;
         batch.set(getClinicDoc("services", row.id), {
           name: row.name,
           price: row.price,
@@ -467,7 +479,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
     const who = draft.name.trim() || (isAr ? "الشركة" : "this insurer");
     const titles = [
       isAr ? "الشركة اسمها إيه؟" : "What is the insurer called?",
-      isAr ? `${who} بتغطي إيه وبتدفع كام؟` : `What does ${who} cover, and pay?`,
+      isAr ? `${who} بتدفع كام؟ (اختياري)` : `What does ${who} pay? (optional)`,
       isAr ? "كل دكتور بياخد كام؟" : "What does each dentist earn?",
     ];
     const hints = [
@@ -475,42 +487,28 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
         ? "الاسم ده هيظهر في التقارير وعلى شاشة العلاج."
         : "This name appears in the reports and on the treatment screen.",
       isAr
-        ? "شيل العلامة عن أي علاج الشركة دي مش بتغطيه. وسيب الخانة فاضية لو بيدفعوا سعرك العادي — الرقم الباهت هو سعرك."
-        : "Untick anything this insurer does not cover. Leave a price empty if they pay your normal price — the faded number is yours.",
+        ? "أسعار بتتملّي تلقائي لما تختار العلاج تحت الشركة دي، وتقدر تغيّرها على كل حالة. سيب الخانة فاضية لو بيدفعوا سعرك العادي."
+        : "Prices that prefill when a treatment is picked under this insurer; you can overwrite them on any case. Leave a box blank if they pay your normal price.",
       isAr
         ? "سيب الخانة فاضية لو الدكتور بياخد نسبته العادية. املا بس اللي بيختلف."
         : "Leave a box empty if the dentist earns their normal percentage. Only fill in what differs.",
     ];
 
-    // The coverage table, rows the clinic is adding included.
-    const allRowIds = [...services.map((s) => s.id), ...draft.added.map((r) => r.id)];
-    const toggleCovered = (id: string) => {
-      const covered = new Set(draft.covered);
-      if (covered.has(id)) covered.delete(id);
-      else covered.add(id);
-      setDraft({ ...draft, covered });
-    };
+    // The price table, rows the clinic is adding included.
     const addRow = () => {
-      // The id is minted now so the row can be ticked and priced like any other before it exists.
+      // The id is minted now so the row can be priced like any other before it exists.
       const id = doc(getClinicCollection("services")).id;
-      const covered = new Set(draft.covered);
-      covered.add(id);
-      setDraft({ ...draft, covered, added: [...draft.added, { id, name: "", price: 0 }] });
+      setDraft({ ...draft, added: [...draft.added, { id, name: "", price: 0 }] });
     };
     const updateAdded = (id: string, patch: Partial<AddedRow>) =>
       setDraft({ ...draft, added: draft.added.map((r) => (r.id === id ? { ...r, ...patch } : r)) });
     const removeAdded = (id: string) => {
-      const covered = new Set(draft.covered);
-      covered.delete(id);
       const prices = { ...draft.prices };
       delete prices[id];
-      setDraft({ ...draft, covered, prices, added: draft.added.filter((r) => r.id !== id) });
+      setDraft({ ...draft, prices, added: draft.added.filter((r) => r.id !== id) });
     };
     const nameBoxCls =
       "w-full min-w-0 rounded-lg border border-transparent bg-transparent px-2 py-1 text-[13.5px] font-bold text-ink outline-none transition placeholder:font-medium placeholder:text-ink-faint hover:border-line focus:border-accent focus:bg-surface";
-    const notCovered = (
-      <span className="text-[11.5px] font-bold text-ink-faint">{isAr ? "مش مغطّى" : "Not covered"}</span>
-    );
     const paysBox = (id: string, yourPrice: number) => (
       <input
         type="number"
@@ -534,7 +532,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <p className="font-display text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
-                {isAr ? `خطوة ${step} من ${STEPS}` : `Step ${step} of ${STEPS}`}
+                {isAr ? `خطوة ${stepsOf(draft).indexOf(step) + 1} من ${stepsOf(draft).length}` : `Step ${stepsOf(draft).indexOf(step) + 1} of ${stepsOf(draft).length}`}
               </p>
               <h2 className="mt-2 font-display text-xl font-bold leading-tight tracking-tight sm:text-2xl">
                 {titles[step - 1]}
@@ -553,10 +551,10 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
             </button>
           </div>
           <div className="mt-5 flex gap-1.5">
-            {Array.from({ length: STEPS }, (_, i) => (
+            {stepsOf(draft).map((n) => (
               <span
-                key={i}
-                className={`h-1 flex-1 rounded-full transition-colors ${i < step ? "bg-accent" : "bg-white/15"}`}
+                key={n}
+                className={`h-1 flex-1 rounded-full transition-colors ${n <= step ? "bg-accent" : "bg-white/15"}`}
               />
             ))}
           </div>
@@ -679,23 +677,6 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
                 <table className="w-full border-collapse">
                   <thead>
                     <tr className="border-b border-line bg-surface-subtle">
-                      <th className="w-10 px-3 py-3 text-center">
-                        {/* All or nothing, because the two common shapes are "covers nearly
-                            everything, minus cosmetics" and "covers a short agreed list". Both are
-                            faster from an extreme than from wherever the list happens to be. */}
-                        <input
-                          type="checkbox"
-                          aria-label={isAr ? "تحديد الكل" : "Select all"}
-                          checked={draft.covered.size === allRowIds.length && allRowIds.length > 0}
-                          onChange={(e) =>
-                            setDraft({
-                              ...draft,
-                              covered: e.target.checked ? new Set(allRowIds) : new Set<string>(),
-                            })
-                          }
-                          className="size-4 accent-[color:var(--accent,#FACC15)]"
-                        />
-                      </th>
                       <th className="px-3 py-3 text-start text-[10.5px] font-black uppercase tracking-wider text-ink-muted">
                         {isAr ? "العلاج" : "Treatment"}
                       </th>
@@ -709,18 +690,8 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
                   </thead>
                   <tbody>
                     {services.map((s) => {
-                      const on = draft.covered.has(s.id);
                       return (
-                        <tr key={s.id} className={`border-b border-line last:border-b-0 ${on ? "" : "opacity-45"}`}>
-                          <td className="px-3 py-2 text-center">
-                            <input
-                              type="checkbox"
-                              aria-label={s.name}
-                              checked={on}
-                              onChange={() => toggleCovered(s.id)}
-                              className="size-4 accent-[color:var(--accent,#FACC15)]"
-                            />
-                          </td>
+                        <tr key={s.id} className="border-b border-line last:border-b-0">
                           <td className="px-2 py-1.5">
                             <input
                               type="text"
@@ -733,28 +704,13 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
                           <td className="px-3 py-2 text-end font-figure text-[13px] text-ink-muted">
                             {s.price.toLocaleString()}
                           </td>
-                          <td className="px-3 py-2 text-end">
-                            {/* A price on a treatment this insurer does not cover is a number that
-                                can never be charged, so the box goes away rather than being
-                                disabled — a greyed-out field invites somebody to try. */}
-                            {on ? paysBox(s.id, s.price) : notCovered}
-                          </td>
+                          <td className="px-3 py-2 text-end">{paysBox(s.id, s.price)}</td>
                         </tr>
                       );
                     })}
                     {draft.added.map((row) => {
-                      const on = draft.covered.has(row.id);
                       return (
-                        <tr key={row.id} className={`border-b border-line last:border-b-0 ${on ? "" : "opacity-45"}`}>
-                          <td className="px-3 py-2 text-center">
-                            <input
-                              type="checkbox"
-                              aria-label={row.name || (isAr ? "علاج جديد" : "New treatment")}
-                              checked={on}
-                              onChange={() => toggleCovered(row.id)}
-                              className="size-4 accent-[color:var(--accent,#FACC15)]"
-                            />
-                          </td>
+                        <tr key={row.id} className="border-b border-line last:border-b-0">
                           <td className="px-2 py-1.5">
                             <span className="flex items-center gap-1">
                               <input
@@ -787,7 +743,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
                               className="w-24 rounded-xl border border-line bg-surface px-2 py-1.5 text-end font-figure text-[13px] text-ink outline-none transition focus:border-accent"
                             />
                           </td>
-                          <td className="px-3 py-2 text-end">{on ? paysBox(row.id, row.price) : notCovered}</td>
+                          <td className="px-3 py-2 text-end">{paysBox(row.id, row.price)}</td>
                         </tr>
                       );
                     })}
@@ -851,7 +807,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
         <div className="flex items-center justify-between gap-3">
           <button
             type="button"
-            onClick={() => (step === 1 ? setDraft(null) : setStep(step - 1))}
+            onClick={() => (step === 1 ? setDraft(null) : setStep(prevStep(draft, step)))}
             disabled={saving}
             className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2.5 text-[13px] font-bold text-ink-muted transition hover:text-ink disabled:opacity-50"
           >
@@ -865,7 +821,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
             {step > 1 && step < STEPS && (
               <button
                 type="button"
-                onClick={() => setStep(step + 1)}
+                onClick={() => setStep(nextStep(draft, step))}
                 disabled={saving}
                 className="rounded-xl px-3 py-2.5 text-[13px] font-bold text-ink-faint transition hover:text-ink disabled:opacity-50"
               >
@@ -875,7 +831,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
             {step < STEPS ? (
               <button
                 type="button"
-                onClick={() => setStep(step + 1)}
+                onClick={() => setStep(nextStep(draft, step))}
                 disabled={saving || (step === 1 && !draft.name.trim())}
                 className="inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-bold text-ink-on-accent transition hover:bg-accent-strong disabled:opacity-50"
               >
@@ -925,7 +881,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
 
       <div className="space-y-3">
         {insurers.map((payer) => {
-          const { priced, rated, covered, total } = summaryOf(payer);
+          const { priced, rated } = summaryOf(payer);
           return (
             <div
               key={payer.id}
@@ -938,15 +894,9 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
                   {/* What is actually set, in words. A card that only showed a name would make
                       somebody open the wizard to find out whether they had finished. */}
                   <p className="text-[12px] font-medium text-ink-faint">
-                    {covered >= total
-                      ? isAr
-                        ? "بتغطي كل العلاجات"
-                        : "Covers every treatment"
-                      : isAr
-                        ? `بتغطي ${covered} من ${total} علاج`
-                        : `Covers ${covered} of ${total}`}
-                    {" · "}
-                    {priced === 0
+                    {payer.format ? (
+                      isAr ? "الأسعار من ورقة الموافقة" : "Prices come from the approval paper"
+                    ) : priced === 0
                       ? isAr
                         ? "بيدفعوا أسعارك العادية"
                         : "Pays your normal prices"

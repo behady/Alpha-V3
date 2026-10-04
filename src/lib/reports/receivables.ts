@@ -18,6 +18,7 @@ import { ledgerCashValue } from "@/lib/reportHelpers";
 import { rowDate, type ReportLedgerRow, type ReportPatient } from "@/lib/reportPatients";
 import { daysBetween } from "@/lib/reports/periods";
 import { payerOf, PRIVATE_PAYER_ID } from "@/lib/payers";
+import { insurerOutstanding } from "@/lib/ledgerInsurer";
 
 export type AgeBucket = "0-30" | "31-60" | "61-90" | "90+";
 export const AGE_BUCKETS: AgeBucket[] = ["0-30", "31-60", "61-90", "90+"];
@@ -117,8 +118,11 @@ export function receivables(
     payer.patientIds.add(pid);
     if (type === "procedure") {
       const price = num(row.cost) || num(row.amount);
-      a.charged += price;
-      a.procedures.push({ date, price, payer: payer.payerName });
+      // A treatment recorded from an insurance approval: the insurer's unpaid part is owed by the
+      // insurer (it stays in the payer's own figures below), never by the patient.
+      const owedByPatient = price - insurerOutstanding(row);
+      a.charged += owedByPatient;
+      if (owedByPatient > 0) a.procedures.push({ date, price: owedByPatient, payer: payer.payerName });
       payer.charged += price;
     } else if (type === "payment") {
       const cash = ledgerCashValue(row);
