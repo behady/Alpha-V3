@@ -589,7 +589,8 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   assert.equal(at({ status: "treated", current: "2026-10-05" }), "2026-10-05", "re-marking treated keeps the stored date");
   assert.equal(at({ status: "approved", treatedDate: "2026-10-04", current: "2026-10-05" }), null, "approved is never treated");
   assert.equal(at({ status: "cancelled", current: "2026-10-05" }), undefined, "cancelled leaves it");
-  assert.equal(at({ status: "sent" }), undefined);
+  assert.equal(at({ status: "sent" }), "2026-10-03", "sent with no treated date yet: filled as treated is");
+  assert.equal(at({ status: "sent", current: "2026-10-05" }), undefined, "sent keeps a stored treated date");
   assert.equal(at({ status: "sent", treatedDate: "2026-10-06" }), "2026-10-06");
   assert.equal(at({ treatedDate: null, current: "2026-10-05" }), null, "a date cleared on its own");
   assert.equal(at({}), undefined);
@@ -1009,6 +1010,7 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   // what a status change does to the rows
   assert.equal(rowsActionForStatus({ from: "approved", to: "treated", hasRows: false }), "write");
   assert.equal(rowsActionForStatus({ from: "cancelled", to: "treated", hasRows: false }), "write");
+  assert.equal(rowsActionForStatus({ from: "approved", to: "sent", hasRows: false }), "write", "straight from approved to sent records the work as treated does");
   assert.equal(rowsActionForStatus({ from: "treated", to: "treated", hasRows: false }), "none", "not a change of status");
   assert.equal(rowsActionForStatus({ from: "approved", to: "treated", hasRows: true }), "none", "rows are never written twice");
   assert.equal(rowsActionForStatus({ from: "treated", to: "approved", hasRows: true }), "remove");

@@ -200,7 +200,7 @@ function docFactsOf(data: DocumentData | undefined): DocFacts | null {
  *
  * A claim saved as `treated` also writes its treatment rows in the same transaction (one clinical
  * note and one ledger charge per approved line, dated the treated day, named by the clinic's stored
- * wording where it has one); an `approved` claim writes them when PATCH marks it treated.
+ * wording where it has one); an `approved` claim writes them when PATCH marks it treated or sent.
  * `dentistId`, when given, must be a dentist (400 otherwise).
  *
  * `docPath` is optional and only used when no document row exists (the read failed and the desk typed
@@ -382,7 +382,7 @@ export async function POST(req: Request) {
         }
         // The treatments are recorded only once they are done: a claim saved as `treated` writes
         // its rows now, dated the treated day; an `approved` one writes them when it is marked
-        // treated.
+        // treated (or sent).
         let charges: Charge[] = [];
         if (status === "treated") {
           const payerName = findPayer(parsePayers(payersSnap.data()), payerId)?.name ?? payerId;
@@ -469,8 +469,9 @@ export async function POST(req: Request) {
  *   failure; nothing written). Totals are recomputed from the lines. To claim less than the paper
  *   approved, the printed totals in `metlife` are edited along with the lines.
  * - `status`: `approved` clears the treated date; `treated` without a date keeps the stored one or takes
- *   the approval date; `sent` stamps `sentAt`. The treatment rows follow the status: becoming
- *   `treated` with no rows yet writes them (dated the treated day); going back to `approved`, or
+ *   the approval date; `sent` stamps `sentAt` and, with no treated date yet, fills it as `treated`
+ *   does. The treatment rows follow the status: becoming `treated` or `sent` with no rows yet
+ *   writes them (dated the treated day); going back to `approved`, or
  *   `cancelled`, deletes them in the same transaction — refused (409) once any of them has money
  *   against it.
  * - `patientId`: re-snapshots the patient's name (404 when the patient does not exist) and writes

@@ -252,6 +252,8 @@ export function parseClaim(id: string, raw: unknown): InsuranceClaim | null {
  *
  * - `approved` (not treated yet): always null, whatever date came with it.
  * - `treated`: the date sent, else the one already stored, else the approval date (the card's default).
+ * - `sent`: sent work was done, so a claim with no treated date yet gets one exactly as `treated` does
+ *   (the date sent, else the approval date); one that has a date keeps it unless a new one is sent.
  * - anything else, or no status change: the date sent when one was sent, else unchanged.
  */
 export function treatedDateAfter(args: {
@@ -264,6 +266,9 @@ export function treatedDateAfter(args: {
   if (args.status === "treated") {
     if (args.treatedDate) return args.treatedDate;
     return args.current ?? (args.approvalDate || null);
+  }
+  if (args.status === "sent" && args.current === null) {
+    return args.treatedDate || args.approvalDate || null;
   }
   return args.treatedDate === undefined ? undefined : args.treatedDate;
 }
@@ -542,7 +547,8 @@ export function cappedPayment(wanted: number, cost: number, alreadyPaid: number)
 /**
  * What a status change does to the treatment rows an approval writes.
  *
- * - `write`: the claim becomes `treated` and has no rows yet — the work is now done, record it.
+ * - `write`: the claim becomes `treated` or `sent` and has no rows yet — the work is done (a claim
+ *   sent to the insurer was treated, even if nobody marked it so first), record it.
  * - `remove`: the claim goes back to `approved` or is `cancelled` while rows exist — the work did
  *   not happen (the caller refuses when any row already has money against it).
  * - `none`: anything else, including `treated` ↔ `sent` and a claim that already has its rows.
@@ -550,7 +556,7 @@ export function cappedPayment(wanted: number, cost: number, alreadyPaid: number)
 export function rowsActionForStatus(args: { from: ClaimStatus; to: ClaimStatus | undefined; hasRows: boolean }): "write" | "remove" | "none" {
   const { from, to, hasRows } = args;
   if (to === undefined || to === from) return "none";
-  if (to === "treated" && !hasRows) return "write";
+  if ((to === "treated" || to === "sent") && !hasRows) return "write";
   if ((to === "approved" || to === "cancelled") && hasRows) return "remove";
   return "none";
 }
