@@ -13,7 +13,7 @@
 import { auth } from "@/lib/firebase";
 import type { Check, MetlifeExtraction, MetlifeHeader } from "@/lib/insurance/metlife";
 import type { PatientMatch } from "@/lib/insurance/matchPatient";
-import type { ClaimStatus } from "@/lib/insurance/claims";
+import type { ClaimStatus, LineStatus } from "@/lib/insurance/claims";
 
 export type ApiAnswer = { status: number; data: Record<string, unknown> };
 
@@ -107,9 +107,12 @@ export type SaveBody = {
   payerId: string;
   extraction: MetlifeExtraction;
   patient: { id: string } | { create: { name: string; phone?: string } };
-  /** The dentist who did the work: every line is assigned to them and the treatment rows carry them. */
+  /** The dentist for every line that has no entry in `lines` (the older one-dentist shape). */
   dentistId?: string;
-  status: "approved" | "treated";
+  /** Per service line: who did it (null = nobody yet) and where it stands (absent = Completed). */
+  lines?: Record<number, { dentistId?: string | null; status?: LineStatus }>;
+  /** Omitted by the confirm card: the server saves the paper as treated. */
+  status?: "approved" | "treated";
   wording?: Record<string, string>;
   docPath?: string;
 };
@@ -122,8 +125,8 @@ export type SaveOutcome =
   | { kind: "error"; error: string };
 
 /**
- * POST /api/insurance/claims. `treatedDate` is never sent: with status "treated" the server takes
- * the approval date, with "approved" it stores null.
+ * POST /api/insurance/claims. `treatedDate` is never sent: with status "treated" (the default) the
+ * server takes the approval date, with "approved" it stores null.
  */
 export async function saveClaim(body: SaveBody): Promise<SaveOutcome> {
   const { status, data } = await call("POST", "/api/insurance/claims", body);
@@ -146,6 +149,8 @@ export type ClaimPatch = {
   patientId?: string;
   /** Line index -> staff id to assign, or null to clear. The server stamps the rate and share. */
   dentists?: Record<number, string | null>;
+  /** Line index -> where that service stands; follows into the treatment row's note. */
+  lineStatus?: Record<number, LineStatus>;
   /** Take the patient's share as cash: the server posts the ledger row and stamps the claim in one transaction. */
   collectShare?: true;
   /** Record the insurer's payment against the treatment rows, and mark them settled. */

@@ -9,6 +9,8 @@
  * service with count, requested and approved — plus the one column the sheet never shows: the
  * dentist who did each service. Picking a dentist on a line saves at once; picking one on the
  * first line of an approval prefills that approval's other lines, so the usual case is one click.
+ * Beside it, each service's state (Completed / Planned / Ongoing), also saved at once; only
+ * Completed services go on the insurer's sheet and into payroll.
  *
  * The patient's share is cash the desk takes at the counter. "Collect" posts it as one income row
  * in today's ledger and remembers the row on the claim, so it is counted once and never again.
@@ -26,12 +28,12 @@ import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { isAnyUnlocked } from "@/lib/featureCatalog";
-import { CLAIMS_COLLECTION, parseClaim, type ClaimStatus, type InsuranceClaim } from "@/lib/insurance/claims";
+import { CLAIMS_COLLECTION, LINE_STATUSES, lineStatusOf, parseClaim, type ClaimStatus, type InsuranceClaim, type LineStatus } from "@/lib/insurance/claims";
 import { readInsurance } from "@/lib/patientInsurance";
 import { parsePayers, PRIVATE_PAYER_ID, type Payer } from "@/lib/payers";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { collectPatientShare, patchClaim, recordInsurerPayment, InsuranceCallError, type ClaimPatch } from "./api";
-import { tr, type TextKey } from "./text";
+import { STATE_KEY, tr, type TextKey } from "./text";
 import { useWording } from "./useWording";
 
 type Dentist = { id: string; name: string };
@@ -128,6 +130,22 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
       else showToast(t("dentistSaved"), "success");
     } catch (err) {
       fail(err, "dentistFailed");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // A service's state (Completed / Planned / Ongoing): saved at once, and it follows into the
+  // treatment row's note. Only Completed services go on the insurer's sheet and into payroll.
+  const pickState = async (claim: InsuranceClaim, lineIndex: number, state: LineStatus) => {
+    if (!clinicId || lineStatusOf(claim, lineIndex) === state) return;
+    setBusy(claim.id);
+    try {
+      const error = await patchClaim(clinicId, claim.id, { lineStatus: { [lineIndex]: state } });
+      if (error) showToast(error, "error");
+      else showToast(t("updated"), "success");
+    } catch (err) {
+      fail(err, "updateFailed");
     } finally {
       setBusy(null);
     }
@@ -275,7 +293,7 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
           <p className="mt-3 text-[13px] font-semibold text-ink-muted">{t("noPatientClaims")}</p>
         ) : (
           <div className="mt-3 overflow-x-auto">
-            <table className="w-full min-w-[52rem] border-collapse text-[13px]">
+            <table className="w-full min-w-[60rem] border-collapse text-[13px]">
               <thead>
                 <tr className="border-b border-line text-[10px] font-black uppercase tracking-wider text-ink-muted">
                   <th className="py-2 pe-3 text-start">{t("approvalNumber")}</th>
@@ -284,7 +302,8 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                   <th className="py-2 pe-3 text-end">{t("colCount")}</th>
                   <th className="py-2 pe-3 text-end">{t("colRequested")}</th>
                   <th className="py-2 pe-3 text-end">{t("colApproved")}</th>
-                  <th className="py-2 text-start">{t("colDentist")}</th>
+                  <th className="py-2 pe-3 text-start">{t("colDentist")}</th>
+                  <th className="py-2 text-start">{t("colState")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -361,7 +380,7 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                       <td className="py-2.5 pe-3 text-end font-figure font-bold tabular-nums">{line.unitsApproved}</td>
                       <td className="py-2.5 pe-3 text-end font-figure font-bold tabular-nums text-ink-muted">{money(line.grossTotal)}</td>
                       <td className="py-2.5 pe-3 text-end font-figure font-extrabold tabular-nums text-ink">{money(line.approvedAmount)}</td>
-                      <td className="py-2">
+                      <td className="py-2 pe-3">
                         <div className="flex items-center gap-2">
                         <select
                           value={c.dentists[i]?.staffId ?? ""}
@@ -388,6 +407,21 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                           </span>
                         )}
                         </div>
+                      </td>
+                      <td className="py-2">
+                        <select
+                          value={lineStatusOf(c, i)}
+                          disabled={isBusy || c.status === "cancelled"}
+                          onChange={(e) => pickState(c, i, e.target.value as LineStatus)}
+                          aria-label={t("colState")}
+                          className="w-full min-w-[7rem] rounded-lg border border-line bg-surface px-2 py-1.5 text-[12px] font-bold text-ink outline-none focus:border-ink disabled:opacity-50"
+                        >
+                          {LINE_STATUSES.map((s) => (
+                            <option key={s} value={s}>
+                              {t(STATE_KEY[s])}
+                            </option>
+                          ))}
+                        </select>
                       </td>
                     </tr>
                   ));

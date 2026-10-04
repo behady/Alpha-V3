@@ -1,6 +1,7 @@
 /**
- * A dentist's insurance work for a period: the service lines assigned to them on treated or sent
- * claims, each with the rate and share stamped when the line was assigned.
+ * A dentist's insurance work for a period: the Completed service lines assigned to them on treated or
+ * sent claims, each with the rate and share stamped when the line was assigned. A Planned or Ongoing
+ * line earns nobody anything yet (no state stored = Completed, as every older claim).
  *
  * Insurance is paid separately from private work — the owner's decision. Private commission comes
  * from the ledger (`staffCommission.ts`); this comes from the claims register and never touches
@@ -9,7 +10,7 @@
  * Pure: claims in, figures out. Nothing here is printed on the insurer's statement.
  */
 
-import type { InsuranceClaim } from "@/lib/insurance/claims";
+import { lineStatusOf, type InsuranceClaim } from "@/lib/insurance/claims";
 
 export type InsuranceWorkEntry = {
   claimId: string;
@@ -60,7 +61,7 @@ export function insuranceWorkByStaff(claims: readonly InsuranceClaim[], wording:
     for (const [k, d] of Object.entries(claim.dentists)) {
       const i = Number(k);
       const line = claim.lines[i];
-      if (!line) continue;
+      if (!line || lineStatusOf(claim, i) !== "Completed") continue;
       const bucket = out.get(d.staffId) ?? { total: 0, approved: 0, entries: [] };
       bucket.entries.push({
         claimId: claim.id,
@@ -83,14 +84,14 @@ export function insuranceWorkByStaff(claims: readonly InsuranceClaim[], wording:
   return out;
 }
 
-/** Counted lines nobody has been assigned to yet: money that belongs to someone and is not on any sheet. */
+/** Completed counted lines nobody has been assigned to yet: money that belongs to someone and is not on any sheet. */
 export function unassignedLines(claims: readonly InsuranceClaim[]): { count: number; approved: number } {
   let count = 0;
   let approved = 0;
   for (const claim of claims) {
     if (!countsForPayroll(claim)) continue;
     claim.lines.forEach((line, i) => {
-      if (claim.dentists[i]) return;
+      if (claim.dentists[i] || lineStatusOf(claim, i) !== "Completed") return;
       count += 1;
       approved = round2(approved + line.approvedAmount);
     });
