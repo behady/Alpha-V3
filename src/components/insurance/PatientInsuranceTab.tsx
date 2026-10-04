@@ -20,7 +20,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { collection, doc, getDocs, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import { ref, getDownloadURL } from "firebase/storage";
-import { FileText, Loader2, Banknote, CheckCircle2 } from "lucide-react";
+import { FileText, Loader2, Banknote, CheckCircle2, RefreshCw, RotateCcw, Send } from "lucide-react";
 import { db, storage } from "@/lib/firebase";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
@@ -30,7 +30,7 @@ import { CLAIMS_COLLECTION, parseClaim, type ClaimStatus, type InsuranceClaim } 
 import { readInsurance } from "@/lib/patientInsurance";
 import { parsePayers, PRIVATE_PAYER_ID, type Payer } from "@/lib/payers";
 import { isDentistStaff } from "@/lib/staffRoles";
-import { collectPatientShare, patchClaim, InsuranceCallError } from "./api";
+import { collectPatientShare, patchClaim, InsuranceCallError, type ClaimPatch } from "./api";
 import { tr, type TextKey } from "./text";
 import { useWording } from "./useWording";
 
@@ -126,6 +126,39 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
       const error = await patchClaim(clinicId, claim.id, { dentists: picks });
       if (error) showToast(error, "error");
       else showToast(t("dentistSaved"), "success");
+    } catch (err) {
+      fail(err, "dentistFailed");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const setStatus = async (claim: InsuranceClaim, patch: ClaimPatch) => {
+    if (!clinicId) return;
+    if (claim.status === "sent" && !(await confirm(t("sentWarning"), { confirmLabel: t("continue") }))) return;
+    setBusy(claim.id);
+    try {
+      const error = await patchClaim(clinicId, claim.id, patch);
+      if (error) showToast(error, "error");
+    } catch (err) {
+      fail(err, "dentistFailed");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // Re-stamp every assigned line from the rates on file now: for the dentist whose percentage
+  // was set after the lines were picked.
+  const reapplyRates = async (claim: InsuranceClaim) => {
+    if (!clinicId) return;
+    const picks: Record<number, string | null> = {};
+    for (const [k, d] of Object.entries(claim.dentists)) picks[Number(k)] = d.staffId;
+    if (Object.keys(picks).length === 0) return;
+    setBusy(claim.id);
+    try {
+      const error = await patchClaim(clinicId, claim.id, { dentists: picks });
+      if (error) showToast(error, "error");
+      else showToast(t("ratesReapplied"), "success");
     } catch (err) {
       fail(err, "dentistFailed");
     } finally {
@@ -232,8 +265,7 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                   <th className="py-2 pe-3 text-end">{t("colCount")}</th>
                   <th className="py-2 pe-3 text-end">{t("colRequested")}</th>
                   <th className="py-2 pe-3 text-end">{t("colApproved")}</th>
-                  <th className="py-2 pe-3 text-start">{t("colDentist")}</th>
-                  <th className="py-2 text-start">{t("colStatus")}</th>
+                  <th className="py-2 text-start">{t("colDentist")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -250,7 +282,32 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                               {c.approvalNumber}
                             </p>
                             <p className="mt-0.5 text-[11px] font-semibold text-ink-muted">{payerName(c.payerId)}</p>
+                            {/* One status per approval, as on the insurer's sheet: the paper is treated or sent as a whole. */}
+                            <div className="mt-2 flex flex-wrap items-center gap-1.5" title={t("statusForApproval")}>
+                              <span className={`inline-block rounded-full border px-2.5 py-0.5 text-[11px] font-black ${status.pill}`}>{t(status.key)}</span>
+                              {(c.status === "approved" || c.status === "cancelled") && (
+                                <button type="button" onClick={() => setStatus(c, { status: "treated" })} disabled={isBusy} title={t("markTreated")} className="rounded-lg border border-line p-1.5 text-ink-muted hover:text-ink disabled:opacity-40">
+                                  <CheckCircle2 size={14} />
+                                </button>
+                              )}
+                              {(c.status === "treated" || c.status === "sent") && (
+                                <button type="button" onClick={() => setStatus(c, { status: "approved" })} disabled={isBusy} title={t("markNotTreated")} className="rounded-lg border border-line p-1.5 text-ink-muted hover:text-ink disabled:opacity-40">
+                                  <RotateCcw size={14} />
+                                </button>
+                              )}
+                              {c.status === "treated" && (
+                                <button type="button" onClick={() => setStatus(c, { status: "sent" })} disabled={isBusy} title={t("markSent")} className="rounded-lg border border-line p-1.5 text-ink-muted hover:text-ink disabled:opacity-40">
+                                  <Send size={14} />
+                                </button>
+                              )}
+                              {isBusy && <Loader2 size={14} className="animate-spin text-ink-muted" />}
+                            </div>
                             <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                              {Object.keys(c.dentists).length > 0 && (
+                                <button type="button" onClick={() => reapplyRates(c)} disabled={isBusy} title={t("reapplyRates")} className="rounded-lg border border-line p-1.5 text-ink-muted hover:text-ink disabled:opacity-40">
+                                  <RefreshCw size={14} />
+                                </button>
+                              )}
                               <button type="button" onClick={() => openDoc(c)} disabled={!c.doc.path} title={t("openPdf")} className="rounded-lg border border-line p-1.5 text-ink-muted hover:text-ink disabled:opacity-40">
                                 <FileText size={14} />
                               </button>
@@ -275,7 +332,8 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                       <td className="py-2.5 pe-3 text-end font-figure font-bold tabular-nums">{line.unitsApproved}</td>
                       <td className="py-2.5 pe-3 text-end font-figure font-bold tabular-nums text-ink-muted">{money(line.grossTotal)}</td>
                       <td className="py-2.5 pe-3 text-end font-figure font-extrabold tabular-nums text-ink">{money(line.approvedAmount)}</td>
-                      <td className="py-2 pe-3">
+                      <td className="py-2">
+                        <div className="flex items-center gap-2">
                         <select
                           value={c.dentists[i]?.staffId ?? ""}
                           disabled={isBusy || c.status === "cancelled"}
@@ -292,13 +350,16 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                             <option value={c.dentists[i].staffId}>{c.dentists[i].name}</option>
                           )}
                         </select>
+                        {c.dentists[i] && (
+                          <span
+                            title={c.dentists[i].rate === 0 ? t("noRate") : undefined}
+                            className={`shrink-0 font-figure text-[12px] font-extrabold tabular-nums ${c.dentists[i].rate === 0 ? "text-red-700" : "text-ink-muted"}`}
+                          >
+                            {c.dentists[i].rate}%
+                          </span>
+                        )}
+                        </div>
                       </td>
-                      {i === 0 && (
-                        <td rowSpan={rows} className="py-2.5 align-top">
-                          <span className={`inline-block rounded-full border px-2.5 py-0.5 text-[11px] font-black ${status.pill}`}>{t(status.key)}</span>
-                          {isBusy && <Loader2 size={14} className="ms-2 inline animate-spin text-ink-muted" />}
-                        </td>
-                      )}
                     </tr>
                   ));
                 })}

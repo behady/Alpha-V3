@@ -201,6 +201,10 @@ export const TEXT = {
   // patient file -> Insurance tab
   tabMembership: { en: "Membership", ar: "العضوية" },
   tabClaims: { en: "Approvals", ar: "الموافقات" },
+  statusForApproval: { en: "Status is for the whole approval", ar: "الحالة للموافقة كلها" },
+  noRate: { en: "0% — set this dentist's percentage for this insurer in Settings → Payers, then pick again", ar: "0% — حدد نسبة الطبيب لشركة التأمين دي في الإعدادات ← جهات الدفع، وبعدين اختاره تاني" },
+  reapplyRates: { en: "Re-apply current rates", ar: "طبّق النسب الحالية" },
+  ratesReapplied: { en: "Rates re-applied", ar: "النسب اتطبّقت" },
   noPatientClaims: { en: "No approvals saved for this patient yet.", ar: "مفيش موافقات محفوظة للمريض ده لسه." },
   noMembership: { en: "No insurance membership recorded. Edit the patient to add one.", ar: "مفيش عضوية تأمين مسجلة. عدّل بيانات المريض عشان تضيفها." },
   colService: { en: "Service", ar: "بيان الخدمة" },

@@ -73,6 +73,20 @@ type ServiceRow = {
 
 const DENTIST_ROLES = new Set(["Dentist", "Owner", "Admin"]);
 const STEPS = 3;
+/**
+ * The steps an insurer's wizard shows. An insurer with a document format (MetLife) gets its prices
+ * from the approval paper, so the "what do they cover and pay" step would only invite the clinic
+ * to type a tariff nobody reads; it is skipped, and no price list is kept for such an insurer.
+ */
+const stepsOf = (d: { format: string }): number[] => (d.format ? [1, 3] : [1, 2, 3]);
+const nextStep = (d: { format: string }, step: number): number => {
+  const steps = stepsOf(d);
+  return steps[Math.min(steps.indexOf(step) + 1, steps.length - 1)];
+};
+const prevStep = (d: { format: string }, step: number): number => {
+  const steps = stepsOf(d);
+  return steps[Math.max(steps.indexOf(step) - 1, 0)];
+};
 
 function pct(raw: unknown): number {
   const n = Number(raw);
@@ -366,22 +380,35 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
       // The list the rest of the app charges from. Created here, named after the insurer, and
       // never called a "price list" on this screen.
       const existing = payers.find((p) => p.id === payerId);
-      const listId = existing?.priceListId || `payer-${payerId}`;
+      // An insurer with a document format carries no price list and no coverage: its prices are
+      // whatever the approval paper says. A list it had before the format was set is retired
+      // (deactivated, never deleted: past work may still point at it).
+      const listId = format ? "" : existing?.priceListId || `payer-${payerId}`;
       let lists = priceLists;
-      // Adopt an existing list under this id rather than appending a second one. The id is
-      // derived from the payer, so a payer document that lost its link (a stale screen, a failed
-      // save) would otherwise mint a duplicate — which is exactly what happened in production:
-      // two "AXA" lists, same id, and every price the clinic typed claimed by both.
-      if (lists.some((l) => l.id === listId)) {
-        lists = lists.map((l) => (l.id === listId ? { ...l, name, nameAr } : l));
+      if (format) {
+        const old = existing?.priceListId || "";
+        const sharedWithAnotherPayer = payers.some((p) => p.id !== payerId && p.priceListId === old);
+        if (old && !sharedWithAnotherPayer && lists.some((l) => l.id === old && l.active && !l.isDefault)) {
+          lists = lists.map((l) => (l.id === old ? { ...l, active: false } : l));
+          await setDoc(getClinicDoc("settings", PRICE_LISTS_DOC), { lists: toStoredLists(lists) }, { merge: true });
+        }
       } else {
-        lists = [...lists, { id: listId, name, nameAr, generalDiscountPercent: 0, active: true, isDefault: false }];
+        // Adopt an existing list under this id rather than appending a second one. The id is
+        // derived from the payer, so a payer document that lost its link (a stale screen, a failed
+        // save) would otherwise mint a duplicate — which is exactly what happened in production:
+        // two "AXA" lists, same id, and every price the clinic typed claimed by both.
+        if (lists.some((l) => l.id === listId)) {
+          lists = lists.map((l) => (l.id === listId ? { ...l, name, nameAr } : l));
+        } else {
+          lists = [...lists, { id: listId, name, nameAr, generalDiscountPercent: 0, active: true, isDefault: false }];
+        }
+        await setDoc(getClinicDoc("settings", PRICE_LISTS_DOC), { lists: toStoredLists(lists) }, { merge: true });
       }
-      await setDoc(getClinicDoc("settings", PRICE_LISTS_DOC), { lists: toStoredLists(lists) }, { merge: true });
 
+      const base = { name, nameAr, format, providerCode, priceListId: listId || undefined, services: format ? undefined : coveredList }; // services: coveredList, unless the paper prices the work
       const nextPayers: Payer[] = isNew
-        ? [...payers, { id: payerId, name, nameAr, format, providerCode, priceListId: listId, services: coveredList, active: true, isDefault: false }]
-        : payers.map((p) => (p.id === payerId ? { ...p, name, nameAr, format, providerCode, priceListId: listId, services: coveredList } : p));
+        ? [...payers, { id: payerId, ...base, active: true, isDefault: false }]
+        : payers.map((p) => (p.id === payerId ? { ...p, ...base } : p));
       await setDoc(getClinicDoc("settings", "payers"), payersDocFrom(nextPayers), { merge: true });
 
       // Only the services and the staff whose answer actually changed. Clearing a box removes the
@@ -389,7 +416,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
       // different answers and the store has to keep them apart.
       const batch = writeBatch(db);
       let writes = 0;
-      for (const service of services) {
+      for (const service of format ? [] : services) {
         const before = service.prices[listId];
         const after = draft.prices[service.id];
         const beforeSet = typeof before === "number";
@@ -401,7 +428,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
         batch.update(getClinicDoc("services", service.id), { prices: nextPrices });
         writes++;
       }
-      for (const row of newRows) {
+      for (const row of format ? [] : newRows) {
         // Shaped like a service the Prices screen would create; category and icon are
         // keyword-matched from the name, as they are there.
         const category = suggestCategory(row.name);
@@ -534,7 +561,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <p className="font-display text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
-                {isAr ? `خطوة ${step} من ${STEPS}` : `Step ${step} of ${STEPS}`}
+                {isAr ? `خطوة ${stepsOf(draft).indexOf(step) + 1} من ${stepsOf(draft).length}` : `Step ${stepsOf(draft).indexOf(step) + 1} of ${stepsOf(draft).length}`}
               </p>
               <h2 className="mt-2 font-display text-xl font-bold leading-tight tracking-tight sm:text-2xl">
                 {titles[step - 1]}
@@ -553,10 +580,10 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
             </button>
           </div>
           <div className="mt-5 flex gap-1.5">
-            {Array.from({ length: STEPS }, (_, i) => (
+            {stepsOf(draft).map((n) => (
               <span
-                key={i}
-                className={`h-1 flex-1 rounded-full transition-colors ${i < step ? "bg-accent" : "bg-white/15"}`}
+                key={n}
+                className={`h-1 flex-1 rounded-full transition-colors ${n <= step ? "bg-accent" : "bg-white/15"}`}
               />
             ))}
           </div>
@@ -851,7 +878,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
         <div className="flex items-center justify-between gap-3">
           <button
             type="button"
-            onClick={() => (step === 1 ? setDraft(null) : setStep(step - 1))}
+            onClick={() => (step === 1 ? setDraft(null) : setStep(prevStep(draft, step)))}
             disabled={saving}
             className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2.5 text-[13px] font-bold text-ink-muted transition hover:text-ink disabled:opacity-50"
           >
@@ -865,7 +892,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
             {step > 1 && step < STEPS && (
               <button
                 type="button"
-                onClick={() => setStep(step + 1)}
+                onClick={() => setStep(nextStep(draft, step))}
                 disabled={saving}
                 className="rounded-xl px-3 py-2.5 text-[13px] font-bold text-ink-faint transition hover:text-ink disabled:opacity-50"
               >
@@ -875,7 +902,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
             {step < STEPS ? (
               <button
                 type="button"
-                onClick={() => setStep(step + 1)}
+                onClick={() => setStep(nextStep(draft, step))}
                 disabled={saving || (step === 1 && !draft.name.trim())}
                 className="inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-bold text-ink-on-accent transition hover:bg-accent-strong disabled:opacity-50"
               >
@@ -938,15 +965,17 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
                   {/* What is actually set, in words. A card that only showed a name would make
                       somebody open the wizard to find out whether they had finished. */}
                   <p className="text-[12px] font-medium text-ink-faint">
-                    {covered >= total
+                    {payer.format ? (
+                      isAr ? "الأسعار من ورقة الموافقة" : "Prices come from the approval paper"
+                    ) : covered >= total
                       ? isAr
                         ? "بتغطي كل العلاجات"
                         : "Covers every treatment"
                       : isAr
                         ? `بتغطي ${covered} من ${total} علاج`
                         : `Covers ${covered} of ${total}`}
-                    {" · "}
-                    {priced === 0
+                    {payer.format ? null : " · "}
+                    {payer.format ? null : priced === 0
                       ? isAr
                         ? "بيدفعوا أسعارك العادية"
                         : "Pays your normal prices"
