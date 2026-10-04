@@ -13,7 +13,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ref, getDownloadURL } from "firebase/storage";
-import { CheckCircle2, FileText, Loader2, RotateCcw, Send, Trash2 } from "lucide-react";
+import { Banknote, CheckCircle2, FileText, Landmark, Loader2, RotateCcw, Send, Trash2 } from "lucide-react";
 import { storage } from "@/lib/firebase";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
@@ -168,6 +168,16 @@ export default function ClaimsTable({
                     {c.status === "treated" && (
                       <Action label={t("markSent")} disabled={busy} onClick={() => patch(c, { status: "sent" })}>
                         <Send size={14} />
+                      </Action>
+                    )}
+                    {c.status !== "cancelled" && c.totals.patientShare > 0 && !c.shareCollected && (
+                      <Action label={`${t("collectShare")} ${money(c.totals.patientShare)}`} disabled={busy} onClick={() => patch(c, { collectShare: true })}>
+                        <Banknote size={14} />
+                      </Action>
+                    )}
+                    {c.status !== "cancelled" && Object.keys(c.ledgerIds).length > 0 && !c.insurerPaid && (
+                      <Action label={`${t("markInsurerPaid")} ${money(c.totals.approved)}`} disabled={busy} onClick={() => patch(c, { insurerPaid: true })}>
+                        <Landmark size={14} />
                       </Action>
                     )}
                     <Action label={t("openPdf")} disabled={!c.doc.path} onClick={() => openDoc(c)}>

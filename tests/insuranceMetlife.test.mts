@@ -40,7 +40,11 @@ import {
   lineDentistFor,
   parseLineDentists,
   parseShareCollected,
+  insuranceTreatmentRows,
+  dentistRowPatch,
+  lineCharge,
 } from "../src/lib/insurance/claims";
+import { insurerOutstanding, patientPortion } from "../src/lib/ledgerInsurer";
 import { insuranceWorkByStaff, unassignedLines } from "../src/lib/staffInsurance";
 import { DEFAULT_METLIFE_WORDING, buildMetlifeStatement } from "../src/lib/insuranceStatementMetlife";
 import { SAMPLE_RAW, claimFixture, lineFixture } from "./fixtures/insuranceMetlife.fixture";
@@ -910,6 +914,72 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   assert.deepEqual(omarWork.entries.map((e) => [e.date, e.approvalNumber, e.service, e.share]), [["2026-02-03", "D6000001", "BITEWING - SINGLE FILM", 7], ["2026-02-10", "D6000001", "كشف", 15]], "treated date first; the learned wording where there is one, else the paper's description");
   assert.equal(work.get("s2")!.total, 180);
   assert.deepEqual(unassignedLines([treated, sent, notYet]), { count: 7, approved: 600 + 1200 }, "3 of 5 on a (600), 4 of 5 on b (1200); c does not count");
+}
+
+// --- 13. The treatment rows an approval writes into the patient's file ----------------------------
+{
+  const claim = claimFixture({ id: "metlife_d6000001" });            // 5 lines: 60, 60, 600, 300, 240 approved, no patient share
+  const omar = { staffId: "s1", name: "Dr Omar", rate: 25, share: 150 };
+  const withDentist = { ...claim, dentists: { 2: omar } };
+  const rows = insuranceTreatmentRows({ claimId: claim.id, claim: withDentist, payerName: "MetLife Egypt", wording: { D0120: "كشف" }, actor: { uid: "u1", name: "Desk", role: "Receptionist" } });
+  assert.equal(rows.length, 5, "one row per approved line");
+  const exam = rows[0];
+  assert.equal(exam.charge.serviceName, "كشف", "the clinic's wording names the service");
+  assert.equal(rows[1].charge.serviceName, "BITEWING - SINGLE FILM", "no wording: the paper's description");
+  assert.equal(exam.charge.type, "procedure");
+  assert.equal(exam.charge.payerId, "metlife");
+  assert.equal(exam.charge.payerName, "MetLife Egypt");
+  assert.equal(exam.charge.amount, 60);
+  assert.equal(exam.charge.insurerCovered, 60);
+  assert.equal(exam.charge.patientShare, 0);
+  assert.equal(exam.charge.claimId, "metlife_d6000001");
+  assert.equal(exam.charge.doctorId, null, "no dentist picked: nobody is paid yet");
+  assert.equal(exam.charge.doctorCommissionAmount, 0);
+  assert.equal(exam.charge.paid, 0);
+  assert.equal(exam.note.patientId, "p1");
+  assert.equal(exam.note.status, "Completed");
+  assert.equal(exam.note.procedure, "كشف");
+  const inlay = rows[2];
+  assert.equal(inlay.charge.doctorId, "s1");
+  assert.equal(inlay.charge.doctorName, "Dr Omar");
+  assert.equal(inlay.charge.doctorCommissionPercentage, 25);
+  assert.equal(inlay.charge.doctorCommissionAmount, 150, "the stamped share, not a recomputation");
+  assert.equal(inlay.charge.clinicProfit, 450);
+  assert.ok(!JSON.stringify(rows).includes("undefined"));
+
+  // a reduced line: the charge is what the clinic receives, the paper's figure is the list price
+  const reduced = claimFixture({ lines: [lineFixture({ code: "D2740", description: "CROWN", grossPerUnit: 2700, grossTotal: 2700, approvedAmount: 500, patientShare: 100 })] });
+  const [crown] = insuranceTreatmentRows({ claimId: "x", claim: reduced, payerName: "MetLife", wording: {}, actor: { uid: "u", name: "n", role: "r" } });
+  assert.equal(lineCharge(reduced.lines[0]), 600);
+  assert.equal(crown.charge.amount, 600);
+  assert.equal(crown.charge.listPrice, 2700);
+  assert.equal(crown.charge.discountAmount, 2100);
+  assert.equal(crown.charge.discountReason, "MetLife approved 500 of 2700");
+  assert.equal(crown.charge.insurerCovered, 500);
+  assert.equal(crown.charge.patientShare, 100);
+  // a rejected line writes no row
+  const rejected = claimFixture({ lines: [lineFixture({ approvedAmount: 0, patientShare: 0, unitsApproved: 0 })] });
+  assert.equal(insuranceTreatmentRows({ claimId: "x", claim: rejected, payerName: "M", wording: {}, actor: { uid: "u", name: "n", role: "r" } }).length, 0);
+
+  // the dentist change flows to the row
+  assert.deepEqual(dentistRowPatch(reduced.lines[0], { staffId: "s2", name: "Dr Mona", rate: 30, share: 150 }), { doctorId: "s2", doctorName: "Dr Mona", doctor: "Dr Mona", doctorCommissionPercentage: 30, doctorCommissionAmount: 150, clinicProfit: 450 });
+  assert.deepEqual(dentistRowPatch(reduced.lines[0], null), { doctorId: null, doctorName: "", doctor: "", doctorCommissionPercentage: 0, doctorCommissionAmount: 0, clinicProfit: 600 });
+
+  // ledgerIds and insurerPaid survive a read
+  const stored = parseClaim("metlife_d6000001", { ...claimFixture(), ledgerIds: { 0: { ledgerId: "L0", noteId: "N0" }, 9: { ledgerId: "x", noteId: "y" }, 1: { ledgerId: "", noteId: "n" } }, insurerPaid: { date: "2026-10-20", amount: "1260" } });
+  assert.ok(stored);
+  assert.deepEqual(stored.ledgerIds, { 0: { ledgerId: "L0", noteId: "N0" } });
+  assert.deepEqual(stored.insurerPaid, { date: "2026-10-20", amount: 1260 });
+  assert.equal(parseClaim("x", { ...claimFixture(), insurerPaid: { date: "junk", amount: 1 } })!.insurerPaid, null);
+
+  // what the patient owes on such a row, and what the insurer does
+  const row = { type: "procedure", cost: 600, insurerCovered: 500 };
+  assert.equal(insurerOutstanding(row), 500);
+  assert.equal(patientPortion(row), 100, "the patient owes their share, not the insurer's part");
+  assert.equal(insurerOutstanding({ ...row, insurerPaidAt: "2026-10-20" }), 0, "once the insurer paid, nothing is outstanding");
+  assert.equal(patientPortion({ ...row, insurerPaidAt: "2026-10-20" }), 600, "and the payment rows carry the money");
+  assert.equal(insurerOutstanding({ type: "payment", insurerCovered: 500 }), 0);
+  assert.equal(patientPortion({ type: "procedure", cost: 400 }), 400, "an ordinary treatment is all the patient's");
 }
 
 console.log("insurance metlife reader: ok");

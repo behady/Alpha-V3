@@ -107,6 +107,8 @@ export type SaveBody = {
   payerId: string;
   extraction: MetlifeExtraction;
   patient: { id: string } | { create: { name: string; phone?: string } };
+  /** The dentist who did the work: every line is assigned to them and the treatment rows carry them. */
+  dentistId?: string;
   status: "approved" | "treated";
   wording?: Record<string, string>;
   docPath?: string;
@@ -146,6 +148,8 @@ export type ClaimPatch = {
   dentists?: Record<number, string | null>;
   /** Take the patient's share as cash: the server posts the ledger row and stamps the claim in one transaction. */
   collectShare?: true;
+  /** Record the insurer's payment against the treatment rows, and mark them settled. */
+  insurerPaid?: true;
 };
 
 /** PATCH /api/insurance/claims. Resolves to the server's message on a refusal, null on success. */
@@ -214,4 +218,9 @@ export function monthRange(ymd: string): { from: string; to: string } {
  */
 export async function collectPatientShare(clinicId: string, claimId: string): Promise<string | null> {
   return patchClaim(clinicId, claimId, { collectShare: true });
+}
+
+/** Record the insurer's payment for an approval. Resolves to the server's message on a refusal, null on success. */
+export async function recordInsurerPayment(clinicId: string, claimId: string): Promise<string | null> {
+  return patchClaim(clinicId, claimId, { insurerPaid: true });
 }

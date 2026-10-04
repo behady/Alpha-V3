@@ -124,15 +124,21 @@ const RL = [
   { id: "b2", type: "payment", patientId: "p2", paid: 100, normDate: "2026-05-01" },
   { id: "c1", type: "procedure", patientId: "p3", patientName: "Hana", cost: 300, normDate: "2026-09-10" },
   { id: "c2", type: "payment", patientId: "p3", paid: 500, normDate: "2026-09-10" },
+  // A treatment recorded from a MetLife approval: 600 charged, 500 of it the insurer's, 100 the patient's share, nothing paid yet.
+  { id: "d1", type: "procedure", patientId: "p4", patientName: "Omar", cost: 600, normDate: "2026-09-20", payerId: "metlife", payerName: "MetLife", insurerCovered: 500, patientShare: 100 },
 ];
 const rv = receivables(RL, [{ id: "p2", name: "Karim Said", phone: "0100" }], "2026-09-27");
-eq(rv.lines.map((l) => l.patientId), ["p2", "p1"], "biggest balance first");
+eq(rv.lines.map((l) => l.patientId), ["p2", "p1", "p4"], "biggest balance first; Omar owes only his share");
+const omar = rv.lines[2];
+eq([omar.balance, omar.oldestUnpaid, omar.bucket], [100, "2026-09-20", "0-30"], "the insurer's 500 is not the patient's debt");
+const metlife = rv.byPayer.find((p) => p.payerId === "metlife")!;
+eq([metlife.charged, metlife.collected, metlife.balance], [600, 0, 600], "the insurer's own ledger carries the whole charge until it pays");
 const karim = rv.lines[0];
 eq([karim.patientName, karim.phone, karim.balance, karim.oldestUnpaid, karim.ageDays, karim.bucket], ["Karim Said", "0100", 700, "2026-05-01", 149, "90+"], "name from the file, balance, aged from the unpaid treatment");
 const mona = rv.lines[1];
 eq([mona.balance, mona.oldestUnpaid, mona.bucket], [500, "2026-09-01", "0-30"], "her June crown was paid in full, so the age counts from September's filling");
-eq(rv.totals, { balance: 1200, patients: 2, credits: 200, creditPatients: 1 }, "Hana paid ahead and is a credit, not a debt");
-eq(rv.aging.map((a) => [a.bucket, a.total]), [["0-30", 500], ["31-60", 0], ["61-90", 0], ["90+", 700]], "aging buckets");
+eq(rv.totals, { balance: 1300, patients: 3, credits: 200, creditPatients: 1 }, "Hana paid ahead and is a credit, not a debt; Omar's 100 counts");
+eq(rv.aging.map((a) => [a.bucket, a.total]), [["0-30", 600], ["31-60", 0], ["61-90", 0], ["90+", 700]], "aging buckets");
 const axa = rv.byPayer.find((p) => p.payerId === "ins-1")!;
 eq([axa.charged, axa.collected, axa.balance], [1000, 1000, 0], "the insurer's own ledger balances");
 eq(bucketFor(30), "0-30", "day 30 is still the first bucket");

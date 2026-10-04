@@ -17,9 +17,12 @@
  * the server fills in; switch on means approved, not treated yet, and the claim stays off the sheet.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, CheckCircle2, ExternalLink, Loader2, Plus, Search, Trash2, X } from "lucide-react";
+import { collection, getDocs } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import { isDentistStaff } from "@/lib/staffRoles";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { checkMetlife, hasHardFailure, type Check, type MetlifeExtraction, type MetlifeHeader, type MetlifeLine } from "@/lib/insurance/metlife";
@@ -110,6 +113,22 @@ export default function ApprovalConfirmCard({
   const [newPhone, setNewPhone] = useState("");
   const [search, setSearch] = useState("");
   const [notTreated, setNotTreated] = useState(false);
+  const [dentistId, setDentistId] = useState("");
+  const [dentists, setDentists] = useState<Array<{ id: string; name: string }>>([]);
+  useEffect(() => {
+    if (!clinicId) return;
+    getDocs(collection(db, "clinics", clinicId, "staff"))
+      .then((snap) =>
+        setDentists(
+          snap.docs
+            .map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) }))
+            .filter((m) => isDentistStaff(m as { role?: string; isDentist?: boolean }))
+            .map((m) => ({ id: m.id, name: String((m as { name?: unknown }).name ?? "") }))
+            .sort((a, b) => a.name.localeCompare(b.name)),
+        ),
+      )
+      .catch((err) => console.error("Dentist list failed", err));
+  }, [clinicId]);
   const [wordingDraft, setWordingDraft] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<Problem | null>(
@@ -205,6 +224,7 @@ export default function ApprovalConfirmCard({
       extraction: x,
       patient: picker.mode === "create" ? { create: phone ? { name: newName.trim(), phone } : { name: newName.trim() } } : { id: picker.patientId },
       status: notTreated ? "approved" : "treated",
+      ...(dentistId ? { dentistId } : {}),
       ...(Object.keys(wording).length ? { wording } : {}),
       ...(docPath ? { docPath } : {}),
     };
@@ -449,6 +469,20 @@ export default function ApprovalConfirmCard({
                 )}
               </div>
             )}
+          </div>
+
+          {/* --- who did the work ---------------------------------------------------------------- */}
+          <div className="rounded-2xl border border-line px-4 py-3">
+            <label className="block text-[13px] font-black text-ink">{t("dentistOnCard")}</label>
+            <p className="text-[12px] font-semibold text-ink-muted">{t("dentistOnCardHint")}</p>
+            <select value={dentistId} onChange={(e) => setDentistId(e.target.value)} className="mt-2 w-full rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-bold text-ink outline-none focus:border-ink">
+              <option value="">{t("pickDentist")}</option>
+              {dentists.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* --- not treated yet --------------------------------------------------------------- */}

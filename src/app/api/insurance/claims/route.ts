@@ -1,6 +1,6 @@
 import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
-import { FieldValue, type DocumentData, type DocumentReference } from "firebase-admin/firestore";
+import { FieldValue, type DocumentData, type DocumentReference, type DocumentSnapshot } from "firebase-admin/firestore";
 import { adminBucket, adminDb } from "@/lib/firebaseAdmin";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffPermission } from "@/lib/apiStaffAuth";
@@ -8,9 +8,11 @@ import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import { findPayer, parsePayers, PRIVATE_PAYER_ID, type CommissionRates } from "@/lib/payers";
 import { isFullAccessRole } from "@/lib/permissions";
-import { buildManualEntryRow } from "@/lib/ledgerWrite";
+import { buildManualEntryRow, buildPaymentRow } from "@/lib/ledgerWrite";
+import { RECEIPT_COUNTER_DOC, RECEIPT_SETTINGS_DOC, formatReceiptNumber, normalizeReceiptSettings } from "@/lib/receiptSettings";
+import { applyProcedureSync, readProcedurePayments, type PaymentRowLite } from "@/lib/server/ledgerSync";
 import { recordMoneyChange } from "@/lib/server/ledgerAudit";
-import { afterLedgerCreate } from "@/lib/alerts/moneyAlerts";
+import { afterChargeCreate, afterLedgerCreate } from "@/lib/alerts/moneyAlerts";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { writeInsurance } from "@/lib/patientInsurance";
 import { stripUndefined } from "@/lib/server/recycleBinStore";
@@ -34,6 +36,11 @@ import {
   type ClaimStatus,
   type InsuranceClaim,
   applyDentistPicks,
+  dentistRowPatch,
+  insuranceTreatmentRows,
+  lineDentistFor,
+  type LineDentist,
+  type LineLedger,
   type ShareCollected,
 } from "@/lib/insurance/claims";
 
@@ -44,7 +51,10 @@ const PERMISSION = "patients.edit";
 const MAX_LINES = 100;
 const MAX_NAME = 200;
 const MAX_WORDING = 200;
-const PATCH_KEYS = new Set(["status", "treatedDate", "patientId", "lines", "metlife", "dentists", "collectShare"]);
+const PATCH_KEYS = new Set(["status", "treatedDate", "patientId", "lines", "metlife", "dentists", "collectShare", "insurerPaid"]);
+/** How the insurer's own payment is filed: its own method and category, so cash reports never mistake it for cash. */
+const INSURER_METHOD = "Insurance";
+const INSURER_CATEGORY = "Insurance Payment";
 /** The ledger category the patient's share is filed under: a readable word, as every other category is. */
 const SHARE_CATEGORY = "Insurance patient share";
 
@@ -58,6 +68,10 @@ function segment(v: unknown): string {
   if (!s || s.length > 200) return "";
   if (s === "." || s === ".." || /[/\\]/.test(s) || /[\u0000-\u001f]/.test(s)) return "";
   return s;
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -140,6 +154,10 @@ export async function POST(req: Request) {
     if (body.treatedDate !== undefined && body.treatedDate !== null && !isIsoDate(body.treatedDate)) {
       return fail(400, "treatedDate must be a yyyy-mm-dd date.");
     }
+    // The dentist who did the work, if the desk knows at save time: every line is assigned to
+    // them and the treatment rows carry them. Optional: the patient's Insurance tab assigns later.
+    const dentistId = body.dentistId === undefined || body.dentistId === null || body.dentistId === "" ? "" : segment(body.dentistId);
+    if (body.dentistId && !dentistId) return fail(400, "dentistId must name a staff member.");
     const patientIn = isRecord(body.patient) ? body.patient : null;
     const existingId = patientIn && typeof patientIn.id === "string" ? segment(patientIn.id) : "";
     const create = patientIn && isRecord(patientIn.create) ? patientIn.create : null;
@@ -230,7 +248,8 @@ export async function POST(req: Request) {
       | { kind: "duplicate"; savedAt: string | null }
       | { kind: "doc_taken"; claimId: string }
       | { kind: "no_patient" }
-      | { kind: "saved" };
+      | { kind: "no_staff" }
+      | { kind: "saved"; charges: Array<{ id: string; row: Record<string, unknown> }> };
     let outcome: Outcome;
     try {
       outcome = await adminDb().runTransaction(async (tx): Promise<Outcome> => {
@@ -239,9 +258,12 @@ export async function POST(req: Request) {
         if (claimSnap.exists) return { kind: "duplicate", savedAt: savedAtOf(claimSnap.data()) };
         const docsSnap = await tx.get(docsRef);
         const wordingSnap = await tx.get(wordingRef);
+        const payersSnap = await tx.get(adminClinicDoc(clinicId, "settings", "payers"));
+        const staffSnap = dentistId ? await tx.get(adminClinicDoc(clinicId, "staff", dentistId)) : null;
         const patientSnap = existingId ? await tx.get(patientRef) : null;
         const counterSnap = existingId ? null : await tx.get(counterRef);
         if (patientSnap && !patientSnap.exists) return { kind: "no_patient" };
+        if (staffSnap && !staffSnap.exists) return { kind: "no_staff" };
         const linked = docsSnap.get("claimId");
         if (typeof linked === "string" && linked && linked !== claimId) return { kind: "doc_taken", claimId: linked };
 
@@ -279,6 +301,37 @@ export async function POST(req: Request) {
         const rowFacts = docFactsOf(docsSnap.data());
         const docFacts = rowFacts ?? fallbackDoc;
         const claim = claimFromExtraction({ payerId, extraction, patientId: patientRef.id, patientName, status, treatedDate, doc: docFacts });
+        // The dentist on every line, stamped with their rate on this payer and the share on the
+        // approved amount (the owner's rule: earned when assigned, on what the insurer approved).
+        if (staffSnap) {
+          const d = staffSnap.data() ?? {};
+          const staffLite = { id: dentistId, name: typeof d.name === "string" ? d.name : "", commissionPercentage: d.commissionPercentage as number | null | undefined, commissionByPayer: isRecord(d.commissionByPayer) ? d.commissionByPayer : null };
+          claim.lines.forEach((line, i) => {
+            claim.dentists[i] = lineDentistFor(line, staffLite, payerId);
+          });
+        }
+        // The treatments themselves, as the patient's file records any other work: one clinical
+        // note and one ledger charge per approved line, under this insurer, so Finance, the
+        // reports and the patient's balance all see insurance work without a second entry.
+        const payerName = findPayer(parsePayers(payersSnap.data()), payerId)?.name ?? payerId;
+        const storedWordingNow = wordingSnap.get(format) as Record<string, unknown> | undefined;
+        const wordingAll: Record<string, string> = { ...wording };
+        if (isRecord(storedWordingNow)) {
+          for (const [code, entry] of Object.entries(storedWordingNow)) {
+            const ar = isRecord(entry) ? entry.ar : undefined;
+            if (typeof ar === "string" && ar.trim() && !wordingAll[code]) wordingAll[code] = ar.trim();
+          }
+        }
+        const rows = insuranceTreatmentRows({ claimId, claim, payerName, wording: wordingAll, actor: { uid: authz.uid, name: authz.name, role: authz.role } });
+        const charges: Array<{ id: string; row: Record<string, unknown> }> = [];
+        for (const r of rows) {
+          const noteRef = adminClinicCollection(clinicId, "clinical_notes").doc();
+          const ledgerRef = adminClinicCollection(clinicId, "ledger").doc();
+          tx.set(noteRef, { ...stripUndefined(r.note), ledgerId: ledgerRef.id, createdAt: FieldValue.serverTimestamp() });
+          tx.set(ledgerRef, { ...stripUndefined(r.charge), clinicalNoteId: noteRef.id, createdAt: FieldValue.serverTimestamp() });
+          claim.ledgerIds[r.lineIndex] = { ledgerId: ledgerRef.id, noteId: noteRef.id };
+          charges.push({ id: ledgerRef.id, row: r.charge });
+        }
         tx.create(claimRef, {
           ...stripUndefined(claim),
           sentAt: null,
@@ -310,7 +363,7 @@ export async function POST(req: Request) {
         if (Object.keys(learned).length) {
           tx.set(wordingRef, { [format]: stripUndefined(learned), ...stamp }, { merge: true });
         }
-        return { kind: "saved" };
+        return { kind: "saved", charges };
       });
     } catch (err) {
       // Two tabs in the same instant: the loser's create fails rather than retrying into the read.
@@ -327,6 +380,22 @@ export async function POST(req: Request) {
       return fail(409, "This document is already attached to another claim.", { claimId: outcome.claimId });
     }
     if (outcome.kind === "no_patient") return fail(404, "That patient was not found.");
+    if (outcome.kind === "no_staff") return fail(404, "That dentist was not found.");
+    if (outcome.kind === "saved" && outcome.charges.length) {
+      // The trail a treatment logged by hand leaves: one audit row per charge, and the discount
+      // alert where the insurer approved less than the paper asked.
+      const actor = { uid: authz.uid, name: authz.name, role: authz.role };
+      await Promise.all(
+        outcome.charges.map((c) =>
+          recordMoneyChange({
+            entry: { clinicId, action: "create", collection: "ledger", documentId: c.id, after: c.row, actor, via: "insurance/claims:save" },
+            action: "Procedure Logged",
+            details: `${String(c.row.description)} - ${c.row.amount} EGP`,
+          }).catch((err) => reportServerError("Insurance treatment audit failed:", err)),
+        ),
+      );
+      for (const c of outcome.charges) void afterChargeCreate(clinicId, c.row, actor);
+    }
     return NextResponse.json({ ok: true, claimId, patientId: patientRef.id }, { status: 201 });
   } catch (error) {
     reportServerError("Insurance claim save failed:", error);
@@ -411,12 +480,16 @@ export async function PATCH(req: Request) {
     // transaction here — two separate calls left a stray cash row whenever the second one failed.
     const collectShare = patch.collectShare === true;
     if ("collectShare" in patch && !collectShare) return fail(400, "collectShare must be true.");
+    // The insurer's own payment against the treatment rows: its own method, no commission (the
+    // dentist's share was earned when the line was assigned), the rows stamped as settled.
+    const insurerPaid = patch.insurerPaid === true;
+    if ("insurerPaid" in patch && !insurerPaid) return fail(400, "insurerPaid must be true.");
 
     // --- who --------------------------------------------------------------------------------
     const authz = await requireStaffPermission(req, clinicId, PERMISSION);
     if (!authz.ok) return authz.response;
     // Cash into the ledger is the finance permission's business, exactly as a manual income row is.
-    if (collectShare && !(isFullAccessRole(authz.role) || authz.permissions.includes("finance.add"))) {
+    if ((collectShare || insurerPaid) && !(isFullAccessRole(authz.role) || authz.permissions.includes("finance.add"))) {
       return fail(403, "Recording the patient's share needs the finance permission.");
     }
 
@@ -434,7 +507,10 @@ export async function PATCH(req: Request) {
       | { kind: "no_staff"; ids: string[] }
       | { kind: "already_collected"; share: ShareCollected }
       | { kind: "nothing_to_collect" }
+      | { kind: "already_insurer_paid" }
+      | { kind: "no_rows" }
       | { kind: "ok_collected"; ledgerId: string; amount: number; row: Record<string, unknown> }
+      | { kind: "ok_payments"; payments: Array<{ id: string; row: Record<string, unknown> }>; what: "share" | "insurer" }
       | { kind: "checks"; checks: Check[] };
     const result = await adminDb().runTransaction(async (tx): Promise<PatchOutcome> => {
       // Reads first: the claim, the new patient, the payer's provider code.
@@ -446,7 +522,7 @@ export async function PATCH(req: Request) {
       const patientSnap = patientRef ? await tx.get(patientRef) : null;
       if (patientSnap && !patientSnap.exists) return { kind: "no_patient" };
       const reshape = rawLines !== undefined || rawMetlife !== undefined;
-      const payersSnap = reshape || collectShare ? await tx.get(adminClinicDoc(clinicId, "settings", "payers")) : null;
+      const payersSnap = reshape || collectShare || insurerPaid ? await tx.get(adminClinicDoc(clinicId, "settings", "payers")) : null;
       // The staff records behind the picks, read inside the transaction so the stamped rate is the
       // one on file at this moment.
       const staffById = new Map<string, { id: string; name: string } & CommissionRates>();
@@ -467,6 +543,27 @@ export async function PATCH(req: Request) {
       }
       if (collectShare && claim.shareCollected) return { kind: "already_collected", share: claim.shareCollected };
       if (collectShare && claim.totals.patientShare <= 0) return { kind: "nothing_to_collect" };
+      if (insurerPaid && claim.insurerPaid) return { kind: "already_insurer_paid" };
+      if (insurerPaid && Object.keys(claim.ledgerIds).length === 0) return { kind: "no_rows" };
+      // Payments settle the treatment rows, so every read they need comes now: the receipt
+      // counter, and each row's existing payments (the rebalance must see the real set).
+      const paying = collectShare || insurerPaid;
+      const [receiptSettingsSnap, receiptCounterSnap] = paying
+        ? await Promise.all([tx.get(adminClinicDoc(clinicId, "settings", RECEIPT_SETTINGS_DOC)), tx.get(adminClinicDoc(clinicId, "settings", RECEIPT_COUNTER_DOC))])
+        : [null, null];
+      const siblingsByRow = new Map<string, PaymentRowLite[]>();
+      if (paying) {
+        const ids = Object.values(claim.ledgerIds).map((l) => l.ledgerId);
+        const sets = await Promise.all(ids.map((id) => readProcedurePayments(tx, clinicId, id)));
+        ids.forEach((id, i) => siblingsByRow.set(id, sets[i]));
+      }
+      // The rows a dentist change must follow into: read now, written below.
+      const rowSnaps = new Map<string, DocumentSnapshot>();
+      if (picks) {
+        const touched = Object.keys(picks).map(Number).filter((i) => claim.ledgerIds[i]);
+        const snaps = await Promise.all(touched.map((i) => tx.get(adminClinicDoc(clinicId, "ledger", claim.ledgerIds[i].ledgerId))));
+        touched.forEach((i, k) => rowSnaps.set(claim.ledgerIds[i].ledgerId, snaps[k]));
+      }
 
       const update: Record<string, unknown> = {};
       if (status !== undefined) update.status = status;
@@ -509,11 +606,79 @@ export async function PATCH(req: Request) {
         const applied = applyDentistPicks({ lines: rawLines !== undefined ? claimExtraction(claim, { lines: rawLines }).lines : claim.lines, dentists: claim.dentists, payerId: claim.payerId }, picks, staffById);
         if (applied.unknownStaff.length) return { kind: "no_staff", ids: applied.unknownStaff };
         update.dentists = applied.dentists;
+        // The treatment rows follow: doctor, rate and share, so the patient's file and the payer
+        // report agree with the Insurance tab.
+        for (const k of Object.keys(picks)) {
+          const i = Number(k);
+          const link: LineLedger | undefined = claim.ledgerIds[i];
+          const line = claim.lines[i];
+          if (!link || !line) continue;
+          const snap = rowSnaps.get(link.ledgerId);
+          if (!snap?.exists) continue;
+          const dentist: LineDentist | null = applied.dentists[i] ?? null;
+          const rowPatch = dentistRowPatch(line, dentist);
+          tx.update(adminClinicDoc(clinicId, "ledger", link.ledgerId), { doctorId: rowPatch.doctorId, doctorName: rowPatch.doctorName, doctorCommissionPercentage: rowPatch.doctorCommissionPercentage, doctorCommissionAmount: rowPatch.doctorCommissionAmount, clinicProfit: rowPatch.clinicProfit, updatedAt: FieldValue.serverTimestamp() });
+          tx.set(adminClinicDoc(clinicId, "clinical_notes", link.noteId), { doctorId: rowPatch.doctorId, doctor: rowPatch.doctor }, { merge: true });
+        }
       }
       // The patient's share as one income row: clinic money, nobody's balance, filed under a
       // readable category so the finance screens and the owner's briefing show it as what it is.
       let collected: { ledgerId: string; amount: number; row: Record<string, unknown> } | null = null;
-      if (collectShare) {
+      let payments: Array<{ id: string; row: Record<string, unknown> }> | null = null;
+      let paymentsWhat: "share" | "insurer" = "share";
+      if (paying && Object.keys(claim.ledgerIds).length > 0) {
+        // One payment per treatment row, with a real receipt number each, settling that row:
+        // the patient's share in cash, or the insurer's approved amount by "Insurance". Neither
+        // carries commission: by the owner's rule the dentist's share was earned when the line
+        // was assigned, on the approved amount, and lives on the row and the Insurance tab.
+        const date = ymdInTimeZone(clinicTimeZone());
+        const payer = findPayer(parsePayers(payersSnap?.data()), claim.payerId);
+        const payerName = payer?.name ?? claim.payerId;
+        const receiptSettings = normalizeReceiptSettings(receiptSettingsSnap?.exists ? receiptSettingsSnap.data() : null);
+        let seq = Number(receiptCounterSnap?.exists ? receiptCounterSnap.data()?.last : 0) || 0;
+        let lastReceipt = "";
+        const made: Array<{ id: string; row: Record<string, unknown> }> = [];
+        let sum = 0;
+        for (const [k, link] of Object.entries(claim.ledgerIds)) {
+          const line = claim.lines[Number(k)];
+          if (!line) continue;
+          const amount = collectShare ? round2(line.patientShare) : round2(line.approvedAmount);
+          if (amount <= 0) continue;
+          const dentist = claim.dentists[Number(k)] ?? null;
+          const row = buildPaymentRow({
+            patientId: claim.patientId,
+            patientName: claim.patientName,
+            amount,
+            method: collectShare ? "Cash" : INSURER_METHOD,
+            description: collectShare ? `Patient share - ${payerName} ${claim.approvalNumber}` : `${payerName} paid - approval ${claim.approvalNumber}`,
+            date,
+            procedure: { id: link.ledgerId, doctorId: dentist?.staffId ?? null, doctorName: dentist?.name ?? null, payerId: claim.payerId, payerName, labFee: 0 },
+            appliedLabFee: 0,
+            staff: [],
+            actor: { uid: authz.uid, name: authz.name },
+            category: collectShare ? SHARE_CATEGORY : INSURER_CATEGORY,
+          });
+          seq += 1;
+          lastReceipt = formatReceiptNumber(receiptSettings, seq, date);
+          const ref = adminClinicCollection(clinicId, "ledger").doc();
+          const full = { ...row, receiptNumber: lastReceipt, receiptSeq: seq, claimId, approvalNumber: claim.approvalNumber };
+          tx.set(ref, { ...full, createdAt: FieldValue.serverTimestamp() });
+          const siblings = siblingsByRow.get(link.ledgerId) ?? [];
+          applyProcedureSync(tx, { clinicId, procedureLedgerId: link.ledgerId, payments: [...siblings, { id: ref.id, date, paid: amount, amount }], labFee: 0, commissionPct: 0 });
+          if (insurerPaid) tx.update(adminClinicDoc(clinicId, "ledger", link.ledgerId), { insurerPaidAt: date });
+          made.push({ id: ref.id, row: full });
+          sum = round2(sum + amount);
+        }
+        if (made.length) {
+          tx.set(adminClinicDoc(clinicId, "settings", RECEIPT_COUNTER_DOC), { last: seq, lastReceiptNumber: lastReceipt, updatedAt: new Date().toISOString() }, { merge: true });
+        }
+        if (collectShare) update.shareCollected = { ledgerId: made[0]?.id ?? "none", amount: sum, date };
+        if (insurerPaid) update.insurerPaid = { date, amount: sum };
+        payments = made;
+        paymentsWhat = collectShare ? "share" : "insurer";
+      } else if (collectShare) {
+        // A claim saved before treatment rows existed: the share still lands in the books, as
+        // clinic income filed under its own category.
         const amount = claim.totals.patientShare;
         const date = ymdInTimeZone(clinicTimeZone());
         const payer = findPayer(parsePayers(payersSnap?.data()), claim.payerId);
@@ -543,6 +708,7 @@ export async function PATCH(req: Request) {
         updatedAt: FieldValue.serverTimestamp(),
         updatedBy: authz.uid,
       });
+      if (payments) return { kind: "ok_payments", payments, what: paymentsWhat };
       return collected ? { kind: "ok_collected", ...collected } : { kind: "ok" };
     });
 
@@ -552,6 +718,22 @@ export async function PATCH(req: Request) {
     if (result.kind === "no_staff") return fail(404, `Staff not found: ${result.ids.join(", ")}.`);
     if (result.kind === "already_collected") return fail(409, "The patient's share was already collected.", { shareCollected: result.share });
     if (result.kind === "nothing_to_collect") return fail(400, "This approval has no patient share to collect.");
+    if (result.kind === "already_insurer_paid") return fail(409, "The insurer's payment was already recorded for this approval.");
+    if (result.kind === "no_rows") return fail(400, "This approval has no treatment rows to settle (it was saved before treatments were recorded from approvals).");
+    if (result.kind === "ok_payments") {
+      const actor = { uid: authz.uid, name: authz.name, role: authz.role };
+      await Promise.all(
+        result.payments.map((p) =>
+          recordMoneyChange({
+            entry: { clinicId, action: "create", collection: "ledger", documentId: p.id, after: p.row, actor, via: result.what === "share" ? "insurance/claims:collect-share" : "insurance/claims:insurer-paid" },
+            action: "Payment Received",
+            details: `${p.row.paid} EGP ${result.what === "share" ? "patient share" : "from the insurer"} - ${String(p.row.description)}`,
+          }).catch((err) => reportServerError("Insurance payment audit failed:", err)),
+        ),
+      );
+      for (const p of result.payments) void afterLedgerCreate(clinicId, p.row, actor);
+      return NextResponse.json({ ok: true, payments: result.payments.map((p) => p.id) });
+    }
     if (result.kind === "ok_collected") {
       // The same trail a manual income row leaves: the money audit, the activity log, the owner's alerts.
       const actor = { uid: authz.uid, name: authz.name, role: authz.role };

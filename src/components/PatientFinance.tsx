@@ -36,6 +36,7 @@ import { printPaymentReceipt } from "@/lib/printPatientReceipt";
 import { parseLedgerProcedureDescription } from "@/lib/ledgerProcedureParse";
 import InsurerBadge from "@/components/shared/InsurerBadge";
 import { PRIVATE_PAYER_ID } from "@/lib/payers";
+import { insurerOutstanding } from "@/lib/ledgerInsurer";
 import { sendPatientPaymentWhatsApp } from "@/lib/sendPatientPaymentWhatsAppClient";
 import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
 import {
@@ -126,6 +127,9 @@ interface LedgerItem {
     /** Who the row is charged to; a payment inherits its treatment's. Absent (Private) on older rows. */
     payerId?: string | null;
     payerName?: string | null;
+    /** Rows recorded from an insurance approval: the insurer's approved part, and when it paid. */
+    insurerCovered?: number | null;
+    insurerPaidAt?: string | null;
   }
 
 /** The insurer's name for a row, or null for the clinic's own work and rows from before payers existed. */
@@ -187,6 +191,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
   const [totalCost, setTotalCost] = useState(0);
   const [totalPaid, setTotalPaid] = useState(0);
   const [balance, setBalance] = useState(0);
+  const [awaitingInsurer, setAwaitingInsurer] = useState(0);
 
   const [payAmount, setPayAmount] = useState("");
   const [payMethod, setPayMethod] = useState("Cash");
@@ -308,9 +313,13 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
       
       const cost = data.reduce((sum, item) => sum + (item.type === "procedure" ? (Number(item.cost) || 0) : 0), 0);
       const paid = data.reduce((sum, item) => sum + (item.type === "payment" ? (Number(item.paid) || 0) : 0), 0);
+      // What the insurer still owes on approval-recorded rows is the clinic's receivable from the
+      // insurer, not this patient's debt: it leaves the balance until the insurer's payment lands.
+      const awaitingInsurer = data.reduce((sum, item) => sum + insurerOutstanding(item), 0);
       setTotalCost(cost);
       setTotalPaid(paid);
-      setBalance(cost - paid);
+      setAwaitingInsurer(awaitingInsurer);
+      setBalance(cost - paid - awaitingInsurer);
       setLoading(false);
     });
 
@@ -675,6 +684,11 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
             <div className={`p-5 rounded-2xl border shadow-sm flex flex-col items-center justify-center gap-2 ${balance > 0 ? 'bg-red-50 border-red-100' : balance < 0 ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-100'}`}>
             <span className={`text-[10px] font-black uppercase tracking-widest ${balance > 0 ? 'text-red-400' : balance < 0 ? 'text-amber-600' : 'text-green-500'}`}>{balance < 0 ? txt.creditBalance : txt.balanceDue}</span>
             <span className={`text-2xl font-black ${balance > 0 ? 'text-red-600' : balance < 0 ? 'text-amber-700' : 'text-green-600'}`}>{Math.abs(balance).toLocaleString()} <span className="text-xs opacity-50">EGP</span></span>
+            {awaitingInsurer > 0 && (
+              <span className="text-[11px] font-bold text-ink-muted">
+                {language === 'ar' ? `في انتظار شركة التأمين: ${awaitingInsurer.toLocaleString()} ج.م` : `Awaiting the insurer: ${awaitingInsurer.toLocaleString()} EGP`}
+              </span>
+            )}
             </div>
         </div>
 

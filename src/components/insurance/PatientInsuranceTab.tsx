@@ -30,7 +30,7 @@ import { CLAIMS_COLLECTION, parseClaim, type ClaimStatus, type InsuranceClaim } 
 import { readInsurance } from "@/lib/patientInsurance";
 import { parsePayers, PRIVATE_PAYER_ID, type Payer } from "@/lib/payers";
 import { isDentistStaff } from "@/lib/staffRoles";
-import { collectPatientShare, patchClaim, InsuranceCallError, type ClaimPatch } from "./api";
+import { collectPatientShare, patchClaim, recordInsurerPayment, InsuranceCallError, type ClaimPatch } from "./api";
 import { tr, type TextKey } from "./text";
 import { useWording } from "./useWording";
 
@@ -183,6 +183,25 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
     }
   };
 
+  const insurerPaid = async (claim: InsuranceClaim) => {
+    if (!clinicId || claim.insurerPaid) return;
+    const ok = await confirm(
+      t("confirmInsurerPaid").replace("{amount}", money(claim.totals.approved)).replace("{insurer}", payerName(claim.payerId)).replace("{number}", claim.approvalNumber),
+      { confirmLabel: t("markInsurerPaid") },
+    );
+    if (!ok) return;
+    setBusy(claim.id);
+    try {
+      const error = await recordInsurerPayment(clinicId, claim.id);
+      if (error) showToast(error, "error");
+      else showToast(t("insurerPaidToast"), "success");
+    } catch (err) {
+      fail(err, "insurerPaidFailed");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const openDoc = async (claim: InsuranceClaim) => {
     if (!claim.doc.path) {
       showToast(t("noDocument"), "error");
@@ -311,6 +330,16 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                               <button type="button" onClick={() => openDoc(c)} disabled={!c.doc.path} title={t("openPdf")} className="rounded-lg border border-line p-1.5 text-ink-muted hover:text-ink disabled:opacity-40">
                                 <FileText size={14} />
                               </button>
+                              {c.status !== "cancelled" && Object.keys(c.ledgerIds).length > 0 &&
+                                (c.insurerPaid ? (
+                                  <span className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-800">
+                                    <CheckCircle2 size={12} /> {t("insurerPaidOn")} {c.insurerPaid.date}
+                                  </span>
+                                ) : (
+                                  <button type="button" onClick={() => insurerPaid(c)} disabled={isBusy} className="inline-flex items-center gap-1 rounded-lg border border-line bg-surface-subtle px-2 py-1 text-[11px] font-bold text-ink hover:bg-surface disabled:opacity-40">
+                                    <Banknote size={12} /> {t("markInsurerPaid")} {money(c.totals.approved)}
+                                  </button>
+                                ))}
                               {c.totals.patientShare > 0 && c.status !== "cancelled" &&
                                 (c.shareCollected ? (
                                   <span className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-800">
