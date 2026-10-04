@@ -139,6 +139,8 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
   // treatment row's note. Only Completed services go on the insurer's sheet and into payroll.
   const pickState = async (claim: InsuranceClaim, lineIndex: number, state: LineStatus) => {
     if (!clinicId || lineStatusOf(claim, lineIndex) === state) return;
+    // The sheet already went to the insurer: changing a service's state changes what it showed.
+    if (claim.status === "sent" && !(await confirm(t("sentWarning"), { confirmLabel: t("continue") }))) return;
     setBusy(claim.id);
     try {
       const error = await patchClaim(clinicId, claim.id, { lineStatus: { [lineIndex]: state } });

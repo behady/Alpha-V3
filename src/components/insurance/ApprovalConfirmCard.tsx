@@ -28,7 +28,7 @@ import { db } from "@/lib/firebase";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
-import { checkMetlife, hasHardFailure, type Check, type MetlifeExtraction, type MetlifeHeader, type MetlifeLine } from "@/lib/insurance/metlife";
+import { checkMetlife, hasHardFailure, normalizeMetlife, type Check, type MetlifeExtraction, type MetlifeHeader, type MetlifeLine } from "@/lib/insurance/metlife";
 import { nameSimilarity } from "@/lib/insurance/matchPatient";
 import { patientMatchesSearch } from "@/lib/flexibleSearch";
 import { DEFAULT_METLIFE_WORDING } from "@/lib/insuranceStatementMetlife";
@@ -246,7 +246,8 @@ export default function ApprovalConfirmCard({
     const lines: NonNullable<SaveBody["lines"]> = {};
     let k = 0;
     x.lines.forEach((l, i) => {
-      if (!l.code.trim() && l.description.trim().toLowerCase() === "total") return;
+      // Exactly the server's rule: a row the normaliser drops (the table's Total row) takes no number.
+      if (normalizeMetlife({ lines: [l] }).lines.length === 0) return;
       const m = meta[i] ?? { dentistId: "", status: "Completed" };
       lines[k++] = { dentistId: m.dentistId || null, status: m.status };
     });
@@ -374,7 +375,7 @@ export default function ApprovalConfirmCard({
               <table className="w-full min-w-[74rem] border-collapse text-[12.5px]">
                 <thead>
                   <tr className="border-b border-line bg-surface-subtle">
-                    {(["lineCode", "lineDescription", "lineUnits", "linePerUnit", "lineGross", "lineUnitsApproved", "linePatientShare", "lineApproved", "comment", "colDentist", "colState"] as const).map((k) => (
+                    {(["lineCode", "lineDescription", "colDentist", "colState", "lineUnits", "linePerUnit", "lineGross", "lineUnitsApproved", "linePatientShare", "lineApproved", "comment"] as const).map((k) => (
                       <th key={k} className="px-2 py-2 text-start text-[10px] font-black uppercase tracking-wider text-ink-muted">
                         {t(k)}
                       </th>
@@ -393,6 +394,12 @@ export default function ApprovalConfirmCard({
                         <td className="p-1">
                           <input value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} className={`${cellInput(null)} min-w-[12rem]`} dir="ltr" />
                         </td>
+                        <td className="p-1">
+                          <DentistSelect value={meta[i]?.dentistId ?? ""} dentists={dentists} label={t("colDentist")} placeholder={t("pickDentist")} onChange={(v) => setLineMeta(i, { dentistId: v })} className={`${cellInput(null)} min-w-[9rem]`} />
+                        </td>
+                        <td className="p-1">
+                          <StateSelect value={meta[i]?.status ?? "Completed"} label={t("colState")} t={t} onChange={(v) => setLineMeta(i, { status: v })} className={`${cellInput(null)} min-w-[7rem]`} />
+                        </td>
                         {(["unitsRequested", "grossPerUnit", "grossTotal", "unitsApproved", "patientShare", "approvedAmount"] as const satisfies readonly LineNumber[]).map((f) => (
                           <td key={f} className="p-1">
                             <NumberBox value={l[f]} onChange={(v) => setLine(i, { [f]: v ?? 0 })} className={cellInput(f === "grossTotal" ? lineFlag(i, "grossTotal") === "hard" ? "hard" : null : null)} />
@@ -400,12 +407,6 @@ export default function ApprovalConfirmCard({
                         ))}
                         <td className="p-1">
                           <input value={l.comment} onChange={(e) => setLine(i, { comment: e.target.value })} className={cellInput(null)} dir="ltr" />
-                        </td>
-                        <td className="p-1">
-                          <DentistSelect value={meta[i]?.dentistId ?? ""} dentists={dentists} label={t("colDentist")} placeholder={t("pickDentist")} onChange={(v) => setLineMeta(i, { dentistId: v })} className={`${cellInput(null)} min-w-[9rem]`} />
-                        </td>
-                        <td className="p-1">
-                          <StateSelect value={meta[i]?.status ?? "Completed"} label={t("colState")} t={t} onChange={(v) => setLineMeta(i, { status: v })} className={`${cellInput(null)} min-w-[7rem]`} />
                         </td>
                         <td className="p-1 text-center">
                           <button type="button" onClick={() => removeLine(i)} className="rounded-lg p-1.5 text-ink-muted hover:bg-rose-50 hover:text-rose-700" aria-label={t("removeLine")}>

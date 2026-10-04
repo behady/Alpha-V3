@@ -297,7 +297,8 @@ function normalizeLine(raw: unknown): MetlifeLine {
 }
 
 /** The table's Total row is not a service; a model sometimes copies it as a row. */
-function isTotalRow(l: MetlifeLine): boolean {
+/** The table's Total row is not a service: dropped before lines are numbered, by the server and the card alike. */
+export function isTotalRow(l: MetlifeLine): boolean {
   return l.code === "" && l.description.toLowerCase() === "total";
 }
 

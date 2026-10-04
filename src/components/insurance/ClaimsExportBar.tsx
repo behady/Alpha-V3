@@ -53,10 +53,13 @@ export default function ClaimsExportBar({
 
   const inverted = from > to;
   const statement = useMemo(() => buildMetlifeStatement({ claims, from, to, wording }), [claims, from, to, wording]);
-  const toSend = useMemo(
-    () => (inverted ? [] : claims.filter((c) => c.status === "treated" && c.approvalDate >= from && c.approvalDate <= to)),
-    [claims, from, to, inverted],
-  );
+  // Only what is actually on the sheet can be marked sent: a treated claim whose services are all
+  // still planned or ongoing prints nothing and must not be stamped as sent to the insurer.
+  const toSend = useMemo(() => {
+    if (inverted) return [];
+    const printed = new Set(statement.cases.map((c) => c.approvalNumber));
+    return claims.filter((c) => c.status === "treated" && c.approvalDate >= from && c.approvalDate <= to && printed.has(c.approvalNumber));
+  }, [claims, from, to, inverted, statement.cases]);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
