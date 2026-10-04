@@ -194,7 +194,7 @@ function navAnchorForRoute(route: string): string | null {
  *
  * Empty when there is nothing to click for (already there is decided by the caller). Each click
  * resolves its anchor through the `data-tour-opens` fallback, so "click Patients" on a desktop
- * opens the Front Desk menu first, and on a phone opens the bottom Menu sheet first.
+ * opens the menu holding it first, and on a phone opens the bottom Menu sheet first.
  */
 export function navPlanFor(stop: TourStop, resolvedRoute?: string | null, targetPatientName?: string | null): DemoAction[] {
   if (stop.route === "/welcome") return [{ kind: "click", anchor: "menu-welcome" }];

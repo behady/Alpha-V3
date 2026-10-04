@@ -22,7 +22,7 @@ import { useClinic } from "@/context/ClinicContext";
 import { getClinicLogo } from "@/lib/clinicLogo";
 import ClinicSwitcher from "@/components/dashboard/ClinicSwitcher";
 import NotificationBell from "@/components/NotificationBell";
-import { SECTION_GROUPS, type NavItem } from "@/components/dashboard/navGroups";
+import { DIRECT_KEYS, SECTION_GROUPS, type NavItem } from "@/components/dashboard/navGroups";
 import { useTourOptional } from "@/context/TourContext";
 import { TOUR_GUIDE } from "@/lib/grandTour";
 import { SETUP_ROUTE } from "@/lib/setupWizard";
@@ -99,6 +99,7 @@ export default function TopNav({
   const labelFor = (key: string) => t(key as any) || key.charAt(0).toUpperCase() + key.slice(1);
 
   const dashboard = items.find((i) => i.key === "dashboard");
+  const directItems = DIRECT_KEYS.map((key) => items.find((i) => i.key === key)).filter((i): i is NavItem => Boolean(i));
   const settingsLabel = labelFor("settings");
 
   /**
@@ -112,7 +113,11 @@ export default function TopNav({
   const quickSetupLabel = language === "ar" ? "إعداد سريع للعيادة" : "Quick clinic setup";
 
   const groups = SECTION_GROUPS.map((section) => {
-    const groupItems = items.filter((item) => section.keys.includes(item.key));
+    // In the group's own order, so a menu reads the way it was laid out rather than in whatever
+    // order the item table happens to list destinations.
+    const groupItems = section.keys
+      .map((key) => items.find((item) => item.key === key))
+      .filter((item): item is NavItem => Boolean(item));
     return {
       title: language === "ar" ? section.titleAr : section.titleEn,
       id: section.titleEn,
@@ -178,6 +183,20 @@ export default function TopNav({
             {labelFor("dashboard")}
           </Link>
         )}
+
+        {/* Buttons of their own, with nothing under them — see DIRECT_KEYS. */}
+        {directItems.map((item) => (
+          <Link
+            key={item.key}
+            href={item.href}
+            data-tour={`nav-${String(item.href).replace(/^\//, "")}`}
+            className={`${pill} ${isRouteActive(item.href) ? pillActive : pillIdle}`}
+          >
+            <item.icon size={16} strokeWidth={2.4} />
+            <span className={item.locked ? "opacity-60" : ""}>{labelFor(item.key)}</span>
+            {item.locked && <Lock size={13} className="opacity-50" />}
+          </Link>
+        ))}
 
         {groups.map((group) => (
           <div key={group.id} className="relative">

@@ -10,6 +10,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { NO_COMMISSION, commissionByStaff, staffIdForRow } from "../src/lib/staffCommission";
 import { defaultSchedule, expectedScheduleFor, hoursText, scheduleFrom, weeklyMinutes } from "../src/lib/hrClient";
+import { buildHrSection, shiftOvertimeMinutes } from "../src/lib/automation/briefing/hr";
 
 const REPO = join(import.meta.dirname, "..");
 const read = (rel: string) => readFileSync(join(REPO, rel), "utf8");
@@ -109,9 +110,54 @@ const STAFF = [
   eq(hoursText(-5), "0h 0m", "a negative is not printed");
 }
 
+// --- 3b. Extra time per shift agrees with the payroll engine -----------------------------------
+// The profile asks "pay this extra time?" only under a shift that has some. If its per-shift figure
+// drifted from the engine's, the owner would be asked about time the payslip does not count.
+{
+  const tz = "Africa/Cairo";
+  // Cairo is UTC+3 in October 2026 (summer time); build instants from Cairo wall-clock times.
+  const at = (ymd: string, hhmm: string) => new Date(`${ymd}T${hhmm}:00+03:00`);
+  const roster = defaultSchedule(); // Sun–Thu 13:00–21:00
+  const shift = (id: string, ymd: string, from: string, to: string, overtimeStatus = "") => {
+    const checkIn = at(ymd, from);
+    let checkOut = at(ymd, to);
+    if (checkOut < checkIn) checkOut = new Date(checkOut.getTime() + 864e5);
+    return {
+      id, userId: "u1", staffId: "s1", userName: "Hana", date: ymd, checkIn, checkOut,
+      durationMinutes: Math.round((checkOut.getTime() - checkIn.getTime()) / 60000),
+      status: "completed", overtimeStatus, checkInDistanceM: 10, checkInAccuracyM: 10, deviceId: "d",
+    };
+  };
+  // 2026-10-04 is a Sunday, 2026-10-09 a Friday (day off).
+  const punches = [
+    shift("p1", "2026-10-04", "13:00", "21:00"), // on time: no extra
+    shift("p2", "2026-10-05", "12:30", "22:00"), // 30 before + 60 after = 90 extra
+    shift("p3", "2026-10-09", "10:00", "14:00"), // day off: all 240 extra
+    shift("p4", "2026-10-06", "20:00", "01:00"), // past midnight: 240 extra
+  ];
+  eq(shiftOvertimeMinutes(punches[0], roster, tz), 0, "a shift inside the roster has no extra time to approve");
+  eq(shiftOvertimeMinutes(punches[1], roster, tz), 90, "time before the start and after the end both count");
+  eq(shiftOvertimeMinutes(punches[2], roster, tz), 240, "a shift on a day off is all extra time");
+  eq(shiftOvertimeMinutes(punches[3], roster, tz), 240, "a shift running past midnight is not counted backwards");
+
+  const { section } = buildHrSection({
+    staff: [{ id: "s1", uid: "u1", name: "Hana", role: "Assistant", baseSalary: 8000, commissionPercentage: 0, overtimeMultiplier: 1.5, registeredDeviceId: "d", schedule: roster }],
+    punches,
+    startDate: "2026-10-01",
+    endDate: "2026-10-10",
+    today: "2026-10-11",
+    nowMinutes: 600,
+    timeZone: tz,
+    geofenceRadiusM: 200,
+    monthStart: "2026-10-01",
+  });
+  const perShift = punches.reduce((s, p) => s + shiftOvertimeMinutes(p, roster, tz), 0);
+  eq(section.staff[0].overtimePendingMinutes, perShift, "the per-shift extra time adds up to the engine's pending overtime");
+}
+
 // --- 4. The page keeps the promises the libraries make ------------------------------------------
 {
-  const page = read("src/app/(dashboard)/attendance/team/page.tsx");
+  const page = read("src/app/(dashboard)/team/page.tsx");
   ok(
     /commissionByStaff\(/.test(page),
     "the team page computes commission some other way — it has to add up the stored amounts, like Reports does, or a person's profile will disagree with the reports about their own money"
@@ -127,7 +173,7 @@ const STAFF = [
   ok(/staffRecordFrom\(/.test(page) && /expectedScheduleFor\(/.test(page), "the page parses the staff document itself instead of using the adapter");
   ok(!/<PermissionGuard/.test(page), "a guard here needs a permission key that does not exist, which would lock the page for everyone including the owner");
 
-  const profile = read("src/app/(dashboard)/attendance/team/StaffProfile.tsx");
+  const profile = read("src/app/(dashboard)/team/StaffProfile.tsx");
   ok(/scheduleAssumed/.test(profile), "the profile does not say when it is assuming a roster");
   ok(/checkInDistanceM/.test(profile), "the profile does not show how far from the clinic a punch was taken");
   ok(
@@ -135,9 +181,12 @@ const STAFF = [
     "permissions must be a LINK to the one editor with the server guards behind it, never a second copy"
   );
 
-  ok(/"\/attendance\/team"/.test(read("src/lib/aiNavigation.ts")), "the assistant cannot send anybody to the new page");
+  ok(/"\/team"/.test(read("src/lib/aiNavigation.ts")), "the assistant cannot send anybody to the new page");
+  ok(/source: "\/attendance\/team", destination: "\/team"/.test(read("next.config.ts")), "old links to /attendance/team (reports, bookmarks) would land on a 404");
+  ok(/key: "team", href: "\/team"/.test(read("src/app/(dashboard)/layout.tsx")), "the team page has no entry in the top menu");
+  ok(/"attendance", "team"/.test(read("src/components/dashboard/navGroups.ts")), "a nav key missing from every group is silently dropped from the menu");
   ok(
-    /href="\/attendance\/team"/.test(read("src/app/(dashboard)/attendance/page.tsx")),
+    /href="\/team"/.test(read("src/app/(dashboard)/attendance/page.tsx")),
     "there is no way into the new page from the screen the owner already uses"
   );
 }

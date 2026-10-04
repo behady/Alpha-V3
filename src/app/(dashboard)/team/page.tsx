@@ -210,7 +210,7 @@ function TeamPage() {
   // Seed the selection once the team arrives, without adding a history entry for it.
   useEffect(() => {
     if (selectedId || people.length === 0) return;
-    router.replace(`/attendance/team?staff=${people[0].id}`, { scroll: false });
+    router.replace(`/team?staff=${people[0].id}`, { scroll: false });
   }, [selectedId, people, router]);
 
   const selectedDoc = staffDocs.find((d) => d.id === selectedId) || null;
@@ -421,10 +421,9 @@ function TeamPage() {
         <PageHeader
           title={isAr ? "الفريق" : "Team"}
           subtitle={isAr ? "للمالك والمديرين" : "Owner and admins"}
-          backHref="/attendance"
         />
         <div className="mx-auto max-w-[1600px] px-4 pt-6 md:px-6 xl:px-10">
-          <p className="rounded-3xl border border-line bg-surface px-6 py-14 text-center text-sm font-bold text-ink-muted">
+          <p className="rounded-3xl border border-line bg-surface px-6 py-14 text-center text-[16px] font-bold text-ink-muted">
             {isAr ? "الصفحة دي مش متاحة لدورك." : "This page is not available for your role."}
           </p>
         </div>
@@ -437,14 +436,13 @@ function TeamPage() {
       <PageHeader
         title={isAr ? "الفريق" : "Team"}
         subtitle={rangeText(range, isAr)}
-        backHref="/attendance"
       >
         {presets.map((p) => (
           <button
             key={p.id}
             type="button"
             onClick={() => setRange(rangeFor(p.id))}
-            className={`rounded-full px-3.5 py-2 text-[13px] font-bold transition-colors ${
+            className={`rounded-full px-4 py-2.5 text-[15px] font-bold transition-colors ${
               preset === p.id
                 ? "bg-[#FACC15] text-ink"
                 : "border border-white/15 bg-white/5 text-white/70 hover:bg-white/15"
@@ -455,17 +453,17 @@ function TeamPage() {
         ))}
       </PageHeader>
 
-      <div className="mx-auto max-w-[1600px] space-y-4 px-4 pt-5 md:px-6 xl:px-10 xl:pt-7">
+      <div className="mx-auto max-w-[1400px] space-y-5 px-4 pt-5 md:px-6 xl:px-10 xl:pt-7">
         {loading ? (
           <div className="flex items-center justify-center gap-2.5 rounded-3xl border border-line bg-surface px-6 py-16 text-ink-muted">
             <Loader2 size={18} className="animate-spin" />
-            <span className="text-sm font-bold">{isAr ? "بنحضّر الفريق…" : "Loading the team…"}</span>
+            <span className="text-[16px] font-bold">{isAr ? "بنحضّر الفريق…" : "Loading the team…"}</span>
           </div>
         ) : people.length === 0 ? (
           <div className="flex flex-col items-center gap-3 rounded-3xl border border-dashed border-line bg-surface-subtle px-6 py-14 text-center">
             <Users size={22} className="text-ink-muted" />
-            <p className="text-sm font-bold text-ink">{isAr ? "مفيش حد في الفريق لسه." : "Nobody on the team yet."}</p>
-            <Link href="/settings/users" className="text-[13px] font-bold text-ink-body underline">
+            <p className="text-[17px] font-bold text-ink">{isAr ? "مفيش حد في الفريق لسه." : "Nobody on the team yet."}</p>
+            <Link href="/settings/users" className="text-[15px] font-bold text-ink-body underline">
               {isAr ? "ضيف الفريق" : "Add your team"}
             </Link>
           </div>
@@ -474,7 +472,7 @@ function TeamPage() {
             <TeamRail
               people={people}
               selectedId={selectedId}
-              onSelect={(id) => router.replace(`/attendance/team?staff=${id}`, { scroll: false })}
+              onSelect={(id) => router.replace(`/team?staff=${id}`, { scroll: false })}
               isAr={isAr}
             />
             {profileStaff && (

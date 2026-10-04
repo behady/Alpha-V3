@@ -20,6 +20,12 @@ export function canAccessNavItem(navKey: string, user: NavAccessUser | null, isA
   /** All staff can open attendance (check-in); gate sensitive views on the page itself. */
   if (navKey === "attendance") return true;
 
+  /**
+   * The team page shows wages and every punch, so it takes the attendance screen's ADMIN test, not
+   * its open door: the same grants the page itself checks before it shows anybody's pay.
+   */
+  if (navKey === "team") return perms.includes("attendance.admin") || perms.includes("access.settings");
+
   const accessGrant = `access.${navKey}`;
   if (perms.includes(accessGrant)) return true;
 

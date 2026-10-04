@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Users, Calendar, Wallet, Settings, Sparkles,
   FileBarChart, Menu, X, LogOut, Languages,
   Package, Clock, FlaskConical, ShieldCheck,
-  LifeBuoy, Inbox, Megaphone, Rocket, ShoppingBag, Lock, Activity
+  LifeBuoy, Inbox, Megaphone, Rocket, ShoppingBag, Lock, Activity, UserRound
 } from "lucide-react";
 import { isAnyUnlocked, type FeatureKey } from "@/lib/featureCatalog";
 
@@ -23,7 +23,7 @@ import ReceptionSummonOverlay from "@/components/summon/ReceptionSummonOverlay";
 import { useUI } from "@/context/UIContext";
 import ClinicSwitcher from "@/components/dashboard/ClinicSwitcher";
 import TopNav from "@/components/dashboard/TopNav";
-import { SECTION_GROUPS } from "@/components/dashboard/navGroups";
+import { DIRECT_KEYS, SECTION_GROUPS } from "@/components/dashboard/navGroups";
 import { PageHeaderProvider, usePageHeaderSlot } from "@/context/PageHeaderContext";
 import AiChatWidget from "@/components/AiChatWidget";
 import { TutorialProvider, useTutorial } from "@/context/TutorialContext";
@@ -54,6 +54,7 @@ const NAV_FEATURES: Record<string, FeatureKey | FeatureKey[]> = {
   insurance: "insurance",
   ortho: "ortho",
   attendance: "attendance",
+  team: "attendance",
   reports: "reports",
   marketing: "marketingText",
 };
@@ -275,6 +276,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { key: "finance", href: "/finance", icon: Wallet },
     { key: "reports", href: "/reports", icon: FileBarChart },
     { key: "attendance", href: "/attendance", icon: Clock },
+    /**
+     * The team: one profile per person with their hours, pay and roster. It used to hang off the
+     * time clock as a small link, which is where staff clock in — so the owner's payroll screen
+     * sat behind the page everybody else uses for something else. Gated in navAccess.
+     */
+    { key: "team", href: "/team", icon: UserRound },
     /**
      * It replaces three separate items — the brief, the WhatsApp send queue and patient no-shows —
      * which are now three tabs of one page. Their old URLs redirect into it.
@@ -510,8 +517,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                  </Link>
                )}
 
+               {/* The top bar's own buttons (Patients), kept above the menus here too. */}
+               {allNavItems
+                 .filter((item) => DIRECT_KEYS.includes(item.key) && hasAccess(item.key, true))
+                 .map((item) => {
+                   const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                   return (
+                     <Link key={item.href} href={item.href} data-tour={`nav-${String(item.href).replace(/^\//, "")}`} onClick={() => setIsOpen(false)} className={sheetRow(isActive)}>
+                       <item.icon size={22} strokeWidth={isActive ? 2.5 : 2} />
+                       {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                       <span className="text-base truncate">{t(item.key as any) || item.key}</span>
+                       {lockedFor(item.key) && <Lock size={16} className="ms-auto opacity-50" />}
+                     </Link>
+                   );
+                 })}
+
                {SECTION_GROUPS.map((section) => {
-                  const sectionItems = allNavItems.filter((item) => hasAccess(item.key, true) && section.keys.includes(item.key));
+                  // The group's own order, as in the top bar.
+                  const sectionItems = section.keys
+                    .map((key) => allNavItems.find((item) => item.key === key))
+                    .filter((item): item is (typeof allNavItems)[number] => Boolean(item) && hasAccess(item!.key, true));
                   if (sectionItems.length === 0) return null;
 
                   return (

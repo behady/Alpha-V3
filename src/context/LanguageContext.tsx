@@ -38,6 +38,7 @@ const translations = {
     // them — so only the words a human reads changed.
     attendanceAi: "Patient No-Shows",
     attendance: "Time Clock",
+    team: "Team",
     reports: "Reports",
     settings: "Settings",
     admin: "Admin Account",
@@ -451,6 +452,7 @@ const translations = {
     operations: "المتابعات",
     attendanceAi: "غياب المرضى",
     attendance: "الحضور والانصراف",
+    team: "الفريق",
     reports: "التقارير",
     settings: "الإعدادات",
     admin: "حساب المدير",
