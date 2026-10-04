@@ -590,7 +590,7 @@ export default function StaffProfile({
                   <tr key={e.claimId + "-" + e.lineIndex} className="border-b border-line/60">
                     <td className="py-3 pe-3 font-semibold text-ink-muted">{dayOf(e.date, isAr)}</td>
                     <td className="py-3 pe-3 font-semibold text-ink">{e.patientName}</td>
-                    <td className="py-3 pe-3 font-figure font-semibold text-ink-body" dir="ltr">{e.approvalNumber}</td>
+                    <td className="py-3 pe-3 text-start font-figure font-semibold text-ink-body"><bdi dir="ltr">{e.approvalNumber}</bdi></td>
                     <td className="py-3 pe-3 font-semibold text-ink-body">{e.service}</td>
                     <td className="py-3 pe-3 text-end font-figure font-semibold text-ink-body">{money(e.approved)}</td>
                     <td className="py-3 pe-3 text-end font-figure font-semibold text-ink-body">{e.rate}%</td>
