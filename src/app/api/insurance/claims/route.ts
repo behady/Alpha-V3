@@ -41,10 +41,12 @@ import {
   cappedPayment,
   dentistRowPatch,
   insuranceTreatmentRows,
+  isLineStatus,
   lineDentistFor,
   rowsActionForStatus,
   type LineDentist,
   type LineLedger,
+  type LineStatus,
   type ShareCollected,
   type TreatmentRowArgs,
 } from "@/lib/insurance/claims";
@@ -56,7 +58,9 @@ const PERMISSION = "patients.edit";
 const MAX_LINES = 100;
 const MAX_NAME = 200;
 const MAX_WORDING = 200;
-const PATCH_KEYS = new Set(["status", "treatedDate", "patientId", "lines", "metlife", "dentists", "collectShare", "insurerPaid"]);
+const PATCH_KEYS = new Set(["status", "treatedDate", "patientId", "lines", "metlife", "dentists", "lineStatus", "collectShare", "insurerPaid"]);
+const LINE_KEY = /^\d{1,3}$/;
+const LINE_STATUS_ERROR = 'A service state must be "Completed", "Planned" or "Ongoing".';
 /** How the insurer's own payment is filed: its own method and category, so cash reports never mistake it for cash. */
 const INSURER_METHOD = "Insurance";
 const INSURER_CATEGORY = "Insurance Payment";
@@ -182,7 +186,9 @@ function docFactsOf(data: DocumentData | undefined): DocFacts | null {
  * Saves a confirmed insurer approval as a claim.
  *
  * POST { clinicId, docId, payerId, extraction, patient: { id } | { create: { name, phone? } },
- *        status: "approved" | "treated", treatedDate?, wording?: { [code]: arabic }, docPath? }
+ *        status?: "approved" | "treated" (default "treated"), treatedDate?, dentistId?,
+ *        lines?: { [lineIndex]: { dentistId?: string | null, status?: "Completed" | "Planned" | "Ongoing" } },
+ *        wording?: { [code]: arabic }, docPath? }
  *   → 201 { ok: true, claimId, patientId }
  *   → 409 { ok: false, duplicate: { claimId, savedAt } } when this approval is already a claim
  *   → 409 { ok: false, error, claimId } when this document is already attached to another claim
@@ -202,7 +208,12 @@ function docFactsOf(data: DocumentData | undefined): DocFacts | null {
  * A claim saved as `treated` also writes its treatment rows in the same transaction (one clinical
  * note and one ledger charge per approved line, dated the treated day, named by the clinic's stored
  * wording where it has one); an `approved` claim writes them when PATCH marks it treated or sent.
- * `dentistId`, when given, must be a dentist (400 otherwise).
+ * Every line gets its row whatever its state: the note carries the state, the charge exists either way.
+ *
+ * `lines` is the confirm card's per-service choice: who did each service (null or "" = nobody yet) and
+ * where it stands. A line with no entry, or an entry with no `dentistId`, takes `dentistId` (the older
+ * one-dentist-for-the-paper shape, kept for compatibility); a line with no state is Completed. Every
+ * index must be a line on the paper and every dentist must be a dentist (400 otherwise).
  *
  * `docPath` is optional and only used when no document row exists (the read failed and the desk typed
  * the paper in): it must sit in this clinic's `insurance_docs/{docId}/` folder, and the file's type
@@ -218,8 +229,11 @@ export async function POST(req: Request) {
     if (!clinicId || !payerId || !docId || !isRecord(body?.extraction)) {
       return fail(400, "clinicId, docId, payerId and extraction are required.");
     }
-    const status = body.status;
-    if (status !== "approved" && status !== "treated") return fail(400, 'status must be "approved" or "treated".');
+    // The confirm card no longer sends a status: the paper it saves is treated work. "approved" is
+    // still accepted from any other caller.
+    const rawStatus: unknown = body.status === undefined || body.status === null ? "treated" : body.status;
+    if (rawStatus !== "approved" && rawStatus !== "treated") return fail(400, 'status must be "approved" or "treated".');
+    const status: "approved" | "treated" = rawStatus;
     if (body.treatedDate !== undefined && body.treatedDate !== null && !isIsoDate(body.treatedDate)) {
       return fail(400, "treatedDate must be a yyyy-mm-dd date.");
     }
@@ -227,6 +241,30 @@ export async function POST(req: Request) {
     // them and the treatment rows carry them. Optional: the patient's Insurance tab assigns later.
     const dentistId = body.dentistId === undefined || body.dentistId === null || body.dentistId === "" ? "" : segment(body.dentistId);
     if (body.dentistId && !dentistId) return fail(400, "dentistId must name a staff member.");
+    // Per service: { "<lineIndex>": { dentistId?, status? } }. A `dentistId` of "" here means
+    // "nobody yet" and overrides the paper-wide one; an absent one falls back to it.
+    const lineIn: Record<number, { dentistId?: string; status?: LineStatus }> = {};
+    if (body.lines !== undefined && body.lines !== null) {
+      if (!isRecord(body.lines)) return fail(400, "lines must map a line index to { dentistId?, status? }.");
+      for (const [k, v] of Object.entries(body.lines)) {
+        if (!LINE_KEY.test(k)) return fail(400, "lines keys must be line indices.");
+        if (!isRecord(v)) return fail(400, "lines must map a line index to { dentistId?, status? }.");
+        const entry: { dentistId?: string; status?: LineStatus } = {};
+        if (v.dentistId !== undefined) {
+          if (v.dentistId === null || v.dentistId === "") entry.dentistId = "";
+          else {
+            const id = segment(v.dentistId);
+            if (!id) return fail(400, "A service's dentistId must name a staff member or be null.");
+            entry.dentistId = id;
+          }
+        }
+        if (v.status !== undefined) {
+          if (!isLineStatus(v.status)) return fail(400, LINE_STATUS_ERROR);
+          entry.status = v.status;
+        }
+        lineIn[Number(k)] = entry;
+      }
+    }
     const patientIn = isRecord(body.patient) ? body.patient : null;
     const existingId = patientIn && typeof patientIn.id === "string" ? segment(patientIn.id) : "";
     const create = patientIn && isRecord(patientIn.create) ? patientIn.create : null;
@@ -270,6 +308,13 @@ export async function POST(req: Request) {
     const extraction = normalizeConfirmed(body.extraction);
     const h = extraction.header;
     if (extraction.lines.length > MAX_LINES) return fail(400, "Too many service lines.");
+    if (Object.keys(lineIn).some((k) => Number(k) >= extraction.lines.length)) {
+      return fail(400, "lines names a service line that is not on the paper.");
+    }
+    /** Who did line i: its own pick when the card sent one ("" = nobody yet), else the paper-wide one. */
+    const dentistOfLine = (i: number): string => (lineIn[i]?.dentistId !== undefined ? (lineIn[i].dentistId as string) : dentistId);
+    // Every dentist named, the paper-wide one included, is read and must be a dentist.
+    const staffIds = [...new Set([dentistId, ...extraction.lines.map((_, i) => dentistOfLine(i))].filter(Boolean))];
     const checks = checkMetlife(extraction, {
       today: ymdInTimeZone(clinicTimeZone()),
       providerCode: payer.providerCode,
@@ -329,12 +374,23 @@ export async function POST(req: Request) {
         const docsSnap = await tx.get(docsRef);
         const wordingSnap = await tx.get(wordingRef);
         const payersSnap = await tx.get(adminClinicDoc(clinicId, "settings", "payers"));
-        const staffSnap = dentistId ? await tx.get(adminClinicDoc(clinicId, "staff", dentistId)) : null;
+        const staffSnaps = await Promise.all(staffIds.map((id) => tx.get(adminClinicDoc(clinicId, "staff", id))));
         const patientSnap = existingId ? await tx.get(patientRef) : null;
         const counterSnap = existingId ? null : await tx.get(counterRef);
         if (patientSnap && !patientSnap.exists) return { kind: "no_patient" };
-        if (staffSnap && !staffSnap.exists) return { kind: "no_staff" };
-        if (staffSnap && !isDentistStaff(staffSnap.data())) return { kind: "not_dentist" };
+        if (staffSnaps.some((s) => !s.exists)) return { kind: "no_staff" };
+        if (staffSnaps.some((s) => !isDentistStaff(s.data()))) return { kind: "not_dentist" };
+        const staffById = new Map<string, { id: string; name: string } & CommissionRates>();
+        staffSnaps.forEach((s, k) => {
+          const d = s.data() ?? {};
+          staffById.set(staffIds[k], {
+            id: staffIds[k],
+            name: typeof d.name === "string" ? d.name : "",
+            // Raw: commissionRateFor coerces, and a rate stored as "25" must not stamp as 0%.
+            commissionPercentage: d.commissionPercentage as number | null | undefined,
+            commissionByPayer: isRecord(d.commissionByPayer) ? d.commissionByPayer : null,
+          });
+        });
         const linked = docsSnap.get("claimId");
         if (typeof linked === "string" && linked && linked !== claimId) return { kind: "doc_taken", claimId: linked };
 
@@ -357,6 +413,8 @@ export async function POST(req: Request) {
             ...stripUndefined({
               fileId: `PT-${nextId}`,
               name: newName,
+              // The paper's Latin spelling, kept so a later approval can still be matched by name.
+              nameLatin: h.paperPatientName && h.paperPatientName !== newName ? h.paperPatientName : undefined,
               phone: newPhone,
               allergies: "",
               medicalHistory: "",
@@ -372,15 +430,15 @@ export async function POST(req: Request) {
         const rowFacts = docFactsOf(docsSnap.data());
         const docFacts = rowFacts ?? fallbackDoc;
         const claim = claimFromExtraction({ payerId, extraction, patientId: patientRef.id, patientName, status, treatedDate, doc: docFacts });
-        // The dentist on every line, stamped with their rate on this payer and the share on the
-        // approved amount (the owner's rule: earned when assigned, on what the insurer approved).
-        if (staffSnap) {
-          const d = staffSnap.data() ?? {};
-          const staffLite = { id: dentistId, name: typeof d.name === "string" ? d.name : "", commissionPercentage: d.commissionPercentage as number | null | undefined, commissionByPayer: isRecord(d.commissionByPayer) ? d.commissionByPayer : null };
-          claim.lines.forEach((line, i) => {
-            claim.dentists[i] = lineDentistFor(line, staffLite, payerId);
-          });
-        }
+        // The dentist on each line, stamped with their rate on this payer and the share on the
+        // approved amount (the owner's rule: earned when assigned, on what the insurer approved),
+        // and the state of each line the card named.
+        claim.lines.forEach((line, i) => {
+          const staff = staffById.get(dentistOfLine(i));
+          if (staff) claim.dentists[i] = lineDentistFor(line, staff, payerId);
+          const state = lineIn[i]?.status;
+          if (state) claim.lineStatus[i] = state;
+        });
         // The treatments are recorded only once they are done: a claim saved as `treated` writes
         // its rows now, dated the treated day; an `approved` one writes them when it is marked
         // treated (or sent).
@@ -460,7 +518,7 @@ export async function POST(req: Request) {
 /**
  * Edits a saved claim.
  *
- * PATCH { clinicId, claimId, patch: { status?, treatedDate?, patientId?, lines?, metlife?, dentists?, collectShare?, insurerPaid? } }
+ * PATCH { clinicId, claimId, patch: { status?, treatedDate?, patientId?, lines?, metlife?, dentists?, lineStatus?, collectShare?, insurerPaid? } }
  *   → 200 { ok: true } (plus `payments` or `shareCollected` when money was recorded)
  *
  * Only those keys; anything else is a 400, so a typo never silently does nothing.
@@ -483,6 +541,9 @@ export async function POST(req: Request) {
  *   editable.
  * - `dentists`: { lineIndex: staffId | null }, each staff member a dentist (400 otherwise); the rate and
  *   share are stamped from the staff record and follow into the treatment rows that exist.
+ * - `lineStatus`: { lineIndex: "Completed" | "Planned" | "Ongoing" }, merged into the stored map; each
+ *   index must be a line of the claim. The state follows into the clinical note of each treatment
+ *   row that exists (the ledger charge carries no state, as in the clinical editor).
  * - `collectShare` / `insurerPaid` (one at a time, never with a status change): one payment per
  *   treatment row, capped at what is still open on it, only on a `treated` or `sent` approval.
  *
@@ -542,6 +603,18 @@ export async function PATCH(req: Request) {
       }
       if (Object.keys(picks).length === 0) return fail(400, "dentists is empty.");
     }
+    // Where each service stands: { "<lineIndex>": "Completed" | "Planned" | "Ongoing" }.
+    let statePicks: Record<number, LineStatus> | undefined;
+    if ("lineStatus" in patch) {
+      if (!isRecord(patch.lineStatus)) return fail(400, "lineStatus must map a line index to a state.");
+      statePicks = {};
+      for (const [k, v] of Object.entries(patch.lineStatus)) {
+        if (!LINE_KEY.test(k)) return fail(400, "lineStatus keys must be line indices.");
+        if (!isLineStatus(v)) return fail(400, LINE_STATUS_ERROR);
+        statePicks[Number(k)] = v;
+      }
+      if (Object.keys(statePicks).length === 0) return fail(400, "lineStatus is empty.");
+    }
     // The patient's share taken as cash. The ledger rows and the claim's stamp are written in ONE
     // transaction here — two separate calls left a stray cash row whenever the second one failed.
     const collectShare = patch.collectShare === true;
@@ -579,6 +652,7 @@ export async function PATCH(req: Request) {
       | { kind: "no_patient" }
       | { kind: "no_staff"; ids: string[] }
       | { kind: "not_dentist" }
+      | { kind: "bad_line" }
       | { kind: "rows_exist" }
       | { kind: "not_treated" }
       | { kind: "rows_paid" }
@@ -642,7 +716,7 @@ export async function PATCH(req: Request) {
         const snaps = await Promise.all(links.map((l) => tx.get(adminClinicDoc(clinicId, "ledger", l.ledgerId))));
         links.forEach((l, i) => chargeSnaps.set(l.ledgerId, snaps[i]));
       }
-      if (hasRows && picks && rowsAction !== "remove") {
+      if (hasRows && (picks || statePicks) && rowsAction !== "remove") {
         const snaps = await Promise.all(links.map((l) => tx.get(adminClinicDoc(clinicId, "clinical_notes", l.noteId))));
         links.forEach((l, i) => noteSnaps.set(l.noteId, snaps[i]));
       }
@@ -710,6 +784,13 @@ export async function PATCH(req: Request) {
         update.dentists = dentists;
       }
 
+      let lineStatus = claim.lineStatus;
+      if (statePicks) {
+        if (Object.keys(statePicks).some((k) => Number(k) >= lines.length)) return { kind: "bad_line" };
+        lineStatus = { ...claim.lineStatus, ...statePicks };
+        update.lineStatus = lineStatus;
+      }
+
       // One payment per live treatment row, each capped at what is still open on that row, so a row
       // the patient already settled at the counter is never paid twice.
       const plan: Array<{ index: number; ledgerId: string; amount: number; labFee: number }> = [];
@@ -734,7 +815,10 @@ export async function PATCH(req: Request) {
 
       // --- writes ----------------------------------------------------------------------------
       // The dentist change follows into the rows that still exist: doctor, rate and share, so the
-      // patient's file and the payer report agree with the Insurance tab.
+      // patient's file and the payer report agree with the Insurance tab. A state change follows
+      // into the clinical note. One update per note, whatever changed on it.
+      const noteUpdates = new Map<string, Record<string, unknown>>();
+      const noteUpdate = (noteId: string, fields: Record<string, unknown>) => noteUpdates.set(noteId, { ...(noteUpdates.get(noteId) ?? {}), ...fields });
       if (picks && rowsAction !== "remove") {
         for (const k of Object.keys(picks)) {
           const i = Number(k);
@@ -746,11 +830,16 @@ export async function PATCH(req: Request) {
           if (chargeSnaps.get(link.ledgerId)?.exists) {
             tx.update(adminClinicDoc(clinicId, "ledger", link.ledgerId), { doctorId: rowPatch.doctorId, doctorName: rowPatch.doctorName, doctorCommissionPercentage: rowPatch.doctorCommissionPercentage, doctorCommissionAmount: rowPatch.doctorCommissionAmount, clinicProfit: rowPatch.clinicProfit, updatedAt: FieldValue.serverTimestamp() });
           }
-          if (noteSnaps.get(link.noteId)?.exists) {
-            tx.update(adminClinicDoc(clinicId, "clinical_notes", link.noteId), { doctorId: rowPatch.doctorId, doctor: rowPatch.doctor });
-          }
+          if (noteSnaps.get(link.noteId)?.exists) noteUpdate(link.noteId, { doctorId: rowPatch.doctorId, doctor: rowPatch.doctor });
         }
       }
+      if (statePicks && rowsAction !== "remove") {
+        for (const [k, state] of Object.entries(statePicks)) {
+          const link: LineLedger | undefined = claim.ledgerIds[Number(k)];
+          if (link && noteSnaps.get(link.noteId)?.exists) noteUpdate(link.noteId, { status: state, updatedAt: FieldValue.serverTimestamp() });
+        }
+      }
+      for (const [noteId, fields] of noteUpdates) tx.update(adminClinicDoc(clinicId, "clinical_notes", noteId), fields);
 
       // The work is done: record it in the patient's file now, dated the treated day.
       let created: Charge[] = [];
@@ -767,6 +856,7 @@ export async function PATCH(req: Request) {
             patientName,
             lines,
             dentists,
+            lineStatus,
           },
           payerName,
           wording: rowWording(wordingSnap?.get(claim.insurer), {}),
@@ -877,6 +967,7 @@ export async function PATCH(req: Request) {
     if (result.kind === "no_patient") return fail(404, "That patient was not found.");
     if (result.kind === "no_staff") return fail(404, `Staff not found: ${result.ids.join(", ")}.`);
     if (result.kind === "not_dentist") return fail(400, "That staff member is not a dentist.");
+    if (result.kind === "bad_line") return fail(400, "lineStatus names a service line that is not on this approval.");
     if (result.kind === "rows_exist") {
       return fail(409, "This approval already has treatment rows; delete it through Recently Deleted and save the paper again to change its services.");
     }

@@ -13,8 +13,11 @@
  *   201 → `onSaved`;  409 duplicate → "already saved on … — open";  409 doc_taken → the same
  *   "open" on the claim that holds this document;  400 → the server's checks are shown.
  *
- * `treatedDate` is never sent. Switch off (the default) means treated on the approval date, which
- * the server fills in; switch on means approved, not treated yet, and the claim stays off the sheet.
+ * Each service line carries its own dentist and its own state (Completed / Planned / Ongoing, the
+ * clinical editor's words); the "same for all services" row above the table fills every line at once,
+ * and each line can still be changed on its own afterwards. Neither a status nor `treatedDate` is
+ * sent: the server saves the paper as treated on the approval date, and only Completed lines go on
+ * the monthly sheet and into payroll.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -25,18 +28,22 @@ import { db } from "@/lib/firebase";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
-import { checkMetlife, hasHardFailure, type Check, type MetlifeExtraction, type MetlifeHeader, type MetlifeLine } from "@/lib/insurance/metlife";
+import { checkMetlife, hasHardFailure, normalizeMetlife, type Check, type MetlifeExtraction, type MetlifeHeader, type MetlifeLine } from "@/lib/insurance/metlife";
 import { nameSimilarity } from "@/lib/insurance/matchPatient";
 import { patientMatchesSearch } from "@/lib/flexibleSearch";
 import { DEFAULT_METLIFE_WORDING } from "@/lib/insuranceStatementMetlife";
+import { LINE_STATUSES, type LineStatus } from "@/lib/insurance/claims";
 import type { Payer } from "@/lib/payers";
 import type { PatientInsuranceEntry } from "@/lib/patientInsurance";
 import { cairoToday, InsuranceCallError, saveClaim, type ReadResult, type SaveBody } from "./api";
-import { tr } from "./text";
+import { STATE_KEY, tr, type TextKey } from "./text";
+
+/** Who did one service line ("" = nobody yet) and where it stands. */
+type LineMeta = { dentistId: string; status: LineStatus };
 
 export type PatientOption = { id: string; name: string; phone: string; insurance?: Record<string, PatientInsuranceEntry> };
 
-type TextField = "approvalNumber" | "statusText" | "policyNumber" | "employer" | "certificateNumber" | "dependentCode" | "paperPatientName" | "providerCode" | "physician" | "diagnosisCode" | "comment";
+type TextField = "approvalNumber" | "statusText" | "policyNumber" | "employer" | "certificateNumber" | "dependentCode" | "paperPatientName" | "paperPatientNameAr" | "providerCode" | "physician" | "diagnosisCode" | "comment";
 type DateField = "approvalDate" | "terminationDate";
 type MoneyField = "estimatedCost" | "requestedTotal" | "approvedTotal" | "patientShareTotal" | "collectNote";
 type LineNumber = "unitsRequested" | "grossPerUnit" | "grossTotal" | "unitsApproved" | "patientShare" | "approvedAmount";
@@ -109,11 +116,15 @@ export default function ApprovalConfirmCard({
         ? { mode: "existing", patientId: "", locked: false }
         : { mode: "create" },
   );
-  const [newName, setNewName] = useState(result.extraction.header.paperPatientName);
+  // A new patient is named in Arabic, as the clinic writes names and as the statement prints them; the paper's Latin name stays on the claim for matching.
+  const [newName, setNewName] = useState(result.extraction.header.paperPatientNameAr || result.extraction.header.paperPatientName);
   const [newPhone, setNewPhone] = useState("");
   const [search, setSearch] = useState("");
-  const [notTreated, setNotTreated] = useState(false);
-  const [dentistId, setDentistId] = useState("");
+  // Per service line, kept in step with `x.lines` (added and removed together).
+  const [meta, setMeta] = useState<LineMeta[]>(() => result.extraction.lines.map(() => ({ dentistId: "", status: "Completed" })));
+  // The "same for all services" row: what it last set, and what a newly added line starts with.
+  const [allDentist, setAllDentist] = useState("");
+  const [allStatus, setAllStatus] = useState<LineStatus>("Completed");
   const [dentists, setDentists] = useState<Array<{ id: string; name: string }>>([]);
   useEffect(() => {
     if (!clinicId) return;
@@ -200,8 +211,21 @@ export default function ApprovalConfirmCard({
     setX((prev) => ({ ...prev, header: { ...prev.header, [field]: value, confidence: looked(prev.header, field) } }));
   const setLine = (i: number, change: Partial<MetlifeLine>) =>
     setX((prev) => ({ ...prev, lines: prev.lines.map((l, k) => (k === i ? { ...l, ...change, confidence: 1 } : l)) }));
-  const addLine = () => setX((prev) => ({ ...prev, lines: [...prev.lines, blankLine()] }));
-  const removeLine = (i: number) => setX((prev) => ({ ...prev, lines: prev.lines.filter((_, k) => k !== i) }));
+  const addLine = () => {
+    setX((prev) => ({ ...prev, lines: [...prev.lines, blankLine()] }));
+    setMeta((prev) => [...prev, { dentistId: allDentist, status: allStatus }]);
+  };
+  const removeLine = (i: number) => {
+    setX((prev) => ({ ...prev, lines: prev.lines.filter((_, k) => k !== i) }));
+    setMeta((prev) => prev.filter((_, k) => k !== i));
+  };
+  const setLineMeta = (i: number, change: Partial<LineMeta>) => setMeta((prev) => prev.map((m, k) => (k === i ? { ...m, ...change } : m)));
+  /** The "same for all services" row: fills every line; each line can still be changed afterwards. */
+  const setAll = (change: Partial<LineMeta>) => {
+    if (change.dentistId !== undefined) setAllDentist(change.dentistId);
+    if (change.status !== undefined) setAllStatus(change.status);
+    setMeta((prev) => prev.map((m) => ({ ...m, ...change })));
+  };
 
   // --- save --------------------------------------------------------------------------------------
   const patientReady = picker.mode === "create" ? newName.trim().length > 0 : !!picker.patientId;
@@ -217,14 +241,23 @@ export default function ApprovalConfirmCard({
       if (v) wording[code] = v;
     }
     const phone = newPhone.trim();
+    // Every line, explicitly: its dentist (null = nobody yet) and its state. The server drops a typed
+    // "Total" row as the reader does, so the lines are numbered the way it will number them.
+    const lines: NonNullable<SaveBody["lines"]> = {};
+    let k = 0;
+    x.lines.forEach((l, i) => {
+      // Exactly the server's rule: a row the normaliser drops (the table's Total row) takes no number.
+      if (normalizeMetlife({ lines: [l] }).lines.length === 0) return;
+      const m = meta[i] ?? { dentistId: "", status: "Completed" };
+      lines[k++] = { dentistId: m.dentistId || null, status: m.status };
+    });
     const body: SaveBody = {
       clinicId,
       docId,
       payerId: payer.id,
       extraction: x,
       patient: picker.mode === "create" ? { create: phone ? { name: newName.trim(), phone } : { name: newName.trim() } } : { id: picker.patientId },
-      status: notTreated ? "approved" : "treated",
-      ...(dentistId ? { dentistId } : {}),
+      ...(k > 0 ? { lines } : {}),
       ...(Object.keys(wording).length ? { wording } : {}),
       ...(docPath ? { docPath } : {}),
     };
@@ -313,6 +346,7 @@ export default function ApprovalConfirmCard({
             <TextInput label={t("certificateNumber")} value={x.header.certificateNumber} flag={flag("certificateNumber")} onChange={(v) => setText("certificateNumber", v)} ltr />
             <TextInput label={t("dependentCode")} value={x.header.dependentCode} flag={flag("dependentCode")} onChange={(v) => setText("dependentCode", v)} ltr />
             <TextInput label={t("paperPatientName")} value={x.header.paperPatientName} flag={flag("paperPatientName")} onChange={(v) => setText("paperPatientName", v)} ltr />
+            <TextInput label={t("paperPatientNameAr")} value={x.header.paperPatientNameAr} flag={flag("paperPatientNameAr")} onChange={(v) => { setText("paperPatientNameAr", v); if (picker.mode === "create") setNewName(v); }} />
             <DateInput label={t("terminationDate")} value={x.header.terminationDate} flag={flag("terminationDate")} onChange={(v) => setDate("terminationDate", v)} />
           </Group>
 
@@ -331,11 +365,17 @@ export default function ApprovalConfirmCard({
           {/* --- the service lines ------------------------------------------------------------- */}
           <div>
             <p className={groupTitle}>{t("sectionLines")}</p>
+            {/* One dentist and one state for every service at once; each line can still differ. */}
+            <div className="mb-2 flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-surface-subtle px-3 py-2">
+              <span className="text-[12px] font-black text-ink">{t("sameForAll")}</span>
+              <DentistSelect value={allDentist} dentists={dentists} label={t("colDentist")} placeholder={t("pickDentist")} onChange={(v) => setAll({ dentistId: v })} className={`${cellInput(null)} w-auto min-w-[10rem]`} />
+              <StateSelect value={allStatus} label={t("colState")} t={t} onChange={(v) => setAll({ status: v })} className={`${cellInput(null)} w-auto min-w-[8rem]`} />
+            </div>
             <div className={`overflow-x-auto rounded-2xl border ${lineFlagList(hard, "lines") ? "border-rose-400" : "border-line"}`}>
-              <table className="w-full min-w-[56rem] border-collapse text-[12.5px]">
+              <table className="w-full min-w-[74rem] border-collapse text-[12.5px]">
                 <thead>
                   <tr className="border-b border-line bg-surface-subtle">
-                    {(["lineCode", "lineDescription", "lineUnits", "linePerUnit", "lineGross", "lineUnitsApproved", "linePatientShare", "lineApproved", "comment"] as const).map((k) => (
+                    {(["lineCode", "lineDescription", "colDentist", "colState", "lineUnits", "linePerUnit", "lineGross", "lineUnitsApproved", "linePatientShare", "lineApproved", "comment"] as const).map((k) => (
                       <th key={k} className="px-2 py-2 text-start text-[10px] font-black uppercase tracking-wider text-ink-muted">
                         {t(k)}
                       </th>
@@ -353,6 +393,12 @@ export default function ApprovalConfirmCard({
                         </td>
                         <td className="p-1">
                           <input value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} className={`${cellInput(null)} min-w-[12rem]`} dir="ltr" />
+                        </td>
+                        <td className="p-1">
+                          <DentistSelect value={meta[i]?.dentistId ?? ""} dentists={dentists} label={t("colDentist")} placeholder={t("pickDentist")} onChange={(v) => setLineMeta(i, { dentistId: v })} className={`${cellInput(null)} min-w-[9rem]`} />
+                        </td>
+                        <td className="p-1">
+                          <StateSelect value={meta[i]?.status ?? "Completed"} label={t("colState")} t={t} onChange={(v) => setLineMeta(i, { status: v })} className={`${cellInput(null)} min-w-[7rem]`} />
                         </td>
                         {(["unitsRequested", "grossPerUnit", "grossTotal", "unitsApproved", "patientShare", "approvedAmount"] as const satisfies readonly LineNumber[]).map((f) => (
                           <td key={f} className="p-1">
@@ -470,29 +516,6 @@ export default function ApprovalConfirmCard({
               </div>
             )}
           </div>
-
-          {/* --- who did the work ---------------------------------------------------------------- */}
-          <div className="rounded-2xl border border-line px-4 py-3">
-            <label className="block text-[13px] font-black text-ink">{t("dentistOnCard")}</label>
-            <p className="text-[12px] font-semibold text-ink-muted">{t("dentistOnCardHint")}</p>
-            <select value={dentistId} onChange={(e) => setDentistId(e.target.value)} className="mt-2 w-full rounded-xl border border-line bg-surface px-3 py-2 text-[13px] font-bold text-ink outline-none focus:border-ink">
-              <option value="">{t("pickDentist")}</option>
-              {dentists.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* --- not treated yet --------------------------------------------------------------- */}
-          <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line px-4 py-3">
-            <input type="checkbox" checked={notTreated} onChange={(e) => setNotTreated(e.target.checked)} className="mt-1 size-4 accent-current" />
-            <span>
-              <span className="block text-[13px] font-black text-ink">{t("notTreatedYet")}</span>
-              <span className="block text-[12px] font-semibold text-ink-muted">{t("notTreatedHint")}</span>
-            </span>
-          </label>
 
           {/* --- wording for codes the clinic has not named yet -------------------------------- */}
           {unworded.length > 0 && (
@@ -650,6 +673,45 @@ function NumberBox({ value, onChange, className }: { value: number | null; onCha
       }}
       className={className}
     />
+  );
+}
+
+function DentistSelect({
+  value,
+  dentists,
+  label,
+  placeholder,
+  onChange,
+  className,
+}: {
+  value: string;
+  dentists: Array<{ id: string; name: string }>;
+  label: string;
+  placeholder: string;
+  onChange: (v: string) => void;
+  className: string;
+}) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} aria-label={label} className={className}>
+      <option value="">{placeholder}</option>
+      {dentists.map((d) => (
+        <option key={d.id} value={d.id}>
+          {d.name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function StateSelect({ value, label, t, onChange, className }: { value: LineStatus; label: string; t: (k: TextKey) => string; onChange: (v: LineStatus) => void; className: string }) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value as LineStatus)} aria-label={label} className={className}>
+      {LINE_STATUSES.map((s) => (
+        <option key={s} value={s}>
+          {t(STATE_KEY[s])}
+        </option>
+      ))}
+    </select>
   );
 }
 

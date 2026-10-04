@@ -4,8 +4,9 @@
  * The range, the sheet's header lines, and the monthly Excel to MetLife.
  *
  * The statement is `buildMetlifeStatement` over the claims on screen: approvals in [from, to] that are
- * treated or sent. What it leaves out is said above the button — approvals not yet marked treated, and
- * service codes with no sheet wording (printed in the paper's English instead). The workbook writer is
+ * treated or sent. What it leaves out is said above the button — approvals not yet marked treated,
+ * services not Completed yet, and service codes with no sheet wording (printed in the paper's English
+ * instead). The workbook writer is
  * imported only when the button is pressed: it carries 2.7 MB of xlsx-js-style.
  *
  * "Mark all as sent" patches each treated claim in the range, one after another, so a failure halfway
@@ -52,10 +53,13 @@ export default function ClaimsExportBar({
 
   const inverted = from > to;
   const statement = useMemo(() => buildMetlifeStatement({ claims, from, to, wording }), [claims, from, to, wording]);
-  const toSend = useMemo(
-    () => (inverted ? [] : claims.filter((c) => c.status === "treated" && c.approvalDate >= from && c.approvalDate <= to)),
-    [claims, from, to, inverted],
-  );
+  // Only what is actually on the sheet can be marked sent: a treated claim whose services are all
+  // still planned or ongoing prints nothing and must not be stamped as sent to the insurer.
+  const toSend = useMemo(() => {
+    if (inverted) return [];
+    const printed = new Set(statement.cases.map((c) => c.approvalNumber));
+    return claims.filter((c) => c.status === "treated" && c.approvalDate >= from && c.approvalDate <= to && printed.has(c.approvalNumber));
+  }, [claims, from, to, inverted, statement.cases]);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -124,6 +128,11 @@ export default function ClaimsExportBar({
       {!inverted && statement.heldBack > 0 && (
         <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-[13px] font-bold text-amber-900">
           {statement.heldBack} {t("heldBack")}
+        </p>
+      )}
+      {!inverted && statement.pendingLines > 0 && (
+        <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-[13px] font-bold text-amber-900">
+          {t("pendingLines").replace("{n}", String(statement.pendingLines))}
         </p>
       )}
       {!inverted && statement.missingWording.length > 0 && (

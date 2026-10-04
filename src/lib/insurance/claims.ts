@@ -44,6 +44,12 @@ export type InsuranceClaim = {
    * can sign. Lines with no entry are unassigned. Never printed on the insurer's sheet.
    */
   dentists: Record<number, LineDentist>;
+  /**
+   * Where each service line stands, keyed by the line's index, as the clinical editor words it.
+   * A line with no entry is `Completed` (`lineStatusOf`), so a claim saved before states existed
+   * reads exactly as it did. Only Completed lines go on the insurer's sheet and into payroll.
+   */
+  lineStatus: Record<number, LineStatus>;
   /** The patient's share, once the desk took it as cash; null until then. */
   shareCollected: ShareCollected | null;
   /**
@@ -55,6 +61,10 @@ export type InsuranceClaim = {
   /** Stamped when the insurer's payment was recorded against those rows; null until then. */
   insurerPaid: InsurerPaid | null;
 };
+
+/** A service line's state, in the clinical editor's own words (the note's `status`). */
+export type LineStatus = "Completed" | "Planned" | "Ongoing";
+export const LINE_STATUSES: readonly LineStatus[] = ["Completed", "Planned", "Ongoing"];
 
 export type LineLedger = { ledgerId: string; noteId: string };
 export type InsurerPaid = { date: string; amount: number };
@@ -139,6 +149,7 @@ export function claimMetlifeFrom(h: MetlifeHeader): ClaimMetlife {
     employer: h.employer,
     certificateNumber: h.certificateNumber,
     dependentCode: h.dependentCode,
+    paperPatientNameAr: h.paperPatientNameAr,
     providerCode: h.providerCode,
     physician: h.physician,
     statusText: h.statusText,
@@ -188,6 +199,7 @@ export function claimFromExtraction(args: {
       pages: args.doc.pages,
     },
     dentists: {},
+    lineStatus: {},
     shareCollected: null,
     ledgerIds: {},
     insurerPaid: null,
@@ -239,6 +251,7 @@ export function parseClaim(id: string, raw: unknown): InsuranceClaim | null {
     totals: claimTotals(x.lines),
     doc: parseDoc(r.doc),
     dentists: parseLineDentists(r.dentists, x.lines.length),
+    lineStatus: parseLineStatus(r.lineStatus, x.lines.length),
     shareCollected: parseShareCollected(r.shareCollected),
     ledgerIds: parseLineLedger(r.ledgerIds, x.lines.length),
     insurerPaid: parseInsurerPaid(r.insurerPaid),
@@ -343,6 +356,27 @@ export function parseLineDentists(raw: unknown, lineCount: number): Record<numbe
   return out;
 }
 
+export function isLineStatus(v: unknown): v is LineStatus {
+  return typeof v === "string" && (LINE_STATUSES as readonly string[]).includes(v);
+}
+
+/** `lineStatus` as stored: a map of line index -> state; junk and out-of-range indices are dropped. */
+export function parseLineStatus(raw: unknown, lineCount: number): Record<number, LineStatus> {
+  const out: Record<number, LineStatus> = {};
+  if (!isRecord(raw)) return out;
+  for (const [k, v] of Object.entries(raw)) {
+    const i = Number(k);
+    if (!Number.isInteger(i) || i < 0 || i >= lineCount || !isLineStatus(v)) continue;
+    out[i] = v;
+  }
+  return out;
+}
+
+/** A line's state: what was stored for it, else `Completed` (every claim saved before states existed). */
+export function lineStatusOf(claim: Pick<InsuranceClaim, "lineStatus">, lineIndex: number): LineStatus {
+  return claim.lineStatus?.[lineIndex] ?? "Completed";
+}
+
 export function parseShareCollected(raw: unknown): ShareCollected | null {
   if (!isRecord(raw)) return null;
   const ledgerId = trimmed(raw.ledgerId);
@@ -423,7 +457,7 @@ export function lineCharge(line: Pick<MetlifeLine, "approvedAmount" | "patientSh
 
 export type TreatmentRowArgs = {
   claimId: string;
-  claim: Pick<InsuranceClaim, "payerId" | "approvalNumber" | "approvalDate" | "treatedDate" | "patientId" | "patientName" | "lines" | "dentists">;
+  claim: Pick<InsuranceClaim, "payerId" | "approvalNumber" | "approvalDate" | "treatedDate" | "patientId" | "patientName" | "lines" | "dentists" | "lineStatus">;
   payerName: string;
   /** The clinic's own name per code, else the paper's description prints. */
   wording: Record<string, string>;
@@ -505,7 +539,9 @@ export function insuranceTreatmentRows(args: TreatmentRowArgs): TreatmentRow[] {
         note: `${payerName} approval ${claim.approvalNumber}`,
         doctor: dentist?.name ?? "",
         unmatchedProcedures: [] as string[],
-        status: "Completed",
+        // The line's own state. Every line gets its row whatever the state (the charge exists
+        // either way, as the clinical editor does); the ledger row carries no status of its own.
+        status: lineStatusOf(claim, i),
         createdByUid: actor.uid,
         createdByName: actor.name,
         createdByRole: actor.role,

@@ -14,6 +14,7 @@ export const SAMPLE_RAW = {
     certificateNumber: "987",
     dependentCode: "1",
     paperPatientName: "EXAMPLE PATIENT NAME",
+    paperPatientNameAr: "مثال اسم مريض",
     providerCode: "DNC0001 - DR. EXAMPLE - DENTAL",
     statusText: "AUTO APPROVED",
     diagnosisCode: "525.9-Dental",

@@ -13,7 +13,7 @@
 
 import { readInsurance } from "../patientInsurance";
 
-export type PatientLite = { id: string; name: string; insurance?: unknown };
+export type PatientLite = { id: string; name: string; insurance?: unknown; nameLatin?: unknown };
 
 export type PatientMatch =
   | { kind: "exact"; patientId: string }
@@ -118,7 +118,11 @@ export function matchPatient(
     list
       .map((p) => {
         const name = String(p.name ?? "");
-        return { patientId: p.id, name, score: skeletonSimilarity(paper, latinSkeleton(name)) };
+        // A patient created from a paper keeps the paper's Latin spelling beside the Arabic name;
+        // the better of the two readings is the score.
+        const latin = typeof p.nameLatin === "string" ? p.nameLatin : "";
+        const score = Math.max(skeletonSimilarity(paper, latinSkeleton(name)), latin ? skeletonSimilarity(paper, latinSkeleton(latin)) : 0);
+        return { patientId: p.id, name, score };
       })
       .sort((p, q) => q.score - p.score || p.name.localeCompare(q.name));
 

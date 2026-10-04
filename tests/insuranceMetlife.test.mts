@@ -45,6 +45,10 @@ import {
   lineCharge,
   cappedPayment,
   rowsActionForStatus,
+  LINE_STATUSES,
+  lineStatusOf,
+  parseLineStatus,
+  type LineStatus,
 } from "../src/lib/insurance/claims";
 import { insurerOutstanding, isApprovalRow, patientPortion } from "../src/lib/ledgerInsurer";
 import { insuranceWorkByStaff, unassignedLines } from "../src/lib/staffInsurance";
@@ -126,6 +130,8 @@ assert.equal(x.header.employer, "EXAMPLE TRAVEL");
 assert.equal(x.header.providerCode, "DNC0001");
 assert.equal(x.header.physician, "DR. EXAMPLE - DENTAL", "split on the first ' - ' only");
 assert.equal(x.header.approvalDate, "2026-10-03");
+assert.equal(x.header.paperPatientNameAr, "مثال اسم مريض", "the Arabic name is read beside the Latin one");
+assert.equal(normalizeMetlife({ header: { paperPatientName: "X" } }).header.paperPatientNameAr, "", "absent means empty, never undefined");
 assert.equal(x.header.terminationDate, "9999-12-31");
 assert.equal(x.header.certificateNumber, "987");
 assert.equal(x.header.dependentCode, "1");
@@ -694,7 +700,7 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   const caseA = { serial: 1, patientName: "Patient 1", policyNumber: "6481234567", certificateNumber: "987", dependentCode: "1", approvalNumber: "D6000001", date: "2026-01-28", lines: [L("كشف", 1, 60, 60), L("اشعه عاديه", 1, 60, 60)], subtotal: 120 };
   const caseB = { serial: 2, patientName: "Patient 2", policyNumber: "6481234568", certificateNumber: "988", dependentCode: "2", approvalNumber: "D6000002", date: "2026-02-27", lines: [L("كشف", 1, 60, 60), L("حشو كمبوزيت", 2, 2700, 500), L("اشعه عاديه", 0, 60, 0)], subtotal: 560 };
   const caseC = { serial: 3, patientName: "Patient 3", policyNumber: "6481234567 - EXAMPLE", certificateNumber: "12A", dependentCode: "3", approvalNumber: "D6000003", date: "2026-02-28", lines: [L("كشف", 1, 60, 60)], subtotal: 60 };
-  const st: MetlifeStatement = { from: "2026-01-26", to: "2026-02-28", cases: [caseA, caseB, caseC], total: 740, missingWording: [], heldBack: 0 };
+  const st: MetlifeStatement = { from: "2026-01-26", to: "2026-02-28", cases: [caseA, caseB, caseC], total: 740, missingWording: [], heldBack: 0, pendingLines: 0 };
   const head = { line1: "Clinic", line2: "Address", line3: "Phones" };
 
   const wb = metlifeStatementToWorkbook(st, head);
@@ -792,6 +798,12 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   assert.equal(mem.A5.s.fill.fgColor.rgb, "EEECE1");
   assert.equal(mem.B5.s.fill, undefined);
   assert.equal(mem.B5.s.font.sz, 24);
+  assert.equal(mem.B5.s.alignment.wrapText, true, "the name wraps inside its block");
+  {
+    const long = metlifeStatementToWorkbook({ ...st, cases: [{ ...st.cases[0], patientName: "OMAR KHALED FAHMY ABDEL RAHMAN" }] }, head).Sheets.Sheet1;
+    assert.equal(long.B5.s.font.sz, 18, "a long (Latin) name steps down a size so it shows whole");
+    assert.equal(long.B5.s.alignment.wrapText, true);
+  }
   assert.equal(mem.G5.s.font.sz, 24);
 
   // service lines in H..K
@@ -1019,6 +1031,72 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   assert.equal(rowsActionForStatus({ from: "sent", to: "treated", hasRows: true }), "none");
   assert.equal(rowsActionForStatus({ from: "treated", to: "approved", hasRows: false }), "none", "an old claim with no rows has nothing to remove");
   assert.equal(rowsActionForStatus({ from: "treated", to: undefined, hasRows: true }), "none");
+}
+
+// --- 14. Each service's state: Completed, Planned, Ongoing ------------------------------------------
+{
+  assert.deepEqual([...LINE_STATUSES], ["Completed", "Planned", "Ongoing"]);
+  // stored shape: junk states, junk keys and out-of-range indices are dropped
+  assert.deepEqual(
+    parseLineStatus({ 0: "Planned", 1: "Ongoing", 2: "Done", 3: "Completed", 7: "Planned", a: "Planned", 4: "planned" }, 5),
+    { 0: "Planned", 1: "Ongoing", 3: "Completed" },
+  );
+  assert.deepEqual(parseLineStatus("junk", 5), {});
+  assert.deepEqual(parseLineStatus(null, 5), {});
+  // no state stored is Completed: every claim saved before states existed reads as it did
+  const plain = claimFixture();
+  assert.deepEqual(plain.lineStatus, {}, "a new claim starts with no states");
+  assert.equal(lineStatusOf(plain, 0), "Completed");
+  assert.equal(lineStatusOf({ lineStatus: { 1: "Planned" } }, 1), "Planned");
+  assert.equal(lineStatusOf({ lineStatus: { 1: "Planned" } }, 0), "Completed");
+  assert.equal(lineStatusOf({ lineStatus: undefined as unknown as Record<number, LineStatus> }, 0), "Completed", "a missing map is all Completed");
+  // the map survives a read; an old claim with no map reads as none
+  const storedStates = parseClaim("metlife_d6000001", { ...claimFixture(), lineStatus: { 1: "Planned", 2: "Ongoing", 9: "Planned" } });
+  assert.ok(storedStates);
+  assert.deepEqual(storedStates.lineStatus, { 1: "Planned", 2: "Ongoing" });
+  const { lineStatus: _dropped, ...oldShape } = claimFixture();
+  void _dropped;
+  assert.deepEqual(parseClaim("x", oldShape)!.lineStatus, {});
+
+  // the statement prints only Completed lines; a case with none is left out and takes no serial
+  const mk = (n: number, date: string, status: "approved" | "treated" | "sent", lineStatus: Record<number, LineStatus>, lines = claimFixture().lines) =>
+    claimFixture({ id: `metlife_d600010${n}`, approvalNumber: `D600010${n}`, approvalDate: date, status, lineStatus, lines });
+  const partly = mk(1, "2026-03-02", "treated", { 1: "Planned", 4: "Ongoing" });          // 60, [60], 600, 300, [240]
+  const planned = mk(2, "2026-03-03", "sent", { 0: "Planned" }, [lineFixture({ code: "D7777" })]);
+  const whole = mk(3, "2026-03-04", "treated", {});
+  const notYet = mk(4, "2026-03-05", "approved", { 0: "Planned" });
+  const s = buildMetlifeStatement({ claims: [whole, planned, notYet, partly], from: "2026-03-01", to: "2026-03-31", wording: DEFAULT_METLIFE_WORDING });
+  assert.deepEqual(s.cases.map((c) => [c.serial, c.approvalNumber]), [[1, "D6000101"], [2, "D6000103"]], "the fully planned case is out and the serials close up");
+  assert.deepEqual(s.cases[0].lines.map((l) => l.approved), [60, 600, 300]);
+  assert.equal(s.cases[0].subtotal, 960);
+  assert.equal(s.cases[1].subtotal, 1260, "a claim with no states prints every line");
+  assert.equal(s.total, 960 + 1260);
+  assert.equal(s.pendingLines, 3, "2 on the partly done case + 1 on the planned one; the approved claim is held back, not pending");
+  assert.equal(s.heldBack, 1);
+  assert.deepEqual(s.missingWording, [], "a code only on a planned line is not printed, so not missing");
+  assert.equal(buildMetlifeStatement({ claims: [whole], from: "2026-03-01", to: "2026-03-31", wording: {} }).pendingLines, 0);
+
+  // payroll counts only Completed lines; a planned line is neither earned nor "unassigned"
+  const omar = { staffId: "s1", name: "Dr Omar", rate: 25, share: 15 };
+  const mona = { staffId: "s2", name: "Dr Mona", rate: 30, share: 180 };
+  const work = claimFixture({ id: "w", status: "treated", dentists: { 0: omar, 2: mona }, lineStatus: { 2: "Planned", 3: "Ongoing" } });
+  const byStaff = insuranceWorkByStaff([work]);
+  assert.deepEqual([...byStaff.keys()], ["s1"], "Dr Mona's line is only planned: nothing earned yet");
+  assert.equal(byStaff.get("s1")!.total, 15);
+  assert.deepEqual(unassignedLines([work]), { count: 2, approved: 60 + 240 }, "lines 1 and 4; 3 is ongoing, so not owed to anyone yet");
+  assert.deepEqual(unassignedLines([{ ...work, lineStatus: {} }]), { count: 3, approved: 60 + 300 + 240 }, "no states: as before");
+
+  // the treatment rows: every line still gets its row, and the note carries the line's state
+  const rows = insuranceTreatmentRows({
+    claimId: "x",
+    claim: { ...claimFixture(), lineStatus: { 1: "Planned", 2: "Ongoing" } },
+    payerName: "MetLife",
+    wording: {},
+    actor: { uid: "u", name: "n", role: "r" },
+  });
+  assert.equal(rows.length, 5, "the charge exists whatever the state");
+  assert.deepEqual(rows.map((r) => r.note.status), ["Completed", "Planned", "Ongoing", "Completed", "Completed"]);
+  assert.equal("status" in rows[1].charge, false, "the ledger charge carries no state, as in the clinical editor");
 }
 
 console.log("insurance metlife reader: ok");

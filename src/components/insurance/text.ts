@@ -6,6 +6,8 @@
  * is shown only when a check arrives without one (an older server, a hand-edited claim).
  */
 
+import type { LineStatus } from "@/lib/insurance/claims";
+
 export type Lang = { en: string; ar: string };
 
 export const TEXT = {
@@ -70,6 +72,7 @@ export const TEXT = {
   certificateNumber: { en: "Certificate number", ar: "رقم الشهادة" },
   dependentCode: { en: "Dependent code", ar: "كود التابع" },
   paperPatientName: { en: "Name on the paper", ar: "الاسم في الورقة" },
+  paperPatientNameAr: { en: "Name in Arabic (printed on the statement)", ar: "الاسم بالعربي (اللي بيتطبع في الكشف)" },
   terminationDate: { en: "Termination date", ar: "تاريخ الانتهاء" },
   providerCode: { en: "Provider code", ar: "كود مقدم الخدمة" },
   physician: { en: "Physician", ar: "الطبيب" },
@@ -111,11 +114,11 @@ export const TEXT = {
   newPatientPhone: { en: "Phone (optional)", ar: "التليفون (اختياري)" },
   pickPatient: { en: "Choose a patient or create a new one", ar: "اختار مريض أو اعمل مريض جديد" },
 
-  notTreatedYet: { en: "Approved, not treated yet", ar: "متوافق عليها ولسه ما اتعالجتش" },
-  notTreatedHint: {
-    en: "Off: treated on the approval date and goes on the monthly sheet. On: kept off the sheet until marked treated.",
-    ar: "مقفول: اتعالج يوم الموافقة ويدخل الكشف الشهري. مفتوح: مش هيدخل الكشف لحد ما تعلّمه اتعالج.",
-  },
+  colState: { en: "State", ar: "الحالة" },
+  stateCompleted: { en: "Completed", ar: "اتعمل" },
+  statePlanned: { en: "Planned", ar: "مخطط" },
+  stateOngoing: { en: "Ongoing", ar: "شغال فيه" },
+  sameForAll: { en: "Same for all services", ar: "نفس الحاجة لكل الخدمات" },
   wordingTitle: { en: "What do you call this on the sheet?", ar: "بتسموا الخدمة دي إيه في الكشف؟" },
   wordingHint: {
     en: "Typed once per code; the monthly sheet uses it from then on.",
@@ -181,6 +184,10 @@ export const TEXT = {
     en: "approvals not yet marked treated — not on the sheet",
     ar: "موافقات لسه ما اتعلّمتش اتعالجت — مش في الكشف",
   },
+  pendingLines: {
+    en: "{n} services not completed yet are not on the sheet",
+    ar: "{n} خدمة لسه ما خلصتش ومش في الكشف",
+  },
   missingWording: {
     en: "No sheet wording yet for these codes; the paper's English is printed instead:",
     ar: "الأكواد دي لسه مالهاش اسم في الكشف، وهيتطبع الوصف الإنجليزي بدالها:",
@@ -201,8 +208,6 @@ export const TEXT = {
   // patient file -> Insurance tab
   tabMembership: { en: "Membership", ar: "العضوية" },
   tabClaims: { en: "Approvals", ar: "الموافقات" },
-  dentistOnCard: { en: "Dentist who did the work", ar: "الطبيب اللي عمل الشغل" },
-  dentistOnCardHint: { en: "Every service on this paper is assigned to them and recorded in the patient's file under this insurer. You can change it per service later.", ar: "كل خدمة في الورقة هتتعلّم عليه وتتسجل في ملف المريض تحت شركة التأمين. تقدر تغيّره لكل خدمة بعدين." },
   insurerPaid: { en: "Insurer paid", ar: "الشركة دفعت" },
   markInsurerPaid: { en: "Record the insurer's payment", ar: "سجّل دفعة الشركة" },
   insurerPaidOn: { en: "Insurer paid on", ar: "الشركة دفعت يوم" },
@@ -233,6 +238,9 @@ export const TEXT = {
 } as const satisfies Record<string, Lang>;
 
 export type TextKey = keyof typeof TEXT;
+
+/** A service line's state as the desk reads it. */
+export const STATE_KEY: Record<LineStatus, TextKey> = { Completed: "stateCompleted", Planned: "statePlanned", Ongoing: "stateOngoing" };
 
 /** The translator for one language: `tr(isAr)("save")`. */
 export function tr(isAr: boolean) {

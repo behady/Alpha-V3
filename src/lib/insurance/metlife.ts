@@ -48,6 +48,8 @@ export type MetlifeHeader = {
   certificateNumber: string;
   dependentCode: string;
   paperPatientName: string;
+  /** The same name in Arabic, as an Egyptian clinic would write it: what the statement prints. */
+  paperPatientNameAr: string;
   /** The code part of "DNC0001 - DR. EXAMPLE - DENTAL". */
   providerCode: string;
   /** The rest of the same string. */
@@ -133,6 +135,7 @@ export const METLIFE_RESPONSE_SCHEMA = {
         certificateNumber: str,
         dependentCode: str,
         paperPatientName: str,
+        paperPatientNameAr: str,
         providerCode: str,
         statusText: str,
         diagnosisCode: str,
@@ -185,6 +188,7 @@ export function buildMetlifePrompt(): string {
     "- policyNumber: the Policy Number line as printed, number then employer, for example \"6481234567 - EXAMPLE TRAVEL EGYPT\".",
     "- providerCode: the Provider line as printed, for example \"DNC0001 - DR. EXAMPLE - DENTAL\".",
     "- certificateNumber and dependentCode: as printed. paperPatientName: the patient's name as printed, in capitals.",
+    "- paperPatientNameAr: the same name written in Arabic the way an Egyptian dental clinic writes patient names (for example OMAR KHALED FAHMY -> عمر خالد فهمي, MOHAMED ABDEL RAHMAN -> محمد عبدالرحمن). Common Egyptian spellings, no diacritics.",
     "- statusText: the Status line, for example AUTO APPROVED.",
     "- estimatedCost, requestedTotal, approvedTotal, patientShareTotal: the figures in the Total row and the header. collectNote: the figure in the sentence \"Kindly collect the patient share of EGP x\".",
     "- A dash (-) or a blank means empty: use an empty string for text, null for a number or date.",
@@ -293,7 +297,8 @@ function normalizeLine(raw: unknown): MetlifeLine {
 }
 
 /** The table's Total row is not a service; a model sometimes copies it as a row. */
-function isTotalRow(l: MetlifeLine): boolean {
+/** The table's Total row is not a service: dropped before lines are numbered, by the server and the card alike. */
+export function isTotalRow(l: MetlifeLine): boolean {
   return l.code === "" && l.description.toLowerCase() === "total";
 }
 
@@ -312,6 +317,7 @@ export function normalizeMetlife(raw: unknown): MetlifeExtraction {
       certificateNumber: code(h.certificateNumber),
       dependentCode: code(h.dependentCode),
       paperPatientName: text(h.paperPatientName).replace(/\s+/g, " "),
+      paperPatientNameAr: text(h.paperPatientNameAr).replace(/\s+/g, " "),
       providerCode: providerCode.toUpperCase(),
       physician,
       statusText: code(h.statusText),
@@ -357,6 +363,7 @@ const FIELD_LABEL: Record<string, Text> = {
   certificateNumber: { en: "certificate number", ar: "رقم الشهادة" },
   dependentCode: { en: "dependent code", ar: "كود التابع" },
   paperPatientName: { en: "patient name", ar: "اسم المريض" },
+  paperPatientNameAr: { en: "patient name in Arabic", ar: "اسم المريض بالعربي" },
   providerCode: { en: "provider code", ar: "كود مقدم الخدمة" },
   statusText: { en: "status", ar: "الحالة" },
   estimatedCost: { en: "estimated cost", ar: "التكلفة التقديرية" },
