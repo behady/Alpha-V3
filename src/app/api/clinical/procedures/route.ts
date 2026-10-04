@@ -35,9 +35,9 @@ import {
 } from "@/lib/priceLists";
 import {
   commissionRateFor,
+  findPayer,
   parsePayers,
   payerStamp,
-  coversService,
   payerForPriceList,
 } from "@/lib/payers";
 import { buildDeleteContext, evaluateDelete } from "@/lib/deletePolicy";
@@ -160,25 +160,25 @@ async function priceRequest(clinicId: string, body: Record<string, unknown>, act
     patientDefaultListId
   );
   /**
-   * An insurer only bills for the treatments on its own list.
+   * Who is paying is chosen outright, on the treatment, by the person recording it.
    *
-   * Each insurer's list is genuinely separate, so a treatment it does not cover — whitening, most
-   * cosmetic work — is simply not that insurer's case. It is NOT refused: clinics get one-off
-   * approvals, and a desk that cannot record the work it just did writes it on paper instead.
-   * Instead it falls back to the clinic's own prices and is stamped Private, which is the honest
-   * reading and stops the insurer's column claiming money it will never pay.
+   * It used to be derived from the price list ("charge on the AXA list and it is AXA's case"),
+   * which forced every service through a catalogue and a coverage list before it could be
+   * recorded at all. Now the payer is its own field, any service can be billed to any payer,
+   * and the price list only PREFILLS a price for a catalogue service — the typed price wins.
    *
-   * Decided by the FIRST matched treatment. A multi-treatment case charged in one line is one
-   * case with one payer, and half-covering it is not a state the books can represent.
+   * A request with no payer (older screens, the phone) still falls back to the list's owner, so
+   * nothing that worked yesterday records differently today.
    */
-  const askedPayer = payerForPriceList(payers, priceListId);
-  const matchedIds = procedures
-    .map((name) => services.find((svc) => String(svc.name || "").trim() === name))
-    .filter(Boolean)
-    .map((svc) => String((svc as { id: string }).id));
-  const covered = coversService(askedPayer, matchedIds[0] ?? null);
-  const effectiveListId = covered ? priceListId : resolveActiveListId(priceLists, null, null);
-  const payer = payerStamp(payers, covered ? askedPayer.id : payerForPriceList(payers, effectiveListId).id);
+  const requestedPayerId = String(body.payerId || "").trim();
+  const explicitPayer = requestedPayerId ? findPayer(payers, requestedPayerId) : null;
+  if (requestedPayerId && (!explicitPayer || !explicitPayer.active)) throw new Error("PAYER_NOT_FOUND");
+  const askedPayer = explicitPayer ?? payerForPriceList(payers, priceListId);
+  // The list to read catalogue prices from: the one named, else the payer's own prefill list,
+  // else the clinic default. It never changes who pays.
+  const namedListId = typeof body.priceListId === "string" && body.priceListId.trim() ? priceListId : null;
+  const effectiveListId = namedListId ?? resolveActiveListId(priceLists, askedPayer.priceListId ?? null, patientDefaultListId);
+  const payer = payerStamp(payers, askedPayer.id);
   const payerId = payer.payerId;
 
   const priceList = findPriceList(priceLists, effectiveListId);
@@ -886,6 +886,8 @@ export async function POST(request: Request) {
         );
       case "NO_PROCEDURE_NAME":
         return bad("Name the procedure.");
+      case "PAYER_NOT_FOUND":
+        return bad("That payer is not on this clinic's list any more. Pick another under Settings → Payers.");
       case "NO_PATIENT":
         return bad("That patient no longer exists.", 404);
       case "NOT_FOUND":

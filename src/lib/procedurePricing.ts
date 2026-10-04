@@ -104,10 +104,10 @@ export function computeProcedurePricing(input: ProcedurePricingInput): Procedure
   // for this list simply charges its standard rate — which is why lists needed no migration.
   const priceListId = input.priceListId || null;
   const catalogueTotal = matchedServices.reduce((sum, s) => sum + resolveListPrice(s, priceListId), 0);
-  const typed = Number(input.typedUnitCost);
-  // A typed cost wins, but only when it is a real number — `0` means "free", and `Number("")`
-  // is NaN, which must fall through to the catalogue rather than poisoning the total.
-  const unitCost = Number.isFinite(typed) && typed !== 0 ? typed : catalogueTotal;
+  // A typed cost wins, including `0`, which means "free": the price box is the price. Only no
+  // typed cost at all (null, or `Number("")`, which is NaN) falls through to the catalogue.
+  const typed = input.typedUnitCost === null || input.typedUnitCost === undefined ? NaN : Number(input.typedUnitCost);
+  const unitCost = Number.isFinite(typed) ? Math.max(0, typed) : catalogueTotal;
 
   const pricingMode = isPricingMode(input.pricingModeOverride)
     ? (input.pricingModeOverride as PricingMode)

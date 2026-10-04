@@ -46,7 +46,6 @@ import { useAuth } from "@/context/AuthContext";
 import { logActivity } from "@/lib/logger";
 import { matchesTokenizedSubstring } from "@/lib/flexibleSearch";
 import { STANDARD_LIST_ID, type PriceList } from "@/lib/priceLists";
-import { payerCoverageFilter } from "@/lib/payers";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import { DENTAL_CATEGORIES, DentalIcon, iconForService, suggestCategory } from "@/lib/dentalIcons";
 
@@ -171,11 +170,9 @@ export default function PriceListWorkspace({
    * Everything downstream reads this rather than `services`: the search, the category chips, and
    * the bulk fill, which would otherwise write prices onto rows nobody can see.
    */
-  const covered = useMemo(() => {
-    const covers = payerCoverageFilter(payers, list.id);
-    return services.filter((s) => covers(s.id));
-  }, [services, payers, list.id]);
-  const hiddenCount = services.length - covered.length;
+  // Every service is priceable on every list: coverage lists are gone, the list only prefills.
+  const covered = services;
+  const hiddenCount = 0;
 
   const filtered = useMemo(
     () =>

@@ -27,7 +27,6 @@ import type { LabCaseSeed } from "@/lib/labCases";
 import DiscountEditor, { EMPTY_DISCOUNT, discountPayload, type DiscountState } from "@/components/shared/DiscountEditor";
 import { isDiscountMode, type DiscountMode } from "@/lib/discountMath";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
-import { payerCoverageFilter } from "@/lib/payers";
 
 interface Props {
   isOpen: boolean;
@@ -268,10 +267,8 @@ export default function ServiceEditorDrawer({
    * says. Leaving it visible and quietly recording it as private would be a screen that lets
    * somebody pick a wrong answer and then overrules them without saying so.
    */
-  const offeredServices = useMemo(() => {
-    const covers = payerCoverageFilter(payers, discount.priceListId || null);
-    return servicesList.filter((s) => covers(String(s.id)));
-  }, [servicesList, payers, discount.priceListId]);
+  // Every service, whoever pays: coverage lists are gone, the price box is the price.
+  const offeredServices = servicesList;
 
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatusText, setSaveStatusText] = useState("");
@@ -326,6 +323,7 @@ export default function ServiceEditorDrawer({
       // Reopen the note on the list and discount it was priced with, so re-saving never silently
       // re-prices it at today's rates.
       setDiscount({
+        payerId: (initialNote as { payerId?: string }).payerId || "",
         priceListId: (initialNote as { priceListId?: string }).priceListId || "",
         mode: isDiscountMode((initialNote as { discountMode?: string }).discountMode)
           ? ((initialNote as { discountMode?: DiscountMode }).discountMode as DiscountMode)

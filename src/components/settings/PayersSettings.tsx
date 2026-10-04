@@ -228,9 +228,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
     const listId = payer.priceListId || "";
     const priced = listId ? services.filter((s) => typeof s.prices[listId] === "number").length : 0;
     const rated = staff.filter((s) => typeof s.commissionByPayer[payer.id] === "number").length;
-    // Absent means everything, which is what an insurer set up before separate lists means.
-    const covered = payer.services ? payer.services.length : services.length;
-    return { priced, rated, covered, total: services.length };
+    return { priced, rated };
   };
 
   const startNew = () => {
@@ -405,7 +403,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
         await setDoc(getClinicDoc("settings", PRICE_LISTS_DOC), { lists: toStoredLists(lists) }, { merge: true });
       }
 
-      const base = { name, nameAr, format, providerCode, priceListId: listId || undefined, services: format ? undefined : coveredList }; // services: coveredList, unless the paper prices the work
+      const base = { name, nameAr, format, providerCode, priceListId: listId || undefined, services: undefined }; // absent = covers everything: coverage lists are gone, any service can be billed to any payer
       const nextPayers: Payer[] = isNew
         ? [...payers, { id: payerId, ...base, active: true, isDefault: false }]
         : payers.map((p) => (p.id === payerId ? { ...p, ...base } : p));
@@ -494,7 +492,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
     const who = draft.name.trim() || (isAr ? "الشركة" : "this insurer");
     const titles = [
       isAr ? "الشركة اسمها إيه؟" : "What is the insurer called?",
-      isAr ? `${who} بتغطي إيه وبتدفع كام؟` : `What does ${who} cover, and pay?`,
+      isAr ? `${who} بتدفع كام؟ (اختياري)` : `What does ${who} pay? (optional)`,
       isAr ? "كل دكتور بياخد كام؟" : "What does each dentist earn?",
     ];
     const hints = [
@@ -502,21 +500,14 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
         ? "الاسم ده هيظهر في التقارير وعلى شاشة العلاج."
         : "This name appears in the reports and on the treatment screen.",
       isAr
-        ? "شيل العلامة عن أي علاج الشركة دي مش بتغطيه. وسيب الخانة فاضية لو بيدفعوا سعرك العادي — الرقم الباهت هو سعرك."
-        : "Untick anything this insurer does not cover. Leave a price empty if they pay your normal price — the faded number is yours.",
+        ? "أسعار بتتملّي تلقائي لما تختار العلاج تحت الشركة دي، وتقدر تغيّرها على كل حالة. سيب الخانة فاضية لو بيدفعوا سعرك العادي."
+        : "Prices that prefill when a treatment is picked under this insurer; you can overwrite them on any case. Leave a box blank if they pay your normal price.",
       isAr
         ? "سيب الخانة فاضية لو الدكتور بياخد نسبته العادية. املا بس اللي بيختلف."
         : "Leave a box empty if the dentist earns their normal percentage. Only fill in what differs.",
     ];
 
     // The coverage table, rows the clinic is adding included.
-    const allRowIds = [...services.map((s) => s.id), ...draft.added.map((r) => r.id)];
-    const toggleCovered = (id: string) => {
-      const covered = new Set(draft.covered);
-      if (covered.has(id)) covered.delete(id);
-      else covered.add(id);
-      setDraft({ ...draft, covered });
-    };
     const addRow = () => {
       // The id is minted now so the row can be ticked and priced like any other before it exists.
       const id = doc(getClinicCollection("services")).id;
@@ -706,23 +697,6 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
                 <table className="w-full border-collapse">
                   <thead>
                     <tr className="border-b border-line bg-surface-subtle">
-                      <th className="w-10 px-3 py-3 text-center">
-                        {/* All or nothing, because the two common shapes are "covers nearly
-                            everything, minus cosmetics" and "covers a short agreed list". Both are
-                            faster from an extreme than from wherever the list happens to be. */}
-                        <input
-                          type="checkbox"
-                          aria-label={isAr ? "تحديد الكل" : "Select all"}
-                          checked={draft.covered.size === allRowIds.length && allRowIds.length > 0}
-                          onChange={(e) =>
-                            setDraft({
-                              ...draft,
-                              covered: e.target.checked ? new Set(allRowIds) : new Set<string>(),
-                            })
-                          }
-                          className="size-4 accent-[color:var(--accent,#FACC15)]"
-                        />
-                      </th>
                       <th className="px-3 py-3 text-start text-[10.5px] font-black uppercase tracking-wider text-ink-muted">
                         {isAr ? "العلاج" : "Treatment"}
                       </th>
@@ -736,18 +710,9 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
                   </thead>
                   <tbody>
                     {services.map((s) => {
-                      const on = draft.covered.has(s.id);
+                      const on = true;
                       return (
-                        <tr key={s.id} className={`border-b border-line last:border-b-0 ${on ? "" : "opacity-45"}`}>
-                          <td className="px-3 py-2 text-center">
-                            <input
-                              type="checkbox"
-                              aria-label={s.name}
-                              checked={on}
-                              onChange={() => toggleCovered(s.id)}
-                              className="size-4 accent-[color:var(--accent,#FACC15)]"
-                            />
-                          </td>
+                        <tr key={s.id} className="border-b border-line last:border-b-0">
                           <td className="px-2 py-1.5">
                             <input
                               type="text"
@@ -770,18 +735,9 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
                       );
                     })}
                     {draft.added.map((row) => {
-                      const on = draft.covered.has(row.id);
+                      const on = true;
                       return (
-                        <tr key={row.id} className={`border-b border-line last:border-b-0 ${on ? "" : "opacity-45"}`}>
-                          <td className="px-3 py-2 text-center">
-                            <input
-                              type="checkbox"
-                              aria-label={row.name || (isAr ? "علاج جديد" : "New treatment")}
-                              checked={on}
-                              onChange={() => toggleCovered(row.id)}
-                              className="size-4 accent-[color:var(--accent,#FACC15)]"
-                            />
-                          </td>
+                        <tr key={row.id} className="border-b border-line last:border-b-0">
                           <td className="px-2 py-1.5">
                             <span className="flex items-center gap-1">
                               <input
@@ -952,7 +908,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
 
       <div className="space-y-3">
         {insurers.map((payer) => {
-          const { priced, rated, covered, total } = summaryOf(payer);
+          const { priced, rated } = summaryOf(payer);
           return (
             <div
               key={payer.id}
@@ -967,15 +923,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
                   <p className="text-[12px] font-medium text-ink-faint">
                     {payer.format ? (
                       isAr ? "الأسعار من ورقة الموافقة" : "Prices come from the approval paper"
-                    ) : covered >= total
-                      ? isAr
-                        ? "بتغطي كل العلاجات"
-                        : "Covers every treatment"
-                      : isAr
-                        ? `بتغطي ${covered} من ${total} علاج`
-                        : `Covers ${covered} of ${total}`}
-                    {payer.format ? null : " · "}
-                    {payer.format ? null : priced === 0
+                    ) : priced === 0
                       ? isAr
                         ? "بيدفعوا أسعارك العادية"
                         : "Pays your normal prices"

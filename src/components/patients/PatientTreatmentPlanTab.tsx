@@ -22,7 +22,7 @@ import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import InsurerBadge from "@/components/shared/InsurerBadge";
 import { resolveListPrice } from "@/lib/discountMath";
 import { listsForBranch, resolveActiveListId } from "@/lib/priceLists";
-import { PRIVATE_PAYER_ID, findPayer, payerCoverageFilter, payerForPriceList, payerStamp } from "@/lib/payers";
+import { PRIVATE_PAYER_ID, findPayer, payerForPriceList, payerStamp } from "@/lib/payers";
 import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
 import { isUnlocked } from "@/lib/featureCatalog";
 import {
@@ -409,11 +409,8 @@ export default function PatientTreatmentPlanTab({
   const activeLists = useMemo(() => listsForBranch(priceLists, null).filter((l) => l.active), [priceLists]);
   const formPayer = useMemo(() => payerForPriceList(payers, formPriceListId), [payers, formPriceListId]);
 
-  /** Only what the payer on this quote actually pays for. Named for `tests/payers.test.mts`. */
-  const offeredServices = useMemo(() => {
-    const covers = payerCoverageFilter(payers, formPriceListId);
-    return services.filter((s) => covers(String(s.id)));
-  }, [services, payers, formPriceListId]);
+  /** Every service, whoever pays: the quote's prices are typed or prefilled, never gated. */
+  const offeredServices = services;
 
   const defaultVisitLabel = (n: number) => (ar ? `الزيارة ${n}` : `Visit ${n}`);
 
@@ -779,11 +776,6 @@ export default function PatientTreatmentPlanTab({
     );
     if (repriced > 0) showToast(txt.repriced(repriced), "success");
 
-    const covers = payerCoverageFilter(payers, nextListId);
-    const stranded = formVisits.flatMap((v) => v.steps).filter((st) => st.serviceId && !covers(String(st.serviceId)));
-    if (stranded.length > 0) {
-      showToast(txt.notCoveredNow(stranded.length, payerForPriceList(payers, nextListId).name), "error");
-    }
   };
 
   const updateVisit = (visitId: string, patch: Partial<PlanVisit>) => {
@@ -1886,8 +1878,7 @@ export default function PatientTreatmentPlanTab({
                           payer does not cover. It is not removed — it is the patient's quoted work —
                           but the row says so, in the space the row already has.
                         */
-                        const stranded =
-                          !!step.serviceId && !payerCoverageFilter(payers, formPriceListId)(String(step.serviceId));
+                        const stranded = false;
                         return (
                         <div key={step.id} className="bg-slate-50/70 border border-slate-100 rounded-2xl p-3.5">
                           <div className="flex items-start gap-2">

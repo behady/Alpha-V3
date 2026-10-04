@@ -35,6 +35,8 @@ import { loadReceiptSettings } from "@/lib/receiptSettingsClient";
 import { printPaymentReceipt } from "@/lib/printPatientReceipt";
 import { parseLedgerProcedureDescription } from "@/lib/ledgerProcedureParse";
 import InsurerBadge from "@/components/shared/InsurerBadge";
+import ServiceEditorDrawer from "@/components/clinical-notes/ServiceEditorDrawer";
+import type { Service as EditorService, Staff as EditorStaff } from "@/components/clinical-notes/types";
 import { PRIVATE_PAYER_ID } from "@/lib/payers";
 import { insurerOutstanding, isApprovalRow, patientPortion } from "@/lib/ledgerInsurer";
 import { sendPatientPaymentWhatsApp } from "@/lib/sendPatientPaymentWhatsAppClient";
@@ -175,6 +177,8 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
   
   const [transactions, setTransactions] = useState<LedgerItem[]>([]);
   const [doctors, setDoctors] = useState<any[]>([]); // NEW: Store doctors for commissions
+  const [servicesList, setServicesList] = useState<EditorService[]>([]);
+  const [addingTreatment, setAddingTreatment] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isAddingPayment, setIsAddingPayment] = useState(false);
   
@@ -295,6 +299,9 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
     });
 
     // Fetch Doctors for Commission Calculations
+    getDocs(getClinicCollection("services")).then((snap) => {
+      setServicesList(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as EditorService));
+    }).catch(() => setServicesList([]));
     getDocs(getClinicCollection("staff")).then(snap => {
         setDoctors(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter((d: any) => isDentistStaff(d)));
     });
@@ -672,6 +679,19 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
 
   return (
     <div className="space-y-6 relative">
+      {/* The same editor the clinical tab uses: name, price, payer, dentist. The treatment is
+          written through /api/clinical/procedures and appears here through the ledger listener. */}
+      <ServiceEditorDrawer
+        isOpen={addingTreatment}
+        onClose={() => setAddingTreatment(false)}
+        patientId={patientId}
+        patientName={patientName}
+        appointmentId={null}
+        initialNote={null}
+        servicesList={servicesList}
+        doctors={doctors as EditorStaff[]}
+        onSaved={() => setAddingTreatment(false)}
+      />
       
       {/* 💻 SCREEN UI */}
       <div className="print:hidden space-y-6">
@@ -722,6 +742,13 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
             >
               {sendingReceipt ? <Loader2 size={16} className="animate-spin shrink-0" /> : <ScrollText size={16} className="shrink-0" />}
               <span className="min-w-0 break-words">{txt.sendReceiptWhatsapp}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setAddingTreatment(true)}
+              className="min-w-0 justify-center text-xs font-bold text-slate-700 hover:text-ink flex items-center gap-2 px-3 py-2.5 hover:bg-surface-muted rounded-xl transition-colors border border-line bg-surface leading-tight whitespace-normal text-center"
+            >
+              <Plus size={16} className="shrink-0" /> <span className="min-w-0 break-words">{language === 'ar' ? 'إضافة علاج' : 'Add treatment'}</span>
             </button>
             <button data-tour="finance-add-payment" onClick={() => { setIsAddingPayment(!isAddingPayment); setIsDropdownOpen(false); }} className="min-w-0 col-span-2 sm:col-span-1 justify-center bg-green-500 text-white px-3 py-2.5 rounded-xl font-black text-xs uppercase shadow-md shadow-green-100 hover:bg-green-600 transition-all flex items-center gap-2 leading-tight whitespace-normal text-center">
                 <Plus size={16} className="shrink-0"/> <span className="min-w-0 break-words">{txt.addPayment}</span>

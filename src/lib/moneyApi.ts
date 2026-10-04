@@ -253,6 +253,8 @@ export type ProcedureWriteArgs = {
    * was charged at clinic rates and counted as private revenue.
    */
   priceListId?: string | null;
+  /** Who pays for this treatment: a payer id from Settings → Payers. Absent = the list's owner, else Private. */
+  payerId?: string | null;
   clinicId?: string | null;
 };
 

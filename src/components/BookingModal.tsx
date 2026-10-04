@@ -55,7 +55,7 @@ import {
 import PatientPicker from "./appointments/booking/PatientPicker";
 
 import SlotPicker from "./appointments/booking/SlotPicker";
-import { PRIVATE_PAYER_ID, payerCoverageFilter, payerForPriceList } from "@/lib/payers";
+import { PRIVATE_PAYER_ID, payerForPriceList } from "@/lib/payers";
 import InsurerBadge from "@/components/shared/InsurerBadge";
 
 interface AppointmentData {
@@ -311,16 +311,6 @@ export default function BookingModal({
    */
   useEffect(() => {
     if (!procServiceId) return;
-    /**
-     * A treatment the new list does not cover is no longer on the menu, so it must not stay in the
-     * box either. Leaving it there would show a selection the dropdown cannot even display — the
-     * field reads as chosen while the menu says that treatment does not exist here.
-     */
-    if (!payerCoverageFilter(payers, effectiveListId)(String(procServiceId))) {
-      setProcServiceId("");
-      setProcCost(0);
-      return;
-    }
     const svc = servicesList.find((x) => String(x.id) === String(procServiceId));
     if (svc) setProcCost(resolveListPrice(svc, effectiveListId));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -335,10 +325,8 @@ export default function BookingModal({
    * says. Leaving it visible and quietly recording it as private would be a screen that lets
    * somebody pick a wrong answer and then overrules them without saying so.
    */
-  const offeredServices = useMemo(() => {
-    const covers = payerCoverageFilter(payers, effectiveListId);
-    return servicesList.filter((s: { id?: unknown }) => covers(String(s?.id ?? "")));
-  }, [servicesList, payers, effectiveListId]);
+  // Every service, whoever pays: coverage lists are gone; the price list only prefills a price.
+  const offeredServices = servicesList;
 
   // Local State: Financial & Payment
   const [chargeForVisit, setChargeForVisit] = useState(true);
