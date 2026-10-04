@@ -335,7 +335,7 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                                   <span className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-800">
                                     <CheckCircle2 size={12} /> {t("insurerPaidOn")} {c.insurerPaid.date}
                                   </span>
-                                ) : (
+                                ) : (c.status === "treated" || c.status === "sent") && (
                                   <button type="button" onClick={() => insurerPaid(c)} disabled={isBusy} className="inline-flex items-center gap-1 rounded-lg border border-line bg-surface-subtle px-2 py-1 text-[11px] font-bold text-ink hover:bg-surface disabled:opacity-40">
                                     <Banknote size={12} /> {t("markInsurerPaid")} {money(c.totals.approved)}
                                   </button>
@@ -345,7 +345,7 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                                   <span className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-800">
                                     <CheckCircle2 size={12} /> {t("shareCollectedOn")} {c.shareCollected.date}
                                   </span>
-                                ) : (
+                                ) : (c.status === "treated" || c.status === "sent") && (
                                   <button type="button" onClick={() => collect(c)} disabled={isBusy} className="inline-flex items-center gap-1 rounded-lg border border-line bg-surface-subtle px-2 py-1 text-[11px] font-bold text-ink hover:bg-surface disabled:opacity-40">
                                     <Banknote size={12} /> {t("collectShare")} {money(c.totals.patientShare)}
                                   </button>

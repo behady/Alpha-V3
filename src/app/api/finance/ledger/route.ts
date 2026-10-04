@@ -50,6 +50,7 @@ import { recalcCommissionFromPayment } from "@/lib/ledgerCommission";
 import { allowedDiscount, checkDiscountAllowed } from "@/lib/discountMath";
 import { afterLedgerCreate, afterLedgerDelete, afterLedgerUpdate } from "@/lib/alerts/moneyAlerts";
 import { DISCOUNTS_DOC, parseDiscountSettings } from "@/lib/priceLists";
+import { isApprovalRow } from "@/lib/ledgerInsurer";
 import {
   RECEIPT_COUNTER_DOC,
   RECEIPT_SETTINGS_DOC,
@@ -114,6 +115,29 @@ const EDITABLE_ENTRY_FIELDS = ["date", "description", "amount", "category", "met
  * price, the lab fee and the payout together.
  */
 const EDITABLE_PROCEDURE_FIELDS = ["date", "description", "discountMode", "discountPercent", "discountFixed", "discountReason", "listPrice"] as const;
+/**
+ * A treatment written by an insurance approval is priced by the approval: the insurer's approved
+ * part plus the patient's share, with the dentist's share stamped from the approval. Re-pricing it
+ * here (or from the catalogue) would charge the paper's list price. Only these may change here;
+ * everything else changes on the patient's Insurance tab.
+ */
+const EDITABLE_APPROVAL_ROW_FIELDS = ["date", "description", "note"] as const;
+const APPROVAL_ROW_LOCKED_FIELDS = ["listPrice", "discountMode", "discountPercent", "discountFixed", "cost", "amount", "doctorId", "payerId"] as const;
+const APPROVAL_ROW_MESSAGE = "This treatment comes from an insurance approval; change it on the patient's Insurance tab.";
+
+/**
+ * Does a posted value differ from the stored one? Screens re-send the price fields on every save,
+ * so an unchanged figure is not an edit: blank and null agree, and numbers compare as numbers.
+ */
+function differsFromStored(posted: unknown, stored: unknown): boolean {
+  const blank = (v: unknown) => v === undefined || v === null || v === "";
+  if (blank(posted) && blank(stored)) return false;
+  if (blank(posted) || blank(stored)) return true;
+  const a = Number(posted);
+  const b = Number(stored);
+  if (typeof posted !== "boolean" && Number.isFinite(a) && Number.isFinite(b)) return Math.abs(a - b) > 0.005;
+  return String(posted) !== String(stored);
+}
 
 /**
  * Apply a discount to a charge, server-side.
@@ -378,13 +402,19 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
     if (!snap.exists) throw new Error("NOT_FOUND");
     const before = snap.data() || {};
     const type = String(before.type || "");
+    const approvalRow = type === "procedure" && isApprovalRow(before);
+    if (approvalRow && APPROVAL_ROW_LOCKED_FIELDS.some((k) => patch[k] !== undefined && differsFromStored(patch[k], before[k]))) {
+      throw new Error("APPROVAL_ROW_LOCKED");
+    }
 
     const allowed =
       type === "payment"
         ? EDITABLE_PAYMENT_FIELDS
-        : type === "procedure"
-          ? EDITABLE_PROCEDURE_FIELDS
-          : EDITABLE_ENTRY_FIELDS;
+        : approvalRow
+          ? EDITABLE_APPROVAL_ROW_FIELDS
+          : type === "procedure"
+            ? EDITABLE_PROCEDURE_FIELDS
+            : EDITABLE_ENTRY_FIELDS;
     const update: Record<string, unknown> = {};
     for (const key of allowed) {
       if (patch[key] !== undefined) update[key] = patch[key];
@@ -587,6 +617,9 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
         update.paid = type === "income" ? amount : 0;
         update.cost = type === "expense" ? amount : 0;
       }
+    } else if (approvalRow) {
+      // A date, a description or a note: nothing derived moves. The price and the dentist's
+      // stamped share stay as the approval wrote them.
     } else if (type === "procedure") {
       // Only the discount is adjustable here; what the treatment IS belongs to the clinical route.
       const discounted = applyProcedureDiscount({
@@ -777,7 +810,11 @@ async function setLabFee(args: { clinicId: string; actor: Actor; body: Record<st
     // split, never out of it.
     const cost = chargeAmount(before);
     const net = cost - labFee;
-    const doctorCommissionAmount = net > 0 ? Number((net * (basis.commissionPct / 100)).toFixed(2)) : 0;
+    // A treatment from an insurance approval keeps the dentist's share the approval stamped: it is
+    // a rate on the approved amount, earned when the line was assigned, not a split of this charge.
+    const doctorCommissionAmount = isApprovalRow(before)
+      ? Number(before.doctorCommissionAmount) || 0
+      : net > 0 ? Number((net * (basis.commissionPct / 100)).toFixed(2)) : 0;
     const update: Record<string, unknown> = {
       labFee,
       doctorCommissionAmount,
@@ -829,6 +866,11 @@ async function deleteRow(args: { clinicId: string; actor: Actor; body: Record<st
   if (!targetSnap.exists) return bad("That row no longer exists.", 404);
   const target = targetSnap.data() || {};
   const type = String(target.type || "");
+  // The approval keeps a link to this charge and its note; deleting the charge alone strands it.
+  // Deleting the approval (Recently Deleted keeps all of them together) is the way out.
+  if (type === "procedure" && isApprovalRow(target)) {
+    return bad("This treatment comes from an insurance approval; delete the approval instead.", 409);
+  }
 
   // Everything that could be linked to this row, in either direction. Loaded outside the
   // transaction because deciding IF the delete may happen needs a query, and Firestore
@@ -1019,6 +1061,8 @@ export async function POST(request: Request) {
         return bad("Nothing to change.");
       case "UNKNOWN_ROW_TYPE":
         return bad("That row cannot be edited here.");
+      case "APPROVAL_ROW_LOCKED":
+        return bad(APPROVAL_ROW_MESSAGE);
       default:
         reportServerError("finance/ledger failed", e, { action });
         return bad("Something went wrong saving that. Nothing was changed.", 500);

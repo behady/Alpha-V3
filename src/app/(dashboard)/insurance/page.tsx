@@ -365,7 +365,7 @@ function InsurancePage() {
                 {t("claimsTitle")} · {range.from} → {range.to}
               </p>
               {claimsFailed && <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-[13px] font-bold text-rose-800">{t("claimsFailed")}</p>}
-              <ClaimsTable claims={claims} loading={claimsLoading} onPatch={onPatch} onDelete={onDelete} highlightId={highlightId} />
+              <ClaimsTable claims={claims} loading={claimsLoading} onPatch={onPatch} onDelete={onDelete} highlightId={highlightId} payerName={payer?.name} />
             </section>
           </>
         )}

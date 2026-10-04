@@ -7,13 +7,14 @@ import { COLLECTION_WRITE_PERMISSIONS, isFullAccessRole } from "@/lib/permission
 import { logActivityServer } from "@/lib/server/systemLog";
 import { reportServerError } from "@/lib/server/reportError";
 import {
+  CASCADE_CHILD_COLLECTIONS,
   checkBinnable,
   checkRestorable,
   checkRestoreAllowed,
   logModuleFor,
   restoreOverrides,
 } from "@/lib/recycleBin";
-import { binEntry, binPayload, writeHistory } from "@/lib/server/recycleBinStore";
+import { binCollection, binEntry, binPayload, writeHistory } from "@/lib/server/recycleBinStore";
 
 /**
  * Puts a record back where it was — or refuses, clearly, and changes nothing.
@@ -31,6 +32,10 @@ import { binEntry, binPayload, writeHistory } from "@/lib/server/recycleBinStore
  * authorise the write it describes.
  *
  * POST { clinicId, entryId, acknowledgeDuplicate? }
+ *
+ * An entry can carry children (`cascadeOf` = its id): the treatment rows an insurance approval took
+ * into the bin with it. They come back in the same transaction as the approval, under the same
+ * never-overwrite rule, or nothing comes back.
  */
 
 export async function POST(request: Request) {
@@ -125,9 +130,43 @@ export async function POST(request: Request) {
       }
     }
 
+    // The children binned with this entry. Each is re-validated like the entry itself: same clinic,
+    // a collection that only ever enters the bin as a child, a path inside the tenant.
+    const childDocs = (await binCollection().where("cascadeOf", "==", entryId).get()).docs.filter((d) => d.data().status === "deleted");
+    const children: Array<{ entryRef: FirebaseFirestore.DocumentReference; entry: FirebaseFirestore.DocumentData; targetRef: FirebaseFirestore.DocumentReference }> = [];
+    for (const d of childDocs) {
+      const child = d.data();
+      const childCollection = String(child.collection || "");
+      const childDocumentId = String(child.documentId || "");
+      if (child.clinicId !== clinicId || !(CASCADE_CHILD_COLLECTIONS as readonly string[]).includes(childCollection) || !childDocumentId || /[/\\]/.test(childDocumentId)) {
+        return NextResponse.json({ ok: false, error: "A record deleted with this one cannot be restored. Please contact support." }, { status: 409 });
+      }
+      const childTarget = adminClinicDoc(clinicId, childCollection, childDocumentId);
+      if (!childTarget.path.startsWith(`clinics/${clinicId}/`)) {
+        return NextResponse.json({ ok: false, error: "Refusing to write outside the clinic." }, { status: 400 });
+      }
+      children.push({ entryRef: d.ref, entry: child, targetRef: childTarget });
+    }
+
     const result = await adminDb().runTransaction(async (tx) => {
       const freshEntry = await tx.get(entryRef);
       const freshTarget = await tx.get(targetRef);
+      // Every child's entry, saved copy and place, read before anything is written.
+      const childReads = [];
+      for (const c of children) {
+        const [freshChild, childPayload, childTarget] = await Promise.all([
+          tx.get(c.entryRef),
+          tx.get(binPayload(c.entryRef.id)),
+          tx.get(c.targetRef),
+        ]);
+        childReads.push({ ...c, freshChild, snapshot: (childPayload.data()?.snapshot ?? null) as Record<string, unknown> | null, occupied: childTarget.exists });
+      }
+      if (childReads.some((c) => c.freshChild.data()?.status !== "deleted" || !c.snapshot)) {
+        return { ok: false as const, status: 410, error: "A record deleted with this one is missing from Recently Deleted, so it cannot be restored.", reason: "CHILD_MISSING" };
+      }
+      if (childReads.some((c) => c.occupied)) {
+        return { ok: false as const, status: 409, error: "A record deleted with this one already exists again. Compare the two and merge by hand.", reason: "TARGET_OCCUPIED" };
+      }
 
       const verdict = checkRestorable({
         collection,
@@ -152,6 +191,20 @@ export async function POST(request: Request) {
         restoredAt: FieldValue.serverTimestamp(),
         restoredFromBinEntryId: entryId,
       });
+      for (const c of childReads) {
+        tx.create(c.targetRef, {
+          ...(c.snapshot as Record<string, unknown>),
+          restoredAt: FieldValue.serverTimestamp(),
+          restoredFromBinEntryId: c.entryRef.id,
+        });
+        tx.update(c.entryRef, {
+          status: "restored",
+          restoredAt: FieldValue.serverTimestamp(),
+          restoredByUid: auth.uid,
+          restoredByName: auth.name,
+          expiresAt: FieldValue.delete(),
+        });
+      }
       tx.update(entryRef, {
         status: "restored",
         restoredAt: FieldValue.serverTimestamp(),
@@ -171,6 +224,11 @@ export async function POST(request: Request) {
     await writeHistory({ ...entry, restoredByUid: auth.uid }, "restored");
     await binPayload(entryId).delete().catch(() => {});
     await entryRef.delete().catch(() => {});
+    for (const c of children) {
+      await writeHistory({ ...c.entry, restoredByUid: auth.uid }, "restored");
+      await binPayload(c.entryRef.id).delete().catch(() => {});
+      await c.entryRef.delete().catch(() => {});
+    }
 
     await logActivityServer({
       clinicId,

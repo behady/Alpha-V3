@@ -418,7 +418,7 @@ export function lineCharge(line: Pick<MetlifeLine, "approvedAmount" | "patientSh
 
 export type TreatmentRowArgs = {
   claimId: string;
-  claim: Pick<InsuranceClaim, "payerId" | "approvalNumber" | "approvalDate" | "patientId" | "patientName" | "lines" | "dentists">;
+  claim: Pick<InsuranceClaim, "payerId" | "approvalNumber" | "approvalDate" | "treatedDate" | "patientId" | "patientName" | "lines" | "dentists">;
   payerName: string;
   /** The clinic's own name per code, else the paper's description prints. */
   wording: Record<string, string>;
@@ -466,7 +466,11 @@ export function insuranceTreatmentRows(args: TreatmentRowArgs): TreatmentRow[] {
       listPrice,
       priceListId: null,
       priceListName: null,
-      discountMode: discountAmount > 0 ? "amount" : null,
+      // The app's own discount vocabulary ("percent" | "fixed" | "none"): an unknown mode reads
+      // as no discount, and any editor that re-saved the row would then charge the full list price.
+      discountMode: discountAmount > 0 ? "fixed" : "none",
+      discountFixed: discountAmount > 0 ? discountAmount : null,
+      discountPercent: null,
       discountValue: discountAmount > 0 ? discountAmount : null,
       discountAmount,
       discountReason: discountAmount > 0 ? `${payerName} approved ${round2(line.approvedAmount)} of ${listPrice}` : null,
@@ -476,7 +480,8 @@ export function insuranceTreatmentRows(args: TreatmentRowArgs): TreatmentRow[] {
       serviceId: null,
       serviceIds: [] as string[],
       serviceName: name,
-      date: claim.approvalDate,
+      // The day the work was done: the treated date, else the approval's own date.
+      date: claim.treatedDate ?? claim.approvalDate,
       claimId,
       approvalNumber: claim.approvalNumber,
       serviceCode: line.code,
@@ -522,6 +527,32 @@ export function insuranceTreatmentRows(args: TreatmentRowArgs): TreatmentRow[] {
     });
   });
   return out;
+}
+
+/**
+ * What a payment against a treatment row may actually be: what was asked, capped at what is still
+ * open on the row (its cost less the payments already against it), never below zero. A row the
+ * patient already paid in full at the counter takes nothing more from the insurer's settlement.
+ */
+export function cappedPayment(wanted: number, cost: number, alreadyPaid: number): number {
+  const open = round2(Number(cost) - Number(alreadyPaid));
+  return Math.max(0, round2(Math.min(Number(wanted) || 0, Number.isFinite(open) ? open : 0)));
+}
+
+/**
+ * What a status change does to the treatment rows an approval writes.
+ *
+ * - `write`: the claim becomes `treated` and has no rows yet — the work is now done, record it.
+ * - `remove`: the claim goes back to `approved` or is `cancelled` while rows exist — the work did
+ *   not happen (the caller refuses when any row already has money against it).
+ * - `none`: anything else, including `treated` ↔ `sent` and a claim that already has its rows.
+ */
+export function rowsActionForStatus(args: { from: ClaimStatus; to: ClaimStatus | undefined; hasRows: boolean }): "write" | "remove" | "none" {
+  const { from, to, hasRows } = args;
+  if (to === undefined || to === from) return "none";
+  if (to === "treated" && !hasRows) return "write";
+  if ((to === "approved" || to === "cancelled") && hasRows) return "remove";
+  return "none";
 }
 
 /** The doctor fields to write on an existing row when a line's dentist changes. */

@@ -1,4 +1,5 @@
 import { adminClinicCollection } from "@/lib/adminClinicDb";
+import { patientPortion } from "@/lib/ledgerInsurer";
 
 /**
  * Revenue Recovery Engine — finds money a clinic has earned but not collected.
@@ -164,7 +165,8 @@ function findOutstandingBalances(ledger: Record<string, unknown>[]): RecoveryFin
       docIds: [],
     };
 
-    if (type === "procedure") entry.charged += rowAmount(row);
+    // The patient's part: an insurance approval's unpaid insurer part is owed by the insurer.
+    if (type === "procedure") entry.charged += patientPortion({ ...row, cost: rowAmount(row) });
     else entry.paid += rowAmount(row);
 
     const when = parseDate(row.date);

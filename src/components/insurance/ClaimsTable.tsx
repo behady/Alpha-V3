@@ -36,6 +36,7 @@ export default function ClaimsTable({
   onDelete,
   highlightId,
   loading,
+  payerName,
 }: {
   claims: InsuranceClaim[];
   /** Resolves true when the change is saved; the page reports a failure itself. */
@@ -44,6 +45,8 @@ export default function ClaimsTable({
   /** A claim the page asked to show (from "already saved — open"). */
   highlightId?: string | null;
   loading?: boolean;
+  /** The insurer's name, for the payment questions; the claim's payer id stands in without it. */
+  payerName?: string;
 }) {
   const { language } = useLanguage();
   const isAr = language === "ar";
@@ -67,6 +70,22 @@ export default function ClaimsTable({
   const patch = async (claim: InsuranceClaim, change: ClaimPatch) => {
     if (!(await sentOk(claim))) return;
     await run(claim, () => onPatch(claim, change));
+  };
+
+  /** Money is asked about first, with the figure, exactly as the patient's Insurance tab asks. */
+  const collect = async (claim: InsuranceClaim) => {
+    const question = t("confirmShare").replace("{amount}", money(claim.totals.patientShare)).replace("{number}", claim.approvalNumber);
+    if (!(await confirm(question, { confirmLabel: t("collectShare") }))) return;
+    await patch(claim, { collectShare: true });
+  };
+
+  const insurerPaid = async (claim: InsuranceClaim) => {
+    const question = t("confirmInsurerPaid")
+      .replace("{amount}", money(claim.totals.approved))
+      .replace("{insurer}", payerName || claim.payerId)
+      .replace("{number}", claim.approvalNumber);
+    if (!(await confirm(question, { confirmLabel: t("markInsurerPaid") }))) return;
+    await patch(claim, { insurerPaid: true });
   };
 
   const remove = async (claim: InsuranceClaim) => {
@@ -170,13 +189,13 @@ export default function ClaimsTable({
                         <Send size={14} />
                       </Action>
                     )}
-                    {c.status !== "cancelled" && c.totals.patientShare > 0 && !c.shareCollected && (
-                      <Action label={`${t("collectShare")} ${money(c.totals.patientShare)}`} disabled={busy} onClick={() => patch(c, { collectShare: true })}>
+                    {(c.status === "treated" || c.status === "sent") && c.totals.patientShare > 0 && !c.shareCollected && (
+                      <Action label={`${t("collectShare")} ${money(c.totals.patientShare)}`} disabled={busy} onClick={() => void collect(c)}>
                         <Banknote size={14} />
                       </Action>
                     )}
-                    {c.status !== "cancelled" && Object.keys(c.ledgerIds).length > 0 && !c.insurerPaid && (
-                      <Action label={`${t("markInsurerPaid")} ${money(c.totals.approved)}`} disabled={busy} onClick={() => patch(c, { insurerPaid: true })}>
+                    {(c.status === "treated" || c.status === "sent") && Object.keys(c.ledgerIds).length > 0 && !c.insurerPaid && (
+                      <Action label={`${t("markInsurerPaid")} ${money(c.totals.approved)}`} disabled={busy} onClick={() => void insurerPaid(c)}>
                         <Landmark size={14} />
                       </Action>
                     )}

@@ -43,8 +43,10 @@ import {
   insuranceTreatmentRows,
   dentistRowPatch,
   lineCharge,
+  cappedPayment,
+  rowsActionForStatus,
 } from "../src/lib/insurance/claims";
-import { insurerOutstanding, patientPortion } from "../src/lib/ledgerInsurer";
+import { insurerOutstanding, isApprovalRow, patientPortion } from "../src/lib/ledgerInsurer";
 import { insuranceWorkByStaff, unassignedLines } from "../src/lib/staffInsurance";
 import { DEFAULT_METLIFE_WORDING, buildMetlifeStatement } from "../src/lib/insuranceStatementMetlife";
 import { SAMPLE_RAW, claimFixture, lineFixture } from "./fixtures/insuranceMetlife.fixture";
@@ -955,6 +957,22 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   assert.equal(crown.charge.listPrice, 2700);
   assert.equal(crown.charge.discountAmount, 2100);
   assert.equal(crown.charge.discountReason, "MetLife approved 500 of 2700");
+  // the app's own discount vocabulary, so an editor that re-saves the row keeps it at 600, not 2700
+  assert.equal(crown.charge.discountMode, "fixed");
+  assert.equal(crown.charge.discountFixed, 2100);
+  assert.equal(crown.charge.discountPercent, null);
+  assert.equal(crown.charge.discountValue, 2100);
+  assert.equal(crown.note.discountMode, "fixed", "the note carries the same discount as its charge");
+  assert.equal(exam.charge.discountMode, "none", "a line approved in full has no discount");
+  assert.equal(exam.charge.discountFixed, null);
+  // dated the treated day, else the approval's own date
+  assert.equal(crown.charge.date, reduced.approvalDate);
+  const [late] = insuranceTreatmentRows({ claimId: "x", claim: { ...reduced, treatedDate: "2026-10-12" }, payerName: "MetLife", wording: {}, actor: { uid: "u", name: "n", role: "r" } });
+  assert.equal(late.charge.date, "2026-10-12");
+  assert.equal(late.note.date, "2026-10-12");
+  assert.equal(isApprovalRow(crown.charge), true, "the row knows it came from an approval");
+  assert.equal(isApprovalRow({ claimId: "  " }), false);
+  assert.equal(isApprovalRow({}), false);
   assert.equal(crown.charge.insurerCovered, 500);
   assert.equal(crown.charge.patientShare, 100);
   // a rejected line writes no row
@@ -980,6 +998,25 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   assert.equal(patientPortion({ ...row, insurerPaidAt: "2026-10-20" }), 600, "and the payment rows carry the money");
   assert.equal(insurerOutstanding({ type: "payment", insurerCovered: 500 }), 0);
   assert.equal(patientPortion({ type: "procedure", cost: 400 }), 400, "an ordinary treatment is all the patient's");
+
+  // a payment against a row never settles more than is still open on it
+  assert.equal(cappedPayment(500, 600, 100), 500, "the insurer's 500 after the patient's 100");
+  assert.equal(cappedPayment(500, 600, 600), 0, "nothing left: the patient already paid it all");
+  assert.equal(cappedPayment(500, 600, 300), 300, "capped at what is open");
+  assert.equal(cappedPayment(100, 600, 650), 0, "an overpaid row takes nothing more");
+  assert.equal(cappedPayment(33.333, 100, 0), 33.33);
+
+  // what a status change does to the rows
+  assert.equal(rowsActionForStatus({ from: "approved", to: "treated", hasRows: false }), "write");
+  assert.equal(rowsActionForStatus({ from: "cancelled", to: "treated", hasRows: false }), "write");
+  assert.equal(rowsActionForStatus({ from: "treated", to: "treated", hasRows: false }), "none", "not a change of status");
+  assert.equal(rowsActionForStatus({ from: "approved", to: "treated", hasRows: true }), "none", "rows are never written twice");
+  assert.equal(rowsActionForStatus({ from: "treated", to: "approved", hasRows: true }), "remove");
+  assert.equal(rowsActionForStatus({ from: "sent", to: "cancelled", hasRows: true }), "remove");
+  assert.equal(rowsActionForStatus({ from: "treated", to: "sent", hasRows: true }), "none");
+  assert.equal(rowsActionForStatus({ from: "sent", to: "treated", hasRows: true }), "none");
+  assert.equal(rowsActionForStatus({ from: "treated", to: "approved", hasRows: false }), "none", "an old claim with no rows has nothing to remove");
+  assert.equal(rowsActionForStatus({ from: "treated", to: undefined, hasRows: true }), "none");
 }
 
 console.log("insurance metlife reader: ok");

@@ -31,6 +31,14 @@ export function insurerOutstanding(row: InsurerRowLite): number {
   return Math.max(0, num(row.insurerCovered));
 }
 
+/**
+ * Was this row written by an insurance approval? Such a row is priced by the approval, not by the
+ * catalogue or a discount: its price, dentist and payer change on the patient's Insurance tab only.
+ */
+export function isApprovalRow(row: { claimId?: unknown } | null | undefined): boolean {
+  return typeof row?.claimId === "string" && row.claimId.trim() !== "";
+}
+
 /** The part of a treatment's cost the patient is answerable for: everything the insurer is not. */
 export function patientPortion(row: InsurerRowLite & { cost?: unknown; amount?: unknown }): number {
   const cost = num(row.cost) || num(row.amount);

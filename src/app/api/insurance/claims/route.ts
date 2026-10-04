@@ -1,6 +1,6 @@
 import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
-import { FieldValue, type DocumentData, type DocumentReference, type DocumentSnapshot } from "firebase-admin/firestore";
+import { FieldValue, type DocumentData, type DocumentReference, type DocumentSnapshot, type Transaction } from "firebase-admin/firestore";
 import { adminBucket, adminDb } from "@/lib/firebaseAdmin";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffPermission } from "@/lib/apiStaffAuth";
@@ -8,14 +8,15 @@ import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import { findPayer, parsePayers, PRIVATE_PAYER_ID, type CommissionRates } from "@/lib/payers";
 import { isFullAccessRole } from "@/lib/permissions";
-import { buildManualEntryRow, buildPaymentRow } from "@/lib/ledgerWrite";
+import { buildManualEntryRow, buildPaymentRow, sumPayments } from "@/lib/ledgerWrite";
 import { RECEIPT_COUNTER_DOC, RECEIPT_SETTINGS_DOC, formatReceiptNumber, normalizeReceiptSettings } from "@/lib/receiptSettings";
 import { applyProcedureSync, readProcedurePayments, type PaymentRowLite } from "@/lib/server/ledgerSync";
 import { recordMoneyChange } from "@/lib/server/ledgerAudit";
-import { afterChargeCreate, afterLedgerCreate } from "@/lib/alerts/moneyAlerts";
+import { afterLedgerCreate } from "@/lib/alerts/moneyAlerts";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { writeInsurance } from "@/lib/patientInsurance";
 import { stripUndefined } from "@/lib/server/recycleBinStore";
+import { isDentistStaff } from "@/lib/staffRoles";
 import { nameSimilarity } from "@/lib/insurance/matchPatient";
 import { checkMetlife, hasHardFailure, normalizeMetlife, type Check } from "@/lib/insurance/metlife";
 import {
@@ -36,12 +37,15 @@ import {
   type ClaimStatus,
   type InsuranceClaim,
   applyDentistPicks,
+  cappedPayment,
   dentistRowPatch,
   insuranceTreatmentRows,
   lineDentistFor,
+  rowsActionForStatus,
   type LineDentist,
   type LineLedger,
   type ShareCollected,
+  type TreatmentRowArgs,
 } from "@/lib/insurance/claims";
 
 export const runtime = "nodejs";
@@ -101,6 +105,65 @@ function postedWording(raw: unknown, codes: Set<string>): Record<string, string>
   return out;
 }
 
+/**
+ * The wording the treatment rows are named by: the clinic's stored wording wins (it is what the
+ * clinic calls a code everywhere else), and what the desk typed on this card fills codes it lacks.
+ */
+function rowWording(stored: unknown, posted: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (isRecord(stored)) {
+    for (const [code, entry] of Object.entries(stored)) {
+      const ar = isRecord(entry) ? entry.ar : undefined;
+      if (typeof ar === "string" && ar.trim()) out[code] = ar.trim();
+    }
+  }
+  for (const [code, ar] of Object.entries(posted)) {
+    if (!out[code]) out[code] = ar;
+  }
+  return out;
+}
+
+type Charge = { id: string; row: Record<string, unknown> };
+
+/**
+ * The treatments themselves, as the patient's file records any other work: one clinical note and
+ * one ledger charge per approved line, under this insurer, so Finance, the reports and the
+ * patient's balance all see insurance work without a second entry. Writes only; the caller has
+ * done every read. Returns the links to keep on the claim and the charges for the audit trail.
+ */
+function writeTreatmentRows(tx: Transaction, clinicId: string, args: TreatmentRowArgs): { ledgerIds: Record<number, LineLedger>; charges: Charge[] } {
+  const ledgerIds: Record<number, LineLedger> = {};
+  const charges: Charge[] = [];
+  for (const r of insuranceTreatmentRows(args)) {
+    const noteRef = adminClinicCollection(clinicId, "clinical_notes").doc();
+    const ledgerRef = adminClinicCollection(clinicId, "ledger").doc();
+    tx.set(noteRef, { ...stripUndefined(r.note), ledgerId: ledgerRef.id, createdAt: FieldValue.serverTimestamp() });
+    tx.set(ledgerRef, { ...stripUndefined(r.charge), clinicalNoteId: noteRef.id, createdAt: FieldValue.serverTimestamp() });
+    ledgerIds[r.lineIndex] = { ledgerId: ledgerRef.id, noteId: noteRef.id };
+    charges.push({ id: ledgerRef.id, row: r.charge });
+  }
+  return { ledgerIds, charges };
+}
+
+type Actor = { uid: string; name: string; role: string };
+
+/**
+ * The trail a treatment logged by hand leaves: one audit row per charge. No discount alert: a
+ * line the insurer approved for less than the paper asked is the insurer's decision, not a
+ * discount anyone at the desk gave, and every reduced line would otherwise raise one.
+ */
+async function auditCharges(clinicId: string, charges: Charge[], actor: Actor, via: string): Promise<void> {
+  await Promise.all(
+    charges.map((c) =>
+      recordMoneyChange({
+        entry: { clinicId, action: "create", collection: "ledger", documentId: c.id, after: c.row, actor, via },
+        action: "Procedure Logged",
+        details: `${String(c.row.description)} - ${c.row.amount} EGP`,
+      }).catch((err) => reportServerError("Insurance treatment audit failed:", err)),
+    ),
+  );
+}
+
 type DocFacts = InsuranceClaim["doc"];
 const NO_DOC: DocFacts = { path: "", contentType: "", bytes: 0, pages: null };
 
@@ -134,6 +197,11 @@ function docFactsOf(data: DocumentData | undefined): DocFacts | null {
  * failed leaves no row), writes `insurance.{payerId}` on the patient when it is missing or different,
  * and adds any Arabic wording the clinic did not have yet. Existing wording is never overwritten here.
  * The claim keeps `read: { checks, at }`: the soft warnings the desk saved over.
+ *
+ * A claim saved as `treated` also writes its treatment rows in the same transaction (one clinical
+ * note and one ledger charge per approved line, dated the treated day, named by the clinic's stored
+ * wording where it has one); an `approved` claim writes them when PATCH marks it treated.
+ * `dentistId`, when given, must be a dentist (400 otherwise).
  *
  * `docPath` is optional and only used when no document row exists (the read failed and the desk typed
  * the paper in): it must sit in this clinic's `insurance_docs/{docId}/` folder, and the file's type
@@ -249,7 +317,8 @@ export async function POST(req: Request) {
       | { kind: "doc_taken"; claimId: string }
       | { kind: "no_patient" }
       | { kind: "no_staff" }
-      | { kind: "saved"; charges: Array<{ id: string; row: Record<string, unknown> }> };
+      | { kind: "not_dentist" }
+      | { kind: "saved"; charges: Charge[] };
     let outcome: Outcome;
     try {
       outcome = await adminDb().runTransaction(async (tx): Promise<Outcome> => {
@@ -264,6 +333,7 @@ export async function POST(req: Request) {
         const counterSnap = existingId ? null : await tx.get(counterRef);
         if (patientSnap && !patientSnap.exists) return { kind: "no_patient" };
         if (staffSnap && !staffSnap.exists) return { kind: "no_staff" };
+        if (staffSnap && !isDentistStaff(staffSnap.data())) return { kind: "not_dentist" };
         const linked = docsSnap.get("claimId");
         if (typeof linked === "string" && linked && linked !== claimId) return { kind: "doc_taken", claimId: linked };
 
@@ -310,27 +380,21 @@ export async function POST(req: Request) {
             claim.dentists[i] = lineDentistFor(line, staffLite, payerId);
           });
         }
-        // The treatments themselves, as the patient's file records any other work: one clinical
-        // note and one ledger charge per approved line, under this insurer, so Finance, the
-        // reports and the patient's balance all see insurance work without a second entry.
-        const payerName = findPayer(parsePayers(payersSnap.data()), payerId)?.name ?? payerId;
-        const storedWordingNow = wordingSnap.get(format) as Record<string, unknown> | undefined;
-        const wordingAll: Record<string, string> = { ...wording };
-        if (isRecord(storedWordingNow)) {
-          for (const [code, entry] of Object.entries(storedWordingNow)) {
-            const ar = isRecord(entry) ? entry.ar : undefined;
-            if (typeof ar === "string" && ar.trim() && !wordingAll[code]) wordingAll[code] = ar.trim();
-          }
-        }
-        const rows = insuranceTreatmentRows({ claimId, claim, payerName, wording: wordingAll, actor: { uid: authz.uid, name: authz.name, role: authz.role } });
-        const charges: Array<{ id: string; row: Record<string, unknown> }> = [];
-        for (const r of rows) {
-          const noteRef = adminClinicCollection(clinicId, "clinical_notes").doc();
-          const ledgerRef = adminClinicCollection(clinicId, "ledger").doc();
-          tx.set(noteRef, { ...stripUndefined(r.note), ledgerId: ledgerRef.id, createdAt: FieldValue.serverTimestamp() });
-          tx.set(ledgerRef, { ...stripUndefined(r.charge), clinicalNoteId: noteRef.id, createdAt: FieldValue.serverTimestamp() });
-          claim.ledgerIds[r.lineIndex] = { ledgerId: ledgerRef.id, noteId: noteRef.id };
-          charges.push({ id: ledgerRef.id, row: r.charge });
+        // The treatments are recorded only once they are done: a claim saved as `treated` writes
+        // its rows now, dated the treated day; an `approved` one writes them when it is marked
+        // treated.
+        let charges: Charge[] = [];
+        if (status === "treated") {
+          const payerName = findPayer(parsePayers(payersSnap.data()), payerId)?.name ?? payerId;
+          const written = writeTreatmentRows(tx, clinicId, {
+            claimId,
+            claim,
+            payerName,
+            wording: rowWording(wordingSnap.get(format), wording),
+            actor: { uid: authz.uid, name: authz.name, role: authz.role },
+          });
+          claim.ledgerIds = written.ledgerIds;
+          charges = written.charges;
         }
         tx.create(claimRef, {
           ...stripUndefined(claim),
@@ -381,20 +445,9 @@ export async function POST(req: Request) {
     }
     if (outcome.kind === "no_patient") return fail(404, "That patient was not found.");
     if (outcome.kind === "no_staff") return fail(404, "That dentist was not found.");
+    if (outcome.kind === "not_dentist") return fail(400, "That staff member is not a dentist.");
     if (outcome.kind === "saved" && outcome.charges.length) {
-      // The trail a treatment logged by hand leaves: one audit row per charge, and the discount
-      // alert where the insurer approved less than the paper asked.
-      const actor = { uid: authz.uid, name: authz.name, role: authz.role };
-      await Promise.all(
-        outcome.charges.map((c) =>
-          recordMoneyChange({
-            entry: { clinicId, action: "create", collection: "ledger", documentId: c.id, after: c.row, actor, via: "insurance/claims:save" },
-            action: "Procedure Logged",
-            details: `${String(c.row.description)} - ${c.row.amount} EGP`,
-          }).catch((err) => reportServerError("Insurance treatment audit failed:", err)),
-        ),
-      );
-      for (const c of outcome.charges) void afterChargeCreate(clinicId, c.row, actor);
+      await auditCharges(clinicId, outcome.charges, { uid: authz.uid, name: authz.name, role: authz.role }, "insurance/claims:save");
     }
     return NextResponse.json({ ok: true, claimId, patientId: patientRef.id }, { status: 201 });
   } catch (error) {
@@ -406,19 +459,30 @@ export async function POST(req: Request) {
 /**
  * Edits a saved claim.
  *
- * PATCH { clinicId, claimId, patch: { status?, treatedDate?, patientId?, lines?, metlife? } } → 200 { ok: true }
+ * PATCH { clinicId, claimId, patch: { status?, treatedDate?, patientId?, lines?, metlife?, dentists?, collectShare?, insurerPaid? } }
+ *   → 200 { ok: true } (plus `payments` or `shareCollected` when money was recorded)
  *
- * Only those five keys; anything else is a 400, so a typo never silently does nothing.
+ * Only those keys; anything else is a 400, so a typo never silently does nothing.
  *
  * - `lines` / `metlife`: laid over the stored claim, read through the reader's own normaliser, and the
  *   hard checks run again with the same context as a save (400 { ok: false, error, checks } on a hard
  *   failure; nothing written). Totals are recomputed from the lines. To claim less than the paper
  *   approved, the printed totals in `metlife` are edited along with the lines.
  * - `status`: `approved` clears the treated date; `treated` without a date keeps the stored one or takes
- *   the approval date; `sent` stamps `sentAt`.
+ *   the approval date; `sent` stamps `sentAt`. The treatment rows follow the status: becoming
+ *   `treated` with no rows yet writes them (dated the treated day); going back to `approved`, or
+ *   `cancelled`, deletes them in the same transaction — refused (409) once any of them has money
+ *   against it.
  * - `patientId`: re-snapshots the patient's name (404 when the patient does not exist) and writes
  *   `insurance.{payerId}` on that patient when missing or different, as a save does. A `metlife` edit
  *   is never pushed to the patient: the patient's own editor owns that.
+ * - Once the approval has written its treatment rows, `lines`, `metlife` and `patientId` are refused
+ *   (409): the rows are the record of what was done and to whom. The dentist and the status stay
+ *   editable.
+ * - `dentists`: { lineIndex: staffId | null }, each staff member a dentist (400 otherwise); the rate and
+ *   share are stamped from the staff record and follow into the treatment rows that exist.
+ * - `collectShare` / `insurerPaid` (one at a time, never with a status change): one payment per
+ *   treatment row, capped at what is still open on it, only on a `treated` or `sent` approval.
  *
  * Every edit stamps `updatedAt`/`updatedBy`.
  */
@@ -476,7 +540,7 @@ export async function PATCH(req: Request) {
       }
       if (Object.keys(picks).length === 0) return fail(400, "dentists is empty.");
     }
-    // The patient's share taken as cash. The ledger row and the claim's stamp are written in ONE
+    // The patient's share taken as cash. The ledger rows and the claim's stamp are written in ONE
     // transaction here — two separate calls left a stray cash row whenever the second one failed.
     const collectShare = patch.collectShare === true;
     if ("collectShare" in patch && !collectShare) return fail(400, "collectShare must be true.");
@@ -484,14 +548,21 @@ export async function PATCH(req: Request) {
     // dentist's share was earned when the line was assigned), the rows stamped as settled.
     const insurerPaid = patch.insurerPaid === true;
     if ("insurerPaid" in patch && !insurerPaid) return fail(400, "insurerPaid must be true.");
+    if ("collectShare" in patch && "insurerPaid" in patch) {
+      return fail(400, "Record the patient's share and the insurer's payment one at a time.");
+    }
+    const paying = collectShare || insurerPaid;
+    // A status change can write or delete the very rows a payment would settle.
+    if (paying && status !== undefined) return fail(400, "Change the status and record a payment one at a time.");
 
     // --- who --------------------------------------------------------------------------------
     const authz = await requireStaffPermission(req, clinicId, PERMISSION);
     if (!authz.ok) return authz.response;
     // Cash into the ledger is the finance permission's business, exactly as a manual income row is.
-    if ((collectShare || insurerPaid) && !(isFullAccessRole(authz.role) || authz.permissions.includes("finance.add"))) {
+    if (paying && !(isFullAccessRole(authz.role) || authz.permissions.includes("finance.add"))) {
       return fail(403, "Recording the patient's share needs the finance permission.");
     }
+    const actor: Actor = { uid: authz.uid, name: authz.name, role: authz.role };
 
     // --- add-on -----------------------------------------------------------------------------
     if (!(await clinicHasFeature(clinicId, "insurance"))) {
@@ -499,39 +570,58 @@ export async function PATCH(req: Request) {
     }
 
     const claimRef = adminClinicDoc(clinicId, CLAIMS_COLLECTION, claimId);
+    type Collected = { ledgerId: string; amount: number; row: Record<string, unknown> };
     type PatchOutcome =
-      | { kind: "ok" }
       | { kind: "no_claim" }
       | { kind: "unreadable" }
       | { kind: "no_patient" }
       | { kind: "no_staff"; ids: string[] }
+      | { kind: "not_dentist" }
+      | { kind: "rows_exist" }
+      | { kind: "not_treated" }
+      | { kind: "rows_paid" }
       | { kind: "already_collected"; share: ShareCollected }
       | { kind: "nothing_to_collect" }
       | { kind: "already_insurer_paid" }
       | { kind: "no_rows" }
-      | { kind: "ok_collected"; ledgerId: string; amount: number; row: Record<string, unknown> }
-      | { kind: "ok_payments"; payments: Array<{ id: string; row: Record<string, unknown> }>; what: "share" | "insurer" }
-      | { kind: "checks"; checks: Check[] };
+      | { kind: "nothing_left" }
+      | { kind: "checks"; checks: Check[] }
+      | { kind: "ok"; created: Charge[]; removed: Charge[]; payments: Charge[] | null; what: "share" | "insurer"; collected: Collected | null };
     const result = await adminDb().runTransaction(async (tx): Promise<PatchOutcome> => {
-      // Reads first: the claim, the new patient, the payer's provider code.
+      // --- reads: every one of them before the first write --------------------------------------
       const claimSnap = await tx.get(claimRef);
       if (!claimSnap.exists) return { kind: "no_claim" };
       const claim = parseClaim(claimId, claimSnap.data());
       if (!claim) return { kind: "unreadable" };
+      const links = Object.entries(claim.ledgerIds).map(([k, link]) => ({ index: Number(k), ...link }));
+      const hasRows = links.length > 0;
+      // The rows are the record of what was done and to whom: once they exist, the services and the
+      // patient are fixed. Changing them means deleting the approval and saving the paper again.
+      if (hasRows && (rawLines !== undefined || rawMetlife !== undefined || newPatientId)) return { kind: "rows_exist" };
+      if (paying && claim.status !== "treated" && claim.status !== "sent") return { kind: "not_treated" };
+      if (collectShare && claim.shareCollected) return { kind: "already_collected", share: claim.shareCollected };
+      if (collectShare && claim.totals.patientShare <= 0) return { kind: "nothing_to_collect" };
+      if (insurerPaid && claim.insurerPaid) return { kind: "already_insurer_paid" };
+      if (insurerPaid && !hasRows) return { kind: "no_rows" };
+      const rowsAction = rowsActionForStatus({ from: claim.status, to: status, hasRows });
+
       const patientRef = newPatientId ? adminClinicDoc(clinicId, "patients", newPatientId) : null;
       const patientSnap = patientRef ? await tx.get(patientRef) : null;
       if (patientSnap && !patientSnap.exists) return { kind: "no_patient" };
       const reshape = rawLines !== undefined || rawMetlife !== undefined;
-      const payersSnap = reshape || collectShare || insurerPaid ? await tx.get(adminClinicDoc(clinicId, "settings", "payers")) : null;
+      const payersSnap = reshape || paying || rowsAction === "write" ? await tx.get(adminClinicDoc(clinicId, "settings", "payers")) : null;
+      const wordingSnap = rowsAction === "write" ? await tx.get(adminClinicDoc(clinicId, "settings", WORDING_DOC)) : null;
       // The staff records behind the picks, read inside the transaction so the stamped rate is the
-      // one on file at this moment.
+      // one on file at this moment. Only a dentist can be paid for a line.
       const staffById = new Map<string, { id: string; name: string } & CommissionRates>();
+      let notDentist = false;
       if (picks) {
         const ids = [...new Set(Object.values(picks).filter((v): v is string => typeof v === "string"))];
         const snaps = await Promise.all(ids.map((id) => tx.get(adminClinicDoc(clinicId, "staff", id))));
         snaps.forEach((snap, i) => {
           if (!snap.exists) return;
           const d = snap.data() ?? {};
+          if (!isDentistStaff(d)) notDentist = true;
           staffById.set(ids[i], {
             id: ids[i],
             name: typeof d.name === "string" ? d.name : "",
@@ -541,30 +631,35 @@ export async function PATCH(req: Request) {
           });
         });
       }
-      if (collectShare && claim.shareCollected) return { kind: "already_collected", share: claim.shareCollected };
-      if (collectShare && claim.totals.patientShare <= 0) return { kind: "nothing_to_collect" };
-      if (insurerPaid && claim.insurerPaid) return { kind: "already_insurer_paid" };
-      if (insurerPaid && Object.keys(claim.ledgerIds).length === 0) return { kind: "no_rows" };
-      // Payments settle the treatment rows, so every read they need comes now: the receipt
-      // counter, and each row's existing payments (the rebalance must see the real set).
-      const paying = collectShare || insurerPaid;
-      const [receiptSettingsSnap, receiptCounterSnap] = paying
-        ? await Promise.all([tx.get(adminClinicDoc(clinicId, "settings", RECEIPT_SETTINGS_DOC)), tx.get(adminClinicDoc(clinicId, "settings", RECEIPT_COUNTER_DOC))])
-        : [null, null];
-      const siblingsByRow = new Map<string, PaymentRowLite[]>();
-      if (paying) {
-        const ids = Object.values(claim.ledgerIds).map((l) => l.ledgerId);
-        const sets = await Promise.all(ids.map((id) => readProcedurePayments(tx, clinicId, id)));
-        ids.forEach((id, i) => siblingsByRow.set(id, sets[i]));
+      // The treatment rows themselves: whether they still exist, what they cost, what is paid on
+      // them. A row deleted from under the claim is skipped, never updated (that would fail the
+      // whole transaction).
+      const chargeSnaps = new Map<string, DocumentSnapshot>();
+      const noteSnaps = new Map<string, DocumentSnapshot>();
+      if (hasRows && (rowsAction === "remove" || paying || picks)) {
+        const snaps = await Promise.all(links.map((l) => tx.get(adminClinicDoc(clinicId, "ledger", l.ledgerId))));
+        links.forEach((l, i) => chargeSnaps.set(l.ledgerId, snaps[i]));
       }
-      // The rows a dentist change must follow into: read now, written below.
-      const rowSnaps = new Map<string, DocumentSnapshot>();
-      if (picks) {
-        const touched = Object.keys(picks).map(Number).filter((i) => claim.ledgerIds[i]);
-        const snaps = await Promise.all(touched.map((i) => tx.get(adminClinicDoc(clinicId, "ledger", claim.ledgerIds[i].ledgerId))));
-        touched.forEach((i, k) => rowSnaps.set(claim.ledgerIds[i].ledgerId, snaps[k]));
+      if (hasRows && picks && rowsAction !== "remove") {
+        const snaps = await Promise.all(links.map((l) => tx.get(adminClinicDoc(clinicId, "clinical_notes", l.noteId))));
+        links.forEach((l, i) => noteSnaps.set(l.noteId, snaps[i]));
+      }
+      const paidOn = (snap: DocumentSnapshot | undefined) => (snap?.exists ? Number(snap.get("paid")) || 0 : 0);
+      if (rowsAction === "remove" && links.some((l) => paidOn(chargeSnaps.get(l.ledgerId)) > 0)) return { kind: "rows_paid" };
+      // Payments settle the treatment rows, so every read they need comes now: the receipt
+      // counter, and each live row's existing payments (the rebalance must see the real set).
+      const liveLinks = links.filter((l) => chargeSnaps.get(l.ledgerId)?.exists);
+      const [receiptSettingsSnap, receiptCounterSnap] =
+        paying && hasRows
+          ? await Promise.all([tx.get(adminClinicDoc(clinicId, "settings", RECEIPT_SETTINGS_DOC)), tx.get(adminClinicDoc(clinicId, "settings", RECEIPT_COUNTER_DOC))])
+          : [null, null];
+      const siblingsByRow = new Map<string, PaymentRowLite[]>();
+      if (paying && hasRows) {
+        const sets = await Promise.all(liveLinks.map((l) => readProcedurePayments(tx, clinicId, l.ledgerId)));
+        liveLinks.forEach((l, i) => siblingsByRow.set(l.ledgerId, sets[i]));
       }
 
+      // --- decisions: nothing is written until every refusal has had its say ------------------
       const update: Record<string, unknown> = {};
       if (status !== undefined) update.status = status;
       const treated = treatedDateAfter({
@@ -583,6 +678,7 @@ export async function PATCH(req: Request) {
       }
 
       let metlife = claim.metlife;
+      let lines = claim.lines;
       if (reshape) {
         const merged = claimExtraction(claim, { lines: rawLines, metlife: rawMetlife });
         const payer = findPayer(parsePayers(payersSnap?.data()), claim.payerId);
@@ -597,62 +693,121 @@ export async function PATCH(req: Request) {
           update.metlife = metlife;
         }
         if (rawLines !== undefined) {
-          update.lines = merged.lines;
-          update.totals = claimTotals(merged.lines);
+          lines = merged.lines;
+          update.lines = lines;
+          update.totals = claimTotals(lines);
         }
       }
 
+      let dentists = claim.dentists;
       if (picks) {
-        const applied = applyDentistPicks({ lines: rawLines !== undefined ? claimExtraction(claim, { lines: rawLines }).lines : claim.lines, dentists: claim.dentists, payerId: claim.payerId }, picks, staffById);
+        const applied = applyDentistPicks({ lines, dentists: claim.dentists, payerId: claim.payerId }, picks, staffById);
         if (applied.unknownStaff.length) return { kind: "no_staff", ids: applied.unknownStaff };
-        update.dentists = applied.dentists;
-        // The treatment rows follow: doctor, rate and share, so the patient's file and the payer
-        // report agree with the Insurance tab.
+        if (notDentist) return { kind: "not_dentist" };
+        dentists = applied.dentists;
+        update.dentists = dentists;
+      }
+
+      // One payment per live treatment row, each capped at what is still open on that row, so a row
+      // the patient already settled at the counter is never paid twice.
+      const plan: Array<{ index: number; ledgerId: string; amount: number; labFee: number }> = [];
+      if (paying && hasRows) {
+        for (const l of liveLinks) {
+          const line = claim.lines[l.index];
+          if (!line) continue;
+          const data = chargeSnaps.get(l.ledgerId)?.data() ?? {};
+          const cost = Number(data.cost) || Number(data.amount) || 0;
+          const wanted = collectShare ? line.patientShare : line.approvedAmount;
+          const amount = cappedPayment(wanted, cost, sumPayments(siblingsByRow.get(l.ledgerId) ?? []));
+          if (amount > 0) plan.push({ index: l.index, ledgerId: l.ledgerId, amount, labFee: Math.max(0, Number(data.labFee) || 0) });
+        }
+        // Nothing recorded, nothing stamped: a claim marked collected with no cash behind it is
+        // worse than a refusal.
+        if (plan.length === 0) return { kind: "nothing_left" };
+      }
+
+      // --- writes ----------------------------------------------------------------------------
+      // The dentist change follows into the rows that still exist: doctor, rate and share, so the
+      // patient's file and the payer report agree with the Insurance tab.
+      if (picks && rowsAction !== "remove") {
         for (const k of Object.keys(picks)) {
           const i = Number(k);
           const link: LineLedger | undefined = claim.ledgerIds[i];
-          const line = claim.lines[i];
+          const line = lines[i];
           if (!link || !line) continue;
-          const snap = rowSnaps.get(link.ledgerId);
-          if (!snap?.exists) continue;
-          const dentist: LineDentist | null = applied.dentists[i] ?? null;
+          const dentist: LineDentist | null = dentists[i] ?? null;
           const rowPatch = dentistRowPatch(line, dentist);
-          tx.update(adminClinicDoc(clinicId, "ledger", link.ledgerId), { doctorId: rowPatch.doctorId, doctorName: rowPatch.doctorName, doctorCommissionPercentage: rowPatch.doctorCommissionPercentage, doctorCommissionAmount: rowPatch.doctorCommissionAmount, clinicProfit: rowPatch.clinicProfit, updatedAt: FieldValue.serverTimestamp() });
-          tx.set(adminClinicDoc(clinicId, "clinical_notes", link.noteId), { doctorId: rowPatch.doctorId, doctor: rowPatch.doctor }, { merge: true });
+          if (chargeSnaps.get(link.ledgerId)?.exists) {
+            tx.update(adminClinicDoc(clinicId, "ledger", link.ledgerId), { doctorId: rowPatch.doctorId, doctorName: rowPatch.doctorName, doctorCommissionPercentage: rowPatch.doctorCommissionPercentage, doctorCommissionAmount: rowPatch.doctorCommissionAmount, clinicProfit: rowPatch.clinicProfit, updatedAt: FieldValue.serverTimestamp() });
+          }
+          if (noteSnaps.get(link.noteId)?.exists) {
+            tx.update(adminClinicDoc(clinicId, "clinical_notes", link.noteId), { doctorId: rowPatch.doctorId, doctor: rowPatch.doctor });
+          }
         }
       }
-      // The patient's share as one income row: clinic money, nobody's balance, filed under a
-      // readable category so the finance screens and the owner's briefing show it as what it is.
-      let collected: { ledgerId: string; amount: number; row: Record<string, unknown> } | null = null;
-      let payments: Array<{ id: string; row: Record<string, unknown> }> | null = null;
-      let paymentsWhat: "share" | "insurer" = "share";
-      if (paying && Object.keys(claim.ledgerIds).length > 0) {
-        // One payment per treatment row, with a real receipt number each, settling that row:
-        // the patient's share in cash, or the insurer's approved amount by "Insurance". Neither
-        // carries commission: by the owner's rule the dentist's share was earned when the line
-        // was assigned, on the approved amount, and lives on the row and the Insurance tab.
+
+      // The work is done: record it in the patient's file now, dated the treated day.
+      let created: Charge[] = [];
+      if (rowsAction === "write") {
+        const payerName = findPayer(parsePayers(payersSnap?.data()), claim.payerId)?.name ?? claim.payerId;
+        const written = writeTreatmentRows(tx, clinicId, {
+          claimId,
+          claim: {
+            payerId: claim.payerId,
+            approvalNumber: claim.approvalNumber,
+            approvalDate: claim.approvalDate,
+            treatedDate: treated ?? claim.treatedDate,
+            patientId: patientSnap ? newPatientId : claim.patientId,
+            patientName,
+            lines,
+            dentists,
+          },
+          payerName,
+          wording: rowWording(wordingSnap?.get(claim.insurer), {}),
+          actor,
+        });
+        update.ledgerIds = written.ledgerIds;
+        created = written.charges;
+      }
+
+      // The work did not happen after all: its rows leave the patient's file (nothing is paid on
+      // them, checked above). The dentist picks stay on the claim for when it is treated again.
+      const removed: Charge[] = [];
+      if (rowsAction === "remove") {
+        for (const l of links) {
+          const snap = chargeSnaps.get(l.ledgerId);
+          tx.delete(adminClinicDoc(clinicId, "ledger", l.ledgerId));
+          tx.delete(adminClinicDoc(clinicId, "clinical_notes", l.noteId));
+          if (snap?.exists) removed.push({ id: l.ledgerId, row: snap.data() ?? {} });
+        }
+        update.ledgerIds = {};
+      }
+
+      let collected: Collected | null = null;
+      let payments: Charge[] | null = null;
+      if (plan.length > 0) {
+        // One payment per treatment row, with a real receipt number each, settling that row: the
+        // patient's share in cash, or the insurer's approved amount by "Insurance". Neither carries
+        // commission: by the owner's rule the dentist's share was earned when the line was
+        // assigned, on the approved amount, and lives on the row and the Insurance tab.
         const date = ymdInTimeZone(clinicTimeZone());
         const payer = findPayer(parsePayers(payersSnap?.data()), claim.payerId);
         const payerName = payer?.name ?? claim.payerId;
         const receiptSettings = normalizeReceiptSettings(receiptSettingsSnap?.exists ? receiptSettingsSnap.data() : null);
         let seq = Number(receiptCounterSnap?.exists ? receiptCounterSnap.data()?.last : 0) || 0;
         let lastReceipt = "";
-        const made: Array<{ id: string; row: Record<string, unknown> }> = [];
+        const made: Charge[] = [];
         let sum = 0;
-        for (const [k, link] of Object.entries(claim.ledgerIds)) {
-          const line = claim.lines[Number(k)];
-          if (!line) continue;
-          const amount = collectShare ? round2(line.patientShare) : round2(line.approvedAmount);
-          if (amount <= 0) continue;
-          const dentist = claim.dentists[Number(k)] ?? null;
+        for (const p of plan) {
+          const dentist = claim.dentists[p.index] ?? null;
           const row = buildPaymentRow({
             patientId: claim.patientId,
             patientName: claim.patientName,
-            amount,
+            amount: p.amount,
             method: collectShare ? "Cash" : INSURER_METHOD,
             description: collectShare ? `Patient share - ${payerName} ${claim.approvalNumber}` : `${payerName} paid - approval ${claim.approvalNumber}`,
             date,
-            procedure: { id: link.ledgerId, doctorId: dentist?.staffId ?? null, doctorName: dentist?.name ?? null, payerId: claim.payerId, payerName, labFee: 0 },
+            procedure: { id: p.ledgerId, doctorId: dentist?.staffId ?? null, doctorName: dentist?.name ?? null, payerId: claim.payerId, payerName, labFee: 0 },
             appliedLabFee: 0,
             staff: [],
             actor: { uid: authz.uid, name: authz.name },
@@ -662,20 +817,21 @@ export async function PATCH(req: Request) {
           lastReceipt = formatReceiptNumber(receiptSettings, seq, date);
           const ref = adminClinicCollection(clinicId, "ledger").doc();
           const full = { ...row, receiptNumber: lastReceipt, receiptSeq: seq, claimId, approvalNumber: claim.approvalNumber };
-          tx.set(ref, { ...full, createdAt: FieldValue.serverTimestamp() });
-          const siblings = siblingsByRow.get(link.ledgerId) ?? [];
-          applyProcedureSync(tx, { clinicId, procedureLedgerId: link.ledgerId, payments: [...siblings, { id: ref.id, date, paid: amount, amount }], labFee: 0, commissionPct: 0 });
-          if (insurerPaid) tx.update(adminClinicDoc(clinicId, "ledger", link.ledgerId), { insurerPaidAt: date });
+          tx.set(ref, { ...stripUndefined(full), createdAt: FieldValue.serverTimestamp() });
+          const siblings = siblingsByRow.get(p.ledgerId) ?? [];
+          applyProcedureSync(tx, { clinicId, procedureLedgerId: p.ledgerId, payments: [...siblings, { id: ref.id, date, paid: p.amount, amount: p.amount }], labFee: p.labFee, commissionPct: 0 });
           made.push({ id: ref.id, row: full });
-          sum = round2(sum + amount);
+          sum = round2(sum + p.amount);
         }
-        if (made.length) {
-          tx.set(adminClinicDoc(clinicId, "settings", RECEIPT_COUNTER_DOC), { last: seq, lastReceiptNumber: lastReceipt, updatedAt: new Date().toISOString() }, { merge: true });
+        // The insurer has settled the approval: every live row says so, including one the patient
+        // had already paid off in full (nothing was left on it for the insurer's money).
+        if (insurerPaid) {
+          for (const l of liveLinks) tx.update(adminClinicDoc(clinicId, "ledger", l.ledgerId), { insurerPaidAt: date });
         }
-        if (collectShare) update.shareCollected = { ledgerId: made[0]?.id ?? "none", amount: sum, date };
+        tx.set(adminClinicDoc(clinicId, "settings", RECEIPT_COUNTER_DOC), { last: seq, lastReceiptNumber: lastReceipt, updatedAt: new Date().toISOString() }, { merge: true });
+        if (collectShare) update.shareCollected = { ledgerId: made[0].id, amount: sum, date };
         if (insurerPaid) update.insurerPaid = { date, amount: sum };
         payments = made;
-        paymentsWhat = collectShare ? "share" : "insurer";
       } else if (collectShare) {
         // A claim saved before treatment rows existed: the share still lands in the books, as
         // clinic income filed under its own category.
@@ -697,7 +853,6 @@ export async function PATCH(req: Request) {
         tx.create(ledgerRef, { ...row, createdAt: FieldValue.serverTimestamp() });
       }
 
-      // Writes.
       if (patientRef && patientSnap) {
         const entry = insuranceEntryToWrite(claim.payerId, metlife, patientSnap.data() ?? {});
         if (entry) tx.update(patientRef, { [`insurance.${claim.payerId}`]: stripUndefined(entry) });
@@ -708,45 +863,64 @@ export async function PATCH(req: Request) {
         updatedAt: FieldValue.serverTimestamp(),
         updatedBy: authz.uid,
       });
-      if (payments) return { kind: "ok_payments", payments, what: paymentsWhat };
-      return collected ? { kind: "ok_collected", ...collected } : { kind: "ok" };
+      return { kind: "ok", created, removed, payments, what: collectShare ? "share" : "insurer", collected };
     });
 
     if (result.kind === "no_claim") return fail(404, "That claim was not found.");
     if (result.kind === "unreadable") return fail(500, "That claim could not be read. Please contact support.");
     if (result.kind === "no_patient") return fail(404, "That patient was not found.");
     if (result.kind === "no_staff") return fail(404, `Staff not found: ${result.ids.join(", ")}.`);
+    if (result.kind === "not_dentist") return fail(400, "That staff member is not a dentist.");
+    if (result.kind === "rows_exist") {
+      return fail(409, "This approval already has treatment rows; delete it through Recently Deleted and save the paper again to change its services.");
+    }
+    if (result.kind === "not_treated") return fail(400, "Mark the approval treated before recording payments against it.");
+    if (result.kind === "rows_paid") return fail(409, "This approval has payments recorded against its treatments; reverse them first.");
     if (result.kind === "already_collected") return fail(409, "The patient's share was already collected.", { shareCollected: result.share });
     if (result.kind === "nothing_to_collect") return fail(400, "This approval has no patient share to collect.");
     if (result.kind === "already_insurer_paid") return fail(409, "The insurer's payment was already recorded for this approval.");
     if (result.kind === "no_rows") return fail(400, "This approval has no treatment rows to settle (it was saved before treatments were recorded from approvals).");
-    if (result.kind === "ok_payments") {
-      const actor = { uid: authz.uid, name: authz.name, role: authz.role };
+    if (result.kind === "nothing_left") return fail(400, "Nothing left to settle on this approval.");
+    if (result.kind === "checks") {
+      return fail(400, "The edit does not add up. Fix the marked fields and save again.", { checks: result.checks });
+    }
+
+    if (result.created.length) await auditCharges(clinicId, result.created, actor, "insurance/claims:treated");
+    if (result.removed.length) {
+      await Promise.all(
+        result.removed.map((c) =>
+          recordMoneyChange({
+            entry: { clinicId, action: "delete", collection: "ledger", documentId: c.id, before: c.row, actor, via: "insurance/claims:not-treated" },
+            action: "Procedure Deleted",
+            details: `${String(c.row.description)} - the approval is no longer marked treated`,
+          }).catch((err) => reportServerError("Insurance treatment removal audit failed:", err)),
+        ),
+      );
+    }
+    if (result.payments) {
+      const what = result.what;
       await Promise.all(
         result.payments.map((p) =>
           recordMoneyChange({
-            entry: { clinicId, action: "create", collection: "ledger", documentId: p.id, after: p.row, actor, via: result.what === "share" ? "insurance/claims:collect-share" : "insurance/claims:insurer-paid" },
+            entry: { clinicId, action: "create", collection: "ledger", documentId: p.id, after: p.row, actor, via: what === "share" ? "insurance/claims:collect-share" : "insurance/claims:insurer-paid" },
             action: "Payment Received",
-            details: `${p.row.paid} EGP ${result.what === "share" ? "patient share" : "from the insurer"} - ${String(p.row.description)}`,
+            details: `${p.row.paid} EGP ${what === "share" ? "patient share" : "from the insurer"} - ${String(p.row.description)}`,
           }).catch((err) => reportServerError("Insurance payment audit failed:", err)),
         ),
       );
       for (const p of result.payments) void afterLedgerCreate(clinicId, p.row, actor);
       return NextResponse.json({ ok: true, payments: result.payments.map((p) => p.id) });
     }
-    if (result.kind === "ok_collected") {
+    if (result.collected) {
       // The same trail a manual income row leaves: the money audit, the activity log, the owner's alerts.
-      const actor = { uid: authz.uid, name: authz.name, role: authz.role };
+      const c = result.collected;
       await recordMoneyChange({
-        entry: { clinicId, action: "create", collection: "ledger", documentId: result.ledgerId, after: result.row, actor, via: "insurance/claims:collect-share" },
+        entry: { clinicId, action: "create", collection: "ledger", documentId: c.ledgerId, after: c.row, actor, via: "insurance/claims:collect-share" },
         action: "Finance Entry Created",
-        details: `INCOME ${result.amount} EGP - ${String(result.row.description)}`,
+        details: `INCOME ${c.amount} EGP - ${String(c.row.description)}`,
       }).catch((err) => reportServerError("Insurance share audit failed:", err));
-      void afterLedgerCreate(clinicId, result.row, actor);
-      return NextResponse.json({ ok: true, shareCollected: { ledgerId: result.ledgerId, amount: result.amount } });
-    }
-    if (result.kind === "checks") {
-      return fail(400, "The edit does not add up. Fix the marked fields and save again.", { checks: result.checks });
+      void afterLedgerCreate(clinicId, c.row, actor);
+      return NextResponse.json({ ok: true, shareCollected: { ledgerId: c.ledgerId, amount: c.amount } });
     }
     return NextResponse.json({ ok: true });
   } catch (error) {

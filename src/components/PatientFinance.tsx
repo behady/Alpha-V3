@@ -36,7 +36,7 @@ import { printPaymentReceipt } from "@/lib/printPatientReceipt";
 import { parseLedgerProcedureDescription } from "@/lib/ledgerProcedureParse";
 import InsurerBadge from "@/components/shared/InsurerBadge";
 import { PRIVATE_PAYER_ID } from "@/lib/payers";
-import { insurerOutstanding } from "@/lib/ledgerInsurer";
+import { insurerOutstanding, isApprovalRow, patientPortion } from "@/lib/ledgerInsurer";
 import { sendPatientPaymentWhatsApp } from "@/lib/sendPatientPaymentWhatsAppClient";
 import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
 import {
@@ -130,6 +130,8 @@ interface LedgerItem {
     /** Rows recorded from an insurance approval: the insurer's approved part, and when it paid. */
     insurerCovered?: number | null;
     insurerPaidAt?: string | null;
+    /** The approval that wrote this treatment; its price changes on the Insurance tab only. */
+    claimId?: string | null;
   }
 
 /** The insurer's name for a row, or null for the clinic's own work and rows from before payers existed. */
@@ -348,7 +350,10 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
 
     return rawProcs.map(proc => {
         const paidForThis = payments.filter(p => p.procedureId === proc.id).reduce((sum, p) => sum + (Number(p.paid) || 0), 0);
-        const remaining = (Number(proc.cost) || 0) - paidForThis;
+        // The patient's part only: on a treatment from an insurance approval the insurer's approved
+        // amount is the insurer's to pay until its payment is recorded, so the pay box pre-fills
+        // the patient's share rather than the whole charge.
+        const remaining = patientPortion(proc) - paidForThis;
         return { ...proc, remaining: remaining > 0 ? remaining : 0, isPaid: remaining <= 0, paidForThis };
     });
   }, [transactions]);
@@ -456,8 +461,12 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
       // Inputs only. The charged amount, the commission and the linked note's copy of the cost are
       // all derived server-side — this screen used to compute them and send the answer, which meant
       // the stored figure was whatever the browser decided it was.
+      // A treatment from an insurance approval is priced by the approval: only its date and
+      // wording change here; the server refuses anything that would re-price it.
       const patch: Record<string, unknown> =
-        editingItem.type === "procedure"
+        editingItem.type === "procedure" && isApprovalRow(editingItem)
+          ? { date: editingItem.date, description: editingItem.description }
+          : editingItem.type === "procedure"
           ? {
               date: editingItem.date,
               description: editingItem.description,

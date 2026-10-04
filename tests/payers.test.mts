@@ -293,6 +293,36 @@ function eq<T>(actual: T, expected: T, message: string) {
   eq(byDoctor(empty).length, 0, "and nobody on the payroll sheet");
 }
 
+// --- 6b. Insurance approval work: the dentist's share is on the charge, counted once ---------
+{
+  const payers = parsePayers({
+    payers: [
+      { id: PRIVATE_PAYER_ID, name: "Private", active: true, isDefault: true },
+      { id: "metlife", name: "MetLife", active: true, isDefault: false },
+    ],
+  });
+  // One approved crown: 500 from the insurer, 100 from the patient, Dr Mona at 30% of the approved 500.
+  const procedures = [
+    { type: "procedure", payerId: "metlife", payerName: "MetLife", patientId: "p1", doctorId: "d1", doctorName: "Mona", cost: 600, labFee: 0, claimId: "metlife_d1", doctorCommissionAmount: 150, doctorCommissionPercentage: 30 },
+  ];
+  const payments = [
+    { type: "payment", payerId: "metlife", payerName: "MetLife", patientId: "p1", doctorId: "d1", doctorName: "Mona", paid: 100, claimId: "metlife_d1", doctorCommissionAmount: 0, doctorCommissionPercentage: 0 },
+    { type: "payment", payerId: "metlife", payerName: "MetLife", patientId: "p1", doctorId: "d1", doctorName: "Mona", paid: 500, claimId: "metlife_d1", doctorCommissionAmount: 0, doctorCommissionPercentage: 0 },
+  ];
+  const report = buildPayerReport(procedures, payments, payers);
+  const metlife = report.payers.find((p) => p.payerId === "metlife")!;
+  eq(metlife.commission, 150, "the stamped share counts once, from the charge; the share and the insurer's payment add nothing");
+  eq(metlife.collected, 600, "both payments are money collected");
+  eq(metlife.clinicNet, 450, "clinic net is collected less the dentist's share");
+  const mona = metlife.doctors.find((d) => d.doctorId === "d1")!;
+  eq(mona.commission, 150, "the dentist's line carries the same share");
+  eq(mona.ratePct, 30, "and the rate that earned it, not the payments' zero");
+  eq(byDoctor(report).find((r) => r.doctorId === "d1")!.totalCommission, 150, "the payroll view agrees");
+  // A payment row carrying a stale commission on an approval is still not counted.
+  const stale = buildPayerReport(procedures, [{ ...payments[0], doctorCommissionAmount: 30, doctorCommissionPercentage: 30 }], payers);
+  eq(stale.payers.find((p) => p.payerId === "metlife")!.commission, 150, "a payment against an approval never adds commission of its own");
+}
+
 // --- 7. The wiring, which is what makes any of the above reach real money ---------------------
 {
   const procedures = read("src/app/api/clinical/procedures/route.ts");

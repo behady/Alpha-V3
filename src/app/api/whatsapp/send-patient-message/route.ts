@@ -9,6 +9,7 @@ import { patientSendablePhone } from "@/lib/patientPhone";
 import { resolveWhatsappTemplateForPatient } from "@/lib/whatsappDefaultBodies";
 import type { WhatsAppTemplateType } from "@/types/whatsapp";
 import { parseLedgerProcedureDescription } from "@/lib/ledgerProcedureParse";
+import { patientPortion } from "@/lib/ledgerInsurer";
 import { sendClinicPush } from "@/lib/push";
 import {
   type AppointmentPatientTemplate,
@@ -117,7 +118,8 @@ async function computeLedgerSummary(clinicId: string, patientId: string): Promis
       paid += amount;
     } else if (typ === "procedure") {
       amount = Number(d.cost) || 0;
-      billed += amount;
+      // The patient's part: an insurance approval's unpaid insurer part is not the patient's debt.
+      billed += patientPortion({ ...d, cost: amount, amount: 0 });
     } else {
       amount = Number(d.paid || d.amount || d.cost) || 0;
     }

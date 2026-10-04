@@ -121,6 +121,14 @@ export async function readProcedureCommissionBasis(
   const doctorId = typeof procedure.doctorId === "string" ? procedure.doctorId.trim() : "";
   const payerId = typeof procedure.payerId === "string" ? procedure.payerId.trim() : null;
 
+  if (typeof procedure.claimId === "string" && procedure.claimId.trim()) {
+    // A treatment recorded from an insurance approval. The dentist's share on insurance work is
+    // stamped on the charge from the approval and earned when the line is assigned; the payments
+    // against it (the patient's share, the insurer's settlement) carry none. Paying commission on
+    // them as well would pay the dentist twice.
+    return { labFee, commissionPct: 0 };
+  }
+
   if (!doctorId) {
     // No dentist on the charge: nothing to pay out. Falling back to the percentage stored on the
     // row would attribute money to nobody in particular.
