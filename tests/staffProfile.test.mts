@@ -102,11 +102,13 @@ const STAFF = [
     // Private work is untouched.
     { id: "priv", type: "payment", date: "2026-10-02", doctorId: "s_hana", paid: 1000, procedureId: "chg2", doctorCommissionPercentage: 10, doctorCommissionAmount: 100 },
     { id: "blank", type: "payment", date: "2026-10-02", doctorId: "s_hana", paid: 500, claimId: "  ", doctorCommissionAmount: 50 },
+    // A rate typed by hand on an insurer's payment is real money Reports already counts: it stays.
+    { id: "byhand", type: "payment", date: "2026-10-04", doctorId: "s_hana", paid: 100, claimId: "metlife_D1", doctorCommissionPercentage: 10, doctorCommissionAmount: 10 },
   ];
   const hana = commissionByStaff(rows, STAFF, new Set(["chg_september"])).get("s_hana")!;
-  eq(hana.entries.map((e) => e.id).sort(), ["blank", "priv"], "only private payments are listed; a blank claimId is not a claim");
-  eq(hana.payments, 2, "and only they are counted");
-  eq(hana.total, 150, "the total is what private work earned");
+  eq(hana.entries.map((e) => e.id).sort(), ["blank", "byhand", "priv"], "only private payments are listed; a blank claimId is not a claim; a hand-set rate is kept");
+  eq(hana.payments, 3, "and only they are counted");
+  eq(hana.total, 160, "the total still agrees with Reports, which sums every stamped amount");
 
   const onlyInsurance = commissionByStaff(rows.slice(0, 2), STAFF);
   eq(onlyInsurance.has("s_hana"), false, "a dentist with only insurance payments has no private commission rows at all");

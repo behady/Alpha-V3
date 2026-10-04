@@ -106,7 +106,8 @@ function serviceOf(row: CommissionRow): string {
  * carries 0%; listed here, an insurer's cheque read as private commission the dentist was denied.
  * A payment is insurance work when the claims route stamped it with `claimId`, or when it settles
  * a treatment row that belongs to a claim: one of `rows` carrying `claimId`, or an id in
- * `insuranceRowIds` for the rows dated outside the period.
+ * `insuranceRowIds` for the rows dated outside the period. One that somebody gave a rate by hand
+ * stays: it carries real commission, and Reports counts it.
  */
 export function commissionByStaff(
   rows: readonly CommissionRow[],
@@ -120,7 +121,8 @@ export function commissionByStaff(
   const out = new Map<string, StaffCommission>();
   for (const row of rows) {
     if (String(row.type ?? "") !== "payment") continue;
-    if (hasClaim(row) || insuranceRows.has(String(row.procedureId ?? ""))) continue;
+    const insurance = hasClaim(row) || insuranceRows.has(String(row.procedureId ?? ""));
+    if (insurance && num(row.doctorCommissionAmount) === 0) continue;
     const id = staffIdForRow(staff, row);
     if (!id) continue;
 
