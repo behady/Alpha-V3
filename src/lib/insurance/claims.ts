@@ -139,6 +139,7 @@ export function claimMetlifeFrom(h: MetlifeHeader): ClaimMetlife {
     employer: h.employer,
     certificateNumber: h.certificateNumber,
     dependentCode: h.dependentCode,
+    paperPatientNameAr: h.paperPatientNameAr,
     providerCode: h.providerCode,
     physician: h.physician,
     statusText: h.statusText,

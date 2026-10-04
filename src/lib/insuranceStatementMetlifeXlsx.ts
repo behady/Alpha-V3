@@ -27,6 +27,8 @@ const HEADER_HEIGHTS = [79.5, 30.75, 31.5];
 const TITLE_HEIGHT = 27.75;
 const ROW_HEIGHT = 26.25;
 const FOOTER_ROWS = 3;
+/** Names longer than this (Latin names mostly) print one size smaller so they fit the column. */
+const LONG_NAME = 16;
 /** The dentist's sheet gives the three grand-total rows a little more room than a case row. */
 const FOOTER_HEIGHT = 30;
 const LAST_COL = COL_WIDTHS.length - 1; // K
@@ -58,6 +60,10 @@ const makeStyles = () => {
     title: { font: font(22), fill: brown(), alignment: centered, border: box("thin") } satisfies Style,
     serial: { font: font(24), fill: fillOf(CREAM), alignment: centered, border: box("thin") } satisfies Style,
     caseCell: { font: font(24), alignment: centered, border: box("thin") } satisfies Style,
+    // The name wraps inside its merged block (the block is as tall as the case's lines), and a long
+    // name steps down a size so it still shows whole in the sample's 35.5-character column.
+    caseName: { font: font(24), alignment: { ...centered, wrapText: true }, border: box("thin") } satisfies Style,
+    caseNameLong: { font: font(18), alignment: { ...centered, wrapText: true }, border: box("thin") } satisfies Style,
     line: { font: font(20), alignment: centered, border: box("thin") } satisfies Style,
     subtotal: { font: font(20), fill: brown(), alignment: centered, border: box("thin") } satisfies Style,
     gap: { alignment: centered, border: box("thin") } satisfies Style,
@@ -115,7 +121,7 @@ export function metlifeStatementToWorkbook(statement: MetlifeStatement, header: 
         i === 0
           ? [
               n(c.serial, STYLE.serial),
-              s(c.patientName, STYLE.caseCell),
+              s(c.patientName, c.patientName.length > LONG_NAME ? STYLE.caseNameLong : STYLE.caseName),
               idCell(c.policyNumber, STYLE.caseCell),
               idCell(c.certificateNumber, STYLE.caseCell),
               idCell(c.dependentCode, STYLE.caseCell),

@@ -126,6 +126,8 @@ assert.equal(x.header.employer, "EXAMPLE TRAVEL");
 assert.equal(x.header.providerCode, "DNC0001");
 assert.equal(x.header.physician, "DR. EXAMPLE - DENTAL", "split on the first ' - ' only");
 assert.equal(x.header.approvalDate, "2026-10-03");
+assert.equal(x.header.paperPatientNameAr, "مثال اسم مريض", "the Arabic name is read beside the Latin one");
+assert.equal(normalizeMetlife({ header: { paperPatientName: "X" } }).header.paperPatientNameAr, "", "absent means empty, never undefined");
 assert.equal(x.header.terminationDate, "9999-12-31");
 assert.equal(x.header.certificateNumber, "987");
 assert.equal(x.header.dependentCode, "1");
@@ -792,6 +794,12 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   assert.equal(mem.A5.s.fill.fgColor.rgb, "EEECE1");
   assert.equal(mem.B5.s.fill, undefined);
   assert.equal(mem.B5.s.font.sz, 24);
+  assert.equal(mem.B5.s.alignment.wrapText, true, "the name wraps inside its block");
+  {
+    const long = metlifeStatementToWorkbook({ ...st, cases: [{ ...st.cases[0], patientName: "OMAR KHALED FAHMY ABDEL RAHMAN" }] }, head).Sheets.Sheet1;
+    assert.equal(long.B5.s.font.sz, 18, "a long (Latin) name steps down a size so it shows whole");
+    assert.equal(long.B5.s.alignment.wrapText, true);
+  }
   assert.equal(mem.G5.s.font.sz, 24);
 
   // service lines in H..K

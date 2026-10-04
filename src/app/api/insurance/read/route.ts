@@ -200,10 +200,10 @@ export async function POST(req: Request) {
     const h = extraction.header;
 
     // --- patient match ----------------------------------------------------------------------
-    const patientsSnap = await adminClinicCollection(clinicId, "patients").select("name", "insurance").limit(MAX_PATIENTS).get();
+    const patientsSnap = await adminClinicCollection(clinicId, "patients").select("name", "nameLatin", "insurance").limit(MAX_PATIENTS).get();
     const patients: PatientLite[] = patientsSnap.docs.map((d) => {
-      const p = d.data() as { name?: unknown; insurance?: unknown };
-      return { id: d.id, name: typeof p.name === "string" ? p.name : "", insurance: p.insurance };
+      const p = d.data() as { name?: unknown; nameLatin?: unknown; insurance?: unknown };
+      return { id: d.id, name: typeof p.name === "string" ? p.name : "", nameLatin: p.nameLatin, insurance: p.insurance };
     });
     const match = matchPatient(
       { payerId, certificateNumber: h.certificateNumber, dependentCode: h.dependentCode, paperPatientName: h.paperPatientName },

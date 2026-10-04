@@ -357,6 +357,8 @@ export async function POST(req: Request) {
             ...stripUndefined({
               fileId: `PT-${nextId}`,
               name: newName,
+              // The paper's Latin spelling, kept so a later approval can still be matched by name.
+              nameLatin: h.paperPatientName && h.paperPatientName !== newName ? h.paperPatientName : undefined,
               phone: newPhone,
               allergies: "",
               medicalHistory: "",

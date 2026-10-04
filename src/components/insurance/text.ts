@@ -70,6 +70,7 @@ export const TEXT = {
   certificateNumber: { en: "Certificate number", ar: "رقم الشهادة" },
   dependentCode: { en: "Dependent code", ar: "كود التابع" },
   paperPatientName: { en: "Name on the paper", ar: "الاسم في الورقة" },
+  paperPatientNameAr: { en: "Name in Arabic (printed on the statement)", ar: "الاسم بالعربي (اللي بيتطبع في الكشف)" },
   terminationDate: { en: "Termination date", ar: "تاريخ الانتهاء" },
   providerCode: { en: "Provider code", ar: "كود مقدم الخدمة" },
   physician: { en: "Physician", ar: "الطبيب" },

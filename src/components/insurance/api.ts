@@ -169,6 +169,7 @@ export function blankHeader(): MetlifeHeader {
     certificateNumber: "",
     dependentCode: "",
     paperPatientName: "",
+    paperPatientNameAr: "",
     providerCode: "",
     physician: "",
     statusText: "",

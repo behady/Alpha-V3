@@ -36,7 +36,7 @@ import { tr } from "./text";
 
 export type PatientOption = { id: string; name: string; phone: string; insurance?: Record<string, PatientInsuranceEntry> };
 
-type TextField = "approvalNumber" | "statusText" | "policyNumber" | "employer" | "certificateNumber" | "dependentCode" | "paperPatientName" | "providerCode" | "physician" | "diagnosisCode" | "comment";
+type TextField = "approvalNumber" | "statusText" | "policyNumber" | "employer" | "certificateNumber" | "dependentCode" | "paperPatientName" | "paperPatientNameAr" | "providerCode" | "physician" | "diagnosisCode" | "comment";
 type DateField = "approvalDate" | "terminationDate";
 type MoneyField = "estimatedCost" | "requestedTotal" | "approvedTotal" | "patientShareTotal" | "collectNote";
 type LineNumber = "unitsRequested" | "grossPerUnit" | "grossTotal" | "unitsApproved" | "patientShare" | "approvedAmount";
@@ -109,7 +109,8 @@ export default function ApprovalConfirmCard({
         ? { mode: "existing", patientId: "", locked: false }
         : { mode: "create" },
   );
-  const [newName, setNewName] = useState(result.extraction.header.paperPatientName);
+  // A new patient is named in Arabic, as the clinic writes names and as the statement prints them; the paper's Latin name stays on the claim for matching.
+  const [newName, setNewName] = useState(result.extraction.header.paperPatientNameAr || result.extraction.header.paperPatientName);
   const [newPhone, setNewPhone] = useState("");
   const [search, setSearch] = useState("");
   const [notTreated, setNotTreated] = useState(false);
@@ -313,6 +314,7 @@ export default function ApprovalConfirmCard({
             <TextInput label={t("certificateNumber")} value={x.header.certificateNumber} flag={flag("certificateNumber")} onChange={(v) => setText("certificateNumber", v)} ltr />
             <TextInput label={t("dependentCode")} value={x.header.dependentCode} flag={flag("dependentCode")} onChange={(v) => setText("dependentCode", v)} ltr />
             <TextInput label={t("paperPatientName")} value={x.header.paperPatientName} flag={flag("paperPatientName")} onChange={(v) => setText("paperPatientName", v)} ltr />
+            <TextInput label={t("paperPatientNameAr")} value={x.header.paperPatientNameAr} flag={flag("paperPatientNameAr")} onChange={(v) => { setText("paperPatientNameAr", v); if (picker.mode === "create") setNewName(v); }} />
             <DateInput label={t("terminationDate")} value={x.header.terminationDate} flag={flag("terminationDate")} onChange={(v) => setDate("terminationDate", v)} />
           </Group>
 
