@@ -167,7 +167,7 @@ export default function StaffProfile({
           </div>
         </div>
 
-        <div className="mt-6 grid grid-cols-2 gap-6 sm:grid-cols-4">
+        <div className={`mt-6 grid grid-cols-2 gap-6 ${dentist ? "sm:grid-cols-5" : "sm:grid-cols-4"}`}>
           {[
             { v: hoursText(row?.minutesWorked ?? 0), l: isAr ? "ساعات الفترة" : "Hours this period" },
             { v: money(basePay), l: isAr ? "الأساسي التقديري" : "Estimated base pay" },

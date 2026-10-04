@@ -18,7 +18,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { collection, getDocs, onSnapshot, orderBy, query, where } from "firebase/firestore";
+import { collection, doc, getDocs, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import { ref, getDownloadURL } from "firebase/storage";
 import { FileText, Loader2, Banknote, CheckCircle2 } from "lucide-react";
 import { db, storage } from "@/lib/firebase";
@@ -30,7 +30,7 @@ import { CLAIMS_COLLECTION, parseClaim, type ClaimStatus, type InsuranceClaim } 
 import { readInsurance } from "@/lib/patientInsurance";
 import { parsePayers, PRIVATE_PAYER_ID, type Payer } from "@/lib/payers";
 import { isDentistStaff } from "@/lib/staffRoles";
-import { cairoToday, collectPatientShare, patchClaim, InsuranceCallError } from "./api";
+import { collectPatientShare, patchClaim, InsuranceCallError } from "./api";
 import { tr, type TextKey } from "./text";
 import { useWording } from "./useWording";
 
@@ -57,6 +57,7 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
   const [dentists, setDentists] = useState<Dentist[]>([]);
   const [claims, setClaims] = useState<InsuranceClaim[]>([]);
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
@@ -69,13 +70,15 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
       },
       (err) => {
         console.error("Patient insurance claims failed", err);
+        setFailed(true);
         setLoading(false);
       },
     );
-    const unsubPayers = onSnapshot(collection(db, "clinics", clinicId, "settings"), (snap) => {
-      const payersDoc = snap.docs.find((d) => d.id === "payers");
-      setPayers(parsePayers(payersDoc?.data()));
-    });
+    const unsubPayers = onSnapshot(
+      doc(db, "clinics", clinicId, "settings", "payers"),
+      (snap) => setPayers(parsePayers(snap.data())),
+      () => setPayers([]),
+    );
     getDocs(collection(db, "clinics", clinicId, "staff"))
       .then((snap) =>
         setDentists(
@@ -137,11 +140,7 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
     if (!ok) return;
     setBusy(claim.id);
     try {
-      const description = t("shareDescription")
-        .replace("{insurer}", payerName(claim.payerId))
-        .replace("{number}", claim.approvalNumber)
-        .replace("{patient}", claim.patientName);
-      const error = await collectPatientShare({ clinicId, claimId: claim.id, amount, description, date: cairoToday() });
+      const error = await collectPatientShare(clinicId, claim.id);
       if (error) showToast(error, "error");
       else showToast(t("shareCollectedToast"), "success");
     } catch (err) {
@@ -218,6 +217,8 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
           <div className="flex justify-center py-8">
             <Loader2 className="animate-spin text-ink-muted" size={22} />
           </div>
+        ) : failed ? (
+          <p className="mt-3 text-[13px] font-semibold text-red-700">{t("claimsFailed")}</p>
         ) : claims.length === 0 ? (
           <p className="mt-3 text-[13px] font-semibold text-ink-muted">{t("noPatientClaims")}</p>
         ) : (
@@ -253,7 +254,7 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                               <button type="button" onClick={() => openDoc(c)} disabled={!c.doc.path} title={t("openPdf")} className="rounded-lg border border-line p-1.5 text-ink-muted hover:text-ink disabled:opacity-40">
                                 <FileText size={14} />
                               </button>
-                              {c.totals.patientShare > 0 &&
+                              {c.totals.patientShare > 0 && c.status !== "cancelled" &&
                                 (c.shareCollected ? (
                                   <span className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-800">
                                     <CheckCircle2 size={12} /> {t("shareCollectedOn")} {c.shareCollected.date}

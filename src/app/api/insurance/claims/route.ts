@@ -7,6 +7,10 @@ import { requireStaffPermission } from "@/lib/apiStaffAuth";
 import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import { findPayer, parsePayers, PRIVATE_PAYER_ID, type CommissionRates } from "@/lib/payers";
+import { isFullAccessRole } from "@/lib/permissions";
+import { buildManualEntryRow } from "@/lib/ledgerWrite";
+import { recordMoneyChange } from "@/lib/server/ledgerAudit";
+import { afterLedgerCreate } from "@/lib/alerts/moneyAlerts";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { writeInsurance } from "@/lib/patientInsurance";
 import { stripUndefined } from "@/lib/server/recycleBinStore";
@@ -30,6 +34,7 @@ import {
   type ClaimStatus,
   type InsuranceClaim,
   applyDentistPicks,
+  type ShareCollected,
 } from "@/lib/insurance/claims";
 
 export const runtime = "nodejs";
@@ -39,7 +44,9 @@ const PERMISSION = "patients.edit";
 const MAX_LINES = 100;
 const MAX_NAME = 200;
 const MAX_WORDING = 200;
-const PATCH_KEYS = new Set(["status", "treatedDate", "patientId", "lines", "metlife", "dentists", "shareCollected"]);
+const PATCH_KEYS = new Set(["status", "treatedDate", "patientId", "lines", "metlife", "dentists", "collectShare"]);
+/** The ledger category the patient's share is filed under: a readable word, as every other category is. */
+const SHARE_CATEGORY = "Insurance patient share";
 
 function fail(status: number, error: string, extra?: Record<string, unknown>) {
   return NextResponse.json({ ok: false, error, ...extra }, { status });
@@ -400,19 +407,18 @@ export async function PATCH(req: Request) {
       }
       if (Object.keys(picks).length === 0) return fail(400, "dentists is empty.");
     }
-    // The patient's share taken as cash: the ledger row the desk just posted, and how much.
-    let share: { ledgerId: string; amount: number } | undefined;
-    if ("shareCollected" in patch) {
-      if (!isRecord(patch.shareCollected)) return fail(400, "shareCollected must be an object.");
-      const ledgerId = segment(patch.shareCollected.ledgerId);
-      const amount = Number(patch.shareCollected.amount);
-      if (!ledgerId || !Number.isFinite(amount) || amount <= 0) return fail(400, "shareCollected needs a ledgerId and an amount above zero.");
-      share = { ledgerId, amount: Math.round(amount * 100) / 100 };
-    }
+    // The patient's share taken as cash. The ledger row and the claim's stamp are written in ONE
+    // transaction here — two separate calls left a stray cash row whenever the second one failed.
+    const collectShare = patch.collectShare === true;
+    if ("collectShare" in patch && !collectShare) return fail(400, "collectShare must be true.");
 
     // --- who --------------------------------------------------------------------------------
     const authz = await requireStaffPermission(req, clinicId, PERMISSION);
     if (!authz.ok) return authz.response;
+    // Cash into the ledger is the finance permission's business, exactly as a manual income row is.
+    if (collectShare && !(isFullAccessRole(authz.role) || authz.permissions.includes("finance.add"))) {
+      return fail(403, "Recording the patient's share needs the finance permission.");
+    }
 
     // --- add-on -----------------------------------------------------------------------------
     if (!(await clinicHasFeature(clinicId, "insurance"))) {
@@ -426,7 +432,9 @@ export async function PATCH(req: Request) {
       | { kind: "unreadable" }
       | { kind: "no_patient" }
       | { kind: "no_staff"; ids: string[] }
-      | { kind: "ledger_missing" }
+      | { kind: "already_collected"; share: ShareCollected }
+      | { kind: "nothing_to_collect" }
+      | { kind: "ok_collected"; ledgerId: string; amount: number; row: Record<string, unknown> }
       | { kind: "checks"; checks: Check[] };
     const result = await adminDb().runTransaction(async (tx): Promise<PatchOutcome> => {
       // Reads first: the claim, the new patient, the payer's provider code.
@@ -438,7 +446,7 @@ export async function PATCH(req: Request) {
       const patientSnap = patientRef ? await tx.get(patientRef) : null;
       if (patientSnap && !patientSnap.exists) return { kind: "no_patient" };
       const reshape = rawLines !== undefined || rawMetlife !== undefined;
-      const payersSnap = reshape ? await tx.get(adminClinicDoc(clinicId, "settings", "payers")) : null;
+      const payersSnap = reshape || collectShare ? await tx.get(adminClinicDoc(clinicId, "settings", "payers")) : null;
       // The staff records behind the picks, read inside the transaction so the stamped rate is the
       // one on file at this moment.
       const staffById = new Map<string, { id: string; name: string } & CommissionRates>();
@@ -451,13 +459,14 @@ export async function PATCH(req: Request) {
           staffById.set(ids[i], {
             id: ids[i],
             name: typeof d.name === "string" ? d.name : "",
-            commissionPercentage: typeof d.commissionPercentage === "number" ? d.commissionPercentage : null,
+            // Raw: commissionRateFor coerces, and a rate stored as "25" must not stamp as 0%.
+            commissionPercentage: d.commissionPercentage as number | null | undefined,
             commissionByPayer: isRecord(d.commissionByPayer) ? d.commissionByPayer : null,
           });
         });
       }
-      const ledgerSnap = share ? await tx.get(adminClinicDoc(clinicId, "ledger", share.ledgerId)) : null;
-      if (ledgerSnap && !ledgerSnap.exists) return { kind: "ledger_missing" };
+      if (collectShare && claim.shareCollected) return { kind: "already_collected", share: claim.shareCollected };
+      if (collectShare && claim.totals.patientShare <= 0) return { kind: "nothing_to_collect" };
 
       const update: Record<string, unknown> = {};
       if (status !== undefined) update.status = status;
@@ -501,7 +510,27 @@ export async function PATCH(req: Request) {
         if (applied.unknownStaff.length) return { kind: "no_staff", ids: applied.unknownStaff };
         update.dentists = applied.dentists;
       }
-      if (share) update.shareCollected = { ...share, date: ymdInTimeZone(clinicTimeZone()) };
+      // The patient's share as one income row: clinic money, nobody's balance, filed under a
+      // readable category so the finance screens and the owner's briefing show it as what it is.
+      let collected: { ledgerId: string; amount: number; row: Record<string, unknown> } | null = null;
+      if (collectShare) {
+        const amount = claim.totals.patientShare;
+        const date = ymdInTimeZone(clinicTimeZone());
+        const payer = findPayer(parsePayers(payersSnap?.data()), claim.payerId);
+        const row = buildManualEntryRow({
+          type: "income",
+          amount,
+          description: `Patient share - ${payer?.name ?? claim.payerId} approval ${claim.approvalNumber} - ${claim.patientName}`,
+          category: SHARE_CATEGORY,
+          date,
+          method: "Cash",
+          actor: { uid: authz.uid, name: authz.name },
+        });
+        const ledgerRef = adminClinicCollection(clinicId, "ledger").doc();
+        collected = { ledgerId: ledgerRef.id, amount, row };
+        update.shareCollected = { ledgerId: ledgerRef.id, amount, date };
+        tx.create(ledgerRef, { ...row, createdAt: FieldValue.serverTimestamp() });
+      }
 
       // Writes.
       if (patientRef && patientSnap) {
@@ -514,14 +543,26 @@ export async function PATCH(req: Request) {
         updatedAt: FieldValue.serverTimestamp(),
         updatedBy: authz.uid,
       });
-      return { kind: "ok" };
+      return collected ? { kind: "ok_collected", ...collected } : { kind: "ok" };
     });
 
     if (result.kind === "no_claim") return fail(404, "That claim was not found.");
     if (result.kind === "unreadable") return fail(500, "That claim could not be read. Please contact support.");
     if (result.kind === "no_patient") return fail(404, "That patient was not found.");
     if (result.kind === "no_staff") return fail(404, `Staff not found: ${result.ids.join(", ")}.`);
-    if (result.kind === "ledger_missing") return fail(404, "That ledger row was not found.");
+    if (result.kind === "already_collected") return fail(409, "The patient's share was already collected.", { shareCollected: result.share });
+    if (result.kind === "nothing_to_collect") return fail(400, "This approval has no patient share to collect.");
+    if (result.kind === "ok_collected") {
+      // The same trail a manual income row leaves: the money audit, the activity log, the owner's alerts.
+      const actor = { uid: authz.uid, name: authz.name, role: authz.role };
+      await recordMoneyChange({
+        entry: { clinicId, action: "create", collection: "ledger", documentId: result.ledgerId, after: result.row, actor, via: "insurance/claims:collect-share" },
+        action: "Finance Entry Created",
+        details: `INCOME ${result.amount} EGP - ${String(result.row.description)}`,
+      }).catch((err) => reportServerError("Insurance share audit failed:", err));
+      void afterLedgerCreate(clinicId, result.row, actor);
+      return NextResponse.json({ ok: true, shareCollected: { ledgerId: result.ledgerId, amount: result.amount } });
+    }
     if (result.kind === "checks") {
       return fail(400, "The edit does not add up. Fix the marked fields and save again.", { checks: result.checks });
     }
