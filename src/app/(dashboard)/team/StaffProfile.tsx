@@ -416,7 +416,6 @@ export default function StaffProfile({
               const editing = editingLog === log.id;
               const far = log.checkInDistanceM != null && log.checkInDistanceM > FAR_M;
               const extra = log.status === "completed" ? shiftOvertimeMinutes(log, schedule, CLINIC_TZ) : 0;
-              const decided = log.overtimeStatus === "approved" || log.overtimeStatus === "rejected";
               return (
                 <li key={log.id} className="rounded-2xl border border-line bg-surface-subtle p-4 sm:p-5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -427,10 +426,22 @@ export default function StaffProfile({
                       <div className="min-w-0">
                         <p className="text-[16px] font-extrabold text-ink">{dayOf(log.date, isAr)}</p>
                         <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[15px] font-semibold text-ink-body">
-                          <span className="font-figure" dir="ltr">
-                            {timeOf(log.checkIn, isAr)} – {timeOf(log.checkOut, isAr)}
-                          </span>
-                          <span className="font-figure text-ink-muted">{hoursText(log.durationMinutes)}</span>
+                          {/*
+                            Arabic says the range in words. Forcing the span left-to-right (as the
+                            English needs) scrambled "1:25 م – 9:00 م" into "م – 9:00 م 1:25".
+                          */}
+                          {isAr ? (
+                            <span className="font-figure">
+                              من {timeOf(log.checkIn, true)} لـ {timeOf(log.checkOut, true)}
+                            </span>
+                          ) : (
+                            <span className="font-figure" dir="ltr">
+                              {timeOf(log.checkIn, false)} – {timeOf(log.checkOut, false)}
+                            </span>
+                          )}
+                          {log.status !== "active" && (
+                            <span className="font-figure text-ink-muted">{hoursText(log.durationMinutes)}</span>
+                          )}
                           {log.checkInDistanceM != null && (
                             <span className={`inline-flex items-center gap-1.5 ${far ? "font-bold text-danger" : "text-ink-muted"}`}>
                               <MapPin size={15} />
@@ -494,20 +505,17 @@ export default function StaffProfile({
 
                   {/*
                     Extra time is a decision, so it is asked on the shift it belongs to — and only on
-                    a shift that actually ran past the roster, or one already decided (so a decision
-                    can be reversed). It used to be asked under every shift.
+                    a shift that actually ran past the roster. It used to be asked under every shift.
+                    A stale "approved" on an on-time shift is hidden too: with no extra minutes it
+                    moves no money, and showing it only raised the question "what extra time?".
                   */}
-                  {log.status === "completed" && (extra > 0 || decided) && (
+                  {extra > 0 && (
                     <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-line pt-4">
                       <Timer size={18} className="shrink-0 text-ink-muted" />
                       <span className="text-[15px] font-semibold text-ink">
-                        {extra > 0
-                          ? isAr
-                            ? `فضل ${hoursWords(extra, true)} زيادة عن ورديته.`
-                            : `Stayed ${hoursWords(extra, false)} past their shift.`
-                          : isAr
-                            ? "وقت زيادة"
-                            : "Extra time"}
+                        {isAr
+                          ? `فضل ${hoursWords(extra, true)} زيادة عن ورديته.`
+                          : `Stayed ${hoursWords(extra, false)} past their shift.`}
                       </span>
                       <span
                         className={`rounded-full px-3 py-1 text-[13px] font-bold ${
