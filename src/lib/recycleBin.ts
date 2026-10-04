@@ -92,6 +92,11 @@ export const CASCADE_CHILD_COLLECTIONS = ["ledger", "clinical_notes"] as const;
  *
  * Logs and message queues are deliberately absent (system_logs, ledger_audit, sms_outbox, …): they
  * are the record that things happened, not part of the patient's file.
+ *
+ * So are lab cases. A crown back from the lab is money the clinic owes the lab whether or not the
+ * patient's card still exists, and the lab's balance is its cases minus its payments: binning the
+ * case would leave the payment standing and make the clinic look paid up, or overpaid. The case
+ * keeps the patient's name on it for the board.
  */
 export const PATIENT_CASCADE_COLLECTIONS = [
   "ledger",
@@ -106,8 +111,50 @@ export const PATIENT_CASCADE_COLLECTIONS = [
   "ortho_ai_reports",
   "ortho_cases",
   "ortho_sessions",
-  "lab_cases",
 ] as const;
+
+/**
+ * The permission deleting one record of each kind on its own would take. Deleting a patient never
+ * lets anyone delete more than they could one by one: without this, `patients.delete` alone would
+ * have moved collected payments (finance.delete) and visit notes (clinical.delete) out of the books.
+ */
+const CASCADE_DELETE_PERMISSION: Record<string, string> = {
+  ledger: "finance.delete",
+  appointments: "appointments.delete",
+  clinical_notes: "clinical.delete",
+  prescriptions: "clinical.delete",
+  treatment_plans: "clinical.delete",
+  diagnosis_chats: "clinical.delete",
+  xray_reports: "clinical.delete",
+  ortho_ai_reports: "clinical.delete",
+  ortho_cases: "clinical.delete",
+  ortho_sessions: "clinical.delete",
+  patient_media: "patients.edit",
+  insurance_claims: "patients.edit",
+};
+
+/** May this person move (or bring back) a patient's file holding these records? */
+export function checkCascadeAllowed(
+  counts: Record<string, number>,
+  actor: { role: string | null | undefined; permissions: string[] }
+): true | BinRefusal {
+  if (isFullAccessRole(actor.role)) return true;
+  const missing = [
+    ...new Set(
+      Object.entries(counts)
+        .filter(([, n]) => n > 0)
+        .map(([collection]) => CASCADE_DELETE_PERMISSION[collection] ?? "admin")
+        .filter((p) => !actor.permissions.includes(p))
+    ),
+  ];
+  if (missing.length === 0) return true;
+  return {
+    ok: false,
+    status: 403,
+    error: `This patient's file holds records you are not allowed to delete (${missing.join(", ")}). Ask a clinic admin.`,
+    reason: "CASCADE_NO_PERMISSION",
+  };
+}
 
 /** The collections an entry of this collection may carry as children; empty = none. */
 export function cascadeCollectionsFor(parentCollection: string): readonly string[] {
@@ -165,7 +212,6 @@ const LINKED_NAMES: Record<string, [string, string]> = {
   ortho_ai_reports: ["ortho AI reports", "تقارير تقويم"],
   ortho_cases: ["ortho case", "ملف تقويم"],
   ortho_sessions: ["ortho visits", "زيارات تقويم"],
-  lab_cases: ["lab cases", "حالات معمل"],
 };
 
 /**
@@ -265,6 +311,9 @@ export const MAX_ITEMS_PER_ACTION = 200;
  * longer capped, so bytes are the limit that matters; this leaves room for the entry fields.
  */
 export const MAX_ACTION_BYTES = 8_000_000;
+
+/** What one document costs a commit beyond its snapshot: the entry's own fields and three names. */
+export const PER_DOCUMENT_OVERHEAD_BYTES = 1_500;
 
 export type BinRefusal = { ok: false; status: number; error: string; reason: string };
 export type BinApproval = { ok: true; rule: BinCollectionRule };
@@ -563,8 +612,6 @@ export function labelFor(collection: string, snapshot: Record<string, unknown>):
       return "Ortho case";
     case "ortho_sessions":
       return s("date") ? `Ortho visit — ${s("date")}` : "Ortho visit";
-    case "lab_cases":
-      return s("code") ? `Lab case ${s("code")}` : "Lab case";
     case "services":
     case "drugs":
     case "inventory":

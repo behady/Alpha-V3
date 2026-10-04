@@ -20,6 +20,7 @@ import { SAMPLE_RAW } from "./fixtures/insuranceMetlife.fixture";
 const PROJECT = "demo-bin-cascade";
 const CLINIC = "C1";
 const UID = "admin-1";
+const ASSISTANT = "assistant-1";
 
 const { privateKey: PEM } = generateKeyPairSync("rsa", {
   modulusLength: 2048,
@@ -81,6 +82,7 @@ const clinic = db.collection("clinics").doc(CLINIC);
 const col = (name: string) => clinic.collection(name);
 const bin = db.collection("deleted_records");
 const TOKEN = idToken(UID);
+let as = TOKEN;
 
 let passed = 0;
 let failed = 0;
@@ -99,7 +101,7 @@ async function call(handler: (r: Request) => Promise<Response>, method: "POST" |
   const res = await handler(
     new Request(`http://localhost${path}`, {
       method,
-      headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+      headers: { authorization: `Bearer ${as}`, "content-type": "application/json" },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     }),
   );
@@ -123,12 +125,15 @@ async function wipe() {
   for (const d of (await bin.where("clinicId", "==", CLINIC).get()).docs) await db.recursiveDelete(d.ref);
   await db.recursiveDelete(clinic);
   await db.recursiveDelete(db.collection("users").doc(UID));
+  await db.recursiveDelete(db.collection("users").doc(ASSISTANT));
 }
 
 // --- the clinic, one admin, one insurer, two patients ----------------------------------------------
 await wipe();
 await clinic.set({ name: "Cascade Test", status: "Active", subscriptionTier: "Premium", features: { insurance: true } });
 await db.collection("users").doc(UID).set({ name: "Tester", clinicRoles: { [CLINIC]: "Admin" } });
+// May delete a patient card, but not money or visit notes on their own.
+await db.collection("users").doc(ASSISTANT).set({ name: "Desk", clinicRoles: { [CLINIC]: "Assistant" }, clinicPermissions: { [CLINIC]: ["patients.delete", "patients.add", "patients.edit"] } });
 await col("settings").doc("payers").set({ payers: [{ id: "metlife", name: "MetLife", format: "metlife", providerCode: "DNC0001", active: true }] });
 
 await col("patients").doc("P1").set({ name: "EXAMPLE PATIENT NAME", phone: "+201000000001" });
@@ -164,7 +169,17 @@ console.log("deleting the patient: first the counts");
   check("nothing moved yet", await exists("patients", "P1") && await exists("ledger", "L1"));
 }
 
-const LINKED = 7 + 6 + 1 + 1 + 1 + 1 + 1 + 1 + 1; // ledger, notes, appointment, rx, media, plan, lab, ortho, approval
+console.log("deleting the patient without permission to delete money");
+{
+  as = idToken(ASSISTANT);
+  const { status, json } = await deletePatient("P1", true);
+  as = TOKEN;
+  check("is refused before anything moves", status === 403 && json.reason === "CASCADE_NO_PERMISSION", json);
+  check("and names what is missing", /finance\.delete/.test(json.error ?? "") && /clinical\.delete/.test(json.error ?? ""), json.error);
+  check("nothing moved", (await exists("patients", "P1")) && (await countFor("ledger", "P1")) === 7);
+}
+
+const LINKED = 7 + 6 + 1 + 1 + 1 + 1 + 1 + 1; // ledger, notes, appointment, rx, media, plan, ortho, approval
 console.log("deleting the patient: confirmed");
 {
   const { status, json } = await deletePatient("P1", true);
@@ -173,9 +188,10 @@ console.log("deleting the patient: confirmed");
   check("and says how many records went with them", item?.linked === LINKED, item);
   check("the patient's charges and payments are gone from the books", (await countFor("ledger", "P1")) === 0);
   check("the approval is gone from the Insurance page", !(await exists("insurance_claims", CLAIM)));
-  check("the visit, notes, image, plan, lab case and ortho case are gone",
+  check("the visit, notes, image, plan and ortho case are gone",
     !(await exists("appointments", "A1")) && (await countFor("clinical_notes", "P1")) === 0 && !(await exists("patient_media", "M1")) &&
-    !(await exists("treatment_plans", "TP1")) && !(await exists("lab_cases", "LC1")) && !(await exists("ortho_cases", "P1")));
+    !(await exists("treatment_plans", "TP1")) && !(await exists("ortho_cases", "P1")));
+  check("the lab case stays: it is what the clinic owes the lab", await exists("lab_cases", "LC1"));
   check("another patient's money is untouched", await exists("ledger", "L9"));
   const children = await bin.where("cascadeOf", "==", entryOf("patients", "P1")).get();
   check("every linked record is in the bin as the patient's child", children.size === LINKED, children.size);
@@ -249,6 +265,32 @@ console.log("the trap from before this change: a second copy saved while the fir
   check("its treatment rows leave the bin with it", (await bin.where("cascadeOf", "==", entryOf("insurance_claims", CLAIM)).get()).empty);
   const retry = await deletePatient("P1", true);
   check("then the patient deletes", retry.json.results?.[0]?.status === "deleted", retry.json);
+}
+
+console.log("a patient and their own paid approval named in one request");
+{
+  await col("patients").doc("P4").set({ name: "Fourth Patient", phone: "+201000000004" });
+  await col("ledger").doc("L41").set({ patientId: "P4", type: "procedure", description: "Crown", amount: 400, paid: 100 });
+  await col("clinical_notes").doc("N41").set({ patientId: "P4", procedure: "Crown", ledgerId: "L41" });
+  await col("insurance_claims").doc("metlife_d6000009").set({ patientId: "P4", approvalNumber: "D6000009", ledgerIds: { 0: { ledgerId: "L41", noteId: "N41" } } });
+  const { json } = await call(deleteRoute.POST, "POST", "/api/records/delete", {
+    clinicId: CLINIC,
+    acknowledgeOrphans: true,
+    items: [{ collection: "patients", documentId: "P4" }, { collection: "insurance_claims", documentId: "metlife_d6000009" }],
+  });
+  const byId = Object.fromEntries((json.results ?? []).map((r: Json) => [r.documentId, r.status]));
+  check("both are deleted — the paid approval is not left behind", byId.P4 === "deleted" && byId.metlife_d6000009 === "deleted", json);
+  check("nothing of the patient is left live", !(await exists("insurance_claims", "metlife_d6000009")) && !(await exists("ledger", "L41")) && !(await exists("clinical_notes", "N41")));
+  const claimEntry = (await bin.doc(entryOf("insurance_claims", "metlife_d6000009")).get()).data();
+  check("the approval went as the patient's child", claimEntry?.cascadeOf === entryOf("patients", "P4"), claimEntry);
+}
+
+console.log("records imported with a number for the patient id");
+{
+  await col("patients").doc("900001").set({ name: "Imported Patient", phone: "+201000000005" });
+  await col("ledger").doc("L51").set({ patientId: 900001, type: "procedure", description: "Old charge", amount: 50 });
+  const { json } = await deletePatient("900001", true);
+  check("are found and go with the patient", json.results?.[0]?.status === "deleted" && json.results?.[0]?.linked === 1 && !(await exists("ledger", "L51")), json);
 }
 
 console.log("a patient with nothing linked");

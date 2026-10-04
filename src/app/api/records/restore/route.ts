@@ -9,7 +9,9 @@ import { reportServerError } from "@/lib/server/reportError";
 import { recordLedgerAuditBatch } from "@/lib/server/ledgerAudit";
 import {
   cascadeCollectionsFor,
+  cascadeCounts,
   checkBinnable,
+  checkCascadeAllowed,
   checkNotCascadeChild,
   checkRestorable,
   checkRestoreAllowed,
@@ -17,7 +19,7 @@ import {
   logModuleFor,
   restoreOverrides,
 } from "@/lib/recycleBin";
-import { binCollection, binEntry, binPayload, writeHistory } from "@/lib/server/recycleBinStore";
+import { binCollection, binEntry, binPayload, closeEntries } from "@/lib/server/recycleBinStore";
 
 /**
  * Puts a record back where it was — or refuses, clearly, and changes nothing.
@@ -157,9 +159,19 @@ export async function POST(request: Request) {
       }
       children.push({ entryRef: d.ref, entry: child, targetRef: childTarget, collection: childCollection });
     }
+    // Bringing a patient's file back puts money and notes back in the books: the same people who
+    // may delete those may restore them.
+    const cascadeAllowed = checkCascadeAllowed(cascadeCounts(children), { role: auth.role, permissions: auth.permissions });
+    if (cascadeAllowed !== true) {
+      return NextResponse.json({ ok: false, error: cascadeAllowed.error, reason: cascadeAllowed.reason }, { status: cascadeAllowed.status });
+    }
 
     const result = await adminDb().runTransaction(async (tx) => {
       const freshEntry = await tx.get(entryRef);
+      // A second click, or a second person: the entry is already handled, whatever its children say.
+      if (freshEntry.data()?.status !== "deleted") {
+        return { ok: false as const, status: 409, error: "This entry has already been restored or removed.", reason: "ALREADY_HANDLED" };
+      }
       const freshTarget = await tx.get(targetRef);
       // Every child's entry, saved copy and place, read in one round trip before anything is
       // written: a patient's file can be a few hundred documents.
@@ -232,17 +244,17 @@ export async function POST(request: Request) {
     }
 
     // The fact of the deletion outlives the copy of the data, and the live id is freed so the same
-    // record can be binned again later.
-    await writeHistory({ ...entry, restoredByUid: auth.uid }, "restored");
-    await binPayload(entryId).delete().catch(() => {});
-    await entryRef.delete().catch(() => {});
-    await Promise.all(
-      children.map(async (c) => {
-        await writeHistory({ ...c.entry, restoredByUid: auth.uid }, "restored");
-        await binPayload(c.entryRef.id).delete().catch(() => {});
-        await c.entryRef.delete().catch(() => {});
-      }),
-    );
+    // record can be binned again later. The records are already back: a failure here leaves
+    // entries marked "restored" (out of the list, harmless) and must not report the restore failed.
+    try {
+      await closeEntries(
+        [...children.map((c) => ({ id: c.entryRef.id, data: c.entry })), { id: entryId, data: entry }],
+        "restored",
+        { restoredByUid: auth.uid },
+      );
+    } catch (err) {
+      reportServerError("records/restore cleanup failed", err);
+    }
 
     // Money came back into the books: recorded like any other money write.
     const restoredLedger = children.filter((c) => c.collection === "ledger");

@@ -15,6 +15,7 @@ import {
   describeLinked,
   cascadeCollectionsFor,
   cascadeCounts,
+  checkCascadeAllowed,
   checkNotCascadeChild,
   checkPatientCascade,
   checkBinnable,
@@ -256,9 +257,11 @@ assert.equal(labelFor("clinical_notes", {}), "Treatment note", "a label is never
 
 // Every record that finds its patient by patientId goes with them — money, visits, approvals and
 // the ortho and lab work included — so Finance and Insurance stop showing a deleted patient.
-for (const c of ["ledger", "clinical_notes", "appointments", "prescriptions", "patient_media", "insurance_claims", "lab_cases", "ortho_cases"]) {
+for (const c of ["ledger", "clinical_notes", "appointments", "prescriptions", "patient_media", "insurance_claims", "ortho_cases"]) {
   assert.ok(PATIENT_CASCADE_COLLECTIONS.includes(c), `${c} goes with its patient`);
 }
+// A lab case is what the clinic owes the lab; binning it would leave the lab's payments standing.
+assert.ok(!PATIENT_CASCADE_COLLECTIONS.includes("lab_cases"), "lab cases stay when a patient is deleted");
 // The logs are the record that things happened, not part of the file.
 for (const c of ["system_logs", "ledger_audit", "sms_outbox", "whatsapp_outbox", "notifications"]) {
   assert.ok(!PATIENT_CASCADE_COLLECTIONS.includes(c), `${c} stays when a patient is deleted`);
@@ -283,6 +286,22 @@ assert.match(taken.error, /permanently/, "and says how to clear it");
 assert.equal(checkPatientCascade({ alreadyInBin: [], totalBytes: MAX_ACTION_BYTES + 1 }).reason, "TOO_LARGE");
 assert.ok(MAX_ACTION_BYTES < 10 * 1024 * 1024, "one action must fit one Firestore commit");
 
+// Deleting a patient never deletes more than the person could delete one record at a time.
+const assistant = { role: "Assistant", permissions: ["patients.delete", "patients.edit"] };
+assert.equal(checkCascadeAllowed({ patient_media: 2, insurance_claims: 1 }, assistant), true);
+const noMoney = checkCascadeAllowed({ ledger: 3, appointments: 1 }, assistant);
+assert.equal(noMoney.reason, "CASCADE_NO_PERMISSION");
+assert.match(noMoney.error, /finance\.delete/);
+assert.match(noMoney.error, /appointments\.delete/);
+assert.equal(checkCascadeAllowed({ ledger: 3 }, { role: "Assistant", permissions: ["finance.delete"] }), true);
+assert.equal(checkCascadeAllowed({ ledger: 3, clinical_notes: 9 }, { role: "Admin", permissions: [] }), true, "an admin may");
+assert.equal(checkCascadeAllowed({ ledger: 3 }, { role: "Owner", permissions: [] }), true, "an owner may");
+assert.equal(checkCascadeAllowed({ ledger: 0 }, assistant), true, "a zero count needs nothing");
+assert.equal(checkCascadeAllowed({ something_new: 1 }, assistant).reason, "CASCADE_NO_PERMISSION", "an unmapped kind is admin-only");
+for (const c of PATIENT_CASCADE_COLLECTIONS) {
+  assert.equal(checkCascadeAllowed({ [c]: 1 }, { role: "Assistant", permissions: [] }).ok, false, `${c} needs a permission`);
+}
+
 // A child comes back, or goes for good, only with its parent.
 assert.equal(checkNotCascadeChild({}), true);
 const child = checkNotCascadeChild({ cascadeOf: "abc", cascadeParentLabel: "Omar Khaled" });
@@ -292,7 +311,6 @@ assert.match(checkNotCascadeChild({ cascadeOf: "abc" }).error, /another record/,
 
 assert.equal(labelFor("appointments", { date: "2026-10-04", time: "19:30" }), "2026-10-04 19:30");
 assert.equal(labelFor("appointments", {}), "Appointment");
-assert.equal(labelFor("lab_cases", { code: "ALX-0042" }), "Lab case ALX-0042");
 
 // The confirm prompt reads as words, not collection names, in both languages.
 assert.equal(describeLinked({ ledger: 5, appointments: 3 }, false), "5 charges & payments, 3 appointments");

@@ -5,7 +5,7 @@ import { requireAdminUser } from "@/lib/apiStaffAuth";
 import { logActivityServer } from "@/lib/server/systemLog";
 import { reportServerError } from "@/lib/server/reportError";
 import { checkNotCascadeChild, logModuleFor } from "@/lib/recycleBin";
-import { binCollection, binEntry, binPayload, writeHistory } from "@/lib/server/recycleBinStore";
+import { binCollection, binEntry, closeEntries } from "@/lib/server/recycleBinStore";
 
 /**
  * "Delete permanently" — the answer to an erasure request.
@@ -74,15 +74,12 @@ export async function POST(request: Request) {
       });
     }
 
-    await writeHistory({ ...entry, purgedByUid: auth.uid }, "purged");
-    await binPayload(entryId).delete().catch(() => {});
-    await ref.delete();
-    await Promise.all(
-      children.map(async (child) => {
-        await writeHistory({ ...child.data(), purgedByUid: auth.uid }, "purged");
-        await binPayload(child.id).delete().catch(() => {});
-        await child.ref.delete();
-      }),
+    // Children and parent in one commit: a purge that stopped halfway would strand children no
+    // screen lists and no route will take on their own.
+    await closeEntries(
+      [...children.map((c) => ({ id: c.id, data: c.data() })), { id: entryId, data: entry }],
+      "purged",
+      { purgedByUid: auth.uid },
     );
 
     await logActivityServer({
