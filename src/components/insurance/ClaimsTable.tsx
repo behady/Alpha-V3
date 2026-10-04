@@ -160,8 +160,8 @@ export default function ClaimsTable({
             const status = STATUS[c.status];
             return (
               <tr key={c.id} id={`claim-${c.id}`} className={`border-t border-line ${highlightId === c.id ? "bg-amber-50" : ""}`}>
-                <td className="px-3 py-2.5 font-display text-[13px] font-black text-ink" dir="ltr">
-                  {c.approvalNumber}
+                <td className="px-3 py-2.5 text-start font-display text-[13px] font-black text-ink">
+                  <bdi dir="ltr">{c.approvalNumber}</bdi>
                 </td>
                 <td className="px-3 py-2.5">
                   <Link href={`/patients/${c.patientId}`} className="text-[13px] font-black text-ink hover:underline">

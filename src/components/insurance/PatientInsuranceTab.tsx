@@ -384,8 +384,8 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                                 ))}
                             </div>
                           </td>
-                          <td rowSpan={rows} className="py-2.5 pe-3 align-top font-figure font-semibold text-ink-muted" dir="ltr">
-                            {c.approvalDate}
+                          <td rowSpan={rows} className="py-2.5 pe-3 text-start align-top font-figure font-semibold text-ink-muted">
+                            <bdi dir="ltr">{c.approvalDate}</bdi>
                           </td>
                         </>
                       )}
