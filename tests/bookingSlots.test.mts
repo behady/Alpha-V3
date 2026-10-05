@@ -9,7 +9,7 @@ import {
   isClinicOffDay,
   slotGrid,
   stripStartFor,
-} from "../src/lib/bookingSlots.ts";
+} from "../src/lib/bookingSlots";
 
 const sched = {
   startHour: 10,

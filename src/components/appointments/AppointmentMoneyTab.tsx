@@ -75,11 +75,17 @@ export default function AppointmentMoneyTab({
   doctorsList = [],
   servicesList = [],
   onQuickPay,
+  section = "all",
 }: {
   appointment: any;
   doctorsList?: any[];
   servicesList?: any[];
   onQuickPay?: (patientId: string, patientName: string) => void;
+  /**
+   * Which half to draw. The booking popup splits this tab in two — treatments on its Service tab,
+   * money on its Payment tab — while the side panel keeps everything on one ("all").
+   */
+  section?: "all" | "service" | "payment";
 }) {
   const { language } = useLanguage();
   const { showToast, confirm } = useUI();
@@ -172,7 +178,8 @@ export default function AppointmentMoneyTab({
   const [editorApptId, setEditorApptId] = useState<string | null>(null);
 
   const [showOlder, setShowOlder] = useState(false);
-  const [showReceipts, setShowReceipts] = useState(false);
+  // On a tab that is only about money, the receipts are the content, not a footnote.
+  const [showReceipts, setShowReceipts] = useState(section === "payment");
   const [printingId, setPrintingId] = useState<string | null>(null);
 
   const printReceipt = async (paymentId: string) => {
@@ -685,7 +692,8 @@ export default function AppointmentMoneyTab({
             </span>
           )}
           <div className="flex items-center gap-1.5 shrink-0">
-            {!settled && (
+            {/* Collecting opens the box on the balance card, which the Service half does not draw. */}
+            {!settled && section !== "service" && (
               <button
                 onClick={() => openCollect(charge.id)}
                 className="text-[11px] font-bold rounded-full border border-line-strong px-3 py-1 flex items-center gap-1 hover:bg-surface-muted transition-colors"
@@ -795,6 +803,7 @@ export default function AppointmentMoneyTab({
   return (
     <div className="space-y-4">
       {/* Balance — the one figure she is asked for, and the two actions that change it */}
+      {section !== "service" && (
       <div className="rounded-2xl border border-line bg-surface p-4 shadow-sm">
         <div className="flex items-baseline justify-between">
           <span className="text-xs font-black text-ink-muted uppercase tracking-widest">
@@ -914,6 +923,7 @@ export default function AppointmentMoneyTab({
           </div>
         )}
       </div>
+      )}
 
       {/* Today's visit */}
       <div>
@@ -963,6 +973,7 @@ export default function AppointmentMoneyTab({
       </div>
 
       {/* Add a treatment — service and price, everything else in the full editor */}
+      {section !== "payment" && (
       <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-3">
         <div className="flex items-center gap-1.5 text-xs font-black text-slate-800 mb-2">
           <Plus size={14} className="text-emerald-600" /> {isAr ? "إضافة خدمة" : "Add a treatment"}
@@ -1043,9 +1054,10 @@ export default function AppointmentMoneyTab({
           {quickNeedsPrice && <p className="text-[11px] font-semibold text-amber-700">{quickNeedsPriceText}</p>}
         </div>
       </div>
+      )}
 
       {/* Earlier visits */}
-      {olderCharges.length > 0 && (
+      {olderCharges.length > 0 && section !== "payment" && (
         <div>
           <button
             onClick={() => setShowOlder((v) => !v)}
@@ -1066,7 +1078,7 @@ export default function AppointmentMoneyTab({
       )}
 
       {/* Receipts */}
-      {payments.length > 0 && (
+      {payments.length > 0 && section !== "service" && (
         <div>
           <button
             onClick={() => setShowReceipts((v) => !v)}

@@ -1796,6 +1796,7 @@ export default function DesktopDashboard() {
         <BookingModal 
           isOpen={true} 
           inlineDesktop={false}
+          wide
           onClose={() => { setActiveModal(null); setAppointmentToEdit(null); setPreSelectedTime(''); setPreSelectedPatient(null); setPreSelectedDoctor(''); }} 
           onSave={handleSaveBooking} 
           patients={patientsList} 
