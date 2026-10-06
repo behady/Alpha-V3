@@ -20,6 +20,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useUI } from "@/context/UIContext";
 import BookingModal, { type BookingEditSnapshot } from "@/components/BookingModal";
 import WeeklyScheduleView from "@/components/dashboard/WeeklyScheduleView";
+import RoomScheduleView from "@/components/dashboard/RoomScheduleView";
 import {
   parseApptTimeToMinutes,
   normalizeDateKey,
@@ -113,6 +114,35 @@ type DashboardAppointment = {
   delayedPromptUntil?: number;
 };
 
+/**
+ * What the booking editor needs from a dashboard card.
+ *
+ * Built field by field, this used to leave out the dentist's id, the branch, the room and the
+ * insurance link — and the editor saves what it was given, so editing a visit from its card could
+ * quietly clear its room or detach it from the approval it was booked against.
+ */
+function editSnapshotOf(apt: DashboardAppointment): BookingEditSnapshot {
+  const raw = apt as DashboardAppointment & {
+    doctorId?: string | null;
+    branchId?: string | null;
+    roomId?: string | null;
+    claimId?: string | null;
+    claimLine?: number | null;
+    claimLinks?: unknown;
+  };
+  return {
+    id: apt.id, patientId: String(apt.patientId), patientName: apt.patientName!,
+    treatment: apt.treatment!, doctor: apt.doctor!, doctorId: raw.doctorId ?? null, date: apt.date!,
+    time: apt.time!, duration: apt.duration!, clinicalNoteId: apt.clinicalNoteId ?? null,
+    branchId: raw.branchId ?? null, roomId: raw.roomId ?? null,
+    claimId: raw.claimId ?? null, claimLine: raw.claimLine ?? null, claimLinks: raw.claimLinks,
+    cost: apt.cost!,
+    listPrice: apt.listPrice ?? undefined, discountMode: apt.discountMode ?? undefined,
+    discountPercent: apt.discountPercent ?? undefined, discountFixed: apt.discountFixed ?? undefined,
+    discountAmount: apt.discountAmount ?? undefined, notes: apt.notes!, status: apt.status || "Scheduled",
+  };
+}
+
 export default function DesktopDashboard() {
   const { language, isRTL, t } = useLanguage();
   const { user } = useAuth();
@@ -127,6 +157,8 @@ export default function DesktopDashboard() {
   const [loading, setLoading] = useState(true);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
+  /** The day drawn as one column per room instead of one timeline. Only offered when rooms exist. */
+  const [roomsView, setRoomsView] = useState(false);
   
   const [patientsList, setPatientsList] = useState<any[]>([]);
   const [doctorsList, setDoctorsList] = useState<any[]>([]);
@@ -140,6 +172,9 @@ export default function DesktopDashboard() {
   const [preSelectedTime, setPreSelectedTime] = useState<string>("");
   const [preSelectedPatient, setPreSelectedPatient] = useState<{ id: string; name: string } | null>(null);
   const [preSelectedDoctor, setPreSelectedDoctor] = useState<string>("");
+  // A booking started from an empty room slot: that room, and the branch it belongs to.
+  const [preSelectedRoomId, setPreSelectedRoomId] = useState<string>("");
+  const [preSelectedRoomBranchId, setPreSelectedRoomBranchId] = useState<string>("");
   const [showDelayPrompt, setShowDelayPrompt] = useState(false);
   const [delayedAppointmentData, setDelayedAppointmentData] = useState<any>(null);
   
@@ -632,6 +667,8 @@ export default function DesktopDashboard() {
       );
       setAppointmentToEdit(null);
       setActiveModal(null);
+      setPreSelectedRoomId("");
+      setPreSelectedRoomBranchId("");
       showToast(language === "ar" ? "تم الحفظ بنجاح" : "Saved Successfully", "success");
     } catch (error) {
       console.error("Booking save error:", error);
@@ -1283,18 +1320,27 @@ export default function DesktopDashboard() {
                       <div className="flex items-center gap-1 shrink-0 bg-slate-100/80 rounded-xl p-1 shadow-inner ml-2">
                         <button
                           type="button"
-                          onClick={() => setViewMode("day")}
-                          className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${viewMode === 'day' ? 'bg-surface text-slate-800 shadow-sm' : 'text-ink-muted hover:text-slate-800'}`}
+                          onClick={() => { setViewMode("day"); setRoomsView(false); }}
+                          className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${viewMode === 'day' && !roomsView ? 'bg-surface text-slate-800 shadow-sm' : 'text-ink-muted hover:text-slate-800'}`}
                         >
                           {language === 'ar' ? 'يومي' : 'Day'}
                         </button>
                         <button
                           type="button"
-                          onClick={() => setViewMode("week")}
+                          onClick={() => { setViewMode("week"); setRoomsView(false); }}
                           className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${viewMode === 'week' ? 'bg-surface text-slate-800 shadow-sm' : 'text-ink-muted hover:text-slate-800'}`}
                         >
                           {language === 'ar' ? 'أسبوعي' : 'Week'}
                         </button>
+                        {branches.some((b) => (b.rooms?.length ?? 0) > 0) && (
+                          <button
+                            type="button"
+                            onClick={() => { setViewMode("day"); setRoomsView(true); }}
+                            className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${viewMode === 'day' && roomsView ? 'bg-surface text-slate-800 shadow-sm' : 'text-ink-muted hover:text-slate-800'}`}
+                          >
+                            {language === 'ar' ? 'الغرف' : 'Rooms'}
+                          </button>
+                        )}
                       </div>
                       
                       {/* Full Screen Toggle */}
@@ -1352,6 +1398,33 @@ export default function DesktopDashboard() {
                                     canSeeMoney={canSeeMoney}
                                     patientHistory={patientHistory}
                                     visitMoney={visitMoney}
+                                />
+                            ) : roomsView ? (
+                                <RoomScheduleView
+                                    appointments={appointments}
+                                    date={normalizeDateKey(scheduleViewDate) || scheduleViewDate}
+                                    language={language === "ar" ? "ar" : "en"}
+                                    config={config}
+                                    branches={branches}
+                                    scopeBranchId={scopeBranchId}
+                                    currentTime={currentTime}
+                                    todayKey={getLocalDateKey()}
+                                    onOpenAppointment={(apt) => {
+                                        if (appointmentEditorMode === "modal") {
+                                            setAppointmentToEdit(editSnapshotOf(apt));
+                                            setActiveModal("booking");
+                                        } else {
+                                            handleSelectAppointmentWrapper(apt);
+                                        }
+                                    }}
+                                    onBookSlot={(time, roomId, branchId) => {
+                                        handleSelectAppointmentWrapper(null);
+                                        setAppointmentToEdit(null);
+                                        setPreSelectedTime(time);
+                                        setPreSelectedRoomId(roomId);
+                                        setPreSelectedRoomBranchId(branchId);
+                                        setActiveModal("booking");
+                                    }}
                                 />
                             ) : (() => {
                                 const sched = config;
@@ -1552,18 +1625,17 @@ export default function DesktopDashboard() {
                                                                        setLateApptToPrompt(apt);
                                                                        return;
                                                                     }
+                                                                    // In pop-up mode a card opens the booking popup on that visit, the same
+                                                                    // window a new booking uses, instead of the side panel.
+                                                                    if (appointmentEditorMode === "modal") {
+                                                                        setAppointmentToEdit(editSnapshotOf(apt));
+                                                                        setActiveModal("booking");
+                                                                        return;
+                                                                    }
                                                                     const currentTime = new Date().getTime();
                                                                     const tapDelay = 300;
                                                                     if (lastTapRef.current && (currentTime - lastTapRef.current.time) < tapDelay && lastTapRef.current.id === apt.id) {
-                                                                        setAppointmentToEdit({
-                                                                            id: apt.id, patientId: String(apt.patientId), patientName: apt.patientName!,
-                                                                            treatment: apt.treatment!, doctor: apt.doctor!, date: apt.date!,
-                                                                            time: apt.time!, duration: apt.duration!, clinicalNoteId: apt.clinicalNoteId ?? null,
-                                                                            cost: apt.cost!,
-                                                                            listPrice: apt.listPrice ?? undefined, discountMode: apt.discountMode ?? undefined,
-                                                                            discountPercent: apt.discountPercent ?? undefined, discountFixed: apt.discountFixed ?? undefined,
-                                                                            discountAmount: apt.discountAmount ?? undefined, notes: apt.notes!, status: apt.status || "Scheduled",
-                                                                        });
+                                                                        setAppointmentToEdit(editSnapshotOf(apt));
                                                                         setActiveModal("booking");
                                                                         lastTapRef.current = null;
                                                                     } else {
@@ -1646,15 +1718,7 @@ export default function DesktopDashboard() {
                                                                         <button onClick={(e) => { e.stopPropagation(); setPaymentPatient({ id: apt.patientId!, name: apt.patientName! }); setActiveModal('payment'); }} className="p-1 text-emerald-600 bg-surface shadow-sm ring-1 ring-emerald-600/20 hover:text-emerald-700 hover:bg-emerald-50 hover:ring-emerald-600/40 hover:shadow rounded-lg transition-all" title={language === 'ar' ? 'دفع' : 'Pay'}><Wallet strokeWidth={2.5} className="w-3.5 h-3.5 lg:w-4 lg:h-4" /></button>
                                                                         <button onClick={(e) => {
                                                                             e.stopPropagation();
-                                                                            setAppointmentToEdit({
-                                                                                id: apt.id, patientId: String(apt.patientId), patientName: apt.patientName!,
-                                                                                treatment: apt.treatment!, doctor: apt.doctor!, date: apt.date!,
-                                                                                time: apt.time!, duration: apt.duration!, clinicalNoteId: apt.clinicalNoteId ?? null,
-                                                                                cost: apt.cost!,
-                                                                                listPrice: apt.listPrice ?? undefined, discountMode: apt.discountMode ?? undefined,
-                                                                                discountPercent: apt.discountPercent ?? undefined, discountFixed: apt.discountFixed ?? undefined,
-                                                                                discountAmount: apt.discountAmount ?? undefined, notes: apt.notes!, status: apt.status || "Scheduled",
-                                                                            });
+                                                                            setAppointmentToEdit(editSnapshotOf(apt));
                                                                             setActiveModal("booking");
                                                                         }} className="p-1 text-indigo-600 bg-surface shadow-sm ring-1 ring-indigo-600/20 hover:text-indigo-700 hover:bg-indigo-50 hover:ring-indigo-600/40 hover:shadow rounded-lg transition-all" title={language === 'ar' ? 'تعديل' : 'Edit'}><Edit strokeWidth={2.5} className="w-4 h-4 lg:w-4 lg:h-4" /></button>
                                                                         <button onClick={(e) => handleDeleteAppointment(e, apt.id)} className="p-1 text-rose-600 bg-surface shadow-sm ring-1 ring-rose-600/20 hover:text-rose-700 hover:bg-rose-50 hover:ring-rose-600/40 hover:shadow rounded-lg transition-all" title={language === 'ar' ? 'حذف' : 'Delete'}><Trash2 strokeWidth={2.5} className="w-4 h-4 lg:w-4 lg:h-4" /></button>
@@ -1771,7 +1835,7 @@ export default function DesktopDashboard() {
                         <BookingModal 
                             isOpen={activeModal === 'booking'} 
                             inlineDesktop={true}
-                            onClose={() => { setActiveModal(null); setAppointmentToEdit(null); setPreSelectedTime(''); setPreSelectedPatient(null); setPreSelectedDoctor(''); }} 
+                            onClose={() => { setActiveModal(null); setAppointmentToEdit(null); setPreSelectedTime(''); setPreSelectedPatient(null); setPreSelectedDoctor(''); setPreSelectedRoomId(''); setPreSelectedRoomBranchId(''); }} 
                             onSave={handleSaveBooking}
                             onAutosave={handleAutosaveBooking}
                             patients={patientsList}
@@ -1784,7 +1848,8 @@ export default function DesktopDashboard() {
                             preSelectedTime={preSelectedTime}
                             preSelectedDoctor={preSelectedDoctor}
                             preSelectedPatient={preSelectedPatient}
-                            preSelectedBranchId={scopeBranchId}
+                            preSelectedBranchId={preSelectedRoomBranchId || scopeBranchId}
+                            preSelectedRoomId={preSelectedRoomId}
                         />
                     ) : null}
              </div>
@@ -1796,7 +1861,8 @@ export default function DesktopDashboard() {
         <BookingModal 
           isOpen={true} 
           inlineDesktop={false}
-          onClose={() => { setActiveModal(null); setAppointmentToEdit(null); setPreSelectedTime(''); setPreSelectedPatient(null); setPreSelectedDoctor(''); }} 
+          wide
+          onClose={() => { setActiveModal(null); setAppointmentToEdit(null); setPreSelectedTime(''); setPreSelectedPatient(null); setPreSelectedDoctor(''); setPreSelectedRoomId(''); setPreSelectedRoomBranchId(''); }} 
           onSave={handleSaveBooking} 
           patients={patientsList} 
           doctors={doctorsList} 
@@ -1808,7 +1874,8 @@ export default function DesktopDashboard() {
           preSelectedTime={preSelectedTime}
           preSelectedDoctor={preSelectedDoctor}
           preSelectedPatient={preSelectedPatient}
-          preSelectedBranchId={scopeBranchId}
+          preSelectedBranchId={preSelectedRoomBranchId || scopeBranchId}
+          preSelectedRoomId={preSelectedRoomId}
         />
       )}
 

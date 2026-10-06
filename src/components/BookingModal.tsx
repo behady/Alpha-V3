@@ -25,6 +25,7 @@ import {
   ChevronDown,
   Trash2,
   CloudOff,
+  Pencil,
 } from "lucide-react";
 import {
   DEFAULT_COUNTRY_CODE,
@@ -34,7 +35,7 @@ import {
 import { db } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { collection, query, where, getDocs, doc, getDoc, addDoc, updateDoc, serverTimestamp, deleteDoc, onSnapshot } from "firebase/firestore";
-import { openLines, type ClaimLink } from "@/lib/insurance/appointments";
+import { appointmentLinkFields, openLines, parseClaimLinks, type ClaimLink } from "@/lib/insurance/appointments";
 import { CLAIMS_COLLECTION, parseClaim, type InsuranceClaim } from "@/lib/insurance/claims";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
@@ -57,6 +58,16 @@ import {
 import PatientPicker from "./appointments/booking/PatientPicker";
 
 import SlotPicker from "./appointments/booking/SlotPicker";
+import PatientTimeline, { formatDayLabel, formatTimeLabel, type TimelineAppointment } from "./appointments/booking/PatientTimeline";
+import AvailabilityPicker from "./appointments/booking/AvailabilityPicker";
+import InsuranceApprovals from "./appointments/booking/InsuranceApprovals";
+import ApprovalUploadPanel from "./appointments/booking/ApprovalUploadPanel";
+import InsuranceShareDue from "./appointments/booking/InsuranceShareDue";
+import AppointmentMoneyTab from "./appointments/AppointmentMoneyTab";
+import AppointmentStagePicker from "./appointments/AppointmentStagePicker";
+import { getAppointmentStageLabel } from "@/lib/appointmentStages";
+import { minutesToTimeKey, parseApptTimeToMinutes } from "@/lib/appointmentTime";
+import { generalDoctorLabel } from "@/lib/generalDentist";
 import { PRIVATE_PAYER_ID, payerForPriceList } from "@/lib/payers";
 import InsurerBadge from "@/components/shared/InsurerBadge";
 
@@ -88,6 +99,8 @@ interface AppointmentData {
   /** The insurance approval service this visit is for; null = a plain visit. */
   claimId?: string | null;
   claimLine?: number | null;
+  /** Every approved service this visit is for; the pair above mirrors its first entry. */
+  claimLinks?: ClaimLink[];
   newProcedureName?: string | null;
   /** false = follow-up on existing case, no extra charge unless staff adds an extra procedure */
   chargeForVisit?: boolean;
@@ -129,6 +142,7 @@ export type BookingEditSnapshot = {
   clinicalNoteId?: string | null;
   claimId?: string | null;
   claimLine?: number | null;
+  claimLinks?: unknown;
   cost?: number;
   listPrice?: number | null;
   discountMode?: string | null;
@@ -178,12 +192,20 @@ interface Props {
    * between branches has to be a deliberate act, not a side effect of who opened the screen.
    */
   preSelectedBranchId?: string;
+  /** A room to start a NEW booking in (a click on the dashboard's room calendar). Ignored when editing. */
+  preSelectedRoomId?: string;
   /**
    * An insurance approval's service to book this visit for (the Book button on the patient's
    * Insurance tab). Fills the dentist and the reason from the approval; the desk can still change
    * either. Ignored in edit mode, where the link comes from the appointment itself.
    */
   preSelectedClaimLine?: ClaimLink | null;
+  /**
+   * The wide booking popup (desktop only): patient timeline on the left, Appointment / Service /
+   * Payment / Insurance tabs on the right, every time of the day shown with taken ones in red.
+   * Same form, same save — only the layout differs. Ignored inline and on small screens.
+   */
+  wide?: boolean;
 }
 
 /**
@@ -211,19 +233,33 @@ export default function BookingModal({
   doctors,
   onDelete,
   preSelectedDate,
-  preSelectedTime,
+  preSelectedTime: preSelectedTimeProp,
   preSelectedDoctor,
   settingsConfig,
-  editAppointment = null,
-  preSelectedPatient = null,
+  editAppointment: editAppointmentProp = null,
+  preSelectedPatient: preSelectedPatientProp = null,
   inlineDesktop = false,
   servicesList = [],
   preSelectedBranchId = "",
+  preSelectedRoomId = "",
   preSelectedClaimLine = null,
+  wide = false,
 }: Props) {
   const { language } = useLanguage();
   const { showToast, confirm } = useUI();
   const { user } = useAuth();
+
+  /**
+   * The wide popup moves between the patient's visits without closing: a card on its timeline
+   * opens that visit, "New visit" books another for the same patient. Everything below reads these
+   * three names, so a switch reloads the form exactly as closing and reopening would.
+   */
+  type VisitSwitch = { kind: "edit"; appt: BookingEditSnapshot } | { kind: "new"; patient: { id: string; name: string } };
+  const [switchedTo, setSwitchedTo] = useState<VisitSwitch | null>(null);
+  useEffect(() => setSwitchedTo(null), [isOpen, editAppointmentProp, preSelectedPatientProp]);
+  const editAppointment = switchedTo ? (switchedTo.kind === "edit" ? switchedTo.appt : null) : editAppointmentProp;
+  const preSelectedPatient = switchedTo?.kind === "new" ? switchedTo.patient : preSelectedPatientProp;
+  const preSelectedTime = switchedTo?.kind === "new" ? "" : preSelectedTimeProp;
 
   const sched: ClinicScheduleConfig = {
     startHour: settingsConfig?.startHour ?? 9,
@@ -293,6 +329,8 @@ export default function BookingModal({
   const [procCost, setProcCost] = useState<number | "">("");
   const [addProcToLedger, setAddProcToLedger] = useState(true);
   const [addingProcedure, setAddingProcedure] = useState(false);
+  /** The staged procedure whose details are back in the form for changing; null = adding a new one. */
+  const [editingProcId, setEditingProcId] = useState<string | null>(null);
   const [sessionProcedures, setSessionProcedures] = useState<{ id: string; serviceId: string | null; name: string; cost: number; addToLedger: boolean; priceListId?: string | null }[]>([]);
 
   /**
@@ -359,7 +397,10 @@ export default function BookingModal({
   const [visitReasonsOptions, setVisitReasonsOptions] = useState<string[]>(["كشف"]);
 
   // --- insurance: which approved service this visit is for --------------------------------------
-  const [claimLink, setClaimLink] = useState<ClaimLink | null>(null);
+  /** Every approved service this visit is for. A visit can cover several (the wide popup lets you tick them). */
+  const [claimLinks, setClaimLinks] = useState<ClaimLink[]>([]);
+  const claimLink = claimLinks[0] ?? null;
+  const isLinked = (claimId: string, line: number) => claimLinks.some((l) => l.claimId === claimId && l.claimLine === line);
   const [patientClaims, setPatientClaims] = useState<{ patientId: string; claims: InsuranceClaim[] }>({ patientId: "", claims: [] });
   const claimPatientId = selectedPatient && !isNewPatient ? String(selectedPatient.id) : "";
   useEffect(() => {
@@ -380,26 +421,42 @@ export default function BookingModal({
     for (const c of patientClaims.claims) {
       const open = new Set(openLines(c));
       c.lines.forEach((line, i) => {
-        const current = claimLink && claimLink.claimId === c.id && claimLink.claimLine === i;
+        const current = isLinked(c.id, i);
         if (!open.has(i) && !current) return;
         const dentistName = c.dentists[i]?.name ?? "";
         out.push({ value: `${c.id}|${i}`, link: { claimId: c.id, claimLine: i }, label: `${line.description} · ${c.approvalNumber}${dentistName ? ` · ${dentistName}` : ""}`, dentistName, reason: line.description });
       });
     }
     return out;
-  }, [claimsLoaded, patientClaims, claimLink]);
+  }, [claimsLoaded, patientClaims, claimLinks]); // eslint-disable-line react-hooks/exhaustive-deps
+  /** One service and only that one (the single dropdown, and the Book button's pick). "" = a plain visit. */
   const pickLine = (value: string) => {
     const opt = lineOptions.find((o) => o.value === value) ?? null;
-    setClaimLink(opt ? opt.link : null);
+    setClaimLinks(opt ? [opt.link] : []);
     if (!opt) return;
     setTreatment(opt.reason);
     if (opt.dentistName && doctors.some((d) => d.name === opt.dentistName)) setDoctor(opt.dentistName);
   };
-  // A link that does not belong to the patient on screen (the picker moved to someone else) is dropped.
+  /** Add a service to this visit, or take it off. The first one also fills the reason and dentist, as a single pick did. */
+  const toggleLine = (value: string) => {
+    const opt = lineOptions.find((o) => o.value === value) ?? null;
+    if (!opt) return;
+    if (isLinked(opt.link.claimId, opt.link.claimLine)) {
+      setClaimLinks((prev) => prev.filter((l) => !(l.claimId === opt.link.claimId && l.claimLine === opt.link.claimLine)));
+      return;
+    }
+    if (claimLinks.length === 0) {
+      setTreatment(opt.reason);
+      if (opt.dentistName && doctors.some((d) => d.name === opt.dentistName)) setDoctor(opt.dentistName);
+    }
+    setClaimLinks((prev) => [...prev, opt.link]);
+  };
+  // Links that do not belong to the patient on screen (the picker moved to someone else) are dropped.
   useEffect(() => {
-    if (!claimsLoaded || !claimLink) return;
-    if (!patientClaims.claims.some((c) => c.id === claimLink.claimId)) setClaimLink(null);
-  }, [claimsLoaded, patientClaims, claimLink]);
+    if (!claimsLoaded || claimLinks.length === 0) return;
+    const mine = claimLinks.filter((l) => patientClaims.claims.some((c) => c.id === l.claimId));
+    if (mine.length !== claimLinks.length) setClaimLinks(mine);
+  }, [claimsLoaded, patientClaims, claimLinks]);
   // The Book button's pick fills the form once its approval has loaded.
   const appliedPreselect = useRef("");
   useEffect(() => {
@@ -614,6 +671,7 @@ export default function BookingModal({
     setProcCost("");
     setAddProcToLedger(true);
     setSessionProcedures([]);
+    setEditingProcId(null);
 
     if (editAppointment) {
       setIsNewPatient(false);
@@ -637,9 +695,7 @@ export default function BookingModal({
       setTreatment(editAppointment.treatment || "");
       setVisitNotes(editAppointment.notes || "");
       setAppointmentStatus(editAppointment.status || "Scheduled");
-      setClaimLink(
-        editAppointment.claimId && Number.isInteger(editAppointment.claimLine) ? { claimId: editAppointment.claimId, claimLine: editAppointment.claimLine as number } : null,
-      );
+      setClaimLinks(parseClaimLinks(editAppointment));
     } else {
       setIsNewPatient(false);
       setNewPatientName("");
@@ -659,10 +715,10 @@ export default function BookingModal({
       setVisitNotes("");
       setAppointmentStatus("Scheduled");
       setBranchId("");
-      setRoomId("");
-      setClaimLink(preSelectedClaimLine ?? null);
+      setRoomId(preSelectedRoomId || "");
+      setClaimLinks(preSelectedClaimLine ? [preSelectedClaimLine] : []);
     }
-  }, [isOpen, editAppointment, doctors, sched.slotDuration, preSelectedDoctor, preSelectedPatient, preSelectedDate, preSelectedTime, preSelectedClaimLine]);
+  }, [isOpen, editAppointment, doctors, sched.slotDuration, preSelectedDoctor, preSelectedPatient, preSelectedDate, preSelectedTime, preSelectedClaimLine, preSelectedRoomId]);
 
   // A clinic with exactly one branch shouldn't have to pick it on every booking.
   useEffect(() => {
@@ -843,8 +899,7 @@ export default function BookingModal({
         notes: visitNotes.trim(),
         cost: editAppointment ? (editAppointment.cost || 0) : 0,
         clinicalNoteId: editAppointment ? editAppointment.clinicalNoteId : null,
-        claimId: claimLink?.claimId ?? null,
-        claimLine: claimLink?.claimLine ?? null,
+        ...appointmentLinkFields(claimLinks),
         newProcedureName: null,
         listPrice: editAppointment ? (editAppointment.listPrice || 0) : 0,
         // `as const` because this is now a returned object rather than an inline argument — without
@@ -928,52 +983,59 @@ export default function BookingModal({
     return () => clearTimeout(id);
   }, [autosaveState]);
 
+  // --- the wide popup ---------------------------------------------------------------------------
+  const wideLayout = wide && isDesktop && !inlineDesktop;
+  type WideTab = "appointment" | "service" | "payment" | "insurance";
+  const [wideTab, setWideTab] = useState<WideTab>("appointment");
+  useEffect(() => {
+    if (isOpen) setWideTab("appointment");
+  }, [isOpen]);
+  const headerPatientId = selectedPatient && !isNewPatient ? String(selectedPatient.id) : "";
+  const [patientCard, setPatientCard] = useState<{ id: string; fileId: string; phone: string } | null>(null);
+  useEffect(() => {
+    if (!wideLayout || !headerPatientId) return;
+    let live = true;
+    getDoc(getClinicDoc("patients", headerPatientId))
+      .then((snap) => {
+        if (!live) return;
+        const d = snap.exists() ? snap.data() : {};
+        setPatientCard({ id: headerPatientId, fileId: String(d.fileId || ""), phone: String(d.phone || "") });
+      })
+      .catch(() => live && setPatientCard({ id: headerPatientId, fileId: "", phone: "" }));
+    return () => {
+      live = false;
+    };
+  }, [wideLayout, headerPatientId]);
+
+  /** Edits on screen that a switch to another visit would throw away. */
+  const hasUnsavedEdits =
+    sessionProcedures.length > 0 ||
+    (!!editAppointment &&
+      !!savedFields &&
+      AUTOSAVE_FIELDS.some((k) => String(autosaveFields[k] ?? "") !== String(savedFields[k] ?? "")));
+
+  const switchVisit = async (next: VisitSwitch) => {
+    if (next.kind === "edit" && editAppointment?.id === next.appt.id) return;
+    if (next.kind === "new" && !editAppointment) return;
+    if (hasUnsavedEdits && !autosaveOn) {
+      const leave = await confirm(
+        language === "ar" ? "في تعديلات على الزيارة دي لسه مش متحفظة. تسيبها وتفتح التانية؟" : "This visit has changes that are not saved yet. Leave them and open the other one?",
+        {
+          title: language === "ar" ? "تعديلات مش متحفظة" : "Unsaved changes",
+          confirmLabel: language === "ar" ? "أيوه، سيبها" : "Leave them",
+          cancelLabel: language === "ar" ? "لأ" : "Stay",
+        }
+      );
+      if (!leave) return;
+    }
+    setWideTab((t) => (next.kind === "new" && t !== "appointment" && t !== "service" ? "appointment" : t));
+    setSwitchedTo(next);
+  };
+
   if (!isOpen) return null;
 
-  const content = (
-      <div
-        className={
-          inlineDesktop && isDesktop
-            ? `flex flex-col w-full h-full min-h-0 overflow-hidden rounded-[2rem] border border-white/60 bg-white/80 shadow-[0_8px_40px_rgba(0,0,0,0.04)] backdrop-blur-3xl transition-all duration-300 ${language === "ar" ? "text-right" : "text-left"}`
-            : `flex max-h-[90vh] sm:max-h-[92vh] w-full max-w-md flex-col overflow-hidden rounded-t-[1.75rem] sm:rounded-b-[1.75rem] border-t sm:border border-slate-200/80 bg-surface shadow-2xl shadow-slate-300/40 ${language === "ar" ? "text-right" : "text-left"}`
-        }
-      >
-        {inlineDesktop && isDesktop ? (
-          <div className="shrink-0 px-5 py-4 flex items-center justify-between border-b border-white/40 bg-transparent">
-            <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-xl flex items-center justify-center font-black text-teal-700 bg-teal-50 text-base shadow-sm border border-teal-100">
-                  <Calendar size={20} />
-                </div>
-                <div>
-                  <h2 className="font-extrabold text-slate-800 text-lg leading-tight">{editAppointment ? txt.editTitle : txt.title}</h2>
-                  <p className="text-sm font-medium text-ink-muted mt-0.5 line-clamp-1">{txt.subtitle}</p>
-                </div>
-            </div>
-            <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"><X size={18}/></button>
-          </div>
-        ) : (
-          <div className="shrink-0 border-b border-slate-100 bg-gradient-to-br from-primary-600 to-primary-800 px-6 py-5 text-white">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/70">
-                  {language === "ar" ? "جدولة" : "Scheduling"}
-                </p>
-                <h3 className="mt-1 text-xl font-black tracking-tight">{editAppointment ? txt.editTitle : txt.title}</h3>
-                <p className="mt-1 max-w-[280px] text-xs font-medium text-white/85">{txt.subtitle}</p>
-              </div>
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-full bg-white/10 p-2 text-white transition hover:bg-white/20"
-                aria-label="Close"
-              >
-                <X size={18} />
-              </button>
-            </div>
-          </div>
-        )}
-
-        <div className={`custom-scrollbar flex-1 overflow-y-auto py-5 space-y-5 ${inlineDesktop && isDesktop ? "px-5" : "px-6"}`}>
+  const patientSection = (
+    <>
           <div className="space-y-3">
             {!editAppointment && (
               <div className="flex items-center justify-between mb-2">
@@ -1098,58 +1160,21 @@ export default function BookingModal({
               {txt.pickPatientForBilling}
             </p>
           )}
+    </>
+  );
 
-          {selectedPatient && (
-  <div className="border-t border-slate-100 bg-slate-50/50 p-6">
-    {(lineOptions.length > 0 || claimLink) && (
-      <div className="mb-4">
-        <label className="mb-2 block text-sm font-black uppercase tracking-wider text-indigo-900/40">
-          {language === "ar" ? "خدمة موافقة التأمين" : "Approved insurance service"}
-        </label>
-        <select
-          value={claimLink ? `${claimLink.claimId}|${claimLink.claimLine}` : ""}
-          onChange={(e) => pickLine(e.target.value)}
-          className="w-full rounded-xl border border-line bg-surface py-3 px-4 text-sm font-bold text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10"
-        >
-          <option value="">{language === "ar" ? "— زيارة عادية —" : "— none, a private visit —"}</option>
-          {lineOptions.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
-        <p className="mt-1.5 text-[11px] font-semibold text-slate-500">
-          {language === "ar"
-            ? "لما الزيارة تتعلّم خلصت، الخدمة دي بتتعلّم خلصت على الموافقة."
-            : "When this visit is marked done, the service is marked completed on the approval."}
-        </p>
-      </div>
-    )}
-    <label className="mb-2 block text-sm font-black uppercase tracking-wider text-indigo-900/40">
-      {language === "ar" ? "السبب الرئيسي للزيارة" : "Primary Reason for Visit"}
-    </label>
-    <div className="relative group">
-      <ClipboardList size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-primary-500 pointer-events-none" />
-      <ChevronDown size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-      <select
-        value={treatment}
-        onChange={(e) => setTreatment(e.target.value)}
-        className="w-full rounded-xl border border-line bg-surface py-3 pl-10 pr-10 text-sm font-bold text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10 appearance-none"
-      >
-        <option value="" disabled>{language === "ar" ? "اختر سبب الزيارة" : "Select Reason for Visit"}</option>
-        {reasonOptions.map(r => (
-          <option key={r} value={r}>{r}</option>
-        ))}
-      </select>
-    </div>
-  </div>
-)}
-
-{/* Add Procedure Section */}
-{servicesList.length > 0 && (
+  const addProcedureSection = (
+servicesList.length > 0 && (
   <div className="border-t border-slate-100 bg-slate-50/50 p-6 pt-0">
     <div className="mt-2">
       <button
         onClick={(e) => {
           e.preventDefault();
+          if (editingProcId) {
+            setEditingProcId(null);
+            setProcServiceId("");
+            setProcCost("");
+          }
           setShowAddProcedure(prev => !prev);
         }}
         className={`w-full text-sm font-extrabold rounded-xl py-3.5 flex items-center justify-center gap-1.5 transition-colors shadow-sm ${
@@ -1294,7 +1319,7 @@ export default function BookingModal({
                 setAddingProcedure(true);
                 try {
                   const newProcedure = {
-                    id: Date.now().toString(),
+                    id: editingProcId || Date.now().toString(),
                     // The catalog entry this came from. Carried through to the ledger row so
                     // reports can group on a stable id instead of parsing the description.
                     serviceId: String(svc.id),
@@ -1316,7 +1341,12 @@ export default function BookingModal({
                   setProcServiceId("");
                   setProcCost("");
                   setAddProcToLedger(true);
-                  setSessionProcedures(prev => [...prev, newProcedure]);
+                  if (editingProcId) {
+                    setSessionProcedures(prev => prev.map(p => (p.id === editingProcId ? newProcedure : p)));
+                    setEditingProcId(null);
+                  } else {
+                    setSessionProcedures(prev => [...prev, newProcedure]);
+                  }
                 } catch (err) {
                   console.error('Error adding procedure:', err);
                   showToast(language === 'ar' ? 'خطأ في إضافة الإجراء' : 'Error adding procedure', 'error');
@@ -1327,7 +1357,9 @@ export default function BookingModal({
               className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-black py-3.5 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 w-full"
             >
               {addingProcedure ? <Loader2 size={16} className="animate-spin"/> : <Check size={16}/>}
-              {language === 'ar' ? 'تأكيد الإجراء' : 'Confirm Procedure'}
+              {editingProcId
+                ? (language === 'ar' ? 'حفظ التعديل' : 'Update procedure')
+                : (language === 'ar' ? 'تأكيد الإجراء' : 'Confirm Procedure')}
             </button>
           </div>
         </div>
@@ -1347,14 +1379,35 @@ export default function BookingModal({
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="font-black text-ink">{sp.cost} {language === 'ar' ? 'ج.م' : 'EGP'}</span>
+                  {/* Back into the form above: change the service, list or price, then "Update procedure". */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingProcId(sp.id);
+                      setShowAddProcedure(true);
+                      if (sp.priceListId) setProcListId(sp.priceListId);
+                      setProcServiceId(sp.serviceId || "");
+                      setProcCost(sp.cost);
+                      setAddProcToLedger(sp.addToLedger);
+                    }}
+                    title={language === 'ar' ? 'تعديل' : 'Edit'}
+                    aria-label={language === 'ar' ? 'تعديل' : 'Edit'}
+                    className={`p-1.5 rounded-lg border transition-colors ${editingProcId === sp.id ? 'border-ink text-ink bg-surface-muted' : 'border-line text-ink-body hover:border-ink hover:text-ink'}`}
+                  >
+                    <Pencil size={15} />
+                  </button>
                   <button 
+                    type="button"
+                    title={language === 'ar' ? 'حذف' : 'Delete'}
+                    aria-label={language === 'ar' ? 'حذف' : 'Delete'}
                     onClick={async () => {
                       if (await confirm(language === 'ar' ? 'هل أنت متأكد من حذف هذا الإجراء؟' : 'Are you sure you want to delete this procedure?')) {
                         setSessionProcedures(prev => prev.filter(p => p.id !== sp.id));
+                        if (editingProcId === sp.id) setEditingProcId(null);
                         showToast(language === 'ar' ? 'تم الحذف بنجاح' : 'Deleted successfully', 'success');
                       }
                     }}
-                    className="p-1 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded transition-colors"
+                    className="p-1.5 rounded-lg border border-danger/30 bg-danger-tint text-danger hover:border-danger transition-colors"
                   >
                     <Trash2 size={16} />
                   </button>
@@ -1366,7 +1419,107 @@ export default function BookingModal({
       )}
     </div>
   </div>
+)
+  );
+
+  const content = (
+      <div
+        className={
+          inlineDesktop && isDesktop
+            ? `flex flex-col w-full h-full min-h-0 overflow-hidden rounded-[2rem] border border-white/60 bg-white/80 shadow-[0_8px_40px_rgba(0,0,0,0.04)] backdrop-blur-3xl transition-all duration-300 ${language === "ar" ? "text-right" : "text-left"}`
+            : `flex max-h-[90vh] sm:max-h-[92vh] w-full max-w-md flex-col overflow-hidden rounded-t-[1.75rem] sm:rounded-b-[1.75rem] border-t sm:border border-slate-200/80 bg-surface shadow-2xl shadow-slate-300/40 ${language === "ar" ? "text-right" : "text-left"}`
+        }
+      >
+        {inlineDesktop && isDesktop ? (
+          <div className="shrink-0 px-5 py-4 flex items-center justify-between border-b border-white/40 bg-transparent">
+            <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl flex items-center justify-center font-black text-teal-700 bg-teal-50 text-base shadow-sm border border-teal-100">
+                  <Calendar size={20} />
+                </div>
+                <div>
+                  <h2 className="font-extrabold text-slate-800 text-lg leading-tight">{editAppointment ? txt.editTitle : txt.title}</h2>
+                  <p className="text-sm font-medium text-ink-muted mt-0.5 line-clamp-1">{txt.subtitle}</p>
+                </div>
+            </div>
+            <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"><X size={18}/></button>
+          </div>
+        ) : (
+          <div className="shrink-0 border-b border-slate-100 bg-gradient-to-br from-primary-600 to-primary-800 px-6 py-5 text-white">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/70">
+                  {language === "ar" ? "جدولة" : "Scheduling"}
+                </p>
+                <h3 className="mt-1 text-xl font-black tracking-tight">{editAppointment ? txt.editTitle : txt.title}</h3>
+                <p className="mt-1 max-w-[280px] text-xs font-medium text-white/85">{txt.subtitle}</p>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-full bg-white/10 p-2 text-white transition hover:bg-white/20"
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className={`custom-scrollbar flex-1 overflow-y-auto py-5 space-y-5 ${inlineDesktop && isDesktop ? "px-5" : "px-6"}`}>
+          {patientSection}
+
+          {selectedPatient && (
+  <div className="border-t border-slate-100 bg-slate-50/50 p-6">
+    {claimLinks.length > 1 ? (
+      <p className="mb-4 rounded-xl border border-line bg-surface px-4 py-3 text-xs font-bold text-ink-body">
+        {language === "ar"
+          ? `الزيارة دي مربوطة بـ ${claimLinks.length} خدمات من موافقات التأمين — غيّرها من النافذة المنبثقة.`
+          : `This visit covers ${claimLinks.length} approved insurance services — change them in the pop-up booking window.`}
+      </p>
+    ) : (lineOptions.length > 0 || claimLink) && (
+      <div className="mb-4">
+        <label className="mb-2 block text-sm font-black uppercase tracking-wider text-indigo-900/40">
+          {language === "ar" ? "خدمة موافقة التأمين" : "Approved insurance service"}
+        </label>
+        <select
+          value={claimLink ? `${claimLink.claimId}|${claimLink.claimLine}` : ""}
+          onChange={(e) => pickLine(e.target.value)}
+          className="w-full rounded-xl border border-line bg-surface py-3 px-4 text-sm font-bold text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10"
+        >
+          <option value="">{language === "ar" ? "— زيارة عادية —" : "— none, a private visit —"}</option>
+          {lineOptions.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+        <p className="mt-1.5 text-[11px] font-semibold text-slate-500">
+          {language === "ar"
+            ? "لما الزيارة تتعلّم خلصت، الخدمة دي بتتعلّم خلصت على الموافقة."
+            : "When this visit is marked done, the service is marked completed on the approval."}
+        </p>
+      </div>
+    )}
+    <label className="mb-2 block text-sm font-black uppercase tracking-wider text-indigo-900/40">
+      {language === "ar" ? "السبب الرئيسي للزيارة" : "Primary Reason for Visit"}
+    </label>
+    <div className="relative group">
+      <ClipboardList size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-primary-500 pointer-events-none" />
+      <ChevronDown size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+      <select
+        value={treatment}
+        onChange={(e) => setTreatment(e.target.value)}
+        className="w-full rounded-xl border border-line bg-surface py-3 pl-10 pr-10 text-sm font-bold text-slate-700 outline-none transition-all focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10 appearance-none"
+      >
+        <option value="" disabled>{language === "ar" ? "اختر سبب الزيارة" : "Select Reason for Visit"}</option>
+        {reasonOptions.map(r => (
+          <option key={r} value={r}>{r}</option>
+        ))}
+      </select>
+    </div>
+  </div>
 )}
+
+{addProcedureSection}
+
 
           <SlotPicker
             language={language}
@@ -1458,6 +1611,345 @@ export default function BookingModal({
         )}
       </div>
   );
+
+  /** The wide popup: header band with the patient and the tabs, timeline left, tab content right. */
+  function renderWide() {
+    const isAr = language === "ar";
+    const patientName = isNewPatient ? newPatientName.trim() : selectedPatient?.name || "";
+    const initials = patientName
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0])
+      .join("")
+      .toUpperCase();
+    const card = patientCard && patientCard.id === headerPatientId ? patientCard : null;
+    const durationLabel = durationOptions.find((o) => o.value === duration)?.label || `${duration}`;
+    const doctorLabel = isGeneralDoctorValue(doctor) ? generalDoctorLabel(language) : doctor;
+    const startMin = time ? parseApptTimeToMinutes(time) : null;
+    const tabs: { id: WideTab; label: string; count?: number }[] = [
+      { id: "appointment", label: isAr ? "الموعد" : "Appointment" },
+      { id: "service", label: isAr ? "الخدمة" : "Service", count: editAppointment ? undefined : sessionProcedures.length || undefined },
+      { id: "payment", label: isAr ? "الدفع" : "Payment" },
+      { id: "insurance", label: isAr ? "التأمين" : "Insurance", count: lineOptions.length || undefined },
+    ];
+    const visitTitle = editAppointment
+      ? isAr
+        ? `تعديل زيارة ${formatDayLabel(editAppointment.date || date, true)}`
+        : `Editing the ${formatDayLabel(editAppointment.date || date, false)} visit`
+      : isAr
+        ? "حجز زيارة جديدة"
+        : "Booking a new visit";
+    const panelHead = (title: string, withStatus: boolean) => (
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div>
+          <h3 className="font-figure text-[19px] font-semibold text-ink">{title}</h3>
+          <p className="mt-0.5 text-[13px] text-ink-muted">{visitTitle}</p>
+        </div>
+        {withStatus && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-ink-muted">{isAr ? "الحالة" : "Status"}</span>
+            <AppointmentStagePicker value={appointmentStatus} onChange={setAppointmentStatus} language={isAr ? "ar" : "en"} isolateClicks={false} compact />
+          </div>
+        )}
+      </div>
+    );
+    const fieldRow = "grid grid-cols-1 gap-2 border-t border-line py-4 xl:grid-cols-[132px_minmax(0,1fr)] xl:gap-4";
+    const fieldLabel = "pt-2 text-[13px] font-semibold text-ink-muted";
+    const input = "w-full rounded-xl border border-line-strong bg-surface px-3 py-2.5 text-sm text-ink outline-none focus:border-ink";
+    // A booking not yet confirmed has no charges in the books: show what it WILL charge, from the
+    // Service tab, so adding a treatment there shows up here at once.
+    const stagedTotal = sessionProcedures.filter((p) => p.addToLedger).reduce((sum, p) => sum + (Number(p.cost) || 0), 0);
+    const needsVisitFirst = (
+      <div className="mt-3 space-y-3">
+        <div className="rounded-2xl border border-line px-5 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.06em] text-ink-muted">{isAr ? "هيتحسب على الزيارة" : "To be charged for this visit"}</p>
+          <p className="mt-1 font-figure text-4xl font-semibold tabular-nums text-ink">
+            {stagedTotal.toLocaleString("en-US")}
+            <span className="ms-1 text-base font-medium text-ink-muted">{isAr ? "ج.م" : "EGP"}</span>
+          </p>
+        </div>
+        {sessionProcedures.length > 0 ? (
+          <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line">
+            {sessionProcedures.map((p) => (
+              <li key={p.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                <span className="min-w-0 truncate font-semibold text-ink">
+                  {p.name}
+                  {!p.addToLedger && <span className="ms-2 text-xs font-normal text-ink-muted">{isAr ? "(من غير حساب)" : "(not charged)"}</span>}
+                </span>
+                <span className="shrink-0 font-figure font-semibold tabular-nums text-ink">{Number(p.cost).toLocaleString("en-US")}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="rounded-2xl border border-dashed border-line px-4 py-5 text-sm text-ink-muted">
+            {isAr ? "مفيش خدمات لسه. ضيفها من تبويب الخدمة." : "No treatments yet. Add them on the Service tab."}
+          </p>
+        )}
+        <p className="text-xs text-ink-muted">
+          {isAr
+            ? "الخدمات دي بتتسجل لما تدوس تأكيد الحجز، وبعدها تقدر تحصّل الفلوس من هنا."
+            : "These are recorded when you press Confirm booking; after that, the payment is taken here."}
+        </p>
+      </div>
+    );
+
+    return (
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={editAppointment ? txt.editTitle : txt.title}
+        // The popup is portalled to <body>, outside any page that sets the direction, so it sets its own.
+        dir={isAr ? "rtl" : "ltr"}
+        className={`flex h-[min(900px,calc(100vh-2rem))] w-full max-w-[1180px] flex-col overflow-hidden rounded-[28px] bg-surface shadow-2xl ring-1 ring-line ${isAr ? "text-right" : "text-left"}`}
+      >
+        {/* Header band: who, then the tabs sitting on its bottom edge like folder tabs */}
+        <div className="grid shrink-0 grid-cols-[276px_minmax(0,1fr)_auto] items-end bg-ink-slab ps-6 pe-5 pt-5 text-white">
+          <div className="flex min-w-0 items-center gap-3.5 pb-5">
+            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-white/10 font-figure text-base font-semibold" aria-hidden="true">
+              {initials || <User size={20} className="text-white/70" />}
+            </div>
+            <div className="min-w-0">
+              <h2 className="truncate font-figure text-xl font-semibold leading-tight">
+                {patientName || (editAppointment ? "" : isAr ? "مريض جديد" : "New booking")}
+              </h2>
+              {card?.fileId && (
+                <p className="text-[12.5px] text-white/60">
+                  {isAr ? "رقم الملف" : "File no."} <b className="font-figure font-semibold text-white">{card.fileId}</b>
+                </p>
+              )}
+              {(card?.phone || (isNewPatient && newPatientPhone)) && (
+                <p className="text-[12.5px] text-white/60" dir="ltr">
+                  {isAr ? "" : "Phone "}
+                  <b className="font-figure font-semibold text-white">{card?.phone || `${newPatientCountryCode} ${newPatientPhone}`}</b>
+                </p>
+              )}
+              {!patientName && !editAppointment && (
+                <p className="text-[12.5px] text-white/60">{isAr ? "اختار المريض تحت" : "Pick the patient below"}</p>
+              )}
+            </div>
+          </div>
+          <div className="flex gap-0.5 overflow-x-auto ps-2.5" role="tablist" aria-label={isAr ? "أقسام الزيارة" : "Visit sections"}>
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={wideTab === t.id}
+                onClick={() => setWideTab(t.id)}
+                className={`inline-flex shrink-0 items-center gap-2 rounded-t-2xl px-[18px] pt-3 pb-[13px] text-sm font-semibold transition-colors ${
+                  wideTab === t.id ? "bg-surface text-ink" : "text-white/60 hover:text-white"
+                }`}
+              >
+                {t.label}
+                {t.count ? (
+                  <span className="grid h-[18px] min-w-[18px] place-items-center rounded-full bg-accent px-1 text-[11px] font-bold text-ink-on-accent">{t.count}</span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={isAr ? "إغلاق" : "Close"}
+            className="mb-auto grid h-9 w-9 place-items-center rounded-full border border-white/15 text-white/60 transition-colors hover:border-white/40 hover:text-white"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="grid min-h-0 flex-1 grid-cols-[300px_minmax(0,1fr)]">
+          <aside className="flex min-h-0 flex-col border-e border-line bg-surface-subtle px-6 pt-5 pb-3" aria-label={isAr ? "سجل الزيارات" : "Patient timeline"}>
+            <PatientTimeline
+              patientId={headerPatientId}
+              activeId={editAppointment?.id ?? null}
+              language={language}
+              canBookAnother={!!headerPatientId}
+              onPick={(a: TimelineAppointment) => void switchVisit({ kind: "edit", appt: a as unknown as BookingEditSnapshot })}
+              onNew={() => selectedPatient && void switchVisit({ kind: "new", patient: { id: String(selectedPatient.id), name: selectedPatient.name } })}
+            />
+          </aside>
+
+          <div className="custom-scrollbar min-h-0 overflow-y-auto px-7 pt-6 pb-8" role="tabpanel">
+            {wideTab === "appointment" && (
+              <>
+                {panelHead(isAr ? "الموعد" : "Appointment", true)}
+                {!editAppointment && <div className="border-t border-line py-4">{patientSection}</div>}
+                {claimLink && (
+                  <button
+                    type="button"
+                    onClick={() => setWideTab("insurance")}
+                    className="mb-2 flex w-full items-center gap-2 rounded-xl bg-accent-tint px-3 py-2 text-start text-xs font-semibold text-accent-ink"
+                  >
+                    {claimLinks.length > 1
+                      ? isAr
+                        ? `الزيارة دي مربوطة بـ ${claimLinks.length} خدمات من موافقات التأمين`
+                        : `This visit covers ${claimLinks.length} approved insurance services`
+                      : isAr
+                        ? "الزيارة دي مربوطة بخدمة من موافقة تأمين"
+                        : "This visit is booked against an insurance approval"}
+                    {claimLinks.length === 1 && treatment ? ` · ${treatment}` : ""}
+                  </button>
+                )}
+                <AvailabilityPicker
+                  language={language}
+                  sched={sched}
+                  date={date}
+                  setDate={setDate}
+                  time={time}
+                  setTime={setTime}
+                  duration={duration}
+                  setDuration={setDuration}
+                  durationOptions={durationOptions}
+                  doctor={doctor}
+                  setDoctor={setDoctor}
+                  doctors={doctors}
+                  excludeAppointmentId={editAppointment?.id ?? null}
+                  branches={branches}
+                  branchId={branchId}
+                  setBranchId={(id) => {
+                    setBranchId(id);
+                    setRoomId("");
+                  }}
+                  roomId={roomId}
+                  setRoomId={setRoomId}
+                />
+                <div className={fieldRow}>
+                  <label className={fieldLabel} htmlFor="booking-reason">
+                    {isAr ? "سبب الزيارة" : "Reason"}
+                  </label>
+                  <select id="booking-reason" value={treatment} onChange={(e) => setTreatment(e.target.value)} className={`${input} max-w-sm`}>
+                    <option value="">{isAr ? "اختار سبب الزيارة" : "Select reason for visit"}</option>
+                    {reasonOptions.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className={fieldRow}>
+                  <label className={fieldLabel} htmlFor="booking-notes">
+                    {txt.notesLabel}
+                  </label>
+                  <textarea
+                    id="booking-notes"
+                    value={visitNotes}
+                    onChange={(e) => setVisitNotes(e.target.value)}
+                    rows={2}
+                    className={`${input} max-w-xl resize-none`}
+                  />
+                </div>
+              </>
+            )}
+
+            {wideTab === "service" && (
+              <>
+                {panelHead(isAr ? "الخدمة" : "Service", false)}
+                {editAppointment ? (
+                  <AppointmentMoneyTab key={`svc-${editAppointment.id}`} appointment={editAppointment} section="service" doctorsList={doctors} servicesList={servicesList} />
+                ) : servicesList.length > 0 ? (
+                  <div className="-mx-6 [&>div]:border-t-0">{addProcedureSection}</div>
+                ) : (
+                  <p className="mt-3 text-sm text-ink-muted">{txt.noServices}</p>
+                )}
+              </>
+            )}
+
+            {wideTab === "payment" && (
+              <>
+                {panelHead(isAr ? "الدفع" : "Payment", false)}
+                {claimsLoaded && <InsuranceShareDue claims={patientClaims.claims} language={language} />}
+                {editAppointment ? (
+                  <AppointmentMoneyTab key={`pay-${editAppointment.id}`} appointment={editAppointment} section="payment" doctorsList={doctors} servicesList={servicesList} />
+                ) : (
+                  needsVisitFirst
+                )}
+              </>
+            )}
+
+            {wideTab === "insurance" && (
+              <>
+                {panelHead(isAr ? "التأمين" : "Insurance", false)}
+                {headerPatientId ? (
+                  <>
+                    <InsuranceApprovals language={language} loaded={claimsLoaded} claims={patientClaims.claims} claimLinks={claimLinks} onToggle={toggleLine} />
+                    <ApprovalUploadPanel patientId={headerPatientId} patientName={selectedPatient?.name || ""} language={language} />
+                  </>
+                ) : (
+                  <p className="mt-3 text-sm text-ink-muted">{isAr ? "اختار مريض مسجل الأول." : "Pick a saved patient first."}</p>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Footer: what will be saved, and the buttons */}
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-5 gap-y-3 border-t border-line bg-surface px-6 py-4">
+          <div className="min-w-0">
+            <p className="font-figure text-[15px] font-semibold tabular-nums text-ink">
+              {date && startMin !== null
+                ? `${formatDayLabel(date, isAr)} · ${formatTimeLabel(time, isAr)} – ${formatTimeLabel(minutesToTimeKey(startMin + Number(duration)), isAr)}`
+                : isAr
+                  ? "لسه مفيش ميعاد"
+                  : "No time picked yet"}
+            </p>
+            <p className="text-[13px] text-ink-muted">
+              {doctorLabel} · {durationLabel} · {getAppointmentStageLabel(appointmentStatus, isAr ? "ar" : "en")}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {blockingReasons.length > 0 && !isChecking && (
+              <span className="text-xs font-semibold text-ink-muted">
+                {txt.stillNeeded} {blockingReasons.join(isAr ? "، " : ", ")}
+              </span>
+            )}
+            {editAppointment && onDelete && (
+              <Protect permission="appointments.delete">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (await confirm(isAr ? "هل أنت متأكد من حذف هذا الموعد؟" : "Are you sure you want to delete this appointment?")) {
+                      onDelete(editAppointment.id);
+                    }
+                  }}
+                  className="rounded-xl px-3 py-2.5 text-sm font-semibold text-danger hover:bg-danger-tint"
+                >
+                  {isAr ? "حذف" : "Delete"}
+                </button>
+              </Protect>
+            )}
+            <button type="button" onClick={onClose} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-ink-muted hover:text-ink">
+              {autosaveOn ? txt.done : txt.cancel}
+            </button>
+            {autosaveOn ? (
+              <BookingAutosaveChip state={autosaveState} isAr={isAr} />
+            ) : (
+              <button
+                type="button"
+                onClick={handleSubmit}
+                data-tour="booking-confirm"
+                disabled={isChecking || blockingReasons.length > 0}
+                className="inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-ink-on-accent transition-colors hover:bg-accent-strong disabled:opacity-40"
+              >
+                {isChecking && <Loader2 size={16} className="animate-spin" />}
+                {editAppointment ? txt.saveEdit : txt.confirm}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (wideLayout) {
+    if (!portalTarget) return null;
+    return createPortal(
+      <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/55 p-4 backdrop-blur-md animate-in fade-in">
+        {renderWide()}
+      </div>,
+      portalTarget
+    );
+  }
 
   if (inlineDesktop && isDesktop) {
     return content;
