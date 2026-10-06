@@ -1,7 +1,8 @@
 "use client";
 
 import { Fragment, useState, useEffect, useCallback, useRef } from "react";
-import { Plus_Jakarta_Sans, Cairo } from "next/font/google";
+import { Plus_Jakarta_Sans } from "next/font/google";
+import { cairo } from "@/lib/fonts/arabic";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -60,7 +61,6 @@ const NAV_FEATURES: Record<string, FeatureKey | FeatureKey[]> = {
 };
 
 const plusJakartaSans = Plus_Jakarta_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
-const cairo = Cairo({ subsets: ["arabic"] });
 
 /**
  * Sits between the two providers so the welcome guide can know whether a lesson is on screen.

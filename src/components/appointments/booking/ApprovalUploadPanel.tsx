@@ -97,14 +97,14 @@ export default function ApprovalUploadPanel({ patientId, patientName, language }
           <button
             type="button"
             onClick={() => setOpenPanel(true)}
-            className="inline-flex items-center gap-2 rounded-xl border border-line-strong bg-surface px-4 py-2.5 text-sm font-semibold text-ink transition-colors hover:border-ink"
+            className="inline-flex h-12 items-center gap-2 rounded-xl border border-line-strong bg-surface px-5 text-[15px] font-semibold text-ink transition-colors hover:border-ink hover:bg-surface-subtle"
           >
             <Upload size={16} /> {isAr ? "ارفع موافقة" : "Upload approval"}
           </button>
         ) : (
-          <div className="space-y-3 rounded-2xl border border-line p-4">
+          <div className="space-y-4 rounded-2xl border border-line-strong p-5">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-semibold text-ink">{isAr ? "رفع موافقة لـ" : "Upload an approval for"} {patientName}</p>
+              <p className="text-[15px] font-semibold text-ink">{isAr ? "رفع موافقة لـ" : "Upload an approval for"} {patientName}</p>
               <button
                 type="button"
                 onClick={() => {

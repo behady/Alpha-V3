@@ -48,29 +48,29 @@ export default function InsuranceShareDue({ claims, language }: { claims: Insura
   };
 
   return (
-    <div className="mb-4">
-      <p className="mb-2 text-xs font-semibold uppercase tracking-[0.06em] text-ink-muted">{isAr ? "حصة المريض في التأمين" : "Insurance — patient's share"}</p>
-      <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line">
+    <div className="mt-4 mb-5">
+      <p className="mb-2.5 text-[13px] font-semibold uppercase tracking-[0.05em] text-ink-body">{isAr ? "حصة المريض في التأمين" : "Insurance — patient's share"}</p>
+      <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line-strong">
         {due.map((c) => (
-          <li key={c.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+          <li key={c.id} className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
             <span className="flex min-w-0 items-center gap-2.5">
               <InsurerBadge name="MetLife" size={20} />
               <span className="min-w-0">
-                <span className="block text-sm font-semibold text-ink">
+                <span className="block text-[15px] font-semibold text-ink">
                   {isAr ? "موافقة" : "Approval"} <span className="font-figure">{c.approvalNumber}</span>
                 </span>
-                <span className="block text-xs text-ink-muted">{c.lines.map((l) => l.description).join(" · ")}</span>
+                <span className="block text-[13px] text-ink-body">{c.lines.map((l) => l.description).join(" · ")}</span>
               </span>
             </span>
             <span className="flex items-center gap-3">
-              <span className="font-figure text-lg font-semibold tabular-nums text-ink">
+              <span className="font-figure text-xl font-semibold tabular-nums text-ink">
                 {c.totals.patientShare.toLocaleString("en-US")} <span className="text-xs font-medium text-ink-muted">{isAr ? "ج.م" : "EGP"}</span>
               </span>
               <button
                 type="button"
                 onClick={() => void collect(c)}
                 disabled={!!busy}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-ink-slab px-3.5 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+                className="inline-flex h-11 items-center gap-2 rounded-xl bg-ink-slab px-5 text-[15px] font-semibold text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
               >
                 {busy === c.id ? <Loader2 size={14} className="animate-spin" /> : <Banknote size={14} />}
                 {isAr ? "حصّل" : "Collect"}

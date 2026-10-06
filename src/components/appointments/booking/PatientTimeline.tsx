@@ -95,30 +95,30 @@ export default function PatientTimeline({ patientId, activeId, language, onPick,
     const active = a.id === activeId;
     return (
       <li key={a.id} className="relative">
-        <span className={`absolute -start-[18px] top-4 h-3 w-3 rounded-full ring-[3px] ring-surface-subtle ${styles.dot}`} aria-hidden="true" />
+        <span className={`absolute -start-[20px] top-[18px] h-3.5 w-3.5 rounded-full ring-[3px] ring-surface-subtle ${styles.dot}`} aria-hidden="true" />
         <button
           type="button"
           onClick={() => onPick(a)}
           aria-pressed={active}
-          className={`w-full rounded-2xl border px-3 py-2.5 text-start transition-colors ${
+          className={`w-full rounded-2xl border px-4 py-3 text-start transition-colors ${
             active
               ? "border-ink bg-surface ring-1 ring-ink"
               : isPast
-                ? "border-line bg-transparent hover:border-line-strong"
-                : "border-line bg-surface hover:border-line-strong"
+                ? "border-line bg-surface/60 hover:border-ink"
+                : "border-line-strong bg-surface hover:border-ink"
           }`}
         >
           <span className="flex items-baseline justify-between gap-2">
-            <span className="font-figure text-sm font-semibold text-ink">
+            <span className="font-figure text-[15px] font-semibold text-ink">
               {a.date === todayKey() ? (isAr ? "النهارده" : "Today") : formatDayLabel(String(a.date || ""), isAr)}
             </span>
-            <span className="font-figure text-xs tabular-nums text-ink-muted whitespace-nowrap">{formatTimeLabel(a.time, isAr)}</span>
+            <span className="whitespace-nowrap font-figure text-[13px] font-semibold tabular-nums text-ink-body">{formatTimeLabel(a.time, isAr)}</span>
           </span>
-          <span className="mt-0.5 block truncate text-[13px] text-ink-body">{a.treatment || (isAr ? "زيارة" : "Visit")}</span>
-          <span className="mt-1 flex items-center justify-between gap-2">
-            <span className="truncate text-xs text-ink-muted">{doctorCardLabel(a.doctor, language)}</span>
-            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] font-semibold text-ink">
-              <span className={`h-1.5 w-1.5 rounded-full ${styles.dot}`} aria-hidden="true" />
+          <span className="mt-1 block truncate text-sm text-ink">{a.treatment || (isAr ? "زيارة" : "Visit")}</span>
+          <span className="mt-1.5 flex items-center justify-between gap-2">
+            <span className="truncate text-[13px] text-ink-body">{doctorCardLabel(a.doctor, language)}</span>
+            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-line-strong bg-surface px-2.5 py-0.5 text-xs font-semibold text-ink">
+              <span className={`h-2 w-2 rounded-full ${styles.dot}`} aria-hidden="true" />
               {getAppointmentStageLabel(a.status, isAr ? "ar" : "en")}
             </span>
           </span>
@@ -127,16 +127,16 @@ export default function PatientTimeline({ patientId, activeId, language, onPick,
     );
   };
 
-  const groupLabel = "mt-5 mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-muted";
+  const groupLabel = "mt-6 mb-2.5 text-xs font-bold uppercase tracking-[0.08em] text-ink-body";
   const listClass =
-    "relative flex flex-col gap-2.5 ps-[18px] before:absolute before:start-[5px] before:top-3 before:bottom-3 before:w-px before:bg-line-strong";
+    "relative flex flex-col gap-3 ps-[20px] before:absolute before:start-[6px] before:top-4 before:bottom-4 before:w-px before:bg-line-strong";
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="mb-3 flex items-baseline justify-between">
-        <h3 className="font-figure text-[15px] font-semibold text-ink">{isAr ? "سجل الزيارات" : "Timeline"}</h3>
+      <div className="mb-4 flex items-baseline justify-between">
+        <h3 className="font-figure text-lg font-semibold text-ink">{isAr ? "سجل الزيارات" : "Timeline"}</h3>
         {loaded && (
-          <span className="text-xs text-ink-muted">
+          <span className="text-[13px] text-ink-body">
             {upcoming.length + past.length} {isAr ? "زيارة" : upcoming.length + past.length === 1 ? "visit" : "visits"}
           </span>
         )}
@@ -147,18 +147,18 @@ export default function PatientTimeline({ patientId, activeId, language, onPick,
           type="button"
           onClick={onNew}
           aria-pressed={activeId === null}
-          className={`flex w-full items-center gap-2.5 rounded-2xl border-[1.5px] px-3.5 py-2.5 text-start text-sm font-semibold transition-colors ${
+          className={`flex w-full items-center gap-3 rounded-2xl border-[1.5px] px-4 py-3 text-start text-[15px] font-semibold transition-colors ${
             activeId === null
               ? "border-solid border-ink bg-surface text-ink ring-1 ring-ink"
               : "border-dashed border-line-strong text-ink-body hover:border-ink hover:text-ink"
           }`}
         >
-          <span className="grid h-[22px] w-[22px] shrink-0 place-items-center rounded-full bg-ink-slab text-white">
-            <Plus size={13} strokeWidth={3} />
+          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-ink-slab text-white">
+            <Plus size={15} strokeWidth={3} />
           </span>
           <span>
             {isAr ? "زيارة جديدة" : "New visit"}
-            <span className="block text-xs font-normal text-ink-muted">
+            <span className="block text-[13px] font-normal text-ink-body">
               {activeId === null ? (isAr ? "بتتحجز دلوقتي" : "Being booked now") : isAr ? "احجز للمريض ده" : "Book for this patient"}
             </span>
           </span>
@@ -167,7 +167,7 @@ export default function PatientTimeline({ patientId, activeId, language, onPick,
 
       <div className="custom-scrollbar -me-2 min-h-0 flex-1 overflow-y-auto pe-2 pb-2">
         {!patientId ? (
-          <p className="mt-4 rounded-2xl border border-dashed border-line px-3 py-4 text-xs text-ink-muted">
+          <p className="mt-4 rounded-2xl border border-dashed border-line-strong px-4 py-5 text-sm text-ink-body">
             {isAr ? "اختار المريض عشان تشوف زياراته." : "Pick a patient to see their visits here."}
           </p>
         ) : !loaded ? (
@@ -175,7 +175,7 @@ export default function PatientTimeline({ patientId, activeId, language, onPick,
             <Loader2 size={18} className="animate-spin text-ink-faint" />
           </div>
         ) : upcoming.length + past.length === 0 ? (
-          <p className="mt-4 text-xs text-ink-muted">{isAr ? "مفيش زيارات قبل كده." : "No visits yet."}</p>
+          <p className="mt-4 text-sm text-ink-body">{isAr ? "مفيش زيارات قبل كده." : "No visits yet."}</p>
         ) : (
           <>
             {upcoming.length > 0 && (

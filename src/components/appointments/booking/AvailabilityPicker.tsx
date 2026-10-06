@@ -141,16 +141,19 @@ export default function AvailabilityPicker({
   const doctorOptions = [{ value: GENERAL_DOCTOR_VALUE, label: generalDoctorLabel(language) }, ...doctors.map((d) => ({ value: d.name, label: d.name }))];
   const countLabel = (n: number) => (n === 0 ? (isAr ? "مليان" : "fully booked") : isAr ? `${n} فاضي` : `${n} free`);
 
-  const row = "grid grid-cols-1 gap-2 border-t border-line py-4 first:border-t-0 xl:grid-cols-[132px_minmax(0,1fr)] xl:gap-4";
-  const label = "pt-2 text-[13px] font-semibold text-ink-muted";
+  // Same label and control columns as the rest of the popup, so every row lines up.
+  const row = "grid grid-cols-1 items-start gap-2 border-t border-line py-5 first:border-t-0 xl:grid-cols-[168px_minmax(0,1fr)] xl:gap-6";
+  const label = "pt-3 text-sm font-semibold text-ink-body";
+  const selectClass =
+    "h-12 w-full rounded-xl border border-line-strong bg-surface px-3.5 text-[15px] font-semibold text-ink outline-none transition-colors focus:border-ink focus:ring-2 focus:ring-ink/10";
 
   return (
     <div>
       {/* Dentist */}
       <div className={row}>
         <div className={label}>{isAr ? "الدكتور" : "Dentist"}</div>
-        <div className="flex items-center gap-2.5">
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-ink-slab font-figure text-xs font-semibold text-white" aria-hidden="true">
+        <div className="flex items-center gap-3">
+          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-ink-slab font-figure text-sm font-semibold text-white" aria-hidden="true">
             {(isGeneralDoctorValue(doctor) ? "GC" : doctor.replace(/^dr\.?\s*/i, "").split(/\s+/).map((w) => w[0] || "").join("").slice(0, 2)).toUpperCase()}
           </span>
           <select
@@ -158,7 +161,7 @@ export default function AvailabilityPicker({
             onChange={(e) => setDoctor(e.target.value)}
             data-tour="booking-doctor"
             aria-label={isAr ? "الدكتور" : "Dentist"}
-            className="w-full max-w-sm rounded-xl border border-line-strong bg-surface px-3 py-2.5 text-sm font-semibold text-ink outline-none focus:border-ink"
+            className={`${selectClass} max-w-md`}
           >
             {doctorOptions.map((o) => (
               <option key={o.value} value={o.value}>
@@ -174,13 +177,13 @@ export default function AvailabilityPicker({
       {branches.length > 0 && (
         <div className={row}>
           <div className={label}>{isAr ? "الفرع والغرفة" : "Branch & room"}</div>
-          <div className="flex max-w-xl flex-wrap gap-2">
+          <div className="flex max-w-2xl flex-wrap gap-3">
             {branches.length > 1 && (
               <select
                 value={branchId}
                 onChange={(e) => setBranchId?.(e.target.value)}
                 aria-label={isAr ? "الفرع" : "Branch"}
-                className="min-w-0 flex-1 rounded-xl border border-line-strong bg-surface px-3 py-2.5 text-sm font-semibold text-ink outline-none focus:border-ink"
+                className={`${selectClass} min-w-0 flex-1`}
               >
                 <option value="">{isAr ? "اختار الفرع الأول" : "Pick a branch first"}</option>
                 {branches.map((b) => (
@@ -195,7 +198,7 @@ export default function AvailabilityPicker({
               onChange={(e) => setRoomId?.(e.target.value)}
               disabled={!selectedBranch || rooms.length === 0}
               aria-label={isAr ? "الغرفة" : "Room"}
-              className="min-w-0 flex-1 rounded-xl border border-line-strong bg-surface px-3 py-2.5 text-sm font-semibold text-ink outline-none focus:border-ink disabled:bg-surface-subtle disabled:text-ink-faint"
+              className={`${selectClass} min-w-0 flex-1 disabled:bg-surface-subtle disabled:text-ink-faint`}
             >
               <option value="">
                 {!selectedBranch
@@ -219,7 +222,7 @@ export default function AvailabilityPicker({
       <div className={row}>
         <div className={label}>{isAr ? "مدة الجلسة" : "Session time"}</div>
         <div>
-          <div className="inline-flex flex-wrap gap-0.5 rounded-xl bg-surface-muted p-[3px]" role="group" aria-label={isAr ? "مدة الجلسة" : "Session length"}>
+          <div className="inline-flex flex-wrap gap-1 rounded-xl border border-line bg-surface-muted p-1" role="group" aria-label={isAr ? "مدة الجلسة" : "Session length"}>
             {durationOptions.map((o) => (
               <button
                 key={o.value}
@@ -227,8 +230,8 @@ export default function AvailabilityPicker({
                 onClick={() => setDuration(o.value)}
                 aria-pressed={duration === o.value}
                 data-tour={o.value === durationOptions[0].value ? "booking-duration" : undefined}
-                className={`rounded-[9px] px-3 py-1.5 font-figure text-[13px] font-semibold transition-colors ${
-                  duration === o.value ? "bg-surface text-ink shadow-sm ring-1 ring-line" : "text-ink-body hover:text-ink"
+                className={`h-10 rounded-lg px-4 font-figure text-sm font-semibold transition-colors ${
+                  duration === o.value ? "bg-ink-slab text-white shadow-sm" : "text-ink-body hover:bg-surface hover:text-ink"
                 }`}
               >
                 {o.label}
@@ -242,18 +245,18 @@ export default function AvailabilityPicker({
       <div className={row}>
         <div className={label}>
           {isAr ? "اليوم" : "Date"}
-          <label className="mt-1.5 block text-[11px] font-normal text-ink-faint">
+          <label className="mt-2 block text-xs font-normal text-ink-muted">
             {isAr ? "يوم تاني:" : "Other day:"}
             <input
               type="date"
               value={date}
               onChange={(e) => e.target.value && setDate(e.target.value)}
               data-tour="booking-date"
-              className="mt-1 block w-full max-w-[150px] rounded-lg border border-line bg-surface px-2 py-1 text-xs font-semibold text-ink outline-none focus:border-ink"
+              className="mt-1.5 block h-9 w-full max-w-[160px] rounded-lg border border-line-strong bg-surface px-2 text-[13px] font-semibold text-ink outline-none focus:border-ink"
             />
           </label>
         </div>
-        <div className="custom-scrollbar flex gap-1.5 overflow-x-auto pb-1">
+        <div className="grid grid-cols-7 gap-2">
           {days.map((k) => {
             const [y, m, d] = k.split("-").map(Number);
             const closed = isClinicOffDay(k, sched.offDays);
@@ -266,19 +269,19 @@ export default function AvailabilityPicker({
                 onClick={() => setDate(k)}
                 aria-pressed={selected}
                 aria-label={`${formatDayLabel(k, isAr)}${closed ? (isAr ? "، العيادة قافلة" : ", clinic closed") : n !== null ? `, ${countLabel(n)}` : ""}`}
-                className={`grid w-16 shrink-0 justify-items-center gap-px rounded-2xl border py-2 transition-colors ${
+                className={`grid min-w-0 justify-items-center gap-0.5 rounded-xl border py-2.5 transition-colors ${
                   selected
                     ? "border-ink-slab bg-ink-slab text-white"
                     : closed
                       ? "border-dashed border-line bg-transparent text-ink-faint hover:border-line-strong"
-                      : "border-line bg-surface text-ink hover:border-line-strong"
+                      : "border-line-strong bg-surface text-ink hover:border-ink"
                 }`}
               >
-                <span className={`text-[10.5px] font-semibold uppercase tracking-wider ${selected ? "text-white/70" : "text-ink-muted"}`}>
+                <span className={`text-xs font-semibold uppercase tracking-wide ${selected ? "text-white/75" : "text-ink-body"}`}>
                   {k === today ? (isAr ? "النهارده" : "Today") : new Date(y, m - 1, d).toLocaleDateString(isAr ? "ar-EG" : "en-GB", { weekday: "short" })}
                 </span>
-                <span className="font-figure text-xl font-semibold leading-tight">{d}</span>
-                <span className={`text-[11px] ${selected ? "text-white/70" : n === 0 ? "text-danger" : "text-ink-muted"}`}>
+                <span className="font-figure text-2xl font-semibold leading-tight">{d}</span>
+                <span className={`text-xs font-medium ${selected ? "text-white/75" : n === 0 ? "text-danger" : "text-ink-body"}`}>
                   {closed ? (isAr ? "قافلة" : "Closed") : n === null ? "·" : n === 0 ? (isAr ? "مليان" : "Full") : isAr ? `${n} فاضي` : `${n} free`}
                 </span>
               </button>
@@ -290,10 +293,10 @@ export default function AvailabilityPicker({
       {/* Times */}
       <div className={row}>
         <div className={label}>{isAr ? "المواعيد" : "Available slot"}</div>
-        <div className="overflow-hidden rounded-2xl border border-line">
-          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-line bg-surface-subtle px-4 py-3">
-            <span className="font-figure font-semibold text-ink">{formatDayLabel(date, isAr)}</span>
-            <span className="flex flex-wrap items-center gap-3 text-xs text-ink-muted">
+        <div className="overflow-hidden rounded-2xl border border-line-strong">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-line bg-surface-subtle px-5 py-3.5">
+            <span className="font-figure text-lg font-semibold text-ink">{formatDayLabel(date, isAr)}</span>
+            <span className="flex flex-wrap items-center gap-4 text-[13px] text-ink-body">
               <span>
                 {doctorOptions.find((o) => o.value === doctor)?.label || doctor}
                 {roomId && rooms.some((r) => r.id === roomId) ? " · " + rooms.find((r) => r.id === roomId)!.name : ""}
@@ -303,11 +306,11 @@ export default function AvailabilityPicker({
               {loaded && (
                 <>
                   <span className="inline-flex items-center gap-1.5">
-                    <i className="inline-block h-2.5 w-2.5 rounded-[3px] border border-line-strong bg-surface" aria-hidden="true" />
+                    <i className="inline-block h-3 w-3 rounded-[4px] border border-line-strong bg-surface" aria-hidden="true" />
                     {freeToday} {isAr ? "فاضي" : "free"}
                   </span>
                   <span className="inline-flex items-center gap-1.5">
-                    <i className="inline-block h-2.5 w-2.5 rounded-[3px] border border-danger/30 bg-danger-tint" aria-hidden="true" />
+                    <i className="inline-block h-3 w-3 rounded-[4px] border border-danger/40 bg-danger-tint" aria-hidden="true" />
                     {grid.length - freeToday} {isAr ? "محجوز" : "booked"}
                   </span>
                 </>
@@ -316,24 +319,24 @@ export default function AvailabilityPicker({
           </div>
 
           {offDay && (
-            <p className="border-b border-line bg-surface-muted px-4 py-2.5 text-xs font-semibold text-ink-body">
+            <p className="border-b border-line bg-surface-muted px-5 py-3 text-[13px] font-semibold text-ink-body">
               {isAr ? "العيادة قافلة اليوم ده — لو حجزت هيسألك الأول." : "The clinic is closed this day — booking it will ask you first."}
             </p>
           )}
 
           {!loaded ? (
-            <div className="flex items-center justify-center gap-2 px-4 py-8 text-xs text-ink-muted">
+            <div className="flex items-center justify-center gap-2 px-5 py-10 text-sm text-ink-body">
               <Loader2 size={16} className="animate-spin" /> {isAr ? "بنشوف المواعيد…" : "Checking the diary…"}
             </div>
           ) : (
-            <div className="grid gap-1 px-4 pt-1.5 pb-4" data-tour="booking-time">
+            <div className="grid gap-2 px-5 pt-2 pb-5" data-tour="booking-time">
               {groups.map((cells, gi) => (
-                <div key={gi} className="grid grid-cols-1 gap-1.5 pt-2.5 xl:grid-cols-[84px_minmax(0,1fr)] xl:gap-3">
-                  <span className="pt-2 text-xs font-semibold text-ink-muted">{groupNames[gi]}</span>
+                <div key={gi} className="grid grid-cols-1 gap-2 pt-3 xl:grid-cols-[96px_minmax(0,1fr)] xl:gap-4">
+                  <span className="pt-3 text-sm font-semibold text-ink-body">{groupNames[gi]}</span>
                   {cells.length === 0 ? (
-                    <span className="pt-2 text-xs text-ink-faint">{isAr ? "مفيش مواعيد" : "No times"}</span>
+                    <span className="pt-3 text-sm text-ink-muted">{isAr ? "مفيش مواعيد" : "No times"}</span>
                   ) : (
-                    <div className="grid grid-cols-[repeat(auto-fill,minmax(88px,1fr))] gap-[7px]">
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-2">
                       {cells.map((s) => {
                         const selected = s.current;
                         return (
@@ -343,17 +346,17 @@ export default function AvailabilityPicker({
                             onClick={() => setTime(s.time)}
                             aria-pressed={selected}
                             title={s.busy ? (isAr ? "محجوز — لو اخترته هيسألك قبل الحفظ" : "Booked — saving will ask before double-booking") : undefined}
-                            className={`rounded-[10px] border py-2 font-figure text-[13.5px] tabular-nums transition-colors ${
+                            className={`flex min-h-12 flex-col items-center justify-center rounded-xl border px-2 py-1.5 font-figure text-[15px] font-medium tabular-nums transition-colors ${
                               selected
-                                ? `border-accent bg-accent font-semibold text-ink-on-accent ${s.busy ? "ring-2 ring-danger ring-offset-1" : ""}`
+                                ? `border-accent bg-accent font-bold text-ink-on-accent shadow-sm ${s.busy ? "ring-2 ring-danger ring-offset-1" : ""}`
                                 : s.busy
-                                  ? "border-danger/30 bg-danger-tint text-danger hover:border-danger/60"
-                                  : "border-line bg-surface text-ink hover:border-ink"
+                                  ? "border-danger/40 bg-danger-tint text-danger hover:border-danger"
+                                  : "border-line-strong bg-surface text-ink hover:border-ink hover:bg-surface-subtle"
                             }`}
                           >
                             {formatTimeLabel(s.time, isAr)}
                             {s.busy && (
-                              <span className="block font-sans text-[10px] font-semibold leading-tight">
+                              <span className="block text-[11px] font-semibold leading-tight">
                                 {s.busyRoom && !s.busyDentist
                                   ? isAr ? "الغرفة مشغولة" : "Room busy"
                                   : s.busyDentist && !s.busyRoom && roomId

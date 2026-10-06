@@ -300,6 +300,17 @@ body {
   }
 }
 
+/* The booking popup is portalled to <body>, outside the dashboard wrapper that sets the Arabic
+   face, so in Arabic it sets its own (the `--font-arabic` variable comes with it). Arabic letters
+   take Cairo; Latin words and digits keep the app's faces, which carry no Arabic glyphs anyway. */
+.booking-popup-ar {
+  font-family: var(--font-arabic), var(--font-body), "Segoe UI", Tahoma, sans-serif;
+}
+.booking-popup-ar .font-figure,
+.booking-popup-ar .font-display {
+  font-family: var(--font-figures), var(--font-arabic), "Montserrat", "Segoe UI", Tahoma, sans-serif;
+}
+
 @media print {
   @page {
     size: A5 portrait;

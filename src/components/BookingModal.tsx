@@ -68,6 +68,7 @@ import AppointmentStagePicker from "./appointments/AppointmentStagePicker";
 import { getAppointmentStageLabel } from "@/lib/appointmentStages";
 import { minutesToTimeKey, parseApptTimeToMinutes } from "@/lib/appointmentTime";
 import { generalDoctorLabel } from "@/lib/generalDentist";
+import { cairo } from "@/lib/fonts/arabic";
 import { PRIVATE_PAYER_ID, payerForPriceList } from "@/lib/payers";
 import InsurerBadge from "@/components/shared/InsurerBadge";
 
@@ -1641,29 +1642,32 @@ servicesList.length > 0 && (
         ? "حجز زيارة جديدة"
         : "Booking a new visit";
     const panelHead = (title: string, withStatus: boolean) => (
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b border-line pb-5">
         <div>
-          <h3 className="font-figure text-[19px] font-semibold text-ink">{title}</h3>
-          <p className="mt-0.5 text-[13px] text-ink-muted">{visitTitle}</p>
+          <h3 className="font-figure text-2xl font-semibold leading-tight text-ink">{title}</h3>
+          <p className="mt-1 text-sm text-ink-body">{visitTitle}</p>
         </div>
         {withStatus && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-ink-muted">{isAr ? "الحالة" : "Status"}</span>
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-semibold text-ink-body">{isAr ? "الحالة" : "Status"}</span>
             <AppointmentStagePicker value={appointmentStatus} onChange={setAppointmentStatus} language={isAr ? "ar" : "en"} isolateClicks={false} compact />
           </div>
         )}
       </div>
     );
-    const fieldRow = "grid grid-cols-1 gap-2 border-t border-line py-4 xl:grid-cols-[132px_minmax(0,1fr)] xl:gap-4";
-    const fieldLabel = "pt-2 text-[13px] font-semibold text-ink-muted";
-    const input = "w-full rounded-xl border border-line-strong bg-surface px-3 py-2.5 text-sm text-ink outline-none focus:border-ink";
+    // One label column and one control column for every row in the popup (AvailabilityPicker uses
+    // the same measures), so labels and fields line up down the whole tab.
+    const fieldRow = "grid grid-cols-1 items-start gap-2 border-t border-line py-5 xl:grid-cols-[168px_minmax(0,1fr)] xl:gap-6";
+    const fieldLabel = "pt-3 text-sm font-semibold text-ink-body";
+    const input =
+      "w-full rounded-xl border border-line-strong bg-surface px-3.5 py-2.5 text-[15px] text-ink outline-none transition-colors focus:border-ink focus:ring-2 focus:ring-ink/10";
     // A booking not yet confirmed has no charges in the books: show what it WILL charge, from the
     // Service tab, so adding a treatment there shows up here at once.
     const stagedTotal = sessionProcedures.filter((p) => p.addToLedger).reduce((sum, p) => sum + (Number(p.cost) || 0), 0);
     const needsVisitFirst = (
-      <div className="mt-3 space-y-3">
-        <div className="rounded-2xl border border-line px-5 py-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.06em] text-ink-muted">{isAr ? "هيتحسب على الزيارة" : "To be charged for this visit"}</p>
+      <div className="mt-4 space-y-3">
+        <div className="rounded-2xl border border-line-strong px-6 py-5">
+          <p className="text-[13px] font-semibold uppercase tracking-[0.06em] text-ink-body">{isAr ? "هيتحسب على الزيارة" : "To be charged for this visit"}</p>
           <p className="mt-1 font-figure text-4xl font-semibold tabular-nums text-ink">
             {stagedTotal.toLocaleString("en-US")}
             <span className="ms-1 text-base font-medium text-ink-muted">{isAr ? "ج.م" : "EGP"}</span>
@@ -1672,7 +1676,7 @@ servicesList.length > 0 && (
         {sessionProcedures.length > 0 ? (
           <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line">
             {sessionProcedures.map((p) => (
-              <li key={p.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+              <li key={p.id} className="flex items-center justify-between gap-3 px-5 py-3.5 text-[15px]">
                 <span className="min-w-0 truncate font-semibold text-ink">
                   {p.name}
                   {!p.addToLedger && <span className="ms-2 text-xs font-normal text-ink-muted">{isAr ? "(من غير حساب)" : "(not charged)"}</span>}
@@ -1701,35 +1705,35 @@ servicesList.length > 0 && (
         aria-label={editAppointment ? txt.editTitle : txt.title}
         // The popup is portalled to <body>, outside any page that sets the direction, so it sets its own.
         dir={isAr ? "rtl" : "ltr"}
-        className={`flex h-[min(900px,calc(100vh-2rem))] w-full max-w-[1180px] flex-col overflow-hidden rounded-[28px] bg-surface shadow-2xl ring-1 ring-line ${isAr ? "text-right" : "text-left"}`}
+        className={`${cairo.variable} ${isAr ? "booking-popup-ar text-right" : "text-left"} flex h-[min(980px,calc(100vh-1.5rem))] w-[min(1480px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-[22px] bg-surface text-[15px] text-ink antialiased shadow-[0_32px_90px_-24px_rgba(0,0,0,0.6)] ring-1 ring-black/10`}
       >
         {/* Header band: who, then the tabs sitting on its bottom edge like folder tabs */}
-        <div className="grid shrink-0 grid-cols-[276px_minmax(0,1fr)_auto] items-end bg-ink-slab ps-6 pe-5 pt-5 text-white">
-          <div className="flex min-w-0 items-center gap-3.5 pb-5">
-            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-white/10 font-figure text-base font-semibold" aria-hidden="true">
-              {initials || <User size={20} className="text-white/70" />}
+        <div className="grid shrink-0 grid-cols-[312px_minmax(0,1fr)_auto] items-end bg-ink-slab ps-7 pe-6 pt-6 text-white">
+          <div className="flex min-w-0 items-center gap-4 pb-6">
+            <div className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-white/12 font-figure text-lg font-semibold ring-1 ring-white/15" aria-hidden="true">
+              {initials || <User size={22} className="text-white/75" />}
             </div>
-            <div className="min-w-0">
-              <h2 className="truncate font-figure text-xl font-semibold leading-tight">
+            <div className="min-w-0 space-y-0.5">
+              <h2 className="truncate font-figure text-2xl font-semibold leading-tight">
                 {patientName || (editAppointment ? "" : isAr ? "مريض جديد" : "New booking")}
               </h2>
               {card?.fileId && (
-                <p className="text-[12.5px] text-white/60">
+                <p className="text-sm text-white/70">
                   {isAr ? "رقم الملف" : "File no."} <b className="font-figure font-semibold text-white">{card.fileId}</b>
                 </p>
               )}
               {(card?.phone || (isNewPatient && newPatientPhone)) && (
-                <p className="text-[12.5px] text-white/60" dir="ltr">
+                <p className={`text-sm text-white/70 ${isAr ? "text-right" : ""}`} dir="ltr">
                   {isAr ? "" : "Phone "}
                   <b className="font-figure font-semibold text-white">{card?.phone || `${newPatientCountryCode} ${newPatientPhone}`}</b>
                 </p>
               )}
               {!patientName && !editAppointment && (
-                <p className="text-[12.5px] text-white/60">{isAr ? "اختار المريض تحت" : "Pick the patient below"}</p>
+                <p className="text-sm text-white/70">{isAr ? "اختار المريض تحت" : "Pick the patient below"}</p>
               )}
             </div>
           </div>
-          <div className="flex gap-0.5 overflow-x-auto ps-2.5" role="tablist" aria-label={isAr ? "أقسام الزيارة" : "Visit sections"}>
+          <div className="flex gap-1 overflow-x-auto ps-3" role="tablist" aria-label={isAr ? "أقسام الزيارة" : "Visit sections"}>
             {tabs.map((t) => (
               <button
                 key={t.id}
@@ -1737,13 +1741,13 @@ servicesList.length > 0 && (
                 role="tab"
                 aria-selected={wideTab === t.id}
                 onClick={() => setWideTab(t.id)}
-                className={`inline-flex shrink-0 items-center gap-2 rounded-t-2xl px-[18px] pt-3 pb-[13px] text-sm font-semibold transition-colors ${
-                  wideTab === t.id ? "bg-surface text-ink" : "text-white/60 hover:text-white"
+                className={`inline-flex shrink-0 items-center gap-2 rounded-t-2xl px-6 pt-3.5 pb-4 text-[15px] font-semibold transition-colors ${
+                  wideTab === t.id ? "bg-surface text-ink" : "text-white/70 hover:bg-white/5 hover:text-white"
                 }`}
               >
                 {t.label}
                 {t.count ? (
-                  <span className="grid h-[18px] min-w-[18px] place-items-center rounded-full bg-accent px-1 text-[11px] font-bold text-ink-on-accent">{t.count}</span>
+                  <span className="grid h-5 min-w-5 place-items-center rounded-full bg-accent px-1.5 text-xs font-bold text-ink-on-accent">{t.count}</span>
                 ) : null}
               </button>
             ))}
@@ -1752,14 +1756,14 @@ servicesList.length > 0 && (
             type="button"
             onClick={onClose}
             aria-label={isAr ? "إغلاق" : "Close"}
-            className="mb-auto grid h-9 w-9 place-items-center rounded-full border border-white/15 text-white/60 transition-colors hover:border-white/40 hover:text-white"
+            className="mb-auto grid h-10 w-10 place-items-center rounded-full border border-white/20 text-white/75 transition-colors hover:border-white/50 hover:bg-white/5 hover:text-white"
           >
-            <X size={16} />
+            <X size={18} />
           </button>
         </div>
 
-        <div className="grid min-h-0 flex-1 grid-cols-[300px_minmax(0,1fr)]">
-          <aside className="flex min-h-0 flex-col border-e border-line bg-surface-subtle px-6 pt-5 pb-3" aria-label={isAr ? "سجل الزيارات" : "Patient timeline"}>
+        <div className="grid min-h-0 flex-1 grid-cols-[340px_minmax(0,1fr)]">
+          <aside className="flex min-h-0 flex-col border-e border-line bg-surface-subtle px-7 pt-6 pb-3" aria-label={isAr ? "سجل الزيارات" : "Patient timeline"}>
             <PatientTimeline
               patientId={headerPatientId}
               activeId={editAppointment?.id ?? null}
@@ -1770,16 +1774,16 @@ servicesList.length > 0 && (
             />
           </aside>
 
-          <div className="custom-scrollbar min-h-0 overflow-y-auto px-7 pt-6 pb-8" role="tabpanel">
+          <div className="custom-scrollbar min-h-0 overflow-y-auto px-9 pt-7 pb-10" role="tabpanel">
             {wideTab === "appointment" && (
               <>
                 {panelHead(isAr ? "الموعد" : "Appointment", true)}
-                {!editAppointment && <div className="border-t border-line py-4">{patientSection}</div>}
+                {!editAppointment && <div className="pb-5">{patientSection}</div>}
                 {claimLink && (
                   <button
                     type="button"
                     onClick={() => setWideTab("insurance")}
-                    className="mb-2 flex w-full items-center gap-2 rounded-xl bg-accent-tint px-3 py-2 text-start text-xs font-semibold text-accent-ink"
+                    className="mb-3 flex w-full items-center gap-2 rounded-xl border border-accent/40 bg-accent-tint px-4 py-3 text-start text-sm font-semibold text-accent-ink"
                   >
                     {claimLinks.length > 1
                       ? isAr
@@ -1818,7 +1822,7 @@ servicesList.length > 0 && (
                   <label className={fieldLabel} htmlFor="booking-reason">
                     {isAr ? "سبب الزيارة" : "Reason"}
                   </label>
-                  <select id="booking-reason" value={treatment} onChange={(e) => setTreatment(e.target.value)} className={`${input} max-w-sm`}>
+                  <select id="booking-reason" value={treatment} onChange={(e) => setTreatment(e.target.value)} className={`${input} h-12 max-w-md`}>
                     <option value="">{isAr ? "اختار سبب الزيارة" : "Select reason for visit"}</option>
                     {reasonOptions.map((r) => (
                       <option key={r} value={r}>
@@ -1835,8 +1839,8 @@ servicesList.length > 0 && (
                     id="booking-notes"
                     value={visitNotes}
                     onChange={(e) => setVisitNotes(e.target.value)}
-                    rows={2}
-                    className={`${input} max-w-xl resize-none`}
+                    rows={3}
+                    className={`${input} max-w-2xl resize-none leading-relaxed`}
                   />
                 </div>
               </>
@@ -1848,9 +1852,9 @@ servicesList.length > 0 && (
                 {editAppointment ? (
                   <AppointmentMoneyTab key={`svc-${editAppointment.id}`} appointment={editAppointment} section="service" doctorsList={doctors} servicesList={servicesList} />
                 ) : servicesList.length > 0 ? (
-                  <div className="-mx-6 [&>div]:border-t-0">{addProcedureSection}</div>
+                  <div className="mt-4 overflow-hidden rounded-2xl border border-line [&>div]:border-t-0 [&>div]:pt-6">{addProcedureSection}</div>
                 ) : (
-                  <p className="mt-3 text-sm text-ink-muted">{txt.noServices}</p>
+                  <p className="mt-4 text-[15px] text-ink-body">{txt.noServices}</p>
                 )}
               </>
             )}
@@ -1876,7 +1880,7 @@ servicesList.length > 0 && (
                     <ApprovalUploadPanel patientId={headerPatientId} patientName={selectedPatient?.name || ""} language={language} />
                   </>
                 ) : (
-                  <p className="mt-3 text-sm text-ink-muted">{isAr ? "اختار مريض مسجل الأول." : "Pick a saved patient first."}</p>
+                  <p className="mt-4 text-[15px] text-ink-body">{isAr ? "اختار مريض مسجل الأول." : "Pick a saved patient first."}</p>
                 )}
               </>
             )}
@@ -1884,22 +1888,22 @@ servicesList.length > 0 && (
         </div>
 
         {/* Footer: what will be saved, and the buttons */}
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-5 gap-y-3 border-t border-line bg-surface px-6 py-4">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-6 gap-y-3 border-t border-line-strong bg-surface px-8 py-5">
           <div className="min-w-0">
-            <p className="font-figure text-[15px] font-semibold tabular-nums text-ink">
+            <p className="font-figure text-lg font-semibold tabular-nums text-ink">
               {date && startMin !== null
                 ? `${formatDayLabel(date, isAr)} · ${formatTimeLabel(time, isAr)} – ${formatTimeLabel(minutesToTimeKey(startMin + Number(duration)), isAr)}`
                 : isAr
                   ? "لسه مفيش ميعاد"
                   : "No time picked yet"}
             </p>
-            <p className="text-[13px] text-ink-muted">
+            <p className="mt-0.5 text-sm text-ink-body">
               {doctorLabel} · {durationLabel} · {getAppointmentStageLabel(appointmentStatus, isAr ? "ar" : "en")}
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3">
             {blockingReasons.length > 0 && !isChecking && (
-              <span className="text-xs font-semibold text-ink-muted">
+              <span className="text-sm font-semibold text-warn">
                 {txt.stillNeeded} {blockingReasons.join(isAr ? "، " : ", ")}
               </span>
             )}
@@ -1912,13 +1916,13 @@ servicesList.length > 0 && (
                       onDelete(editAppointment.id);
                     }
                   }}
-                  className="rounded-xl px-3 py-2.5 text-sm font-semibold text-danger hover:bg-danger-tint"
+                  className="h-12 rounded-xl px-4 text-[15px] font-semibold text-danger transition-colors hover:bg-danger-tint"
                 >
                   {isAr ? "حذف" : "Delete"}
                 </button>
               </Protect>
             )}
-            <button type="button" onClick={onClose} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-ink-muted hover:text-ink">
+            <button type="button" onClick={onClose} className="h-12 rounded-xl border border-line-strong px-5 text-[15px] font-semibold text-ink-body transition-colors hover:border-ink hover:text-ink">
               {autosaveOn ? txt.done : txt.cancel}
             </button>
             {autosaveOn ? (
@@ -1929,7 +1933,7 @@ servicesList.length > 0 && (
                 onClick={handleSubmit}
                 data-tour="booking-confirm"
                 disabled={isChecking || blockingReasons.length > 0}
-                className="inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-ink-on-accent transition-colors hover:bg-accent-strong disabled:opacity-40"
+                className="inline-flex h-12 items-center gap-2 rounded-xl bg-accent px-7 text-[15px] font-bold text-ink-on-accent shadow-sm transition-colors hover:bg-accent-strong disabled:opacity-40"
               >
                 {isChecking && <Loader2 size={16} className="animate-spin" />}
                 {editAppointment ? txt.saveEdit : txt.confirm}
@@ -1944,7 +1948,7 @@ servicesList.length > 0 && (
   if (wideLayout) {
     if (!portalTarget) return null;
     return createPortal(
-      <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/55 p-4 backdrop-blur-md animate-in fade-in">
+      <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-[2px] animate-in fade-in">
         {renderWide()}
       </div>,
       portalTarget
