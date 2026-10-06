@@ -8,6 +8,7 @@ import type { ConflictCandidate } from "@/lib/appointmentConflicts";
 import { parseApptTimeToMinutes } from "@/lib/appointmentTime";
 import { clinicDayBoundsMinutes, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import { buildDaySlots, dateKeysFrom, isClinicOffDay, slotGrid, stripStartFor, type SlotCell } from "@/lib/bookingSlots";
+import type { ClinicBranch } from "@/lib/clinicLocations";
 import { doctorFieldFromPicker, GENERAL_DOCTOR_VALUE, generalDoctorLabel, isGeneralDoctorValue } from "@/lib/generalDentist";
 import { formatDayLabel, formatTimeLabel, todayKey } from "./PatientTimeline";
 
@@ -29,6 +30,12 @@ type Props = {
   doctors: { id: string; name: string }[];
   /** The appointment being edited, which never counts as taking its own time. */
   excludeAppointmentId?: string | null;
+  /** Branches and their rooms; the room picker shows only when the chosen branch has rooms. */
+  branches?: ClinicBranch[];
+  branchId?: string;
+  setBranchId?: (v: string) => void;
+  roomId?: string;
+  setRoomId?: (v: string) => void;
 };
 
 /** Staff id for a picker value — the same resolution BookingModal saves with. */
@@ -58,6 +65,11 @@ export default function AvailabilityPicker({
   setDoctor,
   doctors,
   excludeAppointmentId = null,
+  branches = [],
+  branchId = "",
+  setBranchId,
+  roomId = "",
+  setRoomId,
 }: Props) {
   const isAr = language === "ar";
   const today = todayKey();
@@ -89,16 +101,24 @@ export default function AvailabilityPicker({
   const slots = useMemo(() => buildDaySlots(sched), [sched.startHour, sched.startMinute, sched.endHour, sched.endMinute, sched.slotDuration]); // eslint-disable-line react-hooks/exhaustive-deps
   const dayStartMinutes = clinicDayBoundsMinutes(sched).start;
 
-  const gridFor = (dayKey: string, pickerValue: string, current: string | null): SlotCell[] =>
+  const gridFor = (dayKey: string, pickerValue: string, current: string | null, room: string = roomId): SlotCell[] =>
     slotGrid(slots, loaded ? range!.byDate[dayKey] || [] : [], {
       duration,
       doctorId: doctorIdFor(pickerValue, doctors),
       doctorName: doctorFieldFromPicker(pickerValue),
       excludeAppointmentId,
+      roomId: room || null,
       current,
       dayStartMinutes,
     });
-  const freeCount = (dayKey: string, pickerValue: string) => gridFor(dayKey, pickerValue, null).filter((s) => !s.busy).length;
+  const freeCount = (dayKey: string, pickerValue: string, room: string = roomId) =>
+    gridFor(dayKey, pickerValue, null, room).filter((s) => !s.busy).length;
+  // A room's own free times that day, whoever the dentist: "is the room free" is its own question.
+  const roomFreeCount = (room: string) =>
+    slotGrid(slots, loaded ? range!.byDate[date] || [] : [], { duration, roomId: room, excludeAppointmentId, dayStartMinutes }).filter((s) => !s.busyRoom)
+      .length;
+  const selectedBranch = branches.find((b) => b.id === branchId) || null;
+  const rooms = selectedBranch?.rooms ?? [];
 
   const grid = gridFor(date, doctor, time || null);
   const freeToday = grid.filter((s) => !s.busy).length;
@@ -149,6 +169,51 @@ export default function AvailabilityPicker({
           </select>
         </div>
       </div>
+
+      {/* Branch and room */}
+      {branches.length > 0 && (
+        <div className={row}>
+          <div className={label}>{isAr ? "الفرع والغرفة" : "Branch & room"}</div>
+          <div className="flex max-w-xl flex-wrap gap-2">
+            {branches.length > 1 && (
+              <select
+                value={branchId}
+                onChange={(e) => setBranchId?.(e.target.value)}
+                aria-label={isAr ? "الفرع" : "Branch"}
+                className="min-w-0 flex-1 rounded-xl border border-line-strong bg-surface px-3 py-2.5 text-sm font-semibold text-ink outline-none focus:border-ink"
+              >
+                <option value="">{isAr ? "اختار الفرع الأول" : "Pick a branch first"}</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            <select
+              value={roomId}
+              onChange={(e) => setRoomId?.(e.target.value)}
+              disabled={!selectedBranch || rooms.length === 0}
+              aria-label={isAr ? "الغرفة" : "Room"}
+              className="min-w-0 flex-1 rounded-xl border border-line-strong bg-surface px-3 py-2.5 text-sm font-semibold text-ink outline-none focus:border-ink disabled:bg-surface-subtle disabled:text-ink-faint"
+            >
+              <option value="">
+                {!selectedBranch
+                  ? isAr ? "اختار الفرع الأول" : "Pick a branch first"
+                  : rooms.length === 0
+                    ? isAr ? "مفيش غرف للفرع ده" : "No rooms in this branch"
+                    : isAr ? "أي غرفة" : "Any room"}
+              </option>
+              {rooms.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                  {loaded && !offDay ? " — " + countLabel(roomFreeCount(r.id)) : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
 
       {/* Session time */}
       <div className={row}>
@@ -230,7 +295,10 @@ export default function AvailabilityPicker({
             <span className="font-figure font-semibold text-ink">{formatDayLabel(date, isAr)}</span>
             <span className="flex flex-wrap items-center gap-3 text-xs text-ink-muted">
               <span>
-                {doctorOptions.find((o) => o.value === doctor)?.label || doctor} · {durationOptions.find((o) => o.value === duration)?.label || `${duration}`}
+                {doctorOptions.find((o) => o.value === doctor)?.label || doctor}
+                {roomId && rooms.some((r) => r.id === roomId) ? " · " + rooms.find((r) => r.id === roomId)!.name : ""}
+                {" · "}
+                {durationOptions.find((o) => o.value === duration)?.label || String(duration)}
               </span>
               {loaded && (
                 <>
@@ -284,7 +352,15 @@ export default function AvailabilityPicker({
                             }`}
                           >
                             {formatTimeLabel(s.time, isAr)}
-                            {s.busy && <span className="block font-sans text-[10px] font-semibold leading-tight">{isAr ? "محجوز" : "Booked"}</span>}
+                            {s.busy && (
+                              <span className="block font-sans text-[10px] font-semibold leading-tight">
+                                {s.busyRoom && !s.busyDentist
+                                  ? isAr ? "الغرفة مشغولة" : "Room busy"
+                                  : s.busyDentist && !s.busyRoom && roomId
+                                    ? isAr ? "الدكتور مشغول" : "Dentist busy"
+                                    : isAr ? "محجوز" : "Booked"}
+                              </span>
+                            )}
                           </button>
                         );
                       })}

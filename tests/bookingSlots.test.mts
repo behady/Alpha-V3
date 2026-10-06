@@ -84,4 +84,16 @@ assert.deepEqual(
   "after-midnight times sort after the evening ones",
 );
 
+// --- rooms -------------------------------------------------------------------------------------
+const roomDay = [
+  { id: "r1", time: "11:00 AM", duration: 30, doctorId: "d2", doctor: "Dr. Karim", roomId: "room-a", status: "Confirmed" },
+];
+const withRoom = slotGrid(slots, roomDay, { duration: 30, doctorId: "d1", doctorName: "Dr. Mona", roomId: "room-a" });
+const eleven = withRoom.find((s) => s.time === "11:00 AM")!;
+assert.deepEqual([eleven.busy, eleven.busyDentist, eleven.busyRoom], [true, false, true], "Mona is free at 11 but room A is not");
+const noRoom = slotGrid(slots, roomDay, { duration: 30, doctorId: "d1", doctorName: "Dr. Mona" });
+assert.equal(noRoom.find((s) => s.time === "11:00 AM")!.busy, false, "with no room chosen, another dentist's room does not block Mona");
+const otherRoom = slotGrid(slots, roomDay, { duration: 30, doctorId: "d1", doctorName: "Dr. Mona", roomId: "room-b" });
+assert.equal(otherRoom.find((s) => s.time === "11:00 AM")!.busy, false, "room B is free at 11");
+
 console.log("bookingSlots: all checks passed");

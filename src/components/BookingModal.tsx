@@ -1802,6 +1802,14 @@ servicesList.length > 0 && (
                   setDoctor={setDoctor}
                   doctors={doctors}
                   excludeAppointmentId={editAppointment?.id ?? null}
+                  branches={branches}
+                  branchId={branchId}
+                  setBranchId={(id) => {
+                    setBranchId(id);
+                    setRoomId("");
+                  }}
+                  roomId={roomId}
+                  setRoomId={setRoomId}
                 />
                 <div className={fieldRow}>
                   <label className={fieldLabel} htmlFor="booking-reason">
@@ -1816,45 +1824,6 @@ servicesList.length > 0 && (
                     ))}
                   </select>
                 </div>
-                {branches.length > 0 && (
-                  <div className={fieldRow}>
-                    <div className={fieldLabel}>{txt.branch}</div>
-                    <div className="flex max-w-xl flex-wrap gap-2">
-                      <select
-                        value={branchId}
-                        onChange={(e) => {
-                          setBranchId(e.target.value);
-                          setRoomId("");
-                        }}
-                        aria-label={txt.branch}
-                        className={`${input} flex-1`}
-                      >
-                        {branches.length > 1 && <option value="">{txt.pickBranchFirst}</option>}
-                        {branches.map((b) => (
-                          <option key={b.id} value={b.id}>
-                            {b.name}
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        value={roomId}
-                        onChange={(e) => setRoomId(e.target.value)}
-                        disabled={!selectedBranch || selectedBranch.rooms.length === 0}
-                        aria-label={txt.room}
-                        className={`${input} flex-1 disabled:bg-surface-subtle disabled:text-ink-faint`}
-                      >
-                        <option value="">
-                          {!selectedBranch ? txt.pickBranchFirst : selectedBranch.rooms.length === 0 ? txt.noRooms : txt.anyRoom}
-                        </option>
-                        {(selectedBranch?.rooms ?? []).map((r) => (
-                          <option key={r.id} value={r.id}>
-                            {r.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                )}
                 <div className={fieldRow}>
                   <label className={fieldLabel} htmlFor="booking-notes">
                     {txt.notesLabel}

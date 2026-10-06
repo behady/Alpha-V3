@@ -6,7 +6,7 @@
  * grid (shown red) rather than disappearing: the desk can see the day's shape, and can still
  * double-book on purpose — the save-time warning asks first, exactly as before.
  */
-import { findDoctorConflicts, type ConflictCandidate } from "@/lib/appointmentConflicts";
+import { findDoctorConflicts, findRoomConflicts, type ConflictCandidate } from "@/lib/appointmentConflicts";
 import { minutesToTimeKey, parseApptTimeToMinutes } from "@/lib/appointmentTime";
 import { clinicDayBoundsMinutes, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 
@@ -51,7 +51,14 @@ export function stripStartFor(todayKey: string, selectedKey: string, count: numb
   return selectedKey >= todayKey && selectedKey <= last ? todayKey : selectedKey;
 }
 
-export type SlotCell = { time: string; busy: boolean; current: boolean };
+export type SlotCell = {
+  time: string;
+  /** Taken by the dentist or the room — either one makes the time red. */
+  busy: boolean;
+  busyDentist: boolean;
+  busyRoom: boolean;
+  current: boolean;
+};
 
 export type SlotQuery = {
   duration: number;
@@ -59,6 +66,8 @@ export type SlotQuery = {
   doctorName?: string | null;
   /** The appointment being edited, which never blocks itself. */
   excludeAppointmentId?: string | null;
+  /** The room being booked; its other appointments make a time taken too. */
+  roomId?: string | null;
   /** The time already chosen; kept on the grid even when it is not one of the regular slots. */
   current?: string | null;
   /** Clinic opening time in minutes, so times after midnight sort after the evening. */
@@ -77,16 +86,24 @@ export function slotGrid(slots: readonly string[], dayAppointments: ConflictCand
     return m < start ? m + 24 * 60 : m;
   };
   times.sort((a, b) => order(a) - order(b));
-  return times.map((time) => ({
-    time,
-    current: currentMin !== null && parseApptTimeToMinutes(time) === currentMin,
-    busy:
+  return times.map((time) => {
+    const busyDentist =
       findDoctorConflicts(dayAppointments, {
         time,
         duration: q.duration,
         doctorId: q.doctorId,
         doctorName: q.doctorName,
         excludeAppointmentId: q.excludeAppointmentId,
-      }).length > 0,
-  }));
+      }).length > 0;
+    const busyRoom =
+      !!q.roomId &&
+      findRoomConflicts(dayAppointments, { time, duration: q.duration, roomId: q.roomId, excludeAppointmentId: q.excludeAppointmentId }).length > 0;
+    return {
+      time,
+      current: currentMin !== null && parseApptTimeToMinutes(time) === currentMin,
+      busy: busyDentist || busyRoom,
+      busyDentist,
+      busyRoom,
+    };
+  });
 }
