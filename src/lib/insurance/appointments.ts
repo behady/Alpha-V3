@@ -20,6 +20,8 @@ export type LinkedAppointmentLite = {
   id?: unknown;
   claimId?: unknown;
   claimLine?: unknown;
+  /** Every approved service this visit is for; when present it is the truth and the pair above only mirrors its first entry. */
+  claimLinks?: unknown;
   status?: unknown;
   date?: unknown;
   time?: unknown;
@@ -44,6 +46,36 @@ export function parseClaimLink(appt: LinkedAppointmentLite | null | undefined): 
   return { claimId, claimLine: line };
 }
 
+/**
+ * Every approved service an appointment is for.
+ *
+ * A visit used to carry one link (`claimId` + `claimLine`). It can now carry a list, `claimLinks`,
+ * and still writes its first entry into the old pair so screens that read only the pair keep
+ * working. Once a list exists it is the truth — an empty list means "unlinked", whatever the
+ * mirrored pair still says. A document with no list is read the old way.
+ */
+export function parseClaimLinks(appt: LinkedAppointmentLite | null | undefined): ClaimLink[] {
+  if (!appt) return [];
+  const raw = Array.isArray(appt.claimLinks) ? appt.claimLinks : null;
+  const candidates = raw ? raw.map((r) => (r && typeof r === "object" ? parseClaimLink(r as LinkedAppointmentLite) : null)) : [parseClaimLink(appt)];
+  const seen = new Set<string>();
+  const out: ClaimLink[] = [];
+  for (const l of candidates) {
+    if (!l) continue;
+    const k = `${l.claimId}|${l.claimLine}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(l);
+  }
+  return out;
+}
+
+/** The fields an appointment stores for its links: the list, and its first entry in the old pair. */
+export function appointmentLinkFields(links: readonly ClaimLink[]): { claimLinks: ClaimLink[]; claimId: string | null; claimLine: number | null } {
+  const clean = parseClaimLinks({ claimLinks: links });
+  return { claimLinks: clean, claimId: clean[0]?.claimId ?? null, claimLine: clean[0]?.claimLine ?? null };
+}
+
 /** Line indices still open for booking: not Completed, on an approval that is not cancelled. */
 export function openLines(claim: Pick<InsuranceClaim, "lines" | "lineStatus" | "status">): number[] {
   if (claim.status === "cancelled") return [];
@@ -64,10 +96,10 @@ function key(a: LinkedAppointmentLite): string {
  * visit is on the calendar — the soonest one), or none. Cancelled and no-show visits do not count.
  */
 export function lineBooking(appointments: readonly LinkedAppointmentLite[], claimId: string, lineIndex: number): LineBooking {
-  const mine = appointments.filter((a) => {
-    const link = parseClaimLink(a);
-    return !!link && link.claimId === claimId && link.claimLine === lineIndex && !VISIT_VOID_STATUSES.has(String(a.status ?? ""));
-  });
+  const mine = appointments.filter(
+    (a) =>
+      parseClaimLinks(a).some((l) => l.claimId === claimId && l.claimLine === lineIndex) && !VISIT_VOID_STATUSES.has(String(a.status ?? "")),
+  );
   const done = mine.filter((a) => VISIT_DONE_STATUSES.has(String(a.status ?? ""))).sort((a, b) => (key(a) < key(b) ? 1 : -1));
   if (done[0]) return { kind: "done", date: String(done[0].date ?? ""), appointmentId: String(done[0].id ?? "") };
   const open = mine.filter((a) => !VISIT_DONE_STATUSES.has(String(a.status ?? ""))).sort((a, b) => (key(a) < key(b) ? -1 : 1));
@@ -114,15 +146,23 @@ export type LineSyncPatch = { lineStatus?: Record<number, LineStatus>; dentists?
  * - The dentist who did the visit becomes the line's dentist when the line names nobody or
  *   somebody else. A visit with no dentist leaves the line's dentist alone.
  */
-export function lineSyncPatch(claim: Pick<InsuranceClaim, "lines" | "lineStatus" | "dentists" | "status">, appt: LinkedAppointmentLite): LineSyncPatch | null {
-  const link = parseClaimLink(appt);
-  if (!link || claim.status === "cancelled") return null;
+export function lineSyncPatch(claim: Pick<InsuranceClaim, "id" | "lines" | "lineStatus" | "dentists" | "status">, appt: LinkedAppointmentLite): LineSyncPatch | null {
+  if (claim.status === "cancelled") return null;
   if (!VISIT_DONE_STATUSES.has(String(appt.status ?? ""))) return null;
-  const i = link.claimLine;
-  if (i >= claim.lines.length) return null;
-  const patch: LineSyncPatch = {};
-  if (lineStatusOf(claim, i) === "Planned") patch.lineStatus = { [i]: "Completed" };
+  // Only this approval's services: a visit can be booked against more than one approval.
+  const lines = parseClaimLinks(appt)
+    .filter((l) => l.claimId === claim.id && l.claimLine < claim.lines.length)
+    .map((l) => l.claimLine);
+  if (lines.length === 0) return null;
   const doctorId = typeof appt.doctorId === "string" ? appt.doctorId.trim() : "";
-  if (doctorId && claim.dentists[i]?.staffId !== doctorId) patch.dentists = { [i]: doctorId };
+  const lineStatus: Record<number, LineStatus> = {};
+  const dentists: Record<number, string | null> = {};
+  for (const i of lines) {
+    if (lineStatusOf(claim, i) === "Planned") lineStatus[i] = "Completed";
+    if (doctorId && claim.dentists[i]?.staffId !== doctorId) dentists[i] = doctorId;
+  }
+  const patch: LineSyncPatch = {};
+  if (Object.keys(lineStatus).length) patch.lineStatus = lineStatus;
+  if (Object.keys(dentists).length) patch.dentists = dentists;
   return patch.lineStatus || patch.dentists ? patch : null;
 }

@@ -17,6 +17,17 @@ import { logActivity } from "@/lib/logger";
 import { sendPatientAppointmentWhatsApp } from "@/lib/sendPatientAppointmentWhatsAppClient";
 import { currentClinicId, getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { syncClaimLineFromAppointment } from "@/lib/insurance/appointmentSync";
+import { appointmentLinkFields, type ClaimLink } from "@/lib/insurance/appointments";
+
+/**
+ * The link fields to store, or null when the caller sent neither form (keep what is stored).
+ * A caller that sends the list owns it; one that sends only the old pair is read as one link.
+ */
+function linkFieldsFrom(data: { claimId?: string | null; claimLine?: number | null; claimLinks?: ClaimLink[] | null }) {
+  if (Array.isArray(data.claimLinks)) return appointmentLinkFields(data.claimLinks);
+  if (data.claimId === undefined) return null;
+  return appointmentLinkFields(data.claimId && Number.isInteger(data.claimLine) ? [{ claimId: data.claimId, claimLine: data.claimLine as number }] : []);
+}
 
 /**
  * Mark an appointment as owing its patient a "your visit moved" message.
@@ -79,6 +90,11 @@ export interface BookingSavePayload {
    */
   claimId?: string | null;
   claimLine?: number | null;
+  /**
+   * Every approved service this visit is for — a visit can cover several. When sent it wins over
+   * the pair above; the stored pair then mirrors its first entry for screens that read only that.
+   */
+  claimLinks?: ClaimLink[] | null;
   newProcedureName?: string | null;
   serviceId?: string | null;
   serviceName?: string | null;
@@ -246,11 +262,8 @@ export async function saveBooking(
       notes: data.notes || "",
       cost: normalizedCost,
       clinicalNoteId: finalClinicalNoteId,
-      claimId: data.claimId !== undefined ? data.claimId || null : (prev.claimId as string | undefined) ?? null,
-      claimLine:
-        data.claimId !== undefined
-          ? data.claimId && Number.isInteger(data.claimLine) ? data.claimLine : null
-          : (prev.claimLine as number | undefined) ?? null,
+      // Neither form sent (a status-only save) leaves the stored links exactly as they were.
+      ...(linkFieldsFrom(data) ?? {}),
       serviceId: chargeForVisit ? data.serviceId || null : null,
       serviceName: chargeForVisit ? data.serviceName || null : null,
       listPrice: chargeForVisit ? Number(data.listPrice) || 0 : null,
@@ -287,7 +300,11 @@ export async function saveBooking(
     });
     await updateDoc(getClinicDoc("appointments", aid), updatePayload);
     // A finished visit for an insurance service marks that service done on its approval.
-    void syncClaimLineFromAppointment(currentClinicId(), { claimId: updatePayload.claimId, claimLine: updatePayload.claimLine, status: nextStatus, doctorId: updatePayload.doctorId });
+    void syncClaimLineFromAppointment(currentClinicId(), {
+      ...(linkFieldsFrom(data) ?? { claimLinks: prev.claimLinks, claimId: prev.claimId, claimLine: prev.claimLine }),
+      status: nextStatus,
+      doctorId: updatePayload.doctorId,
+    });
 
     await logActivity(
       { uid: userCtx.uid, name: userCtx.name, role: userCtx.role },
@@ -388,8 +405,7 @@ export async function saveBooking(
     notes: data.notes || "",
     cost: normalizedCost,
     clinicalNoteId: finalClinicalNoteId,
-    claimId: data.claimId || null,
-    claimLine: data.claimId && Number.isInteger(data.claimLine) ? data.claimLine : null,
+    ...(linkFieldsFrom(data) ?? appointmentLinkFields([])),
     serviceId: chargeForVisit ? data.serviceId || null : null,
     serviceName: chargeForVisit ? data.serviceName || null : null,
     listPrice: chargeForVisit ? Number(data.listPrice) || 0 : null,
@@ -414,7 +430,7 @@ export async function saveBooking(
 
   await writeSessionProcedures(data, appRef.id, normalizedDate || data.date, userCtx);
   // A walk-in saved straight as done still tells its approval.
-  void syncClaimLineFromAppointment(currentClinicId(), { claimId: data.claimId, claimLine: data.claimLine, status: data.status || "Scheduled", doctorId: data.doctorId });
+  void syncClaimLineFromAppointment(currentClinicId(), { ...(linkFieldsFrom(data) ?? {}), status: data.status || "Scheduled", doctorId: data.doctorId });
 
   await logActivity(
     { uid: userCtx.uid, name: userCtx.name, role: userCtx.role },

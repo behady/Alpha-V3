@@ -35,7 +35,7 @@ import {
 import { db } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { collection, query, where, getDocs, doc, getDoc, addDoc, updateDoc, serverTimestamp, deleteDoc, onSnapshot } from "firebase/firestore";
-import { openLines, type ClaimLink } from "@/lib/insurance/appointments";
+import { appointmentLinkFields, openLines, parseClaimLinks, type ClaimLink } from "@/lib/insurance/appointments";
 import { CLAIMS_COLLECTION, parseClaim, type InsuranceClaim } from "@/lib/insurance/claims";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
@@ -62,6 +62,7 @@ import PatientTimeline, { formatDayLabel, formatTimeLabel, type TimelineAppointm
 import AvailabilityPicker from "./appointments/booking/AvailabilityPicker";
 import InsuranceApprovals from "./appointments/booking/InsuranceApprovals";
 import ApprovalUploadPanel from "./appointments/booking/ApprovalUploadPanel";
+import InsuranceShareDue from "./appointments/booking/InsuranceShareDue";
 import AppointmentMoneyTab from "./appointments/AppointmentMoneyTab";
 import AppointmentStagePicker from "./appointments/AppointmentStagePicker";
 import { getAppointmentStageLabel } from "@/lib/appointmentStages";
@@ -98,6 +99,8 @@ interface AppointmentData {
   /** The insurance approval service this visit is for; null = a plain visit. */
   claimId?: string | null;
   claimLine?: number | null;
+  /** Every approved service this visit is for; the pair above mirrors its first entry. */
+  claimLinks?: ClaimLink[];
   newProcedureName?: string | null;
   /** false = follow-up on existing case, no extra charge unless staff adds an extra procedure */
   chargeForVisit?: boolean;
@@ -139,6 +142,7 @@ export type BookingEditSnapshot = {
   clinicalNoteId?: string | null;
   claimId?: string | null;
   claimLine?: number | null;
+  claimLinks?: unknown;
   cost?: number;
   listPrice?: number | null;
   discountMode?: string | null;
@@ -390,7 +394,10 @@ export default function BookingModal({
   const [visitReasonsOptions, setVisitReasonsOptions] = useState<string[]>(["كشف"]);
 
   // --- insurance: which approved service this visit is for --------------------------------------
-  const [claimLink, setClaimLink] = useState<ClaimLink | null>(null);
+  /** Every approved service this visit is for. A visit can cover several (the wide popup lets you tick them). */
+  const [claimLinks, setClaimLinks] = useState<ClaimLink[]>([]);
+  const claimLink = claimLinks[0] ?? null;
+  const isLinked = (claimId: string, line: number) => claimLinks.some((l) => l.claimId === claimId && l.claimLine === line);
   const [patientClaims, setPatientClaims] = useState<{ patientId: string; claims: InsuranceClaim[] }>({ patientId: "", claims: [] });
   const claimPatientId = selectedPatient && !isNewPatient ? String(selectedPatient.id) : "";
   useEffect(() => {
@@ -411,26 +418,42 @@ export default function BookingModal({
     for (const c of patientClaims.claims) {
       const open = new Set(openLines(c));
       c.lines.forEach((line, i) => {
-        const current = claimLink && claimLink.claimId === c.id && claimLink.claimLine === i;
+        const current = isLinked(c.id, i);
         if (!open.has(i) && !current) return;
         const dentistName = c.dentists[i]?.name ?? "";
         out.push({ value: `${c.id}|${i}`, link: { claimId: c.id, claimLine: i }, label: `${line.description} · ${c.approvalNumber}${dentistName ? ` · ${dentistName}` : ""}`, dentistName, reason: line.description });
       });
     }
     return out;
-  }, [claimsLoaded, patientClaims, claimLink]);
+  }, [claimsLoaded, patientClaims, claimLinks]); // eslint-disable-line react-hooks/exhaustive-deps
+  /** One service and only that one (the single dropdown, and the Book button's pick). "" = a plain visit. */
   const pickLine = (value: string) => {
     const opt = lineOptions.find((o) => o.value === value) ?? null;
-    setClaimLink(opt ? opt.link : null);
+    setClaimLinks(opt ? [opt.link] : []);
     if (!opt) return;
     setTreatment(opt.reason);
     if (opt.dentistName && doctors.some((d) => d.name === opt.dentistName)) setDoctor(opt.dentistName);
   };
-  // A link that does not belong to the patient on screen (the picker moved to someone else) is dropped.
+  /** Add a service to this visit, or take it off. The first one also fills the reason and dentist, as a single pick did. */
+  const toggleLine = (value: string) => {
+    const opt = lineOptions.find((o) => o.value === value) ?? null;
+    if (!opt) return;
+    if (isLinked(opt.link.claimId, opt.link.claimLine)) {
+      setClaimLinks((prev) => prev.filter((l) => !(l.claimId === opt.link.claimId && l.claimLine === opt.link.claimLine)));
+      return;
+    }
+    if (claimLinks.length === 0) {
+      setTreatment(opt.reason);
+      if (opt.dentistName && doctors.some((d) => d.name === opt.dentistName)) setDoctor(opt.dentistName);
+    }
+    setClaimLinks((prev) => [...prev, opt.link]);
+  };
+  // Links that do not belong to the patient on screen (the picker moved to someone else) are dropped.
   useEffect(() => {
-    if (!claimsLoaded || !claimLink) return;
-    if (!patientClaims.claims.some((c) => c.id === claimLink.claimId)) setClaimLink(null);
-  }, [claimsLoaded, patientClaims, claimLink]);
+    if (!claimsLoaded || claimLinks.length === 0) return;
+    const mine = claimLinks.filter((l) => patientClaims.claims.some((c) => c.id === l.claimId));
+    if (mine.length !== claimLinks.length) setClaimLinks(mine);
+  }, [claimsLoaded, patientClaims, claimLinks]);
   // The Book button's pick fills the form once its approval has loaded.
   const appliedPreselect = useRef("");
   useEffect(() => {
@@ -669,9 +692,7 @@ export default function BookingModal({
       setTreatment(editAppointment.treatment || "");
       setVisitNotes(editAppointment.notes || "");
       setAppointmentStatus(editAppointment.status || "Scheduled");
-      setClaimLink(
-        editAppointment.claimId && Number.isInteger(editAppointment.claimLine) ? { claimId: editAppointment.claimId, claimLine: editAppointment.claimLine as number } : null,
-      );
+      setClaimLinks(parseClaimLinks(editAppointment));
     } else {
       setIsNewPatient(false);
       setNewPatientName("");
@@ -692,7 +713,7 @@ export default function BookingModal({
       setAppointmentStatus("Scheduled");
       setBranchId("");
       setRoomId("");
-      setClaimLink(preSelectedClaimLine ?? null);
+      setClaimLinks(preSelectedClaimLine ? [preSelectedClaimLine] : []);
     }
   }, [isOpen, editAppointment, doctors, sched.slotDuration, preSelectedDoctor, preSelectedPatient, preSelectedDate, preSelectedTime, preSelectedClaimLine]);
 
@@ -875,8 +896,7 @@ export default function BookingModal({
         notes: visitNotes.trim(),
         cost: editAppointment ? (editAppointment.cost || 0) : 0,
         clinicalNoteId: editAppointment ? editAppointment.clinicalNoteId : null,
-        claimId: claimLink?.claimId ?? null,
-        claimLine: claimLink?.claimLine ?? null,
+        ...appointmentLinkFields(claimLinks),
         newProcedureName: null,
         listPrice: editAppointment ? (editAppointment.listPrice || 0) : 0,
         // `as const` because this is now a returned object rather than an inline argument — without
@@ -1447,7 +1467,13 @@ servicesList.length > 0 && (
 
           {selectedPatient && (
   <div className="border-t border-slate-100 bg-slate-50/50 p-6">
-    {(lineOptions.length > 0 || claimLink) && (
+    {claimLinks.length > 1 ? (
+      <p className="mb-4 rounded-xl border border-line bg-surface px-4 py-3 text-xs font-bold text-ink-body">
+        {language === "ar"
+          ? `الزيارة دي مربوطة بـ ${claimLinks.length} خدمات من موافقات التأمين — غيّرها من النافذة المنبثقة.`
+          : `This visit covers ${claimLinks.length} approved insurance services — change them in the pop-up booking window.`}
+      </p>
+    ) : (lineOptions.length > 0 || claimLink) && (
       <div className="mb-4">
         <label className="mb-2 block text-sm font-black uppercase tracking-wider text-indigo-900/40">
           {language === "ar" ? "خدمة موافقة التأمين" : "Approved insurance service"}
@@ -1670,6 +1696,8 @@ servicesList.length > 0 && (
         role="dialog"
         aria-modal="true"
         aria-label={editAppointment ? txt.editTitle : txt.title}
+        // The popup is portalled to <body>, outside any page that sets the direction, so it sets its own.
+        dir={isAr ? "rtl" : "ltr"}
         className={`flex h-[min(900px,calc(100vh-2rem))] w-full max-w-[1180px] flex-col overflow-hidden rounded-[28px] bg-surface shadow-2xl ring-1 ring-line ${isAr ? "text-right" : "text-left"}`}
       >
         {/* Header band: who, then the tabs sitting on its bottom edge like folder tabs */}
@@ -1750,8 +1778,14 @@ servicesList.length > 0 && (
                     onClick={() => setWideTab("insurance")}
                     className="mb-2 flex w-full items-center gap-2 rounded-xl bg-accent-tint px-3 py-2 text-start text-xs font-semibold text-accent-ink"
                   >
-                    {isAr ? "الزيارة دي مربوطة بخدمة من موافقة تأمين" : "This visit is booked against an insurance approval"}
-                    {treatment ? ` · ${treatment}` : ""}
+                    {claimLinks.length > 1
+                      ? isAr
+                        ? `الزيارة دي مربوطة بـ ${claimLinks.length} خدمات من موافقات التأمين`
+                        : `This visit covers ${claimLinks.length} approved insurance services`
+                      : isAr
+                        ? "الزيارة دي مربوطة بخدمة من موافقة تأمين"
+                        : "This visit is booked against an insurance approval"}
+                    {claimLinks.length === 1 && treatment ? ` · ${treatment}` : ""}
                   </button>
                 )}
                 <AvailabilityPicker
@@ -1852,6 +1886,7 @@ servicesList.length > 0 && (
             {wideTab === "payment" && (
               <>
                 {panelHead(isAr ? "الدفع" : "Payment", false)}
+                {claimsLoaded && <InsuranceShareDue claims={patientClaims.claims} language={language} />}
                 {editAppointment ? (
                   <AppointmentMoneyTab key={`pay-${editAppointment.id}`} appointment={editAppointment} section="payment" doctorsList={doctors} servicesList={servicesList} />
                 ) : (
@@ -1865,7 +1900,7 @@ servicesList.length > 0 && (
                 {panelHead(isAr ? "التأمين" : "Insurance", false)}
                 {headerPatientId ? (
                   <>
-                    <InsuranceApprovals language={language} loaded={claimsLoaded} claims={patientClaims.claims} claimLink={claimLink} onPick={pickLine} />
+                    <InsuranceApprovals language={language} loaded={claimsLoaded} claims={patientClaims.claims} claimLinks={claimLinks} onToggle={toggleLine} />
                     <ApprovalUploadPanel patientId={headerPatientId} patientName={selectedPatient?.name || ""} language={language} />
                   </>
                 ) : (

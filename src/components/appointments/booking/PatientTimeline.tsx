@@ -5,7 +5,7 @@ import { onSnapshot, query, where } from "firebase/firestore";
 import { Loader2, Plus } from "lucide-react";
 import { getClinicCollection } from "@/lib/db-utils";
 import { getAppointmentStageLabel, getAppointmentStatusStyles } from "@/lib/appointmentStages";
-import { parseApptTimeToMinutes } from "@/lib/appointmentTime";
+import { minutesToTimeKey, parseApptTimeToMinutes } from "@/lib/appointmentTime";
 import { doctorCardLabel } from "@/lib/generalDentist";
 
 /** One of the patient's appointments, as stored. Spread into the popup's edit snapshot when picked. */
@@ -51,7 +51,9 @@ export function formatDayLabel(dateKey: string, isAr: boolean, withWeekday = tru
 /** "09:30 AM" → "9:30 AM" (or "9:30 ص"). */
 export function formatTimeLabel(time: string | undefined, isAr: boolean): string {
   if (!time) return "";
-  const t = time.replace(/^0(\d:)/, "$1");
+  // A few old rows store "15:05"; show every time the same 12-hour way.
+  const twelve = /am|pm/i.test(time) ? time : minutesToTimeKey(parseApptTimeToMinutes(time));
+  const t = twelve.replace(/^0(\d:)/, "$1");
   return isAr ? t.replace("AM", "ص").replace("PM", "م") : t;
 }
 

@@ -127,13 +127,14 @@ function editSnapshotOf(apt: DashboardAppointment): BookingEditSnapshot {
     roomId?: string | null;
     claimId?: string | null;
     claimLine?: number | null;
+    claimLinks?: unknown;
   };
   return {
     id: apt.id, patientId: String(apt.patientId), patientName: apt.patientName!,
     treatment: apt.treatment!, doctor: apt.doctor!, doctorId: raw.doctorId ?? null, date: apt.date!,
     time: apt.time!, duration: apt.duration!, clinicalNoteId: apt.clinicalNoteId ?? null,
     branchId: raw.branchId ?? null, roomId: raw.roomId ?? null,
-    claimId: raw.claimId ?? null, claimLine: raw.claimLine ?? null,
+    claimId: raw.claimId ?? null, claimLine: raw.claimLine ?? null, claimLinks: raw.claimLinks,
     cost: apt.cost!,
     listPrice: apt.listPrice ?? undefined, discountMode: apt.discountMode ?? undefined,
     discountPercent: apt.discountPercent ?? undefined, discountFixed: apt.discountFixed ?? undefined,

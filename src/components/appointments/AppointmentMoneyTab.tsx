@@ -805,6 +805,31 @@ export default function AppointmentMoneyTab({
       {/* Balance — the one figure she is asked for, and the two actions that change it */}
       {section !== "service" && (
       <div className="rounded-2xl border border-line bg-surface p-4 shadow-sm">
+        {section === "payment" ? (
+          // The booking popup's Payment tab: the three figures side by side.
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+            {[
+              {
+                label: isAr ? "إجمالي الخدمات" : "Total services",
+                value: totalCost,
+                note: totalDiscount > 0 ? `${isAr ? "بعد خصم" : "after"} ${totalDiscount.toLocaleString()} ${isAr ? "" : "discount"}`.trim() : "",
+                tone: "text-ink",
+              },
+              { label: isAr ? "المدفوع" : "Paid", value: totalPaid, note: "", tone: "text-ink" },
+              { label: isAr ? "المتبقي" : "Remaining", value: remaining, note: "", tone: remaining > 0 ? "text-ink" : "text-ok" },
+            ].map((tile, i) => (
+              <div key={i} className={`rounded-xl border px-4 py-3 ${i === 2 ? "border-ink-slab" : "border-line"}`}>
+                <p className="text-[11px] font-black uppercase tracking-widest text-ink-muted">{tile.label}</p>
+                <p className={`mt-0.5 font-figure text-2xl font-semibold tabular-nums ${tile.tone}`}>
+                  {tile.value.toLocaleString()}
+                  <span className="ms-1 text-[11px] font-bold text-ink-faint">{isAr ? "ج.م" : "EGP"}</span>
+                </p>
+                {tile.note && <p className="text-[11px] font-semibold text-ink-faint">{tile.note}</p>}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <>
         <div className="flex items-baseline justify-between">
           <span className="text-xs font-black text-ink-muted uppercase tracking-widest">
             {isAr ? "المتبقي" : "Remaining"}
@@ -819,6 +844,8 @@ export default function AppointmentMoneyTab({
           {totalDiscount > 0 ? ` · ${isAr ? "خصم" : "discount"} ${totalDiscount.toLocaleString()}` : ""} ·{" "}
           {isAr ? "المدفوع" : "paid"} {totalPaid.toLocaleString()}
         </p>
+          </>
+        )}
 
         {credit > 0.009 && (
           <p className="text-[11px] font-bold text-sky-600 mt-1.5">
