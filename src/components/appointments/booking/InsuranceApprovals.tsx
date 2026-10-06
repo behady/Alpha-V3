@@ -47,8 +47,8 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
     return (
       <p className="mt-3 rounded-2xl border border-dashed border-line px-4 py-6 text-sm text-ink-muted">
         {isAr
-          ? "مفيش موافقات تأمين للمريض ده. الموافقات بتتضاف من ملف المريض ← تأمين."
-          : "No insurance approvals for this patient. Approvals are added from the patient's file → Insurance."}
+          ? "مفيش موافقات تأمين للمريض ده لسه. ارفع ورقة الموافقة من الزرار اللي تحت."
+          : "No insurance approvals for this patient yet. Upload the approval paper with the button below."}
       </p>
     );
   }

@@ -113,6 +113,34 @@ type DashboardAppointment = {
   delayedPromptUntil?: number;
 };
 
+/**
+ * What the booking editor needs from a dashboard card.
+ *
+ * Built field by field, this used to leave out the dentist's id, the branch, the room and the
+ * insurance link — and the editor saves what it was given, so editing a visit from its card could
+ * quietly clear its room or detach it from the approval it was booked against.
+ */
+function editSnapshotOf(apt: DashboardAppointment): BookingEditSnapshot {
+  const raw = apt as DashboardAppointment & {
+    doctorId?: string | null;
+    branchId?: string | null;
+    roomId?: string | null;
+    claimId?: string | null;
+    claimLine?: number | null;
+  };
+  return {
+    id: apt.id, patientId: String(apt.patientId), patientName: apt.patientName!,
+    treatment: apt.treatment!, doctor: apt.doctor!, doctorId: raw.doctorId ?? null, date: apt.date!,
+    time: apt.time!, duration: apt.duration!, clinicalNoteId: apt.clinicalNoteId ?? null,
+    branchId: raw.branchId ?? null, roomId: raw.roomId ?? null,
+    claimId: raw.claimId ?? null, claimLine: raw.claimLine ?? null,
+    cost: apt.cost!,
+    listPrice: apt.listPrice ?? undefined, discountMode: apt.discountMode ?? undefined,
+    discountPercent: apt.discountPercent ?? undefined, discountFixed: apt.discountFixed ?? undefined,
+    discountAmount: apt.discountAmount ?? undefined, notes: apt.notes!, status: apt.status || "Scheduled",
+  };
+}
+
 export default function DesktopDashboard() {
   const { language, isRTL, t } = useLanguage();
   const { user } = useAuth();
@@ -1552,18 +1580,17 @@ export default function DesktopDashboard() {
                                                                        setLateApptToPrompt(apt);
                                                                        return;
                                                                     }
+                                                                    // In pop-up mode a card opens the booking popup on that visit, the same
+                                                                    // window a new booking uses, instead of the side panel.
+                                                                    if (appointmentEditorMode === "modal") {
+                                                                        setAppointmentToEdit(editSnapshotOf(apt));
+                                                                        setActiveModal("booking");
+                                                                        return;
+                                                                    }
                                                                     const currentTime = new Date().getTime();
                                                                     const tapDelay = 300;
                                                                     if (lastTapRef.current && (currentTime - lastTapRef.current.time) < tapDelay && lastTapRef.current.id === apt.id) {
-                                                                        setAppointmentToEdit({
-                                                                            id: apt.id, patientId: String(apt.patientId), patientName: apt.patientName!,
-                                                                            treatment: apt.treatment!, doctor: apt.doctor!, date: apt.date!,
-                                                                            time: apt.time!, duration: apt.duration!, clinicalNoteId: apt.clinicalNoteId ?? null,
-                                                                            cost: apt.cost!,
-                                                                            listPrice: apt.listPrice ?? undefined, discountMode: apt.discountMode ?? undefined,
-                                                                            discountPercent: apt.discountPercent ?? undefined, discountFixed: apt.discountFixed ?? undefined,
-                                                                            discountAmount: apt.discountAmount ?? undefined, notes: apt.notes!, status: apt.status || "Scheduled",
-                                                                        });
+                                                                        setAppointmentToEdit(editSnapshotOf(apt));
                                                                         setActiveModal("booking");
                                                                         lastTapRef.current = null;
                                                                     } else {
@@ -1646,15 +1673,7 @@ export default function DesktopDashboard() {
                                                                         <button onClick={(e) => { e.stopPropagation(); setPaymentPatient({ id: apt.patientId!, name: apt.patientName! }); setActiveModal('payment'); }} className="p-1 text-emerald-600 bg-surface shadow-sm ring-1 ring-emerald-600/20 hover:text-emerald-700 hover:bg-emerald-50 hover:ring-emerald-600/40 hover:shadow rounded-lg transition-all" title={language === 'ar' ? 'دفع' : 'Pay'}><Wallet strokeWidth={2.5} className="w-3.5 h-3.5 lg:w-4 lg:h-4" /></button>
                                                                         <button onClick={(e) => {
                                                                             e.stopPropagation();
-                                                                            setAppointmentToEdit({
-                                                                                id: apt.id, patientId: String(apt.patientId), patientName: apt.patientName!,
-                                                                                treatment: apt.treatment!, doctor: apt.doctor!, date: apt.date!,
-                                                                                time: apt.time!, duration: apt.duration!, clinicalNoteId: apt.clinicalNoteId ?? null,
-                                                                                cost: apt.cost!,
-                                                                                listPrice: apt.listPrice ?? undefined, discountMode: apt.discountMode ?? undefined,
-                                                                                discountPercent: apt.discountPercent ?? undefined, discountFixed: apt.discountFixed ?? undefined,
-                                                                                discountAmount: apt.discountAmount ?? undefined, notes: apt.notes!, status: apt.status || "Scheduled",
-                                                                            });
+                                                                            setAppointmentToEdit(editSnapshotOf(apt));
                                                                             setActiveModal("booking");
                                                                         }} className="p-1 text-indigo-600 bg-surface shadow-sm ring-1 ring-indigo-600/20 hover:text-indigo-700 hover:bg-indigo-50 hover:ring-indigo-600/40 hover:shadow rounded-lg transition-all" title={language === 'ar' ? 'تعديل' : 'Edit'}><Edit strokeWidth={2.5} className="w-4 h-4 lg:w-4 lg:h-4" /></button>
                                                                         <button onClick={(e) => handleDeleteAppointment(e, apt.id)} className="p-1 text-rose-600 bg-surface shadow-sm ring-1 ring-rose-600/20 hover:text-rose-700 hover:bg-rose-50 hover:ring-rose-600/40 hover:shadow rounded-lg transition-all" title={language === 'ar' ? 'حذف' : 'Delete'}><Trash2 strokeWidth={2.5} className="w-4 h-4 lg:w-4 lg:h-4" /></button>

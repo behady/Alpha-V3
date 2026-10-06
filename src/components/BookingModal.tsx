@@ -25,6 +25,7 @@ import {
   ChevronDown,
   Trash2,
   CloudOff,
+  Pencil,
 } from "lucide-react";
 import {
   DEFAULT_COUNTRY_CODE,
@@ -60,6 +61,7 @@ import SlotPicker from "./appointments/booking/SlotPicker";
 import PatientTimeline, { formatDayLabel, formatTimeLabel, type TimelineAppointment } from "./appointments/booking/PatientTimeline";
 import AvailabilityPicker from "./appointments/booking/AvailabilityPicker";
 import InsuranceApprovals from "./appointments/booking/InsuranceApprovals";
+import ApprovalUploadPanel from "./appointments/booking/ApprovalUploadPanel";
 import AppointmentMoneyTab from "./appointments/AppointmentMoneyTab";
 import AppointmentStagePicker from "./appointments/AppointmentStagePicker";
 import { getAppointmentStageLabel } from "@/lib/appointmentStages";
@@ -320,6 +322,8 @@ export default function BookingModal({
   const [procCost, setProcCost] = useState<number | "">("");
   const [addProcToLedger, setAddProcToLedger] = useState(true);
   const [addingProcedure, setAddingProcedure] = useState(false);
+  /** The staged procedure whose details are back in the form for changing; null = adding a new one. */
+  const [editingProcId, setEditingProcId] = useState<string | null>(null);
   const [sessionProcedures, setSessionProcedures] = useState<{ id: string; serviceId: string | null; name: string; cost: number; addToLedger: boolean; priceListId?: string | null }[]>([]);
 
   /**
@@ -641,6 +645,7 @@ export default function BookingModal({
     setProcCost("");
     setAddProcToLedger(true);
     setSessionProcedures([]);
+    setEditingProcId(null);
 
     if (editAppointment) {
       setIsNewPatient(false);
@@ -1142,6 +1147,11 @@ servicesList.length > 0 && (
       <button
         onClick={(e) => {
           e.preventDefault();
+          if (editingProcId) {
+            setEditingProcId(null);
+            setProcServiceId("");
+            setProcCost("");
+          }
           setShowAddProcedure(prev => !prev);
         }}
         className={`w-full text-sm font-extrabold rounded-xl py-3.5 flex items-center justify-center gap-1.5 transition-colors shadow-sm ${
@@ -1286,7 +1296,7 @@ servicesList.length > 0 && (
                 setAddingProcedure(true);
                 try {
                   const newProcedure = {
-                    id: Date.now().toString(),
+                    id: editingProcId || Date.now().toString(),
                     // The catalog entry this came from. Carried through to the ledger row so
                     // reports can group on a stable id instead of parsing the description.
                     serviceId: String(svc.id),
@@ -1308,7 +1318,12 @@ servicesList.length > 0 && (
                   setProcServiceId("");
                   setProcCost("");
                   setAddProcToLedger(true);
-                  setSessionProcedures(prev => [...prev, newProcedure]);
+                  if (editingProcId) {
+                    setSessionProcedures(prev => prev.map(p => (p.id === editingProcId ? newProcedure : p)));
+                    setEditingProcId(null);
+                  } else {
+                    setSessionProcedures(prev => [...prev, newProcedure]);
+                  }
                 } catch (err) {
                   console.error('Error adding procedure:', err);
                   showToast(language === 'ar' ? 'خطأ في إضافة الإجراء' : 'Error adding procedure', 'error');
@@ -1319,7 +1334,9 @@ servicesList.length > 0 && (
               className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-black py-3.5 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 w-full"
             >
               {addingProcedure ? <Loader2 size={16} className="animate-spin"/> : <Check size={16}/>}
-              {language === 'ar' ? 'تأكيد الإجراء' : 'Confirm Procedure'}
+              {editingProcId
+                ? (language === 'ar' ? 'حفظ التعديل' : 'Update procedure')
+                : (language === 'ar' ? 'تأكيد الإجراء' : 'Confirm Procedure')}
             </button>
           </div>
         </div>
@@ -1339,14 +1356,35 @@ servicesList.length > 0 && (
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="font-black text-ink">{sp.cost} {language === 'ar' ? 'ج.م' : 'EGP'}</span>
+                  {/* Back into the form above: change the service, list or price, then "Update procedure". */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingProcId(sp.id);
+                      setShowAddProcedure(true);
+                      if (sp.priceListId) setProcListId(sp.priceListId);
+                      setProcServiceId(sp.serviceId || "");
+                      setProcCost(sp.cost);
+                      setAddProcToLedger(sp.addToLedger);
+                    }}
+                    title={language === 'ar' ? 'تعديل' : 'Edit'}
+                    aria-label={language === 'ar' ? 'تعديل' : 'Edit'}
+                    className={`p-1.5 rounded-lg border transition-colors ${editingProcId === sp.id ? 'border-ink text-ink bg-surface-muted' : 'border-line text-ink-body hover:border-ink hover:text-ink'}`}
+                  >
+                    <Pencil size={15} />
+                  </button>
                   <button 
+                    type="button"
+                    title={language === 'ar' ? 'حذف' : 'Delete'}
+                    aria-label={language === 'ar' ? 'حذف' : 'Delete'}
                     onClick={async () => {
                       if (await confirm(language === 'ar' ? 'هل أنت متأكد من حذف هذا الإجراء؟' : 'Are you sure you want to delete this procedure?')) {
                         setSessionProcedures(prev => prev.filter(p => p.id !== sp.id));
+                        if (editingProcId === sp.id) setEditingProcId(null);
                         showToast(language === 'ar' ? 'تم الحذف بنجاح' : 'Deleted successfully', 'success');
                       }
                     }}
-                    className="p-1 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded transition-colors"
+                    className="p-1.5 rounded-lg border border-danger/30 bg-danger-tint text-danger hover:border-danger transition-colors"
                   >
                     <Trash2 size={16} />
                   </button>
@@ -1590,10 +1628,41 @@ servicesList.length > 0 && (
     const fieldRow = "grid grid-cols-1 gap-2 border-t border-line py-4 xl:grid-cols-[132px_minmax(0,1fr)] xl:gap-4";
     const fieldLabel = "pt-2 text-[13px] font-semibold text-ink-muted";
     const input = "w-full rounded-xl border border-line-strong bg-surface px-3 py-2.5 text-sm text-ink outline-none focus:border-ink";
+    // A booking not yet confirmed has no charges in the books: show what it WILL charge, from the
+    // Service tab, so adding a treatment there shows up here at once.
+    const stagedTotal = sessionProcedures.filter((p) => p.addToLedger).reduce((sum, p) => sum + (Number(p.cost) || 0), 0);
     const needsVisitFirst = (
-      <p className="mt-3 rounded-2xl border border-dashed border-line px-4 py-6 text-sm text-ink-muted">
-        {isAr ? "احجز الزيارة الأول، وبعدها الدفع بيتسجل من هنا." : "Book the visit first; payments for it are taken here afterwards."}
-      </p>
+      <div className="mt-3 space-y-3">
+        <div className="rounded-2xl border border-line px-5 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.06em] text-ink-muted">{isAr ? "هيتحسب على الزيارة" : "To be charged for this visit"}</p>
+          <p className="mt-1 font-figure text-4xl font-semibold tabular-nums text-ink">
+            {stagedTotal.toLocaleString("en-US")}
+            <span className="ms-1 text-base font-medium text-ink-muted">{isAr ? "ج.م" : "EGP"}</span>
+          </p>
+        </div>
+        {sessionProcedures.length > 0 ? (
+          <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line">
+            {sessionProcedures.map((p) => (
+              <li key={p.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                <span className="min-w-0 truncate font-semibold text-ink">
+                  {p.name}
+                  {!p.addToLedger && <span className="ms-2 text-xs font-normal text-ink-muted">{isAr ? "(من غير حساب)" : "(not charged)"}</span>}
+                </span>
+                <span className="shrink-0 font-figure font-semibold tabular-nums text-ink">{Number(p.cost).toLocaleString("en-US")}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="rounded-2xl border border-dashed border-line px-4 py-5 text-sm text-ink-muted">
+            {isAr ? "مفيش خدمات لسه. ضيفها من تبويب الخدمة." : "No treatments yet. Add them on the Service tab."}
+          </p>
+        )}
+        <p className="text-xs text-ink-muted">
+          {isAr
+            ? "الخدمات دي بتتسجل لما تدوس تأكيد الحجز، وبعدها تقدر تحصّل الفلوس من هنا."
+            : "These are recorded when you press Confirm booking; after that, the payment is taken here."}
+        </p>
+      </div>
     );
 
     return (
@@ -1795,7 +1864,10 @@ servicesList.length > 0 && (
               <>
                 {panelHead(isAr ? "التأمين" : "Insurance", false)}
                 {headerPatientId ? (
-                  <InsuranceApprovals language={language} loaded={claimsLoaded} claims={patientClaims.claims} claimLink={claimLink} onPick={pickLine} />
+                  <>
+                    <InsuranceApprovals language={language} loaded={claimsLoaded} claims={patientClaims.claims} claimLink={claimLink} onPick={pickLine} />
+                    <ApprovalUploadPanel patientId={headerPatientId} patientName={selectedPatient?.name || ""} language={language} />
+                  </>
                 ) : (
                   <p className="mt-3 text-sm text-ink-muted">{isAr ? "اختار مريض مسجل الأول." : "Pick a saved patient first."}</p>
                 )}
