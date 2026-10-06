@@ -192,6 +192,8 @@ interface Props {
    * between branches has to be a deliberate act, not a side effect of who opened the screen.
    */
   preSelectedBranchId?: string;
+  /** A room to start a NEW booking in (a click on the dashboard's room calendar). Ignored when editing. */
+  preSelectedRoomId?: string;
   /**
    * An insurance approval's service to book this visit for (the Book button on the patient's
    * Insurance tab). Fills the dentist and the reason from the approval; the desk can still change
@@ -239,6 +241,7 @@ export default function BookingModal({
   inlineDesktop = false,
   servicesList = [],
   preSelectedBranchId = "",
+  preSelectedRoomId = "",
   preSelectedClaimLine = null,
   wide = false,
 }: Props) {
@@ -712,10 +715,10 @@ export default function BookingModal({
       setVisitNotes("");
       setAppointmentStatus("Scheduled");
       setBranchId("");
-      setRoomId("");
+      setRoomId(preSelectedRoomId || "");
       setClaimLinks(preSelectedClaimLine ? [preSelectedClaimLine] : []);
     }
-  }, [isOpen, editAppointment, doctors, sched.slotDuration, preSelectedDoctor, preSelectedPatient, preSelectedDate, preSelectedTime, preSelectedClaimLine]);
+  }, [isOpen, editAppointment, doctors, sched.slotDuration, preSelectedDoctor, preSelectedPatient, preSelectedDate, preSelectedTime, preSelectedClaimLine, preSelectedRoomId]);
 
   // A clinic with exactly one branch shouldn't have to pick it on every booking.
   useEffect(() => {

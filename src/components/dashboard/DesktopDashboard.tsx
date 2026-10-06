@@ -20,6 +20,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useUI } from "@/context/UIContext";
 import BookingModal, { type BookingEditSnapshot } from "@/components/BookingModal";
 import WeeklyScheduleView from "@/components/dashboard/WeeklyScheduleView";
+import RoomScheduleView from "@/components/dashboard/RoomScheduleView";
 import {
   parseApptTimeToMinutes,
   normalizeDateKey,
@@ -156,6 +157,8 @@ export default function DesktopDashboard() {
   const [loading, setLoading] = useState(true);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
+  /** The day drawn as one column per room instead of one timeline. Only offered when rooms exist. */
+  const [roomsView, setRoomsView] = useState(false);
   
   const [patientsList, setPatientsList] = useState<any[]>([]);
   const [doctorsList, setDoctorsList] = useState<any[]>([]);
@@ -169,6 +172,9 @@ export default function DesktopDashboard() {
   const [preSelectedTime, setPreSelectedTime] = useState<string>("");
   const [preSelectedPatient, setPreSelectedPatient] = useState<{ id: string; name: string } | null>(null);
   const [preSelectedDoctor, setPreSelectedDoctor] = useState<string>("");
+  // A booking started from an empty room slot: that room, and the branch it belongs to.
+  const [preSelectedRoomId, setPreSelectedRoomId] = useState<string>("");
+  const [preSelectedRoomBranchId, setPreSelectedRoomBranchId] = useState<string>("");
   const [showDelayPrompt, setShowDelayPrompt] = useState(false);
   const [delayedAppointmentData, setDelayedAppointmentData] = useState<any>(null);
   
@@ -661,6 +667,8 @@ export default function DesktopDashboard() {
       );
       setAppointmentToEdit(null);
       setActiveModal(null);
+      setPreSelectedRoomId("");
+      setPreSelectedRoomBranchId("");
       showToast(language === "ar" ? "تم الحفظ بنجاح" : "Saved Successfully", "success");
     } catch (error) {
       console.error("Booking save error:", error);
@@ -1312,18 +1320,27 @@ export default function DesktopDashboard() {
                       <div className="flex items-center gap-1 shrink-0 bg-slate-100/80 rounded-xl p-1 shadow-inner ml-2">
                         <button
                           type="button"
-                          onClick={() => setViewMode("day")}
-                          className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${viewMode === 'day' ? 'bg-surface text-slate-800 shadow-sm' : 'text-ink-muted hover:text-slate-800'}`}
+                          onClick={() => { setViewMode("day"); setRoomsView(false); }}
+                          className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${viewMode === 'day' && !roomsView ? 'bg-surface text-slate-800 shadow-sm' : 'text-ink-muted hover:text-slate-800'}`}
                         >
                           {language === 'ar' ? 'يومي' : 'Day'}
                         </button>
                         <button
                           type="button"
-                          onClick={() => setViewMode("week")}
+                          onClick={() => { setViewMode("week"); setRoomsView(false); }}
                           className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${viewMode === 'week' ? 'bg-surface text-slate-800 shadow-sm' : 'text-ink-muted hover:text-slate-800'}`}
                         >
                           {language === 'ar' ? 'أسبوعي' : 'Week'}
                         </button>
+                        {branches.some((b) => (b.rooms?.length ?? 0) > 0) && (
+                          <button
+                            type="button"
+                            onClick={() => { setViewMode("day"); setRoomsView(true); }}
+                            className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${viewMode === 'day' && roomsView ? 'bg-surface text-slate-800 shadow-sm' : 'text-ink-muted hover:text-slate-800'}`}
+                          >
+                            {language === 'ar' ? 'الغرف' : 'Rooms'}
+                          </button>
+                        )}
                       </div>
                       
                       {/* Full Screen Toggle */}
@@ -1381,6 +1398,33 @@ export default function DesktopDashboard() {
                                     canSeeMoney={canSeeMoney}
                                     patientHistory={patientHistory}
                                     visitMoney={visitMoney}
+                                />
+                            ) : roomsView ? (
+                                <RoomScheduleView
+                                    appointments={appointments}
+                                    date={normalizeDateKey(scheduleViewDate) || scheduleViewDate}
+                                    language={language === "ar" ? "ar" : "en"}
+                                    config={config}
+                                    branches={branches}
+                                    scopeBranchId={scopeBranchId}
+                                    currentTime={currentTime}
+                                    todayKey={getLocalDateKey()}
+                                    onOpenAppointment={(apt) => {
+                                        if (appointmentEditorMode === "modal") {
+                                            setAppointmentToEdit(editSnapshotOf(apt));
+                                            setActiveModal("booking");
+                                        } else {
+                                            handleSelectAppointmentWrapper(apt);
+                                        }
+                                    }}
+                                    onBookSlot={(time, roomId, branchId) => {
+                                        handleSelectAppointmentWrapper(null);
+                                        setAppointmentToEdit(null);
+                                        setPreSelectedTime(time);
+                                        setPreSelectedRoomId(roomId);
+                                        setPreSelectedRoomBranchId(branchId);
+                                        setActiveModal("booking");
+                                    }}
                                 />
                             ) : (() => {
                                 const sched = config;
@@ -1791,7 +1835,7 @@ export default function DesktopDashboard() {
                         <BookingModal 
                             isOpen={activeModal === 'booking'} 
                             inlineDesktop={true}
-                            onClose={() => { setActiveModal(null); setAppointmentToEdit(null); setPreSelectedTime(''); setPreSelectedPatient(null); setPreSelectedDoctor(''); }} 
+                            onClose={() => { setActiveModal(null); setAppointmentToEdit(null); setPreSelectedTime(''); setPreSelectedPatient(null); setPreSelectedDoctor(''); setPreSelectedRoomId(''); setPreSelectedRoomBranchId(''); }} 
                             onSave={handleSaveBooking}
                             onAutosave={handleAutosaveBooking}
                             patients={patientsList}
@@ -1804,7 +1848,8 @@ export default function DesktopDashboard() {
                             preSelectedTime={preSelectedTime}
                             preSelectedDoctor={preSelectedDoctor}
                             preSelectedPatient={preSelectedPatient}
-                            preSelectedBranchId={scopeBranchId}
+                            preSelectedBranchId={preSelectedRoomBranchId || scopeBranchId}
+                            preSelectedRoomId={preSelectedRoomId}
                         />
                     ) : null}
              </div>
@@ -1817,7 +1862,7 @@ export default function DesktopDashboard() {
           isOpen={true} 
           inlineDesktop={false}
           wide
-          onClose={() => { setActiveModal(null); setAppointmentToEdit(null); setPreSelectedTime(''); setPreSelectedPatient(null); setPreSelectedDoctor(''); }} 
+          onClose={() => { setActiveModal(null); setAppointmentToEdit(null); setPreSelectedTime(''); setPreSelectedPatient(null); setPreSelectedDoctor(''); setPreSelectedRoomId(''); setPreSelectedRoomBranchId(''); }} 
           onSave={handleSaveBooking} 
           patients={patientsList} 
           doctors={doctorsList} 
@@ -1829,7 +1874,8 @@ export default function DesktopDashboard() {
           preSelectedTime={preSelectedTime}
           preSelectedDoctor={preSelectedDoctor}
           preSelectedPatient={preSelectedPatient}
-          preSelectedBranchId={scopeBranchId}
+          preSelectedBranchId={preSelectedRoomBranchId || scopeBranchId}
+          preSelectedRoomId={preSelectedRoomId}
         />
       )}
 
