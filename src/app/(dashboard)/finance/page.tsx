@@ -401,6 +401,8 @@ export default function FinancePage() {
           if (filterType !== 'all') {
               if (filterType === 'income' && t.type === 'expense') return false;
               if (filterType === 'expense' && t.type !== 'expense') return false;
+              // A staff payout is commission handed over, not an expense line: the summary shows it.
+              if (filterType === 'expense' && t.settlementId) return false;
           }
           if (searchQuery) {
                const q = searchQuery.trim();
@@ -411,6 +413,49 @@ export default function FinancePage() {
           return true;
       });
   }, [allTransactions, filterDoctor, filterType, searchQuery]);
+
+  /**
+   * The period as a statement: income by how it came in, expenses by category, the dentists'
+   * commission on its own (paid comes off, pending only waits), lab fees, and the net.
+   */
+  const summary = useMemo(() => {
+    const isAr = language === "ar";
+    const methodLabel = (m: string) => {
+      const k = m.trim().toLowerCase();
+      if (k === "cash") return isAr ? "كاش" : "Cash";
+      if (k === "card" || k === "visa") return isAr ? "كارت" : "Card";
+      if (k === "instapay") return "InstaPay";
+      if (k === "insurance") return isAr ? "تأمين" : "Insurance";
+      return m || (isAr ? "أخرى" : "Other");
+    };
+    const income = new Map<string, number>();
+    const expenses = new Map<string, number>();
+    const staffPay = new Map<string, number>();
+    for (const t of allTransactions) {
+      const docLabel = (t.doctorName || t.doctor || "").trim();
+      if (t.type === "expense") {
+        if (t.settlementId) {
+          const who = t.description.replace(/^Staff pay\s*[–-]\s*/i, "").trim() || t.description;
+          staffPay.set(who, (staffPay.get(who) || 0) + t.val);
+        } else {
+          const key = categoryLabel(t.category, isAr) || (isAr ? "عام" : "General");
+          expenses.set(key, (expenses.get(key) || 0) + t.val);
+        }
+        continue;
+      }
+      if (filterDoctor !== "all" && docLabel !== filterDoctor) continue;
+      if (t.isAccountsReceivableOnly) continue;
+      const key =
+        t.type === "income"
+          ? `${isAr ? "إيراد آخر" : "Other income"} · ${categoryLabel(t.category, isAr) || (isAr ? "عام" : "General")}`
+          : t.category === "Insurance Payment"
+            ? isAr ? "مدفوعات شركات التأمين" : "Insurance company payments"
+            : `${isAr ? "مدفوعات المرضى" : "Patient payments"} · ${methodLabel(String(t.method || "Cash"))}`;
+      income.set(key, (income.get(key) || 0) + t.val);
+    }
+    const rows = (m: Map<string, number>) => [...m.entries()].sort((a, b) => b[1] - a[1]).map(([label, amount]) => ({ label, amount: Math.round(amount * 100) / 100 }));
+    return { income: rows(income), expenses: rows(expenses), staffPay: rows(staffPay) };
+  }, [allTransactions, filterDoctor, language]);
 
   useEffect(() => setCurrentPage(1), [filterType, filterDoctor, searchQuery]);
   const totalPages = Math.max(1, Math.ceil(filteredList.length / ITEMS_PER_PAGE));
@@ -761,7 +806,7 @@ export default function FinancePage() {
                   {isLoading ? <Loader2 className="w-10 h-10 animate-spin text-slate-500" /> : `${formatCurrency(kpiStats.finalNet)}`}
                 </p>
                 <p className="text-slate-500 text-sm mt-2 font-medium leading-snug">
-                  {language === "ar" ? "بعد المختبر والمصروفات (مرتبات الفريق ضمنها). نِسَب الأطباء بتتخصم لما تتدفع من صفحة الفريق." : "After lab fees and recorded expenses, staff pay included. Dentists' commissions come off when paid from the Team page."}
+                  {language === "ar" ? "بعد المعمل والمصروفات والنِسَب اللي اتدفعت للأطباء. النِسَب المعلّقة مش مخصومة." : "After lab fees, expenses and commissions paid to dentists. Pending commissions are not deducted."}
                 </p>
                 <dl className="mt-8 pt-6 border-t border-white/10 space-y-3 text-sm">
                   <div className="flex justify-between gap-4">
@@ -785,7 +830,7 @@ export default function FinancePage() {
                     </dd>
                   </div>
                   <div className="flex justify-between gap-4">
-                    <dt className="text-slate-400 font-semibold">{language === "ar" ? "مصروفات تانية" : "Other expenses"}</dt>
+                    <dt className="text-slate-400 font-semibold">{language === "ar" ? "مصروفات" : "Expenses"}</dt>
                     <dd className="font-black tabular-nums text-red-300">
                       −{isLoading ? "—" : formatCurrency(kpiStats.explicitExpenses - kpiStats.staffPay)}
                     </dd>
@@ -866,14 +911,14 @@ export default function FinancePage() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "مصروفات" : "Expenses"}</p>
-                    <p className="text-xs text-ink-muted mt-1 font-medium">{language === "ar" ? "يدوي" : "Manual ledger"}</p>
+                    <p className="text-xs text-ink-muted mt-1 font-medium">{language === "ar" ? "من غير نِسَب الأطباء" : "Without dentists' commissions"}</p>
                   </div>
                   <div className="w-11 h-11 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center shrink-0">
                     <TrendingDown size={22} />
                   </div>
                 </div>
                 <p className="text-2xl xl:text-3xl font-black text-red-600 tabular-nums mt-4">
-                  {isLoading ? <Loader2 className="w-6 h-6 animate-spin text-red-300" /> : `−${formatCurrency(kpiStats.explicitExpenses)}`}
+                  {isLoading ? <Loader2 className="w-6 h-6 animate-spin text-red-300" /> : `−${formatCurrency(kpiStats.explicitExpenses - kpiStats.staffPay)}`}
                 </p>
               </div>
             </div>
@@ -1014,7 +1059,9 @@ export default function FinancePage() {
                       filterType === type ? "bg-slate-900 text-white shadow-sm" : "text-slate-500"
                     }`}
                   >
-                    {language === "ar" ? (type === "all" ? "الكل" : type === "income" ? "دخل" : "مصروف") : type}
+                    {language === "ar"
+                      ? type === "all" ? "ملخص" : type === "income" ? "إيرادات" : "مصروفات"
+                      : type === "all" ? "Summary" : type === "income" ? "Income" : "Expenses"}
                   </button>
                 ))}
               </div>
@@ -1065,6 +1112,61 @@ export default function FinancePage() {
                   {language === "ar" ? "جاري التحميل..." : "Loading ledger..."}
                 </p>
               </div>
+            ) : filterType === "all" ? (
+              <div className="p-5 sm:p-7 space-y-6">
+                <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+                  <StatementCard
+                    title={language === "ar" ? "الإيرادات" : "Income"}
+                    tone="in"
+                    rows={summary.income}
+                    total={kpiStats.grossIncome}
+                    empty={language === "ar" ? "مفيش إيرادات في الفترة دي." : "Nothing came in during this period."}
+                    isAr={language === "ar"}
+                  />
+                  <StatementCard
+                    title={language === "ar" ? "المصروفات" : "Expenses"}
+                    tone="out"
+                    rows={summary.expenses}
+                    total={kpiStats.explicitExpenses - kpiStats.staffPay}
+                    empty={language === "ar" ? "مفيش مصروفات متسجلة في الفترة دي." : "No expenses recorded in this period."}
+                    note={language === "ar" ? "من غير نِسَب الأطباء، دي تحت." : "Dentists' commissions are not here; they are below."}
+                    isAr={language === "ar"}
+                  />
+                </div>
+                <div className="rounded-2xl border border-line bg-surface-subtle p-5">
+                  <h3 className="text-[15px] font-extrabold text-ink">{language === "ar" ? "نِسَب الأطباء" : "Dentists' commissions"}</h3>
+                  <p className="mt-1 text-[12.5px] font-medium text-ink-muted">
+                    {language === "ar"
+                      ? "اللي اتدفع للطبيب بيتخصم من الصافي. المعلّق لسه مش مخصوم لحد ما يتدفع من صفحة الفريق."
+                      : "What was paid to a dentist comes off the net. Pending is not deducted until it is paid from the Team page."}
+                  </p>
+                  <dl className="mt-4 space-y-2 text-[14px]">
+                    {summary.staffPay.map((r) => (
+                      <div key={r.label} className="flex justify-between gap-4">
+                        <dt className="font-semibold text-ink-body">{language === "ar" ? "اتدفع لـ" : "Paid to"} {r.label}</dt>
+                        <dd className="font-black tabular-nums text-red-600">−{r.amount.toLocaleString()}</dd>
+                      </div>
+                    ))}
+                    <div className="flex justify-between gap-4 border-t border-line pt-2">
+                      <dt className="font-bold text-ink">{language === "ar" ? "إجمالي المدفوع للأطباء (مخصوم)" : "Total paid to dentists (deducted)"}</dt>
+                      <dd className="font-black tabular-nums text-red-600">−{formatCurrency(kpiStats.staffPay)}</dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="font-semibold text-ink-muted">{language === "ar" ? "نِسَب معلّقة (مش مخصومة)" : "Pending commissions (not deducted)"}</dt>
+                      <dd className="font-black tabular-nums text-amber-700">{formatCurrency(kpiStats.commissionsPending)}</dd>
+                    </div>
+                  </dl>
+                </div>
+                <dl className="rounded-2xl bg-ink-slab p-5 text-white space-y-2 text-[14px]">
+                  <div className="flex justify-between gap-4"><dt className="text-white/70 font-semibold">{language === "ar" ? "الإيرادات" : "Income"}</dt><dd className="font-black tabular-nums text-emerald-300">+{formatCurrency(kpiStats.grossIncome)}</dd></div>
+                  {kpiStats.totalLabFees > 0 && (
+                    <div className="flex justify-between gap-4"><dt className="text-white/70 font-semibold">{language === "ar" ? "مصاريف المعمل" : "Lab fees"}</dt><dd className="font-black tabular-nums text-red-300">−{formatCurrency(kpiStats.totalLabFees)}</dd></div>
+                  )}
+                  <div className="flex justify-between gap-4"><dt className="text-white/70 font-semibold">{language === "ar" ? "المصروفات" : "Expenses"}</dt><dd className="font-black tabular-nums text-red-300">−{formatCurrency(kpiStats.explicitExpenses - kpiStats.staffPay)}</dd></div>
+                  <div className="flex justify-between gap-4"><dt className="text-white/70 font-semibold">{language === "ar" ? "نِسَب اتدفعت للأطباء" : "Commissions paid to dentists"}</dt><dd className="font-black tabular-nums text-red-300">−{formatCurrency(kpiStats.staffPay)}</dd></div>
+                  <div className="flex justify-between gap-4 border-t border-white/15 pt-3"><dt className="text-[16px] font-extrabold">{language === "ar" ? "الصافي" : "Net"}</dt><dd className={`text-[22px] font-black tabular-nums ${kpiStats.finalNet >= 0 ? "text-white" : "text-red-400"}`}>{formatCurrency(kpiStats.finalNet)}</dd></div>
+                </dl>
+              </div>
             ) : filteredList.length === 0 ? (
               <div className="flex-1 flex flex-col items-center justify-center text-slate-400 min-h-[320px] px-6">
                 <div className="w-16 h-16 rounded-2xl bg-surface-muted flex items-center justify-center mb-4">
@@ -1084,14 +1186,25 @@ export default function FinancePage() {
                       <tr className="bg-slate-50/90 border-b border-line text-[11px] font-black uppercase tracking-wider text-ink-muted">
                         <th className="text-start py-4 px-6 w-[110px] whitespace-nowrap">{language === "ar" ? "التاريخ" : "Date"}</th>
                         <th className="text-start py-4 px-4 min-w-[200px]">{language === "ar" ? "التفاصيل" : "Details"}</th>
-                        <th className="text-start py-4 px-4 w-[120px]">{language === "ar" ? "المريض" : "Patient"}</th>
-                        <th className="text-start py-4 px-4 w-[130px]">{language === "ar" ? "الطبيب" : "Dentist"}</th>
-                        <th className="text-end py-4 px-3 w-[80px] whitespace-nowrap">{language === "ar" ? "نسبة الطبيب" : "Dentist %"}</th>
-                        <th className="text-end py-4 px-3 w-[110px] whitespace-nowrap">{language === "ar" ? "عمولة الطبيب" : "Dentist commission"}</th>
-                        <th className="text-end py-4 px-3 w-[110px] whitespace-nowrap">{language === "ar" ? "عمولة اتدفعت" : "Paid commission"}</th>
-                        <th className="text-end py-4 px-3 w-[120px] whitespace-nowrap">{language === "ar" ? "عمولة معلّقة" : "Pending commission"}</th>
-                        <th className="text-end py-4 px-3 w-[110px] whitespace-nowrap">{language === "ar" ? "صافي العيادة" : "Clinic net"}</th>
-                        <th className="text-end py-4 px-6 w-[120px] whitespace-nowrap">{language === "ar" ? "المبلغ المدفوع" : "Amount paid"}</th>
+                        {filterType === "expense" ? (
+                          <>
+                            <th className="text-start py-4 px-4 w-[180px]">{language === "ar" ? "التصنيف" : "Category"}</th>
+                            <th className="text-start py-4 px-4 w-[120px]">{language === "ar" ? "طريقة الدفع" : "Paid by"}</th>
+                            <th className="text-start py-4 px-4 w-[120px]">{language === "ar" ? "بيتكرر" : "Repeats"}</th>
+                            <th className="text-end py-4 px-6 w-[120px] whitespace-nowrap">{language === "ar" ? "المبلغ" : "Amount"}</th>
+                          </>
+                        ) : (
+                          <>
+                            <th className="text-start py-4 px-4 w-[120px]">{language === "ar" ? "المريض" : "Patient"}</th>
+                            <th className="text-start py-4 px-4 w-[130px]">{language === "ar" ? "الطبيب" : "Dentist"}</th>
+                            <th className="text-end py-4 px-3 w-[80px] whitespace-nowrap">{language === "ar" ? "نسبة الطبيب" : "Dentist %"}</th>
+                            <th className="text-end py-4 px-3 w-[110px] whitespace-nowrap">{language === "ar" ? "عمولة الطبيب" : "Dentist commission"}</th>
+                            <th className="text-end py-4 px-3 w-[110px] whitespace-nowrap">{language === "ar" ? "عمولة اتدفعت" : "Paid commission"}</th>
+                            <th className="text-end py-4 px-3 w-[120px] whitespace-nowrap">{language === "ar" ? "عمولة معلّقة" : "Pending commission"}</th>
+                            <th className="text-end py-4 px-3 w-[110px] whitespace-nowrap">{language === "ar" ? "صافي العيادة" : "Clinic net"}</th>
+                            <th className="text-end py-4 px-6 w-[120px] whitespace-nowrap">{language === "ar" ? "المبلغ المدفوع" : "Amount paid"}</th>
+                          </>
+                        )}
                         <th className="text-end py-4 px-4 w-[100px] whitespace-nowrap">{language === "ar" ? "إجراءات" : ""}</th>
                       </tr>
                     </thead>
@@ -1144,6 +1257,14 @@ export default function FinancePage() {
                                 </div>
                               </div>
                             </td>
+                            {filterType === "expense" ? (
+                              <>
+                                <td className="py-4 px-4 align-top text-sm font-semibold text-ink">{categoryLabel(tx.category, language === "ar") || "—"}</td>
+                                <td className="py-4 px-4 align-top text-sm font-semibold text-ink-body">{tx.method || "—"}</td>
+                                <td className="py-4 px-4 align-top text-sm font-semibold text-ink-muted">{tx.isRecurring ? (language === "ar" ? "كل شهر" : "Monthly") : "—"}</td>
+                              </>
+                            ) : (
+                              <>
                             <td className="py-4 px-4 align-top">
                               {tx.patientId ? (
                                 <button
@@ -1185,6 +1306,8 @@ export default function FinancePage() {
                                 </>
                               );
                             })()}
+                              </>
+                            )}
                             <td className="py-4 px-6 align-top text-end">
                               <span
                                 className={`font-black text-base tabular-nums ${isExpense ? "text-red-600" : "text-emerald-600"}`}
@@ -1538,5 +1661,33 @@ export default function FinancePage() {
         )}
       </div>
     </PermissionGuard>
+  );
+}
+
+/** One side of the summary: lines and a total, in the colour of money coming in or going out. */
+function StatementCard({ title, tone, rows, total, empty, note, isAr }: { title: string; tone: "in" | "out"; rows: { label: string; amount: number }[]; total: number; empty: string; note?: string; isAr: boolean }) {
+  const sign = tone === "in" ? "+" : "−";
+  const color = tone === "in" ? "text-emerald-600" : "text-red-600";
+  return (
+    <div className="rounded-2xl border border-line bg-surface p-5">
+      <h3 className="text-[15px] font-extrabold text-ink">{title}</h3>
+      {note && <p className="mt-1 text-[12.5px] font-medium text-ink-muted">{note}</p>}
+      {rows.length === 0 ? (
+        <p className="mt-4 text-[14px] font-semibold text-ink-muted">{empty}</p>
+      ) : (
+        <dl className="mt-4 space-y-2 text-[14px]">
+          {rows.map((r) => (
+            <div key={r.label} className="flex justify-between gap-4">
+              <dt className="font-semibold text-ink-body">{r.label}</dt>
+              <dd className={`font-black tabular-nums ${color}`}>{sign}{r.amount.toLocaleString()}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      <div className="mt-4 flex justify-between gap-4 border-t border-line pt-3">
+        <span className="text-[15px] font-extrabold text-ink">{isAr ? "الإجمالي" : "Total"}</span>
+        <span className={`text-[18px] font-black tabular-nums ${color}`}>{sign}{(Math.round(total * 100) / 100).toLocaleString()}</span>
+      </div>
+    </div>
   );
 }
