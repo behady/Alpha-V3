@@ -401,8 +401,6 @@ export default function FinancePage() {
           if (filterType !== 'all') {
               if (filterType === 'income' && t.type === 'expense') return false;
               if (filterType === 'expense' && t.type !== 'expense') return false;
-              // A staff payout is commission handed over, not an expense line: the summary shows it.
-              if (filterType === 'expense' && t.settlementId) return false;
           }
           if (searchQuery) {
                const q = searchQuery.trim();
