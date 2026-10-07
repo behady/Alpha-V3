@@ -192,6 +192,8 @@ export default function DesktopDashboard() {
   });
   const [selectedAppointment, setSelectedAppointment] = useState<DashboardAppointment | null>(null);
   const [appointmentToEdit, setAppointmentToEdit] = useState<BookingEditSnapshot | null>(null);
+  /** Which tab the booking popup opens on: the card's Pay button asks for Payment. */
+  const [bookingTab, setBookingTab] = useState<"appointment" | "service" | "payment" | "insurance">("appointment");
   const [scheduleViewDate, setScheduleViewDate] = useState(getLocalDateKey);
   // Where this desk is working today. Shared with booking below, so an appointment created from
   // the dashboard is stamped with the branch whose schedule you were looking at.
@@ -1581,9 +1583,9 @@ export default function DesktopDashboard() {
                                                     */
                                                     const tall = height >= 260;
                                                     const roomy = height >= 170;
-                                                    const nameFontSize = tall ? "text-lg lg:text-xl" : roomy ? "text-base lg:text-lg" : "text-sm lg:text-base";
+                                                    const nameFontSize = tall ? "text-xl lg:text-2xl" : roomy ? "text-lg lg:text-xl" : "text-base lg:text-lg";
                                                     const timeFontSize = tall ? "text-[13px] lg:text-sm" : "text-xs lg:text-[13px]";
-                                                    const infoFontSize = tall ? "text-sm lg:text-[15px]" : roomy ? "text-[13px] lg:text-sm" : "text-xs lg:text-[13px]";
+                                                    const infoFontSize = tall ? "text-[15px] lg:text-base" : roomy ? "text-sm lg:text-[15px]" : "text-[13px] lg:text-sm";
 
                                                     /*
                                                       What fills the space, in the order the desk needs it —
@@ -1652,16 +1654,17 @@ export default function DesktopDashboard() {
                                                                         handleSelectAppointmentWrapper(apt);
                                                                     }
                                                                 }}
-                                                                className={`w-full h-full rounded-2xl transition-all hover:shadow-2xl hover:-translate-y-1 hover:z-[60] cursor-grab active:cursor-grabbing flex flex-col relative pl-4 shadow-sm hover:ring-2 hover:ring-white/50 ${selectedAppointment?.id === apt.id ? 'ring-4 ring-white shadow-[0_8px_30px_rgba(0,0,0,0.12)] z-20 -translate-y-1' : ''} ${aptStyles.card.replace(/opacity-\d+/, '')} ${isAppointmentLate(apt) ? 'animate-pulse ring-4 ring-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.6)] z-30' : ''}`}
+                                                                className={`w-full h-full rounded-2xl transition-all hover:shadow-2xl hover:-translate-y-1 hover:z-[60] cursor-grab active:cursor-grabbing flex flex-col relative pl-4 shadow-sm hover:ring-2 hover:ring-white/50 ${selectedAppointment?.id === apt.id ? 'ring-4 ring-white shadow-[0_8px_30px_rgba(0,0,0,0.12)] z-20 -translate-y-1' : ''} bg-accent-tint border border-accent-soft/80 text-slate-800 ${isAppointmentLate(apt) ? 'animate-pulse ring-4 ring-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.6)] z-30' : ''}`}
                                                                 style={{ zIndex: selectedAppointment?.id === apt.id ? 20 : 1 }}
                                                             >
                                                             <div className={`absolute left-0 top-0 bottom-0 w-2 ${aptStyles.accent}`}></div>
                                                             <div className="flex flex-col h-full p-2 lg:p-3 relative gap-1.5">
                                                                 {/* TOP ROW: Name + Actions */}
-                                                                <div className="flex justify-between items-start w-full gap-2">
-                                                                    <div className="flex flex-col min-w-0">
-                                                                        <div className="flex items-center gap-1.5 min-w-0">
-                                                                            <h4 className={`font-medium truncate drop-shadow-sm ${nameFontSize}`}>
+                                                                <div className="grid w-full grid-cols-[1fr_auto_1fr] items-start gap-2">
+                                                                    {/* Name and phone in the middle of the card, where the eye lands first. */}
+                                                                    <div className="col-start-2 flex min-w-0 max-w-full flex-col items-center text-center">
+                                                                        <div className="flex items-center justify-center gap-1.5 min-w-0 max-w-full">
+                                                                            <h4 className={`font-bold truncate ${nameFontSize}`}>
                                                                                 {apt.patientName}
                                                                             </h4>
                                                                             <AlertBadge alert={alert} isAr={language === "ar"} />
@@ -1691,12 +1694,12 @@ export default function DesktopDashboard() {
                                                                             )}
                                                                         </div>
                                                                         {phone && (
-                                                                            <span className="text-[12px] text-ink-muted font-medium truncate mt-0.5" dir="ltr">
+                                                                            <span className="font-figure text-[13px] text-ink-body font-semibold truncate mt-0.5" dir="ltr">
                                                                                 {phone}
                                                                             </span>
                                                                         )}
                                                                     </div>
-                                                                    <div className="flex items-center gap-0.5 shrink-0 z-20">
+                                                                    <div className="col-start-3 flex items-center justify-end gap-0.5 shrink-0 z-20">
                                                                         {(() => {
                                                                            const getAction = () => {
                                                                                // Must be the canonical stage values: handleStatusChange keys the checkInTime stamp
@@ -1724,7 +1727,17 @@ export default function DesktopDashboard() {
                                                                           setHistoryDrawerPatientName(apt.patientName!);
                                                                         }} className="p-1 text-amber-600 bg-surface shadow-sm ring-1 ring-amber-600/20 hover:text-amber-700 hover:bg-amber-50 hover:ring-amber-600/40 hover:shadow rounded-lg transition-all" title={language === 'ar' ? 'سجل الزيارات' : 'Visit History'}><Clock strokeWidth={2.5} className="w-3.5 h-3.5 lg:w-4 lg:h-4" /></button>
                                                                         <button onClick={(e) => { e.stopPropagation(); router.push(`/patients/${apt.patientId}`); }} className="p-1 text-blue-600 bg-surface shadow-sm ring-1 ring-blue-600/20 hover:text-blue-700 hover:bg-blue-50 hover:ring-blue-600/40 hover:shadow rounded-lg transition-all" title={language === 'ar' ? 'الملف الشخصي' : 'Profile'}><User strokeWidth={2.5} className="w-3.5 h-3.5 lg:w-4 lg:h-4" /></button>
-                                                                        <button onClick={(e) => { e.stopPropagation(); setPaymentPatient({ id: apt.patientId!, name: apt.patientName! }); setActiveModal('payment'); }} className="p-1 text-emerald-600 bg-surface shadow-sm ring-1 ring-emerald-600/20 hover:text-emerald-700 hover:bg-emerald-50 hover:ring-emerald-600/40 hover:shadow rounded-lg transition-all" title={language === 'ar' ? 'دفع' : 'Pay'}><Wallet strokeWidth={2.5} className="w-3.5 h-3.5 lg:w-4 lg:h-4" /></button>
+                                                                        <button onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            if (appointmentEditorMode === "modal") {
+                                                                                setAppointmentToEdit(editSnapshotOf(apt));
+                                                                                setBookingTab("payment");
+                                                                                setActiveModal("booking");
+                                                                                return;
+                                                                            }
+                                                                            setPaymentPatient({ id: apt.patientId!, name: apt.patientName! });
+                                                                            setActiveModal('payment');
+                                                                        }} className="p-1 text-emerald-600 bg-surface shadow-sm ring-1 ring-emerald-600/20 hover:text-emerald-700 hover:bg-emerald-50 hover:ring-emerald-600/40 hover:shadow rounded-lg transition-all" title={language === 'ar' ? 'دفع' : 'Pay'}><Wallet strokeWidth={2.5} className="w-3.5 h-3.5 lg:w-4 lg:h-4" /></button>
                                                                         <button onClick={(e) => {
                                                                             e.stopPropagation();
                                                                             setAppointmentToEdit(editSnapshotOf(apt));
@@ -1760,7 +1773,7 @@ export default function DesktopDashboard() {
                                                                 {/* FOOTER: rating + the time the visit occupies */}
                                                                 <div className="mt-auto flex justify-between items-end w-full gap-2 min-h-0">
                                                                     <div className="pl-1">
-                                                                        <StarRating rating={apt.rating || 0} onRatingChange={(r) => handleRatingChange(apt.id, r)} size={14} />
+                                                                        <StarRating rating={apt.rating || 0} onRatingChange={(r) => handleRatingChange(apt.id, r)} size={18} />
                                                                     </div>
                                                                     {/* "09:00 – 09:45" rather than "09:00 (45m)": the end time is
                                                                         the thing being checked against the clock on the wall. */}
@@ -1871,7 +1884,8 @@ export default function DesktopDashboard() {
           isOpen={true} 
           inlineDesktop={false}
           wide
-          onClose={() => { setActiveModal(null); setAppointmentToEdit(null); setPreSelectedTime(''); setPreSelectedPatient(null); setPreSelectedDoctor(''); setPreSelectedRoomId(''); setPreSelectedRoomBranchId(''); }} 
+          initialTab={bookingTab}
+          onClose={() => { setActiveModal(null); setAppointmentToEdit(null); setBookingTab("appointment"); setPreSelectedTime(''); setPreSelectedPatient(null); setPreSelectedDoctor(''); setPreSelectedRoomId(''); setPreSelectedRoomBranchId(''); }} 
           onSave={handleSaveBooking} 
           patients={patientsList} 
           doctors={doctorsList} 

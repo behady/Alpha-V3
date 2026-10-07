@@ -61,14 +61,14 @@ export default function ScheduleCardDetails({
 }) {
   if (plan.show.size === 0 && plan.noteLines === 0) return null;
   const chip =
-    "inline-flex max-w-full items-center gap-1.5 rounded-md bg-white/60 px-2 py-0.5 text-[11.5px] font-bold text-slate-800 lg:bg-white/75";
+    "inline-flex max-w-full items-center gap-1.5 rounded-md bg-white/60 px-2.5 py-1 text-[13px] font-bold text-slate-800 lg:bg-white/75";
 
   const line = (key: string) => {
     switch (key) {
       case "alert":
         return (
           <span key={key} className={`${chip} !text-danger`} title={alert}>
-            <AlertTriangle size={12} className="shrink-0" />
+            <AlertTriangle size={14} className="shrink-0" />
             <span className="truncate">{alert}</span>
           </span>
         );
@@ -77,7 +77,7 @@ export default function ScheduleCardDetails({
         if (timing.kind === "waiting") {
           return (
             <span key={key} className={`${chip} ${timing.long ? "!text-danger" : ""}`}>
-              <LogIn size={12} className="shrink-0" />
+              <LogIn size={14} className="shrink-0" />
               <span className="truncate">
                 {isAr
                   ? `وصل ${clock(timing.arrivedAt)} · مستني ${mins(timing.waitedMin, true)}`
@@ -89,7 +89,7 @@ export default function ScheduleCardDetails({
         if (timing.kind === "inChair") {
           return (
             <span key={key} className={`${chip} ${timing.overMin > 0 ? "!text-danger" : ""}`}>
-              <Hourglass size={12} className="shrink-0" />
+              <Hourglass size={14} className="shrink-0" />
               <span className="truncate">
                 {timing.overMin > 0
                   ? isAr
@@ -105,7 +105,7 @@ export default function ScheduleCardDetails({
         if (timing.kind === "done") {
           return (
             <span key={key} className={chip}>
-              <CheckCircle2 size={12} className="shrink-0" />
+              <CheckCircle2 size={14} className="shrink-0" />
               <span className="truncate">
                 {timing.arrivedAt && timing.finishedAt
                   ? isAr
@@ -127,7 +127,7 @@ export default function ScheduleCardDetails({
         const insurer = visit.payers.length ? ` · ${visit.payers.join(", ")}` : "";
         return (
           <span key={key} className={`${chip} ${visit.owed > 0 ? "!text-danger" : ""}`}>
-            <Wallet size={12} className="shrink-0" />
+            <Wallet size={14} className="shrink-0" />
             <span className="truncate font-figure">
               {visit.owed > 0
                 ? isAr
@@ -145,7 +145,7 @@ export default function ScheduleCardDetails({
         if (!history || history.owedBefore <= 0) return null;
         return (
           <span key={key} className={`${chip} !text-danger`}>
-            <Wallet size={12} className="shrink-0" />
+            <Wallet size={14} className="shrink-0" />
             <span className="truncate font-figure">
               {isAr
                 ? `عليه ${money(history.owedBefore)} ج من قبل`
@@ -169,7 +169,7 @@ export default function ScheduleCardDetails({
         ];
         return (
           <span key={key} className={chip}>
-            {confirmed ? <CheckCircle2 size={12} className="shrink-0" /> : <CircleDashed size={12} className="shrink-0" />}
+            {confirmed ? <CheckCircle2 size={14} className="shrink-0" /> : <CircleDashed size={14} className="shrink-0" />}
             <span className="truncate">{parts.join(" · ")}</span>
             {seen && <History size={11} className="shrink-0 opacity-50" />}
           </span>

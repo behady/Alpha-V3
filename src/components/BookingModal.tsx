@@ -209,6 +209,8 @@ interface Props {
    * Same form, same save — only the layout differs. Ignored inline and on small screens.
    */
   wide?: boolean;
+  /** Which tab the wide popup opens on (the card's Pay button opens it on Payment). */
+  initialTab?: "appointment" | "service" | "payment" | "insurance";
 }
 
 /**
@@ -247,6 +249,7 @@ export default function BookingModal({
   preSelectedRoomId = "",
   preSelectedClaimLine = null,
   wide = false,
+  initialTab,
 }: Props) {
   const { language } = useLanguage();
   const { showToast, confirm } = useUI();
@@ -1004,8 +1007,8 @@ export default function BookingModal({
   type WideTab = "appointment" | "service" | "payment" | "insurance";
   const [wideTab, setWideTab] = useState<WideTab>("appointment");
   useEffect(() => {
-    if (isOpen) setWideTab("appointment");
-  }, [isOpen]);
+    if (isOpen) setWideTab(initialTab ?? "appointment");
+  }, [isOpen, initialTab]);
   const headerPatientId = selectedPatient && !isNewPatient ? String(selectedPatient.id) : "";
   const [patientCard, setPatientCard] = useState<{ id: string; fileId: string; phone: string } | null>(null);
   useEffect(() => {
