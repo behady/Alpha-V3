@@ -321,6 +321,7 @@ export async function saveBooking(
       ...(linkFieldsFrom(data) ?? { claimLinks: prev.claimLinks, claimId: prev.claimId, claimLine: prev.claimLine }),
       status: nextStatus,
       doctorId: updatePayload.doctorId,
+      date: normalizedDate || data.date || prev.date,
     });
 
     await logActivity(
@@ -447,7 +448,7 @@ export async function saveBooking(
 
   await writeSessionProcedures(data, appRef.id, normalizedDate || data.date, userCtx);
   // A walk-in saved straight as done still tells its approval.
-  void syncClaimLineFromAppointment(currentClinicId(), { ...(linkFieldsFrom(data) ?? {}), status: data.status || "Scheduled", doctorId: data.doctorId });
+  void syncClaimLineFromAppointment(currentClinicId(), { ...(linkFieldsFrom(data) ?? {}), status: data.status || "Scheduled", doctorId: data.doctorId, date: normalizedDate || data.date });
 
   await logActivity(
     { uid: userCtx.uid, name: userCtx.name, role: userCtx.role },
