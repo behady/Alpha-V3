@@ -134,7 +134,9 @@ export function bookLineUrl(patientId: string, link: ClaimLink): string {
   return `/appointments?book=${encodeURIComponent(patientId)}&claim=${encodeURIComponent(link.claimId)}&line=${link.claimLine}`;
 }
 
-export type LineSyncPatch = { lineStatus?: Record<number, LineStatus>; dentists?: Record<number, string | null> };
+export type LineSyncPatch = { lineStatus?: Record<number, LineStatus>; dentists?: Record<number, string | null>; treatedDate?: string };
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
  * What a finished visit changes on its approval line, or null when nothing does.
@@ -145,8 +147,16 @@ export type LineSyncPatch = { lineStatus?: Record<number, LineStatus>; dentists?
  *   after the last one.
  * - The dentist who did the visit becomes the line's dentist when the line names nobody or
  *   somebody else. A visit with no dentist leaves the line's dentist alone.
+ * - The visit's date becomes the approval's treatment date. The paper is saved as treated on its
+ *   APPROVAL date, which is only a default: an approval issued in July and treated in October is
+ *   October's work, on October's sheet and in October's pay. A date somebody chose (one that is
+ *   not the approval date) is kept, and a sent approval's date stands — the sheet already went out.
+ *   This applies even when the line is already done, so saving a visit again repairs an old one.
  */
-export function lineSyncPatch(claim: Pick<InsuranceClaim, "id" | "lines" | "lineStatus" | "dentists" | "status">, appt: LinkedAppointmentLite): LineSyncPatch | null {
+export function lineSyncPatch(
+  claim: Pick<InsuranceClaim, "id" | "lines" | "lineStatus" | "dentists" | "status" | "treatedDate" | "approvalDate">,
+  appt: LinkedAppointmentLite,
+): LineSyncPatch | null {
   if (claim.status === "cancelled") return null;
   if (!VISIT_DONE_STATUSES.has(String(appt.status ?? ""))) return null;
   // Only this approval's services: a visit can be booked against more than one approval.
@@ -164,5 +174,8 @@ export function lineSyncPatch(claim: Pick<InsuranceClaim, "id" | "lines" | "line
   const patch: LineSyncPatch = {};
   if (Object.keys(lineStatus).length) patch.lineStatus = lineStatus;
   if (Object.keys(dentists).length) patch.dentists = dentists;
-  return patch.lineStatus || patch.dentists ? patch : null;
+  const visitDate = typeof appt.date === "string" && ISO_DATE.test(appt.date) ? appt.date : "";
+  const dateIsDefault = !claim.treatedDate || claim.treatedDate === claim.approvalDate;
+  if (visitDate && dateIsDefault && claim.status !== "sent" && claim.treatedDate !== visitDate) patch.treatedDate = visitDate;
+  return patch.lineStatus || patch.dentists || patch.treatedDate ? patch : null;
 }

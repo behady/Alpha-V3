@@ -52,6 +52,8 @@ assert.equal(lineBooking(visits, "c2", 0).kind, "none");
 const claim = {
   id: "c1",
   status: "approved" as const,
+  approvalDate: "2026-10-01",
+  treatedDate: null,
   lines: [{}, {}, {}] as never[],
   lineStatus: { 0: "Planned", 1: "Planned", 2: "Ongoing" } as Record<number, "Planned" | "Ongoing" | "Completed">,
   dentists: {},
