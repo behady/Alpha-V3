@@ -1671,11 +1671,12 @@ export default function DesktopDashboard() {
                                                                 style={{ zIndex: selectedAppointment?.id === apt.id ? 20 : 1 }}
                                                             >
                                                             <div className={`absolute left-0 top-0 bottom-0 w-2 ${aptStyles.accent}`}></div>
-                                                            <div className="flex flex-col h-full p-2 lg:p-3 relative gap-1.5">
-                                                                {/* TOP ROW: Name + Actions */}
-                                                                <div className="grid w-full grid-cols-[1fr_auto_1fr] items-start gap-2">
+                                                            <div className="flex flex-col h-full p-2 lg:p-3 relative">
+                                                                {/* Three columns on one centre line: the service, state and stars at the start;
+                                                                    the name and phone in the middle; the buttons and the time at the end. */}
+                                                                <div className="grid w-full flex-1 min-h-0 grid-cols-[1fr_auto_1fr] items-center gap-2">
                                                                     {/* Name and phone in the middle of the card, where the eye lands first. */}
-                                                                    <div className="col-start-2 flex min-w-0 max-w-full flex-col items-center text-center">
+                                                                    <div className="col-start-2 row-start-1 flex min-w-0 max-w-full flex-col items-center justify-center text-center">
                                                                         <div className="flex items-center justify-center gap-1.5 min-w-0 max-w-full">
                                                                             <h4 className={`font-bold truncate ${nameFontSize}`}>
                                                                                 {apt.patientName}
@@ -1712,7 +1713,8 @@ export default function DesktopDashboard() {
                                                                             </span>
                                                                         )}
                                                                     </div>
-                                                                    <div className="col-start-3 flex items-center justify-end gap-0.5 shrink-0 z-20">
+                                                                    <div className="col-start-3 row-start-1 flex flex-col items-end justify-center gap-2 shrink-0 z-20">
+                                                                    <div className="flex items-center gap-0.5 shrink-0">
                                                                         {(() => {
                                                                            const getAction = () => {
                                                                                // Must be the canonical stage values: handleStatusChange keys the checkInTime stamp
@@ -1758,16 +1760,16 @@ export default function DesktopDashboard() {
                                                                         }} className="p-1 text-indigo-600 bg-surface shadow-sm ring-1 ring-indigo-600/20 hover:text-indigo-700 hover:bg-indigo-50 hover:ring-indigo-600/40 hover:shadow rounded-lg transition-all" title={language === 'ar' ? 'تعديل' : 'Edit'}><Edit strokeWidth={2.5} className="w-4 h-4 lg:w-4 lg:h-4" /></button>
                                                                         <button onClick={(e) => handleDeleteAppointment(e, apt.id)} className="p-1 text-rose-600 bg-surface shadow-sm ring-1 ring-rose-600/20 hover:text-rose-700 hover:bg-rose-50 hover:ring-rose-600/40 hover:shadow rounded-lg transition-all" title={language === 'ar' ? 'حذف' : 'Delete'}><Trash2 strokeWidth={2.5} className="w-4 h-4 lg:w-4 lg:h-4" /></button>
                                                                     </div>
-                                                                </div>
+                                                                    {/* "09:00 – 09:45" rather than "09:00 (45m)": the end time is
+                                                                        the thing being checked against the clock on the wall. */}
+                                                                    <span className={`font-figure font-black text-ink-body opacity-80 whitespace-nowrap shrink-0 bg-white/40 px-1.5 py-0.5 rounded-md ${timeFontSize}`} dir="ltr">
+                                                                        {timeRange(apt.time || "", durationMinutes)}
+                                                                    </span>
+                                                                    </div>
 
-                                                                {/*
-                                                                  The treatment sits under the name now rather than at the
-                                                                  bottom edge. On a short card nothing moves far; on a tall
-                                                                  one the card reads top-down — who, what, then the details —
-                                                                  instead of name at the top, treatment at the bottom and a
-                                                                  white gap between them.
-                                                                */}
-                                                                <p className={`self-start max-w-full text-slate-800 truncate font-bold bg-white/60 lg:bg-white/80 backdrop-blur-sm px-2 py-0.5 rounded-md shadow-sm min-w-0 ${infoFontSize}`}>
+                                                                {/* The service, the visit's state and the stars, at the start side. */}
+                                                                <div className="col-start-1 row-start-1 flex min-w-0 flex-col items-start justify-center gap-1.5">
+                                                                <p className={`max-w-full text-slate-800 truncate font-bold bg-white/60 lg:bg-white/80 backdrop-blur-sm px-2 py-0.5 rounded-md shadow-sm min-w-0 ${infoFontSize}`}>
                                                                     {apt.treatment || "Consultation"} <span className="text-slate-400 mx-1 font-normal">•</span> {doctorCardLabel(apt.doctor, language)}
                                                                 </p>
 
@@ -1783,16 +1785,10 @@ export default function DesktopDashboard() {
                                                                     isAr={language === "ar"}
                                                                 />
 
-                                                                {/* FOOTER: rating + the time the visit occupies */}
-                                                                <div className="mt-auto flex justify-between items-end w-full gap-2 min-h-0">
-                                                                    <div className="pl-1">
-                                                                        <StarRating rating={apt.rating || 0} onRatingChange={(r) => handleRatingChange(apt.id, r)} size={18} />
-                                                                    </div>
-                                                                    {/* "09:00 – 09:45" rather than "09:00 (45m)": the end time is
-                                                                        the thing being checked against the clock on the wall. */}
-                                                                    <span className={`font-figure font-black text-ink-body opacity-80 whitespace-nowrap shrink-0 bg-white/40 px-1.5 py-0.5 rounded-md ${timeFontSize}`} dir="ltr">
-                                                                        {timeRange(apt.time || "", durationMinutes)}
-                                                                    </span>
+                                                                <div className="ps-1">
+                                                                    <StarRating rating={apt.rating || 0} onRatingChange={(r) => handleRatingChange(apt.id, r)} size={18} />
+                                                                </div>
+                                                                </div>
                                                                 </div>
                                                                 <ChairProgress timing={timing} />
                                                             </div>

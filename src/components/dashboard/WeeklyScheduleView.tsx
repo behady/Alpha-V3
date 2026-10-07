@@ -309,7 +309,7 @@ export default function WeeklyScheduleView({
                                                     <div
                                                         key={apt.id}
                                                         onClick={(e) => { e.stopPropagation(); onSelectAppointment(apt); }}
-                                                        className={`absolute rounded-lg border pointer-events-auto cursor-grab active:cursor-grabbing group hover:!z-[60] hover:shadow-md transition-shadow flex flex-col ${styles.card.replace(/opacity-\d+/g, '')}`}
+                                                        className={`absolute rounded-lg border pointer-events-auto cursor-grab active:cursor-grabbing group hover:!z-[60] hover:shadow-md transition-shadow flex flex-col bg-accent-tint border-accent-soft/80 shadow-sm text-slate-800`}
                                                         draggable={true}
                                                         onDragStart={(e) => {
                                                             e.dataTransfer.setData("text/plain", JSON.stringify({ id: apt.id }));

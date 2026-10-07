@@ -228,7 +228,7 @@ export default function RoomScheduleView({
                           e.stopPropagation();
                           onOpenAppointment(apt);
                         }}
-                        className={`pointer-events-auto absolute flex cursor-pointer flex-col overflow-hidden rounded-lg border transition-shadow hover:!z-[60] hover:shadow-md ${styles.card.replace(/opacity-\d+/g, "")}`}
+                        className={`pointer-events-auto absolute flex cursor-pointer flex-col overflow-hidden rounded-lg border transition-shadow hover:!z-[60] hover:shadow-md bg-accent-tint border-accent-soft/80 shadow-sm text-slate-800`}
                         style={{
                           top: `${top}px`,
                           height: `${h}px`,
@@ -249,7 +249,7 @@ export default function RoomScheduleView({
                             </span>
                           )}
                           {tier === "full" && (
-                            <span className="mt-auto inline-flex w-fit items-center gap-1.5 rounded-full border border-line bg-surface px-2 py-0.5 text-[10.5px] font-semibold text-ink">
+                            <span className="mt-auto inline-flex w-fit items-center gap-1.5 rounded-full border border-line bg-surface px-2.5 py-0.5 text-[12.5px] font-semibold text-ink">
                               <span className={`h-1.5 w-1.5 rounded-full ${styles.dot}`} />
                               {getAppointmentStageLabel(apt.status, language)}
                             </span>
