@@ -1392,7 +1392,15 @@ export default function DesktopDashboard() {
                                     language={language === "ar" ? "ar" : "en"}
                                     config={config}
                                     patientsList={patientsList}
-                                    onSelectAppointment={handleSelectAppointmentWrapper}
+                                    onSelectAppointment={(apt, time, date) => {
+                                        // In pop-up mode a card opens the booking popup on that visit, as the day view does.
+                                        if (apt && appointmentEditorMode === "modal") {
+                                            setAppointmentToEdit(editSnapshotOf(apt));
+                                            setActiveModal("booking");
+                                            return;
+                                        }
+                                        void handleSelectAppointmentWrapper(apt, time, date);
+                                    }}
                                     currentTime={currentTime}
                                     todayKey={getLocalDateKey()}
                                     canSeeMoney={canSeeMoney}

@@ -179,6 +179,10 @@ export default function WeeklyScheduleView({
 
     return (
         <div className="flex flex-col min-w-[800px] h-full bg-surface rounded-2xl border border-line overflow-hidden">
+          {/* One scroll box for the header and the grid: the header used to sit outside it, so the
+              grid's scrollbar narrowed every body column by its width and the day headers drifted
+              off the columns beneath them. Inside, the header is sticky and shares the same width. */}
+          <div className="flex-1 overflow-y-auto custom-scrollbar relative">
             {/* Header row: the day, and its numbers */}
             <div className="flex border-b border-line shrink-0 bg-surface sticky top-0 z-20">
                 <div className="w-[84px] md:w-[100px] shrink-0 border-e border-line"></div>
@@ -220,7 +224,7 @@ export default function WeeklyScheduleView({
             </div>
 
             {/* The grid */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar relative">
+            <div className="relative">
                 <div className="relative" style={{ height: `${containerHeight}px` }}>
                     {/* Time column */}
                     <div className="absolute inset-y-0 start-0 w-[84px] md:w-[100px] border-e border-line flex flex-col pointer-events-none z-10 bg-surface-subtle">
@@ -388,6 +392,7 @@ export default function WeeklyScheduleView({
                     </div>
                 </div>
             </div>
+          </div>
         </div>
     );
 }

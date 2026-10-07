@@ -71,7 +71,8 @@ export interface UiPreferences {
 
 export const UI_PREFERENCE_DEFAULTS: UiPreferences = {
   clinicalEditorMode: "modal",
-  appointmentEditorMode: "drawer",
+  // The booking popup (2026-10-07, the owner's choice); a saved preference still wins.
+  appointmentEditorMode: "modal",
   patientEditorMode: "drawer",
   appointmentPanelMode: "editor",
   appointmentsVisibility: "desktop",
