@@ -205,7 +205,7 @@ export function setPaymentCommission(id: string, commissionPercentage: number, c
 }
 
 /** What the owner paid a staff member (a payout, cash out through the ledger) or held back (a deduction). */
-export type StaffSettlementDraft = { kind: "payout" | "deduction"; amount: number; date: string; note: string };
+export type StaffSettlementDraft = { kind: "payout" | "deduction"; amount: number; date: string; note: string; method?: string };
 
 export function createStaffSettlement(staffId: string, draft: StaffSettlementDraft, clinicId?: string | null) {
   return post<{ ok: true; id: string; ledgerId: string | null }>("/api/staff/settlements", { action: "create", staffId, ...draft, clinicId });

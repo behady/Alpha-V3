@@ -17,7 +17,7 @@ import { useRouter } from "next/navigation";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
-import { MoneyApiError, createLedgerEntry, deleteLedgerRow, updateLedgerRow } from "@/lib/moneyApi";
+import { MoneyApiError, createLedgerEntry, deleteLedgerRow, deleteStaffSettlement, updateLedgerRow, updateStaffSettlement } from "@/lib/moneyApi";
 import { CLAIMS_COLLECTION, lineStatusOf, parseClaim, type InsuranceClaim } from "@/lib/insurance/claims";
 import { categoryLabel, EXPENSE_CATEGORY_LIST, INCOME_CATEGORY_LIST } from "@/lib/expenseCategories";
 import { countsForPayroll } from "@/lib/staffInsurance";
@@ -475,7 +475,13 @@ export default function FinancePage() {
       // The income/expense split (which field the money lands in) and the audit entry are both the
       // server's job now — this screen used to build the row and log it itself, and the same row
       // shape was rebuilt slightly differently in three other places.
-      if (editingId) {
+      const editingPayout = editingId ? allTransactions.find((row) => row.id === editingId)?.settlementId : null;
+      if (editingId && editingPayout) {
+        // A staff payout is owned by the Team page's record: amount, date and method change
+        // there and on this row together, so the two never disagree.
+        await updateStaffSettlement(editingPayout, { amount: Number(amount), date, method: method || "Cash" });
+        showToast(language === "ar" ? "اتعدّل" : "Updated", "success");
+      } else if (editingId) {
         await updateLedgerRow(editingId, {
           date,
           description: description || "No Description",
@@ -506,6 +512,14 @@ export default function FinancePage() {
   const handleDelete = async (id: string, desc: string) => {
     if (!(await confirm(t("deleteConfirm")))) return;
     try {
+      const payout = allTransactions.find((row) => row.id === id)?.settlementId;
+      if (payout) {
+        // The Team page's record and this row go together.
+        await deleteStaffSettlement(payout);
+        showToast(t("deleteSuccess"), "info");
+        setAllTransactions((prev) => prev.filter((row) => row.id !== id));
+        return;
+      }
       // This screen used to warn that payments existed and then cascade through them anyway,
       // leaving the patient's balance short by whatever had been collected and nothing on any
       // screen explaining why. The server refuses now, with the same rule every other screen gets.
@@ -1626,7 +1640,7 @@ export default function FinancePage() {
                     </div>
                     <div className="space-y-1">
                        <label className="text-[9px] font-bold text-ink-muted uppercase tracking-wider ps-1">{t('description')}</label>
-                       <input required value={description} onChange={e => setDescription(e.target.value)} placeholder={formType === "expense" ? (language === "ar" ? "مثال: فاتورة الكهرباء" : "e.g. Electricity bill") : language === "ar" ? "مثال: بيع فرشة أسنان" : "e.g. Sold a toothbrush"} data-tour="finance-expense-desc" className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs font-semibold text-ink outline-none focus:border-accent-soft"/>
+                       <input required value={description} onChange={e => setDescription(e.target.value)} disabled={Boolean(editingId && allTransactions.find((row) => row.id === editingId)?.settlementId)} placeholder={formType === "expense" ? (language === "ar" ? "مثال: فاتورة الكهرباء" : "e.g. Electricity bill") : language === "ar" ? "مثال: بيع فرشة أسنان" : "e.g. Sold a toothbrush"} data-tour="finance-expense-desc" className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs font-semibold text-ink outline-none focus:border-accent-soft"/>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                        <div className="space-y-1">
@@ -1635,7 +1649,7 @@ export default function FinancePage() {
                        </div>
                        <div className="space-y-1">
                           <label className="text-[9px] font-bold text-ink-muted uppercase tracking-wider ps-1">{t('category')}</label>
-                          <select value={category} onChange={e => setCategory(e.target.value)} className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs font-semibold text-ink outline-none focus:border-accent-soft">
+                          <select value={category} onChange={e => setCategory(e.target.value)} disabled={Boolean(editingId && allTransactions.find((row) => row.id === editingId)?.settlementId)} className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs font-semibold text-ink outline-none focus:border-accent-soft disabled:text-ink-muted">
                              {(formType === "expense" ? EXPENSE_CATEGORY_LIST : INCOME_CATEGORY_LIST).map((c) => (
                                <option key={c.id} value={c.id}>{language === "ar" ? c.ar : c.en}</option>
                              ))}
@@ -1659,7 +1673,12 @@ export default function FinancePage() {
                           {method && !["Cash", "Card", "InstaPay", "Bank transfer", "Other"].includes(method) ? <option value={method}>{method}</option> : null}
                        </select>
                     </div>
-                    {formType === "expense" && (
+                    {editingId && allTransactions.find((row) => row.id === editingId)?.settlementId ? (
+                      <p className="text-[11px] font-semibold text-ink-muted">
+                        {language === "ar" ? "دفعة لموظف: المبلغ والتاريخ وطريقة الدفع بيتعدلوا هنا وفي صفحة الفريق مع بعض." : "A staff payout: amount, date and method change here and on the Team page together."}
+                      </p>
+                    ) : null}
+                    {formType === "expense" && !(editingId && allTransactions.find((row) => row.id === editingId)?.settlementId) && (
                       <label className="flex items-center gap-2 text-xs font-semibold text-ink-body">
                         <input type="checkbox" checked={isRecurring} onChange={(e) => setIsRecurring(e.target.checked)} className="size-4 accent-[var(--accent)]" />
                         {language === "ar" ? "بيتكرر كل شهر (إيجار، مرتبات…)" : "Repeats every month (rent, salaries…)"}

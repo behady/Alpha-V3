@@ -12,7 +12,7 @@ const earnings: Earning[] = [
   { key: "claim1#2", date: "2026-10-07", amount: 161 },
   { key: "pay-c", date: "2026-10-01", amount: 200 },
 ];
-const s = (id: string, kind: "payout" | "deduction", amount: number, date: string): StaffSettlement => ({ id, staffId: "s1", kind, amount, date, note: "", ledgerId: null });
+const s = (id: string, kind: "payout" | "deduction", amount: number, date: string): StaffSettlement => ({ id, staffId: "s1", kind, amount, date, note: "", method: kind === "payout" ? "Cash" : null, ledgerId: null });
 
 // --- nothing settled -------------------------------------------------------------------------------
 {
@@ -69,8 +69,10 @@ const s = (id: string, kind: "payout" | "deduction", amount: number, date: strin
 // --- stored shape ---------------------------------------------------------------------------------
 {
   assert.deepEqual(parseSettlement("id1", { staffId: "s1", kind: "payout", amount: "250.5", date: "2026-10-05", note: " cash ", ledgerId: "L1" }), {
-    id: "id1", staffId: "s1", kind: "payout", amount: 250.5, date: "2026-10-05", note: "cash", ledgerId: "L1",
-  });
+    id: "id1", staffId: "s1", kind: "payout", amount: 250.5, date: "2026-10-05", note: "cash", method: "Cash", ledgerId: "L1",
+  }, "a payout saved before methods existed reads as cash");
+  assert.equal(parseSettlement("id1b", { staffId: "s1", kind: "payout", amount: 10, date: "2026-10-05", method: "InstaPay" })?.method, "InstaPay");
+  assert.equal(parseSettlement("id1c", { staffId: "s1", kind: "deduction", amount: 10, date: "2026-10-05", method: "Cash" })?.method, null, "a deduction moves no cash");
   assert.equal(parseSettlement("id2", { staffId: "s1", kind: "refund", amount: 10, date: "2026-10-05" }), null, "unknown kind");
   assert.equal(parseSettlement("id3", { staffId: "s1", kind: "payout", amount: 0, date: "2026-10-05" }), null, "zero amount");
   assert.equal(parseSettlement("id4", { staffId: "s1", kind: "payout", amount: 10, date: "5/10/2026" }), null, "bad date");

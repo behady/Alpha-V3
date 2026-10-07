@@ -25,6 +25,8 @@ export type StaffSettlement = {
   /** yyyy-mm-dd: the day the money moved (payout) or the day it was decided (deduction). */
   date: string;
   note: string;
+  /** How a payout was handed over (Cash, Card, InstaPay…); a deduction has none. */
+  method: string | null;
   /** The expense row a payout wrote on the ledger; a deduction moves no cash and has none. */
   ledgerId: string | null;
 };
@@ -80,6 +82,7 @@ export function parseSettlement(id: string, raw: unknown): StaffSettlement | nul
     amount: round2(amount),
     date,
     note: typeof r.note === "string" ? r.note.trim() : "",
+    method: r.kind === "payout" ? (typeof r.method === "string" && r.method.trim() ? r.method.trim() : "Cash") : null,
     ledgerId: typeof r.ledgerId === "string" && r.ledgerId ? r.ledgerId : null,
   };
 }

@@ -3,8 +3,8 @@ import { reportServerError } from "@/lib/server/reportError";
  * Money the clinic paid a staff member, or held back from them.
  *
  * POST { clinicId, action: "create" | "update" | "delete", ... }
- *   create: { staffId, kind: "payout" | "deduction", amount, date, note? }
- *   update: { id, amount?, date?, note? }           (the kind never changes: delete and re-enter)
+ *   create: { staffId, kind: "payout" | "deduction", amount, date, note?, method? }
+ *   update: { id, amount?, date?, note?, method? }  (the kind never changes: delete and re-enter)
  *   delete: { id }
  *
  * Admins only. A payout is cash leaving the clinic, so it also writes a "Salary" expense row on the
@@ -34,6 +34,12 @@ export const dynamic = "force-dynamic";
 const PAYOUT_CATEGORY = "Salary";
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+/** How the cash left: the Finance page's own choices, "Cash" when nothing was said. */
+function readMethod(raw: unknown): string {
+  const m = String(raw ?? "").trim().slice(0, 40);
+  return m || "Cash";
+}
+
 type Actor = { uid: string; name: string; role: string };
 
 function bad(error: string, status = 400) {
@@ -49,7 +55,7 @@ function payoutDescription(staffName: string): string {
 }
 
 /** The ledger row a payout writes: the Finance page's own manual-expense shape plus the link back. */
-function payoutRow(args: { staffId: string; staffName: string; settlementId: string; amount: number; date: string; note: string; actor: Actor }) {
+function payoutRow(args: { staffId: string; staffName: string; settlementId: string; amount: number; date: string; note: string; method: string; actor: Actor }) {
   return {
     ...buildManualEntryRow({
       type: "expense",
@@ -57,7 +63,7 @@ function payoutRow(args: { staffId: string; staffName: string; settlementId: str
       description: payoutDescription(args.staffName),
       category: PAYOUT_CATEGORY,
       date: args.date,
-      method: "Cash",
+      method: args.method,
       isRecurring: false,
       actor: { uid: args.actor.uid, name: args.actor.name },
     }),
@@ -118,6 +124,7 @@ async function create(args: { clinicId: string; actor: Actor; body: Record<strin
   const amount = readAmount(body.amount);
   const date = String(body.date || "");
   const note = String(body.note || "").trim().slice(0, 500);
+  const method = readMethod(body.method);
   if (!staffId) return bad("Which staff member?");
   if (!isSettlementKind(kind)) return bad("An entry is a payout or a deduction.");
   if (amount === null) return bad("Enter an amount greater than zero.");
@@ -129,7 +136,7 @@ async function create(args: { clinicId: string; actor: Actor; body: Record<strin
 
   const settlementRef = adminClinicCollection(clinicId, SETTLEMENTS_COLLECTION).doc();
   const ledgerRef = kind === "payout" ? adminClinicCollection(clinicId, "ledger").doc() : null;
-  const row = ledgerRef ? payoutRow({ staffId, staffName, settlementId: settlementRef.id, amount, date, note, actor }) : null;
+  const row = ledgerRef ? payoutRow({ staffId, staffName, settlementId: settlementRef.id, amount, date, note, method, actor }) : null;
 
   await adminDb().runTransaction(async (tx) => {
     tx.set(settlementRef, {
@@ -139,6 +146,7 @@ async function create(args: { clinicId: string; actor: Actor; body: Record<strin
       amount,
       date,
       note,
+      method: kind === "payout" ? method : null,
       ledgerId: ledgerRef?.id ?? null,
       createdAt: FieldValue.serverTimestamp(),
       createdByUid: actor.uid,
@@ -175,6 +183,7 @@ async function update(args: { clinicId: string; actor: Actor; body: Record<strin
     patch.date = String(body.date);
   }
   if (body.note !== undefined) patch.note = String(body.note || "").trim().slice(0, 500);
+  if (body.method !== undefined) patch.method = readMethod(body.method);
   if (Object.keys(patch).length === 0) return bad("Nothing to change.");
 
   const ref = adminClinicDoc(clinicId, SETTLEMENTS_COLLECTION, id);
@@ -198,6 +207,7 @@ async function update(args: { clinicId: string; actor: Actor; body: Record<strin
       }
       if (patch.date !== undefined) rowPatch.date = patch.date;
       if (patch.note !== undefined) rowPatch.note = patch.note;
+      if (patch.method !== undefined) rowPatch.method = patch.method;
       tx.update(ledgerRef, rowPatch);
       ledgerAfter = { ...ledgerBefore, ...rowPatch };
     }

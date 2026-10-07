@@ -480,7 +480,7 @@ function TeamPage() {
     async (draft: StaffSettlementDraft, id: string | null): Promise<boolean> => {
       if (!selectedDoc) return false;
       try {
-        if (id) await updateStaffSettlement(id, { amount: draft.amount, date: draft.date, note: draft.note }, clinicId);
+        if (id) await updateStaffSettlement(id, { amount: draft.amount, date: draft.date, note: draft.note, ...(draft.method ? { method: draft.method } : {}) }, clinicId);
         else await createStaffSettlement(selectedDoc.id, draft, clinicId);
         showToast(
           draft.kind === "payout" ? (isAr ? "الدفعة اتسجلت" : "Payout recorded") : isAr ? "الخصم اتسجل" : "Deduction recorded",

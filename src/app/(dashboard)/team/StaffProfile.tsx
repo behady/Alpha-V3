@@ -135,7 +135,15 @@ export type PayDraft = {
 };
 
 /** The payout / deduction form while it is open: typed text, so a half-typed amount is not a number yet. */
-type SettlementForm = { id: string | null; kind: "payout" | "deduction"; amount: string; date: string; note: string };
+type SettlementForm = { id: string | null; kind: "payout" | "deduction"; amount: string; date: string; note: string; method: string };
+
+const PAY_METHODS = [
+  { id: "Cash", en: "Cash", ar: "كاش" },
+  { id: "Card", en: "Card", ar: "كارت" },
+  { id: "InstaPay", en: "InstaPay", ar: "إنستاباي" },
+  { id: "Bank transfer", en: "Bank transfer", ar: "تحويل بنكي" },
+  { id: "Other", en: "Other", ar: "أخرى" },
+];
 
 /* --- building blocks ------------------------------------------------------------------------- */
 
@@ -828,10 +836,10 @@ export default function StaffProfile({
           action={
             canEdit && !settleForm ? (
               <div className="flex flex-wrap gap-2">
-                <button type="button" className={btnDark} onClick={() => setSettleForm({ id: null, kind: "payout", amount: "", date: todayYmd(), note: "" })}>
+                <button type="button" className={btnDark} onClick={() => setSettleForm({ id: null, kind: "payout", amount: "", date: todayYmd(), note: "", method: "Cash" })}>
                   <Banknote size={16} /> {isAr ? "سجّل دفعة" : "Record a payout"}
                 </button>
-                <button type="button" className={btnGhost} onClick={() => setSettleForm({ id: null, kind: "deduction", amount: "", date: todayYmd(), note: "" })}>
+                <button type="button" className={btnGhost} onClick={() => setSettleForm({ id: null, kind: "deduction", amount: "", date: todayYmd(), note: "", method: "Cash" })}>
                   <MinusCircle size={16} /> {isAr ? "سجّل خصم" : "Record a deduction"}
                 </button>
               </div>
@@ -856,7 +864,7 @@ export default function StaffProfile({
                 if (!Number.isFinite(amount) || amount <= 0 || !settleForm.date) return;
                 setSettleSaving(true);
                 try {
-                  const ok = await onSaveSettlement({ kind: settleForm.kind, amount, date: settleForm.date, note: settleForm.note.trim() }, settleForm.id);
+                  const ok = await onSaveSettlement({ kind: settleForm.kind, amount, date: settleForm.date, note: settleForm.note.trim(), method: settleForm.kind === "payout" ? settleForm.method : undefined }, settleForm.id);
                   if (ok) setSettleForm(null);
                 } finally {
                   setSettleSaving(false);
@@ -871,7 +879,7 @@ export default function StaffProfile({
                     : isAr ? "خصم جديد" : "New deduction"}
                 {settleForm.id ? ` · ${settleForm.kind === "payout" ? (isAr ? "دفعة" : "payout") : isAr ? "خصم" : "deduction"}` : ""}
               </p>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className={`grid grid-cols-1 gap-4 ${settleForm.kind === "payout" ? "sm:grid-cols-4" : "sm:grid-cols-3"}`}>
                 <label className="block">
                   <span className={fieldLabel}>{isAr ? "المبلغ" : "Amount"}</span>
                   <input
@@ -890,6 +898,15 @@ export default function StaffProfile({
                   <span className={fieldLabel}>{settleForm.kind === "payout" ? (isAr ? "اتدفع يوم" : "Paid on") : isAr ? "بتاريخ" : "Dated"}</span>
                   <input type="date" required value={settleForm.date} onChange={(e) => setSettleForm({ ...settleForm, date: e.target.value })} className={`${fieldInput} font-figure`} />
                 </label>
+                {settleForm.kind === "payout" && (
+                  <label className="block">
+                    <span className={fieldLabel}>{isAr ? "طريقة الدفع" : "Paid by"}</span>
+                    <select value={settleForm.method} onChange={(e) => setSettleForm({ ...settleForm, method: e.target.value })} className={fieldInput}>
+                      {PAY_METHODS.map((m) => <option key={m.id} value={m.id}>{isAr ? m.ar : m.en}</option>)}
+                      {!PAY_METHODS.some((m) => m.id === settleForm.method) ? <option value={settleForm.method}>{settleForm.method}</option> : null}
+                    </select>
+                  </label>
+                )}
                 <label className="block">
                   <span className={fieldLabel}>{settleForm.kind === "payout" ? (isAr ? "ملاحظة (اختياري)" : "Note (optional)") : isAr ? "السبب" : "Reason"}</span>
                   <input
@@ -933,6 +950,7 @@ export default function StaffProfile({
                       <td className="py-3 pe-3 font-semibold text-ink-muted">{dayOf(s.date, isAr)} {s.date.slice(0, 4)}</td>
                       <td className="py-3 pe-3 font-semibold text-ink">
                         {s.kind === "payout" ? (isAr ? "دفعة" : "Payout") : isAr ? "خصم" : "Deduction"}
+                        {s.method ? <span className="block text-[12px] font-semibold text-ink-muted">{(PAY_METHODS.find((m) => m.id === s.method) ?? { en: s.method, ar: s.method })[isAr ? "ar" : "en"]}</span> : null}
                       </td>
                       <td className="py-3 pe-3 font-medium text-ink-body">{s.note || "—"}</td>
                       <td className={`py-3 pe-3 text-end font-figure font-extrabold ${s.kind === "deduction" ? "text-danger" : "text-ink"}`}>
@@ -945,7 +963,7 @@ export default function StaffProfile({
                               type="button"
                               aria-label={isAr ? "تعديل" : "Edit"}
                               className="rounded-lg p-2 text-ink-muted hover:bg-surface-muted hover:text-ink"
-                              onClick={() => setSettleForm({ id: s.id, kind: s.kind, amount: String(s.amount), date: s.date, note: s.note })}
+                              onClick={() => setSettleForm({ id: s.id, kind: s.kind, amount: String(s.amount), date: s.date, note: s.note, method: s.method ?? "Cash" })}
                             >
                               <Edit2 size={15} />
                             </button>
