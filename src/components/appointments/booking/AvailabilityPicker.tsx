@@ -200,12 +200,13 @@ export default function AvailabilityPicker({
               aria-label={isAr ? "الغرفة" : "Room"}
               className={`${selectClass} min-w-0 flex-1 disabled:bg-surface-subtle disabled:text-ink-faint`}
             >
-              <option value="">
+              {/* A visit always has a room: the blank entry is only a placeholder, never a choice. */}
+              <option value="" disabled={rooms.length > 0}>
                 {!selectedBranch
                   ? isAr ? "اختار الفرع الأول" : "Pick a branch first"
                   : rooms.length === 0
                     ? isAr ? "مفيش غرف للفرع ده" : "No rooms in this branch"
-                    : isAr ? "أي غرفة" : "Any room"}
+                    : isAr ? "اختار الغرفة" : "Pick a room"}
               </option>
               {rooms.map((r) => (
                 <option key={r.id} value={r.id}>

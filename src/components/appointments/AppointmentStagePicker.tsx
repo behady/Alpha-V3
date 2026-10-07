@@ -32,6 +32,8 @@ type Props = {
   onChange: (next: string) => void;
   language: "en" | "ar";
   compact?: boolean;
+  /** The booking popup's head: a pill one can read from across the desk. */
+  large?: boolean;
   /** Stop click from opening parent (calendar card / modal). */
   isolateClicks?: boolean;
   className?: string;
@@ -63,6 +65,7 @@ export default function AppointmentStagePicker({
   onChange,
   language,
   compact = false,
+  large = false,
   isolateClicks = true,
   className = "",
   fullWidth = false,
@@ -189,13 +192,15 @@ export default function AppointmentStagePicker({
         <span
           className={`flex items-center gap-3 font-bold leading-tight ${
             fullWidth ? 'text-[15px] text-slate-800 flex-1 justify-start py-0.5 px-1' :
-            (compact ? `inline-flex rounded-md px-1.5 py-0.5 text-[9px] ${st.pill}` : `inline-flex rounded-md px-2 py-1 text-[10px] sm:text-xs ${st.pill}`)
+            (compact ? `inline-flex rounded-md px-1.5 py-0.5 text-[9px] ${st.pill}`
+              : large ? `inline-flex rounded-lg px-3.5 py-2 text-base ${st.pill}`
+              : `inline-flex rounded-md px-2 py-1 text-[10px] sm:text-xs ${st.pill}`)
           }`}
         >
           {fullWidth ? (
             <CurrentIcon size={18} className={`shrink-0 ${st.dot.replace("bg-", "text-")}`} />
           ) : (
-            <span className={`rounded-full shrink-0 ${st.dot} ${compact ? "w-1.5 h-1.5" : "w-2 h-2"}`} />
+            <span className={`rounded-full shrink-0 ${st.dot} ${compact ? "w-1.5 h-1.5" : large ? "w-3 h-3" : "w-2 h-2"}`} />
           )}
           <span className="whitespace-nowrap truncate">{label}</span>
         </span>
@@ -209,7 +214,7 @@ export default function AppointmentStagePicker({
             fullWidth ? "absolute end-3 p-0.5 pointer-events-none" : (compact ? "p-0.5 hover:bg-surface-muted hover:text-slate-800" : "p-1 hover:bg-surface-muted hover:text-slate-800")
           }`}
         >
-          {open ? <ChevronUp size={fullWidth ? 16 : (compact ? 12 : 14)} /> : <ChevronDown size={fullWidth ? 16 : (compact ? 12 : 14)} />}
+          {open ? <ChevronUp size={fullWidth || large ? 18 : (compact ? 12 : 14)} /> : <ChevronDown size={fullWidth || large ? 18 : (compact ? 12 : 14)} />}
         </button>
       </div>
 

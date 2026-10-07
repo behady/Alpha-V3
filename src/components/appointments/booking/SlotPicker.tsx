@@ -165,12 +165,12 @@ export default function SlotPicker({
               disabled={!selectedBranch || branchRooms.length === 0}
               className="w-full rounded-xl border-2 border-slate-100 bg-surface px-3 py-3 text-sm font-bold text-ink outline-none focus:border-primary-500 disabled:bg-surface-subtle disabled:text-slate-400"
             >
-              <option value="">
+              <option value="" disabled={branchRooms.length > 0}>
                 {!selectedBranch
                   ? txt.pickBranchFirst
                   : branchRooms.length === 0
                     ? txt.noRooms
-                    : txt.anyRoom}
+                    : txt.pickRoom}
               </option>
               {branchRooms.map((r) => (
                 <option key={r.id} value={r.id}>

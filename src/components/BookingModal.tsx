@@ -566,7 +566,7 @@ export default function BookingModal({
           : "This day is closed according to your clinic settings. Do you still want to book anyway?",
       branch: language === "ar" ? "الفرع" : "Branch",
       room: language === "ar" ? "الغرفة" : "Room",
-      anyRoom: language === "ar" ? "أي غرفة" : "Any room",
+      pickRoom: language === "ar" ? "اختار الغرفة" : "Pick a room",
       noRooms: language === "ar" ? "مفيش غرف للفرع ده" : "No rooms in this branch",
       pickBranchFirst: language === "ar" ? "اختار الفرع الأول" : "Pick a branch first",
       confirmRoomTakenTitle: language === "ar" ? "الغرفة مشغولة" : "Room occupied",
@@ -595,6 +595,7 @@ export default function BookingModal({
       needDentist: language === "ar" ? "الطبيب" : "a dentist",
       needDate: language === "ar" ? "التاريخ" : "a date",
       needTime: language === "ar" ? "الوقت" : "a time",
+      needRoom: language === "ar" ? "الغرفة" : "a room",
       noFollowCase: language === "ar" ? "مفيش متابعة متاحة للمريض ده" : "No ongoing case to link",
       needLabel:
         language === "ar"
@@ -741,6 +742,12 @@ export default function BookingModal({
   const selectedBranch = branches.find((b) => b.id === branchId) || null;
   const selectedRoom = selectedBranch?.rooms.find((r) => r.id === roomId) || null;
 
+  // A branch with exactly one room shouldn't have to pick it on every booking.
+  useEffect(() => {
+    if (!isOpen || roomId || !selectedBranch) return;
+    if (selectedBranch.rooms.length === 1) setRoomId(selectedBranch.rooms[0].id);
+  }, [isOpen, roomId, selectedBranch]);
+
 
 
   
@@ -779,8 +786,11 @@ export default function BookingModal({
     if (!doctor) missing.push(txt.needDentist);
     if (!date) missing.push(txt.needDate);
     if (!time) missing.push(txt.needTime);
+    // Every visit sits in a room (the owner's rule): a branch that has rooms must have one picked.
+    // A branch with no rooms set up yet cannot be asked for one.
+    if (selectedBranch && selectedBranch.rooms.length > 0 && !roomId) missing.push(txt.needRoom);
     return missing;
-  }, [isNewPatient, newPatientName, newPatientPhone, selectedPatient, doctor, date, time, txt]);
+  }, [isNewPatient, newPatientName, newPatientPhone, selectedPatient, doctor, date, time, selectedBranch, roomId, txt]);
 
   /**
    * The day's appointments, fetched once and filtered in memory.
@@ -1718,8 +1728,8 @@ servicesList.length > 0 && (
         </div>
         {withStatus && (
           <div className="flex items-center gap-3">
-            <span className="text-sm font-semibold text-ink-body">{isAr ? "الحالة" : "Status"}</span>
-            <AppointmentStagePicker value={appointmentStatus} onChange={setAppointmentStatus} language={isAr ? "ar" : "en"} isolateClicks={false} compact />
+            <span className="text-base font-semibold text-ink-body">{isAr ? "الحالة" : "Status"}</span>
+            <AppointmentStagePicker value={appointmentStatus} onChange={setAppointmentStatus} language={isAr ? "ar" : "en"} isolateClicks={false} large />
           </div>
         )}
       </div>
