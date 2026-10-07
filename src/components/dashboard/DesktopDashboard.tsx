@@ -1033,7 +1033,8 @@ export default function DesktopDashboard() {
   }, [scheduleViewDate, language]);
 
   return (
-    <div className={`min-h-full lg:min-h-0 lg:h-full relative overflow-hidden pb-24 lg:pb-0 font-sans text-ink-slab lg:text-white ${isRTL ? 'text-right' : 'text-left'}`}>
+    // No `font-sans` on the root: it overrode the layout's face (Cairo in Arabic) for the whole dashboard with the system font.
+    <div className={`min-h-full lg:min-h-0 lg:h-full relative overflow-hidden pb-24 lg:pb-0 text-ink-slab lg:text-white ${isRTL ? 'text-right' : 'text-left'}`}>
       <div className="relative z-10 w-full max-w-[1920px] mx-auto p-4 md:p-6 md:pt-8 lg:p-4 lg:pt-3 space-y-3 md:space-y-4 lg:space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-500 lg:h-full lg:flex lg:flex-col">
         {/* The desk is height-locked, so this is the compact strip: one line, and the clock
         moves up into the eyebrow where a subtitle would normally go. Hidden in full-screen

@@ -449,7 +449,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     >
     <WelcomeLayer>
     <PageHeaderProvider>
-    <div className={`min-h-[100dvh] lg:h-[100dvh] lg:overflow-hidden bg-surface-page text-slate-700 flex flex-col ${isRTL ? cairo.className : plusJakartaSans.className} relative z-0`} dir={isRTL ? 'rtl' : 'ltr'}>
+    <div className={`min-h-[100dvh] lg:h-[100dvh] lg:overflow-hidden bg-surface-page text-slate-700 flex flex-col ${cairo.variable} ${isRTL ? cairo.className : plusJakartaSans.className} relative z-0`} dir={isRTL ? 'rtl' : 'ltr'}>
       <ReceptionSummonOverlay />
 
       {/* =================== THE BLACK BAND ===================
