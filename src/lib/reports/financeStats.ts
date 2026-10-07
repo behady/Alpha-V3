@@ -232,7 +232,9 @@ export function cashflow(rows: readonly ReportLedgerRow[], months: readonly Mont
   const per = pnlByMonth(rows, months);
   let running = 0;
   const out: CashflowMonth[] = per.map((m) => {
-    const outflow = round2(m.expenses + m.labFees + m.commissions);
+    // Commission is owed, not paid out, until the owner pays the dentist — and that payout is an
+    // expense row already inside `m.expenses`.
+    const outflow = round2(m.expenses + m.labFees);
     const net = round2(m.income - outflow);
     running = round2(running + net);
     return { month: m.month, inflow: m.income, expenses: m.expenses, lab: m.labFees, commissions: m.commissions, outflow, net, running };

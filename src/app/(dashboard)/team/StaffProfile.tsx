@@ -3,8 +3,8 @@
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
-  AlertTriangle, CalendarCheck, CheckCircle2, Clock, Edit2, ExternalLink, FileSpreadsheet, Hourglass,
-  Loader2, MapPin, Save, ShieldCheck, Smartphone, Timer, Trash2, UserX,
+  AlertTriangle, Banknote, CalendarCheck, CheckCircle2, Clock, Edit2, ExternalLink, FileSpreadsheet, Hourglass,
+  Loader2, MapPin, MinusCircle, Plus, Save, ShieldCheck, Smartphone, Timer, Trash2, UserX,
 } from "lucide-react";
 import type { HrStaffRow } from "@/lib/automation/briefing/types";
 import type { PunchRecord } from "@/lib/automation/briefing/data";
@@ -13,7 +13,31 @@ import { hoursText, weeklyMinutes, type Schedule } from "@/lib/hrClient";
 import { formatStaffRoleLabel, isDentistStaff } from "@/lib/staffRoles";
 import type { StaffCommission } from "@/lib/staffCommission";
 import type { StaffInsuranceWork } from "@/lib/staffInsurance";
+import type { EarningSettled, StaffSettlement } from "@/lib/staffSettlement";
+import type { StaffSettlementDraft } from "@/lib/moneyApi";
 import { shortName } from "./TeamRail";
+
+/**
+ * What has been paid against this dentist's earnings, over their whole history, as the page shows
+ * it: a figure per line (by the payment id or `${claimId}#${lineIndex}`), the one number still owed,
+ * and the part of it that predates the period on screen.
+ */
+export type SettlementView = {
+  byKey: Map<string, EarningSettled>;
+  /** Still owed over everything ever earned and settled. Negative: paid ahead of the work. */
+  owed: number;
+  /** Unpaid on work dated before the period: the debt the period inherits. */
+  owedBefore: number;
+  paidInPeriod: number;
+  deductedInPeriod: number;
+  /** Every payout and deduction, newest first. */
+  items: StaffSettlement[];
+};
+
+/** Today on this computer's clock, as yyyy-mm-dd. */
+function todayYmd(): string {
+  return new Date().toLocaleDateString("en-CA");
+}
 
 const DAYS_EN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const DAYS_AR = ["الأحد", "الاتنين", "التلات", "الأربع", "الخميس", "الجمعة", "السبت"];
@@ -110,6 +134,9 @@ export type PayDraft = {
   schedule: Schedule;
 };
 
+/** The payout / deduction form while it is open: typed text, so a half-typed amount is not a number yet. */
+type SettlementForm = { id: string | null; kind: "payout" | "deduction"; amount: string; date: string; note: string };
+
 /* --- building blocks ------------------------------------------------------------------------- */
 
 /**
@@ -147,6 +174,23 @@ function Stat({ value, label }: { value: string; label: string }) {
       <p className="font-figure text-[30px] font-extrabold leading-none text-ink">{value}</p>
       <p className="mt-2 text-[14px] font-semibold leading-tight text-ink-muted">{label}</p>
     </div>
+  );
+}
+
+/**
+ * How much of one earning line has been settled. A dash means the line is not in the history the
+ * settlements were poured over (an old row that names the dentist but carries no id).
+ */
+function PaidCell({ settled, isAr }: { settled: EarningSettled | null; isAr: boolean }) {
+  if (!settled) return <td className="py-3 text-end font-figure font-semibold text-ink-muted">—</td>;
+  const full = settled.remaining === 0;
+  return (
+    <td className={`py-3 text-end font-figure font-semibold ${full ? "text-ink" : "text-ink-muted"}`}>
+      {money(settled.paid)}
+      {settled.deducted > 0 && (
+        <span className="block text-[12px] font-semibold text-danger">−{money(settled.deducted)} {isAr ? "خصم" : "deducted"}</span>
+      )}
+    </td>
   );
 }
 
@@ -192,6 +236,9 @@ export default function StaffProfile({
   onUnlinkDevice,
   onSetPct,
   onExportCommission,
+  settlement,
+  onSaveSettlement,
+  onDeleteSettlement,
 }: {
   staff: ProfileStaff;
   row: HrStaffRow | null;
@@ -213,6 +260,11 @@ export default function StaffProfile({
   onSetPct: (paymentId: string, pct: number) => void;
   /** Download this dentist's commission for the period, both tables, as an Excel file. */
   onExportCommission: () => Promise<void>;
+  /** Payouts and deductions over the dentist's history; null for non-dentists or while loading. */
+  settlement: SettlementView | null;
+  /** Record a payout or deduction, or change one (`id`). Resolves true when it was saved. */
+  onSaveSettlement: (draft: StaffSettlementDraft, id: string | null) => Promise<boolean>;
+  onDeleteSettlement: (id: string) => Promise<void>;
 }) {
   const [editingLog, setEditingLog] = useState<string | null>(null);
   const [logIn, setLogIn] = useState("");
@@ -227,12 +279,18 @@ export default function StaffProfile({
    */
   const [pctDraft, setPctDraft] = useState<Record<string, string>>({});
   const [exporting, setExporting] = useState(false);
+  const [settleForm, setSettleForm] = useState<SettlementForm | null>(null);
+  const [settleSaving, setSettleSaving] = useState(false);
 
   const days = isAr ? DAYS_AR : DAYS_EN;
   const dentist = isDentistStaff(staff);
   const first = shortName(staff.name);
   const basePay = row?.estimatedPay ?? 0;
-  const total = basePay + commission.total + insurance.total;
+  // With the settlements loaded, what is owed is the whole history's earnings less what was paid —
+  // not just this period's work, or last month's unpaid share would vanish on the first of the month.
+  const total = basePay + (settlement ? settlement.owed : commission.total + insurance.total);
+  /** The settled part of one earning line, for the Paid column. */
+  const settledOf = (key: string): EarningSettled | null => settlement?.byKey.get(key) ?? null;
   const daysWorked = row?.daysWorked ?? 0;
   const minutesWorked = row?.minutesWorked ?? 0;
 
@@ -329,7 +387,17 @@ export default function StaffProfile({
     { v: money(basePay), l: isAr ? "المرتب" : "Base pay" },
     ...(dentist ? [{ v: money(commission.total), l: isAr ? "العمولة" : "Commission" }] : []),
     ...(dentist && insurance.total > 0 ? [{ v: money(insurance.total), l: isAr ? "نصيب التأمين" : "Insurance share" }] : []),
+    ...(dentist && settlement ? [{ v: money(settlement.paidInPeriod), l: isAr ? "اتدفع له" : "Paid out" }] : []),
+    ...(dentist && settlement && settlement.deductedInPeriod > 0 ? [{ v: money(settlement.deductedInPeriod), l: isAr ? "اتخصم منه" : "Deducted" }] : []),
   ];
+  const owedNote =
+    dentist && settlement
+      ? settlement.owed < 0
+        ? isAr ? `مدفوع مقدّم ${money(-settlement.owed)}` : `Paid ahead by ${money(-settlement.owed)}`
+        : settlement.owedBefore > 0
+          ? isAr ? `منها ${money(settlement.owedBefore)} من قبل الفترة دي` : `incl. ${money(settlement.owedBefore)} from before this period`
+          : ""
+      : "";
 
   return (
     <div className="space-y-5">
@@ -373,6 +441,7 @@ export default function StaffProfile({
           <div className="min-w-0 border-s-4 border-accent ps-5">
             <p className="font-figure text-[40px] font-extrabold leading-none">{money(total)}</p>
             <p className="mt-2 text-[14px] font-bold leading-tight text-white/75">{isAr ? "الإجمالي المستحق" : "Owed in total"}</p>
+            {owedNote && <p className="mt-1 text-[13px] font-semibold leading-tight text-white/55">{owedNote}</p>}
           </div>
         </div>
 
@@ -582,7 +651,8 @@ export default function StaffProfile({
                   <th className="py-2.5 pe-3 text-start">{isAr ? "الخدمة" : "Service"}</th>
                   <th className="py-2.5 pe-3 text-end">{isAr ? "الموافق عليه" : "Approved"}</th>
                   <th className="py-2.5 pe-3 text-end">%</th>
-                  <th className="py-2.5 text-end">{isAr ? "نصيبه" : "Their share"}</th>
+                  <th className="py-2.5 pe-3 text-end">{isAr ? "نصيبه" : "Their share"}</th>
+                  <th className="py-2.5 text-end">{isAr ? "اتدفع" : "Paid"}</th>
                 </tr>
               </thead>
               <tbody>
@@ -594,7 +664,8 @@ export default function StaffProfile({
                     <td className="py-3 pe-3 font-semibold text-ink-body">{e.service}</td>
                     <td className="py-3 pe-3 text-end font-figure font-semibold text-ink-body">{money(e.approved)}</td>
                     <td className="py-3 pe-3 text-end font-figure font-semibold text-ink-body">{e.rate}%</td>
-                    <td className="py-3 text-end font-figure font-extrabold text-ink">{money(e.share)}</td>
+                    <td className="py-3 pe-3 text-end font-figure font-extrabold text-ink">{money(e.share)}</td>
+                    <PaidCell settled={settledOf(`${e.claimId}#${e.lineIndex}`)} isAr={isAr} />
                   </tr>
                 ))}
               </tbody>
@@ -603,7 +674,8 @@ export default function StaffProfile({
                   <td colSpan={4} className="py-3 pe-3 text-[15px] font-bold text-ink">{isAr ? "الإجمالي" : "Total"}</td>
                   <td className="py-3 pe-3 text-end font-figure text-[18px] font-extrabold text-ink">{money(insurance.approved)}</td>
                   <td />
-                  <td className="py-3 text-end font-figure text-[18px] font-extrabold text-ink">{money(insurance.total)}</td>
+                  <td className="py-3 pe-3 text-end font-figure text-[18px] font-extrabold text-ink">{money(insurance.total)}</td>
+                  <td />
                 </tr>
               </tfoot>
             </table>
@@ -659,7 +731,8 @@ export default function StaffProfile({
                     <th className="py-2.5 pe-3 text-start">{isAr ? "العلاج" : "Treatment"}</th>
                     <th className="py-2.5 pe-3 text-end">{isAr ? "المدفوع" : "Paid"}</th>
                     <th className="py-2.5 pe-3 text-end">%</th>
-                    <th className="py-2.5 text-end">{isAr ? "نصيبه" : "Their share"}</th>
+                    <th className="py-2.5 pe-3 text-end">{isAr ? "نصيبه" : "Their share"}</th>
+                    <th className="py-2.5 text-end">{isAr ? "اتدفع" : "Paid"}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -722,15 +795,161 @@ export default function StaffProfile({
                           </span>
                         )}
                       </td>
-                      <td className="py-3 text-end font-figure font-extrabold text-ink">{money(e.amount)}</td>
+                      <td className="py-3 pe-3 text-end font-figure font-extrabold text-ink">{money(e.amount)}</td>
+                      <PaidCell settled={settledOf(e.id)} isAr={isAr} />
                     </tr>
                   ))}
                   <tr>
                     <td colSpan={5} className="py-3 pe-3 text-end text-[15px] font-bold text-ink">
                       {isAr ? "الإجمالي" : "Total"}
                     </td>
-                    <td className="py-3 text-end font-figure text-[18px] font-extrabold text-ink">{money(commission.total)}</td>
+                    <td className="py-3 pe-3 text-end font-figure text-[18px] font-extrabold text-ink">{money(commission.total)}</td>
+                    <td />
                   </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Section>
+      )}
+
+      {/* --- what was paid to them, and what was held back ------------------------------------ */}
+      {dentist && (
+        <Section
+          title={isAr ? `اللي اتدفع لـ ${first}` : `Paid to ${first}`}
+          action={
+            canEdit && !settleForm ? (
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className={btnDark} onClick={() => setSettleForm({ id: null, kind: "payout", amount: "", date: todayYmd(), note: "" })}>
+                  <Banknote size={16} /> {isAr ? "سجّل دفعة" : "Record a payout"}
+                </button>
+                <button type="button" className={btnGhost} onClick={() => setSettleForm({ id: null, kind: "deduction", amount: "", date: todayYmd(), note: "" })}>
+                  <MinusCircle size={16} /> {isAr ? "سجّل خصم" : "Record a deduction"}
+                </button>
+              </div>
+            ) : undefined
+          }
+          note={
+            isAr
+              ? "كل دفعة بتتحسب على أقدم شغل لسه ماتدفعش. الدفعة بتتسجل كمان في المالية كمصروف مرتبات؛ الخصم بيقلّل المستحق بس."
+              : "Every payout is applied to the oldest unpaid work first. A payout is also written on the Finance page as a Salary expense; a deduction only lowers what is owed."
+          }
+        >
+          {settleForm && (
+            <form
+              className="mb-5 rounded-2xl border border-line bg-surface-subtle p-4 sm:p-5"
+              onSubmit={async (ev) => {
+                ev.preventDefault();
+                const amount = Number(settleForm.amount);
+                if (!Number.isFinite(amount) || amount <= 0 || !settleForm.date) return;
+                setSettleSaving(true);
+                try {
+                  const ok = await onSaveSettlement({ kind: settleForm.kind, amount, date: settleForm.date, note: settleForm.note.trim() }, settleForm.id);
+                  if (ok) setSettleForm(null);
+                } finally {
+                  setSettleSaving(false);
+                }
+              }}
+            >
+              <p className="mb-4 text-[16px] font-extrabold text-ink">
+                {settleForm.id
+                  ? isAr ? "تعديل" : "Edit"
+                  : settleForm.kind === "payout"
+                    ? isAr ? "دفعة جديدة" : "New payout"
+                    : isAr ? "خصم جديد" : "New deduction"}
+                {settleForm.id ? ` · ${settleForm.kind === "payout" ? (isAr ? "دفعة" : "payout") : isAr ? "خصم" : "deduction"}` : ""}
+              </p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <label className="block">
+                  <span className={fieldLabel}>{isAr ? "المبلغ" : "Amount"}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step="1"
+                    inputMode="decimal"
+                    required
+                    autoFocus
+                    value={settleForm.amount}
+                    onChange={(e) => setSettleForm({ ...settleForm, amount: e.target.value })}
+                    className={`${fieldInput} font-figure`}
+                  />
+                </label>
+                <label className="block">
+                  <span className={fieldLabel}>{settleForm.kind === "payout" ? (isAr ? "اتدفع يوم" : "Paid on") : isAr ? "بتاريخ" : "Dated"}</span>
+                  <input type="date" required value={settleForm.date} onChange={(e) => setSettleForm({ ...settleForm, date: e.target.value })} className={`${fieldInput} font-figure`} />
+                </label>
+                <label className="block">
+                  <span className={fieldLabel}>{settleForm.kind === "payout" ? (isAr ? "ملاحظة (اختياري)" : "Note (optional)") : isAr ? "السبب" : "Reason"}</span>
+                  <input
+                    type="text"
+                    value={settleForm.note}
+                    onChange={(e) => setSettleForm({ ...settleForm, note: e.target.value })}
+                    placeholder={settleForm.kind === "payout" ? (isAr ? "مثال: كاش، شهر سبتمبر" : "e.g. cash, September") : isAr ? "مثال: أداة اتكسرت" : "e.g. broken instrument"}
+                    className={fieldInput}
+                  />
+                </label>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button type="submit" disabled={settleSaving} className={`${btnDark} disabled:opacity-50`}>
+                  {settleSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} {isAr ? "حفظ" : "Save"}
+                </button>
+                <button type="button" className={btnGhost} onClick={() => setSettleForm(null)} disabled={settleSaving}>
+                  {isAr ? "إلغاء" : "Cancel"}
+                </button>
+              </div>
+            </form>
+          )}
+          {!settlement ? (
+            <p className="flex items-center gap-2 text-[15px] font-semibold text-ink-muted"><Loader2 size={16} className="animate-spin" /> {isAr ? "بنحمّل…" : "Loading…"}</p>
+          ) : settlement.items.length === 0 ? (
+            <Empty text={isAr ? `لسه ماتسجلش أي دفعة لـ ${first}.` : `Nothing recorded for ${first} yet.`} />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[30rem] border-collapse text-[14px]">
+                <thead>
+                  <tr className="border-b border-line text-[13px] font-bold text-ink-muted">
+                    <th className="py-2.5 pe-3 text-start">{isAr ? "التاريخ" : "Date"}</th>
+                    <th className="py-2.5 pe-3 text-start">{isAr ? "النوع" : "Type"}</th>
+                    <th className="py-2.5 pe-3 text-start">{isAr ? "ملاحظة" : "Note"}</th>
+                    <th className="py-2.5 pe-3 text-end">{isAr ? "المبلغ" : "Amount"}</th>
+                    {canEdit && <th className="py-2.5 text-end" />}
+                  </tr>
+                </thead>
+                <tbody>
+                  {settlement.items.map((s) => (
+                    <tr key={s.id} className="border-b border-line/60">
+                      <td className="py-3 pe-3 font-semibold text-ink-muted">{dayOf(s.date, isAr)} {s.date.slice(0, 4)}</td>
+                      <td className="py-3 pe-3 font-semibold text-ink">
+                        {s.kind === "payout" ? (isAr ? "دفعة" : "Payout") : isAr ? "خصم" : "Deduction"}
+                      </td>
+                      <td className="py-3 pe-3 font-medium text-ink-body">{s.note || "—"}</td>
+                      <td className={`py-3 pe-3 text-end font-figure font-extrabold ${s.kind === "deduction" ? "text-danger" : "text-ink"}`}>
+                        {s.kind === "deduction" ? "−" : ""}{money(s.amount)}
+                      </td>
+                      {canEdit && (
+                        <td className="py-3 text-end">
+                          <span className="inline-flex gap-1">
+                            <button
+                              type="button"
+                              aria-label={isAr ? "تعديل" : "Edit"}
+                              className="rounded-lg p-2 text-ink-muted hover:bg-surface-muted hover:text-ink"
+                              onClick={() => setSettleForm({ id: s.id, kind: s.kind, amount: String(s.amount), date: s.date, note: s.note })}
+                            >
+                              <Edit2 size={15} />
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={isAr ? "حذف" : "Delete"}
+                              className="rounded-lg p-2 text-ink-muted hover:bg-surface-muted hover:text-danger"
+                              onClick={() => void onDeleteSettlement(s.id)}
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </span>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

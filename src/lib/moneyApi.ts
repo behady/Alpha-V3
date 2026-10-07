@@ -204,6 +204,21 @@ export function setPaymentCommission(id: string, commissionPercentage: number, c
   return post("/api/finance/ledger", { action: "set-commission", id, commissionPercentage, clinicId });
 }
 
+/** What the owner paid a staff member (a payout, cash out through the ledger) or held back (a deduction). */
+export type StaffSettlementDraft = { kind: "payout" | "deduction"; amount: number; date: string; note: string };
+
+export function createStaffSettlement(staffId: string, draft: StaffSettlementDraft, clinicId?: string | null) {
+  return post<{ ok: true; id: string; ledgerId: string | null }>("/api/staff/settlements", { action: "create", staffId, ...draft, clinicId });
+}
+
+export function updateStaffSettlement(id: string, patch: Partial<Omit<StaffSettlementDraft, "kind">>, clinicId?: string | null) {
+  return post("/api/staff/settlements", { action: "update", id, ...patch, clinicId });
+}
+
+export function deleteStaffSettlement(id: string, clinicId?: string | null) {
+  return post("/api/staff/settlements", { action: "delete", id, clinicId });
+}
+
 /**
  * Correct what a treatment was charged for its lab work, from what the lab actually agreed.
  *

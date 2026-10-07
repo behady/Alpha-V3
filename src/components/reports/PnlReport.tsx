@@ -45,8 +45,9 @@ export default function PnlReport({ ledger, range, rangeLabel, isAr, data }: Rep
   const statement: { label: string; value: number; kind: "plus" | "minus" | "result" | "sub" }[] = [
     { label: isAr ? "إجمالي الدخل" : "Gross income", value: period.income, kind: "plus" },
     { label: isAr ? "مصاريف المعمل" : "Lab fees", value: -period.labFees, kind: "minus" },
-    { label: isAr ? "نِسَب الأطباء" : "Dentists' commissions", value: -period.commissions, kind: "minus" },
-    { label: isAr ? "هامش العلاج" : "Treatment margin", value: period.income - period.labFees - period.commissions, kind: "result" },
+    { label: isAr ? "هامش العلاج" : "Treatment margin", value: period.income - period.labFees, kind: "result" },
+    // Owed to the dentists, not yet paid: it comes off when the owner pays them (a Salary expense).
+    { label: isAr ? "منها نِسَب الأطباء المستحقة (تتخصم لما تتدفع)" : "of which dentists' commissions owed (come off when paid)", value: period.commissions, kind: "sub" },
     ...categories
       .filter((c) => (periodByCategory[c] || 0) > 0)
       .map((c) => ({ label: `${isAr ? "مصروفات" : "Expenses"} · ${c}`, value: -(periodByCategory[c] || 0), kind: "sub" as const })),
@@ -95,7 +96,7 @@ export default function PnlReport({ ledger, range, rangeLabel, isAr, data }: Rep
     <div className="space-y-8">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <div className="rounded-2xl border border-line bg-surface p-4"><Figure value={`${fmt(period.income)} ${egp}`} label={isAr ? "إجمالي الدخل" : "Gross income"} /></div>
-        <div className="rounded-2xl border border-line bg-surface p-4"><Figure value={`(${fmt(period.labFees + period.commissions)}) ${egp}`} label={isAr ? "معمل + نِسَب" : "Lab + commissions"} tone="muted" /></div>
+        <div className="rounded-2xl border border-line bg-surface p-4"><Figure value={`(${fmt(period.labFees)}) ${egp}`} label={isAr ? "مصاريف المعمل" : "Lab fees"} tone="muted" /></div>
         <div className="rounded-2xl border border-line bg-surface p-4"><Figure value={`(${fmt(period.expenses)}) ${egp}`} label={isAr ? "المصروفات" : "Expenses"} tone="muted" /></div>
         <div className="rounded-2xl border border-line bg-surface p-4"><Figure value={`${fmt(period.net)} ${egp}`} label={`${isAr ? "صافي الربح" : "Net profit"} · ${fmtPct(margin, 1)}`} tone={period.net < 0 ? "bad" : "ink"} /></div>
       </div>

@@ -123,6 +123,7 @@
     "test:schedule-card": "npx tsx tests/scheduleCard.test.mts",
     "test:week-schedule": "npx tsx tests/weekSchedule.test.mts",
     "test:staff": "npx tsx tests/staffProfile.test.mts",
+    "test:staff-settlement": "npx tsx tests/staffSettlement.test.mts",
     "test:payers": "npx tsx tests/payers.test.mts",
     "_comment_test_cases": "The case sheet: a line per treatment, filtered, totalled and paged. The assertions that matter are the quiet ones - money attaches only to the case that names it (an expense sharing the id is not income), the totals describe the FILTERED rows rather than the period, a page number cannot survive a filter and strand the reader on an empty page, and an Arabic name written without the hamza still finds the patient written with it.",
     "test:cases": "npx tsx tests/caseSheet.test.mts",

@@ -191,9 +191,9 @@ export function buildReportDoc(id: string, input: ReportInputs): ReportDoc {
     case "clinic": {
       const t = summarizeLedger(ledger);
       figure(isAr ? "إجمالي الدخل" : "Total income", money(t.income));
-      figure(isAr ? "الاستقطاعات" : "Deductions", `(${fmt(t.commissions)}) ${egp}`, "muted");
+      figure(isAr ? "نِسَب الأطباء (تتدفع من الفريق)" : "Dentists' commissions (paid via Team)", `${fmt(t.commissions)} ${egp}`, "muted");
       figure(isAr ? "المصروفات" : "Expenses", `(${fmt(t.expenses)}) ${egp}`, "muted");
-      figure(isAr ? "صافي الربح" : "Net profit", money(t.income - t.commissions - t.expenses), t.income - t.commissions - t.expenses < 0 ? "bad" : "ink");
+      figure(isAr ? "صافي الربح" : "Net profit", money(t.income - t.expenses), t.income - t.expenses < 0 ? "bad" : "ink");
       // New vs returning, the Overview tab's rule: new = file opened inside the range.
       const active = new Set<string>();
       ledger.forEach((r) => { if (r.type !== "expense" && r.patientId) active.add(String(r.patientId)); });
@@ -301,15 +301,15 @@ export function buildReportDoc(id: string, input: ReportInputs): ReportDoc {
       pnlByMonth(ledger, [range.start.slice(0, 7), range.end.slice(0, 7)].filter((x, i, a) => a.indexOf(x) === i)).forEach((m) => Object.entries(m.expensesByCategory).forEach(([k, v]) => (byCat[k] = (byCat[k] || 0) + v)));
       const margin = t.income > 0 ? (t.net / t.income) * 100 : null;
       figure(isAr ? "إجمالي الدخل" : "Gross income", money(t.income));
-      figure(isAr ? "معمل + نِسَب" : "Lab + commissions", `(${fmt(t.labFees + t.commissions)}) ${egp}`, "muted");
+      figure(isAr ? "مصاريف المعمل" : "Lab fees", `(${fmt(t.labFees)}) ${egp}`, "muted");
       figure(isAr ? "المصروفات" : "Expenses", `(${fmt(t.expenses)}) ${egp}`, "muted");
       figure(`${isAr ? "صافي الربح" : "Net profit"} · ${pct(margin, 1)}`, money(t.net), t.net < 0 ? "bad" : "ink");
       const cats = [...new Set<string>([...EXPENSE_CATEGORIES, ...Object.keys(byCat)])];
       sections.push({ type: "statement", title: `${isAr ? "القائمة" : "The statement"} · ${rangeLabel}`, lines: [
         { label: isAr ? "إجمالي الدخل" : "Gross income", value: t.income, kind: "plus" },
         { label: isAr ? "مصاريف المعمل" : "Lab fees", value: -t.labFees, kind: "minus" },
-        { label: isAr ? "نِسَب الأطباء" : "Dentists' commissions", value: -t.commissions, kind: "minus" },
-        { label: isAr ? "هامش العلاج" : "Treatment margin", value: t.income - t.labFees - t.commissions, kind: "result" },
+        { label: isAr ? "هامش العلاج" : "Treatment margin", value: t.income - t.labFees, kind: "result" },
+        { label: isAr ? "منها نِسَب الأطباء المستحقة (تتخصم لما تتدفع، ضمن مصروفات المرتبات)" : "of which dentists' commissions owed (come off when paid, under Salary expenses)", value: t.commissions, kind: "sub" },
         ...cats.filter((c) => (byCat[c] || 0) > 0).map((c) => ({ label: `${isAr ? "مصروفات" : "Expenses"} · ${c}`, value: -(byCat[c] || 0), kind: "sub" as const })),
         { label: isAr ? "إجمالي المصروفات" : "Total expenses", value: -t.expenses, kind: "minus" },
         { label: isAr ? "صافي الربح" : "Net profit", value: t.net, kind: "result" },
@@ -331,8 +331,8 @@ export function buildReportDoc(id: string, input: ReportInputs): ReportDoc {
       const stats = [...map.values()].sort((a, b) => b.income - a.income);
       figure(isAr ? "إجمالي الإجراءات" : "Total services", fmt(t.procedures));
       figure(isAr ? "إجمالي الدخل" : "Total income", money(t.income));
-      figure(isAr ? "العمولات" : "Commissions", `(${fmt(t.commissions)}) ${egp}`, "muted");
-      figure(isAr ? "صافي الدخل" : "Net income", money(t.income - t.commissions - t.labFees));
+      figure(isAr ? "نِسَب الأطباء المستحقة" : "Dentists' commissions owed", `${fmt(t.commissions)} ${egp}`, "muted");
+      figure(isAr ? "صافي الدخل بعد المعمل" : "Net income after lab", money(t.income - t.labFees));
       sections.push({ type: "bars", title: isAr ? "الدخل حسب الخدمة" : "Income by service", note: isAr ? "أعلى ٨ خدمات." : "The eight biggest earners.", rows: stats.slice(0, 8).map((s, i) => ({ label: s.name, value: s.income, text: money(s.income), mark: i === 0, drill: `service:${s.key}` })) });
       sections.push({ type: "table", title: isAr ? "تفاصيل الخدمات" : "Service breakdown", note: isAr ? "اضغط سطر لعرض مرضاه." : "Tap a line for its patients.",
         columns: [{ key: "name", label: isAr ? "الخدمة" : "Service" }, { key: "count", label: isAr ? "العدد" : "Count", align: "end", kind: "int" }, { key: "income", label: isAr ? "الدخل" : "Income", align: "end", kind: "money" }, { key: "commission", label: isAr ? "العمولة" : "Comm.", align: "end", kind: "money" }, { key: "net", label: isAr ? "الصافي" : "Net", align: "end", kind: "money" }],

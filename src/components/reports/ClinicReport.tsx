@@ -190,7 +190,9 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
   const totalProcs = serviceStats.reduce((s, r) => s + r.count, 0);
   const totalCommissions = payments?.reduce((s, p) => s + parseMoney(p.doctorCommissionAmount), 0) || 0;
   const totalExpenses = payments?.filter(p => p.type === "expense").reduce((s, p) => s + parseMoney(p.cost || p.amount), 0) || 0;
-  const netProfit = totalIncome - totalCommissions - totalExpenses;
+  // Commission is owed to the dentists and comes off when the owner pays them (a Salary expense,
+  // already inside totalExpenses); subtracting it here too would count it twice.
+  const netProfit = totalIncome - totalExpenses;
 
   const patientPieData = [
     { name: isAr ? "مرضى جدد" : "New Patients", value: newPatientIds.size, income: newPatientIncome },
@@ -353,7 +355,7 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
         {[
           { l: isAr ? "إجمالي الدخل" : "Total Income", v: `${totalIncome.toLocaleString()} EGP` },
-          { l: isAr ? "الاستقطاعات" : "Deductions", v: `(${totalCommissions.toLocaleString()}) EGP`, tone: "muted" as const },
+          { l: isAr ? "نِسَب الأطباء المستحقة" : "Commissions owed", v: `${totalCommissions.toLocaleString()} EGP`, tone: "muted" as const },
           { l: isAr ? "المصروفات" : "Expenses", v: `(${totalExpenses.toLocaleString()}) EGP`, tone: "muted" as const },
           // The one figure that earns a colour, and only when it is actually negative.
           { l: isAr ? "صافي الربح" : "Net Profit", v: `${netProfit.toLocaleString()} EGP`, tone: netProfit >= 0 ? ("ink" as const) : ("bad" as const) },

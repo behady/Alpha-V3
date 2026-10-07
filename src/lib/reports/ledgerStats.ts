@@ -10,8 +10,11 @@
  *     mirrored `paid`.
  *   - **Charged** is the price of procedure rows — the work done, paid or not.
  *   - **Commissions** are read off payment rows, where the clinic stamps them when money moves.
+ *     They are what the clinic OWES its dentists, not cash that left: the owner pays a dentist from
+ *     the Team page, and that payout is an expense row ("Salary"). So commissions are reported but
+ *     never subtracted here — subtracting them too would count the same money twice.
  *   - **Lab fees** are read off procedure rows.
- *   - **Expenses** are expense rows. **Net** is income − commissions − lab − expenses.
+ *   - **Expenses** are expense rows. **Net** is income − lab − expenses.
  *   - **Discounts** are `discountAmount` on procedure rows — what was given away.
  *
  * Pure functions over plain rows. No React, no database.
@@ -66,7 +69,7 @@ export function summarizeLedger(rows: readonly ReportLedgerRow[]): LedgerTotals 
     }
   }
   t.patients = patients.size;
-  t.net = t.income - t.commissions - t.labFees - t.expenses;
+  t.net = t.income - t.labFees - t.expenses;
   return round(t);
 }
 

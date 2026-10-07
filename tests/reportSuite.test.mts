@@ -62,7 +62,7 @@ eq(t.commissions, 300, "commission off the payment row");
 eq(t.labFees, 400, "lab fee off the procedure row");
 eq(t.expenses, 5250, "both expenses");
 eq(t.discounts, 100, "the discount");
-eq(t.net, 1800 - 300 - 400 - 5250, "net = income − commissions − lab − expenses");
+eq(t.net, 1800 - 400 - 5250, "net = income − lab − expenses; commission is owed, and comes off as a Salary expense when paid");
 eq(t.procedures, 2, "two treatments");
 eq(t.payments, 3, "three money-in rows (income counts as a payment)");
 eq(t.patients, 3, "three distinct patients");
@@ -97,7 +97,7 @@ ok(hm.some((c) => c.hour === -1 && c.value === 200), "a payment with no time cou
 
 const pnl = pnlByMonth(L, ["2026-09"])[0];
 eq(pnl.expensesByCategory, { Rent: 5000, Supplies: 250 }, "expenses by category");
-eq(pnl.marginPct, Number((((1800 - 300 - 400 - 5250) / 1800) * 100).toFixed(1)), "margin as a share of income");
+eq(pnl.marginPct, Number((((1800 - 400 - 5250) / 1800) * 100).toFixed(1)), "margin as a share of income");
 
 const dl = discountLines(L);
 eq(dl.length, 1, "one discounted treatment");
@@ -334,8 +334,8 @@ const cmp = compareExpenseCategories(L, [{ id: "e3", type: "expense", cost: 5000
 eq(cmp.map((c) => [c.category, c.then, c.now, c.delta.pct]), [["Lab", 400, 0, -100], ["Supplies", 0, 250, null], ["Rent", 5000, 5000, 0]], "category against the period before, biggest move first; a category that vanished is kept at zero");
 
 const cf = cashflow(FM, M3);
-eq(cf.months.map((m) => [m.inflow, m.outflow, m.net, m.running]), [[0, 0, 0, 0], [4000, 5750, -1750, -1750], [1800, 5950, -4150, -5900]], "in, out (expenses + lab + commissions), net and the running total");
-eq([cf.inflow, cf.outflow, cf.net, cf.averageNet, cf.monthsInRed], [5800, 11700, -5900, -2950, 2], "totals over the window, the average over active months, months in the red");
+eq(cf.months.map((m) => [m.inflow, m.outflow, m.net, m.running]), [[0, 0, 0, 0], [4000, 5750, -1750, -1750], [1800, 5650, -3850, -5600]], "in, out (expenses + lab; commission leaves as a Salary expense when paid), net and the running total");
+eq([cf.inflow, cf.outflow, cf.net, cf.averageNet, cf.monthsInRed], [5800, 11400, -5600, -2800, 2], "totals over the window, the average over active months, months in the red");
 eq([cf.best?.month, cf.worst?.month], ["2026-08", "2026-09"], "best and worst month by net");
 
 console.log(`reportSuite: ${checks} checks passed`);

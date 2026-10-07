@@ -37,7 +37,8 @@ import { useUI } from "@/context/UIContext";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { logActivity } from "@/lib/logger";
 import { deleteRecord, RecycleBinError } from "@/lib/recycleBinApi";
-import { MoneyApiError, setPaymentCommission } from "@/lib/moneyApi";
+import { createStaffSettlement, deleteStaffSettlement, MoneyApiError, setPaymentCommission, updateStaffSettlement, type StaffSettlementDraft } from "@/lib/moneyApi";
+import { owedBefore, parseSettlement, SETTLEMENTS_COLLECTION, settledInPeriod, settleEarnings, type Earning, type StaffSettlement } from "@/lib/staffSettlement";
 import FeatureGate from "@/components/FeatureGate";
 import PageHeader from "@/components/dashboard/PageHeader";
 import { buildHrSection } from "@/lib/automation/briefing/hr";
@@ -51,7 +52,7 @@ import { useWording } from "@/components/insurance/useWording";
 import { presetOf, rangeFor, rangeText, getFirstDay, getToday, type DateRange, type RangePreset } from "@/lib/reportHelpers";
 import { isDentistStaff } from "@/lib/staffRoles";
 import TeamRail, { type RailPerson } from "./TeamRail";
-import StaffProfile, { type PayDraft, type ProfileStaff } from "./StaffProfile";
+import StaffProfile, { type PayDraft, type ProfileStaff, type SettlementView } from "./StaffProfile";
 
 type StaffDoc = { id: string } & Record<string, unknown>;
 
@@ -87,6 +88,12 @@ function TeamPage() {
   const [punches, setPunches] = useState<PunchRecord[]>([]);
   const [ledger, setLedger] = useState<Record<string, unknown>[]>([]);
   const [claims, setClaims] = useState<InsuranceClaim[]>([]);
+  /**
+   * The open dentist's WHOLE history, not just the period: every payment on their work, every
+   * counted approval, every payout. Settlements are poured over earnings oldest-first, so a
+   * period cannot be settled on its own — what October owes depends on what September left.
+   */
+  const [history, setHistory] = useState<{ staffId: string; ledger: Record<string, unknown>[]; claims: InsuranceClaim[]; settlements: StaffSettlement[]; loaded: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -236,6 +243,64 @@ function TeamPage() {
   }, [selectedId, people, router]);
 
   const selectedDoc = staffDocs.find((d) => d.id === selectedId) || null;
+
+  // The history listeners follow the selected dentist. Three queries, none needing an index:
+  // ledger rows stamped with their id, treated/sent claims (the dentist map cannot be queried),
+  // and their settlements. `loaded` counts the listeners that have answered, so the profile can
+  // tell "nothing paid yet" from "still loading".
+  const historyStaffId = selectedDoc && isDentistStaff(selectedDoc as Parameters<typeof isDentistStaff>[0]) ? selectedDoc.id : "";
+  useEffect(() => {
+    if (!canAdmin || !clinicId || !historyStaffId) {
+      setHistory(null);
+      return;
+    }
+    const staffId = historyStaffId;
+    setHistory({ staffId, ledger: [], claims: [], settlements: [], loaded: 0 });
+    const bump = (patch: Partial<{ ledger: Record<string, unknown>[]; claims: InsuranceClaim[]; settlements: StaffSettlement[] }>) =>
+      setHistory((h) => (h && h.staffId === staffId ? { ...h, ...patch, loaded: Math.min(3, h.loaded + 1) } : h));
+    const unsubLedger = onSnapshot(
+      query(getClinicCollection("ledger"), where("doctorId", "==", staffId)),
+      (snap) => bump({ ledger: snap.docs.map((d) => ({ id: d.id, ...d.data() })) }),
+      () => bump({ ledger: [] }),
+    );
+    const unsubClaims = onSnapshot(
+      query(getClinicCollection(CLAIMS_COLLECTION), where("status", "in", ["treated", "sent"])),
+      (snap) => bump({ claims: snap.docs.map((d) => parseClaim(d.id, d.data())).filter((c): c is InsuranceClaim => c !== null) }),
+      () => bump({ claims: [] }),
+    );
+    const unsubSettlements = onSnapshot(
+      query(getClinicCollection(SETTLEMENTS_COLLECTION), where("staffId", "==", staffId)),
+      (snap) => bump({ settlements: snap.docs.map((d) => parseSettlement(d.id, d.data())).filter((s): s is StaffSettlement => s !== null) }),
+      () => bump({ settlements: [] }),
+    );
+    return () => {
+      unsubLedger();
+      unsubClaims();
+      unsubSettlements();
+    };
+  }, [canAdmin, clinicId, historyStaffId]);
+
+  const settlementView: SettlementView | null = useMemo(() => {
+    if (!history || history.loaded < 3 || !selectedDoc || history.staffId !== selectedDoc.id) return null;
+    const staff = [{ id: selectedDoc.id, name: String(selectedDoc.name ?? "") }];
+    const insuranceRowIds = new Set(history.claims.flatMap((c) => Object.values(c.ledgerIds).map((l) => l.ledgerId)));
+    const privateWork = commissionByStaff(history.ledger, staff, insuranceRowIds).get(selectedDoc.id) ?? NO_COMMISSION;
+    const insuranceWorkAll = insuranceWorkByStaff(history.claims, wording).get(selectedDoc.id) ?? NO_INSURANCE_WORK;
+    const earnings: Earning[] = [
+      ...privateWork.entries.map((e) => ({ key: e.id, date: e.date, amount: e.amount })),
+      ...insuranceWorkAll.entries.map((e) => ({ key: `${e.claimId}#${e.lineIndex}`, date: e.date, amount: e.share })),
+    ];
+    const result = settleEarnings(earnings, history.settlements);
+    const inPeriod = settledInPeriod(history.settlements, { start: range.start, end: range.end });
+    return {
+      byKey: result.byKey,
+      owed: result.owed,
+      owedBefore: owedBefore(result, earnings, range.start),
+      paidInPeriod: inPeriod.paid,
+      deductedInPeriod: inPeriod.deducted,
+      items: [...history.settlements].sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id)),
+    };
+  }, [history, selectedDoc, wording, range.start, range.end]);
 
   const profileStaff: ProfileStaff | null = useMemo(() => {
     if (!selectedDoc) return null;
@@ -409,6 +474,41 @@ function TeamPage() {
    * The open dentist's commission for the period as an Excel file: the same two tables the profile
    * shows, built from the same values. The spreadsheet library loads only on the click.
    */
+  const saveSettlement = useCallback(
+    async (draft: StaffSettlementDraft, id: string | null): Promise<boolean> => {
+      if (!selectedDoc) return false;
+      try {
+        if (id) await updateStaffSettlement(id, { amount: draft.amount, date: draft.date, note: draft.note }, clinicId);
+        else await createStaffSettlement(selectedDoc.id, draft, clinicId);
+        showToast(
+          draft.kind === "payout" ? (isAr ? "الدفعة اتسجلت" : "Payout recorded") : isAr ? "الخصم اتسجل" : "Deduction recorded",
+          "success",
+        );
+        return true;
+      } catch (err) {
+        showToast(err instanceof MoneyApiError ? err.message : isAr ? "مقدرناش نحفظ" : "Could not save that", "error");
+        return false;
+      }
+    },
+    [selectedDoc, clinicId, showToast, isAr],
+  );
+
+  const removeSettlement = useCallback(
+    async (id: string) => {
+      const ok = await confirm(
+        isAr ? "تحذف السطر ده؟ لو دفعة، هتتشال من المالية كمان." : "Delete this entry? A payout is removed from Finance as well.",
+      );
+      if (!ok) return;
+      try {
+        await deleteStaffSettlement(id, clinicId);
+        showToast(isAr ? "اتحذف" : "Deleted", "success");
+      } catch (err) {
+        showToast(err instanceof MoneyApiError ? err.message : isAr ? "مقدرناش نحذف" : "Could not delete that", "error");
+      }
+    },
+    [clinicId, confirm, showToast, isAr],
+  );
+
   const exportCommission = useCallback(async () => {
     if (!profileStaff) return;
     try {
@@ -547,6 +647,9 @@ function TeamPage() {
                   onUnlinkDevice={unlinkDevice}
                   onSetPct={setPct}
                   onExportCommission={exportCommission}
+                  settlement={settlementView}
+                  onSaveSettlement={saveSettlement}
+                  onDeleteSettlement={removeSettlement}
                 />
               </div>
             )}

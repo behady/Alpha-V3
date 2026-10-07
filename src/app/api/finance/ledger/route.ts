@@ -124,6 +124,8 @@ const EDITABLE_PROCEDURE_FIELDS = ["date", "description", "discountMode", "disco
 const EDITABLE_APPROVAL_ROW_FIELDS = ["date", "description", "note"] as const;
 const APPROVAL_ROW_LOCKED_FIELDS = ["listPrice", "discountMode", "discountPercent", "discountFixed", "cost", "amount", "doctorId", "payerId"] as const;
 const APPROVAL_ROW_MESSAGE = "This treatment comes from an insurance approval; change it on the patient's Insurance tab.";
+/** An expense row written by a staff payout (`settlementId`): the payout on the Team page owns it. */
+const SETTLEMENT_ROW_MESSAGE = "This is a staff payout; change or delete it on the Team page.";
 
 /**
  * Does a posted value differ from the stored one? Screens re-send the price fields on every save,
@@ -402,6 +404,7 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
     if (!snap.exists) throw new Error("NOT_FOUND");
     const before = snap.data() || {};
     const type = String(before.type || "");
+    if (typeof before.settlementId === "string" && before.settlementId) throw new Error("SETTLEMENT_ROW");
     const approvalRow = type === "procedure" && isApprovalRow(before);
     if (approvalRow && APPROVAL_ROW_LOCKED_FIELDS.some((k) => patch[k] !== undefined && differsFromStored(patch[k], before[k]))) {
       throw new Error("APPROVAL_ROW_LOCKED");
@@ -871,6 +874,7 @@ async function deleteRow(args: { clinicId: string; actor: Actor; body: Record<st
   if (type === "procedure" && isApprovalRow(target)) {
     return bad("This treatment comes from an insurance approval; delete the approval instead.", 409);
   }
+  if (typeof target.settlementId === "string" && target.settlementId) return bad(SETTLEMENT_ROW_MESSAGE, 409);
 
   // Everything that could be linked to this row, in either direction. Loaded outside the
   // transaction because deciding IF the delete may happen needs a query, and Firestore
@@ -1063,6 +1067,8 @@ export async function POST(request: Request) {
         return bad("That row cannot be edited here.");
       case "APPROVAL_ROW_LOCKED":
         return bad(APPROVAL_ROW_MESSAGE);
+      case "SETTLEMENT_ROW":
+        return bad(SETTLEMENT_ROW_MESSAGE, 409);
       default:
         reportServerError("finance/ledger failed", e, { action });
         return bad("Something went wrong saving that. Nothing was changed.", 500);

@@ -680,6 +680,14 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      // Money paid to staff, or held back from them. Written only by /api/staff/settlements
+      // (admins; a payout also writes its expense row on the ledger in the same transaction).
+      // Any clinic member may read: the Team page shows them next to the earnings they settle.
+      match /staff_settlements/{entryId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow write: if false;
+      }
+
       // Bookkeeping for the approval documents in Cloud Storage: which object belongs to which claim.
       // Written by the server alongside the upload; read-only to the clinic.
       match /insurance_docs/{docId} {

@@ -233,7 +233,10 @@ export default function FinancePage() {
         totalProcedureDiscounts += Number(row.discountAmount) || 0;
       }
 
-      return { availableDoctors: Array.from(docsList), kpiStats: { grossIncome, totalCommissions, totalLabFees, explicitExpenses, netClinicProfit, totalProcedureDiscounts, finalNet: netClinicProfit - explicitExpenses } };
+      // Commission is what the clinic OWES its dentists; the cash leaves when the owner pays them
+      // from the Team page, and that payout is a Salary expense already inside explicitExpenses.
+      // So the net takes lab fees and expenses off the cash, never the commission as well.
+      return { availableDoctors: Array.from(docsList), kpiStats: { grossIncome, totalCommissions, totalLabFees, explicitExpenses, netClinicProfit, totalProcedureDiscounts, finalNet: grossIncome - totalLabFees - explicitExpenses } };
   }, [allTransactions, periodProcedures, filterDoctor]);
 
   /**
@@ -381,7 +384,9 @@ export default function FinancePage() {
       const totalIncome = incomeList.reduce((s, t) => s + t.val, 0);
       const totalExpenses = expenseList.reduce((s, t) => s + t.val, 0);
       const totalCommissions = commissionList.reduce((s, t) => s + (t.doctorCommissionAmount || 0), 0);
-      const netProfit = totalIncome - totalExpenses - totalCommissions;
+      const totalLab = incomeList.reduce((s, t) => s + (t.labFee || 0), 0);
+      // Commission is owed, not paid out: it comes off as a Salary expense when the owner pays.
+      const netProfit = totalIncome - totalExpenses - totalLab;
 
       let kpiHtml = "";
       if (pdfSections.kpis) {
@@ -396,8 +401,8 @@ export default function FinancePage() {
               <div style="font-size: 18px; font-weight: 800; color: #dc2626;">-${totalExpenses.toLocaleString()} EGP</div>
             </div>
             <div style="flex: 1; min-width: 120px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
-              <div style="font-size: 11px; color: #64748b; font-weight: 700; margin-bottom: 4px;">${language === 'ar' ? 'العمولات' : 'Commissions'}</div>
-              <div style="font-size: 18px; font-weight: 800; color: #d97706;">-${totalCommissions.toLocaleString()} EGP</div>
+              <div style="font-size: 11px; color: #64748b; font-weight: 700; margin-bottom: 4px;">${language === 'ar' ? 'نِسَب الأطباء المستحقة' : 'Commissions owed'}</div>
+              <div style="font-size: 18px; font-weight: 800; color: #d97706;">${totalCommissions.toLocaleString()} EGP</div>
             </div>
             <div style="flex: 1; min-width: 120px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
               <div style="font-size: 11px; color: #64748b; font-weight: 700; margin-bottom: 4px;">${language === 'ar' ? 'صافي الربح' : 'Net Profit'}</div>
@@ -623,7 +628,7 @@ export default function FinancePage() {
                   {isLoading ? <Loader2 className="w-10 h-10 animate-spin text-slate-500" /> : `${formatCurrency(kpiStats.finalNet)}`}
                 </p>
                 <p className="text-slate-500 text-sm mt-2 font-medium leading-snug">
-                  {language === "ar" ? "بعد العمولات، المختبر والمصروفات اليدوية" : "After doctor & lab deductions and recorded expenses"}
+                  {language === "ar" ? "بعد المختبر والمصروفات (مرتبات الفريق ضمنها). نِسَب الأطباء بتتخصم لما تتدفع من صفحة الفريق." : "After lab fees and recorded expenses, staff pay included. Dentists' commissions come off when paid from the Team page."}
                 </p>
                 <dl className="mt-8 pt-6 border-t border-white/10 space-y-3 text-sm">
                   <div className="flex justify-between gap-4">
@@ -635,9 +640,9 @@ export default function FinancePage() {
                     <dd className="font-black tabular-nums text-violet-300">{isLoading ? "—" : formatCurrency(kpiStats.totalProcedureDiscounts)}</dd>
                   </div>
                   <div className="flex justify-between gap-4">
-                    <dt className="text-slate-400 font-semibold">{language === "ar" ? "عمولات + مختبر" : "Commissions + lab"}</dt>
+                    <dt className="text-slate-400 font-semibold">{language === "ar" ? "مختبر" : "Lab fees"}</dt>
                     <dd className="font-black tabular-nums text-amber-300">
-                      −{isLoading ? "—" : formatCurrency(kpiStats.totalCommissions + kpiStats.totalLabFees)}
+                      −{isLoading ? "—" : formatCurrency(kpiStats.totalLabFees)}
                     </dd>
                   </div>
                   <div className="flex justify-between gap-4">
@@ -691,8 +696,8 @@ export default function FinancePage() {
               <div className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "استقطاعات" : "Deductions"}</p>
-                    <p className="text-xs text-ink-muted mt-1 font-medium">{language === "ar" ? "من المتحصل" : "From cash-in"}</p>
+                    <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "نِسَب الأطباء المستحقة" : "Commissions owed"}</p>
+                    <p className="text-xs text-ink-muted mt-1 font-medium">{language === "ar" ? "بتتخصم لما تتدفع من صفحة الفريق" : "Come off when paid from the Team page"}</p>
                   </div>
                   <div className="w-11 h-11 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
                     <Users size={22} />
@@ -702,7 +707,7 @@ export default function FinancePage() {
                   {isLoading ? (
                     <Loader2 className="w-6 h-6 animate-spin text-amber-300" />
                   ) : (
-                    `−${formatCurrency(kpiStats.totalCommissions + kpiStats.totalLabFees)}`
+                    formatCurrency(kpiStats.totalCommissions)
                   )}
                 </p>
               </div>
