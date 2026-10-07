@@ -10,7 +10,8 @@
  */
 
 import { normalizeMetlife, type MetlifeExtraction, type MetlifeHeader, type MetlifeLine } from "./metlife";
-import { commissionRateFor, type CommissionRates } from "@/lib/payers";
+import { normalizeNextcare } from "./nextcare";
+import { commissionRateFor, isInsurerFormat, type CommissionRates, type InsurerFormat } from "@/lib/payers";
 import { readInsurance, writeInsurance, type PatientInsuranceEntry } from "../patientInsurance";
 
 export const CLAIMS_COLLECTION = "insurance_claims";
@@ -20,13 +21,18 @@ export const WORDING_DOC = "insurance_wording";
 export type ClaimStatus = "approved" | "treated" | "sent" | "cancelled";
 export const CLAIM_STATUSES: readonly ClaimStatus[] = ["approved", "treated", "sent", "cancelled"];
 
-/** The paper's header fields that live in `metlife` on the claim; the rest sit on the claim itself. */
+/**
+ * The paper's header fields that live in `metlife` on the claim; the rest sit on the claim itself.
+ * The field is named for the first format; a NextCare claim keeps its header there too (see
+ * lib/insurance/nextcare.ts for how NextCare's paper maps onto these fields).
+ */
 export type ClaimMetlife = Omit<MetlifeHeader, "approvalNumber" | "approvalDate" | "paperPatientName" | "confidence">;
 
 export type InsuranceClaim = {
   id: string;
   payerId: string;
-  insurer: "metlife";
+  /** Which paper this was read from; it decides the reader, the checks and the monthly sheet. */
+  insurer: InsurerFormat;
   approvalNumber: string;
   approvalDate: string;
   status: ClaimStatus;
@@ -127,7 +133,9 @@ function plain(v: unknown): string {
  * already carries `employer` (or `physician`) is in the split shape: its pair is taken as posted.
  * Everything else is `normalizeMetlife` unchanged, which is idempotent on its own output.
  */
-export function normalizeConfirmed(raw: unknown): MetlifeExtraction {
+export function normalizeConfirmed(raw: unknown, format: InsurerFormat = "metlife"): MetlifeExtraction {
+  // NextCare's normaliser is idempotent on its own output: no split shape to protect.
+  if (format === "nextcare") return normalizeNextcare(raw);
   const x = normalizeMetlife(raw);
   const h = isRecord(raw) && isRecord(raw.header) ? raw.header : {};
   const header: MetlifeHeader = { ...x.header };
@@ -142,9 +150,18 @@ export function normalizeConfirmed(raw: unknown): MetlifeExtraction {
   return { header, lines: x.lines };
 }
 
-/** The header fields kept under `metlife`, in a fixed order. */
+/** Service lines read again with the format's own normaliser (NextCare keeps each line's teeth). */
+export function normalizeLinesFor(format: InsurerFormat, lines: unknown[]): MetlifeLine[] {
+  return format === "nextcare" ? normalizeNextcare({ lines }).lines : normalizeMetlife({ lines }).lines;
+}
+
+/** The header fields kept under `metlife`, in a fixed order. NextCare's own fields only when present (never `undefined`: Firestore refuses it). */
 export function claimMetlifeFrom(h: MetlifeHeader): ClaimMetlife {
   return {
+    ...(h.validUntil !== undefined ? { validUntil: h.validUntil } : {}),
+    ...(h.insurerName !== undefined ? { insurerName: h.insurerName } : {}),
+    ...(h.productName !== undefined ? { productName: h.productName } : {}),
+    ...(h.memberCode !== undefined ? { memberCode: h.memberCode } : {}),
     policyNumber: h.policyNumber,
     employer: h.employer,
     certificateNumber: h.certificateNumber,
@@ -170,6 +187,8 @@ export function claimMetlifeFrom(h: MetlifeHeader): ClaimMetlife {
  */
 export function claimFromExtraction(args: {
   payerId: string;
+  /** The paper's format; MetLife when not given (every claim saved before NextCare existed). */
+  format?: InsurerFormat;
   extraction: MetlifeExtraction;
   patientId: string;
   patientName: string;
@@ -181,7 +200,7 @@ export function claimFromExtraction(args: {
   const lines = args.extraction.lines.map((l) => ({ ...l }));
   return {
     payerId: args.payerId,
-    insurer: "metlife",
+    insurer: args.format ?? "metlife",
     approvalNumber: h.approvalNumber,
     approvalDate: h.approvalDate ?? "",
     status: args.status,
@@ -222,7 +241,8 @@ function parseDoc(raw: unknown): InsuranceClaim["doc"] {
 export function parseClaim(id: string, raw: unknown): InsuranceClaim | null {
   if (!id || !isRecord(raw)) return null;
   const r = raw;
-  if (r.insurer !== "metlife") return null;
+  if (!isInsurerFormat(r.insurer)) return null;
+  const insurer = r.insurer;
   if (!isClaimStatus(r.status)) return null;
   const payerId = trimmed(r.payerId);
   const patientId = trimmed(r.patientId);
@@ -234,11 +254,11 @@ export function parseClaim(id: string, raw: unknown): InsuranceClaim | null {
   if (treatedDate !== null && !isIsoDate(treatedDate)) return null;
   if (!Array.isArray(r.lines) || !isRecord(r.metlife)) return null;
 
-  const x = normalizeConfirmed({ header: r.metlife, lines: r.lines });
+  const x = normalizeConfirmed({ header: r.metlife, lines: r.lines }, insurer);
   return {
     id,
     payerId,
-    insurer: "metlife",
+    insurer,
     approvalNumber,
     approvalDate,
     status: r.status,
@@ -304,8 +324,8 @@ export function claimExtraction(claim: InsuranceClaim, patch: { lines?: unknown[
       confidence: {},
     },
     lines: [],
-  }).header;
-  const lines = patch.lines ? normalizeMetlife({ lines: patch.lines }).lines : claim.lines.map((l) => ({ ...l }));
+  }, claim.insurer).header;
+  const lines = patch.lines ? normalizeLinesFor(claim.insurer, patch.lines) : claim.lines.map((l) => ({ ...l, ...(l.teeth ? { teeth: [...l.teeth] } : {}) }));
   return { header, lines };
 }
 
@@ -314,17 +334,37 @@ export function claimExtraction(claim: InsuranceClaim, patch: { lines?: unknown[
  * already says the same (or the payer id is not storable). The paper's certificate, dependent code and
  * policy number win; a policy number the paper leaves blank keeps the one the clinic typed.
  */
+/**
+ * The membership a paper gives the patient, before any stored entry is consulted.
+ *
+ * MetLife: certificate and dependent code (together they are the member number, `987/1`).
+ * NextCare: the card number for finding the patient again, and the sheet's bracket code as the member
+ * number. The beneficiary code stays on the claim: stored as a dependent it would turn the member
+ * number into `card/code`.
+ */
+export function membershipFromPaper(
+  format: InsurerFormat,
+  paper: { certificateNumber: string; dependentCode: string; policyNumber: string; memberCode?: string },
+): PatientInsuranceEntry {
+  if (format === "nextcare") {
+    return { memberNumber: paper.memberCode ?? "", certificateNumber: paper.certificateNumber, dependentCode: "", policyNumber: paper.policyNumber };
+  }
+  return { memberNumber: "", certificateNumber: paper.certificateNumber, dependentCode: paper.dependentCode, policyNumber: paper.policyNumber };
+}
+
 export function insuranceEntryToWrite(
   payerId: string,
-  paper: { certificateNumber: string; dependentCode: string; policyNumber: string },
+  paper: { certificateNumber: string; dependentCode: string; policyNumber: string; memberCode?: string },
   patient: Record<string, unknown>,
+  format: InsurerFormat = "metlife",
 ): PatientInsuranceEntry | null {
   const stored = readInsurance(patient)[payerId];
+  const fromPaper = membershipFromPaper(format, paper);
   const entry = writeInsurance({
     [payerId]: {
-      memberNumber: "",
-      certificateNumber: paper.certificateNumber,
-      dependentCode: paper.dependentCode,
+      ...fromPaper,
+      // A NextCare paper with no code keeps the one the clinic typed.
+      memberNumber: fromPaper.memberNumber || (format === "nextcare" ? stored?.memberNumber ?? "" : ""),
       policyNumber: paper.policyNumber || stored?.policyNumber || "",
     },
   })[payerId];
@@ -496,6 +536,8 @@ export function insuranceTreatmentRows(args: TreatmentRowArgs): TreatmentRow[] {
     const listPrice = round2(line.grossTotal);
     const discountAmount = Math.max(0, round2(listPrice - charge));
     const commissionAmount = dentist ? dentist.share : 0;
+    // NextCare's lines name their teeth; MetLife's never do ("Gen", as before).
+    const toothText = line.teeth && line.teeth.length ? line.teeth.join(",") : "Gen";
     const base = {
       cost: charge,
       unitCost,
@@ -532,7 +574,7 @@ export function insuranceTreatmentRows(args: TreatmentRowArgs): TreatmentRow[] {
       note: {
         patientId: claim.patientId,
         appointmentId: null,
-        tooth: "Gen",
+        tooth: toothText,
         procedure: name,
         procedures: [name],
         ...base,
@@ -553,7 +595,7 @@ export function insuranceTreatmentRows(args: TreatmentRowArgs): TreatmentRow[] {
         category: "Treatment",
         amount: charge,
         ...base,
-        description: `${name} (T: Gen) | ${payerName} ${claim.approvalNumber}`,
+        description: `${name} (T: ${toothText}) | ${payerName} ${claim.approvalNumber}`,
         doctorName: dentist?.name ?? "",
         doctorCommissionPercentage: dentist?.rate ?? 0,
         doctorCommissionAmount: commissionAmount,

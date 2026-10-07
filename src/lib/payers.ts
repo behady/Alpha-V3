@@ -39,11 +39,16 @@ export const PRIVATE_PAYER_ID = "private";
  * system knows how to read; a payer with none set is simply not an insurer the approvals feature
  * handles. Held as ids so the stored document stays small and the labels can be translated.
  */
-export type InsurerFormat = "metlife";
+export type InsurerFormat = "metlife" | "nextcare";
 
 export const INSURER_FORMATS: { id: InsurerFormat; en: string; ar: string }[] = [
   { id: "metlife", en: "MetLife", ar: "متلايف" },
+  { id: "nextcare", en: "NextCare", ar: "نكست كير" },
 ];
+
+export function isInsurerFormat(v: unknown): v is InsurerFormat {
+  return INSURER_FORMATS.some((f) => f.id === v);
+}
 
 export type Payer = {
   id: string;

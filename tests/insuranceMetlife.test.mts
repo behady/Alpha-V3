@@ -559,7 +559,7 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   // junk is refused, never half-read
   assert.equal(parseClaim("x", null), null);
   assert.equal(parseClaim("x", { ...c, patientId: "" }), null, "a claim always names its patient");
-  assert.equal(parseClaim("x", { ...c, insurer: "nextcare" }), null);
+  assert.equal(parseClaim("x", { ...c, insurer: "axa" }), null, "an insurer with no reader is refused (NextCare has one since 2026-10-07)");
   assert.equal(parseClaim("x", { ...c, treatedDate: "03/10/2026" }), null);
   for (const s of CLAIM_STATUSES) assert.equal(parseClaim("x", { ...c, status: s })?.status, s);
 

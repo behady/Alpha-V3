@@ -35,6 +35,11 @@ export type MetlifeLine = {
   comment: string;
   /** 0–1, the model's own confidence in the whole row. */
   confidence: number;
+  /**
+   * FDI tooth codes this service is for ("44", "46"). NextCare's lines carry them (read from the
+   * paper's conditions, then the desk's); MetLife's paper names no teeth, so its lines never set it.
+   */
+  teeth?: string[];
 };
 
 export type MetlifeHeader = {
@@ -67,6 +72,14 @@ export type MetlifeHeader = {
   comment: string;
   /** 0–1 per header field, keyed by the field's name here. A field the model did not rate is absent. */
   confidence: Record<string, number>;
+  // NextCare's paper (lib/insurance/nextcare.ts) fills these; MetLife's never does, so they stay absent.
+  /** ISO date the approval may be used until. */
+  validUntil?: string | null;
+  /** The insurer NextCare approves for, e.g. "Misr Insurance". */
+  insurerName?: string;
+  productName?: string;
+  /** The 4-character code the monthly sheet prints before the name: `(3C40)name`. */
+  memberCode?: string;
 };
 
 export type MetlifeExtraction = { header: MetlifeHeader; lines: MetlifeLine[] };
