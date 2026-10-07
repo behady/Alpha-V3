@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { TrendingUp, TrendingDown, DollarSign, PieChart, Download, Plus, Search, Edit2, Trash2, Loader2, X, Save, CalendarDays, CalendarClock, Users, ChevronLeft, ChevronRight, SlidersHorizontal, ChevronDown, ChevronUp, Wallet, FileText } from "lucide-react";
 import { db } from "@/lib/firebase";
-import { collection, addDoc, query, orderBy, serverTimestamp, deleteDoc, doc, updateDoc, where, getDoc, getDocs, onSnapshot } from "firebase/firestore";
+import { collection, addDoc, query, orderBy, serverTimestamp, deleteDoc, doc, updateDoc, where, getDoc, getDocs, onSnapshot, documentId } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { useAuth } from "@/context/AuthContext";
@@ -18,8 +18,8 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { MoneyApiError, createLedgerEntry, deleteLedgerRow, updateLedgerRow } from "@/lib/moneyApi";
-import { CLAIMS_COLLECTION, parseClaim, type InsuranceClaim } from "@/lib/insurance/claims";
-import { insuranceWorkByStaff } from "@/lib/staffInsurance";
+import { CLAIMS_COLLECTION, lineStatusOf, parseClaim, type InsuranceClaim } from "@/lib/insurance/claims";
+import { countsForPayroll } from "@/lib/staffInsurance";
 
 const ITEMS_PER_PAGE = 15;
 
@@ -27,6 +27,13 @@ interface Transaction {
   id: string; type: 'payment' | 'expense' | 'income' | 'procedure'; description: string; amount?: number; paid?: number; cost?: number; date: string; category?: string; patientName?: string; patientId?: string; doctor?: string; method?: string; isRecurring?: boolean; val: number; doctorName?: string | null; doctorCommissionAmount?: number; labFee?: number; clinicProfit?: number;
   /** Set on the Salary expense a staff payout writes from the Team page. */
   settlementId?: string | null;
+  doctorCommissionPercentage?: number | null;
+  /** Of the commission, what the Team page has paid out / held back (stamped by the settlements sync). */
+  doctorCommissionPaid?: number;
+  doctorCommissionDeducted?: number;
+  /** An insurance payment: the approval, and the treatment row it settled (one approval line). */
+  claimId?: string | null;
+  procedureId?: string | null;
   discountAmount?: number;
   /** True when this row is a treatment plan / AR line with no cash collected on the row (shown for reference only). */
   isAccountsReceivableOnly?: boolean;
@@ -68,10 +75,13 @@ export default function FinancePage() {
   /** Treatment charges raised in the period. Not cash — used only for the discount figures. */
   const [periodProcedures, setPeriodProcedures] = useState<Record<string, unknown>[]>([]);
   /**
-   * The dentists' share on insurance work treated in the period. It is stamped on the approval's
-   * line, not on the insurer's payment row, so the ledger alone would show it as nothing owed.
+   * The dentists' share still unpaid on insurance work treated in the period. It is stamped on
+   * the approval's line (share, paid, deducted), not on the insurer's payment row, so the ledger
+   * alone would show it as nothing owed.
    */
-  const [insuranceShares, setInsuranceShares] = useState(0);
+  const [insurancePending, setInsurancePending] = useState(0);
+  /** The approvals the listed insurance payments belong to, so a row can name its dentist and share. */
+  const [claimsById, setClaimsById] = useState<Map<string, InsuranceClaim>>(new Map());
   const [filterType, setFilterType] = useState<'all' | 'income' | 'expense'>('all');
   const [filterDoctor, setFilterDoctor] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState("");
@@ -202,10 +212,16 @@ export default function FinancePage() {
       (snap) => {
         const claims = snap.docs.map((d) => parseClaim(d.id, d.data())).filter((c): c is InsuranceClaim => c !== null);
         let total = 0;
-        for (const work of insuranceWorkByStaff(claims, {}, { start: startDateStr, end: endDateStr }).values()) total += work.total;
-        setInsuranceShares(Math.round(total * 100) / 100);
+        for (const claim of claims) {
+          if (!countsForPayroll(claim)) continue;
+          for (const [k, d] of Object.entries(claim.dentists)) {
+            if (lineStatusOf(claim, Number(k)) !== "Completed") continue;
+            total += Math.max(0, d.share - (d.paid ?? 0) - (d.deducted ?? 0));
+          }
+        }
+        setInsurancePending(Math.round(total * 100) / 100);
       },
-      () => setInsuranceShares(0),
+      () => setInsurancePending(0),
     );
     return () => {
       unsub();
@@ -213,9 +229,76 @@ export default function FinancePage() {
     };
   }, [dateRange, timeView, customStartDate, customEndDate, showToast]);
 
+  // The approvals behind the listed insurance payments, live, in chunks of 30 (the `in` limit).
+  const claimIdsKey = useMemo(
+    () => [...new Set(allTransactions.map((t) => (typeof t.claimId === "string" ? t.claimId : "")).filter(Boolean))].sort().join(","),
+    [allTransactions],
+  );
+  useEffect(() => {
+    if (!claimIdsKey) {
+      setClaimsById(new Map());
+      return;
+    }
+    const ids = claimIdsKey.split(",");
+    const unsubs: (() => void)[] = [];
+    for (let i = 0; i < ids.length; i += 30) {
+      const chunk = ids.slice(i, i + 30);
+      unsubs.push(
+        onSnapshot(
+          query(getClinicCollection(CLAIMS_COLLECTION), where(documentId(), "in", chunk)),
+          (snap) =>
+            setClaimsById((prev) => {
+              const next = new Map(prev);
+              for (const id of chunk) next.delete(id);
+              for (const d of snap.docs) {
+                const c = parseClaim(d.id, d.data());
+                if (c) next.set(c.id, c);
+              }
+              return next;
+            }),
+          () => {},
+        ),
+      );
+    }
+    return () => unsubs.forEach((u) => u());
+  }, [claimIdsKey]);
+
+  /**
+   * The dentist behind one income row, with what they earned on it and how much of that has
+   * been paid: a private payment carries it all on the row; an insurance payment points at its
+   * approval line. The patient's own share row names the dentist but carries no share — the
+   * insurer's row does, once.
+   */
+  const rowDentist = (tx: Transaction): { name: string; rate: number | null; share: number; paid: number; deducted: number; pending: number } | null => {
+    if (tx.type !== "payment") return null;
+    const finish = (name: string, rate: number | null, share: number, paid: number, deducted: number) => ({
+      name: name.replace(/^Dr\.\s*/i, ""),
+      rate,
+      share,
+      paid,
+      deducted,
+      pending: Math.max(0, Math.round((share - paid - deducted) * 100) / 100),
+    });
+    if (tx.claimId) {
+      const claim = claimsById.get(tx.claimId);
+      const entry = claim && tx.procedureId ? Object.entries(claim.ledgerIds).find(([, l]) => l.ledgerId === tx.procedureId) : undefined;
+      const d = claim && entry ? claim.dentists[Number(entry[0])] : undefined;
+      if (!d) return tx.doctorName || tx.doctor ? finish(tx.doctorName || tx.doctor || "", null, 0, 0, 0) : null;
+      if (tx.category === "Insurance patient share") return finish(d.name, d.rate, 0, 0, 0);
+      return finish(d.name, d.rate, d.share, d.paid ?? 0, d.deducted ?? 0);
+    }
+    const name = tx.doctorName || tx.doctor || "";
+    if (!name && !tx.doctorCommissionAmount) return null;
+    const rate = tx.doctorCommissionPercentage == null || tx.doctorCommissionPercentage === ("" as unknown) ? null : Number(tx.doctorCommissionPercentage);
+    return finish(name, Number.isFinite(rate as number) ? (rate as number) : null, Number(tx.doctorCommissionAmount) || 0, Number(tx.doctorCommissionPaid) || 0, Number(tx.doctorCommissionDeducted) || 0);
+  };
+  /** What the clinic keeps of a row once the dentist has been paid their part: cash − lab − paid. */
+  const rowNet = (tx: Transaction, paid: number): number => Math.round((tx.val - (Number(tx.labFee) || 0) - paid) * 100) / 100;
+
   const { kpiStats, availableDoctors } = useMemo(() => {
       let grossIncome = 0; let totalCommissions = 0; let totalLabFees = 0; let explicitExpenses = 0; let netClinicProfit = 0;
       let staffPay = 0;
+      let privatePending = 0;
       let totalProcedureDiscounts = 0;
       const docsList = new Set<string>();
 
@@ -242,6 +325,7 @@ export default function FinancePage() {
           const lab = Number(t.labFee) || 0;
           const profit = t.clinicProfit !== undefined ? Number(t.clinicProfit) : (t.val - comm - lab);
           totalCommissions += comm;
+          if (!t.claimId) privatePending += Math.max(0, comm - (Number(t.doctorCommissionPaid) || 0) - (Number(t.doctorCommissionDeducted) || 0));
           totalLabFees += lab;
           netClinicProfit += profit;
 
@@ -261,11 +345,11 @@ export default function FinancePage() {
       // from the Team page, and that payout is a Salary expense already inside explicitExpenses.
       // So the net takes lab fees and expenses off the cash, never the commission as well.
       // Pending = earned by the dentists this period (private commission + insurance shares) and
-      // not yet handed over. Paid is what left (the Team page's payouts), and that part is
-      // deducted; the rest only waits.
-      const commissionsPending = Math.max(0, totalCommissions + (filterDoctor === 'all' ? insuranceShares : 0) - staffPay);
+      // not yet handed over, read off the rows' own paid stamps. Paid to staff is what left (the
+      // Team page's payouts, Salary expenses) and is the part deducted; the rest only waits.
+      const commissionsPending = Math.round((privatePending + (filterDoctor === 'all' ? insurancePending : 0)) * 100) / 100;
       return { availableDoctors: Array.from(docsList), kpiStats: { grossIncome, totalCommissions, totalLabFees, explicitExpenses, staffPay, commissionsPending, netClinicProfit, totalProcedureDiscounts, finalNet: grossIncome - totalLabFees - explicitExpenses } };
-  }, [allTransactions, periodProcedures, filterDoctor, insuranceShares]);
+  }, [allTransactions, periodProcedures, filterDoctor, insurancePending]);
 
   /**
    * What the clinic gave away in this period, and why.
@@ -564,7 +648,7 @@ export default function FinancePage() {
                     <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: ${language === 'ar' ? 'right' : 'left'};">${tx.description || '—'}</td>
                     <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: ${language === 'ar' ? 'right' : 'left'};">${tx.val.toLocaleString()}</td>
                     <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #d97706; text-align: ${language === 'ar' ? 'right' : 'left'};">${(tx.doctorCommissionAmount || 0).toLocaleString()}</td>
-                    <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #059669; text-align: ${language === 'ar' ? 'left' : 'right'};">${(tx.clinicProfit ?? tx.val - (tx.doctorCommissionAmount || 0) - (tx.labFee || 0)).toLocaleString()}</td>
+                    <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #059669; text-align: ${language === 'ar' ? 'left' : 'right'};">${rowNet(tx, Number(tx.doctorCommissionPaid) || 0).toLocaleString()}</td>
                   </tr>
                 `).join('')}
               </tbody>
@@ -1051,27 +1135,41 @@ export default function FinancePage() {
                               )}
                             </td>
                             <td className="py-4 px-4 align-top">
-                              {tx.doctorCommissionAmount || tx.labFee || tx.clinicProfit !== undefined ? (
-                                <div className="flex flex-col gap-1">
-                                  {tx.doctorCommissionAmount ? (
-                                    <span className="text-[10px] font-bold bg-accent-tint text-accent-strong px-2 py-1 rounded-lg border border-accent-soft w-fit">
-                                      Doc {tx.doctorCommissionAmount}
-                                    </span>
-                                  ) : null}
-                                  {tx.labFee ? (
-                                    <span className="text-[10px] font-bold bg-orange-50 text-orange-700 px-2 py-1 rounded-lg border border-orange-100 w-fit">
-                                      Lab {tx.labFee}
-                                    </span>
-                                  ) : null}
-                                  {tx.clinicProfit !== undefined ? (
-                                    <span className="text-[10px] font-bold bg-emerald-50 text-emerald-700 px-2 py-1 rounded-lg border border-emerald-100 w-fit">
-                                      Net {tx.clinicProfit}
-                                    </span>
-                                  ) : null}
-                                </div>
-                              ) : (
-                                <span className="text-slate-300">—</span>
-                              )}
+                              {(() => {
+                                const d = rowDentist(tx);
+                                if (!d && !tx.labFee) return <span className="text-slate-300">—</span>;
+                                return (
+                                  <div className="flex flex-col gap-1">
+                                    {d && (
+                                      <span className="text-[12px] font-bold text-ink leading-snug">
+                                        Dr. {d.name}
+                                        {d.rate != null ? <span className="text-ink-muted"> · {d.rate}%</span> : null}
+                                        {d.share > 0 ? <span className="text-accent-strong"> · {d.share.toLocaleString()}</span> : null}
+                                      </span>
+                                    )}
+                                    {d && d.share > 0 && (
+                                      <span className="flex flex-wrap gap-1">
+                                        <span className="text-[10px] font-bold bg-emerald-50 text-emerald-700 px-2 py-1 rounded-lg border border-emerald-100">
+                                          {language === "ar" ? "اتدفع" : "Paid"} {d.paid.toLocaleString()}
+                                        </span>
+                                        <span className={`text-[10px] font-bold px-2 py-1 rounded-lg border ${d.pending > 0 ? "bg-amber-50 text-amber-700 border-amber-100" : "bg-surface-subtle text-ink-muted border-line"}`}>
+                                          {language === "ar" ? "معلّق" : "Pending"} {d.pending.toLocaleString()}
+                                        </span>
+                                      </span>
+                                    )}
+                                    {tx.labFee ? (
+                                      <span className="text-[10px] font-bold bg-orange-50 text-orange-700 px-2 py-1 rounded-lg border border-orange-100 w-fit">
+                                        Lab {tx.labFee}
+                                      </span>
+                                    ) : null}
+                                    {!isExpense && (d || tx.labFee) ? (
+                                      <span className="text-[10px] font-bold bg-surface-subtle text-ink px-2 py-1 rounded-lg border border-line w-fit">
+                                        Net {rowNet(tx, d?.paid ?? 0).toLocaleString()}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                );
+                              })()}
                             </td>
                             <td className="py-4 px-6 align-top text-end">
                               <span
@@ -1165,25 +1263,41 @@ export default function FinancePage() {
                             {tx.val.toLocaleString()}
                           </span>
                         </div>
-                        {(tx.doctorCommissionAmount || tx.labFee) && (
-                          <div className="flex flex-wrap gap-1 ps-12">
-                            {tx.doctorCommissionAmount ? (
-                              <span className="text-[9px] bg-accent-tint text-accent px-2 py-0.5 rounded border border-accent-soft font-bold">
-                                Doc: {tx.doctorCommissionAmount}
-                              </span>
-                            ) : null}
-                            {tx.labFee ? (
-                              <span className="text-[9px] bg-orange-50 text-orange-600 px-2 py-0.5 rounded border border-orange-100 font-bold">
-                                Lab: {tx.labFee}
-                              </span>
-                            ) : null}
-                            {tx.clinicProfit !== undefined ? (
-                              <span className="text-[9px] bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded border border-emerald-100 font-bold">
-                                Net: {tx.clinicProfit}
-                              </span>
-                            ) : null}
-                          </div>
-                        )}
+                        {(() => {
+                          const d = rowDentist(tx);
+                          if (!d && !tx.labFee) return null;
+                          return (
+                            <div className="flex flex-wrap items-center gap-1 ps-12">
+                              {d && (
+                                <span className="text-[11px] font-bold text-ink">
+                                  Dr. {d.name}
+                                  {d.rate != null ? ` · ${d.rate}%` : ""}
+                                  {d.share > 0 ? ` · ${d.share.toLocaleString()}` : ""}
+                                </span>
+                              )}
+                              {d && d.share > 0 ? (
+                                <>
+                                  <span className="text-[9px] bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded border border-emerald-100 font-bold">
+                                    {language === "ar" ? "اتدفع" : "Paid"}: {d.paid.toLocaleString()}
+                                  </span>
+                                  <span className={`text-[9px] px-2 py-0.5 rounded border font-bold ${d.pending > 0 ? "bg-amber-50 text-amber-700 border-amber-100" : "bg-surface-subtle text-ink-muted border-line"}`}>
+                                    {language === "ar" ? "معلّق" : "Pending"}: {d.pending.toLocaleString()}
+                                  </span>
+                                </>
+                              ) : null}
+                              {tx.labFee ? (
+                                <span className="text-[9px] bg-orange-50 text-orange-600 px-2 py-0.5 rounded border border-orange-100 font-bold">
+                                  Lab: {tx.labFee}
+                                </span>
+                              ) : null}
+                              {!isExpense ? (
+                                <span className="text-[9px] bg-surface-subtle text-ink px-2 py-0.5 rounded border border-line font-bold">
+                                  Net: {rowNet(tx, d?.paid ?? 0).toLocaleString()}
+                                </span>
+                              ) : null}
+                            </div>
+                          );
+                        })()}
                         <div className="flex justify-end gap-2 ps-12">
                           <Protect permission="finance.edit">
                             {tx.type !== "payment" && tx.type !== "procedure" ? (

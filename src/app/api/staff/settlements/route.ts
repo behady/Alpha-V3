@@ -12,8 +12,8 @@ import { reportServerError } from "@/lib/server/reportError";
  * change to that row, and the ledger route refuses to touch such a row on its own (`settlementId`),
  * so the two can never disagree. A deduction moves no cash and writes nothing on the ledger.
  *
- * What the settlement is worth against the dentist's earnings is worked out on the Team page
- * (`lib/staffSettlement.ts`); nothing here allocates.
+ * After every write the dentist's rows are restamped with what is now paid on each
+ * (`lib/server/staffSettlementSync.ts`), so the Finance page can read paid and pending off a row.
  */
 
 import { NextResponse } from "next/server";
@@ -25,6 +25,7 @@ import { buildManualEntryRow } from "@/lib/ledgerWrite";
 import { recordMoneyChange } from "@/lib/server/ledgerAudit";
 import { logActivityServer } from "@/lib/server/systemLog";
 import { isSettlementKind, SETTLEMENTS_COLLECTION } from "@/lib/staffSettlement";
+import { restampStaffSettlements } from "@/lib/server/staffSettlementSync";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -155,6 +156,7 @@ async function create(args: { clinicId: string; actor: Actor; body: Record<strin
   } else {
     await logActivityServer({ clinicId, user: actor, action: "Staff Deduction Recorded", details: `${amount} EGP held from ${staffName} on ${date}${note ? ` — ${note}` : ""}`, severity: "MEDIUM", module: "finance" });
   }
+  await restamp(clinicId, staffId);
   return NextResponse.json({ ok: true, id: settlementRef.id, ledgerId: ledgerRef?.id ?? null });
 }
 
@@ -199,7 +201,7 @@ async function update(args: { clinicId: string; actor: Actor; body: Record<strin
       tx.update(ledgerRef, rowPatch);
       ledgerAfter = { ...ledgerBefore, ...rowPatch };
     }
-    return { staffName: String(before.staffName || ""), ledgerId, ledgerBefore, ledgerAfter };
+    return { staffId: String(before.staffId || ""), staffName: String(before.staffName || ""), ledgerId, ledgerBefore, ledgerAfter };
   });
 
   if (outcome.ledgerBefore && outcome.ledgerAfter) {
@@ -209,6 +211,7 @@ async function update(args: { clinicId: string; actor: Actor; body: Record<strin
       details: `Payout to ${outcome.staffName} changed`,
     });
   }
+  await restamp(clinicId, outcome.staffId);
   return NextResponse.json({ ok: true });
 }
 
@@ -231,7 +234,7 @@ async function remove(args: { clinicId: string; actor: Actor; body: Record<strin
       ledgerBefore = ledgerSnap.data() || {};
       tx.delete(ledgerRef);
     }
-    return { staffName: String(before.staffName || ""), amount: Number(before.amount) || 0, ledgerId, ledgerBefore };
+    return { staffId: String(before.staffId || ""), staffName: String(before.staffName || ""), amount: Number(before.amount) || 0, ledgerId, ledgerBefore };
   });
 
   if (outcome.ledgerBefore) {
@@ -243,5 +246,16 @@ async function remove(args: { clinicId: string; actor: Actor; body: Record<strin
   } else {
     await logActivityServer({ clinicId, user: actor, action: "Staff Deduction Removed", details: `${outcome.amount} EGP deduction from ${outcome.staffName} removed`, severity: "MEDIUM", module: "finance" });
   }
+  await restamp(clinicId, outcome.staffId);
   return NextResponse.json({ ok: true });
+}
+
+/** The settlement is saved either way; a stamping failure is reported, not turned into a refusal. */
+async function restamp(clinicId: string, staffId: string): Promise<void> {
+  if (!staffId) return;
+  try {
+    await restampStaffSettlements(clinicId, staffId);
+  } catch (e) {
+    reportServerError("staff/settlements restamp failed", e, { clinicId, staffId });
+  }
 }

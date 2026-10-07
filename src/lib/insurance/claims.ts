@@ -75,7 +75,15 @@ export const LINE_STATUSES: readonly LineStatus[] = ["Completed", "Planned", "On
 export type LineLedger = { ledgerId: string; noteId: string };
 export type InsurerPaid = { date: string; amount: number };
 
-export type LineDentist = { staffId: string; name: string; rate: number; share: number };
+export type LineDentist = {
+  staffId: string;
+  name: string;
+  rate: number;
+  share: number;
+  /** Of the share, what the clinic has handed over / held back — stamped by the staff settlements sync. */
+  paid?: number;
+  deducted?: number;
+};
 export type ShareCollected = { ledgerId: string; amount: number; date: string };
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -392,6 +400,10 @@ export function parseLineDentists(raw: unknown, lineCount: number): Record<numbe
       rate: Number.isFinite(rate) ? Math.min(Math.max(rate, 0), 100) : 0,
       share: Number.isFinite(share) ? round2(share) : 0,
     };
+    const paid = Number(v.paid);
+    const deducted = Number(v.deducted);
+    if (Number.isFinite(paid) && paid > 0) out[i].paid = round2(paid);
+    if (Number.isFinite(deducted) && deducted > 0) out[i].deducted = round2(deducted);
   }
   return out;
 }
