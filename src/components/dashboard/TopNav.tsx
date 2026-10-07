@@ -129,7 +129,7 @@ export default function TopNav({
     };
   }).filter((g) => g.items.length > 0);
 
-  const pill = "inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[13.5px] font-bold transition-colors whitespace-nowrap";
+  const pill = "inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[15px] font-bold transition-colors whitespace-nowrap";
   const pillActive = "bg-[#FACC15] text-ink";
   const pillIdle = "text-white/65 hover:bg-white/10 hover:text-white";
   const iconButton =

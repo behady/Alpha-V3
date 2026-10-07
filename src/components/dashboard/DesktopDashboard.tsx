@@ -1081,8 +1081,8 @@ export default function DesktopDashboard() {
 
                 {/* Daily Income */}
                 <div className="flex flex-col justify-center px-2 shrink-0">
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500 leading-none">{language === 'ar' ? 'دخل اليوم' : 'Income'}</span>
-                  <span className="flex items-center text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-slate-800 to-slate-600 leading-none mt-1.5 drop-shadow-sm">
+                  <span className="text-[12px] font-bold uppercase tracking-wider text-slate-500 leading-none">{language === 'ar' ? 'دخل اليوم' : 'Income'}</span>
+                  <span className="flex items-center text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-slate-800 to-slate-600 leading-none mt-1.5 drop-shadow-sm">
                     {dailyIncome === null
                       ? <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
                       : <>{dailyIncome.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}<span className="text-[11px] font-medium text-slate-400 ms-1 uppercase tracking-widest">{language === 'ar' ? 'ج.م' : 'EGP'}</span></>}
@@ -1093,8 +1093,8 @@ export default function DesktopDashboard() {
 
                 {/* Appointments */}
                 <div className="flex flex-col justify-center px-2 shrink-0">
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500 leading-none">{language === 'ar' ? 'المواعيد' : 'Appts'}</span>
-                  <span className="text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-slate-800 to-slate-600 leading-none mt-1.5 drop-shadow-sm">{activeAppointmentsCount}</span>
+                  <span className="text-[12px] font-bold uppercase tracking-wider text-slate-500 leading-none">{language === 'ar' ? 'المواعيد' : 'Appts'}</span>
+                  <span className="text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-slate-800 to-slate-600 leading-none mt-1.5 drop-shadow-sm">{activeAppointmentsCount}</span>
                 </div>
 
                 <span className="w-px h-8 bg-slate-200/70 shrink-0" />
@@ -1102,19 +1102,19 @@ export default function DesktopDashboard() {
                 {/* Appointment status chips */}
                 <div className="flex items-center gap-2 px-1 shrink-0 ml-2">
                   <div className="flex items-center gap-1.5 rounded-xl bg-surface border border-slate-100 px-3 py-1.5 shadow-sm" title={language === 'ar' ? 'مؤكد' : 'Confirmed'}>
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-700 shrink-0" />
-                    <span className="hidden 2xl:inline text-[10px] font-bold uppercase tracking-wider text-slate-500">{language === 'ar' ? 'مؤكد' : 'Confirmed'}</span>
-                    <span className="text-sm font-black text-slate-700 leading-none">{summaryStats.confirmed}</span>
+                    <span className="w-2 h-2 rounded-full bg-slate-700 shrink-0" />
+                    <span className="hidden xl:inline text-[12.5px] font-bold text-slate-600">{language === 'ar' ? 'مؤكد' : 'Confirmed'}</span>
+                    <span className="text-base font-black text-slate-700 leading-none">{summaryStats.confirmed}</span>
                   </div>
                   <div className="flex items-center gap-1.5 rounded-xl bg-surface border border-slate-100 px-3 py-1.5 shadow-sm" title={language === 'ar' ? 'غير مؤكد' : 'Unconfirmed'}>
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
-                    <span className="hidden 2xl:inline text-[10px] font-bold uppercase tracking-wider text-slate-500">{language === 'ar' ? 'غير مؤكد' : 'Unconfirmed'}</span>
-                    <span className="text-sm font-black text-slate-700 leading-none">{summaryStats.unconfirmed}</span>
+                    <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+                    <span className="hidden xl:inline text-[12.5px] font-bold text-slate-600">{language === 'ar' ? 'غير مؤكد' : 'Unconfirmed'}</span>
+                    <span className="text-base font-black text-slate-700 leading-none">{summaryStats.unconfirmed}</span>
                   </div>
                   <div className="flex items-center gap-1.5 rounded-xl bg-surface border border-slate-100 px-3 py-1.5 shadow-sm" title={language === 'ar' ? 'مكتمل' : 'Completed'}>
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                    <span className="hidden 2xl:inline text-[10px] font-bold uppercase tracking-wider text-slate-500">{language === 'ar' ? 'مكتمل' : 'Completed'}</span>
-                    <span className="text-sm font-black text-slate-700 leading-none">{summaryStats.completed}</span>
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                    <span className="hidden xl:inline text-[12.5px] font-bold text-slate-600">{language === 'ar' ? 'مكتمل' : 'Completed'}</span>
+                    <span className="text-base font-black text-slate-700 leading-none">{summaryStats.completed}</span>
                   </div>
                 </div>
 
@@ -1503,7 +1503,7 @@ export default function DesktopDashboard() {
                                                         setActiveModal('booking');
                                                     }}
                                                 >
-                                                    <div className="absolute left-2 md:left-4 top-0 -translate-y-1/2 bg-white/40 backdrop-blur-md px-3 py-0.5 text-xs font-medium text-ink-muted group-hover/slot:text-ink transition-colors z-0 w-[84px] text-center rounded-full border border-white shadow-sm">
+                                                    <div className="absolute left-2 md:left-4 top-0 -translate-y-1/2 bg-white/40 backdrop-blur-md px-3 py-0.5 text-[13px] font-semibold text-ink-muted group-hover/slot:text-ink transition-colors z-0 w-[84px] text-center rounded-full border border-white shadow-sm">
                                                         {slot.label}
                                                     </div>
                                                 </div>
@@ -1581,9 +1581,9 @@ export default function DesktopDashboard() {
                                                     */
                                                     const tall = height >= 260;
                                                     const roomy = height >= 170;
-                                                    const nameFontSize = tall ? "text-base lg:text-lg" : roomy ? "text-sm lg:text-base" : "text-xs lg:text-[15px]";
-                                                    const timeFontSize = tall ? "text-xs lg:text-[13px]" : "text-[10px] lg:text-xs";
-                                                    const infoFontSize = tall ? "text-xs lg:text-sm" : roomy ? "text-xs lg:text-[13px]" : "text-[10px] lg:text-xs";
+                                                    const nameFontSize = tall ? "text-lg lg:text-xl" : roomy ? "text-base lg:text-lg" : "text-sm lg:text-base";
+                                                    const timeFontSize = tall ? "text-[13px] lg:text-sm" : "text-xs lg:text-[13px]";
+                                                    const infoFontSize = tall ? "text-sm lg:text-[15px]" : roomy ? "text-[13px] lg:text-sm" : "text-xs lg:text-[13px]";
 
                                                     /*
                                                       What fills the space, in the order the desk needs it —
@@ -1691,7 +1691,7 @@ export default function DesktopDashboard() {
                                                                             )}
                                                                         </div>
                                                                         {phone && (
-                                                                            <span className="text-[10px] text-ink-muted font-medium truncate mt-0.5" dir="ltr">
+                                                                            <span className="text-[12px] text-ink-muted font-medium truncate mt-0.5" dir="ltr">
                                                                                 {phone}
                                                                             </span>
                                                                         )}

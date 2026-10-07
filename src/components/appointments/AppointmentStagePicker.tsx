@@ -192,15 +192,15 @@ export default function AppointmentStagePicker({
         <span
           className={`flex items-center gap-3 font-bold leading-tight ${
             fullWidth ? 'text-[15px] text-slate-800 flex-1 justify-start py-0.5 px-1' :
-            (compact ? `inline-flex rounded-md px-1.5 py-0.5 text-[9px] ${st.pill}`
+            (compact ? `inline-flex rounded-md px-2 py-0.5 text-[11px] ${st.pill}`
               : large ? `inline-flex rounded-lg px-3.5 py-2 text-base ${st.pill}`
-              : `inline-flex rounded-md px-2 py-1 text-[10px] sm:text-xs ${st.pill}`)
+              : `inline-flex rounded-md px-2.5 py-1 text-xs sm:text-[13px] ${st.pill}`)
           }`}
         >
           {fullWidth ? (
             <CurrentIcon size={18} className={`shrink-0 ${st.dot.replace("bg-", "text-")}`} />
           ) : (
-            <span className={`rounded-full shrink-0 ${st.dot} ${compact ? "w-1.5 h-1.5" : large ? "w-3 h-3" : "w-2 h-2"}`} />
+            <span className={`rounded-full shrink-0 ${st.dot} ${compact ? "w-2 h-2" : large ? "w-3 h-3" : "w-2.5 h-2.5"}`} />
           )}
           <span className="whitespace-nowrap truncate">{label}</span>
         </span>
