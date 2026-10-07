@@ -34,6 +34,7 @@ interface Transaction {
   /** An insurance payment: the approval, and the treatment row it settled (one approval line). */
   claimId?: string | null;
   procedureId?: string | null;
+  approvalNumber?: string | null;
   discountAmount?: number;
   /** True when this row is a treatment plan / AR line with no cash collected on the row (shown for reference only). */
   isAccountsReceivableOnly?: boolean;
@@ -291,6 +292,22 @@ export default function FinancePage() {
     if (!name && !tx.doctorCommissionAmount) return null;
     const rate = tx.doctorCommissionPercentage == null || tx.doctorCommissionPercentage === ("" as unknown) ? null : Number(tx.doctorCommissionPercentage);
     return finish(name, Number.isFinite(rate as number) ? (rate as number) : null, Number(tx.doctorCommissionAmount) || 0, Number(tx.doctorCommissionPaid) || 0, Number(tx.doctorCommissionDeducted) || 0);
+  };
+  /**
+   * What an insurance payment row is for: the approval line's service. Rows written before the
+   * description named the service say "paid - approval C00…", so the service is read off the
+   * approval instead; the approval number moves to the small line underneath.
+   */
+  const rowTitle = (tx: Transaction): string => {
+    if (!tx.claimId) return tx.description;
+    const claim = claimsById.get(tx.claimId);
+    const entry = claim && tx.procedureId ? Object.entries(claim.ledgerIds).find(([, l]) => l.ledgerId === tx.procedureId) : undefined;
+    const line = claim && entry ? claim.lines[Number(entry[0])] : undefined;
+    if (!line) return tx.description;
+    const service = (line.description || line.code || "").trim();
+    if (!service) return tx.description;
+    const payer = tx.description.replace(/\s+(paid|-).*$/i, "").trim();
+    return tx.category === "Insurance patient share" ? `${language === "ar" ? "نصيب المريض" : "Patient share"} - ${service}` : `${payer || tx.description} - ${service}`;
   };
   /** What the clinic keeps of a row once the dentist has been paid their part: cash − lab − paid. */
   const rowNet = (tx: Transaction, paid: number): number => Math.round((tx.val - (Number(tx.labFee) || 0) - paid) * 100) / 100;
@@ -1096,7 +1113,7 @@ export default function FinancePage() {
                                 </span>
                                 <div className="min-w-0">
                                   <p className="font-bold text-ink leading-snug">
-                                    {tx.description}
+                                    {rowTitle(tx)}
                                     {tx.isRecurring ? (
                                       <span className="ms-2 align-middle text-[10px] bg-accent-soft text-accent-strong px-1.5 py-0.5 rounded-md font-black uppercase">
                                         Auto
@@ -1105,6 +1122,7 @@ export default function FinancePage() {
                                   </p>
                                   <p className="text-[11px] font-semibold text-slate-400 uppercase mt-1">
                                     {tx.category || tx.method || "—"}
+                                    {tx.approvalNumber ? <span className="ms-2 normal-case"><bdi dir="ltr">{language === "ar" ? "موافقة" : "approval"} {tx.approvalNumber}</bdi></span> : null}
                                     {(tx.doctorName || tx.doctor) && (
                                       <span className="text-accent ms-2">
                                         · Dr. {(tx.doctorName || tx.doctor || "").replace(/^Dr\.\s*/i, "").split(" ")[0]}
@@ -1230,7 +1248,7 @@ export default function FinancePage() {
                               {isExpense ? <TrendingDown size={18} /> : <TrendingUp size={18} />}
                             </div>
                             <div className="min-w-0">
-                              <h4 className="font-bold text-ink text-sm leading-snug">{tx.description}</h4>
+                              <h4 className="font-bold text-ink text-sm leading-snug">{rowTitle(tx)}</h4>
                               {tx.patientId ? (
                                 <button
                                   onClick={() => router.push(`/patients/${tx.patientId}?tab=finance&tx=${tx.id}`)}

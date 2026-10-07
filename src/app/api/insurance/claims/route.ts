@@ -822,7 +822,7 @@ export async function PATCH(req: Request) {
 
       // One payment per live treatment row, each capped at what is still open on that row, so a row
       // the patient already settled at the counter is never paid twice.
-      const plan: Array<{ index: number; ledgerId: string; amount: number; labFee: number }> = [];
+      const plan: Array<{ index: number; ledgerId: string; amount: number; labFee: number; service: string }> = [];
       if (paying && hasRows) {
         for (const l of liveLinks) {
           const line = claim.lines[l.index];
@@ -835,7 +835,10 @@ export async function PATCH(req: Request) {
           // insurer's payment is capped at whatever is still open on the row.
           const ceiling = collectShare ? patientPortion({ type: "procedure", cost, insurerCovered: data.insurerCovered, insurerPaidAt: data.insurerPaidAt }) : cost;
           const amount = cappedPayment(wanted, ceiling, sumPayments(siblingsByRow.get(l.ledgerId) ?? []));
-          if (amount > 0) plan.push({ index: l.index, ledgerId: l.ledgerId, amount, labFee: Math.max(0, Number(data.labFee) || 0) });
+          // The treatment row's name (the clinic's wording for the code), so the payment reads as
+          // what was done rather than as a paper number.
+          const service = String(data.serviceName || line.description || "").trim();
+          if (amount > 0) plan.push({ index: l.index, ledgerId: l.ledgerId, amount, labFee: Math.max(0, Number(data.labFee) || 0), service });
         }
         // Nothing recorded, nothing stamped: a claim marked collected with no cash behind it is
         // worse than a refusal.
@@ -940,7 +943,9 @@ export async function PATCH(req: Request) {
             patientName: claim.patientName,
             amount: p.amount,
             method: collectShare ? "Cash" : INSURER_METHOD,
-            description: collectShare ? `Patient share - ${payerName} ${claim.approvalNumber}` : `${payerName} paid - approval ${claim.approvalNumber}`,
+            description: collectShare
+              ? `Patient share - ${p.service || claim.approvalNumber}`
+              : `${payerName} paid - ${p.service || `approval ${claim.approvalNumber}`}`,
             date,
             procedure: { id: p.ledgerId, doctorId: dentist?.staffId ?? null, doctorName: dentist?.name ?? null, payerId: claim.payerId, payerName, labFee: 0 },
             appliedLabFee: 0,
