@@ -466,7 +466,7 @@ export default function FinancePage() {
 
   const handleEdit = (tx: Transaction) => {
     setEditingId(tx.id); setFormType(tx.type === 'expense' ? 'expense' : 'income');
-    setAmount(tx.val.toString()); setDescription(tx.description || ""); setCategory(tx.category || "General");
+    setAmount(tx.val.toString()); setDescription(tx.description || ""); setCategory(tx.category || "General"); setMethod(tx.method || "Cash");
     setDate(tx.date); setIsRecurring(!!tx.isRecurring); setIsModalOpen(true);
   };
 
@@ -525,7 +525,7 @@ export default function FinancePage() {
     }
   };
 
-  const closeModal = () => { setIsModalOpen(false); setEditingId(null); setAmount(""); setDescription(""); setCategory("General"); setIsRecurring(false); setDate(new Date().toISOString().split('T')[0]); };
+  const closeModal = () => { setIsModalOpen(false); setEditingId(null); setAmount(""); setDescription(""); setCategory("General"); setMethod("Cash"); setIsRecurring(false); setDate(new Date().toISOString().split('T')[0]); };
 
   const openPdfModal = () => {
     // Default date range to current view
@@ -1647,6 +1647,19 @@ export default function FinancePage() {
                              ) : null}
                           </select>
                        </div>
+                    </div>
+                    <div className="space-y-1">
+                       <label className="text-[9px] font-bold text-ink-muted uppercase tracking-wider ps-1">{language === "ar" ? "طريقة الدفع" : "Paid by"}</label>
+                       <select value={method} onChange={e => setMethod(e.target.value)} className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs font-semibold text-ink outline-none focus:border-accent-soft">
+                          {[
+                            { id: "Cash", en: "Cash", ar: "كاش" },
+                            { id: "Card", en: "Card", ar: "كارت" },
+                            { id: "InstaPay", en: "InstaPay", ar: "إنستاباي" },
+                            { id: "Bank transfer", en: "Bank transfer", ar: "تحويل بنكي" },
+                            { id: "Other", en: "Other", ar: "أخرى" },
+                          ].map((m) => <option key={m.id} value={m.id}>{language === "ar" ? m.ar : m.en}</option>)}
+                          {method && !["Cash", "Card", "InstaPay", "Bank transfer", "Other"].includes(method) ? <option value={method}>{method}</option> : null}
+                       </select>
                     </div>
                     {formType === "expense" && (
                       <label className="flex items-center gap-2 text-xs font-semibold text-ink-body">
