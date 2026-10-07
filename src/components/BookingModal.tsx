@@ -72,6 +72,7 @@ import { cairo } from "@/lib/fonts/arabic";
 import { TeethChartSelector } from "./clinical-notes/ServiceEditorDrawer";
 import { stagedChargeTotal, stagedLineTotal, stagedMode, stagedUnits, toothListLabel } from "@/lib/stagedProcedures";
 import { PRIVATE_PAYER_ID, payerForPriceList } from "@/lib/payers";
+import { serviceMenuById } from "@/lib/serviceMenu";
 import InsurerBadge from "@/components/shared/InsurerBadge";
 
 interface AppointmentData {
@@ -393,7 +394,12 @@ export default function BookingModal({
    * somebody pick a wrong answer and then overrules them without saying so.
    */
   // Every service, whoever pays: coverage lists are gone; the price list only prefills a price.
-  const offeredServices = servicesList;
+  // Every service whoever pays (coverage lists are gone); only the price list's own menu applies:
+  // another list's own treatments are left out, and the shared ones this list hides.
+  const offeredServices = useMemo(() => {
+    const offered = serviceMenuById(priceLists, payers, effectiveListId, servicesList);
+    return servicesList.filter((s: { id?: unknown }) => offered(String(s?.id ?? "")));
+  }, [servicesList, priceLists, payers, effectiveListId]);
 
   // Local State: Financial & Payment
   const [chargeForVisit, setChargeForVisit] = useState(true);

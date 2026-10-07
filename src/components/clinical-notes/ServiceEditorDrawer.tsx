@@ -1,5 +1,6 @@
 "use client";
 
+import { serviceMenuById } from "@/lib/serviceMenu";
 import { memo, useCallback, useMemo, useState, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import { X, Save, CheckCircle2, Loader2, Camera, Edit2 } from "lucide-react";
@@ -269,7 +270,12 @@ export default function ServiceEditorDrawer({
    * somebody pick a wrong answer and then overrules them without saying so.
    */
   // Every service, whoever pays: coverage lists are gone, the price box is the price.
-  const offeredServices = servicesList;
+  // Every service whoever pays (coverage lists are gone); only the price list's own menu applies:
+  // another list's own treatments are left out, and the shared ones this list hides.
+  const offeredServices = useMemo(() => {
+    const offered = serviceMenuById(priceLists, payers, discount.priceListId || null, servicesList);
+    return servicesList.filter((s) => offered(String(s.id)));
+  }, [servicesList, priceLists, payers, discount.priceListId]);
 
   /**
    * Re-price a catalogue pick when the prefill list is changed; a free-typed name keeps its price.

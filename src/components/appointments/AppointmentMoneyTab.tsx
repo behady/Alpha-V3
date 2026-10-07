@@ -25,6 +25,7 @@ import { stagedLineTotal, stagedMode, stagedUnits, toothListLabel } from "@/lib/
 import type { Note, Service, Staff } from "@/components/clinical-notes/types";
 import { resolveListPrice } from "@/lib/discountMath";
 import { PRIVATE_PAYER_ID, findPayer, payerForPriceList } from "@/lib/payers";
+import { serviceMenuById } from "@/lib/serviceMenu";
 import InsurerBadge from "@/components/shared/InsurerBadge";
 
 /**
@@ -279,7 +280,12 @@ export default function AppointmentMoneyTab({
    * somebody pick a wrong answer and then overrules them without saying so.
    */
   // Every service, whoever pays: the price box is the price.
-  const offeredServices = services;
+  // Every service whoever pays (coverage lists are gone); only the price list's own menu applies:
+  // another list's own treatments are left out, and the shared ones this list hides.
+  const offeredServices = useMemo(() => {
+    const offered = serviceMenuById(priceLists, payers, procListId, services);
+    return services.filter((s) => offered(String(s.id)));
+  }, [services, priceLists, payers, procListId]);
   /**
    * A name that is not in the catalogue has no price to fall back on: a blank box would record the
    * treatment with no charge and still say "Service added". 0 typed is a real answer and allowed.

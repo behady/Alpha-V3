@@ -140,6 +140,7 @@
     "test:insurers": "npx tsx tests/insurerPresets.test.mts",
     "_comment_test_branches": "Price lists scoped to branches: one default per scope, and no branch quoting another branch's rates.",
     "test:branches": "npx tsx tests/priceListBranches.test.mjs",
+    "test:listmenu": "npx tsx tests/listMenu.test.mjs",
     "_comment_test_briefing": "The arithmetic behind the daily and weekly brief: double-counted revenue, lateness read on the clinic clock, absence claimed before a shift starts. No network, no emulator.",
     "test:briefing": "npx tsx tests/briefing.test.mts",
     "test:migration": "npx tsx tests/migration.test.mts",
