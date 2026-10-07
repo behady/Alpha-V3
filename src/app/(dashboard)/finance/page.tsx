@@ -19,6 +19,7 @@ import autoTable from "jspdf-autotable";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { MoneyApiError, createLedgerEntry, deleteLedgerRow, updateLedgerRow } from "@/lib/moneyApi";
 import { CLAIMS_COLLECTION, lineStatusOf, parseClaim, type InsuranceClaim } from "@/lib/insurance/claims";
+import { categoryLabel, EXPENSE_CATEGORY_LIST, INCOME_CATEGORY_LIST } from "@/lib/expenseCategories";
 import { countsForPayroll } from "@/lib/staffInsurance";
 
 const ITEMS_PER_PAGE = 15;
@@ -440,7 +441,7 @@ export default function FinancePage() {
           method: method || "Cash",
           isRecurring: formType === 'expense' ? isRecurring : false,
         });
-        showToast("Updated", "success");
+        showToast(language === "ar" ? "اتعدّل" : "Updated", "success");
       } else {
         await createLedgerEntry({
           type: formType,
@@ -451,7 +452,7 @@ export default function FinancePage() {
           method: method || "Cash",
           isRecurring: formType === 'expense' ? isRecurring : false,
         });
-        showToast("Saved", "success");
+        showToast(language === "ar" ? "اتسجّل" : "Saved", "success");
       }
       closeModal();
     } catch (error) {
@@ -627,7 +628,7 @@ export default function FinancePage() {
                   <tr>
                     <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: ${language === 'ar' ? 'right' : 'left'};">${tx.date}</td>
                     <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: ${language === 'ar' ? 'right' : 'left'};">${tx.description || '—'}</td>
-                    <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: ${language === 'ar' ? 'right' : 'left'};">${tx.category || '—'}</td>
+                    <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: ${language === 'ar' ? 'right' : 'left'};">${categoryLabel(tx.category, language === 'ar') || '—'}</td>
                     <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #dc2626; text-align: ${language === 'ar' ? 'left' : 'right'};">-${tx.val.toLocaleString()}</td>
                   </tr>
                 `).join('')}
@@ -1121,7 +1122,7 @@ export default function FinancePage() {
                                     ) : null}
                                   </p>
                                   <p className="text-[11px] font-semibold text-slate-400 uppercase mt-1">
-                                    {tx.category || tx.method || "—"}
+                                    {categoryLabel(tx.category, language === "ar") || tx.method || "—"}
                                     {tx.approvalNumber ? <span className="ms-2 normal-case"><bdi dir="ltr">{language === "ar" ? "موافقة" : "approval"} {tx.approvalNumber}</bdi></span> : null}
                                     {(tx.doctorName || tx.doctor) && (
                                       <span className="text-accent ms-2">
@@ -1262,7 +1263,7 @@ export default function FinancePage() {
                                 </p>
                               ) : null}
                               <p className="text-[11px] font-bold text-slate-400 uppercase mt-1">
-                                {tx.date} · {tx.category || tx.method || "Gen"}
+                                {tx.date} · {categoryLabel(tx.category, language === "ar") || tx.method || "—"}
                                 {(tx.doctorName || tx.doctor) ? (
                                   <span className="text-accent ms-1">
                                     · Dr. {(tx.doctorName || tx.doctor || "").replace(/^Dr\.\s*/i, "").split(" ")[0]}
@@ -1488,34 +1489,48 @@ export default function FinancePage() {
             <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
               <div className="bg-white w-full max-w-sm rounded-[1.5rem] shadow-2xl border border-slate-100 overflow-hidden">
                  <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                    <h2 className="text-base font-bold text-slate-900 tracking-tight">{editingId ? 'Edit Manual Entry' : 'Manual Ledger Entry'}</h2>
+                    <h2 className="text-base font-bold text-slate-900 tracking-tight">
+                      {editingId ? (language === "ar" ? "تعديل بند" : "Edit Manual Entry") : language === "ar" ? "بند جديد في الدفتر" : "Manual Ledger Entry"}
+                    </h2>
                     <button onClick={closeModal} className="p-1.5 bg-slate-100 hover:bg-red-50 rounded-full text-slate-400 hover:text-red-500"><X size={16}/></button>
                  </div>
                  <form onSubmit={handleSave} className="p-5 space-y-4">
                     <div className="flex bg-surface-muted p-1 rounded-lg">
-                       <button type="button" onClick={() => setFormType('income')} className={`flex-1 py-1.5 text-[11px] font-bold uppercase rounded-md ${formType === 'income' ? 'bg-surface text-emerald-600 shadow-sm' : 'text-ink-muted'}`}>Income</button>
-                       <button type="button" data-tour="finance-type-expense" onClick={() => setFormType('expense')} className={`flex-1 py-1.5 text-[11px] font-bold uppercase rounded-md ${formType === 'expense' ? 'bg-surface text-red-600 shadow-sm' : 'text-ink-muted'}`}>Expense</button>
+                       <button type="button" onClick={() => setFormType('income')} className={`flex-1 py-1.5 text-[11px] font-bold uppercase rounded-md ${formType === 'income' ? 'bg-surface text-emerald-600 shadow-sm' : 'text-ink-muted'}`}>{language === "ar" ? "إيراد" : "Income"}</button>
+                       <button type="button" data-tour="finance-type-expense" onClick={() => setFormType('expense')} className={`flex-1 py-1.5 text-[11px] font-bold uppercase rounded-md ${formType === 'expense' ? 'bg-surface text-red-600 shadow-sm' : 'text-ink-muted'}`}>{language === "ar" ? "مصروف" : "Expense"}</button>
                     </div>
                     <div className="space-y-1">
-                       <label className="text-[9px] font-bold text-ink-muted uppercase tracking-wider pl-1">{t('date')}</label>
+                       <label className="text-[9px] font-bold text-ink-muted uppercase tracking-wider ps-1">{t('date')}</label>
                        <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs font-semibold text-ink outline-none focus:border-accent-soft"/>
                     </div>
                     <div className="space-y-1">
-                       <label className="text-[9px] font-bold text-ink-muted uppercase tracking-wider pl-1">{t('description')}</label>
-                       <input required value={description} onChange={e => setDescription(e.target.value)} placeholder="e.g. Electricity Bill" data-tour="finance-expense-desc" className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs font-semibold text-ink outline-none focus:border-accent-soft"/>
+                       <label className="text-[9px] font-bold text-ink-muted uppercase tracking-wider ps-1">{t('description')}</label>
+                       <input required value={description} onChange={e => setDescription(e.target.value)} placeholder={formType === "expense" ? (language === "ar" ? "مثال: فاتورة الكهرباء" : "e.g. Electricity bill") : language === "ar" ? "مثال: بيع فرشة أسنان" : "e.g. Sold a toothbrush"} data-tour="finance-expense-desc" className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs font-semibold text-ink outline-none focus:border-accent-soft"/>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                        <div className="space-y-1">
-                          <label className="text-[9px] font-bold text-ink-muted uppercase tracking-wider pl-1">{language === 'ar' ? 'المبلغ' : 'Amount'}</label>
+                          <label className="text-[9px] font-bold text-ink-muted uppercase tracking-wider ps-1">{language === 'ar' ? 'المبلغ' : 'Amount'}</label>
                           <input required type="number" data-tour="finance-expense-amount" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs font-semibold text-ink outline-none focus:border-accent-soft"/>
                        </div>
                        <div className="space-y-1">
-                          <label className="text-[9px] font-bold text-ink-muted uppercase tracking-wider pl-1">{t('category')}</label>
+                          <label className="text-[9px] font-bold text-ink-muted uppercase tracking-wider ps-1">{t('category')}</label>
                           <select value={category} onChange={e => setCategory(e.target.value)} className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs font-semibold text-ink outline-none focus:border-accent-soft">
-                             <option value="General">General</option><option value="Supplies">Supplies</option><option value="Rent">Rent</option><option value="Salary">Salary</option><option value="Lab">Lab</option>
+                             {(formType === "expense" ? EXPENSE_CATEGORY_LIST : INCOME_CATEGORY_LIST).map((c) => (
+                               <option key={c.id} value={c.id}>{language === "ar" ? c.ar : c.en}</option>
+                             ))}
+                             {/* An older row filed under something not in the list keeps it. */}
+                             {category && !(formType === "expense" ? EXPENSE_CATEGORY_LIST : INCOME_CATEGORY_LIST).some((c) => c.id === category) ? (
+                               <option value={category}>{category}</option>
+                             ) : null}
                           </select>
                        </div>
                     </div>
+                    {formType === "expense" && (
+                      <label className="flex items-center gap-2 text-xs font-semibold text-ink-body">
+                        <input type="checkbox" checked={isRecurring} onChange={(e) => setIsRecurring(e.target.checked)} className="size-4 accent-[var(--accent)]" />
+                        {language === "ar" ? "بيتكرر كل شهر (إيجار، مرتبات…)" : "Repeats every month (rent, salaries…)"}
+                      </label>
+                    )}
                     <button data-tour="finance-expense-save" type="submit" className="w-full py-3 bg-accent text-ink-on-accent rounded-lg font-bold text-xs hover:bg-accent-strong active:scale-95 shadow-sm mt-2 flex justify-center items-center gap-1.5"><Save size={14}/> {t('save')}</button>
                  </form>
               </div>

@@ -5,6 +5,7 @@ import { ChartFrame, Figure } from "@/components/reports/chartKit";
 import { DataTable, DeltaCell, DeltaFigure, MonthBars, Note, Num, SectionTitle, fmt, fmtPct } from "@/components/reports/reportKit";
 import type { ReportProps } from "@/components/reports/types";
 import { rangeText } from "@/lib/reportHelpers";
+import { categoryLabel } from "@/lib/expenseCategories";
 import { compareExpenseCategories, expenseMatrix, type ExpenseCategoryCompare, type ExpenseCategoryTrend } from "@/lib/reports/financeStats";
 import { delta, summarizeLedger } from "@/lib/reports/ledgerStats";
 import { lastYearRange, monthLabel, previousRange, trailingMonths } from "@/lib/reports/periods";
@@ -47,7 +48,7 @@ export default function ExpenseTrendReport({ ledger, range, isAr, data }: Report
         <DeltaFigure label={isAr ? "نفس الفترة السنة اللي فاتت" : "Same period last year"} value={thenYear} delta={delta(thenYear, now.expenses)} goodWhen="down" isAr={isAr} format={money} against={isAr ? "دلوقتي" : "now"} />
         <div className="rounded-2xl border border-line bg-surface p-4"><Figure value={money(mx.average)} label={isAr ? "متوسط الشهر" : "Monthly average"} tone="muted" /></div>
         <div className="rounded-2xl border border-line bg-surface p-4"><Figure value={mx.peak ? `${monthLabel(mx.peak.month, isAr, true)} · ${money(mx.peak.value)}` : "—"} label={isAr ? "أعلى شهر" : "Heaviest month"} tone="muted" /></div>
-        <div className="rounded-2xl border border-line bg-surface p-4"><Figure value={mover ? `${mover.category} ${mover.delta.abs > 0 ? "▲" : "▼"} ${Math.abs(mover.delta.pct || 0)}%` : "—"} label={isAr ? "أكبر تغيّر عن الفترة اللي قبلها" : "Biggest mover vs the period before"} tone={mover && mover.delta.abs > 0 ? "bad" : "muted"} /></div>
+        <div className="rounded-2xl border border-line bg-surface p-4"><Figure value={mover ? `${categoryLabel(mover.category, isAr)} ${mover.delta.abs > 0 ? "▲" : "▼"} ${Math.abs(mover.delta.pct || 0)}%` : "—"} label={isAr ? "أكبر تغيّر عن الفترة اللي قبلها" : "Biggest mover vs the period before"} tone={mover && mover.delta.abs > 0 ? "bad" : "muted"} /></div>
       </div>
 
       <section>
@@ -59,7 +60,7 @@ export default function ExpenseTrendReport({ ledger, range, isAr, data }: Report
           exportName="Expense_comparison"
           dense
           columns={[
-            { key: "category", label: isAr ? "التصنيف" : "Category", render: (c) => <span className="text-[12.5px] font-bold text-ink">{c.category}</span>, total: <span className="font-black">{isAr ? "الإجمالي" : "Total"}</span> },
+            { key: "category", label: isAr ? "التصنيف" : "Category", render: (c) => <span className="text-[12.5px] font-bold text-ink">{categoryLabel(c.category, isAr)}</span>, total: <span className="font-black">{isAr ? "الإجمالي" : "Total"}</span> },
             ...months.map((m, i) => ({
               key: `m${i}`,
               label: monthLabel(m, isAr, withYear),
@@ -101,7 +102,7 @@ export default function ExpenseTrendReport({ ledger, range, isAr, data }: Report
           exportName={`Expenses_vs_${against}`}
           dense
           columns={[
-            { key: "category", label: isAr ? "التصنيف" : "Category", render: (c) => <span className="text-[12.5px] font-bold text-ink">{c.category}</span>, total: <span className="font-black">{isAr ? "الإجمالي" : "Total"}</span> },
+            { key: "category", label: isAr ? "التصنيف" : "Category", render: (c) => <span className="text-[12.5px] font-bold text-ink">{categoryLabel(c.category, isAr)}</span>, total: <span className="font-black">{isAr ? "الإجمالي" : "Total"}</span> },
             { key: "then", label: isAr ? "قبل" : "Before", align: "end", render: (c) => <Num v={c.then} muted />, exportValue: (c) => c.then, total: <Num v={cmpThen} bold /> },
             { key: "now", label: isAr ? "دلوقتي" : "Now", align: "end", render: (c) => <Num v={c.now} bold />, exportValue: (c) => c.now, total: <Num v={now.expenses} bold /> },
             { key: "change", label: isAr ? "التغيّر" : "Change", align: "end", render: (c) => <DeltaCell d={c.delta} goodWhen="down" isAr={isAr} />, exportValue: (c) => c.delta.pct ?? "", total: <DeltaCell d={delta(cmpThen, now.expenses)} goodWhen="down" isAr={isAr} /> },

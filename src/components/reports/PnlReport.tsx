@@ -7,6 +7,7 @@ import { DataTable, MonthBars, Note, Num, SectionTitle, fmt, fmtPct } from "@/co
 import { ChartFrame } from "@/components/reports/chartKit";
 import type { ReportProps } from "@/components/reports/types";
 import { pnlByMonth, summarizeLedger, EXPENSE_CATEGORIES, type PnlMonth } from "@/lib/reports/ledgerStats";
+import { categoryLabel } from "@/lib/expenseCategories";
 import { monthLabel, monthLongLabel, trailingMonths } from "@/lib/reports/periods";
 import { buildReportHtmlBase, htmlToPdfBlob } from "./reportPdfHtmlUtils";
 import { useUI } from "@/context/UIContext";
@@ -50,7 +51,7 @@ export default function PnlReport({ ledger, range, rangeLabel, isAr, data }: Rep
     { label: isAr ? "منها نِسَب الأطباء المستحقة (تتخصم لما تتدفع)" : "of which dentists' commissions owed (come off when paid)", value: period.commissions, kind: "sub" },
     ...categories
       .filter((c) => (periodByCategory[c] || 0) > 0)
-      .map((c) => ({ label: `${isAr ? "مصروفات" : "Expenses"} · ${c}`, value: -(periodByCategory[c] || 0), kind: "sub" as const })),
+      .map((c) => ({ label: `${isAr ? "مصروفات" : "Expenses"} · ${categoryLabel(c, isAr)}`, value: -(periodByCategory[c] || 0), kind: "sub" as const })),
     { label: isAr ? "إجمالي المصروفات" : "Total expenses", value: -period.expenses, kind: "minus" },
     { label: isAr ? "صافي الربح" : "Net profit", value: period.net, kind: "result" },
   ];
@@ -143,7 +144,7 @@ export default function PnlReport({ ledger, range, rangeLabel, isAr, data }: Rep
             { key: "income", label: isAr ? "الدخل" : "Income", align: "end", render: (m) => <Num v={m.income} bold /> },
             { key: "labFees", label: isAr ? "المعمل" : "Lab", align: "end", render: (m) => <Num v={m.labFees} muted /> },
             { key: "commissions", label: isAr ? "النِسَب" : "Commissions", align: "end", render: (m) => <Num v={m.commissions} muted /> },
-            ...categories.map((c) => ({ key: `cat:${c}`, label: c, align: "end" as const, render: (m: PnlMonth) => <Num v={m.expensesByCategory[c] || 0} muted format={(n) => (n === 0 ? "—" : fmt(n))} />, exportValue: (m: PnlMonth) => m.expensesByCategory[c] || 0 })),
+            ...categories.map((c) => ({ key: `cat:${c}`, label: categoryLabel(c, isAr), align: "end" as const, render: (m: PnlMonth) => <Num v={m.expensesByCategory[c] || 0} muted format={(n) => (n === 0 ? "—" : fmt(n))} />, exportValue: (m: PnlMonth) => m.expensesByCategory[c] || 0 })),
             { key: "net", label: isAr ? "الصافي" : "Net", align: "end", render: (m) => <Num v={m.net} bold bad={m.net < 0} /> },
             { key: "marginPct", label: isAr ? "الهامش" : "Margin", align: "end", render: (m) => <span className={`font-figure text-[12.5px] ${m.marginPct !== null && m.marginPct < 0 ? "text-danger" : "text-ink-body"}`}>{fmtPct(m.marginPct, 1)}</span>, exportValue: (m) => m.marginPct ?? "" },
           ]}

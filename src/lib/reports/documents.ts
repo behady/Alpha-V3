@@ -14,6 +14,7 @@
 
 import type { DateRange } from "@/lib/reportHelpers";
 import { dayText, ledgerCashValue, rangeText } from "@/lib/reportHelpers";
+import { categoryLabel } from "@/lib/expenseCategories";
 import { reportMeta, type DatasetKey } from "@/lib/reports/catalog";
 import {
   compareServices, delta, dentistTrend, discountLines, expenseLines, expensesByCategory, groupTotals, heatmap, hourOfTimestamp,
@@ -310,7 +311,7 @@ export function buildReportDoc(id: string, input: ReportInputs): ReportDoc {
         { label: isAr ? "مصاريف المعمل" : "Lab fees", value: -t.labFees, kind: "minus" },
         { label: isAr ? "هامش العلاج" : "Treatment margin", value: t.income - t.labFees, kind: "result" },
         { label: isAr ? "منها نِسَب الأطباء المستحقة (تتخصم لما تتدفع، ضمن مصروفات المرتبات)" : "of which dentists' commissions owed (come off when paid, under Salary expenses)", value: t.commissions, kind: "sub" },
-        ...cats.filter((c) => (byCat[c] || 0) > 0).map((c) => ({ label: `${isAr ? "مصروفات" : "Expenses"} · ${c}`, value: -(byCat[c] || 0), kind: "sub" as const })),
+        ...cats.filter((c) => (byCat[c] || 0) > 0).map((c) => ({ label: `${isAr ? "مصروفات" : "Expenses"} · ${categoryLabel(c, isAr)}`, value: -(byCat[c] || 0), kind: "sub" as const })),
         { label: isAr ? "إجمالي المصروفات" : "Total expenses", value: -t.expenses, kind: "minus" },
         { label: isAr ? "صافي الربح" : "Net profit", value: t.net, kind: "result" },
       ] });
@@ -409,10 +410,10 @@ export function buildReportDoc(id: string, input: ReportInputs): ReportDoc {
       figure(isAr ? "من الدخل" : "of income", pct(share, 1), share !== null && share > 60 ? "bad" : "muted");
       figure(isAr ? "مصروفات ثابتة" : "Recurring", money(lines.filter((l) => l.recurring).reduce((s, l) => s + l.amount, 0)), "muted");
       figure(isAr ? "عدد البنود" : "Entries", fmt(lines.length), "muted");
-      sections.push({ type: "bars", title: isAr ? "حسب التصنيف" : "By category", rows: cats.map((c, i) => ({ label: `${c.category} · ${c.count}`, value: c.total, text: `${money(c.total)} · ${c.share}%`, mark: i === 0 })) });
+      sections.push({ type: "bars", title: isAr ? "حسب التصنيف" : "By category", rows: cats.map((c, i) => ({ label: `${categoryLabel(c.category, isAr)} · ${c.count}`, value: c.total, text: `${money(c.total)} · ${c.share}%`, mark: i === 0 })) });
       const withYear = months[0].slice(0, 4) !== months[11].slice(0, 4);
       sections.push({ type: "months", title: isAr ? "المصروفات شهر بشهر" : "Expenses, month by month", unit: "money", points: trend.map((m) => ({ label: monthLabel(m.month, isAr, withYear), value: m.expenses })) });
-      sections.push({ type: "table", title: isAr ? "كل البنود" : "Every entry", columns: [{ key: "date", label: isAr ? "التاريخ" : "Date", kind: "date" }, { key: "category", label: isAr ? "التصنيف" : "Category" }, { key: "description", label: isAr ? "البيان" : "Description" }, { key: "amount", label: isAr ? "المبلغ" : "Amount", align: "end", kind: "money" }], rows: lines.map((l) => ({ date: l.date, category: l.category, description: (l.description || "—") + (l.recurring ? (isAr ? " · شهري" : " · recurring") : ""), amount: l.amount })), total: { date: isAr ? "الإجمالي" : "Total", amount: t.expenses } });
+      sections.push({ type: "table", title: isAr ? "كل البنود" : "Every entry", columns: [{ key: "date", label: isAr ? "التاريخ" : "Date", kind: "date" }, { key: "category", label: isAr ? "التصنيف" : "Category" }, { key: "description", label: isAr ? "البيان" : "Description" }, { key: "amount", label: isAr ? "المبلغ" : "Amount", align: "end", kind: "money" }], rows: lines.map((l) => ({ date: l.date, category: categoryLabel(l.category, isAr), description: (l.description || "—") + (l.recurring ? (isAr ? " · شهري" : " · recurring") : ""), amount: l.amount })), total: { date: isAr ? "الإجمالي" : "Total", amount: t.expenses } });
       break;
     }
     case "incomeSources": {

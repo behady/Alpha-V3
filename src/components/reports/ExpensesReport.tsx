@@ -7,6 +7,7 @@ import type { ReportProps } from "@/components/reports/types";
 import { expenseLines, expensesByCategory, pnlByMonth, summarizeLedger, type ExpenseLine } from "@/lib/reports/ledgerStats";
 import { monthLabel, trailingMonths } from "@/lib/reports/periods";
 import { dayText } from "@/lib/reportHelpers";
+import { categoryLabel } from "@/lib/expenseCategories";
 
 /**
  * Where the clinic's own money goes.
@@ -46,7 +47,7 @@ export default function ExpensesReport({ ledger, range, isAr, data }: ReportProp
             <div className="flex flex-col gap-2.5">
               {cats.map((c, i) => (
                 <button key={c.category} type="button" onClick={() => setCategory(category === c.category ? "" : c.category)} className={`rounded-lg px-1 text-start transition-colors ${category === c.category ? "bg-surface-subtle" : "hover:bg-surface-subtle"}`}>
-                  <Bars rows={[{ label: `${c.category} · ${c.count}`, value: c.total, text: `${fmt(c.total)} ${egp} · ${c.share}%`, color: i === 0 ? MARK : INK }]} max={cats[0].total} />
+                  <Bars rows={[{ label: `${categoryLabel(c.category, isAr)} · ${c.count}`, value: c.total, text: `${fmt(c.total)} ${egp} · ${c.share}%`, color: i === 0 ? MARK : INK }]} max={cats[0].total} />
                 </button>
               ))}
             </div>
@@ -59,7 +60,7 @@ export default function ExpensesReport({ ledger, range, isAr, data }: ReportProp
 
       <section>
         <SectionTitle aside={category && <button type="button" onClick={() => setCategory("")} className="text-[11.5px] font-black text-ink-faint hover:text-ink">{isAr ? "امسح الفلتر" : "Clear filter"}</button>}>
-          {category ? `${category} (${shown.length})` : isAr ? "كل البنود" : "Every entry"}
+          {category ? `${categoryLabel(category, isAr)} (${shown.length})` : isAr ? "كل البنود" : "Every entry"}
         </SectionTitle>
         <DataTable<ExpenseLine>
           isAr={isAr}
@@ -69,7 +70,7 @@ export default function ExpensesReport({ ledger, range, isAr, data }: ReportProp
           dense
           columns={[
             { key: "date", label: isAr ? "التاريخ" : "Date", render: (l) => <span className="whitespace-nowrap font-figure text-ink-faint">{l.date ? dayText(l.date, isAr) : "—"}</span>, exportValue: (l) => l.date },
-            { key: "category", label: isAr ? "التصنيف" : "Category", render: (l) => <span className="text-[12.5px] font-bold text-ink">{l.category}</span> },
+            { key: "category", label: isAr ? "التصنيف" : "Category", render: (l) => <span className="text-[12.5px] font-bold text-ink">{categoryLabel(l.category, isAr)}</span> },
             { key: "description", label: isAr ? "البيان" : "Description", render: (l) => <span className="line-clamp-1">{l.description || "—"}</span> },
             { key: "recurring", label: isAr ? "ثابت" : "Recurring", align: "center", render: (l) => (l.recurring ? <span className="rounded-full bg-surface-muted px-2 py-0.5 text-[10.5px] font-black text-ink-body">{isAr ? "شهري" : "yes"}</span> : <span className="text-ink-faint">—</span>), exportValue: (l) => (l.recurring ? "yes" : "") },
             { key: "amount", label: isAr ? "المبلغ" : "Amount", align: "end", render: (l) => <Num v={l.amount} bold />, total: <Num v={shown.reduce((s, l) => s + l.amount, 0)} bold /> },
