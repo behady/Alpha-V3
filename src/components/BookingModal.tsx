@@ -69,6 +69,8 @@ import { getAppointmentStageLabel } from "@/lib/appointmentStages";
 import { minutesToTimeKey, parseApptTimeToMinutes } from "@/lib/appointmentTime";
 import { generalDoctorLabel } from "@/lib/generalDentist";
 import { cairo } from "@/lib/fonts/arabic";
+import { TeethChartSelector } from "./clinical-notes/ServiceEditorDrawer";
+import { stagedChargeTotal, stagedLineTotal, stagedMode, stagedUnits, toothListLabel } from "@/lib/stagedProcedures";
 import { PRIVATE_PAYER_ID, payerForPriceList } from "@/lib/payers";
 import InsurerBadge from "@/components/shared/InsurerBadge";
 
@@ -125,7 +127,7 @@ interface AppointmentData {
    * the insurer's price and filed as private revenue — the cost survived the trip and the payer
    * did not.
    */
-  sessionProcedures?: { id?: string; serviceId?: string | null; name: string; cost: number; addToLedger: boolean; priceListId?: string | null }[];
+  sessionProcedures?: { id?: string; serviceId?: string | null; name: string; cost: number; addToLedger: boolean; priceListId?: string | null; teeth?: string[]; pricingMode?: string | null }[];
 }
 
 export type BookingEditSnapshot = {
@@ -332,7 +334,9 @@ export default function BookingModal({
   const [addingProcedure, setAddingProcedure] = useState(false);
   /** The staged procedure whose details are back in the form for changing; null = adding a new one. */
   const [editingProcId, setEditingProcId] = useState<string | null>(null);
-  const [sessionProcedures, setSessionProcedures] = useState<{ id: string; serviceId: string | null; name: string; cost: number; addToLedger: boolean; priceListId?: string | null }[]>([]);
+  const [sessionProcedures, setSessionProcedures] = useState<{ id: string; serviceId: string | null; name: string; cost: number; addToLedger: boolean; priceListId?: string | null; teeth?: string[]; pricingMode?: string | null }[]>([]);
+  /** Teeth picked on the chart for the treatment being added (FDI codes). Empty = a general treatment. */
+  const [procTeeth, setProcTeeth] = useState<string[]>([]);
 
   /**
    * Which price list the desk is booking against.
@@ -673,6 +677,7 @@ export default function BookingModal({
     setAddProcToLedger(true);
     setSessionProcedures([]);
     setEditingProcId(null);
+    setProcTeeth([]);
 
     if (editAppointment) {
       setIsNewPatient(false);
@@ -1175,6 +1180,7 @@ servicesList.length > 0 && (
             setEditingProcId(null);
             setProcServiceId("");
             setProcCost("");
+            setProcTeeth([]);
           }
           setShowAddProcedure(prev => !prev);
         }}
@@ -1278,10 +1284,44 @@ servicesList.length > 0 && (
                 className="w-full text-sm font-bold border border-line rounded-lg bg-surface"
               />
             </div>
+            {/* Teeth: the wide popup only — the narrow drawer has no room for a chart. */}
+            {wideLayout && (
+              <div>
+                <label className="text-xs font-black text-ink-muted uppercase tracking-wider block mb-1.5">
+                  {language === 'ar' ? 'الأسنان (اختياري)' : 'Teeth (optional)'}
+                </label>
+                <TeethChartSelector
+                  selected={procTeeth}
+                  onToggle={(code) => setProcTeeth((prev) => (prev.includes(code) ? prev.filter((t) => t !== code) : [...prev, code]))}
+                  onSetSelected={setProcTeeth}
+                  teethData={{}}
+                  treatments={{}}
+                  isAr={language === 'ar'}
+                  narrow={false}
+                />
+                <p className="mt-1.5 text-xs font-semibold text-ink-body">
+                  {procTeeth.length
+                    ? `${language === 'ar' ? 'الأسنان:' : 'Teeth:'} ${toothListLabel(procTeeth)}`
+                    : language === 'ar' ? 'من غير أسنان = علاج عام' : 'No teeth picked = a general treatment'}
+                  {procTeeth.length > 0 && (
+                    <button type="button" onClick={() => setProcTeeth([])} className="ms-3 text-xs font-bold text-ink-muted underline hover:text-ink">
+                      {language === 'ar' ? 'امسح' : 'Clear'}
+                    </button>
+                  )}
+                </p>
+              </div>
+            )}
             {/* Cost */}
             <div>
               <label className="text-xs font-black text-ink-muted uppercase tracking-wider block mb-1.5">
-                {language === 'ar' ? 'التكلفة' : 'Cost'}
+                {(() => {
+                  // With teeth picked, the box is the price of one unit and the total is shown below it.
+                  const mode = stagedMode({ pricingMode: servicesList.find((x) => String(x.id) === String(procServiceId))?.pricingMode });
+                  if (!wideLayout || procTeeth.length === 0 || mode === 'flat') return language === 'ar' ? 'التكلفة' : 'Cost';
+                  return mode === 'per_arch'
+                    ? language === 'ar' ? 'السعر للفك الواحد' : 'Price per jaw'
+                    : language === 'ar' ? 'السعر للسنة الواحدة' : 'Price per tooth';
+                })()}
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 start-0 ps-2.5 flex items-center pointer-events-none text-slate-400">
@@ -1295,6 +1335,17 @@ servicesList.length > 0 && (
                   placeholder="0"
                 />
               </div>
+              {wideLayout && procTeeth.length > 0 && procCost !== "" && (() => {
+                const pricing = { cost: Number(procCost) || 0, addToLedger: true, teeth: procTeeth, pricingMode: servicesList.find((x) => String(x.id) === String(procServiceId))?.pricingMode };
+                const units = stagedUnits(pricing);
+                return (
+                  <p className="mt-1.5 text-sm font-bold text-ink tabular-nums">
+                    {units > 1
+                      ? `${Number(procCost).toLocaleString('en-US')} × ${units} = ${stagedLineTotal(pricing).toLocaleString('en-US')} ${language === 'ar' ? 'ج.م' : 'EGP'}`
+                      : `${language === 'ar' ? 'الإجمالي' : 'Total'} ${stagedLineTotal(pricing).toLocaleString('en-US')} ${language === 'ar' ? 'ج.م' : 'EGP'}`}
+                  </p>
+                );
+              })()}
             </div>
             {/* Add to ledger toggle */}
             <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -1330,6 +1381,10 @@ servicesList.length > 0 && (
                     // Recorded so the note and the ledger row can say which rate was quoted,
                     // rather than leaving a number nobody can trace back to a list.
                     priceListId: effectiveListId,
+                    // The chart's teeth and the service's own billing rule: together they decide
+                    // how many units the price above is charged for (see lib/stagedProcedures).
+                    teeth: wideLayout ? [...procTeeth] : [],
+                    pricingMode: typeof svc.pricingMode === 'string' ? svc.pricingMode : null,
                   };
                   
                   showToast(
@@ -1341,6 +1396,7 @@ servicesList.length > 0 && (
                   // Reset form but keep add procedure open
                   setProcServiceId("");
                   setProcCost("");
+                  setProcTeeth([]);
                   setAddProcToLedger(true);
                   if (editingProcId) {
                     setSessionProcedures(prev => prev.map(p => (p.id === editingProcId ? newProcedure : p)));
@@ -1374,12 +1430,24 @@ servicesList.length > 0 && (
           <div className="bg-surface rounded-xl border border-line divide-y divide-slate-100 overflow-hidden shadow-sm">
             {sessionProcedures.map((sp, idx) => (
               <div key={idx} className="flex items-center justify-between p-3 text-sm">
-                <div className="flex items-center gap-2">
+                <div className="flex min-w-0 items-center gap-2">
                   <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
-                  <span className="font-bold text-slate-700">{sp.name}</span>
+                  <span className="min-w-0">
+                    <span className="block font-bold text-slate-700">{sp.name}</span>
+                    {sp.teeth && sp.teeth.length > 0 && (
+                      <span className="block text-xs font-semibold text-ink-body">
+                        {language === 'ar' ? 'الأسنان:' : 'Teeth:'} {toothListLabel(sp.teeth)}
+                      </span>
+                    )}
+                  </span>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="font-black text-ink">{sp.cost} {language === 'ar' ? 'ج.م' : 'EGP'}</span>
+                  <span className="text-end">
+                    <span className="block font-black text-ink tabular-nums">{stagedLineTotal(sp).toLocaleString('en-US')} {language === 'ar' ? 'ج.م' : 'EGP'}</span>
+                    {stagedUnits(sp) > 1 && (
+                      <span className="block text-xs font-semibold text-ink-muted tabular-nums">{Number(sp.cost).toLocaleString('en-US')} × {stagedUnits(sp)}</span>
+                    )}
+                  </span>
                   {/* Back into the form above: change the service, list or price, then "Update procedure". */}
                   <button
                     type="button"
@@ -1389,6 +1457,7 @@ servicesList.length > 0 && (
                       if (sp.priceListId) setProcListId(sp.priceListId);
                       setProcServiceId(sp.serviceId || "");
                       setProcCost(sp.cost);
+                      setProcTeeth(sp.teeth ?? []);
                       setAddProcToLedger(sp.addToLedger);
                     }}
                     title={language === 'ar' ? 'تعديل' : 'Edit'}
@@ -1663,7 +1732,7 @@ servicesList.length > 0 && (
       "w-full rounded-xl border border-line-strong bg-surface px-3.5 py-2.5 text-[15px] text-ink outline-none transition-colors focus:border-ink focus:ring-2 focus:ring-ink/10";
     // A booking not yet confirmed has no charges in the books: show what it WILL charge, from the
     // Service tab, so adding a treatment there shows up here at once.
-    const stagedTotal = sessionProcedures.filter((p) => p.addToLedger).reduce((sum, p) => sum + (Number(p.cost) || 0), 0);
+    const stagedTotal = stagedChargeTotal(sessionProcedures);
     const needsVisitFirst = (
       <div className="mt-4 space-y-3">
         <div className="rounded-2xl border border-line-strong px-6 py-5">
@@ -1679,9 +1748,10 @@ servicesList.length > 0 && (
               <li key={p.id} className="flex items-center justify-between gap-3 px-5 py-3.5 text-[15px]">
                 <span className="min-w-0 truncate font-semibold text-ink">
                   {p.name}
+                  {p.teeth && p.teeth.length > 0 && <span className="ms-2 text-[13px] font-normal text-ink-body">({toothListLabel(p.teeth)})</span>}
                   {!p.addToLedger && <span className="ms-2 text-xs font-normal text-ink-muted">{isAr ? "(من غير حساب)" : "(not charged)"}</span>}
                 </span>
-                <span className="shrink-0 font-figure font-semibold tabular-nums text-ink">{Number(p.cost).toLocaleString("en-US")}</span>
+                <span className="shrink-0 font-figure font-semibold tabular-nums text-ink">{stagedLineTotal(p).toLocaleString("en-US")}</span>
               </li>
             ))}
           </ul>

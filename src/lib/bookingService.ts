@@ -104,7 +104,20 @@ export interface BookingSavePayload {
   discountPercent?: number | null;
   discountFixed?: number | null;
   discountAmount?: number | null;
-  sessionProcedures?: { serviceId?: string | null; name: string; cost: number; addToLedger: boolean; priceListId?: string | null }[];
+  /**
+   * Treatments added while booking. `cost` is the price of ONE unit; `teeth` (FDI codes) and the
+   * service's `pricingMode` decide how many units that is — the server multiplies, exactly as for a
+   * treatment added from the patient's file. No teeth = a general treatment ("Gen"), one unit.
+   */
+  sessionProcedures?: {
+    serviceId?: string | null;
+    name: string;
+    cost: number;
+    addToLedger: boolean;
+    priceListId?: string | null;
+    teeth?: string[];
+    pricingMode?: string | null;
+  }[];
   status?: string;
   delayedPromptUntil?: number | null;
   services?: Array<{
@@ -166,9 +179,13 @@ async function writeSessionProcedures(
       patientId: String(data.patientId),
       appointmentId,
       procedures: [sp.name],
-      selectedTeeth: [],
+      // The teeth picked on the booking popup's chart go on the clinical note ("16,17") and into
+      // the ledger line; none picked keeps the old general treatment.
+      selectedTeeth: Array.isArray(sp.teeth) ? sp.teeth.map(String) : [],
       tooth: "Gen",
       unitCost: Number(sp.cost) || 0,
+      // Sent explicitly so the server multiplies by the same rule the popup showed.
+      ...(sp.pricingMode ? { pricingMode: sp.pricingMode } : {}),
       // The list the treatment was staged against — and therefore the payer. Without it the
       // server falls back to the clinic default and an insurance visit books as private.
       priceListId: sp.priceListId ?? null,

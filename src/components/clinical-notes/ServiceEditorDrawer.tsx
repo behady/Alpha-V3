@@ -82,7 +82,7 @@ interface Props {
  * The chart's scroll-centering effect re-fired with them, so a dentist who had scrolled across to
  * tooth 38 was yanked back to the midline one character at a time.
  */
-const TeethChartSelector = memo(function TeethChartSelector({
+export const TeethChartSelector = memo(function TeethChartSelector({
   selected,
   onToggle,
   onSetSelected,
