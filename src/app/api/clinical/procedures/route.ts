@@ -200,7 +200,7 @@ async function priceRequest(clinicId: string, body: Record<string, unknown>, act
     pricingModeOverride: typeof body.pricingMode === "string" ? body.pricingMode : null,
     // This dentist's rate FOR THIS PAYER — their per-payer exception if they have one, their
     // ordinary percentage otherwise. Resolved here, snapshotted below, and never recomputed.
-    commissionPct: commissionRateFor(staff, payerId),
+    commissionPct: commissionRateFor(staff, payerId, payers),
     priceListId: effectiveListId,
     priceListName: priceList?.name || null,
     discountMode: typeof body.discountMode === "string" ? body.discountMode : null,
@@ -526,6 +526,8 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
   type Outcome = { kind: "no_line" } | { kind: "no_staff" } | { kind: "not_dentist" } | { kind: "ok"; after: Record<string, unknown> };
   const outcome = await adminDb().runTransaction(async (tx): Promise<Outcome> => {
     const claimSnap = await tx.get(claimRef);
+    // The company's own dentist rate lives on the payer; read before any write.
+    const payersSnap = doctorId ? await tx.get(adminClinicDoc(clinicId, "settings", "payers")) : null;
     const claim = claimSnap.exists ? parseClaim(claimId, claimSnap.data()) : null;
     // Which line this row is: the approval remembers the note it wrote for each one.
     const entry = claim ? Object.entries(claim.ledgerIds).find(([, link]) => link.noteId === noteId) : undefined;
@@ -560,7 +562,7 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
     if (doctorId !== undefined) {
       // The same stamping the Insurance tab does: rate and share fixed at assignment time, and the
       // ledger row's attribution follows so the payer report and payroll agree.
-      const applied = applyDentistPicks(claim, { [i]: doctorId || null }, staffById);
+      const applied = applyDentistPicks(claim, { [i]: doctorId || null }, staffById, parsePayers(payersSnap?.data()));
       claimUpdate.dentists = applied.dentists;
       const rowPatch = dentistRowPatch(line, applied.dentists[i] ?? null);
       noteUpdate.doctorId = rowPatch.doctorId;

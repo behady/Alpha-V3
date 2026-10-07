@@ -79,6 +79,12 @@ export type Payer = {
   format?: InsurerFormat;
   /** The clinic's own code with this insurer, as printed on its approvals and statements. */
   providerCode?: string;
+  /**
+   * What every dentist earns on this company's work, set once on its insurance price list. A
+   * dentist's own rate for this payer (commissionByPayer) still wins; absent = each dentist's usual
+   * rate, exactly as before this existed. 0 is a real answer ("this company's work earns nothing").
+   */
+  dentistRate?: number;
   /** Retired payers stop being offered on new treatments and stay readable on old ones. */
   active: boolean;
   /** Preselected on a new treatment when the patient has no payer of their own. */
@@ -157,6 +163,9 @@ export function parsePayers(raw: unknown): Payer[] {
         ...(INSURER_FORMATS.some((f) => f.id === p.format) ? { format: p.format } : {}),
         ...(typeof p.providerCode === "string" && p.providerCode.trim()
           ? { providerCode: p.providerCode.trim() }
+          : {}),
+        ...(p.dentistRate !== undefined && p.dentistRate !== null && String(p.dentistRate).trim() !== "" && asPercent(p.dentistRate) !== null
+          ? { dentistRate: asPercent(p.dentistRate) as number }
           : {}),
         active: p.active !== false,
         isDefault: p.isDefault === true,
@@ -310,13 +319,18 @@ function asPercent(raw: unknown): number | null {
 export function commissionRateFor(
   staff: CommissionRates | null | undefined,
   payerId: string | null | undefined,
+  payers?: readonly Payer[],
 ): number {
-  const perPayer = staff?.commissionByPayer;
+  if (!staff) return 0;
+  const perPayer = staff.commissionByPayer;
   if (payerId && perPayer && typeof perPayer === "object") {
     const exact = asPercent((perPayer as Record<string, unknown>)[payerId]);
     if (exact !== null) return exact;
   }
-  return asPercent(staff?.commissionPercentage) ?? 0;
+  // The company's own rate for every dentist, set on its insurance price list.
+  const companyRate = payerId && payers ? findPayer(payers, payerId)?.dentistRate : undefined;
+  if (typeof companyRate === "number") return companyRate;
+  return asPercent(staff.commissionPercentage) ?? 0;
 }
 
 /** True when this dentist has a rate specifically for this payer, rather than inheriting one. */

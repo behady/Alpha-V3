@@ -19,7 +19,7 @@
 import type { Transaction } from "firebase-admin/firestore";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { recalcProcedurePayments, sumPayments } from "@/lib/ledgerWrite";
-import { commissionRateFor } from "@/lib/payers";
+import { commissionRateFor, parsePayers } from "@/lib/payers";
 
 export type PaymentRowLite = {
   id: string;
@@ -141,5 +141,8 @@ export async function readProcedureCommissionBasis(
     // that was already agreed.
     return { labFee, commissionPct: Number(procedure.doctorCommissionPercentage) || 0 };
   }
-  return { labFee, commissionPct: commissionRateFor(staffSnap.data(), payerId) };
+  // The company's own dentist rate (set on its insurance price list) sits between the dentist's
+  // exception for this payer and their usual rate; only read when there is a payer to look up.
+  const payers = payerId ? parsePayers((await txn.get(adminClinicDoc(clinicId, "settings", "payers"))).data()) : undefined;
+  return { labFee, commissionPct: commissionRateFor(staffSnap.data(), payerId, payers) };
 }

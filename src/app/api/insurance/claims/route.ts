@@ -445,7 +445,7 @@ export async function POST(req: Request) {
         // and the state of each line the card named.
         claim.lines.forEach((line, i) => {
           const staff = staffById.get(dentistOfLine(i));
-          if (staff) claim.dentists[i] = lineDentistFor(line, staff, payerId);
+          if (staff) claim.dentists[i] = lineDentistFor(line, staff, payerId, parsePayers(payersSnap.data()));
           const state = lineIn[i]?.status;
           if (state) claim.lineStatus[i] = state;
         });
@@ -708,7 +708,8 @@ export async function PATCH(req: Request) {
       const patientSnap = patientRef ? await tx.get(patientRef) : null;
       if (patientSnap && !patientSnap.exists) return { kind: "no_patient" };
       const reshape = rawLines !== undefined || rawMetlife !== undefined;
-      const payersSnap = reshape || rebuild || paying || rowsAction === "write" ? await tx.get(adminClinicDoc(clinicId, "settings", "payers")) : null;
+      // Read whenever a dentist may be stamped too: the company's own dentist rate lives on the payer.
+      const payersSnap = reshape || rebuild || paying || rowsAction === "write" || picks ? await tx.get(adminClinicDoc(clinicId, "settings", "payers")) : null;
       const wordingSnap = rowsAction === "write" || rebuild ? await tx.get(adminClinicDoc(clinicId, "settings", WORDING_DOC)) : null;
       // The staff records behind the picks, read inside the transaction so the stamped rate is the
       // one on file at this moment. Only a dentist can be paid for a line.
@@ -805,7 +806,7 @@ export async function PATCH(req: Request) {
       let dentists = rawLines !== undefined ? onLines(claim.dentists) : claim.dentists;
       if (rawLines !== undefined) update.dentists = dentists;
       if (picks) {
-        const applied = applyDentistPicks({ lines, dentists, payerId: claim.payerId }, picks, staffById);
+        const applied = applyDentistPicks({ lines, dentists, payerId: claim.payerId }, picks, staffById, parsePayers(payersSnap?.data()));
         if (applied.unknownStaff.length) return { kind: "no_staff", ids: applied.unknownStaff };
         if (notDentist) return { kind: "not_dentist" };
         dentists = applied.dentists;

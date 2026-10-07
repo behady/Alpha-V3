@@ -11,7 +11,7 @@
 
 import { normalizeMetlife, type MetlifeExtraction, type MetlifeHeader, type MetlifeLine } from "./metlife";
 import { normalizeNextcare } from "./nextcare";
-import { commissionRateFor, isInsurerFormat, type CommissionRates, type InsurerFormat } from "@/lib/payers";
+import { commissionRateFor, isInsurerFormat, type CommissionRates, type InsurerFormat, type Payer } from "@/lib/payers";
 import { readInsurance, writeInsurance, type PatientInsuranceEntry } from "../patientInsurance";
 
 export const CLAIMS_COLLECTION = "insurance_claims";
@@ -446,8 +446,9 @@ export function lineDentistFor(
   line: { approvedAmount: number },
   staff: { id: string; name: string } & CommissionRates,
   payerId: string,
+  payers?: readonly Payer[],
 ): LineDentist {
-  const rate = commissionRateFor(staff, payerId);
+  const rate = commissionRateFor(staff, payerId, payers);
   return { staffId: staff.id, name: staff.name, rate, share: round2((line.approvedAmount * rate) / 100) };
 }
 
@@ -459,6 +460,7 @@ export function applyDentistPicks(
   claim: Pick<InsuranceClaim, "lines" | "dentists" | "payerId">,
   picks: Record<string, string | null>,
   staffById: ReadonlyMap<string, { id: string; name: string } & CommissionRates>,
+  payers?: readonly Payer[],
 ): { dentists: Record<number, LineDentist>; unknownStaff: string[] } {
   const dentists: Record<number, LineDentist> = { ...claim.dentists };
   const unknownStaff: string[] = [];
@@ -474,7 +476,7 @@ export function applyDentistPicks(
       unknownStaff.push(staffId);
       continue;
     }
-    dentists[i] = lineDentistFor(claim.lines[i], staff, claim.payerId);
+    dentists[i] = lineDentistFor(claim.lines[i], staff, claim.payerId, payers);
   }
   return { dentists, unknownStaff };
 }

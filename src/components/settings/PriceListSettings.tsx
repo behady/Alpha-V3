@@ -28,6 +28,8 @@ import { useUI } from "@/context/UIContext";
 import { logActivity } from "@/lib/logger";
 import { useAuth } from "@/context/AuthContext";
 import { LOCATIONS_DOC, parseClinicBranches, type ClinicBranch } from "@/lib/clinicLocations";
+import { usePricingPolicy } from "@/lib/usePricingPolicy";
+import { payerIdFrom, payersDocFrom, type Payer } from "@/lib/payers";
 import type { ServiceRow } from "@/components/settings/PricingSettings";
 import {
   DEFAULT_DISCOUNT_REASONS,
@@ -78,6 +80,52 @@ export default function PriceListSettings({
   /** "" = start fresh; otherwise the id of the list whose prices are copied. */
   const [copyFrom, setCopyFrom] = useState("");
   const [newBlanket, setNewBlanket] = useState("0");
+  /** The list is what an insurance / contract company pays: a payer is created pointing at it. */
+  const [newIsInsurance, setNewIsInsurance] = useState(false);
+  /** Every dentist's share on this company's work; blank = each dentist's usual rate. */
+  const [newDentistRate, setNewDentistRate] = useState("");
+  const { payers } = usePricingPolicy();
+  /** The company a list belongs to, if one points at it. */
+  const payerOfList = (listId: string): Payer | null => payers.find((p) => p.priceListId === listId && p.active) ?? null;
+
+  /** Writes the payers document with one company added or changed. */
+  const savePayers = async (next: Payer[]) => {
+    await setDoc(getClinicDoc("settings", "payers"), payersDocFrom(next), { merge: true });
+  };
+
+  /** Turn a list into an insurance company's list, or change that company's dentist rate. */
+  const setListInsurance = async (list: PriceList, on: boolean, rateText?: string) => {
+    const existing = payerOfList(list.id);
+    const rate = rateText === undefined ? existing?.dentistRate : rateText.trim() === "" ? undefined : Math.min(100, Math.max(0, Number(rateText) || 0));
+    setSaving(true);
+    try {
+      let next: Payer[];
+      if (on && existing) {
+        next = payers.map((p) => (p.id === existing.id ? withRate(p, rate) : p));
+      } else if (on) {
+        const created: Payer = withRate({ id: payerIdFrom(list.name, payers), name: list.name, ...(list.nameAr ? { nameAr: list.nameAr } : {}), priceListId: list.id, active: true, isDefault: false }, rate);
+        next = [...payers, created];
+      } else if (existing) {
+        // Retired, not deleted: old treatments charged to it must keep their name.
+        next = payers.map((p) => (p.id === existing.id ? { ...p, active: false } : p));
+      } else {
+        return;
+      }
+      await savePayers(next);
+      await logActivity(
+        { uid: user?.uid, name: user?.name, role: user?.role },
+        "Price Lists Updated",
+        on
+          ? `"${list.name}" is an insurance company's list${typeof rate === "number" ? `, dentist ${rate}%` : ""}`
+          : `"${list.name}" is no longer an insurance company's list`,
+      );
+      showToast(txt.saved, "success");
+    } catch {
+      showToast(txt.failed, "error");
+    } finally {
+      setSaving(false);
+    }
+  };
   /** "" = clinic-wide, offered at every branch. Otherwise the branch the new list belongs to. */
   const [newBranchId, setNewBranchId] = useState("");
   const [branches, setBranches] = useState<ClinicBranch[]>([]);
@@ -285,6 +333,11 @@ export default function PriceListSettings({
       );
       let copied = 0;
       if (source) copied = await copyPricesTo(id, source.id);
+      if (newIsInsurance) {
+        const rateText = newDentistRate.trim();
+        const rate = rateText === "" ? undefined : Math.min(100, Math.max(0, Number(rateText) || 0));
+        await savePayers([...payers, withRate({ id: payerIdFrom(name, payers), name, priceListId: id, active: true, isDefault: false }, rate)]);
+      }
       await logActivity(
         { uid: user?.uid, name: user?.name, role: user?.role },
         "Price Lists Updated",
@@ -297,6 +350,8 @@ export default function PriceListSettings({
       setCopyFrom("");
       setNewBlanket("0");
       setNewBranchId("");
+      setNewIsInsurance(false);
+      setNewDentistRate("");
       setIsNewOpen(false);
       // Straight into pricing it — that is the next thing anyone wants, and the reason the old
       // flow felt unfinished was that creating a list left you looking at the list of lists.
@@ -427,6 +482,16 @@ export default function PriceListSettings({
       setSaving(false);
     }
     await persistLists(lists.filter((l) => l.id !== list.id), `Deleted price list "${list.name}"`);
+    // The company this list belonged to is retired, not deleted: treatments already charged to it
+    // keep its name, and it stops being offered with a list that no longer exists.
+    const company = payers.find((p) => p.priceListId === list.id);
+    if (company) {
+      try {
+        await savePayers(payers.map((p) => (p.id === company.id ? { ...p, active: false } : p)));
+      } catch {
+        showToast(txt.failed, "error");
+      }
+    }
   };
 
   const addReason = async () => {
@@ -485,6 +550,43 @@ export default function PriceListSettings({
                   : txt.pricedNone}
             </p>
           </div>
+
+          {list.id !== STANDARD_LIST_ID && (() => {
+            const company = payerOfList(list.id);
+            return company ? (
+              <label className="flex items-center gap-2 rounded-xl bg-accent-tint px-2.5 py-1">
+                <span className="text-[11px] font-black text-accent-ink">{ar ? "تأمين · نسبة الطبيب" : "Insurance · dentist"}</span>
+                <span className="relative">
+                  <input
+                    key={`${company.id}-${company.dentistRate ?? ""}`}
+                    type="number"
+                    min={0}
+                    max={100}
+                    defaultValue={company.dentistRate ?? ""}
+                    placeholder={ar ? "عادي" : "usual"}
+                    disabled={saving}
+                    onBlur={(e) => {
+                      const v = e.target.value.trim();
+                      if (v === String(company.dentistRate ?? "")) return;
+                      void setListInsurance(list, true, v);
+                    }}
+                    title={ar ? "فاضي = نسبة كل طبيب العادية" : "Blank = each dentist's usual rate"}
+                    className="w-20 rounded-lg border border-line bg-surface py-1 pl-2 pr-6 text-sm font-bold tabular-nums text-ink-body outline-none focus:border-accent disabled:opacity-60"
+                  />
+                  <Percent size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-muted" />
+                </span>
+              </label>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void setListInsurance(list, true)}
+                disabled={saving}
+                className="rounded-lg border border-dashed border-line-strong px-2.5 py-1.5 text-[11px] font-bold text-ink-muted transition hover:border-accent hover:text-ink disabled:opacity-50"
+              >
+                {ar ? "دي قائمة شركة تأمين؟" : "Insurance company list?"}
+              </button>
+            );
+          })()}
 
           <label className="flex items-center gap-2">
             <span className="text-[11px] font-black uppercase tracking-wider text-ink-muted">{txt.blanket}</span>
@@ -784,6 +886,47 @@ export default function PriceListSettings({
                 </div>
               </div>
 
+              {/* Is this what a company pays? Then it is that company (a payer) as well, with the
+                  share every dentist earns on its work. */}
+              <div className="space-y-2 rounded-2xl border border-line bg-surface-subtle p-4">
+                <p className="text-sm font-bold text-ink">{ar ? "القائمة دي لشركة تأمين أو تعاقد؟" : "Is this list for an insurance or contract company?"}</p>
+                <div className="flex gap-2">
+                  {[false, true].map((v) => (
+                    <button
+                      key={String(v)}
+                      type="button"
+                      onClick={() => setNewIsInsurance(v)}
+                      className={`flex-1 rounded-xl border px-3 py-2 text-sm font-bold transition-all ${newIsInsurance === v ? "border-accent bg-accent-tint text-ink" : "border-line bg-surface text-ink-muted"}`}
+                    >
+                      {v ? (ar ? "أيوه، شركة" : "Yes, a company") : ar ? "لأ" : "No"}
+                    </button>
+                  ))}
+                </div>
+                {newIsInsurance && (
+                  <div className="space-y-1.5 pt-1">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">{ar ? "نسبة الطبيب من شغل الشركة دي" : "Dentist's share on this company's work"}</label>
+                    <span className="relative block">
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={newDentistRate}
+                        onChange={(e) => setNewDentistRate(e.target.value)}
+                        placeholder={ar ? "فاضي = نسبة كل طبيب العادية" : "Blank = each dentist's usual rate"}
+                        disabled={saving}
+                        className="w-full rounded-xl border border-line bg-surface py-3 pl-4 pr-9 text-sm font-bold tabular-nums text-ink outline-none transition-all focus:border-accent disabled:opacity-60"
+                      />
+                      <Percent size={13} className={`absolute top-1/2 -translate-y-1/2 text-ink-muted ${isRTL ? "left-3.5" : "right-3.5"}`} />
+                    </span>
+                    <p className="text-[11px] font-medium text-ink-muted">
+                      {ar
+                        ? "لكل الأطباء. لو طبيب له نسبة مختلفة مع الشركة دي، تتظبط من الإعدادات ← التأمين."
+                        : "For every dentist. A dentist with a different rate for this company is set in Settings → Insurance."}
+                    </p>
+                  </div>
+                )}
+              </div>
+
               <div className="space-y-1.5">
                 <label className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">{txt.blanket}</label>
                 <span className="relative block">
@@ -817,6 +960,13 @@ export default function PriceListSettings({
       )}
     </div>
   );
+}
+
+/** A payer with its dentist rate set, or cleared (absent = each dentist's usual rate; never undefined, Firestore refuses it). */
+function withRate(p: Payer, rate: number | undefined): Payer {
+  const { dentistRate: _old, ...rest } = p;
+  void _old;
+  return typeof rate === "number" ? { ...rest, dentistRate: rate } : rest;
 }
 
 /** Exported so a caller can offer the standard set when a clinic has cleared its own. */
