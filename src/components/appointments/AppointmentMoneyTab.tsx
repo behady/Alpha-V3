@@ -20,7 +20,8 @@ import { sendPatientPaymentWhatsApp } from "@/lib/sendPatientPaymentWhatsAppClie
 import { printPaymentReceipt } from "@/lib/printPatientReceipt";
 import { loadReceiptSettings } from "@/lib/receiptSettingsClient";
 import ServiceCombobox from "@/components/shared/ServiceCombobox";
-import ServiceEditorDrawer from "@/components/clinical-notes/ServiceEditorDrawer";
+import ServiceEditorDrawer, { TeethChartSelector } from "@/components/clinical-notes/ServiceEditorDrawer";
+import { stagedLineTotal, stagedMode, stagedUnits, toothListLabel } from "@/lib/stagedProcedures";
 import type { Note, Service, Staff } from "@/components/clinical-notes/types";
 import { resolveListPrice } from "@/lib/discountMath";
 import { PRIVATE_PAYER_ID, findPayer, payerForPriceList } from "@/lib/payers";
@@ -170,6 +171,11 @@ export default function AppointmentMoneyTab({
   /** The service as typed or picked: a catalogue name prefills the price, anything else is recorded as typed. */
   const [procName, setProcName] = useState("");
   const [procCost, setProcCost] = useState<number | "">("");
+  /**
+   * Teeth picked on the chart for the quick add (FDI codes) — the booking popup's Service tab only;
+   * the side panel keeps its compact form. Empty = a general treatment, as before.
+   */
+  const [procTeeth, setProcTeeth] = useState<string[]>([]);
   const [addingProcedure, setAddingProcedure] = useState(false);
 
   // Full editor
@@ -274,6 +280,8 @@ export default function AppointmentMoneyTab({
   const quickNeedsPrice =
     !!procName.trim() && procCost === "" && !services.some((s) => String(s.name) === procName.trim());
   const quickNeedsPriceText = isAr ? "اكتب سعر للعلاج اللي مش في قائمتك" : "Type a price for a treatment that is not in your list";
+  /** The picked service's own billing rule (per tooth / per jaw / flat); a free-typed name is per tooth, as on the server. */
+  const quickPricingMode = (services.find((x) => String(x.name) === procName.trim()) as { pricingMode?: string } | undefined)?.pricingMode ?? null;
 
   const treatments = useMemo(() => {
     const categoryById = new Map(services.map((s) => [s.id, s.category]));
@@ -588,10 +596,13 @@ export default function AppointmentMoneyTab({
         patientId: appointment.patientId,
         appointmentId: appointment.id,
         procedures: [name],
-        selectedTeeth: [],
+        // The chart's teeth (popup only); none = a general treatment. The server multiplies the
+        // price by the units they make under the service's rule, as it does from the patient's file.
+        selectedTeeth: [...procTeeth],
         tooth: "Gen",
-        // The box is the price; blank means "price it from the catalogue".
+        // The box is the price of one unit; blank means "price it from the catalogue".
         unitCost: procCost === "" ? null : Number(procCost),
+        ...(quickPricingMode ? { pricingMode: quickPricingMode } : {}),
         priceListId: procListId || null,
         payerId: procPayerId || null,
         doctorId: appointment.doctorId || null,
@@ -602,6 +613,7 @@ export default function AppointmentMoneyTab({
       showToast(isAr ? "اتضافت الخدمة" : "Service added", "success");
       setProcName("");
       setProcCost("");
+      setProcTeeth([]);
     } catch (err) {
       showToast(
         err instanceof MoneyApiError ? err.message : isAr ? "خطأ في إضافة الخدمة" : "Could not add that service",
@@ -1054,6 +1066,36 @@ export default function AppointmentMoneyTab({
             language={language}
             className="w-full text-sm py-2 font-bold border border-line rounded-lg bg-surface"
           />
+          {section === "service" && (
+            <div>
+              <TeethChartSelector
+                selected={procTeeth}
+                onToggle={(code) => setProcTeeth((prev) => (prev.includes(code) ? prev.filter((t) => t !== code) : [...prev, code]))}
+                onSetSelected={setProcTeeth}
+                teethData={teethData}
+                treatments={treatments}
+                isAr={isAr}
+                narrow={false}
+              />
+              <p className="mt-1.5 text-xs font-semibold text-ink-body">
+                {procTeeth.length
+                  ? `${isAr ? "الأسنان:" : "Teeth:"} ${toothListLabel(procTeeth)}`
+                  : isAr ? "من غير أسنان = علاج عام" : "No teeth picked = a general treatment"}
+                {procTeeth.length > 0 && (
+                  <button type="button" onClick={() => setProcTeeth([])} className="ms-3 text-xs font-bold text-ink-muted underline hover:text-ink">
+                    {isAr ? "امسح" : "Clear"}
+                  </button>
+                )}
+              </p>
+              {procTeeth.length > 0 && stagedMode({ pricingMode: quickPricingMode }) !== "flat" && (
+                <p className="mt-1 text-xs font-bold text-ink-muted">
+                  {stagedMode({ pricingMode: quickPricingMode }) === "per_arch"
+                    ? isAr ? "السعر تحت للفك الواحد" : "The price below is per jaw"
+                    : isAr ? "السعر تحت للسنة الواحدة" : "The price below is per tooth"}
+                </p>
+              )}
+            </div>
+          )}
           <div className="flex gap-2">
             <input
               type="number"
@@ -1078,6 +1120,17 @@ export default function AppointmentMoneyTab({
               {isAr ? "تفاصيل" : "More"}
             </button>
           </div>
+          {section === "service" && procTeeth.length > 0 && procCost !== "" && (() => {
+            const pricing = { cost: Number(procCost) || 0, addToLedger: true, teeth: procTeeth, pricingMode: quickPricingMode };
+            const units = stagedUnits(pricing);
+            return (
+              <p className="text-sm font-bold text-ink tabular-nums">
+                {units > 1
+                  ? `${Number(procCost).toLocaleString("en-US")} × ${units} = ${stagedLineTotal(pricing).toLocaleString("en-US")} ${isAr ? "ج.م" : "EGP"}`
+                  : `${isAr ? "الإجمالي" : "Total"} ${stagedLineTotal(pricing).toLocaleString("en-US")} ${isAr ? "ج.م" : "EGP"}`}
+              </p>
+            );
+          })()}
           {quickNeedsPrice && <p className="text-[11px] font-semibold text-amber-700">{quickNeedsPriceText}</p>}
         </div>
       </div>
