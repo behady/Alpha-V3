@@ -53,11 +53,23 @@ export function countsForPayroll(claim: InsuranceClaim): boolean {
 /**
  * Every assigned line of every counted claim, grouped by dentist. Lines carry the share that was
  * stamped on them, so a rate changed today leaves last month's figure alone.
+ *
+ * With a `period`, a claim counts in the period it was TREATED (the approval date only when no
+ * treatment date was stored): an approval from July treated in October is October's pay. The caller
+ * must therefore load claims by either date, not by the approval date alone.
  */
-export function insuranceWorkByStaff(claims: readonly InsuranceClaim[], wording: Record<string, string> = {}): Map<string, StaffInsuranceWork> {
+export function insuranceWorkByStaff(
+  claims: readonly InsuranceClaim[],
+  wording: Record<string, string> = {},
+  period?: { start: string; end: string },
+): Map<string, StaffInsuranceWork> {
   const out = new Map<string, StaffInsuranceWork>();
   for (const claim of claims) {
     if (!countsForPayroll(claim)) continue;
+    if (period) {
+      const date = workDate(claim);
+      if (date < period.start || date > period.end) continue;
+    }
     for (const [k, d] of Object.entries(claim.dentists)) {
       const i = Number(k);
       const line = claim.lines[i];

@@ -930,6 +930,13 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   assert.deepEqual(omarWork.entries.map((e) => [e.date, e.approvalNumber, e.service, e.share]), [["2026-02-03", "D6000001", "BITEWING - SINGLE FILM", 7], ["2026-02-10", "D6000001", "كشف", 15]], "treated date first; the learned wording where there is one, else the paper's description");
   assert.equal(work.get("s2")!.total, 180);
   assert.deepEqual(unassignedLines([treated, sent, notYet]), { count: 7, approved: 600 + 1200 }, "3 of 5 on a (600), 4 of 5 on b (1200); c does not count");
+  // a period counts the work in the month it was TREATED: an approval from July treated in October is October's pay
+  const lateTreated = claimFixture({ id: "d", approvalDate: "2026-07-04", treatedDate: "2026-10-07", dentists: { 0: { staffId: "s1", name: "Dr Omar", rate: 25, share: 15 } } });
+  const october = { start: "2026-10-01", end: "2026-10-31" };
+  assert.equal(insuranceWorkByStaff([lateTreated], {}, october).get("s1")?.total, 15, "treated in the period: counted");
+  assert.equal(insuranceWorkByStaff([lateTreated], {}, { start: "2026-07-01", end: "2026-07-31" }).size, 0, "approved in July but treated in October: not July's");
+  assert.equal(insuranceWorkByStaff([treated], {}, { start: "2026-02-10", end: "2026-02-10" }).get("s1")?.total, 15, "no treated date: the approval date stands in");
+  assert.equal(insuranceWorkByStaff([lateTreated]).get("s1")?.total, 15, "no period: every claim handed in counts");
 }
 
 // --- 13. The treatment rows an approval writes into the patient's file ----------------------------

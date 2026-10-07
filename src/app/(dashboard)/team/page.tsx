@@ -132,25 +132,44 @@ function TeamPage() {
       (snap) => setLedger(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
     );
     // Insurance work is paid apart from private work: the claims register, not the ledger. A
-    // clinic without the add-on simply has no claims, so the listener costs it nothing.
-    const unsubClaims = onSnapshot(
-      query(
-        getClinicCollection(CLAIMS_COLLECTION),
-        where("approvalDate", ">=", range.start),
-        where("approvalDate", "<=", range.end),
-      ),
-      (snap) => setClaims(snap.docs.map((d) => parseClaim(d.id, d.data())).filter((c): c is InsuranceClaim => c !== null)),
-      () => setClaims([]),
-    );
+    // clinic without the add-on simply has no claims, so the listeners cost it nothing.
+    // Work is paid in the period it was TREATED, and an approval is often treated weeks after it was
+    // issued, so claims are loaded by either date and merged; `insuranceWorkByStaff` then keeps the
+    // ones whose work date falls in the period.
+    const byApproval = new Map<string, InsuranceClaim>();
+    const byTreatment = new Map<string, InsuranceClaim>();
+    const publishClaims = () => setClaims([...new Map([...byApproval, ...byTreatment]).values()]);
+    const claimsListener = (field: "approvalDate" | "treatedDate", into: Map<string, InsuranceClaim>) =>
+      onSnapshot(
+        query(getClinicCollection(CLAIMS_COLLECTION), where(field, ">=", range.start), where(field, "<=", range.end)),
+        (snap) => {
+          into.clear();
+          for (const d of snap.docs) {
+            const claim = parseClaim(d.id, d.data());
+            if (claim) into.set(claim.id, claim);
+          }
+          publishClaims();
+        },
+        () => {
+          into.clear();
+          publishClaims();
+        },
+      );
+    const unsubClaimsByApproval = claimsListener("approvalDate", byApproval);
+    const unsubClaimsByTreatment = claimsListener("treatedDate", byTreatment);
     return () => {
       unsubStaff();
       unsubPunches();
       unsubLedger();
-      unsubClaims();
+      unsubClaimsByApproval();
+      unsubClaimsByTreatment();
     };
   }, [canAdmin, clinicId, range.start, range.end]);
   const wording = useWording(clinicId);
-  const insuranceWork: Map<string, StaffInsuranceWork> = useMemo(() => insuranceWorkByStaff(claims, wording), [claims, wording]);
+  const insuranceWork: Map<string, StaffInsuranceWork> = useMemo(
+    () => insuranceWorkByStaff(claims, wording, { start: range.start, end: range.end }),
+    [claims, wording, range.start, range.end],
+  );
 
   const staffRecords: StaffRecord[] = useMemo(
     () => staffDocs.map((d) => staffRecordFrom(d.id, d as Record<string, unknown>)),
