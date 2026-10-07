@@ -1066,8 +1066,13 @@ export default function FinancePage() {
                       <tr className="bg-slate-50/90 border-b border-line text-[11px] font-black uppercase tracking-wider text-ink-muted">
                         <th className="text-start py-4 px-6 w-[110px] whitespace-nowrap">{language === "ar" ? "التاريخ" : "Date"}</th>
                         <th className="text-start py-4 px-4 min-w-[200px]">{language === "ar" ? "التفاصيل" : "Details"}</th>
-                        <th className="text-start py-4 px-4 w-[140px]">{language === "ar" ? "المريض" : "Patient"}</th>
-                        <th className="text-start py-4 px-4 w-[160px]">{language === "ar" ? "إضافي" : "Allocations"}</th>
+                        <th className="text-start py-4 px-4 w-[120px]">{language === "ar" ? "المريض" : "Patient"}</th>
+                        <th className="text-start py-4 px-4 w-[130px]">{language === "ar" ? "الطبيب" : "Dentist"}</th>
+                        <th className="text-end py-4 px-3 w-[60px] whitespace-nowrap">%</th>
+                        <th className="text-end py-4 px-3 w-[90px] whitespace-nowrap">{language === "ar" ? "نصيبه" : "Share"}</th>
+                        <th className="text-end py-4 px-3 w-[90px] whitespace-nowrap">{language === "ar" ? "اتدفع" : "Paid"}</th>
+                        <th className="text-end py-4 px-3 w-[90px] whitespace-nowrap">{language === "ar" ? "معلّق" : "Pending"}</th>
+                        <th className="text-end py-4 px-3 w-[100px] whitespace-nowrap">{language === "ar" ? "الصافي" : "Net"}</th>
                         <th className="text-end py-4 px-6 w-[120px] whitespace-nowrap">{language === "ar" ? "المبلغ" : "Amount"}</th>
                         <th className="text-end py-4 px-4 w-[100px] whitespace-nowrap">{language === "ar" ? "إجراءات" : ""}</th>
                       </tr>
@@ -1134,43 +1139,33 @@ export default function FinancePage() {
                                 </span>
                               )}
                             </td>
-                            <td className="py-4 px-4 align-top">
-                              {(() => {
-                                const d = rowDentist(tx);
-                                if (!d && !tx.labFee) return <span className="text-slate-300">—</span>;
-                                return (
-                                  <div className="flex flex-col gap-1">
-                                    {d && (
-                                      <span className="text-[12px] font-bold text-ink leading-snug">
-                                        Dr. {d.name}
-                                        {d.rate != null ? <span className="text-ink-muted"> · {d.rate}%</span> : null}
-                                        {d.share > 0 ? <span className="text-accent-strong"> · {d.share.toLocaleString()}</span> : null}
-                                      </span>
-                                    )}
-                                    {d && d.share > 0 && (
-                                      <span className="flex flex-wrap gap-1">
-                                        <span className="text-[10px] font-bold bg-emerald-50 text-emerald-700 px-2 py-1 rounded-lg border border-emerald-100">
-                                          {language === "ar" ? "اتدفع" : "Paid"} {d.paid.toLocaleString()}
-                                        </span>
-                                        <span className={`text-[10px] font-bold px-2 py-1 rounded-lg border ${d.pending > 0 ? "bg-amber-50 text-amber-700 border-amber-100" : "bg-surface-subtle text-ink-muted border-line"}`}>
-                                          {language === "ar" ? "معلّق" : "Pending"} {d.pending.toLocaleString()}
-                                        </span>
-                                      </span>
-                                    )}
-                                    {tx.labFee ? (
-                                      <span className="text-[10px] font-bold bg-orange-50 text-orange-700 px-2 py-1 rounded-lg border border-orange-100 w-fit">
-                                        Lab {tx.labFee}
-                                      </span>
-                                    ) : null}
+                            {(() => {
+                              const d = rowDentist(tx);
+                              const dash = <span className="text-slate-300">—</span>;
+                              const num = "py-4 px-3 align-top text-end font-semibold tabular-nums";
+                              const hasShare = Boolean(d && d.share > 0);
+                              return (
+                                <>
+                                  <td className="py-4 px-4 align-top">
+                                    {d ? <span className="font-semibold text-ink text-sm">{d.name}</span> : dash}
+                                  </td>
+                                  <td className={`${num} text-ink-muted`}>{d && d.rate != null && hasShare ? `${d.rate}%` : dash}</td>
+                                  <td className={`${num} text-ink`}>{hasShare ? d!.share.toLocaleString() : dash}</td>
+                                  <td className={`${num} text-emerald-700`}>{hasShare ? d!.paid.toLocaleString() : dash}</td>
+                                  <td className={`${num} ${d && d.pending > 0 ? "text-amber-700" : "text-ink-muted"}`}>{hasShare ? d!.pending.toLocaleString() : dash}</td>
+                                  <td className={`${num} text-ink`}>
                                     {!isExpense && (d || tx.labFee) ? (
-                                      <span className="text-[10px] font-bold bg-surface-subtle text-ink px-2 py-1 rounded-lg border border-line w-fit">
-                                        Net {rowNet(tx, d?.paid ?? 0).toLocaleString()}
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                );
-                              })()}
-                            </td>
+                                      <>
+                                        {rowNet(tx, d?.paid ?? 0).toLocaleString()}
+                                        {tx.labFee ? <span className="block text-[10px] font-bold text-orange-700">Lab −{tx.labFee}</span> : null}
+                                      </>
+                                    ) : (
+                                      dash
+                                    )}
+                                  </td>
+                                </>
+                              );
+                            })()}
                             <td className="py-4 px-6 align-top text-end">
                               <span
                                 className={`font-black text-base tabular-nums ${isExpense ? "text-red-600" : "text-emerald-600"}`}
