@@ -1068,12 +1068,12 @@ export default function FinancePage() {
                         <th className="text-start py-4 px-4 min-w-[200px]">{language === "ar" ? "التفاصيل" : "Details"}</th>
                         <th className="text-start py-4 px-4 w-[120px]">{language === "ar" ? "المريض" : "Patient"}</th>
                         <th className="text-start py-4 px-4 w-[130px]">{language === "ar" ? "الطبيب" : "Dentist"}</th>
-                        <th className="text-end py-4 px-3 w-[60px] whitespace-nowrap">%</th>
-                        <th className="text-end py-4 px-3 w-[90px] whitespace-nowrap">{language === "ar" ? "نصيبه" : "Share"}</th>
-                        <th className="text-end py-4 px-3 w-[90px] whitespace-nowrap">{language === "ar" ? "اتدفع" : "Paid"}</th>
-                        <th className="text-end py-4 px-3 w-[90px] whitespace-nowrap">{language === "ar" ? "معلّق" : "Pending"}</th>
-                        <th className="text-end py-4 px-3 w-[100px] whitespace-nowrap">{language === "ar" ? "الصافي" : "Net"}</th>
-                        <th className="text-end py-4 px-6 w-[120px] whitespace-nowrap">{language === "ar" ? "المبلغ" : "Amount"}</th>
+                        <th className="text-end py-4 px-3 w-[80px] whitespace-nowrap">{language === "ar" ? "نسبة الطبيب" : "Dentist %"}</th>
+                        <th className="text-end py-4 px-3 w-[110px] whitespace-nowrap">{language === "ar" ? "عمولة الطبيب" : "Dentist commission"}</th>
+                        <th className="text-end py-4 px-3 w-[110px] whitespace-nowrap">{language === "ar" ? "عمولة اتدفعت" : "Paid commission"}</th>
+                        <th className="text-end py-4 px-3 w-[120px] whitespace-nowrap">{language === "ar" ? "عمولة معلّقة" : "Pending commission"}</th>
+                        <th className="text-end py-4 px-3 w-[110px] whitespace-nowrap">{language === "ar" ? "صافي العيادة" : "Clinic net"}</th>
+                        <th className="text-end py-4 px-6 w-[120px] whitespace-nowrap">{language === "ar" ? "المبلغ المدفوع" : "Amount paid"}</th>
                         <th className="text-end py-4 px-4 w-[100px] whitespace-nowrap">{language === "ar" ? "إجراءات" : ""}</th>
                       </tr>
                     </thead>
