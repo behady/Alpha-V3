@@ -18,11 +18,15 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { MoneyApiError, createLedgerEntry, deleteLedgerRow, updateLedgerRow } from "@/lib/moneyApi";
+import { CLAIMS_COLLECTION, parseClaim, type InsuranceClaim } from "@/lib/insurance/claims";
+import { insuranceWorkByStaff } from "@/lib/staffInsurance";
 
 const ITEMS_PER_PAGE = 15;
 
 interface Transaction {
   id: string; type: 'payment' | 'expense' | 'income' | 'procedure'; description: string; amount?: number; paid?: number; cost?: number; date: string; category?: string; patientName?: string; patientId?: string; doctor?: string; method?: string; isRecurring?: boolean; val: number; doctorName?: string | null; doctorCommissionAmount?: number; labFee?: number; clinicProfit?: number;
+  /** Set on the Salary expense a staff payout writes from the Team page. */
+  settlementId?: string | null;
   discountAmount?: number;
   /** True when this row is a treatment plan / AR line with no cash collected on the row (shown for reference only). */
   isAccountsReceivableOnly?: boolean;
@@ -63,6 +67,11 @@ export default function FinancePage() {
   const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
   /** Treatment charges raised in the period. Not cash — used only for the discount figures. */
   const [periodProcedures, setPeriodProcedures] = useState<Record<string, unknown>[]>([]);
+  /**
+   * The dentists' share on insurance work treated in the period. It is stamped on the approval's
+   * line, not on the insurer's payment row, so the ledger alone would show it as nothing owed.
+   */
+  const [insuranceShares, setInsuranceShares] = useState(0);
   const [filterType, setFilterType] = useState<'all' | 'income' | 'expense'>('all');
   const [filterDoctor, setFilterDoctor] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState("");
@@ -188,11 +197,25 @@ export default function FinancePage() {
         setIsLoading(false);
       }
     );
-    return () => unsub();
+    const unsubClaims = onSnapshot(
+      query(getClinicCollection(CLAIMS_COLLECTION), where("treatedDate", ">=", startDateStr), where("treatedDate", "<=", endDateStr)),
+      (snap) => {
+        const claims = snap.docs.map((d) => parseClaim(d.id, d.data())).filter((c): c is InsuranceClaim => c !== null);
+        let total = 0;
+        for (const work of insuranceWorkByStaff(claims, {}, { start: startDateStr, end: endDateStr }).values()) total += work.total;
+        setInsuranceShares(Math.round(total * 100) / 100);
+      },
+      () => setInsuranceShares(0),
+    );
+    return () => {
+      unsub();
+      unsubClaims();
+    };
   }, [dateRange, timeView, customStartDate, customEndDate, showToast]);
 
   const { kpiStats, availableDoctors } = useMemo(() => {
       let grossIncome = 0; let totalCommissions = 0; let totalLabFees = 0; let explicitExpenses = 0; let netClinicProfit = 0;
+      let staffPay = 0;
       let totalProcedureDiscounts = 0;
       const docsList = new Set<string>();
 
@@ -203,6 +226,7 @@ export default function FinancePage() {
 
           if (t.type === 'expense') {
             explicitExpenses += t.val;
+            if (t.settlementId) staffPay += t.val;
             return;
           }
 
@@ -236,8 +260,12 @@ export default function FinancePage() {
       // Commission is what the clinic OWES its dentists; the cash leaves when the owner pays them
       // from the Team page, and that payout is a Salary expense already inside explicitExpenses.
       // So the net takes lab fees and expenses off the cash, never the commission as well.
-      return { availableDoctors: Array.from(docsList), kpiStats: { grossIncome, totalCommissions, totalLabFees, explicitExpenses, netClinicProfit, totalProcedureDiscounts, finalNet: grossIncome - totalLabFees - explicitExpenses } };
-  }, [allTransactions, periodProcedures, filterDoctor]);
+      // Pending = earned by the dentists this period (private commission + insurance shares) and
+      // not yet handed over. Paid is what left (the Team page's payouts), and that part is
+      // deducted; the rest only waits.
+      const commissionsPending = Math.max(0, totalCommissions + (filterDoctor === 'all' ? insuranceShares : 0) - staffPay);
+      return { availableDoctors: Array.from(docsList), kpiStats: { grossIncome, totalCommissions, totalLabFees, explicitExpenses, staffPay, commissionsPending, netClinicProfit, totalProcedureDiscounts, finalNet: grossIncome - totalLabFees - explicitExpenses } };
+  }, [allTransactions, periodProcedures, filterDoctor, insuranceShares]);
 
   /**
    * What the clinic gave away in this period, and why.
@@ -385,6 +413,8 @@ export default function FinancePage() {
       const totalExpenses = expenseList.reduce((s, t) => s + t.val, 0);
       const totalCommissions = commissionList.reduce((s, t) => s + (t.doctorCommissionAmount || 0), 0);
       const totalLab = incomeList.reduce((s, t) => s + (t.labFee || 0), 0);
+      const staffPaid = expenseList.filter((t) => t.settlementId).reduce((s, t) => s + t.val, 0);
+      const commissionsPending = Math.max(0, totalCommissions - staffPaid);
       // Commission is owed, not paid out: it comes off as a Salary expense when the owner pays.
       const netProfit = totalIncome - totalExpenses - totalLab;
 
@@ -401,8 +431,9 @@ export default function FinancePage() {
               <div style="font-size: 18px; font-weight: 800; color: #dc2626;">-${totalExpenses.toLocaleString()} EGP</div>
             </div>
             <div style="flex: 1; min-width: 120px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
-              <div style="font-size: 11px; color: #64748b; font-weight: 700; margin-bottom: 4px;">${language === 'ar' ? 'نِسَب الأطباء المستحقة' : 'Commissions owed'}</div>
-              <div style="font-size: 18px; font-weight: 800; color: #d97706;">${totalCommissions.toLocaleString()} EGP</div>
+              <div style="font-size: 11px; color: #64748b; font-weight: 700; margin-bottom: 4px;">${language === 'ar' ? 'نِسَب الأطباء — معلّقة' : 'Commissions pending'}</div>
+              <div style="font-size: 18px; font-weight: 800; color: #d97706;">${commissionsPending.toLocaleString()} EGP</div>
+              <div style="font-size: 11px; color: #64748b; margin-top: 4px;">${language === 'ar' ? 'اتدفع للفريق' : 'Paid to staff'}: -${staffPaid.toLocaleString()} EGP</div>
             </div>
             <div style="flex: 1; min-width: 120px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
               <div style="font-size: 11px; color: #64748b; font-weight: 700; margin-bottom: 4px;">${language === 'ar' ? 'صافي الربح' : 'Net Profit'}</div>
@@ -646,9 +677,21 @@ export default function FinancePage() {
                     </dd>
                   </div>
                   <div className="flex justify-between gap-4">
-                    <dt className="text-slate-400 font-semibold">{language === "ar" ? "مصروفات" : "Expenses"}</dt>
+                    <dt className="text-slate-400 font-semibold">{language === "ar" ? "اتدفع للفريق" : "Paid to staff"}</dt>
                     <dd className="font-black tabular-nums text-red-300">
-                      −{isLoading ? "—" : formatCurrency(kpiStats.explicitExpenses)}
+                      −{isLoading ? "—" : formatCurrency(kpiStats.staffPay)}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-slate-400 font-semibold">{language === "ar" ? "مصروفات تانية" : "Other expenses"}</dt>
+                    <dd className="font-black tabular-nums text-red-300">
+                      −{isLoading ? "—" : formatCurrency(kpiStats.explicitExpenses - kpiStats.staffPay)}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-slate-400 font-semibold">{language === "ar" ? "نِسَب معلّقة (مش مخصومة)" : "Commissions pending (not deducted)"}</dt>
+                    <dd className="font-black tabular-nums text-slate-300">
+                      {isLoading ? "—" : formatCurrency(kpiStats.commissionsPending)}
                     </dd>
                   </div>
                 </dl>
@@ -696,8 +739,8 @@ export default function FinancePage() {
               <div className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "نِسَب الأطباء المستحقة" : "Commissions owed"}</p>
-                    <p className="text-xs text-ink-muted mt-1 font-medium">{language === "ar" ? "بتتخصم لما تتدفع من صفحة الفريق" : "Come off when paid from the Team page"}</p>
+                    <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "نِسَب الأطباء — معلّقة" : "Commissions pending"}</p>
+                    <p className="text-xs text-ink-muted mt-1 font-medium">{language === "ar" ? "مش مخصومة لحد ما تتدفع من صفحة الفريق" : "Not deducted until paid from the Team page"}</p>
                   </div>
                   <div className="w-11 h-11 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
                     <Users size={22} />
@@ -707,9 +750,15 @@ export default function FinancePage() {
                   {isLoading ? (
                     <Loader2 className="w-6 h-6 animate-spin text-amber-300" />
                   ) : (
-                    formatCurrency(kpiStats.totalCommissions)
+                    formatCurrency(kpiStats.commissionsPending)
                   )}
                 </p>
+                {!isLoading && (
+                  <p className="mt-2 text-xs font-bold text-ink-muted">
+                    {language === "ar" ? "اتدفع للفريق" : "Paid to staff"}: <span className="text-red-600">−{formatCurrency(kpiStats.staffPay)}</span>
+                    <span className="font-medium"> · {language === "ar" ? "مخصوم" : "deducted"}</span>
+                  </p>
+                )}
               </div>
               <div className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
