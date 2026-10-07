@@ -16,7 +16,7 @@
  * Destinations that are buttons of their own in the top bar, right after Dashboard, rather than
  * items inside a menu. Dashboard is handled separately (it is always there and always first).
  */
-export const DIRECT_KEYS = ["patients"];
+export const DIRECT_KEYS = ["patients", "team"];
 
 export const SECTION_GROUPS = [
   {
@@ -31,7 +31,7 @@ export const SECTION_GROUPS = [
     titleAr: "المزيد",
     // `store` sits next to `inventory` because that is where someone stands when they notice
     // they have run out of something.
-    keys: ["chats", "appointments", "leads", "inventory", "store", "ortho", "attendance", "team", "intelligence", "marketing"],
+    keys: ["chats", "appointments", "leads", "inventory", "store", "ortho", "attendance", "intelligence", "marketing"],
   },
 ];
 

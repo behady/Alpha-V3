@@ -290,7 +290,7 @@ const STAFF = [
   ok(/"\/team"/.test(read("src/lib/aiNavigation.ts")), "the assistant cannot send anybody to the new page");
   ok(/source: "\/attendance\/team", destination: "\/team"/.test(read("next.config.ts")), "old links to /attendance/team (reports, bookmarks) would land on a 404");
   ok(/key: "team", href: "\/team"/.test(read("src/app/(dashboard)/layout.tsx")), "the team page has no entry in the top menu");
-  ok(/"attendance", "team"/.test(read("src/components/dashboard/navGroups.ts")), "a nav key missing from every group is silently dropped from the menu");
+  ok(/DIRECT_KEYS = \["patients", "team"\]/.test(read("src/components/dashboard/navGroups.ts")), "Team is a button of its own in the top bar (the owner's ask), not an item under More");
   ok(
     /href="\/team"/.test(read("src/app/(dashboard)/attendance/page.tsx")),
     "there is no way into the new page from the screen the owner already uses"

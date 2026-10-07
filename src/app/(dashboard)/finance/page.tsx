@@ -911,7 +911,7 @@ export default function FinancePage() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "مصروفات" : "Expenses"}</p>
-                    <p className="text-xs text-ink-muted mt-1 font-medium">{language === "ar" ? "من غير نِسَب الأطباء" : "Without dentists' commissions"}</p>
+                    <p className="text-xs text-ink-muted mt-1 font-medium">{language === "ar" ? "من غير مرتبات ونِسَب الفريق" : "Without staff pay"}</p>
                   </div>
                   <div className="w-11 h-11 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center shrink-0">
                     <TrendingDown size={22} />
@@ -1129,16 +1129,16 @@ export default function FinancePage() {
                     rows={summary.expenses}
                     total={kpiStats.explicitExpenses - kpiStats.staffPay}
                     empty={language === "ar" ? "مفيش مصروفات متسجلة في الفترة دي." : "No expenses recorded in this period."}
-                    note={language === "ar" ? "من غير نِسَب الأطباء، دي تحت." : "Dentists' commissions are not here; they are below."}
+                    note={language === "ar" ? "من غير اللي اتدفع للفريق، ده تحت." : "Staff pay is not here; it is below."}
                     isAr={language === "ar"}
                   />
                 </div>
                 <div className="rounded-2xl border border-line bg-surface-subtle p-5">
-                  <h3 className="text-[15px] font-extrabold text-ink">{language === "ar" ? "نِسَب الأطباء" : "Dentists' commissions"}</h3>
+                  <h3 className="text-[15px] font-extrabold text-ink">{language === "ar" ? "اللي اتدفع للفريق" : "Paid to staff"}</h3>
                   <p className="mt-1 text-[12.5px] font-medium text-ink-muted">
                     {language === "ar"
-                      ? "اللي اتدفع للطبيب بيتخصم من الصافي. المعلّق لسه مش مخصوم لحد ما يتدفع من صفحة الفريق."
-                      : "What was paid to a dentist comes off the net. Pending is not deducted until it is paid from the Team page."}
+                      ? "مرتبات ونِسَب اتدفعت من صفحة الفريق، وبتتخصم من الصافي. نِسَب الأطباء المعلّقة مش مخصومة لحد ما تتدفع."
+                      : "Salaries and commissions paid from the Team page; they come off the net. Dentists' pending commissions are not deducted until paid."}
                   </p>
                   <dl className="mt-4 space-y-2 text-[14px]">
                     {summary.staffPay.map((r) => (
@@ -1148,7 +1148,7 @@ export default function FinancePage() {
                       </div>
                     ))}
                     <div className="flex justify-between gap-4 border-t border-line pt-2">
-                      <dt className="font-bold text-ink">{language === "ar" ? "إجمالي المدفوع للأطباء (مخصوم)" : "Total paid to dentists (deducted)"}</dt>
+                      <dt className="font-bold text-ink">{language === "ar" ? "إجمالي المدفوع للفريق (مخصوم)" : "Total paid to staff (deducted)"}</dt>
                       <dd className="font-black tabular-nums text-red-600">−{formatCurrency(kpiStats.staffPay)}</dd>
                     </div>
                     <div className="flex justify-between gap-4">
@@ -1163,7 +1163,7 @@ export default function FinancePage() {
                     <div className="flex justify-between gap-4"><dt className="text-white/70 font-semibold">{language === "ar" ? "مصاريف المعمل" : "Lab fees"}</dt><dd className="font-black tabular-nums text-red-300">−{formatCurrency(kpiStats.totalLabFees)}</dd></div>
                   )}
                   <div className="flex justify-between gap-4"><dt className="text-white/70 font-semibold">{language === "ar" ? "المصروفات" : "Expenses"}</dt><dd className="font-black tabular-nums text-red-300">−{formatCurrency(kpiStats.explicitExpenses - kpiStats.staffPay)}</dd></div>
-                  <div className="flex justify-between gap-4"><dt className="text-white/70 font-semibold">{language === "ar" ? "نِسَب اتدفعت للأطباء" : "Commissions paid to dentists"}</dt><dd className="font-black tabular-nums text-red-300">−{formatCurrency(kpiStats.staffPay)}</dd></div>
+                  <div className="flex justify-between gap-4"><dt className="text-white/70 font-semibold">{language === "ar" ? "اللي اتدفع للفريق" : "Paid to staff"}</dt><dd className="font-black tabular-nums text-red-300">−{formatCurrency(kpiStats.staffPay)}</dd></div>
                   <div className="flex justify-between gap-4 border-t border-white/15 pt-3"><dt className="text-[16px] font-extrabold">{language === "ar" ? "الصافي" : "Net"}</dt><dd className={`text-[22px] font-black tabular-nums ${kpiStats.finalNet >= 0 ? "text-white" : "text-red-400"}`}>{formatCurrency(kpiStats.finalNet)}</dd></div>
                 </dl>
               </div>

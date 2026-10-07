@@ -248,7 +248,9 @@ function TeamPage() {
   // ledger rows stamped with their id, treated/sent claims (the dentist map cannot be queried),
   // and their settlements. `loaded` counts the listeners that have answered, so the profile can
   // tell "nothing paid yet" from "still loading".
-  const historyStaffId = selectedDoc && isDentistStaff(selectedDoc as Parameters<typeof isDentistStaff>[0]) ? selectedDoc.id : "";
+  // Everyone can be paid, not only dentists: a receptionist's payouts are the same record, with
+  // no earnings to pour them over.
+  const historyStaffId = selectedDoc?.id ?? "";
   useEffect(() => {
     if (!canAdmin || !clinicId || !historyStaffId) {
       setHistory(null);

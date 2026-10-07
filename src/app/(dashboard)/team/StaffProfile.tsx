@@ -288,7 +288,12 @@ export default function StaffProfile({
   const basePay = row?.estimatedPay ?? 0;
   // With the settlements loaded, what is owed is the whole history's earnings less what was paid —
   // not just this period's work, or last month's unpaid share would vanish on the first of the month.
-  const total = basePay + (settlement ? settlement.owed : commission.total + insurance.total);
+  // A dentist is owed their commission history less what was paid, plus this period's base pay.
+  // Anyone else is owed this period's base pay less what was paid in it — and with no salary set
+  // the payouts are simply recorded, not held against a figure nobody typed.
+  const total = dentist
+    ? basePay + (settlement ? settlement.owed : commission.total + insurance.total)
+    : Math.max(0, basePay - (settlement?.paidInPeriod ?? 0) - (settlement?.deductedInPeriod ?? 0));
   /** The settled part of one earning line, for the Paid column. */
   const settledOf = (key: string): EarningSettled | null => settlement?.byKey.get(key) ?? null;
   const daysWorked = row?.daysWorked ?? 0;
@@ -387,17 +392,20 @@ export default function StaffProfile({
     { v: money(basePay), l: isAr ? "المرتب" : "Base pay" },
     ...(dentist ? [{ v: money(commission.total), l: isAr ? "العمولة" : "Commission" }] : []),
     ...(dentist && insurance.total > 0 ? [{ v: money(insurance.total), l: isAr ? "نصيب التأمين" : "Insurance share" }] : []),
-    ...(dentist && settlement ? [{ v: money(settlement.paidInPeriod), l: isAr ? "اتدفع له" : "Paid out" }] : []),
-    ...(dentist && settlement && settlement.deductedInPeriod > 0 ? [{ v: money(settlement.deductedInPeriod), l: isAr ? "اتخصم منه" : "Deducted" }] : []),
+    ...(settlement ? [{ v: money(settlement.paidInPeriod), l: isAr ? "اتدفع له" : "Paid out" }] : []),
+    ...(settlement && settlement.deductedInPeriod > 0 ? [{ v: money(settlement.deductedInPeriod), l: isAr ? "اتخصم منه" : "Deducted" }] : []),
   ];
-  const owedNote =
-    dentist && settlement
+  const owedNote = !settlement
+    ? ""
+    : dentist
       ? settlement.owed < 0
         ? isAr ? `مدفوع مقدّم ${money(-settlement.owed)}` : `Paid ahead by ${money(-settlement.owed)}`
         : settlement.owedBefore > 0
           ? isAr ? `منها ${money(settlement.owedBefore)} من قبل الفترة دي` : `incl. ${money(settlement.owedBefore)} from before this period`
           : ""
-      : "";
+      : basePay === 0 && settlement.paidInPeriod > 0
+        ? isAr ? "مفيش مرتب متسجل؛ الدفعات بتتسجل بس" : "No salary set; payouts are just recorded"
+        : "";
 
   return (
     <div className="space-y-5">
@@ -814,7 +822,7 @@ export default function StaffProfile({
       )}
 
       {/* --- what was paid to them, and what was held back ------------------------------------ */}
-      {dentist && (
+      {(
         <Section
           title={isAr ? `اللي اتدفع لـ ${first}` : `Paid to ${first}`}
           action={
@@ -830,9 +838,13 @@ export default function StaffProfile({
             ) : undefined
           }
           note={
-            isAr
-              ? "كل دفعة بتتحسب على أقدم شغل لسه ماتدفعش. الدفعة بتتسجل كمان في المالية كمصروف مرتبات؛ الخصم بيقلّل المستحق بس."
-              : "Every payout is applied to the oldest unpaid work first. A payout is also written on the Finance page as a Salary expense; a deduction only lowers what is owed."
+            dentist
+              ? isAr
+                ? "كل دفعة بتتحسب على أقدم شغل لسه ماتدفعش. الدفعة بتتسجل كمان في المالية كمصروف مرتبات؛ الخصم بيقلّل المستحق بس."
+                : "Every payout is applied to the oldest unpaid work first. A payout is also written on the Finance page as a Salary expense; a deduction only lowers what is owed."
+              : isAr
+                ? "سجّل اللي اتدفع له، حتى من غير ما تحدد مرتب. الدفعة بتتسجل كمان في المالية كمصروف مرتبات؛ الخصم بيقلّل المستحق بس."
+                : "Record what was paid, with or without a salary set. A payout is also written on the Finance page as a Salary expense; a deduction only lowers what is owed."
           }
         >
           {settleForm && (
