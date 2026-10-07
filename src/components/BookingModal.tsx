@@ -1920,7 +1920,10 @@ servicesList.length > 0 && (
               <>
                 {panelHead(isAr ? "الخدمة" : "Service", false)}
                 {editAppointment ? (
-                  <AppointmentMoneyTab key={`svc-${editAppointment.id}`} appointment={editAppointment} section="service" doctorsList={doctors} servicesList={servicesList} />
+                  // A treatment added here belongs to the dentist on screen now, not the one the visit
+                  // was opened with: change the dentist on the Appointment tab, add a treatment, and
+                  // it follows the new dentist even before Save changes.
+                  <AppointmentMoneyTab key={`svc-${editAppointment.id}`} appointment={{ ...editAppointment, doctorId: resolvedDoctorId }} section="service" doctorsList={doctors} servicesList={servicesList} />
                 ) : servicesList.length > 0 ? (
                   <div className="mt-4 overflow-hidden rounded-2xl border border-line [&>div]:border-t-0 [&>div]:pt-6">{addProcedureSection}</div>
                 ) : (
