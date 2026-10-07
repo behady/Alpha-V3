@@ -13,6 +13,7 @@ import { logActivity } from "@/lib/logger";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { LOCATIONS_DOC, parseClinicBranches, type ClinicBranch } from "@/lib/clinicLocations";
 import { onSnapshot } from "firebase/firestore";
+import { cairo } from "@/lib/fonts/arabic";
 import {
   DEFAULT_COUNTRY_CODE,
   COUNTRY_CODE_OPTIONS,
@@ -226,49 +227,48 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
   const shell = asDrawer
     ? "fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex justify-end animate-in fade-in duration-200"
     : "fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in";
+  const face = `${cairo.variable} ${language === "ar" ? "booking-popup-ar" : ""} text-[15px] text-ink antialiased`;
   const panel = asDrawer
-    ? `bg-white w-full sm:max-w-lg h-full shadow-2xl border-s border-gray-100 flex flex-col animate-in duration-300 ${language === "ar" ? "slide-in-from-left" : "slide-in-from-right"}`
-    : "bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden border border-gray-100 flex flex-col max-h-[90vh]";
+    ? `${face} bg-surface w-full sm:max-w-xl h-full shadow-2xl border-s border-line flex flex-col animate-in duration-300 ${language === "ar" ? "slide-in-from-left" : "slide-in-from-right"}`
+    : `${face} bg-surface w-full max-w-2xl rounded-[22px] shadow-[0_32px_90px_-24px_rgba(0,0,0,0.6)] ring-1 ring-black/10 overflow-hidden flex flex-col max-h-[92vh]`;
 
   return (
     <div className={shell}>
       <div className={panel}>
 
         {/* HEADER */}
-        <div className="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-          <div className="flex items-center gap-3">
-             <div className="bg-primary-50 p-2.5 rounded-xl border border-primary-100">
-                <UserPlus className="text-primary-600" size={24}/>
+        <div className="flex items-center justify-between gap-4 bg-ink-slab px-7 py-6 text-white">
+          <div className="flex items-center gap-4 min-w-0">
+             <div className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-white/12 ring-1 ring-white/15">
+                <UserPlus size={24} className="text-white/85"/>
              </div>
-             <div>
-                <h3 className="font-black text-xl text-gray-900 leading-none">{t('addPatient')}</h3>
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">
-                    {t("newPatientAutoFile")}
-                </p>
+             <div className="min-w-0">
+                <h3 className="font-figure text-2xl font-semibold leading-tight">{t('addPatient')}</h3>
+                <p className="mt-1 text-sm text-white/70">{t("newPatientAutoFile")}</p>
              </div>
           </div>
-          <button onClick={onClose} className="p-2 bg-surface hover:bg-red-50 border border-gray-100 rounded-full text-gray-400 hover:text-red-500 transition-colors shadow-sm"><X size={18}/></button>
+          <button type="button" onClick={onClose} aria-label={language === 'ar' ? 'إغلاق' : 'Close'} className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white/10 text-white/80 transition-colors hover:bg-white/20 hover:text-white"><X size={20}/></button>
         </div>
 
         {/* FORM BODY */}
-        <form onSubmit={handleSubmit} className="p-8 space-y-5 overflow-y-auto custom-scrollbar flex-1 min-h-0">
+        <form onSubmit={handleSubmit} className="p-7 space-y-5 overflow-y-auto custom-scrollbar flex-1 min-h-0">
            
            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block"><User size={12} className="inline mb-0.5 me-1"/>{t("patientName")}</label>
-                 <input autoFocus required data-tour="new-patient-name" value={name} onChange={e => setName(e.target.value)} className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold text-gray-900 outline-none focus:border-primary-500 transition-colors" placeholder={t("patientNamePlaceholder")}/>
+                 <label className="mb-1.5 block text-[14px] font-semibold text-ink-body"><User size={14} className="inline mb-0.5 me-1.5 text-ink-muted"/>{t("patientName")}</label>
+                 <input autoFocus required data-tour="new-patient-name" value={name} onChange={e => setName(e.target.value)} className="w-full px-4 py-3 border border-line rounded-xl text-[16px] font-semibold text-ink outline-none focus:border-accent transition-colors" placeholder={t("patientNamePlaceholder")}/>
               </div>
               
               <div className="relative">
-                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block flex items-center justify-between">
-                    <span><Phone size={12} className="inline mb-0.5 me-1"/>{t("phone")}</span>
+                 <label className="mb-1.5 flex items-center justify-between text-[14px] font-semibold text-ink-body">
+                    <span><Phone size={14} className="inline mb-0.5 me-1.5 text-ink-muted"/>{t("phone")}</span>
                     {isCheckingPhone && <Loader2 size={12} className="animate-spin text-primary-500" />}
                  </label>
                  <div className="flex gap-2">
                     <select
                       value={countryCode}
                       onChange={(e) => setCountryCode(e.target.value)}
-                      className="w-[42%] p-3 border-2 border-gray-100 rounded-xl font-bold text-gray-900 outline-none focus:border-primary-500 bg-surface"
+                      className="w-[42%] px-4 py-3 border border-line rounded-xl text-[16px] font-semibold text-ink outline-none focus:border-accent bg-surface"
                     >
                       {COUNTRY_CODE_OPTIONS.map((opt) => (
                         <option key={opt.code} value={opt.code}>
@@ -280,7 +280,7 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
                       required data-tour="new-patient-phone"
                       value={phone}
                       onChange={e => setPhone(e.target.value)}
-                      className={`w-[58%] p-3 border-2 rounded-xl font-bold text-gray-900 outline-none transition-colors ${duplicateWarning ? 'border-amber-300 bg-amber-50 focus:border-amber-500' : 'border-gray-100 focus:border-primary-500'}`}
+                      className={`w-[58%] px-4 py-3 border rounded-xl text-[16px] font-semibold text-ink outline-none transition-colors ${duplicateWarning ? 'border-amber-300 bg-amber-50 focus:border-amber-500' : 'border-line bg-surface focus:border-accent'}`}
                       placeholder={t("patientPhonePlaceholder")}
                     />
                  </div>
@@ -293,10 +293,10 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
                  <div className="flex items-start gap-3">
                      <AlertTriangle size={18} className="text-amber-500 shrink-0 mt-0.5" />
                      <div>
-                        <p className="text-xs font-black text-amber-900 uppercase">
+                        <p className="text-[14px] font-bold text-amber-900">
                             {language === 'ar' ? 'تنبيه: رقم الهاتف مسجل بالفعل' : 'Notice: Phone Number Already in Use'}
                         </p>
-                        <p className="text-[11px] font-bold text-amber-700 mt-1">
+                        <p className="text-[13px] font-semibold text-amber-800 mt-1">
                             {language === 'ar' ? 'هذا الرقم مسجل مسبقاً باسم:' : 'This number belongs to:'} <span className="font-black">{duplicateWarning.name}</span> (ID: {duplicateWarning.fileId || 'N/A'})
                         </p>
                      </div>
@@ -310,7 +310,7 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
                         onChange={(e) => setAllowDuplicatePhone(e.target.checked)}
                         className="mt-0.5 w-4 h-4 text-primary-600 rounded border-gray-300 focus:ring-primary-500 cursor-pointer"
                      />
-                     <label htmlFor="allowDuplicate" className="text-[11px] font-bold text-amber-900 cursor-pointer select-none leading-tight">
+                     <label htmlFor="allowDuplicate" className="text-[13px] font-semibold text-amber-900 cursor-pointer select-none leading-snug">
                          {language === 'ar' 
                             ? 'نعم، أريد إنشاء ملف منفصل بنفس الرقم (مثال: أفراد العائلة)' 
                             : 'Yes, create a separate profile with this shared number (e.g., family member)'}
@@ -320,20 +320,20 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
            )}
 
            <div>
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block"><MapPin size={12} className="inline mb-0.5 me-1"/>{t("address")}</label>
-              <input value={address} onChange={e => setAddress(e.target.value)} className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold text-gray-900 outline-none focus:border-primary-500 transition-colors" placeholder={t("patientAddressPlaceholder")}/>
+              <label className="mb-1.5 block text-[14px] font-semibold text-ink-body"><MapPin size={14} className="inline mb-0.5 me-1.5 text-ink-muted"/>{t("address")}</label>
+              <input value={address} onChange={e => setAddress(e.target.value)} className="w-full px-4 py-3 border border-line rounded-xl text-[16px] font-semibold text-ink outline-none focus:border-accent transition-colors" placeholder={t("patientAddressPlaceholder")}/>
            </div>
 
            <div className="grid grid-cols-2 gap-4">
               <div>
-                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block"><Calendar size={12} className="inline mb-0.5 me-1"/>{t("patientBirthDate")}</label>
-                 <input type="date" value={dob} onChange={e => setDob(e.target.value)} className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold text-gray-900 outline-none focus:border-primary-500 uppercase text-sm transition-colors cursor-pointer"/>
+                 <label className="mb-1.5 block text-[14px] font-semibold text-ink-body"><Calendar size={14} className="inline mb-0.5 me-1.5 text-ink-muted"/>{t("patientBirthDate")}</label>
+                 <input type="date" value={dob} onChange={e => setDob(e.target.value)} className="w-full px-4 py-3 border border-line rounded-xl text-[16px] font-semibold text-ink outline-none focus:border-accent uppercase text-sm transition-colors cursor-pointer"/>
               </div>
               <div>
-                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">{t("gender")}</label>
-                 <div className="flex bg-gray-50 p-1.5 rounded-xl border border-gray-100 h-[48px]">
-                    <button type="button" onClick={() => setGender('Male')} className={`flex-1 text-xs font-black uppercase rounded-lg transition-all ${gender === 'Male' ? 'bg-surface text-blue-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-gray-600'}`}>{t("male")}</button>
-                    <button type="button" onClick={() => setGender('Female')} className={`flex-1 text-xs font-black uppercase rounded-lg transition-all ${gender === 'Female' ? 'bg-surface text-pink-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-gray-600'}`}>{t("female")}</button>
+                 <label className="mb-1.5 block text-[14px] font-semibold text-ink-body">{t("gender")}</label>
+                 <div className="flex bg-surface-muted p-1 rounded-xl border border-line h-[50px]">
+                    <button type="button" onClick={() => setGender('Male')} className={`flex-1 text-[15px] font-bold rounded-lg transition-all ${gender === 'Male' ? 'bg-surface text-ink shadow-sm border border-line' : 'text-ink-muted hover:text-ink'}`}>{t("male")}</button>
+                    <button type="button" onClick={() => setGender('Female')} className={`flex-1 text-[15px] font-bold rounded-lg transition-all ${gender === 'Female' ? 'bg-surface text-ink shadow-sm border border-line' : 'text-ink-muted hover:text-ink'}`}>{t("female")}</button>
                  </div>
               </div>
            </div>
@@ -341,55 +341,55 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
            {/* Only asked of a clinic that actually has branches. */}
            {branches.length > 1 && (
              <div className="relative">
-                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">
+                <label className="mb-1.5 block text-[14px] font-semibold text-ink-body">
                    {language === 'ar' ? 'الفرع' : 'Branch'}
                 </label>
                 <select
                    value={branchId}
                    onChange={e => setBranchId(e.target.value)}
-                   className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold text-gray-900 outline-none focus:border-primary-500 bg-surface appearance-none cursor-pointer transition-colors"
+                   className="w-full px-4 py-3 border border-line rounded-xl text-[16px] font-semibold text-ink outline-none focus:border-accent bg-surface appearance-none cursor-pointer transition-colors"
                 >
                    <option value="">{language === 'ar' ? 'بدون فرع محدد' : 'No branch'}</option>
                    {branches.map((b) => (
                      <option key={b.id} value={b.id}>{b.name}</option>
                    ))}
                 </select>
-                <ChevronDown size={14} className="absolute end-4 top-9 text-gray-400 pointer-events-none"/>
+                <ChevronDown size={16} className="absolute end-4 top-[46px] text-ink-muted pointer-events-none"/>
              </div>
            )}
 
            <div className="relative">
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">{t("referralSource")}</label>
-              <select value={referral} onChange={e => setReferral(e.target.value)} className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold text-gray-900 outline-none focus:border-primary-500 bg-surface appearance-none cursor-pointer transition-colors">
+              <label className="mb-1.5 block text-[14px] font-semibold text-ink-body">{t("referralSource")}</label>
+              <select value={referral} onChange={e => setReferral(e.target.value)} className="w-full px-4 py-3 border border-line rounded-xl text-[16px] font-semibold text-ink outline-none focus:border-accent bg-surface appearance-none cursor-pointer transition-colors">
                  <option value="">{t("selectReferralSource")}</option>
                  {sourcesOptions.map((src) => (
                    <option key={src} value={src}>{src}</option>
                  ))}
               </select>
-              <ChevronDown size={14} className="absolute end-4 top-9 text-gray-400 pointer-events-none"/>
+              <ChevronDown size={16} className="absolute end-4 top-[46px] text-ink-muted pointer-events-none"/>
            </div>
 
            <div>
-              <label className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-1 block">
+              <label className="mb-1.5 block text-[14px] font-semibold text-danger">
                  {language === 'ar' ? 'الحساسية' : 'Allergies'}
               </label>
               <input
                  value={allergies}
                  onChange={e => setAllergies(e.target.value)}
                  placeholder={language === 'ar' ? 'مثال: بنسلين — اتركه فارغاً إن لم يُسأل' : 'e.g. Penicillin — leave blank if not asked'}
-                 className="w-full p-3 border-2 border-rose-100 rounded-xl font-bold text-rose-900 outline-none focus:border-rose-400 bg-rose-50/40 transition-colors placeholder:font-medium placeholder:text-rose-300"
+                 className="w-full px-4 py-3 border border-danger/30 rounded-xl text-[16px] font-semibold text-ink outline-none focus:border-danger bg-danger-tint/40 transition-colors placeholder:font-medium placeholder:text-ink-faint"
               />
            </div>
 
            <div>
-              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">
+              <label className="mb-1.5 block text-[14px] font-semibold text-ink-body">
                  {language === 'ar' ? 'التاريخ الطبي' : 'Medical history'}
               </label>
               <input
                  value={medicalHistory}
                  onChange={e => setMedicalHistory(e.target.value)}
                  placeholder={language === 'ar' ? 'مثال: سكري، ضغط — اتركه فارغاً إن لم يُسأل' : 'e.g. Diabetes, hypertension — leave blank if not asked'}
-                 className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold text-gray-900 outline-none focus:border-primary-500 bg-surface transition-colors placeholder:font-medium placeholder:text-gray-300"
+                 className="w-full px-4 py-3 border border-line rounded-xl text-[16px] font-semibold text-ink outline-none focus:border-accent bg-surface transition-colors placeholder:font-medium placeholder:text-ink-faint"
               />
            </div>
 
@@ -398,7 +398,7 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
                <button 
                  type="submit" 
                  disabled={loading || (!!duplicateWarning && !allowDuplicatePhone)} data-tour="new-patient-save" 
-                 className="w-full bg-primary-600 text-white py-4 rounded-xl font-black text-sm uppercase tracking-widest shadow-lg shadow-primary-200 hover:bg-primary-700 active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
+                 className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-accent px-7 text-[15px] font-bold text-ink-on-accent shadow-sm transition-colors hover:bg-accent-strong disabled:opacity-40 disabled:cursor-not-allowed"
                >
                  {loading ? <Loader2 size={18} className="animate-spin"/> : <Save size={18}/>} 
                  {loading ? t("saving") : t("createPatientFile")}

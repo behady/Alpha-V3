@@ -77,6 +77,7 @@ export default function AppointmentMoneyTab({
   servicesList = [],
   onQuickPay,
   section = "all",
+  scope = "visit",
 }: {
   appointment: any;
   doctorsList?: any[];
@@ -87,6 +88,12 @@ export default function AppointmentMoneyTab({
    * money on its Payment tab — while the side panel keeps everything on one ("all").
    */
   section?: "all" | "service" | "payment";
+  /**
+   * "visit" (the default) lists this appointment's treatments and keeps the rest under "older";
+   * "patient" (the Quick Pay popup, which has no visit) lists everything the patient owes as one
+   * list, and the payment it takes belongs to no appointment.
+   */
+  scope?: "visit" | "patient";
 }) {
   const { language } = useLanguage();
   const { showToast, confirm } = useUI();
@@ -346,19 +353,20 @@ export default function AppointmentMoneyTab({
     () => new Set(notes.filter((n) => n.appointmentId === appointmentId).map((n) => n.id)),
     [notes, appointmentId]
   );
+  const patientWide = scope === "patient";
   const visitCharges = useMemo(
-    () => charges.filter((c) => c.clinicalNoteId && visitNoteIds.has(c.clinicalNoteId)),
-    [charges, visitNoteIds]
+    () => (patientWide ? [...charges].reverse() : charges.filter((c) => c.clinicalNoteId && visitNoteIds.has(c.clinicalNoteId))),
+    [charges, visitNoteIds, patientWide]
   );
   const olderCharges = useMemo(
-    () => charges.filter((c) => !(c.clinicalNoteId && visitNoteIds.has(c.clinicalNoteId))).reverse(),
-    [charges, visitNoteIds]
+    () => (patientWide ? [] : charges.filter((c) => !(c.clinicalNoteId && visitNoteIds.has(c.clinicalNoteId))).reverse()),
+    [charges, visitNoteIds, patientWide]
   );
 
   /** Treatments the dentist recorded on this visit that were never billed. */
   const unbilledNotes = useMemo(
-    () => notes.filter((n) => n.appointmentId === appointmentId && !n.ledgerId),
-    [notes, appointmentId]
+    () => notes.filter((n) => (patientWide || n.appointmentId === appointmentId) && !n.ledgerId),
+    [notes, appointmentId, patientWide]
   );
 
   const totalCost = money(charges.reduce((s, c) => s + c.cost, 0));
@@ -968,7 +976,7 @@ export default function AppointmentMoneyTab({
       <div>
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-xs font-black text-ink-muted uppercase tracking-widest">
-            {isAr ? "زيارة اليوم" : "This visit"}
+            {patientWide ? (isAr ? "كل العلاجات" : "All treatments") : isAr ? "زيارة اليوم" : "This visit"}
           </h3>
           {onQuickPay && (
             <button
@@ -986,7 +994,7 @@ export default function AppointmentMoneyTab({
           </div>
         ) : visitCharges.length === 0 && unbilledNotes.length === 0 ? (
           <p className="text-sm text-center text-slate-400 italic py-3">
-            {isAr ? "مفيش خدمات على الزيارة دي" : "No treatments on this visit yet"}
+            {patientWide ? (isAr ? "مفيش علاجات متسجلة على المريض ده" : "No treatments on file for this patient") : isAr ? "مفيش خدمات على الزيارة دي" : "No treatments on this visit yet"}
           </p>
         ) : (
           <div className="space-y-2">

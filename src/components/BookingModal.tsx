@@ -211,6 +211,12 @@ interface Props {
   wide?: boolean;
   /** Which tab the wide popup opens on (the card's Pay button opens it on Payment). */
   initialTab?: "appointment" | "service" | "payment" | "insurance";
+  /**
+   * Quick Pay: the same popup with no visit. The desk picks the patient, the popup jumps to the
+   * Payment tab showing everything they owe, and the payment is recorded there. No booking is
+   * made; the only tabs are the patient and the money.
+   */
+  quickPay?: boolean;
 }
 
 /**
@@ -250,6 +256,7 @@ export default function BookingModal({
   preSelectedClaimLine = null,
   wide = false,
   initialTab,
+  quickPay = false,
 }: Props) {
   const { language } = useLanguage();
   const { showToast, confirm } = useUI();
@@ -1010,6 +1017,10 @@ export default function BookingModal({
     if (isOpen) setWideTab(initialTab ?? "appointment");
   }, [isOpen, initialTab]);
   const headerPatientId = selectedPatient && !isNewPatient ? String(selectedPatient.id) : "";
+  // Quick Pay: the moment a patient is picked, the money is what the desk came for.
+  useEffect(() => {
+    if (quickPay && isOpen) setWideTab(headerPatientId ? "payment" : "appointment");
+  }, [quickPay, isOpen, headerPatientId]);
   const [patientCard, setPatientCard] = useState<{ id: string; fileId: string; phone: string } | null>(null);
   useEffect(() => {
     if (!wideLayout || !headerPatientId) return;
@@ -1710,12 +1721,17 @@ servicesList.length > 0 && (
     const durationLabel = durationOptions.find((o) => o.value === duration)?.label || `${duration}`;
     const doctorLabel = isGeneralDoctorValue(doctor) ? generalDoctorLabel(language) : doctor;
     const startMin = time ? parseApptTimeToMinutes(time) : null;
-    const tabs: { id: WideTab; label: string; count?: number }[] = [
-      { id: "appointment", label: isAr ? "الموعد" : "Appointment" },
-      { id: "service", label: isAr ? "الخدمة" : "Service", count: editAppointment ? undefined : sessionProcedures.length || undefined },
-      { id: "payment", label: isAr ? "الدفع" : "Payment" },
-      { id: "insurance", label: isAr ? "التأمين" : "Insurance", count: lineOptions.length || undefined },
-    ];
+    const tabs: { id: WideTab; label: string; count?: number }[] = quickPay
+      ? [
+          { id: "appointment", label: isAr ? "المريض" : "Patient" },
+          { id: "payment", label: isAr ? "الدفع" : "Payment" },
+        ]
+      : [
+          { id: "appointment", label: isAr ? "الموعد" : "Appointment" },
+          { id: "service", label: isAr ? "الخدمة" : "Service", count: editAppointment ? undefined : sessionProcedures.length || undefined },
+          { id: "payment", label: isAr ? "الدفع" : "Payment" },
+          { id: "insurance", label: isAr ? "التأمين" : "Insurance", count: lineOptions.length || undefined },
+        ];
     const visitTitle = editAppointment
       ? isAr
         ? `تعديل زيارة ${formatDayLabel(editAppointment.date || date, true)}`
@@ -1798,7 +1814,7 @@ servicesList.length > 0 && (
             </div>
             <div className="min-w-0 space-y-0.5">
               <h2 className="truncate font-figure text-2xl font-semibold leading-tight">
-                {patientName || (editAppointment ? "" : isAr ? "مريض جديد" : "New booking")}
+                {patientName || (editAppointment ? "" : quickPay ? (isAr ? "دفع سريع" : "Quick pay") : isAr ? "مريض جديد" : "New booking")}
               </h2>
               {card?.fileId && (
                 <p className="text-sm text-white/70">
@@ -1858,7 +1874,14 @@ servicesList.length > 0 && (
           </aside>
 
           <div className="custom-scrollbar min-h-0 overflow-y-auto px-9 pt-7 pb-10" role="tabpanel">
-            {wideTab === "appointment" && (
+            {wideTab === "appointment" && quickPay && (
+              <>
+                {panelHead(isAr ? "المريض" : "Patient", false)}
+                <p className="mb-4 text-[15px] font-medium text-ink-body">{isAr ? "اختار المريض، وهتلاقي كل اللي عليه في تبويب الدفع." : "Pick the patient; everything they owe is on the Payment tab."}</p>
+                <div className="pb-5">{patientSection}</div>
+              </>
+            )}
+            {wideTab === "appointment" && !quickPay && (
               <>
                 {panelHead(isAr ? "الموعد" : "Appointment", true)}
                 {!editAppointment && <div className="pb-5">{patientSection}</div>}
@@ -1951,6 +1974,18 @@ servicesList.length > 0 && (
                 {claimsLoaded && <InsuranceShareDue claims={patientClaims.claims} language={language} />}
                 {editAppointment ? (
                   <AppointmentMoneyTab key={`pay-${editAppointment.id}`} appointment={editAppointment} section="payment" doctorsList={doctors} servicesList={servicesList} />
+                ) : quickPay && headerPatientId ? (
+                  // No visit: the patient's whole account, and a payment that belongs to no appointment.
+                  <AppointmentMoneyTab
+                    key={`quickpay-${headerPatientId}`}
+                    appointment={{ id: "", patientId: headerPatientId, patientName: selectedPatient?.name ?? "" }}
+                    section="payment"
+                    scope="patient"
+                    doctorsList={doctors}
+                    servicesList={servicesList}
+                  />
+                ) : quickPay ? (
+                  <p className="mt-4 text-[15px] font-medium text-ink-muted">{isAr ? "اختار المريض الأول من تبويب المريض." : "Pick the patient first, on the Patient tab."}</p>
                 ) : (
                   needsVisitFirst
                 )}
@@ -1988,7 +2023,7 @@ servicesList.length > 0 && (
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            {blockingReasons.length > 0 && !isChecking && (
+            {blockingReasons.length > 0 && !isChecking && !quickPay && (
               <span className="text-sm font-semibold text-warn">
                 {txt.stillNeeded} {blockingReasons.join(isAr ? "، " : ", ")}
               </span>
@@ -2008,10 +2043,10 @@ servicesList.length > 0 && (
                 </button>
               </Protect>
             )}
-            <button type="button" onClick={onClose} className="h-12 rounded-xl border border-line-strong px-5 text-[15px] font-semibold text-ink-body transition-colors hover:border-ink hover:text-ink">
-              {autosaveOn ? txt.done : txt.cancel}
+            <button type="button" onClick={onClose} className={`h-12 rounded-xl px-5 text-[15px] font-semibold transition-colors ${quickPay ? "bg-accent text-ink-on-accent hover:bg-accent-strong font-bold px-7" : "border border-line-strong text-ink-body hover:border-ink hover:text-ink"}`}>
+              {autosaveOn || quickPay ? txt.done : txt.cancel}
             </button>
-            {autosaveOn ? (
+            {quickPay ? null : autosaveOn ? (
               <BookingAutosaveChip state={autosaveState} isAr={isAr} />
             ) : (
               <button

@@ -194,6 +194,19 @@ export default function DesktopDashboard() {
   const [appointmentToEdit, setAppointmentToEdit] = useState<BookingEditSnapshot | null>(null);
   /** Which tab the booking popup opens on: the card's Pay button asks for Payment. */
   const [bookingTab, setBookingTab] = useState<"appointment" | "service" | "payment" | "insurance">("appointment");
+  /** The popup opened as Quick Pay: pick a patient, pay what they owe, no booking. */
+  const [quickPayPopup, setQuickPayPopup] = useState(false);
+  const openQuickPay = () => {
+    if (appointmentEditorMode === "modal") {
+      setAppointmentToEdit(null);
+      setPreSelectedPatient(null);
+      setQuickPayPopup(true);
+      setActiveModal("booking");
+      return;
+    }
+    setPaymentPatient(null);
+    setActiveModal('payment');
+  };
   const [scheduleViewDate, setScheduleViewDate] = useState(getLocalDateKey);
   // Where this desk is working today. Shared with booking below, so an appointment created from
   // the dashboard is stamped with the branch whose schedule you were looking at.
@@ -1063,7 +1076,7 @@ export default function DesktopDashboard() {
               <Plus size={17} strokeWidth={3} className="shrink-0" />
               <span className="hidden xl:inline whitespace-nowrap">{language === 'ar' ? 'مريض جديد' : 'New Patient'}</span>
             </button>
-            <button onClick={() => { setPaymentPatient(null); setActiveModal('payment'); }} className={headerButtonGhost}>
+            <button onClick={openQuickPay} className={headerButtonGhost}>
               <Wallet size={17} strokeWidth={2.5} className="shrink-0" />
               <span className="hidden xl:inline whitespace-nowrap">{language === 'ar' ? 'دفع سريع' : 'Quick Pay'}</span>
             </button>
@@ -1165,7 +1178,7 @@ export default function DesktopDashboard() {
                         </div>
                         <span className="text-[10px] md:text-xs lg:text-sm font-extrabold text-slate-600 lg:text-slate-700">{language === 'ar' ? 'زيارة' : 'Visit'}</span>
                     </button>
-                    <button onClick={() => { setPaymentPatient(null); setActiveModal('payment'); }} className="flex flex-col items-center justify-center gap-1.5 lg:gap-2 hover:scale-[1.05] transition-transform group">
+                    <button onClick={openQuickPay} className="flex flex-col items-center justify-center gap-1.5 lg:gap-2 hover:scale-[1.05] transition-transform group">
                         <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-accent-tint text-accent flex items-center justify-center group-hover:bg-accent group-hover:text-ink transition-colors shadow-sm">
                             <Wallet size={28} className="scale-75 lg:scale-100" strokeWidth={2.5} />
                         </div>
@@ -1885,7 +1898,8 @@ export default function DesktopDashboard() {
           inlineDesktop={false}
           wide
           initialTab={bookingTab}
-          onClose={() => { setActiveModal(null); setAppointmentToEdit(null); setBookingTab("appointment"); setPreSelectedTime(''); setPreSelectedPatient(null); setPreSelectedDoctor(''); setPreSelectedRoomId(''); setPreSelectedRoomBranchId(''); }} 
+          quickPay={quickPayPopup}
+          onClose={() => { setActiveModal(null); setAppointmentToEdit(null); setBookingTab("appointment"); setQuickPayPopup(false); setPreSelectedTime(''); setPreSelectedPatient(null); setPreSelectedDoctor(''); setPreSelectedRoomId(''); setPreSelectedRoomBranchId(''); }} 
           onSave={handleSaveBooking} 
           patients={patientsList} 
           doctors={doctorsList} 
