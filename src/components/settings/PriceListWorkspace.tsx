@@ -53,6 +53,7 @@ import { deleteRecord, RecycleBinError } from "@/lib/recycleBinApi";
 import { matchesTokenizedSubstring } from "@/lib/flexibleSearch";
 import { PRICE_LISTS_DOC, STANDARD_LIST_ID, toStoredLists, type PriceList } from "@/lib/priceLists";
 import { ownedByAnotherList } from "@/lib/serviceMenu";
+import PriceListImport from "@/components/settings/PriceListImport";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import { DEFAULT_PRICING_MODE, type PricingMode } from "@/components/clinical-notes/utils";
 import {
@@ -95,7 +96,7 @@ export default function PriceListWorkspace({
   const { showToast, confirm } = useUI();
   const { user } = useAuth();
   const { clinicId } = useClinic();
-  const { payers, priceLists } = usePricingPolicy();
+  const { priceLists } = usePricingPolicy();
   const ar = language === "ar";
 
   const [services, setServices] = useState<ServiceRow[]>([]);
@@ -202,7 +203,6 @@ export default function PriceListWorkspace({
   // Every treatment is priceable on every list (insurer coverage lists were retired 2026-10-05);
   // only another list's own treatments are not this list's business.
   const covered = useMemo(() => services.filter((s) => !ownedByAnotherList(s, list.id)), [services, list.id]);
-  const hiddenCount = 0;
 
   const filtered = useMemo(
     () =>
@@ -444,6 +444,9 @@ export default function PriceListWorkspace({
           </div>
         </div>
       </div>
+
+      {/* --- a company's own sheet, read in one go --- */}
+      {!isStandard && <PriceListImport list={list} services={services} ar={ar} />}
 
       {/* --- quick fill --- */}
       {!isStandard && (
