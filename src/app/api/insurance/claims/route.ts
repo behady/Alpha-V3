@@ -6,7 +6,7 @@ import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffPermission } from "@/lib/apiStaffAuth";
 import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
-import { findPayer, parsePayers, PRIVATE_PAYER_ID, type CommissionRates } from "@/lib/payers";
+import { findPayer, isInsurerFormat, parsePayers, PRIVATE_PAYER_ID, type CommissionRates } from "@/lib/payers";
 import { isFullAccessRole } from "@/lib/permissions";
 import { buildManualEntryRow, buildPaymentRow, sumPayments } from "@/lib/ledgerWrite";
 import { RECEIPT_COUNTER_DOC, RECEIPT_SETTINGS_DOC, formatReceiptNumber, normalizeReceiptSettings } from "@/lib/receiptSettings";
@@ -20,7 +20,8 @@ import { binNoticeOf, type BinNotice } from "@/lib/recycleBin";
 import { patientPortion } from "@/lib/ledgerInsurer";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { nameSimilarity } from "@/lib/insurance/matchPatient";
-import { checkMetlife, hasHardFailure, normalizeMetlife, type Check } from "@/lib/insurance/metlife";
+import { hasHardFailure, normalizeMetlife, type Check } from "@/lib/insurance/metlife";
+import { checkApproval } from "@/lib/insurance/formats";
 import {
   claimDocId,
   claimExtraction,
@@ -30,6 +31,7 @@ import {
   CLAIMS_COLLECTION,
   DOCS_COLLECTION,
   insuranceEntryToWrite,
+  membershipFromPaper,
   isClaimStatus,
   isIsoDate,
   normalizeConfirmed,
@@ -291,7 +293,7 @@ export async function POST(req: Request) {
     const payer = findPayer(parsePayers(payersSnap.data()), payerId);
     if (!payer) return fail(400, "That insurer is not set up in this clinic.");
     if (!payer.active) return fail(403, "That insurer is retired in this clinic's settings.");
-    if (payer.id === PRIVATE_PAYER_ID || payer.format !== "metlife") {
+    if (payer.id === PRIVATE_PAYER_ID || !isInsurerFormat(payer.format)) {
       return fail(403, "This insurer has no document format set.");
     }
     const format = payer.format;
@@ -306,7 +308,7 @@ export async function POST(req: Request) {
     }
 
     // --- the extraction, read and checked again ---------------------------------------------
-    const extraction = normalizeConfirmed(body.extraction);
+    const extraction = normalizeConfirmed(body.extraction, format);
     const h = extraction.header;
     if (extraction.lines.length > MAX_LINES) return fail(400, "Too many service lines.");
     if (Object.keys(lineIn).some((k) => Number(k) >= extraction.lines.length)) {
@@ -316,7 +318,7 @@ export async function POST(req: Request) {
     const dentistOfLine = (i: number): string => (lineIn[i]?.dentistId !== undefined ? (lineIn[i].dentistId as string) : dentistId);
     // Every dentist named, the paper-wide one included, is read and must be a dentist.
     const staffIds = [...new Set([dentistId, ...extraction.lines.map((_, i) => dentistOfLine(i))].filter(Boolean))];
-    const checks = checkMetlife(extraction, {
+    const checks = checkApproval(format, extraction, {
       today: ymdInTimeZone(clinicTimeZone()),
       providerCode: payer.providerCode,
       ...(checkName ? { matchedPatientName: checkName, nameScore: nameSimilarity(h.paperPatientName, checkName) } : {}),
@@ -357,7 +359,8 @@ export async function POST(req: Request) {
     const wordingRef = adminClinicDoc(clinicId, "settings", WORDING_DOC);
     const counterRef = adminClinicDoc(clinicId, "settings", "counters");
     const patientRef: DocumentReference = existingId ? patients.doc(existingId) : patients.doc();
-    const paperEntry = { certificateNumber: h.certificateNumber, dependentCode: h.dependentCode, policyNumber: h.policyNumber, memberNumber: "" };
+    // What the paper says about the patient's membership, per format (lib/insurance/claims membershipFromPaper).
+    const paperEntry = membershipFromPaper(format, h);
 
     type Outcome =
       | { kind: "duplicate"; savedAt: string | null }
@@ -408,7 +411,7 @@ export async function POST(req: Request) {
           const data = patientSnap.data() ?? {};
           patientName = typeof data.name === "string" ? data.name : "";
           // Only when missing or different; a dotted path, so other payers' entries are untouched.
-          const entry = insuranceEntryToWrite(payerId, paperEntry, data);
+          const entry = insuranceEntryToWrite(payerId, h, data, format);
           if (entry) tx.update(patientRef, { [`insurance.${payerId}`]: stripUndefined(entry) });
         } else {
           // The shape NewPatientModal writes, with the file number from the same counter.
@@ -436,7 +439,7 @@ export async function POST(req: Request) {
 
         const rowFacts = docFactsOf(docsSnap.data());
         const docFacts = rowFacts ?? fallbackDoc;
-        const claim = claimFromExtraction({ payerId, extraction, patientId: patientRef.id, patientName, status, treatedDate, doc: docFacts });
+        const claim = claimFromExtraction({ payerId, format, extraction, patientId: patientRef.id, patientName, status, treatedDate, doc: docFacts });
         // The dentist on each line, stamped with their rate on this payer and the share on the
         // approved amount (the owner's rule: earned when assigned, on what the insurer approved),
         // and the state of each line the card named.
@@ -779,7 +782,7 @@ export async function PATCH(req: Request) {
       if (reshape) {
         const merged = claimExtraction(claim, { lines: rawLines, metlife: rawMetlife });
         const payer = findPayer(parsePayers(payersSnap?.data()), claim.payerId);
-        const checks = checkMetlife(merged, {
+        const checks = checkApproval(claim.insurer, merged, {
           today: ymdInTimeZone(clinicTimeZone()),
           providerCode: payer?.providerCode,
           ...(patientName ? { matchedPatientName: patientName, nameScore: nameSimilarity(merged.header.paperPatientName, patientName) } : {}),
@@ -986,7 +989,7 @@ export async function PATCH(req: Request) {
       }
 
       if (patientRef && patientSnap) {
-        const entry = insuranceEntryToWrite(claim.payerId, metlife, patientSnap.data() ?? {});
+        const entry = insuranceEntryToWrite(claim.payerId, metlife, patientSnap.data() ?? {}, claim.insurer);
         if (entry) tx.update(patientRef, { [`insurance.${claim.payerId}`]: stripUndefined(entry) });
       }
       tx.update(claimRef, {

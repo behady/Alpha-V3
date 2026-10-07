@@ -28,12 +28,14 @@ import { db } from "@/lib/firebase";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
-import { checkMetlife, hasHardFailure, normalizeMetlife, type Check, type MetlifeExtraction, type MetlifeHeader, type MetlifeLine } from "@/lib/insurance/metlife";
+import { hasHardFailure, type Check, type MetlifeExtraction, type MetlifeHeader, type MetlifeLine } from "@/lib/insurance/metlife";
+import { checkApproval } from "@/lib/insurance/formats";
+import { DEFAULT_NEXTCARE_WORDING } from "@/lib/insuranceStatementNextcare";
 import { nameSimilarity } from "@/lib/insurance/matchPatient";
 import { patientMatchesSearch } from "@/lib/flexibleSearch";
 import { DEFAULT_METLIFE_WORDING } from "@/lib/insuranceStatementMetlife";
-import { LINE_STATUSES, lineStatusOf, type InsuranceClaim, type LineStatus } from "@/lib/insurance/claims";
-import type { Payer } from "@/lib/payers";
+import { LINE_STATUSES, lineStatusOf, normalizeLinesFor, type InsuranceClaim, type LineStatus } from "@/lib/insurance/claims";
+import type { InsurerFormat, Payer } from "@/lib/payers";
 import type { PatientInsuranceEntry } from "@/lib/patientInsurance";
 import { cairoToday, InsuranceCallError, patchClaim, saveClaim, type ReadResult, type SaveBody } from "./api";
 import type { BinNotice } from "@/lib/recycleBin";
@@ -44,13 +46,24 @@ type LineMeta = { dentistId: string; status: LineStatus };
 
 export type PatientOption = { id: string; name: string; phone: string; insurance?: Record<string, PatientInsuranceEntry> };
 
-type TextField = "approvalNumber" | "statusText" | "policyNumber" | "employer" | "certificateNumber" | "dependentCode" | "paperPatientName" | "paperPatientNameAr" | "providerCode" | "physician" | "diagnosisCode" | "comment";
-type DateField = "approvalDate" | "terminationDate";
+type TextField = "approvalNumber" | "statusText" | "policyNumber" | "employer" | "certificateNumber" | "dependentCode" | "paperPatientName" | "paperPatientNameAr" | "providerCode" | "physician" | "diagnosisCode" | "comment" | "insurerName" | "productName" | "memberCode";
+type DateField = "approvalDate" | "terminationDate" | "validUntil";
 type MoneyField = "estimatedCost" | "requestedTotal" | "approvedTotal" | "patientShareTotal" | "collectNote";
 type LineNumber = "unitsRequested" | "grossPerUnit" | "grossTotal" | "unitsApproved" | "patientShare" | "approvedAmount";
 
 /** Fields the reader stores upper-case; typed the same way here so the checks see what the server will. */
-const UPPER: ReadonlySet<string> = new Set(["approvalNumber", "statusText", "certificateNumber", "dependentCode", "providerCode"]);
+const UPPER: ReadonlySet<string> = new Set(["approvalNumber", "statusText", "certificateNumber", "dependentCode", "providerCode", "memberCode"]);
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/** "44, 46" as typed → ["44", "46"]: two-digit codes only, each once. A half-typed "4" waits. */
+function parseTeeth(typed: string): string[] {
+  const out: string[] = [];
+  for (const t of typed.split(/[^0-9]+/)) if (/^\d{2}$/.test(t) && !out.includes(t)) out.push(t);
+  return out;
+}
 
 type Picker =
   | { mode: "existing"; patientId: string; locked: boolean }
@@ -122,8 +135,13 @@ export default function ApprovalConfirmCard({
   const { language } = useLanguage();
   const isAr = language === "ar";
   const t = tr(isAr);
+  // Which paper this is: it picks the checks, the field names and the sheet's default wording.
+  const format: InsurerFormat = payer.format === "nextcare" ? "nextcare" : "metlife";
+  const isNc = format === "nextcare";
 
   const [x, setX] = useState<MetlifeExtraction>(() => cloneExtraction(result.extraction));
+  /** The teeth box as typed, per line, so a half-typed number is not thrown away. */
+  const [teethDraft, setTeethDraft] = useState<Record<number, string>>({});
   const [picker, setPicker] = useState<Picker>(() =>
     editing
       ? { mode: "existing", patientId: editing.patientId, locked: true }
@@ -186,8 +204,10 @@ export default function ApprovalConfirmCard({
     if (!stored) return false;
     const paperCert = x.header.certificateNumber.trim();
     const paperDep = x.header.dependentCode.trim();
+    // NextCare: only the card is stored on the patient.
+    if (isNc) return !!stored.certificateNumber && stored.certificateNumber !== paperCert;
     return (!!stored.certificateNumber && stored.certificateNumber !== paperCert) || (!!stored.dependentCode && stored.dependentCode !== paperDep);
-  }, [picker, patients, payer.id, x.header.certificateNumber, x.header.dependentCode]);
+  }, [picker, patients, payer.id, x.header.certificateNumber, x.header.dependentCode, isNc]);
   const searchResults = useMemo(() => {
     if (!search.trim()) return [];
     const offered = new Set(candidates.map((c) => c.patientId));
@@ -197,12 +217,12 @@ export default function ApprovalConfirmCard({
   // --- the checks, on every edit ------------------------------------------------------------------
   const checks = useMemo(
     () =>
-      checkMetlife(x, {
+      checkApproval(format, x, {
         today: cairoToday(),
         providerCode: payer.providerCode,
         ...(chosenName ? { matchedPatientName: chosenName, nameScore: nameSimilarity(x.header.paperPatientName, chosenName) } : {}),
       }),
-    [x, payer.providerCode, chosenName],
+    [x, payer.providerCode, chosenName, format],
   );
   const blocked = hasHardFailure(checks);
   const hard = checks.filter((c) => c.severity === "hard");
@@ -221,10 +241,10 @@ export default function ApprovalConfirmCard({
       const code = l.code.trim();
       if (!code || seen.has(code)) continue;
       if (result.wording[code] || storedWording[code]) continue;
-      seen.set(code, DEFAULT_METLIFE_WORDING[code] ?? l.description);
+      seen.set(code, (isNc ? DEFAULT_NEXTCARE_WORDING : DEFAULT_METLIFE_WORDING)[code] ?? l.description);
     }
     return [...seen.entries()].map(([code, suggestion]) => ({ code, suggestion }));
-  }, [x.lines, result.wording, storedWording]);
+  }, [x.lines, result.wording, storedWording, isNc]);
 
   // --- edits -------------------------------------------------------------------------------------
   /** A field a person has typed into is no longer "hard to read". */
@@ -236,7 +256,15 @@ export default function ApprovalConfirmCard({
   const setMoney = (field: MoneyField, value: number | null) =>
     setX((prev) => ({ ...prev, header: { ...prev.header, [field]: value, confidence: looked(prev.header, field) } }));
   const setLine = (i: number, change: Partial<MetlifeLine>) =>
-    setX((prev) => ({ ...prev, lines: prev.lines.map((l, k) => (k === i ? { ...l, ...change, confidence: 1 } : l)) }));
+    setX((prev) => ({
+      ...prev,
+      lines: prev.lines.map((l, k) => {
+        if (k !== i) return l;
+        const next = { ...l, ...change, confidence: 1 };
+        // NextCare prints no line total: it is always asked x price each, so it follows them.
+        return isNc ? { ...next, grossTotal: round2(next.unitsRequested * next.grossPerUnit) } : next;
+      }),
+    }));
   const addLine = () => {
     setX((prev) => ({ ...prev, lines: [...prev.lines, blankLine()] }));
     setMeta((prev) => [...prev, { dentistId: allDentist, status: allStatus }]);
@@ -244,6 +272,7 @@ export default function ApprovalConfirmCard({
   const removeLine = (i: number) => {
     setX((prev) => ({ ...prev, lines: prev.lines.filter((_, k) => k !== i) }));
     setMeta((prev) => prev.filter((_, k) => k !== i));
+    setTeethDraft({});
   };
   const setLineMeta = (i: number, change: Partial<LineMeta>) => setMeta((prev) => prev.map((m, k) => (k === i ? { ...m, ...change } : m)));
   /** The "same for all services" row: fills every line; each line can still be changed afterwards. */
@@ -276,7 +305,7 @@ export default function ApprovalConfirmCard({
     let k = 0;
     x.lines.forEach((l, i) => {
       // Exactly the server's rule: a row the normaliser drops (the table's Total row) takes no number.
-      if (normalizeMetlife({ lines: [l] }).lines.length === 0) return;
+      if (normalizeLinesFor(format, [l]).length === 0) return;
       const m = meta[i] ?? { dentistId: "", status: "Planned" };
       lines[k++] = { dentistId: m.dentistId || null, status: m.status };
     });
@@ -406,6 +435,40 @@ export default function ApprovalConfirmCard({
 
         {/* --- the fields --------------------------------------------------------------------- */}
         <div className="space-y-5 p-5">
+{isNc ? (
+            <>
+          <Group title={t("sectionApproval")}>
+            <TextInput label={t("approvalNumber")} value={x.header.approvalNumber} flag={flag("approvalNumber")} onChange={(v) => setText("approvalNumber", v)} ltr hint={editing ? t("lockedOnEdit") : t("ncApprovalNumberHint")} readOnly={!!editing} />
+            <DateInput label={t("approvalDate")} value={x.header.approvalDate} flag={flag("approvalDate")} onChange={(v) => setDate("approvalDate", v)} readOnly={!!editing} />
+            <DateInput label={t("ncValidUntil")} value={x.header.validUntil ?? null} flag={flag("validUntil")} onChange={(v) => setDate("validUntil", v)} />
+            <TextInput label={t("ncInsurerName")} value={x.header.insurerName ?? ""} flag={null} onChange={(v) => setText("insurerName", v)} ltr />
+          </Group>
+
+          <Group title={t("sectionMember")}>
+            <TextInput label={t("paperPatientName")} value={x.header.paperPatientName} flag={flag("paperPatientName")} onChange={(v) => setText("paperPatientName", v)} ltr />
+            <TextInput label={t("paperPatientNameAr")} value={x.header.paperPatientNameAr} flag={flag("paperPatientNameAr")} onChange={(v) => { setText("paperPatientNameAr", v); if (picker.mode === "create") setNewName(v); }} />
+            <TextInput label={t("ncCardNumber")} value={x.header.certificateNumber} flag={flag("certificateNumber")} onChange={(v) => setText("certificateNumber", v)} ltr />
+            <TextInput label={t("ncMemberCode")} value={x.header.memberCode ?? ""} flag={null} onChange={(v) => setText("memberCode", v)} ltr hint={t("ncMemberCodeHint")} />
+            <TextInput label={t("ncBeneficiaryCode")} value={x.header.dependentCode} flag={flag("dependentCode")} onChange={(v) => setText("dependentCode", v)} ltr />
+            <TextInput label={t("policyNumber")} value={x.header.policyNumber} flag={flag("policyNumber")} onChange={(v) => setText("policyNumber", v)} ltr />
+            <TextInput label={t("ncContract")} value={x.header.employer} flag={null} onChange={(v) => setText("employer", v)} ltr />
+            <TextInput label={t("ncProduct")} value={x.header.productName ?? ""} flag={null} onChange={(v) => setText("productName", v)} ltr />
+            <DateInput label={t("ncPolicyEnd")} value={x.header.terminationDate} flag={flag("terminationDate")} onChange={(v) => setDate("terminationDate", v)} />
+          </Group>
+
+          <Group title={t("sectionProvider")}>
+            <TextInput label={t("ncProvider")} value={x.header.physician} flag={null} onChange={(v) => setText("physician", v)} ltr />
+            <TextInput label={t("ncDiagnosis")} value={x.header.diagnosisCode} flag={null} onChange={(v) => setText("diagnosisCode", v)} ltr />
+          </Group>
+
+          <Group title={t("sectionTotals")}>
+            <MoneyInput label={t("ncInsurerTotal")} value={x.header.approvedTotal} flag={flag("approvedTotal")} onChange={(v) => setMoney("approvedTotal", v)} />
+            <MoneyInput label={t("patientShareTotal")} value={x.header.patientShareTotal} flag={flag("patientShareTotal")} onChange={(v) => setMoney("patientShareTotal", v)} />
+          </Group>
+
+            </>
+          ) : (
+            <>
           <Group title={t("sectionApproval")}>
             <TextInput label={t("approvalNumber")} value={x.header.approvalNumber} flag={flag("approvalNumber")} onChange={(v) => setText("approvalNumber", v)} ltr hint={editing ? t("lockedOnEdit") : t("approvalNumberHint")} readOnly={!!editing} />
             <DateInput label={t("approvalDate")} value={x.header.approvalDate} flag={flag("approvalDate")} onChange={(v) => setDate("approvalDate", v)} readOnly={!!editing} />
@@ -434,6 +497,9 @@ export default function ApprovalConfirmCard({
             ))}
           </Group>
 
+            </>
+          )}
+
           {/* --- the service lines ------------------------------------------------------------- */}
           <div>
             <p className={groupTitle}>{t("sectionLines")}</p>
@@ -447,7 +513,10 @@ export default function ApprovalConfirmCard({
               <table className="w-full min-w-[74rem] border-collapse text-[12.5px]">
                 <thead>
                   <tr className="border-b border-line bg-surface-subtle">
-                    {(["lineCode", "lineDescription", "colDentist", "colState", "lineUnits", "linePerUnit", "lineGross", "lineUnitsApproved", "linePatientShare", "lineApproved", "comment"] as const).map((k) => (
+                    {(isNc
+                      ? (["lineCode", "lineDescription", "ncLineTeeth", "colDentist", "colState", "lineUnits", "ncLinePrice", "lineUnitsApproved", "linePatientShare", "ncLineInsurer", "ncLineReason"] as const)
+                      : (["lineCode", "lineDescription", "colDentist", "colState", "lineUnits", "linePerUnit", "lineGross", "lineUnitsApproved", "linePatientShare", "lineApproved", "comment"] as const)
+                    ).map((k) => (
                       <th key={k} className="px-2 py-2 text-start text-[10px] font-black uppercase tracking-wider text-ink-muted">
                         {t(k)}
                       </th>
@@ -466,13 +535,32 @@ export default function ApprovalConfirmCard({
                         <td className="p-1">
                           <input value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} className={`${cellInput(null)} min-w-[12rem]`} dir="ltr" />
                         </td>
+                        {isNc && (
+                          <td className="p-1">
+                            <input
+                              value={teethDraft[i] ?? (l.teeth ?? []).join(", ")}
+                              onChange={(e) => {
+                                const typed = e.target.value;
+                                setTeethDraft((prev) => ({ ...prev, [i]: typed }));
+                                setLine(i, { teeth: parseTeeth(typed) });
+                              }}
+                              placeholder="44, 46"
+                              aria-label={t("ncLineTeeth")}
+                              className={`${cellInput(lineFlag(i, "teeth") === "soft" ? "soft" : null)} min-w-[6rem]`}
+                              dir="ltr"
+                            />
+                          </td>
+                        )}
                         <td className="p-1">
                           <DentistSelect value={meta[i]?.dentistId ?? ""} dentists={dentists} label={t("colDentist")} placeholder={t("pickDentist")} onChange={(v) => setLineMeta(i, { dentistId: v })} className={`${cellInput(null)} min-w-[9rem]`} />
                         </td>
                         <td className="p-1">
                           <StateSelect value={meta[i]?.status ?? "Planned"} label={t("colState")} t={t} onChange={(v) => setLineMeta(i, { status: v })} className={`${cellInput(null)} min-w-[7rem]`} />
                         </td>
-                        {(["unitsRequested", "grossPerUnit", "grossTotal", "unitsApproved", "patientShare", "approvedAmount"] as const satisfies readonly LineNumber[]).map((f) => (
+                        {(isNc
+                          ? (["unitsRequested", "grossPerUnit", "unitsApproved", "patientShare", "approvedAmount"] as const satisfies readonly LineNumber[])
+                          : (["unitsRequested", "grossPerUnit", "grossTotal", "unitsApproved", "patientShare", "approvedAmount"] as const satisfies readonly LineNumber[])
+                        ).map((f) => (
                           <td key={f} className="p-1">
                             <NumberBox value={l[f]} onChange={(v) => setLine(i, { [f]: v ?? 0 })} className={cellInput(f === "grossTotal" ? lineFlag(i, "grossTotal") === "hard" ? "hard" : null : null)} />
                           </td>
@@ -496,7 +584,14 @@ export default function ApprovalConfirmCard({
             </button>
           </div>
 
-          <TextInput label={t("comment")} value={x.header.comment} flag={null} onChange={(v) => setText("comment", v)} ltr />
+          {isNc ? (
+            <Labelled label={t("ncConditions")}>
+              <textarea value={x.header.comment} onChange={(e) => setText("comment", e.target.value)} rows={4} className={`${fieldInput(null)} resize-y`} dir="ltr" />
+              <p className="mt-1 text-xs text-ink-muted">{t("ncTeethHint")}</p>
+            </Labelled>
+          ) : (
+            <TextInput label={t("comment")} value={x.header.comment} flag={null} onChange={(v) => setText("comment", v)} ltr />
+          )}
 
           {/* --- what the checks say ----------------------------------------------------------- */}
           <div className="space-y-2">

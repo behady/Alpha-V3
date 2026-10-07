@@ -1,0 +1,45 @@
+/**
+ * One place that says, per insurer paper, which reader and which checks apply. The read route, the
+ * claims route and the confirm card all ask here, so the three can never disagree about a format.
+ * Pure: no SDK, no Firestore.
+ */
+import type { InsurerFormat } from "@/lib/payers";
+import { buildMetlifePrompt, checkMetlife, METLIFE_RESPONSE_SCHEMA, normalizeMetlife, type Check, type MetlifeExtraction } from "./metlife";
+import { buildNextcarePrompt, checkNextcare, fromNextcareModel, NEXTCARE_RESPONSE_SCHEMA, normalizeNextcare } from "./nextcare";
+
+export type ApprovalReader = {
+  schema: Record<string, unknown>;
+  prompt: () => string;
+  /** The model's parsed JSON → the shared approval record. Never throws. */
+  normalize: (parsed: unknown) => MetlifeExtraction;
+};
+
+export function readerFor(format: InsurerFormat): ApprovalReader {
+  if (format === "nextcare") {
+    return { schema: NEXTCARE_RESPONSE_SCHEMA, prompt: buildNextcarePrompt, normalize: (p) => normalizeNextcare(fromNextcareModel(p)) };
+  }
+  return { schema: METLIFE_RESPONSE_SCHEMA, prompt: buildMetlifePrompt, normalize: normalizeMetlife };
+}
+
+export type ApprovalCheckContext = {
+  today: string;
+  /** MetLife only: the clinic's code with the insurer, printed on its approvals. */
+  providerCode?: string;
+  matchedPatientName?: string;
+  nameScore?: number;
+};
+
+export function checkApproval(format: InsurerFormat, x: MetlifeExtraction, ctx: ApprovalCheckContext): Check[] {
+  if (format === "nextcare") {
+    return checkNextcare(x, { today: ctx.today, matchedPatientName: ctx.matchedPatientName, nameScore: ctx.nameScore });
+  }
+  return checkMetlife(x, ctx);
+}
+
+/**
+ * Finding the patient again: MetLife needs certificate AND dependent code to be sure; a NextCare card
+ * number belongs to one person, so the card alone is enough.
+ */
+export function cardIdentifiesPatient(format: InsurerFormat): boolean {
+  return format === "nextcare";
+}

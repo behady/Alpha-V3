@@ -19,6 +19,8 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import type { InsuranceClaim } from "@/lib/insurance/claims";
 import { buildMetlifeStatement } from "@/lib/insuranceStatementMetlife";
+import { buildNextcareStatement, DEFAULT_NEXTCARE_WORDING } from "@/lib/insuranceStatementNextcare";
+import type { InsurerFormat } from "@/lib/payers";
 import type { StatementHeader } from "@/lib/insuranceStatementXlsx";
 import type { ClaimPatch } from "./api";
 import { tr } from "./text";
@@ -34,8 +36,21 @@ export default function ClaimsExportBar({
   setHeader,
   wording,
   onPatch,
+  format = "metlife",
+  statementClaims,
+  payerId = "",
+  payerName = "",
 }: {
   claims: InsuranceClaim[];
+  /** Which insurer's sheet: MetLife's own layout, or NextCare's (the clinic's existing sheet, from approvals). */
+  format?: InsurerFormat;
+  /**
+   * NextCare bills by TREATMENT date, so its sheet needs approvals from before the range that were
+   * treated inside it. The page loads those separately; the list on screen stays the range's own.
+   */
+  statementClaims?: InsuranceClaim[];
+  payerId?: string;
+  payerName?: string;
   from: string;
   to: string;
   setRange: (range: { from: string; to: string }) => void;
@@ -52,23 +67,53 @@ export default function ClaimsExportBar({
   const { confirm, showToast } = useUI();
 
   const inverted = from > to;
+  const isNc = format === "nextcare";
   const statement = useMemo(() => buildMetlifeStatement({ claims, from, to, wording }), [claims, from, to, wording]);
-  // Only what is actually on the sheet can be marked sent.
+  const ncSource = statementClaims ?? claims;
+  const ncStatement = useMemo(
+    () => (isNc ? buildNextcareStatement({ claims: ncSource, payerId, payerName, from, to, wording }) : null),
+    [isNc, ncSource, payerId, payerName, from, to, wording],
+  );
   const toSend = useMemo(() => {
     if (inverted) return [];
+    if (ncStatement) {
+      const billed = new Set(ncStatement.cases.flatMap((k) => k.lines.map((l) => l.rowId.split("#")[0])));
+      return ncSource.filter((c) => c.status === "treated" && billed.has(c.id));
+    }
     const printed = new Set(statement.cases.map((c) => c.approvalNumber));
     return claims.filter((c) => c.status === "treated" && c.approvalDate >= from && c.approvalDate <= to && printed.has(c.approvalNumber));
-  }, [claims, from, to, inverted, statement.cases]);
+  }, [claims, from, to, inverted, statement.cases, ncStatement, ncSource]);
+  // What the sheet leaves out or cannot word, said above the button, for either format.
+  const heldBack = ncStatement ? claims.filter((c) => c.status === "approved").length : statement.heldBack;
+  const missingWording = useMemo(() => {
+    if (!ncStatement) return statement.missingWording;
+    const billed = new Set(ncStatement.cases.flatMap((k) => k.lines.map((l) => l.rowId)));
+    const codes = new Set<string>();
+    for (const c of ncSource) {
+      c.lines.forEach((l, i) => {
+        if (billed.has(`${c.id}#${i}`) && l.code && !wording[l.code] && !DEFAULT_NEXTCARE_WORDING[l.code]) codes.add(l.code);
+      });
+    }
+    return [...codes].sort();
+  }, [ncStatement, ncSource, wording, statement.missingWording]);
+  const sheetCases = ncStatement ? ncStatement.cases.length : statement.cases.length;
+  const sheetTotal = ncStatement ? ncStatement.total : statement.total;
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [marking, setMarking] = useState(false);
 
   const download = async () => {
-    if (busy || inverted || statement.cases.length === 0) return;
+    if (busy || inverted || sheetCases === 0) return;
     setBusy(true);
     setError(null);
     try {
+      if (ncStatement) {
+        // NextCare: the clinic's own sheet layout (the same writer as the Reports tab), from approvals.
+        const [{ default: XLSX }, { statementToWorkbook }] = await Promise.all([import("xlsx-js-style"), import("@/lib/insuranceStatementXlsx")]);
+        XLSX.writeFile(statementToWorkbook(ncStatement, header), `statement-nextcare-${from}-${to}.xlsx`, { compression: true });
+        return;
+      }
       const [{ default: XLSX }, { metlifeStatementToWorkbook }] = await Promise.all([
         import("xlsx-js-style"),
         import("@/lib/insuranceStatementMetlifeXlsx"),
@@ -124,24 +169,29 @@ export default function ClaimsExportBar({
       </div>
 
       {inverted && <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-[13px] font-bold text-rose-800">{t("rangeInverted")}</p>}
-      {!inverted && statement.heldBack > 0 && (
+      {!inverted && heldBack > 0 && (
         <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-[13px] font-bold text-amber-900">
-          {statement.heldBack} {t("heldBack")}
+          {heldBack} {t("heldBack")}
         </p>
       )}
-      {!inverted && statement.missingWording.length > 0 && (
+      {!inverted && ncStatement && ncStatement.missingMemberNumber.length > 0 && (
+        <p className="rounded-2xl border border-line bg-surface-subtle px-4 py-2.5 text-[13px] font-bold text-ink-body">
+          {t("ncMissingCode")} {ncStatement.missingMemberNumber.map((m) => m.patientName).join("، ")}
+        </p>
+      )}
+      {!inverted && missingWording.length > 0 && (
         <p className="rounded-2xl border border-line bg-surface-subtle px-4 py-2.5 text-[13px] font-bold text-ink-body">
           {t("missingWording")}{" "}
           <span className="font-display font-black text-ink" dir="ltr">
-            {statement.missingWording.join(", ")}
+            {missingWording.join(", ")}
           </span>
         </p>
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3">
         <p className="text-[13px] font-bold text-ink-body">
-          <span className="font-display text-lg font-black tabular-nums text-ink">{inverted ? 0 : statement.cases.length}</span> {t("cases")} {t("onSheet")} ·{" "}
-          {t("approvedSum")} <span className="font-display font-black tabular-nums text-ink">{money(inverted ? 0 : statement.total)}</span>
+          <span className="font-display text-lg font-black tabular-nums text-ink">{inverted ? 0 : sheetCases}</span> {t("cases")} {t("onSheet")} ·{" "}
+          {t("approvedSum")} <span className="font-display font-black tabular-nums text-ink">{money(inverted ? 0 : sheetTotal)}</span>
         </p>
         <div className="flex flex-wrap gap-2">
           <button
@@ -156,7 +206,7 @@ export default function ClaimsExportBar({
           <button
             type="button"
             onClick={download}
-            disabled={busy || inverted || statement.cases.length === 0}
+            disabled={busy || inverted || sheetCases === 0}
             data-tour="insurance-metlife-excel"
             className="inline-flex items-center gap-1.5 rounded-xl bg-accent px-4 py-2 text-[12.5px] font-black text-ink-on-accent transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-50"
           >

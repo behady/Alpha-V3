@@ -256,6 +256,27 @@ export const TEXT = {
   notBooked: { en: "Not booked", ar: "مش محجوز" },
   progress: { en: "{done} of {total} done · {booked} booked", ar: "{done} من {total} خلصت · {booked} محجوز" },
   insuranceNotOn: { en: "Insurance approvals are not part of this clinic's subscription.", ar: "موافقات التأمين مش ضمن اشتراك العيادة." },
+  // NextCare's paper, in its own words.
+  ncApprovalNumberHint: { en: "Check every character against the paper (it looks like C0013224779/1): this is the number NextCare pays against.", ar: "راجع كل حرف مع الورقة (شكله زي C0013224779/1): ده الرقم اللي نكست كير بتدفع عليه." },
+  ncValidUntil: { en: "Valid until", ar: "صالحة حتى" },
+  ncInsurerName: { en: "Insurance company", ar: "شركة التأمين" },
+  ncCardNumber: { en: "Card number", ar: "رقم البطاقة" },
+  ncMemberCode: { en: "Code on the monthly sheet", ar: "الكود في كشف الشهر" },
+  ncMemberCodeHint: { en: "Printed before the name on the monthly sheet, e.g. (3C40). Filled from the card number; change it if your sheet uses another code.", ar: "بيتكتب قبل الاسم في كشف الشهر، زي (3C40). متاخد من رقم البطاقة؛ غيّره لو الكشف بيستخدم كود تاني." },
+  ncBeneficiaryCode: { en: "Beneficiary code", ar: "رمز المستفيد" },
+  ncContract: { en: "Contract", ar: "اسم العقد" },
+  ncProduct: { en: "Product", ar: "اسم المنتج" },
+  ncPolicyEnd: { en: "Policy ends", ar: "تاريخ انتهاء الوثيقة" },
+  ncProvider: { en: "Provider", ar: "مقدم الخدمة" },
+  ncDiagnosis: { en: "Diagnosis", ar: "التشخيص" },
+  ncInsurerTotal: { en: "Insurer's share total", ar: "إجمالي حصة التأمين" },
+  ncConditions: { en: "Special conditions (teeth like L.R 4-6 are read from here)", ar: "الشروط الخاصة (الأسنان زي L.R 4-6 بتتقري من هنا)" },
+  ncLineTeeth: { en: "Teeth", ar: "الأسنان" },
+  ncLinePrice: { en: "Price each", ar: "سعر الوحدة" },
+  ncLineInsurer: { en: "Insurer pays", ar: "حصة التأمين" },
+  ncLineReason: { en: "Reason", ar: "السبب" },
+  ncMissingCode: { en: "No sheet code yet (set it on the approval or the patient's insurance):", ar: "لسه مالهمش كود للكشف (حطه في الموافقة أو تأمين المريض):" },
+  ncTeethHint: { en: "Teeth are FDI numbers, e.g. 44, 46. L.R 4-6 on the paper is lower right 4 and 6 = 44, 46.", ar: "الأسنان بأرقام FDI، زي 44، 46. L.R 4-6 في الورقة يعني تحت يمين 4 و6 = 44، 46." },
 } as const satisfies Record<string, Lang>;
 
 export type TextKey = keyof typeof TEXT;

@@ -109,6 +109,8 @@ const CANDIDATE_LIMIT = 3;
 export function matchPatient(
   x: { payerId: string; certificateNumber: string; dependentCode: string; paperPatientName: string },
   patients: PatientLite[],
+  /** True when the certificate (a NextCare card) belongs to one person: one holder is a sure match. */
+  certificateIsPersonal = false,
 ): PatientMatch {
   const payerId = String(x.payerId ?? "");
   const certificate = String(x.certificateNumber ?? "").trim();
@@ -135,6 +137,7 @@ export function matchPatient(
     else sameCertificate.push(p);
   }
   if (identical.length === 1) return { kind: "exact", patientId: identical[0].id };
+  if (certificateIsPersonal && !dependent && sameCertificate.length === 1) return { kind: "exact", patientId: sameCertificate[0].id };
   // two records claim the same certificate and dependent: let the desk choose by name
   if (identical.length > 1) return { kind: "candidates", candidates: scored(identical) };
 

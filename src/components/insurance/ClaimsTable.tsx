@@ -168,7 +168,7 @@ export default function ClaimsTable({
                     {c.patientName || c.paperPatientName}
                   </Link>
                   <div className="text-[11px] font-semibold text-ink-faint" dir="ltr">
-                    {c.metlife.certificateNumber}/{c.metlife.dependentCode}
+                    {c.insurer === "nextcare" ? c.metlife.certificateNumber : `${c.metlife.certificateNumber}/${c.metlife.dependentCode}`}
                   </div>
                 </td>
                 <td className="px-3 py-2.5 text-[13px] font-bold tabular-nums text-ink-body">{c.approvalDate}</td>

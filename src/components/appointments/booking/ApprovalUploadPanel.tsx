@@ -12,7 +12,7 @@ import { useUI } from "@/context/UIContext";
 import { db } from "@/lib/firebase";
 import { isAnyUnlocked } from "@/lib/featureCatalog";
 import { WORDING_DOC } from "@/lib/insurance/claims";
-import { parsePayers, PRIVATE_PAYER_ID, type Payer } from "@/lib/payers";
+import { isInsurerFormat, parsePayers, PRIVATE_PAYER_ID, type Payer } from "@/lib/payers";
 import { readInsurance } from "@/lib/patientInsurance";
 
 type Props = { patientId: string; patientName: string; language: string };
@@ -36,7 +36,8 @@ export default function ApprovalUploadPanel({ patientId, patientName, language }
 
   const [openPanel, setOpenPanel] = useState(false);
   const [payers, setPayers] = useState<Payer[]>([]);
-  const [storedWording, setStoredWording] = useState<Record<string, string>>({});
+  /** The whole wording document: each insurer format keeps its own code table in it. */
+  const [wordingDoc, setWordingDoc] = useState<Record<string, unknown>>({});
   const [patient, setPatient] = useState<PatientOption | null>(null);
   const [cards, setCards] = useState<OpenDoc[]>([]);
   const [pickedPayer, setPickedPayer] = useState("");
@@ -50,18 +51,8 @@ export default function ApprovalUploadPanel({ patientId, patientName, language }
     );
     const stopWording = onSnapshot(
       doc(db, "clinics", clinicId, "settings", WORDING_DOC),
-      (snap) => {
-        const table = snap.get("metlife");
-        const out: Record<string, string> = {};
-        if (table && typeof table === "object") {
-          for (const [code, entry] of Object.entries(table as Record<string, unknown>)) {
-            const ar = entry && typeof entry === "object" ? (entry as { ar?: unknown }).ar : undefined;
-            if (typeof ar === "string" && ar.trim()) out[code] = ar.trim();
-          }
-        }
-        setStoredWording(out);
-      },
-      () => setStoredWording({}),
+      (snap) => setWordingDoc((snap.data() as Record<string, unknown> | undefined) ?? {}),
+      () => setWordingDoc({}),
     );
     return () => {
       stopPayers();
@@ -84,9 +75,20 @@ export default function ApprovalUploadPanel({ patientId, patientName, language }
     };
   }, [clinicId, patientId, patientName, openPanel]);
 
-  const insurers = useMemo(() => payers.filter((p) => p.active && p.id !== PRIVATE_PAYER_ID && p.format === "metlife"), [payers]);
+  const insurers = useMemo(() => payers.filter((p) => p.active && p.id !== PRIVATE_PAYER_ID && isInsurerFormat(p.format)), [payers]);
   const payerId = insurers.some((p) => p.id === pickedPayer) ? pickedPayer : (insurers[0]?.id ?? "");
   const payer = insurers.find((p) => p.id === payerId) ?? null;
+  const storedWording = useMemo(() => {
+    const table = wordingDoc[payer?.format ?? "metlife"];
+    const out: Record<string, string> = {};
+    if (table && typeof table === "object") {
+      for (const [code, entry] of Object.entries(table as Record<string, unknown>)) {
+        const ar = entry && typeof entry === "object" ? (entry as { ar?: unknown }).ar : undefined;
+        if (typeof ar === "string" && ar.trim()) out[code] = ar.trim();
+      }
+    }
+    return out;
+  }, [wordingDoc, payer?.format]);
 
   if (!unlocked) return null;
 

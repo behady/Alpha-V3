@@ -8,15 +8,10 @@ import { requireStaffPermission } from "@/lib/apiStaffAuth";
 import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { createUsageMeter, logAiCreditUsage } from "@/lib/aiCreditLog";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
-import { findPayer, parsePayers, PRIVATE_PAYER_ID } from "@/lib/payers";
+import { findPayer, isInsurerFormat, parsePayers, PRIVATE_PAYER_ID } from "@/lib/payers";
 import { matchPatient, nameSimilarity, type PatientLite } from "@/lib/insurance/matchPatient";
-import {
-  buildMetlifePrompt,
-  checkMetlife,
-  METLIFE_RESPONSE_SCHEMA,
-  normalizeMetlife,
-  type MetlifeExtraction,
-} from "@/lib/insurance/metlife";
+import type { MetlifeExtraction } from "@/lib/insurance/metlife";
+import { cardIdentifiesPatient, checkApproval, readerFor } from "@/lib/insurance/formats";
 import { claimDocId, CLAIMS_COLLECTION } from "@/lib/insurance/claims";
 import { binNoticeOf, type BinNotice } from "@/lib/recycleBin";
 import { binEntry, liveEntryId } from "@/lib/server/recycleBinStore";
@@ -118,9 +113,11 @@ export async function POST(req: Request) {
     const payer = findPayer(parsePayers(payersSnap.data()), payerId);
     if (!payer) return fail(400, "That insurer is not set up in this clinic.");
     if (!payer.active) return fail(403, "That insurer is retired in this clinic's settings.");
-    if (payer.id === PRIVATE_PAYER_ID || payer.format !== "metlife") {
+    if (payer.id === PRIVATE_PAYER_ID || !isInsurerFormat(payer.format)) {
       return fail(403, "This insurer has no document format set.");
     }
+    const format = payer.format;
+    const reader = readerFor(format);
 
     // --- the path: this clinic's folder for this document, one file name below it ---------
     const prefix = `clinics/${clinicId}/insurance_docs/${docId}/`;
@@ -167,15 +164,15 @@ export async function POST(req: Request) {
         model: MODEL,
         generationConfig: {
           responseMimeType: "application/json",
-          // Plain data in lib/insurance/metlife.ts (so tests can import it without the SDK); the
-          // SDK's ResponseSchema type wants its own enum for `type`, but the wire format is identical.
-          responseSchema: METLIFE_RESPONSE_SCHEMA as unknown as ResponseSchema,
+          // Plain data in lib/insurance/metlife.ts / nextcare.ts (so tests can import it without the SDK);
+          // the SDK's ResponseSchema type wants its own enum for `type`, but the wire format is identical.
+          responseSchema: reader.schema as unknown as ResponseSchema,
           temperature: 0.2,
         },
       });
       let timer: ReturnType<typeof setTimeout> | undefined;
       const result = await Promise.race([
-        model.generateContent([{ text: buildMetlifePrompt() }, { inlineData: { data: data.toString("base64"), mimeType: contentType } }]),
+        model.generateContent([{ text: reader.prompt() }, { inlineData: { data: data.toString("base64"), mimeType: contentType } }]),
         new Promise<never>((_, reject) => {
           timer = setTimeout(() => reject(new ModelFailure("The reading took too long.")), TIMEOUT_MS);
         }),
@@ -191,7 +188,7 @@ export async function POST(req: Request) {
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
         throw new ModelFailure("The model's answer was not readable.");
       }
-      extraction = normalizeMetlife(parsed);
+      extraction = reader.normalize(parsed);
     } catch (err) {
       reportServerError("Insurance read: model step failed:", err);
       await logUsage("read failed");
@@ -208,13 +205,15 @@ export async function POST(req: Request) {
       return { id: d.id, name: typeof p.name === "string" ? p.name : "", nameLatin: p.nameLatin, insurance: p.insurance };
     });
     const match = matchPatient(
-      { payerId, certificateNumber: h.certificateNumber, dependentCode: h.dependentCode, paperPatientName: h.paperPatientName },
+      // NextCare: the card alone finds the patient; its beneficiary code is not stored on the patient.
+      { payerId, certificateNumber: h.certificateNumber, dependentCode: cardIdentifiesPatient(format) ? "" : h.dependentCode, paperPatientName: h.paperPatientName },
       patients,
+      cardIdentifiesPatient(format),
     );
     const matched = match.kind === "exact" ? patients.find((p) => p.id === match.patientId) : undefined;
 
     // --- checks -----------------------------------------------------------------------------
-    const checks = checkMetlife(extraction, {
+    const checks = checkApproval(format, extraction, {
       today: ymdInTimeZone(clinicTimeZone()),
       providerCode: payer.providerCode,
       ...(matched ? { matchedPatientName: matched.name, nameScore: nameSimilarity(h.paperPatientName, matched.name) } : {}),
@@ -243,7 +242,7 @@ export async function POST(req: Request) {
 
     // --- the clinic's own Arabic wording for each code --------------------------------------
     const wordingSnap = await adminClinicDoc(clinicId, "settings", "insurance_wording").get();
-    const stored = wordingSnap.get("metlife") as Record<string, unknown> | undefined;
+    const stored = wordingSnap.get(format) as Record<string, unknown> | undefined;
     const wording: Record<string, string | null> = Object.fromEntries(
       [...new Set(extraction.lines.map((l) => l.code).filter(Boolean))].map((code) => {
         const entry = stored && typeof stored === "object" && Object.hasOwn(stored, code) ? stored[code] : undefined;
@@ -274,7 +273,7 @@ export async function POST(req: Request) {
       matched ? { id: matched.id, name: matched.name } : undefined,
     );
 
-    return NextResponse.json({ ok: true, docId, format: "metlife", extraction, checks, match, duplicate, inBin, wording });
+    return NextResponse.json({ ok: true, docId, format, extraction, checks, match, duplicate, inBin, wording });
   } catch (error) {
     reportServerError("Insurance read failed:", error);
     // The tokens were spent even if a later step fell over.
