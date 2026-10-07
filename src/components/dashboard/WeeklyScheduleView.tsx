@@ -178,7 +178,7 @@ export default function WeeklyScheduleView({
     };
 
     return (
-        <div className="flex flex-col min-w-[800px] h-full bg-surface rounded-2xl border border-line overflow-hidden">
+        <div className={`flex flex-col min-w-[800px] h-full bg-surface rounded-2xl border border-line overflow-hidden ${isAr ? "arabic-ui" : ""}`}>
           {/* One scroll box for the header and the grid: the header used to sit outside it, so the
               grid's scrollbar narrowed every body column by its width and the day headers drifted
               off the columns beneath them. Inside, the header is sticky and shares the same width. */}
@@ -199,20 +199,20 @@ export default function WeeklyScheduleView({
                                 isToday ? 'bg-ink-slab text-white' : off ? 'bg-surface-muted text-ink-faint' : 'text-ink'
                             }`}
                         >
-                            <span className={`text-[11px] font-bold uppercase tracking-widest ${isToday ? 'text-white/70' : off ? 'text-ink-faint' : 'text-ink-muted'}`}>
+                            <span className={`text-[12.5px] font-bold uppercase tracking-wider ${isToday ? 'text-white/70' : off ? 'text-ink-faint' : 'text-ink-muted'}`}>
                                 {weekday}
                             </span>
-                            <span className={`font-figure text-2xl font-semibold leading-none mt-1 ${isToday ? 'text-white' : off ? 'text-ink-faint' : 'text-ink'}`}>
+                            <span className={`font-figure text-[28px] font-semibold leading-none mt-1 ${isToday ? 'text-white' : off ? 'text-ink-faint' : 'text-ink'}`}>
                                 {dayNum}
                             </span>
                             {off ? (
-                                <span className="mt-1.5 text-[11px] font-semibold text-ink-faint">{isAr ? 'مغلق' : 'Closed'}</span>
+                                <span className="mt-1.5 text-[12.5px] font-semibold text-ink-faint">{isAr ? 'مغلق' : 'Closed'}</span>
                             ) : (
                                 <span
                                     dir="auto"
                                     /* Wraps to a second line rather than cutting off: beside the assistant panel a
                                        column is narrow, and "2 visits · 2 unconf…" answers nothing. */
-                                    className={`mt-1.5 max-w-full line-clamp-2 font-figure text-[11px] font-semibold leading-tight ${isToday ? 'text-white/70' : 'text-ink-muted'}`}
+                                    className={`mt-1.5 max-w-full line-clamp-2 font-figure text-[12.5px] font-semibold leading-tight ${isToday ? 'text-white/70' : 'text-ink-muted'}`}
                                     title={stripText(key)}
                                 >
                                     {stripText(key)}
@@ -230,7 +230,7 @@ export default function WeeklyScheduleView({
                     <div className="absolute inset-y-0 start-0 w-[84px] md:w-[100px] border-e border-line flex flex-col pointer-events-none z-10 bg-surface-subtle">
                         {timeSlots.map((slot, idx) => (
                             <div key={idx} className="relative flex-1" style={{ height: `${WEEK_ROW_PX}px` }}>
-                                <div className={`absolute end-2 md:end-3 font-figure text-[11px] font-semibold text-ink-muted ${idx === 0 ? 'top-3' : 'top-0 -translate-y-1/2'}`}>
+                                <div className={`absolute end-2 md:end-3 font-figure text-[12.5px] font-semibold text-ink-muted ${idx === 0 ? 'top-3' : 'top-0 -translate-y-1/2'}`}>
                                     {slot.label}
                                 </div>
                             </div>
@@ -329,7 +329,7 @@ export default function WeeklyScheduleView({
                                                         <div className={`absolute start-0 inset-y-1 w-1 rounded-e-full ${styles.accent}`}></div>
                                                         <div className="flex flex-col min-w-0 h-full overflow-hidden ps-2.5 pe-1.5 py-1 relative z-10 gap-0.5">
                                                             <span className="flex items-center gap-1 min-w-0">
-                                                                <span className="text-sm font-bold text-ink truncate leading-tight">{apt.patientName}</span>
+                                                                <span className="text-[15px] font-bold text-ink truncate leading-tight">{apt.patientName}</span>
                                                                 <AlertBadge alert={alert} isAr={isAr} />
                                                                 {insurers.length > 0 && (
                                                                     <span className="shrink-0 inline-flex items-center gap-0.5" title={insurers.join(", ")}>
@@ -353,13 +353,13 @@ export default function WeeklyScheduleView({
                                                                 )}
                                                             </span>
                                                             {tier !== 'name' && (
-                                                                <span className="text-xs text-ink-body truncate leading-tight">{what}</span>
+                                                                <span className="text-[13px] font-medium text-ink-body truncate leading-tight">{what}</span>
                                                             )}
                                                             {(tier === 'time' || tier === 'full') && (
-                                                                <span className="font-figure text-[11px] text-ink-muted truncate leading-tight" dir="ltr">{when}</span>
+                                                                <span className="font-figure text-[12.5px] font-semibold text-ink-muted truncate leading-tight" dir="ltr">{when}</span>
                                                             )}
                                                             {tier === 'full' && phone && (
-                                                                <span className="text-[11px] text-ink-muted truncate leading-tight" dir="ltr">{phone}</span>
+                                                                <span className="font-figure text-[12.5px] text-ink-muted truncate leading-tight" dir="ltr">{phone}</span>
                                                             )}
                                                         </div>
 
