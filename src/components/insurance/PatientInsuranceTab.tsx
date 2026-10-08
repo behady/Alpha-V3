@@ -30,7 +30,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { isAnyUnlocked } from "@/lib/featureCatalog";
 import { CLAIMS_COLLECTION, LINE_STATUSES, lineStatusOf, parseClaim, type ClaimStatus, type InsuranceClaim, type LineStatus } from "@/lib/insurance/claims";
-import { bookLineUrl, lineBooking, type LinkedAppointmentLite } from "@/lib/insurance/appointments";
+import { bookLineUrl, claimProgress, lineBooking, type LinkedAppointmentLite } from "@/lib/insurance/appointments";
 import { readInsurance } from "@/lib/patientInsurance";
 import { parsePayers, PRIVATE_PAYER_ID, type Payer } from "@/lib/payers";
 import { isDentistStaff } from "@/lib/staffRoles";
@@ -251,15 +251,29 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
     }
   };
 
+  /** One labelled figure: the small grey caption above, the number big below. */
+  const figure = (label: string, value: string) => (
+    <div>
+      <p className="text-[12px] font-bold text-ink-muted">{label}</p>
+      <p className="mt-0.5 font-figure text-[19px] font-extrabold tabular-nums text-ink">
+        <bdi dir="ltr">{value}</bdi>
+      </p>
+    </div>
+  );
+  // Every action carries its words, not just an icon: the desk should never hover to find a button.
+  const actionBtn = "inline-flex h-9 items-center gap-1.5 rounded-lg border border-line bg-surface px-3 text-[13px] font-bold text-ink transition-colors hover:bg-surface-subtle disabled:opacity-40";
+  const doneChip = "inline-flex h-9 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-[13px] font-bold text-emerald-800";
+  const selectCls = "h-10 w-full rounded-lg border border-line bg-surface px-2.5 text-[14px] font-bold text-ink outline-none focus:border-ink disabled:opacity-50";
+
   return (
     <div className="space-y-6">
       {/* --- membership ------------------------------------------------------------------------ */}
-      <section className="rounded-2xl border border-line bg-surface p-5">
-        <h3 className="text-[11px] font-black uppercase tracking-widest text-ink-muted">{t("tabMembership")}</h3>
+      <section className="rounded-2xl border border-line bg-surface p-6">
+        <h3 className="text-[17px] font-black text-ink">{t("tabMembership")}</h3>
         {insurers.length === 0 || Object.keys(membership).length === 0 ? (
-          <p className="mt-3 text-[13px] font-semibold text-ink-muted">{t("noMembership")}</p>
+          <p className="mt-3 text-[14px] font-semibold text-ink-muted">{t("noMembership")}</p>
         ) : (
-          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+          <div className="mt-4 grid gap-4 xl:grid-cols-2">
             {insurers
               .filter((p) => membership[p.id])
               .map((p) => {
@@ -273,14 +287,16 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                       ]
                     : [["memberNumber", m.memberNumber]];
                 return (
-                  <div key={p.id} className="rounded-xl border border-line bg-surface-subtle p-4">
-                    <p className="text-[13px] font-black text-ink">{isAr ? p.nameAr || p.name : p.name}</p>
-                    <dl className="mt-2 grid grid-cols-3 gap-3">
+                  <div key={p.id} className="rounded-xl border border-line bg-surface-subtle p-5">
+                    <p className="text-[16px] font-black text-ink">{isAr ? p.nameAr || p.name : p.name}</p>
+                    {/* The value sits straight under its label: the number is isolated as left-to-right
+                        text, but the cell keeps the page's direction, so both line up at the same edge. */}
+                    <dl className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
                       {fields.map(([k, v]) => (
                         <div key={k}>
-                          <dt className="text-[10px] font-bold uppercase tracking-wider text-ink-muted">{t(k)}</dt>
-                          <dd className="font-figure text-[15px] font-extrabold text-ink" dir="ltr">
-                            {v || "—"}
+                          <dt className="text-[13px] font-bold text-ink-muted">{t(k)}</dt>
+                          <dd className="mt-1 font-figure text-[20px] font-extrabold text-ink">
+                            <bdi dir="ltr">{v || "—"}</bdi>
                           </dd>
                         </div>
                       ))}
@@ -292,191 +308,207 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
         )}
       </section>
 
-      {/* --- approvals, laid out like the sheet ------------------------------------------------ */}
-      <section className="rounded-2xl border border-line bg-surface p-5">
-        <h3 className="text-[11px] font-black uppercase tracking-widest text-ink-muted">{t("tabClaims")}</h3>
+      {/* --- approvals: one card per approval paper -------------------------------------------- */}
+      <section className="rounded-2xl border border-line bg-surface p-6">
+        <h3 className="text-[17px] font-black text-ink">
+          {t("tabClaims")}
+          {claims.length > 0 && <span className="ms-2 font-figure text-[15px] font-bold text-ink-muted">({claims.length})</span>}
+        </h3>
         {loading ? (
           <div className="flex justify-center py-8">
             <Loader2 className="animate-spin text-ink-muted" size={22} />
           </div>
         ) : failed ? (
-          <p className="mt-3 text-[13px] font-semibold text-red-700">{t("claimsFailed")}</p>
+          <p className="mt-3 text-[14px] font-semibold text-red-700">{t("claimsFailed")}</p>
         ) : claims.length === 0 ? (
-          <p className="mt-3 text-[13px] font-semibold text-ink-muted">{t("noPatientClaims")}</p>
+          <p className="mt-3 text-[14px] font-semibold text-ink-muted">{t("noPatientClaims")}</p>
         ) : (
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full min-w-[60rem] border-collapse text-[13px]">
-              <thead>
-                <tr className="border-b border-line text-[10px] font-black uppercase tracking-wider text-ink-muted">
-                  <th className="py-2 pe-3 text-start">{t("approvalNumber")}</th>
-                  <th className="py-2 pe-3 text-start">{t("approvalDate")}</th>
-                  <th className="py-2 pe-3 text-start">{t("colService")}</th>
-                  <th className="py-2 pe-3 text-end">{t("colCount")}</th>
-                  <th className="py-2 pe-3 text-end">{t("colRequested")}</th>
-                  <th className="py-2 pe-3 text-end">{t("colApproved")}</th>
-                  <th className="py-2 pe-3 text-start">{t("colDentist")}</th>
-                  <th className="py-2 pe-3 text-start">{t("colState")}</th>
-                  <th className="py-2 text-start">{t("colVisit")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {claims.map((c) => {
-                  const status = STATUS[c.status];
-                  const rows = c.lines.length;
-                  const isBusy = busy === c.id;
-                  return c.lines.map((line, i) => (
-                    <tr key={`${c.id}-${i}`} className={i === rows - 1 ? "border-b border-line" : "border-b border-line/40"}>
-                      {i === 0 && (
-                        <>
-                          <td rowSpan={rows} className="py-2.5 pe-3 align-top">
-                            <p className="font-figure text-[14px] font-extrabold text-ink" dir="ltr">
-                              {c.approvalNumber}
-                            </p>
-                            <p className="mt-0.5 text-[11px] font-semibold text-ink-muted">{payerName(c.payerId)}</p>
-                            {/* One status per approval, as on the insurer's sheet: the paper is treated or sent as a whole. */}
-                            <div className="mt-2 flex flex-wrap items-center gap-1.5" title={t("statusForApproval")}>
-                              <span className={`inline-block rounded-full border px-2.5 py-0.5 text-[11px] font-black ${status.pill}`}>{t(status.key)}</span>
-                              {(c.status === "approved" || c.status === "cancelled") && (
-                                <button type="button" onClick={() => setStatus(c, { status: "treated" })} disabled={isBusy} title={t("markTreated")} className="rounded-lg border border-line p-1.5 text-ink-muted hover:text-ink disabled:opacity-40">
-                                  <CheckCircle2 size={14} />
-                                </button>
-                              )}
-                              {(c.status === "treated" || c.status === "sent") && (
-                                <button type="button" onClick={() => setStatus(c, { status: "approved" })} disabled={isBusy} title={t("markNotTreated")} className="rounded-lg border border-line p-1.5 text-ink-muted hover:text-ink disabled:opacity-40">
-                                  <RotateCcw size={14} />
-                                </button>
-                              )}
-                              {c.status === "treated" && (
-                                <button type="button" onClick={() => setStatus(c, { status: "sent" })} disabled={isBusy} title={t("markSent")} className="rounded-lg border border-line p-1.5 text-ink-muted hover:text-ink disabled:opacity-40">
-                                  <Send size={14} />
-                                </button>
-                              )}
-                              {isBusy && <Loader2 size={14} className="animate-spin text-ink-muted" />}
-                            </div>
-                            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                              {Object.keys(c.dentists).length > 0 && (
-                                <button type="button" onClick={() => reapplyRates(c)} disabled={isBusy} title={t("reapplyRates")} className="rounded-lg border border-line p-1.5 text-ink-muted hover:text-ink disabled:opacity-40">
-                                  <RefreshCw size={14} />
-                                </button>
-                              )}
-                              <button type="button" onClick={() => openDoc(c)} disabled={!c.doc.path} title={t("openPdf")} className="rounded-lg border border-line p-1.5 text-ink-muted hover:text-ink disabled:opacity-40">
-                                <FileText size={14} />
-                              </button>
-                              {c.status !== "cancelled" && Object.keys(c.ledgerIds).length > 0 &&
-                                (c.insurerPaid ? (
-                                  <span className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-800">
-                                    <CheckCircle2 size={12} /> {t("insurerPaidOn")} {c.insurerPaid.date}
-                                  </span>
-                                ) : (c.status === "treated" || c.status === "sent") && (
-                                  <button type="button" onClick={() => insurerPaid(c)} disabled={isBusy} className="inline-flex items-center gap-1 rounded-lg border border-line bg-surface-subtle px-2 py-1 text-[11px] font-bold text-ink hover:bg-surface disabled:opacity-40">
-                                    <Banknote size={12} /> {t("markInsurerPaid")} {money(c.totals.approved)}
-                                  </button>
-                                ))}
-                              {c.totals.patientShare > 0 && c.status !== "cancelled" &&
-                                (c.shareCollected ? (
-                                  <span className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-800">
-                                    <CheckCircle2 size={12} /> {t("shareCollectedOn")} {c.shareCollected.date}
-                                  </span>
-                                ) : (c.status === "treated" || c.status === "sent") && (
-                                  <button type="button" onClick={() => collect(c)} disabled={isBusy} className="inline-flex items-center gap-1 rounded-lg border border-line bg-surface-subtle px-2 py-1 text-[11px] font-bold text-ink hover:bg-surface disabled:opacity-40">
-                                    <Banknote size={12} /> {t("collectShare")} {money(c.totals.patientShare)}
-                                  </button>
-                                ))}
-                            </div>
-                          </td>
-                          <td rowSpan={rows} className="py-2.5 pe-3 text-start align-top font-figure font-semibold text-ink-muted">
-                            <bdi dir="ltr">{c.approvalDate}</bdi>
-                          </td>
-                        </>
-                      )}
-                      <td className="py-2.5 pe-3 font-semibold text-ink-body">{wording[line.code]?.trim() || line.description}</td>
-                      <td className="py-2.5 pe-3 text-end font-figure font-bold tabular-nums">{line.unitsApproved}</td>
-                      <td className="py-2.5 pe-3 text-end font-figure font-bold tabular-nums text-ink-muted">{money(line.grossTotal)}</td>
-                      <td className="py-2.5 pe-3 text-end font-figure font-extrabold tabular-nums text-ink">{money(line.approvedAmount)}</td>
-                      <td className="py-2 pe-3">
-                        <div className="flex items-center gap-2">
-                        <select
-                          value={c.dentists[i]?.staffId ?? ""}
-                          disabled={isBusy || c.status === "cancelled"}
-                          onChange={(e) => pickDentist(c, i, e.target.value)}
-                          className="w-full min-w-[9rem] rounded-lg border border-line bg-surface px-2 py-1.5 text-[12px] font-bold text-ink outline-none focus:border-ink disabled:opacity-50"
-                        >
-                          <option value="">{t("pickDentist")}</option>
-                          {dentists.map((d) => (
-                            <option key={d.id} value={d.id}>
-                              {d.name}
-                            </option>
-                          ))}
-                          {c.dentists[i] && !dentists.some((d) => d.id === c.dentists[i].staffId) && (
-                            <option value={c.dentists[i].staffId}>{c.dentists[i].name}</option>
-                          )}
-                        </select>
-                        {c.dentists[i] && (
-                          <span
-                            title={c.dentists[i].rate === 0 ? t("noRate") : undefined}
-                            className={`shrink-0 font-figure text-[12px] font-extrabold tabular-nums ${c.dentists[i].rate === 0 ? "text-red-700" : "text-ink-muted"}`}
-                          >
-                            {c.dentists[i].rate}%
-                          </span>
-                        )}
-                        </div>
-                      </td>
-                      <td className="py-2 pe-3">
-                        <select
-                          value={lineStatusOf(c, i)}
-                          disabled={isBusy || c.status === "cancelled"}
-                          onChange={(e) => pickState(c, i, e.target.value as LineStatus)}
-                          aria-label={t("colState")}
-                          className="w-full min-w-[7rem] rounded-lg border border-line bg-surface px-2 py-1.5 text-[12px] font-bold text-ink outline-none focus:border-ink disabled:opacity-50"
-                        >
-                          {LINE_STATUSES.map((s) => (
-                            <option key={s} value={s}>
-                              {t(STATE_KEY[s])}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      {/* The calendar's view of this service: booked, done, or a Book button that opens the
-                          booking page on this patient with this service and its dentist already picked. */}
-                      <td className="py-2 text-[12px] font-semibold text-ink-muted">
-                        {(() => {
+          <div className="mt-4 space-y-5">
+            {claims.map((c) => {
+              const status = STATUS[c.status];
+              const isBusy = busy === c.id;
+              const progress = claimProgress(c, appointments);
+              return (
+                <article key={c.id} className="overflow-hidden rounded-xl border border-line">
+                  {/* The paper itself: its number, insurer and date, and what it is worth. */}
+                  <header className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4 border-b border-line bg-surface-subtle px-5 py-4">
+                    <div>
+                      <p className="text-[12px] font-bold text-ink-muted">{t("approvalNumber")}</p>
+                      <p className="mt-0.5 font-figure text-[22px] font-extrabold text-ink">
+                        <bdi dir="ltr">{c.approvalNumber}</bdi>
+                      </p>
+                      <p className="mt-1 text-[14px] font-semibold text-ink-body">
+                        {payerName(c.payerId)} · <bdi dir="ltr" className="font-figure">{c.approvalDate}</bdi>
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
+                      {figure(t("approvedTotal"), money(c.totals.approved))}
+                      {c.totals.patientShare > 0 && figure(t("share"), money(c.totals.patientShare))}
+                      <div>
+                        <p className="text-[12px] font-bold text-ink-muted">
+                          {t("progress").replace("{done}", String(progress.done)).replace("{total}", String(progress.total)).replace("{booked}", String(progress.booked))}
+                        </p>
+                        {/* One status per approval, as on the insurer's sheet: the paper is treated or sent as a whole. */}
+                        <span title={t("statusForApproval")} className={`mt-1 inline-block rounded-full border px-3 py-1 text-[13px] font-black ${status.pill}`}>
+                          {t(status.key)}
+                        </span>
+                      </div>
+                    </div>
+                  </header>
+
+                  {/* What can be done to the paper as a whole. */}
+                  <div className="flex flex-wrap items-center gap-2 border-b border-line px-5 py-3">
+                    <button type="button" onClick={() => openDoc(c)} disabled={!c.doc.path} className={actionBtn}>
+                      <FileText size={15} /> {t("openPdf")}
+                    </button>
+                    {(c.status === "approved" || c.status === "cancelled") && (
+                      <button type="button" onClick={() => setStatus(c, { status: "treated" })} disabled={isBusy} className={actionBtn}>
+                        <CheckCircle2 size={15} /> {t("markTreated")}
+                      </button>
+                    )}
+                    {c.status === "treated" && (
+                      <button type="button" onClick={() => setStatus(c, { status: "sent" })} disabled={isBusy} className={actionBtn}>
+                        <Send size={15} /> {t("markSent")}
+                      </button>
+                    )}
+                    {c.status !== "cancelled" && Object.keys(c.ledgerIds).length > 0 &&
+                      (c.insurerPaid ? (
+                        <span className={doneChip}>
+                          <CheckCircle2 size={15} /> {t("insurerPaidOn")} <bdi dir="ltr">{c.insurerPaid.date}</bdi>
+                        </span>
+                      ) : (c.status === "treated" || c.status === "sent") && (
+                        <button type="button" onClick={() => insurerPaid(c)} disabled={isBusy} className={actionBtn}>
+                          <Banknote size={15} /> {t("markInsurerPaid")} <bdi dir="ltr" className="font-figure">{money(c.totals.approved)}</bdi>
+                        </button>
+                      ))}
+                    {c.totals.patientShare > 0 && c.status !== "cancelled" &&
+                      (c.shareCollected ? (
+                        <span className={doneChip}>
+                          <CheckCircle2 size={15} /> {t("shareCollectedOn")} <bdi dir="ltr">{c.shareCollected.date}</bdi>
+                        </span>
+                      ) : (c.status === "treated" || c.status === "sent") && (
+                        <button type="button" onClick={() => collect(c)} disabled={isBusy} className={actionBtn}>
+                          <Banknote size={15} /> {t("collectShare")} <bdi dir="ltr" className="font-figure">{money(c.totals.patientShare)}</bdi>
+                        </button>
+                      ))}
+                    {Object.keys(c.dentists).length > 0 && (
+                      <button type="button" onClick={() => reapplyRates(c)} disabled={isBusy} className={actionBtn}>
+                        <RefreshCw size={15} /> {t("reapplyRates")}
+                      </button>
+                    )}
+                    {(c.status === "treated" || c.status === "sent") && (
+                      <button type="button" onClick={() => setStatus(c, { status: "approved" })} disabled={isBusy} className={`${actionBtn} text-ink-muted`}>
+                        <RotateCcw size={15} /> {t("markNotTreated")}
+                      </button>
+                    )}
+                    {isBusy && <Loader2 size={16} className="animate-spin text-ink-muted" />}
+                  </div>
+
+                  {/* The services on the paper, one row each. */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[60rem] border-collapse text-[14px]">
+                      <thead>
+                        <tr className="border-b border-line text-[12px] font-bold text-ink-muted">
+                          <th className="px-5 py-2.5 text-start">{t("colService")}</th>
+                          <th className="px-3 py-2.5 text-end">{t("colCount")}</th>
+                          <th className="px-3 py-2.5 text-end">{t("colRequested")}</th>
+                          <th className="px-3 py-2.5 text-end">{t("colApproved")}</th>
+                          <th className="px-3 py-2.5 text-start">{t("colDentist")}</th>
+                          <th className="px-3 py-2.5 text-start">{t("colState")}</th>
+                          <th className="px-5 py-2.5 text-start">{t("colVisit")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {c.lines.map((line, i) => {
                           const visit = lineBooking(appointments, c.id, i);
                           const open = c.status !== "cancelled" && lineStatusOf(c, i) !== "Completed";
-                          if (visit.kind === "done") {
-                            return (
-                              <span className="inline-flex items-center gap-1 text-emerald-800" dir="ltr">
-                                <CheckCircle2 size={12} /> {t("doneOn")} {visit.date}
-                              </span>
-                            );
-                          }
-                          if (visit.kind === "booked") {
-                            return (
-                              <span className="inline-flex flex-wrap items-center gap-x-1.5">
-                                <span className="font-figure tabular-nums text-ink" dir="ltr">
-                                  {t("bookedOn")} {visit.date} {visit.time}
-                                </span>
-                                {visit.doctor && <span>· {visit.doctor}</span>}
-                                {open && (
-                                  <Link href={bookLineUrl(patientId, { claimId: c.id, claimLine: i })} title={t("bookAnother")} className="rounded-lg border border-line p-1 text-ink-muted hover:text-ink">
-                                    <CalendarPlus size={12} />
+                          const bookHref = bookLineUrl(patientId, { claimId: c.id, claimLine: i });
+                          return (
+                            <tr key={`${c.id}-${i}`} className="border-b border-line/50 last:border-b-0">
+                              <td className="px-5 py-3 text-[15px] font-bold text-ink">{wording[line.code]?.trim() || line.description}</td>
+                              <td className="px-3 py-3 text-end font-figure text-[15px] font-bold tabular-nums text-ink">{line.unitsApproved}</td>
+                              <td className="px-3 py-3 text-end font-figure text-[15px] font-bold tabular-nums text-ink-muted">{money(line.grossTotal)}</td>
+                              <td className="px-3 py-3 text-end font-figure text-[16px] font-extrabold tabular-nums text-ink">{money(line.approvedAmount)}</td>
+                              <td className="px-3 py-2.5">
+                                <div className="flex items-center gap-2">
+                                  <select
+                                    value={c.dentists[i]?.staffId ?? ""}
+                                    disabled={isBusy || c.status === "cancelled"}
+                                    onChange={(e) => pickDentist(c, i, e.target.value)}
+                                    aria-label={t("colDentist")}
+                                    className={`${selectCls} min-w-[10rem]`}
+                                  >
+                                    <option value="">{t("pickDentist")}</option>
+                                    {dentists.map((d) => (
+                                      <option key={d.id} value={d.id}>
+                                        {d.name}
+                                      </option>
+                                    ))}
+                                    {c.dentists[i] && !dentists.some((d) => d.id === c.dentists[i].staffId) && (
+                                      <option value={c.dentists[i].staffId}>{c.dentists[i].name}</option>
+                                    )}
+                                  </select>
+                                  {c.dentists[i] && (
+                                    <span
+                                      title={c.dentists[i].rate === 0 ? t("noRate") : undefined}
+                                      className={`shrink-0 font-figure text-[14px] font-extrabold tabular-nums ${c.dentists[i].rate === 0 ? "text-red-700" : "text-ink-muted"}`}
+                                    >
+                                      {c.dentists[i].rate}%
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2.5">
+                                <select
+                                  value={lineStatusOf(c, i)}
+                                  disabled={isBusy || c.status === "cancelled"}
+                                  onChange={(e) => pickState(c, i, e.target.value as LineStatus)}
+                                  aria-label={t("colState")}
+                                  className={`${selectCls} min-w-[8rem]`}
+                                >
+                                  {LINE_STATUSES.map((s) => (
+                                    <option key={s} value={s}>
+                                      {t(STATE_KEY[s])}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                              {/* The calendar's view of this service: done, booked, or a Book button that opens
+                                  the dashboard's booking popup on this patient with this service picked. */}
+                              <td className="px-5 py-2.5 text-[14px] font-semibold text-ink-body">
+                                {visit.kind === "done" ? (
+                                  <span className="inline-flex items-center gap-1.5 font-bold text-emerald-800">
+                                    <CheckCircle2 size={15} /> {t("doneOn")} <bdi dir="ltr" className="font-figure">{visit.date}</bdi>
+                                  </span>
+                                ) : visit.kind === "booked" ? (
+                                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                    <span className="font-bold text-ink">
+                                      {t("bookedOn")} <bdi dir="ltr" className="font-figure tabular-nums">{visit.date} {visit.time}</bdi>
+                                    </span>
+                                    {visit.doctor && <span className="text-ink-muted">· {visit.doctor}</span>}
+                                    {open && (
+                                      <Link href={bookHref} className="inline-flex h-8 items-center gap-1 rounded-lg border border-line px-2 text-[12px] font-bold text-ink-muted hover:text-ink">
+                                        <CalendarPlus size={13} /> {t("bookAnother")}
+                                      </Link>
+                                    )}
+                                  </div>
+                                ) : !open ? (
+                                  <span className="text-ink-faint">—</span>
+                                ) : (
+                                  <Link href={bookHref} className="inline-flex h-10 items-center gap-2 rounded-lg bg-accent px-4 text-[14px] font-bold text-ink-on-accent shadow-sm transition-colors hover:bg-accent-strong">
+                                    <CalendarPlus size={16} /> {t("book")}
                                   </Link>
                                 )}
-                              </span>
-                            );
-                          }
-                          if (!open) return <span>—</span>;
-                          return (
-                            <Link href={bookLineUrl(patientId, { claimId: c.id, claimLine: i })} className="inline-flex items-center gap-1 rounded-lg border border-line bg-surface-subtle px-2 py-1 text-[11px] font-bold text-ink hover:bg-surface">
-                              <CalendarPlus size={12} /> {t("book")}
-                            </Link>
+                              </td>
+                            </tr>
                           );
-                        })()}
-                      </td>
-                    </tr>
-                  ));
-                })}
-              </tbody>
-            </table>
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
       </section>

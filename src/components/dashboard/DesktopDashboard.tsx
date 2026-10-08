@@ -47,6 +47,7 @@ import { doctorCardLabel, pickerValueFromDoctorField } from "@/lib/generalDentis
 import { parseClinicSchedule, dayBoundsCovering, visitStartInDay, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import { weekDaysFrom } from "@/lib/weekSchedule";
 import InsurerBadge from "@/components/shared/InsurerBadge";
+import type { ClaimLink } from "@/lib/insurance/appointments";
 import { holdsPermission } from "@/lib/permissions";
 import { useClinic } from "@/context/ClinicContext";
 import { useActiveBranch, ALL_BRANCHES } from "@/lib/useActiveBranch";
@@ -196,6 +197,53 @@ export default function DesktopDashboard() {
   const [bookingTab, setBookingTab] = useState<"appointment" | "service" | "payment" | "insurance">("appointment");
   /** The popup opened as Quick Pay: pick a patient, pay what they owe, no booking. */
   const [quickPayPopup, setQuickPayPopup] = useState(false);
+  /** The approved service the patient file's Book button asked for; cleared when the popup closes. */
+  const [preSelectedClaimLine, setPreSelectedClaimLine] = useState<ClaimLink | null>(null);
+  // /?book=<patientId>&claim=<claimId>&line=<n> — the patient file's Insurance tab booking one
+  // approved service. Read once, then the address is cleared so refresh/back does not reopen it.
+  // Read from window, not useSearchParams: the hook would need a Suspense boundary on the home page.
+  const bookRequest = useRef<{ patientId: string; claim: ClaimLink | null } | null>(null);
+  const [bookRequestTick, setBookRequestTick] = useState(0);
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const patientId = q.get("book");
+    if (!patientId) return;
+    const claimId = q.get("claim") || "";
+    const line = Number(q.get("line"));
+    bookRequest.current = { patientId, claim: claimId && Number.isInteger(line) && line >= 0 ? { claimId, claimLine: line } : null };
+    setBookRequestTick((n) => n + 1);
+    router.replace("/");
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const req = bookRequest.current;
+    if (!req || patientsList.length === 0) return;
+    bookRequest.current = null;
+    const open = (name: string) => {
+      setSelectedAppointment(null);
+      setAppointmentToEdit(null);
+      setQuickPayPopup(false);
+      setPreSelectedTime("");
+      setPreSelectedDoctor("");
+      setPreSelectedPatient({ id: req.patientId, name });
+      setPreSelectedClaimLine(req.claim);
+      setBookingTab(req.claim ? "insurance" : "appointment");
+      setActiveModal("booking");
+    };
+    const known = patientsList.find((p) => String(p.id) === req.patientId);
+    if (known) {
+      open(String(known.name || ""));
+      return;
+    }
+    // Past the picker's first 2,500 names: read the one patient.
+    getDoc(getClinicDoc("patients", req.patientId))
+      .then((snap) => {
+        if (snap.exists()) open(String(snap.data().name || ""));
+      })
+      .catch((err) => console.error("Book from patient file: patient read failed", err));
+  }, [patientsList, bookRequestTick]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (activeModal !== "booking") setPreSelectedClaimLine(null);
+  }, [activeModal]);
   const openQuickPay = () => {
     if (appointmentEditorMode === "modal") {
       setAppointmentToEdit(null);
@@ -1881,6 +1929,7 @@ export default function DesktopDashboard() {
                             preSelectedPatient={preSelectedPatient}
                             preSelectedBranchId={preSelectedRoomBranchId || scopeBranchId}
                             preSelectedRoomId={preSelectedRoomId}
+                            preSelectedClaimLine={preSelectedClaimLine}
                         />
                     ) : null}
              </div>
@@ -1909,6 +1958,7 @@ export default function DesktopDashboard() {
           preSelectedPatient={preSelectedPatient}
           preSelectedBranchId={preSelectedRoomBranchId || scopeBranchId}
           preSelectedRoomId={preSelectedRoomId}
+          preSelectedClaimLine={preSelectedClaimLine}
         />
       )}
 
