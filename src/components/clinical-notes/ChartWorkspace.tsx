@@ -32,6 +32,8 @@ export default function ChartWorkspace({
   onSaved,
   formKey,
   loading = false,
+  dentistMode = false,
+  meStaffId = "",
 }: {
   patientId: string;
   patientName: string;
@@ -50,6 +52,9 @@ export default function ChartWorkspace({
   /** Changes whenever the form should start over — remounting is what clears it. */
   formKey: string;
   loading?: boolean;
+  /** Chair mode: the editor without money or a dentist picker; see ServiceEditorDrawer. */
+  dentistMode?: boolean;
+  meStaffId?: string;
 }) {
   const { language } = useLanguage();
   const isAr = language === "ar";
@@ -323,6 +328,8 @@ export default function ChartWorkspace({
           initialNote={editingNote}
           servicesList={servicesList}
           doctors={doctors}
+          dentistMode={dentistMode}
+          meStaffId={meStaffId}
           onSaved={onSaved}
         />
       </div>

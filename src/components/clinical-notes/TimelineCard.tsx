@@ -26,6 +26,10 @@ interface Props {
   onContinueService: (note: Note) => void;
   /** Persists a hand-arranged order. Only called while the timeline is in manual mode. */
   onReorder: (changes: { id: string; sortIndex: number }[]) => Promise<void> | void;
+  /** Chair mode: no EGP chips on the cards. */
+  hideMoney?: boolean;
+  /** Chair mode: which notes the viewer may edit or delete; absent means all of them. */
+  canEditNote?: (note: Note) => boolean;
 }
 
 export default function TimelineCard({
@@ -37,6 +41,8 @@ export default function TimelineCard({
   onMoveService,
   onContinueService,
   onReorder,
+  hideMoney = false,
+  canEditNote,
 }: Props) {
   const { language } = useLanguage();
   const { clinicalNoteSort, clinicalNoteGrouping, clinicalNoteDensity } = useUI();
@@ -145,6 +151,8 @@ export default function TimelineCard({
         onMove={onMoveService}
         onContinue={onContinueService}
         compact={compact}
+        hideMoney={hideMoney}
+        locked={canEditNote ? !canEditNote(note) : false}
         reorder={
           manual
             ? {

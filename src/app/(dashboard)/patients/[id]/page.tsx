@@ -22,6 +22,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { generalDoctorLabel } from "@/lib/generalDentist";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
+import { useChairMode } from "@/lib/useChairMode";
 import { logActivity } from "@/lib/logger";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import { PRIVATE_PAYER_ID } from "@/lib/payers";
@@ -176,6 +177,8 @@ export default function PatientProfile() {
   const { t, language, isRTL } = useLanguage();
   const { user, loading: authLoading } = useAuth();
   const { isAdmin, clinicId, clinic } = useClinic();
+  /** Chair mode: a dentist's file view has no money tabs and no balance (spec 2026-10-08). */
+  const { chair } = useChairMode();
   // Sold as an add-on; the route refuses the send too, this only keeps a dead button off the screen.
   const canSendPdf = isUnlocked(clinic, "clinicalPdfs");
   
@@ -916,9 +919,9 @@ export default function PatientProfile() {
   const tabs: Array<{ id: "clinical" | "overview" | "plan" | "finance" | "insurance" | "timeline" | "xrays" | "prescriptions" | "notes"; label: string; icon: any; show: boolean }> = [
     { id: "clinical", label: language === "ar" ? "السجل السريري" : "Clinical", icon: Activity, show: !!canViewClinical },
     { id: "plan", label: language === "ar" ? "خطة العلاج" : "Treatment Plan", icon: ClipboardList, show: !!canViewClinical },
-    { id: "finance", label: language === "ar" ? "المالية" : "Finance", icon: Wallet, show: true },
+    { id: "finance", label: language === "ar" ? "المالية" : "Finance", icon: Wallet, show: !chair },
     // Only a clinic with the insurance add-on has approvals to show; others never see the tab.
-    { id: "insurance", label: language === "ar" ? "التأمين" : "Insurance", icon: ShieldCheck, show: !!clinic && isAnyUnlocked(clinic, "insurance") },
+    { id: "insurance", label: language === "ar" ? "التأمين" : "Insurance", icon: ShieldCheck, show: !!clinic && isAnyUnlocked(clinic, "insurance") && !chair },
     { id: "timeline", label: language === "ar" ? "سجل الزيارات" : "Timeline", icon: History, show: true },
     { id: "overview", label: language === "ar" ? "نظرة عامة" : "Overview", icon: LayoutDashboard, show: true },
     { id: "xrays", label: language === "ar" ? "الأشعة والصور" : "X-Rays & Photos", icon: Camera, show: true },
@@ -1050,7 +1053,7 @@ export default function PatientProfile() {
                   ) : addButton,
                 )}
                 {field(ar ? 'العنوان' : 'Address', patient.address ? <span className="block truncate">{patient.address}</span> : addButton)}
-                {field(
+                {!chair && field(
                   ar ? 'الرصيد' : 'Balance',
                   <span className={`font-figure ${balance > 0 ? "text-rose-700" : ""}`}>
                     <bdi dir="ltr">{balance > 0 ? balance.toLocaleString() : '0'}</bdi> {ar ? 'ج.م' : 'EGP'}

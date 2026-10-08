@@ -20,9 +20,13 @@ interface Props {
     canMoveUp: boolean;
     canMoveDown: boolean;
   };
+  /** Chair mode: a dentist never sees what a treatment costs. */
+  hideMoney?: boolean;
+  /** Chair mode: another dentist's (or the clinic's) treatment — shown, never editable here. */
+  locked?: boolean;
 }
 
-export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue, compact = false, reorder }: Props) {
+export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue, compact = false, reorder, hideMoney = false, locked = false }: Props) {
   const { language } = useLanguage();
   /** The insurer this note is charged to; nothing for the clinic's own work or for older notes. */
   const insurer = note.payerId && note.payerId !== PRIVATE_PAYER_ID && note.payerName ? note.payerName : null;
@@ -116,11 +120,11 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
 
         {insurer && <InsurerBadge name={insurer} size={16} />}
 
-        {Number(note.cost) > 0 && (
+        {!hideMoney && Number(note.cost) > 0 && (
           <span className="text-xs font-black text-ink-body shrink-0">EGP {Number(note.cost).toLocaleString()}</span>
         )}
 
-        <div className="flex items-center gap-1 shrink-0">
+        <div className={`flex items-center gap-1 shrink-0 ${locked ? "hidden" : ""}`}>
           {!note.isContinued && (
             <Protect permission="clinical.edit">
               <button
@@ -191,12 +195,12 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
           </p>
         )}
 
-        {(note.doctor || Number(note.cost) > 0) && (
+        {(note.doctor || (!hideMoney && Number(note.cost) > 0)) && (
           <div className="flex items-center justify-center gap-3 flex-wrap">
             {note.doctor && (
               <p className="text-sm font-bold text-ink-muted">Dr. {note.doctor}</p>
             )}
-            {Number(note.cost) > 0 && (
+            {!hideMoney && Number(note.cost) > 0 && (
               <p className="text-sm font-black text-ink bg-surface-muted px-2.5 py-1 rounded-md font-figure">
                 <bdi dir="ltr">EGP {Number(note.cost).toLocaleString()}</bdi>
               </p>
@@ -205,8 +209,8 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
         )}
       </div>
 
-      {/* Edit above delete, at the edge of the card. */}
-      <div className="flex flex-col items-center gap-1.5 shrink-0">
+      {/* Edit above delete, at the edge of the card. Locked (another dentist's, in chair mode): nothing to press. */}
+      <div className={`flex flex-col items-center gap-1.5 shrink-0 ${locked ? "hidden" : ""}`}>
         {!note.isContinued && (
           <Protect permission="clinical.edit">
             <button

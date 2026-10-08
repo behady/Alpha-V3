@@ -8,6 +8,8 @@ import { useUI } from "@/context/UIContext";
 import { treatmentsByTooth } from "@/lib/toothTreatments";
 import { suggestCategory } from "@/lib/dentalIcons";
 import { useAuth } from "@/context/AuthContext";
+import { useChairMode } from "@/lib/useChairMode";
+import { canTouch } from "@/lib/chairPopup";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { Note, RelatedAppointment, Staff, Service } from "./types";
 import TimelineCard from "./TimelineCard";
@@ -37,6 +39,9 @@ export default function ClinicalNotesContainer({
   const { language } = useLanguage();
   const { showToast, confirm, clinicalEditorMode } = useUI();
   const { user } = useAuth();
+  /** Chair mode: a dentist sees no money here and can touch only their own treatments. */
+  const { chair, staffId: chairStaffId, staffName: chairStaffName } = useChairMode();
+  const canEditNote = (n: Note) => !chair || canTouch(n, { staffId: chairStaffId, name: chairStaffName });
 
   const [notes, setNotes] = useState<Note[]>([]);
   const [appointments, setAppointments] = useState<RelatedAppointment[]>([]);
@@ -314,6 +319,8 @@ export default function ClinicalNotesContainer({
       onMoveService={(note) => openTransferModal(note, "move")}
       onContinueService={(note) => openTransferModal(note, "continue")}
       onReorder={handleReorder}
+      hideMoney={chair}
+      canEditNote={canEditNote}
     />
   );
 
@@ -427,6 +434,8 @@ export default function ClinicalNotesContainer({
             onCancelEdit={handleWorkspaceCancelEdit}
             onSaved={handleWorkspaceSaved}
             formKey={editingNote?.id || `new-${workspaceFormNonce}`}
+            dentistMode={chair}
+            meStaffId={chairStaffId}
           />
         </div>
 
@@ -464,6 +473,8 @@ export default function ClinicalNotesContainer({
           teethData={teethData || {}}
           treatments={treatments}
           doctors={doctors}
+          dentistMode={chair}
+          meStaffId={chairStaffId}
           onSaved={(seed) => {
             setIsDrawerOpen(false);
             setEditingNote(null);
