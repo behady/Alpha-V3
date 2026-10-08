@@ -191,7 +191,8 @@ export default function AppointmentMoneyTab({
   const [editingNote, setEditingNote] = useState<Note | null>(null);
   const [editorApptId, setEditorApptId] = useState<string | null>(null);
 
-  const [showOlder, setShowOlder] = useState(false);
+  // Open on the Payment tab: its figures include earlier visits, so the rows behind them are shown.
+  const [showOlder, setShowOlder] = useState(section === "payment");
   // On a tab that is only about money, the receipts are the content, not a footnote.
   const [showReceipts, setShowReceipts] = useState(section === "payment");
   const [printingId, setPrintingId] = useState<string | null>(null);
@@ -832,7 +833,9 @@ export default function AppointmentMoneyTab({
       {section !== "service" && (
       <div className="rounded-2xl border border-line bg-surface p-4 shadow-sm">
         {section === "payment" ? (
-          // The booking popup's Payment tab: the three figures side by side.
+          // The booking popup's Payment tab: the three figures side by side, for the whole account.
+          <>
+          <p className="mb-2 text-[12px] font-bold text-ink-muted">{isAr ? "حساب المريض كله — كل الزيارات" : "The patient's whole account — every visit"}</p>
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
             {[
               {
@@ -854,6 +857,7 @@ export default function AppointmentMoneyTab({
               </div>
             ))}
           </div>
+          </>
         ) : (
           <>
         <div className="flex items-baseline justify-between">
@@ -1151,7 +1155,8 @@ export default function AppointmentMoneyTab({
       )}
 
       {/* Earlier visits */}
-      {olderCharges.length > 0 && section !== "payment" && (
+      {/* On the Payment tab too: the figures above cover every visit, so what they add up must be visible here. */}
+      {olderCharges.length > 0 && (
         <div>
           <button
             onClick={() => setShowOlder((v) => !v)}
@@ -1160,6 +1165,11 @@ export default function AppointmentMoneyTab({
             <span className="flex items-center gap-1.5">
               <History size={14} className="text-violet-500" />
               {isAr ? "زيارات سابقة" : "Earlier visits"} ({olderCharges.length})
+              {money(olderCharges.reduce((t, c) => t + c.remaining, 0)) > 0 && (
+                <span className="normal-case tracking-normal text-amber-700">
+                  · {isAr ? "عليه" : "owed"} {money(olderCharges.reduce((t, c) => t + c.remaining, 0)).toLocaleString()}
+                </span>
+              )}
             </span>
             <ChevronDown size={16} className={`transition-transform ${showOlder ? "rotate-180" : ""}`} />
           </button>
