@@ -33,6 +33,7 @@ import {
   Eye,
   EyeOff,
   Loader2,
+  Pencil,
   Percent,
   Plus,
   RotateCcw,
@@ -41,7 +42,7 @@ import {
   Wand2,
   X,
 } from "lucide-react";
-import { onSnapshot, writeBatch, deleteField, doc, addDoc, setDoc } from "firebase/firestore";
+import { onSnapshot, writeBatch, deleteField, doc, addDoc, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { getGlobalClinicId } from "@/lib/db-utils";
@@ -73,6 +74,8 @@ type ServiceRow = {
   category?: string;
   icon?: string;
   prices?: Record<string, number>;
+  /** Whether the price multiplies by the teeth treated. Absent = per tooth. */
+  pricingMode?: PricingMode;
   /** The list this treatment belongs to. Absent = shared, offered on every list. */
   listId?: string;
 };
@@ -109,7 +112,8 @@ export default function PriceListWorkspace({
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [bulkPercent, setBulkPercent] = useState("");
   /** The "add a treatment to this list" dialog. null = closed. */
-  const [newOwn, setNewOwn] = useState<{ name: string; price: string; category: string; pricingMode: PricingMode } | null>(null);
+  /** The add / edit dialog for a treatment that lives on this list only. `id` set = editing that one. null = closed. */
+  const [newOwn, setNewOwn] = useState<{ id?: string; name: string; price: string; category: string; pricingMode: PricingMode } | null>(null);
   const [ownBusy, setOwnBusy] = useState(false);
 
   const isStandard = list.id === STANDARD_LIST_ID;
@@ -155,7 +159,7 @@ export default function PriceListWorkspace({
   const valueFor = (id: string) => (id in drafts ? drafts[id] : (stored[id] ?? ""));
 
   /** One extra column on every list but Standard: the hide / delete button, with its words on it. */
-  const cols = isStandard ? "sm:grid-cols-[1fr_7rem_9rem_7rem]" : "sm:grid-cols-[1fr_7rem_9rem_7rem_10.5rem]";
+  const cols = isStandard ? "sm:grid-cols-[1fr_7rem_9rem_7rem]" : "sm:grid-cols-[1fr_7rem_9rem_7rem_11.5rem]";
 
   const changed = useMemo(
     () => Object.keys(drafts).filter((id) => (drafts[id] ?? "") !== (stored[id] ?? "")),
@@ -198,6 +202,13 @@ export default function PriceListWorkspace({
       ? "دي علاجات العيادة الأساسية. القائمة دي مش بتعرضها، وباقي القوايم لسه فيها. عشان تمسح علاج من كل حتة، روح تبويب «العلاجات»."
       : "These are your clinic's main treatments. This list does not offer them; your other lists still do. To delete one everywhere, use the Treatments tab.",
     deleteOwnShort: ar ? "احذف" : "Delete",
+    editOwnShort: ar ? "عدّل" : "Edit",
+    editOwnTitle: ar ? "تعديل العلاج" : "Edit treatment",
+    editOwnBody: ar
+      ? "الاسم والسعر والفئة وطريقة الحساب للعلاج ده على القائمة دي. الزيارات اللي اتسجلت قبل كده بتفضل زي ما هي."
+      : "The name, price, category and billing of this treatment on this list. Visits already recorded keep what they had.",
+    ownSave: ar ? "احفظ" : "Save",
+    savedOwn: (name: string) => (ar ? `"${name}" اتعدّل` : `"${name}" updated`),
     removeShort: ar ? "شيله من القائمة" : "Remove",
     shownToast: (name: string) => (ar ? `"${name}" رجع يظهر على القائمة دي` : `"${name}" shown on this list again`),
     deleteOwnBody: (name: string) =>
@@ -408,6 +419,50 @@ export default function PriceListWorkspace({
   };
 
   const openNewOwn = () => setNewOwn({ name: "", price: "", category: "", pricingMode: DEFAULT_PRICING_MODE });
+  const openEditOwn = (s: ServiceRow) =>
+    setNewOwn({
+      id: s.id,
+      name: s.name || "",
+      price: Number.isFinite(Number(s.price)) ? String(s.price ?? "") : "",
+      category: s.category || suggestCategory(s.name || ""),
+      pricingMode: s.pricingMode || DEFAULT_PRICING_MODE,
+    });
+
+  /**
+   * Save the dialog onto the treatment it was opened on. Only a list-only treatment is edited
+   * here; the clinic's main treatments are edited on the Treatments tab, which every list shares.
+   */
+  const saveOwn = async () => {
+    if (!newOwn?.id) return;
+    const name = newOwn.name.trim();
+    const price = Number(newOwn.price);
+    if (!name || !Number.isFinite(price) || price < 0) return;
+    const category = newOwn.category || suggestCategory(name);
+    const id = newOwn.id;
+    setOwnBusy(true);
+    try {
+      await updateDoc(getClinicDoc("services", id), {
+        name,
+        price: money(price),
+        category,
+        icon: suggestIcon(name) || categoryOf(category).icon,
+        pricingMode: newOwn.pricingMode,
+      });
+      // The row's own price cell may hold an unsaved number; the dialog's price wins.
+      setDrafts((d) => {
+        const n = { ...d };
+        delete n[id];
+        return n;
+      });
+      await logActivity({ uid: user?.uid, name: user?.name, role: user?.role }, "Price Lists Updated", `Edited "${name}" on "${list.name}"`);
+      showToast(txt.savedOwn(name), "success");
+      setNewOwn(null);
+    } catch {
+      showToast(txt.failed, "error");
+    } finally {
+      setOwnBusy(false);
+    }
+  };
 
   /**
    * Create a treatment that exists on this list alone.
@@ -739,12 +794,28 @@ export default function PriceListWorkspace({
                           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted">
                             <DentalIcon id={iconForService(s)} size={18} />
                           </span>
-                          <span className={`truncate text-sm font-bold ${isHidden ? "text-ink-muted line-through decoration-ink-muted/40" : "text-ink"}`}>
-                            {s.name}
-                          </span>
+                          {own ? (
+                            <button
+                              type="button"
+                              onClick={() => openEditOwn(s)}
+                              title={txt.editOwnTitle}
+                              className="truncate text-start text-sm font-bold text-ink underline-offset-4 hover:underline"
+                            >
+                              {s.name}
+                            </button>
+                          ) : (
+                            <span className={`truncate text-sm font-bold ${isHidden ? "text-ink-muted line-through decoration-ink-muted/40" : "text-ink"}`}>
+                              {s.name}
+                            </span>
+                          )}
                           {own && (
                             <span className="shrink-0 rounded-md bg-ink-slab px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-white">
                               {txt.onlyHere}
+                            </span>
+                          )}
+                          {own && (
+                            <span className="shrink-0 rounded-md border border-line px-1.5 py-0.5 text-[10px] font-bold text-ink-muted">
+                              {txt[`mode_${s.pricingMode || DEFAULT_PRICING_MODE}` as "mode_per_tooth" | "mode_flat" | "mode_per_arch"]}
                             </span>
                           )}
                           {isHidden && (
@@ -785,7 +856,17 @@ export default function PriceListWorkspace({
                         {/* Hide a shared treatment from this list's menu, or delete one the list owns.
                             The Standard list is the full menu and has neither. */}
                         {!isStandard && (
-                          <span className="flex justify-end">
+                          <span className="flex justify-end gap-1.5">
+                            {own && (
+                              <button
+                                type="button"
+                                onClick={() => openEditOwn(s)}
+                                disabled={saving}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[12px] font-bold text-ink transition hover:bg-surface-muted disabled:opacity-50"
+                              >
+                                <Pencil size={14} /> {txt.editOwnShort}
+                              </button>
+                            )}
                             {own || onlyListed ? (
                               <button
                                 type="button"
@@ -855,7 +936,7 @@ export default function PriceListWorkspace({
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-ink/40 p-4 backdrop-blur-sm">
           <div className="flex max-h-[92vh] w-full max-w-md flex-col overflow-hidden rounded-[2rem] border border-line bg-surface shadow-2xl">
             <div className="flex items-center justify-between border-b border-line px-6 pb-4 pt-5">
-              <h3 className="text-lg font-black tracking-tight text-ink">{txt.addOwnTitle}</h3>
+              <h3 className="text-lg font-black tracking-tight text-ink">{newOwn.id ? txt.editOwnTitle : txt.addOwnTitle}</h3>
               <button
                 type="button"
                 onClick={() => setNewOwn(null)}
@@ -866,7 +947,7 @@ export default function PriceListWorkspace({
             </div>
 
             <div className="custom-scrollbar space-y-5 overflow-y-auto px-6 py-5">
-              <p className="text-xs font-medium text-ink-muted">{txt.addOwnBody}</p>
+              <p className="text-xs font-medium text-ink-muted">{newOwn.id ? txt.editOwnBody : txt.addOwnBody}</p>
 
               <div className="space-y-1.5">
                 <label className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">{txt.ownName}</label>
@@ -946,11 +1027,11 @@ export default function PriceListWorkspace({
               </button>
               <button
                 type="button"
-                onClick={createOwn}
+                onClick={newOwn.id ? saveOwn : createOwn}
                 disabled={ownBusy || !newOwn.name.trim() || newOwn.price.trim() === "" || !(Number(newOwn.price) >= 0)}
                 className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-accent px-4 py-3 text-sm font-bold text-ink-on-accent shadow-md transition hover:bg-accent-strong disabled:opacity-40"
               >
-                {ownBusy ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />} {txt.ownCreate}
+                {ownBusy ? <Loader2 size={15} className="animate-spin" /> : newOwn.id ? <Check size={15} /> : <Plus size={15} />} {newOwn.id ? txt.ownSave : txt.ownCreate}
               </button>
             </div>
           </div>
