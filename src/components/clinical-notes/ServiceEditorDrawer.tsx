@@ -3,11 +3,12 @@
 import { serviceMenuById } from "@/lib/serviceMenu";
 import { memo, useCallback, useMemo, useState, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
-import { X, Save, CheckCircle2, Loader2, Camera, Edit2 } from "lucide-react";
+import { X, Save, Check, CheckCircle2, Loader2, Camera, Edit2 } from "lucide-react";
 import { auth, db } from "@/lib/firebase";
 import { collection, addDoc, doc, updateDoc, serverTimestamp, getDocs, query, where, deleteDoc, getDoc } from "firebase/firestore";
 import { getStorage, ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { useUI } from "@/context/UIContext";
+import { isArchPicked, missingInArch, missingTeeth, toggleArch, type ArchPick } from "@/lib/archSelection";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { logActivity } from "@/lib/logger";
@@ -19,7 +20,6 @@ import { isDentistStaff } from "@/lib/staffRoles";
 import { generalDoctorLabel } from "@/lib/generalDentist";
 import { Note, Service, Staff } from "./types";
 import {
-  ALL_TEETH, UPPER_LEFT_TEETH, UPPER_RIGHT_TEETH, LOWER_LEFT_TEETH, LOWER_RIGHT_TEETH,
   compressImage, computeProcedureLabFee, parseTeethString,
   DEFAULT_PRICING_MODE, isPricingMode, pricingUnitsFor, type PricingMode,
 } from "./utils";
@@ -101,22 +101,42 @@ export const TeethChartSelector = memo(function TeethChartSelector({
   /** True in the side sheet, where the panel is 672px however wide the monitor is. */
   narrow: boolean;
 }) {
+    const { confirm } = useUI();
     // Convert string array to number array for TeethChart
     const selectedNumbers = selected.map(s => parseInt(s, 10)).filter(n => !isNaN(n));
 
-    const handleSelectArch = (arch: "upper" | "lower") => {
-      const archTeeth = arch === "upper"
-        ? [...UPPER_RIGHT_TEETH, ...UPPER_LEFT_TEETH]
-        : [...LOWER_RIGHT_TEETH, ...LOWER_LEFT_TEETH];
+    /** Teeth the chart says are gone: a missing diagnosis, or an extraction nothing replaced. */
+    const missing = useMemo(() => missingTeeth(teethData, treatments), [teethData, treatments]);
 
-      const allSelected = archTeeth.every(t => selected.includes(t));
-
-      if (allSelected) {
-        onSetSelected(prev => prev.filter(t => !archTeeth.includes(t)));
-      } else {
-        onSetSelected(prev => Array.from(new Set([...prev, ...archTeeth])));
+    /**
+     * Tick or untick the upper arch, the lower arch, or the whole mouth. When the arch has teeth
+     * the chart records as gone, the dentist is asked whether to count them: a per-tooth price
+     * multiplies by the teeth picked, and only they know whether this work covers the gaps (a
+     * bridge over a gap does, a scaling does not). Closing the question counts them out.
+     */
+    const pickArch = async (pick: ArchPick) => {
+      const gone = missingInArch(pick, missing);
+      let includeMissing = false;
+      if (gone.length > 0 && !isArchPicked(selected, pick, missing)) {
+        includeMissing = await confirm(
+          isAr
+            ? `الأسنان دي متسجلة مخلوعة أو مش موجودة: ${gone.join("، ")}. تتحسب مع الفك؟`
+            : `These teeth are recorded as extracted or missing: ${gone.join(", ")}. Count them in?`,
+          {
+            title: isAr ? "أسنان مش موجودة" : "Missing teeth",
+            confirmLabel: isAr ? `احسبهم (${gone.length})` : `Count them (${gone.length})`,
+            cancelLabel: isAr ? "من غيرهم" : "Leave them out",
+          }
+        );
       }
+      onSetSelected((prev) => toggleArch(prev, pick, missing, includeMissing));
     };
+
+    const archBoxes: Array<{ pick: ArchPick; label: string }> = [
+      { pick: "upper", label: isAr ? "الفك العلوي" : "Upper arch" },
+      { pick: "full", label: isAr ? "الفم كله" : "Full mouth" },
+      { pick: "lower", label: isAr ? "الفك السفلي" : "Lower arch" },
+    ];
 
     /**
      * What is ALREADY on the teeth just picked.
@@ -161,18 +181,48 @@ export const TeethChartSelector = memo(function TeethChartSelector({
          * hidden, so on a short screen the chart was silently clipped and the lower arch simply was
          * not there — with nothing on screen to suggest anything had been cut off.
          */}
-        <div className="rounded-xl border border-line bg-surface shadow-inner">
-          <TeethChart
-            data={teethData}
-            treatments={treatments}
-            selectionMode={true}
-            compactMode={true}
-            dense
-            narrow={narrow}
-            selectedTeeth={selectedNumbers}
-            onToggleTooth={(id) => onToggle(id.toString())}
-            onSelectArch={handleSelectArch}
-          />
+        {/* The chart, and beside it the three arch ticks: upper on top, full mouth, lower at the
+            bottom — where each sits against the chart it selects. */}
+        <div className="flex items-stretch gap-2">
+          <div className="min-w-0 flex-1 rounded-xl border border-line bg-surface shadow-inner">
+            <TeethChart
+              data={teethData}
+              treatments={treatments}
+              selectionMode={true}
+              compactMode={true}
+              dense
+              narrow={narrow}
+              selectedTeeth={selectedNumbers}
+              onToggleTooth={(id) => onToggle(id.toString())}
+            />
+          </div>
+          <div className="flex w-[6.5rem] shrink-0 flex-col justify-between gap-2 rounded-xl border border-line bg-surface p-2">
+            {archBoxes.map(({ pick, label }) => {
+              const on = isArchPicked(selected, pick, missing);
+              return (
+                <button
+                  key={pick}
+                  type="button"
+                  role="checkbox"
+                  aria-checked={on}
+                  onClick={() => void pickArch(pick)}
+                  className={`flex flex-1 items-center gap-2 rounded-lg border px-2 py-2 text-start text-[12px] font-bold transition-colors ${
+                    on ? "border-ink bg-ink-slab text-white" : "border-line bg-surface-subtle text-ink-body hover:border-line-strong"
+                  }`}
+                >
+                  <span
+                    className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                      on ? "border-white bg-white text-ink" : "border-line-strong bg-surface"
+                    }`}
+                    aria-hidden="true"
+                  >
+                    {on && <Check size={12} strokeWidth={3} />}
+                  </span>
+                  <span className="leading-tight">{label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {onSelected.length > 0 && (

@@ -70,6 +70,9 @@ import { minutesToTimeKey, parseApptTimeToMinutes } from "@/lib/appointmentTime"
 import { generalDoctorLabel } from "@/lib/generalDentist";
 import { cairo } from "@/lib/fonts/arabic";
 import { TeethChartSelector } from "./clinical-notes/ServiceEditorDrawer";
+import { treatmentsByTooth, type TreatmentSourceNote } from "@/lib/toothTreatments";
+import { suggestCategory } from "@/lib/dentalIcons";
+import type { ToothData } from "@/lib/diagnosisCatalog";
 import { stagedChargeTotal, stagedLineTotal, stagedMode, stagedUnits, toothListLabel } from "@/lib/stagedProcedures";
 import { PRIVATE_PAYER_ID, payerForPriceList } from "@/lib/payers";
 import { serviceMenuById } from "@/lib/serviceMenu";
@@ -1025,6 +1028,29 @@ export default function BookingModal({
 
   // --- the wide popup ---------------------------------------------------------------------------
   const wideLayout = wide && isDesktop && !inlineDesktop;
+  /**
+   * The patient's charted mouth and treatment history, for the Add-procedure teeth chart: so it
+   * shows what is already there, and so ticking a whole arch knows which teeth are gone.
+   */
+  const [chartTeeth, setChartTeeth] = useState<Record<string, ToothData>>({});
+  const [chartNotes, setChartNotes] = useState<TreatmentSourceNote[]>([]);
+  useEffect(() => {
+    setChartTeeth({});
+    setChartNotes([]);
+    if (!isOpen || !wideLayout || !claimPatientId) return;
+    let live = true;
+    getDoc(getClinicDoc("patients", claimPatientId))
+      .then((snap) => { if (live) setChartTeeth(snap.exists() ? (snap.data().teethData as Record<string, ToothData>) || {} : {}); })
+      .catch(() => {});
+    getDocs(query(getClinicCollection("clinical_notes"), where("patientId", "==", claimPatientId)))
+      .then((snap) => { if (live) setChartNotes(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as unknown as TreatmentSourceNote)); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [isOpen, wideLayout, claimPatientId]);
+  const chartTreatments = useMemo(() => {
+    const categoryById = new Map((servicesList as Array<{ id?: unknown; category?: string }>).map((sv) => [String(sv.id), sv.category]));
+    return treatmentsByTooth(chartNotes, (id) => categoryById.get(id) || undefined, (name) => suggestCategory(name));
+  }, [chartNotes, servicesList]);
   type WideTab = "appointment" | "service" | "payment" | "insurance";
   const [wideTab, setWideTab] = useState<WideTab>("appointment");
   useEffect(() => {
@@ -1332,8 +1358,8 @@ servicesList.length > 0 && (
                   selected={procTeeth}
                   onToggle={(code) => setProcTeeth((prev) => (prev.includes(code) ? prev.filter((t) => t !== code) : [...prev, code]))}
                   onSetSelected={setProcTeeth}
-                  teethData={{}}
-                  treatments={{}}
+                  teethData={chartTeeth}
+                  treatments={chartTreatments}
                   isAr={language === 'ar'}
                   narrow={false}
                 />
