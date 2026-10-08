@@ -283,6 +283,19 @@ export function updateProcedure(noteId: string, args: ProcedureWriteArgs): Promi
   return post("/api/clinical/procedures", { action: "update", noteId, ...args });
 }
 
+/**
+ * Save a treatment an insurance approval wrote. Only what the clinical editor may change on it is
+ * sent — the state, the dentist and the free-text note; the server treats every field it is not
+ * sent as unchanged, so nothing derived on screen (a price list, a re-parsed tooth string) can
+ * read as an edit to the approval's service, teeth or money.
+ */
+export function updateApprovalProcedure(
+  noteId: string,
+  args: { patientId: string; appointmentId?: string | null; status: "Planned" | "Ongoing" | "Completed"; doctorId: string | null; note: string }
+): Promise<ProcedureWriteResult> {
+  return post("/api/clinical/procedures", { action: "update", noteId, ...args });
+}
+
 export function deleteProcedure(noteId: string, clinicId?: string | null) {
   return post<{ deleted: Array<{ collection: string; id: string }> }>("/api/clinical/procedures", {
     action: "delete",

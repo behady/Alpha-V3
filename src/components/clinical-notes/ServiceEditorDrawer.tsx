@@ -11,7 +11,7 @@ import { useUI } from "@/context/UIContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { logActivity } from "@/lib/logger";
-import { MoneyApiError, createProcedure, updateProcedure } from "@/lib/moneyApi";
+import { MoneyApiError, createProcedure, updateApprovalProcedure, updateProcedure } from "@/lib/moneyApi";
 import ServiceCombobox from "@/components/shared/ServiceCombobox";
 import TeethChart, { type ToothData } from "@/components/TeethChart";
 import { TREATMENT_STATES, pendingTreatments, resolveTreatments, type ToothTreatment } from "@/lib/toothTreatments";
@@ -421,9 +421,48 @@ export default function ServiceEditorDrawer({
     needsPrice: language === 'ar' ? "اكتب سعر للعلاج اللي مش في قائمتك" : "Type a price for a treatment that is not in your list",
   };
 
+  /**
+   * A treatment an insurance approval wrote. Its service, teeth, date and money come from the
+   * approval paper and change only on the patient's Insurance tab; here the desk sets the state,
+   * the dentist and the note. The form used to send its whole self back, and anything it
+   * re-derived on opening (the price list, say) read as an edit, so the server refused the save.
+   */
+  const approval = useMemo(() => {
+    const n = initialNote as (Note & { claimId?: unknown; approvalNumber?: unknown; payerName?: unknown; insurerCovered?: unknown; patientShare?: unknown }) | null;
+    if (!n || typeof n.claimId !== "string" || !n.claimId) return null;
+    return {
+      number: String(n.approvalNumber || ""),
+      payer: String(n.payerName || ""),
+      insurer: Number(n.insurerCovered) || 0,
+      share: Number(n.patientShare) || 0,
+      cost: Number(n.cost) || 0,
+    };
+  }, [initialNote]);
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSaving) return; // Fix Scenario 1: Double-click protection
+    if (approval && initialNote) {
+      setIsSaving(true);
+      try {
+        await updateApprovalProcedure(initialNote.id, {
+          patientId,
+          appointmentId: initialNote.appointmentId ?? null,
+          status: procedureStatus,
+          doctorId: selectedDoctorId || null,
+          note: noteText,
+        });
+        showToast(language === "ar" ? "اتحفظ" : "Procedure Updated", "success");
+        onSaved();
+        onClose();
+      } catch (err) {
+        showToast(err instanceof MoneyApiError ? err.message : "Error saving procedure", "error");
+        console.error(err);
+      } finally {
+        setIsSaving(false);
+      }
+      return;
+    }
     // The dentist is no longer required: an empty picker means General, a treatment the clinic
     // did rather than a person.
     if (!procedure && !multiProceduresText) return showToast(txt.selectError, "error");
@@ -741,6 +780,49 @@ export default function ServiceEditorDrawer({
   );
 
 
+  /**
+   * What an insurance approval fixed on this treatment, shown instead of the controls that would
+   * change it. Teeth, service and money are the approval's; the desk changes them on the patient's
+   * Insurance tab, where the approval itself lives.
+   */
+  const approvalSummary = approval ? (
+    <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm">
+      <p className="font-black text-ink">
+        {language === "ar" ? "من موافقة تأمين" : "From an insurance approval"}
+        {approval.payer ? ` · ${approval.payer}` : ""}
+        {approval.number ? (
+          <>
+            {" · "}
+            <bdi dir="ltr" className="font-figure">{approval.number}</bdi>
+          </>
+        ) : null}
+      </p>
+      <p className="mt-1 font-bold text-ink-body">
+        {procedure}
+        {selectedTeeth.length > 0 && (
+          <>
+            {" · "}
+            {language === "ar" ? "الأسنان" : "Teeth"} <bdi dir="ltr" className="font-figure">{selectedTeeth.join(", ")}</bdi>
+          </>
+        )}
+      </p>
+      <p className="mt-1 font-figure font-bold text-ink-body">
+        {approval.cost.toLocaleString()} EGP
+        {approval.share > 0 && (
+          <span className="text-ink-muted">
+            {" "}
+            ({language === "ar" ? "الشركة" : "insurer"} {approval.insurer.toLocaleString()} · {language === "ar" ? "المريض" : "patient"} {approval.share.toLocaleString()})
+          </span>
+        )}
+      </p>
+      <p className="mt-2 text-xs font-semibold leading-relaxed text-blue-900">
+        {language === "ar"
+          ? "الخدمة والأسنان والسعر جايين من الموافقة، وبيتغيروا من تبويب التأمين في ملف المريض. هنا تقدر تغيّر الحالة والطبيب والملاحظات."
+          : "The service, teeth and price come from the approval and change on the patient's Insurance tab. Here you can change the state, the dentist and the notes."}
+      </p>
+    </div>
+  ) : null;
+
   const discountField = (
     <DiscountEditor
       listTotal={previewTotal}
@@ -801,6 +883,19 @@ export default function ServiceEditorDrawer({
           checkbox-plus-button into the same row as a select is what left everything ragged.
         */}
         <form id="service-form" onSubmit={handleSave} className="grid grid-cols-1 md:grid-cols-4 gap-x-4 gap-y-4 mt-3 items-start">
+          {approval ? (
+            <>
+              <div className="md:col-span-4">{approvalSummary}</div>
+              {statusField}
+              {doctorField}
+              <div className="md:col-span-2">
+                <span className={labelClass} aria-hidden="true">&nbsp;</span>
+                {saveButton}
+              </div>
+              <div className="md:col-span-4">{noteField(3)}</div>
+            </>
+          ) : (
+          <>
           <div className="md:col-span-2">{procedureField}</div>
           {doctorField}
           {dateField}
@@ -850,6 +945,8 @@ export default function ServiceEditorDrawer({
               </button>
             )}
           </div>
+          </>
+          )}
         </form>
       </div>
     );
@@ -907,7 +1004,10 @@ export default function ServiceEditorDrawer({
         */}
       <div className="flex-1 min-h-0 flex flex-col">
         {!hideTeethSelector && (
-          <div className={`shrink-0 ${!inline ? "px-6 pt-4" : "px-4 pt-4"}`}>
+          <div
+            className={`shrink-0 ${!inline ? "px-6 pt-4" : "px-4 pt-4"} ${approval ? "pointer-events-none" : ""}`}
+            aria-disabled={approval ? true : undefined}
+          >
             <TeethChartSelector
               selected={selectedTeeth}
               onToggle={toggleSelectedTooth}
@@ -922,6 +1022,17 @@ export default function ServiceEditorDrawer({
 
         <div className={`flex-1 min-h-0 overflow-y-auto custom-scrollbar ${!inline ? 'p-6' : 'p-4 max-h-[500px]'}`}>
         <form id="service-form" onSubmit={handleSave} className="space-y-6">
+          {approval ? (
+            <>
+              {approvalSummary}
+              <div className="grid grid-cols-2 gap-4">
+                {statusField}
+                {doctorField}
+              </div>
+              {noteField(4)}
+            </>
+          ) : (
+          <>
 
           <div className="grid grid-cols-2 gap-4">
             {dateField}
@@ -957,6 +1068,8 @@ export default function ServiceEditorDrawer({
           {noteField(4)}
 
           {ledgerField}
+          </>
+          )}
 
         </form>
         </div>
