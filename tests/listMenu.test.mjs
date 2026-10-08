@@ -120,4 +120,21 @@ assert.equal(ownedByAnotherList({ id: "x", listId: "" }, "axa"), false, "an empt
   assert.equal(onStandard("axa_prophy"), false);
 }
 
+// --- a list started fresh offers only what was put on it ---
+{
+  const fresh = parsePriceLists({ lists: [{ id: "standard", name: "Standard", isDefault: true }, { id: "gasco", name: "GASCO", ownMenuOnly: true }] });
+  assert.equal(fresh.find((l) => l.id === "gasco")?.ownMenuOnly, true, "the flag survives a read");
+  assert.equal(toStoredList(fresh.find((l) => l.id === "gasco")).ownMenuOnly, true, "and the write");
+  assert.equal("ownMenuOnly" in toStoredList(fresh.find((l) => l.id === "standard")), false, "absent on an ordinary list, never false/undefined");
+  const onGasco = serviceMenuFilter(fresh, [PRIVATE_PAYER], "gasco");
+  assert.equal(onGasco({ id: "comp", prices: { gasco: 880 } }), true, "a shared treatment priced on this list: on it");
+  assert.equal(onGasco({ id: "whitening", prices: { other: 100 } }), false, "a shared treatment not priced here: not on it");
+  assert.equal(onGasco({ id: "scaling" }), false, "no prices at all: not on it");
+  assert.equal(onGasco({ id: "g1", listId: "gasco" }), true, "its own treatment: on it");
+  assert.equal(serviceMenuFilter(fresh, [PRIVATE_PAYER], "standard")({ id: "scaling" }), true, "the Standard list still offers everything");
+  const byId = serviceMenuById(fresh, [PRIVATE_PAYER], "gasco", [{ id: "comp", prices: { gasco: 880 } }, { id: "scaling" }]);
+  assert.equal(byId("scaling"), false);
+  assert.equal(byId("typed-name"), true, "a name not in the catalogue is offered");
+}
+
 console.log("listMenu: all assertions passed");

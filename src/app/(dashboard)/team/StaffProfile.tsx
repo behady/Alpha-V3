@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
   AlertTriangle, Banknote, CalendarCheck, CheckCircle2, Clock, Edit2, ExternalLink, FileSpreadsheet, Hourglass,
-  Loader2, MapPin, MinusCircle, Plus, Save, ShieldCheck, Smartphone, Timer, Trash2, UserX,
+  Loader2, MapPin, MinusCircle, Save, ShieldCheck, Smartphone, Timer, Trash2, UserX,
 } from "lucide-react";
 import type { HrStaffRow } from "@/lib/automation/briefing/types";
 import type { PunchRecord } from "@/lib/automation/briefing/data";
@@ -108,6 +108,20 @@ function inputValue(d: Date | null): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+
+/**
+ * One line of the dentist's rates: an insurance company or a price list, with what is set for
+ * this dentist (null = nothing of their own) and what applies when it is blank.
+ */
+export type RateRow = {
+  kind: "payer" | "list";
+  id: string;
+  name: string;
+  own: number | null;
+  /** The rate that applies when this dentist has none of their own: the company's, else their usual. */
+  fallback: number;
+  fallbackIsCompany: boolean;
+};
 
 export type ProfileStaff = {
   id: string;
@@ -247,6 +261,8 @@ export default function StaffProfile({
   settlement,
   onSaveSettlement,
   onDeleteSettlement,
+  rateRows,
+  onSetRate,
 }: {
   staff: ProfileStaff;
   row: HrStaffRow | null;
@@ -273,6 +289,10 @@ export default function StaffProfile({
   /** Record a payout or deduction, or change one (`id`). Resolves true when it was saved. */
   onSaveSettlement: (draft: StaffSettlementDraft, id: string | null) => Promise<boolean>;
   onDeleteSettlement: (id: string) => Promise<void>;
+  /** This dentist's rate per insurance company and per price list. */
+  rateRows: RateRow[];
+  /** Set (or with null, clear) this dentist's own rate on one company or list. */
+  onSetRate: (row: RateRow, value: number | null) => void;
 }) {
   const [editingLog, setEditingLog] = useState<string | null>(null);
   const [logIn, setLogIn] = useState("");
@@ -984,6 +1004,67 @@ export default function StaffProfile({
               </table>
             </div>
           )}
+        </Section>
+      )}
+
+      {/* --- what this dentist earns on each company and each price list ------------------------ */}
+      {dentist && rateRows.length > 0 && (
+        <Section
+          title={isAr ? `نسب ${first}` : `${first}'s rates`}
+          note={
+            isAr
+              ? `نسبته العادية ${staff.commissionPercentage}%. اكتب نسبة لشركة أو قائمة أسعار لو بياخد عليها غير كده؛ سيبها فاضية تمشي بالنسبة اللي جنبها.`
+              : `Usual rate ${staff.commissionPercentage}%. Type a rate for a company or price list where they earn differently; leave it blank to use the rate shown beside it.`
+          }
+        >
+          <ul className="divide-y divide-line">
+            {rateRows.map((r) => (
+              <li key={`${r.kind}-${r.id}`} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                <div className="min-w-0">
+                  <p className="text-[15px] font-bold text-ink">{r.name}</p>
+                  <p className="text-[13px] font-medium text-ink-muted">
+                    {r.kind === "payer" ? (isAr ? "شركة تأمين" : "Insurance company") : isAr ? "قائمة أسعار" : "Price list"}
+                    {" · "}
+                    {r.own === null
+                      ? isAr
+                        ? `بياخد ${r.fallback}% (${r.fallbackIsCompany ? "نسبة الشركة" : "نسبته العادية"})`
+                        : `earns ${r.fallback}% (${r.fallbackIsCompany ? "the company's rate" : "their usual rate"})`
+                      : isAr
+                        ? "نسبة خاصة بيه"
+                        : "a rate of their own"}
+                  </p>
+                </div>
+                {canEdit ? (
+                  <span className="relative">
+                    <input
+                      key={`${r.id}-${r.own ?? ""}`}
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.5"
+                      inputMode="decimal"
+                      defaultValue={r.own ?? ""}
+                      placeholder={String(r.fallback)}
+                      aria-label={isAr ? `نسبة ${r.name}` : `Rate on ${r.name}`}
+                      onBlur={(e) => {
+                        const raw = e.target.value.trim();
+                        const next = raw === "" ? null : Math.max(0, Math.min(100, Number(raw) || 0));
+                        if (next === r.own) return;
+                        onSetRate(r, next);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                      }}
+                      className="w-24 rounded-xl border border-line bg-surface px-3 py-2 pe-7 text-end font-figure text-[16px] font-bold text-ink outline-none focus:border-accent"
+                    />
+                    <span className="pointer-events-none absolute end-2.5 top-1/2 -translate-y-1/2 text-[13px] font-bold text-ink-muted">%</span>
+                  </span>
+                ) : (
+                  <span className="font-figure text-[16px] font-bold text-ink">{r.own ?? r.fallback}%</span>
+                )}
+              </li>
+            ))}
+          </ul>
         </Section>
       )}
 

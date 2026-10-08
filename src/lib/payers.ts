@@ -299,6 +299,8 @@ export function payerForPriceList(
 export type CommissionRates = {
   commissionPercentage?: number | null;
   commissionByPayer?: Record<string, unknown> | null;
+  /** This dentist's rate on treatments charged from a price list (not a company's), by list id. */
+  commissionByList?: Record<string, unknown> | null;
 };
 
 function asPercent(raw: unknown): number | null {
@@ -320,11 +322,20 @@ export function commissionRateFor(
   staff: CommissionRates | null | undefined,
   payerId: string | null | undefined,
   payers?: readonly Payer[],
+  priceListId?: string | null,
 ): number {
   if (!staff) return 0;
   const perPayer = staff.commissionByPayer;
   if (payerId && perPayer && typeof perPayer === "object") {
     const exact = asPercent((perPayer as Record<string, unknown>)[payerId]);
+    if (exact !== null) return exact;
+  }
+  // This dentist's rate on the price list the treatment was charged from (a VIP list, a staff
+  // list…). Blank entries are absent, never zero, as everywhere in this function.
+  const perList = staff.commissionByList;
+  if (priceListId && perList && typeof perList === "object") {
+    const raw = (perList as Record<string, unknown>)[priceListId];
+    const exact = raw === "" || raw === null || raw === undefined ? null : asPercent(raw);
     if (exact !== null) return exact;
   }
   // The company's own rate for every dentist, set on its insurance price list.

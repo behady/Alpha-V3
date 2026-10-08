@@ -200,7 +200,7 @@ async function priceRequest(clinicId: string, body: Record<string, unknown>, act
     pricingModeOverride: typeof body.pricingMode === "string" ? body.pricingMode : null,
     // This dentist's rate FOR THIS PAYER — their per-payer exception if they have one, their
     // ordinary percentage otherwise. Resolved here, snapshotted below, and never recomputed.
-    commissionPct: commissionRateFor(staff, payerId, payers),
+    commissionPct: commissionRateFor(staff, payerId, payers, effectiveListId),
     priceListId: effectiveListId,
     priceListName: priceList?.name || null,
     discountMode: typeof body.discountMode === "string" ? body.discountMode : null,

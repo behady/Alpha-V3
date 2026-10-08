@@ -688,7 +688,7 @@ export const SETTINGS_TEXT = {
     newListTitle: { en: "New price list", ar: "قائمة أسعار جديدة" },
     startFrom: { en: "Start from", ar: "تبدأ منين؟" },
     fresh: { en: "Start fresh", ar: "من الأول" },
-    freshHint: { en: "Every treatment charges the standard price until you change it.", ar: "كل العلاجات هتتحاسب بالسعر الأساسي لحد ما تغيّرها." },
+    freshHint: { en: "Starts empty: only the treatments you import or add are on it.", ar: "بتبدأ فاضية: عليها بس العلاجات اللي تستوردها أو تضيفها." },
     copyHint: { en: "Copies that list's prices across, then you edit what differs.", ar: "بينسخ كل أسعار القائمة دي، وبعدين تعدّل اللي عايزه." },
     create: { en: "Create list", ar: "إنشاء" },
     listNamePlaceholder: { en: "e.g. Misr Insurance", ar: "مثلاً: تأمين مصر" },

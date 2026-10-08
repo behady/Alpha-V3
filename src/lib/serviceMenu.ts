@@ -25,7 +25,7 @@ import { findPriceList, type PriceList } from "./priceLists";
 import type { Payer } from "./payers";
 
 /** The two fields this module reads off a treatment. Everything else on the record is ignored. */
-export type MenuService = { id: string | number; listId?: string | null };
+export type MenuService = { id: string | number; listId?: string | null; prices?: Record<string, unknown> | null };
 
 /**
  * True when the treatment belongs to a list other than the one in hand.
@@ -53,7 +53,10 @@ export function serviceMenuFilter(
   payers: readonly Payer[],
   listId: string | null | undefined,
 ): (service: MenuService) => boolean {
-  const hidden = new Set(findPriceList(lists as PriceList[], listId)?.hiddenServiceIds ?? []);
+  const list = findPriceList(lists as PriceList[], listId);
+  const hidden = new Set(list?.hiddenServiceIds ?? []);
+  // A list that offers only what was put on it: a shared treatment needs a price ON this list.
+  const onlyPriced = list?.ownMenuOnly === true && !!listId;
   // Insurer coverage lists were retired on 2026-10-05 (any treatment to any payer); `payers` stays
   // in the signature so the call sites need not change if a rule per payer ever returns.
   void payers;
@@ -64,6 +67,10 @@ export function serviceMenuFilter(
     const own = typeof service.listId === "string" && service.listId.trim() !== "";
     if (own) return true;
     if (hidden.has(id)) return false;
+    if (onlyPriced) {
+      const p = service.prices && typeof service.prices === "object" ? (service.prices as Record<string, unknown>)[listId as string] : undefined;
+      return typeof p === "number" && Number.isFinite(p);
+    }
     return true;
   };
 }
@@ -86,6 +93,9 @@ export function serviceMenuById(
   return (serviceId) => {
     const id = serviceId === null || serviceId === undefined ? "" : String(serviceId);
     if (!id) return true;
-    return offered(byId.get(id) ?? { id });
+    const known = byId.get(id);
+    // Not in the catalogue (a typed name, or a row loaded without it): nothing to judge, offered.
+    if (!known) return true;
+    return offered(known);
   };
 }

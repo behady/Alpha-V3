@@ -119,6 +119,11 @@ export default function PriceListWorkspace({
    */
   const isOwn = (s: ServiceRow) => !!s.listId && s.listId === list.id;
   const hiddenIds = useMemo(() => new Set(list.hiddenServiceIds ?? []), [list.hiddenServiceIds]);
+  /** A list that offers only what was put on it (started fresh): no fallback to the standard price. */
+  const onlyListed = !isStandard && list.ownMenuOnly === true;
+  /** Shared treatments picked from "Add from your treatments" and not saved yet. */
+  const [adding, setAdding] = useState<Set<string>>(new Set());
+  const [pickId, setPickId] = useState("");
 
   useEffect(() => {
     const unsub = onSnapshot(getClinicCollection("services"), (snap) => {
@@ -202,7 +207,97 @@ export default function PriceListWorkspace({
 
   // Every treatment is priceable on every list (insurer coverage lists were retired 2026-10-05);
   // only another list's own treatments are not this list's business.
-  const covered = useMemo(() => services.filter((s) => !ownedByAnotherList(s, list.id)), [services, list.id]);
+  const covered = useMemo(
+    () =>
+      services.filter((s) => {
+        if (ownedByAnotherList(s, list.id)) return false;
+        if (!onlyListed || isOwn(s)) return true;
+        // On a list started fresh: only what has a price here, or is being added now.
+        return typeof s.prices?.[list.id] === "number" || adding.has(s.id);
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [services, list.id, onlyListed, adding],
+  );
+  /** The clinic's shared treatments not on this list yet — what "Add from your treatments" offers. */
+  const addable = useMemo(
+    () => (onlyListed ? services.filter((s) => !s.listId && typeof s.prices?.[list.id] !== "number" && !adding.has(s.id)) : []),
+    [services, list.id, onlyListed, adding],
+  );
+  const addShared = (id: string) => {
+    const s = services.find((x) => x.id === id);
+    if (!s) return;
+    setAdding((a) => new Set(a).add(id));
+    // Starts at the standard price; the cell is the price on this list, typed over before Save.
+    setDrafts((d) => ({ ...d, [id]: String(Number(s.price) || 0) }));
+    setPickId("");
+  };
+
+  /**
+   * Take a treatment off this list now: a shared one loses its price here (and so leaves this
+   * list's menu); one created on this list goes to Recently Deleted.
+   */
+  const removeFromList = async (s: ServiceRow) => {
+    if (isOwn(s)) return deleteOwn(s);
+    if (adding.has(s.id) && typeof s.prices?.[list.id] !== "number") {
+      setAdding((a) => {
+        const n = new Set(a);
+        n.delete(s.id);
+        return n;
+      });
+      setDrafts((d) => {
+        const n = { ...d };
+        delete n[s.id];
+        return n;
+      });
+      return;
+    }
+    try {
+      const batch = writeBatch(db);
+      batch.update(doc(db, `clinics/${getGlobalClinicId()}/services`, s.id), { [`prices.${list.id}`]: deleteField() });
+      await batch.commit();
+      setDrafts((d) => {
+        const n = { ...d };
+        delete n[s.id];
+        return n;
+      });
+      await logActivity({ uid: user?.uid, name: user?.name, role: user?.role }, "Price Lists Updated", `Removed "${s.name}" from "${list.name}"`);
+      showToast(ar ? `"${s.name}" اتشال من القائمة دي` : `"${s.name}" removed from this list`, "info");
+    } catch {
+      showToast(txt.failed, "error");
+    }
+  };
+
+  /** Empty the list in one go: every shared price on it cleared; its own treatments to Recently Deleted. */
+  const removeAll = async () => {
+    const shared = services.filter((s) => !s.listId && typeof s.prices?.[list.id] === "number");
+    const own = services.filter((s) => isOwn(s));
+    if (shared.length + own.length === 0) return;
+    const ok = await confirm(
+      ar
+        ? `هيتشال ${shared.length + own.length} علاج من "${list.name}". العلاجات اللي اتعملت على القائمة دي بس هتروح للمحذوفات. تكمّل؟`
+        : `This takes ${shared.length + own.length} treatments off "${list.name}". Those created on this list only go to Recently Deleted. Continue?`,
+      { title: ar ? "فضّي القائمة" : "Empty this list", confirmLabel: ar ? "فضّيها" : "Empty it", tone: "danger" },
+    );
+    if (!ok) return;
+    setSaving(true);
+    try {
+      const clinic = getGlobalClinicId();
+      for (let i = 0; i < shared.length; i += BATCH_LIMIT) {
+        const batch = writeBatch(db);
+        for (const s of shared.slice(i, i + BATCH_LIMIT)) batch.update(doc(db, `clinics/${clinic}/services`, s.id), { [`prices.${list.id}`]: deleteField() });
+        await batch.commit();
+      }
+      for (const s of own) await deleteRecord(clinicId || "", "services", s.id);
+      setDrafts({});
+      setAdding(new Set());
+      await logActivity({ uid: user?.uid, name: user?.name, role: user?.role }, "Price Lists Updated", `Emptied "${list.name}"`);
+      showToast(ar ? "القائمة اتفضّت" : "List emptied", "info");
+    } catch (err) {
+      showToast(err instanceof RecycleBinError ? err.message : txt.failed, "error");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const filtered = useMemo(
     () =>
@@ -374,6 +469,7 @@ export default function PriceListWorkspace({
         `Repriced ${changed.length} treatment${changed.length === 1 ? "" : "s"} on "${list.name}"`
       );
       setDrafts({});
+      setAdding(new Set());
       showToast(txt.saved, "success");
     } catch {
       showToast(txt.failed, "error");
@@ -447,6 +543,51 @@ export default function PriceListWorkspace({
 
       {/* --- a company's own sheet, read in one go --- */}
       {!isStandard && <PriceListImport list={list} services={services} ar={ar} />}
+
+      {/* --- a list started fresh: add from the clinic's treatments, or empty it --- */}
+      {onlyListed && (
+        <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-line bg-surface-subtle p-5">
+          <div className="min-w-0 flex-1">
+            <h4 className="text-sm font-black text-ink">{ar ? "ضيف من علاجاتك" : "Add from your treatments"}</h4>
+            <p className="mt-1 text-xs font-medium text-ink-muted">
+              {ar
+                ? "القائمة دي فيها بس اللي ضفته أو استوردته. اختار علاج من قائمتك الأساسية وحط سعره هنا."
+                : "This list holds only what you add or import. Pick one of your treatments and give it a price here."}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <select
+                value={pickId}
+                onChange={(e) => setPickId(e.target.value)}
+                disabled={saving || addable.length === 0}
+                className="min-w-[14rem] flex-1 rounded-xl border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink outline-none focus:border-accent disabled:opacity-60"
+              >
+                <option value="">{addable.length === 0 ? (ar ? "كل علاجاتك على القائمة" : "Every treatment is on this list") : ar ? "اختار علاج…" : "Pick a treatment…"}</option>
+                {addable.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => addShared(pickId)}
+                disabled={saving || !pickId}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-ink-slab px-4 py-2 text-sm font-bold text-white transition hover:bg-ink disabled:opacity-40"
+              >
+                <Plus size={14} /> {ar ? "ضيف" : "Add"}
+              </button>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={removeAll}
+            disabled={saving}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-danger/30 px-4 py-2 text-sm font-bold text-danger transition hover:bg-danger-tint disabled:opacity-40"
+          >
+            <Trash2 size={14} /> {ar ? "فضّي القائمة" : "Empty this list"}
+          </button>
+        </div>
+      )}
 
       {/* --- quick fill --- */}
       {!isStandard && (
@@ -604,7 +745,7 @@ export default function PriceListWorkspace({
                             value={valueFor(s.id)}
                             disabled={saving || isHidden}
                             onChange={(e) => setDrafts({ ...drafts, [s.id]: e.target.value })}
-                            placeholder={isStandard || own ? "0" : `${base} · ${txt.sameAsStandard}`}
+                            placeholder={isStandard || own ? "0" : onlyListed ? (ar ? "السعر هنا" : "Price here") : `${base} · ${txt.sameAsStandard}`}
                             className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-end font-figure text-sm font-semibold text-ink outline-none transition focus:border-accent disabled:opacity-60"
                           />
                         </span>
@@ -624,13 +765,13 @@ export default function PriceListWorkspace({
                             The Standard list is the full menu and has neither. */}
                         {!isStandard && (
                           <span className="flex justify-end">
-                            {own ? (
+                            {own || onlyListed ? (
                               <button
                                 type="button"
-                                onClick={() => deleteOwn(s)}
+                                onClick={() => (own ? deleteOwn(s) : removeFromList(s))}
                                 disabled={saving}
-                                title={txt.deleteOwn}
-                                aria-label={txt.deleteOwn}
+                                title={own ? txt.deleteOwn : ar ? "شيله من القائمة دي" : "Remove from this list"}
+                                aria-label={own ? txt.deleteOwn : ar ? "شيله من القائمة دي" : "Remove from this list"}
                                 className="rounded-lg p-2 text-ink-muted transition hover:bg-danger-tint hover:text-danger disabled:opacity-50"
                               >
                                 <Trash2 size={15} />

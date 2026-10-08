@@ -169,6 +169,14 @@ function eq<T>(actual: T, expected: T, message: string) {
   eq(parsePayers({ payers: [{ id: "x", name: "X", dentistRate: 140, active: true, isDefault: false }] }).find((p) => p.id === "x")?.dentistRate, 100, "clamped to 100");
   eq("dentistRate" in (parsePayers({ payers: [{ id: "y", name: "Y", dentistRate: "", active: true, isDefault: false }] }).find((p) => p.id === "y") ?? {}), false, "blank = no company rate, absent rather than 0");
   eq(payersDocFrom(companies).payers.find((p) => p.id === "gasco")?.dentistRate, 30, "and survives the write");
+
+  // A dentist's own rate per PRICE LIST (a VIP list, a staff list), between their company rate and the rest.
+  const sara = { commissionPercentage: 40, commissionByPayer: { gasco: 35 }, commissionByList: { vip: 20, staff: "" } };
+  eq(commissionRateFor(sara, PRIVATE_PAYER_ID, companies, "vip"), 20, "her rate on the VIP list");
+  eq(commissionRateFor(sara, PRIVATE_PAYER_ID, companies, "staff"), 40, "a blank list rate is no rate: her usual");
+  eq(commissionRateFor(sara, "gasco", companies, "gasco"), 35, "her own company rate still wins");
+  eq(commissionRateFor({ commissionPercentage: 40, commissionByList: { gasco: 25 } }, "gasco", companies, "gasco"), 25, "a list rate beats the company's rate for everyone");
+  eq(commissionRateFor(sara, PRIVATE_PAYER_ID, companies, null), 40, "no list: her usual rate");
   ok(hasOwnRate({ commissionByPayer: { axa: 0 } }, "axa"), "an explicit zero counts as having its own rate");
   ok(!hasOwnRate({ commissionByPayer: {} }, "axa"), "an absent entry is not an own rate");
 
@@ -342,7 +350,7 @@ function eq<T>(actual: T, expected: T, message: string) {
     "the treatment route no longer derives the payer from the price list, so nothing would be stamped"
   );
   ok(
-    /commissionRateFor\(staff, payerId(, payers)?\)/.test(procedures),
+    /commissionRateFor\(staff, payerId(, payers(, effectiveListId)?)?\)/.test(procedures),
     "the treatment route is back on the dentist's single rate — insurance work would pay the private percentage"
   );
   // The payer is its own control now (the owner's 2026-10-05 decision): the price list only

@@ -319,6 +319,9 @@ export default function PriceListSettings({
               id,
               name,
               generalDiscountPercent: blanket,
+              // Started fresh = empty: it offers only what is imported or added to it (the owner's
+              // ask). A copy keeps the old behaviour, every treatment at the copied prices.
+              ...(source ? {} : { ownMenuOnly: true as const }),
               active: true,
               // A branch's FIRST list becomes that branch's default, because a branch that has
               // one list and no default would keep quietly charging clinic-wide prices and the

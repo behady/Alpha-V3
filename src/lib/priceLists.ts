@@ -55,6 +55,13 @@ export type PriceList = {
    * Absent rather than empty for the usual reason: see [[firestore-undefined-rejects-writes]].
    */
   hiddenServiceIds?: string[];
+  /**
+   * The list offers only what was put on it: its own treatments, and the shared ones given a price
+   * ON this list. A list "started fresh" is one of these (the owner: a company's list must not
+   * arrive full of every treatment); removing a shared treatment is clearing its price here.
+   * Absent = the older kind, which offers every shared treatment at its standard price.
+   */
+  ownMenuOnly?: true;
 };
 
 export type DiscountSettings = {
@@ -131,6 +138,7 @@ export function parsePriceLists(data: Record<string, unknown> | null | undefined
         ? { branchId: entry.branchId.trim() }
         : {}),
       ...hiddenField(entry?.hiddenServiceIds),
+      ...(entry?.ownMenuOnly === true ? { ownMenuOnly: true as const } : {}),
       generalDiscountPercent: clampPercent(entry?.generalDiscountPercent),
       active: entry?.active !== false,
       isDefault: entry?.isDefault === true,
@@ -196,6 +204,7 @@ export function toStoredList(list: PriceList): Record<string, unknown> {
     ...(typeof list.nameAr === "string" && list.nameAr.trim() ? { nameAr: list.nameAr } : {}),
     ...(typeof list.branchId === "string" && list.branchId.trim() ? { branchId: list.branchId.trim() } : {}),
     ...hiddenField(list.hiddenServiceIds),
+    ...(list.ownMenuOnly === true ? { ownMenuOnly: true } : {}),
     generalDiscountPercent: clampPercent(list.generalDiscountPercent),
     active: list.active !== false,
     isDefault: list.isDefault === true,

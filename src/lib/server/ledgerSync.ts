@@ -143,6 +143,7 @@ export async function readProcedureCommissionBasis(
   }
   // The company's own dentist rate (set on its insurance price list) sits between the dentist's
   // exception for this payer and their usual rate; only read when there is a payer to look up.
-  const payers = payerId ? parsePayers((await txn.get(adminClinicDoc(clinicId, "settings", "payers"))).data()) : undefined;
-  return { labFee, commissionPct: commissionRateFor(staffSnap.data(), payerId, payers) };
+  const payers = payerId || procedure.priceListId ? parsePayers((await txn.get(adminClinicDoc(clinicId, "settings", "payers"))).data()) : undefined;
+  const priceListId = typeof procedure.priceListId === "string" && procedure.priceListId.trim() ? procedure.priceListId.trim() : null;
+  return { labFee, commissionPct: commissionRateFor(staffSnap.data(), payerId, payers, priceListId) };
 }
