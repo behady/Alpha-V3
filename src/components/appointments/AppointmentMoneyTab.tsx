@@ -52,6 +52,8 @@ type Charge = {
   remaining: number;
   /** Who this treatment is charged to; null for the clinic's own (Private) work and for old rows. */
   payerName: string | null;
+  /** The dentist who did it, by name; "" when nobody is on it yet (no money is taken until there is). */
+  dentistName: string;
 };
 
 type Payment = {
@@ -323,6 +325,7 @@ export default function AppointmentMoneyTab({
               typeof r.payerId === "string" && r.payerId && r.payerId !== PRIVATE_PAYER_ID && r.payerName
                 ? String(r.payerName)
                 : null,
+            dentistName: String(r.doctorName || r.doctor || (r.doctorId ? "—" : "")).trim(),
           };
         })
         .sort((a, b) => a.date.localeCompare(b.date)),
@@ -445,6 +448,18 @@ export default function AppointmentMoneyTab({
 
     if (rows.length === 0) {
       showToast(isAr ? "مفيش حاجة متبقية على المريض ده" : "Nothing is outstanding for this patient", "error");
+      return;
+    }
+    // The owner's rule: no money for a treatment that names no dentist. Checked before the first
+    // payment, so a payment spread over several treatments is never taken half way.
+    const noDentist = rows.filter((r) => r.charge && !r.charge.dentistName).map((r) => r.charge!.description);
+    if (noDentist.length > 0) {
+      showToast(
+        isAr
+          ? `اختار الطبيب الأول لـ: ${noDentist.join("، ")}`
+          : `Choose the dentist first for: ${noDentist.join(", ")}`,
+        "error",
+      );
       return;
     }
     if (overflow > 0.009 && collectTarget !== "general") {
@@ -690,6 +705,11 @@ export default function AppointmentMoneyTab({
               {charge.date}
               {note?.tooth && note.tooth !== "Gen" ? ` · ${note.tooth}` : ""}
             </p>
+            {!charge.dentistName && !settled && (
+              <p className="mt-1 text-[11px] font-bold text-danger">
+                {isAr ? "مفيش طبيب على العلاج ده — اختاره قبل ما تحصّل" : "No dentist on this treatment — choose one before taking money"}
+              </p>
+            )}
             {/* The insurer is a fact of the charge, not of the patient: say it on the row it belongs to. */}
             {charge.payerName && (
               <p className="mt-1 flex items-center gap-1.5 text-[11px] font-bold text-ink-body">

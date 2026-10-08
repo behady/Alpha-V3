@@ -41,7 +41,7 @@ import {
   payerForPriceList,
 } from "@/lib/payers";
 import { buildDeleteContext, evaluateDelete } from "@/lib/deletePolicy";
-import { applyProcedureSync, readProcedureCommissionBasis, readProcedurePayments } from "@/lib/server/ledgerSync";
+import { applyProcedureSync, readProcedureCommissionBasis, readProcedurePayments, stampPaymentsDentist } from "@/lib/server/ledgerSync";
 import { recordLedgerAudit, recordMoneyChange } from "@/lib/server/ledgerAudit";
 import { isApprovalRow } from "@/lib/ledgerInsurer";
 import { isDentistStaff } from "@/lib/staffRoles";
@@ -551,6 +551,8 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
     }
     const ledgerRef = adminClinicDoc(clinicId, "ledger", entry[1].ledgerId);
     const ledgerSnap = doctorId !== undefined ? await tx.get(ledgerRef) : null;
+    // Read before any write: the receipts already taken for this service get its dentist too.
+    const paidAgainst = doctorId !== undefined ? await readProcedurePayments(tx, clinicId, entry[1].ledgerId) : [];
 
     const claimUpdate: Record<string, unknown> = {};
     const noteUpdate: Record<string, unknown> = { updatedByUid: actor.uid, updatedByName: actor.name, updatedAt: FieldValue.serverTimestamp() };
@@ -576,6 +578,7 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
           clinicProfit: rowPatch.clinicProfit,
           updatedAt: FieldValue.serverTimestamp(),
         });
+        stampPaymentsDentist(tx, clinicId, paidAgainst, { doctorId: (rowPatch.doctorId as string | null) ?? null, doctorName: String(rowPatch.doctorName ?? "") });
       }
     }
     if (Object.keys(claimUpdate).length > 0) tx.update(claimRef, { ...claimUpdate, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid });
@@ -702,6 +705,8 @@ async function updateProcedure(args: { clinicId: string; actor: Actor; body: Rec
         labFee: priced.pricing.labFee,
         commissionPct: priced.pricing.commissionPct,
       });
+      // And the receipts already taken name the treatment's dentist as it now stands.
+      stampPaymentsDentist(txn, clinicId, existingPayments, { doctorId: priced.doctorId, doctorName: priced.doctorName });
     }
 
     if (appointmentRef && appointmentSnap?.exists) {
