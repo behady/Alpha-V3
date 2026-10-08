@@ -29,7 +29,7 @@ interface VisitEntry {
   [key: string]: any;
 }
 
-export default function PatientTimelineTab({ patientId }: { patientId: string }) {
+export default function PatientTimelineTab({ patientId, hideMoney = false }: { patientId: string; hideMoney?: boolean }) {
   const { language } = useLanguage();
   const { user } = useAuth();
   const { showToast, confirm } = useUI();
@@ -334,7 +334,7 @@ export default function PatientTimelineTab({ patientId }: { patientId: string })
                             <p className="text-slate-700 font-medium">{visit.tooth}</p>
                           </div>
                         )}
-                        {visit.cost !== undefined && (
+                        {!hideMoney && visit.cost !== undefined && (
                           <div>
                             <p className="text-slate-400 text-xs font-bold uppercase mb-0.5">{language === "ar" ? "التكلفة" : "Cost"}</p>
                             <p className="text-slate-700 font-bold">{visit.cost} EGP</p>

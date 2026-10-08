@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import { Armchair, Lock, MessageCircle, Plus, X } from "lucide-react";
@@ -12,7 +12,7 @@ import { patchClaim } from "@/components/insurance/api";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
-import { approvalLinesForChair, canTouch, groupForChair } from "@/lib/chairPopup";
+import { approvalLinesForChair, canTouch, groupForChair, statusPayload } from "@/lib/chairPopup";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { suggestCategory } from "@/lib/dentalIcons";
 import type { DentistIdentity } from "@/lib/dentistHome";
@@ -93,6 +93,13 @@ export default function ChairPopup({ isOpen, onClose, patientId, appointment, me
   const [editor, setEditor] = useState<{ note: Note | null } | null>(null);
   /** One write at a time per note (or per approval line), so a double tap cannot race itself. */
   const [busyId, setBusyId] = useState("");
+  /** The editor sits between the chart and the list; opening it from lower down must bring it up. */
+  const editorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!editor) return;
+    const id = window.setTimeout(() => editorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+    return () => window.clearTimeout(id);
+  }, [editor]);
 
   useEffect(() => {
     if (!isOpen || !clinicId || !patientId) return;
@@ -169,18 +176,7 @@ export default function ChairPopup({ isOpen, onClose, patientId, appointment, me
           note: note.note ?? "",
         });
       } else {
-        await updateProcedure(note.id, {
-          patientId,
-          appointmentId: note.appointmentId ?? null,
-          procedures: [String(note.procedure || "")],
-          selectedTeeth: parseTeethString(note.tooth || ""),
-          tooth: note.tooth,
-          doctorId: me.staffId,
-          status: next,
-          note: note.note ?? "",
-          date: note.date,
-          addToLedger: true,
-        });
+        await updateProcedure(note.id, { ...statusPayload(note, me, next), patientId });
       }
     } catch (e) {
       console.error("Chair: status failed", e);
@@ -306,7 +302,7 @@ export default function ChairPopup({ isOpen, onClose, patientId, appointment, me
 
           {/* The editor, when adding or editing — right under the chart that feeds it. */}
           {editor && patient && (
-            <div className="rounded-2xl border-2 border-accent">
+            <div ref={editorRef} className="scroll-mt-4 rounded-2xl border-2 border-accent">
               <ServiceEditorDrawer
                 isOpen={true}
                 inline={true}

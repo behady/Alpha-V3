@@ -397,6 +397,12 @@ export default function ServiceEditorDrawer({
   /** The clinic's main list: what a dentist's treatment is charged from, this branch's first. */
   const defaultListId =
     listsForBranch(priceLists, branchId).find((l) => l.active && l.isDefault)?.id ?? priceLists.find((l) => l.isDefault)?.id ?? "";
+  /**
+   * The pricing overrides belong to a NEW treatment only. An edit keeps the list, price and
+   * discount reception gave it (the form seeds them from the note), or a dentist's status change
+   * would re-price an insurer's case onto clinic rates and bill a continued treatment again.
+   */
+  const dentistNew = dentistMode && !initialNote;
 
   const [discount, setDiscount] = useState<DiscountState>(EMPTY_DISCOUNT);
 
@@ -411,9 +417,9 @@ export default function ServiceEditorDrawer({
   // Every service whoever pays (coverage lists are gone); only the price list's own menu applies:
   // another list's own treatments are left out, and the shared ones this list hides.
   const offeredServices = useMemo(() => {
-    const offered = serviceMenuById(priceLists, payers, discount.priceListId || null, servicesList);
+    const offered = serviceMenuById(priceLists, payers, (dentistNew ? defaultListId : discount.priceListId) || null, servicesList);
     return servicesList.filter((s) => offered(String(s.id)));
-  }, [servicesList, priceLists, payers, discount.priceListId]);
+  }, [servicesList, priceLists, payers, discount.priceListId, dentistNew, defaultListId]);
 
   /**
    * Re-price a catalogue pick when the prefill list is changed; a free-typed name keeps its price.
@@ -622,22 +628,22 @@ export default function ServiceEditorDrawer({
       // behind it or a treatment nobody was billed for.
       // Dentist mode: no typed cost, no discount, no payer choice — the clinic's default list,
       // billed, on the dentist themselves. The server prices it; the dentist never sees it.
-      const billing = discountPayload(dentistMode ? EMPTY_DISCOUNT : discount);
+      const billing = discountPayload(dentistNew ? EMPTY_DISCOUNT : discount);
       const payload = {
         patientId,
         appointmentId: initialNote ? initialNote.appointmentId ?? null : appointmentId || null,
         procedures,
         selectedTeeth,
         tooth,
-        unitCost: dentistMode ? null : cost === "" ? null : Number(cost),
-        pricingMode: dentistMode ? null : pricingModeOverride,
+        unitCost: dentistNew ? null : cost === "" ? null : Number(cost),
+        pricingMode: dentistNew ? null : pricingModeOverride,
         doctorId: dentistMode ? meStaffId || null : selectedDoctorId,
         status: procedureStatus,
         note: noteText,
         date,
-        addToLedger: dentistMode ? true : addToLedger,
+        addToLedger: dentistNew ? true : addToLedger,
         ...billing,
-        priceListId: dentistMode ? defaultListId || null : billing.priceListId,
+        priceListId: dentistNew ? defaultListId || null : billing.priceListId,
         patientDefaultPriceListId: patientDefaultPriceListId || null,
       };
 
@@ -994,6 +1000,27 @@ export default function ServiceEditorDrawer({
     </div>
   ) : null;
 
+  /** The same approval, as the chair sees it: what and where, never how much or who pays. */
+  const approvalSummaryBare = approval ? (
+    <div className="rounded-2xl border border-accent-soft bg-accent-tint px-4 py-3.5">
+      <p className="inline-flex items-center gap-2 text-[14px] font-black text-ink">
+        {approval.payer && <InsurerBadge name={approval.payer} size={24} />}
+        {approval.payer ? `${approval.payer} · ` : ""}
+        {language === "ar" ? "موافقة تأمين" : "Insurance approval"}
+        {approval.number && <bdi dir="ltr" className="font-figure text-[13px] font-bold text-ink-body">{approval.number}</bdi>}
+      </p>
+      <p className="mt-2 text-2xl font-black leading-tight text-ink">{procedure}</p>
+      {selectedTeeth.length > 0 && (
+        <p className="mt-1 text-[15px] font-bold text-ink-body">
+          {language === "ar" ? "الأسنان" : "Teeth"} <bdi dir="ltr" className="font-figure font-black text-ink">{selectedTeeth.join(", ")}</bdi>
+        </p>
+      )}
+      <p className="mt-2 text-[13px] font-bold leading-relaxed text-accent-ink">
+        {language === "ar" ? "من هنا تغيّر الحالة والملاحظات بس." : "Here you change the state and the notes only."}
+      </p>
+    </div>
+  ) : null;
+
   const discountField = (
     <DiscountEditor
       listTotal={previewTotal}
@@ -1056,9 +1083,9 @@ export default function ServiceEditorDrawer({
         <form id="service-form" onSubmit={handleSave} className="grid grid-cols-1 md:grid-cols-4 gap-x-4 gap-y-4 mt-3 items-start">
           {approval ? (
             <>
-              <div className="md:col-span-4">{approvalSummary}</div>
+              <div className="md:col-span-4">{dentistMode ? approvalSummaryBare : approvalSummary}</div>
               {statusField}
-              {doctorField}
+              {!dentistMode && doctorField}
               <div className="md:col-span-2">
                 <span className={labelClass} aria-hidden="true">&nbsp;</span>
                 {saveButton}
@@ -1209,10 +1236,10 @@ export default function ServiceEditorDrawer({
         <form id="service-form" onSubmit={handleSave} className="space-y-6">
           {approval ? (
             <>
-              {approvalSummary}
+              {dentistMode ? approvalSummaryBare : approvalSummary}
               <div className="grid grid-cols-2 gap-4">
                 {statusField}
-                {doctorField}
+                {!dentistMode && doctorField}
               </div>
               {noteField(4)}
             </>

@@ -220,6 +220,9 @@ export default function PatientProfile() {
 
   // Start empty so we don't flash the wrong tab during auth load
   const [activeTab, setActiveTab] = useState<"overview" | "clinical" | "plan" | "finance" | "insurance" | "timeline" | "xrays" | "prescriptions" | "notes" | "">("");
+  // A hidden tab stays hidden: the overview's "full ledger" button and a ?tab=finance link used
+  // to land on it anyway. Adjusted during render, not in an effect.
+  if (chair && (activeTab === "finance" || activeTab === "insurance")) setActiveTab(canViewClinical ? "clinical" : "overview");
   const [hasSetInitialTab, setHasSetInitialTab] = useState(false);
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -1544,8 +1547,8 @@ export default function PatientProfile() {
                 )}
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                   {/* Integrated Financial Summary Snapshot */}
-                   <div className="bg-surface rounded-2xl p-5 md:p-6 border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] flex flex-col h-[480px]">
+                   {/* Integrated Financial Summary Snapshot — not for a dentist in chair mode. */}
+                   <div className={`bg-surface rounded-2xl p-5 md:p-6 border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] flex flex-col h-[480px] ${chair ? "hidden" : ""}`}>
                        <div className="flex items-center justify-between mb-5 shrink-0">
                            <h3 className="text-[10px] font-bold text-ink-muted uppercase tracking-widest flex items-center gap-2"><Wallet size={14} className="text-emerald-500"/> Financial Snapshot</h3>
                            <button onClick={() => setActiveTab('finance')} className="text-[10px] font-bold text-accent uppercase tracking-widest hover:underline">View Full Ledger</button>
@@ -1677,7 +1680,7 @@ export default function PatientProfile() {
           {/* --- TIMELINE TAB --- */}
           {activeTab === "timeline" && (
              <div className="animate-in fade-in duration-300">
-                <PatientTimelineTab patientId={patient.id} />
+                <PatientTimelineTab patientId={patient.id} hideMoney={chair} />
              </div>
           )}
           

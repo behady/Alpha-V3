@@ -7,7 +7,9 @@
  */
 import { isMine, type DentistIdentity } from "@/lib/dentistHome";
 import type { Note } from "@/components/clinical-notes/types";
+import { parseTeethString } from "@/components/clinical-notes/utils";
 import { lineStatusOf, type InsuranceClaim, type LineStatus } from "@/lib/insurance/claims";
+import type { ProcedureWriteArgs } from "@/lib/moneyApi";
 
 /**
  * May this dentist change this note? Only with a real staff identity, and only on their own
@@ -69,6 +71,47 @@ export function groupForChair(notes: Note[], todayAppointmentId: string | null, 
     out.push({ key: NONE_KEY, title: { ar: "مش مرتبط بزيارة", en: "Not linked to a visit" }, notes: unlinked, isToday: false });
   }
   return out;
+}
+
+/**
+ * What a status tap sends: the note exactly as stored, plus the new state.
+ *
+ * The procedures route re-prices a treatment from whatever body it gets. The first version sent
+ * only the name and the state, so one tap re-priced the work from the catalogue: a continued
+ * crown (cost 0, no charge) was billed a second time at the follow-up, an "A + B" note matched
+ * nothing and lost its charge, and reception's typed price or discount vanished. So every
+ * pricing field the note carries goes back as it is, and "bill it" is true only when it already
+ * is billed.
+ */
+export type StatusPayload = ProcedureWriteArgs & { discountMode: string | null; discountValue: number | null; discountReason: string | null };
+export function statusPayload(note: Note, me: { staffId: string }, next: "Planned" | "Ongoing" | "Completed"): StatusPayload {
+  const raw = note as Note & {
+    patientId?: string;
+    priceListId?: string | null;
+    discountMode?: string | null;
+    discountValue?: number | null;
+    discountReason?: string | null;
+  };
+  const unitCost = raw.unitCost === undefined || raw.unitCost === null || raw.unitCost === "" ? null : Number(raw.unitCost);
+  return {
+    patientId: String(raw.patientId || ""),
+    appointmentId: note.appointmentId ?? null,
+    procedures: note.procedures && note.procedures.length > 0 ? note.procedures : [String(note.procedure || "")],
+    selectedTeeth: parseTeethString(note.tooth || ""),
+    tooth: note.tooth,
+    unitCost,
+    pricingMode: note.pricingMode ?? null,
+    doctorId: me.staffId,
+    status: next,
+    note: note.note ?? "",
+    date: note.date,
+    addToLedger: !!note.ledgerId || Number(note.cost) > 0,
+    priceListId: raw.priceListId ?? null,
+    payerId: note.payerId ?? null,
+    discountMode: raw.discountMode ?? null,
+    discountValue: raw.discountValue ?? null,
+    discountReason: raw.discountReason ?? null,
+  };
 }
 
 export type ApprovalLine = {

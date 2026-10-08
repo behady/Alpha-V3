@@ -869,10 +869,10 @@ function eq<T>(actual: T, expected: T, message: string) {
 {
   const src = read("src/components/clinical-notes/ServiceEditorDrawer.tsx");
   ok(/dentistMode\?: boolean/.test(src), "the editor has a dentistMode prop");
-  ok(src.includes("addToLedger: dentistMode ? true : addToLedger"), "dentist mode always bills");
+  ok(src.includes("addToLedger: dentistNew ? true : addToLedger"), "dentist mode always bills");
   ok(src.includes("doctorId: dentistMode ? meStaffId"), "dentist mode puts the treatment on the dentist themselves");
-  ok(src.includes("unitCost: dentistMode ? null"), "dentist mode never sends a typed cost");
-  ok(/priceListId: dentistMode \? defaultListId/.test(src), "dentist mode charges from the clinic's default list");
+  ok(src.includes("unitCost: dentistNew ? null"), "dentist mode never sends a typed cost");
+  ok(/priceListId: dentistNew \? defaultListId/.test(src), "dentist mode charges from the clinic's default list");
 }
 
 console.log(`payers: ${checks} checks passed`);

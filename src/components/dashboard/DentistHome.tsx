@@ -10,8 +10,7 @@ import {
 } from "lucide-react";
 import ChairPopup from "@/components/chair/ChairPopup";
 import { StatusSwitch, STATUS_OPTIONS, type NoteStatus } from "@/components/chair/ChairNoteCard";
-import { canTouch } from "@/lib/chairPopup";
-import { parseTeethString } from "@/components/clinical-notes/utils";
+import { canTouch, statusPayload } from "@/lib/chairPopup";
 import { updateApprovalProcedure, updateProcedure } from "@/lib/moneyApi";
 import { XRAY_REPORTS_COLLECTION, worstSeverity, SEVERITY_COLORS, type XrayReport, type XraySeverity } from "@/lib/xrayReport";
 import { auth } from "@/lib/firebase";
@@ -286,16 +285,19 @@ export default function DentistHome() {
    */
   const [chairPop, setChairPop] = useState<{ patientId: string; appointment: { id: string; branchId?: string | null } | null } | null>(null);
   /** Every dentist's treatments on the hero's visit — the slab shows them all, mine pressable. */
-  const [heroNotes, setHeroNotes] = useState<Note[]>([]);
+  // Keyed by the visit they belong to, so a new hero never shows the previous patient's notes
+  // for the moment before its own listener answers.
+  const [heroNotesState, setHeroNotesState] = useState<{ heroId: string; notes: Note[] }>({ heroId: "", notes: [] });
   const heroId = hero ? String(hero.id) : "";
   useEffect(() => {
     if (!heroId || !clinicId) return;
     return onSnapshot(
       query(getClinicCollection("clinical_notes"), where("appointmentId", "==", heroId)),
-      (s) => setHeroNotes(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Note)),
-      () => setHeroNotes([])
+      (s) => setHeroNotesState({ heroId, notes: s.docs.map((d) => ({ id: d.id, ...d.data() }) as Note) }),
+      () => setHeroNotesState({ heroId, notes: [] })
     );
   }, [heroId, clinicId]);
+  const heroNotes = heroNotesState.heroId === heroId ? heroNotesState.notes : [];
   /** One status write at a time, so a double tap cannot race itself. */
   const [noteBusyId, setNoteBusyId] = useState("");
   const setNoteStatus = async (note: Note, next: NoteStatus) => {
@@ -307,18 +309,7 @@ export default function DentistHome() {
       if ((note as { claimId?: string }).claimId) {
         await updateApprovalProcedure(note.id, { patientId, appointmentId: note.appointmentId ?? null, status: next, doctorId: me.staffId, note: note.note ?? "" });
       } else {
-        await updateProcedure(note.id, {
-          patientId,
-          appointmentId: note.appointmentId ?? null,
-          procedures: [String(note.procedure || "")],
-          selectedTeeth: parseTeethString(note.tooth || ""),
-          tooth: note.tooth,
-          doctorId: me.staffId,
-          status: next,
-          note: note.note ?? "",
-          date: note.date,
-          addToLedger: true,
-        });
+        await updateProcedure(note.id, { ...statusPayload(note, me, next), patientId });
       }
     } catch (e) {
       console.error("Note status failed:", e);

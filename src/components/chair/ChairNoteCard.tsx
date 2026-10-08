@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, Lock, Pencil, Trash2 } from "lucide-react";
+import Protect from "@/components/Protect";
 import type { Note } from "@/components/clinical-notes/types";
 
 export type NoteStatus = "Planned" | "Ongoing" | "Completed";
@@ -115,9 +116,14 @@ export default function ChairNoteCard({
           <button type="button" onClick={onEdit} className="inline-flex h-11 items-center gap-1.5 rounded-xl border border-line-strong bg-surface px-3 text-[14px] font-bold text-ink hover:border-ink">
             <Pencil size={14} /> {isAr ? "عدّل" : "Edit"}
           </button>
-          <button type="button" onClick={onDelete} disabled={busy} className="inline-flex h-11 items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 text-[14px] font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-60">
-            <Trash2 size={14} /> {isAr ? "احذف" : "Delete"}
-          </button>
+          {/* Only for those who may delete; an approval row is deleted from the Insurance tab, by the desk. */}
+          {!fromApproval && (
+            <Protect permission="clinical.delete">
+              <button type="button" onClick={onDelete} disabled={busy} className="inline-flex h-11 items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 text-[14px] font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-60">
+                <Trash2 size={14} /> {isAr ? "احذف" : "Delete"}
+              </button>
+            </Protect>
+          )}
         </div>
       )}
     </article>
