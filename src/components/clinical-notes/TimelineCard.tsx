@@ -162,14 +162,14 @@ export default function TimelineCard({
   return (
     <div className="bg-surface border border-line rounded-2xl shadow-sm hover:border-line-strong transition-colors overflow-hidden">
       {/* Header */}
-      <div className="p-5 flex items-center justify-between border-b border-slate-100 bg-slate-50/50 gap-3">
+      <div className="p-5 flex items-center justify-between border-b border-line gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-10 h-10 bg-surface border border-line rounded-xl flex items-center justify-center text-teal-500 shadow-sm shrink-0">
             <Clock size={18} />
           </div>
           <div className="min-w-0">
-            <h3 className="font-bold text-ink text-base truncate">{txt.title}</h3>
-            <p className="text-[11px] font-medium text-ink-muted truncate">{txt.subtitle}</p>
+            <h3 className="font-black text-ink text-lg truncate">{txt.title}</h3>
+            <p className="text-[12px] font-semibold text-ink-muted truncate">{txt.subtitle}</p>
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -290,15 +290,15 @@ export default function TimelineCard({
                   >
                     {/* Timestamp Section (Left) */}
                     <div className="md:w-[100px] shrink-0 pt-2 pl-12 md:pl-0 md:text-right flex flex-col">
-                      <span className="text-sm font-bold text-slate-800">{displayDate}</span>
-                      {displayTime && <span className="text-xs font-semibold text-ink-muted">{displayTime}</span>}
+                      <span className="text-[15px] font-black text-ink">{displayDate}</span>
+                      {displayTime && <span className="text-xs font-bold text-ink-muted">{displayTime}</span>}
                     </div>
 
                     {/* Timeline Node (Center Dot) */}
                     <div className="absolute left-6 md:left-[120px] top-3 -translate-x-1/2 w-3 h-3 rounded-full border-2 border-white bg-teal-500 shadow-[0_0_0_2px_rgba(20,184,166,0.2)] group-hover:bg-teal-600 group-hover:scale-125 transition-all duration-300" />
 
                     {/* Content Section (Right) */}
-                    <div className="flex-1 ml-12 md:ml-0 bg-surface rounded-xl border border-slate-100 shadow-sm hover:shadow-md hover:border-line transition-all p-1">
+                    <div className="flex-1 ml-12 md:ml-0 bg-surface rounded-xl border border-line shadow-sm hover:shadow-md hover:border-line-strong transition-all p-1">
                       {renderService(note)}
                     </div>
                   </div>

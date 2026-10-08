@@ -947,10 +947,10 @@ export default function PatientProfile() {
           * card and the quick-action bar that used to share this space are gone on the owner's
           * word; the actions live in the ⋯ menu beside Edit, and the visits on the tabs below.
           */}
-        <section className="max-w-[1600px] mx-auto mb-6 rounded-3xl border border-line bg-surface p-5 md:p-6">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="flex min-w-0 items-center gap-4">
-              <div className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl border border-line bg-surface-subtle">
+        <section className="max-w-[1600px] mx-auto mb-4 rounded-3xl border border-line bg-surface px-5 py-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="group relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-line bg-surface-subtle">
                 <img
                   src={patient.imageUrl || (patient.gender === "Female" ? "https://cdn-icons-png.flaticon.com/512/4140/4140047.png" : "https://cdn-icons-png.flaticon.com/512/4140/4140048.png")}
                   alt={patient.name}
@@ -962,8 +962,8 @@ export default function PatientProfile() {
                 </label>
               </div>
               <div className="min-w-0">
-                <h1 className="truncate text-2xl font-black text-ink">{patient.name}</h1>
-                <p className="mt-0.5 text-sm font-semibold text-ink-muted">
+                <h1 className="truncate text-xl font-black text-ink">{patient.name}</h1>
+                <p className="text-[13px] font-semibold text-ink-muted">
                   {displayAge} {t('yearSymbol') || 'Y'}{patient.gender ? ` · ${patient.gender}` : ""}
                 </p>
               </div>
@@ -1027,17 +1027,19 @@ export default function PatientProfile() {
                 </button>
               </Protect>
             );
+            // Fields flow on one line and wrap only when the screen runs out; the medical line
+            // may grow wide, everything else stays its own width.
             const field = (label: string, value: React.ReactNode, wide = false) => (
-              <div className={wide ? "sm:col-span-2" : ""}>
-                <dt className="text-[12px] font-bold text-ink-muted">{label}</dt>
-                <dd className="mt-1 text-[15px] font-bold text-ink">{value}</dd>
+              <div className={wide ? "min-w-[12rem] grow basis-64" : "min-w-[8rem]"}>
+                <dt className="text-[11px] font-bold text-ink-muted">{label}</dt>
+                <dd className="mt-0.5 text-[15px] font-bold text-ink">{value}</dd>
               </div>
             );
             const fileNumber = String((patient as { fileId?: unknown }).fileId || "").trim();
             const insurance = readInsurance(patient as Record<string, unknown>);
             const hasMedical = !!patient.allergies || (!!patient.medicalHistory && patient.medicalHistory !== "None (Healthy)");
             return (
-              <dl className="mt-5 grid grid-cols-1 gap-x-6 gap-y-4 border-t border-line pt-5 sm:grid-cols-2 lg:grid-cols-4">
+              <dl className="mt-3 flex flex-wrap gap-x-8 gap-y-3 border-t border-line pt-3">
                 {field(ar ? 'رقم الملف' : 'File number', fileNumber ? <bdi dir="ltr" className="font-figure">{fileNumber}</bdi> : <span className="text-ink-faint">—</span>)}
                 {field(
                   ar ? 'التليفون' : 'Phone',
@@ -1091,8 +1093,9 @@ export default function PatientProfile() {
         </section>
 
         {/* MAIN TABS AREA */}
-        <div className="max-w-[1600px] mx-auto bg-white/60 backdrop-blur-xl border border-white/40 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[2rem] p-4 md:p-6 lg:p-8">
-            <nav className="flex items-center gap-2 mb-8 overflow-x-auto no-scrollbar pb-2 border-b border-white/50">
+        <div className="max-w-[1600px] mx-auto bg-surface border border-line rounded-[2rem] p-4 md:p-6 lg:p-8">
+            {/* The open tab is a black slab with the brand yellow on it — the one place yellow type reads. */}
+            <nav className="flex items-center gap-2 mb-8 overflow-x-auto no-scrollbar pb-3 border-b border-line">
               {tabs.filter(tb => tb.show).map(tb => {
                 const Icon = tb.icon;
                 const active = activeTab === tb.id;
@@ -1101,11 +1104,11 @@ export default function PatientProfile() {
                     key={tb.id}
                     data-tour={`patient-tab-${tb.id}`}
                     onClick={() => setActiveTab(tb.id)}
-                    className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold transition-all whitespace-nowrap ${
-                      active ? 'bg-surface text-ink shadow-sm border border-white' : 'text-ink-muted hover:bg-white/50 border border-transparent'
+                    className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-[15px] font-bold transition-all whitespace-nowrap ${
+                      active ? 'bg-ink-slab text-[#FACC15] shadow-sm' : 'text-ink-body hover:bg-surface-subtle'
                     }`}
                   >
-                    <Icon size={16} className={active ? 'text-accent' : 'text-slate-400'} />
+                    <Icon size={16} className={active ? 'text-[#FACC15]' : 'text-slate-400'} />
                     {tb.label}
                   </button>
                 );

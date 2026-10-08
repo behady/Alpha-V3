@@ -146,14 +146,19 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
     );
   }
 
+  /*
+   * The owner's layout: the treatment's name is the one thing a dentist scans the file for, so
+   * it sits big and centred with its tags under it; the edit and delete buttons stack at the
+   * edge, edit on top.
+   */
   return (
-    <div className={`flex items-center justify-between p-4 border rounded-xl transition-all group relative ${getContainerStyles(note.status)}`}>
+    <div className={`flex items-center justify-between gap-3 p-4 border rounded-xl transition-all group relative ${getContainerStyles(note.status)}`}>
       {reorderControls}
-      <div className="flex flex-col gap-1 min-w-0 flex-1">
-        <div className="flex items-center gap-2 flex-wrap">
-          <p className="font-bold text-ink truncate text-sm">{note.procedure}</p>
+      <div className="flex flex-col items-center gap-2 min-w-0 flex-1 text-center">
+        <p className="font-black text-ink text-xl leading-tight">{note.procedure}</p>
+        <div className="flex items-center justify-center gap-2 flex-wrap">
           <span
-            className={`flex items-center gap-1.5 text-[10px] font-bold px-2 py-0.5 rounded-md ${getStatusColor(note.status)}`}
+            className={`flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-md ${getStatusColor(note.status)}`}
           >
             {note.status === "Ongoing" && (
               <span className="relative flex h-2 w-2 shrink-0">
@@ -164,50 +169,53 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
             {note.status || "Planned"}
           </span>
           {note.tooth && note.tooth !== "Gen" && (
-            <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-surface-subtle text-ink-body border border-line">
-              Tooth: {note.tooth}
+            <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-surface-subtle text-ink border border-line">
+              <bdi dir="ltr">{language === 'ar' ? `سن ${note.tooth}` : `Tooth ${note.tooth}`}</bdi>
             </span>
           )}
           {note.isContinued && (
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-50 text-blue-600 border border-blue-200 uppercase tracking-widest flex items-center gap-1">
-              <RefreshCcw size={10} /> {language === 'ar' ? 'متابعة' : 'Follow Up'}
+            <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1">
+              <RefreshCcw size={11} /> {language === 'ar' ? 'متابعة' : 'Follow Up'}
             </span>
           )}
           {insurer && (
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-surface-subtle text-ink-body border border-line flex items-center gap-1.5">
+            <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-surface-subtle text-ink border border-line flex items-center gap-1.5">
               <InsurerBadge name={insurer} size={14} /> {insurer}
             </span>
           )}
         </div>
-        
+
         {note.note && (
-          <p className="text-sm font-bold text-ink-muted line-clamp-2 mt-1">
+          <p className="text-[15px] font-bold text-ink-body line-clamp-2">
             {note.note}
           </p>
         )}
-        
-        <div className="flex items-center gap-3 mt-2">
-          {note.doctor && (
-            <p className="text-xs font-bold text-slate-400">Dr. {note.doctor}</p>
-          )}
-          {Number(note.cost) > 0 && (
-            <p className="text-xs font-black text-ink-body bg-surface-muted px-2 py-0.5 rounded-md flex items-center justify-center">
-              EGP {Number(note.cost).toLocaleString()}
-            </p>
-          )}
-        </div>
+
+        {(note.doctor || Number(note.cost) > 0) && (
+          <div className="flex items-center justify-center gap-3 flex-wrap">
+            {note.doctor && (
+              <p className="text-sm font-bold text-ink-muted">Dr. {note.doctor}</p>
+            )}
+            {Number(note.cost) > 0 && (
+              <p className="text-sm font-black text-ink bg-surface-muted px-2.5 py-1 rounded-md font-figure">
+                <bdi dir="ltr">EGP {Number(note.cost).toLocaleString()}</bdi>
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Inline Quick Actions */}
-      <div className="flex items-center gap-1 sm:gap-1.5 ml-2 shrink-0">
+      {/* Edit above delete, at the edge of the card. */}
+      <div className="flex flex-col items-center gap-1.5 shrink-0">
         {!note.isContinued && (
           <Protect permission="clinical.edit">
             <button
               onClick={() => onEdit(note)}
               title={txt.edit}
-              className="p-1.5 sm:p-2 rounded-lg text-violet-600 bg-violet-50 hover:bg-violet-100 transition-colors shadow-sm border border-violet-100"
+              aria-label={txt.edit}
+              className="p-2.5 rounded-lg text-violet-600 bg-violet-50 hover:bg-violet-100 transition-colors shadow-sm border border-violet-100"
             >
-              <Edit2 size={14} />
+              <Edit2 size={16} />
             </button>
           </Protect>
         )}
@@ -216,9 +224,10 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
           <button
             onClick={() => onDelete(note)}
             title={txt.delete}
-            className="p-1.5 sm:p-2 rounded-lg text-rose-600 bg-rose-50 hover:bg-rose-100 transition-colors shadow-sm border border-rose-100"
+            aria-label={txt.delete}
+            className="p-2.5 rounded-lg text-rose-600 bg-rose-50 hover:bg-rose-100 transition-colors shadow-sm border border-rose-100"
           >
-            <Trash2 size={14} />
+            <Trash2 size={16} />
           </button>
         </Protect>
       </div>
