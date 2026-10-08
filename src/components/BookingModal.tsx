@@ -2022,7 +2022,7 @@ servicesList.length > 0 && (
                 {panelHead(isAr ? "التأمين" : "Insurance", false)}
                 {headerPatientId ? (
                   <>
-                    <InsuranceApprovals language={language} loaded={claimsLoaded} claims={patientClaims.claims} claimLinks={claimLinks} onToggle={toggleLine} />
+                    <InsuranceApprovals language={language} loaded={claimsLoaded} claims={patientClaims.claims} claimLinks={claimLinks} onToggle={toggleLine} dentistId={resolvedDoctorId} />
                     <ApprovalUploadPanel patientId={headerPatientId} patientName={selectedPatient?.name || ""} language={language} />
                   </>
                 ) : (
