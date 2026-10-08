@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import {
-  AlertTriangle, Banknote, Check, ChevronDown, History, Loader2, Pencil, Plus, Printer, Receipt, Tag, Trash2,
+  AlertTriangle, Banknote, Check, ChevronDown, History, Loader2, Pencil, Plus, Printer, Receipt, ShieldCheck, Tag, Trash2, User,
 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
@@ -144,6 +144,33 @@ export default function AppointmentMoneyTab({
       // that recorded a private case at the insurer's tariff. Back to the default list.
       setProcListId((activeLists.find((l) => l.isDefault) || activeLists[0]).id);
     }
+  };
+
+  /**
+   * Who pays, as two buttons: the patient, or an insurance company. The price list above stays
+   * a separate choice (a contract company's prices can be paid by the patient in cash), but
+   * picking a list that belongs to a company starts the answer at that company, and any other
+   * list at the patient — so the two only disagree when someone chose that on purpose.
+   */
+  const insurerPayers = activePayers.filter((p) => p.id !== PRIVATE_PAYER_ID);
+  const insurerPays = procPayerId !== PRIVATE_PAYER_ID;
+  const pickList = (listId: string) => {
+    setProcListId(listId);
+    setProcPayerId(payerForPriceList(payers, listId).id);
+  };
+  const chooseWhoPays = (who: "patient" | "insurer") => {
+    if (who === "patient") {
+      // Deliberately keeps the list: the patient pays, at whichever prices were picked.
+      setProcPayerId(PRIVATE_PAYER_ID);
+      return;
+    }
+    if (insurerPays || insurerPayers.length === 0) return;
+    const owner = payerForPriceList(payers, procListId);
+    pickPayer(owner.id !== PRIVATE_PAYER_ID ? owner.id : insurerPayers[0].id);
+  };
+  const insurerName = (id: string) => {
+    const p = insurerPayers.find((x) => x.id === id);
+    return p ? (isAr ? p.nameAr || p.name : p.name) : "";
   };
 
   const patientId = appointment?.patientId as string | undefined;
@@ -1057,9 +1084,11 @@ export default function AppointmentMoneyTab({
         </div>
         <div className="flex flex-col gap-2">
           {activeLists.length > 1 && (
+            <label className="block">
+            <span className="mb-1 block text-[11px] font-bold text-ink-muted">{isAr ? "الأسعار من" : "Prices from"}</span>
             <select
               value={procListId}
-              onChange={(e) => setProcListId(e.target.value)}
+              onChange={(e) => pickList(e.target.value)}
               className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm font-bold text-ink outline-none"
             >
               {activeLists.map((l) => {
@@ -1075,20 +1104,52 @@ export default function AppointmentMoneyTab({
                 );
               })}
             </select>
+            </label>
           )}
-          {activePayers.length > 1 && (
-            <select
-              value={procPayerId}
-              onChange={(e) => pickPayer(e.target.value)}
-              aria-label={isAr ? "مين بيدفع" : "Who pays"}
-              className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm font-bold text-ink outline-none"
-            >
-              {activePayers.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.id === PRIVATE_PAYER_ID ? (isAr ? "خاص (العيادة)" : "Private (the clinic)") : isAr ? p.nameAr || p.name : p.name}
-                </option>
-              ))}
-            </select>
+          {insurerPayers.length > 0 && (
+            <div>
+              <span className="mb-1 block text-[11px] font-bold text-ink-muted">{isAr ? "مين بيدفع؟" : "Who pays?"}</span>
+              <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={isAr ? "مين بيدفع" : "Who pays"}>
+                {([
+                  { who: "patient" as const, on: !insurerPays, icon: <User size={16} />, label: isAr ? "المريض" : "Patient" },
+                  {
+                    who: "insurer" as const,
+                    on: insurerPays,
+                    icon: <ShieldCheck size={16} />,
+                    label: (isAr ? "شركة التأمين" : "Insurance") + (insurerPays && insurerPayers.length === 1 ? ` · ${insurerName(procPayerId)}` : ""),
+                  },
+                ]).map((o) => (
+                  <button
+                    key={o.who}
+                    type="button"
+                    role="radio"
+                    aria-checked={o.on}
+                    onClick={() => chooseWhoPays(o.who)}
+                    className={`flex h-11 items-center justify-center gap-2 rounded-lg border px-3 text-sm font-bold transition-colors ${
+                      o.on ? "border-ink-slab bg-ink-slab text-white" : "border-line bg-surface text-ink-body hover:border-ink"
+                    }`}
+                  >
+                    {o.icon}
+                    <span className="truncate">{o.label}</span>
+                  </button>
+                ))}
+              </div>
+              {/* Which company, only when there is more than one to choose from. */}
+              {insurerPays && insurerPayers.length > 1 && (
+                <select
+                  value={procPayerId}
+                  onChange={(e) => pickPayer(e.target.value)}
+                  aria-label={isAr ? "شركة التأمين" : "Insurance company"}
+                  className="mt-2 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm font-bold text-ink outline-none"
+                >
+                  {insurerPayers.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {isAr ? p.nameAr || p.name : p.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
           )}
           <ServiceCombobox
             priceListId={procListId}
