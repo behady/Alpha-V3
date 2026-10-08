@@ -96,12 +96,22 @@ When on:
   with no list price they save at 0 and reception prices them. `needsTypedPrice` is off in
   dentist mode; a small line under the name says "مش في القائمة — الاستقبال هيحط السعر".
 - Approval rows: unchanged (status, notes only).
+- Editing an existing own treatment in dentist mode hides the same controls: the price list and
+  the dentist stay what they are.
+- Phones (narrower than 768px): the chart is no longer pinned above a tiny scrolling form — the
+  whole window scrolls as one piece, the Save button stays pinned at the bottom. This fix applies
+  to everyone, not only dentists (owner's screenshot 2026-10-08).
 
 Reception's path (`dentistMode` absent) is byte-for-byte the current behaviour.
 
 ## 4. The dentist home
 
 `DentistHome.tsx`:
+- **The chair slab** (the black "next patient" card): under the patient's name, this visit's
+  treatments — every dentist's, each with name, teeth and status; mine with the one-tap status
+  switch (مخطط / جاري / اتعمل). Beside them a **+ أضف علاج** button that opens the editor in
+  dentist mode for this visit (teeth from the chart inside it). "ابدأ ملاحظة النهارده" is
+  replaced by that button; "افتح الكرسي" opens the chair popup for the full picture.
 - **My day cards**: under each appointment, chips for this dentist's notes on that visit
   (`notes` is already `where doctorId == me`): name + status, tap cycles مخطط → جاري → اتعمل
   (one `updateProcedure` call, optimistic). A **افتح الكرسي** button opens the chair popup for
