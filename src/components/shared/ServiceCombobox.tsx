@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useMemo, useRef, useEffect } from "react";
+import { useLanguage } from "@/context/LanguageContext";
+import { serviceDisplayName, serviceMatchesName } from "@/lib/serviceName";
 import { Search, ChevronDown, Check } from "lucide-react";
 import { DENTAL_CATEGORIES, DentalIcon, categoryLabel, iconForService, suggestCategory } from "@/lib/dentalIcons";
 import { resolveListPrice } from "@/lib/discountMath";
@@ -8,6 +10,7 @@ import { resolveListPrice } from "@/lib/discountMath";
 export interface ComboboxService {
   id: string | number;
   name: string;
+  nameAr?: string | null;
   price?: number;
   [key: string]: any;
 }
@@ -44,20 +47,25 @@ export default function ServiceCombobox({
   placeholder,
   disabled = false,
   allowFreeText = false,
-  language = "en",
+  language: languageProp,
   className = "",
   dropdownClassName = "",
 }: ServiceComboboxProps) {
+  const { language: appLanguage } = useLanguage();
+  const language = languageProp ?? appLanguage;
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Derive the display text from the selected value
+  // By name, either name finds the row: Arabic users save the Arabic one.
   const selectedService = useMemo(
-    () => services.find((s) => String(s[valueKey]) === String(value)),
+    () => services.find((s) => (valueKey === "name" ? serviceMatchesName(s, value) : String(s[valueKey]) === String(value))),
     [services, value, valueKey]
   );
+  const isArUi = language === "ar";
+  const label = (s: ComboboxService) => serviceDisplayName(s, isArUi);
 
   /**
    * What the box shows while the list is shut: the picked service, or the typed name.
@@ -67,7 +75,7 @@ export default function ServiceCombobox({
    * elsewhere shut the list before blur had committed the text. `search` is now only the text
    * being typed while the list is open, and it starts from this whenever the list opens.
    */
-  const closedText = selectedService ? selectedService.name : allowFreeText ? value || "" : "";
+  const closedText = selectedService ? label(selectedService) : allowFreeText ? value || "" : "";
   const open = () => {
     if (!isOpen) setSearch(closedText);
     setIsOpen(true);
@@ -89,7 +97,7 @@ export default function ServiceCombobox({
     let filtered = services;
     if (search.trim() && isOpen) {
       const lowerSearch = search.toLowerCase();
-      filtered = services.filter((s) => s.name.toLowerCase().includes(lowerSearch));
+      filtered = services.filter((s) => s.name.toLowerCase().includes(lowerSearch) || String(s.nameAr || "").toLowerCase().includes(lowerSearch));
     }
 
     const isArabic = (str: string) => /[\u0600-\u06FF]/.test(str);
@@ -233,7 +241,7 @@ export default function ServiceCombobox({
                         <span className={`shrink-0 ${isSelected ? "text-primary-600" : "text-slate-400"}`}>
                           <DentalIcon id={iconForService(service as { icon?: string; name?: string; category?: string })} size={19} />
                         </span>
-                        <span className="truncate">{service.name}</span>
+                        <span className="truncate">{label(service)}</span>
                       </span>
                       <div className="flex items-center gap-2 shrink-0">
                         {service.price !== undefined && service.price !== null && (

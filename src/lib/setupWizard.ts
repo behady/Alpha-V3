@@ -150,6 +150,8 @@ export function serviceDocsFrom(
       englishName: t ? t.name.en : name,
       doc: {
         name,
+        // Both names from the start, so a clinic set up in English can read its list in Arabic.
+        nameAr: t ? t.name.ar : language === "ar" ? name : "",
         price,
         requiresLab: t?.requiresLab === true,
         estimatedLabFee: t?.estimatedLabFee ?? 0,

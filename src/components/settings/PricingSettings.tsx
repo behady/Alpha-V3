@@ -2,6 +2,7 @@
 
 import { deleteRecord, RecycleBinError } from "@/lib/recycleBinApi";
 import { useSettingsText } from "@/lib/useSettingsText";
+import { serviceDisplayName } from "@/lib/serviceName";
 import { useClinic } from "@/context/ClinicContext";
 import { useState, useMemo } from "react";
 import { Search, Plus, Edit2, Trash2, X, Save, Clock, FlaskConical, AlertTriangle } from "lucide-react";
@@ -73,6 +74,7 @@ export default function PricingSettings({
   const [editingService, setEditingService] = useState<ServiceRow | null>(null);
   const [form, setForm] = useState({
     name: "",
+    nameAr: "",
     price: "",
     category: "other",
     icon: "tooth",
@@ -118,7 +120,7 @@ export default function PricingSettings({
 
   const openAdd = () => {
     setEditingService(null);
-    setForm({ name: "", price: "", category: "other", icon: "tooth", requiresLab: false, estimatedLabFee: "", durationMinutes: "", pricingMode: DEFAULT_PRICING_MODE });
+    setForm({ name: "", nameAr: "", price: "", category: "other", icon: "tooth", requiresLab: false, estimatedLabFee: "", durationMinutes: "", pricingMode: DEFAULT_PRICING_MODE });
     loadListPrices(null);
     setCategoryTouched(false);
     setIconTouched(false);
@@ -129,6 +131,7 @@ export default function PricingSettings({
     setEditingService(s);
     setForm({
       name: s.name,
+      nameAr: String((s as { nameAr?: unknown }).nameAr || ""),
       price: s.price.toString(),
       category: s.category || suggestCategory(s.name),
       icon: iconForService(s),
@@ -163,6 +166,8 @@ export default function PricingSettings({
       icon: form.icon,
       requiresLab: form.requiresLab,
       estimatedLabFee: Number(form.estimatedLabFee) || 0,
+      // The Arabic name beside the English one; blank means "show the English".
+      nameAr: form.nameAr.trim(),
       // Optional. Left null rather than defaulted, so slot suggestions can tell "this takes 60
       // minutes" from "nobody said how long this takes" instead of assuming one standard slot.
       durationMinutes: Number(form.durationMinutes) > 0 ? Number(form.durationMinutes) : null,
@@ -318,7 +323,10 @@ export default function PricingSettings({
                       <DentalIcon id={iconForService(s)} size={24} />
                     </span>
                     <div className="flex-1 min-w-0">
-                      <p className="font-bold text-ink text-sm leading-snug truncate">{s.name}</p>
+                      <p className="font-bold text-ink text-sm leading-snug truncate">{serviceDisplayName(s, ar)}</p>
+                      {ar && String((s as { nameAr?: unknown }).nameAr || "").trim() && (
+                        <p className="truncate text-[11px] font-semibold text-ink-muted" dir="ltr">{s.name}</p>
+                      )}
                       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mt-1">
                         <span className="font-figure text-sm font-bold text-ink">
                           {s.price} <span className="text-[10px] font-bold uppercase text-ink-muted">{currency}</span>
@@ -402,6 +410,16 @@ export default function PricingSettings({
                     value={form.name}
                     onChange={(e) => handleNameChange(e.target.value)}
                     placeholder={ar ? "مثال: تاج زيركون" : "e.g. Zircon Crown"} data-tour="price-service-name"
+                    className="w-full py-3 px-4 bg-surface-subtle rounded-xl border border-line font-semibold text-ink text-sm outline-none focus:bg-surface focus:border-accent transition-all"
+                  />
+                </div>
+                <div className="col-span-3 space-y-1.5">
+                  <label className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{ar ? "الاسم بالعربي" : "Arabic name"}</label>
+                  <input
+                    value={form.nameAr}
+                    onChange={(e) => setForm({ ...form, nameAr: e.target.value })}
+                    placeholder={ar ? "اللي هيظهر للفريق اللي بيشتغل بالعربي" : "Shown to staff who use the app in Arabic"}
+                    dir="rtl"
                     className="w-full py-3 px-4 bg-surface-subtle rounded-xl border border-line font-semibold text-ink text-sm outline-none focus:bg-surface focus:border-accent transition-all"
                   />
                 </div>

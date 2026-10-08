@@ -23,6 +23,8 @@ import {
 export type PricedService = {
   id: string;
   name: string;
+  /** The Arabic name; a treatment saved under it is this same row. */
+  nameAr?: string | null;
   price?: number | null;
   /** Per-price-list overrides. An absent entry charges `price`. */
   prices?: Record<string, number> | null;
@@ -95,7 +97,14 @@ function modeFor(matched: PricedService[]): PricingMode {
 export function computeProcedurePricing(input: ProcedurePricingInput): ProcedurePricing {
   const procedures = Array.from(new Set(input.procedures.map((p) => String(p || "").trim()).filter(Boolean)));
 
-  const byName = new Map(input.services.map((s) => [String(s.name || "").trim(), s]));
+  // Either name finds the row: Arabic users save the Arabic one. The English is set first so a
+  // row whose Arabic name happens to equal another row's English name still resolves to itself.
+  const byName = new Map<string, PricedService>();
+  for (const s of input.services) {
+    const ar = typeof s.nameAr === "string" ? s.nameAr.trim() : "";
+    if (ar && !byName.has(ar)) byName.set(ar, s);
+  }
+  for (const s of input.services) byName.set(String(s.name || "").trim(), s);
   const matchedServices = procedures
     .map((name) => byName.get(name))
     .filter((s): s is PricedService => Boolean(s));

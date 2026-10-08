@@ -26,6 +26,7 @@ import type { Note, Service, Staff } from "@/components/clinical-notes/types";
 import { resolveListPrice } from "@/lib/discountMath";
 import { PRIVATE_PAYER_ID, findPayer, payerForPriceList } from "@/lib/payers";
 import { serviceMenuById } from "@/lib/serviceMenu";
+import { serviceDisplayName, serviceMatchesName } from "@/lib/serviceName";
 import InsurerBadge from "@/components/shared/InsurerBadge";
 
 /**
@@ -124,7 +125,7 @@ export default function AppointmentMoneyTab({
   useEffect(() => {
     const name = procName.trim();
     if (!name) return;
-    const svc = services.find((x) => String(x.name) === name);
+    const svc = services.find((x) => serviceMatchesName(x, name));
     if (svc) setProcCost(resolveListPrice(svc as { price?: number; prices?: Record<string, number> }, procListId));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [procListId]);
@@ -324,7 +325,7 @@ export default function AppointmentMoneyTab({
     !!procName.trim() && procCost === "" && !services.some((s) => String(s.name) === procName.trim());
   const quickNeedsPriceText = isAr ? "اكتب سعر للعلاج اللي مش في قائمتك" : "Type a price for a treatment that is not in your list";
   /** The picked service's own billing rule (per tooth / per jaw / flat); a free-typed name is per tooth, as on the server. */
-  const quickPricingMode = (services.find((x) => String(x.name) === procName.trim()) as { pricingMode?: string } | undefined)?.pricingMode ?? null;
+  const quickPricingMode = (services.find((x) => serviceMatchesName(x, procName)) as { pricingMode?: string } | undefined)?.pricingMode ?? null;
 
   const treatments = useMemo(() => {
     const categoryById = new Map(services.map((s) => [s.id, s.category]));
@@ -1156,7 +1157,7 @@ export default function AppointmentMoneyTab({
             services={offeredServices}
             value={procName}
             onChange={(val: string, svc: any) => {
-              setProcName(svc ? svc.name : val);
+              setProcName(svc ? serviceDisplayName(svc, isAr) : val);
               if (svc) setProcCost(resolveListPrice(svc, procListId));
             }}
             valueKey="name"

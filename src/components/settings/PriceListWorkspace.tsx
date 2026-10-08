@@ -25,6 +25,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import { serviceDisplayName } from "@/lib/serviceName";
 import { useSettingsText } from "@/lib/useSettingsText";
 import {
   ArrowLeft,
@@ -113,7 +114,7 @@ export default function PriceListWorkspace({
   const [bulkPercent, setBulkPercent] = useState("");
   /** The "add a treatment to this list" dialog. null = closed. */
   /** The add / edit dialog for a treatment that lives on this list only. `id` set = editing that one. null = closed. */
-  const [newOwn, setNewOwn] = useState<{ id?: string; name: string; price: string; category: string; pricingMode: PricingMode } | null>(null);
+  const [newOwn, setNewOwn] = useState<{ id?: string; name: string; nameAr: string; price: string; category: string; pricingMode: PricingMode } | null>(null);
   const [ownBusy, setOwnBusy] = useState(false);
 
   const isStandard = list.id === STANDARD_LIST_ID;
@@ -418,11 +419,12 @@ export default function PriceListWorkspace({
     }
   };
 
-  const openNewOwn = () => setNewOwn({ name: "", price: "", category: "", pricingMode: DEFAULT_PRICING_MODE });
+  const openNewOwn = () => setNewOwn({ nameAr: "", name: "", price: "", category: "", pricingMode: DEFAULT_PRICING_MODE });
   const openEditOwn = (s: ServiceRow) =>
     setNewOwn({
       id: s.id,
       name: s.name || "",
+      nameAr: String((s as { nameAr?: unknown }).nameAr || ""),
       price: Number.isFinite(Number(s.price)) ? String(s.price ?? "") : "",
       category: s.category || suggestCategory(s.name || ""),
       pricingMode: s.pricingMode || DEFAULT_PRICING_MODE,
@@ -443,6 +445,7 @@ export default function PriceListWorkspace({
     try {
       await updateDoc(getClinicDoc("services", id), {
         name,
+        nameAr: newOwn.nameAr.trim(),
         price: money(price),
         category,
         icon: suggestIcon(name) || categoryOf(category).icon,
@@ -482,6 +485,7 @@ export default function PriceListWorkspace({
     try {
       await addDoc(getClinicCollection("services"), {
         name,
+        nameAr: newOwn.nameAr.trim(),
         price: money(price),
         category,
         icon: suggestIcon(name) || categoryOf(category).icon,
@@ -640,7 +644,7 @@ export default function PriceListWorkspace({
                 <option value="">{addable.length === 0 ? (ar ? "كل علاجاتك على القائمة" : "Every treatment is on this list") : ar ? "اختار علاج…" : "Pick a treatment…"}</option>
                 {addable.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.name}
+                    {serviceDisplayName(s, ar)}
                   </option>
                 ))}
               </select>
@@ -801,11 +805,11 @@ export default function PriceListWorkspace({
                               title={txt.editOwnTitle}
                               className="truncate text-start text-sm font-bold text-ink underline-offset-4 hover:underline"
                             >
-                              {s.name}
+                              {serviceDisplayName(s, ar)}
                             </button>
                           ) : (
                             <span className={`truncate text-sm font-bold ${isHidden ? "text-ink-muted line-through decoration-ink-muted/40" : "text-ink"}`}>
-                              {s.name}
+                              {serviceDisplayName(s, ar)}
                             </span>
                           )}
                           {own && (
@@ -956,6 +960,17 @@ export default function PriceListWorkspace({
                   value={newOwn.name}
                   onChange={(e) => setNewOwn({ ...newOwn, name: e.target.value })}
                   placeholder={txt.ownNamePlaceholder}
+                  disabled={ownBusy}
+                  className="w-full rounded-xl border border-line bg-surface-subtle px-4 py-3 text-sm font-bold text-ink outline-none transition focus:border-accent focus:bg-surface disabled:opacity-60"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">{ar ? "الاسم بالعربي" : "Arabic name"}</label>
+                <input
+                  value={newOwn.nameAr}
+                  onChange={(e) => setNewOwn({ ...newOwn, nameAr: e.target.value })}
+                  placeholder={ar ? "اختياري — اللي هيظهر للفريق بالعربي" : "Optional — shown to staff using Arabic"}
+                  dir="rtl"
                   disabled={ownBusy}
                   className="w-full rounded-xl border border-line bg-surface-subtle px-4 py-3 text-sm font-bold text-ink outline-none transition focus:border-accent focus:bg-surface disabled:opacity-60"
                 />

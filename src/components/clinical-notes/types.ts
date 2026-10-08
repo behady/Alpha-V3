@@ -59,6 +59,8 @@ export interface Staff { id: string; name: string; role: string; commissionPerce
 export interface Service {
   id: string;
   name: string;
+  /** The Arabic name, shown to Arabic users; `name` stays the row's key. See lib/serviceName. */
+  nameAr?: string;
   price: number;
   requiresLab?: boolean;
   estimatedLabFee?: number;

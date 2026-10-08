@@ -76,6 +76,7 @@ import type { ToothData } from "@/lib/diagnosisCatalog";
 import { stagedChargeTotal, stagedLineTotal, stagedMode, stagedUnits, toothListLabel } from "@/lib/stagedProcedures";
 import { PRIVATE_PAYER_ID, payerForPriceList } from "@/lib/payers";
 import { serviceMenuById } from "@/lib/serviceMenu";
+import { serviceDisplayName } from "@/lib/serviceName";
 import InsurerBadge from "@/components/shared/InsurerBadge";
 
 interface AppointmentData {
@@ -1442,7 +1443,7 @@ servicesList.length > 0 && (
                     // The catalog entry this came from. Carried through to the ledger row so
                     // reports can group on a stable id instead of parsing the description.
                     serviceId: String(svc.id),
-                    name: svc.name,
+                    name: serviceDisplayName(svc, language === 'ar'),
                     cost: numCost,
                     addToLedger: addProcToLedger,
                     // Recorded so the note and the ledger row can say which rate was quoted,

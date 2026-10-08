@@ -31,6 +31,7 @@ import type { LabCaseSeed } from "@/lib/labCases";
 import DiscountEditor, { EMPTY_DISCOUNT, discountPayload, type DiscountState } from "@/components/shared/DiscountEditor";
 import { isDiscountMode, resolveListPrice, type DiscountMode } from "@/lib/discountMath";
 import { listsForBranch } from "@/lib/priceLists";
+import { serviceDisplayName, serviceMatchesName } from "@/lib/serviceName";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
 
 interface Props {
@@ -436,7 +437,7 @@ export default function ServiceEditorDrawer({
     pricedListRef.current = next;
     if (!next || prev === next) return;
     if (!listsForBranch(priceLists, branchId).some((l) => l.active && l.id === prev)) return;
-    const svc = servicesList.find((s) => s.name === procedure.trim());
+    const svc = servicesList.find((s) => serviceMatchesName(s, procedure));
     if (svc) setCost(String(resolveListPrice(svc, next)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [discount.priceListId]);
@@ -706,9 +707,9 @@ export default function ServiceEditorDrawer({
    * matched against ids (typing "1" would become service 1) or prefill a price half-way through
    * a longer name that happens to start like a catalogue one.
    */
-  const handleProcedureChange = (val: string, svc?: { name: string; price?: number; prices?: Record<string, number> }) => {
+  const handleProcedureChange = (val: string, svc?: { name: string; nameAr?: string | null; price?: number; prices?: Record<string, number> }) => {
     if (svc) {
-      setProcedure(svc.name);
+      setProcedure(serviceDisplayName(svc, isAr));
       setCost(String(resolveListPrice(svc, discount.priceListId || null)));
       return;
     }
@@ -728,7 +729,7 @@ export default function ServiceEditorDrawer({
     new Set([procedure.trim(), ...multiProceduresText.split("\n").map((s) => s.trim())].filter(Boolean))
   );
   const previewMatched = previewProcedures
-    .map((name) => servicesList.find((s) => s.name === name))
+    .map((name) => servicesList.find((s) => serviceMatchesName(s, name)))
     .filter((s): s is Service => Boolean(s));
   const previewMode = pricingModeOverride ?? servicePricingMode(previewMatched);
   // The same figure the server charges: a blank box is the catalogue on the chosen list, anything
