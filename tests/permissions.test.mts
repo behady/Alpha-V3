@@ -179,6 +179,10 @@ const MUST_BE_EXCLUDED = [
   // write one could steer every orthodontic report the clinic gets from then on.
   "ortho_ai_reports",
   "ortho_coaching",
+  // Written by /api/staff/settlements together with the payout's ledger row. Its block said
+  // `allow write: if false` for weeks while this exclusion was missing, so a dentist could delete
+  // the deduction against him from the browser.
+  "staff_settlements",
 ];
 
 const rules = readFileSync(join(REPO, "firestore.rules"), "utf8");
@@ -205,6 +209,55 @@ for (const name of MUST_BE_EXCLUDED) {
   assert.ok(
     rules.includes(`match /${name}/{`),
     `"${name}" is excluded from the blanket grant but has no match block of its own`
+  );
+}
+
+// The other direction, read off the rules themselves rather than a hand-kept list: any clinic
+// subcollection whose own block denies something (`allow write: if false;`, `allow delete: if
+// false;`, ...) is only denying it while the name is also held out of memberMayWrite. Rules OR
+// together, so a deny under a name the blanket grant still reaches does nothing — which is how
+// staff_settlements sat "write: if false" and writable by every member at the same time. A list
+// only catches the names somebody remembered to add; this catches the next one.
+{
+  const clinicsAt = rules.indexOf("match /clinics/{clinicId} {");
+  assert.ok(clinicsAt >= 0, "could not find the clinics/{clinicId} block in firestore.rules");
+  // Walk the clinics block by brace depth and collect each direct child `match /name/...` body.
+  let depth = 0;
+  let end = clinicsAt;
+  for (let i = clinicsAt + "match /clinics/{clinicId} {".length - 1; i < rules.length; i++) {
+    if (rules[i] === "{") depth++;
+    else if (rules[i] === "}") {
+      depth--;
+      if (depth === 0) {
+        end = i;
+        break;
+      }
+    }
+  }
+  // The body only, so the clinics header itself is not read as one of its children.
+  const clinicsBlock = rules.slice(clinicsAt + "match /clinics/{clinicId} {".length, end);
+  const deniedButReachable: string[] = [];
+  let denying = 0;
+  // `\S*` swallows the `{docId}` wildcard so the brace matched is the one that opens the block.
+  for (const m of clinicsBlock.matchAll(/match \/([a-z_]+)\/\S*\s*\{/g)) {
+    const name = m[1];
+    let d = 1;
+    let j = (m.index ?? 0) + m[0].length;
+    for (; j < clinicsBlock.length && d > 0; j++) {
+      if (clinicsBlock[j] === "{") d++;
+      else if (clinicsBlock[j] === "}") d--;
+    }
+    const body = clinicsBlock.slice((m.index ?? 0) + m[0].length, j);
+    if (!/allow [a-z, ]+: if false;/.test(body)) continue;
+    denying++;
+    if (!excluded.has(name)) deniedButReachable.push(name);
+  }
+  assert.ok(denying > 5, "found almost no `if false` blocks under clinics/ — the parser has stopped matching");
+  assert.deepEqual(
+    [...new Set(deniedButReachable)],
+    [],
+    `these clinic subcollections deny a write in their own block but are still inside the blanket ` +
+      `member-write grant, so the deny does nothing — add them to memberMayWrite: ${deniedButReachable.join(", ")}`
   );
 }
 
@@ -568,7 +621,8 @@ assert.ok(
 
 // It must be opt-OUT. A gate you have to remember to add is a gate the next route will not have.
 assert.ok(
-  /if \(clinicId && !options\?\.allowInactive/.test(authSource),
+  // `effectiveClinicId` since a call naming no clinic is judged against its fallback clinic too.
+  /if \((?:effectiveClinicId|clinicId) && !options\?\.allowInactive/.test(authSource),
   "the clinic check must default to on and be waived explicitly, not the reverse"
 );
 
@@ -607,6 +661,16 @@ const ALLOWED_INACTIVE = [
   "store/reviews/route.ts",        // GET: what other clinics said. Reading another clinic's opinion
                                    // of a burr is not a write; the POST and DELETE that publish in
                                    // this clinic's name are gated, as the assertion below holds.
+  // The next six named no clinic at all until requireStaffUser started resolving one for calls
+  // that omit it, so they had no expiry gate before. Their reads stay ungated; their writes
+  // (each POST) are now gated for the first time.
+  "admin/meta-whatsapp-config/route.ts",  // GET: the clinic's WhatsApp connection status, read
+  "admin/meta-whatsapp-welcome/route.ts", // GET: whether the welcome message is on, read
+  "admin/wapilot-config/route.ts",        // GET: the clinic's gateway settings, read
+  "admin/wapilot-config/gateway/route.ts", // GET: gateway status, read
+  "finance/recovery/route.ts",            // GET: the unpaid-balances list, read
+  "push/register-token/route.ts",         // POST, but writes only the caller's own users/ doc
+                                          // (their phone's push token) — no clinic record
 ];
 
 const apiDir = join(REPO, "src/app/api");

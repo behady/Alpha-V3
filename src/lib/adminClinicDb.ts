@@ -60,6 +60,31 @@ export function adminClinicDoc(
   return adminClinicCollection(clinicId, path).doc(docId);
 }
 
+/** Stored as a boolean, but tolerate the string form firestore.rules also accepts. */
+function isSuperAdminProfile(data: Record<string, unknown>): boolean {
+  return data.isSuperAdmin === true || data.isSuperAdmin === "true";
+}
+
+/**
+ * The clinic a request that names none is about — and it is always one the user works at.
+ *
+ * `defaultClinicId` used to be returned as stored. It sits on the user's own profile, which the
+ * browser could write, so any signed-in account could point it at a stranger's clinic and every
+ * route that omits clinicId would then act there: reading payroll, deleting ledger rows. It is
+ * honoured now only when the user holds a role in the clinic it names; otherwise the first clinic
+ * they do hold a role in. A superadmin's default is taken as is, because they may act anywhere.
+ *
+ * Shared with requireStaffUser (lib/apiStaffAuth) on purpose: the clinic the permission check is
+ * made against and the clinic the route then writes to must be the same clinic, and two copies of
+ * this rule is how they drift apart.
+ */
+export function fallbackClinicIdFor(data: Record<string, unknown>): string | null {
+  const roles = (data.clinicRoles && typeof data.clinicRoles === "object" ? data.clinicRoles : {}) as Record<string, unknown>;
+  const stored = typeof data.defaultClinicId === "string" ? data.defaultClinicId.trim() : "";
+  if (stored && (roles[stored] || isSuperAdminProfile(data))) return stored;
+  return Object.keys(roles).find((id) => Boolean(roles[id])) ?? null;
+}
+
 /**
  * Work out which clinic a request is acting on, and prove the caller belongs to it.
  *
@@ -79,13 +104,13 @@ export async function resolveUserClinicId(uid: string, requestedClinicId?: strin
   const requested = (requestedClinicId || "").trim();
 
   if (requested) {
-    if (!roles[requested] && data.isSuperAdmin !== true) {
+    if (!roles[requested] && !isSuperAdminProfile(data)) {
       throw new Error("You do not have access to that clinic.");
     }
     return requested;
   }
 
-  const fallback = (data.defaultClinicId as string | undefined) || Object.keys(roles)[0];
+  const fallback = fallbackClinicIdFor(data);
   if (!fallback) throw new Error("This account is not linked to any clinic.");
   return fallback;
 }

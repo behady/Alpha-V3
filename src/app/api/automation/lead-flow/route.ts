@@ -27,9 +27,10 @@ export async function GET(request: Request) {
       const clinics = await forEachActiveClinic((clinicId) => draftLeadFlow(clinicId));
       return NextResponse.json({ ok: true, clinics: clinics.map((c) => ({ clinicId: c.clinicId, ok: c.ok, ...(c.result || {}), error: c.error })) });
     }
-    const staff = await requireStaffUser(request);
-    if (!staff.ok) return staff.response;
     const url = new URL(request.url);
+    // Authorised against the clinic it will run for, which resolveUserClinicId agrees with below.
+    const staff = await requireStaffUser(request, url.searchParams.get("clinicId") || undefined);
+    if (!staff.ok) return staff.response;
     const clinicId = await resolveUserClinicId(staff.uid, url.searchParams.get("clinicId") || "");
     if (!clinicId) return NextResponse.json({ ok: false, error: "No clinic for this user" }, { status: 400 });
     const result = await draftLeadFlow(clinicId, { force: url.searchParams.get("force") === "1" });

@@ -17,11 +17,13 @@ import { loadRecoveryList } from "@/lib/paymentRecovery";
  * while looking at the other.
  */
 export async function GET(request: Request) {
-  const staff = await requireStaffUser(request);
+  // Authorised against the clinic on screen, the same one resolveUserClinicId returns below. A read,
+  // so a lapsed clinic still gets its list.
+  const requestedClinicId = new URL(request.url).searchParams.get("clinicId")?.trim() || undefined;
+  const staff = await requireStaffUser(request, requestedClinicId, { allowInactive: true });
   if (!staff.ok) return staff.response;
 
   try {
-    const requestedClinicId = new URL(request.url).searchParams.get("clinicId")?.trim() || undefined;
     const clinicId = await resolveUserClinicId(staff.uid, requestedClinicId);
     const list = await loadRecoveryList(clinicId);
     return NextResponse.json({ ok: true, ...list });

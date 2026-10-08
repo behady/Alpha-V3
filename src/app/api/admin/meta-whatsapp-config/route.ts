@@ -26,15 +26,16 @@ export const dynamic = "force-dynamic";
 const secretDocRef = (clinicId: string) => adminDb().collection(CLINIC_SECRETS_COLLECTION).doc(clinicId);
 
 export async function GET(request: Request) {
-  const authz = await requireAdminUser(request);
+  // The clinic on screen, not the caller's default. A superadmin viewing a clinic they are not
+  // a member of — the platform owner setting up a client — got the default's (empty) config
+  // here while the page header said the client's name, and every save went to the wrong one.
+  // resolveUserClinicId still refuses a clinic the caller has no role on. The Admin check is made
+  // against the same clinic, so being Admin somewhere else does not open this one's settings.
+  const requested = new URL(request.url).searchParams.get("clinicId") || "";
+  const authz = await requireAdminUser(request, requested || undefined, { allowInactive: true });
   if (!authz.ok) return authz.response;
 
   try {
-    // The clinic on screen, not the caller's default. A superadmin viewing a clinic they are not
-    // a member of — the platform owner setting up a client — got the default's (empty) config
-    // here while the page header said the client's name, and every save went to the wrong one.
-    // resolveUserClinicId still refuses a clinic the caller has no role on.
-    const requested = new URL(request.url).searchParams.get("clinicId") || "";
     const clinicId = await resolveUserClinicId(authz.uid, requested);
     if (!clinicId) {
       return NextResponse.json({ ok: false, error: "No clinic for this user" }, { status: 400 });
@@ -64,20 +65,19 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const authz = await requireAdminUser(request);
+  const body = (await request.json().catch(() => ({}))) as {
+    /** The clinic on screen. Same reason as GET: the default clinic is not necessarily this one. */
+    clinicId?: string;
+    phoneNumberId?: string;
+    wabaId?: string;
+    token?: string;
+    /** Optional: send a test text to this number after saving, to prove the credentials work. */
+    testTo?: string;
+  };
+  const authz = await requireAdminUser(request, typeof body.clinicId === "string" && body.clinicId ? body.clinicId : undefined);
   if (!authz.ok) return authz.response;
 
   try {
-    const body = (await request.json().catch(() => ({}))) as {
-      /** The clinic on screen. Same reason as GET: the default clinic is not necessarily this one. */
-      clinicId?: string;
-      phoneNumberId?: string;
-      wabaId?: string;
-      token?: string;
-      /** Optional: send a test text to this number after saving, to prove the credentials work. */
-      testTo?: string;
-    };
-
     const clinicId = await resolveUserClinicId(authz.uid, typeof body.clinicId === "string" ? body.clinicId : "");
     if (!clinicId) {
       return NextResponse.json({ ok: false, error: "No clinic for this user" }, { status: 400 });

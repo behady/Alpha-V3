@@ -481,6 +481,23 @@ export function applyDentistPicks(
   return { dentists, unknownStaff };
 }
 
+/**
+ * The kept dentists after the lines themselves were edited: each share worked out again on the
+ * line's NEW approved amount, at the rate stamped when the dentist was assigned. The rate is the
+ * promise, the amount is the insurer's; an inlay corrected from 600 to 400 at 25% earns 100, not
+ * the 150 stamped on the old figure. Entries for lines that no longer exist are dropped.
+ */
+export function reshareLineDentists(lines: readonly Pick<MetlifeLine, "approvedAmount">[], dentists: Record<number, LineDentist>): Record<number, LineDentist> {
+  const out: Record<number, LineDentist> = {};
+  for (const [k, d] of Object.entries(dentists)) {
+    const i = Number(k);
+    const line = lines[i];
+    if (!line) continue;
+    out[i] = { ...d, share: round2((line.approvedAmount * d.rate) / 100) };
+  }
+  return out;
+}
+
 export function parseLineLedger(raw: unknown, lineCount: number): Record<number, LineLedger> {
   const out: Record<number, LineLedger> = {};
   if (!isRecord(raw)) return out;

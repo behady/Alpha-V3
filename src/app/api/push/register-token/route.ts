@@ -6,7 +6,8 @@ import { adminDb } from "@/lib/firebaseAdmin";
 const MAX_TOKENS = 8;
 
 export async function POST(request: Request) {
-  const authz = await requireStaffUser(request);
+  // allowInactive: the token is stored on the person's own profile, not in any clinic's records.
+  const authz = await requireStaffUser(request, undefined, { allowInactive: true });
   if (!authz.ok) return authz.response;
 
   try {

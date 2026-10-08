@@ -9,15 +9,16 @@ import { pickPatientPhone } from "@/lib/patientPhone";
 import { getClinicProfileAdmin } from "@/lib/clinicProfileServer";
 
 export async function POST(request: Request) {
-  const authz = await requireStaffUser(request);
+  // Every collection below lives under clinics/{clinicId}/. Reading them at the root returned
+  // an empty snapshot rather than an error, so this route reported "Patient not found" for
+  // every patient that exists. The clinic on screen arrives in the body but membership is proven
+  // here: resolveUserClinicId honours it only when the caller holds a role there, and the staff
+  // check is made against that same clinic.
+  const body = (await request.json().catch(() => ({}))) as { patientId?: string; clinicId?: string };
+  const authz = await requireStaffUser(request, typeof body.clinicId === "string" && body.clinicId ? body.clinicId : undefined);
   if (!authz.ok) return authz.response;
 
   try {
-    // Every collection below lives under clinics/{clinicId}/. Reading them at the root returned
-    // an empty snapshot rather than an error, so this route reported "Patient not found" for
-    // every patient that exists. The clinic on screen arrives in the body but membership is proven
-    // here: resolveUserClinicId honours it only when the caller holds a role there.
-    const body = (await request.json().catch(() => ({}))) as { patientId?: string; clinicId?: string };
     const clinicId = await resolveUserClinicId(authz.uid, typeof body.clinicId === "string" ? body.clinicId : undefined);
 
     const patientId = typeof body.patientId === "string" ? body.patientId.trim() : "";

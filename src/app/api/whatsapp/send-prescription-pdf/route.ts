@@ -19,19 +19,19 @@ function slugifyName(name: string) {
 }
 
 export async function POST(request: Request) {
-  const authz = await requireStaffUser(request);
+  // Clinic data lives under clinics/{clinicId}/. These reads were hitting root-level
+  // collections that do not exist, so they silently resolved to empty and this route
+  // could never find the record it was asked to send. The clinic on screen arrives in the body;
+  // resolveUserClinicId honours it only when the caller holds a role there, else their default.
+  const body = (await request.json().catch(() => ({}))) as {
+    clinicId?: string;
+    patientId?: string;
+    pdfBase64?: string;
+  };
+  const authz = await requireStaffUser(request, typeof body.clinicId === "string" && body.clinicId ? body.clinicId : undefined);
   if (!authz.ok) return authz.response;
 
   try {
-    // Clinic data lives under clinics/{clinicId}/. These reads were hitting root-level
-    // collections that do not exist, so they silently resolved to empty and this route
-    // could never find the record it was asked to send. The clinic on screen arrives in the body;
-    // resolveUserClinicId honours it only when the caller holds a role there, else their default.
-    const body = (await request.json().catch(() => ({}))) as {
-      clinicId?: string;
-      patientId?: string;
-      pdfBase64?: string;
-    };
     const clinicId = await resolveUserClinicId(authz.uid, typeof body.clinicId === "string" ? body.clinicId : undefined);
     // Sold as an add-on; the button in the browser is hidden when it is off, and this is the
     // check that hiding cannot be talked out of.
@@ -49,10 +49,8 @@ export async function POST(request: Request) {
      * `clinical.edit` — could not save a prescription but could still send one in a named
      * doctor's name, and anyone with a token could do it by calling this route directly.
      *
-     * Checked here rather than at the top because the permission list is per clinic: called
-     * without a clinicId, requireStaffUser falls back to the flat legacy array, which is empty
-     * for a migrated multi-clinic account — that would have denied the very dentists this route
-     * exists for. resolveUserClinicId has to answer first.
+     * Checked here, against the clinic resolveUserClinicId settled on, because the permission
+     * list is per clinic and this is the clinic the PDF is about to be sent for.
      */
     const permitted = await requireStaffPermission(request, clinicId, "clinical.edit");
     if (!permitted.ok) return permitted.response;

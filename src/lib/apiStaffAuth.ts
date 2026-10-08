@@ -2,42 +2,31 @@ import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { CLINIC_INACTIVE_CODE, clinicActivity } from "@/lib/clinicStatus";
 import { isFullAccessRole, isOwnerRole } from "@/lib/permissions";
+import { fallbackClinicIdFor } from "@/lib/adminClinicDb";
 
 /**
- * Resolves the effective role for a user.
+ * Resolves the effective role for a user in one clinic.
  *
- * When a clinicId is named, a role in THAT clinic is the only thing that grants access.
- * This previously fell through to "is this user an Admin in any clinic at all?", which meant
- * the Admin of one clinic was handed Admin on every other clinic they had no role in. The
- * clinicId arrives in a request body, so it is caller-controlled — `gemini/route.ts` reads it
- * straight off `body` — and that fallback turned it into a cross-tenant read/write of patient
- * records. Superadmins are allowed through explicitly instead, matching `resolveUserClinicId`
- * in lib/adminClinicDb and the `isSuperAdmin()` rule in firestore.rules.
+ * A role in THAT clinic is the only thing that grants access. This previously fell through to
+ * "is this user an Admin in any clinic at all?", which meant the Admin of one clinic was handed
+ * Admin on every other clinic they had no role in. The clinicId arrives in a request body, so it
+ * is caller-controlled — `gemini/route.ts` reads it straight off `body` — and that fallback turned
+ * it into a cross-tenant read/write of patient records. Superadmins are allowed through explicitly
+ * instead, matching `resolveUserClinicId` in lib/adminClinicDb and the `isSuperAdmin()` rule in
+ * firestore.rules.
  *
- * The legacy flat `role` field and the admin-anywhere check still apply to clinic-agnostic
- * calls, where there is no specific tenant to check membership against.
+ * There is no clinic-agnostic answer any more. Calls that name no clinic used to get "Owner/Admin
+ * anywhere" or the flat `role` field — and the flat field sat on the user's own profile, where the
+ * browser could set it to "Admin". requireStaffUser now works out the clinic first (the same one
+ * resolveUserClinicId will hand the route) and asks this about that clinic.
  */
-function resolveRole(data: Record<string, unknown>, clinicId?: string): string | null {
-  // Legacy flat role
-  const legacyRole = typeof data.role === "string" ? data.role : null;
-
-  // Multi-clinic roles
-  const clinicRoles = (data.clinicRoles || {}) as Record<string, string>;
-
+function resolveRole(data: Record<string, unknown>, clinicId: string | null): string | null {
   // Stored as a boolean, but tolerate the string form the rules file also accepts.
   if (data.isSuperAdmin === true || data.isSuperAdmin === "true") return "Admin";
-
-  if (clinicId) {
-    return clinicRoles[clinicId] || null;
-  }
-
-  // Check if admin in any clinic
-  const allRoles = Object.values(clinicRoles);
-  if (allRoles.includes("Owner")) return "Owner";
-  if (allRoles.includes("Admin")) return "Admin";
-
-  // Fall back to legacy
-  return legacyRole;
+  if (!clinicId) return null;
+  const clinicRoles = (data.clinicRoles || {}) as Record<string, unknown>;
+  const role = clinicRoles[clinicId];
+  return typeof role === "string" && role ? role : null;
 }
 
 export type StaffAuthOptions = {
@@ -72,7 +61,14 @@ export async function requireStaffUser(request: Request, clinicId?: string, opti
       return { ok: false as const, response: NextResponse.json({ ok: false, error: "User profile not found" }, { status: 403 }) };
     }
 
-    const role = resolveRole(data as Record<string, unknown>, clinicId);
+    // Which clinic this call is about. A named one is checked as named; an omitted one is the
+    // clinic resolveUserClinicId will fall back to, so the role, the permission list and the
+    // expiry gate below are all judged against the clinic the route is about to touch. Before,
+    // omitting clinicId skipped all three — the attack was simply to leave the field out.
+    const named = (clinicId || "").trim();
+    const effectiveClinicId = named || fallbackClinicIdFor(data as Record<string, unknown>);
+
+    const role = resolveRole(data as Record<string, unknown>, effectiveClinicId);
     if (!role || role === "Patient") {
       return { ok: false as const, response: NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 }) };
     }
@@ -92,13 +88,13 @@ export async function requireStaffUser(request: Request, clinicId?: string, opti
     // here: 37 routes reach Firestore through the Admin SDK, and a rule that has to be repeated
     // 37 times is a rule that is already wrong somewhere.
     //
-    // Costs one document read per authed call that names a clinic. That is the price of the two
-    // doors agreeing, and it is only paid once per request rather than once per write.
+    // Costs one document read per authed call that resolves to a clinic. That is the price of the
+    // two doors agreeing, and it is only paid once per request rather than once per write.
     //
     // Superadmins are exempt: reactivating a lapsed clinic is done from the superadmin panel, so
     // a gate that locked them out would lock the clinic out permanently.
-    if (clinicId && !options?.allowInactive && !isSuperAdmin) {
-      const clinicSnap = await adminDb().collection("clinics").doc(clinicId).get();
+    if (effectiveClinicId && !options?.allowInactive && !isSuperAdmin) {
+      const clinicSnap = await adminDb().collection("clinics").doc(effectiveClinicId).get();
       const activity = clinicActivity(clinicSnap.data() ?? null);
       if (!activity.active) {
         return {
@@ -116,13 +112,13 @@ export async function requireStaffUser(request: Request, clinicId?: string, opti
     }
     // The per-clinic map first — clinicPermissions[clinicId] is what firestore.rules enforces and
     // what User Management writes, so reading anything else here would let the API and the rules
-    // give different answers about the same person. The flat array is the fallback for accounts
-    // at clinics that have not been migrated (this route can be called for any clinic), and for
-    // clinic-agnostic calls where there is no map to consult. Absent means "none granted", not
-    // "everything" — a user with no list is a user who has been given nothing.
+    // give different answers about the same person. The flat array is the fallback only for
+    // accounts at clinics that have not been migrated (no map entry for this clinic at all), and
+    // a superadmin with no clinic in view. Absent means "none granted", not "everything" — a user
+    // with no list is a user who has been given nothing.
     const clinicMap =
-      clinicId && data.clinicPermissions && typeof data.clinicPermissions === "object"
-        ? (data.clinicPermissions as Record<string, unknown>)[clinicId]
+      effectiveClinicId && data.clinicPermissions && typeof data.clinicPermissions === "object"
+        ? (data.clinicPermissions as Record<string, unknown>)[effectiveClinicId]
         : undefined;
     const source = Array.isArray(clinicMap) ? clinicMap : data.permissions;
     const permissions = Array.isArray(source)
@@ -133,7 +129,9 @@ export async function requireStaffUser(request: Request, clinicId?: string, opti
       (typeof data.displayName === "string" && data.displayName.trim()) ||
       (typeof data.email === "string" && data.email.trim()) ||
       "Staff";
-    return { ok: true as const, uid: decoded.uid, role, permissions, name, isSuperAdmin };
+    // `clinicId` is the clinic every answer above was given for: the one named, or the fallback
+    // when none was. Null only for a superadmin with no clinic of their own in view.
+    return { ok: true as const, uid: decoded.uid, role, permissions, name, isSuperAdmin, clinicId: effectiveClinicId };
   } catch (error) {
     console.error("requireStaffUser verifyIdToken failed", error);
     return { ok: false as const, response: NextResponse.json({ ok: false, error: "Invalid token" }, { status: 401 }) };

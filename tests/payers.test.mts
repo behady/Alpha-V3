@@ -652,8 +652,13 @@ function eq<T>(actual: T, expected: T, message: string) {
     "an uncovered treatment is refused rather than recorded as private — clinics get one-off approvals"
   );
   ok(
-    /explicitPayer \?\? keptPayer \?\? payerForPriceList/.test(route) && /storedPayer && storedPayer\.active/.test(route),
-    "an edit that names no payer (the phone's) must keep the treatment's stored payer, not re-derive it from the list"
+    /\(keepsStored \? storedPayer : explicitPayer\) \?\? payerForPriceList/.test(route) &&
+      /keepsStored = !!storedPayer && \(!requestedPayerId \|\| requestedPayerId === storedPayer\.id\)/.test(route),
+    "an edit that names no payer (the phone's), or its own stored payer, must keep that payer, not re-derive it from the list"
+  );
+  ok(
+    !/storedPayer && storedPayer\.active/.test(route),
+    "a retired insurer's old treatment must keep its payer on edit — retiring stops new work, it does not rewrite history"
   );
 
   const wizard = read("src/components/settings/PayersSettings.tsx");

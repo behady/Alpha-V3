@@ -43,14 +43,14 @@ const TITLE_FOR_EVENT: Record<string, string> = {
 };
 
 export async function POST(request: Request) {
-  const authz = await requireStaffUser(request);
-  if (!authz.ok) return authz.response;
-
   const body = (await request.json().catch(() => ({}))) as {
     clinicId?: string;
     alertKey?: string;
     message?: string;
   };
+  // Authorised against the clinic the alert goes out for, the same one resolved below.
+  const authz = await requireStaffUser(request, typeof body.clinicId === "string" && body.clinicId ? body.clinicId : undefined);
+  if (!authz.ok) return authz.response;
 
   // The clinic on screen, honoured only when the caller holds a role there; otherwise the
   // account's default.

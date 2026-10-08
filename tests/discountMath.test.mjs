@@ -117,6 +117,7 @@ assert.equal(parseDiscountSettings({ maxDiscountPercentNonAdmin: null }).maxDisc
 assert.equal(parseDiscountSettings({ maxDiscountPercentNonAdmin: 35 }).maxDiscountPercentNonAdmin, 35);
 
 assert.equal(allowedDiscount("Admin", [], settings).maxPercent, null, "an Admin has no ceiling");
+assert.equal(allowedDiscount("Owner", [], settings).maxPercent, null, "the clinic's owner has no ceiling either");
 assert.equal(allowedDiscount("Receptionist", [], settings).maxPercent, 20);
 
 const receptionist = allowedDiscount("Receptionist", [], settings);

@@ -24,9 +24,10 @@ const GRAPH = "https://graph.facebook.com/v21.0";
 const PROMPTS_AR = ["عايز أحجز موعد", "الأسعار", "العنوان ومواعيد العمل"];
 
 export async function GET(request: Request) {
-  const authz = await requireAdminUser(request);
-  if (!authz.ok) return authz.response;
   const url = new URL(request.url);
+  // Admin of the clinic on screen — the same clinic resolveUserClinicId hands back below.
+  const authz = await requireAdminUser(request, url.searchParams.get("clinicId") || undefined, { allowInactive: true });
+  if (!authz.ok) return authz.response;
   const clinicId = await resolveUserClinicId(authz.uid, url.searchParams.get("clinicId") || "");
   if (!clinicId) return NextResponse.json({ ok: false, error: "No clinic for this user" }, { status: 400 });
   const config = await loadMetaWhatsappConfig(clinicId, true);
@@ -45,9 +46,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const authz = await requireAdminUser(request);
-  if (!authz.ok) return authz.response;
   const body = (await request.json().catch(() => ({}))) as { clinicId?: string; enable?: boolean };
+  const authz = await requireAdminUser(request, typeof body.clinicId === "string" && body.clinicId ? body.clinicId : undefined);
+  if (!authz.ok) return authz.response;
   const clinicId = await resolveUserClinicId(authz.uid, typeof body.clinicId === "string" ? body.clinicId : "");
   if (!clinicId) return NextResponse.json({ ok: false, error: "No clinic for this user" }, { status: 400 });
   const config = await loadMetaWhatsappConfig(clinicId, true);

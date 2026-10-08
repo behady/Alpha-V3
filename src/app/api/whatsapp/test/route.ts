@@ -5,18 +5,19 @@ import { buildE164FromDialAndNational } from "@/lib/whatsappDialCountries";
 import { sendWhatsApp } from "@/lib/whatsapp";
 
 export async function POST(request: Request) {
-  const authz = await requireStaffUser(request);
+  const body = (await request.json().catch(() => ({}))) as {
+    dialCode?: string;
+    nationalNumber?: string;
+    /** Optional full E.164 if client sends it instead */
+    phoneE164?: string;
+    message?: string;
+    clinicId?: string;
+  };
+  // Checked against the clinic whose line the test goes out on, resolved the same way below.
+  const authz = await requireStaffUser(request, typeof body.clinicId === "string" && body.clinicId ? body.clinicId : undefined);
   if (!authz.ok) return authz.response;
 
   try {
-    const body = (await request.json().catch(() => ({}))) as {
-      dialCode?: string;
-      nationalNumber?: string;
-      /** Optional full E.164 if client sends it instead */
-      phoneE164?: string;
-      message?: string;
-      clinicId?: string;
-    };
 
     let to = "";
     if (typeof body.phoneE164 === "string" && body.phoneE164.trim()) {

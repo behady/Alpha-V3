@@ -20,10 +20,10 @@ export type McpIdentity = {
 };
 
 /**
- * Mirrors `resolveRole` in apiStaffAuth, narrowed to the clinic-named case.
+ * Mirrors `resolveRole` in apiStaffAuth: a role in THIS clinic, or nothing.
  *
- * A key always names a clinic, so the clinic-agnostic fallbacks there — "is this person an Admin
- * anywhere?" — have nothing to do here, and inheriting them would hand a role in this clinic to
+ * A key always names a clinic, so there is never a fallback to work out here. "Is this person an
+ * Admin anywhere?" (which apiStaffAuth itself no longer asks) would hand a role in this clinic to
  * somebody who only holds one elsewhere.
  */
 export async function resolveMcpIdentity(uid: string, clinicId: string): Promise<McpIdentity | null> {

@@ -28,16 +28,17 @@ function slugifyName(name: string) {
  * report is signed; this is the check for anyone who finds the route without the button.
  */
 export async function POST(request: Request) {
-  const authz = await requireStaffUser(request);
+  const body = (await request.json().catch(() => ({}))) as {
+    patientId?: string;
+    reportId?: string;
+    pdfBase64?: string;
+    clinicId?: string;
+  };
+  // Checked against the clinic on screen, the same one resolveUserClinicId returns below.
+  const authz = await requireStaffUser(request, typeof body.clinicId === "string" && body.clinicId ? body.clinicId : undefined);
   if (!authz.ok) return authz.response;
 
   try {
-    const body = (await request.json().catch(() => ({}))) as {
-      patientId?: string;
-      reportId?: string;
-      pdfBase64?: string;
-      clinicId?: string;
-    };
 
     const patientId = typeof body.patientId === "string" ? body.patientId.trim() : "";
     const reportId = typeof body.reportId === "string" ? body.reportId.trim() : "";

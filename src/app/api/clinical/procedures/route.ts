@@ -42,6 +42,7 @@ import {
 } from "@/lib/payers";
 import { buildDeleteContext, evaluateDelete } from "@/lib/deletePolicy";
 import { applyProcedureSync, readProcedureCommissionBasis, readProcedurePayments, stampPaymentsDentist } from "@/lib/server/ledgerSync";
+import { restampStaffSettlementsFor } from "@/lib/server/staffSettlementSync";
 import { recordLedgerAudit, recordMoneyChange } from "@/lib/server/ledgerAudit";
 import { isApprovalRow } from "@/lib/ledgerInsurer";
 import { isDentistStaff } from "@/lib/staffRoles";
@@ -116,7 +117,7 @@ async function loadPricingPolicy(clinicId: string) {
  * the note is only trustworthy if it says which is which.
  *
  * `fallbackPayerId` is the payer an EDITED treatment already carries. A request that names no
- * payer keeps it while that payer is still active, instead of re-deriving one from the list.
+ * payer, or names that same one, keeps it (retired or not) instead of re-deriving one from the list.
  */
 async function priceRequest(clinicId: string, body: Record<string, unknown>, actor: Actor, fallbackPayerId: string | null = null) {
   const services = await loadServices(clinicId);
@@ -176,13 +177,18 @@ async function priceRequest(clinicId: string, body: Record<string, unknown>, act
    * nothing that worked yesterday records differently today — except on an edit, where the
    * treatment's own stored payer comes first. The phone's edit sends no payer, and re-deriving
    * one from the list silently moved a treatment's revenue to whoever owns that list.
+   *
+   * The stored payer stands even once it is retired. Retiring an insurer stops NEW work being
+   * billed to it; it must not stop the desk marking last month's Allianz crown Completed, nor let
+   * an edit quietly re-file that crown (and the dentist's rate on it) as private work. Only a
+   * change TO a retired payer is refused.
    */
   const requestedPayerId = String(body.payerId || "").trim();
-  const explicitPayer = requestedPayerId ? findPayer(payers, requestedPayerId) : null;
-  if (requestedPayerId && (!explicitPayer || !explicitPayer.active)) throw new Error("PAYER_NOT_FOUND");
-  const storedPayer = !requestedPayerId && fallbackPayerId ? findPayer(payers, fallbackPayerId) : null;
-  const keptPayer = storedPayer && storedPayer.active ? storedPayer : null;
-  const askedPayer = explicitPayer ?? keptPayer ?? payerForPriceList(payers, priceListId);
+  const storedPayer = fallbackPayerId ? findPayer(payers, fallbackPayerId) : null;
+  const keepsStored = !!storedPayer && (!requestedPayerId || requestedPayerId === storedPayer.id);
+  const explicitPayer = requestedPayerId && !keepsStored ? findPayer(payers, requestedPayerId) : null;
+  if (requestedPayerId && !keepsStored && (!explicitPayer || !explicitPayer.active)) throw new Error("PAYER_NOT_FOUND");
+  const askedPayer = (keepsStored ? storedPayer : explicitPayer) ?? payerForPriceList(payers, priceListId);
   // The list to read catalogue prices from: the one named, else the payer's own prefill list,
   // else the clinic default. It never changes who pays.
   const namedListId = typeof body.priceListId === "string" && body.priceListId.trim() ? priceListId : null;
@@ -462,6 +468,7 @@ async function createProcedure(args: { clinicId: string; actor: Actor; body: Rec
 
 const APPROVAL_NOTE_MESSAGE = "This treatment comes from an insurance approval; change it on the patient's Insurance tab.";
 const APPROVAL_DELETE_MESSAGE = "This treatment comes from an insurance approval; delete the approval instead.";
+const APPROVAL_MOVE_MESSAGE = "This treatment comes from an insurance approval; change its treated date on the patient's Insurance tab instead of moving it to another visit.";
 
 /**
  * Which of the treatment's own facts an edit to an approval's note would change. The editor sends
@@ -523,7 +530,7 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
   const claimId = String(before.claimId || "");
   const claimRef = adminClinicDoc(clinicId, CLAIMS_COLLECTION, claimId);
   const noteRef = adminClinicDoc(clinicId, "clinical_notes", noteId);
-  type Outcome = { kind: "no_line" } | { kind: "no_staff" } | { kind: "not_dentist" } | { kind: "ok"; after: Record<string, unknown> };
+  type Outcome = { kind: "no_line" } | { kind: "no_staff" } | { kind: "not_dentist" } | { kind: "ok"; after: Record<string, unknown>; restamp: Array<string | null> };
   const outcome = await adminDb().runTransaction(async (tx): Promise<Outcome> => {
     const claimSnap = await tx.get(claimRef);
     // The company's own dentist rate lives on the payer; read before any write.
@@ -555,6 +562,8 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
     const paidAgainst = doctorId !== undefined ? await readProcedurePayments(tx, clinicId, entry[1].ledgerId) : [];
 
     const claimUpdate: Record<string, unknown> = {};
+    // A new dentist on the line takes its share and its receipts from the old one: both re-stamp.
+    const restamp: Array<string | null> = doctorId !== undefined ? [claim.dentists[i]?.staffId ?? null, doctorId || null, ...paidAgainst.map((p) => p.doctorId ?? null)] : [];
     const noteUpdate: Record<string, unknown> = { updatedByUid: actor.uid, updatedByName: actor.name, updatedAt: FieldValue.serverTimestamp() };
     if (noteChanged) noteUpdate.note = note;
     if (status !== undefined) {
@@ -585,13 +594,14 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
     tx.update(noteRef, noteUpdate);
     const { updatedAt: _stamp, ...after } = noteUpdate;
     void _stamp;
-    return { kind: "ok", after };
+    return { kind: "ok", after, restamp };
   });
 
   if (outcome.kind === "no_staff") return bad("That dentist is not on staff any more.");
   if (outcome.kind === "not_dentist") return bad(NOT_A_DENTIST_MESSAGE);
   // The approval no longer knows this row (deleted, or saved again): the row is frozen as before.
   if (outcome.kind === "no_line") return bad(APPROVAL_NOTE_MESSAGE, 409);
+  await restampStaffSettlementsFor(clinicId, outcome.restamp);
 
   const what = [noteChanged ? "note" : "", status !== undefined ? `state ${String(status)}` : "", doctorId !== undefined ? "dentist" : ""].filter(Boolean).join(", ");
   await recordMoneyChange({
@@ -697,7 +707,9 @@ async function updateProcedure(args: { clinicId: string; actor: Actor; body: Rec
 
     // The lab fee and the commission percentage may both have moved, so every payment against
     // this charge is recomputed against the new basis.
+    let movedFrom: Array<string | null> = [];
     if (shouldBill && ledgerRefId && existingPayments.length > 0) {
+      movedFrom = existingPayments.map((p) => p.doctorId ?? null).filter((id) => id !== priced.doctorId);
       applyProcedureSync(txn, {
         clinicId,
         procedureLedgerId: ledgerRefId,
@@ -724,8 +736,11 @@ async function updateProcedure(args: { clinicId: string; actor: Actor; body: Rec
       );
     }
 
-    return { before, ledgerId: shouldBill ? ledgerRefId : null, patientName, patientId };
+    // Receipts that changed dentist: both dentists' payouts are re-stamped once this commits.
+    const restamp = movedFrom.length > 0 ? [...movedFrom, priced.doctorId] : [];
+    return { before, ledgerId: shouldBill ? ledgerRefId : null, patientName, patientId, restamp };
   });
+  await restampStaffSettlementsFor(clinicId, result.restamp);
 
   await recordMoneyChange({
     entry: {
@@ -825,6 +840,9 @@ async function moveProcedure(args: { clinicId: string; actor: Actor; body: Recor
   if (!noteId || !targetAppointmentId) return bad("Which treatment, and to which visit?");
 
   const linkedSnap = await adminClinicCollection(clinicId, "ledger").where("clinicalNoteId", "==", noteId).get();
+  // An approval's treatment is dated by the approval's treated day, which the monthly sheet and
+  // payroll read. Moving it here would re-date the books alone and the three would disagree.
+  if (linkedSnap.docs.some((d) => isApprovalRow(d.data()))) return bad(APPROVAL_MOVE_MESSAGE, 409);
   const linkedIds = linkedSnap.docs.map((d) => d.id);
 
   const result = await adminDb().runTransaction(async (txn) => {
@@ -832,6 +850,7 @@ async function moveProcedure(args: { clinicId: string; actor: Actor; body: Recor
     const noteSnap = await txn.get(noteRef);
     if (!noteSnap.exists) throw new Error("NOT_FOUND");
     const before = noteSnap.data() || {};
+    if (isApprovalRow(before)) throw new Error("APPROVAL_MOVE");
 
     const apptSnap = await txn.get(adminClinicDoc(clinicId, "appointments", targetAppointmentId));
     if (!apptSnap.exists) throw new Error("NO_APPOINTMENT");
@@ -994,6 +1013,8 @@ export async function POST(request: Request) {
         return bad("That visit no longer exists. Refresh and try again.", 404);
       case "APPROVAL_NOTE":
         return bad(APPROVAL_NOTE_MESSAGE, 409);
+      case "APPROVAL_MOVE":
+        return bad(APPROVAL_MOVE_MESSAGE, 409);
       case "HAS_PAYMENTS":
         return NextResponse.json(
           { ok: false, reason: "HAS_PAYMENTS", error: "Payments have been recorded against this treatment. Delete them before removing its charge." },

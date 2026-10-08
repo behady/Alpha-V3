@@ -26,9 +26,10 @@ function fakePhone(uid: string): string {
 }
 
 export async function POST(request: Request) {
-  const authz = await requireStaffUser(request);
-  if (!authz.ok) return authz.response;
   const body = (await request.json().catch(() => ({}))) as { clinicId?: string; text?: string; reset?: boolean };
+  // Authorised against the clinic it will act on, not whichever one the account defaults to.
+  const authz = await requireStaffUser(request, typeof body.clinicId === "string" ? body.clinicId : undefined);
+  if (!authz.ok) return authz.response;
   try {
     const clinicId = await resolveUserClinicId(authz.uid, body.clinicId);
     const chatId = playgroundChatId(authz.uid);

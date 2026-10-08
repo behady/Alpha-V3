@@ -29,6 +29,8 @@ export type PaymentRowLite = {
   /** True when this row's rate was typed by hand rather than taken from the standing rate. */
   commissionSetManually?: boolean | null;
   doctorCommissionPercentage?: number | null;
+  /** Who the payment names before this write: a dentist change re-stamps the settlements of both. */
+  doctorId?: string | null;
 };
 
 /**
@@ -59,6 +61,7 @@ export async function readProcedurePayments(
       commissionSetManually: data.commissionSetManually === true,
       doctorCommissionPercentage:
         typeof data.doctorCommissionPercentage === "number" ? data.doctorCommissionPercentage : null,
+      doctorId: typeof data.doctorId === "string" && data.doctorId.trim() ? data.doctorId.trim() : null,
     };
   });
 }

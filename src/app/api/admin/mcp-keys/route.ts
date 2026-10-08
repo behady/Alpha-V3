@@ -66,6 +66,13 @@ export async function POST(request: Request) {
 
   try {
     const clinicId = await resolveUserClinicId(authz.uid, requested);
+    // The key must be for the clinic the settings check above was made against. With no clinicId
+    // in the body that check used to read the flat, self-editable `role` — "Admin" — and then mint
+    // the key for whatever `defaultClinicId` said. Both now resolve the same way; this refuses
+    // outright if they ever drift apart again, rather than minting a key for the wrong clinic.
+    if (authz.clinicId && clinicId !== authz.clinicId) {
+      return NextResponse.json({ ok: false, error: "Choose the clinic to connect." }, { status: 403 });
+    }
 
     // Write access is a second, explicit decision. Anything other than the exact string "full"
     // — including a missing field, a typo, or a client that sends `true` — means read-only,

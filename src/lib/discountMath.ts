@@ -21,6 +21,7 @@
  */
 
 import type { DiscountSettings } from "@/lib/priceLists";
+import { isFullAccessRole } from "@/lib/permissions";
 
 export type DiscountMode = "none" | "percent" | "fixed";
 
@@ -125,7 +126,9 @@ export function allowedDiscount(
   permissions: string[] | null | undefined,
   settings: DiscountSettings
 ): DiscountAuthority {
-  const isAdmin = String(role || "") === "Admin";
+  // The owner too, not only "Admin": the clinic's owner was capped at the receptionist's ceiling on
+  // discounts in their own clinic, while every other full-access check already let them through.
+  const isAdmin = isFullAccessRole(role);
   if (isAdmin) return { maxPercent: null, isAdmin: true };
   void permissions; // reserved: a future "discount.override" grant would widen the ceiling here
   return { maxPercent: settings.maxDiscountPercentNonAdmin, isAdmin: false };

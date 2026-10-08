@@ -257,7 +257,13 @@ service cloud.firestore {
         // norms, the landmark-correction tally). Written by /api/ai/ortho/* after credits are
         // charged, or by the dentist through the coach route; a client that could write here could
         // forge a report, or teach the model something nobody signed. Read by the clinic.
-        && sub != 'ortho_ai_reports' && sub != 'ortho_coaching';
+        && sub != 'ortho_ai_reports' && sub != 'ortho_coaching'
+        // Payouts to staff and deductions held back from them. Written only by
+        // /api/staff/settlements, which posts the payout's expense row in the same transaction.
+        // Its block below says `allow write: if false`, but that did nothing while this name was
+        // still inside the general grant: a dentist could delete the deduction against him, or
+        // write himself a payout, straight from the browser.
+        && sub != 'staff_settlements';
     }
 
     // Two accounts that work at the same clinic. Used to scope who may read whose profile.
@@ -290,11 +296,14 @@ service cloud.firestore {
       );
 
       // First-login self-provisioning (see AuthContext). Never allowed to self-grant
-      // isSuperAdmin or pre-seed clinicRoles at creation time.
+      // isSuperAdmin or pre-seed clinicRoles at creation time — nor the flat role/permissions/
+      // isDentist copies or a defaultClinicId, which that provisioning never writes (it writes
+      // uid, email, name and createdAt). Those are granted server-side, alongside the role.
       allow create: if isAuth() && request.auth.uid == userId
         && request.resource.data.get('isSuperAdmin', false) == false
         && request.resource.data.get('clinicRoles', {}) == {}
-        && request.resource.data.get('clinicPermissions', {}) == {};
+        && request.resource.data.get('clinicPermissions', {}) == {}
+        && !request.resource.data.keys().hasAny(['role', 'permissions', 'isDentist', 'defaultClinicId']);
 
       // Users may edit their own profile fields, but never isSuperAdmin, clinicRoles or
       // clinicPermissions. All three are granted server-side via the Admin SDK (staff invite /
@@ -303,10 +312,20 @@ service cloud.firestore {
       // may write, so a member who could edit it would simply grant themselves the delete rights
       // their admin withheld — and, worse, could clear it entirely and land back on the
       // no-record-yet fallback that allows everything.
+      //
+      // The flat `role`, `permissions` and `isDentist` are on the list too. They are the copies the
+      // browser renders from (see staffIdentityPatch), written by the same server routes, and
+      // anything that ever trusted them for access — the API used to, for calls naming no clinic —
+      // turns a self-edit into "Admin". `defaultClinicId` may change only to a clinic the person
+      // already holds a role in (or be cleared): pointed at a stranger's clinic, it used to steer
+      // every route that omits clinicId into that clinic.
       allow update: if isSuperAdmin()
         || (isAuth() && request.auth.uid == userId
             && !request.resource.data.diff(resource.data).affectedKeys()
-                 .hasAny(['isSuperAdmin', 'clinicRoles', 'clinicPermissions']));
+                 .hasAny(['isSuperAdmin', 'clinicRoles', 'clinicPermissions', 'role', 'permissions', 'isDentist'])
+            && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['defaultClinicId'])
+                || request.resource.data.get('defaultClinicId', null) == null
+                || request.resource.data.defaultClinicId in resource.data.get('clinicRoles', {}).keys()));
 
       allow delete: if isSuperAdmin();
     }

@@ -346,8 +346,34 @@ async function main() {
   );
   await check(
     "user can edit unrelated fields on own doc",
-    updateDoc(doc(self1, "users/self1"), { defaultClinicId: "clinicA" }),
+    updateDoc(doc(self1, "users/self1"), { uiPreferences: { theme: "dark" } }),
     "allow"
+  );
+  // defaultClinicId steers every API call that names no clinic; pointing it at a clinic you hold
+  // no role in used to aim those calls at a stranger's records.
+  await check(
+    "user cannot point defaultClinicId at a clinic they hold no role in",
+    updateDoc(doc(self1, "users/self1"), { defaultClinicId: "clinicA" }),
+    "deny"
+  );
+  await check(
+    "member can set defaultClinicId to a clinic they work at",
+    updateDoc(doc(admin1, "users/admin1"), { defaultClinicId: "clinicA" }),
+    "allow"
+  );
+  // The flat copies the browser renders from. Anything that ever trusted them for access turned a
+  // self-edit into "Admin", so only the server writes them.
+  for (const [field, value] of [["role", "Admin"], ["permissions", ["finance.delete"]], ["isDentist", true]]) {
+    await check(
+      `user cannot self-edit flat ${field}`,
+      updateDoc(doc(self1, "users/self1"), { [field]: value }),
+      "deny"
+    );
+  }
+  await check(
+    "new user cannot self-provision a flat role or defaultClinicId",
+    setDoc(doc(newu2, "users/newu2"), { uid: "newu2", clinicRoles: {}, role: "Admin", defaultClinicId: "clinicA" }),
+    "deny"
   );
   await check(
     "superadmin can grant isSuperAdmin on another user",
@@ -554,6 +580,18 @@ async function main() {
   );
 
   console.log("server-only subcollections");
+  // Payouts and deductions go through /api/staff/settlements, which writes the expense row too.
+  // The deny below did nothing until staff_settlements was held out of memberMayWrite.
+  await check(
+    "a member cannot write a staff settlement from the browser",
+    setDoc(doc(assistant1, "clinics/clinicA/staff_settlements/s1"), { kind: "payout", amount: 5000 }),
+    "deny"
+  );
+  await check(
+    "not even an Admin writes a staff settlement from the browser",
+    setDoc(doc(admin1, "clinics/clinicA/staff_settlements/s2"), { kind: "deduction", amount: 1 }),
+    "deny"
+  );
   await check(
     "staff can read the AI action queue",
     getDoc(doc(admin1, "clinics/clinicA/ai_pending_actions/actA1")),

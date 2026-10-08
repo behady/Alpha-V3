@@ -10,10 +10,12 @@
  *
  * Same earnings, same order, same arithmetic as the Team page (`lib/staffSettlement.ts`), so the
  * two never disagree. A row that stops earning (its commission was zeroed, a line went back to
- * Planned) is stamped back to zero. Called by /api/staff/settlements; nothing else writes these.
+ * Planned) is stamped back to zero. Called by /api/staff/settlements, and by the treatment and
+ * approval routes when an edit hands work from one dentist to another; nothing else writes these.
  */
 
 import { adminDb } from "@/lib/firebaseAdmin";
+import { reportServerError } from "@/lib/server/reportError";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { commissionByStaff, NO_COMMISSION } from "@/lib/staffCommission";
 import { insuranceWorkByStaff, NO_INSURANCE_WORK } from "@/lib/staffInsurance";
@@ -99,4 +101,24 @@ export async function restampStaffSettlements(clinicId: string, staffId: string)
   }
   await flush();
   return { rows, claims: claimsWritten };
+}
+
+/**
+ * Re-stamp every dentist an edit moved work between, after that edit has committed.
+ *
+ * A receipt (or an approval line) handed from one dentist to another keeps the "paid" stamp the
+ * FIRST dentist's payouts put on it, so the new dentist's Finance row shows money she never got,
+ * and the old one's payouts point at nothing. Re-running the FIFO for both puts each payout back on
+ * work its own dentist earned. Never throws: the edit is already saved, and a stale stamp is
+ * repaired by the next payout or edit, which a failed save is not.
+ */
+export async function restampStaffSettlementsFor(clinicId: string, staffIds: Iterable<string | null | undefined>): Promise<void> {
+  const ids = [...new Set([...staffIds].filter((id): id is string => typeof id === "string" && id.trim() !== ""))];
+  for (const id of ids) {
+    try {
+      await restampStaffSettlements(clinicId, id);
+    } catch (err) {
+      reportServerError("Staff settlement re-stamp failed", err, { staffId: id });
+    }
+  }
 }

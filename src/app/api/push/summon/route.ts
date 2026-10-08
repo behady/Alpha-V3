@@ -5,11 +5,12 @@ import { adminDb, adminMessaging } from "@/lib/firebaseAdmin";
 import { adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
 
 export async function POST(request: Request) {
-  const authz = await requireStaffUser(request);
+  const payload = (await request.json().catch(() => ({}))) as { summonId?: string; clinicId?: string };
+  // Authorised against the clinic the summon is read from below, not the account's default.
+  const authz = await requireStaffUser(request, typeof payload.clinicId === "string" && payload.clinicId ? payload.clinicId : undefined);
   if (!authz.ok) return authz.response;
 
   try {
-    const payload = (await request.json().catch(() => ({}))) as { summonId?: string; clinicId?: string };
     const summonId = typeof payload.summonId === "string" ? payload.summonId.trim() : "";
     if (!summonId) {
       return NextResponse.json({ ok: false, error: "summonId required" }, { status: 400 });

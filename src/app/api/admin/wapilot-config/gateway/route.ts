@@ -34,13 +34,14 @@ export const dynamic = "force-dynamic";
 
 type Target = { kind: "clinic"; clinicId: string; uid: string } | { kind: "platform"; uid: string };
 
-async function resolveTarget(request: Request, requested: string | undefined): Promise<Target | NextResponse> {
+async function resolveTarget(request: Request, requested: string | undefined, options?: { allowInactive?: boolean }): Promise<Target | NextResponse> {
   if (requested === PLATFORM_SECRETS_DOC) {
     const authz = await requireSuperAdmin(request);
     if (!authz.ok) return authz.response;
     return { kind: "platform", uid: authz.uid };
   }
-  const authz = await requireAdminUser(request);
+  // Admin of the requested clinic — the one resolveUserClinicId returns — not of the default.
+  const authz = await requireAdminUser(request, requested, options);
   if (!authz.ok) return authz.response;
   const clinicId = await resolveUserClinicId(authz.uid, requested);
   if (!clinicId) return NextResponse.json({ ok: false, error: "No clinic for this user" }, { status: 400 });
@@ -121,7 +122,7 @@ async function describe(t: Target) {
 
 export async function GET(request: Request) {
   const requested = new URL(request.url).searchParams.get("clinicId")?.trim() || undefined;
-  const target = await resolveTarget(request, requested);
+  const target = await resolveTarget(request, requested, { allowInactive: true });
   if (target instanceof NextResponse) return target;
   try {
     return NextResponse.json(await describe(target));

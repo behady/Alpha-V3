@@ -1,7 +1,7 @@
 import type { Query } from "firebase-admin/firestore";
 import { adminClinicCollection, adminClinicDoc, isGlobalCollection } from "@/lib/adminClinicDb";
 import { adminDb } from "@/lib/firebaseAdmin";
-import { COLLECTION_WRITE_PERMISSIONS, holdsPermission } from "@/lib/permissions";
+import { COLLECTION_WRITE_PERMISSIONS, holdsPermission, isFullAccessRole } from "@/lib/permissions";
 import { resolveBriefingAccess } from "@/lib/automation/briefing/build";
 import type { McpKeyScope } from "@/lib/mcp/keys";
 
@@ -104,6 +104,91 @@ function readDenial(collection: string, ctx: McpToolContext): string | null {
   }
   if (HR_COLLECTIONS.has(collection) && !access.hr) {
     return `This connection acts as a staff member without staff-records access, so "${collection}" is not readable through it.`;
+  }
+  return null;
+}
+
+/**
+ * Where a key may write, by what firestore.rules lets a browser write — because the key is the
+ * same person through a door the rules cannot see.
+ *
+ * This route runs on the Admin SDK, so firestore.rules never sees its writes. A collection missing
+ * from COLLECTION_WRITE_PERMISSIONS used to mean "any key holder may write it", and the collections
+ * missing from that table are precisely the ones the rules lock hardest — they are not in it
+ * because no browser is meant to write them at all. A receptionist's full key wrote her own
+ * salary on `staff`, the clinic's `settings`, a payout to herself in `staff_settlements`, and a
+ * refill of the AI credit meter.
+ *
+ * Every name held out of the blanket member-write grant (memberMayWrite in firestore.rules) is
+ * placed in one of the three sets below, and tests/mcp.test.mts fails when a new exclusion appears
+ * that nobody has classified here.
+ */
+
+/**
+ * No key writes these, whoever minted it — the rules deny every browser, Admins included. Each is
+ * written by one server route that does more than the write (charges credits, posts the paired
+ * expense row, photographs the old value, sends the message), or is an audit trail that is only
+ * worth anything while the audited cannot edit it.
+ */
+export const MCP_SERVER_ONLY_COLLECTIONS = new Set([
+  "ledger",
+  "ledger_audit",
+  "clinical_notes",
+  "staff_settlements",
+  "system_logs",
+  "ai_usage",
+  "ai_usage_log",
+  "ai_deletion_log",
+  "ai_pending_actions",
+  "xray_reports",
+  "insurance_claims",
+  "insurance_docs",
+  "ortho_ai_reports",
+  "ortho_coaching",
+  "message_drafts",
+  "messaging_opt_outs",
+  "sms_outbox",
+  "whatsapp_outbox",
+  "notifications",
+  "supply_orders",
+]);
+
+/** The clinic's Owner or an Admin only — the rules' isClinicAdmin blocks. Payroll and prices. */
+export const MCP_ADMIN_ONLY_COLLECTIONS = new Set(["staff", "settings", "services"]);
+
+/**
+ * Created and edited like any other record, but never deleted from outside: the app deletes these
+ * through the recycle bin, which keeps a copy, and the rules deny a browser delete outright.
+ */
+export const MCP_NO_DELETE_COLLECTIONS = new Set([
+  "patients",
+  "patient_media",
+  "prescriptions",
+  "treatment_plans",
+  "diagnosis_chats",
+  "inventory",
+  "drugs",
+  "marketing_content",
+  "attendance",
+  "leads",
+  "services",
+  "sms_devices",
+]);
+
+/** Why this key may not make this write, or null when the rules-shaped policy allows it. */
+export function mcpWriteRefusal(
+  collection: string,
+  verb: "create" | "update" | "delete",
+  role: string | null
+): string | null {
+  if (MCP_SERVER_ONLY_COLLECTIONS.has(collection)) {
+    return `This connection cannot ${verb} records in "${collection}". They are written only by the clinic system itself, from the screen that owns them.`;
+  }
+  if (verb === "delete" && MCP_NO_DELETE_COLLECTIONS.has(collection)) {
+    return `This connection cannot delete records in "${collection}". Delete them in the app, which keeps a copy in Recently Deleted.`;
+  }
+  if (MCP_ADMIN_ONLY_COLLECTIONS.has(collection) && !isFullAccessRole(role)) {
+    return `This connection acts as a staff member who cannot ${verb} records in "${collection}" — only the clinic's Owner or an Admin can.`;
   }
   return null;
 }
@@ -400,6 +485,9 @@ export async function runMcpTool(
       }
 
       const verb = name === "delete_document" ? "delete" : args.id ? "update" : "create";
+      // Asked before the permission table, because absence from that table is not permission.
+      const refused = mcpWriteRefusal(collection, verb, ctx.role);
+      if (refused) return { ok: false, error: refused };
       const needed = COLLECTION_WRITE_PERMISSIONS[verb as "create" | "update" | "delete"]?.[collection] ?? null;
       if (!holdsPermission(ctx.role, ctx.permissions, needed)) {
         return {

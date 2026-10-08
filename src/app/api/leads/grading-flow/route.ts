@@ -27,9 +27,10 @@ type Body = {
 };
 
 export async function POST(request: Request) {
-  const authz = await requireAdminUser(request);
-  if (!authz.ok) return authz.response;
   const body = (await request.json().catch(() => ({}))) as Body;
+  // Admin of the clinic whose flow this is, not of whichever clinic the account defaults to.
+  const authz = await requireAdminUser(request, typeof body.clinicId === "string" && body.clinicId ? body.clinicId : undefined);
+  if (!authz.ok) return authz.response;
   const clinicId = await resolveUserClinicId(authz.uid, typeof body.clinicId === "string" ? body.clinicId : "");
   if (!clinicId) return NextResponse.json({ ok: false, error: "No clinic for this user" }, { status: 400 });
   const settingsRef = adminClinicDoc(clinicId, "settings", LEAD_GRADING_DOC);

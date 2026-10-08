@@ -119,6 +119,8 @@ interface LedgerItem {
     discountMode?: string;
     discountPercent?: number | null;
     discountFixed?: number | null;
+    /** How the treatment screen stores a discount's figure (percent or EGP, by discountMode). */
+    discountValue?: number | null;
     discountReason?: string | null;
     status?: string;
     clinicalNoteId?: string;
@@ -158,6 +160,18 @@ function openParts(item: LedgerItem, paidForThis: number): { insurer: number; pa
     : cost - (Number(item.patientShare) || 0);
   const insurer = Math.max(0, Math.min(open, covered));
   return { insurer, patient: Math.max(0, open - insurer) };
+}
+
+/**
+ * A treatment row ready for the edit dialog. A discount given on the treatment screen is stored as
+ * `discountValue`, and the dialog's boxes read `discountPercent`/`discountFixed` — without this the
+ * boxes opened empty on every such row, and a Save then looked like it removed the discount.
+ */
+function withDiscountBoxes(item: LedgerItem): LedgerItem {
+  if (item.discountValue == null) return item;
+  if (item.discountMode === "percent" && item.discountPercent == null) return { ...item, discountPercent: item.discountValue };
+  if (item.discountMode === "fixed" && item.discountFixed == null) return { ...item, discountFixed: item.discountValue };
+  return item;
 }
 
 /** The insurer's name for a row, or null for the clinic's own work and rows from before payers existed. */
@@ -1245,7 +1259,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                           {whatsappSendingId === item.id ? <Loader2 size={16} className="animate-spin" /> : <MessageCircle size={16} />}
                                                         </button>
                                                         {hasEditAccess && (
-                                                            <button onClick={(e) => { e.stopPropagation(); setEditingItem(item); }} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"><Edit2 size={16}/></button>
+                                                            <button onClick={(e) => { e.stopPropagation(); setEditingItem(withDiscountBoxes(item)); }} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"><Edit2 size={16}/></button>
                                                         )}
                                                         {hasDeleteAccess && (
                                                             <button onClick={(e) => { e.stopPropagation(); handleDelete(item.id); }} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16}/></button>

@@ -10,8 +10,11 @@ import { join } from "node:path";
 
 const src = readFileSync(join(process.cwd(), "src/app/api/leads/grading-flow/route.ts"), "utf8");
 
-const authAt = src.indexOf("await requireAdminUser(request)");
+const authAt = src.indexOf("await requireAdminUser(request");
 assert.ok(authAt > 0, "the route asks requireAdminUser");
+// Admin of the clinic the flow belongs to — the one resolveUserClinicId returns — not Admin of
+// whichever clinic the account defaults to.
+assert.ok(/await requireAdminUser\(request, [^)]*body\.clinicId/.test(src), "the Admin check is made against the clinic in the request");
 const firstWrite = Math.min(...[".set(", ".update(", ".add(", "draftLeadFlow("].map((s) => src.indexOf(s)).filter((i) => i > 0));
 assert.ok(authAt < firstWrite, "admin is required before the first write");
 assert.ok(src.includes("resolveUserClinicId(authz.uid"), "the clinic is resolved from the caller, never trusted from the body alone");

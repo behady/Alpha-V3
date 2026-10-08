@@ -48,12 +48,13 @@ function statusFromStored(data: Record<string, unknown> | undefined): WapilotCon
 }
 
 export async function GET(request: Request) {
-  const authz = await requireAdminUser(request);
+  // The clinic on screen; honoured only when the caller holds a role there, else their default.
+  // The Admin check is made against that same clinic.
+  const requestedClinicId = new URL(request.url).searchParams.get("clinicId")?.trim() || undefined;
+  const authz = await requireAdminUser(request, requestedClinicId, { allowInactive: true });
   if (!authz.ok) return authz.response;
 
   try {
-    // The clinic on screen; honoured only when the caller holds a role there, else their default.
-    const requestedClinicId = new URL(request.url).searchParams.get("clinicId")?.trim() || undefined;
     const clinicId = await resolveUserClinicId(authz.uid, requestedClinicId);
     if (!clinicId) {
       return NextResponse.json({ ok: false, error: "No clinic for this user" }, { status: 400 });
@@ -82,19 +83,19 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const authz = await requireAdminUser(request);
+  const body = (await request.json().catch(() => ({}))) as {
+    clinicId?: string;
+    instanceId?: string;
+    apiToken?: string;
+    apiBaseUrl?: string;
+    sendPath?: string;
+    sendDocumentPath?: string;
+    connectedPhoneHint?: string;
+  };
+  const authz = await requireAdminUser(request, typeof body.clinicId === "string" && body.clinicId ? body.clinicId : undefined);
   if (!authz.ok) return authz.response;
 
   try {
-    const body = (await request.json().catch(() => ({}))) as {
-      clinicId?: string;
-      instanceId?: string;
-      apiToken?: string;
-      apiBaseUrl?: string;
-      sendPath?: string;
-      sendDocumentPath?: string;
-      connectedPhoneHint?: string;
-    };
     // The clinic on screen; honoured only when the caller holds a role there, else their default.
     const clinicId = await resolveUserClinicId(authz.uid, typeof body.clinicId === "string" ? body.clinicId : undefined);
     if (!clinicId) {

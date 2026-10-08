@@ -44,10 +44,11 @@ function explain(code: number | undefined, message: string): string {
 }
 
 export async function POST(request: Request) {
-  const authz = await requireAdminUser(request);
+  const body = (await request.json().catch(() => ({}))) as { clinicId?: string; phoneNumberId?: string; pin?: string };
+  // Admin of the clinic being set up, not of whichever clinic the account defaults to.
+  const authz = await requireAdminUser(request, typeof body.clinicId === "string" && body.clinicId ? body.clinicId : undefined);
   if (!authz.ok) return authz.response;
 
-  const body = (await request.json().catch(() => ({}))) as { clinicId?: string; phoneNumberId?: string; pin?: string };
   // The clinic on screen, not the caller's default — the token lives on the clinic being set up,
   // and a platform owner configuring a client clinic is not a member of it. resolveUserClinicId
   // still refuses any clinic the caller has no role on (superadmins excepted).

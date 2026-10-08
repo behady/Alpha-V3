@@ -12,6 +12,7 @@ import { buildManualEntryRow, buildPaymentRow, sumPayments } from "@/lib/ledgerW
 import { RECEIPT_COUNTER_DOC, RECEIPT_SETTINGS_DOC, formatReceiptNumber, normalizeReceiptSettings } from "@/lib/receiptSettings";
 import { applyProcedureSync, readProcedurePayments, stampPaymentsDentist, type PaymentRowLite } from "@/lib/server/ledgerSync";
 import { recordMoneyChange } from "@/lib/server/ledgerAudit";
+import { restampStaffSettlementsFor } from "@/lib/server/staffSettlementSync";
 import { afterLedgerCreate } from "@/lib/alerts/moneyAlerts";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { writeInsurance } from "@/lib/patientInsurance";
@@ -44,6 +45,7 @@ import {
   cappedPayment,
   dentistRowPatch,
   insuranceTreatmentRows,
+  reshareLineDentists,
   isLineStatus,
   lineDentistFor,
   rowsActionForStatus,
@@ -552,6 +554,8 @@ export async function POST(req: Request) {
  *   writes them (dated the treated day); going back to `approved`, or
  *   `cancelled`, deletes them in the same transaction — refused (409) once any of them has money
  *   against it.
+ * - A treated date that moves while the rows stay re-dates those rows (charges and notes; never
+ *   the payments) in the same transaction, so Finance agrees with the statement and payroll.
  * - `patientId`: re-snapshots the patient's name (404 when the patient does not exist) and writes
  *   `insurance.{payerId}` on that patient when missing or different, as a save does. A `metlife` edit
  *   is never pushed to the patient: the patient's own editor owns that.
@@ -683,7 +687,7 @@ export async function PATCH(req: Request) {
       | { kind: "no_rows" }
       | { kind: "nothing_left" }
       | { kind: "checks"; checks: Check[] }
-      | { kind: "ok"; created: Charge[]; removed: Charge[]; payments: Charge[] | null; what: "share" | "insurer"; collected: Collected | null; rebuilt: boolean };
+      | { kind: "ok"; created: Charge[]; removed: Charge[]; payments: Charge[] | null; what: "share" | "insurer"; collected: Collected | null; rebuilt: boolean; restamp: Array<string | null>; redated: Array<{ id: string; from: unknown }>; rowDate: string };
     const result = await adminDb().runTransaction(async (tx): Promise<PatchOutcome> => {
       // --- reads: every one of them before the first write --------------------------------------
       const claimSnap = await tx.get(claimRef);
@@ -704,6 +708,19 @@ export async function PATCH(req: Request) {
       if (insurerPaid && claim.insurerPaid) return { kind: "already_insurer_paid" };
       if (insurerPaid && !hasRows) return { kind: "no_rows" };
       const rowsAction = rowsActionForStatus({ from: claim.status, to: status, hasRows });
+      const treated = treatedDateAfter({
+        status,
+        treatedDate,
+        current: claim.treatedDate,
+        approvalDate: claim.approvalDate,
+      });
+      // The rows are dated the treated day, else the approval's own (as insuranceTreatmentRows
+      // writes them). When that day moves on rows that stay, the books move with it: the
+      // statement and payroll already read the claim's date, and Finance and the payer report
+      // read the rows'. A July approval treated in October is October's work in all four.
+      const rowDateBefore = claim.treatedDate ?? claim.approvalDate;
+      const rowDateAfter = treated === undefined ? rowDateBefore : treated ?? claim.approvalDate;
+      const redate = hasRows && rowsAction === "none" && !rebuild && rowDateAfter !== rowDateBefore;
 
       const patientRef = newPatientId ? adminClinicDoc(clinicId, "patients", newPatientId) : null;
       const patientSnap = patientRef ? await tx.get(patientRef) : null;
@@ -737,11 +754,11 @@ export async function PATCH(req: Request) {
       // whole transaction).
       const chargeSnaps = new Map<string, DocumentSnapshot>();
       const noteSnaps = new Map<string, DocumentSnapshot>();
-      if (hasRows && (rowsAction === "remove" || paying || picks || rebuild)) {
+      if (hasRows && (rowsAction === "remove" || paying || picks || rebuild || redate)) {
         const snaps = await Promise.all(links.map((l) => tx.get(adminClinicDoc(clinicId, "ledger", l.ledgerId))));
         links.forEach((l, i) => chargeSnaps.set(l.ledgerId, snaps[i]));
       }
-      if (hasRows && (picks || statePicks) && rowsAction !== "remove" && !rebuild) {
+      if (hasRows && (picks || statePicks || redate) && rowsAction !== "remove" && !rebuild) {
         const snaps = await Promise.all(links.map((l) => tx.get(adminClinicDoc(clinicId, "clinical_notes", l.noteId))));
         links.forEach((l, i) => noteSnaps.set(l.noteId, snaps[i]));
       }
@@ -765,12 +782,6 @@ export async function PATCH(req: Request) {
       // --- decisions: nothing is written until every refusal has had its say ------------------
       const update: Record<string, unknown> = {};
       if (status !== undefined) update.status = status;
-      const treated = treatedDateAfter({
-        status,
-        treatedDate,
-        current: claim.treatedDate,
-        approvalDate: claim.approvalDate,
-      });
       if (treated !== undefined) update.treatedDate = treated;
 
       let patientName = claim.patientName;
@@ -802,15 +813,27 @@ export async function PATCH(req: Request) {
         }
       }
 
-      // Lines removed by the edit take their dentist and state with them.
+      // Lines removed by the edit take their dentist and state with them; the dentists kept earn
+      // their stamped rate on the edited amounts, and the rebuilt rows below carry that share.
       const onLines = <T,>(m: Record<number, T>): Record<number, T> =>
         Object.fromEntries(Object.entries(m).filter(([k]) => Number(k) < lines.length)) as Record<number, T>;
-      let dentists = rawLines !== undefined ? onLines(claim.dentists) : claim.dentists;
+      let dentists = rawLines !== undefined ? reshareLineDentists(lines, claim.dentists) : claim.dentists;
       if (rawLines !== undefined) update.dentists = dentists;
+      // Whose payouts sit on work this edit changes hands or amount: re-stamped once it commits.
+      const restamp: Array<string | null> = [];
+      if (rawLines !== undefined) restamp.push(...Object.values(claim.dentists).map((d) => d.staffId));
       if (picks) {
         const applied = applyDentistPicks({ lines, dentists, payerId: claim.payerId }, picks, staffById, parsePayers(payersSnap?.data()));
         if (applied.unknownStaff.length) return { kind: "no_staff", ids: applied.unknownStaff };
         if (notDentist) return { kind: "not_dentist" };
+        // A picked line's entry is stamped afresh (no paid/deducted), and its receipts change
+        // dentist: the old and new dentist on each named line, and whoever those receipts named.
+        for (const k of Object.keys(picks)) {
+          const i = Number(k);
+          restamp.push(claim.dentists[i]?.staffId ?? null, applied.dentists[i]?.staffId ?? null);
+          const link: LineLedger | undefined = claim.ledgerIds[i];
+          if (link) restamp.push(...(siblingsByRow.get(link.ledgerId) ?? []).map((p) => p.doctorId ?? null));
+        }
         dentists = applied.dentists;
         update.dentists = dentists;
       }
@@ -860,6 +883,8 @@ export async function PATCH(req: Request) {
       // into the clinical note. One update per note, whatever changed on it.
       const noteUpdates = new Map<string, Record<string, unknown>>();
       const noteUpdate = (noteId: string, fields: Record<string, unknown>) => noteUpdates.set(noteId, { ...(noteUpdates.get(noteId) ?? {}), ...fields });
+      const chargeUpdates = new Map<string, Record<string, unknown>>();
+      const chargeUpdate = (ledgerId: string, fields: Record<string, unknown>) => chargeUpdates.set(ledgerId, { ...(chargeUpdates.get(ledgerId) ?? {}), ...fields });
       if (picks && rowsAction !== "remove" && !rebuild) {
         for (const k of Object.keys(picks)) {
           const i = Number(k);
@@ -869,12 +894,27 @@ export async function PATCH(req: Request) {
           const dentist: LineDentist | null = dentists[i] ?? null;
           const rowPatch = dentistRowPatch(line, dentist);
           if (chargeSnaps.get(link.ledgerId)?.exists) {
-            tx.update(adminClinicDoc(clinicId, "ledger", link.ledgerId), { doctorId: rowPatch.doctorId, doctorName: rowPatch.doctorName, doctorCommissionPercentage: rowPatch.doctorCommissionPercentage, doctorCommissionAmount: rowPatch.doctorCommissionAmount, clinicProfit: rowPatch.clinicProfit, updatedAt: FieldValue.serverTimestamp() });
+            chargeUpdate(link.ledgerId, { doctorId: rowPatch.doctorId, doctorName: rowPatch.doctorName, doctorCommissionPercentage: rowPatch.doctorCommissionPercentage, doctorCommissionAmount: rowPatch.doctorCommissionAmount, clinicProfit: rowPatch.clinicProfit, updatedAt: FieldValue.serverTimestamp() });
             stampPaymentsDentist(tx, clinicId, siblingsByRow.get(link.ledgerId) ?? [], { doctorId: (rowPatch.doctorId as string | null) ?? null, doctorName: String(rowPatch.doctorName ?? "") });
           }
           if (noteSnaps.get(link.noteId)?.exists) noteUpdate(link.noteId, { doctorId: rowPatch.doctorId, doctor: rowPatch.doctor });
         }
       }
+      // The treated day moved: every charge and note the approval wrote moves with it. The payments
+      // against them keep their own dates; the money arrived when it arrived.
+      const redated: Array<{ id: string; from: unknown }> = [];
+      if (redate) {
+        for (const l of links) {
+          const snap = chargeSnaps.get(l.ledgerId);
+          if (snap?.exists && snap.get("date") !== rowDateAfter) {
+            chargeUpdate(l.ledgerId, { date: rowDateAfter, updatedAt: FieldValue.serverTimestamp() });
+            redated.push({ id: l.ledgerId, from: snap.get("date") ?? null });
+          }
+          const note = noteSnaps.get(l.noteId);
+          if (note?.exists && note.get("date") !== rowDateAfter) noteUpdate(l.noteId, { date: rowDateAfter, updatedAt: FieldValue.serverTimestamp() });
+        }
+      }
+      for (const [ledgerId, fields] of chargeUpdates) tx.update(adminClinicDoc(clinicId, "ledger", ledgerId), fields);
       if (statePicks && rowsAction !== "remove" && !rebuild) {
         for (const [k, state] of Object.entries(statePicks)) {
           const link: LineLedger | undefined = claim.ledgerIds[Number(k)];
@@ -1013,7 +1053,7 @@ export async function PATCH(req: Request) {
         updatedAt: FieldValue.serverTimestamp(),
         updatedBy: authz.uid,
       });
-      return { kind: "ok", created, removed, payments, what: collectShare ? "share" : "insurer", collected, rebuilt: rebuild };
+      return { kind: "ok", created, removed, payments, what: collectShare ? "share" : "insurer", collected, rebuilt: rebuild, restamp, redated, rowDate: rowDateAfter };
     });
 
     if (result.kind === "no_claim") return fail(404, "That claim was not found.");
@@ -1041,6 +1081,18 @@ export async function PATCH(req: Request) {
       return fail(400, "The edit does not add up. Fix the marked fields and save again.", { checks: result.checks });
     }
 
+    await restampStaffSettlementsFor(clinicId, result.restamp);
+    if (result.redated.length) {
+      await Promise.all(
+        result.redated.map((r) =>
+          recordMoneyChange({
+            entry: { clinicId, action: "update", collection: "ledger", documentId: r.id, before: { date: r.from }, after: { date: result.rowDate }, actor, via: "insurance/claims:treated-date" },
+            action: "Procedure Moved",
+            details: `Approval ${claimId} treated ${result.rowDate}: its charge moved from ${String(r.from)}`,
+          }).catch((err) => reportServerError("Insurance re-date audit failed:", err)),
+        ),
+      );
+    }
     if (result.created.length) await auditCharges(clinicId, result.created, actor, result.rebuilt ? "insurance/claims:edited" : "insurance/claims:treated");
     if (result.removed.length) {
       await Promise.all(

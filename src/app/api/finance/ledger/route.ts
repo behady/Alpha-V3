@@ -47,7 +47,7 @@ import { buildDeleteContext, evaluateDelete, type DeleteTarget } from "@/lib/del
 import { applyProcedureSync, readProcedureCommissionBasis, readProcedurePayments, treatmentHasDentist } from "@/lib/server/ledgerSync";
 import { recordLedgerAudit, recordMoneyChange } from "@/lib/server/ledgerAudit";
 import { recalcCommissionFromPayment } from "@/lib/ledgerCommission";
-import { allowedDiscount, checkDiscountAllowed } from "@/lib/discountMath";
+import { allowedDiscount, checkDiscountAllowed, isDiscountMode } from "@/lib/discountMath";
 import { afterLedgerCreate, afterLedgerDelete, afterLedgerUpdate } from "@/lib/alerts/moneyAlerts";
 import { DISCOUNTS_DOC, parseDiscountSettings } from "@/lib/priceLists";
 import { isApprovalRow } from "@/lib/ledgerInsurer";
@@ -103,6 +103,11 @@ class OverAllocationError extends Error {
 
 function todayKey(): string {
   return new Date().toISOString().split("T")[0];
+}
+
+/** Rounded the way the row will store it (ledgerWrite's rule), so a figure is judged as saved. */
+function money(value: number): number {
+  return Number((Number(value) || 0).toFixed(2));
 }
 
 /** Only the fields a client is allowed to change, per row type. Everything else is derived. */
@@ -201,8 +206,10 @@ async function createPayment(args: {
   const patientId = String(body.patientId || "").trim();
   if (!patientId) return bad("A payment needs a patient.");
 
-  const amount = Number(body.amount);
-  if (!Number.isFinite(amount) || amount <= 0) return bad("Enter an amount greater than zero.");
+  // Rounded before it is judged: the row stores two decimals, so 0.001 passed a "> 0" check and
+  // then landed as a numbered 0.00 receipt.
+  const amount = money(Number(body.amount));
+  if (!Number.isFinite(amount) || amount < 0.01) return bad("Enter an amount greater than zero.");
 
   const procedureId = body.procedureId ? String(body.procedureId).trim() : "";
   const date = /^\d{4}-\d{2}-\d{2}$/.test(String(body.date || "")) ? String(body.date) : todayKey();
@@ -220,6 +227,9 @@ async function createPayment(args: {
       if (!procSnap.exists) throw new Error("NO_PROCEDURE");
       procedureData = procSnap.data() || {};
       if (String(procedureData.type || "") !== "procedure") throw new Error("NOT_A_PROCEDURE");
+      // One patient's money settles only their own treatment — the same rule the edit path holds.
+      // Without it a mistyped procedure id put patient A's receipt against patient B's balance.
+      if (String(procedureData.patientId || "") !== patientId) throw new Error("WRONG_PATIENT");
       // The owner's rule: money from a patient for a treatment names the dentist who did it.
       if (!treatmentHasDentist(procedureData)) throw new Error("NO_DENTIST");
 
@@ -254,8 +264,11 @@ async function createPayment(args: {
     }
 
     const patientSnap = await txn.get(adminClinicDoc(clinicId, "patients", patientId));
+    // Every screen that takes money starts from a patient on file (booking creates one), so a
+    // missing doc is another clinic's id or a patient already in the bin — not a walk-in.
+    if (!patientSnap.exists) throw new Error("NO_PATIENT");
     const patientName =
-      (patientSnap.exists && typeof patientSnap.data()?.name === "string" && patientSnap.data()!.name) ||
+      (typeof patientSnap.data()?.name === "string" && patientSnap.data()!.name) ||
       String(body.patientName || "") ||
       null;
 
@@ -430,8 +443,9 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
     }
 
     if (type === "payment") {
-      const paid = update.paid !== undefined ? Number(update.paid) : Number(before.paid ?? before.amount ?? 0);
-      if (!Number.isFinite(paid) || paid <= 0) throw new Error("BAD_AMOUNT");
+      // Rounded first, as on create: an edit to 0.004 must not leave a 0.00 receipt either.
+      const paid = money(update.paid !== undefined ? Number(update.paid) : Number(before.paid ?? before.amount ?? 0));
+      if (!Number.isFinite(paid) || paid < 0.01) throw new Error("BAD_AMOUNT");
       update.paid = paid;
       // `amount` mirrors `paid` so the finance dashboard, which reads `amount` for non-procedure
       // rows, cannot disagree with the patient ledger, which reads `paid`.
@@ -627,59 +641,115 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
       // stamped share stay as the approval wrote them.
     } else if (type === "procedure") {
       // Only the discount is adjustable here; what the treatment IS belongs to the clinical route.
-      const discounted = applyProcedureDiscount({
-        listPrice: Number(update.listPrice ?? before.listPrice ?? before.cost ?? 0),
-        mode: String(update.discountMode ?? before.discountMode ?? "none"),
-        percent: update.discountPercent !== undefined ? Number(update.discountPercent) : Number(before.discountPercent),
-        fixed: update.discountFixed !== undefined ? Number(update.discountFixed) : Number(before.discountFixed),
-        fallbackCost: Number(before.cost) || 0,
-      });
-      Object.assign(update, discounted, { amount: discounted.cost });
+      //
+      // Two row shapes carry a discount. Rows this route priced hold discountPercent/discountFixed;
+      // rows the clinical route priced hold discountValue under their discountMode. Reading only the
+      // first shape meant every save of the finance dialog — which sends nulls for both, since the
+      // row it opened has neither — re-priced a clinical-route charge to full list price: discount,
+      // reason and the dentist's lower share all gone, from an edit that only changed the date.
+      const blank = (v: unknown) => v === undefined || v === null || v === "";
+      const figure = (v: unknown) => (blank(v) || !Number.isFinite(Number(v)) ? null : Number(v));
+      const storedMode = isDiscountMode(before.discountMode) ? before.discountMode : "none";
+      const storedList = Number(before.listPrice ?? before.cost ?? 0) || 0;
+      const storedPercent = figure(before.discountPercent) ?? (storedMode === "percent" ? figure(before.discountValue) : null);
+      const storedFixed = figure(before.discountFixed) ?? (storedMode === "fixed" ? figure(before.discountValue) : null);
 
-      /**
-       * Who may take this much off, and what for.
-       *
-       * Asked only when the discount GROWS. An edit that re-sends the discount already on the row
-       * — which is what the patient's finance screen does on every save, discount or not — is not
-       * someone giving a discount, and making it fail for want of a reason would break editing a
-       * date on a charge that was discounted months ago by somebody else.
-       */
-      if (discountSettings) {
-        const beforeAmount = Number(before.discountAmount) || 0;
-        const reason = String(update.discountReason ?? before.discountReason ?? "");
-        if (discounted.discountAmount > beforeAmount + 0.001) {
-          const verdict = checkDiscountAllowed({
-            listPrice: discounted.listPrice,
-            discountAmount: discounted.discountAmount,
-            reason,
-            authority: allowedDiscount(actor.role, null, discountSettings),
-            availableReasons: discountSettings.reasons,
-          });
-          if (!verdict.ok) throw new DiscountRefusedError(verdict.error);
+      // A blank figure in the patch means "nothing typed here", not "zero" — the dialog's inputs
+      // turn a cleared box into 0, so only a screen that never had the figure sends null.
+      const nextList = blank(update.listPrice) ? storedList : Number(update.listPrice);
+      const nextMode = blank(update.discountMode)
+        ? storedMode
+        : isDiscountMode(update.discountMode) ? update.discountMode : "none";
+      const nextPercent = blank(update.discountPercent) ? storedPercent : Number(update.discountPercent);
+      const nextFixed = blank(update.discountFixed) ? storedFixed : Number(update.discountFixed);
+
+      // Only re-price when the price actually changes. A re-sent, unchanged discount re-priced is
+      // at best a no-op and at worst a rounding drift written over the charge, its commission and
+      // the clinical note — for an edit that was only ever about the date.
+      const reprice =
+        differsFromStored(nextList, storedList) ||
+        nextMode !== storedMode ||
+        (nextMode === "percent" && differsFromStored(nextPercent, storedPercent)) ||
+        (nextMode === "fixed" && differsFromStored(nextFixed, storedFixed));
+
+      for (const key of ["listPrice", "discountMode", "discountPercent", "discountFixed"] as const) delete update[key];
+
+      if (!reprice) {
+        // The reason may still be reworded on a discount that stands; a blank one keeps the stored
+        // reason rather than erasing it, and a charge with no discount has no reason to change.
+        if (blank(update.discountReason) || !(Number(before.discountAmount) > 0)) delete update.discountReason;
+      } else {
+        const discounted = applyProcedureDiscount({
+          listPrice: nextList,
+          mode: nextMode,
+          percent: nextPercent,
+          fixed: nextFixed,
+          fallbackCost: Number(before.cost) || 0,
+        });
+        // discountValue kept in step so the clinical editor, which reads that shape, opens on the
+        // discount this screen just set rather than the one it replaced.
+        const discountValue =
+          discounted.discountMode === "percent" ? discounted.discountPercent
+            : discounted.discountMode === "fixed" ? discounted.discountFixed
+              : null;
+        Object.assign(update, discounted, { discountValue, amount: discounted.cost });
+
+        /**
+         * Who may take this much off, and what for.
+         *
+         * Asked only when the discount GROWS. An edit that re-sends the discount already on the row
+         * — which is what the patient's finance screen does on every save, discount or not — is not
+         * someone giving a discount, and making it fail for want of a reason would break editing a
+         * date on a charge that was discounted months ago by somebody else.
+         */
+        if (discountSettings) {
+          const beforeAmount = Number(before.discountAmount) || 0;
+          const reason = String(update.discountReason ?? before.discountReason ?? "");
+          if (discounted.discountAmount > beforeAmount + 0.001) {
+            const verdict = checkDiscountAllowed({
+              listPrice: discounted.listPrice,
+              discountAmount: discounted.discountAmount,
+              reason,
+              authority: allowedDiscount(actor.role, null, discountSettings),
+              availableReasons: discountSettings.reasons,
+            });
+            if (!verdict.ok) throw new DiscountRefusedError(verdict.error);
+          }
+          // A discount lifted off takes its reason with it; one left in place keeps the reason it
+          // was given under, even when this patch never mentioned it.
+          update.discountReason = discounted.discountAmount > 0 ? reason || null : null;
         }
-        // A discount lifted off takes its reason with it; one left in place keeps the reason it
-        // was given under, even when this patch never mentioned it.
-        update.discountReason = discounted.discountAmount > 0 ? reason || null : null;
-      }
 
-      // The dentist's share follows the discounted amount: the lab is paid in full either way, so
-      // a discount comes out of what is left, not off the lab's invoice.
-      const labFee = Number(before.labFee) || 0;
-      const commissionPct = Number(before.doctorCommissionPercentage) || 0;
-      const net = discounted.cost - labFee;
-      update.doctorCommissionAmount = net > 0 ? Number((net * (commissionPct / 100)).toFixed(2)) : 0;
-      update.clinicProfit = Number((discounted.cost - Number(update.doctorCommissionAmount) - labFee).toFixed(2));
+        // The dentist's share follows the discounted amount: the lab is paid in full either way, so
+        // a discount comes out of what is left, not off the lab's invoice.
+        const labFee = Number(before.labFee) || 0;
+        const commissionPct = Number(before.doctorCommissionPercentage) || 0;
+        const net = discounted.cost - labFee;
+        update.doctorCommissionAmount = net > 0 ? Number((net * (commissionPct / 100)).toFixed(2)) : 0;
+        update.clinicProfit = Number((discounted.cost - Number(update.doctorCommissionAmount) - labFee).toFixed(2));
 
-      // The clinical note holds its own copy of the cost; leaving it stale would mean the next
-      // save from the clinical screen silently undid the discount.
-      const noteId = typeof before.clinicalNoteId === "string" ? before.clinicalNoteId : "";
-      if (noteId) {
-        txn.update(adminClinicDoc(clinicId, "clinical_notes", noteId), { cost: discounted.cost });
+        // The clinical note holds its own copy of the price and the discount; leaving either stale
+        // would mean the next save from the clinical screen silently undid this one.
+        const noteId = typeof before.clinicalNoteId === "string" ? before.clinicalNoteId : "";
+        if (noteId) {
+          txn.update(adminClinicDoc(clinicId, "clinical_notes", noteId), {
+            cost: discounted.cost,
+            listPrice: discounted.listPrice,
+            discountMode: discounted.discountMode,
+            discountValue,
+            discountAmount: discounted.discountAmount,
+            discountReason: update.discountReason ?? null,
+          });
+        }
       }
     } else {
       throw new Error("UNKNOWN_ROW_TYPE");
     }
 
+    // A treatment re-saved with the discount it already carries (the Money tab's "apply discount"
+    // pressed twice) changes nothing now that an unchanged discount is no longer re-priced. That is
+    // a success with nothing to write, not an error toast at the desk.
+    if (Object.keys(update).length === 0 && type === "procedure") return { before, update, type, unchanged: true };
     if (Object.keys(update).length === 0) throw new Error("NOTHING_TO_DO");
 
     update.updatedAt = FieldValue.serverTimestamp();
@@ -687,8 +757,9 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
     update.updatedByName = actor.name;
     txn.update(ref, update);
 
-    return { before, update, type };
+    return { before, update, type, unchanged: false };
   });
+  if (result.unchanged) return NextResponse.json({ ok: true, id });
 
   await recordMoneyChange({
     entry: {
@@ -1059,7 +1130,9 @@ export async function POST(request: Request) {
       case "NOT_A_PROCEDURE":
         return bad("A payment can only be linked to a treatment charge.");
       case "WRONG_PATIENT":
-        return bad("A payment can only be moved to a treatment belonging to the same patient.");
+        return bad("A payment can only settle a treatment belonging to the same patient.");
+      case "NO_PATIENT":
+        return bad("That patient no longer exists.", 404);
       case "NOT_FOUND":
         return bad("That row no longer exists. Refresh and try again.", 404);
       case "NOT_A_PAYMENT":

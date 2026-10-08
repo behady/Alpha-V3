@@ -1,7 +1,14 @@
 import assert from "node:assert";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { mcpToolCatalogue, runMcpTool, type McpToolContext } from "../src/lib/mcp/tools";
+import {
+  mcpToolCatalogue,
+  runMcpTool,
+  MCP_SERVER_ONLY_COLLECTIONS,
+  MCP_ADMIN_ONLY_COLLECTIONS,
+  MCP_NO_DELETE_COLLECTIONS,
+  type McpToolContext,
+} from "../src/lib/mcp/tools";
 import { isGlobalCollection } from "../src/lib/adminClinicDb";
 import { resolveBriefingAccess } from "../src/lib/automation/briefing/build";
 
@@ -127,6 +134,52 @@ check(
   !writeDenied.ok && /cannot create/.test(writeDenied.error),
   "a full-scope key must still obey the writer's own permissions"
 );
+
+// A full key is bounded by what firestore.rules lets that person's browser write — not merely by
+// the permission table, whose gaps are exactly the server-only collections. A settings-trusted
+// receptionist's full key wrote her own salary, the clinic's settings, a payout to herself and a
+// refill of the AI credit meter, because "absent from COLLECTION_WRITE_PERMISSIONS" read as "free".
+const trustedDesk = ctx({ role: "Receptionist", permissions: ["access.settings", "finance.add", "patients.delete"], scope: "full" });
+for (const [collection, id] of [
+  ["staff", "st-1"],
+  ["settings", "discounts"],
+  ["staff_settlements", undefined],
+  ["ai_usage", undefined],
+  ["ledger_audit", undefined],
+  ["services", "svc-1"],
+] as const) {
+  const res = await runMcpTool("write_document", { collection, ...(id ? { id } : {}), data: { x: 1 } }, trustedDesk);
+  check(!res.ok, `a receptionist's full key must not write "${collection}"`);
+}
+// Server-only means server-only: an Admin's key is refused too, because these are written by one
+// route that does more than the write (charges credits, posts the paired expense, keeps the audit).
+const adminFull = ctx({ role: "Admin", permissions: [], scope: "full" });
+for (const collection of ["ledger", "clinical_notes", "staff_settlements", "ai_usage", "ai_usage_log", "whatsapp_outbox", "notifications"]) {
+  const res = await runMcpTool("write_document", { collection, data: { x: 1 } }, adminFull);
+  check(!res.ok, `even an Admin's key must not write the server-only "${collection}"`);
+}
+// Bin-owned records are deleted in the app, which keeps a copy; never hard-deleted from outside.
+const binDelete = await runMcpTool("delete_document", { collection: "patients", id: "p1" }, trustedDesk);
+check(!binDelete.ok && /Recently Deleted/.test(binDelete.error), "a key must not hard-delete a patient past the recycle bin");
+
+// Every name firestore.rules holds out of the blanket member grant must have been placed in one of
+// the connector's write classes, so the next server-only collection cannot arrive writable here by
+// default. Read from the rules text, the same way tests/permissions.test.mts reads it.
+{
+  const rulesText = readFileSync(join(REPO, "firestore.rules"), "utf8");
+  const heldOut = new Set([...rulesText.matchAll(/\bsub != '([a-z_]+)'/g)].map((m) => m[1]));
+  check(heldOut.size > 10, "could not read memberMayWrite's exclusions from firestore.rules");
+  const classified = new Set([
+    ...MCP_SERVER_ONLY_COLLECTIONS,
+    ...MCP_ADMIN_ONLY_COLLECTIONS,
+    ...MCP_NO_DELETE_COLLECTIONS,
+  ]);
+  const unclassified = [...heldOut].filter((name) => !classified.has(name));
+  check(
+    unclassified.length === 0,
+    `firestore.rules holds these out of the member grant but the AI connector has no write policy for them: ${unclassified.join(", ")}`
+  );
+}
 
 // --- 4. An unknown tool is refused, not guessed at ------------------------------------------------
 const unknown = await runMcpTool("drop_everything", {}, ctx({ scope: "full" }));

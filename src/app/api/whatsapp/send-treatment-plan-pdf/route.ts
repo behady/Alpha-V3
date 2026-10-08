@@ -25,15 +25,16 @@ function slugifyName(name: string) {
  * click-to-send message carrying a signed link when the clinic has no connected number.
  */
 export async function POST(request: Request) {
-  const authz = await requireStaffUser(request);
+  const body = (await request.json().catch(() => ({}))) as {
+    patientId?: string;
+    pdfBase64?: string;
+    clinicId?: string;
+  };
+  // Checked against the clinic on screen, the same one resolveUserClinicId returns below.
+  const authz = await requireStaffUser(request, typeof body.clinicId === "string" && body.clinicId ? body.clinicId : undefined);
   if (!authz.ok) return authz.response;
 
   try {
-    const body = (await request.json().catch(() => ({}))) as {
-      patientId?: string;
-      pdfBase64?: string;
-      clinicId?: string;
-    };
 
     const patientId = typeof body.patientId === "string" ? body.patientId.trim() : "";
     const pdfBase64 = typeof body.pdfBase64 === "string" ? body.pdfBase64.trim() : "";
@@ -57,8 +58,8 @@ export async function POST(request: Request) {
      * it. `clinical.edit` is what firestore.rules demands to write a treatment plan; sending one
      * out under the clinic's name is not a lesser act than saving it.
      *
-     * After resolveUserClinicId, never before — the permission list is per clinic, and asking
-     * without one reads the flat legacy array that is empty on migrated accounts.
+     * After resolveUserClinicId — the permission list is per clinic, and this is the clinic the
+     * PDF is about to be sent for.
      */
     const permitted = await requireStaffPermission(request, clinicId, "clinical.edit");
     if (!permitted.ok) return permitted.response;
