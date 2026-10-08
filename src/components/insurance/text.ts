@@ -276,6 +276,23 @@ export const TEXT = {
   ncLineInsurer: { en: "Insurer pays", ar: "حصة التأمين" },
   ncLineReason: { en: "Reason", ar: "السبب" },
   ncMissingCode: { en: "No sheet code yet (set it on the approval or the patient's insurance):", ar: "لسه مالهمش كود للكشف (حطه في الموافقة أو تأمين المريض):" },
+  // AXA's claim form (the Yodawy "Service Claim Reference"), in its own words.
+  axaApprovalNumberHint: { en: "Check every digit against the paper (it looks like 13242928): this is the number AXA pays against.", ar: "راجع كل رقم مع الورقة (شكله زي 13242928): ده الرقم اللي أكسا بتدفع عليه." },
+  axaClaimNumber: { en: "Claim number", ar: "رقم المطالبة" },
+  axaServiceDate: { en: "Service date", ar: "تاريخ الخدمة" },
+  axaStatus: { en: "Status on the paper", ar: "الحالة في الورقة" },
+  axaCardNumber: { en: "Card number", ar: "رقم البطاقة" },
+  axaEmployeeCode: { en: "Employee code", ar: "كود الموظف" },
+  axaCopay: { en: "Dental co-pay %", ar: "نسبة تحمل المريض %" },
+  axaCopayHint: { en: "The 'Dental Cop%' on the paper. Each line's net is split by it between the patient and AXA.", ar: "الـ Dental Cop% في الورقة. صافي كل بند بيتقسم بيها بين المريض وأكسا." },
+  axaProvider: { en: "Provider", ar: "مقدم الخدمة" },
+  axaTotalPerformed: { en: "Total performed", ar: "إجمالي المنفذ" },
+  axaByInsurer: { en: "By insurer", ar: "على أكسا" },
+  axaByPatient: { en: "By patient", ar: "على المريض" },
+  axaOverLimit: { en: "Over limit", ar: "فوق الحد" },
+  axaLineTags: { en: "Tags", ar: "العلامات" },
+  axaProviderNote: { en: "Provider note", ar: "ملاحظة مقدم الخدمة" },
+  axaTeethHint: { en: "Teeth are FDI numbers, e.g. 47. LR7 on the paper is lower right 7 = 47.", ar: "الأسنان بأرقام FDI، زي 47. LR7 في الورقة يعني تحت يمين 7 = 47." },
   ncTeethHint: { en: "Teeth are FDI numbers, e.g. 44, 46. L.R 4-6 on the paper is lower right 4 and 6 = 44, 46.", ar: "الأسنان بأرقام FDI، زي 44، 46. L.R 4-6 في الورقة يعني تحت يمين 4 و6 = 44، 46." },
 } as const satisfies Record<string, Lang>;
 

@@ -134,6 +134,8 @@
     "_comment_test_insurance_metlife": "The MetLife pre-approval reader: the model's JSON for a scanned approval is normalised (dates, money, split policy and provider strings), then checked. Hard checks (approval number, date, no lines, line gross, the three totals, certificate, dependent) block the save; soft ones (status, provider, low confidence, reduced lines, share above gross, name) warn. Fixture is invented, in the real sample's structure. Pure module, no Gemini.",
     "test:insurance-metlife": "npx tsx tests/insuranceMetlife.test.mts",
     "test:insurance-nextcare": "npx tsx tests/insuranceNextcare.test.mts",
+    "_comment_test_insurance_axa": "The AXA claim-form reader (the Yodawy 'Service Claim Reference'): mapped onto the shared approval record, the net split by the Dental Cop %, the tooth per line, hard checks on the two printed totals. Fixture is invented, in the real sample's structure. Pure module, no Gemini.",
+    "test:insurance-axa": "npx tsx tests/insuranceAxa.test.mts",
     "probe:insurance-read": "node scripts/probe-insurance-read.mjs",
     "test:report-patients": "npx tsx tests/reportPatients.test.mts",
     "test:report-suite": "npx tsx tests/reportSuite.test.mts",

@@ -6,6 +6,7 @@
 import type { InsurerFormat } from "@/lib/payers";
 import { buildMetlifePrompt, checkMetlife, METLIFE_RESPONSE_SCHEMA, normalizeMetlife, type Check, type MetlifeExtraction } from "./metlife";
 import { buildNextcarePrompt, checkNextcare, fromNextcareModel, NEXTCARE_RESPONSE_SCHEMA, normalizeNextcare } from "./nextcare";
+import { AXA_RESPONSE_SCHEMA, buildAxaPrompt, checkAxa, fromAxaModel, normalizeAxa } from "./axa";
 
 export type ApprovalReader = {
   schema: Record<string, unknown>;
@@ -15,6 +16,9 @@ export type ApprovalReader = {
 };
 
 export function readerFor(format: InsurerFormat): ApprovalReader {
+  if (format === "axa") {
+    return { schema: AXA_RESPONSE_SCHEMA, prompt: buildAxaPrompt, normalize: (p) => normalizeAxa(fromAxaModel(p)) };
+  }
   if (format === "nextcare") {
     return { schema: NEXTCARE_RESPONSE_SCHEMA, prompt: buildNextcarePrompt, normalize: (p) => normalizeNextcare(fromNextcareModel(p)) };
   }
@@ -30,6 +34,9 @@ export type ApprovalCheckContext = {
 };
 
 export function checkApproval(format: InsurerFormat, x: MetlifeExtraction, ctx: ApprovalCheckContext): Check[] {
+  if (format === "axa") {
+    return checkAxa(x, { today: ctx.today, matchedPatientName: ctx.matchedPatientName, nameScore: ctx.nameScore });
+  }
   if (format === "nextcare") {
     return checkNextcare(x, { today: ctx.today, matchedPatientName: ctx.matchedPatientName, nameScore: ctx.nameScore });
   }
@@ -37,9 +44,14 @@ export function checkApproval(format: InsurerFormat, x: MetlifeExtraction, ctx: 
 }
 
 /**
- * Finding the patient again: MetLife needs certificate AND dependent code to be sure; a NextCare card
- * number belongs to one person, so the card alone is enough.
+ * Finding the patient again: MetLife needs certificate AND dependent code to be sure; a NextCare or
+ * AXA card number belongs to one person, so the card alone is enough.
  */
 export function cardIdentifiesPatient(format: InsurerFormat): boolean {
-  return format === "nextcare";
+  return format === "nextcare" || format === "axa";
+}
+
+/** Papers whose service lines name their teeth (the confirm card shows a teeth box per line). */
+export function linesHaveTeeth(format: InsurerFormat): boolean {
+  return format === "nextcare" || format === "axa";
 }

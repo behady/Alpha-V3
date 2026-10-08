@@ -30,13 +30,13 @@ import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { hasHardFailure, type Check, type MetlifeExtraction, type MetlifeHeader, type MetlifeLine } from "@/lib/insurance/metlife";
-import { checkApproval } from "@/lib/insurance/formats";
+import { cardIdentifiesPatient, checkApproval, linesHaveTeeth } from "@/lib/insurance/formats";
 import { DEFAULT_NEXTCARE_WORDING } from "@/lib/insuranceStatementNextcare";
 import { nameSimilarity } from "@/lib/insurance/matchPatient";
 import { patientMatchesSearch } from "@/lib/flexibleSearch";
 import { DEFAULT_METLIFE_WORDING } from "@/lib/insuranceStatementMetlife";
 import { LINE_STATUSES, lineStatusOf, normalizeLinesFor, type InsuranceClaim, type LineStatus } from "@/lib/insurance/claims";
-import type { InsurerFormat, Payer } from "@/lib/payers";
+import { isInsurerFormat, type InsurerFormat, type Payer } from "@/lib/payers";
 import type { PatientInsuranceEntry } from "@/lib/patientInsurance";
 import { cairoToday, InsuranceCallError, patchClaim, saveClaim, type ReadResult, type SaveBody } from "./api";
 import type { BinNotice } from "@/lib/recycleBin";
@@ -47,9 +47,9 @@ type LineMeta = { dentistId: string; status: LineStatus };
 
 export type PatientOption = { id: string; name: string; phone: string; insurance?: Record<string, PatientInsuranceEntry> };
 
-type TextField = "approvalNumber" | "statusText" | "policyNumber" | "employer" | "certificateNumber" | "dependentCode" | "paperPatientName" | "paperPatientNameAr" | "providerCode" | "physician" | "diagnosisCode" | "comment" | "insurerName" | "productName" | "memberCode";
+type TextField = "approvalNumber" | "statusText" | "policyNumber" | "employer" | "certificateNumber" | "dependentCode" | "paperPatientName" | "paperPatientNameAr" | "providerCode" | "physician" | "diagnosisCode" | "comment" | "insurerName" | "productName" | "memberCode" | "claimNumber";
 type DateField = "approvalDate" | "terminationDate" | "validUntil";
-type MoneyField = "estimatedCost" | "requestedTotal" | "approvedTotal" | "patientShareTotal" | "collectNote";
+type MoneyField = "estimatedCost" | "requestedTotal" | "approvedTotal" | "patientShareTotal" | "collectNote" | "overLimit" | "copayPercent";
 type LineNumber = "unitsRequested" | "grossPerUnit" | "grossTotal" | "unitsApproved" | "patientShare" | "approvedAmount";
 
 /** Fields the reader stores upper-case; typed the same way here so the checks see what the server will. */
@@ -141,8 +141,12 @@ export default function ApprovalConfirmCard({
   /** The patient whose phone number the desk confirmed with the person in front of them. */
   const [phoneConfirmedFor, setPhoneConfirmedFor] = useState("");
   // Which paper this is: it picks the checks, the field names and the sheet's default wording.
-  const format: InsurerFormat = payer.format === "nextcare" ? "nextcare" : "metlife";
+  const format: InsurerFormat = isInsurerFormat(payer.format) ? payer.format : "metlife";
   const isNc = format === "nextcare";
+  const isAxa = format === "axa";
+  /** NextCare and AXA: the card alone names the patient, and every service line names its teeth. */
+  const cardOnly = cardIdentifiesPatient(format);
+  const hasTeeth = linesHaveTeeth(format);
 
   const [x, setX] = useState<MetlifeExtraction>(() => cloneExtraction(result.extraction));
   /** The teeth box as typed, per line, so a half-typed number is not thrown away. */
@@ -209,10 +213,10 @@ export default function ApprovalConfirmCard({
     if (!stored) return false;
     const paperCert = x.header.certificateNumber.trim();
     const paperDep = x.header.dependentCode.trim();
-    // NextCare: only the card is stored on the patient.
-    if (isNc) return !!stored.certificateNumber && stored.certificateNumber !== paperCert;
+    // NextCare and AXA: only the card is stored on the patient.
+    if (cardOnly) return !!stored.certificateNumber && stored.certificateNumber !== paperCert;
     return (!!stored.certificateNumber && stored.certificateNumber !== paperCert) || (!!stored.dependentCode && stored.dependentCode !== paperDep);
-  }, [picker, patients, payer.id, x.header.certificateNumber, x.header.dependentCode, isNc]);
+  }, [picker, patients, payer.id, x.header.certificateNumber, x.header.dependentCode, cardOnly]);
   const searchResults = useMemo(() => {
     if (!search.trim()) return [];
     const offered = new Set(candidates.map((c) => c.patientId));
@@ -482,7 +486,38 @@ Is it the same number?`
 
         {/* --- the fields --------------------------------------------------------------------- */}
         <div className="space-y-5 p-5">
-{isNc ? (
+{isAxa ? (
+            <>
+          <Group title={t("sectionApproval")}>
+            <TextInput label={t("approvalNumber")} value={x.header.approvalNumber} flag={flag("approvalNumber")} onChange={(v) => setText("approvalNumber", v)} ltr hint={editing ? t("lockedOnEdit") : t("axaApprovalNumberHint")} readOnly={!!editing} />
+            <TextInput label={t("axaClaimNumber")} value={x.header.claimNumber ?? ""} flag={null} onChange={(v) => setText("claimNumber", v)} ltr />
+            <DateInput label={t("axaServiceDate")} value={x.header.approvalDate} flag={flag("approvalDate")} onChange={(v) => setDate("approvalDate", v)} readOnly={!!editing} />
+            <TextInput label={t("axaStatus")} value={x.header.statusText} flag={flag("statusText")} onChange={(v) => setText("statusText", v)} ltr />
+          </Group>
+
+          <Group title={t("sectionMember")}>
+            <TextInput label={t("paperPatientName")} value={x.header.paperPatientName} flag={flag("paperPatientName")} onChange={(v) => setText("paperPatientName", v)} ltr />
+            <TextInput label={t("paperPatientNameAr")} value={x.header.paperPatientNameAr} flag={flag("paperPatientNameAr")} onChange={(v) => { setText("paperPatientNameAr", v); if (picker.mode === "create") setNewName(v); }} />
+            <TextInput label={t("axaCardNumber")} value={x.header.certificateNumber} flag={flag("certificateNumber")} onChange={(v) => setText("certificateNumber", v)} ltr />
+            <TextInput label={t("policyNumber")} value={x.header.policyNumber} flag={flag("policyNumber")} onChange={(v) => setText("policyNumber", v)} ltr />
+            <TextInput label={t("axaEmployeeCode")} value={x.header.dependentCode} flag={flag("dependentCode")} onChange={(v) => setText("dependentCode", v)} ltr />
+            <MoneyInput label={t("axaCopay")} value={x.header.copayPercent ?? null} flag={null} onChange={(v) => setMoney("copayPercent", v)} hint={t("axaCopayHint")} />
+          </Group>
+
+          <Group title={t("sectionProvider")}>
+            <TextInput label={t("axaProvider")} value={x.header.physician} flag={null} onChange={(v) => setText("physician", v)} ltr />
+            <TextInput label={t("ncDiagnosis")} value={x.header.diagnosisCode} flag={null} onChange={(v) => setText("diagnosisCode", v)} ltr />
+          </Group>
+
+          <Group title={t("sectionTotals")}>
+            <MoneyInput label={t("axaTotalPerformed")} value={x.header.requestedTotal} flag={flag("requestedTotal")} onChange={(v) => setMoney("requestedTotal", v)} />
+            <MoneyInput label={t("axaByInsurer")} value={x.header.approvedTotal} flag={flag("approvedTotal")} onChange={(v) => setMoney("approvedTotal", v)} />
+            <MoneyInput label={t("axaByPatient")} value={x.header.patientShareTotal} flag={flag("patientShareTotal")} onChange={(v) => setMoney("patientShareTotal", v)} />
+            <MoneyInput label={t("axaOverLimit")} value={x.header.overLimit ?? null} flag={flag("overLimit")} onChange={(v) => setMoney("overLimit", v)} />
+          </Group>
+
+            </>
+          ) : isNc ? (
             <>
           <Group title={t("sectionApproval")}>
             <TextInput label={t("approvalNumber")} value={x.header.approvalNumber} flag={flag("approvalNumber")} onChange={(v) => setText("approvalNumber", v)} ltr hint={editing ? t("lockedOnEdit") : t("ncApprovalNumberHint")} readOnly={!!editing} />
@@ -560,7 +595,9 @@ Is it the same number?`
               <table className="w-full min-w-[74rem] border-collapse text-[12.5px]">
                 <thead>
                   <tr className="border-b border-line bg-surface-subtle">
-                    {(isNc
+                    {(isAxa
+                      ? (["lineDescription", "ncLineTeeth", "colDentist", "colState", "lineUnits", "ncLinePrice", "lineGross", "lineUnitsApproved", "linePatientShare", "ncLineInsurer", "axaLineTags"] as const)
+                      : isNc
                       ? (["lineCode", "lineDescription", "ncLineTeeth", "colDentist", "colState", "lineUnits", "ncLinePrice", "lineUnitsApproved", "linePatientShare", "ncLineInsurer", "ncLineReason"] as const)
                       : (["lineCode", "lineDescription", "colDentist", "colState", "lineUnits", "linePerUnit", "lineGross", "lineUnitsApproved", "linePatientShare", "lineApproved", "comment"] as const)
                     ).map((k) => (
@@ -576,13 +613,15 @@ Is it the same number?`
                     const rowFlag = lineFlag(i);
                     return (
                       <tr key={i} className={`border-t border-line ${rowFlag === "hard" ? "bg-rose-50/60" : rowFlag === "soft" ? "bg-amber-50/60" : ""}`}>
-                        <td className="p-1">
-                          <input value={l.code} onChange={(e) => setLine(i, { code: e.target.value.toUpperCase() })} className={cellInput(null)} dir="ltr" />
-                        </td>
+                        {!isAxa && (
+                          <td className="p-1">
+                            <input value={l.code} onChange={(e) => setLine(i, { code: e.target.value.toUpperCase() })} className={cellInput(null)} dir="ltr" />
+                          </td>
+                        )}
                         <td className="p-1">
                           <input value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} className={`${cellInput(null)} min-w-[12rem]`} dir="ltr" />
                         </td>
-                        {isNc && (
+                        {hasTeeth && (
                           <td className="p-1">
                             <input
                               value={teethDraft[i] ?? (l.teeth ?? []).join(", ")}
@@ -591,7 +630,7 @@ Is it the same number?`
                                 setTeethDraft((prev) => ({ ...prev, [i]: typed }));
                                 setLine(i, { teeth: parseTeeth(typed) });
                               }}
-                              placeholder="44, 46"
+                              placeholder={isAxa ? "47" : "44, 46"}
                               aria-label={t("ncLineTeeth")}
                               className={`${cellInput(lineFlag(i, "teeth") === "soft" ? "soft" : null)} min-w-[6rem]`}
                               dir="ltr"
@@ -635,6 +674,11 @@ Is it the same number?`
             <Labelled label={t("ncConditions")}>
               <textarea value={x.header.comment} onChange={(e) => setText("comment", e.target.value)} rows={4} className={`${fieldInput(null)} resize-y`} dir="ltr" />
               <p className="mt-1 text-xs text-ink-muted">{t("ncTeethHint")}</p>
+            </Labelled>
+          ) : isAxa ? (
+            <Labelled label={t("axaProviderNote")}>
+              <textarea value={x.header.comment} onChange={(e) => setText("comment", e.target.value)} rows={2} className={`${fieldInput(null)} resize-y`} dir="ltr" />
+              <p className="mt-1 text-xs text-ink-muted">{t("axaTeethHint")}</p>
             </Labelled>
           ) : (
             <TextInput label={t("comment")} value={x.header.comment} flag={null} onChange={(v) => setText("comment", v)} ltr />
@@ -846,10 +890,11 @@ function DateInput({ label, value, flag, onChange, readOnly }: { label: string; 
   );
 }
 
-function MoneyInput({ label, value, flag, onChange }: { label: string; value: number | null; flag: "hard" | "soft" | null; onChange: (v: number | null) => void }) {
+function MoneyInput({ label, value, flag, onChange, hint }: { label: string; value: number | null; flag: "hard" | "soft" | null; onChange: (v: number | null) => void; hint?: string }) {
   return (
     <Labelled label={label}>
       <NumberBox value={value} onChange={onChange} className={fieldInput(flag)} />
+      {hint && <p className="mt-1 text-xs text-ink-muted">{hint}</p>}
     </Labelled>
   );
 }

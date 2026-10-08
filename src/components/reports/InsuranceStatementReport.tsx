@@ -55,7 +55,7 @@ const TEXT = {
   cases: { en: "cases", ar: "حالة" },
   preview: { en: "Statement", ar: "الكشف" },
   failed: { en: "Could not build the file. Try again.", ar: "تعذّر إنشاء الملف. حاول مرة أخرى." },
-  metlifeHere: { en: "MetLife and NextCare statements are built from approvals on the Insurance page", ar: "كشوف ميتلايف ونكست كير بتطلع من الموافقات في صفحة التأمين" },
+  metlifeHere: { en: "MetLife, NextCare and AXA statements are built from approvals on the Insurance page", ar: "كشوف ميتلايف ونكست كير وأكسا بتطلع من الموافقات في صفحة التأمين" },
   metlifeOpen: { en: "Open Insurance", ar: "افتح التأمين" },
 } as const;
 
