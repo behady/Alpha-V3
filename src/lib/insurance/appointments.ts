@@ -129,9 +129,13 @@ export function claimProgress(claim: Pick<InsuranceClaim, "id" | "lines" | "line
   return { total, done, booked };
 }
 
-/** The booking page, opened on this patient with this service line already picked. */
+/**
+ * The dashboard, with the booking popup open on this patient and this service line already picked
+ * (Insurance tab). Screens without the popup (phone, the dentist's home) pass the same query on
+ * to /appointments, which reads it too.
+ */
 export function bookLineUrl(patientId: string, link: ClaimLink): string {
-  return `/appointments?book=${encodeURIComponent(patientId)}&claim=${encodeURIComponent(link.claimId)}&line=${link.claimLine}`;
+  return `/?book=${encodeURIComponent(patientId)}&claim=${encodeURIComponent(link.claimId)}&line=${link.claimLine}`;
 }
 
 export type LineSyncPatch = { lineStatus?: Record<number, LineStatus>; dentists?: Record<number, string | null>; treatedDate?: string };
