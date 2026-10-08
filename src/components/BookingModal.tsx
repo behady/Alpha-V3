@@ -1053,6 +1053,8 @@ export default function BookingModal({
   }, [chartNotes, servicesList]);
   type WideTab = "appointment" | "service" | "payment" | "insurance";
   const [wideTab, setWideTab] = useState<WideTab>("appointment");
+  /** The Insurance tab's "add another insurance" / "upload for this company": opens the upload panel on that insurer. */
+  const [uploadRequest, setUploadRequest] = useState<{ n: number; payerId?: string }>({ n: 0 });
   useEffect(() => {
     if (isOpen) setWideTab(initialTab ?? "appointment");
   }, [isOpen, initialTab]);
@@ -2048,8 +2050,16 @@ servicesList.length > 0 && (
                 {panelHead(isAr ? "التأمين" : "Insurance", false)}
                 {headerPatientId ? (
                   <>
-                    <InsuranceApprovals language={language} loaded={claimsLoaded} claims={patientClaims.claims} claimLinks={claimLinks} onToggle={toggleLine} dentistId={resolvedDoctorId} />
-                    <ApprovalUploadPanel patientId={headerPatientId} patientName={selectedPatient?.name || ""} language={language} />
+                    <InsuranceApprovals
+                      language={language}
+                      loaded={claimsLoaded}
+                      claims={patientClaims.claims}
+                      claimLinks={claimLinks}
+                      onToggle={toggleLine}
+                      dentistId={resolvedDoctorId}
+                      onUpload={(payerId) => setUploadRequest((r) => ({ n: r.n + 1, payerId }))}
+                    />
+                    <ApprovalUploadPanel patientId={headerPatientId} patientName={selectedPatient?.name || ""} language={language} request={uploadRequest} />
                   </>
                 ) : (
                   <p className="mt-4 text-[15px] text-ink-body">{isAr ? "اختار مريض مسجل الأول." : "Pick a saved patient first."}</p>

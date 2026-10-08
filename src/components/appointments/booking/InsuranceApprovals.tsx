@@ -1,7 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { Check, Link2Off, Loader2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { doc, onSnapshot } from "firebase/firestore";
+import { Check, Link2Off, Loader2, Plus, Upload } from "lucide-react";
+import { db } from "@/lib/firebase";
+import { isInsurerFormat, parsePayers, PRIVATE_PAYER_ID, type Payer } from "@/lib/payers";
 import InsurerBadge from "@/components/shared/InsurerBadge";
 import { patchClaim, InsuranceCallError } from "@/components/insurance/api";
 import { useClinic } from "@/context/ClinicContext";
@@ -20,6 +23,8 @@ type Props = {
   onToggle: (value: string) => void;
   /** The visit's dentist: a service marked Ongoing or Completed here is put on them. */
   dentistId?: string | null;
+  /** Open the upload panel, on this insurer when given (a company the patient has no approval with yet, or the tab's own). */
+  onUpload?: (payerId?: string) => void;
 };
 
 const money = (n: number) => `${Math.round(Number(n) || 0).toLocaleString("en-US")}`;
@@ -59,12 +64,50 @@ export function approvalFigures(claims: readonly InsuranceClaim[]): { approved: 
  * right here, saved at once through the claims route exactly as the patient file's Insurance tab
  * does it.
  */
-export default function InsuranceApprovals({ language, loaded, claims, claimLinks, onToggle, dentistId }: Props) {
+export default function InsuranceApprovals({ language, loaded, claims, claimLinks, onToggle, dentistId, onUpload }: Props) {
   const isAr = language === "ar";
   const t = (o: { en: string; ar: string }) => (isAr ? o.ar : o.en);
   const { clinicId } = useClinic();
   const { showToast, confirm } = useUI();
   const [busy, setBusy] = useState("");
+  const [payers, setPayers] = useState<Payer[]>([]);
+  /** The insurance company whose approvals are on screen. "" = the first tab. */
+  const [tab, setTab] = useState("");
+
+  useEffect(() => {
+    if (!clinicId) return;
+    return onSnapshot(
+      doc(db, "clinics", clinicId, "settings", "payers"),
+      (snap) => setPayers(parsePayers(snap.data())),
+      () => setPayers([]),
+    );
+  }, [clinicId]);
+
+  const payerName = (id: string) => {
+    const p = payers.find((x) => x.id === id);
+    return p ? (isAr ? p.nameAr || p.name : p.name) : isAr ? "شركة تأمين" : "Insurer";
+  };
+
+  /**
+   * One tab per insurance company the patient has approvals with: the company with the newest
+   * live approval first. A patient covered by two companies sees each one's approvals and credit
+   * apart — the money never adds up across insurers.
+   */
+  const groups = useMemo(() => {
+    const byPayer = new Map<string, InsuranceClaim[]>();
+    for (const c of claims) byPayer.set(c.payerId, [...(byPayer.get(c.payerId) ?? []), c]);
+    const newestLive = (list: InsuranceClaim[]) =>
+      list.filter((c) => c.status !== "cancelled").reduce((m, c) => (c.approvalDate > m ? c.approvalDate : m), "");
+    return [...byPayer.entries()]
+      .map(([id, list]) => ({ id, claims: list, live: list.filter((c) => c.status !== "cancelled").length, newest: newestLive(list) }))
+      .sort((a, b) => b.newest.localeCompare(a.newest));
+  }, [claims]);
+  const activeId = groups.some((g) => g.id === tab) ? tab : (groups[0]?.id ?? "");
+  const shown = groups.find((g) => g.id === activeId)?.claims ?? [];
+  /** A company set up to read approvals that this patient has none with yet: where "add another insurance" goes. */
+  const otherInsurer = payers.find(
+    (p) => p.active && p.id !== PRIVATE_PAYER_ID && isInsurerFormat(p.format) && !groups.some((g) => g.id === p.id),
+  );
 
   if (!loaded) {
     return <p className="py-8 text-[15px] text-ink-body">{isAr ? "بنحمّل الموافقات…" : "Loading approvals…"}</p>;
@@ -73,8 +116,8 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
     return (
       <p className="mt-4 rounded-2xl border border-dashed border-line-strong px-5 py-7 text-[15px] text-ink-body">
         {isAr
-          ? "مفيش موافقات تأمين للمريض ده لسه. ارفع ورقة الموافقة من الزرار اللي تحت."
-          : "No insurance approvals for this patient yet. Upload the approval paper with the button below."}
+          ? "مفيش موافقات تأمين للمريض ده لسه. ارفع ورقة الموافقة من الزرار اللي تحت، واختار شركة التأمين."
+          : "No insurance approvals for this patient yet. Upload the approval paper with the button below and pick the insurance company."}
       </p>
     );
   }
@@ -121,7 +164,7 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
   };
 
   const linked = (claimId: string, line: number) => claimLinks.some((l) => l.claimId === claimId && l.claimLine === line);
-  const total = approvalFigures(claims);
+  const total = approvalFigures(shown);
   const tile = (label: string, value: number, strong = false) => (
     <div className={`rounded-2xl border px-5 py-4 ${strong ? "border-ink-slab" : "border-line-strong"}`}>
       <p className="text-[13px] font-semibold uppercase tracking-[0.05em] text-ink-body">{label}</p>
@@ -132,12 +175,57 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
   );
 
   // Live approvals first, newest first; cancelled ones sink to the bottom.
-  const sorted = [...claims].sort(
+  const sorted = [...shown].sort(
     (a, b) => Number(a.status === "cancelled") - Number(b.status === "cancelled") || b.approvalDate.localeCompare(a.approvalDate),
   );
 
   return (
     <div className="mt-4 space-y-4">
+      {/* Which insurance company: one tab each, and a way to add another. */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-line pb-3" role="tablist" aria-label={isAr ? "شركات التأمين" : "Insurance companies"}>
+        {groups.map((g) => {
+          const on = g.id === activeId;
+          return (
+            <button
+              key={g.id}
+              type="button"
+              role="tab"
+              aria-selected={on}
+              onClick={() => setTab(g.id)}
+              className={`inline-flex h-12 items-center gap-2.5 rounded-xl border px-4 text-[15px] font-bold transition-colors ${
+                on ? "border-ink-slab bg-ink-slab text-white" : "border-line-strong bg-surface text-ink hover:border-ink"
+              }`}
+            >
+              <InsurerBadge name={payerName(g.id)} size={24} />
+              {payerName(g.id)}
+              <span className={`rounded-full px-2 py-0.5 font-figure text-xs ${on ? "bg-white/15 text-white" : "bg-surface-muted text-ink-body"}`}>{g.live}</span>
+            </button>
+          );
+        })}
+        {onUpload && (
+          <button
+            type="button"
+            onClick={() => onUpload(otherInsurer?.id)}
+            className="inline-flex h-12 items-center gap-2 rounded-xl border border-dashed border-line-strong px-4 text-[14px] font-semibold text-ink-body transition-colors hover:border-ink hover:text-ink"
+          >
+            <Plus size={16} /> {isAr ? "تأمين تاني" : "Another insurance"}
+          </button>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xl font-black text-ink">{payerName(activeId)}</p>
+        {onUpload && (
+          <button
+            type="button"
+            onClick={() => onUpload(activeId)}
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-line-strong bg-surface px-4 text-sm font-semibold text-ink transition-colors hover:border-ink hover:bg-surface-subtle"
+          >
+            <Upload size={15} /> {isAr ? `ارفع موافقة لـ ${payerName(activeId)}` : `Upload an approval for ${payerName(activeId)}`}
+          </button>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {tile(isAr ? "المبلغ الموافق عليه" : "Approved amount", total.approved)}
         {tile(isAr ? "اتعمل منه" : "Services done", total.done)}
@@ -154,7 +242,7 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
           <div key={c.id} className={`overflow-hidden rounded-2xl border border-line-strong ${c.status === "cancelled" ? "opacity-60" : ""}`}>
             <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
               <div className="flex flex-wrap items-center gap-2.5">
-                <InsurerBadge name="MetLife" size={26} />
+                <InsurerBadge name={payerName(c.payerId)} size={26} />
                 <span className="font-figure text-lg font-semibold tabular-nums text-ink">
                   {isAr ? "موافقة" : "Approval"} {c.approvalNumber}
                 </span>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { doc, getDoc, onSnapshot } from "firebase/firestore";
 import { Upload, X } from "lucide-react";
 import Protect from "@/components/Protect";
@@ -15,7 +15,16 @@ import { WORDING_DOC } from "@/lib/insurance/claims";
 import { isInsurerFormat, parsePayers, PRIVATE_PAYER_ID, type Payer } from "@/lib/payers";
 import { readInsurance } from "@/lib/patientInsurance";
 
-type Props = { patientId: string; patientName: string; language: string };
+type Props = {
+  patientId: string;
+  patientName: string;
+  language: string;
+  /**
+   * Open the panel from outside (the Insurance tab's "add another insurance" and "upload for this
+   * company" buttons). Each new `n` opens it once, on `payerId` when given, and scrolls it into view.
+   */
+  request?: { n: number; payerId?: string };
+};
 
 /**
  * "Upload approval" inside the booking popup's Insurance tab.
@@ -28,7 +37,7 @@ type Props = { patientId: string; patientName: string; language: string };
  * Shown only where the Insurance page itself would be: the add-on is on and the user may edit
  * patients.
  */
-export default function ApprovalUploadPanel({ patientId, patientName, language }: Props) {
+export default function ApprovalUploadPanel({ patientId, patientName, language, request }: Props) {
   const isAr = language === "ar";
   const { clinicId, clinic } = useClinic();
   const { showToast } = useUI();
@@ -41,6 +50,21 @@ export default function ApprovalUploadPanel({ patientId, patientName, language }
   const [patient, setPatient] = useState<PatientOption | null>(null);
   const [cards, setCards] = useState<OpenDoc[]>([]);
   const [pickedPayer, setPickedPayer] = useState("");
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // A new request opens the panel on its insurer (adjusted during render, not in an effect)…
+  const [seenRequest, setSeenRequest] = useState(0);
+  if (request && request.n > seenRequest) {
+    setSeenRequest(request.n);
+    setOpenPanel(true);
+    if (request.payerId) setPickedPayer(request.payerId);
+  }
+  // …and brings it on screen once it has rendered open.
+  useEffect(() => {
+    if (seenRequest <= 0) return;
+    const id = window.setTimeout(() => panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+    return () => window.clearTimeout(id);
+  }, [seenRequest]);
 
   useEffect(() => {
     if (!clinicId || !unlocked || !openPanel) return;
@@ -94,7 +118,7 @@ export default function ApprovalUploadPanel({ patientId, patientName, language }
 
   return (
     <Protect permission="patients.edit">
-      <div className="mt-4">
+      <div ref={panelRef} className="mt-4">
         {!openPanel ? (
           <button
             type="button"
@@ -126,18 +150,20 @@ export default function ApprovalUploadPanel({ patientId, patientName, language }
             ) : (
               <>
                 {insurers.length > 1 && (
-                  <select
-                    value={payerId}
-                    onChange={(e) => setPickedPayer(e.target.value)}
-                    aria-label={isAr ? "شركة التأمين" : "Insurer"}
-                    className="w-full max-w-xs rounded-xl border border-line-strong bg-surface px-3 py-2.5 text-sm font-semibold text-ink outline-none focus:border-ink"
-                  >
-                    {insurers.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {isAr ? p.nameAr || p.name : p.name}
-                      </option>
-                    ))}
-                  </select>
+                  <label className="block">
+                    <span className="mb-1 block text-[13px] font-semibold text-ink-body">{isAr ? "شركة التأمين" : "Insurance company"}</span>
+                    <select
+                      value={payerId}
+                      onChange={(e) => setPickedPayer(e.target.value)}
+                      className="w-full max-w-xs rounded-xl border border-line-strong bg-surface px-3 py-2.5 text-sm font-semibold text-ink outline-none focus:border-ink"
+                    >
+                      {insurers.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {isAr ? p.nameAr || p.name : p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 )}
                 <ApprovalDropZone payer={payer} onRead={(d) => setCards((prev) => (prev.some((c) => c.docId === d.docId) ? prev : [...prev, d]))} />
               </>
