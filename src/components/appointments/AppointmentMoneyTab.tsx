@@ -1175,6 +1175,7 @@ export default function AppointmentMoneyTab({
                 treatments={treatments}
                 isAr={isAr}
                 narrow={false}
+                patientId={patientId}
               />
               <p className="mt-1.5 text-xs font-semibold text-ink-body">
                 {procTeeth.length

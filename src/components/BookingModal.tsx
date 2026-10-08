@@ -1364,6 +1364,7 @@ servicesList.length > 0 && (
                   treatments={chartTreatments}
                   isAr={language === 'ar'}
                   narrow={false}
+                  patientId={headerPatientId || undefined}
                 />
                 <p className="mt-1.5 text-xs font-semibold text-ink-body">
                   {procTeeth.length

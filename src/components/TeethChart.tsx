@@ -26,6 +26,7 @@ import {
   findOption,
   getStatusesFromTooth,
   type ToothData,
+  isMissingStatus,
   normalizeToothData,
 } from "@/lib/diagnosisCatalog";
 import ToothSVG, { isUpperFDI, toothTypeFromFDI, toothTypeFromPrimaryFDI } from "@/components/teeth/ToothSVG";
@@ -381,6 +382,42 @@ export default function TeethChart({
       ...pending.map((t) => `${t.procedure || TREATMENT_STATES[t.state].labelEn} — ${t.status}`),
     ];
 
+    /**
+     * In the picker, the mark on a tooth is spelled out in a word under it — "حشو", "تاج",
+     * "زرعة" — because a dentist choosing a tooth should not have to decode a symbol or hover
+     * for a tooltip (phones have no hover). The form wins over the mark, as in the drawing.
+     */
+    const wordState = doneForm?.state && doneForm.state !== "extracted" ? doneForm.state : doneMark?.state;
+    const wordUnder =
+      selectionMode && wordState && wordState !== "treated"
+        ? language === "ar" ? TREATMENT_STATES[wordState].labelAr : TREATMENT_STATES[wordState].labelEn
+        : "";
+    const isPicked = selectionMode && selectedTeeth.includes(id);
+    /** Charted or extracted with nothing put back: the number is struck through under the ✕. */
+    const readsGone =
+      (isMissingStatus(statuses) && doneForm?.state !== "implant" && doneForm?.state !== "crowned") ||
+      doneForm?.state === "extracted";
+    const numberClass = isPicked
+      ? "text-ink font-black"
+      : readsGone
+        ? "text-rose-600 line-through decoration-2"
+        : isActive
+          ? "text-blue-600"
+          : "text-slate-400 group-hover:text-ink-body";
+    const wordChip = selectionMode ? (
+      <span
+        className={`block h-[14px] rounded-[5px] border px-1 text-[9px] font-black leading-[12px] whitespace-nowrap ${
+          wordUnder
+            ? wordState === "implant"
+              ? "border-[#B5E3DA] bg-[#E6F6F3] text-[#0F766E]"
+              : "border-emerald-200 bg-emerald-50 text-emerald-800"
+            : "invisible border-transparent"
+        }`}
+      >
+        {wordUnder || "·"}
+      </span>
+    ) : null;
+
     const tooltipLines = statuses
       .map(s => {
         const o = findOption(s);
@@ -421,12 +458,13 @@ export default function TeethChart({
           </div>
         )}
 
-        {/* Tooth number for Buccal upper */}
+        {/* Lower tooth: the number sits above it, toward the midline. */}
         {!isUpper && viewType === "buccal" && !perioMode && (
-           <div className={`text-[10px] sm:text-xs font-bold tabular-nums tracking-tight transition-colors ${isActive ? "text-blue-600" : "text-slate-400 group-hover:text-ink-body"} ${dense ? "mt-0.5" : "mt-2"}`}>
+           <div className={`text-[10px] sm:text-xs font-bold tabular-nums tracking-tight transition-colors ${numberClass} ${dense ? "mt-0.5" : "mt-2"}`}>
              {id}
            </div>
         )}
+        {isUpper && viewType === "buccal" && wordChip}
 
         <div
           className={`transition-all duration-200 ${
@@ -455,7 +493,7 @@ export default function TeethChart({
                * a glow, black is not a diagnosis hue, and the body of the tooth stays untinted so
                * whatever was done to it is still legible while it is picked.
                */
-              ? "scale-110 z-10 rounded-full ring-2 ring-slate-900 ring-offset-2 ring-offset-white" 
+              ? "scale-110 z-10 rounded-full bg-accent ring-2 ring-ink-slab ring-offset-2 ring-offset-white" 
               : isActive 
                 ? "scale-110 z-10 shadow-lg rounded-full" 
                 : isHover 
@@ -502,12 +540,13 @@ export default function TeethChart({
           </div>
         )}
 
-        {/* Tooth number for lower (below tooth) */}
+        {/* Upper tooth: the number sits below it, toward the midline. */}
         {isUpper && viewType === "buccal" && !perioMode && (
-           <div className={`text-[10px] sm:text-xs font-bold tabular-nums tracking-tight transition-colors ${isActive ? "text-blue-600" : "text-slate-400 group-hover:text-ink-body"} ${dense ? "mb-0.5" : "mb-2"}`}>
+           <div className={`text-[10px] sm:text-xs font-bold tabular-nums tracking-tight transition-colors ${numberClass} ${dense ? "mb-0.5" : "mb-2"}`}>
              {id}
            </div>
         )}
+        {!isUpper && viewType === "buccal" && wordChip}
 
         {/* Tooltip */}
         {isHover && tooltipLines.length > 0 && (
@@ -567,6 +606,19 @@ export default function TeethChart({
                 : `min-w-[620px] md:min-w-[760px] ${wide ? "lg:min-w-[850px] xl:min-w-[1000px]" : ""}`
           }`}
         >
+          {/* Which side is which, in the picker: the chart is drawn as the dentist faces the
+              patient, so the patient's right is on the viewer's left. */}
+          {dense && selectionMode && (
+            <div className="flex items-center justify-between px-2 pb-1.5 text-[11px] font-bold text-ink">
+              <span className="rounded-full border border-line-strong bg-surface px-2.5 py-0.5">
+                {language === "ar" ? "يمين المريض" : "Patient's right"} <span className="font-figure text-ink-muted">R</span>
+              </span>
+              <span className="text-ink-muted">{language === "ar" ? "الفك العلوي" : "Upper jaw"}</span>
+              <span className="rounded-full border border-line-strong bg-surface px-2.5 py-0.5">
+                <span className="font-figure text-ink-muted">L</span> {language === "ar" ? "شمال المريض" : "Patient's left"}
+              </span>
+            </div>
+          )}
           {/* Arch label header */}
           <div className={`${dense ? "hidden" : "flex"} items-center justify-between px-3 mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400`}>
             <span>{language === "ar" ? "يمين" : "Right"}</span>

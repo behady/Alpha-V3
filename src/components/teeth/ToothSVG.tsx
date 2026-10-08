@@ -117,8 +117,25 @@ export default function ToothSVG({
    */
   const crownedHere = treatment === "crowned";
   const hasCrown = statuses.includes("rest_crown") || crownedHere;
-  /** An extraction we performed empties the socket exactly as a charted `surg_missing` does. */
-  const gone = missing || treatment === "extracted";
+  /**
+   * An implant placed here. It is drawn as the tooth it replaced in ceramic white with a titanium
+   * screw at its corner, rather than as a mark over an empty socket: the dentist charted the tooth
+   * missing, the clinic filled the gap, and the chart should now show a tooth there again.
+   */
+  const implanted = treatment === "implant";
+  /**
+   * An extraction we performed empties the socket exactly as a charted `surg_missing` does — until
+   * an implant or a crown is put in that gap, which is work done AFTER the tooth was charted gone.
+   */
+  const gone = (missing && !implanted && !crownedHere) || treatment === "extracted";
+  /**
+   * Real proportions: a lateral incisor is narrower than a central, and the lower incisors are the
+   * smallest teeth in the mouth. Drawing every incisor at molar size made the front of the chart
+   * look like a row of shields.
+   */
+  const position = fdi % 10;
+  const sizeScale =
+    type !== "incisor" ? 1 : isUpper ? (position === 1 ? 0.92 : 0.8) : position === 1 ? 0.7 : 0.74;
   
   let filterStyle = "";
   if (isActive) {
@@ -137,6 +154,10 @@ export default function ToothSVG({
   if (isOcclusal && hasCrown) {
     filterStyle += " sepia(100%) hue-rotate(180deg) saturate(0) brightness(0.8) contrast(1.2)";
   }
+  // An implant crown is ceramic: the ivory goes, the shape stays.
+  if (implanted && !hasCrown) {
+    filterStyle += " grayscale(1) brightness(1.12) contrast(1.05)";
+  }
   
   let baseSrc = `/teeth/${type}.png`;
   if (isOcclusal) {
@@ -147,7 +168,7 @@ export default function ToothSVG({
     baseSrc = `/teeth/crown_${type}.png`;
   }
   
-  const imageSrc = `${baseSrc}?v=1`; // Cache buster
+  const imageSrc = `${baseSrc}?v=2`; // Cache buster — v2: the incisor lost its white square
 
   return (
     <div 
@@ -160,7 +181,9 @@ export default function ToothSVG({
       <div 
         className={`absolute inset-0 transition-transform duration-300`}
         style={{
-           transform: isOcclusal ? undefined : `scale(${scaleX}, ${scaleY})`,
+           transform: isOcclusal
+             ? sizeScale === 1 ? undefined : `scale(${sizeScale})`
+             : `scale(${scaleX * sizeScale}, ${scaleY * sizeScale})`,
            filter: filterStyle,
            opacity: gone ? 0.15 : 1,
         }}
@@ -223,8 +246,25 @@ export default function ToothSVG({
         * `crowned` is absent here: it changes the tooth ITSELF above, by swapping the artwork,
         * which is a stronger signal than anything drawn on top and needs no key to read.
         */}
-      {treatment && !gone && treatment !== "crowned" && treatment !== "treated" && (
+      {treatment && !gone && treatment !== "crowned" && treatment !== "treated" && treatment !== "implant" && (
         <ToothTreatmentMark treatment={treatment} isUpper={isUpper} />
+      )}
+
+      {/* The implant's screw, at the corner so the tooth it carries stays readable. */}
+      {implanted && (
+        <svg
+          viewBox="0 0 20 28"
+          aria-hidden="true"
+          className="pointer-events-none absolute -bottom-1 -right-0.5 z-20 h-[46%] w-auto drop-shadow-[0_1px_1px_rgba(0,0,0,0.35)]"
+        >
+          <path
+            d="M5 2h10v4l-1.5 2 1.5 2-1.5 2 1.5 2-1.5 2 1.5 2-1.5 2L13 22l-3 5-3-5-1.5-2 1.5-2-1.5-2 1.5-2-1.5-2 1.5-2L5 6z"
+            fill="#8A94A6"
+            stroke="#fff"
+            strokeWidth="1.2"
+          />
+          <rect x="6.5" y="0" width="7" height="3" rx="1" fill="#8A94A6" stroke="#fff" strokeWidth="1.2" />
+        </svg>
       )}
 
       {/* What is marked ON the tooth, whatever its form became. A crowned tooth still shows the

@@ -9,6 +9,9 @@ import { collection, addDoc, doc, updateDoc, serverTimestamp, getDocs, query, wh
 import { getStorage, ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { useUI } from "@/context/UIContext";
 import { isArchPicked, missingInArch, missingTeeth, toggleArch, type ArchPick } from "@/lib/archSelection";
+import { isMissingStatus, normalizeToothData } from "@/lib/diagnosisCatalog";
+import { cairo } from "@/lib/fonts/arabic";
+import InsurerBadge from "@/components/shared/InsurerBadge";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { logActivity } from "@/lib/logger";
@@ -87,10 +90,11 @@ export const TeethChartSelector = memo(function TeethChartSelector({
   selected,
   onToggle,
   onSetSelected,
-  teethData,
+  teethData: teethDataProp,
   treatments,
   isAr,
   narrow,
+  patientId,
 }: {
   selected: string[];
   onToggle: (toothCode: string) => void;
@@ -100,10 +104,54 @@ export const TeethChartSelector = memo(function TeethChartSelector({
   isAr: boolean;
   /** True in the side sheet, where the panel is 672px however wide the monitor is. */
   narrow: boolean;
+  /**
+   * Whose chart this is. With it, the panel offers "mark the extracted teeth": each tap writes
+   * `surg_missing` onto that tooth in the patient's own record, so the ✕ shows here, on the
+   * diagnosis chart and in the booking popup alike. Without it the chart is read-only history.
+   */
+  patientId?: string;
 }) {
-    const { confirm } = useUI();
+    const { confirm, showToast } = useUI();
     // Convert string array to number array for TeethChart
     const selectedNumbers = selected.map(s => parseInt(s, 10)).filter(n => !isNaN(n));
+
+    /** Marking mode: taps flag teeth as missing instead of picking them for the treatment. */
+    const [markingMissing, setMarkingMissing] = useState(false);
+    /**
+     * What this panel has written since it opened, over the chart it was given. The booking popup
+     * loads the patient once rather than listening, so without this a tooth marked missing there
+     * would show the ✕ only after the popup was reopened.
+     */
+    const [missingOverride, setMissingOverride] = useState<Record<string, boolean>>({});
+    const teethData = useMemo(() => {
+      const codes = Object.keys(missingOverride);
+      if (codes.length === 0) return teethDataProp;
+      const next: Record<string, ToothData> = { ...teethDataProp };
+      for (const code of codes) {
+        const cur = normalizeToothData(next[code]);
+        const statuses = (cur.statuses ?? []).filter((s) => s !== "surg_missing");
+        next[code] = { ...cur, statuses: missingOverride[code] ? [...statuses, "surg_missing"] : statuses };
+      }
+      return next;
+    }, [teethDataProp, missingOverride]);
+
+    const toggleMissing = async (code: string) => {
+      if (!patientId) return;
+      const cur = normalizeToothData(teethData[code]);
+      const wasMissing = isMissingStatus(cur.statuses ?? []);
+      const statuses = (cur.statuses ?? []).filter((s) => s !== "surg_missing" && s !== "dev_hypodontia");
+      const next: ToothData = { ...cur, statuses: wasMissing ? statuses : [...statuses, "surg_missing"] };
+      setMissingOverride((m) => ({ ...m, [code]: !wasMissing }));
+      // A tooth that is not there cannot be picked for this treatment by accident.
+      if (!wasMissing) onSetSelected((prev) => prev.filter((t) => t !== code));
+      try {
+        await updateDoc(getClinicDoc("patients", patientId), { [`teethData.${code}`]: next });
+      } catch (e) {
+        console.error(e);
+        setMissingOverride((m) => ({ ...m, [code]: wasMissing }));
+        showToast(isAr ? "ماتحفظش — جرّب تاني" : "Not saved — try again", "error");
+      }
+    };
 
     /** Teeth the chart says are gone: a missing diagnosis, or an extraction nothing replaced. */
     const missing = useMemo(() => missingTeeth(teethData, treatments), [teethData, treatments]);
@@ -164,17 +212,41 @@ export const TeethChartSelector = memo(function TeethChartSelector({
       .filter(Boolean) as string[];
 
     return (
-      <div className="w-full p-3 bg-surface-subtle border border-line rounded-2xl min-w-0">
-        <div className="flex items-center justify-between gap-2 mb-2">
-          <p className="text-[10px] font-bold text-ink-muted">
-            {isAr ? "اختر الأسنان من المخطط" : "Select teeth from chart"}
+      <div className="w-full p-3 bg-surface border border-line rounded-2xl min-w-0">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[15px] font-black text-ink">
+            {isAr ? "اختار الأسنان" : "Pick the teeth"}
           </p>
-          {selected.length > 0 && (
-            <span className="text-[10px] font-black text-ink-body tabular-nums">
-              {isAr ? "المختار" : "Selected"} {selected.length}
+          <div className="flex flex-wrap items-center gap-2">
+            {patientId && (
+              <button
+                type="button"
+                aria-pressed={markingMissing}
+                onClick={() => setMarkingMissing((v) => !v)}
+                className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[12px] font-bold transition-colors ${
+                  markingMissing
+                    ? "border-rose-600 bg-rose-600 text-white"
+                    : "border-line-strong bg-surface text-ink hover:border-rose-400"
+                }`}
+              >
+                <X size={13} strokeWidth={3} className={markingMissing ? "text-white" : "text-rose-600"} />
+                {markingMissing
+                  ? isAr ? "خلاص، رجّعني للاختيار" : "Done marking"
+                  : isAr ? "علّم الأسنان المخلوعة" : "Mark extracted teeth"}
+              </button>
+            )}
+            <span className={`rounded-full px-3 py-1 text-[12px] font-black tabular-nums ${selected.length > 0 ? "bg-accent text-ink-on-accent" : "bg-surface-muted text-ink-muted"}`}>
+              <span className="font-figure">{selected.length}</span> {isAr ? "مختارين" : "selected"}
             </span>
-          )}
+          </div>
         </div>
+        {markingMissing && (
+          <p className="mb-2 rounded-xl bg-rose-50 px-3 py-2 text-[13px] font-bold leading-relaxed text-rose-700">
+            {isAr
+              ? "اضغط على كل سن مش موجود في فم المريض. بيتحفظ في مخطط المريض فورًا وبيظهر بعلامة ✕ هنا وفي ملف المريض وفي نافذة الحجز. مكان السن المخلوع بيفضل تقدر تختاره لزرعة أو كوبري أو طقم."
+              : "Tap every tooth that is not in the patient's mouth. It is saved to the patient's chart at once and shows with an ✕ here, in the patient file and in the booking popup. The gap can still be picked for an implant, a bridge or a denture."}
+          </p>
+        )}
 
         {/*
          * No `overflow-y-auto` and no fixed height. The box was `max-h-[300px]` with the scrollbar
@@ -184,7 +256,7 @@ export const TeethChartSelector = memo(function TeethChartSelector({
         {/* The chart, and beside it the three arch ticks: upper on top, full mouth, lower at the
             bottom — where each sits against the chart it selects. */}
         <div className="flex items-stretch gap-2">
-          <div className="min-w-0 flex-1 rounded-xl border border-line bg-surface shadow-inner">
+          <div className={`min-w-0 flex-1 rounded-xl border bg-surface-subtle ${markingMissing ? "border-rose-400 border-dashed" : "border-line"}`}>
             <TeethChart
               data={teethData}
               treatments={treatments}
@@ -193,7 +265,7 @@ export const TeethChartSelector = memo(function TeethChartSelector({
               dense
               narrow={narrow}
               selectedTeeth={selectedNumbers}
-              onToggleTooth={(id) => onToggle(id.toString())}
+              onToggleTooth={(id) => (markingMissing ? void toggleMissing(id.toString()) : onToggle(id.toString()))}
             />
           </div>
           <div className="flex w-[6.5rem] shrink-0 flex-col justify-between gap-2 rounded-xl border border-line bg-surface p-2">
@@ -207,12 +279,12 @@ export const TeethChartSelector = memo(function TeethChartSelector({
                   aria-checked={on}
                   onClick={() => void pickArch(pick)}
                   className={`flex flex-1 items-center gap-2 rounded-lg border px-2 py-2 text-start text-[12px] font-bold transition-colors ${
-                    on ? "border-ink bg-ink-slab text-white" : "border-line bg-surface-subtle text-ink-body hover:border-line-strong"
+                    on ? "border-ink-slab bg-accent-tint text-ink" : "border-line bg-surface-subtle text-ink-body hover:border-line-strong"
                   }`}
                 >
                   <span
                     className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                      on ? "border-white bg-white text-ink" : "border-line-strong bg-surface"
+                      on ? "border-ink-slab bg-ink-slab text-[#FACC15]" : "border-line-strong bg-surface"
                     }`}
                     aria-hidden="true"
                   >
@@ -226,11 +298,16 @@ export const TeethChartSelector = memo(function TeethChartSelector({
         </div>
 
         {onSelected.length > 0 && (
-          <p className="mt-2 text-[10px] font-bold text-ink-body leading-relaxed">
-            <span className="text-slate-400">{isAr ? "على الأسنان دي:" : "Already on these:"}</span>{" "}
+          <p className="mt-2 text-[12px] font-bold text-ink-body leading-relaxed">
+            <span className="text-ink-muted">{isAr ? "متسجّل قبل كده على الأسنان دي:" : "Already on these:"}</span>{" "}
             {onSelected.join("  ·  ")}
           </p>
         )}
+        <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-bold text-ink-muted">
+          <span><span className="me-1.5 inline-block h-3 w-3 rounded-full bg-accent align-[-2px] ring-2 ring-ink-slab" />{isAr ? "السن المختار" : "picked tooth"}</span>
+          <span><span className="me-1.5 inline-block rounded border border-emerald-200 bg-emerald-50 px-1 text-[9px] text-emerald-800">حشو</span>{isAr ? "الكلمة تحت السن = إجراء متسجّل عليه" : "word under a tooth = work recorded on it"}</span>
+          <span><span className="me-1.5 inline-block font-black text-rose-600">✕</span>{isAr ? "سن مخلوع — ينفع تختاره لزرعة أو كوبري" : "extracted — can still take an implant or a bridge"}</span>
+        </p>
       </div>
     );
   });
@@ -693,7 +770,7 @@ export default function ServiceEditorDrawer({
           <select
             value={previewMode}
             onChange={(e) => setPricingModeOverride(e.target.value as PricingMode)}
-            className="bg-surface border border-line rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-700 outline-none focus:border-blue-500"
+            className="bg-surface border border-line-strong rounded-lg px-2.5 py-1.5 text-xs font-bold text-ink outline-none focus:border-ink"
           >
             <option value="per_tooth">{modeLabels.per_tooth}</option>
             <option value="flat">{modeLabels.flat}</option>
@@ -714,8 +791,8 @@ export default function ServiceEditorDrawer({
 
   // --- Individual controls, so the two layouts below share one set of inputs ---
   const inputClass =
-    "w-full bg-surface-subtle border border-line rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-blue-500";
-  const labelClass = "block text-xs font-bold text-ink-muted mb-1";
+    "w-full bg-surface border border-line-strong rounded-xl px-4 py-2.5 text-[15px] font-bold text-ink outline-none focus:border-ink";
+  const labelClass = "block text-[13px] font-bold text-ink-muted mb-1";
 
   const dateField = (
     <div>
@@ -724,14 +801,35 @@ export default function ServiceEditorDrawer({
     </div>
   );
 
+  /** Three buttons, in the dentist's own words, instead of an English dropdown. */
+  const statusOptions: Array<{ value: "Planned" | "Ongoing" | "Completed"; label: string }> = [
+    { value: "Planned", label: isAr ? "مخطط" : "Planned" },
+    { value: "Ongoing", label: isAr ? "جاري" : "Ongoing" },
+    { value: "Completed", label: isAr ? "اتعمل" : "Done" },
+  ];
   const statusField = (
     <div>
-      <label className={labelClass}>{txt.status}</label>
-      <select value={procedureStatus} onChange={e => setProcedureStatus(e.target.value as any)} className={inputClass}>
-        <option value="Planned">Planned</option>
-        <option value="Ongoing">Ongoing</option>
-        <option value="Completed">Completed</option>
-      </select>
+      <span className={labelClass}>{txt.status}</span>
+      <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label={txt.status}>
+        {statusOptions.map((o) => {
+          const on = procedureStatus === o.value;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              onClick={() => setProcedureStatus(o.value)}
+              className={`flex h-[46px] items-center justify-center gap-1.5 rounded-xl border px-2 text-[15px] font-bold transition-colors ${
+                on ? "border-ink-slab bg-ink-slab text-white" : "border-line-strong bg-surface text-ink hover:border-ink"
+              }`}
+            >
+              {on && o.value === "Completed" && <Check size={16} strokeWidth={3} className="text-[#FACC15]" />}
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 
@@ -789,7 +887,7 @@ export default function ServiceEditorDrawer({
               priceListId={discount.priceListId || null}
               services={offeredServices} value={procedure}
               onChange={handleProcedureChange}
-              placeholder="Search procedures..."
+              placeholder={isAr ? "اكتب اسم العلاج…" : "Search procedures..."}
               valueKey="name"
               allowFreeText
             />
@@ -813,7 +911,7 @@ export default function ServiceEditorDrawer({
     <textarea
       value={multiProceduresText} onChange={(e) => setMultiProceduresText(e.target.value)}
       rows={rows}
-      placeholder="Additional procedures (one per line)"
+      placeholder={isAr ? "علاجات تانية في نفس الزيارة (كل واحد في سطر)" : "Additional procedures (one per line)"}
       className={`${inputClass} resize-y`}
     />
   );
@@ -822,7 +920,7 @@ export default function ServiceEditorDrawer({
     <div>
       <label className={labelClass}>{txt.notes}</label>
       <textarea
-        value={noteText} onChange={e => setNoteText(e.target.value)} placeholder="Clinical details..."
+        value={noteText} onChange={e => setNoteText(e.target.value)} placeholder={isAr ? "أي حاجة الدكتور الجاي محتاج يعرفها" : "Clinical details..."}
         rows={rows}
         className={`${inputClass} resize-y`}
       />
@@ -836,39 +934,40 @@ export default function ServiceEditorDrawer({
    * Insurance tab, where the approval itself lives.
    */
   const approvalSummary = approval ? (
-    <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm">
-      <p className="font-black text-ink">
-        {language === "ar" ? "من موافقة تأمين" : "From an insurance approval"}
-        {approval.payer ? ` · ${approval.payer}` : ""}
-        {approval.number ? (
-          <>
-            {" · "}
-            <bdi dir="ltr" className="font-figure">{approval.number}</bdi>
-          </>
-        ) : null}
-      </p>
-      <p className="mt-1 font-bold text-ink-body">
-        {procedure}
+    <div className="rounded-2xl border border-accent-soft bg-accent-tint px-4 py-3.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="inline-flex items-center gap-2 text-[14px] font-black text-ink">
+          {approval.payer && <InsurerBadge name={approval.payer} size={24} />}
+          {approval.payer ? `${approval.payer} · ` : ""}
+          {language === "ar" ? "موافقة تأمين" : "Insurance approval"}
+        </p>
+        {approval.number && <bdi dir="ltr" className="font-figure text-[14px] font-bold text-ink-body">{approval.number}</bdi>}
+      </div>
+      <p className="mt-2 text-2xl font-black leading-tight text-ink">{procedure}</p>
+      <p className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[15px] font-bold text-ink-body">
         {selectedTeeth.length > 0 && (
-          <>
-            {" · "}
-            {language === "ar" ? "الأسنان" : "Teeth"} <bdi dir="ltr" className="font-figure">{selectedTeeth.join(", ")}</bdi>
-          </>
-        )}
-      </p>
-      <p className="mt-1 font-figure font-bold text-ink-body">
-        {approval.cost.toLocaleString()} EGP
-        {approval.share > 0 && (
-          <span className="text-ink-muted">
-            {" "}
-            ({language === "ar" ? "الشركة" : "insurer"} {approval.insurer.toLocaleString()} · {language === "ar" ? "المريض" : "patient"} {approval.share.toLocaleString()})
+          <span>
+            {language === "ar" ? "الأسنان" : "Teeth"} <bdi dir="ltr" className="font-figure font-black text-ink">{selectedTeeth.join(", ")}</bdi>
           </span>
         )}
+        <span>
+          {language === "ar" ? "الإجمالي" : "Total"} <span className="font-figure font-black text-ink">{approval.cost.toLocaleString()}</span> {language === "ar" ? "ج.م" : "EGP"}
+        </span>
+        {approval.share > 0 && (
+          <>
+            <span>
+              {language === "ar" ? "الشركة تدفع" : "Insurer pays"} <span className="font-figure font-black text-ink">{approval.insurer.toLocaleString()}</span>
+            </span>
+            <span>
+              {language === "ar" ? "المريض يدفع" : "Patient pays"} <span className="font-figure font-black text-ink">{approval.share.toLocaleString()}</span>
+            </span>
+          </>
+        )}
       </p>
-      <p className="mt-2 text-xs font-semibold leading-relaxed text-blue-900">
+      <p className="mt-2 text-[13px] font-bold leading-relaxed text-accent-ink">
         {language === "ar"
-          ? "الخدمة والأسنان والسعر جايين من الموافقة، وبيتغيروا من تبويب التأمين في ملف المريض. هنا تقدر تغيّر الحالة والطبيب والملاحظات."
-          : "The service, teeth and price come from the approval and change on the patient's Insurance tab. Here you can change the state, the dentist and the notes."}
+          ? "العلاج والأسنان والسعر جايين من ورقة الموافقة. عايز تغيّرهم؟ من تبويب التأمين في ملف المريض. هنا تغيّر الحالة والدكتور والملاحظات."
+          : "The treatment, teeth and price come from the approval paper. To change them, go to the patient's Insurance tab. Here you change the state, the dentist and the notes."}
       </p>
     </div>
   ) : null;
@@ -891,9 +990,9 @@ export default function ServiceEditorDrawer({
     <label className={`flex items-center gap-3 bg-surface-subtle border border-line rounded-xl cursor-pointer hover:bg-surface-muted transition-colors ${compact ? "px-3 py-2.5" : "p-4"}`}>
       <input
         type="checkbox" checked={addToLedger} onChange={(e) => setAddToLedger(e.target.checked)}
-        className="w-5 h-5 rounded text-blue-600 focus:ring-blue-500 border-line-strong shrink-0"
+        className="w-5 h-5 rounded accent-ink-slab border-line-strong shrink-0"
       />
-      <span className={`font-bold text-slate-700 ${compact ? "text-xs" : "text-sm"}`}>{txt.addToFinance}</span>
+      <span className={`font-bold text-ink ${compact ? "text-xs" : "text-[15px]"}`}>{txt.addToFinance}</span>
     </label>
   ) : null;
 
@@ -902,7 +1001,7 @@ export default function ServiceEditorDrawer({
       type="submit" data-tour="clinical-save"
       form="service-form"
       disabled={isSaving || needsTypedPrice}
-      className={`w-full flex justify-center items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-2xl shadow-lg shadow-blue-500/30 transition-all disabled:opacity-70 ${compact ? "py-2.5 text-sm" : "py-4"}`}
+      className={`w-full flex justify-center items-center gap-2 bg-accent hover:bg-accent-strong text-ink-on-accent font-black rounded-2xl shadow-sm transition-all disabled:opacity-70 ${compact ? "py-2.5 text-sm" : "py-4 text-lg"}`}
     >
       {isSaving ? (
         <>
@@ -989,7 +1088,7 @@ export default function ServiceEditorDrawer({
               <button
                 type="button"
                 onClick={() => setShowExtraProcedures(true)}
-                className="text-[11px] font-bold text-blue-600 hover:text-blue-700 transition-colors"
+                className="text-[12px] font-bold text-ink underline-offset-4 hover:underline"
               >
                 + {txt.extraProcedures}
               </button>
@@ -1004,7 +1103,10 @@ export default function ServiceEditorDrawer({
 
   const content = (
     <div
-      className={`w-full bg-surface flex flex-col ${!inline ? (clinicalEditorMode === 'modal' ? 'h-full max-h-[90vh] rounded-[2rem] shadow-2xl overflow-hidden' : 'h-full min-h-0 shadow-[0_4px_20px_-4px_rgba(6,81,237,0.1)] rounded-t-3xl rounded-b-none lg:rounded-3xl border border-slate-100 overflow-hidden') : 'rounded-2xl border border-line mt-4'}`}
+      /* Portalled to <body>, outside the dashboard wrapper that sets the direction and the Arabic
+         face — so the window sets both itself, or Arabic reads left-to-right in the system font. */
+      dir={isAr ? "rtl" : "ltr"}
+      className={`${cairo.variable} ${isAr ? "arabic-ui" : ""} w-full bg-surface flex flex-col ${!inline ? (clinicalEditorMode === 'modal' ? 'h-full max-h-[90vh] rounded-[2rem] shadow-2xl overflow-hidden' : 'h-full min-h-0 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.2)] rounded-t-3xl rounded-b-none lg:rounded-3xl border border-line overflow-hidden') : 'rounded-2xl border border-line mt-4'}`}
     >
       {!inline && (
         /*
@@ -1015,20 +1117,21 @@ export default function ServiceEditorDrawer({
           * the Save button being on screen and being one more scroll away, and the chart is the
           * thing people came here to look at. Same words, a third of the height.
           */
-        <div className="flex items-center justify-between gap-3 px-5 py-3 md:px-6 border-b border-slate-100 bg-surface shrink-0">
+        <div className="flex items-center justify-between gap-3 px-5 py-3 md:px-6 bg-ink-slab text-white shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shadow-sm shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-accent text-ink-on-accent flex items-center justify-center shrink-0">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
             </div>
             <div className="min-w-0">
-              <h2 className="text-base font-black text-ink tracking-tight leading-tight truncate">{txt.title}</h2>
-              <p className="text-xs font-medium text-ink-muted truncate">{patientName}</p>
+              <h2 className="text-lg font-black text-[#FACC15] tracking-tight leading-tight truncate">{txt.title}</h2>
+              <p className="text-[13px] font-bold text-white/85 truncate">{patientName}</p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-surface-subtle hover:bg-surface-muted text-slate-400 hover:text-ink-body flex items-center justify-center transition-colors shrink-0"
+            aria-label={txt.cancel}
+            className="w-9 h-9 rounded-xl border border-white/20 bg-white/5 hover:bg-white/15 text-white flex items-center justify-center transition-colors shrink-0"
           >
             <X size={18} />
           </button>
@@ -1066,6 +1169,7 @@ export default function ServiceEditorDrawer({
               treatments={treatments}
               isAr={isAr}
               narrow={clinicalEditorMode !== 'modal'}
+              patientId={patientId}
             />
           </div>
         )}
@@ -1125,7 +1229,7 @@ export default function ServiceEditorDrawer({
         </div>
       </div>
 
-      <div className={`px-6 py-4 border-t border-slate-100 bg-surface shrink-0 ${!inline ? 'pb-24 lg:pb-4' : ''}`}>
+      <div className={`px-6 py-4 border-t border-line bg-surface shrink-0 ${!inline ? 'pb-24 lg:pb-4' : ''}`}>
         {saveButton}
       </div>
     </div>
