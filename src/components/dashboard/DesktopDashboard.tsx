@@ -47,6 +47,7 @@ import { doctorCardLabel, pickerValueFromDoctorField } from "@/lib/generalDentis
 import { parseClinicSchedule, dayBoundsCovering, visitStartInDay, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import { weekDaysFrom } from "@/lib/weekSchedule";
 import InsurerBadge from "@/components/shared/InsurerBadge";
+import type { ClaimLink } from "@/lib/insurance/appointments";
 import { holdsPermission } from "@/lib/permissions";
 import { useClinic } from "@/context/ClinicContext";
 import { useActiveBranch, ALL_BRANCHES } from "@/lib/useActiveBranch";
@@ -196,6 +197,53 @@ export default function DesktopDashboard() {
   const [bookingTab, setBookingTab] = useState<"appointment" | "service" | "payment" | "insurance">("appointment");
   /** The popup opened as Quick Pay: pick a patient, pay what they owe, no booking. */
   const [quickPayPopup, setQuickPayPopup] = useState(false);
+  /** The approved service the patient file's Book button asked for; cleared when the popup closes. */
+  const [preSelectedClaimLine, setPreSelectedClaimLine] = useState<ClaimLink | null>(null);
+  // /?book=<patientId>&claim=<claimId>&line=<n> — the patient file's Insurance tab booking one
+  // approved service. Read once, then the address is cleared so refresh/back does not reopen it.
+  // Read from window, not useSearchParams: the hook would need a Suspense boundary on the home page.
+  const bookRequest = useRef<{ patientId: string; claim: ClaimLink | null } | null>(null);
+  const [bookRequestTick, setBookRequestTick] = useState(0);
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const patientId = q.get("book");
+    if (!patientId) return;
+    const claimId = q.get("claim") || "";
+    const line = Number(q.get("line"));
+    bookRequest.current = { patientId, claim: claimId && Number.isInteger(line) && line >= 0 ? { claimId, claimLine: line } : null };
+    setBookRequestTick((n) => n + 1);
+    router.replace("/");
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const req = bookRequest.current;
+    if (!req || patientsList.length === 0) return;
+    bookRequest.current = null;
+    const open = (name: string) => {
+      setSelectedAppointment(null);
+      setAppointmentToEdit(null);
+      setQuickPayPopup(false);
+      setPreSelectedTime("");
+      setPreSelectedDoctor("");
+      setPreSelectedPatient({ id: req.patientId, name });
+      setPreSelectedClaimLine(req.claim);
+      setBookingTab(req.claim ? "insurance" : "appointment");
+      setActiveModal("booking");
+    };
+    const known = patientsList.find((p) => String(p.id) === req.patientId);
+    if (known) {
+      open(String(known.name || ""));
+      return;
+    }
+    // Past the picker's first 2,500 names: read the one patient.
+    getDoc(getClinicDoc("patients", req.patientId))
+      .then((snap) => {
+        if (snap.exists()) open(String(snap.data().name || ""));
+      })
+      .catch((err) => console.error("Book from patient file: patient read failed", err));
+  }, [patientsList, bookRequestTick]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (activeModal !== "booking") setPreSelectedClaimLine(null);
+  }, [activeModal]);
   const openQuickPay = () => {
     if (appointmentEditorMode === "modal") {
       setAppointmentToEdit(null);
@@ -596,7 +644,7 @@ export default function DesktopDashboard() {
     });
     const unsubServices = onSnapshot(
       getClinicCollection("services"),
-      (snap) => setServicesList(snap.docs.map((d) => ({ id: d.id, name: d.data().name, price: d.data().price, /* the per-list overrides — without them an insurer's tariff can never reach this screen */ prices: d.data().prices, category: d.data().category, icon: d.data().icon })))
+      (snap) => setServicesList(snap.docs.map((d) => ({ id: d.id, name: d.data().name, price: d.data().price, /* the per-list overrides — without them an insurer's tariff can never reach this screen */ prices: d.data().prices, category: d.data().category, icon: d.data().icon, /* which list owns it, if one does — the menu filter hides it everywhere else */ listId: d.data().listId })))
     );
     return () => {
       unsubPatients();
@@ -640,6 +688,47 @@ export default function DesktopDashboard() {
 
   const handleSaveBooking = async (data: any) => {
     await executeSaveBooking(data);
+  };
+
+  /**
+   * A new booking confirmed from the popup's Payment tab: saved with its services, and the popup
+   * stays open on the saved visit's Payment tab so the money is taken at once.
+   */
+  const handleSaveBookingAndStay = async (data: any) => {
+    try {
+      const saved = await saveBooking(
+        data,
+        { uid: user?.uid || "", name: user?.name || "System", role: user?.role || "", language: language as "en" | "ar" },
+        async (key: string, msg: string) => {
+          void fireOwnerWhatsAppAlert(key as OwnerAlertKey, msg);
+        },
+      );
+      setAppointmentToEdit({
+        id: saved.appointmentId,
+        patientId: saved.patientId,
+        patientName: String(data.patientName || ""),
+        treatment: String(data.treatment || ""),
+        doctor: String(data.doctor || ""),
+        doctorId: data.doctorId ?? null,
+        date: String(data.date || ""),
+        time: String(data.time || ""),
+        duration: Number(data.duration) || 30,
+        clinicalNoteId: null,
+        branchId: data.branchId ?? null,
+        roomId: data.roomId ?? null,
+        claimId: data.claimId ?? null,
+        claimLine: data.claimLine ?? null,
+        claimLinks: data.claimLinks,
+        cost: Number(data.cost) || 0,
+        notes: String(data.notes || ""),
+        status: String(data.status || "Scheduled"),
+      } as BookingEditSnapshot);
+      setBookingTab("payment");
+      showToast(language === "ar" ? "الحجز اتسجّل — حصّل من هنا" : "Booked — take the payment here", "success");
+    } catch (error) {
+      console.error("Booking save error:", error);
+      showToast(language === "ar" ? "حدث خطأ" : "Error saving appointment", "error");
+    }
   };
 
   /**
@@ -1881,6 +1970,7 @@ export default function DesktopDashboard() {
                             preSelectedPatient={preSelectedPatient}
                             preSelectedBranchId={preSelectedRoomBranchId || scopeBranchId}
                             preSelectedRoomId={preSelectedRoomId}
+                            preSelectedClaimLine={preSelectedClaimLine}
                         />
                     ) : null}
              </div>
@@ -1894,6 +1984,7 @@ export default function DesktopDashboard() {
           inlineDesktop={false}
           wide
           initialTab={bookingTab}
+          onSaveAndStay={handleSaveBookingAndStay}
           quickPay={quickPayPopup}
           onClose={() => { setActiveModal(null); setAppointmentToEdit(null); setBookingTab("appointment"); setQuickPayPopup(false); setPreSelectedTime(''); setPreSelectedPatient(null); setPreSelectedDoctor(''); setPreSelectedRoomId(''); setPreSelectedRoomBranchId(''); }} 
           onSave={handleSaveBooking} 
@@ -1909,6 +2000,7 @@ export default function DesktopDashboard() {
           preSelectedPatient={preSelectedPatient}
           preSelectedBranchId={preSelectedRoomBranchId || scopeBranchId}
           preSelectedRoomId={preSelectedRoomId}
+          preSelectedClaimLine={preSelectedClaimLine}
         />
       )}
 

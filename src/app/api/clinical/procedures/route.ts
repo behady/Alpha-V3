@@ -41,7 +41,7 @@ import {
   payerForPriceList,
 } from "@/lib/payers";
 import { buildDeleteContext, evaluateDelete } from "@/lib/deletePolicy";
-import { applyProcedureSync, readProcedureCommissionBasis, readProcedurePayments } from "@/lib/server/ledgerSync";
+import { applyProcedureSync, readProcedureCommissionBasis, readProcedurePayments, stampPaymentsDentist } from "@/lib/server/ledgerSync";
 import { recordLedgerAudit, recordMoneyChange } from "@/lib/server/ledgerAudit";
 import { isApprovalRow } from "@/lib/ledgerInsurer";
 import { isDentistStaff } from "@/lib/staffRoles";
@@ -200,7 +200,7 @@ async function priceRequest(clinicId: string, body: Record<string, unknown>, act
     pricingModeOverride: typeof body.pricingMode === "string" ? body.pricingMode : null,
     // This dentist's rate FOR THIS PAYER — their per-payer exception if they have one, their
     // ordinary percentage otherwise. Resolved here, snapshotted below, and never recomputed.
-    commissionPct: commissionRateFor(staff, payerId),
+    commissionPct: commissionRateFor(staff, payerId, payers, effectiveListId),
     priceListId: effectiveListId,
     priceListName: priceList?.name || null,
     discountMode: typeof body.discountMode === "string" ? body.discountMode : null,
@@ -526,6 +526,8 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
   type Outcome = { kind: "no_line" } | { kind: "no_staff" } | { kind: "not_dentist" } | { kind: "ok"; after: Record<string, unknown> };
   const outcome = await adminDb().runTransaction(async (tx): Promise<Outcome> => {
     const claimSnap = await tx.get(claimRef);
+    // The company's own dentist rate lives on the payer; read before any write.
+    const payersSnap = doctorId ? await tx.get(adminClinicDoc(clinicId, "settings", "payers")) : null;
     const claim = claimSnap.exists ? parseClaim(claimId, claimSnap.data()) : null;
     // Which line this row is: the approval remembers the note it wrote for each one.
     const entry = claim ? Object.entries(claim.ledgerIds).find(([, link]) => link.noteId === noteId) : undefined;
@@ -549,6 +551,8 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
     }
     const ledgerRef = adminClinicDoc(clinicId, "ledger", entry[1].ledgerId);
     const ledgerSnap = doctorId !== undefined ? await tx.get(ledgerRef) : null;
+    // Read before any write: the receipts already taken for this service get its dentist too.
+    const paidAgainst = doctorId !== undefined ? await readProcedurePayments(tx, clinicId, entry[1].ledgerId) : [];
 
     const claimUpdate: Record<string, unknown> = {};
     const noteUpdate: Record<string, unknown> = { updatedByUid: actor.uid, updatedByName: actor.name, updatedAt: FieldValue.serverTimestamp() };
@@ -560,7 +564,7 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
     if (doctorId !== undefined) {
       // The same stamping the Insurance tab does: rate and share fixed at assignment time, and the
       // ledger row's attribution follows so the payer report and payroll agree.
-      const applied = applyDentistPicks(claim, { [i]: doctorId || null }, staffById);
+      const applied = applyDentistPicks(claim, { [i]: doctorId || null }, staffById, parsePayers(payersSnap?.data()));
       claimUpdate.dentists = applied.dentists;
       const rowPatch = dentistRowPatch(line, applied.dentists[i] ?? null);
       noteUpdate.doctorId = rowPatch.doctorId;
@@ -574,6 +578,7 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
           clinicProfit: rowPatch.clinicProfit,
           updatedAt: FieldValue.serverTimestamp(),
         });
+        stampPaymentsDentist(tx, clinicId, paidAgainst, { doctorId: (rowPatch.doctorId as string | null) ?? null, doctorName: String(rowPatch.doctorName ?? "") });
       }
     }
     if (Object.keys(claimUpdate).length > 0) tx.update(claimRef, { ...claimUpdate, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid });
@@ -700,6 +705,8 @@ async function updateProcedure(args: { clinicId: string; actor: Actor; body: Rec
         labFee: priced.pricing.labFee,
         commissionPct: priced.pricing.commissionPct,
       });
+      // And the receipts already taken name the treatment's dentist as it now stands.
+      stampPaymentsDentist(txn, clinicId, existingPayments, { doctorId: priced.doctorId, doctorName: priced.doctorName });
     }
 
     if (appointmentRef && appointmentSnap?.exists) {

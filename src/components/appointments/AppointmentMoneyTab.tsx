@@ -25,6 +25,7 @@ import { stagedLineTotal, stagedMode, stagedUnits, toothListLabel } from "@/lib/
 import type { Note, Service, Staff } from "@/components/clinical-notes/types";
 import { resolveListPrice } from "@/lib/discountMath";
 import { PRIVATE_PAYER_ID, findPayer, payerForPriceList } from "@/lib/payers";
+import { serviceMenuById } from "@/lib/serviceMenu";
 import InsurerBadge from "@/components/shared/InsurerBadge";
 
 /**
@@ -51,6 +52,8 @@ type Charge = {
   remaining: number;
   /** Who this treatment is charged to; null for the clinic's own (Private) work and for old rows. */
   payerName: string | null;
+  /** The dentist who did it, by name; "" when nobody is on it yet (no money is taken until there is). */
+  dentistName: string;
 };
 
 type Payment = {
@@ -190,7 +193,8 @@ export default function AppointmentMoneyTab({
   const [editingNote, setEditingNote] = useState<Note | null>(null);
   const [editorApptId, setEditorApptId] = useState<string | null>(null);
 
-  const [showOlder, setShowOlder] = useState(false);
+  // Open on the Payment tab: its figures include earlier visits, so the rows behind them are shown.
+  const [showOlder, setShowOlder] = useState(section === "payment");
   // On a tab that is only about money, the receipts are the content, not a footnote.
   const [showReceipts, setShowReceipts] = useState(section === "payment");
   const [printingId, setPrintingId] = useState<string | null>(null);
@@ -279,7 +283,12 @@ export default function AppointmentMoneyTab({
    * somebody pick a wrong answer and then overrules them without saying so.
    */
   // Every service, whoever pays: the price box is the price.
-  const offeredServices = services;
+  // Every service whoever pays (coverage lists are gone); only the price list's own menu applies:
+  // another list's own treatments are left out, and the shared ones this list hides.
+  const offeredServices = useMemo(() => {
+    const offered = serviceMenuById(priceLists, payers, procListId, services);
+    return services.filter((s) => offered(String(s.id)));
+  }, [services, priceLists, payers, procListId]);
   /**
    * A name that is not in the catalogue has no price to fall back on: a blank box would record the
    * treatment with no charge and still say "Service added". 0 typed is a real answer and allowed.
@@ -316,6 +325,7 @@ export default function AppointmentMoneyTab({
               typeof r.payerId === "string" && r.payerId && r.payerId !== PRIVATE_PAYER_ID && r.payerName
                 ? String(r.payerName)
                 : null,
+            dentistName: String(r.doctorName || r.doctor || (r.doctorId ? "—" : "")).trim(),
           };
         })
         .sort((a, b) => a.date.localeCompare(b.date)),
@@ -438,6 +448,18 @@ export default function AppointmentMoneyTab({
 
     if (rows.length === 0) {
       showToast(isAr ? "مفيش حاجة متبقية على المريض ده" : "Nothing is outstanding for this patient", "error");
+      return;
+    }
+    // The owner's rule: no money for a treatment that names no dentist. Checked before the first
+    // payment, so a payment spread over several treatments is never taken half way.
+    const noDentist = rows.filter((r) => r.charge && !r.charge.dentistName).map((r) => r.charge!.description);
+    if (noDentist.length > 0) {
+      showToast(
+        isAr
+          ? `اختار الطبيب الأول لـ: ${noDentist.join("، ")}`
+          : `Choose the dentist first for: ${noDentist.join(", ")}`,
+        "error",
+      );
       return;
     }
     if (overflow > 0.009 && collectTarget !== "general") {
@@ -683,6 +705,11 @@ export default function AppointmentMoneyTab({
               {charge.date}
               {note?.tooth && note.tooth !== "Gen" ? ` · ${note.tooth}` : ""}
             </p>
+            {!charge.dentistName && !settled && (
+              <p className="mt-1 text-[11px] font-bold text-danger">
+                {isAr ? "مفيش طبيب على العلاج ده — اختاره قبل ما تحصّل" : "No dentist on this treatment — choose one before taking money"}
+              </p>
+            )}
             {/* The insurer is a fact of the charge, not of the patient: say it on the row it belongs to. */}
             {charge.payerName && (
               <p className="mt-1 flex items-center gap-1.5 text-[11px] font-bold text-ink-body">
@@ -826,7 +853,9 @@ export default function AppointmentMoneyTab({
       {section !== "service" && (
       <div className="rounded-2xl border border-line bg-surface p-4 shadow-sm">
         {section === "payment" ? (
-          // The booking popup's Payment tab: the three figures side by side.
+          // The booking popup's Payment tab: the three figures side by side, for the whole account.
+          <>
+          <p className="mb-2 text-[12px] font-bold text-ink-muted">{isAr ? "حساب المريض كله — كل الزيارات" : "The patient's whole account — every visit"}</p>
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
             {[
               {
@@ -848,6 +877,7 @@ export default function AppointmentMoneyTab({
               </div>
             ))}
           </div>
+          </>
         ) : (
           <>
         <div className="flex items-baseline justify-between">
@@ -1145,7 +1175,8 @@ export default function AppointmentMoneyTab({
       )}
 
       {/* Earlier visits */}
-      {olderCharges.length > 0 && section !== "payment" && (
+      {/* On the Payment tab too: the figures above cover every visit, so what they add up must be visible here. */}
+      {olderCharges.length > 0 && (
         <div>
           <button
             onClick={() => setShowOlder((v) => !v)}
@@ -1154,6 +1185,11 @@ export default function AppointmentMoneyTab({
             <span className="flex items-center gap-1.5">
               <History size={14} className="text-violet-500" />
               {isAr ? "زيارات سابقة" : "Earlier visits"} ({olderCharges.length})
+              {money(olderCharges.reduce((t, c) => t + c.remaining, 0)) > 0 && (
+                <span className="normal-case tracking-normal text-amber-700">
+                  · {isAr ? "عليه" : "owed"} {money(olderCharges.reduce((t, c) => t + c.remaining, 0)).toLocaleString()}
+                </span>
+              )}
             </span>
             <ChevronDown size={16} className={`transition-transform ${showOlder ? "rotate-180" : ""}`} />
           </button>

@@ -158,6 +158,25 @@ function eq<T>(actual: T, expected: T, message: string) {
   // Zero is a real answer and must survive, because "this insurer's work earns them nothing" is a
   // deal clinics actually do.
   eq(commissionRateFor({ commissionPercentage: 40, commissionByPayer: { axa: 0 } }, "axa"), 0, "an explicit zero is honoured");
+
+  // The company's own dentist rate: set once on the insurance list, for every dentist.
+  const companies = parsePayers({ payers: [{ id: "gasco", name: "GASCO", priceListId: "gasco", dentistRate: 30, active: true, isDefault: false }, { id: "axa", name: "AXA", dentistRate: 20, active: true, isDefault: false }] });
+  eq(companies.find((p) => p.id === "gasco")?.dentistRate, 30, "the company's dentist rate survives a read");
+  eq(commissionRateFor(omar, "gasco", companies), 30, "no rate of his own for GASCO: the company's rate, not his usual 40");
+  eq(commissionRateFor(omar, "axa", companies), 25, "his own rate for this company still wins over the company's");
+  eq(commissionRateFor(omar, "bupa", companies), 40, "a company with no dentist rate: his usual rate, as before");
+  eq(commissionRateFor(omar, "gasco"), 40, "a caller that passes no payers keeps the old answer");
+  eq(parsePayers({ payers: [{ id: "x", name: "X", dentistRate: 140, active: true, isDefault: false }] }).find((p) => p.id === "x")?.dentistRate, 100, "clamped to 100");
+  eq("dentistRate" in (parsePayers({ payers: [{ id: "y", name: "Y", dentistRate: "", active: true, isDefault: false }] }).find((p) => p.id === "y") ?? {}), false, "blank = no company rate, absent rather than 0");
+  eq(payersDocFrom(companies).payers.find((p) => p.id === "gasco")?.dentistRate, 30, "and survives the write");
+
+  // A dentist's own rate per PRICE LIST (a VIP list, a staff list), between their company rate and the rest.
+  const sara = { commissionPercentage: 40, commissionByPayer: { gasco: 35 }, commissionByList: { vip: 20, staff: "" } };
+  eq(commissionRateFor(sara, PRIVATE_PAYER_ID, companies, "vip"), 20, "her rate on the VIP list");
+  eq(commissionRateFor(sara, PRIVATE_PAYER_ID, companies, "staff"), 40, "a blank list rate is no rate: her usual");
+  eq(commissionRateFor(sara, "gasco", companies, "gasco"), 35, "her own company rate still wins");
+  eq(commissionRateFor({ commissionPercentage: 40, commissionByList: { gasco: 25 } }, "gasco", companies, "gasco"), 25, "a list rate beats the company's rate for everyone");
+  eq(commissionRateFor(sara, PRIVATE_PAYER_ID, companies, null), 40, "no list: her usual rate");
   ok(hasOwnRate({ commissionByPayer: { axa: 0 } }, "axa"), "an explicit zero counts as having its own rate");
   ok(!hasOwnRate({ commissionByPayer: {} }, "axa"), "an absent entry is not an own rate");
 
@@ -331,7 +350,7 @@ function eq<T>(actual: T, expected: T, message: string) {
     "the treatment route no longer derives the payer from the price list, so nothing would be stamped"
   );
   ok(
-    procedures.includes("commissionRateFor(staff, payerId)"),
+    /commissionRateFor\(staff, payerId(, payers(, effectiveListId)?)?\)/.test(procedures),
     "the treatment route is back on the dentist's single rate — insurance work would pay the private percentage"
   );
   // The payer is its own control now (the owner's 2026-10-05 decision): the price list only

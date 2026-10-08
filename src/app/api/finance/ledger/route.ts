@@ -44,7 +44,7 @@ import {
   type AllocationVerdict,
 } from "@/lib/paymentAllocation";
 import { buildDeleteContext, evaluateDelete, type DeleteTarget } from "@/lib/deletePolicy";
-import { applyProcedureSync, readProcedureCommissionBasis, readProcedurePayments } from "@/lib/server/ledgerSync";
+import { applyProcedureSync, readProcedureCommissionBasis, readProcedurePayments, treatmentHasDentist } from "@/lib/server/ledgerSync";
 import { recordLedgerAudit, recordMoneyChange } from "@/lib/server/ledgerAudit";
 import { recalcCommissionFromPayment } from "@/lib/ledgerCommission";
 import { allowedDiscount, checkDiscountAllowed } from "@/lib/discountMath";
@@ -220,6 +220,8 @@ async function createPayment(args: {
       if (!procSnap.exists) throw new Error("NO_PROCEDURE");
       procedureData = procSnap.data() || {};
       if (String(procedureData.type || "") !== "procedure") throw new Error("NOT_A_PROCEDURE");
+      // The owner's rule: money from a patient for a treatment names the dentist who did it.
+      if (!treatmentHasDentist(procedureData)) throw new Error("NO_DENTIST");
 
       procedure = {
         id: procedureId,
@@ -1049,6 +1051,11 @@ export async function POST(request: Request) {
     switch (message) {
       case "NO_PROCEDURE":
         return bad("That treatment no longer exists. Refresh and try again.", 404);
+      case "NO_DENTIST":
+        return NextResponse.json(
+          { ok: false, reason: "NO_DENTIST", error: "Choose the dentist for this treatment before taking money for it. / اختار الطبيب اللي عمل العلاج ده قبل ما تحصّل." },
+          { status: 409 },
+        );
       case "NOT_A_PROCEDURE":
         return bad("A payment can only be linked to a treatment charge.");
       case "WRONG_PATIENT":

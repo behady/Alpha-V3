@@ -203,7 +203,7 @@ export async function saveBooking(
   data: BookingSavePayload & { existingAppointmentId?: string | null; status?: string },
   userCtx: BookingUserContext,
   fireOwnerWhatsAppAlert: (key: string, msg: string) => Promise<void>
-): Promise<void> {
+): Promise<{ appointmentId: string; patientId: string }> {
   const normalizedDate = normalizeDateKey(data.date);
   const normalizedTime = normalizeTimeKey(data.time);
   const chargeForVisit = data.chargeForVisit !== false;
@@ -400,7 +400,7 @@ export async function saveBooking(
 
     await writeSessionProcedures(data, aid, normalizedDate || data.date, userCtx);
 
-    return;
+    return { appointmentId: aid, patientId: String(data.patientId) };
   }
 
   // New appointment flow
@@ -480,6 +480,7 @@ export async function saveBooking(
       doctor: String(data.doctor || ""),
     });
   }
+  return { appointmentId: appRef.id, patientId: String(data.patientId) };
 }
 
 /**

@@ -19,7 +19,7 @@
 import type { Transaction } from "firebase-admin/firestore";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { recalcProcedurePayments, sumPayments } from "@/lib/ledgerWrite";
-import { commissionRateFor } from "@/lib/payers";
+import { commissionRateFor, parsePayers } from "@/lib/payers";
 
 export type PaymentRowLite = {
   id: string;
@@ -61,6 +61,36 @@ export async function readProcedurePayments(
         typeof data.doctorCommissionPercentage === "number" ? data.doctorCommissionPercentage : null,
     };
   });
+}
+
+/** True when a treatment row names the dentist who did it (by id, or by name on older rows). */
+export function treatmentHasDentist(row: Record<string, unknown> | null | undefined): boolean {
+  if (!row) return false;
+  const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  return Boolean(text(row.doctorId) || text(row.doctorName) || text(row.doctor));
+}
+
+/**
+ * Put the treatment's dentist on every payment already taken for it.
+ *
+ * A payment copies the dentist from its treatment at the moment the money is taken and was never
+ * revisited, so a dentist chosen (or changed) afterwards left the earlier receipts naming nobody,
+ * or the wrong person — the owner's rule is that every payment names the dentist who did the work.
+ * `payments` must have been read in this transaction before any write.
+ */
+export function stampPaymentsDentist(
+  txn: Transaction,
+  clinicId: string,
+  payments: readonly { id: string }[],
+  dentist: { doctorId: string | null; doctorName: string },
+): void {
+  for (const p of payments) {
+    txn.update(adminClinicDoc(clinicId, "ledger", p.id), {
+      doctorId: dentist.doctorId,
+      doctorName: dentist.doctorName,
+      doctor: dentist.doctorName,
+    });
+  }
 }
 
 /**
@@ -141,5 +171,9 @@ export async function readProcedureCommissionBasis(
     // that was already agreed.
     return { labFee, commissionPct: Number(procedure.doctorCommissionPercentage) || 0 };
   }
-  return { labFee, commissionPct: commissionRateFor(staffSnap.data(), payerId) };
+  // The company's own dentist rate (set on its insurance price list) sits between the dentist's
+  // exception for this payer and their usual rate; only read when there is a payer to look up.
+  const payers = payerId || procedure.priceListId ? parsePayers((await txn.get(adminClinicDoc(clinicId, "settings", "payers"))).data()) : undefined;
+  const priceListId = typeof procedure.priceListId === "string" && procedure.priceListId.trim() ? procedure.priceListId.trim() : null;
+  return { labFee, commissionPct: commissionRateFor(staffSnap.data(), payerId, payers, priceListId) };
 }

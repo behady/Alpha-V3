@@ -35,6 +35,20 @@ export type ProfileStaff = {
   permissions?: string[];
 };
 
+/**
+ * One line of the dentist's rates: an insurance company or a price list, with what is set for
+ * this dentist (null = nothing of their own) and what applies when it is blank.
+ */
+export type RateRow = {
+  kind: "payer" | "list";
+  id: string;
+  name: string;
+  own: number | null;
+  /** The rate that applies when this dentist has none of their own: the company's, else their usual. */
+  fallback: number;
+  fallbackIsCompany: boolean;
+};
+
 export type PayDraft = {
   baseSalary: number;
   commissionPercentage: number;

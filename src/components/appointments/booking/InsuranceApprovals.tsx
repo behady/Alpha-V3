@@ -18,6 +18,8 @@ type Props = {
   claimLinks: ClaimLink[];
   /** `"claimId|line"`: link that service to this visit, or unlink it if it already is. */
   onToggle: (value: string) => void;
+  /** The visit's dentist: a service marked Ongoing or Completed here is put on them. */
+  dentistId?: string | null;
 };
 
 const money = (n: number) => `${Math.round(Number(n) || 0).toLocaleString("en-US")}`;
@@ -57,7 +59,7 @@ export function approvalFigures(claims: readonly InsuranceClaim[]): { approved: 
  * right here, saved at once through the claims route exactly as the patient file's Insurance tab
  * does it.
  */
-export default function InsuranceApprovals({ language, loaded, claims, claimLinks, onToggle }: Props) {
+export default function InsuranceApprovals({ language, loaded, claims, claimLinks, onToggle, dentistId }: Props) {
   const isAr = language === "ar";
   const t = (o: { en: string; ar: string }) => (isAr ? o.ar : o.en);
   const { clinicId } = useClinic();
@@ -91,9 +93,21 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
     }
     setBusy(`${claim.id}|${line}`);
     try {
-      const error = await patchClaim(clinicId, claim.id, { lineStatus: { [line]: next } });
+      // Being worked on (Ongoing) or done (Completed) here means it is THIS visit's work: the
+      // service is linked to the visit and put on the visit's dentist, in the same step.
+      const working = next !== "Planned";
+      const assign = working && dentistId && claim.dentists[line]?.staffId !== dentistId ? { dentists: { [line]: dentistId } } : {};
+      const error = await patchClaim(clinicId, claim.id, { lineStatus: { [line]: next }, ...assign });
       if (error) showToast(error, "error");
-      else showToast(isAr ? "اتحدّثت" : "Updated", "success");
+      else {
+        if (working && !linked(claim.id, line)) onToggle(`${claim.id}|${line}`);
+        showToast(
+          working
+            ? isAr ? "اتحدّثت واتربطت بالزيارة دي" : "Updated and linked to this visit"
+            : isAr ? "اتحدّثت" : "Updated",
+          "success",
+        );
+      }
     } catch (err) {
       showToast(
         err instanceof InsuranceCallError && err.kind === "signed_out"

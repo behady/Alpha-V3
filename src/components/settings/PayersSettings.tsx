@@ -890,7 +890,12 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
               <div className="flex min-w-0 items-center gap-3">
                 <InsurerBadge name={payer.name} size={36} />
                 <div className="min-w-0">
-                  <p className="text-[15px] font-bold text-ink">{isAr ? payer.nameAr || payer.name : payer.name}</p>
+                  <p className="text-[15px] font-bold text-ink">
+                    {isAr ? payer.nameAr || payer.name : payer.name}
+                    {!payer.active && (
+                      <span className="ms-2 rounded-full bg-surface-muted px-2 py-0.5 text-[11px] font-bold text-ink-muted">{isAr ? "موقوفة" : "Not active"}</span>
+                    )}
+                  </p>
                   {/* What is actually set, in words. A card that only showed a name would make
                       somebody open the wizard to find out whether they had finished. */}
                   <p className="text-[12px] font-medium text-ink-faint">
@@ -905,9 +910,13 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
                         : `${priced} ${priced === 1 ? "treatment" : "treatments"} priced differently`}
                     {" · "}
                     {rated === 0
-                      ? isAr
-                        ? "الدكاترة بنسبهم العادية"
-                        : "dentists on their normal percentage"
+                      ? typeof payer.dentistRate === "number"
+                        ? isAr
+                          ? `كل الدكاترة ${payer.dentistRate}%`
+                          : `every dentist ${payer.dentistRate}%`
+                        : isAr
+                          ? "الدكاترة بنسبهم العادية"
+                          : "dentists on their normal percentage"
                       : isAr
                         ? `${rated} دكتور بنسبة مختلفة`
                         : `${rated} ${rated === 1 ? "dentist" : "dentists"} on a different percentage`}

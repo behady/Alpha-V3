@@ -5,6 +5,7 @@ import MobileDashboard from "@/components/dashboard/MobileDashboard";
 import DentistHome from "@/components/dashboard/DentistHome";
 import OwnerHome from "@/components/dashboard/OwnerHome";
 import { Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 import { useClinic } from "@/context/ClinicContext";
 import { useUI } from "@/context/UIContext";
@@ -13,6 +14,7 @@ export default function Dashboard() {
   const [isDesktop, setIsDesktop] = useState<boolean | null>(null);
   const { clinicId, role, isAdmin } = useClinic();
   const { homeView } = useUI();
+  const router = useRouter();
 
   useEffect(() => {
     const handleResize = () => setIsDesktop(window.innerWidth >= 1024);
@@ -20,6 +22,16 @@ export default function Dashboard() {
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+
+  // Only the desk dashboard opens the booking popup from /?book=… (the patient file's Book
+  // button). Every other home screen hands the same request to the appointments page.
+  const deskView = isDesktop === true && role !== "Dentist" && homeView !== "chair" && !(homeView === "owner" && isAdmin);
+  const handsBookingOn = isDesktop !== null && !!clinicId && !deskView;
+  useEffect(() => {
+    if (!handsBookingOn) return;
+    const search = window.location.search;
+    if (new URLSearchParams(search).get("book")) router.replace(`/appointments${search}`);
+  }, [handsBookingOn, router]);
 
   if (isDesktop === null || !clinicId) {
     return (

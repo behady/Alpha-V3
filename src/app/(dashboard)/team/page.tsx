@@ -29,7 +29,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, Users } from "lucide-react";
-import { Timestamp, onSnapshot, query, updateDoc, where } from "firebase/firestore";
+import { Timestamp, deleteField, onSnapshot, query, updateDoc, where } from "firebase/firestore";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
@@ -52,8 +52,11 @@ import { useWording } from "@/components/insurance/useWording";
 import { presetOf, rangeFor, rangeText, getFirstDay, getToday, type DateRange, type RangePreset } from "@/lib/reportHelpers";
 import { isDentistStaff } from "@/lib/staffRoles";
 import TeamList, { type RailPerson } from "./TeamList";
-import StaffProfile, { type PayDraft, type ProfileStaff, type SettlementView } from "./StaffProfile";
+import StaffProfile, { type PayDraft, type ProfileStaff, type RateRow, type SettlementView } from "./StaffProfile";
 import { parseTab, type ProfileTab } from "./profileKit";
+import { usePricingPolicy } from "@/lib/usePricingPolicy";
+import { PRIVATE_PAYER_ID } from "@/lib/payers";
+import { STANDARD_LIST_ID } from "@/lib/priceLists";
 
 type StaffDoc = { id: string } & Record<string, unknown>;
 
@@ -327,6 +330,60 @@ function TeamPage() {
       permissions: Array.isArray(d.permissions) ? (d.permissions as string[]) : [],
     };
   }, [selectedDoc, isAr]);
+
+  // --- what this dentist earns on each insurance company and each price list -----------------
+  const { payers, priceLists } = usePricingPolicy();
+  const rateRows: RateRow[] = useMemo(() => {
+    if (!selectedDoc) return [];
+    const d = selectedDoc as Record<string, unknown>;
+    const usual = Number(d.commissionPercentage) || 0;
+    const byPayer = (d.commissionByPayer && typeof d.commissionByPayer === "object" ? d.commissionByPayer : {}) as Record<string, unknown>;
+    const byList = (d.commissionByList && typeof d.commissionByList === "object" ? d.commissionByList : {}) as Record<string, unknown>;
+    const ownOf = (v: unknown): number | null => (v === "" || v === null || v === undefined || !Number.isFinite(Number(v)) ? null : Number(v));
+    const companies = payers.filter((p) => p.id !== PRIVATE_PAYER_ID && p.active);
+    const companyLists = new Set(companies.map((p) => p.priceListId).filter(Boolean));
+    return [
+      ...companies.map((p) => ({
+        kind: "payer" as const,
+        id: p.id,
+        name: isAr ? p.nameAr || p.name : p.name,
+        own: ownOf(byPayer[p.id]),
+        fallback: typeof p.dentistRate === "number" ? p.dentistRate : usual,
+        fallbackIsCompany: typeof p.dentistRate === "number",
+      })),
+      // Price lists that are not a company's (a company's list is the company's row above).
+      ...priceLists
+        .filter((l) => l.active && l.id !== STANDARD_LIST_ID && !companyLists.has(l.id))
+        .map((l) => ({
+          kind: "list" as const,
+          id: l.id,
+          name: isAr ? l.nameAr || l.name : l.name,
+          own: ownOf(byList[l.id]),
+          fallback: usual,
+          fallbackIsCompany: false,
+        })),
+    ];
+  }, [selectedDoc, payers, priceLists, isAr]);
+
+  const setRate = useCallback(
+    async (row: RateRow, value: number | null) => {
+      if (!selectedDoc || !canEdit) return;
+      const field = `${row.kind === "payer" ? "commissionByPayer" : "commissionByList"}.${row.id}`;
+      try {
+        // Cleared = removed, never 0: a blank means "the rate beside it", 0 means "earns nothing".
+        await updateDoc(getClinicDoc("staff", selectedDoc.id), { [field]: value === null ? deleteField() : value });
+        await logActivity(
+          { uid: user?.uid, name: user?.name, role: user?.role },
+          "Staff Updated",
+          `${String(selectedDoc.name ?? "")}: rate on ${row.name} ${value === null ? "cleared" : `set to ${value}%`}`,
+        );
+        showToast(isAr ? "النسبة اتحفظت" : "Rate saved", "success");
+      } catch {
+        showToast(isAr ? "مقدرناش نحفظ النسبة" : "Could not save that rate", "error");
+      }
+    },
+    [selectedDoc, canEdit, user, showToast, isAr],
+  );
 
   const selectedSchedule: { schedule: Schedule; assumed: boolean } = useMemo(
     () => expectedScheduleFor((selectedDoc as Record<string, unknown> | null)?.attendanceSchedule),
@@ -659,6 +716,8 @@ function TeamPage() {
                   settlement={settlementView}
                   onSaveSettlement={saveSettlement}
                   onDeleteSettlement={removeSettlement}
+                  rateRows={rateRows}
+                  onSetRate={setRate}
                 />
               </div>
             )}

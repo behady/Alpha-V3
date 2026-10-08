@@ -5,7 +5,7 @@ import Link from "next/link";
 import { AlertTriangle, Edit2, ExternalLink, Save, ShieldCheck, Smartphone } from "lucide-react";
 import { hoursText, weeklyMinutes, type Schedule } from "@/lib/hrClient";
 import { formatStaffRoleLabel } from "@/lib/staffRoles";
-import { btnGhost, btnDark, DAYS_AR, DAYS_EN, fieldInput, fieldLabel, money, Section, Stat, type PayDraft, type ProfileStaff } from "./profileKit";
+import { btnGhost, btnDark, DAYS_AR, DAYS_EN, fieldInput, fieldLabel, money, Section, Stat, type PayDraft, type ProfileStaff, type RateRow } from "./profileKit";
 
 /** The settings that produce every figure on the other tabs: shifts, pay, the linked phone, access. */
 export default function SettingsTab({
@@ -18,6 +18,8 @@ export default function SettingsTab({
   saving,
   onSavePay,
   onUnlinkDevice,
+  rateRows,
+  onSetRate,
 }: {
   staff: ProfileStaff;
   dentist: boolean;
@@ -28,6 +30,10 @@ export default function SettingsTab({
   saving: boolean;
   onSavePay: (draft: PayDraft) => void;
   onUnlinkDevice: () => void;
+  /** This dentist's rate per insurance company and per price list. */
+  rateRows: RateRow[];
+  /** Set (or with null, clear) this dentist's own rate on one company or list. */
+  onSetRate: (row: RateRow, value: number | null) => void;
 }) {
   const [payOpen, setPayOpen] = useState(false);
   const [draft, setDraft] = useState<PayDraft | null>(null);
@@ -219,6 +225,67 @@ export default function SettingsTab({
           </form>
         )}
       </Section>
+
+      {/* --- what this dentist earns on each company and each price list ---------------------- */}
+      {dentist && rateRows.length > 0 && (
+        <Section
+          title={isAr ? "النسبة لكل شركة وقائمة أسعار" : "Rate per company and price list"}
+          note={
+            isAr
+              ? `نسبته العادية ${staff.commissionPercentage}%. اكتب نسبة لشركة أو قائمة أسعار لو بياخد عليها غير كده؛ سيبها فاضية تمشي بالنسبة اللي جنبها.`
+              : `Usual rate ${staff.commissionPercentage}%. Type a rate for a company or price list where they earn differently; leave it blank to use the rate shown beside it.`
+          }
+        >
+          <ul className="divide-y divide-line">
+            {rateRows.map((r) => (
+              <li key={`${r.kind}-${r.id}`} className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                <div className="min-w-0">
+                  <p className="text-[15px] font-bold text-ink">{r.name}</p>
+                  <p className="text-[13px] font-medium text-ink-muted">
+                    {r.kind === "payer" ? (isAr ? "شركة تأمين" : "Insurance company") : isAr ? "قائمة أسعار" : "Price list"}
+                    {" · "}
+                    {r.own === null
+                      ? isAr
+                        ? `بياخد ${r.fallback}% (${r.fallbackIsCompany ? "نسبة الشركة" : "نسبته العادية"})`
+                        : `earns ${r.fallback}% (${r.fallbackIsCompany ? "the company's rate" : "their usual rate"})`
+                      : isAr
+                        ? "نسبة خاصة بيه"
+                        : "a rate of their own"}
+                  </p>
+                </div>
+                {canEdit ? (
+                  <span className="relative">
+                    <input
+                      key={`${r.id}-${r.own ?? ""}`}
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.5"
+                      inputMode="decimal"
+                      defaultValue={r.own ?? ""}
+                      placeholder={String(r.fallback)}
+                      aria-label={isAr ? `نسبة ${r.name}` : `Rate on ${r.name}`}
+                      onBlur={(e) => {
+                        const raw = e.target.value.trim();
+                        const next = raw === "" ? null : Math.max(0, Math.min(100, Number(raw) || 0));
+                        if (next === r.own) return;
+                        onSetRate(r, next);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                      }}
+                      className="w-24 rounded-xl border border-line bg-surface px-3 py-2 pe-7 text-end font-figure text-[16px] font-bold text-ink outline-none focus:border-accent"
+                    />
+                    <span className="pointer-events-none absolute end-2.5 top-1/2 -translate-y-1/2 text-[13px] font-bold text-ink-muted">%</span>
+                  </span>
+                ) : (
+                  <span className="font-figure text-[16px] font-bold text-ink">{r.own ?? r.fallback}%</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
 
       {/* --- the phone they clock in from ------------------------------------------------------ */}
       <Section

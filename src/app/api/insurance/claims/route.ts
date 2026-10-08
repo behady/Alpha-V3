@@ -10,7 +10,7 @@ import { findPayer, isInsurerFormat, parsePayers, PRIVATE_PAYER_ID, type Commiss
 import { isFullAccessRole } from "@/lib/permissions";
 import { buildManualEntryRow, buildPaymentRow, sumPayments } from "@/lib/ledgerWrite";
 import { RECEIPT_COUNTER_DOC, RECEIPT_SETTINGS_DOC, formatReceiptNumber, normalizeReceiptSettings } from "@/lib/receiptSettings";
-import { applyProcedureSync, readProcedurePayments, type PaymentRowLite } from "@/lib/server/ledgerSync";
+import { applyProcedureSync, readProcedurePayments, stampPaymentsDentist, type PaymentRowLite } from "@/lib/server/ledgerSync";
 import { recordMoneyChange } from "@/lib/server/ledgerAudit";
 import { afterLedgerCreate } from "@/lib/alerts/moneyAlerts";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
@@ -445,7 +445,7 @@ export async function POST(req: Request) {
         // and the state of each line the card named.
         claim.lines.forEach((line, i) => {
           const staff = staffById.get(dentistOfLine(i));
-          if (staff) claim.dentists[i] = lineDentistFor(line, staff, payerId);
+          if (staff) claim.dentists[i] = lineDentistFor(line, staff, payerId, parsePayers(payersSnap.data()));
           const state = lineIn[i]?.status;
           if (state) claim.lineStatus[i] = state;
         });
@@ -678,6 +678,7 @@ export async function PATCH(req: Request) {
       | { kind: "rows_paid" }
       | { kind: "already_collected"; share: ShareCollected }
       | { kind: "nothing_to_collect" }
+      | { kind: "no_dentist"; services: string[] }
       | { kind: "already_insurer_paid" }
       | { kind: "no_rows" }
       | { kind: "nothing_left" }
@@ -708,7 +709,8 @@ export async function PATCH(req: Request) {
       const patientSnap = patientRef ? await tx.get(patientRef) : null;
       if (patientSnap && !patientSnap.exists) return { kind: "no_patient" };
       const reshape = rawLines !== undefined || rawMetlife !== undefined;
-      const payersSnap = reshape || rebuild || paying || rowsAction === "write" ? await tx.get(adminClinicDoc(clinicId, "settings", "payers")) : null;
+      // Read whenever a dentist may be stamped too: the company's own dentist rate lives on the payer.
+      const payersSnap = reshape || rebuild || paying || rowsAction === "write" || picks ? await tx.get(adminClinicDoc(clinicId, "settings", "payers")) : null;
       const wordingSnap = rowsAction === "write" || rebuild ? await tx.get(adminClinicDoc(clinicId, "settings", WORDING_DOC)) : null;
       // The staff records behind the picks, read inside the transaction so the stamped rate is the
       // one on file at this moment. Only a dentist can be paid for a line.
@@ -754,7 +756,8 @@ export async function PATCH(req: Request) {
           ? await Promise.all([tx.get(adminClinicDoc(clinicId, "settings", RECEIPT_SETTINGS_DOC)), tx.get(adminClinicDoc(clinicId, "settings", RECEIPT_COUNTER_DOC))])
           : [null, null];
       const siblingsByRow = new Map<string, PaymentRowLite[]>();
-      if (paying && hasRows) {
+      // Also when a dentist is picked: the receipts already taken for that service get them too.
+      if ((paying || picks) && hasRows) {
         const sets = await Promise.all(liveLinks.map((l) => readProcedurePayments(tx, clinicId, l.ledgerId)));
         liveLinks.forEach((l, i) => siblingsByRow.set(l.ledgerId, sets[i]));
       }
@@ -805,7 +808,7 @@ export async function PATCH(req: Request) {
       let dentists = rawLines !== undefined ? onLines(claim.dentists) : claim.dentists;
       if (rawLines !== undefined) update.dentists = dentists;
       if (picks) {
-        const applied = applyDentistPicks({ lines, dentists, payerId: claim.payerId }, picks, staffById);
+        const applied = applyDentistPicks({ lines, dentists, payerId: claim.payerId }, picks, staffById, parsePayers(payersSnap?.data()));
         if (applied.unknownStaff.length) return { kind: "no_staff", ids: applied.unknownStaff };
         if (notDentist) return { kind: "not_dentist" };
         dentists = applied.dentists;
@@ -843,6 +846,12 @@ export async function PATCH(req: Request) {
         // Nothing recorded, nothing stamped: a claim marked collected with no cash behind it is
         // worse than a refusal.
         if (plan.length === 0) return { kind: "nothing_left" };
+        // The owner's rule: money from the PATIENT names the dentist who did the work. The
+        // insurer's own payment is not the patient's money and is not held back.
+        if (collectShare) {
+          const missing = plan.filter((p) => !claim.dentists[p.index]).map((p) => p.service || claim.lines[p.index]?.description || `#${p.index + 1}`);
+          if (missing.length > 0) return { kind: "no_dentist", services: missing };
+        }
       }
 
       // --- writes ----------------------------------------------------------------------------
@@ -861,6 +870,7 @@ export async function PATCH(req: Request) {
           const rowPatch = dentistRowPatch(line, dentist);
           if (chargeSnaps.get(link.ledgerId)?.exists) {
             tx.update(adminClinicDoc(clinicId, "ledger", link.ledgerId), { doctorId: rowPatch.doctorId, doctorName: rowPatch.doctorName, doctorCommissionPercentage: rowPatch.doctorCommissionPercentage, doctorCommissionAmount: rowPatch.doctorCommissionAmount, clinicProfit: rowPatch.clinicProfit, updatedAt: FieldValue.serverTimestamp() });
+            stampPaymentsDentist(tx, clinicId, siblingsByRow.get(link.ledgerId) ?? [], { doctorId: (rowPatch.doctorId as string | null) ?? null, doctorName: String(rowPatch.doctorName ?? "") });
           }
           if (noteSnaps.get(link.noteId)?.exists) noteUpdate(link.noteId, { doctorId: rowPatch.doctorId, doctor: rowPatch.doctor });
         }
@@ -1022,6 +1032,8 @@ export async function PATCH(req: Request) {
     if (result.kind === "rows_paid") return fail(409, "This approval has payments recorded against its treatments; reverse them first.");
     if (result.kind === "already_collected") return fail(409, "The patient's share was already collected.", { shareCollected: result.share });
     if (result.kind === "nothing_to_collect") return fail(400, "This approval has no patient share to collect.");
+    if (result.kind === "no_dentist")
+      return fail(409, `Choose the dentist first for: ${result.services.join(", ")}. / اختار الطبيب الأول لـ: ${result.services.join("، ")}.`);
     if (result.kind === "already_insurer_paid") return fail(409, "The insurer's payment was already recorded for this approval.");
     if (result.kind === "no_rows") return fail(400, "This approval has no treatment rows to settle (it was saved before treatments were recorded from approvals).");
     if (result.kind === "nothing_left") return fail(400, "Nothing left to settle on this approval.");

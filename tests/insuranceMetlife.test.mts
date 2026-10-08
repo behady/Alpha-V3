@@ -1141,7 +1141,7 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   assert.deepEqual(claimProgress(claimFixture(), []), { total: 5, done: 5, booked: 0 }, "no states stored: every line of the sample counts as done");
 
   // the Book button's destination
-  assert.equal(bookLineUrl("p 1", { claimId: "metlife_1", claimLine: 2 }), "/appointments?book=p%201&claim=metlife_1&line=2");
+  assert.equal(bookLineUrl("p 1", { claimId: "metlife_1", claimLine: 2 }), "/?book=p%201&claim=metlife_1&line=2");
 
   // what a finished visit changes on the approval
   const planned = claimFixture({ lines: [lineFixture(), lineFixture({ code: "D2740" })], lineStatus: { 1: "Planned" } });

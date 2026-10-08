@@ -3,6 +3,7 @@ import { patientMediaPath } from "@/lib/storagePaths";
 
 import { deleteRecord, RecycleBinError } from "@/lib/recycleBinApi";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { serviceMenuById } from "@/lib/serviceMenu";
 import {
   ClipboardList, Plus, Sparkles, Printer, Download, MessageCircle, Edit2, Trash2, X,
   Loader2, AlertTriangle, ChevronDown, Check, CalendarDays, Languages,
@@ -409,7 +410,12 @@ export default function PatientTreatmentPlanTab({
   const activeLists = useMemo(() => listsForBranch(priceLists, null).filter((l) => l.active), [priceLists]);
 
   /** Every service, whoever pays: the quote's prices are typed or prefilled, never gated. */
-  const offeredServices = services;
+  // Every service whoever pays (coverage lists are gone); only the price list's own menu applies:
+  // another list's own treatments are left out, and the shared ones this list hides.
+  const offeredServices = useMemo(() => {
+    const offered = serviceMenuById(priceLists, payers, formPriceListId, services);
+    return services.filter((s) => offered(String(s.id)));
+  }, [services, priceLists, payers, formPriceListId]);
 
   const defaultVisitLabel = (n: number) => (ar ? `الزيارة ${n}` : `Visit ${n}`);
 

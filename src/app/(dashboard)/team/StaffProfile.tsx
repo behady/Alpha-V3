@@ -16,10 +16,10 @@ import MoneyTab from "./MoneyTab";
 import SettingsTab from "./SettingsTab";
 import {
   CLINIC_TZ, daysWords, hoursWords, money, Section, timesWords,
-  type PayDraft, type ProfileStaff, type ProfileTab, type SettlementView,
+  type PayDraft, type ProfileStaff, type ProfileTab, type RateRow, type SettlementView,
 } from "./profileKit";
 
-export type { PayDraft, ProfileStaff, ProfileTab, SettlementView } from "./profileKit";
+export type { PayDraft, ProfileStaff, ProfileTab, RateRow, SettlementView } from "./profileKit";
 
 /**
  * One person, in four tabs.
@@ -58,6 +58,8 @@ export default function StaffProfile({
   settlement,
   onSaveSettlement,
   onDeleteSettlement,
+  rateRows,
+  onSetRate,
 }: {
   staff: ProfileStaff;
   row: HrStaffRow | null;
@@ -86,6 +88,10 @@ export default function StaffProfile({
   /** Record a payout or deduction, or change one (`id`). Resolves true when it was saved. */
   onSaveSettlement: (draft: StaffSettlementDraft, id: string | null) => Promise<boolean>;
   onDeleteSettlement: (id: string) => Promise<void>;
+  /** This dentist's rate per insurance company and per price list. */
+  rateRows: RateRow[];
+  /** Set (or with null, clear) this dentist's own rate on one company or list. */
+  onSetRate: (row: RateRow, value: number | null) => void;
 }) {
   const dentist = isDentistStaff(staff);
   const first = shortName(staff.name);
@@ -369,6 +375,8 @@ export default function StaffProfile({
             saving={saving}
             onSavePay={onSavePay}
             onUnlinkDevice={onUnlinkDevice}
+            rateRows={rateRows}
+            onSetRate={onSetRate}
           />
         )}
       </div>
