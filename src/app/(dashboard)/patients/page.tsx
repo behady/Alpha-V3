@@ -8,6 +8,7 @@ import { db } from "@/lib/firebase";
 import { collection, getDocs, query, orderBy, limit, startAfter, where } from "firebase/firestore";
 import NewPatientModal from "@/components/NewPatientModal";
 import { patientMatchesSearch } from "@/lib/flexibleSearch";
+import { foldArabicDigits, phoneSearchPrefixes } from "@/lib/phoneNumber";
 import { useLanguage } from "@/context/LanguageContext";
 import PermissionGuard from "@/components/PermissionGuard";
 import PageHeader, { headerButtonPrimary } from "@/components/dashboard/PageHeader";
@@ -65,22 +66,35 @@ export default function PatientsPage() {
     else setLoadingMore(true);
 
     try {
-      const rawSearch = searchTerm.trim();
+      const rawSearch = foldArabicDigits(searchTerm).trim();
       const isPhoneSearch = !!rawSearch && /^[0-9+\-\s()]+$/.test(rawSearch);
 
       const qArgs: any[] = [getClinicCollection("patients")];
 
-      if (rawSearch) {
-          if (isPhoneSearch) {
-              qArgs.push(where("phone", ">=", rawSearch));
-              qArgs.push(where("phone", "<=", rawSearch + '\uf8ff'));
-              qArgs.push(orderBy("phone", "asc"));
-              if (isLoadMore && currentLastVisible) qArgs.push(startAfter(currentLastVisible));
-              qArgs.push(limit(PAGE_SIZE));
-          } else {
-              qArgs.push(orderBy("name", "asc"));
-              qArgs.push(limit(2500));
+      if (rawSearch && isPhoneSearch) {
+          // Phones are stored as "+2010...", but nobody types the "+20". Each form the typed
+          // digits could have been stored under gets its own prefix query; results are merged.
+          // Phone searches narrow fast, so there is no paging here.
+          const seen = new Map<string, any>();
+          for (const prefix of phoneSearchPrefixes(rawSearch)) {
+              const snap = await getDocs(query(
+                  getClinicCollection("patients"),
+                  where("phone", ">=", prefix),
+                  where("phone", "<=", prefix + '\uf8ff'),
+                  orderBy("phone", "asc"),
+                  limit(PAGE_SIZE)
+              ));
+              for (const d of snap.docs) if (!seen.has(d.id)) seen.set(d.id, { id: d.id, ...(d.data() as any) });
           }
+          setPatients([...seen.values()]);
+          setLastVisible(null);
+          setHasMore(false);
+          return;
+      }
+
+      if (rawSearch) {
+          qArgs.push(orderBy("name", "asc"));
+          qArgs.push(limit(2500));
       } else {
           qArgs.push(orderBy("name", "asc"));
           if (isLoadMore && currentLastVisible) qArgs.push(startAfter(currentLastVisible));
@@ -91,7 +105,7 @@ export default function PatientsPage() {
       const snap = await getDocs(q);
       let data = snap.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
 
-      if (rawSearch && !isPhoneSearch) {
+      if (rawSearch) {
           data = data.filter((p: any) =>
             patientMatchesSearch(rawSearch, String(p.name || ""), p.phone ? String(p.phone) : undefined)
           );
