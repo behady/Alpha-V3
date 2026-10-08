@@ -73,6 +73,14 @@ interface Props {
    */
   teethData?: Record<string, ToothData>;
   treatments?: Record<string, ToothTreatment[]>;
+  /**
+   * Chair mode: the dentist's editor with no money in it. Hides the cost, the price list, the
+   * discount, the billing strip, the "add to bill" tick and the dentist picker; the treatment
+   * is still priced from the clinic's default list and billed, on the dentist themselves
+   * (`meStaffId`). Reception's editor is byte-for-byte unchanged when this is off.
+   */
+  dentistMode?: boolean;
+  meStaffId?: string;
 }
 
 
@@ -315,7 +323,7 @@ export const TeethChartSelector = memo(function TeethChartSelector({
 export default function ServiceEditorDrawer({
   isOpen, onClose, patientId, patientName, patientDefaultPriceListId, branchId = null, appointmentId, initialNote, servicesList, doctors, onSaved, inline = false,
   hideTeethSelector = false, selectedTeethOverride, onSelectedTeethChange, compact = false,
-  teethData = {}, treatments = {}
+  teethData = {}, treatments = {}, dentistMode = false, meStaffId = ""
 }: Props) {
   const { showToast, clinicalEditorMode } = useUI();
   const { language } = useLanguage();
@@ -386,6 +394,9 @@ export default function ServiceEditorDrawer({
   // Price list + discount for this line. The server recomputes and enforces both; this is the
   // preview and the input.
   const { priceLists, payers, discountSettings, maxDiscountPercent } = usePricingPolicy();
+  /** The clinic's main list: what a dentist's treatment is charged from, this branch's first. */
+  const defaultListId =
+    listsForBranch(priceLists, branchId).find((l) => l.active && l.isDefault)?.id ?? priceLists.find((l) => l.isDefault)?.id ?? "";
 
   const [discount, setDiscount] = useState<DiscountState>(EMPTY_DISCOUNT);
 
@@ -609,20 +620,24 @@ export default function ServiceEditorDrawer({
       // back-link and the appointment's services[] mirror as one transaction. Those were four
       // separate writes from here, and a failure between any two left a charge with no treatment
       // behind it or a treatment nobody was billed for.
+      // Dentist mode: no typed cost, no discount, no payer choice — the clinic's default list,
+      // billed, on the dentist themselves. The server prices it; the dentist never sees it.
+      const billing = discountPayload(dentistMode ? EMPTY_DISCOUNT : discount);
       const payload = {
         patientId,
         appointmentId: initialNote ? initialNote.appointmentId ?? null : appointmentId || null,
         procedures,
         selectedTeeth,
         tooth,
-        unitCost: cost === "" ? null : Number(cost),
-        pricingMode: pricingModeOverride,
-        doctorId: selectedDoctorId,
+        unitCost: dentistMode ? null : cost === "" ? null : Number(cost),
+        pricingMode: dentistMode ? null : pricingModeOverride,
+        doctorId: dentistMode ? meStaffId || null : selectedDoctorId,
         status: procedureStatus,
         note: noteText,
         date,
-        addToLedger,
-        ...discountPayload(discount),
+        addToLedger: dentistMode ? true : addToLedger,
+        ...billing,
+        priceListId: dentistMode ? defaultListId || null : billing.priceListId,
         patientDefaultPriceListId: patientDefaultPriceListId || null,
       };
 
@@ -721,7 +736,9 @@ export default function ServiceEditorDrawer({
    * the treatment with no charge and still report it added. Only matters when it is being billed.
    */
   const needsTypedPrice =
-    addToLedger && cost === "" && previewMatched.length < previewProcedures.length;
+    !dentistMode && addToLedger && cost === "" && previewMatched.length < previewProcedures.length;
+  /** A name not in the list: the dentist may still write it; reception prices it later. */
+  const unpricedName = dentistMode && previewMatched.length < previewProcedures.length;
   const previewUnits = pricingUnitsFor(previewMode, selectedTeeth);
   const previewTotal = previewUnitCost * previewUnits;
   /** True when the picked service predates billing rules, so the fallback is being used. */
@@ -904,6 +921,11 @@ export default function ServiceEditorDrawer({
           )}
         </div>
       )}
+      {unpricedName && (
+        <p className="mt-1 text-[12px] font-bold text-amber-700">
+          {language === "ar" ? "مش في القائمة — الاستقبال هيحط السعر" : "Not in the list — reception sets the price"}
+        </p>
+      )}
     </div>
   );
 
@@ -1046,27 +1068,30 @@ export default function ServiceEditorDrawer({
           ) : (
           <>
           <div className="md:col-span-2">{procedureField}</div>
-          {doctorField}
+          {!dentistMode && doctorField}
           {dateField}
 
           {statusField}
-          {costField}
-          <div>
-            {/* Empty label so this lines up with the fields beside it. */}
-            <span className={labelClass} aria-hidden="true">&nbsp;</span>
-            {discountField}
-            {ledgerField}
-          </div>
+          {!dentistMode && costField}
+          {!dentistMode && (
+            <div>
+              {/* Empty label so this lines up with the fields beside it. */}
+              <span className={labelClass} aria-hidden="true">&nbsp;</span>
+              {discountField}
+              {ledgerField}
+            </div>
+          )}
           <div>
             <span className={labelClass} aria-hidden="true">&nbsp;</span>
             {saveButton}
           </div>
 
-          <div className="md:col-span-4">{billingStrip}</div>
+          {!dentistMode && <div className="md:col-span-4">{billingStrip}</div>}
 
           <div className="md:col-span-4">{noteField(3)}</div>
 
           {/* Rarely used, so it stays out of the way — but never hides text that would be saved. */}
+          {!dentistMode && (
           <div className="md:col-span-4">
             {showExtraProcedures || multiProceduresText.trim().length > 0 ? (
               <div className="space-y-1.5">
@@ -1094,6 +1119,7 @@ export default function ServiceEditorDrawer({
               </button>
             )}
           </div>
+          )}
           </>
           )}
         </form>
@@ -1155,10 +1181,15 @@ export default function ServiceEditorDrawer({
         * truncated every label and control in it. Neither panel is ever wide enough for two real
         * columns, so there was nothing to win by pretending otherwise.
         */}
-      <div className="flex-1 min-h-0 flex flex-col">
+      {/*
+        * On a phone the chart filled the screen and the form scrolled in the sliver under it
+        * (owner's screenshot, 2026-10-08). Below `md` the whole body scrolls as one piece and
+        * only the Save bar stays put; from `md` up the chart is pinned and the form scrolls.
+        */}
+      <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar md:overflow-visible md:flex md:flex-col">
         {!hideTeethSelector && (
           <div
-            className={`shrink-0 ${!inline ? "px-6 pt-4" : "px-4 pt-4"} ${approval ? "pointer-events-none" : ""}`}
+            className={`md:shrink-0 ${!inline ? "px-6 pt-4" : "px-4 pt-4"} ${approval ? "pointer-events-none" : ""}`}
             aria-disabled={approval ? true : undefined}
           >
             <TeethChartSelector
@@ -1174,7 +1205,7 @@ export default function ServiceEditorDrawer({
           </div>
         )}
 
-        <div className={`flex-1 min-h-0 overflow-y-auto custom-scrollbar ${!inline ? 'p-6' : 'p-4 max-h-[500px]'}`}>
+        <div className={`md:flex-1 md:min-h-0 md:overflow-y-auto custom-scrollbar ${!inline ? 'p-6' : 'p-4 md:max-h-[500px]'}`}>
         <form id="service-form" onSubmit={handleSave} className="space-y-6">
           {approval ? (
             <>
@@ -1193,14 +1224,14 @@ export default function ServiceEditorDrawer({
             {statusField}
           </div>
 
-          {doctorField}
+          {!dentistMode && doctorField}
 
           <div className="space-y-2">
             {procedureField}
-            {extraProceduresField(3)}
+            {!dentistMode && extraProceduresField(3)}
           </div>
 
-          {costField}
+          {!dentistMode && costField}
 
           {/*
             The price list, in the drawer as well as in the compact editor.
@@ -1215,13 +1246,13 @@ export default function ServiceEditorDrawer({
             was charged at clinic prices and counted as private revenue, and the screen gave
             nobody a way to say otherwise.
           */}
-          {discountField}
+          {!dentistMode && discountField}
 
-          {billingStrip}
+          {!dentistMode && billingStrip}
 
           {noteField(4)}
 
-          {ledgerField}
+          {!dentistMode && ledgerField}
           </>
           )}
 

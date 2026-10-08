@@ -372,7 +372,8 @@ function eq<T>(actual: T, expected: T, message: string) {
    * revenue, with nothing on screen to say otherwise.
    */
   eq(
-    (editor.match(/\{discountField\}/g) || []).length,
+    // Dentist mode hides it (`{!dentistMode && discountField}`); reception still gets it in both layouts.
+    (editor.match(/\{(?:!dentistMode && )?discountField\}/g) || []).length,
     2,
     "the price-list picker is missing from one of the two layouts — the front desk cannot choose an insurer"
   );
@@ -859,6 +860,19 @@ function eq<T>(actual: T, expected: T, message: string) {
     ok(/listId: d\.data\(\)\.listId/.test(src), `${rel} loads each service's listId`);
     ok(/pricingMode: d\.data\(\)\.pricingMode/.test(src), `${rel} loads each service's pricingMode`);
   }
+}
+
+// Dentist mode (chair mode, 2026-10-08): the editor hides every money control for a dentist, but
+// the treatment is still priced from the clinic's default list and billed — the dentist just never
+// sees it. These pin the payload rules the spec fixes, so a refactor cannot quietly send a typed
+// cost, a chosen dentist or an unbilled note from a dentist's screen.
+{
+  const src = read("src/components/clinical-notes/ServiceEditorDrawer.tsx");
+  ok(/dentistMode\?: boolean/.test(src), "the editor has a dentistMode prop");
+  ok(src.includes("addToLedger: dentistMode ? true : addToLedger"), "dentist mode always bills");
+  ok(src.includes("doctorId: dentistMode ? meStaffId"), "dentist mode puts the treatment on the dentist themselves");
+  ok(src.includes("unitCost: dentistMode ? null"), "dentist mode never sends a typed cost");
+  ok(/priceListId: dentistMode \? defaultListId/.test(src), "dentist mode charges from the clinic's default list");
 }
 
 console.log(`payers: ${checks} checks passed`);
