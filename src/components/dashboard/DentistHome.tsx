@@ -6,8 +6,13 @@ import {
   arrayUnion, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where,
 } from "firebase/firestore";
 import {
-  Armchair, ArrowUpRight, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, FlaskConical, Loader2, PenLine, ScanLine,
+  Armchair, ArrowUpRight, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, FlaskConical, Loader2, Lock, Plus, ScanLine, Search,
 } from "lucide-react";
+import ChairPopup from "@/components/chair/ChairPopup";
+import { StatusSwitch, STATUS_OPTIONS, type NoteStatus } from "@/components/chair/ChairNoteCard";
+import { canTouch } from "@/lib/chairPopup";
+import { parseTeethString } from "@/components/clinical-notes/utils";
+import { updateApprovalProcedure, updateProcedure } from "@/lib/moneyApi";
 import { XRAY_REPORTS_COLLECTION, worstSeverity, SEVERITY_COLORS, type XrayReport, type XraySeverity } from "@/lib/xrayReport";
 import { auth } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
@@ -275,7 +280,69 @@ export default function DentistHome() {
   // dentist's) — the moment of deciding which tooth to treat is the wrong moment for a blank mouth.
   const [noteCtx, setNoteCtx] = useState<NoteContext | null>(null);
   const [noteLoading, setNoteLoading] = useState(false);
-  const openNote = async (apt: Row) => {
+  /**
+   * The chair popup: a patient, and today's visit when there is one. Named apart from `chair`
+   * (which is today's seating) on purpose.
+   */
+  const [chairPop, setChairPop] = useState<{ patientId: string; appointment: { id: string; branchId?: string | null } | null } | null>(null);
+  /** Every dentist's treatments on the hero's visit — the slab shows them all, mine pressable. */
+  const [heroNotes, setHeroNotes] = useState<Note[]>([]);
+  const heroId = hero ? String(hero.id) : "";
+  useEffect(() => {
+    if (!heroId || !clinicId) return;
+    return onSnapshot(
+      query(getClinicCollection("clinical_notes"), where("appointmentId", "==", heroId)),
+      (s) => setHeroNotes(s.docs.map((d) => ({ id: d.id, ...d.data() }) as Note)),
+      () => setHeroNotes([])
+    );
+  }, [heroId, clinicId]);
+  /** One status write at a time, so a double tap cannot race itself. */
+  const [noteBusyId, setNoteBusyId] = useState("");
+  const setNoteStatus = async (note: Note, next: NoteStatus) => {
+    if (noteBusyId || !me || !canTouch(note, me)) return;
+    const patientId = String((note as { patientId?: unknown }).patientId || "");
+    if (!patientId) return;
+    setNoteBusyId(note.id);
+    try {
+      if ((note as { claimId?: string }).claimId) {
+        await updateApprovalProcedure(note.id, { patientId, appointmentId: note.appointmentId ?? null, status: next, doctorId: me.staffId, note: note.note ?? "" });
+      } else {
+        await updateProcedure(note.id, {
+          patientId,
+          appointmentId: note.appointmentId ?? null,
+          procedures: [String(note.procedure || "")],
+          selectedTeeth: parseTeethString(note.tooth || ""),
+          tooth: note.tooth,
+          doctorId: me.staffId,
+          status: next,
+          note: note.note ?? "",
+          date: note.date,
+          addToLedger: true,
+        });
+      }
+    } catch (e) {
+      console.error("Note status failed:", e);
+      showToast(isAr ? "ماتحفظش — جرّب تاني" : "Not saved — try again", "error");
+    } finally {
+      setNoteBusyId("");
+    }
+  };
+  /** The day card's chip: one tap moves the treatment to the next state. */
+  const cycleStatus = (note: Note) => {
+    const i = STATUS_OPTIONS.findIndex((o) => o.value === (note.status || "Planned"));
+    void setNoteStatus(note, STATUS_OPTIONS[(i + 1) % STATUS_OPTIONS.length].value);
+  };
+  /** The search box over the day list: any patient, into the chair. */
+  const [searchQ, setSearchQ] = useState("");
+  const searchHits = useMemo(() => {
+    const q = searchQ.trim().toLowerCase();
+    if (q.length < 2) return [];
+    return patients
+      .filter((p) => String(p.name || "").toLowerCase().includes(q) || String(p.phone || "").includes(q))
+      .slice(0, 8);
+  }, [searchQ, patients]);
+
+  const openNote = async (apt: Row, fresh = false) => {
     const patientId = String(apt.patientId || "");
     if (!patientId || noteLoading) return;
     setNoteLoading(true);
@@ -288,7 +355,8 @@ export default function DentistHome() {
       const all = nSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Note);
       const linked = apt.clinicalNoteId ? all.find((n) => n.id === apt.clinicalNoteId) : undefined;
       const onVisit = all.find((n) => n.appointmentId === apt.id);
-      setNoteCtx({ apt, patient, notes: all, initialNote: linked || onVisit || null });
+      // "Add a treatment" always opens a blank one; the visit's existing notes are on the slab.
+      setNoteCtx({ apt, patient, notes: all, initialNote: fresh ? null : linked || onVisit || null });
     } catch (e) {
       console.error("Open note failed:", e);
       showToast(isAr ? "مقدرناش نفتح الملاحظة" : "Could not open the note", "error");
@@ -436,8 +504,38 @@ export default function DentistHome() {
                       <Chip>{isAr ? `آخر زيارة من ${heroLastSeen} يوم` : `Last visit ${heroLastSeen} days ago`}</Chip>
                     )}
                     {heroBalance > 0 && <Chip>{isAr ? `عليه ${fmt(heroBalance)} ج.م` : `Balance ${fmt(heroBalance)} EGP`}</Chip>}
-                    {!!hero.clinicalNoteId && <Chip>{isAr ? "الملاحظة بدأت" : "Note started"}</Chip>}
                   </div>
+                  {/* This visit's treatments, every dentist's. Mine carry the status switch. */}
+                  {heroNotes.length > 0 && (
+                    <div className="flex flex-col gap-2">
+                      {heroNotes.map((n) => {
+                        const own = !!me && canTouch(n, me);
+                        const teeth = n.tooth && n.tooth !== "Gen" ? n.tooth : "";
+                        const st = STATUS_OPTIONS.find((o) => o.value === (n.status || "Planned"));
+                        return (
+                          <div key={n.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/15 bg-white/[0.06] px-4 py-3">
+                            <div className="min-w-0">
+                              <p className="text-[16px] font-black text-white leading-tight">{n.procedure}</p>
+                              <p className="text-[12px] font-bold text-white/60">
+                                {teeth && <bdi dir="ltr" className="font-figure">{teeth}</bdi>}
+                                {teeth && " · "}
+                                {own ? (isAr ? "عليك" : "Yours") : `${isAr ? "د." : "Dr."} ${String(n.doctor || (isAr ? "العيادة" : "the clinic"))}`}
+                              </p>
+                            </div>
+                            {own ? (
+                              <div className="w-full sm:w-[300px]">
+                                <StatusSwitch value={(n.status || "Planned") as NoteStatus} busy={noteBusyId === n.id} onChange={(next) => void setNoteStatus(n, next)} isAr={isAr} dark />
+                              </div>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 text-[12px] font-bold text-white/70">
+                                <Lock size={12} /> {st ? (isAr ? st.ar : st.en) : ""}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
                 <div className="relative flex flex-wrap items-end justify-between gap-4 mt-6">
                   <div className="flex flex-wrap gap-2.5">
@@ -452,8 +550,11 @@ export default function DentistHome() {
                         </SlabButton>
                       )
                     )}
-                    <SlabButton onClick={() => void openNote(hero)} busy={noteLoading}>
-                      <PenLine size={15} /> {hero.clinicalNoteId ? (isAr ? "افتح ملاحظة النهارده" : "Open today's note") : (isAr ? "ابدأ ملاحظة النهارده" : "Start today's note")}
+                    <SlabButton onClick={() => void openNote(hero, true)} busy={noteLoading}>
+                      <Plus size={16} strokeWidth={3} /> {isAr ? "أضف علاج" : "Add treatment"}
+                    </SlabButton>
+                    <SlabButton onClick={() => setChairPop({ patientId: String(hero.patientId || ""), appointment: { id: String(hero.id), branchId: (hero.branchId as string | null | undefined) ?? null } })}>
+                      <Armchair size={15} /> {isAr ? "افتح الكرسي" : "Open the chair"}
                     </SlabButton>
                     <button onClick={() => router.push(`/patients/${hero.patientId}`)} className="inline-flex items-center gap-1 h-11 px-3 text-[12px] font-bold text-white/60 hover:text-white transition-colors">
                       {isAr ? "الملف" : "File"} <ArrowUpRight size={13} />
@@ -516,6 +617,37 @@ export default function DentistHome() {
                 </button>
               </div>
             </div>
+            {/* Any patient, into the chair — a walk-in or a follow-up without a booking. */}
+            <div className="relative px-6 pb-2">
+              <label className="flex h-11 items-center gap-2 rounded-xl border border-line bg-surface-subtle px-3 text-ink-muted focus-within:border-ink">
+                <Search size={15} />
+                <input
+                  type="search"
+                  value={searchQ}
+                  onChange={(e) => setSearchQ(e.target.value)}
+                  placeholder={isAr ? "دوّر على مريض بالاسم أو التليفون" : "Find a patient by name or phone"}
+                  className="w-full bg-transparent text-[14px] font-bold text-ink outline-none placeholder:text-ink-faint"
+                />
+              </label>
+              {searchHits.length > 0 && (
+                <div className="absolute inset-x-6 top-full z-20 -mt-1 overflow-hidden rounded-xl border border-line bg-surface shadow-xl">
+                  {searchHits.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => {
+                        setSearchQ("");
+                        setChairPop({ patientId: p.id, appointment: null });
+                      }}
+                      className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-start hover:bg-surface-subtle"
+                    >
+                      <span className="truncate text-[14px] font-bold text-ink">{String(p.name || "")}</span>
+                      <bdi dir="ltr" className="font-figure text-[12px] font-semibold text-ink-muted">{String(p.phone || "")}</bdi>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <p className="px-6 pb-2 font-figure text-xs font-bold text-ink-faint">
               {dayMine.length} {isAr ? "مرضى" : "patients"}
               {viewDate <= today ? ` · ${dayDone} ${isAr ? "خلصوا" : "done"}` : ""}
@@ -547,7 +679,45 @@ export default function DentistHome() {
                           {a.serviceName || a.treatment ? " · " : ""}
                           {getAppointmentStageLabel(String(a.status || ""), isAr ? "ar" : "en")}
                         </p>
+                        {/* My treatments on this visit: one tap moves each to its next state. */}
+                        {(() => {
+                          const onVisit = notes.filter((n) => String(n.appointmentId || "") === String(a.id)) as unknown as Note[];
+                          if (onVisit.length === 0) return null;
+                          return (
+                            <div className="mt-1.5 flex flex-wrap gap-1.5">
+                              {onVisit.map((n) => {
+                                const st = STATUS_OPTIONS.find((o) => o.value === (n.status || "Planned"));
+                                const done = n.status === "Completed";
+                                return (
+                                  <button
+                                    key={n.id}
+                                    type="button"
+                                    disabled={!!noteBusyId}
+                                    onClick={(e) => { e.stopPropagation(); cycleStatus(n); }}
+                                    title={isAr ? "اضغط لتغيير الحالة" : "Tap to change the state"}
+                                    className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-bold transition-colors disabled:opacity-60 ${
+                                      done ? "border-emerald-200 bg-emerald-50 text-emerald-800" : n.status === "Ongoing" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-line bg-surface text-ink"
+                                    }`}
+                                  >
+                                    {noteBusyId === n.id ? <Loader2 size={12} className="animate-spin" /> : done ? <Check size={12} strokeWidth={3} /> : null}
+                                    <span className="truncate max-w-[160px]">{String(n.procedure || "")}</span>
+                                    <span className="text-ink-muted">· {st ? (isAr ? st.ar : st.en) : ""}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
                       </div>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setChairPop({ patientId: String(a.patientId || ""), appointment: { id: String(a.id), branchId: (a.branchId as string | null | undefined) ?? null } }); }}
+                        title={isAr ? "افتح الكرسي" : "Open the chair"}
+                        aria-label={isAr ? "افتح الكرسي" : "Open the chair"}
+                        className={`${ghost} h-[30px] w-[30px] px-0 justify-center`}
+                      >
+                        <Armchair size={13} />
+                      </button>
                       {viewingToday && !done && String(a.status) !== "In Chair" && SEATABLE.has(String(a.status)) && !chair.current && (
                         <button
                           onClick={(e) => { e.stopPropagation(); void setStatus(a, "In Chair"); }}
@@ -717,10 +887,24 @@ export default function DentistHome() {
           doctors={doctors}
           teethData={noteCtx.patient.teethData || {}}
           treatments={noteTreatments}
+          dentistMode
+          meStaffId={me?.staffId ?? ""}
           onSaved={() => {
             setNoteCtx(null);
             showToast(isAr ? "اتحفظت" : "Saved", "success");
           }}
+        />
+      )}
+
+      {chairPop && me && (
+        <ChairPopup
+          isOpen={true}
+          onClose={() => setChairPop(null)}
+          patientId={chairPop.patientId}
+          appointment={chairPop.appointment}
+          me={me}
+          services={services}
+          doctors={doctors}
         />
       )}
     </div>
