@@ -279,7 +279,8 @@ const STAFF = [
   ok(/staffRecordFrom\(/.test(page) && /expectedScheduleFor\(/.test(page), "the page parses the staff document itself instead of using the adapter");
   ok(!/<PermissionGuard/.test(page), "a guard here needs a permission key that does not exist, which would lock the page for everyone including the owner");
 
-  const profile = read("src/app/(dashboard)/team/StaffProfile.tsx");
+  // The profile is four tabs since 2026-10; a promise may be kept in any of them.
+  const profile = ["StaffProfile", "AttendanceTab", "MoneyTab", "SettingsTab"].map((f) => read(`src/app/(dashboard)/team/${f}.tsx`)).join("\n");
   ok(/scheduleAssumed/.test(profile), "the profile does not say when it is assuming a roster");
   ok(/checkInDistanceM/.test(profile), "the profile does not show how far from the clinic a punch was taken");
   ok(

@@ -51,8 +51,9 @@ import { CLAIMS_COLLECTION, parseClaim, type InsuranceClaim } from "@/lib/insura
 import { useWording } from "@/components/insurance/useWording";
 import { presetOf, rangeFor, rangeText, getFirstDay, getToday, type DateRange, type RangePreset } from "@/lib/reportHelpers";
 import { isDentistStaff } from "@/lib/staffRoles";
-import TeamRail, { type RailPerson } from "./TeamRail";
+import TeamList, { type RailPerson } from "./TeamList";
 import StaffProfile, { type PayDraft, type ProfileStaff, type SettlementView } from "./StaffProfile";
+import { parseTab, type ProfileTab } from "./profileKit";
 
 type StaffDoc = { id: string } & Record<string, unknown>;
 
@@ -98,6 +99,9 @@ function TeamPage() {
   const [saving, setSaving] = useState(false);
 
   const selectedId = params.get("staff");
+  // The open tab sits in the URL next to the person, so a refresh or a shared link lands on it.
+  const tab = parseTab(params.get("tab"));
+  const hrefFor = useCallback((staffId: string, t: ProfileTab) => `/team?staff=${staffId}${t === "summary" ? "" : `&tab=${t}`}`, []);
 
   /**
    * The team, the punches and the money, each in one listener.
@@ -239,8 +243,8 @@ function TeamPage() {
   // Seed the selection once the team arrives, without adding a history entry for it.
   useEffect(() => {
     if (selectedId || people.length === 0) return;
-    router.replace(`/team?staff=${people[0].id}`, { scroll: false });
-  }, [selectedId, people, router]);
+    router.replace(hrefFor(people[0].id, tab), { scroll: false });
+  }, [selectedId, people, router, tab, hrefFor]);
 
   const selectedDoc = staffDocs.find((d) => d.id === selectedId) || null;
 
@@ -603,7 +607,7 @@ function TeamPage() {
         ))}
       </PageHeader>
 
-      <div className="mx-auto max-w-[1400px] space-y-5 px-4 pt-5 md:px-6 xl:px-10 xl:pt-7">
+      <div className="mx-auto max-w-[1440px] px-4 pt-5 md:px-6 xl:px-10 xl:pt-7">
         {loading ? (
           <div className="flex items-center justify-center gap-2.5 rounded-3xl border border-line bg-surface px-6 py-16 text-ink-muted">
             <Loader2 size={18} className="animate-spin" />
@@ -618,15 +622,16 @@ function TeamPage() {
             </Link>
           </div>
         ) : (
-          <>
-            <TeamRail
+          /* The list beside the profile on a wide screen, above it on a phone. */
+          <div className="grid gap-5 lg:grid-cols-[248px_minmax(0,1fr)] lg:gap-8">
+            <TeamList
               people={people}
               selectedId={selectedId}
-              onSelect={(id) => router.replace(`/team?staff=${id}`, { scroll: false })}
+              onSelect={(id) => router.replace(hrefFor(id, tab), { scroll: false })}
               isAr={isAr}
             />
             {profileStaff && (
-              <div data-tour="team-profile">
+              <div data-tour="team-profile" className="min-w-0">
                 <StaffProfile
                   staff={profileStaff}
                   row={hrRows.get(profileStaff.id) ?? null}
@@ -642,6 +647,8 @@ function TeamPage() {
                   canEdit={canEdit}
                   isAr={isAr}
                   saving={saving}
+                  tab={tab}
+                  onTab={(t) => router.replace(hrefFor(profileStaff.id, t), { scroll: false })}
                   onSavePay={savePay}
                   onEditLog={editLog}
                   onDeleteLog={removeLog}
@@ -655,7 +662,7 @@ function TeamPage() {
                 />
               </div>
             )}
-          </>
+          </div>
         )}
       </div>
     </div>
