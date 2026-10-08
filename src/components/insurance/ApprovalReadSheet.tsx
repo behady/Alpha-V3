@@ -43,7 +43,7 @@ export default function ApprovalReadSheet({ isOpen, onClose, onPatient }: Props)
         dir={isAr ? "rtl" : "ltr"}
         role="dialog"
         aria-labelledby="approval-read-title"
-        className={`${cairo.variable} ${isAr ? "arabic-ui" : ""} relative z-10 flex h-full w-full flex-col overflow-hidden bg-surface shadow-2xl sm:h-auto sm:max-h-[90vh] sm:max-w-2xl sm:rounded-[2rem]`}
+        className={`${cairo.variable} ${isAr ? "arabic-ui" : ""} relative z-10 flex h-full w-full flex-col overflow-hidden bg-surface shadow-2xl sm:h-auto sm:max-h-[92vh] sm:max-w-6xl sm:rounded-[2rem]`}
       >
         <div className="flex shrink-0 items-center justify-between gap-3 bg-ink-slab px-5 py-3 text-white md:px-6">
           <div className="flex min-w-0 items-center gap-3">
