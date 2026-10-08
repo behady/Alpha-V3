@@ -29,6 +29,7 @@ import { useSettingsText } from "@/lib/useSettingsText";
 import {
   ArrowLeft,
   Check,
+  ChevronDown,
   Eye,
   EyeOff,
   Loader2,
@@ -153,8 +154,8 @@ export default function PriceListWorkspace({
 
   const valueFor = (id: string) => (id in drafts ? drafts[id] : (stored[id] ?? ""));
 
-  /** One extra narrow column on every list but Standard: the hide / delete control. */
-  const cols = isStandard ? "sm:grid-cols-[1fr_7rem_9rem_7rem]" : "sm:grid-cols-[1fr_7rem_9rem_7rem_2.75rem]";
+  /** One extra column on every list but Standard: the hide / delete button, with its words on it. */
+  const cols = isStandard ? "sm:grid-cols-[1fr_7rem_9rem_7rem]" : "sm:grid-cols-[1fr_7rem_9rem_7rem_10.5rem]";
 
   const changed = useMemo(
     () => Object.keys(drafts).filter((id) => (drafts[id] ?? "") !== (stored[id] ?? "")),
@@ -190,7 +191,14 @@ export default function PriceListWorkspace({
         ? `${n} علاج مش مغطى من الشركة دي، فمش ظاهر هنا. لو بتغطيهم، فعّلهم من الإعدادات ← التأمين.`
         : `${n} treatment${n === 1 ? " is" : "s are"} not covered by this company, so ${n === 1 ? "it is" : "they are"} not shown. To cover ${n === 1 ? "it" : "them"}, tick ${n === 1 ? "it" : "them"} under Settings → Insurance.`,
 
-    hiddenToast: (name: string) => (ar ? `"${name}" اتخفى من القائمة دي` : `"${name}" hidden on this list`),
+    hiddenToast: (name: string) =>
+      ar ? `"${name}" اتشال من القائمة دي — تلاقيه تحت في «مخفي» لو حبيت ترجّعه` : `"${name}" taken off this list — it is under "Hidden" at the bottom if you want it back`,
+    hiddenSection: (n: number) => (ar ? `مخفي من القائمة دي (${n})` : `Hidden from this list (${n})`),
+    hiddenSectionHint: ar
+      ? "دي علاجات العيادة الأساسية. القائمة دي مش بتعرضها، وباقي القوايم لسه فيها. عشان تمسح علاج من كل حتة، روح تبويب «العلاجات»."
+      : "These are your clinic's main treatments. This list does not offer them; your other lists still do. To delete one everywhere, use the Treatments tab.",
+    deleteOwnShort: ar ? "احذف" : "Delete",
+    removeShort: ar ? "شيله من القائمة" : "Remove",
     shownToast: (name: string) => (ar ? `"${name}" رجع يظهر على القائمة دي` : `"${name}" shown on this list again`),
     deleteOwnBody: (name: string) =>
       ar
@@ -309,9 +317,21 @@ export default function PriceListWorkspace({
     [covered, search, categoryFilter]
   );
 
+  /**
+   * Shared treatments this list hides. They leave the main list for a folded section at the
+   * bottom, so hiding one reads as taking it off — the row no longer sits there looking
+   * undeletable. Search and the category chips scope it like everything else.
+   */
+  const hiddenRows = useMemo(
+    () => (isStandard ? [] : filtered.filter((s) => hiddenIds.has(s.id) && !isOwn(s))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [filtered, hiddenIds, isStandard, list.id]
+  );
+
   const grouped = useMemo(() => {
     const byCat = new Map<string, ServiceRow[]>();
     for (const s of filtered) {
+      if (!isStandard && hiddenIds.has(s.id) && !isOwn(s)) continue;
       const key = s.category || suggestCategory(s.name);
       byCat.set(key, [...(byCat.get(key) || []), s]);
     }
@@ -319,7 +339,8 @@ export default function PriceListWorkspace({
       category: c,
       items: byCat.get(c.key)!,
     }));
-  }, [filtered]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered, hiddenIds, isStandard, list.id]);
 
   const usedCategories = useMemo(() => {
     const used = new Set(covered.map((s) => s.category || suggestCategory(s.name)));
@@ -671,7 +692,7 @@ export default function PriceListWorkspace({
           <div className="flex justify-center py-16 text-ink-muted">
             <Loader2 size={22} className="animate-spin" />
           </div>
-        ) : grouped.length === 0 ? (
+        ) : grouped.length === 0 && hiddenRows.length === 0 ? (
           <div className="mt-4 rounded-3xl border border-dashed border-line bg-surface-subtle py-16 text-center text-base font-bold text-ink-muted">
             {txt.none}
           </div>
@@ -770,22 +791,18 @@ export default function PriceListWorkspace({
                                 type="button"
                                 onClick={() => (own ? deleteOwn(s) : removeFromList(s))}
                                 disabled={saving}
-                                title={own ? txt.deleteOwn : ar ? "شيله من القائمة دي" : "Remove from this list"}
-                                aria-label={own ? txt.deleteOwn : ar ? "شيله من القائمة دي" : "Remove from this list"}
-                                className="rounded-lg p-2 text-ink-muted transition hover:bg-danger-tint hover:text-danger disabled:opacity-50"
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[12px] font-bold text-ink-muted transition hover:border-danger/40 hover:bg-danger-tint hover:text-danger disabled:opacity-50"
                               >
-                                <Trash2 size={15} />
+                                <Trash2 size={14} /> {own ? txt.deleteOwnShort : txt.removeShort}
                               </button>
                             ) : (
                               <button
                                 type="button"
                                 onClick={() => toggleHidden(s)}
                                 disabled={saving}
-                                title={isHidden ? txt.show : txt.hide}
-                                aria-label={isHidden ? txt.show : txt.hide}
-                                className="rounded-lg p-2 text-ink-muted transition hover:bg-surface-muted hover:text-ink disabled:opacity-50"
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[12px] font-bold text-ink-muted transition hover:bg-surface-muted hover:text-ink disabled:opacity-50"
                               >
-                                {isHidden ? <EyeOff size={15} /> : <Eye size={15} />}
+                                <EyeOff size={14} /> {txt.hide}
                               </button>
                             )}
                           </span>
@@ -796,6 +813,39 @@ export default function PriceListWorkspace({
                 </ul>
               </section>
             ))}
+
+            {/* Hidden from this list: folded away, one click to bring a treatment back. */}
+            {hiddenRows.length > 0 && (
+              <details className="group rounded-2xl border border-dashed border-line bg-surface">
+                <summary className="flex cursor-pointer list-none items-center gap-2.5 px-4 py-3 text-sm font-black text-ink-muted hover:text-ink [&::-webkit-details-marker]:hidden">
+                  <EyeOff size={16} />
+                  <span>{txt.hiddenSection(hiddenRows.length)}</span>
+                  <ChevronDown size={16} className="ms-auto transition-transform group-open:rotate-180" />
+                </summary>
+                <div className="border-t border-line px-4 pb-4 pt-3">
+                  <p className="mb-3 text-xs font-semibold leading-relaxed text-ink-muted">{txt.hiddenSectionHint}</p>
+                  <ul className="space-y-1.5">
+                    {hiddenRows.map((s) => (
+                      <li key={s.id} className="flex items-center gap-2.5 rounded-xl border border-line bg-surface-subtle px-3 py-2">
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted">
+                          <DentalIcon id={iconForService(s)} size={18} />
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-sm font-bold text-ink-body">{s.name}</span>
+                        <span className="font-figure text-sm font-semibold text-ink-muted">{(Number(s.price) || 0).toLocaleString()}</span>
+                        <button
+                          type="button"
+                          onClick={() => toggleHidden(s)}
+                          disabled={saving}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[12px] font-bold text-ink transition hover:bg-surface-muted disabled:opacity-50"
+                        >
+                          <Eye size={14} /> {txt.show}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </details>
+            )}
           </div>
         )}
       </div>
