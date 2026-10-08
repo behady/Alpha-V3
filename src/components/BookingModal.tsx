@@ -169,6 +169,12 @@ interface Props {
   onClose: () => void;
   onSave: (data: AppointmentData) => void | Promise<void>;
   /**
+   * Save a NEW booking and keep the popup open on it (the Payment tab's "Confirm booking & take
+   * payment"): the services are recorded with the visit, and the money can be taken at once
+   * instead of saving, closing and opening the visit again. Absent = the button is not offered.
+   */
+  onSaveAndStay?: (data: AppointmentData) => Promise<void>;
+  /**
    * Save without closing or toasting — the panel is still open and being edited.
    *
    * Supplying it turns on autosave, and ONLY for an appointment that already exists. A booking
@@ -240,6 +246,7 @@ export default function BookingModal({
   isOpen,
   onClose,
   onSave,
+  onSaveAndStay,
   onAutosave,
   patients,
   doctors,
@@ -824,7 +831,7 @@ export default function BookingModal({
     return snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<ConflictCandidate, "id">) }));
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (stay = false) => {
     if (isChecking) return;
     setIsChecking(true);
     try {
@@ -895,7 +902,8 @@ export default function BookingModal({
         }
       }
 
-      await onSave(buildPayload());
+      if (stay && onSaveAndStay) await onSaveAndStay(buildPayload());
+      else await onSave(buildPayload());
     } catch (error) {
       console.error(error);
       showToast(txt.error, "error");
@@ -1687,7 +1695,7 @@ servicesList.length > 0 && (
           ) : (
             <button
               type="button"
-              onClick={handleSubmit} data-tour="booking-confirm"
+              onClick={() => void handleSubmit()} data-tour="booking-confirm"
               disabled={isChecking || blockingReasons.length > 0}
               className="flex-[2] flex items-center justify-center gap-2 rounded-xl bg-primary-600 py-3.5 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-primary-200 transition hover:bg-primary-700 disabled:opacity-50"
             >
@@ -1795,10 +1803,21 @@ servicesList.length > 0 && (
             {isAr ? "مفيش خدمات لسه. ضيفها من تبويب الخدمة." : "No treatments yet. Add them on the Service tab."}
           </p>
         )}
+        {onSaveAndStay && sessionProcedures.length > 0 && (
+          <button
+            type="button"
+            onClick={() => void handleSubmit(true)}
+            disabled={isChecking || blockingReasons.length > 0}
+            className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-ink-slab px-6 text-[15px] font-bold text-white transition-colors hover:bg-ink disabled:opacity-40"
+          >
+            {isChecking && <Loader2 size={16} className="animate-spin" />}
+            {isAr ? "أكّد الحجز وحصّل دلوقتي" : "Confirm booking & take payment"}
+          </button>
+        )}
         <p className="text-xs text-ink-muted">
           {isAr
-            ? "الخدمات دي بتتسجل لما تدوس تأكيد الحجز، وبعدها تقدر تحصّل الفلوس من هنا."
-            : "These are recorded when you press Confirm booking; after that, the payment is taken here."}
+            ? "الخدمات دي بتتسجل مع الحجز. «أكّد الحجز وحصّل دلوقتي» بيحفظ الزيارة ويفضل فاتح هنا عشان تحصّل على طول."
+            : "These are recorded with the booking. \"Confirm booking & take payment\" saves the visit and stays here so you can take the money at once."}
         </p>
       </div>
     );
@@ -2057,7 +2076,7 @@ servicesList.length > 0 && (
             ) : (
               <button
                 type="button"
-                onClick={handleSubmit}
+                onClick={() => void handleSubmit()}
                 data-tour="booking-confirm"
                 disabled={isChecking || blockingReasons.length > 0}
                 className="inline-flex h-12 items-center gap-2 rounded-xl bg-accent px-7 text-[15px] font-bold text-ink-on-accent shadow-sm transition-colors hover:bg-accent-strong disabled:opacity-40"

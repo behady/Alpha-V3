@@ -643,6 +643,47 @@ export default function DesktopDashboard() {
   };
 
   /**
+   * A new booking confirmed from the popup's Payment tab: saved with its services, and the popup
+   * stays open on the saved visit's Payment tab so the money is taken at once.
+   */
+  const handleSaveBookingAndStay = async (data: any) => {
+    try {
+      const saved = await saveBooking(
+        data,
+        { uid: user?.uid || "", name: user?.name || "System", role: user?.role || "", language: language as "en" | "ar" },
+        async (key: string, msg: string) => {
+          void fireOwnerWhatsAppAlert(key as OwnerAlertKey, msg);
+        },
+      );
+      setAppointmentToEdit({
+        id: saved.appointmentId,
+        patientId: saved.patientId,
+        patientName: String(data.patientName || ""),
+        treatment: String(data.treatment || ""),
+        doctor: String(data.doctor || ""),
+        doctorId: data.doctorId ?? null,
+        date: String(data.date || ""),
+        time: String(data.time || ""),
+        duration: Number(data.duration) || 30,
+        clinicalNoteId: null,
+        branchId: data.branchId ?? null,
+        roomId: data.roomId ?? null,
+        claimId: data.claimId ?? null,
+        claimLine: data.claimLine ?? null,
+        claimLinks: data.claimLinks,
+        cost: Number(data.cost) || 0,
+        notes: String(data.notes || ""),
+        status: String(data.status || "Scheduled"),
+      } as BookingEditSnapshot);
+      setBookingTab("payment");
+      showToast(language === "ar" ? "الحجز اتسجّل — حصّل من هنا" : "Booked — take the payment here", "success");
+    } catch (error) {
+      console.error("Booking save error:", error);
+      showToast(language === "ar" ? "حدث خطأ" : "Error saving appointment", "error");
+    }
+  };
+
+  /**
    * The same write as a deliberate save, minus the two things that end the interaction: it does
    * not close the panel and it does not toast. The booking panel autosaves an appointment that
    * already exists while it stays open, so a person is still looking at the form they just
@@ -1894,6 +1935,7 @@ export default function DesktopDashboard() {
           inlineDesktop={false}
           wide
           initialTab={bookingTab}
+          onSaveAndStay={handleSaveBookingAndStay}
           quickPay={quickPayPopup}
           onClose={() => { setActiveModal(null); setAppointmentToEdit(null); setBookingTab("appointment"); setQuickPayPopup(false); setPreSelectedTime(''); setPreSelectedPatient(null); setPreSelectedDoctor(''); setPreSelectedRoomId(''); setPreSelectedRoomBranchId(''); }} 
           onSave={handleSaveBooking} 
