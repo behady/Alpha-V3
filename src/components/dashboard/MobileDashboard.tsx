@@ -4,8 +4,11 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Calendar, Plus, ChevronRight, ChevronLeft, Wallet, User, Clock, Check,
   Loader2, Edit, Printer, UserX, MessageCircle, Pill, Receipt,
-  X, Save, Trash2, FileText, ChevronDown, Bell, UserPlus, AlertCircle
+  X, Save, Trash2, FileText, ChevronDown, Bell, UserPlus, AlertCircle, ScanLine
 } from "lucide-react";
+import ApprovalReadSheet from "@/components/insurance/ApprovalReadSheet";
+import { useClinic } from "@/context/ClinicContext";
+import { isAnyUnlocked } from "@/lib/featureCatalog";
 import { db, auth } from "@/lib/firebase";
 import {
   collection, query, where, getDocs, orderBy,
@@ -148,6 +151,10 @@ function DashboardClockWidget({ language, showTime = true }: { language: string,
 
 export default function MobileDashboard() {
   const { language, isRTL, t } = useLanguage();
+  const { clinic } = useClinic();
+  /** "Read an approval" sits where Quick Pay was; it needs the insurance add-on. */
+  const insuranceOn = !!clinic && isAnyUnlocked(clinic, "insurance");
+  const [readApproval, setReadApproval] = useState(false);
   const { user } = useAuth();
   const { showToast, confirm, appointmentEditorMode, latePatientTrackerEnabled } = useUI();
   const router = useRouter();
@@ -904,10 +911,12 @@ export default function MobileDashboard() {
             <Plus size={17} strokeWidth={3} />
             <span className="hidden sm:inline">{language === 'ar' ? 'مريض جديد' : 'New Patient'}</span>
           </button>
-          <button onClick={() => { setPaymentPatient(null); setActiveModal('payment'); }} className={headerButtonGhost}>
-            <Wallet size={17} strokeWidth={2.5} />
-            <span className="hidden sm:inline">{language === 'ar' ? 'دفع سريع' : 'Quick Pay'}</span>
-          </button>
+          {insuranceOn && (
+            <button onClick={() => setReadApproval(true)} className={headerButtonGhost}>
+              <ScanLine size={17} strokeWidth={2.5} />
+              <span className="hidden sm:inline">{language === 'ar' ? 'اقرأ موافقة' : 'Read approval'}</span>
+            </button>
+          )}
         </PageHeader>
 
         {/* === DESKTOP: Floating High-Contrast Stats === */}
@@ -1031,14 +1040,16 @@ export default function MobileDashboard() {
               <div className="w-8 h-8 shrink-0"></div>
             </button>
 
+            {insuranceOn && (
             <button
-              onClick={() => { setPaymentPatient(null); setActiveModal('payment'); }}
+              onClick={() => setReadApproval(true)}
               className="w-full flex items-center py-3 px-4 rounded-[1.2rem] bg-white/60 backdrop-blur-xl border border-white shadow-[0_4px_20px_rgb(0,0,0,0.03)] active:scale-[0.98] transition-transform"
             >
-              <div className="w-8 h-8 rounded-full bg-surface shadow-sm flex items-center justify-center shrink-0"><Wallet size={16} strokeWidth={2.5} className="text-slate-800" /></div>
-              <span className="text-lg font-black text-slate-800 flex-1 text-center">{language === 'ar' ? 'دفع سريع' : 'Quick Pay'}</span>
+              <div className="w-8 h-8 rounded-full bg-surface shadow-sm flex items-center justify-center shrink-0"><ScanLine size={16} strokeWidth={2.5} className="text-slate-800" /></div>
+              <span className="text-lg font-black text-slate-800 flex-1 text-center">{language === 'ar' ? 'اقرأ موافقة' : 'Read approval'}</span>
               <div className="w-8 h-8 shrink-0"></div>
             </button>
+            )}
           </div>
         </div>
 
@@ -1541,6 +1552,17 @@ export default function MobileDashboard() {
 
       <NewPatientModal isOpen={activeModal === 'patient'} onClose={() => setActiveModal(null)} onSuccess={() => { }} preSelectedBranchId={scopeBranchId} />
       <QuickPaymentModal isOpen={activeModal === 'payment'} onClose={() => setActiveModal(null)} onSave={() => { }} patients={patientsList} preSelectedPatient={paymentPatient} />
+      <ApprovalReadSheet
+        isOpen={readApproval}
+        onClose={() => setReadApproval(false)}
+        onPatient={(p) => {
+          // The paper found or registered this patient: book them.
+          setReadApproval(false);
+          setAppointmentToEdit(null);
+          setPreSelectedPatient(p);
+          setActiveModal('booking');
+        }}
+      />
       <PrescriptionPrintFinderModal
         isOpen={prescriptionFinderOpen}
         onClose={() => setPrescriptionFinderOpen(false)}

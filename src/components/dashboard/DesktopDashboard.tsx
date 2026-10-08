@@ -4,8 +4,10 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { 
     Calendar, Plus, ChevronRight, ChevronLeft, Wallet, User, Clock, Check,
     Loader2, Edit, Printer, UserX, MessageCircle, Pill, Receipt,
-    X, Save, Trash2, ChevronDown, Bell, UserPlus, AlertCircle, Building2
+    X, Save, Trash2, ChevronDown, Bell, UserPlus, AlertCircle, Building2, ScanLine
 } from "lucide-react";
+import ApprovalReadSheet from "@/components/insurance/ApprovalReadSheet";
+import { isAnyUnlocked } from "@/lib/featureCatalog";
 import { db, auth } from "@/lib/firebase";
 import { 
     collection, query, where, getDocs, orderBy, 
@@ -149,7 +151,10 @@ export default function DesktopDashboard() {
   const { user } = useAuth();
   const { showToast, confirm, appointmentEditorMode, appointmentPanelMode, setAppointmentPanelMode, latePatientTrackerEnabled } = useUI();
   const router = useRouter();
-  const { isAdmin, role } = useClinic();
+  const { isAdmin, role, clinic } = useClinic();
+  /** "Read an approval" sits where Quick Pay was; it needs the insurance add-on. */
+  const insuranceOn = !!clinic && isAnyUnlocked(clinic, "insurance");
+  const [readApproval, setReadApproval] = useState(false);
   // The same gate the finance pages use. The week view prints money above each day, and a
   // receptionist without the finance permission should not read the clinic's week in pounds.
   const canSeeMoney = isAdmin || holdsPermission(role, user?.permissions, "access.finance");
@@ -196,7 +201,6 @@ export default function DesktopDashboard() {
   /** Which tab the booking popup opens on: the card's Pay button asks for Payment. */
   const [bookingTab, setBookingTab] = useState<"appointment" | "service" | "payment" | "insurance">("appointment");
   /** The popup opened as Quick Pay: pick a patient, pay what they owe, no booking. */
-  const [quickPayPopup, setQuickPayPopup] = useState(false);
   /** The approved service the patient file's Book button asked for; cleared when the popup closes. */
   const [preSelectedClaimLine, setPreSelectedClaimLine] = useState<ClaimLink | null>(null);
   // /?book=<patientId>&claim=<claimId>&line=<n> — the patient file's Insurance tab booking one
@@ -221,7 +225,6 @@ export default function DesktopDashboard() {
     const open = (name: string) => {
       setSelectedAppointment(null);
       setAppointmentToEdit(null);
-      setQuickPayPopup(false);
       setPreSelectedTime("");
       setPreSelectedDoctor("");
       setPreSelectedPatient({ id: req.patientId, name });
@@ -244,16 +247,14 @@ export default function DesktopDashboard() {
   useEffect(() => {
     if (activeModal !== "booking") setPreSelectedClaimLine(null);
   }, [activeModal]);
-  const openQuickPay = () => {
-    if (appointmentEditorMode === "modal") {
-      setAppointmentToEdit(null);
-      setPreSelectedPatient(null);
-      setQuickPayPopup(true);
-      setActiveModal("booking");
-      return;
-    }
-    setPaymentPatient(null);
-    setActiveModal('payment');
+  const openReadApproval = () => setReadApproval(true);
+  /** The paper found or registered this patient: book them, the popup open on the visit. */
+  const bookFromApproval = (p: { id: string; name: string }) => {
+    setReadApproval(false);
+    setAppointmentToEdit(null);
+    setPreSelectedPatient(p);
+    setBookingTab("appointment");
+    setActiveModal("booking");
   };
   const [scheduleViewDate, setScheduleViewDate] = useState(getLocalDateKey);
   // Where this desk is working today. Shared with booking below, so an appointment created from
@@ -1165,10 +1166,12 @@ export default function DesktopDashboard() {
               <Plus size={17} strokeWidth={3} className="shrink-0" />
               <span className="hidden xl:inline whitespace-nowrap">{language === 'ar' ? 'مريض جديد' : 'New Patient'}</span>
             </button>
-            <button onClick={openQuickPay} className={headerButtonGhost}>
-              <Wallet size={17} strokeWidth={2.5} className="shrink-0" />
-              <span className="hidden xl:inline whitespace-nowrap">{language === 'ar' ? 'دفع سريع' : 'Quick Pay'}</span>
-            </button>
+            {insuranceOn && (
+              <button onClick={openReadApproval} className={headerButtonGhost}>
+                <ScanLine size={17} strokeWidth={2.5} className="shrink-0" />
+                <span className="hidden xl:inline whitespace-nowrap">{language === 'ar' ? 'اقرأ موافقة' : 'Read approval'}</span>
+              </button>
+            )}
           </PageHeader>
         )}
 
@@ -1267,12 +1270,14 @@ export default function DesktopDashboard() {
                         </div>
                         <span className="text-[10px] md:text-xs lg:text-sm font-extrabold text-slate-600 lg:text-slate-700">{language === 'ar' ? 'زيارة' : 'Visit'}</span>
                     </button>
-                    <button onClick={openQuickPay} className="flex flex-col items-center justify-center gap-1.5 lg:gap-2 hover:scale-[1.05] transition-transform group">
+                    {insuranceOn && (
+                    <button onClick={openReadApproval} className="flex flex-col items-center justify-center gap-1.5 lg:gap-2 hover:scale-[1.05] transition-transform group">
                         <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-accent-tint text-accent flex items-center justify-center group-hover:bg-accent group-hover:text-ink transition-colors shadow-sm">
-                            <Wallet size={28} className="scale-75 lg:scale-100" strokeWidth={2.5} />
+                            <ScanLine size={28} className="scale-75 lg:scale-100" strokeWidth={2.5} />
                         </div>
-                        <span className="text-[10px] md:text-xs lg:text-sm font-extrabold text-slate-600 lg:text-slate-700">{language === 'ar' ? 'دفع' : 'Pay'}</span>
+                        <span className="text-[10px] md:text-xs lg:text-sm font-extrabold text-slate-600 lg:text-slate-700">{language === 'ar' ? 'موافقة' : 'Approval'}</span>
                     </button>
+                    )}
                     <div className="flex flex-col items-center justify-center gap-1.5 lg:gap-2 hover:scale-[1.05] transition-transform group relative">
                         <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-warn-tint text-warn flex items-center justify-center group-hover:bg-warn group-hover:text-white transition-colors shadow-sm relative z-10">
                             <div className="opacity-0 absolute inset-0"><ReceptionSummonPanel /></div>
@@ -1985,8 +1990,7 @@ export default function DesktopDashboard() {
           wide
           initialTab={bookingTab}
           onSaveAndStay={handleSaveBookingAndStay}
-          quickPay={quickPayPopup}
-          onClose={() => { setActiveModal(null); setAppointmentToEdit(null); setBookingTab("appointment"); setQuickPayPopup(false); setPreSelectedTime(''); setPreSelectedPatient(null); setPreSelectedDoctor(''); setPreSelectedRoomId(''); setPreSelectedRoomBranchId(''); }} 
+          onClose={() => { setActiveModal(null); setAppointmentToEdit(null); setBookingTab("appointment"); setPreSelectedTime(''); setPreSelectedPatient(null); setPreSelectedDoctor(''); setPreSelectedRoomId(''); setPreSelectedRoomBranchId(''); }} 
           onSave={handleSaveBooking} 
           patients={patientsList} 
           doctors={doctorsList} 
@@ -2011,6 +2015,7 @@ export default function DesktopDashboard() {
         preSelectedBranchId={scopeBranchId}
       />
       <QuickPaymentModal isOpen={activeModal === 'payment'} onClose={() => setActiveModal(null)} onSave={() => {}} patients={patientsList} preSelectedPatient={paymentPatient} />
+      <ApprovalReadSheet isOpen={readApproval} onClose={() => setReadApproval(false)} onPatient={bookFromApproval} />
       <PrescriptionPrintFinderModal
         isOpen={prescriptionFinderOpen}
         onClose={() => setPrescriptionFinderOpen(false)}
