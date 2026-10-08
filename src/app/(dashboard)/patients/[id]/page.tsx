@@ -3,14 +3,14 @@ import { patientAvatarPath, patientMediaPath } from "@/lib/storagePaths";
 
 import { deleteRecord, isOrphanWarning, RecycleBinError } from "@/lib/recycleBinApi";
 import { describeLinked } from "@/lib/recycleBin";
-import { useState, useEffect, useMemo } from "react";
+import { Fragment, useState, useEffect, useMemo } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { 
   ArrowLeft, ArrowRight, MapPin, Edit2, X, Loader2, AlertTriangle, 
   Activity, User, CalendarDays, Stethoscope, Trash2, 
   ChevronDown, MessageCircle, AlertCircle, Wallet, LayoutDashboard, Users, History, CreditCard,
   PhoneForwarded, CheckCircle2, UserX, Globe, MessageCircleOff, MessageSquare, MessageSquareOff, ScrollText,
-  Star, Printer, Pill, Check, Calendar, Camera, UploadCloud, FilePlus, Eye, Download, StickyNote, ClipboardList, ShieldCheck
+  Star, Printer, Pill, Check, Calendar, Camera, UploadCloud, FilePlus, Eye, Download, StickyNote, ClipboardList, ShieldCheck, MoreHorizontal, Plus
 } from "lucide-react";
 import { auth, db, storage } from "@/lib/firebase";
 import { doc, onSnapshot, updateDoc, deleteDoc, collection, query, where, limit, orderBy, addDoc, serverTimestamp } from "firebase/firestore";
@@ -32,7 +32,6 @@ import PermissionGuard from "@/components/PermissionGuard";
 import Protect from "@/components/Protect";
 import PatientFinance from "@/components/PatientFinance";
 import PatientClinical from "@/components/PatientClinical";
-import PatientTimeTrackerWidget from "@/components/patient/PatientTimeTrackerWidget";
 import PatientTimelineTab from "@/components/patients/PatientTimelineTab";
 import PatientNotesTab from "@/components/patients/PatientNotesTab";
 import PatientMediaGallery from "@/components/patients/PatientMediaGallery";
@@ -222,6 +221,8 @@ export default function PatientProfile() {
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [dismissedAlert, setDismissedAlert] = useState(false);
+  /** The ⋯ menu beside Edit: Rx, diagnosis, ortho, review request. */
+  const [moreOpen, setMoreOpen] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
 
   // X-Rays & Media State
@@ -939,237 +940,155 @@ export default function PatientProfile() {
 
       <div className="min-h-full p-4 md:p-8 animate-in fade-in lg:pb-0">
         
-        {/* TOP GRID WIDGETS */}
-        <div className="max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-3 lg:gap-6 mb-6">
-           
-           {/* COL 1: Hero Identity */}
-           <div className="lg:col-span-3 flex flex-col gap-3 lg:gap-4">
-               <div className="flex flex-col lg:relative lg:w-full lg:aspect-auto lg:h-[220px] xl:h-[250px] lg:rounded-[2rem] lg:overflow-hidden lg:shadow-lg lg:group shrink-0">
-                  {/* Mobile Row Layout */}
-                  <div className="flex flex-col gap-3 bg-ink-slab text-white p-4 rounded-[2rem] border border-white/10 shadow-lg lg:hidden shrink-0">
-                     <div className="flex items-center gap-4">
-                         <div className="relative w-[72px] h-[72px] shrink-0 rounded-[1.5rem] overflow-hidden shadow-sm group border-2 border-white/30 bg-white/10">
-                             <img 
-                                src={patient.imageUrl || (patient.gender === "Female" ? "https://cdn-icons-png.flaticon.com/512/4140/4140047.png" : "https://cdn-icons-png.flaticon.com/512/4140/4140048.png")}
-                                alt={patient.name}
-                                className="w-full h-full object-cover"
-                             />
-                             <label className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
-                                <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} disabled={isUploadingImage} />
-                                {isUploadingImage ? <Loader2 size={16} className="animate-spin text-white" /> : <Camera size={16} className="text-white" />}
-                             </label>
-                         </div>
-                         <div className="flex flex-col flex-1 min-w-0">
-                             <h1 className="text-[1.1rem] font-black text-white leading-tight mb-0.5 truncate">{patient.name}</h1>
-                             <div className="flex items-center gap-2 text-white/80 text-[11px] font-bold">
-                                 <span>{displayAge} {t('yearSymbol') || 'Y'}</span>
-                                 <span className="w-1 h-1 rounded-full bg-white/50"></span>
-                                 <span>{patient.gender}</span>
-                             </div>
-                             <div className="mt-2 flex items-center gap-2">
-                                 <div className="px-2.5 py-1 rounded-xl bg-white/20 backdrop-blur-md border border-white/20 flex items-center gap-1.5 text-white text-[10px] font-bold tabular-nums">
-                                     <Wallet size={12} className={balance > 0 ? "text-rose-200" : "text-emerald-100"} />
-                                     {balance > 0 ? balance.toLocaleString() : '0'} EGP
-                                 </div>
-                                 <Protect permission="patients.edit">
-                                   <button data-tour="patient-edit" onClick={() => setIsEditModalOpen(true)} className="p-1 rounded-xl bg-white/20 hover:bg-white/30 backdrop-blur-md border border-white/20 text-white transition-colors">
-                                      <Edit2 size={12} />
-                                   </button>
-                                 </Protect>
-                             </div>
-                         </div>
-                     </div>
-                     <div className="flex flex-col gap-2 mt-1 pt-3 border-t border-white/20">
-                        <button onClick={() => openWhatsApp(patient.phone)} className="flex items-center gap-3 text-white hover:text-white/80 transition-colors text-[13px] font-extrabold">
-                           <div className="w-6 h-6 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0"><MessageCircle size={12} /></div>
-                           {patient.phone || '—'}
+        {/*
+          * The patient, and nothing else: who they are and how to reach them, the clinic's file
+          * number, their code with each insurer, and what they are allergic to. Every empty field
+          * says so and offers to fill it. The counters, the presence widget, the recent-activity
+          * card and the quick-action bar that used to share this space are gone on the owner's
+          * word; the actions live in the ⋯ menu beside Edit, and the visits on the tabs below.
+          */}
+        <section className="max-w-[1600px] mx-auto mb-6 rounded-3xl border border-line bg-surface p-5 md:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-4">
+              <div className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl border border-line bg-surface-subtle">
+                <img
+                  src={patient.imageUrl || (patient.gender === "Female" ? "https://cdn-icons-png.flaticon.com/512/4140/4140047.png" : "https://cdn-icons-png.flaticon.com/512/4140/4140048.png")}
+                  alt={patient.name}
+                  className="h-full w-full object-cover"
+                />
+                <label className="absolute inset-0 flex cursor-pointer items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
+                  <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} disabled={isUploadingImage} />
+                  {isUploadingImage ? <Loader2 size={16} className="animate-spin text-white" /> : <Camera size={16} className="text-white" />}
+                </label>
+              </div>
+              <div className="min-w-0">
+                <h1 className="truncate text-2xl font-black text-ink">{patient.name}</h1>
+                <p className="mt-0.5 text-sm font-semibold text-ink-muted">
+                  {displayAge} {t('yearSymbol') || 'Y'}{patient.gender ? ` · ${patient.gender}` : ""}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Protect permission="patients.edit">
+                <button
+                  data-tour="patient-edit"
+                  onClick={() => setIsEditModalOpen(true)}
+                  className="inline-flex h-10 items-center gap-2 rounded-xl bg-ink-slab px-4 text-sm font-bold text-white transition-colors hover:bg-ink"
+                >
+                  <Edit2 size={15} /> {language === 'ar' ? 'تعديل البيانات' : 'Edit details'}
+                </button>
+              </Protect>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setMoreOpen((v) => !v)}
+                  data-tour="patient-more"
+                  aria-label={language === 'ar' ? 'إجراءات أكتر' : 'More actions'}
+                  aria-expanded={moreOpen}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-line bg-surface text-ink-body transition-colors hover:bg-surface-subtle"
+                >
+                  <MoreHorizontal size={18} />
+                </button>
+                {moreOpen && (
+                  <>
+                    <div className="fixed inset-0 z-30" onClick={() => setMoreOpen(false)} aria-hidden="true" />
+                    <div className="absolute end-0 top-12 z-40 w-56 overflow-hidden rounded-2xl border border-line bg-surface py-1.5 shadow-xl">
+                      <Protect permission="clinical.edit">
+                        <button onClick={() => { setMoreOpen(false); router.push(`/patients/${encodeURIComponent(id)}/rx`); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-start text-sm font-semibold text-ink hover:bg-surface-subtle">
+                          <Pill size={15} /> {language === 'ar' ? 'وصفة طبية' : 'Write Rx'}
                         </button>
-                        {patient.address && (
-                          <div className="flex items-center gap-3 text-white text-[13px] font-extrabold">
-                             <div className="w-6 h-6 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0"><MapPin size={12} /></div>
-                             <span className="truncate">{patient.address}</span>
-                          </div>
-                        )}
-                     </div>
-                  </div>
-
-                  {/* Desktop Cover Layout */}
-                  <div className="hidden lg:block relative w-full h-full">
-                    <img 
-                       src={patient.imageUrl || (patient.gender === "Female" ? "https://cdn-icons-png.flaticon.com/512/4140/4140047.png" : "https://cdn-icons-png.flaticon.com/512/4140/4140048.png")}
-                       alt={patient.name}
-                       className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
-                    />
-                    
-                    {/* Edit Avatar Overlay */}
-                    <label className="absolute top-4 right-4 z-20 cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity">
-                       <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} disabled={isUploadingImage} />
-                       <div className="bg-white/20 backdrop-blur-md hover:bg-white/40 border border-white/30 text-white p-2.5 rounded-xl shadow-lg transition-colors flex items-center justify-center">
-                          {isUploadingImage ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
-                       </div>
-                    </label>
-
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent pointer-events-none"></div>
-                    <div className="absolute bottom-0 left-0 right-0 p-6 flex flex-col">
-                        <h1 className="text-2xl font-black text-white leading-tight mb-1">{patient.name}</h1>
-                        <div className="flex items-center gap-2 text-white/80 text-sm font-medium">
-                            <span>{displayAge} {t('yearSymbol') || 'Y'}</span>
-                            <span className="w-1 h-1 rounded-full bg-white/50"></span>
-                            <span>{patient.gender}</span>
-                        </div>
-                        
-                        <div className="mt-4 flex items-center gap-2">
-                            <div className="px-3 py-1.5 rounded-full bg-white/20 backdrop-blur-md border border-white/10 flex items-center gap-2 text-white text-xs font-bold tabular-nums shadow-inner">
-                                <Wallet size={12} className={balance > 0 ? "text-rose-400" : "text-emerald-400"} />
-                                {balance > 0 ? balance.toLocaleString() : '0'} EGP
-                            </div>
-                            <Protect permission="patients.edit">
-                              <button data-tour="patient-edit" onClick={() => setIsEditModalOpen(true)} className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-md text-white transition-colors">
-                                 <Edit2 size={12} />
-                              </button>
-                            </Protect>
-                        </div>
-                    </div>
-                  </div>
-               </div>
-               
-               {/* Contact details card */}
-                <div className="hidden lg:flex bg-surface border border-slate-200/60 rounded-2xl lg:rounded-3xl p-3 lg:p-4 flex-col gap-2.5 shadow-sm shrink-0">
-                    <button onClick={() => openWhatsApp(patient.phone)} className="flex items-center gap-3 text-slate-800 hover:text-emerald-700 transition-colors text-sm lg:text-[15px] font-extrabold">
-                       <div className="w-7 h-7 lg:w-8 lg:h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0"><MessageCircle size={14} /></div>
-                       {patient.phone || '—'}
-                    </button>
-                    {patient.address && (
-                      <div className="flex items-center gap-3 text-slate-800 text-sm lg:text-[15px] font-extrabold">
-                         <div className="w-7 h-7 lg:w-8 lg:h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center shrink-0"><MapPin size={14} /></div>
-                         <span className="truncate">{patient.address}</span>
-                      </div>
-                    )}
-                </div>
-           </div>
-
-           {/* COL 2: Center Tracking & Stats */}
-           <div className="lg:col-span-6 flex flex-col gap-3 lg:gap-5 lg:pt-8">
-               {/* Top Stats */}
-               <div className="flex items-center justify-around bg-white/40 backdrop-blur-xl rounded-2xl lg:rounded-[2rem] p-3 lg:p-4 border border-white/50 shadow-sm shrink-0">
-                    <div className="flex flex-col items-center flex-1">
-                        <span className="text-[10px] lg:text-sm font-bold text-ink-muted uppercase tracking-widest">{language === 'ar' ? 'الزيارات' : 'Visits'}</span>
-                        <span className="text-3xl lg:text-4xl font-light tracking-tighter text-slate-800 leading-none mt-1">{appointmentTimeline.length}</span>
-                    </div>
-                    <div className="w-px h-10 lg:h-12 bg-slate-200"></div>
-                    <div className="flex flex-col items-center flex-1">
-                        <span className="text-[10px] lg:text-sm font-bold text-ink-muted uppercase tracking-widest">{language === 'ar' ? 'مكتمل' : 'Completed'}</span>
-                        <span className="text-3xl lg:text-4xl font-light tracking-tighter text-slate-800 leading-none mt-1">{servicesDone}</span>
-                    </div>
-                </div>
-
-               {/* Time Tracker (Hidden on Mobile) */}
-               <div className="hidden lg:block">
-                 <PatientTimeTrackerWidget appointments={appointmentTimeline} />
-               </div>
-               
-               {/* Quick Actions Toolbar */}
-                <div className="bg-surface border border-slate-200/60 rounded-2xl lg:rounded-3xl p-3 lg:p-4 shadow-sm flex flex-col gap-2 mt-auto shrink-0">
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">
-                        {language === 'ar' ? 'الإجراءات السريعة' : 'Quick Actions'}
-                    </span>
-                    <div className="flex items-center justify-center gap-2">
-                       {/* Gated to match the studio it opens: without clinical.edit this button
-                           led straight to an Access Restricted screen. The Diagnosis button
-                           beside it has always been gated the same way. */}
-                       <Protect permission="clinical.edit">
-                         <button onClick={() => router.push(`/patients/${encodeURIComponent(id)}/rx`)} data-tour="rx-open" className="flex-1 py-2 lg:py-2.5 px-2 lg:px-3 bg-surface-subtle hover:bg-surface-muted text-blue-600 rounded-xl font-bold text-[11px] lg:text-xs flex items-center justify-center gap-1.5 lg:gap-2 border border-line transition-all hover:-translate-y-0.5">
-                            <Pill size={14} /> <span className="truncate">{language === 'ar' ? 'وصفة طبية' : 'Write Rx'}</span>
-                         </button>
-                       </Protect>
-                       {canViewClinical && (
-                         <button onClick={() => router.push(`/patients/${encodeURIComponent(id)}/diagnosis`)} className="flex-1 py-2 lg:py-2.5 px-2 lg:px-3 bg-surface-subtle hover:bg-surface-muted text-emerald-600 rounded-xl font-bold text-[11px] lg:text-xs flex items-center justify-center gap-1.5 lg:gap-2 border border-line transition-all hover:-translate-y-0.5">
-                            <Stethoscope size={14} /> <span className="truncate">{language === 'ar' ? 'تشخيص' : 'Diagnosis'}</span>
-                         </button>
-                       )}
-                       {canViewOrtho && (
-                         <button onClick={() => router.push(`/ortho/${id}`)} className="flex-1 py-2 lg:py-2.5 px-2 lg:px-3 bg-surface-subtle hover:bg-surface-muted text-violet-600 rounded-xl font-bold text-[11px] lg:text-xs flex items-center justify-center gap-1.5 lg:gap-2 border border-line transition-all hover:-translate-y-0.5">
-                            <Activity size={14} /> <span className="truncate">{language === 'ar' ? 'تقويم' : 'Ortho'}</span>
-                         </button>
-                       )}
-                    </div>
-                </div>
-           </div>
-
-           {/* COL 3: Timeline Summary Dark Card */}
-           <div className="hidden lg:flex lg:col-span-3 lg:pt-8 flex-col h-full">
-               <div className="bg-ink-slab text-white rounded-[1.5rem] lg:rounded-[2rem] p-4 lg:p-6 shadow-[0_12px_40px_rgba(26,33,48,0.2)] flex-1 flex flex-col relative overflow-hidden">
-                   <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
-                   <div className="flex items-center justify-between mb-4 lg:mb-6 relative z-10">
-                      <span className="text-sm font-medium text-slate-400">{language === 'ar' ? 'آخر نشاط' : 'Recent Activity'}</span>
-                      <span className="text-2xl font-light">{appointmentTimeline.slice(0,3).length}/3</span>
-                   </div>
-                   
-                   <div className="flex flex-col gap-4 relative z-10">
-                      {appointmentTimeline.slice(0, 3).map((appt: any, i) => (
-                         <div key={i} className="flex items-start gap-3 group">
-                            <div className="mt-1 bg-white/10 p-2 rounded-full text-white/50 group-hover:bg-cyan-500/20 group-hover:text-cyan-400 transition-colors shrink-0">
-                               {appt.status === 'Completed' ? <Check size={14} /> : <Calendar size={14} />}
-                            </div>
-                            <div className="flex flex-col min-w-0">
-                               <span className="text-sm font-bold truncate">{appt.treatment || appt.serviceName || "Visit"}</span>
-                               <span className="text-xs text-slate-400">{new Date(appt.date).toLocaleDateString()} · {appt.time}</span>
-                            </div>
-                         </div>
-                      ))}
-                      {appointmentTimeline.length === 0 && (
-                          <div className="text-sm text-ink-muted italic">No recent activity.</div>
+                      </Protect>
+                      {canViewClinical && (
+                        <button onClick={() => { setMoreOpen(false); router.push(`/patients/${encodeURIComponent(id)}/diagnosis`); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-start text-sm font-semibold text-ink hover:bg-surface-subtle">
+                          <Stethoscope size={15} /> {language === 'ar' ? 'تشخيص' : 'Diagnosis'}
+                        </button>
                       )}
-                   </div>
-                   
-                   <button onClick={() => void handleSendGoogleReview()} disabled={sendingReviewRequest} className="mt-auto pt-6 flex items-center justify-center gap-2 text-sm font-bold text-amber-400 hover:text-amber-300 transition-colors disabled:opacity-50 shrink-0">
-                      {sendingReviewRequest ? <Loader2 size={16} className="animate-spin" /> : <Star size={16} />}
-                      {language === 'ar' ? 'طلب تقييم' : 'Request Review'}
-                   </button>
-               </div>
-           </div>
-
-        </div>
-
-        {/* MEDICAL ALERT (If exists) */}
-        {hasAlerts && !dismissedAlert && (
-          <div className="max-w-[1600px] mx-auto mb-6 bg-rose-500 text-white px-6 py-4 rounded-3xl flex items-start gap-4 shadow-lg shadow-rose-500/20">
-              <div className="bg-white/20 p-2 rounded-xl shrink-0">
-                <AlertTriangle size={20}/>
+                      {canViewOrtho && (
+                        <button onClick={() => { setMoreOpen(false); router.push(`/ortho/${id}`); }} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-start text-sm font-semibold text-ink hover:bg-surface-subtle">
+                          <Activity size={15} /> {language === 'ar' ? 'تقويم' : 'Ortho'}
+                        </button>
+                      )}
+                      <button onClick={() => { setMoreOpen(false); void handleSendGoogleReview(); }} disabled={sendingReviewRequest} className="flex w-full items-center gap-2.5 px-4 py-2.5 text-start text-sm font-semibold text-ink hover:bg-surface-subtle disabled:opacity-50">
+                        <Star size={15} /> {language === 'ar' ? 'طلب تقييم' : 'Request review'}
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
-              <div className="flex-1 min-w-0 pt-0.5">
-                  <h4 className="font-bold text-rose-100 text-[11px] uppercase tracking-wider mb-1">
-                    {language === 'ar' ? 'تنبيه طبي' : 'Medical alert'}
-                  </h4>
-                  <div className="text-sm font-medium leading-relaxed space-y-1">
-                      {patient.allergies && <p><strong className="font-bold opacity-80">{language === 'ar' ? 'حساسية:' : 'Allergies:'}</strong> {patient.allergies}</p>}
-                      {patient.medicalHistory && patient.medicalHistory !== "None (Healthy)" && <p><strong className="font-bold opacity-80">{language === 'ar' ? 'تاريخ:' : 'History:'}</strong> {patient.medicalHistory}</p>}
-                  </div>
-              </div>
-              <button onClick={() => setDismissedAlert(true)} className="p-1.5 text-rose-200 hover:bg-white/20 rounded-lg transition-colors shrink-0"><X size={16}/></button>
+            </div>
           </div>
-        )}
 
-        {/* NOT-SCREENED NOTICE — deliberately distinct from the red alert above: this says we do
-            not know, which is a different clinical statement from "no known issues". */}
-        {medicalNotScreened && !dismissedAlert && (
-          <div className="max-w-[1600px] mx-auto mb-6 bg-amber-50 text-amber-900 border border-amber-200 px-6 py-4 rounded-3xl flex items-start gap-4">
-              <div className="bg-amber-100 text-amber-600 p-2 rounded-xl shrink-0">
-                <AlertCircle size={20}/>
+          {(() => {
+            const ar = language === 'ar';
+            const addButton = (
+              <Protect permission="patients.edit" fallback={<span className="text-sm font-semibold text-ink-faint">—</span>}>
+                <button type="button" onClick={() => setIsEditModalOpen(true)} className="inline-flex items-center gap-1 text-sm font-bold text-ink-muted underline-offset-4 hover:text-ink hover:underline">
+                  <Plus size={14} /> {ar ? 'أضف' : 'Add'}
+                </button>
+              </Protect>
+            );
+            const field = (label: string, value: React.ReactNode, wide = false) => (
+              <div className={wide ? "sm:col-span-2" : ""}>
+                <dt className="text-[12px] font-bold text-ink-muted">{label}</dt>
+                <dd className="mt-1 text-[15px] font-bold text-ink">{value}</dd>
               </div>
-              <div className="flex-1 min-w-0 pt-0.5">
-                  <h4 className="font-bold text-amber-700 text-[11px] uppercase tracking-wider mb-1">
-                    {language === 'ar' ? 'لم يتم تسجيل التاريخ الطبي' : 'Medical history not recorded'}
-                  </h4>
-                  <p className="text-sm font-medium leading-relaxed">
-                    {language === 'ar'
-                      ? 'لا توجد بيانات حساسية أو تاريخ طبي لهذا المريض. هذا لا يعني عدم وجود حساسية — اسأل المريض وسجّل الإجابة قبل وصف أي دواء.'
-                      : 'No allergies or medical history on file for this patient. This does not mean there are none — ask and record the answer before prescribing.'}
-                  </p>
-              </div>
-              <button onClick={() => setDismissedAlert(true)} className="p-1.5 text-amber-400 hover:bg-amber-100 rounded-lg transition-colors shrink-0"><X size={16}/></button>
-          </div>
-        )}
+            );
+            const fileNumber = String((patient as { fileId?: unknown }).fileId || "").trim();
+            const insurance = readInsurance(patient as Record<string, unknown>);
+            const hasMedical = !!patient.allergies || (!!patient.medicalHistory && patient.medicalHistory !== "None (Healthy)");
+            return (
+              <dl className="mt-5 grid grid-cols-1 gap-x-6 gap-y-4 border-t border-line pt-5 sm:grid-cols-2 lg:grid-cols-4">
+                {field(ar ? 'رقم الملف' : 'File number', fileNumber ? <bdi dir="ltr" className="font-figure">{fileNumber}</bdi> : <span className="text-ink-faint">—</span>)}
+                {field(
+                  ar ? 'التليفون' : 'Phone',
+                  patient.phone ? (
+                    <button onClick={() => openWhatsApp(patient.phone)} className="inline-flex items-center gap-1.5 hover:text-emerald-700">
+                      <MessageCircle size={14} className="text-emerald-600" /> <bdi dir="ltr" className="font-figure">{patient.phone}</bdi>
+                    </button>
+                  ) : addButton,
+                )}
+                {field(ar ? 'العنوان' : 'Address', patient.address ? <span className="block truncate">{patient.address}</span> : addButton)}
+                {field(
+                  ar ? 'الرصيد' : 'Balance',
+                  <span className={`font-figure ${balance > 0 ? "text-rose-700" : ""}`}>
+                    <bdi dir="ltr">{balance > 0 ? balance.toLocaleString() : '0'}</bdi> {ar ? 'ج.م' : 'EGP'}
+                  </span>,
+                )}
+                {insurers.map((p) => {
+                  const e = insurance[p.id];
+                  const code =
+                    p.format === "metlife"
+                      ? [e?.certificateNumber, e?.dependentCode].filter(Boolean).join(" / ")
+                      : [e?.certificateNumber, e?.memberNumber].filter(Boolean).join(" · ");
+                  return (
+                    <Fragment key={p.id}>
+                      {field(
+                        `${ar ? 'كود التأمين' : 'Insurance code'} · ${ar ? p.nameAr || p.name : p.name}`,
+                        code ? <bdi dir="ltr" className="font-figure">{code}</bdi> : addButton,
+                      )}
+                    </Fragment>
+                  );
+                })}
+                {field(
+                  ar ? 'الحساسية والتاريخ الطبي' : 'Allergies & medical history',
+                  hasMedical ? (
+                    <span className="text-rose-700">
+                      {[patient.allergies && `${ar ? 'حساسية' : 'Allergies'}: ${patient.allergies}`, patient.medicalHistory && patient.medicalHistory !== "None (Healthy)" && patient.medicalHistory]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  ) : (
+                    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="text-amber-700">{ar ? 'لسه ماتسجلش — اسأل المريض قبل أي دوا' : 'Not recorded — ask before prescribing'}</span>
+                      {addButton}
+                    </span>
+                  ),
+                  true,
+                )}
+              </dl>
+            );
+          })()}
+        </section>
 
         {/* MAIN TABS AREA */}
         <div className="max-w-[1600px] mx-auto bg-white/60 backdrop-blur-xl border border-white/40 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-[2rem] p-4 md:p-6 lg:p-8">
@@ -1815,6 +1734,7 @@ export default function PatientProfile() {
                 
                 <button
                   onClick={() => router.push(`/patients/${id}/rx`)}
+                  data-tour="rx-open"
                   className="bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs px-5 py-3 rounded-xl transition-all shadow-md shadow-violet-600/20 flex items-center gap-2 shrink-0 active:scale-95"
                 >
                   <FilePlus size={16} />
