@@ -471,8 +471,9 @@ const APPROVAL_DELETE_MESSAGE = "This treatment comes from an insurance approval
 const APPROVAL_MOVE_MESSAGE = "This treatment comes from an insurance approval; change its treated date on the patient's Insurance tab instead of moving it to another visit.";
 
 /**
- * Which of the treatment's own facts an edit to an approval's note would change. The editor sends
- * the whole form every time, so a field is only a change when it differs from what is stored.
+ * Which of the treatment's own facts an edit to an approval's note would change. A field is only a
+ * change when the request carries it AND it differs from what is stored: the clinical editor now
+ * sends just the state, dentist and note for these rows, and an absent field is "leave it".
  */
 function approvalNoteChanges(body: Record<string, unknown>, before: Record<string, unknown>): string[] {
   const blank = (v: unknown) => v === undefined || v === null || v === "";
@@ -485,13 +486,17 @@ function approvalNoteChanges(body: Record<string, unknown>, before: Record<strin
     return String(posted) !== String(stored);
   };
   const changed: string[] = [];
-  const procedures = asStringArray(body.procedures);
-  const storedProcedures = asStringArray(before.procedures);
-  if (procedures.join("\u0000") !== (storedProcedures.length ? storedProcedures : [String(before.procedure || "")]).join("\u0000")) changed.push("procedures");
-  if (differs(String(body.doctorId || "").trim(), before.doctorId)) changed.push("doctorId");
-  const teeth = asStringArray(body.selectedTeeth);
-  const tooth = teeth.length > 0 ? teeth.join(",") : String(body.tooth || "").trim() || "Gen";
-  if (tooth !== String(before.tooth || "Gen")) changed.push("tooth");
+  if (body.procedures !== undefined) {
+    const procedures = asStringArray(body.procedures);
+    const storedProcedures = asStringArray(before.procedures);
+    if (procedures.join("\u0000") !== (storedProcedures.length ? storedProcedures : [String(before.procedure || "")]).join("\u0000")) changed.push("procedures");
+  }
+  if (body.doctorId !== undefined && differs(String(body.doctorId || "").trim(), before.doctorId)) changed.push("doctorId");
+  if (body.selectedTeeth !== undefined || body.tooth !== undefined) {
+    const teeth = asStringArray(body.selectedTeeth);
+    const tooth = teeth.length > 0 ? teeth.join(",") : String(body.tooth || "").trim() || "Gen";
+    if (tooth !== String(before.tooth || "Gen")) changed.push("tooth");
+  }
   if (body.status !== undefined && differs(body.status, before.status)) changed.push("status");
   if (body.date !== undefined && differs(body.date, before.date)) changed.push("date");
   if (!blank(body.unitCost) && differs(body.unitCost, before.unitCost)) changed.push("unitCost");
@@ -519,7 +524,7 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
   const { clinicId, actor, body, noteId, before } = args;
   const changed = approvalNoteChanges(body, before);
   if (changed.some((field) => !APPROVAL_LINE_FIELDS.has(field))) return bad(APPROVAL_NOTE_MESSAGE, 409);
-  const note = String(body.note || "");
+  const note = String(body.note ?? before.note ?? "");
   const noteChanged = note !== String(before.note || "");
   const status = changed.includes("status") ? body.status : undefined;
   if (status !== undefined && !isLineStatus(status)) return bad(LINE_STATUS_MESSAGE);

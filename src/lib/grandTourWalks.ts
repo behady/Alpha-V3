@@ -136,12 +136,8 @@ export const TOUR_WALKS: Record<string, DemoAction[]> = {
 
   "patient-file": [
     pa("patient-edit", "The pencil edits the profile — name, phone, birthday, and the delete button.", "القلم بيعدّل الملف — الاسم والتليفون وتاريخ الميلاد، وزرار الحذف."),
-    pt(l("Visits", "الزيارات"), "Visits and completed treatments, at a glance.", "الزيارات والعلاجات المكتملة، في نظرة."),
-    pa("rx-open", "Quick actions: write a prescription…", "الإجراءات السريعة: اكتب روشتة…"),
-    pt(l("Diagnosis", "تشخيص"), "…chart a diagnosis on the teeth…", "…سجّل تشخيص على الأسنان…", "self"),
-    pt(l("Ortho", "تقويم"), "…or open the ortho record.", "…أو افتح ملف التقويم.", "self"),
-    pt(l("Request Review", "طلب تقييم"), "Request a Google review from this patient after a good visit.", "اطلب تقييم على جوجل من المريض ده بعد زيارة كويسة.", "self"),
-    pt(l("Medical history not recorded", "لم يتم تسجيل التاريخ الطبي"), "This banner stays until someone records allergies and history — blank means not asked, never 'none'.", "البانر ده بيفضل لحد ما حد يسجّل الحساسية والتاريخ — الفاضي معناه ماتسألش، مش «مفيش»."),
+    pt(l("File number", "رقم الملف"), "The patient card: file number, phone, each insurer's code and allergies. An empty field offers Add.", "كارت المريض: رقم الملف والتليفون وكود كل شركة تأمين والحساسية. الخانة الفاضية فيها «أضف»."),
+    pa("patient-more", "Prescription, diagnosis, ortho and a Google review request are under ⋯.", "الروشتة والتشخيص والتقويم وطلب تقييم جوجل تحت ⋯."),
     pa("patient-tab-clinical", "The tabs. Clinical: every procedure, in order, with the teeth chart.", "التابات. السجل السريري: كل إجراء بالترتيب، مع رسم الأسنان."),
     pa("patient-tab-plan", "Treatment Plan: what's proposed and priced.", "خطة العلاج: المقترح وسعره."),
     pa("patient-tab-finance", "Finance: charges, payments, balance, receipts.", "الحسابات: الرسوم والمدفوعات والرصيد والإيصالات."),

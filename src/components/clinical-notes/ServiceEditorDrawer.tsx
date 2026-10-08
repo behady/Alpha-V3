@@ -3,15 +3,16 @@
 import { serviceMenuById } from "@/lib/serviceMenu";
 import { memo, useCallback, useMemo, useState, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
-import { X, Save, CheckCircle2, Loader2, Camera, Edit2 } from "lucide-react";
+import { X, Save, Check, CheckCircle2, Loader2, Camera, Edit2 } from "lucide-react";
 import { auth, db } from "@/lib/firebase";
 import { collection, addDoc, doc, updateDoc, serverTimestamp, getDocs, query, where, deleteDoc, getDoc } from "firebase/firestore";
 import { getStorage, ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { useUI } from "@/context/UIContext";
+import { isArchPicked, missingInArch, missingTeeth, toggleArch, type ArchPick } from "@/lib/archSelection";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { logActivity } from "@/lib/logger";
-import { MoneyApiError, createProcedure, updateProcedure } from "@/lib/moneyApi";
+import { MoneyApiError, createProcedure, updateApprovalProcedure, updateProcedure } from "@/lib/moneyApi";
 import ServiceCombobox from "@/components/shared/ServiceCombobox";
 import TeethChart, { type ToothData } from "@/components/TeethChart";
 import { TREATMENT_STATES, pendingTreatments, resolveTreatments, type ToothTreatment } from "@/lib/toothTreatments";
@@ -19,7 +20,6 @@ import { isDentistStaff } from "@/lib/staffRoles";
 import { generalDoctorLabel } from "@/lib/generalDentist";
 import { Note, Service, Staff } from "./types";
 import {
-  ALL_TEETH, UPPER_LEFT_TEETH, UPPER_RIGHT_TEETH, LOWER_LEFT_TEETH, LOWER_RIGHT_TEETH,
   compressImage, computeProcedureLabFee, parseTeethString,
   DEFAULT_PRICING_MODE, isPricingMode, pricingUnitsFor, type PricingMode,
 } from "./utils";
@@ -101,22 +101,42 @@ export const TeethChartSelector = memo(function TeethChartSelector({
   /** True in the side sheet, where the panel is 672px however wide the monitor is. */
   narrow: boolean;
 }) {
+    const { confirm } = useUI();
     // Convert string array to number array for TeethChart
     const selectedNumbers = selected.map(s => parseInt(s, 10)).filter(n => !isNaN(n));
 
-    const handleSelectArch = (arch: "upper" | "lower") => {
-      const archTeeth = arch === "upper"
-        ? [...UPPER_RIGHT_TEETH, ...UPPER_LEFT_TEETH]
-        : [...LOWER_RIGHT_TEETH, ...LOWER_LEFT_TEETH];
+    /** Teeth the chart says are gone: a missing diagnosis, or an extraction nothing replaced. */
+    const missing = useMemo(() => missingTeeth(teethData, treatments), [teethData, treatments]);
 
-      const allSelected = archTeeth.every(t => selected.includes(t));
-
-      if (allSelected) {
-        onSetSelected(prev => prev.filter(t => !archTeeth.includes(t)));
-      } else {
-        onSetSelected(prev => Array.from(new Set([...prev, ...archTeeth])));
+    /**
+     * Tick or untick the upper arch, the lower arch, or the whole mouth. When the arch has teeth
+     * the chart records as gone, the dentist is asked whether to count them: a per-tooth price
+     * multiplies by the teeth picked, and only they know whether this work covers the gaps (a
+     * bridge over a gap does, a scaling does not). Closing the question counts them out.
+     */
+    const pickArch = async (pick: ArchPick) => {
+      const gone = missingInArch(pick, missing);
+      let includeMissing = false;
+      if (gone.length > 0 && !isArchPicked(selected, pick, missing)) {
+        includeMissing = await confirm(
+          isAr
+            ? `الأسنان دي متسجلة مخلوعة أو مش موجودة: ${gone.join("، ")}. تتحسب مع الفك؟`
+            : `These teeth are recorded as extracted or missing: ${gone.join(", ")}. Count them in?`,
+          {
+            title: isAr ? "أسنان مش موجودة" : "Missing teeth",
+            confirmLabel: isAr ? `احسبهم (${gone.length})` : `Count them (${gone.length})`,
+            cancelLabel: isAr ? "من غيرهم" : "Leave them out",
+          }
+        );
       }
+      onSetSelected((prev) => toggleArch(prev, pick, missing, includeMissing));
     };
+
+    const archBoxes: Array<{ pick: ArchPick; label: string }> = [
+      { pick: "upper", label: isAr ? "الفك العلوي" : "Upper arch" },
+      { pick: "full", label: isAr ? "الفم كله" : "Full mouth" },
+      { pick: "lower", label: isAr ? "الفك السفلي" : "Lower arch" },
+    ];
 
     /**
      * What is ALREADY on the teeth just picked.
@@ -161,18 +181,48 @@ export const TeethChartSelector = memo(function TeethChartSelector({
          * hidden, so on a short screen the chart was silently clipped and the lower arch simply was
          * not there — with nothing on screen to suggest anything had been cut off.
          */}
-        <div className="rounded-xl border border-line bg-surface shadow-inner">
-          <TeethChart
-            data={teethData}
-            treatments={treatments}
-            selectionMode={true}
-            compactMode={true}
-            dense
-            narrow={narrow}
-            selectedTeeth={selectedNumbers}
-            onToggleTooth={(id) => onToggle(id.toString())}
-            onSelectArch={handleSelectArch}
-          />
+        {/* The chart, and beside it the three arch ticks: upper on top, full mouth, lower at the
+            bottom — where each sits against the chart it selects. */}
+        <div className="flex items-stretch gap-2">
+          <div className="min-w-0 flex-1 rounded-xl border border-line bg-surface shadow-inner">
+            <TeethChart
+              data={teethData}
+              treatments={treatments}
+              selectionMode={true}
+              compactMode={true}
+              dense
+              narrow={narrow}
+              selectedTeeth={selectedNumbers}
+              onToggleTooth={(id) => onToggle(id.toString())}
+            />
+          </div>
+          <div className="flex w-[6.5rem] shrink-0 flex-col justify-between gap-2 rounded-xl border border-line bg-surface p-2">
+            {archBoxes.map(({ pick, label }) => {
+              const on = isArchPicked(selected, pick, missing);
+              return (
+                <button
+                  key={pick}
+                  type="button"
+                  role="checkbox"
+                  aria-checked={on}
+                  onClick={() => void pickArch(pick)}
+                  className={`flex flex-1 items-center gap-2 rounded-lg border px-2 py-2 text-start text-[12px] font-bold transition-colors ${
+                    on ? "border-ink bg-ink-slab text-white" : "border-line bg-surface-subtle text-ink-body hover:border-line-strong"
+                  }`}
+                >
+                  <span
+                    className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                      on ? "border-white bg-white text-ink" : "border-line-strong bg-surface"
+                    }`}
+                    aria-hidden="true"
+                  >
+                    {on && <Check size={12} strokeWidth={3} />}
+                  </span>
+                  <span className="leading-tight">{label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {onSelected.length > 0 && (
@@ -421,9 +471,48 @@ export default function ServiceEditorDrawer({
     needsPrice: language === 'ar' ? "اكتب سعر للعلاج اللي مش في قائمتك" : "Type a price for a treatment that is not in your list",
   };
 
+  /**
+   * A treatment an insurance approval wrote. Its service, teeth, date and money come from the
+   * approval paper and change only on the patient's Insurance tab; here the desk sets the state,
+   * the dentist and the note. The form used to send its whole self back, and anything it
+   * re-derived on opening (the price list, say) read as an edit, so the server refused the save.
+   */
+  const approval = useMemo(() => {
+    const n = initialNote as (Note & { claimId?: unknown; approvalNumber?: unknown; payerName?: unknown; insurerCovered?: unknown; patientShare?: unknown }) | null;
+    if (!n || typeof n.claimId !== "string" || !n.claimId) return null;
+    return {
+      number: String(n.approvalNumber || ""),
+      payer: String(n.payerName || ""),
+      insurer: Number(n.insurerCovered) || 0,
+      share: Number(n.patientShare) || 0,
+      cost: Number(n.cost) || 0,
+    };
+  }, [initialNote]);
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSaving) return; // Fix Scenario 1: Double-click protection
+    if (approval && initialNote) {
+      setIsSaving(true);
+      try {
+        await updateApprovalProcedure(initialNote.id, {
+          patientId,
+          appointmentId: initialNote.appointmentId ?? null,
+          status: procedureStatus,
+          doctorId: selectedDoctorId || null,
+          note: noteText,
+        });
+        showToast(language === "ar" ? "اتحفظ" : "Procedure Updated", "success");
+        onSaved();
+        onClose();
+      } catch (err) {
+        showToast(err instanceof MoneyApiError ? err.message : "Error saving procedure", "error");
+        console.error(err);
+      } finally {
+        setIsSaving(false);
+      }
+      return;
+    }
     // The dentist is no longer required: an empty picker means General, a treatment the clinic
     // did rather than a person.
     if (!procedure && !multiProceduresText) return showToast(txt.selectError, "error");
@@ -741,6 +830,49 @@ export default function ServiceEditorDrawer({
   );
 
 
+  /**
+   * What an insurance approval fixed on this treatment, shown instead of the controls that would
+   * change it. Teeth, service and money are the approval's; the desk changes them on the patient's
+   * Insurance tab, where the approval itself lives.
+   */
+  const approvalSummary = approval ? (
+    <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm">
+      <p className="font-black text-ink">
+        {language === "ar" ? "من موافقة تأمين" : "From an insurance approval"}
+        {approval.payer ? ` · ${approval.payer}` : ""}
+        {approval.number ? (
+          <>
+            {" · "}
+            <bdi dir="ltr" className="font-figure">{approval.number}</bdi>
+          </>
+        ) : null}
+      </p>
+      <p className="mt-1 font-bold text-ink-body">
+        {procedure}
+        {selectedTeeth.length > 0 && (
+          <>
+            {" · "}
+            {language === "ar" ? "الأسنان" : "Teeth"} <bdi dir="ltr" className="font-figure">{selectedTeeth.join(", ")}</bdi>
+          </>
+        )}
+      </p>
+      <p className="mt-1 font-figure font-bold text-ink-body">
+        {approval.cost.toLocaleString()} EGP
+        {approval.share > 0 && (
+          <span className="text-ink-muted">
+            {" "}
+            ({language === "ar" ? "الشركة" : "insurer"} {approval.insurer.toLocaleString()} · {language === "ar" ? "المريض" : "patient"} {approval.share.toLocaleString()})
+          </span>
+        )}
+      </p>
+      <p className="mt-2 text-xs font-semibold leading-relaxed text-blue-900">
+        {language === "ar"
+          ? "الخدمة والأسنان والسعر جايين من الموافقة، وبيتغيروا من تبويب التأمين في ملف المريض. هنا تقدر تغيّر الحالة والطبيب والملاحظات."
+          : "The service, teeth and price come from the approval and change on the patient's Insurance tab. Here you can change the state, the dentist and the notes."}
+      </p>
+    </div>
+  ) : null;
+
   const discountField = (
     <DiscountEditor
       listTotal={previewTotal}
@@ -801,6 +933,19 @@ export default function ServiceEditorDrawer({
           checkbox-plus-button into the same row as a select is what left everything ragged.
         */}
         <form id="service-form" onSubmit={handleSave} className="grid grid-cols-1 md:grid-cols-4 gap-x-4 gap-y-4 mt-3 items-start">
+          {approval ? (
+            <>
+              <div className="md:col-span-4">{approvalSummary}</div>
+              {statusField}
+              {doctorField}
+              <div className="md:col-span-2">
+                <span className={labelClass} aria-hidden="true">&nbsp;</span>
+                {saveButton}
+              </div>
+              <div className="md:col-span-4">{noteField(3)}</div>
+            </>
+          ) : (
+          <>
           <div className="md:col-span-2">{procedureField}</div>
           {doctorField}
           {dateField}
@@ -850,6 +995,8 @@ export default function ServiceEditorDrawer({
               </button>
             )}
           </div>
+          </>
+          )}
         </form>
       </div>
     );
@@ -907,7 +1054,10 @@ export default function ServiceEditorDrawer({
         */}
       <div className="flex-1 min-h-0 flex flex-col">
         {!hideTeethSelector && (
-          <div className={`shrink-0 ${!inline ? "px-6 pt-4" : "px-4 pt-4"}`}>
+          <div
+            className={`shrink-0 ${!inline ? "px-6 pt-4" : "px-4 pt-4"} ${approval ? "pointer-events-none" : ""}`}
+            aria-disabled={approval ? true : undefined}
+          >
             <TeethChartSelector
               selected={selectedTeeth}
               onToggle={toggleSelectedTooth}
@@ -922,6 +1072,17 @@ export default function ServiceEditorDrawer({
 
         <div className={`flex-1 min-h-0 overflow-y-auto custom-scrollbar ${!inline ? 'p-6' : 'p-4 max-h-[500px]'}`}>
         <form id="service-form" onSubmit={handleSave} className="space-y-6">
+          {approval ? (
+            <>
+              {approvalSummary}
+              <div className="grid grid-cols-2 gap-4">
+                {statusField}
+                {doctorField}
+              </div>
+              {noteField(4)}
+            </>
+          ) : (
+          <>
 
           <div className="grid grid-cols-2 gap-4">
             {dateField}
@@ -957,6 +1118,8 @@ export default function ServiceEditorDrawer({
           {noteField(4)}
 
           {ledgerField}
+          </>
+          )}
 
         </form>
         </div>

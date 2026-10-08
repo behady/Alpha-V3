@@ -28,6 +28,7 @@ import { db } from "@/lib/firebase";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
+import { useUI } from "@/context/UIContext";
 import { hasHardFailure, type Check, type MetlifeExtraction, type MetlifeHeader, type MetlifeLine } from "@/lib/insurance/metlife";
 import { checkApproval } from "@/lib/insurance/formats";
 import { DEFAULT_NEXTCARE_WORDING } from "@/lib/insuranceStatementNextcare";
@@ -133,8 +134,11 @@ export default function ApprovalConfirmCard({
 }) {
   const { clinicId } = useClinic();
   const { language } = useLanguage();
+  const { confirm } = useUI();
   const isAr = language === "ar";
   const t = tr(isAr);
+  /** The patient whose phone number the desk confirmed with the person in front of them. */
+  const [phoneConfirmedFor, setPhoneConfirmedFor] = useState("");
   // Which paper this is: it picks the checks, the field names and the sheet's default wording.
   const format: InsurerFormat = payer.format === "nextcare" ? "nextcare" : "metlife";
   const isNc = format === "nextcare";
@@ -289,8 +293,50 @@ export default function ApprovalConfirmCard({
   const inBin = problem?.kind === "in_bin" && problem.approval === approvalKey(x.header.approvalNumber) ? problem.notice : null;
   const canSave = !saving && !blocked && patientReady && !!clinicId && !inBin;
 
+  /**
+   * Before an approval is put on an existing patient, the desk asks the person at the counter for
+   * their phone number and compares it with the one on file. A matched certificate or a similar
+   * name can still be the wrong person (a relative, a namesake); the phone is what the patient
+   * knows and a namesake does not. A different number means a different person: the card switches
+   * to "new patient" for the number to be typed.
+   */
+  const confirmPatientByPhone = async (): Promise<boolean> => {
+    if (picker.mode !== "existing" || !picker.patientId) return true;
+    if (editing && picker.patientId === editing.patientId) return true;
+    if (phoneConfirmedFor === picker.patientId) return true;
+    const p = patients.find((x) => x.id === picker.patientId);
+    const name = p?.name || chosenName;
+    const phone = (p?.phone || "").trim();
+    const ok = await confirm(
+      phone
+        ? isAr
+          ? `اسأل المريض عن رقم تليفونه.
+الرقم المسجّل عند «${name}»: ${phone}
+هو نفس الرقم؟`
+          : `Ask the patient for their phone number.
+On file for "${name}": ${phone}
+Is it the same number?`
+        : isAr
+          ? `مفيش رقم تليفون متسجّل عند «${name}». اتأكد إنه نفس الشخص (الاسم والسن) قبل الحفظ.`
+          : `"${name}" has no phone number on file. Make sure it is the same person (name and age) before saving.`,
+      {
+        title: isAr ? "هل ده المريض الصح؟" : "Is this the right patient?",
+        confirmLabel: phone ? (isAr ? "أيوه، نفس الرقم" : "Yes, same number") : isAr ? "أيوه، هو" : "Yes, it is them",
+        cancelLabel: phone ? (isAr ? "رقم مختلف — مريض جديد" : "Different number — new patient") : isAr ? "لأ — مريض جديد" : "No — new patient",
+      },
+    );
+    if (ok) {
+      setPhoneConfirmedFor(picker.patientId);
+      return true;
+    }
+    setPicker({ mode: "create" });
+    setNewPhone("");
+    return false;
+  };
+
   const save = async () => {
     if (!canSave || !clinicId) return;
+    if (!(await confirmPatientByPhone())) return;
     setSaving(true);
     setProblem(null);
     const wording: Record<string, string> = {};

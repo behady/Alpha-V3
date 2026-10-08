@@ -308,7 +308,7 @@ export const PATIENT_RX_STOP: TourStop = {
   dynamic: "demoPatient",
   demoOnly: true,
   navKey: "patients",
-  spot: ["rx-open", "page-main"],
+  spot: ["patient-tab-prescriptions", "page-main"],
   title: { en: "Writing a prescription", ar: "كتابة روشتة" },
   say: {
     en: "Write Rx opens the prescription pad: search the drug list, add, and it's printable on your letterhead or sent on WhatsApp. Watch.",
@@ -322,7 +322,8 @@ export const PATIENT_RX_STOP: TourStop = {
     "Write Rx (permission clinical.edit) opens /patients/{id}/rx: a search over the clinic's drug list (dozens of common Egyptian medicines ship built in; more under Settings → Prescriptions), each pick fills name, dose, frequency and duration which you can edit, then Save. The saved prescription prints on the clinic letterhead or is sent to the patient on WhatsApp as a document (not for Sara's opted-out patient). Past prescriptions are on the Prescriptions tab. Lesson: 'write-prescription'.",
   helpSlugs: ["prescriptions"],
   demo: [
-    click("rx-open", "Write Rx.", "وصفة طبية."),
+    click("patient-tab-prescriptions", "The Prescriptions tab.", "تاب الروشتات."),
+    click("rx-open", "Write a new prescription.", "روشتة جديدة."),
     { kind: "wait", anchor: "rx-drug-search", timeoutMs: 8000 },
     type("rx-drug-search", "{{drugQuery}}", "Search the drug list.", "دوّر في قايمة الأدوية."),
     click("rx-drug-option", "Pick one. Dose, frequency and duration fill in — editable.", "اختار واحد. الجرعة والتكرار والمدة بيتملوا — وبيتعدّلوا.", { timeoutMs: 5000 }),

@@ -484,10 +484,17 @@ export const TUTORIALS: Tutorial[] = [
         },
       },
       {
+        anchor: "patient-tab-prescriptions",
+        text: {
+          en: "Open the Prescriptions tab.",
+          ar: "افتح تاب الروشتات.",
+        },
+      },
+      {
         anchor: "rx-open",
         text: {
-          en: "Click Write Rx in the Quick Actions bar — it opens the Prescription Studio.",
-          ar: "اضغط كتابة روشتة في شريط الإجراءات السريعة — هيفتح استوديو الروشتة.",
+          en: "Click Write New Prescription — it opens the Prescription Studio.",
+          ar: "اضغط كتابة روشتة جديدة — هيفتح استوديو الروشتة.",
         },
       },
       {

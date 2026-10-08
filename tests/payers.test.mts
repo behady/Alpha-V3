@@ -850,4 +850,15 @@ function eq<T>(actual: T, expected: T, message: string) {
   eq([written.format, written.providerCode], ["metlife", "DNC8144"], "both survive the round trip to the stored document");
 }
 
+// The three booking screens load services through a hand-picked field list. A field missing there
+// is silently missing from the booking popup: without pricingMode a flat-fee treatment multiplied
+// by every tooth picked (a 132 consultation became 528 on four teeth, 2026-10-08).
+{
+  for (const rel of ["src/components/dashboard/DesktopDashboard.tsx", "src/components/dashboard/MobileDashboard.tsx", "src/app/(dashboard)/appointments/page.tsx"]) {
+    const src = read(rel);
+    ok(/listId: d\.data\(\)\.listId/.test(src), `${rel} loads each service's listId`);
+    ok(/pricingMode: d\.data\(\)\.pricingMode/.test(src), `${rel} loads each service's pricingMode`);
+  }
+}
+
 console.log(`payers: ${checks} checks passed`);

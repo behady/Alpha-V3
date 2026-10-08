@@ -644,7 +644,7 @@ export default function DesktopDashboard() {
     });
     const unsubServices = onSnapshot(
       getClinicCollection("services"),
-      (snap) => setServicesList(snap.docs.map((d) => ({ id: d.id, name: d.data().name, price: d.data().price, /* the per-list overrides — without them an insurer's tariff can never reach this screen */ prices: d.data().prices, category: d.data().category, icon: d.data().icon, /* which list owns it, if one does — the menu filter hides it everywhere else */ listId: d.data().listId })))
+      (snap) => setServicesList(snap.docs.map((d) => ({ id: d.id, name: d.data().name, price: d.data().price, /* the per-list overrides — without them an insurer's tariff can never reach this screen */ prices: d.data().prices, category: d.data().category, icon: d.data().icon, /* which list owns it, if one does — the menu filter hides it everywhere else */ listId: d.data().listId, /* per tooth / flat / per arch — without it every treatment multiplies by the teeth picked */ pricingMode: d.data().pricingMode })))
     );
     return () => {
       unsubPatients();
