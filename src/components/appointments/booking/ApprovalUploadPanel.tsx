@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { doc, getDoc, onSnapshot } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, limit, onSnapshot, query } from "firebase/firestore";
 import { Upload, X } from "lucide-react";
 import Protect from "@/components/Protect";
 import ApprovalDropZone from "@/components/insurance/ApprovalDropZone";
@@ -16,9 +16,15 @@ import { isInsurerFormat, parsePayers, PRIVATE_PAYER_ID, type Payer } from "@/li
 import { readInsurance } from "@/lib/patientInsurance";
 
 type Props = {
+  /**
+   * Empty when the popup has no patient yet. The paper then finds the patient the way the
+   * Insurance page does — by their insurance code, then their name — or registers them, and
+   * `onPatientSaved` hands the popup whoever the approval was saved onto.
+   */
   patientId: string;
   patientName: string;
   language: string;
+  onPatientSaved?: (patient: { id: string; name: string }) => void;
   /**
    * Open the panel from outside (the Insurance tab's "add another insurance" and "upload for this
    * company" buttons). Each new `n` opens it once, on `payerId` when given, and scrolls it into view.
@@ -37,13 +43,18 @@ type Props = {
  * Shown only where the Insurance page itself would be: the add-on is on and the user may edit
  * patients.
  */
-export default function ApprovalUploadPanel({ patientId, patientName, language, request }: Props) {
+/** Every patient of the clinic, for the card's picker when the paper is read before a patient is chosen. */
+const MAX_PATIENTS = 5000;
+
+export default function ApprovalUploadPanel({ patientId, patientName, language, request, onPatientSaved }: Props) {
   const isAr = language === "ar";
   const { clinicId, clinic } = useClinic();
   const { showToast } = useUI();
   const unlocked = !!clinic && isAnyUnlocked(clinic, "insurance");
 
-  const [openPanel, setOpenPanel] = useState(false);
+  // With no patient to show above it, the panel IS the tab: it opens ready.
+  const [openPanel, setOpenPanel] = useState(!patientId);
+  const [allPatients, setAllPatients] = useState<PatientOption[]>([]);
   const [payers, setPayers] = useState<Payer[]>([]);
   /** The whole wording document: each insurer format keeps its own code table in it. */
   const [wordingDoc, setWordingDoc] = useState<Record<string, unknown>>({});
@@ -83,6 +94,33 @@ export default function ApprovalUploadPanel({ patientId, patientName, language, 
       stopWording();
     };
   }, [clinicId, unlocked, openPanel]);
+
+  useEffect(() => {
+    if (!clinicId || patientId || !openPanel) return;
+    let cancelled = false;
+    getDocs(query(collection(db, "clinics", clinicId, "patients"), limit(MAX_PATIENTS)))
+      .then((snap) => {
+        if (cancelled) return;
+        setAllPatients(
+          snap.docs
+            .map((d) => {
+              const p = d.data() as { name?: unknown; phone?: unknown };
+              return {
+                id: d.id,
+                name: typeof p.name === "string" ? p.name : "",
+                phone: typeof p.phone === "string" ? p.phone : "",
+                insurance: readInsurance(d.data()),
+              };
+            })
+            .filter((p) => p.name)
+            .sort((a, b) => a.name.localeCompare(b.name)),
+        );
+      })
+      .catch((err) => console.error("Patients load failed", err));
+    return () => {
+      cancelled = true;
+    };
+  }, [clinicId, patientId, openPanel]);
 
   useEffect(() => {
     if (!clinicId || !patientId || !openPanel) return;
@@ -130,7 +168,13 @@ export default function ApprovalUploadPanel({ patientId, patientName, language, 
         ) : (
           <div className="space-y-4 rounded-2xl border border-line-strong p-5">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-[15px] font-semibold text-ink">{isAr ? "رفع موافقة لـ" : "Upload an approval for"} {patientName}</p>
+              <p className="text-[15px] font-semibold text-ink">
+                {patientId
+                  ? `${isAr ? "رفع موافقة لـ" : "Upload an approval for"} ${patientName}`
+                  : isAr
+                    ? "ارفع ورقة الموافقة — هنلاقي المريض من كود التأمين أو اسمه، أو نسجّله جديد"
+                    : "Upload the approval paper — the patient is found by insurance code or name, or registered as new"}
+              </p>
               <button
                 type="button"
                 onClick={() => {
@@ -168,7 +212,7 @@ export default function ApprovalUploadPanel({ patientId, patientName, language, 
                 <ApprovalDropZone payer={payer} onRead={(d) => setCards((prev) => (prev.some((c) => c.docId === d.docId) ? prev : [...prev, d]))} />
               </>
             )}
-            {patient &&
+            {(patientId ? patient : true) &&
               cards.map((d) => {
                 const cardPayer = insurers.find((p) => p.id === d.payerId);
                 if (!cardPayer) return null;
@@ -180,14 +224,25 @@ export default function ApprovalUploadPanel({ patientId, patientName, language, 
                     docPath={d.docPath}
                     docUrl={d.docUrl}
                     contentType={d.contentType}
-                    // Uploaded from this patient's popup: the approval is theirs.
-                    result={{ ...d.result, match: { kind: "exact", patientId } }}
+                    // Uploaded from this patient's popup: the approval is theirs. With no patient
+                    // yet, the server's match (code, then name) stands and the card may register one.
+                    result={patientId ? { ...d.result, match: { kind: "exact", patientId } } : d.result}
                     typed={d.typed}
-                    patients={[patient]}
+                    patients={patientId && patient ? [patient] : allPatients}
                     storedWording={storedWording}
-                    onSaved={() => {
+                    onSaved={(_claimId, savedPatientId) => {
                       setCards((prev) => prev.filter((c) => c.docId !== d.docId));
                       showToast(isAr ? "الموافقة اتحفظت" : "Approval saved", "success");
+                      if (patientId || !onPatientSaved || !savedPatientId || !clinicId) return;
+                      const known = allPatients.find((p) => p.id === savedPatientId);
+                      if (known) {
+                        onPatientSaved({ id: known.id, name: known.name });
+                        return;
+                      }
+                      // Registered by this save: read the name the server wrote.
+                      getDoc(doc(db, "clinics", clinicId, "patients", savedPatientId))
+                        .then((snap) => onPatientSaved({ id: savedPatientId, name: String(snap.data()?.name || "") }))
+                        .catch(() => onPatientSaved({ id: savedPatientId, name: "" }));
                     }}
                     onDismiss={() => setCards((prev) => prev.filter((c) => c.docId !== d.docId))}
                     onOpenClaim={() => setCards((prev) => prev.filter((c) => c.docId !== d.docId))}

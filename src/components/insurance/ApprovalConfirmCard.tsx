@@ -128,7 +128,8 @@ export default function ApprovalConfirmCard({
   patients: PatientOption[];
   /** The clinic's saved sheet wording, live: a code already worded needs no box. */
   storedWording: Record<string, string>;
-  onSaved: (claimId: string) => void;
+  /** The claim, and the patient it was saved onto — created by this save, or picked. */
+  onSaved: (claimId: string, patientId: string) => void;
   onDismiss: () => void;
   onOpenClaim: (claimId: string) => void;
 }) {
@@ -374,7 +375,7 @@ Is it the same number?`
           ...(Object.keys(statePick).length ? { lineStatus: statePick } : {}),
         });
         if (error) setProblem({ kind: "error", error });
-        else onSaved(editing.id);
+        else onSaved(editing.id, picker.mode === "existing" && picker.patientId ? picker.patientId : editing.patientId);
       } catch (err) {
         setProblem({ kind: "error", error: err instanceof InsuranceCallError ? t(err.kind === "signed_out" ? "signedOut" : "networkFailed") : t("saveFailed") });
       } finally {
@@ -395,7 +396,7 @@ Is it the same number?`
     try {
       const outcome = await saveClaim(body);
       if (outcome.kind === "saved") {
-        onSaved(outcome.claimId);
+        onSaved(outcome.claimId, outcome.patientId);
         return;
       }
       if (outcome.kind === "duplicate") setProblem({ kind: "duplicate", claimId: outcome.claimId, savedAt: outcome.savedAt });

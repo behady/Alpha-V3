@@ -2063,7 +2063,24 @@ servicesList.length > 0 && (
                     <ApprovalUploadPanel patientId={headerPatientId} patientName={selectedPatient?.name || ""} language={language} request={uploadRequest} />
                   </>
                 ) : (
-                  <p className="mt-4 text-[15px] text-ink-body">{isAr ? "اختار مريض مسجل الأول." : "Pick a saved patient first."}</p>
+                  <>
+                    <p className="mt-4 text-[15px] font-semibold text-ink-body">
+                      {isAr
+                        ? "مفيش مريض مختار لسه. اختاره من تبويب المريض، أو ارفع ورقة الموافقة هنا وهنجيب المريض منها."
+                        : "No patient yet. Pick one on the Patient tab, or upload the approval paper here and the patient comes from it."}
+                    </p>
+                    {/* Saving the approval picks (or registers) the patient for this booking. */}
+                    <ApprovalUploadPanel
+                      patientId=""
+                      patientName=""
+                      language={language}
+                      onPatientSaved={(p) => {
+                        setIsNewPatient(false);
+                        setSearchTerm("");
+                        setSelectedPatient(p);
+                      }}
+                    />
+                  </>
                 )}
               </>
             )}
