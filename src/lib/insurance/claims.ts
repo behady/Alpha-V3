@@ -11,6 +11,7 @@
 
 import { normalizeMetlife, type MetlifeExtraction, type MetlifeHeader, type MetlifeLine } from "./metlife";
 import { normalizeNextcare } from "./nextcare";
+import { normalizeAxa } from "./axa";
 import { commissionRateFor, isInsurerFormat, type CommissionRates, type InsurerFormat, type Payer } from "@/lib/payers";
 import { readInsurance, writeInsurance, type PatientInsuranceEntry } from "../patientInsurance";
 
@@ -142,8 +143,9 @@ function plain(v: unknown): string {
  * Everything else is `normalizeMetlife` unchanged, which is idempotent on its own output.
  */
 export function normalizeConfirmed(raw: unknown, format: InsurerFormat = "metlife"): MetlifeExtraction {
-  // NextCare's normaliser is idempotent on its own output: no split shape to protect.
+  // NextCare's and AXA's normalisers are idempotent on their own output: no split shape to protect.
   if (format === "nextcare") return normalizeNextcare(raw);
+  if (format === "axa") return normalizeAxa(raw);
   const x = normalizeMetlife(raw);
   const h = isRecord(raw) && isRecord(raw.header) ? raw.header : {};
   const header: MetlifeHeader = { ...x.header };
@@ -160,7 +162,9 @@ export function normalizeConfirmed(raw: unknown, format: InsurerFormat = "metlif
 
 /** Service lines read again with the format's own normaliser (NextCare keeps each line's teeth). */
 export function normalizeLinesFor(format: InsurerFormat, lines: unknown[]): MetlifeLine[] {
-  return format === "nextcare" ? normalizeNextcare({ lines }).lines : normalizeMetlife({ lines }).lines;
+  if (format === "nextcare") return normalizeNextcare({ lines }).lines;
+  if (format === "axa") return normalizeAxa({ lines }).lines;
+  return normalizeMetlife({ lines }).lines;
 }
 
 /** The header fields kept under `metlife`, in a fixed order. NextCare's own fields only when present (never `undefined`: Firestore refuses it). */
@@ -170,6 +174,9 @@ export function claimMetlifeFrom(h: MetlifeHeader): ClaimMetlife {
     ...(h.insurerName !== undefined ? { insurerName: h.insurerName } : {}),
     ...(h.productName !== undefined ? { productName: h.productName } : {}),
     ...(h.memberCode !== undefined ? { memberCode: h.memberCode } : {}),
+    ...(h.claimNumber !== undefined ? { claimNumber: h.claimNumber } : {}),
+    ...(h.copayPercent !== undefined ? { copayPercent: h.copayPercent } : {}),
+    ...(h.overLimit !== undefined ? { overLimit: h.overLimit } : {}),
     policyNumber: h.policyNumber,
     employer: h.employer,
     certificateNumber: h.certificateNumber,
@@ -349,12 +356,13 @@ export function claimExtraction(claim: InsuranceClaim, patch: { lines?: unknown[
  * NextCare: the card number for finding the patient again, and the sheet's bracket code as the member
  * number. The beneficiary code stays on the claim: stored as a dependent it would turn the member
  * number into `card/code`.
+ * AXA: the card number only; it has no sheet code, so the member number is whatever the clinic typed.
  */
 export function membershipFromPaper(
   format: InsurerFormat,
   paper: { certificateNumber: string; dependentCode: string; policyNumber: string; memberCode?: string },
 ): PatientInsuranceEntry {
-  if (format === "nextcare") {
+  if (format === "nextcare" || format === "axa") {
     return { memberNumber: paper.memberCode ?? "", certificateNumber: paper.certificateNumber, dependentCode: "", policyNumber: paper.policyNumber };
   }
   return { memberNumber: "", certificateNumber: paper.certificateNumber, dependentCode: paper.dependentCode, policyNumber: paper.policyNumber };
@@ -371,8 +379,8 @@ export function insuranceEntryToWrite(
   const entry = writeInsurance({
     [payerId]: {
       ...fromPaper,
-      // A NextCare paper with no code keeps the one the clinic typed.
-      memberNumber: fromPaper.memberNumber || (format === "nextcare" ? stored?.memberNumber ?? "" : ""),
+      // A NextCare or AXA paper with no code keeps the one the clinic typed.
+      memberNumber: fromPaper.memberNumber || (format === "nextcare" || format === "axa" ? stored?.memberNumber ?? "" : ""),
       policyNumber: paper.policyNumber || stored?.policyNumber || "",
     },
   })[payerId];
@@ -567,7 +575,7 @@ export function insuranceTreatmentRows(args: TreatmentRowArgs): TreatmentRow[] {
     const listPrice = round2(line.grossTotal);
     const discountAmount = Math.max(0, round2(listPrice - charge));
     const commissionAmount = dentist ? dentist.share : 0;
-    // NextCare's lines name their teeth; MetLife's never do ("Gen", as before).
+    // NextCare's and AXA's lines name their teeth; MetLife's never do ("Gen", as before).
     const toothText = line.teeth && line.teeth.length ? line.teeth.join(",") : "Gen";
     const base = {
       cost: charge,
