@@ -27,6 +27,8 @@ export interface Note {
   unmatchedProcedures?: string[];
   beforeImage?: string;
   afterImage?: string;
+  /** Photographs of this treatment, attached through the procedures API. See lib/notePhotos. */
+  photos?: unknown;
   createdAt?: any;
   appointmentId?: string | null;
   isContinued?: boolean;

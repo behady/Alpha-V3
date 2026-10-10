@@ -37,6 +37,7 @@ import PatientTimelineTab from "@/components/patients/PatientTimelineTab";
 import PatientNotesTab from "@/components/patients/PatientNotesTab";
 import PatientMediaGallery from "@/components/patients/PatientMediaGallery";
 import PatientTreatmentPlanTab from "@/components/patients/PatientTreatmentPlanTab";
+import XrayCodeField from "@/components/patients/XrayCodeField";
 import { prescriptionPayloadToPdfBlob, type RxItem } from "@/lib/prescriptionPdfHtml";
 import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
 import {
@@ -243,6 +244,7 @@ export default function PatientProfile() {
   const [editCountryCode, setEditCountryCode] = useState(DEFAULT_COUNTRY_CODE);
   const [editPhone, setEditPhone] = useState("");
   const [editAddress, setEditAddress] = useState("");
+  const [editXrayCode, setEditXrayCode] = useState("");
   const [editDob, setEditDob] = useState("");
   const [editReferral, setEditReferral] = useState("");
   const [editAllergies, setEditAllergies] = useState("");
@@ -355,6 +357,7 @@ export default function PatientProfile() {
         setEditCountryCode(split.countryCode);
         setEditPhone(split.localNumber);
         setEditAddress(data.address || "");
+        setEditXrayCode(data.xrayCode || "");
         setEditDob(data.dateOfBirth || "");
         setEditReferral(data.referral || "");
         setEditAllergies(data.allergies || "");
@@ -597,6 +600,7 @@ export default function PatientProfile() {
         name: combinedName,
         phone: normalizedPhone,
         address: editAddress,
+        xrayCode: editXrayCode.trim().slice(0, 80),
         dateOfBirth: editDob,
         referral: editReferral,
         medicalHistory: finalHistory,
@@ -1047,6 +1051,7 @@ export default function PatientProfile() {
             return (
               <dl className="mt-3 flex flex-wrap gap-x-8 gap-y-3 border-t border-line pt-3">
                 {field(ar ? 'رقم الملف' : 'File number', fileNumber ? <bdi dir="ltr" className="font-figure">{fileNumber}</bdi> : <span className="text-ink-faint">—</span>)}
+                {field(ar ? 'كود ملف الأشعة' : 'X-ray file code', <XrayCodeField patientId={id} value={(patient as { xrayCode?: string }).xrayCode} />)}
                 {field(
                   ar ? 'التليفون' : 'Phone',
                   patient.phone ? (
@@ -2059,6 +2064,7 @@ export default function PatientProfile() {
                        </div>
                     </div>
                     <Input label={t('address') || "Address"} value={editAddress} onChange={setEditAddress} />
+                    <Input label={language === 'ar' ? 'كود ملف الأشعة' : 'X-ray file code'} value={editXrayCode} onChange={setEditXrayCode} />
                     <div className="grid grid-cols-2 gap-4">
                        <div>
                           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">{t('gender') || "Gender"}</label>

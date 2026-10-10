@@ -309,6 +309,16 @@ export function moveProcedure(noteId: string, targetAppointmentId: string, clini
   return post("/api/clinical/procedures", { action: "move", noteId, targetAppointmentId, clinicId });
 }
 
+/** Attach already-uploaded photos to a treatment (see lib/notePhotos). */
+export function addProcedurePhotos(noteId: string, photos: Array<{ url: string; path: string }>) {
+  return post("/api/clinical/procedures", { action: "photos", noteId, add: photos });
+}
+
+/** Take one photo off a treatment. The file itself stays in Storage. */
+export function removeProcedurePhoto(noteId: string, path: string) {
+  return post("/api/clinical/procedures", { action: "photos", noteId, removePath: path });
+}
+
 /** Carry a treatment into a later visit at no extra charge. */
 export function continueProcedure(noteId: string, targetAppointmentId: string, clinicId?: string | null) {
   return post<{ noteId: string }>("/api/clinical/procedures", {

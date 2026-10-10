@@ -4,6 +4,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import Protect from "@/components/Protect";
 import InsurerBadge from "@/components/shared/InsurerBadge";
 import { PRIVATE_PAYER_ID } from "@/lib/payers";
+import { NotePhotoButton, NotePhotoStrip } from "./NotePhotos";
 
 interface Props {
   note: Note;
@@ -120,11 +121,14 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
 
         {insurer && <InsurerBadge name={insurer} size={16} />}
 
+        <NotePhotoStrip note={note} compact canEdit={!locked} />
+
         {!hideMoney && Number(note.cost) > 0 && (
           <span className="text-xs font-black text-ink-body shrink-0">EGP {Number(note.cost).toLocaleString()}</span>
         )}
 
         <div className={`flex items-center gap-1 shrink-0 ${locked ? "hidden" : ""}`}>
+          <NotePhotoButton note={note} size={13} />
           {!note.isContinued && (
             <Protect permission="clinical.edit">
               <button
@@ -195,6 +199,8 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
           </p>
         )}
 
+        <NotePhotoStrip note={note} canEdit={!locked} />
+
         {(note.doctor || (!hideMoney && Number(note.cost) > 0)) && (
           <div className="flex items-center justify-center gap-3 flex-wrap">
             {note.doctor && (
@@ -223,6 +229,8 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
             </button>
           </Protect>
         )}
+
+        <NotePhotoButton note={note} />
 
         <Protect permission="clinical.delete">
           <button
