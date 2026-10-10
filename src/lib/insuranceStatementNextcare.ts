@@ -18,6 +18,7 @@
  *   - Cases run by treatment date, then patient name.
  */
 import type { InsuranceClaim } from "@/lib/insurance/claims";
+import { memberCodeFromCard } from "@/lib/insurance/nextcare";
 import { insurerToothLabel, type Statement, type StatementCase, type StatementLine } from "@/lib/insuranceStatement";
 
 /** NextCare's codes, in the words the clinic's sheet uses. A clinic's own wording overrides any of them. */
@@ -73,7 +74,8 @@ export function buildNextcareStatement(args: {
       serial: cases.length + 1,
       patientId: c.patientId,
       patientName: c.patientName,
-      memberNumber: (c.metlife.memberCode ?? "").trim(),
+      // Saved with no code (an older save, or a card read without dashes): the card itself says it.
+      memberNumber: (c.metlife.memberCode ?? "").trim() || memberCodeFromCard(c.metlife.certificateNumber ?? ""),
       date,
       lines,
       subtotal: money(lines.reduce((t, l) => t + l.amount, 0)),

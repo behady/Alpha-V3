@@ -392,10 +392,14 @@ function normalizeLine(raw: unknown, conditionTeeth: string[] | undefined): Metl
   };
 }
 
-/** The card number's first group: the code the monthly sheet prints before the patient's name. */
+/**
+ * The code the monthly sheet prints before the patient's name: the first four characters of the
+ * insurance card number (confirmed by the clinic 2026-10-10). Taken whatever separates the groups —
+ * a card read as `3C40 FD1B …` or `3C40FD1B…` used to give no code at all, because only a dash split it.
+ */
 export function memberCodeFromCard(card: string): string {
-  const first = String(card ?? "").trim().split("-")[0] ?? "";
-  return /^[0-9A-F]{4}$/i.test(first) ? first.toUpperCase() : "";
+  const chars = String(card ?? "").replace(/[^0-9A-Za-z]/g, "");
+  return chars.length >= 4 ? chars.slice(0, 4).toUpperCase() : "";
 }
 
 /**

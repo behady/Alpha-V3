@@ -12,6 +12,7 @@ import {
   normalizeNextcare,
   parseNextcareDate,
   quadrantTeeth,
+  memberCodeFromCard,
 } from "../src/lib/insurance/nextcare";
 import { hasHardFailure } from "../src/lib/insurance/metlife";
 import { buildNextcareStatement, DEFAULT_NEXTCARE_WORDING } from "../src/lib/insuranceStatementNextcare";
@@ -155,7 +156,7 @@ assert.equal(rows[1].note.tooth, "Gen", "the X-ray names no tooth");
 
 // --- 7. the monthly sheet, from approvals ---------------------------------------------------------------------
 const claim = parsed!;
-const other = { ...claim, id: "nextcare_c2", approvalNumber: "C0099887767/1", patientId: "p2", patientName: "مريض تاني", treatedDate: "2026-07-20", metlife: { ...claim.metlife, memberCode: "" } };
+const other = { ...claim, id: "nextcare_c2", approvalNumber: "C0099887767/1", patientId: "p2", patientName: "مريض تاني", treatedDate: "2026-07-20", metlife: { ...claim.metlife, memberCode: "", certificateNumber: "" } };
 const held = { ...claim, id: "nextcare_c3", status: "approved" as const, treatedDate: null };
 const elsewhere = { ...claim, id: "nextcare_c4", treatedDate: "2026-08-02" };
 const st = buildNextcareStatement({ claims: [other, held, claim, elsewhere], payerId: "nextcare", payerName: "NextCare", from: "2026-07-01", to: "2026-07-31", wording: {} });
@@ -173,6 +174,14 @@ assert.deepEqual(
 assert.equal(st.cases[0].subtotal, 1673.25, "each visit totals exactly what NextCare approved");
 assert.equal(st.total, 3346.5);
 assert.deepEqual(st.missingMemberNumber.map((m) => m.patientId), ["p2"]);
+// No code saved but the card is on the approval: the sheet takes the card's first four characters.
+const noCode = { ...claim, id: "nextcare_c5", metlife: { ...claim.metlife, memberCode: "", certificateNumber: "7A21-3C9E-0B44-91D2" } };
+const stCard = buildNextcareStatement({ claims: [noCode], payerId: "nextcare", payerName: "NextCare", from: "2026-07-01", to: "2026-07-31", wording: {} });
+assert.equal(stCard.cases[0].memberNumber, "7A21");
+assert.deepEqual(stCard.missingMemberNumber, []);
+assert.equal(memberCodeFromCard("3c40 fd1b 02e6 412c"), "3C40", "spaces between the groups");
+assert.equal(memberCodeFromCard("3C40FD1B02E6412C"), "3C40", "no separators at all");
+assert.equal(memberCodeFromCard("3C4"), "", "too short to be a card");
 assert.equal(st.month, "2026-07");
 assert.equal(DEFAULT_NEXTCARE_WORDING["DEN-14"], "حشو كمبوزيت");
 
