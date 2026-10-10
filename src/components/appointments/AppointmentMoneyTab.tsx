@@ -1439,6 +1439,8 @@ export default function AppointmentMoneyTab({
         <ServiceEditorDrawer
           isOpen={editorOpen}
           inline={false}
+          // This tab lives inside the booking popup (z-[200]); the editor has to open above it.
+          layerClass="z-[260]"
           onClose={() => {
             setEditorOpen(false);
             setEditingNote(null);
