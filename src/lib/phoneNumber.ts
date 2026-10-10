@@ -124,3 +124,33 @@ export function normalizeToE164AssumingCountry(raw: string, countryCode: string 
 
   return normalizeToE164WithCountryCode(`+${cc}${national}`);
 }
+
+/**
+ * What a receptionist types into a search box, turned into the prefixes a STORED phone could
+ * start with. Stored phones are E.164 ("+201001234567"); people type "01001234567",
+ * "1001234567", "+2010...", "0020..." or Arabic digits, and should not have to know that.
+ *
+ * Returns every plausible stored prefix, most specific first, so a prefix query can be run per
+ * candidate: the typed text as-is (a "+..." search, or old records stored un-normalised), the
+ * "00"-international form folded to "+", and the clinic-country form with the trunk zero dropped.
+ */
+export function phoneSearchPrefixes(typed: string, countryCode: string = DEFAULT_COUNTRY_CODE): string[] {
+  const text = foldArabicDigits(typed).trim();
+  const digits = text.replace(/\D/g, "");
+  if (!digits) return [];
+  const cc = String(countryCode || DEFAULT_COUNTRY_CODE).replace(/\D/g, "");
+  const out: string[] = [];
+  const push = (v: string) => {
+    if (v && !out.includes(v)) out.push(v);
+  };
+  if (text.startsWith("+")) push(`+${digits}`);
+  else if (digits.startsWith("00") && digits.length > 2) push(`+${digits.slice(2)}`);
+  else {
+    const national = digits.replace(/^0+/, "");
+    // "2010..." typed straight from WhatsApp already carries the country code.
+    if (digits.startsWith(cc) && digits.length > cc.length) push(`+${digits}`);
+    if (national) push(`+${cc}${national}`);
+  }
+  push(text);
+  return out;
+}
