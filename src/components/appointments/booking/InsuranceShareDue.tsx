@@ -6,6 +6,7 @@ import InsurerBadge from "@/components/shared/InsurerBadge";
 import { collectPatientShare, InsuranceCallError } from "@/components/insurance/api";
 import { useClinic } from "@/context/ClinicContext";
 import { useUI } from "@/context/UIContext";
+import { useBranchForMoney } from "@/lib/useBranchForMoney";
 import type { InsuranceClaim } from "@/lib/insurance/claims";
 
 /**
@@ -18,6 +19,7 @@ export default function InsuranceShareDue({ claims, language }: { claims: Insura
   const isAr = language === "ar";
   const { clinicId } = useClinic();
   const { showToast, confirm } = useUI();
+  const { requireBranchForMoney, picker: branchPicker } = useBranchForMoney();
   const [busy, setBusy] = useState("");
   const due = claims.filter((c) => c.status !== "cancelled" && c.totals.patientShare > 0 && !c.shareCollected);
   if (due.length === 0) return null;
@@ -30,9 +32,12 @@ export default function InsuranceShareDue({ claims, language }: { claims: Insura
       { confirmLabel: isAr ? "حصّل" : "Collect" },
     );
     if (!ok) return;
+    // Cash taken under "All branches" is told which branch it belongs to first.
+    const branchId = await requireBranchForMoney();
+    if (branchId === null) return;
     setBusy(c.id);
     try {
-      const error = await collectPatientShare(clinicId, c.id);
+      const error = await collectPatientShare(clinicId, c.id, branchId || undefined);
       if (error) showToast(error, "error");
       else showToast(isAr ? "حصة المريض اتحصّلت" : "Patient share collected", "success");
     } catch (err) {
@@ -49,6 +54,7 @@ export default function InsuranceShareDue({ claims, language }: { claims: Insura
 
   return (
     <div className="mt-4 mb-5">
+      {branchPicker}
       <p className="mb-2.5 text-[13px] font-semibold uppercase tracking-[0.05em] text-ink-body">{isAr ? "حصة المريض في التأمين" : "Insurance — patient's share"}</p>
       <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line-strong">
         {due.map((c) => (

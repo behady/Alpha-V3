@@ -72,6 +72,7 @@ for (const rel of [
   "src/app/(dashboard)/team/page.tsx",
   "src/components/insurance/ClaimsTable.tsx",
   "src/components/insurance/PatientInsuranceTab.tsx",
+  "src/components/appointments/booking/InsuranceShareDue.tsx",
 ]) {
   assert.match(readFileSync(new URL(`../${rel}`, import.meta.url), "utf8"), /requireBranchForMoney\(\)/, `${rel} records money without asking which branch under All branches`);
 }

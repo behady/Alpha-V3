@@ -192,6 +192,9 @@ async function writeSessionProcedures(
       status: "Completed",
       date,
       addToLedger: sp.addToLedger,
+      // The visit's own branch (picked in the booking form), so an admin on "All branches" is not
+      // refused for a booking with services. Never an empty id.
+      ...(typeof data.branchId === "string" && data.branchId ? { branchId: data.branchId } : {}),
     });
   }
 
