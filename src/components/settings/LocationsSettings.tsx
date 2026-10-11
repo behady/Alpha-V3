@@ -26,6 +26,7 @@ import {
   LOCATIONS_DOC,
   makeLocationId,
   parseClinicBranches,
+  receiptPrefixFor,
   type ClinicBranch,
 } from "@/lib/clinicLocations";
 import { branchCodeFor, deriveBranchCode } from "@/lib/labCases";
@@ -300,6 +301,53 @@ export default function LocationsSettings() {
                     {code}-0001
                   </span>
                   {!branch.code && ` ${txt.labCodeDerived}`}
+                </p>
+              </div>
+
+              {/* Receipt numbering and tax identity of this branch. Blank means "as the clinic":
+                  the prefix falls back to one derived from the name, the tax fields to the
+                  clinic-wide ones in Settings -> Receipt. */}
+              <div className="grid grid-cols-1 gap-3 rounded-xl border border-line bg-surface-subtle px-3 py-2.5 sm:grid-cols-3">
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] font-black uppercase tracking-wider text-ink-muted">{txt.receiptPrefix}</span>
+                  <input
+                    type="text"
+                    dir="ltr"
+                    maxLength={4}
+                    value={branch.receiptPrefix || ""}
+                    onChange={(e) =>
+                      updateBranch(branch.id, {
+                        receiptPrefix: e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 4),
+                      })
+                    }
+                    placeholder={receiptPrefixFor(branch)}
+                    className={`w-full rounded-lg bg-surface px-3 py-1.5 text-sm font-black uppercase tracking-widest ${INPUT}`}
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] font-black uppercase tracking-wider text-ink-muted">{txt.etaBranchCode}</span>
+                  <input
+                    type="text"
+                    dir="ltr"
+                    maxLength={50}
+                    value={branch.etaBranchCode || ""}
+                    onChange={(e) => updateBranch(branch.id, { etaBranchCode: e.target.value })}
+                    className={`w-full rounded-lg bg-surface px-3 py-1.5 text-sm font-bold ${INPUT}`}
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] font-black uppercase tracking-wider text-ink-muted">{txt.taxRegistration}</span>
+                  <input
+                    type="text"
+                    dir="ltr"
+                    maxLength={30}
+                    value={branch.taxRegistration || ""}
+                    onChange={(e) => updateBranch(branch.id, { taxRegistration: e.target.value })}
+                    className={`w-full rounded-lg bg-surface px-3 py-1.5 text-sm font-bold ${INPUT}`}
+                  />
+                </label>
+                <p className="text-[11px] font-semibold leading-relaxed text-ink-muted sm:col-span-3">
+                  {txt.receiptPrefixHint}
                 </p>
               </div>
 
