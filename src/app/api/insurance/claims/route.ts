@@ -18,7 +18,7 @@ import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { writeInsurance } from "@/lib/patientInsurance";
 import { binEntry, liveEntryId, stripUndefined } from "@/lib/server/recycleBinStore";
 import { binNoticeOf, type BinNotice } from "@/lib/recycleBin";
-import { patientPortion } from "@/lib/ledgerInsurer";
+import { INSURER_PAYMENT_METHOD, patientPortion } from "@/lib/ledgerInsurer";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { nameSimilarity } from "@/lib/insurance/matchPatient";
 import { hasHardFailure, normalizeMetlife, type Check } from "@/lib/insurance/metlife";
@@ -67,7 +67,7 @@ const PATCH_KEYS = new Set(["status", "treatedDate", "patientId", "lines", "metl
 const LINE_KEY = /^\d{1,3}$/;
 const LINE_STATUS_ERROR = 'A service state must be "Completed", "Planned" or "Ongoing".';
 /** How the insurer's own payment is filed: its own method and category, so cash reports never mistake it for cash. */
-const INSURER_METHOD = "Insurance";
+const INSURER_METHOD = INSURER_PAYMENT_METHOD;
 const INSURER_CATEGORY = "Insurance Payment";
 /** The ledger category the patient's share is filed under: a readable word, as every other category is. */
 const SHARE_CATEGORY = "Insurance patient share";
