@@ -21,7 +21,7 @@ import { useClinic } from "@/context/ClinicContext";
 import { getClinicLogo } from "@/lib/clinicLogo";
 import { canAccessNavItem, canShowSettingsNavLink } from "@/lib/navAccess";
 import ReceptionSummonOverlay from "@/components/summon/ReceptionSummonOverlay";
-import { useUI } from "@/context/UIContext";
+import { useHomeView } from "@/lib/useHomeView";
 import ClinicSwitcher from "@/components/dashboard/ClinicSwitcher";
 import TopNav from "@/components/dashboard/TopNav";
 import { DIRECT_KEYS, SECTION_GROUPS } from "@/components/dashboard/navGroups";
@@ -176,14 +176,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { t, toggleLanguage, language, isRTL } = useLanguage();
   const { user, loading: authLoading } = useAuth();
   const { clinicId, clinic, role, isAdmin, isReadOnly, readOnlyReason } = useClinic();
-  const { homeView } = useUI();
+  const { view: homeView, allowed: homeAllowed } = useHomeView();
   /**
    * Three pages are locked to the viewport height and manage their own scrolling: the calendar,
    * the WhatsApp inbox and the reception dashboard, all height-constrained flex layouts. The dentist's home lives at the
    * same URL as the desk but is an ordinary page that grows with its content — lock it and a
    * tablet in landscape (wide enough for the desktop rule) simply cannot scroll to the report.
    */
-  const ownHome = role === "Dentist" || homeView === "chair" || (homeView === "owner" && isAdmin);
+  const ownHome = homeView !== "desk" || !homeAllowed;
   const isFullHeightPage =
     pathname === "/appointments" || pathname === "/chats" || (pathname === "/" && !ownHome);
   // Unopened patient WhatsApp messages, for the count on the WhatsApp icon in both navs.

@@ -17,6 +17,7 @@ import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useTutorial } from "@/context/TutorialContext";
 import { useUI } from "@/context/UIContext";
+import { effectiveHomeView } from "@/lib/homeView";
 import { SETTINGS_SECTIONS } from "@/config/settingsRegistry";
 import { visibleSections } from "@/lib/settingsAccess";
 import { hasFeature } from "@/lib/subscriptions";
@@ -354,10 +355,11 @@ export function TourProvider({
   const originalHomeView = useRef<HomeView | null>(null);
   const setHomeView = useCallback(
     (view: HomeView) => {
-      if (originalHomeView.current === null) originalHomeView.current = ui.homeView;
+      // The screen they were actually on: a dentist who never picked one is on the chair.
+      if (originalHomeView.current === null) originalHomeView.current = effectiveHomeView(ui.homeView, ui.homeViewChosen, user?.role);
       ui.setHomeView(view);
     },
-    [ui],
+    [ui, user?.role],
   );
   const restoreHomeView = useCallback(() => {
     if (originalHomeView.current !== null) {
