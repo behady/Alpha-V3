@@ -62,4 +62,18 @@ const booking = readFileSync(new URL("../src/components/BookingModal.tsx", impor
 assert.match(booking, /allowedBranches/, "booking no longer limits the branch picker to the allowed branches");
 assert.doesNotMatch(booking, /LOCATIONS_DOC/, "booking loads settings/locations itself again");
 
+// Task 12: no money is recorded under "All branches" without asking which branch first.
+for (const rel of [
+  "src/components/appointments/AppointmentMoneyTab.tsx",
+  "src/components/QuickPaymentModal.tsx",
+  "src/components/PatientFinance.tsx",
+  "src/components/clinical-notes/ServiceEditorDrawer.tsx",
+  "src/app/(dashboard)/finance/page.tsx",
+  "src/app/(dashboard)/team/page.tsx",
+  "src/components/insurance/ClaimsTable.tsx",
+  "src/components/insurance/PatientInsuranceTab.tsx",
+]) {
+  assert.match(readFileSync(new URL(`../${rel}`, import.meta.url), "utf8"), /requireBranchForMoney\(\)/, `${rel} records money without asking which branch under All branches`);
+}
+
 console.log("branchAccess: all checks passed");

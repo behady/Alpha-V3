@@ -52,6 +52,7 @@ import { useWording } from "@/components/insurance/useWording";
 import { presetOf, rangeFor, rangeText, getFirstDay, getToday, type DateRange, type RangePreset } from "@/lib/reportHelpers";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { useActiveBranch } from "@/lib/useActiveBranch";
+import { useBranchForMoney } from "@/lib/useBranchForMoney";
 import { settingsText } from "@/config/settingsText";
 import TeamList, { type RailPerson } from "./TeamList";
 import StaffProfile, { type PayDraft, type ProfileStaff, type RateRow, type SettlementView } from "./StaffProfile";
@@ -77,6 +78,7 @@ function TeamPage() {
   const params = useSearchParams();
   const isAr = language === "ar";
   const { branches } = useActiveBranch();
+  const { requireBranchForMoney, picker: branchPicker } = useBranchForMoney();
 
   /**
    * Who may look at the team, character for character the same test the attendance screen makes.
@@ -564,9 +566,17 @@ function TeamPage() {
   const saveSettlement = useCallback(
     async (draft: StaffSettlementDraft, id: string | null): Promise<boolean> => {
       if (!selectedDoc) return false;
+      // A payout is cash out through the ledger, so a NEW one is told which branch it belongs to
+      // (asked only under "All branches"). Editing keeps the branch the entry already has.
+      let branchId = "";
+      if (!id) {
+        const picked = await requireBranchForMoney();
+        if (picked === null) return false;
+        branchId = picked;
+      }
       try {
         if (id) await updateStaffSettlement(id, { amount: draft.amount, date: draft.date, note: draft.note, ...(draft.method ? { method: draft.method } : {}) }, clinicId);
-        else await createStaffSettlement(selectedDoc.id, draft, clinicId);
+        else await createStaffSettlement(selectedDoc.id, { ...draft, ...(branchId ? { branchId } : {}) }, clinicId);
         showToast(
           draft.kind === "payout" ? (isAr ? "الدفعة اتسجلت" : "Payout recorded") : isAr ? "الخصم اتسجل" : "Deduction recorded",
           "success",
@@ -577,7 +587,7 @@ function TeamPage() {
         return false;
       }
     },
-    [selectedDoc, clinicId, showToast, isAr],
+    [selectedDoc, clinicId, showToast, isAr, requireBranchForMoney],
   );
 
   const removeSettlement = useCallback(
@@ -668,6 +678,7 @@ function TeamPage() {
 
   return (
     <div className="min-h-full pb-24 lg:pb-10" dir={isAr ? "rtl" : "ltr"}>
+      {branchPicker}
       <PageHeader
         title={isAr ? "الفريق" : "Team"}
         subtitle={rangeText(range, isAr)}

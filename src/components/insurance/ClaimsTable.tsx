@@ -17,6 +17,7 @@ import { Banknote, CheckCircle2, FileText, Landmark, Loader2, Pencil, RotateCcw,
 import { storage } from "@/lib/firebase";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
+import { useBranchForMoney } from "@/lib/useBranchForMoney";
 import type { ClaimStatus, InsuranceClaim } from "@/lib/insurance/claims";
 import { claimProgress, type LinkedAppointmentLite } from "@/lib/insurance/appointments";
 import type { ClaimPatch } from "./api";
@@ -42,8 +43,8 @@ export default function ClaimsTable({
   appointments = [],
 }: {
   claims: InsuranceClaim[];
-  /** Resolves true when the change is saved; the page reports a failure itself. */
-  onPatch: (claim: InsuranceClaim, patch: ClaimPatch) => Promise<boolean>;
+  /** Resolves true when the change is saved; the page reports a failure itself. `branchId` rides along when money is taken. */
+  onPatch: (claim: InsuranceClaim, patch: ClaimPatch, branchId?: string) => Promise<boolean>;
   onDelete: (claim: InsuranceClaim) => Promise<void>;
   /** Open the saved approval in the confirm card to correct it. */
   onEdit?: (claim: InsuranceClaim) => void;
@@ -59,6 +60,7 @@ export default function ClaimsTable({
   const isAr = language === "ar";
   const t = tr(isAr);
   const { confirm, showToast } = useUI();
+  const { requireBranchForMoney, picker: branchPicker } = useBranchForMoney();
   const [busyId, setBusyId] = useState("");
 
   /** A claim already sent to MetLife is checked with the desk before anything changes it. */
@@ -74,16 +76,19 @@ export default function ClaimsTable({
     }
   };
 
-  const patch = async (claim: InsuranceClaim, change: ClaimPatch) => {
+  const patch = async (claim: InsuranceClaim, change: ClaimPatch, branchId?: string) => {
     if (!(await sentOk(claim))) return;
-    await run(claim, () => onPatch(claim, change));
+    await run(claim, () => onPatch(claim, change, branchId));
   };
 
   /** Money is asked about first, with the figure, exactly as the patient's Insurance tab asks. */
   const collect = async (claim: InsuranceClaim) => {
     const question = t("confirmShare").replace("{amount}", money(claim.totals.patientShare)).replace("{number}", claim.approvalNumber);
     if (!(await confirm(question, { confirmLabel: t("collectShare") }))) return;
-    await patch(claim, { collectShare: true });
+    // Cash taken under "All branches" is told which branch it belongs to first.
+    const branchId = await requireBranchForMoney();
+    if (branchId === null) return;
+    await patch(claim, { collectShare: true }, branchId || undefined);
   };
 
   const insurerPaid = async (claim: InsuranceClaim) => {
@@ -92,7 +97,9 @@ export default function ClaimsTable({
       .replace("{insurer}", payerName || claim.payerId)
       .replace("{number}", claim.approvalNumber);
     if (!(await confirm(question, { confirmLabel: t("markInsurerPaid") }))) return;
-    await patch(claim, { insurerPaid: true });
+    const branchId = await requireBranchForMoney();
+    if (branchId === null) return;
+    await patch(claim, { insurerPaid: true }, branchId || undefined);
   };
 
   const remove = async (claim: InsuranceClaim) => {
@@ -141,6 +148,7 @@ export default function ClaimsTable({
 
   return (
     <div className="overflow-x-auto rounded-3xl border border-line bg-surface">
+      {branchPicker}
       <table className="w-full min-w-[60rem] border-collapse">
         <thead>
           <tr className="border-b border-line bg-surface-subtle">

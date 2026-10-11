@@ -19,6 +19,7 @@ import { sendPatientPaymentWhatsApp } from "@/lib/sendPatientPaymentWhatsAppClie
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { allocationMessage, allocationMessageAr, checkAllocation } from "@/lib/paymentAllocation";
 import { MoneyApiError, createPayment } from "@/lib/moneyApi";
+import { useBranchForMoney } from "@/lib/useBranchForMoney";
 import { loadReceiptSettings } from "@/lib/receiptSettingsClient";
 import { printPaymentReceipt } from "@/lib/printPatientReceipt";
 
@@ -33,6 +34,7 @@ const GENERAL_PAYMENT = {
 
 export default function QuickPaymentModal({ isOpen, onClose, onSave, patients, preSelectedPatient }: any) {
   const { showToast } = useUI();
+  const { requireBranchForMoney, picker: branchPicker } = useBranchForMoney();
     const { language, isRTL } = useLanguage();
     const { user } = useAuth();
     
@@ -176,6 +178,10 @@ export default function QuickPaymentModal({ isOpen, onClose, onSave, patients, p
             }
         }
 
+        // Under "All branches" the money has to be told where it belongs before it is written.
+        const branchId = await requireBranchForMoney();
+        if (branchId === null) return;
+
         setLoading(true);
         try {
             const isGeneral = selectedProcedure.id === 'general_payment';
@@ -194,6 +200,7 @@ export default function QuickPaymentModal({ isOpen, onClose, onSave, patients, p
                     : `${language === 'ar' ? 'تسديد دفعة لـ' : 'Payment for'}: ${selectedProcedure.description}`,
                 procedureId: isGeneral ? null : selectedProcedure.id,
                 category: isGeneral ? 'Advance Payment' : 'Treatment Payment',
+                ...(branchId ? { branchId } : {}),
             });
 
             // Fire-and-forget: the payment is recorded either way, and a messaging outage must
@@ -234,6 +241,7 @@ export default function QuickPaymentModal({ isOpen, onClose, onSave, patients, p
 
     return (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4" dir={isRTL ? "rtl" : "ltr"}>
+            {branchPicker}
             <div className="bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh] font-sans">
                 
                 {/* HEADER */}

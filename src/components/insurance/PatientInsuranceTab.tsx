@@ -28,6 +28,7 @@ import { db, storage } from "@/lib/firebase";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
+import { useBranchForMoney } from "@/lib/useBranchForMoney";
 import { isAnyUnlocked } from "@/lib/featureCatalog";
 import { CLAIMS_COLLECTION, LINE_STATUSES, lineStatusOf, parseClaim, type ClaimStatus, type InsuranceClaim, type LineStatus } from "@/lib/insurance/claims";
 import { bookLineUrl, claimProgress, lineBooking, type LinkedAppointmentLite } from "@/lib/insurance/appointments";
@@ -55,6 +56,7 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
   const isAr = language === "ar";
   const t = tr(isAr);
   const { confirm, showToast } = useUI();
+  const { requireBranchForMoney, picker: branchPicker } = useBranchForMoney();
   const wording = useWording(clinicId);
 
   const [payers, setPayers] = useState<Payer[]>([]);
@@ -201,9 +203,12 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
     const amount = claim.totals.patientShare;
     const ok = await confirm(t("confirmShare").replace("{amount}", money(amount)).replace("{number}", claim.approvalNumber), { confirmLabel: t("collectShare") });
     if (!ok) return;
+    // Cash taken under "All branches" is told which branch it belongs to first.
+    const branchId = await requireBranchForMoney();
+    if (branchId === null) return;
     setBusy(claim.id);
     try {
-      const error = await collectPatientShare(clinicId, claim.id);
+      const error = await collectPatientShare(clinicId, claim.id, branchId || undefined);
       if (error) showToast(error, "error");
       else showToast(t("shareCollectedToast"), "success");
     } catch (err) {
@@ -220,9 +225,11 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
       { confirmLabel: t("markInsurerPaid") },
     );
     if (!ok) return;
+    const branchId = await requireBranchForMoney();
+    if (branchId === null) return;
     setBusy(claim.id);
     try {
-      const error = await recordInsurerPayment(clinicId, claim.id);
+      const error = await recordInsurerPayment(clinicId, claim.id, branchId || undefined);
       if (error) showToast(error, "error");
       else showToast(t("insurerPaidToast"), "success");
     } catch (err) {
@@ -267,6 +274,7 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
 
   return (
     <div className="space-y-6">
+      {branchPicker}
       {/* --- membership ------------------------------------------------------------------------ */}
       <section className="rounded-2xl border border-line bg-surface p-6">
         <h3 className="text-[17px] font-black text-ink">{t("tabMembership")}</h3>

@@ -16,6 +16,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { logActivity } from "@/lib/logger";
 import { MoneyApiError, createProcedure, updateApprovalProcedure, updateProcedure } from "@/lib/moneyApi";
+import { useBranchForMoney } from "@/lib/useBranchForMoney";
 import ServiceCombobox from "@/components/shared/ServiceCombobox";
 import TeethChart, { type ToothData } from "@/components/TeethChart";
 import { TREATMENT_STATES, pendingTreatments, resolveTreatments, type ToothTreatment } from "@/lib/toothTreatments";
@@ -332,6 +333,7 @@ export default function ServiceEditorDrawer({
   teethData = {}, treatments = {}, dentistMode = false, meStaffId = ""
 }: Props) {
   const { showToast, clinicalEditorMode } = useUI();
+  const { requireBranchForMoney, picker: branchPicker } = useBranchForMoney();
   const { language } = useLanguage();
   const isAr = language === "ar";
   const { user } = useAuth();
@@ -619,6 +621,16 @@ export default function ServiceEditorDrawer({
     if (Number(cost) < 0) return showToast(language === 'ar' ? "لا يمكن إضافة تكلفة بالسالب" : "Cannot add negative cost", "error"); // Fix Scenario 2: Negative typo protection
     if (needsTypedPrice) return showToast(txt.needsPrice, "error");
 
+    // A NEW charge is money, so under "All branches" it is told where it belongs first. Editing an
+    // existing treatment keeps the branch it already has. (`branchId` above is the price-list
+    // branch of the visit, a different question.)
+    let chargeBranchId = "";
+    if (!initialNote) {
+      const picked = await requireBranchForMoney();
+      if (picked === null) return;
+      chargeBranchId = picked;
+    }
+
     setIsSaving(true);
     setSaveStatusText("Saving to Database...");
 
@@ -651,6 +663,7 @@ export default function ServiceEditorDrawer({
         ...billing,
         priceListId: dentistNew ? defaultListId || null : billing.priceListId,
         patientDefaultPriceListId: patientDefaultPriceListId || null,
+        ...(chargeBranchId ? { branchId: chargeBranchId } : {}),
       };
 
       let labSeed: LabCaseSeed | undefined;
@@ -1167,6 +1180,7 @@ export default function ServiceEditorDrawer({
       dir={isAr ? "rtl" : "ltr"}
       className={`${cairo.variable} ${isAr ? "arabic-ui" : ""} w-full bg-surface flex flex-col ${!inline ? (clinicalEditorMode === 'modal' ? 'h-full max-h-[90vh] rounded-[2rem] shadow-2xl overflow-hidden' : 'h-full min-h-0 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.2)] rounded-t-3xl rounded-b-none lg:rounded-3xl border border-line overflow-hidden') : 'rounded-2xl border border-line mt-4'}`}
     >
+      {branchPicker}
       {!inline && (
         /*
           * A title bar, not a title page.

@@ -51,6 +51,7 @@ import {
 import { allocationMessage, allocationMessageAr, checkAllocation, overAllocation } from "@/lib/paymentAllocation";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
+import { useBranchForMoney } from "@/lib/useBranchForMoney";
 function formatWhatsAppLedgerMessage(
   patientName: string,
   clinicName: string,
@@ -181,6 +182,7 @@ function insurerOf(row: { payerId?: string | null; payerName?: string | null }):
 
 export default function PatientFinance({ patientId }: { patientId: string }) {
   const { showToast, confirm } = useUI();
+  const { requireBranchForMoney, picker: branchPicker } = useBranchForMoney();
   const { discountSettings, maxDiscountPercent } = usePricingPolicy();
   const { language } = useLanguage();
   const { user } = useAuth();
@@ -455,12 +457,15 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
         ? `تسجيل إن ${insurer} دفعت ${total.toLocaleString()} جنيه للعلاج ده؟`
         : `Record that ${insurer} paid ${total.toLocaleString()} EGP for this treatment?`;
     if (!(await confirm(question, { confirmLabel: txt.insurerPaidBtn }))) return;
+    // Under "All branches" the insurer's money has to be told where it belongs first.
+    const branchId = await requireBranchForMoney();
+    if (branchId === null) return;
     setInsurerPayingId(item.id);
     try {
       if (item.claimId) {
         const cid = clinicId || clinic?.id;
         if (!cid) throw new Error("no clinic");
-        const error = await patchClaim(cid, item.claimId, { insurerPaid: true });
+        const error = await patchClaim(cid, item.claimId, { insurerPaid: true }, branchId || undefined);
         if (error) {
           showToast(error, "error");
           return;
@@ -474,6 +479,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
           description: `${insurer} ${language === 'ar' ? "دفعت" : "paid"} - ${item.description.split('(')[0].trim()}`,
           procedureId: item.id,
           clinicId: clinic?.id,
+          ...(branchId ? { branchId } : {}),
         });
       }
       showToast(txt.insurerPaidOk, "success");
@@ -520,6 +526,10 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
       }
     }
 
+    // Under "All branches" the money has to be told where it belongs before it is written.
+    const branchId = await requireBranchForMoney();
+    if (branchId === null) return;
+
     setIsAddingPaymentStateLocked(true);
 
     let finalDescription = payNote;
@@ -545,6 +555,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
         description: finalDescription,
         procedureId: selectedProcedureId || null,
         clinicId: clinic?.id,
+        ...(branchId ? { branchId } : {}),
       });
 
       const wa = await sendPatientPaymentWhatsApp({ patientId, ledgerId: paymentId });
@@ -798,6 +809,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
 
   return (
     <div className="space-y-6 relative">
+      {branchPicker}
       {/* The same editor the clinical tab uses: name, price, payer, dentist. The treatment is
           written through /api/clinical/procedures and appears here through the ledger listener.
           Mounted only while open: outside `inline` mode the drawer ignores isOpen and always

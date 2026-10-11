@@ -17,6 +17,7 @@ import { useRouter } from "next/navigation";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { useBranchForMoney } from "@/lib/useBranchForMoney";
 import { MoneyApiError, createLedgerEntry, deleteLedgerRow, deleteStaffSettlement, updateLedgerRow, updateStaffSettlement } from "@/lib/moneyApi";
 import { CLAIMS_COLLECTION, lineStatusOf, parseClaim, type InsuranceClaim } from "@/lib/insurance/claims";
 import { categoryLabel, EXPENSE_CATEGORY_LIST, INCOME_CATEGORY_LIST } from "@/lib/expenseCategories";
@@ -70,6 +71,7 @@ function getCreatedAtMillis(item: Transaction): number {
 export default function FinancePage() {
   const { language, t, isRTL } = useLanguage();
   const { showToast, confirm } = useUI();
+  const { requireBranchForMoney, picker: branchPicker } = useBranchForMoney();
   const { user } = useAuth();
   const router = useRouter();
 
@@ -492,6 +494,9 @@ export default function FinancePage() {
         });
         showToast(language === "ar" ? "اتعدّل" : "Updated", "success");
       } else {
+        // Under "All branches" a new income or expense is told which branch it belongs to first.
+        const branchId = await requireBranchForMoney();
+        if (branchId === null) return;
         await createLedgerEntry({
           type: formType,
           amount: Number(amount),
@@ -500,6 +505,7 @@ export default function FinancePage() {
           date,
           method: method || "Cash",
           isRecurring: formType === 'expense' ? isRecurring : false,
+          ...(branchId ? { branchId } : {}),
         });
         showToast(language === "ar" ? "اتسجّل" : "Saved", "success");
       }
@@ -801,6 +807,7 @@ export default function FinancePage() {
               bar for every page, and the bell here was decorative anyway: a red dot that was
               always on and a button that did nothing. */}
           <PageHeader title={t("finance")} subtitle={periodLabel} />
+          {branchPicker}
 
           {/* Hero + metric tiles */}
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 xl:gap-6 shrink-0">

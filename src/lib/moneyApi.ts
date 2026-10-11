@@ -148,6 +148,8 @@ export type CreatePaymentArgs = {
   date?: string;
   category?: string;
   clinicId?: string | null;
+  /** Which branch the money belongs to. Only pass a real id; omitted, the on-screen branch rides along. */
+  branchId?: string;
 };
 
 /**
@@ -167,6 +169,8 @@ export type CreateEntryArgs = {
   method?: string;
   isRecurring?: boolean;
   clinicId?: string | null;
+  /** Which branch the money belongs to. Only pass a real id; omitted, the on-screen branch rides along. */
+  branchId?: string;
 };
 
 /** Clinic income or overhead — money that belongs to no patient. */
@@ -207,7 +211,7 @@ export function setPaymentCommission(id: string, commissionPercentage: number, c
 }
 
 /** What the owner paid a staff member (a payout, cash out through the ledger) or held back (a deduction). */
-export type StaffSettlementDraft = { kind: "payout" | "deduction"; amount: number; date: string; note: string; method?: string };
+export type StaffSettlementDraft = { kind: "payout" | "deduction"; amount: number; date: string; note: string; method?: string; branchId?: string };
 
 export function createStaffSettlement(staffId: string, draft: StaffSettlementDraft, clinicId?: string | null) {
   return post<{ ok: true; id: string; ledgerId: string | null }>("/api/staff/settlements", { action: "create", staffId, ...draft, clinicId });
@@ -273,6 +277,8 @@ export type ProcedureWriteArgs = {
   /** Who pays for this treatment: a payer id from Settings → Payers. Absent = the list's owner, else Private. */
   payerId?: string | null;
   clinicId?: string | null;
+  /** Which branch the charge belongs to. Only pass a real id; omitted, the on-screen branch rides along. */
+  branchId?: string;
 };
 
 export type ProcedureWriteResult = { noteId: string; ledgerId: string | null; cost: number };

@@ -12,6 +12,7 @@ import { isDentistStaff } from "@/lib/staffRoles";
 import { treatmentsByTooth } from "@/lib/toothTreatments";
 import { suggestCategory } from "@/lib/dentalIcons";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
+import { useBranchForMoney } from "@/lib/useBranchForMoney";
 import { checkAllocation, allocationMessage, allocationMessageAr } from "@/lib/paymentAllocation";
 import {
   MoneyApiError, createPayment, createProcedure, deleteProcedure, updateLedgerRow,
@@ -109,6 +110,7 @@ export default function AppointmentMoneyTab({
 }) {
   const { language } = useLanguage();
   const { showToast, confirm } = useUI();
+  const { requireBranchForMoney, picker: branchPicker } = useBranchForMoney();
   const isAr = language === "ar";
   const { priceLists, payers, discountSettings, maxDiscountPercent } = usePricingPolicy();
 
@@ -560,6 +562,10 @@ export default function AppointmentMoneyTab({
       }
     }
 
+    // Under "All branches" the money has to be told where it belongs before any of it is written.
+    const branchId = await requireBranchForMoney();
+    if (branchId === null) return;
+
     setCollecting(true);
     const today = new Date();
     const localDate = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().split("T")[0];
@@ -575,6 +581,7 @@ export default function AppointmentMoneyTab({
           description: row.charge ? `Payment for ${row.charge.description}` : "Payment on account",
           procedureId: row.charge ? row.charge.id : null,
           date: localDate,
+          ...(branchId ? { branchId } : {}),
         });
         taken = money(taken + row.amount);
         lastPaymentId = paymentId;
@@ -689,6 +696,8 @@ export default function AppointmentMoneyTab({
       showToast(quickNeedsPriceText, "error");
       return;
     }
+    const branchId = await requireBranchForMoney();
+    if (branchId === null) return;
     setAddingProcedure(true);
     try {
       const today = new Date();
@@ -713,6 +722,7 @@ export default function AppointmentMoneyTab({
         status: "Completed",
         date: localDate,
         addToLedger: true,
+        ...(branchId ? { branchId } : {}),
       });
       showToast(isAr ? "اتضافت الخدمة" : "Service added", "success");
       setProcName("");
@@ -1048,6 +1058,7 @@ export default function AppointmentMoneyTab({
 
   return (
     <div className="space-y-4">
+      {branchPicker}
       {/* Balance — the one figure she is asked for, and the two actions that change it */}
       {section !== "service" && (
       <div className="rounded-2xl border border-line bg-surface p-4 shadow-sm">

@@ -171,8 +171,8 @@ export type ClaimPatch = {
 };
 
 /** PATCH /api/insurance/claims. Resolves to the server's message on a refusal, null on success. */
-export async function patchClaim(clinicId: string, claimId: string, patch: ClaimPatch): Promise<string | null> {
-  const { status, data } = await call("PATCH", "/api/insurance/claims", { clinicId, claimId, patch });
+export async function patchClaim(clinicId: string, claimId: string, patch: ClaimPatch, branchId?: string): Promise<string | null> {
+  const { status, data } = await call("PATCH", "/api/insurance/claims", { clinicId, claimId, patch, ...(branchId ? { branchId } : {}) });
   if (status === 200 && data.ok === true) return null;
   return typeof data.error === "string" && data.error ? data.error : `HTTP ${status}`;
 }
@@ -235,11 +235,11 @@ export function monthRange(ymd: string): { from: string; to: string } {
  * stamp together, so a failure can never leave a cash row with nothing pointing at it. Resolves to
  * the server's message on a refusal (409 when it was already collected), null on success.
  */
-export async function collectPatientShare(clinicId: string, claimId: string): Promise<string | null> {
-  return patchClaim(clinicId, claimId, { collectShare: true });
+export async function collectPatientShare(clinicId: string, claimId: string, branchId?: string): Promise<string | null> {
+  return patchClaim(clinicId, claimId, { collectShare: true }, branchId);
 }
 
 /** Record the insurer's payment for an approval. Resolves to the server's message on a refusal, null on success. */
-export async function recordInsurerPayment(clinicId: string, claimId: string): Promise<string | null> {
-  return patchClaim(clinicId, claimId, { insurerPaid: true });
+export async function recordInsurerPayment(clinicId: string, claimId: string, branchId?: string): Promise<string | null> {
+  return patchClaim(clinicId, claimId, { insurerPaid: true }, branchId);
 }

@@ -300,10 +300,10 @@ function InsurancePage() {
 
   // --- row changes -------------------------------------------------------------------------------
   const onPatch = useCallback(
-    async (claim: InsuranceClaim, patch: ClaimPatch): Promise<boolean> => {
+    async (claim: InsuranceClaim, patch: ClaimPatch, branchId?: string): Promise<boolean> => {
       if (!clinicId) return false;
       try {
-        const error = await patchClaim(clinicId, claim.id, patch);
+        const error = await patchClaim(clinicId, claim.id, patch, branchId);
         if (error) {
           showToast(`${t("updateFailed")}: ${error}`, "error");
           return false;
