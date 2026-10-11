@@ -12,6 +12,7 @@
  */
 
 import { INSURER_PAYMENT_METHOD, isApprovalRow } from "@/lib/ledgerInsurer";
+import { sumPayments } from "@/lib/ledgerWrite";
 
 export type LedgerLite = {
   id: string;
@@ -51,8 +52,13 @@ function num(v: unknown): number {
 
 const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
-/** What a payment row is worth: `paid` is the real figure, `amount` mirrors it (older rows left `amount: 0`). */
-const paymentValue = (r: LedgerLite) => num(r.paid) || num(r.amount);
+/**
+ * What a payment row is worth: `paid` is the real figure, `amount` mirrors it (older rows left
+ * `amount: 0`). The same rule as `sumPayments`, which is what the patient file and the payment
+ * routes add up with — `paid ?? amount`, so a payment explicitly `paid: 0` is worth nothing here too.
+ */
+const paymentValue = (r: LedgerLite) =>
+  sumPayments([{ paid: r.paid as number | null | undefined, amount: r.amount as number | null | undefined }]);
 
 /** The treatments this company is the payer of, each with its split. In the order the rows came. */
 export function insurerRows(rows: readonly LedgerLite[], payerId: string): InsurerRow[] {

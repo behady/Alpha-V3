@@ -35,6 +35,13 @@ assert.deepEqual(ids({ patientQuery: "omar" }), ["ch2", "pay3"]);
 assert.deepEqual(ids({ patientQuery: "OMAR sa" }), ["ch2", "pay3"]);
 assert.deepEqual(ids({ patientQuery: "0120" }), ["ch2"], "matches the phone");
 assert.deepEqual(ids({ patientQuery: "   " }), rows.map((r) => r.id), "blank query is no filter");
+assert.deepEqual(ids({ patientQuery: "٠١٢٠" }), ["ch2"], "a phone typed in Arabic digits matches");
+assert.deepEqual(ids({ receiptQuery: "٠٠٠٧" }), ["pay1"], "a receipt number typed in Arabic digits matches");
+{
+  const stored = [{ id: "a1", type: "payment", paid: 10, patientName: "Mona", patientPhone: "٠١٠٥٥٥" }];
+  const got = applyFinanceFilters(stored, { ...EMPTY_FINANCE_FILTER, patientQuery: "0105" }).map((r) => r.id);
+  assert.deepEqual(got, ["a1"], "a phone stored in Arabic digits matches ASCII typing");
+}
 
 // Amounts use the row's cash value (a charge counts what has been paid on it).
 assert.deepEqual(ids({ amountMin: 600 }), ["ch1", "inc1", "exp1"]);

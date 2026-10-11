@@ -4,6 +4,7 @@
  */
 
 import { PRIVATE_PAYER_ID } from "@/lib/payers";
+import { foldArabicDigits } from "@/lib/phoneNumber";
 import { ledgerCashValue } from "@/lib/reportHelpers";
 import type { LedgerLite } from "@/lib/insurerLedger";
 
@@ -38,9 +39,12 @@ export const EMPTY_FINANCE_FILTER: FinanceFilter = {
 
 const DIACRITICS = /[ً-ٰٟـ]/g;
 
-/** One spelling for comparing a typed name: lower case, no marks, أ/إ/آ as ا, ة as ه, ى as ي. */
+/**
+ * One spelling for comparing a typed name or phone: lower case, no marks, أ/إ/آ as ا, ة as ه,
+ * ى as ي, and Arabic-Indic digits as 0–9 (a phone typed on an Arabic keyboard is `٠١٢…`).
+ */
 function fold(raw: unknown): string {
-  return String(raw ?? "")
+  return foldArabicDigits(String(raw ?? ""))
     .toLowerCase()
     .replace(DIACRITICS, "")
     .replace(/[أإآٱ]/g, "ا")
@@ -62,7 +66,7 @@ function rowPayer(row: Record<string, unknown>): string {
 
 export function applyFinanceFilters<T extends LedgerLite & Record<string, unknown>>(rows: readonly T[], f: FinanceFilter): T[] {
   const patient = fold(f.patientQuery);
-  const receipt = f.receiptQuery.trim().toLowerCase();
+  const receipt = foldArabicDigits(f.receiptQuery).trim().toLowerCase();
   return rows.filter((row) => {
     const type = String(row.type || "");
     if (f.kind !== "all" && type !== f.kind) return false;

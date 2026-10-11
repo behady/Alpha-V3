@@ -68,6 +68,21 @@ const pay = (id: string, procedureId: string, amount: number, method: string, ex
   assert.equal(out.find((r) => r.charge.id === "C2")!.patientPaid, 100);
 }
 
+// A payment is worth `paid ?? amount` (the sumPayments rule): an older row with `amount: 0` still
+// counts its `paid`, a row with no `paid` falls back to `amount`, and an explicit `paid: 0` is nothing.
+{
+  const rows = [
+    charge("C1"),
+    pay("P1", "C1", 400, "Cash", { amount: 0 }),
+    pay("P2", "C1", 0, "Insurance", { paid: undefined, amount: 200 }),
+    pay("P3", "C1", 0, "Cash", { paid: 0, amount: 900 }),
+  ];
+  const out = insurerRows(rows, "gasco");
+  assert.equal(out[0].patientPaid, 400, "paid wins over a placeholder amount; paid: 0 is not the amount");
+  assert.equal(out[0].insurerPaid, 200, "no paid falls back to amount");
+  assert.equal(out[0].outstanding, 984);
+}
+
 // Cost falls back to amount, like every other reader of a charge.
 {
   const out = insurerRows([charge("C1", { cost: 0, amount: 700 })], "gasco");
