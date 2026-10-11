@@ -146,6 +146,9 @@ await receiptsClinic.collection("settings").doc("locations").set({
   branches: [
     { id: "hel", name: "Heliopolis", rooms: [], receiptPrefix: "HEL" },
     { id: "tag", name: "Tagamoa", rooms: [], receiptPrefix: "TAG" },
+    // Two Arabic names derive the same prefix; the second gets a number so the series never clash.
+    { id: "ar1", name: "التجمع", rooms: [] },
+    { id: "ar2", name: "مدينة نصر", rooms: [] },
   ],
 });
 // No year in the number, so the sequence reads plainly: HEL-0001.
@@ -271,6 +274,9 @@ console.log("each branch numbers its own receipts");
   check("the clinic-wide receipt_counter does not exist", !(await settings.doc("receipt_counter").get()).exists);
   check("Heliopolis counts on receipt_counter_hel", (await settings.doc("receipt_counter_hel").get()).data()?.last === 2);
   check("Tagamoa counts on receipt_counter_tag", (await settings.doc("receipt_counter_tag").get()).data()?.last === 1);
+  const ar1 = await money(ADMIN, { action: "create-payment", patientId: "RP", amount: 50, date: "2026-10-01", branchId: "ar1" }, RECEIPTS_CLINIC);
+  const ar2 = await money(ADMIN, { action: "create-payment", patientId: "RP", amount: 50, date: "2026-10-01", branchId: "ar2" }, RECEIPTS_CLINIC);
+  check("two branches whose names derive the same prefix number BR-0001 and BR2-0001", ar1.json.receiptNumber === "BR-0001" && ar2.json.receiptNumber === "BR2-0001", { a: ar1.json, b: ar2.json });
   const stored = await row(hel1.json.id, receiptsClinic.collection("ledger"));
   check("the row stores the sequence it took", stored?.receiptSeq === 1 && stored?.receiptNumber === "HEL-0001", stored);
   check("payments taken in the main test clinic never touched the clinic-wide counter either", !(await clinic.collection("settings").doc("receipt_counter").get()).exists);

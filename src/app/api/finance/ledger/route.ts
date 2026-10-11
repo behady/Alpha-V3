@@ -57,8 +57,8 @@ import {
   formatReceiptNumber,
   normalizeReceiptSettings,
   receiptCounterDocId,
+  receiptPrefixOrClinic,
 } from "@/lib/receiptSettings";
-import { receiptPrefixFor } from "@/lib/clinicLocations";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -299,7 +299,7 @@ async function createPayment(args: {
     ]);
     const receiptSettings = normalizeReceiptSettings(receiptSettingsSnap.exists ? receiptSettingsSnap.data() : null);
     const receiptSeq = (Number(counterSnap.exists ? counterSnap.data()?.last : 0) || 0) + 1;
-    const receiptNumber = formatReceiptNumber(receiptSettings, receiptSeq, date, branch.branch ? receiptPrefixFor(branch.branch) : undefined);
+    const receiptNumber = formatReceiptNumber(receiptSettings, receiptSeq, date, receiptPrefixOrClinic(branch.branch, branch.branches));
 
     const newRef = adminClinicCollection(clinicId, "ledger").doc();
 

@@ -1,6 +1,6 @@
 // Receipt numbers count per branch: its own counter document, its own prefix.
 import assert from "node:assert/strict";
-import { receiptCounterDocId, formatReceiptNumber, normalizeReceiptSettings } from "../src/lib/receiptSettings";
+import { receiptCounterDocId, formatReceiptNumber, normalizeReceiptSettings, receiptPrefixOrClinic } from "../src/lib/receiptSettings";
 import { buildDentalReceiptSrcDoc, sampleReceiptPayload } from "../src/lib/receiptRender";
 
 assert.equal(receiptCounterDocId(null), "receipt_counter");
@@ -10,6 +10,12 @@ assert.equal(formatReceiptNumber(s, 5, "2026-10-11"), "R-0005");
 assert.equal(formatReceiptNumber(s, 5, "2026-10-11", "HEL"), "HEL-0005");
 assert.equal(formatReceiptNumber(s, 5, "2026-10-11", ""), "R-0005", "an empty override leaves the clinic's prefix");
 assert.equal(formatReceiptNumber({ ...s, numberIncludesYear: true }, 5, "2026-10-11", "TAG"), "TAG-2026-0005");
+
+// The prefix a mint site passes: none without a branch, otherwise unique among the clinic's branches.
+const two = [{ id: "a", name: "Heliopolis", receiptPrefix: "" }, { id: "b", name: "Heliopolis 2", receiptPrefix: "" }];
+assert.equal(receiptPrefixOrClinic(null, []), undefined);
+assert.equal(receiptPrefixOrClinic(two[0], two), "HEL");
+assert.equal(receiptPrefixOrClinic(two[1], two), "HEL2");
 
 // The printed receipt: the branch's name and address under the clinic name, its own tax identity.
 const letterhead = { clinicName: "Alpha Dental", clinicPhone: "+20 100 000 0000", clinicAddress: "Nasr City" };

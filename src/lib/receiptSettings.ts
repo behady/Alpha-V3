@@ -27,6 +27,7 @@
  * the restore DENY list for the same reason `settings/counters` is: rewinding it would stamp new
  * payments with numbers already on paper in patients' hands.
  */
+import { receiptPrefixFor, type ClinicBranch } from "@/lib/clinicLocations";
 
 export const RECEIPT_SETTINGS_DOC = "receipt";
 export const RECEIPT_COUNTER_DOC = "receipt_counter";
@@ -38,6 +39,17 @@ export const RECEIPT_COUNTER_DOC = "receipt_counter";
  */
 export function receiptCounterDocId(branchId: string | null): string {
   return branchId ? `${RECEIPT_COUNTER_DOC}_${branchId}` : RECEIPT_COUNTER_DOC;
+}
+
+/**
+ * The prefix override for `formatReceiptNumber`: the branch's own (unique among `branches`), or
+ * undefined for a clinic without branches, which keeps the clinic-wide prefix.
+ */
+export function receiptPrefixOrClinic(
+  branch: Pick<ClinicBranch, "id" | "name" | "receiptPrefix"> | null,
+  branches: readonly Pick<ClinicBranch, "id" | "name" | "receiptPrefix">[]
+): string | undefined {
+  return branch ? receiptPrefixFor(branch, branches) : undefined;
 }
 
 export type ReceiptTemplate = "classic" | "modern" | "minimal" | "thermal";

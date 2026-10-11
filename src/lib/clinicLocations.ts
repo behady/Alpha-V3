@@ -75,15 +75,46 @@ function sanitizeBranch(raw: unknown): ClinicBranch | null {
   };
 }
 
+type PrefixSource = Pick<ClinicBranch, "id" | "name" | "receiptPrefix">;
+
+const explicitPrefix = (b: Pick<ClinicBranch, "receiptPrefix">): string =>
+  String(b.receiptPrefix || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 4);
+
 /**
- * The prefix for this branch's receipt numbers: the one the clinic set, else the first three
- * letters/digits of the branch name upper-cased, else `BR` (an all-Arabic name has none to borrow).
+ * The receipt prefix of every branch, by id. Each branch counts its receipts on its own, so two
+ * branches with the same prefix would print the same numbers twice; this never lets that happen
+ * for derived prefixes.
+ *
+ * A branch's own `receiptPrefix` is kept as is. Otherwise the prefix is the first three
+ * letters/digits of its name upper-cased, else `BR` (an all-Arabic name has none to borrow). When
+ * that equals a prefix already taken, by any branch's explicit prefix or by a derived one earlier
+ * in the list, the next free number is appended: BR, BR2, BR3; HEL, HEL2. Always at most 4 chars.
  */
-export function receiptPrefixFor(branch: Pick<ClinicBranch, "name" | "receiptPrefix">): string {
-  const set = String(branch.receiptPrefix || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 4);
-  if (set) return set;
-  const derived = String(branch.name || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 3);
-  return derived || "BR";
+export function resolveReceiptPrefixes(branches: readonly PrefixSource[]): Map<string, string> {
+  const out = new Map<string, string>();
+  const taken = new Set<string>();
+  for (const b of branches) {
+    const set = explicitPrefix(b);
+    if (set) {
+      out.set(b.id, set);
+      taken.add(set);
+    }
+  }
+  for (const b of branches) {
+    if (out.has(b.id)) continue;
+    const base = String(b.name || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 3) || "BR";
+    let candidate = base;
+    for (let n = 2; taken.has(candidate); n += 1) candidate = `${base.slice(0, 4 - String(n).length)}${n}`;
+    out.set(b.id, candidate);
+    taken.add(candidate);
+  }
+  return out;
+}
+
+/** The prefix for this branch's receipt numbers; see `resolveReceiptPrefixes`. A branch missing from `allBranches` is resolved as if it were last. */
+export function receiptPrefixFor(branch: PrefixSource, allBranches: readonly PrefixSource[]): string {
+  const list = allBranches.some((b) => b.id === branch.id) ? allBranches : [...allBranches, branch];
+  return resolveReceiptPrefixes(list).get(branch.id) as string;
 }
 
 /** Accepts the raw `settings/locations` data (or null) and returns a clean branch list. */

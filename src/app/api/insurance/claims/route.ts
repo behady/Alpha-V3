@@ -10,8 +10,8 @@ import { findPayer, isInsurerFormat, parsePayers, PRIVATE_PAYER_ID, type Commiss
 import { isFullAccessRole } from "@/lib/permissions";
 import { assertBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
 import { buildManualEntryRow, buildPaymentRow, sumPayments } from "@/lib/ledgerWrite";
-import { RECEIPT_SETTINGS_DOC, formatReceiptNumber, normalizeReceiptSettings, receiptCounterDocId } from "@/lib/receiptSettings";
-import { receiptPrefixFor, type ClinicBranch } from "@/lib/clinicLocations";
+import { RECEIPT_SETTINGS_DOC, formatReceiptNumber, normalizeReceiptSettings, receiptCounterDocId, receiptPrefixOrClinic } from "@/lib/receiptSettings";
+import type { ClinicBranch } from "@/lib/clinicLocations";
 import { applyProcedureSync, readProcedurePayments, stampPaymentsDentist, type PaymentRowLite } from "@/lib/server/ledgerSync";
 import { recordMoneyChange } from "@/lib/server/ledgerAudit";
 import { restampStaffSettlementsFor } from "@/lib/server/staffSettlementSync";
@@ -709,6 +709,7 @@ export async function PATCH(req: Request) {
     }
     let branchId: string | null = null;
     let branchEntry: ClinicBranch | null = null;
+    let allBranches: ClinicBranch[] = [];
     if (writesMoney) {
       const branch = await assertBranchAllowed({
         clinicId, uid: authz.uid, role: authz.role, branchId: body.branchId,
@@ -719,6 +720,7 @@ export async function PATCH(req: Request) {
       if (!branch.ok) return branch.response;
       branchId = branch.branchId;
       branchEntry = branch.branch;
+      allBranches = branch.branches;
     }
     type Collected = { ledgerId: string; amount: number; row: Record<string, unknown> };
     type PatchOutcome =
@@ -1067,7 +1069,7 @@ export async function PATCH(req: Request) {
             category: collectShare ? SHARE_CATEGORY : INSURER_CATEGORY,
           });
           seq += 1;
-          lastReceipt = formatReceiptNumber(receiptSettings, seq, date, branchEntry ? receiptPrefixFor(branchEntry) : undefined);
+          lastReceipt = formatReceiptNumber(receiptSettings, seq, date, receiptPrefixOrClinic(branchEntry, allBranches));
           const ref = adminClinicCollection(clinicId, "ledger").doc();
           const full = {
             ...row,

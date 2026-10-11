@@ -27,6 +27,7 @@ import {
   makeLocationId,
   parseClinicBranches,
   receiptPrefixFor,
+  resolveReceiptPrefixes,
   type ClinicBranch,
 } from "@/lib/clinicLocations";
 import { branchCodeFor, deriveBranchCode } from "@/lib/labCases";
@@ -80,14 +81,29 @@ export default function LocationsSettings() {
   }, []);
 
   const handleSave = async () => {
+    // Two branches with the same typed prefix would print the same receipt numbers: refuse.
+    const typed = new Set<string>();
+    for (const b of branches) {
+      const p = String(b.receiptPrefix || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+      if (!p) continue;
+      if (typed.has(p)) {
+        showToast(txt.receiptPrefixClash.replace("{prefix}", p), "error");
+        return;
+      }
+      typed.add(p);
+    }
+    // A blank prefix is fixed to its derived value now, so a later rename cannot restart the series.
+    const prefixes = resolveReceiptPrefixes(branches);
+    const toSave = branches.map((b) => (b.receiptPrefix ? b : { ...b, receiptPrefix: prefixes.get(b.id) as string }));
     setSaving(true);
     try {
       await setDoc(
         getClinicDoc("settings", LOCATIONS_DOC),
-        { branches, updatedAt: new Date().toISOString() },
+        { branches: toSave, updatedAt: new Date().toISOString() },
         { merge: true }
       );
-      setStored(branches);
+      setBranches(toSave);
+      setStored(toSave);
       markSaved();
       showToast(txt.saved, "success");
     } catch {
@@ -320,7 +336,7 @@ export default function LocationsSettings() {
                         receiptPrefix: e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 4),
                       })
                     }
-                    placeholder={receiptPrefixFor(branch)}
+                    placeholder={receiptPrefixFor(branch, branches)}
                     className={`w-full rounded-lg bg-surface px-3 py-1.5 text-sm font-black uppercase tracking-widest ${INPUT}`}
                   />
                 </label>

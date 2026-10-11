@@ -7,8 +7,8 @@ import { isFullAccessRole } from "@/lib/permissions";
 export const BRANCH_REQUIRED_MESSAGE = "Choose the branch this money belongs to.";
 export const BRANCH_FORBIDDEN_MESSAGE = "You can't record money for that branch.";
 
-/** `branch` is the settings entry for `branchId` (null with no branch), so a caller needs no second read of settings/locations. */
-export type BranchCheck = { ok: true; branchId: string | null; branch: ClinicBranch | null } | { ok: false; response: NextResponse };
+/** `branch` is the settings entry for `branchId` (null with no branch) and `branches` the whole list, so a caller needs no second read of settings/locations. */
+export type BranchCheck = { ok: true; branchId: string | null; branch: ClinicBranch | null; branches: ClinicBranch[] } | { ok: false; response: NextResponse };
 
 const refuse = (status: number, error: string, code: string): BranchCheck => ({
   ok: false,
@@ -45,8 +45,8 @@ export async function assertBranchAllowed(args: {
 }): Promise<BranchCheck> {
   const locations = await adminClinicDoc(args.clinicId, "settings", LOCATIONS_DOC).get();
   const branches = parseClinicBranches(locations.exists ? locations.data() : null);
-  if (branches.length === 0) return { ok: true, branchId: null, branch: null };
-  const pick = (id: string): BranchCheck => ({ ok: true, branchId: id, branch: branches.find((b) => b.id === id) ?? null });
+  if (branches.length === 0) return { ok: true, branchId: null, branch: null, branches };
+  const pick = (id: string): BranchCheck => ({ ok: true, branchId: id, branch: branches.find((b) => b.id === id) ?? null, branches });
 
   const sent = typeof args.branchId === "string" ? args.branchId : "";
   const admin = isFullAccessRole(args.role);

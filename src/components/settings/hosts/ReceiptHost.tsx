@@ -31,6 +31,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { getClinicDoc } from "@/lib/db-utils";
+import { LOCATIONS_DOC, parseClinicBranches } from "@/lib/clinicLocations";
 import { getClinicLogo, type ClinicLogoAsset } from "@/lib/clinicLogo";
 import { logActivity } from "@/lib/logger";
 import { useSettingsDraft } from "@/lib/settingsDraft";
@@ -173,6 +174,8 @@ export default function ReceiptHost({ canEdit }: { canEdit: boolean }) {
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [nextSeq, setNextSeq] = useState(1);
+  // With branches each one counts its own receipts, so a single "next number" would be wrong.
+  const [hasBranches, setHasBranches] = useState(false);
   const [letterhead, setLetterhead] = useState<ClinicLetterhead>({ clinicName: "", clinicPhone: "", clinicAddress: "" });
   const [previewKind, setPreviewKind] = useState<"payment" | "statement">("payment");
   const previewBoxRef = useRef<HTMLDivElement | null>(null);
@@ -209,9 +212,10 @@ export default function ReceiptHost({ canEdit }: { canEdit: boolean }) {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const [infoSnap, counterSnap, logo] = await Promise.all([
+      const [infoSnap, counterSnap, locationsSnap, logo] = await Promise.all([
         getDoc(getClinicDoc("settings", "clinic_info")).catch(() => null),
         getDoc(getClinicDoc("settings", RECEIPT_COUNTER_DOC)).catch(() => null),
+        getDoc(getClinicDoc("settings", LOCATIONS_DOC)).catch(() => null),
         getClinicLogo(),
       ]);
       if (cancelled) return;
@@ -230,6 +234,7 @@ export default function ReceiptHost({ canEdit }: { canEdit: boolean }) {
       });
       const last = Number(counterSnap?.exists() ? counterSnap.data()?.last : 0) || 0;
       setNextSeq(last + 1);
+      setHasBranches(parseClinicBranches(locationsSnap?.exists() ? locationsSnap.data() : null).length > 0);
     })();
     return () => {
       cancelled = true;
@@ -512,7 +517,7 @@ export default function ReceiptHost({ canEdit }: { canEdit: boolean }) {
               <div className="space-y-2">
                 <span className="block text-[11px] font-semibold uppercase tracking-[0.2em] text-ink-muted">{txt.numberExample}</span>
                 <div className="rounded-2xl border border-dashed border-line bg-surface-subtle px-4 py-3 font-mono text-lg font-bold text-ink" dir="ltr">
-                  {numberExample}
+                  {hasBranches ? <span className="font-sans text-sm font-semibold text-ink-muted">{txt.branchNumbering}</span> : numberExample}
                 </div>
               </div>
             </div>
