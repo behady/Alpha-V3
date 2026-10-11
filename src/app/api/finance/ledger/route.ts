@@ -51,7 +51,7 @@ import { allowedDiscount, checkDiscountAllowed, isDiscountMode } from "@/lib/dis
 import { afterLedgerCreate, afterLedgerDelete, afterLedgerUpdate } from "@/lib/alerts/moneyAlerts";
 import { DISCOUNTS_DOC, parseDiscountSettings } from "@/lib/priceLists";
 import { isApprovalRow } from "@/lib/ledgerInsurer";
-import { assertBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
+import { assertBranchAllowed, assertRowBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
 import {
   RECEIPT_SETTINGS_DOC,
   formatReceiptNumber,
@@ -423,6 +423,15 @@ async function createEntry(args: { clinicId: string; actor: Actor; body: Record<
   return NextResponse.json({ ok: true, id: ref.id });
 }
 
+/**
+ * Another branch's money is not this person's to change. Read before the transaction: a row's
+ * branch never changes by edit, so it cannot move between this read and the write.
+ */
+async function rowBranchGate(clinicId: string, actor: Actor, id: string) {
+  const snap = await adminClinicDoc(clinicId, "ledger", id).get();
+  return assertRowBranchAllowed({ clinicId, uid: actor.uid, role: actor.role, rowBranchId: snap.data()?.branchId });
+}
+
 // ---------------------------------------------------------------------------------------------
 // update
 // ---------------------------------------------------------------------------------------------
@@ -432,6 +441,9 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
   const id = String(body.id || "").trim();
   if (!id) return bad("Which row?");
   const patch = (body.patch || {}) as Record<string, unknown>;
+
+  const gate = await rowBranchGate(clinicId, actor, id);
+  if (!gate.ok) return gate.response;
 
   const staff = await loadStaff(clinicId);
 
@@ -837,6 +849,9 @@ async function setCommission(args: { clinicId: string; actor: Actor; body: Recor
     return bad("Enter a percentage between 0 and 100.");
   }
 
+  const gate = await rowBranchGate(clinicId, actor, id);
+  if (!gate.ok) return gate.response;
+
   const result = await adminDb().runTransaction(async (txn) => {
     const ref = adminClinicDoc(clinicId, "ledger", id);
     const snap = await txn.get(ref);
@@ -903,6 +918,9 @@ async function setLabFee(args: { clinicId: string; actor: Actor; body: Record<st
   if (!Number.isFinite(labFee) || labFee < 0) return bad("Enter a lab fee of zero or more.");
 
   const reason = String(body.reason || "").trim();
+
+  const gate = await rowBranchGate(clinicId, actor, id);
+  if (!gate.ok) return gate.response;
 
   const result = await adminDb().runTransaction(async (txn) => {
     const ref = adminClinicDoc(clinicId, "ledger", id);
@@ -978,6 +996,8 @@ async function deleteRow(args: { clinicId: string; actor: Actor; body: Record<st
   const targetSnap = await adminClinicDoc(clinicId, "ledger", id).get();
   if (!targetSnap.exists) return bad("That row no longer exists.", 404);
   const target = targetSnap.data() || {};
+  const gate = await assertRowBranchAllowed({ clinicId, uid: actor.uid, role: actor.role, rowBranchId: target.branchId });
+  if (!gate.ok) return gate.response;
   const type = String(target.type || "");
   // The approval keeps a link to this charge and its note; deleting the charge alone strands it.
   // Deleting the approval (Recently Deleted keeps all of them together) is the way out.

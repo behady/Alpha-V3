@@ -66,6 +66,29 @@ export async function assertBranchAllowed(args: {
 }
 
 /**
+ * May this person edit or delete a row that is already written? The row's own branch decides, not
+ * the branch on screen: admins always may; a row with no branch (written before branches, or in a
+ * clinic without them) may be touched by anyone who may touch money at all, and so may a row whose
+ * branch has since been deleted; otherwise the row's branch must be one `allowedBranches` leaves
+ * this person, else 403 `branch_forbidden`.
+ */
+export async function assertRowBranchAllowed(args: {
+  clinicId: string;
+  uid: string;
+  role: string;
+  rowBranchId: unknown;
+}): Promise<{ ok: true } | { ok: false; response: NextResponse }> {
+  const rowBranch = typeof args.rowBranchId === "string" ? args.rowBranchId : "";
+  if (!rowBranch || isFullAccessRole(args.role)) return { ok: true };
+  const locations = await adminClinicDoc(args.clinicId, "settings", LOCATIONS_DOC).get();
+  const branches = parseClinicBranches(locations.exists ? locations.data() : null);
+  if (!branches.some((b) => b.id === rowBranch)) return { ok: true };
+  const allowed = await allowedFor(args.clinicId, args.uid, branches);
+  if (allowed.some((b) => b.id === rowBranch)) return { ok: true };
+  return { ok: false, response: NextResponse.json({ ok: false, error: BRANCH_FORBIDDEN_MESSAGE, code: "branch_forbidden" }, { status: 403 }) };
+}
+
+/**
  * The branch for money nobody chose a branch for (a phone call that sent none, an AI action, an
  * insurer's payment): the ledger row's own, else the appointment's, else the patient's, else the
  * clinic's first. Each document is read only when its id is given and the tier before it found

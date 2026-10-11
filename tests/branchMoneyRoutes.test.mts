@@ -117,7 +117,7 @@ await db.collection("users").doc(ADMIN).set({ name: "Owner Tester", clinicRoles:
 await db.collection("users").doc(DESK).set({
   name: "Desk Hel",
   clinicRoles: { [CLINIC]: "Receptionist" },
-  clinicPermissions: { [CLINIC]: ["finance.add", "access.appointments"] },
+  clinicPermissions: { [CLINIC]: ["finance.add", "finance.edit", "finance.delete", "access.appointments"] },
 });
 await db.collection("users").doc(DESK_2).set({
   name: "Desk Plain",
@@ -238,6 +238,30 @@ console.log("rows nobody chose a branch for fall back, tier by tier");
 
   const third = await expense(DESK_3, {}, FIRST_IS_FORBIDDEN_CLINIC);
   check("a manual entry with no branch, where the clinic's first branch (tag) is not hers, lands on her hel", third.status === 200 && (await row(third.json.id, thirdClinic.collection("ledger")))?.branchId === "hel", third);
+}
+
+console.log("another branch's money cannot be edited or deleted");
+{
+  await clinic.collection("patients").doc("P5").set({ name: "Five" });
+  const tagPay = await payment(ADMIN, "P5", { branchId: "tag" });
+  const tagId = tagPay.json.id as string;
+  check("admin-1 takes a Tagamoa payment", tagPay.status === 200 && (await row(tagId))?.branchId === "tag", tagPay);
+
+  const edit = await money(DESK, { action: "update", id: tagId, patch: { description: "Not mine" } });
+  check("desk-1 (hel only) editing the tag payment is a 403 branch_forbidden", edit.status === 403 && edit.json.code === "branch_forbidden", edit);
+  check("the edit did not land", (await row(tagId))?.description !== "Not mine");
+  const del = await money(DESK, { action: "delete", id: tagId });
+  check("desk-1 deleting the tag payment is a 403 branch_forbidden", del.status === 403 && del.json.code === "branch_forbidden", del);
+  check("the payment is still there", !!(await row(tagId)));
+
+  const helPay = await payment(DESK, "P5", { branchId: "hel" });
+  const ownEdit = await money(DESK, { action: "update", id: helPay.json.id, patch: { description: "Mine" } });
+  check("desk-1 editing her own hel payment is a 200", ownEdit.status === 200 && (await row(helPay.json.id))?.description === "Mine", ownEdit);
+
+  const adminEdit = await money(ADMIN, { action: "update", id: tagId, patch: { description: "Owner edit" } });
+  check("admin-1 editing the tag payment is a 200", adminEdit.status === 200 && (await row(tagId))?.description === "Owner edit", adminEdit);
+  const adminDel = await money(ADMIN, { action: "delete", id: tagId });
+  check("admin-1 deleting the tag payment is a 200", adminDel.status === 200 && !(await row(tagId)), adminDel);
 }
 
 console.log("staff settlements are paid from a branch");

@@ -187,9 +187,13 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
   const { showToast, confirm } = useUI();
   const { requireBranchForMoney, picker: branchPicker } = useBranchForMoney();
   // The file shows the whole account; with two or more branches each row says which one took it.
-  const { branches } = useActiveBranch();
+  const { branches, allowedBranches } = useActiveBranch();
   const branchName = (id?: string | null) =>
     branches.length >= 2 && id ? branches.find((b) => b.id === id)?.name || "" : "";
+  // Another branch's row is shown, never changed: the server refuses it too. A row with no branch,
+  // or one whose branch was deleted, stays editable (allowedBranches is every branch for an admin).
+  const rowIsMine = (id?: string | null) =>
+    !id || !branches.some((b) => b.id === id) || allowedBranches.some((b) => b.id === id);
   const { discountSettings, maxDiscountPercent } = usePricingPolicy();
   const { language } = useLanguage();
   const { user } = useAuth();
@@ -1277,10 +1281,10 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                         >
                                                           {whatsappSendingId === item.id ? <Loader2 size={16} className="animate-spin" /> : <MessageCircle size={16} />}
                                                         </button>
-                                                        {hasEditAccess && (
+                                                        {hasEditAccess && rowIsMine(item.branchId) && (
                                                             <button onClick={(e) => { e.stopPropagation(); setEditingItem(withDiscountBoxes(item)); }} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"><Edit2 size={16}/></button>
                                                         )}
-                                                        {hasDeleteAccess && (
+                                                        {hasDeleteAccess && rowIsMine(item.branchId) && (
                                                             <button onClick={(e) => { e.stopPropagation(); handleDelete(item.id); }} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16}/></button>
                                                         )}
                                                     </div>
@@ -1342,10 +1346,10 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                             >
                                                               {printingPaymentId === payment.id ? <Loader2 size={16} className="animate-spin" /> : <Printer size={16} />}
                                                             </button>
-                                                            {hasEditAccess && (
+                                                            {hasEditAccess && rowIsMine(payment.branchId) && (
                                                                 <button onClick={() => setEditingItem(payment)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"><Edit2 size={16}/></button>
                                                             )}
-                                                            {hasDeleteAccess && (
+                                                            {hasDeleteAccess && rowIsMine(payment.branchId) && (
                                                                 <button data-tour="finance-row-delete" onClick={() => handleDelete(payment.id)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16}/></button>
                                                             )}
                                                         </div>
@@ -1411,10 +1415,10 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                     >
                                                       {whatsappSendingId === payment.id ? <Loader2 size={16} className="animate-spin" /> : <MessageCircle size={16} />}
                                                     </button>
-                                                    {hasEditAccess && (
+                                                    {hasEditAccess && rowIsMine(payment.branchId) && (
                                                         <button onClick={() => setEditingItem(payment)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"><Edit2 size={16}/></button>
                                                     )}
-                                                    {hasDeleteAccess && (
+                                                    {hasDeleteAccess && rowIsMine(payment.branchId) && (
                                                         <button data-tour="finance-row-delete" onClick={() => handleDelete(payment.id)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16}/></button>
                                                     )}
                                                 </div>

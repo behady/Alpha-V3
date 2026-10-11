@@ -67,6 +67,8 @@ type Charge = {
   dentistName: string;
   /** The branch that took it, named only when the clinic has two or more; "" otherwise. */
   branchName: string;
+  /** False when another branch took it: shown, never changed from here (the server refuses it too). */
+  mine: boolean;
 };
 
 type Payment = {
@@ -77,6 +79,7 @@ type Payment = {
   description: string;
   procedureId: string | null;
   branchName: string;
+  mine: boolean;
 };
 
 /** Cash, and the two things Egyptian clinics are actually handed instead of it. */
@@ -115,7 +118,7 @@ export default function AppointmentMoneyTab({
   const { language } = useLanguage();
   const { showToast, confirm } = useUI();
   const { requireBranchForMoney, picker: branchPicker } = useBranchForMoney();
-  const { branches } = useActiveBranch();
+  const { branches, allowedBranches } = useActiveBranch();
   const isAr = language === "ar";
   const { priceLists, payers, discountSettings, maxDiscountPercent } = usePricingPolicy();
 
@@ -362,6 +365,12 @@ export default function AppointmentMoneyTab({
       branches.length >= 2 && typeof id === "string" && id ? branches.find((b) => b.id === id)?.name || "" : "",
     [branches]
   );
+  /** A row with no branch, or one whose branch was deleted, stays editable; allowedBranches is every branch for an admin. */
+  const rowIsMine = useCallback(
+    (id: unknown) =>
+      typeof id !== "string" || !id || !branches.some((b) => b.id === id) || allowedBranches.some((b) => b.id === id),
+    [branches, allowedBranches]
+  );
 
   const charges: Charge[] = useMemo(
     () =>
@@ -391,10 +400,11 @@ export default function AppointmentMoneyTab({
                 : null,
             dentistName: String(r.doctorName || r.doctor || (r.doctorId ? "—" : "")).trim(),
             branchName: branchNameOf(r.branchId),
+            mine: rowIsMine(r.branchId),
           };
         })
         .sort((a, b) => a.date.localeCompare(b.date)),
-    [ledger, account, isAr, branchNameOf]
+    [ledger, account, isAr, branchNameOf, rowIsMine]
   );
 
   const payments: Payment[] = useMemo(
@@ -411,9 +421,10 @@ export default function AppointmentMoneyTab({
           description: String(r.description || ""),
           procedureId: typeof r.procedureId === "string" && r.procedureId ? r.procedureId : null,
           branchName: branchNameOf(r.branchId),
+          mine: rowIsMine(r.branchId),
         }))
         .sort((a, b) => b.date.localeCompare(a.date)),
-    [ledger, branchNameOf]
+    [ledger, branchNameOf, rowIsMine]
   );
 
   const chargeById = useMemo(() => new Map(charges.map((c) => [c.id, c])), [charges]);
@@ -649,7 +660,7 @@ export default function AppointmentMoneyTab({
     }
 
     // An approval row's price is the insurer's tariff: no discount reaches it from here.
-    const targets = (discountTarget === "visit" ? visitCharges : [chargeById.get(discountTarget || "")].filter(Boolean) as Charge[]).filter((c) => !c.approval);
+    const targets = (discountTarget === "visit" ? visitCharges : [chargeById.get(discountTarget || "")].filter(Boolean) as Charge[]).filter((c) => !c.approval && c.mine);
     if (targets.length === 0) {
       showToast(isAr ? "مفيش إجراءات على الزيارة دي" : "There is nothing to discount on this visit", "error");
       return;
@@ -885,13 +896,15 @@ export default function AppointmentMoneyTab({
                 <Banknote size={13} className="text-emerald-600" /> {isAr ? "تحصيل" : "Collect"}
               </button>
             )}
-            <button
-              onClick={() => openDiscount(charge.id)}
-              className="text-[11px] font-bold rounded-full border border-line px-3 py-1 flex items-center gap-1 text-ink-muted hover:bg-surface-muted transition-colors"
-            >
-              <Tag size={13} className="text-pink-500" /> {isAr ? "خصم" : "Discount"}
-            </button>
-            {note && (
+            {charge.mine && (
+              <button
+                onClick={() => openDiscount(charge.id)}
+                className="text-[11px] font-bold rounded-full border border-line px-3 py-1 flex items-center gap-1 text-ink-muted hover:bg-surface-muted transition-colors"
+              >
+                <Tag size={13} className="text-pink-500" /> {isAr ? "خصم" : "Discount"}
+              </button>
+            )}
+            {note && charge.mine && (
               <Protect permission="clinical.edit">
                 <button
                   onClick={() => openEditor(note)}
@@ -902,13 +915,15 @@ export default function AppointmentMoneyTab({
                 </button>
               </Protect>
             )}
-            <button
-              onClick={() => handleDeleteCharge(charge)}
-              title={isAr ? "حذف" : "Delete"}
-              className="p-1.5 rounded-lg text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-100 transition-colors"
-            >
-              <Trash2 size={13} />
-            </button>
+            {charge.mine && (
+              <button
+                onClick={() => handleDeleteCharge(charge)}
+                title={isAr ? "حذف" : "Delete"}
+                className="p-1.5 rounded-lg text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-100 transition-colors"
+              >
+                <Trash2 size={13} />
+              </button>
+            )}
           </div>
         </div>
 
@@ -1139,7 +1154,7 @@ export default function AppointmentMoneyTab({
             <Banknote size={15} className="text-emerald-300" />
             {collectOpen ? (isAr ? "إغلاق" : "Close") : isAr ? "تحصيل دفعة" : "Collect payment"}
           </button>
-          {ownVisitCharges.length > 0 && (
+          {ownVisitCharges.some((c) => c.mine) && (
             <button
               onClick={() => (discountTarget === "visit" ? setDiscountTarget(null) : openDiscount("visit"))}
               className="text-sm font-bold text-ink-body border border-line bg-surface hover:bg-surface-muted rounded-xl px-4 flex items-center gap-1.5 transition-colors"
@@ -1507,7 +1522,7 @@ export default function AppointmentMoneyTab({
                     <span className="text-sm font-black text-emerald-600">
                       +{p.amount.toLocaleString()}
                     </span>
-                    <Protect permission="finance.edit">
+                    {p.mine && <Protect permission="finance.edit">
                       <button
                         type="button"
                         title={isAr ? "تعديل المدفوع" : "Edit what was paid"}
@@ -1517,7 +1532,7 @@ export default function AppointmentMoneyTab({
                       >
                         <Pencil size={14} />
                       </button>
-                    </Protect>
+                    </Protect>}
                     <button
                       type="button"
                       title={isAr ? "طباعة الإيصال" : "Print receipt"}

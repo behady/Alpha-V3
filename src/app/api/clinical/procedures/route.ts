@@ -48,7 +48,7 @@ import { isApprovalRow } from "@/lib/ledgerInsurer";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { CLAIMS_COLLECTION, applyDentistPicks, dentistRowPatch, isLineStatus, parseClaim } from "@/lib/insurance/claims";
 import { MAX_NOTE_PHOTOS, acceptNotePhoto, parseNotePhotos } from "@/lib/notePhotos";
-import { assertBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
+import { assertBranchAllowed, assertRowBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -630,6 +630,24 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
   return answer();
 }
 
+/**
+ * The branch of the charge a treatment note is billed through: the note's own `ledgerId`, else the
+ * charge pointing back at it (both link directions exist). Null when it has no charge.
+ */
+async function linkedChargeBranch(clinicId: string, noteId: string, note: Record<string, unknown> | undefined): Promise<unknown> {
+  const legacyId = typeof note?.ledgerId === "string" ? note.ledgerId.trim() : "";
+  if (legacyId) {
+    const legacy = await adminClinicDoc(clinicId, "ledger", legacyId).get();
+    if (legacy.exists && String(legacy.data()?.type) === "procedure") return legacy.data()?.branchId ?? null;
+  }
+  const linked = await adminClinicCollection(clinicId, "ledger")
+    .where("clinicalNoteId", "==", noteId)
+    .where("type", "==", "procedure")
+    .limit(1)
+    .get();
+  return linked.empty ? null : linked.docs[0].data().branchId ?? null;
+}
+
 async function updateProcedure(args: { clinicId: string; actor: Actor; body: Record<string, unknown> }) {
   const { clinicId, actor, body } = args;
   const noteId = String(body.noteId || "").trim();
@@ -638,6 +656,15 @@ async function updateProcedure(args: { clinicId: string; actor: Actor; body: Rec
   // A treatment from an insurance approval is decided before anything is priced: the catalogue
   // has no say over what the insurer approved.
   const current = await adminClinicDoc(clinicId, "clinical_notes", noteId).get();
+  // Another branch's charge is not this person's to change. Read before the transaction: a
+  // charge's branch never changes by edit.
+  if (current.exists) {
+    const gate = await assertRowBranchAllowed({
+      clinicId, uid: actor.uid, role: actor.role,
+      rowBranchId: await linkedChargeBranch(clinicId, noteId, current.data()),
+    });
+    if (!gate.ok) return gate.response;
+  }
   if (current.exists && isApprovalRow(current.data())) {
     return await updateApprovalNote({ clinicId, actor, body, noteId, before: current.data() || {} });
   }
@@ -800,6 +827,12 @@ async function deleteProcedure(args: { clinicId: string; actor: Actor; body: Rec
   // Both link directions, then every payment settling any charge among them.
   const linkedSnap = await adminClinicCollection(clinicId, "ledger").where("clinicalNoteId", "==", noteId).get();
   if (linkedSnap.docs.some((d) => isApprovalRow(d.data()))) return bad(APPROVAL_DELETE_MESSAGE, 409);
+  const charge = linkedSnap.docs.find((d) => String(d.data().type) === "procedure");
+  const gate = await assertRowBranchAllowed({
+    clinicId, uid: actor.uid, role: actor.role,
+    rowBranchId: charge ? charge.data().branchId : await linkedChargeBranch(clinicId, noteId, note),
+  });
+  if (!gate.ok) return gate.response;
   const related: Array<{ id: string; type?: string; procedureId?: string | null; clinicalNoteId?: string | null }> =
     linkedSnap.docs.map((d) => ({ id: d.id, type: String(d.data().type || ""), clinicalNoteId: noteId }));
 
