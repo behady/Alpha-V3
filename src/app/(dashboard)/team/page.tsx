@@ -695,20 +695,24 @@ function TeamPage() {
       >
         {/* Which branch's figures these are; the same remembered choice as the dashboard. Nothing for a single-site clinic. */}
         <BranchSelector branches={branches} allowed={allowedBranches} value={activeBranchId} onChange={setActiveBranchId} allowAll={canChooseAll} compact />
-        {presets.map((p) => (
-          <button
-            key={p.id}
-            type="button"
-            onClick={() => setRange(rangeFor(p.id))}
-            className={`rounded-full px-4 py-2.5 text-[15px] font-bold transition-colors ${
-              preset === p.id
-                ? "bg-[#FACC15] text-ink"
-                : "border border-white/15 bg-white/5 text-white/70 hover:bg-white/15"
-            }`}
-          >
-            {isAr ? p.ar : p.en}
-          </button>
-        ))}
+        {/* On a phone the four periods do not fit beside the branch picker: they get their own
+            row that swipes sideways, each pill on one line. From lg up the row is plain again. */}
+        <div className="no-scrollbar flex min-w-0 max-w-full items-center gap-2 overflow-x-auto lg:overflow-visible">
+          {presets.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setRange(rangeFor(p.id))}
+              className={`shrink-0 whitespace-nowrap rounded-full px-4 py-2.5 text-[15px] font-bold transition-colors ${
+                preset === p.id
+                  ? "bg-[#FACC15] text-ink"
+                  : "border border-white/15 bg-white/5 text-white/70 hover:bg-white/15"
+              }`}
+            >
+              {isAr ? p.ar : p.en}
+            </button>
+          ))}
+        </div>
       </PageHeader>
 
       <div className="mx-auto max-w-[1440px] px-4 pt-5 md:px-6 xl:px-10 xl:pt-7">

@@ -294,27 +294,32 @@ function ReportsPage() {
                 const next = e.target.value as RangePreset;
                 if (next !== "custom") setRange(rangeFor(next));
               }}
-              className="cursor-pointer rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm font-bold text-white outline-none [color-scheme:dark] focus:border-white/40"
+              className="max-w-full cursor-pointer rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm font-bold text-white outline-none [color-scheme:dark] focus:border-white/40"
             >
               {preset === "custom" && <option value="custom">{isAr ? "مدة مخصصة" : "Custom range"}</option>}
               {presets.map((p) => (
                 <option key={p.id} value={p.id}>{isAr ? p.ar : p.en}</option>
               ))}
             </select>
-            <input
-              type="date"
-              value={startDate} data-tour="reports-date-start"
-              onChange={(e) => setRange((r) => ({ ...r, start: e.target.value }))}
-              className="cursor-pointer rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm font-bold text-white outline-none [color-scheme:dark] focus:border-white/40"
-            />
-            <span className="text-xs font-bold text-white/40">→</span>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setRange((r) => ({ ...r, end: e.target.value }))}
-              className="cursor-pointer rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm font-bold text-white outline-none [color-scheme:dark] focus:border-white/40"
-            />
-            <button type="button" onClick={refresh} disabled={loading} className={headerButtonPrimary}>
+            {/* The two ends travel together: when the header wraps on a phone the range drops to
+                its own line whole, instead of leaving "→" stranded at the end of one line and the
+                end date alone on the next. min-w-0 lets the pair squeeze rather than overflow. */}
+            <span className="flex min-w-0 max-w-full items-center gap-2">
+              <input
+                type="date"
+                value={startDate} data-tour="reports-date-start"
+                onChange={(e) => setRange((r) => ({ ...r, start: e.target.value }))}
+                className="min-w-0 cursor-pointer rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm font-bold text-white outline-none [color-scheme:dark] focus:border-white/40"
+              />
+              <span className="shrink-0 text-xs font-bold text-white/40">→</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setRange((r) => ({ ...r, end: e.target.value }))}
+                className="min-w-0 cursor-pointer rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm font-bold text-white outline-none [color-scheme:dark] focus:border-white/40"
+              />
+            </span>
+            <button type="button" onClick={refresh} disabled={loading} className={`${headerButtonPrimary} whitespace-nowrap`}>
               {loading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
               {isAr ? "تحديث" : "Refresh"}
             </button>

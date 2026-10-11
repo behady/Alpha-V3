@@ -56,7 +56,7 @@ export default function PageHeader({
 
   return createPortal(
     <div
-      className={`flex w-full items-center justify-between gap-4 ${compact ? "flex-row" : "flex-col items-start gap-3 sm:flex-row sm:items-center"}`}
+      className={`flex w-full flex-wrap items-center justify-between gap-4 lg:flex-nowrap ${compact ? "flex-row" : "flex-col items-start gap-3 sm:flex-row sm:items-center"}`}
     >
       {/* max-w-full: in the phone's column layout `items-start` sizes this to its content, so a
           long title or subtitle pushed the whole page sideways instead of truncating. */}
@@ -86,7 +86,18 @@ export default function PageHeader({
         </div>
       </div>
 
-      {children && <div className="flex shrink-0 items-center gap-2">{children}</div>}
+      {/* Below lg the actions may not fit beside the title, or even in one line: Reports carries a
+          branch picker, a range, two dates and Refresh. A row that cannot shrink made the whole
+          document wider than the phone — and in Arabic the overflow went off the left edge, where
+          nothing can scroll to it. So below lg the strip wraps (the actions drop under the title)
+          and the actions wrap among themselves, never wider than the band. Not overflow-x-auto
+          here: a branch picker's dropdown inside a scroll box would be clipped. From lg up this is
+          the old single non-shrinking row. */}
+      {children && (
+        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 lg:shrink-0 lg:flex-nowrap">
+          {children}
+        </div>
+      )}
     </div>,
     ctx.slot
   );

@@ -97,7 +97,10 @@ export default function BranchSelector({
       {open && (
         <div
           className={`absolute z-[120] mt-2 min-w-[13rem] overflow-hidden rounded-2xl border border-line bg-surface py-1 shadow-xl ${
-            isRTL ? "left-0" : "right-0"
+            // Below lg the picker sits at the start of its row (the band's
+            // actions wrap under the title), so the menu opens toward the
+            // end; anchored at its end it would hang off the screen edge.
+            isRTL ? "right-0 lg:right-auto lg:left-0" : "left-0 lg:left-auto lg:right-0"
           }`}
         >
           {allowAll && (
