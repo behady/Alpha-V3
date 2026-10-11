@@ -176,7 +176,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { t, toggleLanguage, language, isRTL } = useLanguage();
   const { user, loading: authLoading } = useAuth();
   const { clinicId, clinic, role, isAdmin, isReadOnly, readOnlyReason } = useClinic();
-  const { appointmentsVisibility, homeView } = useUI();
+  const { homeView } = useUI();
   /**
    * Three pages are locked to the viewport height and manage their own scrolling: the calendar,
    * the WhatsApp inbox and the reception dashboard, all height-constrained flex layouts. The dentist's home lives at the
@@ -290,10 +290,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   ];
 
   const hasAccess = useCallback((key: string, isMobile: boolean = false) => {
-    if (key === 'appointments') {
-      if (appointmentsVisibility === 'hidden') return false;
-      if (appointmentsVisibility === 'desktop' && isMobile) return false;
-    }
+    // The calendar is the desk dashboard. Whoever lands on it at "/" already has it; the menu
+    // item is for those whose home is something else (a dentist's chair, the owner's view).
+    if (key === 'appointments' && !ownHome) return false;
 
     // Not a paid tier feature: the supply store costs the clinic nothing and the platform earns
     // on what it sells, so gating it behind a plan would only shrink what it earns. It appears
@@ -341,7 +340,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (key === 'insurance') return canAccessNavItem('patients', user, isAdmin);
 
     return canAccessNavItem(key, user, isAdmin);
-  }, [user, isAdmin, appointmentsVisibility, clinic, supplyStore.connected]);
+  }, [user, isAdmin, ownHome, clinic, supplyStore.connected]);
 
   /** Whether an admin's item is an add-on the clinic lacks. Undecided (clinic still loading) is "no": a lock that flashes on every cold load teaches people to ignore it. */
   const lockedFor = useCallback((key: string) => {

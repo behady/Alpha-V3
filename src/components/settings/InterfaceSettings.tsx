@@ -207,8 +207,6 @@ export default function InterfaceSettings() {
     appointmentEditorMode, setAppointmentEditorMode,
     patientEditorMode, setPatientEditorMode,
     appointmentPanelMode, setAppointmentPanelMode,
-    appointmentsVisibility, setAppointmentsVisibility,
-    latePatientTrackerEnabled, setLatePatientTrackerEnabled,
     clinicalNoteSort, setClinicalNoteSort,
     clinicalNoteGrouping, setClinicalNoteGrouping,
     clinicalNoteDensity, setClinicalNoteDensity,
@@ -358,29 +356,6 @@ export default function InterfaceSettings() {
             { value: "detailed", label: txt.densityDetailed, icon: LayoutList, hint: txt.densityDetailedHint },
             { value: "compact", label: txt.densityCompact, icon: AlignJustify, hint: txt.densityCompactHint },
           ]}
-        />
-      </Group>
-
-      <Group title={txt.groupAppointmentsPage}>
-        <PreferenceRow
-          icon={Calendar}
-          label={txt.visibilityLabel}
-          description={txt.visibilityDesc}
-          value={appointmentsVisibility}
-          onChange={setAppointmentsVisibility}
-          choices={[
-            { value: "all", label: txt.visibilityAll, icon: MonitorSmartphone, hint: txt.visibilityAllHint },
-            { value: "desktop", label: txt.visibilityDesktop, icon: Monitor, hint: txt.visibilityDesktopHint },
-            { value: "hidden", label: txt.visibilityHidden, icon: CalendarOff, hint: txt.visibilityHiddenHint },
-          ]}
-        />
-
-        <ToggleRow
-          icon={AlertTriangle}
-          label={txt.lateAlertLabel}
-          description={txt.lateAlertDesc}
-          checked={latePatientTrackerEnabled}
-          onChange={setLatePatientTrackerEnabled}
         />
       </Group>
     </div>

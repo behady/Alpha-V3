@@ -30,7 +30,6 @@ import {
   normalizeTimeKey,
   updateBookingTime,
 } from "@/lib/bookingService";
-import LateAppointmentPrompt from "@/components/appointments/LateAppointmentPrompt";
 import NewPatientModal from "@/components/NewPatientModal";
 import PageHeader, { headerButtonPrimary, headerButtonGhost } from "@/components/dashboard/PageHeader";
 import HomeViewTabs from "@/components/dashboard/HomeViewTabs";
@@ -40,6 +39,7 @@ import AppointmentAvatarPanel from "@/components/appointments/AppointmentAvatarP
 import AppointmentStagePicker from "@/components/appointments/AppointmentStagePicker";
 import PrescriptionPrintFinderModal from "@/components/PrescriptionPrintFinderModal";
 import WaitingMoodPicker from "@/components/appointments/WaitingMoodPicker";
+import DeleteAppointmentDialog from "@/components/appointments/DeleteAppointmentDialog";
 import ServiceCombobox from "@/components/shared/ServiceCombobox";
 import ServiceEditorDrawer from "@/components/clinical-notes/ServiceEditorDrawer";
 import { logActivity } from "@/lib/logger";
@@ -114,7 +114,6 @@ type DashboardAppointment = {
   discountFixed?: number;
   discountAmount?: number;
   notes?: string;
-  delayedPromptUntil?: number;
 };
 
 /**
@@ -149,7 +148,7 @@ function editSnapshotOf(apt: DashboardAppointment): BookingEditSnapshot {
 export default function DesktopDashboard() {
   const { language, isRTL, t } = useLanguage();
   const { user } = useAuth();
-  const { showToast, confirm, appointmentEditorMode, appointmentPanelMode, setAppointmentPanelMode, latePatientTrackerEnabled } = useUI();
+  const { showToast, confirm, appointmentEditorMode, appointmentPanelMode, setAppointmentPanelMode } = useUI();
   const router = useRouter();
   const { isAdmin, role, clinic } = useClinic();
   /** "Read an approval" sits where Quick Pay was; it needs the insurance add-on. */
@@ -216,7 +215,7 @@ export default function DesktopDashboard() {
     const line = Number(q.get("line"));
     bookRequest.current = { patientId, claim: claimId && Number.isInteger(line) && line >= 0 ? { claimId, claimLine: line } : null };
     setBookRequestTick((n) => n + 1);
-    router.replace("/");
+    router.replace(window.location.pathname);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const req = bookRequest.current;
@@ -272,32 +271,6 @@ export default function DesktopDashboard() {
   const [printingReceiptPatientId, setPrintingReceiptPatientId] = useState<string | null>(null);
   const [prescriptionFinderOpen, setPrescriptionFinderOpen] = useState(false);
 
-  // Late Appointment Tracker
-  const [realTime, setRealTime] = useState(new Date());
-  const [lateApptToPrompt, setLateApptToPrompt] = useState<any>(null);
-
-  useEffect(() => {
-    const timer = setInterval(() => setRealTime(new Date()), 60000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const isAppointmentLate = (appt: any) => {
-    if (!latePatientTrackerEnabled) return false;
-    // "Rescheduled" is a resolved marker left on the original slot — the visit that was actually
-    // going to happen is a different document now, so this one is never late.
-    const activeStatuses = ["Checked In", "In Chair", "Completed", "Checking Out", "Cancelled", "No Show", "Delayed", "Rescheduled"];
-    if (activeStatuses.includes(appt.status)) return false;
-    if (!appt.date || !appt.time) return false;
-    
-    const minutes = parseApptTimeToMinutes(appt.time);
-    const apptDate = new Date(`${appt.date}T00:00:00`);
-    apptDate.setMinutes(minutes);
-
-    const diffMins = (realTime.getTime() - apptDate.getTime()) / 60000;
-    if (appt.delayedPromptUntil && realTime.getTime() < appt.delayedPromptUntil) return false;
-    
-    return diffMins >= 15;
-  };
 
   // Inline editor state
   const [inlineEdit, setInlineEdit] = useState<Record<string, any>>({});
@@ -906,78 +879,51 @@ export default function DesktopDashboard() {
     }
   };
 
-  const handleLateAction = async (action: "check_in" | "wait" | "cancel" | "delay", newDate?: string, newTime?: string) => {
-    if (!lateApptToPrompt) return;
-    const appt = lateApptToPrompt;
-    try {
-      if (action === "wait") {
-        const waitTime = Date.now() + 15 * 60000;
-        await updateDoc(getClinicDoc("appointments", appt.id), { delayedPromptUntil: waitTime });
-        showToast(language === 'ar' ? 'تم تأجيل التنبيه' : 'Prompt snoozed for 15 mins', 'success');
-      } else if (action === "check_in" || action === "cancel" || action === "delay") {
-        const statusMap = { check_in: "Checked In", cancel: "Cancelled", delay: "Delayed" };
-        const dataToSave: any = {
-          ...appt,
-          existingAppointmentId: appt.id,
-          status: statusMap[action],
-        };
-        if (action === "delay" && newDate && newTime) {
-          dataToSave.date = newDate;
-          dataToSave.time = newTime;
-        }
-        await saveBooking(
-           dataToSave,
-           { uid: user?.uid || 'system', name: user?.name || 'System', role: user?.role || 'staff', language: (language as "en" | "ar") || 'en' },
-           async () => {}
-        );
-      }
-    } catch (e) {
-      console.error(e);
-      showToast(language === 'ar' ? 'خطأ' : 'Error updating appointment', 'error');
-    }
-    setLateApptToPrompt(null);
-  };
-
+  /**
+   * Deleting a visit asks what happens to the treatments recorded on it (keep them in the
+   * patient's history, or delete them too while nothing is paid) — see DeleteAppointmentDialog.
+   * Every entry point (the calendar card, the booking popup, the side panel) opens it.
+   */
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; patientName?: string } | null>(null);
   const handleDeleteAppointment = async (e: React.MouseEvent | null | string, id?: string) => {
     const appointmentId = typeof e === 'string' ? e : id;
     if (typeof e !== 'string' && e?.stopPropagation) e.stopPropagation();
-    
     if (!appointmentId) return;
+    const appt = allAppointments.find((a) => a.id === appointmentId);
+    setPendingDelete({ id: appointmentId, patientName: appt?.patientName });
+  };
 
-    const msg = language === "ar" ? "هل أنت متأكد من الحذف؟" : "Are you sure you want to delete?";
-    const confirmed = await confirm(msg, {
-      title: language === "ar" ? "حذف الموعد" : "Delete appointment",
-      confirmLabel: language === "ar" ? "احذف" : "Delete",
-      tone: "danger",
-    });
-    if (confirmed) {
-      try {
-        // "keep" is the safe default from a dashboard card: the confirm here is a plain yes/no,
-        // with no room to show what would be lost, so a visit's recorded treatments are detached
-        // into the patient's history rather than deleted. The calendar's own delete offers the
-        // full choice — see DeleteAppointmentDialog.
-        await deleteAppointment(appointmentId, "keep");
-        setAllAppointments((prev) => prev.filter((appt) => appt.id !== appointmentId));
-        showToast(language === "ar" ? "تم الحذف" : "Deleted", "success");
-        
-        if (selectedAppointment?.id === appointmentId) {
-          setSelectedAppointment(null);
-        }
-        if (appointmentToEdit?.id === appointmentId) {
-          setAppointmentToEdit(null);
-          setActiveModal(null);
-        }
-      } catch (error) {
-        // This used to swallow the error entirely, so a refused delete looked to the user like
-        // nothing had happened at all — the exact silent failure worth never shipping again.
-        console.error(error);
-        showToast(
-          error instanceof MoneyApiError
-            ? error.message
-            : language === "ar" ? "حدث خطأ أثناء الحذف" : "Could not delete that appointment",
-          "error"
-        );
+  const performDelete = async (servicesAction: "keep" | "delete") => {
+    if (!pendingDelete) return;
+    const appointmentId = pendingDelete.id;
+    try {
+      const result = await deleteAppointment(appointmentId, servicesAction);
+      setPendingDelete(null);
+      setAllAppointments((prev) => prev.filter((appt) => appt.id !== appointmentId));
+      showToast(
+        result.detachedNotes > 0
+          ? language === "ar"
+            ? `تم حذف الموعد، واتحفظ ${result.detachedNotes} علاج في سجل المريض`
+            : `Appointment deleted; ${result.detachedNotes} treatment(s) kept in the patient's record`
+          : language === "ar" ? "تم الحذف" : "Deleted",
+        "success"
+      );
+      if (selectedAppointment?.id === appointmentId) {
+        setSelectedAppointment(null);
       }
+      if (appointmentToEdit?.id === appointmentId) {
+        setAppointmentToEdit(null);
+        setActiveModal(null);
+      }
+    } catch (error) {
+      // A refused delete must say so; swallowing it looked like nothing had happened at all.
+      console.error(error);
+      showToast(
+        error instanceof MoneyApiError
+          ? error.message
+          : language === "ar" ? "حدث خطأ أثناء الحذف" : "Could not delete that appointment",
+        "error"
+      );
     }
   };
 
@@ -1739,10 +1685,6 @@ export default function DesktopDashboard() {
                                                                 }}
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
-                                                                    if (isAppointmentLate(apt)) {
-                                                                       setLateApptToPrompt(apt);
-                                                                       return;
-                                                                    }
                                                                     // In pop-up mode a card opens the booking popup on that visit, the same
                                                                     // window a new booking uses, instead of the side panel.
                                                                     if (appointmentEditorMode === "modal") {
@@ -1761,7 +1703,7 @@ export default function DesktopDashboard() {
                                                                         handleSelectAppointmentWrapper(apt);
                                                                     }
                                                                 }}
-                                                                className={`w-full h-full rounded-2xl transition-all hover:shadow-2xl hover:-translate-y-1 hover:z-[60] cursor-grab active:cursor-grabbing flex flex-col relative pl-4 shadow-sm hover:ring-2 hover:ring-white/50 ${selectedAppointment?.id === apt.id ? 'ring-4 ring-white shadow-[0_8px_30px_rgba(0,0,0,0.12)] z-20 -translate-y-1' : ''} bg-accent-tint border border-accent-soft/80 text-slate-800 ${isAppointmentLate(apt) ? 'animate-pulse ring-4 ring-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.6)] z-30' : ''}`}
+                                                                className={`w-full h-full rounded-2xl transition-all hover:shadow-2xl hover:-translate-y-1 hover:z-[60] cursor-grab active:cursor-grabbing flex flex-col relative pl-4 shadow-sm hover:ring-2 hover:ring-white/50 ${selectedAppointment?.id === apt.id ? 'ring-4 ring-white shadow-[0_8px_30px_rgba(0,0,0,0.12)] z-20 -translate-y-1' : ''} bg-accent-tint border border-accent-soft/80 text-slate-800`}
                                                                 style={{ zIndex: selectedAppointment?.id === apt.id ? 20 : 1 }}
                                                             >
                                                             <div className={`absolute left-0 top-0 bottom-0 w-2 ${aptStyles.accent}`}></div>
@@ -2016,6 +1958,15 @@ export default function DesktopDashboard() {
       />
       <QuickPaymentModal isOpen={activeModal === 'payment'} onClose={() => setActiveModal(null)} onSave={() => {}} patients={patientsList} preSelectedPatient={paymentPatient} />
       <ApprovalReadSheet isOpen={readApproval} onClose={() => setReadApproval(false)} onPatient={bookFromApproval} />
+      {pendingDelete && (
+        <DeleteAppointmentDialog
+          appointmentId={pendingDelete.id}
+          patientName={pendingDelete.patientName}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={performDelete}
+        />
+      )}
+
       <PrescriptionPrintFinderModal
         isOpen={prescriptionFinderOpen}
         onClose={() => setPrescriptionFinderOpen(false)}
@@ -2023,13 +1974,6 @@ export default function DesktopDashboard() {
         language={language === "ar" ? "ar" : "en"}
       />
 
-      <LateAppointmentPrompt
-         isOpen={!!lateApptToPrompt}
-         appointment={lateApptToPrompt}
-         onClose={() => setLateApptToPrompt(null)}
-         onAction={handleLateAction}
-         config={config}
-      />
 
 
 

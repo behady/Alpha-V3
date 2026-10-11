@@ -54,8 +54,6 @@ export interface UiPreferences {
    */
   patientEditorMode: "modal" | "drawer";
   appointmentPanelMode: "editor" | "avatar";
-  appointmentsVisibility: "all" | "desktop" | "hidden";
-  latePatientTrackerEnabled: boolean;
   clinicalNoteSort: ClinicalNoteSort;
   clinicalNoteGrouping: ClinicalNoteGrouping;
   clinicalNoteDensity: ClinicalNoteDensity;
@@ -75,8 +73,6 @@ export const UI_PREFERENCE_DEFAULTS: UiPreferences = {
   appointmentEditorMode: "modal",
   patientEditorMode: "drawer",
   appointmentPanelMode: "editor",
-  appointmentsVisibility: "desktop",
-  latePatientTrackerEnabled: true,
   clinicalNoteSort: "newest",
   clinicalNoteGrouping: "flat",
   clinicalNoteDensity: "detailed",
@@ -100,10 +96,6 @@ const VALIDATORS: { [K in keyof UiPreferences]: (value: unknown) => value is UiP
   appointmentEditorMode: oneOf("modal", "drawer"),
   patientEditorMode: oneOf("modal", "drawer"),
   appointmentPanelMode: oneOf("editor", "avatar"),
-  appointmentsVisibility: oneOf("all", "desktop", "hidden"),
-  latePatientTrackerEnabled: ((value: unknown) => typeof value === "boolean") as (
-    value: unknown
-  ) => value is boolean,
   clinicalNoteSort: isClinicalNoteSort as (value: unknown) => value is ClinicalNoteSort,
   clinicalNoteGrouping: isClinicalNoteGrouping as (value: unknown) => value is ClinicalNoteGrouping,
   clinicalNoteDensity: isClinicalNoteDensity as (value: unknown) => value is ClinicalNoteDensity,
@@ -117,8 +109,6 @@ const LOCAL_KEYS: Record<keyof UiPreferences, string> = {
   appointmentEditorMode: "appointmentEditorMode",
   patientEditorMode: "patientEditorMode",
   appointmentPanelMode: "appointmentPanelMode",
-  appointmentsVisibility: "appointmentsVisibility",
-  latePatientTrackerEnabled: "latePatientTrackerEnabled",
   clinicalNoteSort: "clinicalNoteSort",
   clinicalNoteGrouping: "clinicalNoteGrouping",
   clinicalNoteDensity: "clinicalNoteDensity",
@@ -133,9 +123,7 @@ export const UI_PREFERENCE_KEYS = Object.keys(LOCAL_KEYS) as (keyof UiPreference
 
 function parse<K extends keyof UiPreferences>(key: K, raw: unknown): UiPreferences[K] | undefined {
   if (raw === undefined || raw === null) return undefined;
-  // localStorage only holds strings, so a boolean arrives as "true" / "false".
-  const value = key === "latePatientTrackerEnabled" && typeof raw === "string" ? raw === "true" : raw;
-  return VALIDATORS[key](value) ? (value as UiPreferences[K]) : undefined;
+  return VALIDATORS[key](raw) ? (raw as UiPreferences[K]) : undefined;
 }
 
 /** Whatever this browser remembers. Never throws — private mode makes the whole store inaccessible. */

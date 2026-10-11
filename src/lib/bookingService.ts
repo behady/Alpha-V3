@@ -119,7 +119,6 @@ export interface BookingSavePayload {
     pricingMode?: string | null;
   }[];
   status?: string;
-  delayedPromptUntil?: number | null;
   services?: Array<{
     serviceId: string | null;
     serviceName: string;
