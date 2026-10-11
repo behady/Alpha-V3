@@ -149,9 +149,134 @@ export default function ClaimsTable({
     { approved: 0, share: 0 },
   );
 
+  /** The row's buttons; `big` gives each a 40px target for the phone cards. */
+  const renderActions = (c: InsuranceClaim, big = false) => {
+    const busy = busyId === c.id;
+    const s = big ? 18 : 14;
+    return (
+      <div className="flex flex-wrap items-center gap-1">
+        {busy && <Loader2 size={s} className="animate-spin text-ink-muted" />}
+        {(c.status === "approved" || c.status === "cancelled") && (
+          <Action big={big} label={t("markTreated")} disabled={busy} onClick={() => patch(c, { status: "treated" })}>
+            <CheckCircle2 size={s} />
+          </Action>
+        )}
+        {(c.status === "treated" || c.status === "sent") && (
+          <Action big={big} label={t("markNotTreated")} disabled={busy} onClick={() => patch(c, { status: "approved" })}>
+            <RotateCcw size={s} />
+          </Action>
+        )}
+        {c.status === "treated" && (
+          <Action big={big} label={t("markSent")} disabled={busy} onClick={() => patch(c, { status: "sent" })}>
+            <Send size={s} />
+          </Action>
+        )}
+        {(c.status === "treated" || c.status === "sent") && c.totals.patientShare > 0 && !c.shareCollected && (
+          <Action big={big} label={`${t("collectShare")} ${money(c.totals.patientShare)}`} disabled={busy} onClick={() => void collect(c)}>
+            <Banknote size={s} />
+          </Action>
+        )}
+        {(c.status === "treated" || c.status === "sent") && Object.keys(c.ledgerIds).length > 0 && !c.insurerPaid && (
+          <Action big={big} label={`${t("markInsurerPaid")} ${money(c.totals.approved)}`} disabled={busy} onClick={() => void insurerPaid(c)}>
+            <Landmark size={s} />
+          </Action>
+        )}
+        <Action big={big} label={t("openPdf")} disabled={!c.doc.path} onClick={() => openDoc(c)}>
+          <FileText size={s} />
+        </Action>
+        {onEdit && c.status !== "cancelled" && (
+          <Action
+            big={big}
+            label={t("edit")}
+            disabled={busy}
+            onClick={() => {
+              void (async () => {
+                if (await sentOk(c)) onEdit(c);
+              })();
+            }}
+          >
+            <Pencil size={s} />
+          </Action>
+        )}
+        <Action big={big} label={t("delete")} disabled={busy} onClick={() => remove(c)} danger>
+          <Trash2 size={s} />
+        </Action>
+      </div>
+    );
+  };
+
+  const progressLine = (c: InsuranceClaim) => {
+    // Only when there is something to say: an approval with every service done and
+    // nothing on the calendar is just its status.
+    if (c.status === "cancelled") return null;
+    const p = claimProgress(c, appointments);
+    if (p.done === p.total && p.booked === 0) return null;
+    return t("progress").replace("{done}", String(p.done)).replace("{total}", String(p.total)).replace("{booked}", String(p.booked));
+  };
+
   return (
-    <div className="overflow-x-auto rounded-3xl border border-line bg-surface">
-      {branchPicker}
+    <>
+    {branchPicker}
+    {/* Phones: one card per approval. The 60rem table pushed every amount off a 375px screen. */}
+    <div className="space-y-3 md:hidden">
+      {claims.map((c) => {
+        const status = STATUS[c.status];
+        const progress = progressLine(c);
+        return (
+          <div
+            key={c.id}
+            id={`claim-m-${c.id}`}
+            className={`rounded-2xl border p-4 ${highlightId === c.id ? "border-amber-300 bg-amber-50" : "border-line bg-surface"}`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="font-display text-[13px] font-black text-ink">
+                  <bdi dir="ltr">{c.approvalNumber}</bdi>
+                </div>
+                <Link href={`/patients/${c.patientId}`} className="block truncate text-[14px] font-black text-ink hover:underline">
+                  {c.patientName || c.paperPatientName}
+                </Link>
+                <div className="text-[11px] font-semibold text-ink-faint" dir="ltr">
+                  {c.insurer === "nextcare" ? c.metlife.certificateNumber : `${c.metlife.certificateNumber}/${c.metlife.dependentCode}`}
+                </div>
+              </div>
+              <div className="shrink-0 text-end">
+                <div className="text-[10px] font-black uppercase tracking-wider text-ink-muted">{t("colApproved")}</div>
+                <div className="font-display text-lg font-black tabular-nums leading-tight text-ink">{money(c.totals.approved)}</div>
+                {c.totals.patientShare > 0 && (
+                  <div className="text-[11px] font-bold tabular-nums text-ink-body">
+                    {t("colShare")}: {money(c.totals.patientShare)}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-bold text-ink-body">
+              <span className={`inline-block rounded-full border px-2.5 py-0.5 text-[11px] font-black ${status.pill}`}>{t(status.key)}</span>
+              <span className="tabular-nums">
+                {t("colApprovalDate")}: {c.approvalDate}
+              </span>
+              {c.treatedDate && (
+                <span className="tabular-nums">
+                  {t("colTreatedDate")}: {c.treatedDate}
+                </span>
+              )}
+            </div>
+            {progress && <div className="mt-1 text-[11px] font-semibold tabular-nums text-ink-muted">{progress}</div>}
+            <div className="mt-2 border-t border-line pt-2">{renderActions(c, true)}</div>
+          </div>
+        );
+      })}
+      <div className="flex items-center justify-between rounded-2xl border border-line bg-surface-subtle px-4 py-3">
+        <span className="text-[12px] font-black uppercase tracking-wider text-ink">
+          {t("totalRow")} · {claims.length}
+        </span>
+        <span className="text-end">
+          <span className="block font-display text-[15px] font-black tabular-nums text-ink">{money(totals.approved)}</span>
+          {totals.share > 0 && <span className="block text-[11px] font-bold tabular-nums text-ink-body">{t("colShare")}: {money(totals.share)}</span>}
+        </span>
+      </div>
+    </div>
+    <div className="hidden overflow-x-auto rounded-3xl border border-line bg-surface md:block">
       <table className="w-full min-w-[60rem] border-collapse">
         <thead>
           <tr className="border-b border-line bg-surface-subtle">
@@ -167,7 +292,6 @@ export default function ClaimsTable({
         </thead>
         <tbody>
           {claims.map((c) => {
-            const busy = busyId === c.id;
             const status = STATUS[c.status];
             return (
               <tr key={c.id} id={`claim-${c.id}`} className={`border-t border-line ${highlightId === c.id ? "bg-amber-50" : ""}`}>
@@ -201,55 +325,7 @@ export default function ClaimsTable({
                     );
                   })()}
                 </td>
-                <td className="px-3 py-2">
-                  <div className="flex flex-wrap items-center gap-1">
-                    {busy && <Loader2 size={14} className="animate-spin text-ink-muted" />}
-                    {(c.status === "approved" || c.status === "cancelled") && (
-                      <Action label={t("markTreated")} disabled={busy} onClick={() => patch(c, { status: "treated" })}>
-                        <CheckCircle2 size={14} />
-                      </Action>
-                    )}
-                    {(c.status === "treated" || c.status === "sent") && (
-                      <Action label={t("markNotTreated")} disabled={busy} onClick={() => patch(c, { status: "approved" })}>
-                        <RotateCcw size={14} />
-                      </Action>
-                    )}
-                    {c.status === "treated" && (
-                      <Action label={t("markSent")} disabled={busy} onClick={() => patch(c, { status: "sent" })}>
-                        <Send size={14} />
-                      </Action>
-                    )}
-                    {(c.status === "treated" || c.status === "sent") && c.totals.patientShare > 0 && !c.shareCollected && (
-                      <Action label={`${t("collectShare")} ${money(c.totals.patientShare)}`} disabled={busy} onClick={() => void collect(c)}>
-                        <Banknote size={14} />
-                      </Action>
-                    )}
-                    {(c.status === "treated" || c.status === "sent") && Object.keys(c.ledgerIds).length > 0 && !c.insurerPaid && (
-                      <Action label={`${t("markInsurerPaid")} ${money(c.totals.approved)}`} disabled={busy} onClick={() => void insurerPaid(c)}>
-                        <Landmark size={14} />
-                      </Action>
-                    )}
-                    <Action label={t("openPdf")} disabled={!c.doc.path} onClick={() => openDoc(c)}>
-                      <FileText size={14} />
-                    </Action>
-                    {onEdit && c.status !== "cancelled" && (
-                      <Action
-                        label={t("edit")}
-                        disabled={busy}
-                        onClick={() => {
-                          void (async () => {
-                            if (await sentOk(c)) onEdit(c);
-                          })();
-                        }}
-                      >
-                        <Pencil size={14} />
-                      </Action>
-                    )}
-                    <Action label={t("delete")} disabled={busy} onClick={() => remove(c)} danger>
-                      <Trash2 size={14} />
-                    </Action>
-                  </div>
-                </td>
+                <td className="px-3 py-2">{renderActions(c)}</td>
               </tr>
             );
           })}
@@ -264,10 +340,11 @@ export default function ClaimsTable({
         </tbody>
       </table>
     </div>
+    </>
   );
 }
 
-function Action({ label, onClick, disabled, danger, children }: { label: string; onClick: () => void; disabled?: boolean; danger?: boolean; children: React.ReactNode }) {
+function Action({ label, onClick, disabled, danger, big, children }: { label: string; onClick: () => void; disabled?: boolean; danger?: boolean; big?: boolean; children: React.ReactNode }) {
   return (
     <button
       type="button"
@@ -275,7 +352,7 @@ function Action({ label, onClick, disabled, danger, children }: { label: string;
       disabled={disabled}
       title={label}
       aria-label={label}
-      className={`rounded-lg border border-transparent p-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+      className={`${big ? "inline-flex h-10 w-10 items-center justify-center rounded-xl" : "rounded-lg p-1.5"} border border-transparent transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
         danger ? "text-ink-muted hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" : "text-ink-muted hover:border-line hover:bg-surface-subtle hover:text-ink"
       }`}
     >

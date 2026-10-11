@@ -271,9 +271,17 @@ function InsurancePage() {
     if (claim.payerId !== payerId && insurers.some((p) => p.id === claim.payerId)) setPickedPayer(claim.payerId);
     if (claim.approvalDate && (claim.approvalDate < range.from || claim.approvalDate > range.to)) setRange(monthRange(claim.approvalDate));
     setHighlightId(claim.id);
-    const id = `claim-${claim.id}`;
+    // The table row on wide screens, the card on phones — whichever one is shown.
+    const ids = [`claim-${claim.id}`, `claim-m-${claim.id}`];
     // The row may only exist after the range moves and the listener answers.
-    window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "center" }), 600);
+    window.setTimeout(
+      () =>
+        ids
+          .map((id) => document.getElementById(id))
+          .find((el) => el && el.offsetParent !== null)
+          ?.scrollIntoView({ behavior: "smooth", block: "center" }),
+      600,
+    );
   };
 
   // --- editing a saved approval ------------------------------------------------------------------

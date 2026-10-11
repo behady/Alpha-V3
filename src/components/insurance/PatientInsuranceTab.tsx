@@ -268,8 +268,8 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
     </div>
   );
   // Every action carries its words, not just an icon: the desk should never hover to find a button.
-  const actionBtn = "inline-flex h-9 items-center gap-1.5 rounded-lg border border-line bg-surface px-3 text-[13px] font-bold text-ink transition-colors hover:bg-surface-subtle disabled:opacity-40";
-  const doneChip = "inline-flex h-9 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-[13px] font-bold text-emerald-800";
+  const actionBtn = "inline-flex h-10 md:h-9 items-center gap-1.5 rounded-lg border border-line bg-surface px-3 text-[13px] font-bold text-ink transition-colors hover:bg-surface-subtle disabled:opacity-40";
+  const doneChip = "inline-flex h-10 md:h-9 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-[13px] font-bold text-emerald-800";
   const selectCls = "h-10 w-full rounded-lg border border-line bg-surface px-2.5 text-[14px] font-bold text-ink outline-none focus:border-ink disabled:opacity-50";
 
   return (
@@ -317,7 +317,7 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
       </section>
 
       {/* --- approvals: one card per approval paper -------------------------------------------- */}
-      <section className="rounded-2xl border border-line bg-surface p-6">
+      <section className="rounded-2xl border border-line bg-surface p-4 md:p-6">
         <h3 className="text-[17px] font-black text-ink">
           {t("tabClaims")}
           {claims.length > 0 && <span className="ms-2 font-figure text-[15px] font-bold text-ink-muted">({claims.length})</span>}
@@ -336,6 +336,81 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
               const status = STATUS[c.status];
               const isBusy = busy === c.id;
               const progress = claimProgress(c, appointments);
+              // One service's controls, drawn as a table row on wide screens and as a card on phones.
+              const lineCells = (line: InsuranceClaim["lines"][number], i: number) => {
+                const visit = lineBooking(appointments, c.id, i);
+                const open = c.status !== "cancelled" && lineStatusOf(c, i) !== "Completed";
+                const bookHref = bookLineUrl(patientId, { claimId: c.id, claimLine: i });
+                const dentist = (
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={c.dentists[i]?.staffId ?? ""}
+                      disabled={isBusy || c.status === "cancelled"}
+                      onChange={(e) => pickDentist(c, i, e.target.value)}
+                      aria-label={t("colDentist")}
+                      className={`${selectCls} min-w-[10rem]`}
+                    >
+                      <option value="">{t("pickDentist")}</option>
+                      {dentists.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.name}
+                        </option>
+                      ))}
+                      {c.dentists[i] && !dentists.some((d) => d.id === c.dentists[i].staffId) && (
+                        <option value={c.dentists[i].staffId}>{c.dentists[i].name}</option>
+                      )}
+                    </select>
+                    {c.dentists[i] && (
+                      <span
+                        title={c.dentists[i].rate === 0 ? t("noRate") : undefined}
+                        className={`shrink-0 font-figure text-[14px] font-extrabold tabular-nums ${c.dentists[i].rate === 0 ? "text-red-700" : "text-ink-muted"}`}
+                      >
+                        {c.dentists[i].rate}%
+                      </span>
+                    )}
+                  </div>
+                );
+                const state = (
+                  <select
+                    value={lineStatusOf(c, i)}
+                    disabled={isBusy || c.status === "cancelled"}
+                    onChange={(e) => pickState(c, i, e.target.value as LineStatus)}
+                    aria-label={t("colState")}
+                    className={`${selectCls} min-w-[8rem]`}
+                  >
+                    {LINE_STATUSES.map((s) => (
+                      <option key={s} value={s}>
+                        {t(STATE_KEY[s])}
+                      </option>
+                    ))}
+                  </select>
+                );
+                const visitCell =
+                  visit.kind === "done" ? (
+                    <span className="inline-flex items-center gap-1.5 font-bold text-emerald-800">
+                      <CheckCircle2 size={15} /> {t("doneOn")} <bdi dir="ltr" className="font-figure">{visit.date}</bdi>
+                    </span>
+                  ) : visit.kind === "booked" ? (
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="font-bold text-ink">
+                        {t("bookedOn")} <bdi dir="ltr" className="font-figure tabular-nums">{visit.date} {visit.time}</bdi>
+                      </span>
+                      {visit.doctor && <span className="text-ink-muted">· {visit.doctor}</span>}
+                      {open && (
+                        <Link href={bookHref} className="inline-flex h-10 items-center gap-1 rounded-lg border border-line px-2 text-[12px] font-bold text-ink-muted hover:text-ink md:h-8">
+                          <CalendarPlus size={13} /> {t("bookAnother")}
+                        </Link>
+                      )}
+                    </div>
+                  ) : !open ? (
+                    <span className="text-ink-faint">—</span>
+                  ) : (
+                    <Link href={bookHref} className="inline-flex h-10 items-center gap-2 rounded-lg bg-accent px-4 text-[14px] font-bold text-ink-on-accent shadow-sm transition-colors hover:bg-accent-strong">
+                      <CalendarPlus size={16} /> {t("book")}
+                    </Link>
+                  );
+                return { name: wording[line.code]?.trim() || line.description, dentist, state, visit: visitCell };
+              };
               return (
                 <article key={c.id} className="overflow-hidden rounded-xl border border-line">
                   {/* The paper itself: its number, insurer and date, and what it is worth. */}
@@ -412,8 +487,39 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                     {isBusy && <Loader2 size={16} className="animate-spin text-ink-muted" />}
                   </div>
 
+                  {/* Phones: the services as cards — the 60rem table pushed the amounts off screen. */}
+                  <div className="divide-y divide-line md:hidden">
+                    {c.lines.map((line, i) => {
+                      const cell = lineCells(line, i);
+                      return (
+                        <div key={`${c.id}-m-${i}`} className="space-y-2.5 px-4 py-3.5">
+                          <div className="flex items-start justify-between gap-3">
+                            <p className="min-w-0 text-[15px] font-bold leading-snug text-ink">{cell.name}</p>
+                            <div className="shrink-0 text-end">
+                              <p className="font-figure text-[17px] font-extrabold tabular-nums leading-tight text-ink">{money(line.approvedAmount)}</p>
+                              <p className="text-[11px] font-bold tabular-nums text-ink-muted">
+                                <bdi dir="ltr">×{line.unitsApproved}</bdi> · {t("colRequested")} {money(line.grossTotal)}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 gap-2 min-[400px]:grid-cols-2">
+                            <label className="block min-w-0">
+                              <span className="mb-1 block text-[11px] font-bold text-ink-muted">{t("colDentist")}</span>
+                              {cell.dentist}
+                            </label>
+                            <label className="block min-w-0">
+                              <span className="mb-1 block text-[11px] font-bold text-ink-muted">{t("colState")}</span>
+                              {cell.state}
+                            </label>
+                          </div>
+                          <div className="text-[14px] font-semibold text-ink-body">{cell.visit}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
                   {/* The services on the paper, one row each. */}
-                  <div className="overflow-x-auto">
+                  <div className="hidden overflow-x-auto md:block">
                     <table className="w-full min-w-[60rem] border-collapse text-[14px]">
                       <thead>
                         <tr className="border-b border-line text-[12px] font-bold text-ink-muted">
@@ -428,86 +534,18 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                       </thead>
                       <tbody>
                         {c.lines.map((line, i) => {
-                          const visit = lineBooking(appointments, c.id, i);
-                          const open = c.status !== "cancelled" && lineStatusOf(c, i) !== "Completed";
-                          const bookHref = bookLineUrl(patientId, { claimId: c.id, claimLine: i });
+                          const cell = lineCells(line, i);
                           return (
                             <tr key={`${c.id}-${i}`} className="border-b border-line/50 last:border-b-0">
-                              <td className="px-5 py-3 text-[15px] font-bold text-ink">{wording[line.code]?.trim() || line.description}</td>
+                              <td className="px-5 py-3 text-[15px] font-bold text-ink">{cell.name}</td>
                               <td className="px-3 py-3 text-end font-figure text-[15px] font-bold tabular-nums text-ink">{line.unitsApproved}</td>
                               <td className="px-3 py-3 text-end font-figure text-[15px] font-bold tabular-nums text-ink-muted">{money(line.grossTotal)}</td>
                               <td className="px-3 py-3 text-end font-figure text-[16px] font-extrabold tabular-nums text-ink">{money(line.approvedAmount)}</td>
-                              <td className="px-3 py-2.5">
-                                <div className="flex items-center gap-2">
-                                  <select
-                                    value={c.dentists[i]?.staffId ?? ""}
-                                    disabled={isBusy || c.status === "cancelled"}
-                                    onChange={(e) => pickDentist(c, i, e.target.value)}
-                                    aria-label={t("colDentist")}
-                                    className={`${selectCls} min-w-[10rem]`}
-                                  >
-                                    <option value="">{t("pickDentist")}</option>
-                                    {dentists.map((d) => (
-                                      <option key={d.id} value={d.id}>
-                                        {d.name}
-                                      </option>
-                                    ))}
-                                    {c.dentists[i] && !dentists.some((d) => d.id === c.dentists[i].staffId) && (
-                                      <option value={c.dentists[i].staffId}>{c.dentists[i].name}</option>
-                                    )}
-                                  </select>
-                                  {c.dentists[i] && (
-                                    <span
-                                      title={c.dentists[i].rate === 0 ? t("noRate") : undefined}
-                                      className={`shrink-0 font-figure text-[14px] font-extrabold tabular-nums ${c.dentists[i].rate === 0 ? "text-red-700" : "text-ink-muted"}`}
-                                    >
-                                      {c.dentists[i].rate}%
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="px-3 py-2.5">
-                                <select
-                                  value={lineStatusOf(c, i)}
-                                  disabled={isBusy || c.status === "cancelled"}
-                                  onChange={(e) => pickState(c, i, e.target.value as LineStatus)}
-                                  aria-label={t("colState")}
-                                  className={`${selectCls} min-w-[8rem]`}
-                                >
-                                  {LINE_STATUSES.map((s) => (
-                                    <option key={s} value={s}>
-                                      {t(STATE_KEY[s])}
-                                    </option>
-                                  ))}
-                                </select>
-                              </td>
+                              <td className="px-3 py-2.5">{cell.dentist}</td>
+                              <td className="px-3 py-2.5">{cell.state}</td>
                               {/* The calendar's view of this service: done, booked, or a Book button that opens
                                   the dashboard's booking popup on this patient with this service picked. */}
-                              <td className="px-5 py-2.5 text-[14px] font-semibold text-ink-body">
-                                {visit.kind === "done" ? (
-                                  <span className="inline-flex items-center gap-1.5 font-bold text-emerald-800">
-                                    <CheckCircle2 size={15} /> {t("doneOn")} <bdi dir="ltr" className="font-figure">{visit.date}</bdi>
-                                  </span>
-                                ) : visit.kind === "booked" ? (
-                                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                    <span className="font-bold text-ink">
-                                      {t("bookedOn")} <bdi dir="ltr" className="font-figure tabular-nums">{visit.date} {visit.time}</bdi>
-                                    </span>
-                                    {visit.doctor && <span className="text-ink-muted">· {visit.doctor}</span>}
-                                    {open && (
-                                      <Link href={bookHref} className="inline-flex h-8 items-center gap-1 rounded-lg border border-line px-2 text-[12px] font-bold text-ink-muted hover:text-ink">
-                                        <CalendarPlus size={13} /> {t("bookAnother")}
-                                      </Link>
-                                    )}
-                                  </div>
-                                ) : !open ? (
-                                  <span className="text-ink-faint">—</span>
-                                ) : (
-                                  <Link href={bookHref} className="inline-flex h-10 items-center gap-2 rounded-lg bg-accent px-4 text-[14px] font-bold text-ink-on-accent shadow-sm transition-colors hover:bg-accent-strong">
-                                    <CalendarPlus size={16} /> {t("book")}
-                                  </Link>
-                                )}
-                              </td>
+                              <td className="px-5 py-2.5 text-[14px] font-semibold text-ink-body">{cell.visit}</td>
                             </tr>
                           );
                         })}

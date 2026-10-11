@@ -328,6 +328,25 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
       : "One or more payments settle this treatment for more than it costs. Edit the payment and move it to the treatment it belongs to, or to the patient's account.",
     remainingOn: language === 'ar' ? "المتبقي" : "remaining",
     settledFull: language === 'ar' ? "مسدّد بالكامل" : "settled",
+    typeProcedure: language === 'ar' ? "علاج" : "Treatment",
+    typePayment: language === 'ar' ? "دفعة" : "Payment",
+    totalShort: language === 'ar' ? "العلاج" : "Treatment",
+    paidShort: language === 'ar' ? "المدفوع" : "Paid",
+    dueShort: language === 'ar' ? "المستحق" : "Due",
+    creditShort: language === 'ar' ? "رصيد" : "Credit",
+    paidOf: language === 'ar' ? "مدفوع" : "paid",
+    showPayments: (n: number) => language === 'ar' ? `الدفعات (${n})` : `Payments (${n})`,
+    editRow: language === 'ar' ? "تعديل" : "Edit",
+    deleteRow: language === 'ar' ? "حذف" : "Delete",
+    collectedBy: language === 'ar' ? "المحصل:" : "Collected by:",
+  };
+
+  // A user name that is really a Firestore document id (a uid stored in createdBy). The phone
+  // card hides it rather than printing 28 random capitals as somebody's name.
+  const readableUser = (item: any): string | null => {
+    const u = getTxUser(item);
+    if (!u || /^[A-Za-z0-9_-]{20,}$/.test(u)) return null;
+    return u;
   };
 
   useEffect(() => {
@@ -404,7 +423,9 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
       }
       
       setTimeout(() => {
-        const el = document.getElementById(`tx-${highlightTxId}`);
+        // The table row on wide screens, the card on phones — whichever one is actually shown.
+        const el = [document.getElementById(`tx-${highlightTxId}`), document.getElementById(`txm-${highlightTxId}`)]
+          .find((e) => e && e.offsetParent !== null);
         if (el) {
           el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
@@ -424,6 +445,25 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
         const remaining = patientPortion(proc) - paidForThis;
         return { ...proc, remaining: remaining > 0 ? remaining : 0, isPaid: remaining <= 0, paidForThis };
     });
+  }, [transactions]);
+
+  // The history list, grouped: each treatment with the payments that settle it, then payments that
+  // settle nothing. The table (wide screens) and the cards (phones) both draw from this.
+  const historyRows = useMemo(() => {
+    const rawProcs = transactions.filter(t => t.type === 'procedure');
+    const payments = transactions.filter(t => t.type === 'payment');
+    const procs = rawProcs.map(proc => {
+        const linkedPayments = payments.filter(p => p.procedureId === proc.id);
+        const paidForThis = linkedPayments.reduce((sum, p) => sum + (Number(p.paid) || 0), 0);
+        const remaining = (Number(proc.cost) || 0) - paidForThis;
+        // Money settling this charge beyond what it costs. The server refuses
+        // to create any more of these; this is how the ones already in the
+        // books stop being invisible.
+        const overpaid = overAllocation(Number(proc.cost) || 0, paidForThis);
+        return { ...proc, remaining: remaining > 0 ? remaining : 0, isPaid: remaining <= 0, linkedPayments, paidForThis, overpaid };
+    });
+    const unlinkedPayments = payments.filter(p => !p.procedureId || !rawProcs.some(rp => rp.id === p.procedureId));
+    return { procs, unlinkedPayments };
   }, [transactions]);
 
   /**
@@ -818,6 +858,77 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
 
   const selectedProcedureObj = proceduresWithBalance.find(p => p.id === selectedProcedureId);
 
+  /** A payment on a phone: folded under its treatment, or standing alone when it is on account. */
+  const renderPaymentCardBody = (payment: LedgerItem, standalone: boolean) => {
+    const payTime = formatTxTime(payment);
+    const payUser = readableUser(payment);
+    const insurer = insurerOf(payment);
+    return (
+      <div key={payment.id} id={`txm-${payment.id}`} className={`p-4 ${!standalone && highlightTxId === payment.id ? 'bg-blue-50/80 ring-2 ring-blue-500 ring-inset' : ''}`}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-bold text-gray-500">
+              <span>{payment.date}</span>
+              {payTime && <span className="inline-flex items-center gap-1 text-slate-400"><Clock size={10} className="text-emerald-500" />{payTime}</span>}
+              {branchName(payment.branchId) && <span className="text-slate-400">{branchName(payment.branchId)}</span>}
+              <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase bg-green-50 text-green-600">{txt.typePayment}</span>
+            </div>
+            <div className={`mt-1 text-sm leading-snug break-words ${standalone ? 'font-black text-gray-900' : 'font-bold text-gray-700'}`}>{payment.description}</div>
+          </div>
+          <div className="text-end shrink-0">
+            <div className="text-lg font-black text-green-600 tabular-nums leading-tight">{payment.paid > 0 ? payment.paid.toLocaleString() : "-"}</div>
+            <div className="text-[10px] font-bold text-gray-400">EGP</div>
+          </div>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {payment.method && (
+            <span className="px-2 py-0.5 rounded bg-surface-muted text-ink-body text-[10px] uppercase font-extrabold border border-line">{payment.method}</span>
+          )}
+          {insurer && (
+            <span className="px-2 py-0.5 rounded bg-surface-subtle text-ink-body border border-line text-[10px] font-bold inline-flex items-center gap-1">
+              <InsurerBadge name={insurer} size={12} /> {insurer}
+            </span>
+          )}
+          {payUser && (
+            <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200/80 text-[10px] font-extrabold inline-flex items-center gap-1">
+              <User size={10} className="text-emerald-600" /> {txt.collectedBy} {payUser}
+            </span>
+          )}
+          <div className="ms-auto flex items-center gap-1">
+            <button
+              type="button"
+              title={txt.printReceipt}
+              aria-label={txt.printReceipt}
+              disabled={printingPaymentId === payment.id}
+              onClick={() => void handlePrintPaymentReceipt(payment.id)}
+              className="h-10 w-10 inline-flex items-center justify-center text-gray-400 hover:text-ink hover:bg-surface-muted rounded-xl disabled:opacity-50"
+            >
+              {printingPaymentId === payment.id ? <Loader2 size={18} className="animate-spin" /> : <Printer size={18} />}
+            </button>
+            {standalone && (
+              <button
+                type="button"
+                title={txt.sendWhatsapp}
+                aria-label={txt.sendWhatsapp}
+                disabled={whatsappSendingId === payment.id}
+                onClick={() => void handleSendLedgerWhatsApp(payment)}
+                className="h-10 w-10 inline-flex items-center justify-center text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl disabled:opacity-50"
+              >
+                {whatsappSendingId === payment.id ? <Loader2 size={18} className="animate-spin" /> : <MessageCircle size={18} />}
+              </button>
+            )}
+            {hasEditAccess && rowIsMine(payment.branchId) && (
+              <button type="button" title={txt.editRow} aria-label={txt.editRow} onClick={() => setEditingItem(payment)} className="h-10 w-10 inline-flex items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl"><Edit2 size={18}/></button>
+            )}
+            {hasDeleteAccess && rowIsMine(payment.branchId) && (
+              <button type="button" data-tour="finance-row-delete" title={txt.deleteRow} aria-label={txt.deleteRow} onClick={() => handleDelete(payment.id)} className="h-10 w-10 inline-flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl"><Trash2 size={18}/></button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6 relative">
       {branchPicker}
@@ -841,7 +952,29 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
       
       {/* 💻 SCREEN UI */}
       <div className="print:hidden space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Phones: the three totals as one compact row instead of three full-width cards. */}
+        <div className="md:hidden bg-surface rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="grid grid-cols-3 divide-x divide-gray-100">
+            <div className="px-2 py-3 text-center min-w-0">
+              <div className="text-[10px] font-black text-gray-400 uppercase tracking-wide truncate">{txt.totalShort}</div>
+              <div className="text-base font-black text-gray-900 tabular-nums truncate">{totalCost.toLocaleString()}</div>
+            </div>
+            <div className="px-2 py-3 text-center min-w-0">
+              <div className="text-[10px] font-black text-gray-400 uppercase tracking-wide truncate">{txt.paidShort}</div>
+              <div className="text-base font-black text-green-600 tabular-nums truncate">{totalPaid.toLocaleString()}</div>
+            </div>
+            <div className={`px-2 py-3 text-center min-w-0 ${balance > 0 ? 'bg-red-50' : balance < 0 ? 'bg-amber-50' : 'bg-green-50'}`}>
+              <div className={`text-[10px] font-black uppercase tracking-wide truncate ${balance > 0 ? 'text-red-400' : balance < 0 ? 'text-amber-600' : 'text-green-600'}`}>{balance < 0 ? txt.creditShort : txt.dueShort}</div>
+              <div className={`text-base font-black tabular-nums truncate ${balance > 0 ? 'text-red-600' : balance < 0 ? 'text-amber-700' : 'text-green-600'}`}>{Math.abs(balance).toLocaleString()}</div>
+            </div>
+          </div>
+          {awaitingInsurer > 0 && (
+            <div className="border-t border-gray-100 px-3 py-1.5 text-center text-[11px] font-bold text-ink-muted">
+              {language === 'ar' ? `في انتظار شركة التأمين: ${awaitingInsurer.toLocaleString()} ج.م` : `Awaiting the insurer: ${awaitingInsurer.toLocaleString()} EGP`}
+            </div>
+          )}
+        </div>
+        <div className="hidden md:grid md:grid-cols-3 gap-4">
             <div className="bg-surface p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col items-center justify-center gap-2">
             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{txt.totalTreatment}</span>
             <span className="text-2xl font-black text-gray-900">{totalCost.toLocaleString()} <span className="text-xs text-gray-400">EGP</span></span>
@@ -896,14 +1029,22 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
             >
               <Plus size={16} className="shrink-0" /> <span className="min-w-0 break-words">{language === 'ar' ? 'إضافة علاج' : 'Add treatment'}</span>
             </button>
-            <button data-tour="finance-add-payment" onClick={() => { setIsAddingPayment(!isAddingPayment); setIsDropdownOpen(false); }} className="min-w-0 col-span-2 sm:col-span-1 justify-center bg-green-500 text-white px-3 py-2.5 rounded-xl font-black text-xs uppercase shadow-md shadow-green-100 hover:bg-green-600 transition-all flex items-center gap-2 leading-tight whitespace-normal text-center">
+            <button data-tour="finance-add-payment" onClick={() => {
+                const opening = !isAddingPayment;
+                setIsAddingPayment(opening);
+                setIsDropdownOpen(false);
+                // On a phone the form opens below the fold, so the tap looked like it did nothing.
+                if (opening && typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches) {
+                  requestAnimationFrame(() => payFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                }
+              }} className="min-w-0 col-span-2 sm:col-span-1 justify-center bg-green-600 text-white px-3 py-2.5 rounded-xl font-black text-xs uppercase shadow-md shadow-green-100 hover:bg-green-700 transition-all flex items-center gap-2 leading-tight whitespace-normal text-center">
                 <Plus size={16} className="shrink-0"/> <span className="min-w-0 break-words">{txt.addPayment}</span>
             </button>
             </div>
         </div>
 
         {isAddingPayment && (
-            <form ref={payFormRef} onSubmit={handleAddPayment} className="bg-green-50/50 p-6 rounded-2xl border border-green-100 animate-in slide-in-from-top-2">
+            <form ref={payFormRef} onSubmit={handleAddPayment} className="scroll-mt-28 bg-green-50/50 p-6 rounded-2xl border border-green-100 animate-in slide-in-from-top-2">
             <h4 className="font-black text-green-800 mb-4 flex items-center gap-2 text-sm uppercase"><CreditCard size={16}/> {txt.receivePayment}</h4>
             
             <div className="mb-4 relative">
@@ -1124,7 +1265,173 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
             </div>
         )}
 
-        <div className="bg-surface rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+        {/* Phones: one card per treatment (its payments fold under it), then payments on account.
+            The 700px table below squeezed the amounts off-screen at 375px. */}
+        <div className="md:hidden space-y-3">
+          {transactions.length === 0 ? (
+            <div className="bg-surface rounded-2xl border border-gray-200 p-8 text-center text-gray-400 font-bold text-xs uppercase">{txt.noRecords}</div>
+          ) : (
+            <>
+              {historyRows.procs.map((item) => {
+                const procTime = formatTxTime(item);
+                const user = readableUser(item);
+                const doctor = item.doctorName?.replace(/^Dr\.\s*/i, '');
+                const parts = openParts(item, item.paidForThis);
+                const expanded = !!expandedProcs[item.id];
+                const canEdit = hasEditAccess && rowIsMine(item.branchId);
+                const canDelete = hasDeleteAccess && rowIsMine(item.branchId);
+                return (
+                  <div
+                    key={item.id}
+                    id={`txm-${item.id}`}
+                    className={`bg-surface rounded-2xl border shadow-sm overflow-hidden ${highlightTxId === item.id ? 'border-blue-500 ring-2 ring-blue-500' : 'border-gray-200'}`}
+                  >
+                    <div className="p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-bold text-gray-500">
+                            <span>{item.date}</span>
+                            {procTime && <span className="inline-flex items-center gap-1 text-slate-400"><Clock size={10} className="text-emerald-500" />{procTime}</span>}
+                            {branchName(item.branchId) && <span className="text-slate-400">{branchName(item.branchId)}</span>}
+                            <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase bg-blue-50 text-blue-600">{txt.typeProcedure}</span>
+                          </div>
+                          <div className="mt-1 font-black text-gray-900 text-sm leading-snug break-words">{item.description}</div>
+                        </div>
+                        <div className="text-end shrink-0">
+                          <div className="text-lg font-black text-gray-900 tabular-nums leading-tight">{item.cost > 0 ? item.cost.toLocaleString() : "-"}</div>
+                          <div className="text-[10px] font-bold text-gray-400">EGP</div>
+                        </div>
+                      </div>
+
+                      {(insurerOf(item) || doctor || user) && (
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          {insurerOf(item) && (
+                            <span className="px-1.5 py-0.5 rounded bg-surface-subtle text-ink-body border border-line text-[10px] font-bold inline-flex items-center gap-1">
+                              <InsurerBadge name={insurerOf(item)!} size={12} /> {insurerOf(item)}
+                            </span>
+                          )}
+                          {doctor && <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-100 text-[10px] font-bold inline-flex items-center gap-1"><User size={10}/> {doctor}</span>}
+                          {user && user !== doctor && (
+                            <span className="px-1.5 py-0.5 rounded bg-surface-muted text-ink-body border border-line text-[10px] font-bold inline-flex items-center gap-1"><User size={10}/> {user}</span>
+                          )}
+                        </div>
+                      )}
+
+                      {Number(item.discountAmount) > 0 && Number(item.listPrice) > 0 && (
+                        <div className="mt-2 rounded-lg border border-amber-100 bg-amber-50/90 px-2 py-1.5 text-[10px] font-bold leading-relaxed text-amber-900">
+                          {language === "ar"
+                            ? <>قبل الخصم: {Number(item.listPrice).toLocaleString()} جنيه ← بعد: {Number(item.cost).toLocaleString()} جنيه</>
+                            : <>Before {Number(item.listPrice).toLocaleString()} EGP → After {Number(item.cost).toLocaleString()} EGP</>}
+                          <span className="text-amber-700"> (−{Number(item.discountAmount).toLocaleString()} {txt.discountSummary}{item.discountMode === "percent" && item.discountPercent != null ? ` ${item.discountPercent}%` : ""})</span>
+                        </div>
+                      )}
+
+                      {item.overpaid > 0 && (
+                        <div className="mt-2 rounded-lg border border-amber-300 bg-amber-100/80 px-2 py-1.5 text-[10px] font-black leading-relaxed text-amber-900">
+                          <span className="inline-flex items-center gap-1"><AlertTriangle size={11} className="shrink-0" />{txt.overpaidBy} {item.overpaid.toLocaleString()} EGP</span>
+                          <div className="font-bold text-amber-800 mt-0.5">{txt.overpaidHint}</div>
+                        </div>
+                      )}
+
+                      <div className="mt-3 flex items-center gap-2">
+                        <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full ${item.isPaid ? 'bg-green-500' : 'bg-primary-500'}`}
+                            style={{ width: `${Math.min(100, item.cost > 0 ? (item.paidForThis / item.cost) * 100 : 0)}%` }}
+                          />
+                        </div>
+                        <span className="text-[11px] font-black text-green-600 tabular-nums shrink-0">
+                          {item.paidForThis.toLocaleString()} {txt.paidOf}
+                        </span>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        {parts.insurer <= 0 && parts.patient <= 0 ? (
+                          (Number(item.cost) || 0) > 0 && (
+                            <span className="inline-flex items-center gap-1 rounded-lg bg-green-50 px-2.5 py-1.5 text-[11px] font-black text-green-700">
+                              <Check size={12} /> {item.insurerPaidAt ? txt.insurerPaidDone : txt.paidLabel}
+                            </span>
+                          )
+                        ) : (
+                          <>
+                            {parts.insurer > 0 && (
+                              <button
+                                type="button"
+                                disabled={!!insurerPayingId}
+                                onClick={() => void recordInsurerPaid(item, parts.insurer)}
+                                className="min-h-10 inline-flex items-center gap-1.5 rounded-xl bg-ink px-3 text-xs font-black text-white shadow-sm disabled:opacity-50"
+                              >
+                                {insurerPayingId === item.id ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
+                                {txt.insurerPaidBtn} <span className="font-figure tabular-nums">{parts.insurer.toLocaleString()}</span>
+                              </button>
+                            )}
+                            {parts.patient > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => openQuickPay(item.id)}
+                                className="min-h-10 inline-flex items-center gap-1.5 rounded-xl bg-green-600 px-3 text-xs font-black text-white shadow-sm hover:bg-green-700"
+                              >
+                                <CreditCard size={14} /> {txt.payNow} <span className="font-figure tabular-nums">{parts.patient.toLocaleString()}</span>
+                              </button>
+                            )}
+                          </>
+                        )}
+                        <div className="ms-auto flex items-center gap-1">
+                          <button
+                            type="button"
+                            title={txt.sendWhatsapp}
+                            aria-label={txt.sendWhatsapp}
+                            disabled={whatsappSendingId === item.id}
+                            onClick={() => void handleSendLedgerWhatsApp(item)}
+                            className="h-10 w-10 inline-flex items-center justify-center text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl disabled:opacity-50"
+                          >
+                            {whatsappSendingId === item.id ? <Loader2 size={18} className="animate-spin" /> : <MessageCircle size={18} />}
+                          </button>
+                          {canEdit && (
+                            <button type="button" title={txt.editRow} aria-label={txt.editRow} onClick={() => setEditingItem(withDiscountBoxes(item))} className="h-10 w-10 inline-flex items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl"><Edit2 size={18}/></button>
+                          )}
+                          {canDelete && (
+                            <button type="button" title={txt.deleteRow} aria-label={txt.deleteRow} onClick={() => handleDelete(item.id)} className="h-10 w-10 inline-flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl"><Trash2 size={18}/></button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {item.linkedPayments.length > 0 && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => toggleProcExpand(item.id)}
+                          aria-expanded={expanded}
+                          className="w-full min-h-10 flex items-center justify-between gap-2 px-4 border-t border-gray-100 bg-gray-50 text-xs font-black text-gray-600"
+                        >
+                          <span>{txt.showPayments(item.linkedPayments.length)}</span>
+                          <ChevronDown size={16} className={`text-gray-400 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+                        </button>
+                        {expanded && (
+                          <div className="divide-y divide-gray-100 border-t border-gray-100 bg-slate-50/50">
+                            {item.linkedPayments.map((payment) => renderPaymentCardBody(payment, false))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+
+              {historyRows.unlinkedPayments.map((payment) => (
+                <div
+                  key={payment.id}
+                  className={`bg-surface rounded-2xl border shadow-sm overflow-hidden ${highlightTxId === payment.id ? 'border-blue-500 ring-2 ring-blue-500' : 'border-gray-200'}`}
+                >
+                  {renderPaymentCardBody(payment, true)}
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+
+        <div className="hidden md:block bg-surface rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
             <div className="overflow-x-auto custom-scrollbar">
                 <table className="w-full text-sm text-start min-w-[700px]">
                     <thead className="bg-gray-50 text-gray-500 font-black text-[10px] uppercase tracking-wider">
@@ -1135,20 +1442,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                         <tr><td colSpan={7} className="p-8 text-center text-gray-400 font-bold text-xs uppercase">{txt.noRecords}</td></tr>
                     ) : (
                         (() => {
-                            const rawProcs = transactions.filter(t => t.type === 'procedure');
-                            const payments = transactions.filter(t => t.type === 'payment');
-                            const proceduresWithBalance = rawProcs.map(proc => {
-                                const linkedPayments = payments.filter(p => p.procedureId === proc.id);
-                                const paidForThis = linkedPayments.reduce((sum, p) => sum + (Number(p.paid) || 0), 0);
-                                const remaining = (Number(proc.cost) || 0) - paidForThis;
-                                // Money settling this charge beyond what it costs. The server refuses
-                                // to create any more of these; this is how the ones already in the
-                                // books stop being invisible.
-                                const overpaid = overAllocation(Number(proc.cost) || 0, paidForThis);
-                                return { ...proc, remaining: remaining > 0 ? remaining : 0, isPaid: remaining <= 0, linkedPayments, paidForThis, overpaid };
-                            });
-                            
-                            const unlinkedPayments = payments.filter(p => !p.procedureId || !rawProcs.some(rp => rp.id === p.procedureId));
+                            const { procs: proceduresWithBalance, unlinkedPayments } = historyRows;
 
                             return (
                                 <>
@@ -1204,9 +1498,9 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                      </span>
                                                    )}
                                                    {item.doctorName && <span className="mt-2 px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-100 text-[9px] uppercase font-bold inline-flex items-center gap-1 me-2"><User size={8}/> {item.doctorName.replace(/^Dr\.\s*/i, '')}</span>}
-                                                   {getTxUser(item) && getTxUser(item) !== item.doctorName?.replace(/^Dr\.\s*/i, '') && (
+                                                   {readableUser(item) && readableUser(item) !== item.doctorName?.replace(/^Dr\.\s*/i, '') && (
                                                      <span className="mt-2 px-1.5 py-0.5 rounded bg-surface-muted text-ink-body border border-line text-[9px] uppercase font-bold inline-flex items-center gap-1 me-2">
-                                                       <User size={8}/> {getTxUser(item)}
+                                                       <User size={8}/> {readableUser(item)}
                                                      </span>
                                                    )}
                                                    
@@ -1267,7 +1561,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                         );
                                                     })()}
                                                 </td>
-                                                <td className="p-4 text-center"><span className="px-2 py-1 rounded-lg text-[10px] font-black uppercase bg-blue-50 text-blue-600">{item.type}</span></td>
+                                                <td className="p-4 text-center"><span className="px-2 py-1 rounded-lg text-[10px] font-black uppercase bg-blue-50 text-blue-600">{txt.typeProcedure}</span></td>
                                                 <td className="p-4 text-end font-bold text-gray-900">{item.cost > 0 ? item.cost.toLocaleString() : "-"}</td>
                                                 <td className="p-4 text-end font-bold text-green-600">{item.paidForThis > 0 ? item.paidForThis.toLocaleString() : "-"}</td>
                                                 <td className="p-4 text-center no-print">
@@ -1294,7 +1588,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                             {/* Nested Payments */}
                                             {expandedProcs[item.id] && item.linkedPayments.map(payment => {
                                                 const payTime = formatTxTime(payment);
-                                                const payUser = getTxUser(payment);
+                                                const payUser = readableUser(payment);
                                                 return (
                                                 <tr id={`tx-${payment.id}`} key={payment.id} className={`transition-colors ${highlightTxId === payment.id ? 'bg-blue-50/80 ring-2 ring-blue-500 ring-inset' : 'bg-slate-50/50 hover:bg-surface-subtle'}`}>
                                                     <td className="p-4 pl-12 font-bold text-gray-400 text-xs">
@@ -1332,7 +1626,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                             )}
                                                         </div>
                                                     </td>
-                                                    <td className="no-print" /><td className="p-4 text-center"><span className="px-2 py-1 rounded-lg text-[10px] font-black uppercase bg-green-50 text-green-600">{payment.type}</span></td>
+                                                    <td className="no-print" /><td className="p-4 text-center"><span className="px-2 py-1 rounded-lg text-[10px] font-black uppercase bg-green-50 text-green-600">{txt.typePayment}</span></td>
                                                     <td className="p-4 text-end font-bold text-gray-400">-</td>
                                                     <td className="p-4 text-end font-bold text-green-600">{payment.paid > 0 ? payment.paid.toLocaleString() : "-"}</td>
                                                     <td className="p-4 text-center no-print">
@@ -1362,7 +1656,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                     {/* Unlinked Payments */}
                                     {unlinkedPayments.map((payment) => {
                                         const payTime = formatTxTime(payment);
-                                        const payUser = getTxUser(payment);
+                                        const payUser = readableUser(payment);
                                         return (
                                         <tr id={`tx-${payment.id}`} key={payment.id} className={`transition-colors ${highlightTxId === payment.id ? 'bg-blue-50/80 ring-2 ring-blue-500 ring-inset' : 'hover:bg-gray-50'}`}>
                                             <td className="p-4 font-bold text-gray-500 text-xs pl-8">
@@ -1392,7 +1686,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                    )}
                                                </div>
                                             </td>
-                                            <td className="no-print" /><td className="p-4 text-center"><span className="px-2 py-1 rounded-lg text-[10px] font-black uppercase bg-green-50 text-green-600">{payment.type}</span></td>
+                                            <td className="no-print" /><td className="p-4 text-center"><span className="px-2 py-1 rounded-lg text-[10px] font-black uppercase bg-green-50 text-green-600">{txt.typePayment}</span></td>
                                             <td className="p-4 text-end font-bold text-gray-900">-</td>
                                             <td className="p-4 text-end font-bold text-green-600">{payment.paid > 0 ? payment.paid.toLocaleString() : "-"}</td>
                                             <td className="p-4 text-center no-print">

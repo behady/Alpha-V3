@@ -301,7 +301,7 @@ export default function QuickPaymentModal({ isOpen, onClose, onSave, patients, p
                                     <button onClick={() => resetForm()} className="p-2.5 hover:bg-white/10 rounded-xl transition-colors"><X size={18}/></button>
                                 </div>
                                 {patientStats && (
-                                    <div className="grid grid-cols-3 bg-white/5 divide-x divide-white/10 rtl:divide-x-reverse text-center py-3">
+                                    <div className="grid grid-cols-3 bg-white/5 divide-x divide-white/10 text-center py-3">
                                         <div className="flex flex-col">
                                             <span className="text-[9px] font-extrabold uppercase text-slate-400 tracking-wider mb-0.5">{language === 'ar' ? 'المستحق الكلي' : 'Total Owed'}</span>
                                             <span className="text-sm font-black text-white">{patientStats.totalOwed} {t.currency}</span>
