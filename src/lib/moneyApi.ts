@@ -201,6 +201,22 @@ export function deleteLedgerRow(id: string, clinicId?: string | null) {
 }
 
 /**
+ * Record that an insurance company paid what it owes on these treatments (one, or many at once).
+ *
+ * Each takes exactly what is still unpaid on it. The payment lands on the TREATMENT's own branch and
+ * is numbered from that branch's counter: the branch on screen rides along through `post()` like
+ * every write, but this action ignores it, because one company pays for both branches at once.
+ * Throws MoneyApiError with reason "NOTHING_TO_DO" (409) when every row is already settled.
+ */
+export function collectFromInsurer(args: {
+  payerId: string;
+  chargeIds: string[];
+  clinicId?: string | null;
+}): Promise<{ ok: true; paid: number; count: number; receiptNumbers: string[] }> {
+  return post("/api/finance/ledger", { action: "insurer-collect", payerId: args.payerId, chargeIds: args.chargeIds, clinicId: args.clinicId });
+}
+
+/**
  * Override a payment's commission split by hand.
  *
  * The server stamps the row as manually set, which is what stops a later repair pass from

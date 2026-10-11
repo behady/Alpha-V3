@@ -45,12 +45,16 @@ import {
 } from "@/lib/paymentAllocation";
 import { buildDeleteContext, evaluateDelete, type DeleteTarget } from "@/lib/deletePolicy";
 import { applyProcedureSync, readProcedureCommissionBasis, readProcedurePayments, treatmentHasDentist } from "@/lib/server/ledgerSync";
-import { recordLedgerAudit, recordMoneyChange } from "@/lib/server/ledgerAudit";
+import { recordLedgerAudit, recordLedgerAuditBatch, recordMoneyChange } from "@/lib/server/ledgerAudit";
 import { recalcCommissionFromPayment } from "@/lib/ledgerCommission";
 import { allowedDiscount, checkDiscountAllowed, isDiscountMode } from "@/lib/discountMath";
 import { afterLedgerCreate, afterLedgerDelete, afterLedgerUpdate } from "@/lib/alerts/moneyAlerts";
 import { DISCOUNTS_DOC, parseDiscountSettings } from "@/lib/priceLists";
-import { isApprovalRow } from "@/lib/ledgerInsurer";
+import { INSURER_PAYMENT_METHOD, isApprovalRow } from "@/lib/ledgerInsurer";
+import { insurerRows, type LedgerLite } from "@/lib/insurerLedger";
+import { PRIVATE_PAYER_ID } from "@/lib/payers";
+import { LOCATIONS_DOC, parseClinicBranches } from "@/lib/clinicLocations";
+import { logActivityServer } from "@/lib/server/systemLog";
 import { assertBranchAllowed, assertRowBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
 import {
   RECEIPT_SETTINGS_DOC,
@@ -373,6 +377,236 @@ async function createPayment(args: {
 
   void afterLedgerCreate(clinicId, result.row as Record<string, unknown>, actor);
   return NextResponse.json({ ok: true, id: result.id, receiptNumber: result.receiptNumber });
+}
+
+// ---------------------------------------------------------------------------------------------
+// insurer-collect — the insurance company paid for treatments: record it, row by row or all at once
+// ---------------------------------------------------------------------------------------------
+
+const INSURER_COLLECT_MAX = 100;
+
+/** Everything chosen is already settled (or is collected on the Insurance page). Thrown inside the transaction so a race reads the same as a repeat call. */
+class NothingToCollectError extends Error {
+  constructor() {
+    super("NOTHING_TO_COLLECT");
+    this.name = "NothingToCollectError";
+  }
+}
+
+function nothingToCollect() {
+  return NextResponse.json(
+    { ok: false, reason: "NOTHING_TO_DO", error: "There is nothing left to collect on those treatments. / مفيش مبلغ متبقي يتحصّل على العلاجات دي." },
+    { status: 409 },
+  );
+}
+
+/**
+ * Record that an insurance company paid what it owes on a list of treatments.
+ *
+ * Each treatment gets one payment for exactly what is still unpaid (`insurerRows`' outstanding:
+ * cost less the patient's cash and the company's earlier money), never the full cost, so a charge the
+ * patient part-paid is settled for the rest. A row with nothing outstanding, or one written by an
+ * approval (collected on the Insurance page), is skipped; when nothing is left the answer is a 409.
+ *
+ * Insurer money follows the work, not the screen: each payment takes the CHARGE's branch and is
+ * numbered from that branch's counter, so one company paying for both branches at once lands each
+ * receipt where the treatment was done. The branch the browser sends is deliberately not read.
+ *
+ * The figures are worked out twice: once outside the transaction to refuse early (404, 400, 403,
+ * 409), and again inside it from the rows actually in the database, so two people pressing the
+ * button together cannot both pay the same row.
+ */
+async function insurerCollect(args: { clinicId: string; actor: Actor; body: Record<string, unknown> }) {
+  const { clinicId, actor, body } = args;
+
+  const payerId = typeof body.payerId === "string" ? body.payerId.trim() : "";
+  if (!payerId || payerId === PRIVATE_PAYER_ID) return bad("Choose the insurance company that paid.");
+  const chargeIds = Array.isArray(body.chargeIds)
+    ? [...new Set(body.chargeIds.map((v) => (typeof v === "string" ? v.trim() : "")).filter(Boolean))]
+    : [];
+  if (chargeIds.length === 0) return bad("Choose at least one treatment to collect.");
+  if (chargeIds.length > INSURER_COLLECT_MAX) return bad(`Collect at most ${INSURER_COLLECT_MAX} treatments at a time.`);
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(String(body.date || "")) ? String(body.date) : todayKey();
+
+  const ledgerCol = adminClinicCollection(clinicId, "ledger");
+  const snaps = await adminDb().getAll(...chargeIds.map((id) => ledgerCol.doc(id)));
+  const loaded = new Map<string, Record<string, unknown>>();
+  for (const snap of snaps) {
+    if (!snap.exists) return bad("A treatment you chose no longer exists. Refresh and try again.", 404);
+    const data = snap.data() || {};
+    if (String(data.type || "") !== "procedure") return bad("Only a treatment can be collected from the insurance company.");
+    if (String(data.payerId || "").trim() !== payerId) return bad("A treatment you chose belongs to another payer. Refresh and try again.");
+    loaded.set(snap.id, data);
+  }
+
+  // What each one has had paid against it so far, to find what is still owed.
+  const paymentSnaps = await Promise.all(
+    chargeIds.map((id) => ledgerCol.where("procedureId", "==", id).where("type", "==", "payment").get()),
+  );
+  const lite: LedgerLite[] = chargeIds.map((id) => ({ id, ...(loaded.get(id) as Record<string, unknown>) }));
+  for (const snap of paymentSnaps) for (const d of snap.docs) lite.push({ id: d.id, ...(d.data() as Record<string, unknown>) });
+  const wanted = insurerRows(lite, payerId).filter((r) => r.collectable);
+  if (wanted.length === 0) return nothingToCollect();
+
+  // The owner's rule: money for a treatment names the dentist who did it.
+  for (const r of wanted) if (!treatmentHasDentist(loaded.get(r.charge.id))) throw new Error("NO_DENTIST");
+
+  // Whose money may this person move? The charge's own branch decides, and one refusal refuses all.
+  const locations = await adminClinicDoc(clinicId, "settings", LOCATIONS_DOC).get();
+  const branches = parseClinicBranches(locations.exists ? locations.data() : null);
+  const live = (v: unknown) => (typeof v === "string" && branches.some((b) => b.id === v) ? v : null);
+  const branchOf = new Map<string, string | null>();
+  const checked = new Set<string>();
+  for (const r of wanted) {
+    const data = loaded.get(r.charge.id) as Record<string, unknown>;
+    const own = live(data.branchId);
+    if (own) {
+      if (!checked.has(own)) {
+        const verdict = await assertRowBranchAllowed({ clinicId, uid: actor.uid, role: actor.role, rowBranchId: own });
+        if (!verdict.ok) return verdict.response;
+        checked.add(own);
+      }
+      branchOf.set(r.charge.id, own);
+    } else if (branches.length === 0) {
+      branchOf.set(r.charge.id, null);
+    } else {
+      // Work from before branches, or from a branch since closed: the visit's, the patient's, the first.
+      const fallback = await assertBranchAllowed({
+        clinicId, uid: actor.uid, role: actor.role, branchId: undefined,
+        fallback: (bs) => automaticBranch(clinicId, bs, { ledgerId: r.charge.id, patientId: typeof data.patientId === "string" ? data.patientId : null }),
+      });
+      if (!fallback.ok) return fallback.response;
+      branchOf.set(r.charge.id, fallback.branchId);
+    }
+  }
+
+  const staff = await loadStaff(clinicId);
+
+  let result: { paid: number; count: number; receiptNumbers: string[]; written: Array<{ id: string; row: Record<string, unknown> }> };
+  try {
+    result = await adminDb().runTransaction(async (txn) => {
+      // ---- reads (a transaction takes all of them before its first write) ----
+      const fresh: Array<{ id: string; data: Record<string, unknown>; payments: Awaited<ReturnType<typeof readProcedurePayments>> }> = [];
+      for (const { charge } of wanted) {
+        const snap = await txn.get(adminClinicDoc(clinicId, "ledger", charge.id));
+        if (!snap.exists) continue;
+        fresh.push({ id: charge.id, data: snap.data() || {}, payments: await readProcedurePayments(txn, clinicId, charge.id) });
+      }
+      const rows: LedgerLite[] = [];
+      for (const f of fresh) {
+        rows.push({ id: f.id, ...f.data });
+        for (const p of f.payments) rows.push({ id: p.id, type: "payment", procedureId: f.id, paid: p.paid, amount: p.amount, method: p.method });
+      }
+      const todo = insurerRows(rows, payerId).filter((r) => r.collectable);
+      if (todo.length === 0) throw new NothingToCollectError();
+
+      const bases = new Map<string, Awaited<ReturnType<typeof readProcedureCommissionBasis>>>();
+      for (const t of todo) bases.set(t.charge.id, await readProcedureCommissionBasis(txn, clinicId, fresh.find((f) => f.id === t.charge.id)!.data));
+
+      const receiptSettings = normalizeReceiptSettings(
+        (await txn.get(adminClinicDoc(clinicId, "settings", RECEIPT_SETTINGS_DOC))).data() ?? null,
+      );
+      // One counter per branch, however many of its charges are in the batch.
+      const counters = new Map<string, { ref: FirebaseFirestore.DocumentReference; seq: number }>();
+      for (const t of todo) {
+        const branchId = branchOf.get(t.charge.id) ?? null;
+        const key = branchId ?? "";
+        if (counters.has(key)) continue;
+        const ref = adminClinicDoc(clinicId, "settings", receiptCounterDocId(branchId));
+        const snap = await txn.get(ref);
+        counters.set(key, { ref, seq: Number(snap.exists ? snap.data()?.last : 0) || 0 });
+      }
+
+      // ---- writes ----
+      const written: Array<{ id: string; row: Record<string, unknown> }> = [];
+      const lastNumber = new Map<string, string>();
+      let paid = 0;
+      for (const t of todo) {
+        const f = fresh.find((x) => x.id === t.charge.id)!;
+        const basis = bases.get(t.charge.id)!;
+        const branchId = branchOf.get(t.charge.id) ?? null;
+        const counter = counters.get(branchId ?? "")!;
+        counter.seq += 1;
+        const branch = branchId ? branches.find((b) => b.id === branchId) ?? null : null;
+        const receiptNumber = formatReceiptNumber(receiptSettings, counter.seq, date, receiptPrefixOrClinic(branch, branches));
+        lastNumber.set(branchId ?? "", receiptNumber);
+
+        const amount = t.outstanding;
+        const newRef = adminClinicCollection(clinicId, "ledger").doc();
+        const paymentsAfter = [...f.payments, { id: newRef.id, date, paid: amount, amount }];
+        const isFirst =
+          [...paymentsAfter].sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || a.id.localeCompare(b.id))[0]?.id === newRef.id;
+        const text = (v: unknown) => (typeof v === "string" ? v : null);
+        const procedure: ProcedureLite = {
+          id: f.id,
+          doctorId: text(f.data.doctorId),
+          doctorName: text(f.data.doctorName),
+          doctor: text(f.data.doctor),
+          labFee: Number(f.data.labFee) || 0,
+          description: text(f.data.description),
+          payerId: text(f.data.payerId),
+          payerName: text(f.data.payerName),
+        };
+        const row = buildPaymentRow({
+          patientId: String(f.data.patientId || ""),
+          patientName: text(f.data.patientName),
+          amount,
+          method: INSURER_PAYMENT_METHOD,
+          description: `Insurance payment from ${procedure.payerName || "the insurer"} for ${procedure.description || "treatment"}`,
+          date,
+          procedure,
+          appliedLabFee: isFirst ? Math.min(basis.labFee, amount) : 0,
+          staff,
+          actor: { uid: actor.uid, name: actor.name },
+        });
+        const stored = {
+          ...row,
+          ...(branchId ? { branchId } : {}),
+          receiptNumber,
+          receiptSeq: counter.seq,
+        };
+        txn.set(newRef, { ...stored, createdAt: FieldValue.serverTimestamp() });
+        applyProcedureSync(txn, {
+          clinicId,
+          procedureLedgerId: f.id,
+          payments: paymentsAfter,
+          labFee: basis.labFee,
+          commissionPct: basis.commissionPct,
+        });
+        txn.update(adminClinicDoc(clinicId, "ledger", f.id), { insurerPaidAt: date });
+        written.push({ id: newRef.id, row: stored });
+        paid += amount;
+      }
+      for (const [key, counter] of counters) {
+        txn.set(
+          counter.ref,
+          { last: counter.seq, lastReceiptNumber: lastNumber.get(key) ?? null, updatedAt: new Date().toISOString() },
+          { merge: true },
+        );
+      }
+      return { paid: money(paid), count: written.length, receiptNumbers: written.map((w) => String(w.row.receiptNumber)), written };
+    });
+  } catch (e) {
+    if (e instanceof NothingToCollectError) return nothingToCollect();
+    throw e;
+  }
+
+  await recordLedgerAuditBatch(
+    result.written.map((w) => ({
+      clinicId, action: "create" as const, collection: "ledger" as const, documentId: w.id, after: w.row, actor, via: "finance/ledger:insurer-collect",
+    })),
+  );
+  void logActivityServer({
+    clinicId,
+    user: actor,
+    action: "Insurance Payment Collected",
+    details: `${result.paid} EGP from ${payerId} across ${result.count} treatment${result.count === 1 ? "" : "s"}`,
+    severity: "MEDIUM",
+    module: "finance",
+  });
+  for (const w of result.written) void afterLedgerCreate(clinicId, w.row, actor);
+
+  return NextResponse.json({ ok: true, paid: result.paid, count: result.count, receiptNumbers: result.receiptNumbers });
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1103,6 +1337,7 @@ async function deleteRow(args: { clinicId: string; actor: Actor; body: Record<st
 const PERMISSION_BY_ACTION: Record<string, string> = {
   "create-payment": "finance.add",
   "create-entry": "finance.add",
+  "insurer-collect": "finance.add",
   update: "finance.edit",
   "set-commission": "finance.edit",
   // Correcting a lab fee moves money between the dentist and the clinic on every payment already
@@ -1146,6 +1381,8 @@ export async function POST(request: Request) {
         return await createPayment({ clinicId, actor, body });
       case "create-entry":
         return await createEntry({ clinicId, actor, body });
+      case "insurer-collect":
+        return await insurerCollect({ clinicId, actor, body });
       case "update":
         return await updateRow({ clinicId, actor, body });
       case "set-commission":

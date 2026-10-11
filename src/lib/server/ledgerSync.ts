@@ -31,6 +31,8 @@ export type PaymentRowLite = {
   doctorCommissionPercentage?: number | null;
   /** Who the payment names before this write: a dentist change re-stamps the settlements of both. */
   doctorId?: string | null;
+  /** How it was paid; "Insurance" marks the insurer's own money. */
+  method?: string | null;
 };
 
 /**
@@ -62,6 +64,7 @@ export async function readProcedurePayments(
       doctorCommissionPercentage:
         typeof data.doctorCommissionPercentage === "number" ? data.doctorCommissionPercentage : null,
       doctorId: typeof data.doctorId === "string" && data.doctorId.trim() ? data.doctorId.trim() : null,
+      method: typeof data.method === "string" ? data.method : null,
     };
   });
 }

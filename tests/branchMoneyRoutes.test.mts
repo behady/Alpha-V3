@@ -395,6 +395,105 @@ console.log("an insurance approval belongs to a branch");
   check("no claim was written", !(await claims.doc("metlife_d7100002").get()).exists);
 }
 
+console.log("collecting what an insurance company owes");
+{
+  const rl = receiptsClinic.collection("ledger");
+  const patients = receiptsClinic.collection("patients");
+  await patients.doc("GP1").set({ name: "Gasco Patient One" });
+  await patients.doc("GP2").set({ name: "Gasco Patient Two" });
+  const charge = (id: string, extra: Json) =>
+    rl.doc(id).set({ type: "procedure", patientId: "GP1", patientName: "Gasco Patient One", description: "Crown", payerId: "gasco", payerName: "GASCO", cost: 1000, amount: 1000, paid: 0, doctorId: "omar", doctorName: "Dr Omar Test", date: "2026-10-05", ...extra });
+  const cashOn = (id: string, procedureId: string, amount: number, extra: Json = {}) =>
+    rl.doc(id).set({ type: "payment", patientId: "GP1", procedureId, paid: amount, amount, cost: 0, method: "Cash", payerId: "gasco", payerName: "GASCO", date: "2026-10-05", ...extra });
+  const collect = (uid: string, chargeIds: string[], extra: Json = {}) =>
+    money(uid, { action: "insurer-collect", payerId: "gasco", chargeIds, ...extra }, RECEIPTS_CLINIC);
+  const last = async (branch: string) => Number((await receiptsClinic.collection("settings").doc(`receipt_counter_${branch}`).get()).data()?.last ?? 0);
+  const num4 = (n: number) => String(n).padStart(4, "0");
+  const insurerPayments = async (procedureId: string) =>
+    (await rl.where("procedureId", "==", procedureId).where("type", "==", "payment").where("method", "==", "Insurance").get()).docs.map((d) => ({ id: d.id, ...d.data() })) as Json[];
+
+  // G1: 1000 at Heliopolis, 400 already paid in cash by the patient. G2: 500 at Tagamoa, nothing paid.
+  await charge("G1", { branchId: "hel", paid: 400 });
+  await cashOn("G1-cash", "G1", 400, { branchId: "hel" });
+  await charge("G2", { branchId: "tag", cost: 500, amount: 500, patientId: "GP2", patientName: "Gasco Patient Two" });
+  const helBefore = await last("hel");
+  const tagBefore = await last("tag");
+
+  const first = await collect(ADMIN, ["G1", "G2"]);
+  check("admin collecting two Gasco charges is a 200 with the totals", first.status === 200 && first.json.ok === true && first.json.count === 2 && first.json.paid === 1100, first);
+  const g1 = await insurerPayments("G1");
+  const g2 = await insurerPayments("G2");
+  check("G1 got one Insurance payment for what was left: 600, not the full 1000", g1.length === 1 && g1[0].paid === 600 && g1[0].amount === 600, g1);
+  check("G2 got one Insurance payment of 500", g2.length === 1 && g2[0].paid === 500, g2);
+  check("each payment names the company and the dentist", g1[0]?.payerId === "gasco" && g1[0]?.payerName === "GASCO" && g1[0]?.doctorId === "omar" && g2[0]?.payerId === "gasco", [g1[0], g2[0]]);
+  check("each payment follows its charge's branch", g1[0]?.branchId === "hel" && g2[0]?.branchId === "tag", [g1[0]?.branchId, g2[0]?.branchId]);
+  check("receipts are numbered from each charge's own branch counter", g1[0]?.receiptNumber === `HEL-${num4(helBefore + 1)}` && g2[0]?.receiptNumber === `TAG-${num4(tagBefore + 1)}`, [g1[0]?.receiptNumber, g2[0]?.receiptNumber]);
+  check("the response lists both receipt numbers", Array.isArray(first.json.receiptNumbers) && first.json.receiptNumbers.length === 2 && first.json.receiptNumbers.includes(g1[0]?.receiptNumber) && first.json.receiptNumbers.includes(g2[0]?.receiptNumber), first.json);
+  check("the company's money carries the dentist's rate for that payer, like any payment on the treatment", g1[0]?.doctorCommissionPercentage === 40 && g2[0]?.doctorCommissionPercentage === 40, [g1[0]?.doctorCommissionPercentage, g2[0]?.doctorCommissionPercentage]);
+  check("each counter advanced by exactly one", (await last("hel")) === helBefore + 1 && (await last("tag")) === tagBefore + 1);
+  const g1After = await row("G1", rl);
+  const g2After = await row("G2", rl);
+  check("both charges are now paid in full", g1After?.paid === 1000 && g2After?.paid === 500, [g1After?.paid, g2After?.paid]);
+  check("the charges are stamped with the day the company paid", typeof g1After?.insurerPaidAt === "string" && typeof g2After?.insurerPaidAt === "string", [g1After?.insurerPaidAt, g2After?.insurerPaidAt]);
+  check("the patient's own cash payment is untouched", (await row("G1-cash", rl))?.paid === 400 && (await row("G1-cash", rl))?.method === "Cash");
+
+  const again = await collect(ADMIN, ["G1", "G2"]);
+  check("the same call again is a 409 NOTHING_TO_DO", again.status === 409 && again.json.reason === "NOTHING_TO_DO", again);
+  check("nothing was paid twice", (await insurerPayments("G1")).length === 1 && (await insurerPayments("G2")).length === 1 && (await row("G1", rl))?.paid === 1000);
+  check("no receipt number was spent on the refusal", (await last("hel")) === helBefore + 1 && (await last("tag")) === tagBefore + 1);
+
+  // Two charges at one branch in one batch take consecutive numbers from that branch's one counter.
+  await charge("G7", { branchId: "hel", cost: 200, amount: 200 });
+  await charge("G8", { branchId: "hel", cost: 300, amount: 300 });
+  const pair = await collect(ADMIN, ["G7", "G8"]);
+  const numbers = (pair.json.receiptNumbers as string[] | undefined) ?? [];
+  check("two Heliopolis charges in one batch are numbered one after the other", pair.status === 200 && numbers.length === 2 && numbers.includes(`HEL-${num4(helBefore + 2)}`) && numbers.includes(`HEL-${num4(helBefore + 3)}`), pair);
+  check("and the counter ends on the second", (await last("hel")) === helBefore + 3);
+
+  // A row that came from an approval is collected on the Insurance page, so the batch skips it.
+  await charge("G3", { branchId: "hel", claimId: "gasco_a1", cost: 800, amount: 800 });
+  await charge("G4", { branchId: "hel", cost: 250, amount: 250 });
+  const skipped = await collect(ADMIN, ["G3", "G4"]);
+  check("an approval row in the list is skipped: the count is 1", skipped.status === 200 && skipped.json.count === 1 && skipped.json.paid === 250, skipped);
+  check("the approval row was not touched", (await insurerPayments("G3")).length === 0 && (await row("G3", rl))?.paid === 0);
+  const onlyClaim = await collect(ADMIN, ["G3"]);
+  check("a list of only approval rows is a 409 NOTHING_TO_DO", onlyClaim.status === 409 && onlyClaim.json.reason === "NOTHING_TO_DO", onlyClaim);
+
+  // desk-4 works at Heliopolis only. One Tagamoa charge in the batch refuses the whole batch.
+  await charge("G5", { branchId: "tag", cost: 400, amount: 400 });
+  await charge("G6", { branchId: "hel", cost: 100, amount: 100 });
+  const tagBeforeRefusal = await last("tag");
+  const helBeforeRefusal = await last("hel");
+  const refusedMixed = await collect(DESK_4, ["G6", "G5"]);
+  check("desk-4 (Heliopolis only) collecting a batch with a Tagamoa charge is a 403 branch_forbidden", refusedMixed.status === 403 && refusedMixed.json.code === "branch_forbidden", refusedMixed);
+  check("nothing was written, not even for her own branch's charge", (await insurerPayments("G5")).length === 0 && (await insurerPayments("G6")).length === 0 && (await row("G6", rl))?.paid === 0 && (await last("hel")) === helBeforeRefusal && (await last("tag")) === tagBeforeRefusal);
+  const own = await collect(DESK_4, ["G6"]);
+  check("desk-4 collecting her own Heliopolis charge is a 200", own.status === 200 && own.json.count === 1 && own.json.paid === 100, own);
+
+  // The payer in the request must be the charge's payer.
+  await charge("G9", { branchId: "hel", payerId: "axa", payerName: "AXA", cost: 90, amount: 90 });
+  const wrongPayer = await collect(ADMIN, ["G9"]);
+  check("a charge that belongs to another company is a 400", wrongPayer.status === 400, wrongPayer);
+  check("and was not paid", (await insurerPayments("G9")).length === 0 && (await row("G9", rl))?.paid === 0);
+  const missing = await collect(ADMIN, ["no-such-charge"]);
+  check("a charge id that does not exist is a 404", missing.status === 404, missing);
+  const none = await collect(ADMIN, []);
+  check("an empty list is a 400", none.status === 400, none);
+
+  // Work from before branches takes the clinic's first branch, as a payment on it would.
+  await charge("G10", { cost: 120, amount: 120 });
+  const old = await collect(ADMIN, ["G10"]);
+  const oldPayment = (await insurerPayments("G10"))[0];
+  check("a charge with no branch is collected on the first branch (Heliopolis)", old.status === 200 && oldPayment?.branchId === "hel" && /^HEL-\d{4}$/.test(String(oldPayment?.receiptNumber)), [old, oldPayment?.branchId, oldPayment?.receiptNumber]);
+
+  // Two people pressing the button together pay a row once.
+  await charge("G11", { branchId: "tag", cost: 640, amount: 640 });
+  const raced = await Promise.all([collect(ADMIN, ["G11"]), collect(ADMIN, ["G11"])]);
+  const statuses = raced.map((r) => r.status).sort();
+  check("two simultaneous collects of one row: one 200, one 409", statuses[0] === 200 && statuses[1] === 409, raced);
+  check("the row was paid exactly once", (await insurerPayments("G11")).length === 1 && (await row("G11", rl))?.paid === 640);
+}
+
 for (const c of [clinic, plainClinic, thirdClinic, receiptsClinic]) await db.recursiveDelete(c);
 authServer.close();
 console.log(`\n${passed} passed, ${failed} failed`);
