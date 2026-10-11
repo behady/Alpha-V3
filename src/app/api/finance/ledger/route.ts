@@ -51,7 +51,7 @@ import { allowedDiscount, checkDiscountAllowed, isDiscountMode } from "@/lib/dis
 import { afterLedgerCreate, afterLedgerDelete, afterLedgerUpdate } from "@/lib/alerts/moneyAlerts";
 import { DISCOUNTS_DOC, parseDiscountSettings } from "@/lib/priceLists";
 import { isApprovalRow } from "@/lib/ledgerInsurer";
-import { assertBranchAllowed } from "@/lib/server/branchAccess";
+import { assertBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
 import {
   RECEIPT_COUNTER_DOC,
   RECEIPT_SETTINGS_DOC,
@@ -218,7 +218,11 @@ async function createPayment(args: {
   const date = /^\d{4}-\d{2}-\d{2}$/.test(String(body.date || "")) ? String(body.date) : todayKey();
 
   // The payment belongs to the branch on screen, even when the charge it settles was made at another.
-  const branch = await assertBranchAllowed({ clinicId, uid: actor.uid, role: actor.role, branchId: body.branchId });
+  // The phone sends no branch: then the settled charge's own, its visit's, the patient's, the first.
+  const branch = await assertBranchAllowed({
+    clinicId, uid: actor.uid, role: actor.role, branchId: body.branchId,
+    fallback: (branches) => automaticBranch(clinicId, branches, { ledgerId: procedureId || null, patientId }),
+  });
   if (!branch.ok) return branch.response;
 
   const staff = await loadStaff(clinicId);
@@ -377,7 +381,11 @@ async function createEntry(args: { clinicId: string; actor: Actor; body: Record<
   const type = body.type === "income" ? "income" : body.type === "expense" ? "expense" : null;
   if (!type) return bad("An entry must be income or expense.");
 
-  const branch = await assertBranchAllowed({ clinicId, uid: actor.uid, role: actor.role, branchId: body.branchId });
+  // The phone sends no branch: then the clinic's first.
+  const branch = await assertBranchAllowed({
+    clinicId, uid: actor.uid, role: actor.role, branchId: body.branchId,
+    fallback: (branches) => automaticBranch(clinicId, branches, {}),
+  });
   if (!branch.ok) return branch.response;
 
   let row: Record<string, unknown>;

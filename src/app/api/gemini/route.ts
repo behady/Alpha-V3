@@ -14,9 +14,7 @@ import { DIAGNOSIS_OPTIONS } from "@/lib/diagnosisCatalog";
 import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
-import { assertBranchAllowed } from "@/lib/server/branchAccess";
-import { branchForAutomaticRow } from "@/lib/branchAccess";
-import { LOCATIONS_DOC, parseClinicBranches } from "@/lib/clinicLocations";
+import { assertBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
 import { SCREEN_MAP } from "@/lib/screenMap";
 import { buildTourInstruction } from "@/lib/tourPrompt";
 import { logAiAction } from "@/lib/serverLogger";
@@ -1335,16 +1333,7 @@ export async function POST(req: Request) {
                delete data.branchId;
                const check = await assertBranchAllowed({
                  clinicId, uid: userId, role: authz.role, branchId: body.branchId,
-                 fallback: async () => {
-                   const [locations, patientSnap] = await Promise.all([
-                     adminClinicDoc(clinicId, "settings", LOCATIONS_DOC).get(),
-                     typeof data.patientId === "string" && data.patientId ? adminClinicDoc(clinicId, "patients", data.patientId).get() : null,
-                   ]);
-                   return branchForAutomaticRow({
-                     patient: patientSnap?.exists ? patientSnap.data() : null,
-                     branches: parseClinicBranches(locations.exists ? locations.data() : null),
-                   });
-                 },
+                 fallback: (branches) => automaticBranch(clinicId, branches, { patientId: typeof data.patientId === "string" ? data.patientId : null }),
                });
                if (!check.ok) {
                  const refusal = (await check.response.json().catch(() => null)) as { error?: string } | null;
@@ -1390,6 +1379,13 @@ export async function POST(req: Request) {
              // the log records that a price or a dose changed but not what it changed from.
              const updateRef = adminClinicDoc(clinicId, col, id);
              const priorSnap = await updateRef.get();
+             // A merge on an id that does not exist would create a ledger row nobody stamped a branch on.
+             if (col === "ledger" && !priorSnap.exists) {
+               functionResponses.push({
+                 functionResponse: { name: call.name, response: { success: false, error: `No document ${id} in ledger.` } },
+               });
+               continue;
+             }
 
              await updateRef.set({
                ...data,

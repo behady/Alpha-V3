@@ -48,9 +48,7 @@ import { isApprovalRow } from "@/lib/ledgerInsurer";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { CLAIMS_COLLECTION, applyDentistPicks, dentistRowPatch, isLineStatus, parseClaim } from "@/lib/insurance/claims";
 import { MAX_NOTE_PHOTOS, acceptNotePhoto, parseNotePhotos } from "@/lib/notePhotos";
-import { assertBranchAllowed } from "@/lib/server/branchAccess";
-import { branchForAutomaticRow } from "@/lib/branchAccess";
-import { LOCATIONS_DOC, parseClinicBranches } from "@/lib/clinicLocations";
+import { assertBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,26 +64,6 @@ function bad(error: string, status = 400) {
 
 function todayKey(): string {
   return new Date().toISOString().split("T")[0];
-}
-
-/**
- * The branch for a charge nobody picked a branch for (a call that sent none): the visit's, else the
- * patient's, else the clinic's first. Only read when the body names no branch, so a screen that
- * sends one pays for no extra reads.
- */
-function visitBranchFallback(clinicId: string, ids: { appointmentId: string | null; patientId: string }) {
-  return async (): Promise<string | null> => {
-    const [locations, appointment, patient] = await Promise.all([
-      adminClinicDoc(clinicId, "settings", LOCATIONS_DOC).get(),
-      ids.appointmentId ? adminClinicDoc(clinicId, "appointments", ids.appointmentId).get() : null,
-      ids.patientId ? adminClinicDoc(clinicId, "patients", ids.patientId).get() : null,
-    ]);
-    return branchForAutomaticRow({
-      appointment: appointment?.exists ? appointment.data() : null,
-      patient: patient?.exists ? patient.data() : null,
-      branches: parseClinicBranches(locations.exists ? locations.data() : null),
-    });
-  };
 }
 
 function asStringArray(value: unknown): string[] {
@@ -418,7 +396,7 @@ async function createProcedure(args: { clinicId: string; actor: Actor; body: Rec
   // The charge belongs to the branch on screen; the clinical note itself is not stamped.
   const branch = await assertBranchAllowed({
     clinicId, uid: actor.uid, role: actor.role, branchId: body.branchId,
-    fallback: visitBranchFallback(clinicId, { appointmentId, patientId }),
+    fallback: (branches) => automaticBranch(clinicId, branches, { appointmentId, patientId }),
   });
   if (!branch.ok) return branch.response;
 
@@ -677,7 +655,7 @@ async function updateProcedure(args: { clinicId: string; actor: Actor; body: Rec
   // already exists keeps the branch it was stamped with (ledgerFields carries no branchId).
   const branch = await assertBranchAllowed({
     clinicId, uid: actor.uid, role: actor.role, branchId: body.branchId,
-    fallback: visitBranchFallback(clinicId, {
+    fallback: (branches) => automaticBranch(clinicId, branches, {
       appointmentId: typeof current.data()?.appointmentId === "string" ? (current.data()?.appointmentId as string) : null,
       patientId: String(current.data()?.patientId || ""),
     }),

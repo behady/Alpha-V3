@@ -8,9 +8,7 @@ import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import { findPayer, isInsurerFormat, parsePayers, PRIVATE_PAYER_ID, type CommissionRates } from "@/lib/payers";
 import { isFullAccessRole } from "@/lib/permissions";
-import { assertBranchAllowed } from "@/lib/server/branchAccess";
-import { branchForAutomaticRow } from "@/lib/branchAccess";
-import { LOCATIONS_DOC, parseClinicBranches } from "@/lib/clinicLocations";
+import { assertBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
 import { buildManualEntryRow, buildPaymentRow, sumPayments } from "@/lib/ledgerWrite";
 import { RECEIPT_COUNTER_DOC, RECEIPT_SETTINGS_DOC, formatReceiptNumber, normalizeReceiptSettings } from "@/lib/receiptSettings";
 import { applyProcedureSync, readProcedurePayments, stampPaymentsDentist, type PaymentRowLite } from "@/lib/server/ledgerSync";
@@ -137,25 +135,6 @@ function rowWording(stored: unknown, posted: Record<string, string>): Record<str
 }
 
 type Charge = { id: string; row: Record<string, unknown> };
-
-/**
- * The branch for money nobody chose a branch for (a call that sent none): the patient's, else the
- * clinic's first. Read only when the body names no branch. `patientId` is a function because the
- * PATCH does not know the claim's patient until it has read the claim.
- */
-function patientBranchFallback(clinicId: string, patientId: () => Promise<string>) {
-  return async (): Promise<string | null> => {
-    const id = await patientId();
-    const [locations, patient] = await Promise.all([
-      adminClinicDoc(clinicId, "settings", LOCATIONS_DOC).get(),
-      id ? adminClinicDoc(clinicId, "patients", id).get() : null,
-    ]);
-    return branchForAutomaticRow({
-      patient: patient?.exists ? patient.data() : null,
-      branches: parseClinicBranches(locations.exists ? locations.data() : null),
-    });
-  };
-}
 
 /**
  * The treatments themselves, as the patient's file records any other work: one clinical note and
@@ -336,7 +315,7 @@ export async function POST(req: Request) {
     // --- the branch the treatment charges belong to, resolved once --------------------------
     const branch = await assertBranchAllowed({
       clinicId, uid: authz.uid, role: authz.role, branchId: body.branchId,
-      fallback: patientBranchFallback(clinicId, async () => existingId),
+      fallback: (branches) => automaticBranch(clinicId, branches, { patientId: existingId }),
     });
     if (!branch.ok) return branch.response;
 
@@ -705,10 +684,20 @@ export async function PATCH(req: Request) {
     // other edit (a dentist pick, a line state, the treated date) never touches the branch check,
     // so someone on "All branches" can still edit a claim. The patient's share is cash taken at a
     // screen, so it must name the branch on screen; anything else falls back to the patient's
-    // branch when the call sent none (the insurer's money, a status change's charges).
+    // branch, then the clinic's first, when the call sent none (the insurer's money, a status
+    // change's charges). No linked-visit tier: insurance money never queries appointments.
+    let preData: DocumentData | undefined;
+    let preLoaded = false;
+    const loadPre = async () => {
+      if (!preLoaded) {
+        preData = (await claimRef.get()).data();
+        preLoaded = true;
+      }
+      return preData;
+    };
     let writesMoney = paying;
     if (!writesMoney && (status !== undefined || rawLines !== undefined || rawMetlife !== undefined || newPatientId)) {
-      const pre = parseClaim(claimId, (await claimRef.get()).data());
+      const pre = parseClaim(claimId, await loadPre());
       if (pre) {
         const hasRows = Object.keys(pre.ledgerIds).length > 0;
         const rebuilds = hasRows && (rawLines !== undefined || rawMetlife !== undefined || !!newPatientId);
@@ -721,7 +710,7 @@ export async function PATCH(req: Request) {
         clinicId, uid: authz.uid, role: authz.role, branchId: body.branchId,
         fallback: collectShare
           ? undefined
-          : patientBranchFallback(clinicId, async () => newPatientId || String((await claimRef.get()).get("patientId") || "")),
+          : async (branches) => automaticBranch(clinicId, branches, { patientId: newPatientId || String((await loadPre())?.patientId || "") }),
       });
       if (!branch.ok) return branch.response;
       branchId = branch.branchId;
