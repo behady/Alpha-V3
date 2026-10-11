@@ -51,6 +51,8 @@ import { CLAIMS_COLLECTION, parseClaim, type InsuranceClaim } from "@/lib/insura
 import { useWording } from "@/components/insurance/useWording";
 import { presetOf, rangeFor, rangeText, getFirstDay, getToday, type DateRange, type RangePreset } from "@/lib/reportHelpers";
 import { isDentistStaff } from "@/lib/staffRoles";
+import { useActiveBranch } from "@/lib/useActiveBranch";
+import { settingsText } from "@/config/settingsText";
 import TeamList, { type RailPerson } from "./TeamList";
 import StaffProfile, { type PayDraft, type ProfileStaff, type RateRow, type SettlementView } from "./StaffProfile";
 import { parseTab, type ProfileTab } from "./profileKit";
@@ -74,6 +76,7 @@ function TeamPage() {
   const router = useRouter();
   const params = useSearchParams();
   const isAr = language === "ar";
+  const { branches } = useActiveBranch();
 
   /**
    * Who may look at the team, character for character the same test the attendance screen makes.
@@ -328,6 +331,7 @@ function TeamPage() {
       overtimeMultiplier: Number(d.overtimeMultiplier) || 1.5,
       registeredDeviceId: typeof d.registeredDeviceId === "string" ? d.registeredDeviceId : null,
       permissions: Array.isArray(d.permissions) ? (d.permissions as string[]) : [],
+      branchIds: Array.isArray(d.branchIds) ? (d.branchIds as string[]) : undefined,
     };
   }, [selectedDoc, isAr]);
 
@@ -380,6 +384,26 @@ function TeamPage() {
         showToast(isAr ? "النسبة اتحفظت" : "Rate saved", "success");
       } catch {
         showToast(isAr ? "مقدرناش نحفظ النسبة" : "Could not save that rate", "error");
+      }
+    },
+    [selectedDoc, canEdit, user, showToast, isAr],
+  );
+
+  const saveBranchIds = useCallback(
+    async (ids: string[] | null) => {
+      if (!selectedDoc || !canEdit) return;
+      const bt = settingsText("teamBranches", isAr ? "ar" : "en");
+      try {
+        // All ticked = the field goes away (absent means every branch); never undefined.
+        await updateDoc(getClinicDoc("staff", selectedDoc.id), { branchIds: ids ?? deleteField() });
+        await logActivity(
+          { uid: user?.uid, name: user?.name, role: user?.role },
+          "Staff Updated",
+          `${String(selectedDoc.name ?? "")}: branches ${ids === null ? "set to all" : ids.join(", ")}`,
+        );
+        showToast(bt.branchesSaved, "success");
+      } catch {
+        showToast(bt.branchesFailed, "error");
       }
     },
     [selectedDoc, canEdit, user, showToast, isAr],
@@ -718,6 +742,8 @@ function TeamPage() {
                   onDeleteSettlement={removeSettlement}
                   rateRows={rateRows}
                   onSetRate={setRate}
+                  branches={branches}
+                  onSaveBranchIds={saveBranchIds}
                 />
               </div>
             )}

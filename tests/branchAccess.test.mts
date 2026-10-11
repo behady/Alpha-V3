@@ -45,4 +45,8 @@ assert.deepEqual(withBranch({ branchId: "" }, ""), {});
 assert.deepEqual(withBranch({ branchId: null }, ""), {});
 assert.equal("branchId" in withBranch({ branchId: "" }, ""), false, "no empty key");
 
+// Task 10: the Team page carries the branches tick-list.
+const settingsTab = readFileSync(new URL("../src/app/(dashboard)/team/SettingsTab.tsx", import.meta.url), "utf8");
+assert.match(settingsTab, /branchIds/, "the Team page lost the branches tick-list");
+
 console.log("branchAccess: all checks passed");

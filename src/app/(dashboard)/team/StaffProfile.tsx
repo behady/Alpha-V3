@@ -7,6 +7,7 @@ import type { PunchRecord } from "@/lib/automation/briefing/data";
 import { shiftOvertimeMinutes } from "@/lib/automation/briefing/hr";
 import { hoursText, type Schedule } from "@/lib/hrClient";
 import { formatStaffRoleLabel, isDentistStaff } from "@/lib/staffRoles";
+import type { ClinicBranch } from "@/lib/clinicLocations";
 import type { StaffCommission } from "@/lib/staffCommission";
 import type { StaffInsuranceWork } from "@/lib/staffInsurance";
 import type { StaffSettlementDraft } from "@/lib/moneyApi";
@@ -60,6 +61,8 @@ export default function StaffProfile({
   onDeleteSettlement,
   rateRows,
   onSetRate,
+  branches,
+  onSaveBranchIds,
 }: {
   staff: ProfileStaff;
   row: HrStaffRow | null;
@@ -92,6 +95,10 @@ export default function StaffProfile({
   rateRows: RateRow[];
   /** Set (or with null, clear) this dentist's own rate on one company or list. */
   onSetRate: (row: RateRow, value: number | null) => void;
+  /** Every branch the clinic has (empty: no Branches section). */
+  branches: readonly ClinicBranch[];
+  /** Save the branches this person may work in; null = every branch. */
+  onSaveBranchIds: (ids: string[] | null) => void | Promise<void>;
 }) {
   const dentist = isDentistStaff(staff);
   const first = shortName(staff.name);
@@ -377,6 +384,8 @@ export default function StaffProfile({
             onUnlinkDevice={onUnlinkDevice}
             rateRows={rateRows}
             onSetRate={onSetRate}
+            branches={branches}
+            onSaveBranchIds={onSaveBranchIds}
           />
         )}
       </div>

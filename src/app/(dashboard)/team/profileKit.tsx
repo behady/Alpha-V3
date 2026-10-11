@@ -33,6 +33,8 @@ export type ProfileStaff = {
   overtimeMultiplier: number;
   registeredDeviceId?: string | null;
   permissions?: string[];
+  /** Branches this person may work in; absent = every branch. */
+  branchIds?: string[];
 };
 
 /**

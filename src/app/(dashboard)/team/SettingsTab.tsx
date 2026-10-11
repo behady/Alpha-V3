@@ -5,6 +5,11 @@ import Link from "next/link";
 import { AlertTriangle, Edit2, ExternalLink, Save, ShieldCheck, Smartphone } from "lucide-react";
 import { hoursText, weeklyMinutes, type Schedule } from "@/lib/hrClient";
 import { formatStaffRoleLabel } from "@/lib/staffRoles";
+import { allowedBranches } from "@/lib/branchAccess";
+import { isFullAccessRole } from "@/lib/permissions";
+import { useUI } from "@/context/UIContext";
+import { settingsText } from "@/config/settingsText";
+import type { ClinicBranch } from "@/lib/clinicLocations";
 import { btnGhost, btnDark, DAYS_AR, DAYS_EN, fieldInput, fieldLabel, money, Section, Stat, type PayDraft, type ProfileStaff, type RateRow } from "./profileKit";
 
 /** The settings that produce every figure on the other tabs: shifts, pay, the linked phone, access. */
@@ -20,6 +25,8 @@ export default function SettingsTab({
   onUnlinkDevice,
   rateRows,
   onSetRate,
+  branches,
+  onSaveBranchIds,
 }: {
   staff: ProfileStaff;
   dentist: boolean;
@@ -34,10 +41,28 @@ export default function SettingsTab({
   rateRows: RateRow[];
   /** Set (or with null, clear) this dentist's own rate on one company or list. */
   onSetRate: (row: RateRow, value: number | null) => void;
+  /** Every branch the clinic has. Empty = the clinic has none, and the Branches section is hidden. */
+  branches: readonly ClinicBranch[];
+  /** Save the branches this person may work in; null = every branch (the field is removed). */
+  onSaveBranchIds: (ids: string[] | null) => void | Promise<void>;
 }) {
+  const { showToast } = useUI();
   const [payOpen, setPayOpen] = useState(false);
   const [draft, setDraft] = useState<PayDraft | null>(null);
   const days = isAr ? DAYS_AR : DAYS_EN;
+  const bt = settingsText("teamBranches", isAr ? "ar" : "en");
+  const staffIsAdmin = isFullAccessRole(staff.role);
+  // The branches this person effectively has: no tick, or only ticks for branches since deleted,
+  // means every branch — so the boxes show what is true, not the raw stored list.
+  const ticked = new Set(allowedBranches(branches, { branchIds: staff.branchIds }, false).map((b) => b.id));
+  const toggleBranch = (id: string) => {
+    const next = branches.filter((b) => (b.id === id ? !ticked.has(id) : ticked.has(b.id))).map((b) => b.id);
+    if (next.length === 0) {
+      showToast(bt.branchesNone, "error");
+      return;
+    }
+    void onSaveBranchIds(next.length === branches.length ? null : next);
+  };
 
   const openPay = () => {
     setDraft({
@@ -284,6 +309,35 @@ export default function SettingsTab({
               </li>
             ))}
           </ul>
+        </Section>
+      )}
+
+      {/* --- which branches they may work in --------------------------------------------------- */}
+      {branches.length > 0 && (
+        <Section
+          title={bt.branchesLabel}
+          note={staffIsAdmin ? bt.branchesAdminNote : bt.branchesHint}
+        >
+          {staffIsAdmin ? (
+            <p className="text-[15px] font-semibold text-ink">{bt.branchesAll}</p>
+          ) : (
+            <ul className="space-y-2">
+              {branches.map((b) => (
+                <li key={b.id}>
+                  <label className={`flex items-center gap-3 rounded-2xl border border-line px-4 py-3 ${canEdit ? "cursor-pointer" : ""}`}>
+                    <input
+                      type="checkbox"
+                      checked={ticked.has(b.id)}
+                      disabled={!canEdit}
+                      onChange={() => toggleBranch(b.id)}
+                      className="size-5 cursor-pointer accent-[#111318]"
+                    />
+                    <span className="text-[16px] font-bold text-ink">{b.name}</span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          )}
         </Section>
       )}
 

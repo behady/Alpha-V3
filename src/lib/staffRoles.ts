@@ -4,6 +4,8 @@ import { isFullAccessRole } from "@/lib/permissions";
 export type StaffRoleFields = {
   role?: string;
   isDentist?: boolean;
+  /** Branches this person may work in; absent = every branch. */
+  branchIds?: string[];
 };
 
 /** True if this person should appear in dentist pickers and provider lists */

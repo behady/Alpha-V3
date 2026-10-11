@@ -940,6 +940,15 @@ export const SETTINGS_TEXT = {
     transferred: { en: "Clinic ownership transferred", ar: "تم نقل ملكية العيادة" },
     dentistFlagUpdated: { en: "Dentist setting updated", ar: "تم تحديث إعداد الطبيب" },
   },
+  teamBranches: {
+    branchesLabel: { en: "Branches", ar: "الفروع" },
+    branchesAll: { en: "All branches", ar: "كل الفروع" },
+    branchesAdminNote: { en: "Owners and admins always see every branch.", ar: "المالك والمشرفون بيشوفوا كل الفروع دايمًا." },
+    branchesHint: { en: "Untick a branch and this person can't see, book or take money there.", ar: "شيل علامة من فرع وما يقدرش يشوفه ولا يحجز ولا يقبض فيه." },
+    branchesNone: { en: "Pick at least one branch", ar: "اختار فرع واحد على الأقل" },
+    branchesSaved: { en: "Branches saved", ar: "الفروع اتحفظت" },
+    branchesFailed: { en: "Could not save the branches", ar: "مقدرناش نحفظ الفروع" },
+  },
   users: {
     close: { en: "Close", ar: "إغلاق" },
     alsoDentist: { en: "Also works as dentist (shows in doctor lists & appointments)", ar: "يعمل أيضاً كطبيب (يظهر في قوائم الأطباء والمواعيد)" },
