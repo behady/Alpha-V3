@@ -33,6 +33,13 @@ const figures = Montserrat({
 export const metadata: Metadata = {
   title: "Dental Clinic System",
   description: "Advanced Dental Management",
+  // The name under the icon and the full-screen launch when an iPhone adds the site to its home
+  // screen. The icon itself is app/apple-icon.png; Android reads app/manifest.ts instead.
+  appleWebApp: {
+    capable: true,
+    title: "Alpha Dental",
+    statusBarStyle: "default",
+  },
 };
 
 export default function RootLayout({
