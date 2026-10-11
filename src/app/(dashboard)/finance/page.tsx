@@ -98,7 +98,21 @@ export default function FinancePage() {
    * the approval's line (share, paid, deducted), not on the insurer's payment row, so the ledger
    * alone would show it as nothing owed.
    */
-  const [insurancePending, setInsurancePending] = useState(0);
+  const [periodClaims, setPeriodClaims] = useState<InsuranceClaim[]>([]);
+  // Follows the branch on screen like the private figure beside it (the claim list that NAMES rows
+  // below stays clinic-wide, since a row's approval is looked up by id).
+  const insurancePending = useMemo(() => {
+    let total = 0;
+    for (const claim of periodClaims) {
+      if (!rowInScope(claim, scopeBranchId)) continue;
+      if (!countsForPayroll(claim)) continue;
+      for (const [k, d] of Object.entries(claim.dentists)) {
+        if (lineStatusOf(claim, Number(k)) !== "Completed") continue;
+        total += Math.max(0, d.share - (d.paid ?? 0) - (d.deducted ?? 0));
+      }
+    }
+    return Math.round(total * 100) / 100;
+  }, [periodClaims, scopeBranchId]);
   /** The approvals the listed insurance payments belong to, so a row can name its dentist and share. */
   const [claimsById, setClaimsById] = useState<Map<string, InsuranceClaim>>(new Map());
   const [filterType, setFilterType] = useState<'all' | 'income' | 'expense'>('all');
@@ -229,18 +243,9 @@ export default function FinancePage() {
     const unsubClaims = onSnapshot(
       query(getClinicCollection(CLAIMS_COLLECTION), where("treatedDate", ">=", startDateStr), where("treatedDate", "<=", endDateStr)),
       (snap) => {
-        const claims = snap.docs.map((d) => parseClaim(d.id, d.data())).filter((c): c is InsuranceClaim => c !== null);
-        let total = 0;
-        for (const claim of claims) {
-          if (!countsForPayroll(claim)) continue;
-          for (const [k, d] of Object.entries(claim.dentists)) {
-            if (lineStatusOf(claim, Number(k)) !== "Completed") continue;
-            total += Math.max(0, d.share - (d.paid ?? 0) - (d.deducted ?? 0));
-          }
-        }
-        setInsurancePending(Math.round(total * 100) / 100);
+        setPeriodClaims(snap.docs.map((d) => parseClaim(d.id, d.data())).filter((c): c is InsuranceClaim => c !== null));
       },
-      () => setInsurancePending(0),
+      () => setPeriodClaims([]),
     );
     return () => {
       unsub();

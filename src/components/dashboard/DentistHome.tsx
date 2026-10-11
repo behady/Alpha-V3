@@ -207,7 +207,8 @@ export default function DentistHome() {
   const after = chair.current ? chair.next : chair.after;
 
   const money = useMemo(() => (me ? moneyToday(ledger, me, today) : { paid: 0, share: 0 }), [ledger, me, today]);
-  const owed = useMemo(() => (me ? owedByMyPatients(ledger, me) : 0), [ledger, me]);
+  // A patient's debt is one account for the whole clinic, so it reads the ledger unfiltered; the dentist's own earnings stay per branch.
+  const owed = useMemo(() => (me ? owedByMyPatients(loadedLedger, me) : 0), [loadedLedger, me]);
   const lab = useMemo(() => (me ? labReturns(labCases, me, today) : []), [labCases, me, today]);
   const patientName = useCallback(
     (id: string) => patients.find((p) => p.id === id)?.name || (isAr ? "مريض" : "Patient"),
@@ -217,8 +218,8 @@ export default function DentistHome() {
 
   const heroPatientId = String(hero?.patientId || "");
   const heroBalance = useMemo(
-    () => (me && heroPatientId ? owedByPatient(ledger, me, heroPatientId) : 0),
-    [ledger, me, heroPatientId]
+    () => (me && heroPatientId ? owedByPatient(loadedLedger, me, heroPatientId) : 0),
+    [loadedLedger, me, heroPatientId]
   );
   const heroLastSeen = useMemo(() => {
     if (!heroPatientId) return null;

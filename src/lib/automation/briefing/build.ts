@@ -151,6 +151,8 @@ export async function buildBriefing(args: {
   /** The day, for a daily brief, or the last day of the window for a weekly one. */
   endDate: string;
   access: BriefingAccess;
+  /** Only this branch's appointments and money; absent = the whole clinic. */
+  branchId?: string;
 }): Promise<Briefing> {
   const { clinicId, period, endDate, access } = args;
 
@@ -174,6 +176,7 @@ export async function buildBriefing(args: {
     previousEnd: period === "day" ? null : previousEnd,
     needsMoney: access.money,
     needsHr: access.hr,
+    ...(args.branchId ? { branchId: args.branchId } : {}),
   });
 
   const appointments = [...data.inRange].sort((a, b) =>

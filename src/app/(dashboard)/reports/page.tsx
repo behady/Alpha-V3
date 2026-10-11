@@ -209,7 +209,7 @@ function ReportsPage() {
   // Exports say which branch they are about.
   useEffect(() => {
     const name = branches.find((b) => b.id === scopeBranchId)?.name;
-    setExportBranchLabel(scopeBranchId !== "" ? (name ?? scopeBranchId) : branches.length > 0 ? (isAr ? "كل الفروع" : "All branches") : null);
+    setExportBranchLabel(scopeBranchId !== "" ? (name ?? "") : branches.length > 0 ? (isAr ? "كل الفروع" : "All branches") : null);
     return () => setExportBranchLabel(null);
   }, [branches, scopeBranchId, isAr]);
 

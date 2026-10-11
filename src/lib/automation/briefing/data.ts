@@ -1,4 +1,5 @@
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
+import { rowInScope } from "@/lib/branchAccess";
 import { normalizeAppointmentStatus } from "@/lib/appointmentStages";
 import { parseClinicSchedule, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import type { BriefingAppointment } from "./types";
@@ -198,6 +199,8 @@ export async function loadBriefingData(args: {
   attendanceStart: string;
   needsMoney: boolean;
   needsHr: boolean;
+  /** Only this branch's appointments and money. Absent or "" = the whole clinic (every other caller). */
+  branchId?: string;
 }): Promise<BriefingData> {
   const { clinicId, startDate, endDate, comparisonStart, attendanceStart, previousStart, previousEnd } = args;
 
@@ -243,22 +246,27 @@ export async function loadBriefingData(args: {
     adminClinicDoc(clinicId, "settings", "clinic_info").get(),
   ]);
 
-  const inRange = apptRangeSnap.docs.map((doc) => mapAppointment(doc.id, doc.data() || {}));
+  // In memory after the reads, so no query or index changes; "" passes every row, old ones included.
+  const scope = args.branchId ?? "";
+  const inScope = <T extends { data: () => Record<string, unknown> | undefined }>(docs: T[]): T[] =>
+    scope === "" ? docs : docs.filter((doc) => rowInScope(doc.data() || {}, scope));
+
+  const inRange = inScope(apptRangeSnap.docs).map((doc) => mapAppointment(doc.id, doc.data() || {}));
   /**
    * Kept whole rather than trimmed to `aheadEnd`. The preview section only wants the next day or
    * week, but "did this patient book anything at all after their visit?" has to see the entire
    * future — trimming it would report a patient booked for next month as having left with nothing.
    */
-  const ahead = apptAheadSnap.docs.map((doc) => mapAppointment(doc.id, doc.data() || {}));
+  const ahead = inScope(apptAheadSnap.docs).map((doc) => mapAppointment(doc.id, doc.data() || {}));
 
-  const previousRange = apptPreviousSnap.docs.map((doc) => mapAppointment(doc.id, doc.data() || {}));
+  const previousRange = inScope(apptPreviousSnap.docs).map((doc) => mapAppointment(doc.id, doc.data() || {}));
 
-  const unresolved = apptPastSnap.docs
+  const unresolved = inScope(apptPastSnap.docs)
     .map((doc) => mapAppointment(doc.id, doc.data() || {}))
     .filter((a) => UNRESOLVED_STATUSES.has(a.status));
 
-  const ledgerWindow = ledgerWindowSnap.docs.map((doc) => mapLedger(doc.id, doc.data() || {}));
-  const ledgerAll = ledgerAllSnap.docs.map((doc) => mapLedger(doc.id, doc.data() || {}));
+  const ledgerWindow = inScope(ledgerWindowSnap.docs).map((doc) => mapLedger(doc.id, doc.data() || {}));
+  const ledgerAll = inScope(ledgerAllSnap.docs).map((doc) => mapLedger(doc.id, doc.data() || {}));
 
   const patientNames = new Map<string, string>();
   const patientCreatedAt = new Map<string, Date>();

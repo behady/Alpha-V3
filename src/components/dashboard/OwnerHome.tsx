@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Timestamp, onSnapshot, query, where } from "firebase/firestore";
 import { AlertTriangle, ArrowUpRight, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
@@ -87,25 +87,34 @@ export default function OwnerHome() {
   const [loadingPeriod, setLoadingPeriod] = useState<Period | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // The branch the newest request was made for: an answer for an older one must not land.
+  const scopeRef = useRef(scopeBranchId);
+  scopeRef.current = scopeBranchId;
   const load = useCallback(
     async (p: Period) => {
       if (!clinicId) return;
       try {
         const token = await auth.currentUser?.getIdToken();
         if (!token) return;
-        const res = await fetch(`/api/ai/daily-briefing?clinicId=${encodeURIComponent(clinicId)}&period=${p}`, {
+        const res = await fetch(`/api/ai/daily-briefing?clinicId=${encodeURIComponent(clinicId)}&period=${p}${scopeBranchId ? `&branchId=${encodeURIComponent(scopeBranchId)}` : ""}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();
         if (!res.ok || !data.ok) throw new Error(data.error || "failed");
+        if (scopeRef.current !== scopeBranchId) return;
         setBriefs((prev) => ({ ...prev, [p]: data.briefing as Briefing }));
         setError(null);
       } catch {
         setError(isAr ? "معرفناش نجيب الأرقام. جرّب تاني." : "Could not load the numbers. Try again.");
       }
     },
-    [clinicId, isAr]
+    [clinicId, isAr, scopeBranchId]
   );
+
+  // A new branch is a new brief: drop the old ones so the chosen period loads again for it.
+  useEffect(() => {
+    setBriefs({});
+  }, [scopeBranchId]);
 
   // The day brief feeds the alerts and refreshes on its own; the chosen period loads on demand.
   useEffect(() => {

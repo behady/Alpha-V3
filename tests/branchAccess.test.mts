@@ -103,4 +103,10 @@ const payroll = readFileSync(new URL("../src/app/api/payroll/route.ts", import.m
 assert.match(payroll, /searchParams\.get\("branchId"\)/, "payroll does not accept a branch");
 assert.match(payroll, /allowedBranches\(/, "payroll does not narrow the roster to the branch");
 
+// Mixed-scope fixes: the pending commission, and the owner's briefing, follow the branch on screen.
+assert.match(readFileSync(new URL("../src/app/(dashboard)/finance/page.tsx", import.meta.url), "utf8"), /if \(!rowInScope\(claim, scopeBranchId\)\) continue;/, "Finance pending insurance commission ignores the branch on screen");
+assert.match(readFileSync(new URL("../src/lib/automation/briefing/data.ts", import.meta.url), "utf8"), /rowInScope\(/, "the briefing loader ignores the branch");
+assert.match(readFileSync(new URL("../src/app/api/ai/daily-briefing/route.ts", import.meta.url), "utf8"), /searchParams\.get\("branchId"\)/, "the briefing route ignores the branch");
+assert.match(readFileSync(new URL("../src/components/dashboard/OwnerHome.tsx", import.meta.url), "utf8"), /&branchId=/, "the owner view does not ask for its branch's briefing");
+
 console.log("branchAccess: all checks passed");

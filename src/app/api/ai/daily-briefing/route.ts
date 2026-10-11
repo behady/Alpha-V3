@@ -1,7 +1,8 @@
 import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
-import { resolveUserClinicId } from "@/lib/adminClinicDb";
+import { adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
+import { LOCATIONS_DOC, parseClinicBranches } from "@/lib/clinicLocations";
 import { buildBriefing, resolveBriefingAccess } from "@/lib/automation/briefing/build";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 
@@ -38,11 +39,21 @@ export async function GET(request: Request) {
     const period = requested === "week" || requested === "month" ? requested : "day";
     const endDate = url.searchParams.get("date")?.trim() || ymdInTimeZone(clinicTimeZone());
 
+    // Optional `branchId`: the brief of one branch. An id the clinic does not have is ignored (the
+    // clinic total); no param, as the phone sends, is the clinic total exactly as before.
+    let branchId = "";
+    const wantedBranch = url.searchParams.get("branchId")?.trim() || "";
+    if (wantedBranch) {
+      const locations = await adminClinicDoc(clinicId, "settings", LOCATIONS_DOC).get();
+      if (parseClinicBranches(locations.exists ? locations.data() : null).some((b) => b.id === wantedBranch)) branchId = wantedBranch;
+    }
+
     const briefing = await buildBriefing({
       clinicId,
       period,
       endDate,
       access: resolveBriefingAccess(authz.role, authz.permissions),
+      ...(branchId ? { branchId } : {}),
     });
 
     return NextResponse.json({ ok: true, briefing });
