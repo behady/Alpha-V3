@@ -14,6 +14,9 @@ import { DIAGNOSIS_OPTIONS } from "@/lib/diagnosisCatalog";
 import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
+import { assertBranchAllowed } from "@/lib/server/branchAccess";
+import { branchForAutomaticRow } from "@/lib/branchAccess";
+import { LOCATIONS_DOC, parseClinicBranches } from "@/lib/clinicLocations";
 import { SCREEN_MAP } from "@/lib/screenMap";
 import { buildTourInstruction } from "@/lib/tourPrompt";
 import { logAiAction } from "@/lib/serverLogger";
@@ -1325,9 +1328,38 @@ export async function POST(req: Request) {
              if (data.amount) data.amount = Number(data.amount);
              if (data.paid) data.paid = Number(data.paid);
 
+             // Money belongs to a branch. The model never picks one: it is the branch on screen
+             // (sent by the chat), else the patient's, else the clinic's first.
+             let branchStamp: { branchId?: string } = {};
+             if (col === "ledger") {
+               delete data.branchId;
+               const check = await assertBranchAllowed({
+                 clinicId, uid: userId, role: authz.role, branchId: body.branchId,
+                 fallback: async () => {
+                   const [locations, patientSnap] = await Promise.all([
+                     adminClinicDoc(clinicId, "settings", LOCATIONS_DOC).get(),
+                     typeof data.patientId === "string" && data.patientId ? adminClinicDoc(clinicId, "patients", data.patientId).get() : null,
+                   ]);
+                   return branchForAutomaticRow({
+                     patient: patientSnap?.exists ? patientSnap.data() : null,
+                     branches: parseClinicBranches(locations.exists ? locations.data() : null),
+                   });
+                 },
+               });
+               if (!check.ok) {
+                 const refusal = (await check.response.json().catch(() => null)) as { error?: string } | null;
+                 functionResponses.push({
+                   functionResponse: { name: call.name, response: { success: false, error: refusal?.error || "Choose the branch this money belongs to." } },
+                 });
+                 continue;
+               }
+               if (check.branchId) branchStamp = { branchId: check.branchId };
+             }
+
              const newRef = adminClinicCollection(clinicId, col).doc();
              await newRef.set({
                ...data,
+               ...branchStamp,
                id: newRef.id,
                addedBy: "Alpha AI",
                createdAt: FieldValue.serverTimestamp()

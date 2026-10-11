@@ -21,6 +21,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { adminClinicCollection, adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
+import { assertBranchAllowed } from "@/lib/server/branchAccess";
 import { buildManualEntryRow } from "@/lib/ledgerWrite";
 import { recordMoneyChange } from "@/lib/server/ledgerAudit";
 import { logActivityServer } from "@/lib/server/systemLog";
@@ -55,7 +56,7 @@ function payoutDescription(staffName: string): string {
 }
 
 /** The ledger row a payout writes: the Finance page's own manual-expense shape plus the link back. */
-function payoutRow(args: { staffId: string; staffName: string; settlementId: string; amount: number; date: string; note: string; method: string; actor: Actor }) {
+function payoutRow(args: { staffId: string; staffName: string; settlementId: string; amount: number; date: string; note: string; method: string; actor: Actor; branchId: string | null }) {
   return {
     ...buildManualEntryRow({
       type: "expense",
@@ -70,6 +71,7 @@ function payoutRow(args: { staffId: string; staffName: string; settlementId: str
     staffId: args.staffId,
     settlementId: args.settlementId,
     note: args.note,
+    ...(args.branchId ? { branchId: args.branchId } : {}),
   };
 }
 
@@ -130,13 +132,17 @@ async function create(args: { clinicId: string; actor: Actor; body: Record<strin
   if (amount === null) return bad("Enter an amount greater than zero.");
   if (!ISO_DATE.test(date)) return bad("Enter a valid date.");
 
+  // Paid from the branch on screen: always made at a screen, so no fallback.
+  const branch = await assertBranchAllowed({ clinicId, uid: actor.uid, role: actor.role, branchId: body.branchId });
+  if (!branch.ok) return branch.response;
+
   const staffSnap = await adminClinicDoc(clinicId, "staff", staffId).get();
   if (!staffSnap.exists) return bad("That staff member no longer exists.", 404);
   const staffName = String(staffSnap.get("name") || "").trim() || "Staff";
 
   const settlementRef = adminClinicCollection(clinicId, SETTLEMENTS_COLLECTION).doc();
   const ledgerRef = kind === "payout" ? adminClinicCollection(clinicId, "ledger").doc() : null;
-  const row = ledgerRef ? payoutRow({ staffId, staffName, settlementId: settlementRef.id, amount, date, note, method, actor }) : null;
+  const row = ledgerRef ? payoutRow({ staffId, staffName, settlementId: settlementRef.id, amount, date, note, method, actor, branchId: branch.branchId }) : null;
 
   await adminDb().runTransaction(async (tx) => {
     tx.set(settlementRef, {
@@ -148,6 +154,7 @@ async function create(args: { clinicId: string; actor: Actor; body: Record<strin
       note,
       method: kind === "payout" ? method : null,
       ledgerId: ledgerRef?.id ?? null,
+      ...(branch.branchId ? { branchId: branch.branchId } : {}),
       createdAt: FieldValue.serverTimestamp(),
       createdByUid: actor.uid,
       createdByName: actor.name,

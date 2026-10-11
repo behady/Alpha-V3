@@ -13,6 +13,7 @@ import { TOUR_GUIDE } from "@/lib/grandTour";
 import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
 import { getClinicDoc } from "@/lib/db-utils";
 import { auth } from "@/lib/firebase";
+import { currentBranchId, withBranch } from "@/lib/branchScope";
 import { handleManualWhatsApp } from "@/lib/whatsappManual";
 import { printAssistantDocument } from "@/lib/assistantDocumentPdf";
 import { installErrorBreadcrumbs, getErrorBreadcrumbs } from "@/lib/errorBreadcrumbs";
@@ -450,6 +451,9 @@ export default function AiChatWidget() {
           ...(image ? { image } : {}),
           clinicId,
           userName: user?.name,
+          // The branch on screen, so a ledger row the assistant writes lands in it. Absent when
+          // there is none to name (withBranch never sends an empty one).
+          ...withBranch({}, currentBranchId()),
           // Tells the route which surface is asking, so it only offers the model tools this
           // client can actually carry out. Without it the floating widget is offered
           // 'open_appointment', whose whole job is to fill an appointment panel this widget
