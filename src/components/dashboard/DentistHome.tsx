@@ -20,6 +20,7 @@ import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { useActiveBranch } from "@/lib/useActiveBranch";
+import { rowInScope } from "@/lib/branchAccess";
 import { localYmd } from "@/lib/clinicDate";
 import { parseClinicSchedule, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import { getAppointmentStageLabel, getAppointmentStatusStyles } from "@/lib/appointmentStages";
@@ -118,7 +119,9 @@ export default function DentistHome() {
   const [viewDate, setViewDate] = useState(today);
   const [dayAppts, setDayAppts] = useState<Row[]>([]);
   const [futureAppts, setFutureAppts] = useState<Row[]>([]);
-  const [ledger, setLedger] = useState<Row[]>([]);
+  const [loadedLedger, setLedger] = useState<Row[]>([]);
+  // Their charges and payments at the branch on screen; rows from before branches show only under All branches.
+  const ledger = useMemo(() => loadedLedger.filter((r) => rowInScope(r, scopeBranchId)), [loadedLedger, scopeBranchId]);
   const [labCases, setLabCases] = useState<Row[]>([]);
   const [notes, setNotes] = useState<Row[]>([]);
   const [patients, setPatients] = useState<Patient[]>([]);

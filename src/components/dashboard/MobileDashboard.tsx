@@ -42,6 +42,7 @@ import { MoneyApiError, deleteAppointment } from "@/lib/moneyApi";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { parseClinicSchedule, clinicDayBoundsMinutes, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import { pickerValueFromDoctorField } from "@/lib/generalDentist";
+import { rowInScope } from "@/lib/branchAccess";
 import { useActiveBranch } from "@/lib/useActiveBranch";
 import BranchSelector from "@/components/shared/BranchSelector";
 import type { OwnerAlertKey } from "@/types/whatsapp";
@@ -316,6 +317,7 @@ export default function MobileDashboard() {
       let income = 0;
       snap.forEach((docSnap) => {
         const d = docSnap.data();
+        if (!rowInScope(d, scopeBranchId)) return; // only the branch on screen
         const typ = String(d.type || "");
 
         let val = 0;
@@ -332,7 +334,7 @@ export default function MobileDashboard() {
       setDailyIncome(income);
     });
     return () => unsub();
-  }, [hideIncome]);
+  }, [hideIncome, scopeBranchId]);
 
   const fireOwnerWhatsAppAlert = async (alertKey: OwnerAlertKey, message: string) => {
     try {

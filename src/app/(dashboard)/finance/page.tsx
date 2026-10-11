@@ -19,6 +19,7 @@ import autoTable from "jspdf-autotable";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { useBranchForMoney } from "@/lib/useBranchForMoney";
 import { useActiveBranch } from "@/lib/useActiveBranch";
+import { rowInScope } from "@/lib/branchAccess";
 import BranchSelector from "@/components/shared/BranchSelector";
 import { MoneyApiError, createLedgerEntry, deleteLedgerRow, deleteStaffSettlement, updateLedgerRow, updateStaffSettlement } from "@/lib/moneyApi";
 import { CLAIMS_COLLECTION, lineStatusOf, parseClaim, type InsuranceClaim } from "@/lib/insurance/claims";
@@ -31,6 +32,8 @@ interface Transaction {
   id: string; type: 'payment' | 'expense' | 'income' | 'procedure'; description: string; amount?: number; paid?: number; cost?: number; date: string; category?: string; patientName?: string; patientId?: string; doctor?: string; method?: string; isRecurring?: boolean; val: number; doctorName?: string | null; doctorCommissionAmount?: number; labFee?: number; clinicProfit?: number;
   /** Set on the Salary expense a staff payout writes from the Team page. */
   settlementId?: string | null;
+  /** The branch the money was taken in; absent on rows from before branches. */
+  branchId?: string | null;
   doctorCommissionPercentage?: number | null;
   /** Of the commission, what the Team page has paid out / held back (stamped by the settlements sync). */
   doctorCommissionPaid?: number;
@@ -74,13 +77,22 @@ export default function FinancePage() {
   const { language, t, isRTL } = useLanguage();
   const { showToast, confirm } = useUI();
   const { requireBranchForMoney, picker: branchPicker } = useBranchForMoney();
-  const { branches, allowedBranches, activeBranchId, setActiveBranchId, canChooseAll } = useActiveBranch();
+  const { branches, allowedBranches, activeBranchId, setActiveBranchId, canChooseAll, scopeBranchId } = useActiveBranch();
   const { user } = useAuth();
   const router = useRouter();
 
-  const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
+  /** Every cash row of the period as loaded; `allTransactions` below is the branch on screen. */
+  const [loadedTransactions, setAllTransactions] = useState<Transaction[]>([]);
   /** Treatment charges raised in the period. Not cash — used only for the discount figures. */
-  const [periodProcedures, setPeriodProcedures] = useState<Record<string, unknown>[]>([]);
+  const [loadedProcedures, setPeriodProcedures] = useState<Record<string, unknown>[]>([]);
+  // Filtered here, not in the query: a switch of branch re-filters without re-reading, and no
+  // composite index is needed. Rows from before branches show only under All branches.
+  const allTransactions = useMemo(() => loadedTransactions.filter((t) => rowInScope(t, scopeBranchId)), [loadedTransactions, scopeBranchId]);
+  const periodProcedures = useMemo(() => loadedProcedures.filter((r) => rowInScope(r, scopeBranchId)), [loadedProcedures, scopeBranchId]);
+  const rowsBeforeBranches = useMemo(
+    () => (scopeBranchId === "" && branches.length > 0 ? loadedTransactions.filter((t) => !t.branchId).length : 0),
+    [loadedTransactions, scopeBranchId, branches.length],
+  );
   /**
    * The dentists' share still unpaid on insurance work treated in the period. It is stamped on
    * the approval's line (share, paid, deducted), not on the insurer's payment row, so the ledger
@@ -867,6 +879,11 @@ export default function FinancePage() {
                     </dd>
                   </div>
                 </dl>
+                {rowsBeforeBranches > 0 && (
+                  <p className="mt-4 text-xs text-slate-500 font-medium">
+                    {language === "ar" ? `${rowsBeforeBranches} سطر من قبل الفروع` : `${rowsBeforeBranches} rows from before branches`}
+                  </p>
+                )}
               </div>
             </div>
 

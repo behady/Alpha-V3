@@ -52,6 +52,7 @@ import InsurerBadge from "@/components/shared/InsurerBadge";
 import type { ClaimLink } from "@/lib/insurance/appointments";
 import { holdsPermission } from "@/lib/permissions";
 import { useClinic } from "@/context/ClinicContext";
+import { rowInScope } from "@/lib/branchAccess";
 import { useActiveBranch, ALL_BRANCHES } from "@/lib/useActiveBranch";
 import BranchSelector from "@/components/shared/BranchSelector";
 import type { OwnerAlertKey } from "@/types/whatsapp";
@@ -310,6 +311,7 @@ export default function DesktopDashboard() {
       let income = 0;
       snap.forEach((docSnap) => {
         const d = docSnap.data();
+        if (!rowInScope(d, scopeBranchId)) return; // only the branch on screen
         const typ = String(d.type || "");
         
         let val = 0;
@@ -326,7 +328,7 @@ export default function DesktopDashboard() {
       setDailyIncome(income);
     });
     return () => unsub();
-  }, [hideIncome]);
+  }, [hideIncome, scopeBranchId]);
 
   /**
    * What each visit on the schedule came to, for the DAY ON SCREEN.
@@ -360,11 +362,11 @@ export default function DesktopDashboard() {
     const days = viewMode === "week" ? weekDaysFrom(scheduleViewDate) : [scheduleViewDate];
     const unsub = onSnapshot(
       query(getClinicCollection("ledger"), where("date", ">=", days[0]), where("date", "<=", days[days.length - 1])),
-      (snap) => setVisitMoney(moneyByAppointment(snap.docs.map((d) => d.data() as Record<string, unknown>))),
+      (snap) => setVisitMoney(moneyByAppointment(snap.docs.map((d) => d.data() as Record<string, unknown>).filter((r) => rowInScope(r, scopeBranchId)))),
       () => setVisitMoney(new Map()),
     );
     return () => unsub();
-  }, [scheduleViewDate, viewMode]);
+  }, [scheduleViewDate, viewMode, scopeBranchId]);
 
   /**
    * What the clinic already knows about each patient on the day being viewed: what they still owe

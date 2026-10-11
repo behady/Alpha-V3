@@ -46,7 +46,7 @@ export function resolveBranchChoice(
 }
 
 /** Rule 3: does this row show under the chosen branch scope? `""` = All branches. */
-export function rowInScope(row: { branchId?: unknown }, scopeBranchId: string): boolean {
+export function rowInScope(row: { branchId?: unknown } | Record<string, unknown>, scopeBranchId: string): boolean {
   if (scopeBranchId === "") return true;
   return row.branchId === scopeBranchId;
 }

@@ -77,4 +77,15 @@ for (const rel of [
   assert.match(readFileSync(new URL(`../${rel}`, import.meta.url), "utf8"), /requireBranchForMoney\(\)/, `${rel} records money without asking which branch under All branches`);
 }
 
+// Task 14: every money-reading screen shows only the branch on screen.
+for (const rel of [
+  "src/app/(dashboard)/finance/page.tsx",
+  "src/components/dashboard/DesktopDashboard.tsx",
+  "src/components/dashboard/MobileDashboard.tsx",
+  "src/components/dashboard/OwnerHome.tsx",
+  "src/components/dashboard/DentistHome.tsx",
+]) {
+  assert.match(readFileSync(new URL(`../${rel}`, import.meta.url), "utf8"), /rowInScope\(/, `${rel} reads money without filtering by the branch on screen`);
+}
+
 console.log("branchAccess: all checks passed");

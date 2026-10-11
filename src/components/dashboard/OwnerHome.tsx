@@ -11,6 +11,7 @@ import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { useActiveBranch } from "@/lib/useActiveBranch";
+import { rowInScope } from "@/lib/branchAccess";
 import BranchSelector from "@/components/shared/BranchSelector";
 import { localYmd } from "@/lib/clinicDate";
 import { LAB_CASES_COLLECTION } from "@/lib/labCases";
@@ -70,7 +71,7 @@ export default function OwnerHome() {
   const { clinicId } = useClinic();
   const { language, isRTL } = useLanguage();
   const { ownerPeriod: period, setOwnerPeriod: setPeriod } = useUI();
-  const { branches, allowedBranches, activeBranchId, setActiveBranchId, canChooseAll, activeBranch, matches } = useActiveBranch();
+  const { branches, allowedBranches, activeBranchId, setActiveBranchId, canChooseAll, activeBranch, matches, scopeBranchId } = useActiveBranch();
   const isAr = language === "ar";
   const today = localYmd();
 
@@ -126,7 +127,9 @@ export default function OwnerHome() {
   const brief = briefs[period];
 
   // --- Live rows ----------------------------------------------------------------------------------
-  const [ledgerToday, setLedgerToday] = useState<Row[]>([]);
+  const [loadedLedgerToday, setLedgerToday] = useState<Row[]>([]);
+  // The cash of the branch on screen; rows from before branches show only under All branches.
+  const ledgerToday = useMemo(() => loadedLedgerToday.filter((r) => rowInScope(r, scopeBranchId)), [loadedLedgerToday, scopeBranchId]);
   const [apptsToday, setApptsToday] = useState<Row[]>([]);
   const [labAtLab, setLabAtLab] = useState<Row[]>([]);
   const [targets, setTargets] = useState<ClinicTargets>({ monthlyRevenue: 0, monthlyNewPatients: 0 });
@@ -157,7 +160,8 @@ export default function OwnerHome() {
   // per dentist), and WhatsApp conversations (how much the bot carried alone).
   const start = periodStart(period, today);
   const [patientsSince, setPatientsSince] = useState<Row[]>([]);
-  const [ledgerSince, setLedgerSince] = useState<Row[]>([]);
+  const [loadedLedgerSince, setLedgerSince] = useState<Row[]>([]);
+  const ledgerSince = useMemo(() => loadedLedgerSince.filter((r) => rowInScope(r, scopeBranchId)), [loadedLedgerSince, scopeBranchId]);
   const [conversationsSince, setConversationsSince] = useState<Row[]>([]);
   useEffect(() => {
     if (!clinicId) return;
