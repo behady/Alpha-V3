@@ -27,6 +27,12 @@ export type ClinicBranch = {
    * before the feature works; setting it just replaces a guess with the clinic's own choice.
    */
   code?: string;
+  /** Prefix on this branch's receipt numbers — `HEL` in `HEL-0007`. A–Z and 0–9, upper case, 4 at most. */
+  receiptPrefix?: string;
+  /** The branch code this branch is registered under with the e-receipt authority (ETA). 50 characters at most. */
+  etaBranchCode?: string;
+  /** This branch's tax registration number, printed on its receipts. 30 characters at most. */
+  taxRegistration?: string;
   rooms: ClinicRoom[];
 };
 
@@ -60,8 +66,24 @@ function sanitizeBranch(raw: unknown): ClinicBranch | null {
     // unread — LocationsSettings round-trips this output straight back into setDoc, so anything
     // this function drops is erased the next time somebody saves an unrelated branch edit.
     code: String(b.code || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 4),
+    // Same round-trip rule as `code`: absent becomes "", never undefined, and the prefix is
+    // normalised the same way because it too ends up printed on paper.
+    receiptPrefix: String(b.receiptPrefix || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 4),
+    etaBranchCode: String(b.etaBranchCode || "").trim().slice(0, 50),
+    taxRegistration: String(b.taxRegistration || "").trim().slice(0, 30),
     rooms,
   };
+}
+
+/**
+ * The prefix for this branch's receipt numbers: the one the clinic set, else the first three
+ * letters/digits of the branch name upper-cased, else `BR` (an all-Arabic name has none to borrow).
+ */
+export function receiptPrefixFor(branch: Pick<ClinicBranch, "name" | "receiptPrefix">): string {
+  const set = String(branch.receiptPrefix || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 4);
+  if (set) return set;
+  const derived = String(branch.name || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 3);
+  return derived || "BR";
 }
 
 /** Accepts the raw `settings/locations` data (or null) and returns a clean branch list. */
