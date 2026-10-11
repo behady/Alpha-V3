@@ -19,6 +19,7 @@ import { currentSignupKey, finishSignupAttempt } from "@/lib/onboardingSignup";
 import { SETUP_ROUTE } from "@/lib/setupWizard";
 import { inviteLinkPath, isValidInviteCode, normalizeInviteCode } from "@/lib/inviteLinks";
 import LanguageToggle from "@/components/common/LanguageToggle";
+import { isNativeApp } from "@/lib/native";
 
 // Where the login page hands the chosen workspace to ClinicContext. Mirrors the existing
 // superAdminClinicId pattern; ClinicContext clears both on logout.
@@ -26,6 +27,10 @@ const PREFERRED_CLINIC_KEY = "preferredClinicId";
 
 export default function LoginPage() {
   const router = useRouter();
+  // Read after mount: the server renders the page for a browser, and the shell is only known
+  // once Capacitor is on the window. Flipping it in the initial state would mismatch hydration.
+  const [nativeApp, setNativeApp] = useState(false);
+  useEffect(() => { setNativeApp(isNativeApp()); }, []);
   const { language, isRTL } = useLanguage();
 
   /**
@@ -523,6 +528,7 @@ export default function LoginPage() {
               )}
             </button>
 
+            {!nativeApp && (<>
             <div className="relative flex py-5 items-center">
               <div className="flex-grow border-t border-line"></div>
               <span className="shrink-0 mx-4 text-slate-400 text-xs font-bold uppercase tracking-wider">{language === 'ar' ? 'أو' : 'OR'}</span>
@@ -549,6 +555,7 @@ export default function LoginPage() {
                 </>
               )}
             </button>
+            </>)}
           </form>
         ) : (
           <form onSubmit={handleEmailLogin} className="space-y-4 animate-in fade-in slide-in-from-left-4">
@@ -615,6 +622,9 @@ export default function LoginPage() {
               {loading ? <Loader2 size={20} className="animate-spin" /> : <>{txt.loginBtn} {isRTL ? <ArrowRight size={18} className="rotate-180" /> : <ArrowRight size={18} />}</>}
             </button>
             
+            {/* Not inside the iOS app: a WKWebView cannot open Firebase's sign-in popup, and the
+                Android app hides the button for the same reason. Email and password only there. */}
+            {!nativeApp && (<>
             <div className="relative flex py-5 items-center">
                 <div className="flex-grow border-t border-line"></div>
                 <span className="shrink-0 mx-4 text-slate-400 text-xs font-bold uppercase tracking-wider">{language === 'ar' ? 'أو' : 'OR'}</span>
@@ -654,6 +664,7 @@ export default function LoginPage() {
                 </>
               )}
             </button>
+            </>)}
           </form>
         )}
 

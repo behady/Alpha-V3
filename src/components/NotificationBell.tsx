@@ -22,6 +22,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { enableFcmPushForUser } from "@/lib/fcmClient";
+import { isNativeApp } from "@/lib/native";
 import { notifyEvent, type NotifyGroup } from "@/lib/notificationCatalog";
 
 /**
@@ -103,13 +104,32 @@ export default function NotificationBell({ variant = "default" }: { variant?: "d
   const [pushState, setPushState] = useState<"unknown" | "needed" | "enabling" | "on" | "blocked">(() => {
     // Read at mount rather than in an effect. The browser's answer is available synchronously and
     // never changes without a user gesture, so an effect would only add a render for nothing.
-    if (typeof window === "undefined" || !("Notification" in window)) return "unknown";
+    // The iOS app has no Notification API at all; its answer is asynchronous and read below.
+    if (typeof window === "undefined") return "unknown";
+    if (isNativeApp()) return "needed";
+    if (!("Notification" in window)) return "unknown";
     if (Notification.permission === "denied") return "blocked";
     return Notification.permission === "granted" ? "on" : "needed";
   });
 
   useEffect(() => {
-    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (typeof window === "undefined") return;
+    if (isNativeApp()) {
+      // Same self-heal as below, with the answer fetched from iOS rather than the browser. Only an
+      // already-granted phone registers silently; the prompt itself waits for the bell's button.
+      let cancelled = false;
+      void import("@capacitor-firebase/messaging").then(async ({ FirebaseMessaging }) => {
+        const { receive } = await FirebaseMessaging.checkPermissions();
+        if (cancelled) return;
+        if (receive === "denied") setPushState("blocked");
+        else if (receive === "granted") {
+          const r = await enableFcmPushForUser();
+          if (!cancelled) setPushState(r.ok ? "on" : "needed");
+        }
+      }).catch(() => {});
+      return () => { cancelled = true; };
+    }
+    if (!("Notification" in window)) return;
     // Permission exists but the token may never have been saved — self-heal silently. This is the
     // repair for a browser that said yes months ago to a feature that never registered it.
     if (Notification.permission !== "granted") return;
