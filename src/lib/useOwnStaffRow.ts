@@ -50,7 +50,12 @@ export function useOwnStaffRow(enabled = true): { row: OwnStaffRow | null; ready
         }
         setAnswered(true);
       },
-      () => setAnswered(true)
+      (err) => {
+        // Fail open to "every branch" (the server still enforces), but leave a trace: a rules
+        // problem here would otherwise look like a person with no restrictions.
+        console.error("Own staff row read failed", err);
+        setAnswered(true);
+      }
     );
     // Clearing on the way out, not on the way in: React runs this before the next run of the
     // effect, so switching to a clinic where you have no row cannot leave a stale row behind —

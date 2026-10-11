@@ -338,7 +338,10 @@ export default function BookingModal({
   // The branches this person may book into, and their rooms. Not read from settings/locations
   // here any more: the same answer the dashboard uses, so a restricted person cannot pick a
   // branch the schedule would not show them.
-  const { allowedBranches, branches: clinicBranches } = useActiveBranch();
+  const { allowedBranches, branches: clinicBranches, ready: branchesReady } = useActiveBranch();
+  // Until the branch list and (for a non-admin) their own staff row are read, `allowedBranches` is
+  // empty — saving then would stamp no branch and skip the room check. Hold every save until then.
+  const holdSave = !branchesReady;
   /**
    * An appointment already booked on a branch this person may not work in keeps that branch: it is
    * shown (alone, so there is nothing to switch to) and never re-stamped, so editing the time of
@@ -849,7 +852,7 @@ export default function BookingModal({
   };
 
   const handleSubmit = async (stay = false) => {
-    if (isChecking) return;
+    if (isChecking || holdSave) return;
     setIsChecking(true);
     try {
       const isValidNew = isNewPatient && newPatientName.trim().length > 0 && newPatientPhone.trim().length > 0;
@@ -1008,7 +1011,7 @@ export default function BookingModal({
 
   const autosaveRef = useRef<() => Promise<void>>(async () => {});
   autosaveRef.current = async () => {
-    if (!onAutosave || !editAppointment || autosaveBusy.current) return;
+    if (!onAutosave || !editAppointment || autosaveBusy.current || holdSave) return;
     autosaveBusy.current = true;
     setAutosaveState("saving");
     try {
@@ -1023,7 +1026,7 @@ export default function BookingModal({
   };
 
   useEffect(() => {
-    if (!autosaveOn || !savedFields) return;
+    if (!autosaveOn || !savedFields || holdSave) return;
     const verdict = autosaveVerdict(savedFields, autosaveFields, { fields: AUTOSAVE_FIELDS });
     if (!verdict.save) {
       setAutosaveState((s) => (s === "pending" ? "idle" : s));
@@ -1032,7 +1035,7 @@ export default function BookingModal({
     setAutosaveState("pending");
     const id = setTimeout(() => void autosaveRef.current(), verdict.delayMs);
     return () => clearTimeout(id);
-  }, [autosaveOn, savedFields, autosaveFields]);
+  }, [autosaveOn, savedFields, autosaveFields, holdSave]);
 
   useEffect(() => {
     if (autosaveState !== "saved") return;
@@ -1739,10 +1742,10 @@ servicesList.length > 0 && (
             <button
               type="button"
               onClick={() => void handleSubmit()} data-tour="booking-confirm"
-              disabled={isChecking || blockingReasons.length > 0}
+              disabled={isChecking || holdSave || blockingReasons.length > 0}
               className="flex-[2] flex items-center justify-center gap-2 rounded-xl bg-primary-600 py-3.5 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-primary-200 transition hover:bg-primary-700 disabled:opacity-50"
             >
-              {isChecking ? <Loader2 size={16} className="animate-spin" /> : editAppointment ? txt.saveEdit : txt.confirm}
+              {isChecking || holdSave ? <Loader2 size={16} className="animate-spin" /> : editAppointment ? txt.saveEdit : txt.confirm}
             </button>
           )}
         </div>
@@ -1850,10 +1853,10 @@ servicesList.length > 0 && (
           <button
             type="button"
             onClick={() => void handleSubmit(true)}
-            disabled={isChecking || blockingReasons.length > 0}
+            disabled={isChecking || holdSave || blockingReasons.length > 0}
             className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-ink-slab px-6 text-[15px] font-bold text-white transition-colors hover:bg-ink disabled:opacity-40"
           >
-            {isChecking && <Loader2 size={16} className="animate-spin" />}
+            {(isChecking || holdSave) && <Loader2 size={16} className="animate-spin" />}
             {isAr ? "أكّد الحجز وحصّل دلوقتي" : "Confirm booking & take payment"}
           </button>
         )}
@@ -2146,10 +2149,10 @@ servicesList.length > 0 && (
                 type="button"
                 onClick={() => void handleSubmit()}
                 data-tour="booking-confirm"
-                disabled={isChecking || blockingReasons.length > 0}
+                disabled={isChecking || holdSave || blockingReasons.length > 0}
                 className="inline-flex h-12 items-center gap-2 rounded-xl bg-accent px-7 text-[15px] font-bold text-ink-on-accent shadow-sm transition-colors hover:bg-accent-strong disabled:opacity-40"
               >
-                {isChecking && <Loader2 size={16} className="animate-spin" />}
+                {(isChecking || holdSave) && <Loader2 size={16} className="animate-spin" />}
                 {editAppointment ? txt.saveEdit : txt.confirm}
               </button>
             )}
