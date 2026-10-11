@@ -18,6 +18,8 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { useBranchForMoney } from "@/lib/useBranchForMoney";
+import { useActiveBranch } from "@/lib/useActiveBranch";
+import BranchSelector from "@/components/shared/BranchSelector";
 import { MoneyApiError, createLedgerEntry, deleteLedgerRow, deleteStaffSettlement, updateLedgerRow, updateStaffSettlement } from "@/lib/moneyApi";
 import { CLAIMS_COLLECTION, lineStatusOf, parseClaim, type InsuranceClaim } from "@/lib/insurance/claims";
 import { categoryLabel, EXPENSE_CATEGORY_LIST, INCOME_CATEGORY_LIST } from "@/lib/expenseCategories";
@@ -72,6 +74,7 @@ export default function FinancePage() {
   const { language, t, isRTL } = useLanguage();
   const { showToast, confirm } = useUI();
   const { requireBranchForMoney, picker: branchPicker } = useBranchForMoney();
+  const { branches, allowedBranches, activeBranchId, setActiveBranchId, canChooseAll } = useActiveBranch();
   const { user } = useAuth();
   const router = useRouter();
 
@@ -806,7 +809,10 @@ export default function FinancePage() {
               and the notification bell that used to sit here went with it — both are in the top
               bar for every page, and the bell here was decorative anyway: a red dot that was
               always on and a button that did nothing. */}
-          <PageHeader title={t("finance")} subtitle={periodLabel} />
+          <PageHeader title={t("finance")} subtitle={periodLabel}>
+            {/* Which branch's figures these are; the same remembered choice as the dashboard. Nothing for a single-site clinic. */}
+            <BranchSelector branches={branches} allowed={allowedBranches} value={activeBranchId} onChange={setActiveBranchId} allowAll={canChooseAll} compact />
+          </PageHeader>
           {branchPicker}
 
           {/* Hero + metric tiles */}

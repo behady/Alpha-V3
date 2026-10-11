@@ -12,6 +12,8 @@ import {
 } from "@/lib/reportHelpers";
 import { useClinic } from "@/context/ClinicContext";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
+import { useActiveBranch } from "@/lib/useActiveBranch";
+import BranchSelector from "@/components/shared/BranchSelector";
 import { getClinicCollection } from "@/lib/db-utils";
 import FeatureGate, { FeatureLocked } from "@/components/FeatureGate";
 import { isUnlocked } from "@/lib/featureCatalog";
@@ -47,6 +49,7 @@ function reportFromUrl(): string | null {
 
 function ReportsPage() {
   const { language } = useLanguage();
+  const { branches, allowedBranches, activeBranchId, setActiveBranchId, canChooseAll } = useActiveBranch();
   const isAr = language === "ar";
 
   const [reportId, setReportId] = useState<string>(() => reportFromUrl() || "clinic");
@@ -200,6 +203,8 @@ function ReportsPage() {
             title={isAr ? "مركز التقارير" : "Reports Center"}
             subtitle={isAr ? "تحليلات احترافية قابلة للطباعة" : "Professional analytics with PDF export"}
           >
+            {/* Which branch's figures these are; the same remembered choice as the dashboard. Nothing for a single-site clinic. */}
+            <BranchSelector branches={branches} allowed={allowedBranches} value={activeBranchId} onChange={setActiveBranchId} allowAll={canChooseAll} compact />
             <CalendarDays size={15} className="hidden text-white/40 sm:block" />
             {/* One control for the question everybody actually asks, in front of the two pickers
                 for the one they occasionally do. Setting both ends at once is also a single

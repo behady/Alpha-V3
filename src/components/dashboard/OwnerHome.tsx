@@ -11,6 +11,7 @@ import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { useActiveBranch } from "@/lib/useActiveBranch";
+import BranchSelector from "@/components/shared/BranchSelector";
 import { localYmd } from "@/lib/clinicDate";
 import { LAB_CASES_COLLECTION } from "@/lib/labCases";
 import { clinicDayBoundsMinutes, parseClinicSchedule } from "@/lib/clinicSchedule";
@@ -69,7 +70,7 @@ export default function OwnerHome() {
   const { clinicId } = useClinic();
   const { language, isRTL } = useLanguage();
   const { ownerPeriod: period, setOwnerPeriod: setPeriod } = useUI();
-  const { branches, activeBranch, matches } = useActiveBranch();
+  const { branches, allowedBranches, activeBranchId, setActiveBranchId, canChooseAll, activeBranch, matches } = useActiveBranch();
   const isAr = language === "ar";
   const today = localYmd();
 
@@ -330,6 +331,8 @@ export default function OwnerHome() {
           title={<><span className="font-light">{greeting}</span> {firstName}</>}
           subtitle={`${dateLine} · ${timeLine}${branches.length > 0 && activeBranch ? ` · ${activeBranch.name}` : ""}`}
         >
+          {/* Which branch's figures these are; the same remembered choice as the dashboard. Nothing for a single-site clinic. */}
+          <BranchSelector branches={branches} allowed={allowedBranches} value={activeBranchId} onChange={setActiveBranchId} allowAll={canChooseAll} compact />
           <HomeViewTabs />
         </PageHeader>
 

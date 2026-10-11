@@ -53,6 +53,7 @@ import { presetOf, rangeFor, rangeText, getFirstDay, getToday, type DateRange, t
 import { isDentistStaff } from "@/lib/staffRoles";
 import { useActiveBranch } from "@/lib/useActiveBranch";
 import { useBranchForMoney } from "@/lib/useBranchForMoney";
+import BranchSelector from "@/components/shared/BranchSelector";
 import { settingsText } from "@/config/settingsText";
 import TeamList, { type RailPerson } from "./TeamList";
 import StaffProfile, { type PayDraft, type ProfileStaff, type RateRow, type SettlementView } from "./StaffProfile";
@@ -77,7 +78,7 @@ function TeamPage() {
   const router = useRouter();
   const params = useSearchParams();
   const isAr = language === "ar";
-  const { branches } = useActiveBranch();
+  const { branches, allowedBranches, activeBranchId, setActiveBranchId, canChooseAll } = useActiveBranch();
   const { requireBranchForMoney, picker: branchPicker } = useBranchForMoney();
 
   /**
@@ -683,6 +684,8 @@ function TeamPage() {
         title={isAr ? "الفريق" : "Team"}
         subtitle={rangeText(range, isAr)}
       >
+        {/* Which branch's figures these are; the same remembered choice as the dashboard. Nothing for a single-site clinic. */}
+        <BranchSelector branches={branches} allowed={allowedBranches} value={activeBranchId} onChange={setActiveBranchId} allowAll={canChooseAll} compact />
         {presets.map((p) => (
           <button
             key={p.id}

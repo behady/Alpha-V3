@@ -12,6 +12,8 @@ import { useLanguage } from "@/context/LanguageContext";
 import PermissionGuard from "@/components/PermissionGuard";
 import PageHeader, { headerButtonPrimary } from "@/components/dashboard/PageHeader";
 import Protect from "@/components/Protect";
+import { useActiveBranch } from "@/lib/useActiveBranch";
+import BranchSelector from "@/components/shared/BranchSelector";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 
 const PAGE_SIZE = 15;
@@ -31,6 +33,7 @@ const getAvatarStyle = (name: string) => {
 export default function PatientsPage() {
   const { language, isRTL } = useLanguage();
   const router = useRouter();
+  const { branches, allowedBranches, activeBranchId, setActiveBranchId, canChooseAll } = useActiveBranch();
   
   const [patients, setPatients] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -140,6 +143,8 @@ export default function PatientsPage() {
             that used to sit alongside the title are gone — both live in the top bar now, and
             that bell was decorative: a permanent red dot on a button that did nothing. */}
         <PageHeader title={t.title}>
+          {/* Which branch's figures these are; the same remembered choice as the dashboard. Nothing for a single-site clinic. */}
+          <BranchSelector branches={branches} allowed={allowedBranches} value={activeBranchId} onChange={setActiveBranchId} allowAll={canChooseAll} compact />
           <Protect permission="patients.add">
             <button onClick={() => setIsModalOpen(true)} data-tour="patients-add" className={headerButtonPrimary}>
               <Plus size={16} strokeWidth={3} />
