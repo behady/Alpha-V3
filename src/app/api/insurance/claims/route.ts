@@ -8,6 +8,9 @@ import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import { findPayer, isInsurerFormat, parsePayers, PRIVATE_PAYER_ID, type CommissionRates } from "@/lib/payers";
 import { isFullAccessRole } from "@/lib/permissions";
+import { assertBranchAllowed } from "@/lib/server/branchAccess";
+import { branchForAutomaticRow } from "@/lib/branchAccess";
+import { LOCATIONS_DOC, parseClinicBranches } from "@/lib/clinicLocations";
 import { buildManualEntryRow, buildPaymentRow, sumPayments } from "@/lib/ledgerWrite";
 import { RECEIPT_COUNTER_DOC, RECEIPT_SETTINGS_DOC, formatReceiptNumber, normalizeReceiptSettings } from "@/lib/receiptSettings";
 import { applyProcedureSync, readProcedurePayments, stampPaymentsDentist, type PaymentRowLite } from "@/lib/server/ledgerSync";
@@ -136,21 +139,42 @@ function rowWording(stored: unknown, posted: Record<string, string>): Record<str
 type Charge = { id: string; row: Record<string, unknown> };
 
 /**
+ * The branch for money nobody chose a branch for (a call that sent none): the patient's, else the
+ * clinic's first. Read only when the body names no branch. `patientId` is a function because the
+ * PATCH does not know the claim's patient until it has read the claim.
+ */
+function patientBranchFallback(clinicId: string, patientId: () => Promise<string>) {
+  return async (): Promise<string | null> => {
+    const id = await patientId();
+    const [locations, patient] = await Promise.all([
+      adminClinicDoc(clinicId, "settings", LOCATIONS_DOC).get(),
+      id ? adminClinicDoc(clinicId, "patients", id).get() : null,
+    ]);
+    return branchForAutomaticRow({
+      patient: patient?.exists ? patient.data() : null,
+      branches: parseClinicBranches(locations.exists ? locations.data() : null),
+    });
+  };
+}
+
+/**
  * The treatments themselves, as the patient's file records any other work: one clinical note and
  * one ledger charge per approved line, under this insurer, so Finance, the reports and the
  * patient's balance all see insurance work without a second entry. Writes only; the caller has
  * done every read. Returns the links to keep on the claim and the charges for the audit trail.
  */
-function writeTreatmentRows(tx: Transaction, clinicId: string, args: TreatmentRowArgs): { ledgerIds: Record<number, LineLedger>; charges: Charge[] } {
+function writeTreatmentRows(tx: Transaction, clinicId: string, args: TreatmentRowArgs, branchId: string | null): { ledgerIds: Record<number, LineLedger>; charges: Charge[] } {
   const ledgerIds: Record<number, LineLedger> = {};
   const charges: Charge[] = [];
   for (const r of insuranceTreatmentRows(args)) {
     const noteRef = adminClinicCollection(clinicId, "clinical_notes").doc();
     const ledgerRef = adminClinicCollection(clinicId, "ledger").doc();
     tx.set(noteRef, { ...stripUndefined(r.note), ledgerId: ledgerRef.id, createdAt: FieldValue.serverTimestamp() });
-    tx.set(ledgerRef, { ...stripUndefined(r.charge), clinicalNoteId: noteRef.id, createdAt: FieldValue.serverTimestamp() });
+    // The charge is money, so it belongs to a branch; the clinical note is not stamped.
+    const charge = branchId ? { ...r.charge, branchId } : r.charge;
+    tx.set(ledgerRef, { ...stripUndefined(charge), clinicalNoteId: noteRef.id, createdAt: FieldValue.serverTimestamp() });
     ledgerIds[r.lineIndex] = { ledgerId: ledgerRef.id, noteId: noteRef.id };
-    charges.push({ id: ledgerRef.id, row: r.charge });
+    charges.push({ id: ledgerRef.id, row: charge });
   }
   return { ledgerIds, charges };
 }
@@ -309,6 +333,13 @@ export async function POST(req: Request) {
       checkName = typeof snap.get("name") === "string" ? (snap.get("name") as string) : "";
     }
 
+    // --- the branch the treatment charges belong to, resolved once --------------------------
+    const branch = await assertBranchAllowed({
+      clinicId, uid: authz.uid, role: authz.role, branchId: body.branchId,
+      fallback: patientBranchFallback(clinicId, async () => existingId),
+    });
+    if (!branch.ok) return branch.response;
+
     // --- the extraction, read and checked again ---------------------------------------------
     const extraction = normalizeConfirmed(body.extraction, format);
     const h = extraction.header;
@@ -463,7 +494,7 @@ export async function POST(req: Request) {
             payerName,
             wording: rowWording(wordingSnap.get(format), wording),
             actor: { uid: authz.uid, name: authz.name, role: authz.role },
-          });
+          }, branch.branchId);
           claim.ledgerIds = written.ledgerIds;
           charges = written.charges;
         }
@@ -668,6 +699,17 @@ export async function PATCH(req: Request) {
     }
 
     const claimRef = adminClinicDoc(clinicId, CLAIMS_COLLECTION, claimId);
+
+    // The branch every row this request writes belongs to, resolved once. The patient's share is
+    // cash taken at a screen, so it must name the branch on screen; anything else falls back to the
+    // patient's branch when the call sent none (the insurer's money, a status change's charges).
+    const branch = await assertBranchAllowed({
+      clinicId, uid: authz.uid, role: authz.role, branchId: body.branchId,
+      fallback: collectShare
+        ? undefined
+        : patientBranchFallback(clinicId, async () => newPatientId || String((await claimRef.get()).get("patientId") || "")),
+    });
+    if (!branch.ok) return branch.response;
     type Collected = { ledgerId: string; amount: number; row: Record<string, unknown> };
     type PatchOutcome =
       | { kind: "no_claim" }
@@ -954,7 +996,7 @@ export async function PATCH(req: Request) {
           payerName,
           wording: rowWording(wordingSnap?.get(claim.insurer), {}),
           actor,
-        });
+        }, branch.branchId);
         update.ledgerIds = written.ledgerIds;
         created = written.charges;
       }
@@ -1006,7 +1048,14 @@ export async function PATCH(req: Request) {
           seq += 1;
           lastReceipt = formatReceiptNumber(receiptSettings, seq, date);
           const ref = adminClinicCollection(clinicId, "ledger").doc();
-          const full = { ...row, receiptNumber: lastReceipt, receiptSeq: seq, claimId, approvalNumber: claim.approvalNumber };
+          const full = {
+            ...row,
+            ...(branch.branchId ? { branchId: branch.branchId } : {}),
+            receiptNumber: lastReceipt,
+            receiptSeq: seq,
+            claimId,
+            approvalNumber: claim.approvalNumber,
+          };
           tx.set(ref, { ...stripUndefined(full), createdAt: FieldValue.serverTimestamp() });
           const siblings = siblingsByRow.get(p.ledgerId) ?? [];
           applyProcedureSync(tx, { clinicId, procedureLedgerId: p.ledgerId, payments: [...siblings, { id: ref.id, date, paid: p.amount, amount: p.amount }], labFee: p.labFee, commissionPct: 0 });
@@ -1037,6 +1086,7 @@ export async function PATCH(req: Request) {
           method: "Cash",
           actor: { uid: authz.uid, name: authz.name },
         });
+        if (branch.branchId) row.branchId = branch.branchId;
         const ledgerRef = adminClinicCollection(clinicId, "ledger").doc();
         collected = { ledgerId: ledgerRef.id, amount, row };
         update.shareCollected = { ledgerId: ledgerRef.id, amount, date };
