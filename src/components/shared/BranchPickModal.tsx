@@ -33,12 +33,17 @@ export default function BranchPickModal({
 
   useEffect(() => setMounted(true), []);
 
+  // Capture phase and stopped here: this opens from inside the booking popup, whose own Escape
+  // listener would otherwise close it too, throwing away everything typed there.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      onCancel();
     };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
   }, [onCancel]);
 
   if (!mounted) return null;

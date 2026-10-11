@@ -76,19 +76,21 @@ export default function ClaimsTable({
     }
   };
 
-  const patch = async (claim: InsuranceClaim, change: ClaimPatch, branchId?: string) => {
+  const patch = async (claim: InsuranceClaim, change: ClaimPatch) => {
     if (!(await sentOk(claim))) return;
-    await run(claim, () => onPatch(claim, change, branchId));
+    await run(claim, () => onPatch(claim, change));
   };
 
   /** Money is asked about first, with the figure, exactly as the patient's Insurance tab asks. */
   const collect = async (claim: InsuranceClaim) => {
     const question = t("confirmShare").replace("{amount}", money(claim.totals.patientShare)).replace("{number}", claim.approvalNumber);
     if (!(await confirm(question, { confirmLabel: t("collectShare") }))) return;
+    // The "already sent" warning comes before the branch pick, so nobody picks and is then warned.
+    if (!(await sentOk(claim))) return;
     // Cash taken under "All branches" is told which branch it belongs to first.
     const branchId = await requireBranchForMoney();
     if (branchId === null) return;
-    await patch(claim, { collectShare: true }, branchId || undefined);
+    await run(claim, () => onPatch(claim, { collectShare: true }, branchId || undefined));
   };
 
   const insurerPaid = async (claim: InsuranceClaim) => {
@@ -97,9 +99,10 @@ export default function ClaimsTable({
       .replace("{insurer}", payerName || claim.payerId)
       .replace("{number}", claim.approvalNumber);
     if (!(await confirm(question, { confirmLabel: t("markInsurerPaid") }))) return;
+    if (!(await sentOk(claim))) return;
     const branchId = await requireBranchForMoney();
     if (branchId === null) return;
-    await patch(claim, { insurerPaid: true }, branchId || undefined);
+    await run(claim, () => onPatch(claim, { insurerPaid: true }, branchId || undefined));
   };
 
   const remove = async (claim: InsuranceClaim) => {
