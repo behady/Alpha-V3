@@ -1,5 +1,6 @@
 import { parseLedgerProcedureDescription } from "@/lib/ledgerProcedureParse";
 import type { ClinicLogoAsset } from "@/lib/clinicLogo";
+import type { ClinicBranch } from "@/lib/clinicLocations";
 import { patientPortion } from "@/lib/ledgerInsurer";
 import {
   DEFAULT_RECEIPT_SETTINGS,
@@ -125,6 +126,12 @@ export type DentalReceiptPdfPayload = {
   etaUuid?: string;
   /** Optional clinic branding; `downloadDentalReceiptPdf` resolves it when left unset. */
   logo?: ClinicLogoAsset;
+  /**
+   * The branch that took the payment (a single-payment receipt only; a statement spans the whole
+   * account). Its name and address print under the clinic name, and its ETA branch code and tax
+   * registration, when set, replace the clinic-wide ones in the tax block.
+   */
+  branch?: ClinicBranch | null;
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -528,6 +535,10 @@ export function buildDentalReceiptSrcDoc(
     contact.push(`<span class="strong nw" style="font-weight:700;">${en ? "Dr. " : "د. "}${esc(dn)}</span>`);
   }
   const contactHtml = contact.join(thermal ? "<br/>" : ` <span class="faint">•</span> `);
+  // Under the clinic name: which branch this receipt is from, and where it is.
+  const branchHtml = p.branch?.name?.trim()
+    ? `<div class="contact"><span class="strong" style="font-weight:700;">${esc(p.branch.name.trim())}</span>${show.clinicAddress && p.branch.address?.trim() ? `<span>${esc(p.branch.address.trim())}</span>` : ""}</div>`
+    : "";
 
   const title = kind === "payment" ? L("titlePayment") : L("titleStatement");
   const metaHtml = `
@@ -538,6 +549,7 @@ export function buildDentalReceiptSrcDoc(
     ? `<div class="hd">
         ${logoImg ? `<div class="logo">${logoImg}</div>` : ""}
         <div class="name">${esc(p.clinicName)}</div>
+        ${branchHtml}
         <div class="contact">${contactHtml}</div>
         <div class="title">${title}</div>
         ${metaHtml}
@@ -548,6 +560,7 @@ export function buildDentalReceiptSrcDoc(
         <div class="left">
           <div style="min-width:0;">
             <div class="name">${esc(p.clinicName)}</div>
+            ${branchHtml}
             <div class="contact">${contactHtml}</div>
           </div>
         </div>
@@ -562,6 +575,7 @@ export function buildDentalReceiptSrcDoc(
           ${placement === "name" && logoImg ? `<div class="logo">${logoImg}</div>` : ""}
           <div style="min-width:0;">
             <div class="name">${esc(p.clinicName)}</div>
+            ${branchHtml}
             <div class="contact">${contactHtml}</div>
           </div>
         </div>
@@ -726,9 +740,9 @@ export function buildDentalReceiptSrcDoc(
     const vat = Math.round((gross - net) * 100) / 100;
     const method = kind === "payment" && p.payment ? p.payment.method : "";
     const rowsLeft = [
-      [L("rin"), `<span class="mono">${esc(e.rin)}</span>`],
+      [L("rin"), `<span class="mono">${esc(p.branch?.taxRegistration?.trim() || e.rin)}</span>`],
       e.companyTradeName.trim() ? [L("tradeName"), esc(e.companyTradeName.trim())] : null,
-      [L("branch"), `<span class="mono">${esc(e.branchCode)}</span>`],
+      [L("branch"), `<span class="mono">${esc(p.branch?.etaBranchCode?.trim() || e.branchCode)}</span>`],
       e.deviceSerialNumber ? [L("device"), `<span class="mono">${esc(e.deviceSerialNumber)}</span>`] : null,
       [L("activity"), `<span class="mono">${esc(e.activityCode)}</span>`],
       e.syndicateLicenseNumber ? [L("syndicate"), `<span class="mono">${esc(e.syndicateLicenseNumber)}</span>`] : null,

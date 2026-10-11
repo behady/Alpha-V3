@@ -7,6 +7,7 @@ import {
   type ReceiptLedgerTransaction,
 } from "@/lib/receiptPdfHtml";
 import { loadReceiptSettings } from "@/lib/receiptSettingsClient";
+import { LOCATIONS_DOC, parseClinicBranches, type ClinicBranch } from "@/lib/clinicLocations";
 import { patientPortion } from "@/lib/ledgerInsurer";
 
 function patientAgeSex(
@@ -41,6 +42,10 @@ export type PrintReceiptResult =
 type ReceiptContext = {
   patientExists: boolean;
   rows: ReceiptLedgerTransaction[];
+  /** Ledger row id to the branch it was recorded at, for the rows that have one. */
+  branchByRow: Map<string, string>;
+  /** The clinic's branches (empty for a clinic without any). */
+  branches: ClinicBranch[];
   clinic: {
     clinicName: string;
     clinicPhone: string;
@@ -59,26 +64,30 @@ type ReceiptContext = {
 };
 
 /**
- * Everything both receipts need, in three reads: the patient, the clinic's letterhead, and every
- * ledger row on the account. The settings are read alongside by the callers.
+ * Everything both receipts need, in four reads: the patient, the clinic's letterhead, its branches
+ * (a payment's receipt names the branch that took it), and every ledger row on the account. The settings are read alongside by the callers.
  */
 async function loadReceiptContext(
   patientId: string,
   fallbackName: string | undefined,
   language: "en" | "ar"
 ): Promise<ReceiptContext> {
-  const [patientSnap, clinicSnap, ledgerSnap] = await Promise.all([
+  const [patientSnap, clinicSnap, locationsSnap, ledgerSnap] = await Promise.all([
     getDoc(getClinicDoc("patients", patientId)),
     getDoc(getClinicDoc("settings", "clinic_info")),
+    // A clinic whose branches cannot be read prints the clinic-wide receipt it always did.
+    getDoc(getClinicDoc("settings", LOCATIONS_DOC)).catch(() => null),
     getDocs(query(getClinicCollection("ledger"), where("patientId", "==", patientId))),
   ]);
 
   const patient = patientSnap.exists() ? patientSnap.data() : {};
   const clinic = clinicSnap.exists() ? clinicSnap.data() : {};
 
+  const branchByRow = new Map<string, string>();
   const rows: ReceiptLedgerTransaction[] = ledgerSnap.docs
     .map((d) => {
       const data = d.data();
+      if (typeof data.branchId === "string" && data.branchId) branchByRow.set(d.id, data.branchId);
       return {
         id: d.id,
         date: String(data.date ?? ""),
@@ -113,6 +122,8 @@ async function loadReceiptContext(
   return {
     patientExists: patientSnap.exists(),
     rows,
+    branchByRow,
+    branches: parseClinicBranches(locationsSnap && locationsSnap.exists() ? locationsSnap.data() : null),
     clinic: {
       clinicName:
         (typeof clinic.name === "string" && clinic.name.trim()) ||
@@ -232,6 +243,10 @@ export async function printPaymentReceipt(
     };
   }
 
-  await downloadDentalReceiptPdf(payload, settings);
+  // The branch that took this payment, from the row itself; a payment with none prints as before.
+  const branchId = ctx.branchByRow.get(paymentId);
+  const branch = branchId ? ctx.branches.find((b) => b.id === branchId) ?? null : null;
+
+  await downloadDentalReceiptPdf(branch ? { ...payload, branch } : payload, settings);
   return { ok: true };
 }

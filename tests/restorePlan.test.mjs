@@ -96,6 +96,9 @@ assert.match(documentDenied("settings", "wapilot"), /clinic_secrets|platform/i);
 // for uniqueness, and no re-run undoes it.
 assert.ok(documentDenied("settings", "counters"));
 assert.match(documentDenied("settings", "counters"), /file number|counter/i);
+// A branch counts its receipts on its own counter document; it is as unrestorable as the clinic-wide one.
+assert.ok(documentDenied("settings", "receipt_counter_hel"));
+assert.equal(documentDenied("settings", "receipt_counter_hel"), documentDenied("settings", "receipt_counter"));
 
 assert.equal(documentDenied("settings", "clinic_info"), null, "ordinary settings still restore");
 assert.equal(documentDenied("patients", "wapilot"), null, "the deny is per document, not per id");

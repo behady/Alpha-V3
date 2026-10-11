@@ -53,11 +53,12 @@ import { DISCOUNTS_DOC, parseDiscountSettings } from "@/lib/priceLists";
 import { isApprovalRow } from "@/lib/ledgerInsurer";
 import { assertBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
 import {
-  RECEIPT_COUNTER_DOC,
   RECEIPT_SETTINGS_DOC,
   formatReceiptNumber,
   normalizeReceiptSettings,
+  receiptCounterDocId,
 } from "@/lib/receiptSettings";
+import { receiptPrefixFor } from "@/lib/clinicLocations";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -289,14 +290,16 @@ async function createPayment(args: {
 
     // The receipt number, minted here so it can never be skipped or handed out twice: the counter
     // and the payment land in the same transaction, and a retry replays both. Read before any
-    // write, as Firestore transactions require.
+    // write, as Firestore transactions require. A payment at a branch is numbered from that
+    // branch's own counter and prefix (HEL-0001), so two branches never share a sequence.
+    const counterRef = adminClinicDoc(clinicId, "settings", receiptCounterDocId(branch.branchId));
     const [receiptSettingsSnap, counterSnap] = await Promise.all([
       txn.get(adminClinicDoc(clinicId, "settings", RECEIPT_SETTINGS_DOC)),
-      txn.get(adminClinicDoc(clinicId, "settings", RECEIPT_COUNTER_DOC)),
+      txn.get(counterRef),
     ]);
     const receiptSettings = normalizeReceiptSettings(receiptSettingsSnap.exists ? receiptSettingsSnap.data() : null);
     const receiptSeq = (Number(counterSnap.exists ? counterSnap.data()?.last : 0) || 0) + 1;
-    const receiptNumber = formatReceiptNumber(receiptSettings, receiptSeq, date);
+    const receiptNumber = formatReceiptNumber(receiptSettings, receiptSeq, date, branch.branch ? receiptPrefixFor(branch.branch) : undefined);
 
     const newRef = adminClinicCollection(clinicId, "ledger").doc();
 
@@ -331,7 +334,7 @@ async function createPayment(args: {
       createdAt: FieldValue.serverTimestamp(),
     });
     txn.set(
-      adminClinicDoc(clinicId, "settings", RECEIPT_COUNTER_DOC),
+      counterRef,
       { last: receiptSeq, lastReceiptNumber: receiptNumber, updatedAt: new Date().toISOString() },
       { merge: true }
     );

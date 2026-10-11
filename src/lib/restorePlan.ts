@@ -205,7 +205,9 @@ export const DOCUMENT_DENY: Record<string, string> = {
 
 /** Is this exact document refused, whatever its collection allows? */
 export function documentDenied(collection: string, documentId: string): string | null {
-  return DOCUMENT_DENY[`${collection}/${documentId}`] ?? null;
+  // Each branch counts its receipts on its own `receipt_counter_<branchId>`: same danger, same refusal.
+  const id = collection === "settings" && documentId.startsWith("receipt_counter_") ? "receipt_counter" : documentId;
+  return DOCUMENT_DENY[`${collection}/${id}`] ?? null;
 }
 
 export function collectionVerdict(name: string): CollectionVerdict {

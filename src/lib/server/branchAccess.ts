@@ -7,7 +7,8 @@ import { isFullAccessRole } from "@/lib/permissions";
 export const BRANCH_REQUIRED_MESSAGE = "Choose the branch this money belongs to.";
 export const BRANCH_FORBIDDEN_MESSAGE = "You can't record money for that branch.";
 
-export type BranchCheck = { ok: true; branchId: string | null } | { ok: false; response: NextResponse };
+/** `branch` is the settings entry for `branchId` (null with no branch), so a caller needs no second read of settings/locations. */
+export type BranchCheck = { ok: true; branchId: string | null; branch: ClinicBranch | null } | { ok: false; response: NextResponse };
 
 const refuse = (status: number, error: string, code: string): BranchCheck => ({
   ok: false,
@@ -44,23 +45,24 @@ export async function assertBranchAllowed(args: {
 }): Promise<BranchCheck> {
   const locations = await adminClinicDoc(args.clinicId, "settings", LOCATIONS_DOC).get();
   const branches = parseClinicBranches(locations.exists ? locations.data() : null);
-  if (branches.length === 0) return { ok: true, branchId: null };
+  if (branches.length === 0) return { ok: true, branchId: null, branch: null };
+  const pick = (id: string): BranchCheck => ({ ok: true, branchId: id, branch: branches.find((b) => b.id === id) ?? null });
 
   const sent = typeof args.branchId === "string" ? args.branchId : "";
   const admin = isFullAccessRole(args.role);
   if (!sent) {
     const automatic = args.fallback ? await args.fallback(branches) : null;
     if (!automatic) return refuse(400, BRANCH_REQUIRED_MESSAGE, "branch_required");
-    if (admin) return { ok: true, branchId: automatic };
+    if (admin) return pick(automatic);
     const allowed = await allowedFor(args.clinicId, args.uid, branches);
-    return { ok: true, branchId: allowed.some((b) => b.id === automatic) ? automatic : allowed[0].id };
+    return pick(allowed.some((b) => b.id === automatic) ? automatic : allowed[0].id);
   }
   if (!branches.some((b) => b.id === sent)) return refuse(400, BRANCH_REQUIRED_MESSAGE, "branch_required");
 
-  if (admin) return { ok: true, branchId: sent };
+  if (admin) return pick(sent);
 
   const allowed = await allowedFor(args.clinicId, args.uid, branches);
-  return allowed.some((b) => b.id === sent) ? { ok: true, branchId: sent } : refuse(403, BRANCH_FORBIDDEN_MESSAGE, "branch_forbidden");
+  return allowed.some((b) => b.id === sent) ? pick(sent) : refuse(403, BRANCH_FORBIDDEN_MESSAGE, "branch_forbidden");
 }
 
 /**

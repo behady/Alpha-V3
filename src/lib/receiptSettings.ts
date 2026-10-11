@@ -31,6 +31,15 @@
 export const RECEIPT_SETTINGS_DOC = "receipt";
 export const RECEIPT_COUNTER_DOC = "receipt_counter";
 
+/**
+ * Which counter document a receipt is numbered from. A clinic with no branches (null) keeps the one
+ * clinic-wide counter it always had; with branches, each branch counts on its own
+ * (`receipt_counter_hel`), still under `settings/`, so HEL-0001 and TAG-0001 can both exist.
+ */
+export function receiptCounterDocId(branchId: string | null): string {
+  return branchId ? `${RECEIPT_COUNTER_DOC}_${branchId}` : RECEIPT_COUNTER_DOC;
+}
+
 export type ReceiptTemplate = "classic" | "modern" | "minimal" | "thermal";
 export type ReceiptFont = "tajawal" | "cairo" | "noto-naskh" | "ibm-plex";
 export type ReceiptPaper = "a4" | "a5" | "thermal80";
@@ -264,6 +273,7 @@ export function normalizeReceiptSettings(raw: unknown): ReceiptSettings {
  *   R-2026-0012   prefix "R-", year on, sequence 12
  *   R-0012        prefix "R-", year off
  *   0012          no prefix
+ *   HEL-0012      a branch's own prefix (`prefixOverride`) replaces the clinic's and is followed by "-"
  *
  * Four digits minimum so numbers sort as text the way they sort as numbers, until a clinic passes
  * 9,999 receipts in a year — after which they simply get longer.
@@ -271,13 +281,15 @@ export function normalizeReceiptSettings(raw: unknown): ReceiptSettings {
 export function formatReceiptNumber(
   settings: Pick<ReceiptSettings, "numberPrefix" | "numberIncludesYear">,
   seq: number,
-  date: Date | string = new Date()
+  date: Date | string = new Date(),
+  prefixOverride?: string
 ): string {
   const n = Math.max(1, Math.floor(Number(seq) || 1));
   const d = typeof date === "string" ? new Date(date) : date;
   const year = Number.isNaN(d.getTime()) ? new Date().getFullYear() : d.getFullYear();
   const digits = String(n).padStart(4, "0");
-  return `${settings.numberPrefix}${settings.numberIncludesYear ? `${year}-` : ""}${digits}`;
+  const prefix = prefixOverride && prefixOverride.trim() ? `${prefixOverride.trim()}-` : settings.numberPrefix;
+  return `${prefix}${settings.numberIncludesYear ? `${year}-` : ""}${digits}`;
 }
 
 /**

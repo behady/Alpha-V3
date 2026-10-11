@@ -14,6 +14,7 @@ const PROJECT = "demo-branch-money";
 const CLINIC = "C1";
 const NO_BRANCH_CLINIC = "C2";
 const FIRST_IS_FORBIDDEN_CLINIC = "C3";
+const RECEIPTS_CLINIC = "C4";
 const ADMIN = "admin-1";
 const DESK = "desk-1";
 const DESK_2 = "desk-2";
@@ -72,6 +73,7 @@ const db = adminDb();
 const clinic = db.collection("clinics").doc(CLINIC);
 const plainClinic = db.collection("clinics").doc(NO_BRANCH_CLINIC);
 const thirdClinic = db.collection("clinics").doc(FIRST_IS_FORBIDDEN_CLINIC);
+const receiptsClinic = db.collection("clinics").doc(RECEIPTS_CLINIC);
 const ledger = clinic.collection("ledger");
 
 let passed = 0;
@@ -107,11 +109,11 @@ const settle = (uid: string, extra: Json = {}) =>
   post(settlementsRoute, uid, { clinicId: CLINIC, action: "create", staffId: "S1", kind: "payout", amount: 300, date: "2026-10-01", ...extra });
 const row = async (id: string, collection: Collection = ledger) => (await collection.doc(id).get()).data() as Json | undefined;
 
-for (const c of [clinic, plainClinic, thirdClinic]) {
+for (const c of [clinic, plainClinic, thirdClinic, receiptsClinic]) {
   await db.recursiveDelete(c);
   await c.set({ name: "Branch Test", status: "Active", subscriptionTier: "Premium" });
 }
-await db.collection("users").doc(ADMIN).set({ name: "Owner Tester", clinicRoles: { [CLINIC]: "Owner" } });
+await db.collection("users").doc(ADMIN).set({ name: "Owner Tester", clinicRoles: { [CLINIC]: "Owner", [RECEIPTS_CLINIC]: "Owner" } });
 await db.collection("users").doc(DESK).set({
   name: "Desk Hel",
   clinicRoles: { [CLINIC]: "Receptionist" },
@@ -136,10 +138,20 @@ await thirdClinic.collection("settings").doc("locations").set({
 await thirdClinic.collection("staff").doc("desk-3-staff").set({ uid: DESK_3, name: "Desk Third", role: "Receptionist", branchIds: ["hel"] });
 await clinic.collection("settings").doc("locations").set({
   branches: [
-    { id: "hel", name: "Heliopolis", rooms: [] },
-    { id: "tag", name: "Tagamoa", rooms: [] },
+    { id: "hel", name: "Heliopolis", rooms: [], receiptPrefix: "HEL" },
+    { id: "tag", name: "Tagamoa", rooms: [], receiptPrefix: "TAG" },
   ],
 });
+await receiptsClinic.collection("settings").doc("locations").set({
+  branches: [
+    { id: "hel", name: "Heliopolis", rooms: [], receiptPrefix: "HEL" },
+    { id: "tag", name: "Tagamoa", rooms: [], receiptPrefix: "TAG" },
+  ],
+});
+// No year in the number, so the sequence reads plainly: HEL-0001.
+await receiptsClinic.collection("settings").doc("receipt").set({ numberIncludesYear: false });
+await receiptsClinic.collection("patients").doc("RP").set({ name: "Receipt Patient" });
+await plainClinic.collection("patients").doc("PP").set({ name: "Plain Patient" });
 await clinic.collection("staff").doc("desk-1-staff").set({ uid: DESK, name: "Desk Hel", role: "Receptionist", branchIds: ["hel"] });
 await clinic.collection("staff").doc("S1").set({ name: "Dr Sami", role: "Dentist", branchIds: [] });
 
@@ -247,7 +259,32 @@ console.log("a clinic with no branches stamps nothing");
   check("the row exists and has no branchId field at all", !!stored && !("branchId" in stored), stored);
 }
 
-for (const c of [clinic, plainClinic, thirdClinic]) await db.recursiveDelete(c);
+console.log("each branch numbers its own receipts");
+{
+  const hel1 = await money(ADMIN, { action: "create-payment", patientId: "RP", amount: 50, date: "2026-10-01", branchId: "hel" }, RECEIPTS_CLINIC);
+  const tag1 = await money(ADMIN, { action: "create-payment", patientId: "RP", amount: 50, date: "2026-10-01", branchId: "tag" }, RECEIPTS_CLINIC);
+  check("a Heliopolis payment is a 200 numbered HEL-0001", hel1.status === 200 && hel1.json.receiptNumber === "HEL-0001", hel1);
+  check("a Tagamoa payment is a 200 numbered TAG-0001 (its own sequence)", tag1.status === 200 && tag1.json.receiptNumber === "TAG-0001", tag1);
+  const hel2 = await money(ADMIN, { action: "create-payment", patientId: "RP", amount: 50, date: "2026-10-01", branchId: "hel" }, RECEIPTS_CLINIC);
+  check("the next Heliopolis payment is HEL-0002", hel2.json.receiptNumber === "HEL-0002", hel2);
+  const settings = receiptsClinic.collection("settings");
+  check("the clinic-wide receipt_counter does not exist", !(await settings.doc("receipt_counter").get()).exists);
+  check("Heliopolis counts on receipt_counter_hel", (await settings.doc("receipt_counter_hel").get()).data()?.last === 2);
+  check("Tagamoa counts on receipt_counter_tag", (await settings.doc("receipt_counter_tag").get()).data()?.last === 1);
+  const stored = await row(hel1.json.id, receiptsClinic.collection("ledger"));
+  check("the row stores the sequence it took", stored?.receiptSeq === 1 && stored?.receiptNumber === "HEL-0001", stored);
+  check("payments taken in the main test clinic never touched the clinic-wide counter either", !(await clinic.collection("settings").doc("receipt_counter").get()).exists);
+}
+
+console.log("a clinic with no branches still numbers from the clinic-wide counter");
+{
+  const r = await money(DESK_2, { action: "create-payment", patientId: "PP", amount: 50, date: "2026-10-01" }, NO_BRANCH_CLINIC);
+  check("a payment with no branches is a 200 numbered with the clinic prefix", r.status === 200 && /^R-\d{4}-0001$/.test(r.json.receiptNumber ?? ""), r);
+  const counter = await plainClinic.collection("settings").doc("receipt_counter").get();
+  check("it counted on settings/receipt_counter", counter.exists && counter.data()?.last === 1, counter.data());
+}
+
+for (const c of [clinic, plainClinic, thirdClinic, receiptsClinic]) await db.recursiveDelete(c);
 authServer.close();
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

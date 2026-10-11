@@ -10,7 +10,8 @@ import { findPayer, isInsurerFormat, parsePayers, PRIVATE_PAYER_ID, type Commiss
 import { isFullAccessRole } from "@/lib/permissions";
 import { assertBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
 import { buildManualEntryRow, buildPaymentRow, sumPayments } from "@/lib/ledgerWrite";
-import { RECEIPT_COUNTER_DOC, RECEIPT_SETTINGS_DOC, formatReceiptNumber, normalizeReceiptSettings } from "@/lib/receiptSettings";
+import { RECEIPT_SETTINGS_DOC, formatReceiptNumber, normalizeReceiptSettings, receiptCounterDocId } from "@/lib/receiptSettings";
+import { receiptPrefixFor, type ClinicBranch } from "@/lib/clinicLocations";
 import { applyProcedureSync, readProcedurePayments, stampPaymentsDentist, type PaymentRowLite } from "@/lib/server/ledgerSync";
 import { recordMoneyChange } from "@/lib/server/ledgerAudit";
 import { restampStaffSettlementsFor } from "@/lib/server/staffSettlementSync";
@@ -707,6 +708,7 @@ export async function PATCH(req: Request) {
       }
     }
     let branchId: string | null = null;
+    let branchEntry: ClinicBranch | null = null;
     if (writesMoney) {
       const branch = await assertBranchAllowed({
         clinicId, uid: authz.uid, role: authz.role, branchId: body.branchId,
@@ -716,6 +718,7 @@ export async function PATCH(req: Request) {
       });
       if (!branch.ok) return branch.response;
       branchId = branch.branchId;
+      branchEntry = branch.branch;
     }
     type Collected = { ledgerId: string; amount: number; row: Record<string, unknown> };
     type PatchOutcome =
@@ -823,7 +826,7 @@ export async function PATCH(req: Request) {
       const liveLinks = links.filter((l) => chargeSnaps.get(l.ledgerId)?.exists);
       const [receiptSettingsSnap, receiptCounterSnap] =
         paying && hasRows
-          ? await Promise.all([tx.get(adminClinicDoc(clinicId, "settings", RECEIPT_SETTINGS_DOC)), tx.get(adminClinicDoc(clinicId, "settings", RECEIPT_COUNTER_DOC))])
+          ? await Promise.all([tx.get(adminClinicDoc(clinicId, "settings", RECEIPT_SETTINGS_DOC)), tx.get(adminClinicDoc(clinicId, "settings", receiptCounterDocId(branchId)))])
           : [null, null];
       const siblingsByRow = new Map<string, PaymentRowLite[]>();
       // Also when a dentist is picked: the receipts already taken for that service get them too.
@@ -1064,7 +1067,7 @@ export async function PATCH(req: Request) {
             category: collectShare ? SHARE_CATEGORY : INSURER_CATEGORY,
           });
           seq += 1;
-          lastReceipt = formatReceiptNumber(receiptSettings, seq, date);
+          lastReceipt = formatReceiptNumber(receiptSettings, seq, date, branchEntry ? receiptPrefixFor(branchEntry) : undefined);
           const ref = adminClinicCollection(clinicId, "ledger").doc();
           const full = {
             ...row,
@@ -1085,7 +1088,7 @@ export async function PATCH(req: Request) {
         if (insurerPaid) {
           for (const l of liveLinks) tx.update(adminClinicDoc(clinicId, "ledger", l.ledgerId), { insurerPaidAt: date });
         }
-        tx.set(adminClinicDoc(clinicId, "settings", RECEIPT_COUNTER_DOC), { last: seq, lastReceiptNumber: lastReceipt, updatedAt: new Date().toISOString() }, { merge: true });
+        tx.set(adminClinicDoc(clinicId, "settings", receiptCounterDocId(branchId)), { last: seq, lastReceiptNumber: lastReceipt, updatedAt: new Date().toISOString() }, { merge: true });
         if (collectShare) update.shareCollected = { ledgerId: made[0].id, amount: sum, date };
         if (insurerPaid) update.insurerPaid = { date, amount: sum };
         payments = made;
