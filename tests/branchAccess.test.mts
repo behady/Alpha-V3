@@ -132,4 +132,18 @@ for (const rel of ["src/app/api/finance/ledger/route.ts", "src/app/api/clinical/
   assert.match(readFileSync(new URL(`../${rel}`, import.meta.url), "utf8"), /assertRowBranchAllowed\(/, `${rel} edits or deletes another branch's money unchecked`);
 }
 
+// Finance tabs: a tab per branch for the owner, a tab per insurance company, one filter, one collect.
+{
+  const financePage = readFileSync(new URL("../src/app/(dashboard)/finance/page.tsx", import.meta.url), "utf8");
+  assert.match(financePage, /BranchTabs/, "the Finance page has no branch tabs");
+  assert.match(financePage, /InsurerTab/, "the Finance page has no insurance-company tab");
+  assert.match(financePage, /applyFinanceFilters\(/, "the Finance page filters rows by hand instead of applyFinanceFilters");
+  assert.match(financePage, /collectFromInsurer\(/, "the Finance page cannot collect from an insurance company");
+  assert.match(financePage, /rowsBeforeBranches/, "the Clinic tab lost the rows-from-before-branches line");
+  assert.match(financePage, /InsurerBadge/, "payment rows no longer say which company paid");
+  const insurerTab = readFileSync(new URL("../src/components/finance/InsurerTab.tsx", import.meta.url), "utf8");
+  // Insurer money follows the charge's branch; collecting never asks which branch.
+  assert.doesNotMatch(insurerTab, /useBranchForMoney/, "collecting from an insurer must not ask which branch");
+}
+
 console.log("branchAccess: all checks passed");

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { TrendingUp, TrendingDown, DollarSign, PieChart, Download, Plus, Search, Edit2, Trash2, Loader2, X, Save, CalendarDays, CalendarClock, Users, ChevronLeft, ChevronRight, SlidersHorizontal, ChevronDown, ChevronUp, Wallet, FileText } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, PieChart, Download, Plus, Edit2, Trash2, Loader2, X, Save, CalendarDays, CalendarClock, Users, ChevronLeft, ChevronRight, SlidersHorizontal, ChevronDown, ChevronUp, Wallet, FileText } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, addDoc, query, orderBy, serverTimestamp, deleteDoc, doc, updateDoc, where, getDoc, getDocs, onSnapshot, documentId } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
@@ -21,7 +21,16 @@ import { useBranchForMoney } from "@/lib/useBranchForMoney";
 import { useActiveBranch } from "@/lib/useActiveBranch";
 import { rowInScope } from "@/lib/branchAccess";
 import BranchSelector from "@/components/shared/BranchSelector";
-import { MoneyApiError, createLedgerEntry, deleteLedgerRow, deleteStaffSettlement, updateLedgerRow, updateStaffSettlement } from "@/lib/moneyApi";
+import BranchTabs from "@/components/finance/BranchTabs";
+import InsurerTab from "@/components/finance/InsurerTab";
+import FinanceFilters, { type FinanceFilterOptions } from "@/components/finance/FinanceFilters";
+import InsurerBadge from "@/components/shared/InsurerBadge";
+import { applyFinanceFilters, EMPTY_FINANCE_FILTER, type FinanceFilter } from "@/lib/financeFilters";
+import type { LedgerLite } from "@/lib/insurerLedger";
+import { INSURER_PAYMENT_METHOD } from "@/lib/ledgerInsurer";
+import { usePricingPolicy } from "@/lib/usePricingPolicy";
+import { PRIVATE_PAYER_ID } from "@/lib/payers";
+import { MoneyApiError, collectFromInsurer, createLedgerEntry, deleteLedgerRow, deleteStaffSettlement, updateLedgerRow, updateStaffSettlement } from "@/lib/moneyApi";
 import { CLAIMS_COLLECTION, lineStatusOf, parseClaim, type InsuranceClaim } from "@/lib/insurance/claims";
 import { categoryLabel, EXPENSE_CATEGORY_LIST, INCOME_CATEGORY_LIST } from "@/lib/expenseCategories";
 import { countsForPayroll } from "@/lib/staffInsurance";
@@ -45,6 +54,28 @@ interface Transaction {
   discountAmount?: number;
   /** True when this row is a treatment plan / AR line with no cash collected on the row (shown for reference only). */
   isAccountsReceivableOnly?: boolean;
+  /** Who the treatment was charged to; a payment copies it from the treatment it settles. */
+  payerId?: string | null;
+  payerName?: string | null;
+  doctorId?: string | null;
+  receiptNumber?: string | null;
+  /** Who took the money: `receivedBy` on a payment, `addedBy` on a manual entry (folded together on load). */
+  receivedBy?: string;
+}
+
+/** What `applyFinanceFilters` takes: the row with its fields readable by name. */
+type FilterableRow = Transaction & Record<string, unknown>;
+const filterRows = (rows: readonly Transaction[], f: FinanceFilter): Transaction[] => applyFinanceFilters(rows as readonly FilterableRow[], f);
+
+/** A payment method as a person says it; stored spellings vary ("Instapay", "InstaPay"). */
+function methodLabel(m: string, isAr: boolean): string {
+  const k = m.trim().toLowerCase();
+  if (k === "cash") return isAr ? "كاش" : "Cash";
+  if (k === "card" || k === "visa") return isAr ? "كارت" : "Card";
+  if (k === "instapay") return "InstaPay";
+  if (k === "insurance") return isAr ? "تأمين" : "Insurance";
+  if (k === "bank transfer") return isAr ? "تحويل بنكي" : "Bank transfer";
+  return m || (isAr ? "أخرى" : "Other");
 }
 
 /** Cash-basis amount for finance KPIs and the main +/- column (not full treatment plan totals). */
@@ -80,6 +111,28 @@ export default function FinancePage() {
   const { branches, allowedBranches, activeBranchId, setActiveBranchId, canChooseAll, scopeBranchId } = useActiveBranch();
   const { user } = useAuth();
   const router = useRouter();
+  const { payers } = usePricingPolicy();
+  /** One tab per insurance company the clinic works with; none, and the tab row is not drawn. */
+  const insurers = useMemo(() => payers.filter((p) => p.active && p.id !== PRIVATE_PAYER_ID), [payers]);
+  const payerDisplayName = (p: { name: string; nameAr?: string }) => (language === "ar" && p.nameAr ? p.nameAr : p.name);
+  // ?tab=<payerId|clinic>. Read from window, not useSearchParams, which would need a Suspense
+  // boundary around the whole page (the dashboard reads ?book= the same way).
+  const [moneyTab, setMoneyTab] = useState("clinic");
+  useEffect(() => {
+    const tab = new URLSearchParams(window.location.search).get("tab");
+    if (tab) setMoneyTab(tab);
+  }, []);
+  const chooseMoneyTab = (id: string) => {
+    setMoneyTab(id);
+    const q = new URLSearchParams(window.location.search);
+    if (id === "clinic") q.delete("tab");
+    else q.set("tab", id);
+    const s = q.toString();
+    router.replace(`${window.location.pathname}${s ? `?${s}` : ""}`, { scroll: false });
+  };
+  // Derived, not reset: the payer list arrives after the address is read, and a company removed
+  // since the link was made simply falls back to the Clinic tab.
+  const activeInsurer = insurers.find((p) => p.id === moneyTab) ?? null;
 
   /** Every cash row of the period as loaded; `allTransactions` below is the branch on screen. */
   const [loadedTransactions, setAllTransactions] = useState<Transaction[]>([]);
@@ -115,9 +168,12 @@ export default function FinancePage() {
   }, [periodClaims, scopeBranchId]);
   /** The approvals the listed insurance payments belong to, so a row can name its dentist and share. */
   const [claimsById, setClaimsById] = useState<Map<string, InsuranceClaim>>(new Map());
-  const [filterType, setFilterType] = useState<'all' | 'income' | 'expense'>('all');
-  const [filterDoctor, setFilterDoctor] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState("");
+  /**
+   * Every filter on the Clinic tab, in one value. `kind` is which rows are listed ("all" shows the
+   * period's statement instead of a list); the rest narrow the rows themselves.
+   */
+  const [filter, setFilter] = useState<FinanceFilter>(EMPTY_FINANCE_FILTER);
+  const filterType = filter.kind;
   const [timeView, setTimeView] = useState<"daily" | "monthly" | "range">("daily");
   const [dateRange, setDateRange] = useState(new Date().toISOString().split("T")[0]);
   const [customStartDate, setCustomStartDate] = useState(
@@ -206,6 +262,8 @@ export default function FinancePage() {
               val,
               discountAmount: Number(d.discountAmount) || 0,
               isAccountsReceivableOnly: isAR,
+              // In memory only, for the "Received by" filter: a manual entry names who added it.
+              receivedBy: String(d.receivedBy || d.addedBy || "").trim(),
             } as Transaction;
           })
           .sort((a, b) => {
@@ -334,19 +392,99 @@ export default function FinancePage() {
   };
   /** What the clinic keeps of a row once the dentist has been paid their part: cash − lab − paid. */
   const rowNet = (tx: Transaction, paid: number): number => Math.round((tx.val - (Number(tx.labFee) || 0) - paid) * 100) / 100;
+  /**
+   * Who a payment row's money came from, when that is not simply the patient: the insurance
+   * company itself ("Gasco paid"), or the patient paying their part of a company's treatment.
+   */
+  const payerCaption = (tx: Transaction) => {
+    if (tx.type !== "payment") return null;
+    const ar = language === "ar";
+    const id = String(tx.payerId || "").trim();
+    const known = id ? payers.find((p) => p.id === id) : undefined;
+    const name = (known ? payerDisplayName(known) : "") || String(tx.payerName || "").trim();
+    if (String(tx.method || "") === INSURER_PAYMENT_METHOD) {
+      const who = name || (ar ? "التأمين" : "Insurance");
+      return (
+        <span className="mt-1 flex items-center gap-1.5 text-[11px] font-bold text-ink-body normal-case">
+          <InsurerBadge name={who} size={14} />
+          {ar ? `${who} دفعت` : `${who} paid`}
+        </span>
+      );
+    }
+    if (!id || id === PRIVATE_PAYER_ID || !name) return null;
+    return (
+      <span className="mt-1 block text-[11px] font-semibold text-ink-muted normal-case">
+        {ar ? `لعلاج على حساب ${name}` : `for a ${name} treatment`}
+      </span>
+    );
+  };
+  /** An insurer tab's rows: the period's charges and cash on the branch on screen; the tab takes its company's. */
+  const insurerTabRows = useMemo(() => [...(periodProcedures as LedgerLite[]), ...allTransactions], [periodProcedures, allTransactions]);
+  /** The one door insurer money goes through; the tab asks and reports, the route decides the amounts. */
+  const collectForInsurer = (payerId: string, chargeIds: string[]) => collectFromInsurer({ payerId, chargeIds });
 
-  const { kpiStats, availableDoctors } = useMemo(() => {
+  /**
+   * The filter as it applies to the figures: every field but `kind`, which only picks the rows
+   * listed. `onlyOutstanding` keeps unpaid treatments, and this tab lists cash, so it stays off here
+   * (the insurer tabs carry it).
+   */
+  const figureFilter = useMemo<FinanceFilter>(() => ({ ...filter, kind: "all", onlyOutstanding: false }), [filter]);
+  const isFiltered = useMemo(
+    () => (Object.keys(EMPTY_FINANCE_FILTER) as (keyof FinanceFilter)[]).some((k) => k !== "patientQuery" && figureFilter[k] !== EMPTY_FINANCE_FILTER[k]) || filter.patientQuery.trim() !== "",
+    [figureFilter, filter.patientQuery],
+  );
+  /**
+   * The rows of the period, branch and filter on screen — the ONE set the tiles, the statement,
+   * the list and the PDF all read, so no two figures on the page can disagree. The search box is
+   * the filter's patient field (name or phone), and also matches a row's note, as it always did.
+   */
+  const figureRows = useMemo(() => {
+    const base = filterRows(allTransactions, { ...figureFilter, patientQuery: "" });
+    const q = figureFilter.patientQuery.trim();
+    if (!q) return base;
+    const byPatient = new Set(filterRows(base, { ...EMPTY_FINANCE_FILTER, patientQuery: q }).map((r) => r.id));
+    const needle = q.toLowerCase();
+    return base.filter((t) => byPatient.has(t.id) || (t.description || "").toLowerCase().includes(needle) || patientMatchesSearch(q, t.patientName || "", undefined));
+  }, [allTransactions, figureFilter]);
+  /** The charges behind the Discounts figures, narrowed by what a charge carries: its dentist, its payer, its patient. */
+  const figureProcedures = useMemo(
+    () => applyFinanceFilters(periodProcedures as (LedgerLite & Record<string, unknown>)[], { ...EMPTY_FINANCE_FILTER, doctorId: filter.doctorId, payerId: filter.payerId, patientQuery: filter.patientQuery }),
+    [periodProcedures, filter.doctorId, filter.payerId, filter.patientQuery],
+  );
+
+  /** What each filter can be set to, from the rows of the period (a dentist with no rows has nothing to show). */
+  const filterOptions = useMemo<FinanceFilterOptions>(() => {
+    const isAr = language === "ar";
+    const dentists = new Map<string, string>();
+    const categories = new Map<string, string>();
+    const received = new Set<string>();
+    const methods = new Set<string>(["Cash", "Card", INSURER_PAYMENT_METHOD]);
+    for (const t of [...allTransactions, ...(periodProcedures as Partial<Transaction>[])]) {
+      const doctorId = String(t.doctorId || "").trim();
+      if (doctorId && !dentists.has(doctorId)) dentists.set(doctorId, (t.doctorName || t.doctor || doctorId).replace(/^Dr\.\s*/i, ""));
+    }
+    for (const t of allTransactions) {
+      if (t.category) categories.set(t.category, categoryLabel(t.category, isAr) || t.category);
+      if (t.receivedBy) received.add(t.receivedBy);
+      if (t.method && String(t.method).trim()) methods.add(String(t.method).trim());
+    }
+    const byLabel = (a: { label: string }, b: { label: string }) => a.label.localeCompare(b.label);
+    return {
+      methods: [...methods].map((m) => ({ id: m, label: methodLabel(m, isAr) })),
+      payers: payers.filter((p) => p.active).map((p) => ({ id: p.id, label: p.id === PRIVATE_PAYER_ID ? (isAr ? "خاص (العيادة)" : "Private (the clinic)") : payerDisplayName(p) })),
+      dentists: [...dentists].map(([id, name]) => ({ id, label: `Dr. ${name}` })).sort(byLabel),
+      categories: [...categories].map(([id, label]) => ({ id, label })).sort(byLabel),
+      receivedBy: [...received].map((name) => ({ id: name, label: name })).sort(byLabel),
+    };
+  }, [allTransactions, periodProcedures, payers, language]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const { kpiStats } = useMemo(() => {
       let grossIncome = 0; let totalCommissions = 0; let totalLabFees = 0; let explicitExpenses = 0; let netClinicProfit = 0;
       let staffPay = 0;
       let privatePending = 0;
       let totalProcedureDiscounts = 0;
-      const docsList = new Set<string>();
 
-      allTransactions.forEach(t => {
-          const docLabel = (t.doctorName || t.doctor || "").trim();
-          if (filterDoctor !== 'all' && docLabel !== filterDoctor) return;
-          if (docLabel) docsList.add(docLabel);
-
+      figureRows.forEach(t => {
           if (t.type === 'expense') {
             explicitExpenses += t.val;
             if (t.settlementId) staffPay += t.val;
@@ -373,11 +511,9 @@ export default function FinancePage() {
               totalProcedureDiscounts += Number(t.discountAmount) || 0;
           }
       });
-      // Discounts, from the charges rather than the cash. Filtered by the same dentist selection
-      // so the tile agrees with the rest of the screen.
-      for (const row of periodProcedures) {
-        const docLabel = String(row.doctorName || row.doctor || "").trim();
-        if (filterDoctor !== 'all' && docLabel !== filterDoctor) continue;
+      // Discounts, from the charges rather than the cash. Filtered by the same dentist, payer and
+      // patient so the tile agrees with the rest of the screen.
+      for (const row of figureProcedures) {
         totalProcedureDiscounts += Number(row.discountAmount) || 0;
       }
 
@@ -387,9 +523,10 @@ export default function FinancePage() {
       // Pending = earned by the dentists this period (private commission + insurance shares) and
       // not yet handed over, read off the rows' own paid stamps. Paid to staff is what left (the
       // Team page's payouts, Salary expenses) and is the part deducted; the rest only waits.
-      const commissionsPending = Math.round((privatePending + (filterDoctor === 'all' ? insurancePending : 0)) * 100) / 100;
-      return { availableDoctors: Array.from(docsList), kpiStats: { grossIncome, totalCommissions, totalLabFees, explicitExpenses, staffPay, commissionsPending, netClinicProfit, totalProcedureDiscounts, finalNet: grossIncome - totalLabFees - explicitExpenses } };
-  }, [allTransactions, periodProcedures, filterDoctor, insurancePending]);
+      // The approvals' shares are not rows on this list, so they join the figure only unfiltered.
+      const commissionsPending = Math.round((privatePending + (!isFiltered ? insurancePending : 0)) * 100) / 100;
+      return { kpiStats: { grossIncome, totalCommissions, totalLabFees, explicitExpenses, staffPay, commissionsPending, netClinicProfit, totalProcedureDiscounts, finalNet: grossIncome - totalLabFees - explicitExpenses } };
+  }, [figureRows, figureProcedures, isFiltered, insurancePending]);
 
   /**
    * What the clinic gave away in this period, and why.
@@ -399,11 +536,9 @@ export default function FinancePage() {
    */
   const discountsByReason = useMemo(() => {
     const map = new Map<string, { amount: number; count: number }>();
-    for (const row of periodProcedures) {
+    for (const row of figureProcedures) {
       const amount = Number(row.discountAmount) || 0;
       if (amount <= 0) continue;
-      const docLabel = String(row.doctorName || row.doctor || "").trim();
-      if (filterDoctor !== 'all' && docLabel !== filterDoctor) continue;
       // Charges discounted before reasons were recorded are grouped honestly rather than hidden.
       const reason = String(row.discountReason || "").trim() || (language === "ar" ? "بدون سبب مسجل" : "No reason recorded");
       const entry = map.get(reason) || { amount: 0, count: 0 };
@@ -414,25 +549,13 @@ export default function FinancePage() {
     return Array.from(map.entries())
       .map(([reason, v]) => ({ reason, amount: v.amount, count: v.count }))
       .sort((a, b) => b.amount - a.amount);
-  }, [periodProcedures, filterDoctor, language]);
+  }, [figureProcedures, language]);
 
-  const filteredList = useMemo(() => {
-      return allTransactions.filter(t => {
-          const docLabel = (t.doctorName || t.doctor || "").trim();
-          if (filterDoctor !== 'all' && docLabel !== filterDoctor) return false;
-          if (filterType !== 'all') {
-              if (filterType === 'income' && t.type === 'expense') return false;
-              if (filterType === 'expense' && t.type !== 'expense') return false;
-          }
-          if (searchQuery) {
-               const q = searchQuery.trim();
-               const descOk = (t.description || "").toLowerCase().includes(q.toLowerCase());
-               const patientOk = patientMatchesSearch(q, t.patientName || "", undefined);
-               return descOk || patientOk;
-          }
-          return true;
-      });
-  }, [allTransactions, filterDoctor, filterType, searchQuery]);
+  // The list is the same rows as the figures, of the kind chosen.
+  const filteredList = useMemo(
+    () => (filter.kind === "all" ? figureRows : figureRows.filter((t) => t.type === filter.kind)),
+    [figureRows, filter.kind],
+  );
 
   /**
    * The period as a statement: income by how it came in, expenses by category, the dentists'
@@ -440,19 +563,10 @@ export default function FinancePage() {
    */
   const summary = useMemo(() => {
     const isAr = language === "ar";
-    const methodLabel = (m: string) => {
-      const k = m.trim().toLowerCase();
-      if (k === "cash") return isAr ? "كاش" : "Cash";
-      if (k === "card" || k === "visa") return isAr ? "كارت" : "Card";
-      if (k === "instapay") return "InstaPay";
-      if (k === "insurance") return isAr ? "تأمين" : "Insurance";
-      return m || (isAr ? "أخرى" : "Other");
-    };
     const income = new Map<string, number>();
     const expenses = new Map<string, number>();
     const staffPay = new Map<string, number>();
-    for (const t of allTransactions) {
-      const docLabel = (t.doctorName || t.doctor || "").trim();
+    for (const t of figureRows) {
       if (t.type === "expense") {
         if (t.settlementId) {
           const who = t.description.replace(/^Staff pay\s*[–-]\s*/i, "").trim() || t.description;
@@ -463,21 +577,20 @@ export default function FinancePage() {
         }
         continue;
       }
-      if (filterDoctor !== "all" && docLabel !== filterDoctor) continue;
       if (t.isAccountsReceivableOnly) continue;
       const key =
         t.type === "income"
           ? `${isAr ? "إيراد آخر" : "Other income"} · ${categoryLabel(t.category, isAr) || (isAr ? "عام" : "General")}`
           : t.category === "Insurance Payment"
             ? isAr ? "مدفوعات شركات التأمين" : "Insurance company payments"
-            : `${isAr ? "مدفوعات المرضى" : "Patient payments"} · ${methodLabel(String(t.method || "Cash"))}`;
+            : `${isAr ? "مدفوعات المرضى" : "Patient payments"} · ${methodLabel(String(t.method || "Cash"), isAr)}`;
       income.set(key, (income.get(key) || 0) + t.val);
     }
     const rows = (m: Map<string, number>) => [...m.entries()].sort((a, b) => b[1] - a[1]).map(([label, amount]) => ({ label, amount: Math.round(amount * 100) / 100 }));
     return { income: rows(income), expenses: rows(expenses), staffPay: rows(staffPay) };
-  }, [allTransactions, filterDoctor, language]);
+  }, [figureRows, language]);
 
-  useEffect(() => setCurrentPage(1), [filterType, filterDoctor, searchQuery]);
+  useEffect(() => setCurrentPage(1), [filter]);
   const totalPages = Math.max(1, Math.ceil(filteredList.length / ITEMS_PER_PAGE));
   const paginatedTransactions = useMemo(() => {
       const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -585,10 +698,10 @@ export default function FinancePage() {
   const handleExport = async (target: 'download') => {
     setIsExporting(true); setExportTarget(target);
     try {
-      // Filter transactions by the selected pdf date range
+      // Filter transactions by the selected pdf date range — of the rows the screen shows, filters included.
       const from = pdfDateFrom || dateRange;
       const to = pdfDateTo || pdfDateFrom || dateRange;
-      const txList = allTransactions.filter(tx => tx.date >= from && tx.date <= to);
+      const txList = figureRows.filter(tx => tx.date >= from && tx.date <= to);
 
       const incomeList = txList.filter(tx => tx.type !== 'expense');
       const expenseList = txList.filter(tx => tx.type === 'expense');
@@ -835,10 +948,43 @@ export default function FinancePage() {
               bar for every page, and the bell here was decorative anyway: a red dot that was
               always on and a button that did nothing. */}
           <PageHeader title={t("finance")} subtitle={periodLabel}>
-            {/* Which branch's figures these are; the same remembered choice as the dashboard. Nothing for a single-site clinic. */}
-            <BranchSelector branches={branches} allowed={allowedBranches} value={activeBranchId} onChange={setActiveBranchId} allowAll={canChooseAll} compact />
+            {/* Which branch's figures these are; the same remembered choice as the dashboard. Nothing for a single-site clinic.
+                The owner gets a tab per branch; everyone else keeps the fixed pill of the branch they work in. */}
+            {canChooseAll ? (
+              <BranchTabs branches={allowedBranches} value={activeBranchId} onChange={setActiveBranchId} />
+            ) : (
+              <BranchSelector branches={branches} allowed={allowedBranches} value={activeBranchId} onChange={setActiveBranchId} allowAll={canChooseAll} compact />
+            )}
           </PageHeader>
           {branchPicker}
+
+          {/* The clinic's own books, then one tab per insurance company. No insurers, no row. */}
+          {insurers.length > 0 && (
+            <nav
+              aria-label={language === "ar" ? "حسابات العيادة وشركات التأمين" : "Clinic and insurance companies"}
+              className="flex max-w-full items-center gap-1 overflow-x-auto no-scrollbar rounded-full border border-line bg-surface p-1 shadow-sm w-fit shrink-0"
+            >
+              {[{ id: "clinic", name: language === "ar" ? "العيادة" : "Clinic", insurer: false }, ...insurers.map((p) => ({ id: p.id, name: payerDisplayName(p), insurer: true }))].map((tab) => {
+                const active = tab.id === (activeInsurer ? activeInsurer.id : "clinic");
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => chooseMoneyTab(tab.id)}
+                    aria-current={active ? "page" : undefined}
+                    className={`inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-xs font-bold transition-colors ${
+                      active ? "bg-ink-slab text-white" : "text-ink-muted hover:text-ink"
+                    }`}
+                  >
+                    {tab.insurer ? <InsurerBadge name={tab.name} size={16} /> : <Wallet size={14} />}
+                    {tab.name}
+                  </button>
+                );
+              })}
+            </nav>
+          )}
+
+          {!activeInsurer && (<>
 
           {/* Hero + metric tiles */}
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 xl:gap-6 shrink-0">
@@ -1015,8 +1161,9 @@ export default function FinancePage() {
               </div>
             </div>
           )}
+          </>)}
 
-          {/* Toolbar */}
+          {/* Toolbar — the period serves every tab; entry, filters and the PDF are the Clinic tab's. */}
           <div className="rounded-2xl xl:rounded-3xl bg-white/95 backdrop-blur border border-slate-200/80 shadow-sm p-4 xl:p-5 flex flex-col gap-4 shrink-0 sticky top-0 z-20">
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex bg-surface-muted p-1 rounded-xl border border-slate-200/60 shrink-0">
@@ -1076,6 +1223,7 @@ export default function FinancePage() {
                 />
               )}
               <div className="flex-1 min-w-[80px]" />
+              {!activeInsurer && (<>
               <Protect permission="finance.add">
                 <button
                   type="button"
@@ -1099,50 +1247,21 @@ export default function FinancePage() {
                 <SlidersHorizontal size={16} />
                 {isFiltersExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
               </button>
+              </>)}
             </div>
 
+            {!activeInsurer && (
             <div
-              className={`${isFiltersExpanded ? "flex" : "hidden"} xl:flex flex-col lg:flex-row flex-wrap gap-3 lg:items-center lg:justify-between border-t border-slate-100 pt-4`}
+              className={`${isFiltersExpanded ? "flex" : "hidden"} xl:flex flex-col lg:flex-row flex-wrap gap-3 lg:items-start lg:justify-between border-t border-slate-100 pt-4`}
             >
-              <div className="flex bg-surface-muted p-1 rounded-xl border border-slate-200/60 shrink-0">
-                {(["all", "income", "expense"] as const).map((type) => (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() => setFilterType(type)}
-                    className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${
-                      filterType === type ? "bg-slate-900 text-white shadow-sm" : "text-slate-500"
-                    }`}
-                  >
-                    {language === "ar"
-                      ? type === "all" ? "ملخص" : type === "income" ? "إيرادات" : "مصروفات"
-                      : type === "all" ? "Summary" : type === "income" ? "Income" : "Expenses"}
-                  </button>
-                ))}
-              </div>
-              <div className="flex flex-col sm:flex-row gap-3 flex-1 min-w-0 lg:justify-end">
-                <select
-                  value={filterDoctor}
-                  onChange={(e) => setFilterDoctor(e.target.value)}
-                  className="bg-surface-subtle border border-line rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none w-full sm:max-w-[220px] cursor-pointer focus:border-accent-soft"
-                >
-                  <option value="all">{language === "ar" ? "كل الأطباء" : "All doctors"}</option>
-                  {availableDoctors.map((d) => (
-                    <option key={d} value={d}>
-                      Dr. {d.replace(/^Dr\.\s*/i, "")}
-                    </option>
-                  ))}
-                </select>
-                <div className="relative w-full sm:max-w-xs shadow-sm">
-                  <Search size={16} className="absolute top-1/2 -translate-y-1/2 start-3 text-slate-400 pointer-events-none" />
-                  <input
-                    type="search"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder={language === "ar" ? "بحث..." : "Search patient or note..."}
-                    className="bg-surface-subtle border border-line rounded-xl ps-10 pe-4 py-2.5 text-sm font-semibold text-slate-800 outline-none w-full focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/15"
-                  />
-                </div>
+              <FinanceFilters
+                value={filter}
+                onChange={setFilter}
+                options={filterOptions}
+                kindAllLabel={{ en: "Summary", ar: "ملخص" }}
+                hide={["onlyOutstanding"]}
+              />
+              <div className="flex flex-col sm:flex-row gap-3 shrink-0 lg:justify-end">
                 <div className="flex gap-2 shrink-0">
                   <button
                     type="button"
@@ -1156,9 +1275,19 @@ export default function FinancePage() {
                 </div>
               </div>
             </div>
+            )}
           </div>
 
-          {/* Ledger */}
+          {/* An insurance company's tab, in place of the clinic's ledger. */}
+          {activeInsurer ? (
+            <InsurerTab
+              payerId={activeInsurer.id}
+              payerName={payerDisplayName(activeInsurer)}
+              rows={insurerTabRows}
+              collect={collectForInsurer}
+            />
+          ) : (
+          /* Ledger */
           <div className="bg-surface rounded-2xl xl:rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden flex flex-col flex-1 min-h-[420px] ring-1 ring-slate-100">
             {isLoading ? (
               <div className="flex-1 flex flex-col items-center justify-center text-slate-400 min-h-[320px]">
@@ -1298,6 +1427,7 @@ export default function FinancePage() {
                                       </span>
                                     )}
                                   </p>
+                                  {payerCaption(tx)}
                                   {tx.type === "procedure" && Number(tx.discountAmount) > 0 ? (
                                     <p className="text-[11px] font-bold text-violet-600 mt-1">
                                       −{Number(tx.discountAmount).toLocaleString()} {language === "ar" ? "خصم" : "discount"}
@@ -1448,6 +1578,7 @@ export default function FinancePage() {
                                   </span>
                                 ) : null}
                               </p>
+                              {payerCaption(tx)}
                             </div>
                           </div>
                           <span className={`font-black text-sm tabular-nums shrink-0 ${isExpense ? "text-red-600" : "text-emerald-600"}`}>
@@ -1569,6 +1700,7 @@ export default function FinancePage() {
               </>
             )}
           </div>
+          )}
         </div>
 
         {/* PDF REPORT MODAL */}
