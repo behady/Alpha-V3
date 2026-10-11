@@ -540,7 +540,6 @@ export const SETTINGS_TEXT = {
 
     groupWhereOpens: { en: "Where things open", ar: "الحاجات بتفتح فين" },
     groupClinicalNote: { en: "The clinical note", ar: "الملف السريري" },
-    groupAppointmentsPage: { en: "The appointments page", ar: "صفحة المواعيد" },
 
     clinicalEditorDesc: { en: "How the procedure editor opens. Your choice applies on every device — \"on the page\" needs a wide screen, and falls back to the pop-up on a phone.", ar: "شكل محرر الإجراءات. اختيارك بينطبق على كل الأجهزة — «داخل الصفحة» محتاج شاشة عريضة، وعلى الموبايل بيرجع للنافذة المنبثقة." },
 
@@ -568,26 +567,16 @@ export const SETTINGS_TEXT = {
     densityCompact: { en: "Compact", ar: "مختصر" },
     densityCompactHint: { en: "One line per procedure — useful on long files.", ar: "سطر واحد لكل إجراء — مفيد في الملفات الطويلة." },
 
-    visibilityLabel: { en: "Where the Appointments link shows", ar: "لينك المواعيد بيظهر فين" },
-    visibilityDesc: { en: "Some clinics work the schedule only from the front desk, and want it out of the way on a phone.", ar: "فيه عيادات بتشتغل على الجدول من الاستقبال بس، وعايزة تشيله من على الموبايل." },
-    visibilityAll: { en: "Everywhere", ar: "في كل مكان" },
-    visibilityAllHint: { en: "In the menu on a phone and on a computer.", ar: "في القائمة على الموبايل وعلى الكمبيوتر." },
-    visibilityDesktop: { en: "Computer only", ar: "الكمبيوتر بس" },
-    visibilityDesktopHint: { en: "Hidden from the phone menu. The page still opens from a link.", ar: "مخفي من قائمة الموبايل. الصفحة لسه بتفتح من أي لينك." },
-    visibilityHidden: { en: "Hidden", ar: "مخفي" },
-    visibilityHiddenHint: { en: "Out of the menu on every device.", ar: "مش في القائمة على أي جهاز." },
     groupHome: { en: "Your home screen", ar: "شاشتك الرئيسية" },
     homeLabel: { en: "When you sign in, open", ar: "لما تسجّل دخول، افتح" },
     homeDesc: { en: "Pick the screen you want to land on. Whichever you choose, the others are one click away in the menu.", ar: "اختار الشاشة اللي تبدأ منها. أياً كان اختيارك، الباقي على بُعد ضغطة في القائمة." },
-    homeDesk: { en: "The desk", ar: "الاستقبال" },
+    homeDesk: { en: "The calendar", ar: "المواعيد" },
     homeDeskHint: { en: "The whole clinic's day: bookings, check-ins, payments — the reception view.", ar: "يوم العيادة كله: الحجوزات، الدخول، الدفع — شاشة الاستقبال." },
     homeOwner: { en: "The owner's view", ar: "شاشة المالك" },
     homeOwnerHint: { en: "Is the place running and is the money moving: cash, the team, the floor and new business, with every dentist by name.", ar: "العيادة شغالة والفلوس ماشية؟ الكاش، الفريق، الصالة، والعملاء الجدد — وكل دكتور بالاسم." },
-    homeChair: { en: "My chair", ar: "كرسيّي" },
+    homeChair: { en: "The dentist view", ar: "شاشة الدكتور" },
     homeChairHint: { en: "Only your patients: who is next, your day, lab cases back for you, and your own money.", ar: "مرضاك انت بس: مين التالي، يومك، اللي رجع لك من المعمل، وفلوسك." },
 
-    lateAlertLabel: { en: "Late patient alert", ar: "تنبيه المريض المتأخر" },
-    lateAlertDesc: { en: "Show a flashing card when a patient is fifteen minutes late, with options for handling the delay.", ar: "يوري بطاقة وامضة لما المريض يتأخر ربع ساعة، ومعاها خيارات للتعامل مع التأخير." },
   },
   prescriptions: {
     drugDbTitle: { en: "Drug Database", ar: "قاعدة بيانات الأدوية" },

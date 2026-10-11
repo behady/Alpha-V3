@@ -54,17 +54,17 @@ export interface UiPreferences {
    */
   patientEditorMode: "modal" | "drawer";
   appointmentPanelMode: "editor" | "avatar";
-  appointmentsVisibility: "all" | "desktop" | "hidden";
-  latePatientTrackerEnabled: boolean;
   clinicalNoteSort: ClinicalNoteSort;
   clinicalNoteGrouping: ClinicalNoteGrouping;
   clinicalNoteDensity: ClinicalNoteDensity;
-  /**
-   * Which home screen an admin who is also a dentist lands on: the reception desk, or their own
-   * chair (the dentist's home). Someone whose role is Dentist gets the chair regardless — this
-   * only matters for the person who wears both hats.
-   */
+  /** Which home screen this person lands on: the calendar (desk), the owner's view or the chair. */
   homeView: "desk" | "chair" | "owner";
+  /**
+   * Set once the person picks a home screen on the tabs or in Settings (from 2026-10-11). Before
+   * that a Dentist always got the chair whatever `homeView` held, so a stored value without this
+   * flag says nothing about what a dentist wants — see lib/homeView.
+   */
+  homeViewPicked: boolean;
   /** The period the owner's home opened on last time — today, this week or this month. */
   ownerPeriod: "day" | "week" | "month";
 }
@@ -75,12 +75,11 @@ export const UI_PREFERENCE_DEFAULTS: UiPreferences = {
   appointmentEditorMode: "modal",
   patientEditorMode: "drawer",
   appointmentPanelMode: "editor",
-  appointmentsVisibility: "desktop",
-  latePatientTrackerEnabled: true,
   clinicalNoteSort: "newest",
   clinicalNoteGrouping: "flat",
   clinicalNoteDensity: "detailed",
   homeView: "desk",
+  homeViewPicked: false,
   ownerPeriod: "month",
 };
 
@@ -100,14 +99,11 @@ const VALIDATORS: { [K in keyof UiPreferences]: (value: unknown) => value is UiP
   appointmentEditorMode: oneOf("modal", "drawer"),
   patientEditorMode: oneOf("modal", "drawer"),
   appointmentPanelMode: oneOf("editor", "avatar"),
-  appointmentsVisibility: oneOf("all", "desktop", "hidden"),
-  latePatientTrackerEnabled: ((value: unknown) => typeof value === "boolean") as (
-    value: unknown
-  ) => value is boolean,
   clinicalNoteSort: isClinicalNoteSort as (value: unknown) => value is ClinicalNoteSort,
   clinicalNoteGrouping: isClinicalNoteGrouping as (value: unknown) => value is ClinicalNoteGrouping,
   clinicalNoteDensity: isClinicalNoteDensity as (value: unknown) => value is ClinicalNoteDensity,
   homeView: oneOf("desk", "chair", "owner"),
+  homeViewPicked: ((value: unknown) => typeof value === "boolean") as (value: unknown) => value is boolean,
   ownerPeriod: oneOf("day", "week", "month"),
 };
 
@@ -117,12 +113,11 @@ const LOCAL_KEYS: Record<keyof UiPreferences, string> = {
   appointmentEditorMode: "appointmentEditorMode",
   patientEditorMode: "patientEditorMode",
   appointmentPanelMode: "appointmentPanelMode",
-  appointmentsVisibility: "appointmentsVisibility",
-  latePatientTrackerEnabled: "latePatientTrackerEnabled",
   clinicalNoteSort: "clinicalNoteSort",
   clinicalNoteGrouping: "clinicalNoteGrouping",
   clinicalNoteDensity: "clinicalNoteDensity",
   homeView: "homeView",
+  homeViewPicked: "homeViewPicked",
   ownerPeriod: "ownerPeriod",
 };
 
@@ -134,7 +129,7 @@ export const UI_PREFERENCE_KEYS = Object.keys(LOCAL_KEYS) as (keyof UiPreference
 function parse<K extends keyof UiPreferences>(key: K, raw: unknown): UiPreferences[K] | undefined {
   if (raw === undefined || raw === null) return undefined;
   // localStorage only holds strings, so a boolean arrives as "true" / "false".
-  const value = key === "latePatientTrackerEnabled" && typeof raw === "string" ? raw === "true" : raw;
+  const value = key === "homeViewPicked" && typeof raw === "string" ? raw === "true" : raw;
   return VALIDATORS[key](value) ? (value as UiPreferences[K]) : undefined;
 }
 

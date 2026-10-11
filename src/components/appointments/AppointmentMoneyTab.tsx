@@ -28,6 +28,8 @@ import { PRIVATE_PAYER_ID, findPayer, payerForPriceList } from "@/lib/payers";
 import { serviceMenuById } from "@/lib/serviceMenu";
 import { serviceDisplayName, serviceMatchesName } from "@/lib/serviceName";
 import InsurerBadge from "@/components/shared/InsurerBadge";
+import { patientAccount } from "@/lib/ledgerInsurer";
+import Protect from "@/components/Protect";
 
 /**
  * The money and the treatments it is for, on one screen.
@@ -50,7 +52,13 @@ type Charge = {
   listPrice: number;
   discountAmount: number;
   clinicalNoteId: string | null;
+  /** What the PATIENT still owes on it; on an approval row, of their share only. */
   remaining: number;
+  /** Written by an insurance approval: priced, edited and deleted on the Insurance tab, not here. */
+  approval: boolean;
+  /** The insurer's approved part of an approval row, and what the insurer has paid of it. */
+  insurerPart: number;
+  insurerPaid: number;
   /** Who this treatment is charged to; null for the clinic's own (Private) work and for old rows. */
   payerName: string | null;
   /** The dentist who did it, by name; "" when nobody is on it yet (no money is taken until there is). */
@@ -223,6 +231,12 @@ export default function AppointmentMoneyTab({
 
   // Open on the Payment tab: its figures include earlier visits, so the rows behind them are shown.
   const [showOlder, setShowOlder] = useState(section === "payment");
+  /** The receipt being corrected, and its draft. */
+  const [editPaymentId, setEditPaymentId] = useState<string | null>(null);
+  const [editPayAmount, setEditPayAmount] = useState<number | "">("");
+  const [editPayMethod, setEditPayMethod] = useState("Cash");
+  const [editPayDate, setEditPayDate] = useState("");
+  const [savingPayment, setSavingPayment] = useState(false);
   // On a tab that is only about money, the receipts are the content, not a footnote.
   const [showReceipts, setShowReceipts] = useState(section === "payment");
   const [printingId, setPrintingId] = useState<string | null>(null);
@@ -332,6 +346,9 @@ export default function AppointmentMoneyTab({
     return treatmentsByTooth(notes, (id) => categoryById.get(id) || undefined, (name) => suggestCategory(name));
   }, [notes, services]);
 
+  /** The patient's own side of every row: an approval's insurer part and insurer payments left out. */
+  const account = useMemo(() => patientAccount(ledger), [ledger]);
+
   const charges: Charge[] = useMemo(
     () =>
       ledger
@@ -339,6 +356,8 @@ export default function AppointmentMoneyTab({
         .map((r) => {
           const cost = money(r.cost);
           const paid = money(r.paid);
+          const side = account.byCharge.get(r.id);
+          const approval = !!side?.approval;
           return {
             id: r.id,
             description: String(r.description || (isAr ? "إجراء" : "Treatment")),
@@ -348,7 +367,10 @@ export default function AppointmentMoneyTab({
             listPrice: money(r.listPrice || r.cost),
             discountAmount: money(r.discountAmount),
             clinicalNoteId: typeof r.clinicalNoteId === "string" ? r.clinicalNoteId : null,
-            remaining: money(cost - paid),
+            remaining: approval ? side!.patientLeft : money(cost - paid),
+            approval,
+            insurerPart: side?.insurerPart ?? 0,
+            insurerPaid: side?.insurerPaid ?? 0,
             payerName:
               typeof r.payerId === "string" && r.payerId && r.payerId !== PRIVATE_PAYER_ID && r.payerName
                 ? String(r.payerName)
@@ -357,7 +379,7 @@ export default function AppointmentMoneyTab({
           };
         })
         .sort((a, b) => a.date.localeCompare(b.date)),
-    [ledger, isAr]
+    [ledger, account, isAr]
   );
 
   const payments: Payment[] = useMemo(
@@ -386,6 +408,14 @@ export default function AppointmentMoneyTab({
     });
     return m;
   }, [notes]);
+  const noteById = useMemo(() => new Map(notes.map((n) => [n.id, n])), [notes]);
+  /**
+   * The treatment behind a charge. A charge names its note by `clinicalNoteId`; older notes name
+   * their charge by `ledgerId` instead. Looking the note id up in the ledger-id map — what this did
+   * before — matched nothing, so the row's Edit button never appeared.
+   */
+  const noteForCharge = (charge: { id: string; clinicalNoteId: string | null }) =>
+    (charge.clinicalNoteId ? noteById.get(charge.clinicalNoteId) : undefined) ?? noteByLedgerId.get(charge.id);
 
   const visitNoteIds = useMemo(
     () => new Set(notes.filter((n) => n.appointmentId === appointmentId).map((n) => n.id)),
@@ -396,6 +426,17 @@ export default function AppointmentMoneyTab({
     () => (patientWide ? [...charges].reverse() : charges.filter((c) => c.clinicalNoteId && visitNoteIds.has(c.clinicalNoteId))),
     [charges, visitNoteIds, patientWide]
   );
+  /** The visit's own treatments, and the ones an approval wrote, which sit apart under their insurer. */
+  const ownVisitCharges = useMemo(() => visitCharges.filter((c) => !c.approval), [visitCharges]);
+  const insurerVisitGroups = useMemo(() => {
+    const groups = new Map<string, Charge[]>();
+    for (const c of visitCharges) {
+      if (!c.approval) continue;
+      const name = c.payerName || (isAr ? "التأمين" : "Insurance");
+      groups.set(name, [...(groups.get(name) ?? []), c]);
+    }
+    return [...groups.entries()];
+  }, [visitCharges, isAr]);
   const olderCharges = useMemo(
     () => (patientWide ? [] : charges.filter((c) => !(c.clinicalNoteId && visitNoteIds.has(c.clinicalNoteId))).reverse()),
     [charges, visitNoteIds, patientWide]
@@ -407,12 +448,16 @@ export default function AppointmentMoneyTab({
     [notes, appointmentId, patientWide]
   );
 
-  const totalCost = money(charges.reduce((s, c) => s + c.cost, 0));
-  const totalDiscount = money(charges.reduce((s, c) => s + c.discountAmount, 0));
-  const totalPaid = money(payments.reduce((s, p) => s + p.amount, 0));
-  const remaining = money(totalCost - totalPaid);
+  // The patient's figures: an insurer's approved part is billed to the insurer, and its payment is
+  // the insurer's money, so neither is counted here. They are listed on their own, under the insurer.
+  const totalCost = account.cost;
+  const totalDiscount = account.discount;
+  const totalPaid = account.paid;
+  const remaining = account.remaining;
+  /** Paid beyond everything the patient owes: as a rule, an insurer's part collected from them. */
+  const overpaidTotal = money(Math.max(0, -remaining));
   /** Money taken on account: paid to the clinic but settling no particular treatment. */
-  const credit = money(totalPaid - charges.reduce((s, c) => s + c.paid, 0));
+  const credit = money(totalPaid - charges.reduce((s, c) => s + (account.byCharge.get(c.id)?.patientPaid ?? c.paid), 0));
   const unpaidCharges = useMemo(() => charges.filter((c) => c.remaining > 0.009), [charges]);
 
   /**
@@ -582,7 +627,8 @@ export default function AppointmentMoneyTab({
       return;
     }
 
-    const targets = discountTarget === "visit" ? visitCharges : [chargeById.get(discountTarget || "")].filter(Boolean) as Charge[];
+    // An approval row's price is the insurer's tariff: no discount reaches it from here.
+    const targets = (discountTarget === "visit" ? visitCharges : [chargeById.get(discountTarget || "")].filter(Boolean) as Charge[]).filter((c) => !c.approval);
     if (targets.length === 0) {
       showToast(isAr ? "مفيش إجراءات على الزيارة دي" : "There is nothing to discount on this visit", "error");
       return;
@@ -699,6 +745,43 @@ export default function AppointmentMoneyTab({
     }
   };
 
+  const openPaymentEdit = (p: Payment) => {
+    setEditPaymentId(p.id);
+    setEditPayAmount(p.amount);
+    setEditPayMethod(METHODS.some((m) => m.id === p.method) ? p.method : "Cash");
+    setEditPayDate(p.date);
+  };
+
+  /**
+   * Correct a payment as it was taken. The ledger route re-checks it: a payment may not settle more
+   * than its treatment is worth, and only someone allowed to edit money may change it.
+   */
+  const savePaymentEdit = async (p: Payment) => {
+    const amount = money(Number(editPayAmount) || 0);
+    if (amount <= 0) {
+      showToast(isAr ? "اكتب مبلغ أكبر من صفر" : "Enter an amount above zero", "error");
+      return;
+    }
+    const patch: Record<string, unknown> = {};
+    if (amount !== p.amount) patch.paid = amount;
+    if (editPayMethod !== p.method) patch.method = editPayMethod;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(editPayDate) && editPayDate !== p.date) patch.date = editPayDate;
+    if (Object.keys(patch).length === 0) {
+      setEditPaymentId(null);
+      return;
+    }
+    setSavingPayment(true);
+    try {
+      await updateLedgerRow(p.id, patch);
+      showToast(isAr ? "اتعدّلت الدفعة" : "Payment updated", "success");
+      setEditPaymentId(null);
+    } catch (e) {
+      showToast(e instanceof MoneyApiError ? e.message : isAr ? "تعذر التعديل" : "Could not update the payment", "error");
+    } finally {
+      setSavingPayment(false);
+    }
+  };
+
   const openEditor = (note: Note | null) => {
     setEditingNote(note);
     setEditorApptId(note ? note.appointmentId || null : appointmentId || null);
@@ -719,8 +802,9 @@ export default function AppointmentMoneyTab({
       : isAr ? `أقصى خصم مسموح ليكي ${maxDiscountPercent}%` : `Your ceiling is ${maxDiscountPercent}%`;
 
   const chargeRow = (charge: Charge, dim = false) => {
-    const note = charge.clinicalNoteId ? noteByLedgerId.get(charge.clinicalNoteId) : undefined;
+    const note = noteForCharge(charge);
     const settled = charge.remaining <= 0.009;
+    if (charge.approval) return approvalRow(charge, note, settled, dim);
     return (
       <div
         key={charge.id}
@@ -783,13 +867,15 @@ export default function AppointmentMoneyTab({
               <Tag size={13} className="text-pink-500" /> {isAr ? "خصم" : "Discount"}
             </button>
             {note && (
-              <button
-                onClick={() => openEditor(note)}
-                title={isAr ? "تعديل كامل" : "Full editor"}
-                className="p-1.5 rounded-lg text-violet-600 bg-violet-50 hover:bg-violet-100 border border-violet-100 transition-colors"
-              >
-                <Pencil size={13} />
-              </button>
+              <Protect permission="clinical.edit">
+                <button
+                  onClick={() => openEditor(note)}
+                  title={isAr ? "تعديل الخدمة وسعرها" : "Edit the service and its price"}
+                  className="text-[11px] font-bold rounded-full border border-line px-3 py-1 flex items-center gap-1 text-ink-muted hover:bg-surface-muted transition-colors"
+                >
+                  <Pencil size={13} className="text-violet-600" /> {isAr ? "تعديل" : "Edit"}
+                </button>
+              </Protect>
             )}
             <button
               onClick={() => handleDeleteCharge(charge)}
@@ -802,6 +888,91 @@ export default function AppointmentMoneyTab({
         </div>
 
         {discountTarget === charge.id && discountBox}
+      </div>
+    );
+  };
+
+  /**
+   * A treatment an insurance approval wrote. Its money is two bills on one row: the insurer's
+   * approved part, which the clinic claims from the insurer, and the patient's share, which is
+   * collected here. Only the share counts in the patient's figures. The price, dentist and the row
+   * itself belong to the approval, so the changes are made on the Insurance tab.
+   */
+  const approvalRow = (charge: Charge, note: Note | undefined, settled: boolean, dim: boolean) => {
+    const insurer = charge.payerName || (isAr ? "التأمين" : "Insurance");
+    const share = money(charge.cost - charge.insurerPart);
+    const insurerSettled = charge.insurerPaid >= charge.insurerPart - 0.009;
+    // Cash the patient paid beyond their share: the insurer's part, taken from the wrong person.
+    const overpaid = money(charge.paid - charge.insurerPaid - share);
+    return (
+      <div key={charge.id} className={`rounded-xl border px-3 py-2.5 ${dim ? "border-line bg-surface-subtle" : "border-line bg-surface"}`}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-slate-800 truncate">{charge.description}</p>
+            <p className="text-[11px] font-semibold text-slate-400 mt-0.5">
+              {charge.date}
+              {note?.tooth && note.tooth !== "Gen" ? ` · ${note.tooth}` : ""}
+            </p>
+          </div>
+          <span className="text-sm font-black text-ink shrink-0">{charge.cost.toLocaleString()}</span>
+        </div>
+
+        <div className="mt-2 space-y-1 text-[11px] font-bold">
+          <p className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-ink-body">
+            <span className="flex items-center gap-1.5">
+              <InsurerBadge name={insurer} size={14} />
+              <span>
+                {isAr ? `${insurer} تدفع` : `${insurer} pays`} {charge.insurerPart.toLocaleString()}
+              </span>
+            </span>
+            <span className={`shrink-0 ${insurerSettled ? "text-emerald-600" : "text-ink-muted"}`}>
+              {insurerSettled ? (isAr ? "اتدفع" : "Paid") : isAr ? "مستني الشركة" : "Awaiting insurer"}
+            </span>
+          </p>
+          <p className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-ink-body">
+            <span className="flex items-center gap-1.5">
+              <User size={13} className="text-ink-muted" />
+              {share > 0.009 ? `${isAr ? "نصيب المريض" : "Patient share"} ${share.toLocaleString()}` : isAr ? "مفيش نصيب على المريض" : "No patient share"}
+            </span>
+            {share > 0.009 &&
+              (settled ? (
+                <span className="text-emerald-600">{isAr ? "اتدفع" : "Paid"}</span>
+              ) : (
+                <span className="text-amber-600">
+                  {isAr ? "متبقي" : "Left"} {charge.remaining.toLocaleString()}
+                </span>
+              ))}
+          </p>
+        </div>
+
+        {overpaid > 0.009 && (
+          <p className="mt-1.5 flex items-start gap-1 text-[11px] font-bold text-amber-700">
+            <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+            {isAr
+              ? `المريض دفع ${overpaid.toLocaleString()} من نصيب ${insurer} — رجّعهاله أو امسح الدفعة من تبويب المالية في ملف المريض`
+              : `The patient paid ${overpaid.toLocaleString()} of ${insurer}'s part — refund it, or delete that payment on the patient's Finance tab`}
+          </p>
+        )}
+
+        {!charge.dentistName && !settled && (
+          <p className="mt-1 text-[11px] font-bold text-danger">
+            {isAr ? "مفيش طبيب على العلاج ده — اختاره قبل ما تحصّل" : "No dentist on this treatment — choose one before taking money"}
+          </p>
+        )}
+
+        <div className="flex items-center justify-between gap-2 mt-2">
+          <span className="text-[11px] font-semibold text-ink-faint">
+            {isAr ? "السعر والطبيب بيتعدلوا من تبويب التأمين" : "Price and dentist change on the Insurance tab"}
+          </span>
+          {!settled && section !== "service" && (
+            <button
+              onClick={() => openCollect(charge.id)}
+              className="text-[11px] font-bold rounded-full border border-line-strong px-3 py-1 flex items-center gap-1 shrink-0 hover:bg-surface-muted transition-colors"
+            >
+              <Banknote size={13} className="text-emerald-600" /> {isAr ? "تحصيل النصيب" : "Collect share"}
+            </button>
+          )}
+        </div>
       </div>
     );
   };
@@ -893,7 +1064,9 @@ export default function AppointmentMoneyTab({
                 tone: "text-ink",
               },
               { label: isAr ? "المدفوع" : "Paid", value: totalPaid, note: "", tone: "text-ink" },
-              { label: isAr ? "المتبقي" : "Remaining", value: remaining, note: "", tone: remaining > 0 ? "text-ink" : "text-ok" },
+              overpaidTotal > 0.009
+                ? { label: isAr ? "دفع زيادة" : "Overpaid", value: overpaidTotal, note: isAr ? "العيادة مدينة للمريض بيها" : "The clinic owes the patient this", tone: "text-amber-700" }
+                : { label: isAr ? "المتبقي" : "Remaining", value: remaining, note: "", tone: remaining > 0 ? "text-ink" : "text-ok" },
             ].map((tile, i) => (
               <div key={i} className={`rounded-xl border px-4 py-3 ${i === 2 ? "border-ink-slab" : "border-line"}`}>
                 <p className="text-[11px] font-black uppercase tracking-widest text-ink-muted">{tile.label}</p>
@@ -910,10 +1083,10 @@ export default function AppointmentMoneyTab({
           <>
         <div className="flex items-baseline justify-between">
           <span className="text-xs font-black text-ink-muted uppercase tracking-widest">
-            {isAr ? "المتبقي" : "Remaining"}
+            {overpaidTotal > 0.009 ? (isAr ? "دفع زيادة" : "Overpaid") : isAr ? "المتبقي" : "Remaining"}
           </span>
-          <span className={`text-3xl font-black tabular-nums ${remaining > 0 ? "text-ink" : "text-emerald-600"}`}>
-            {remaining.toLocaleString()}
+          <span className={`text-3xl font-black tabular-nums ${overpaidTotal > 0.009 ? "text-amber-700" : remaining > 0 ? "text-ink" : "text-emerald-600"}`}>
+            {(overpaidTotal > 0.009 ? overpaidTotal : remaining).toLocaleString()}
             <span className="text-[11px] font-bold text-slate-400 ms-1">EGP</span>
           </span>
         </div>
@@ -939,7 +1112,7 @@ export default function AppointmentMoneyTab({
             <Banknote size={15} className="text-emerald-300" />
             {collectOpen ? (isAr ? "إغلاق" : "Close") : isAr ? "تحصيل دفعة" : "Collect payment"}
           </button>
-          {visitCharges.length > 0 && (
+          {ownVisitCharges.length > 0 && (
             <button
               onClick={() => (discountTarget === "visit" ? setDiscountTarget(null) : openDiscount("visit"))}
               className="text-sm font-bold text-ink-body border border-line bg-surface hover:bg-surface-muted rounded-xl px-4 flex items-center gap-1.5 transition-colors"
@@ -1056,7 +1229,19 @@ export default function AppointmentMoneyTab({
           </p>
         ) : (
           <div className="space-y-2">
-            {visitCharges.map((c) => chargeRow(c))}
+            {ownVisitCharges.map((c) => chargeRow(c))}
+            {insurerVisitGroups.map(([insurer, rows]) => (
+              <div key={insurer} className="space-y-2 pt-2">
+                <h4 className="flex items-center gap-1.5 text-[11px] font-black text-ink-muted uppercase tracking-widest">
+                  <ShieldCheck size={13} />
+                  {isAr ? "تأمين" : "Insurance"} · {insurer}
+                  <span className="normal-case tracking-normal font-semibold text-ink-faint">
+                    — {isAr ? "خارج حساب المريض إلا نصيبه" : "only the patient's share counts above"}
+                  </span>
+                </h4>
+                {rows.map((c) => chargeRow(c))}
+              </div>
+            ))}
             {unbilledNotes.map((note) => (
               <div key={note.id} className="rounded-xl border border-dashed border-line-strong bg-surface-subtle px-3 py-2.5">
                 <div className="flex items-center justify-between gap-2">
@@ -1280,7 +1465,8 @@ export default function AppointmentMoneyTab({
           {showReceipts && (
             <div className="space-y-1 max-h-[300px] overflow-y-auto pr-1 animate-in slide-in-from-top-2 duration-200">
               {payments.map((p) => (
-                <div key={p.id} className="flex items-center justify-between py-2 border-b border-slate-100 last:border-b-0">
+                <div key={p.id} className="py-2 border-b border-slate-100 last:border-b-0">
+                <div className="flex items-center justify-between">
                   <div className="min-w-0">
                     <p className="text-sm font-bold text-slate-700 truncate">
                       {p.procedureId ? chargeById.get(p.procedureId)?.description || p.description : isAr ? "دفعة عامة" : "On account"}
@@ -1293,6 +1479,17 @@ export default function AppointmentMoneyTab({
                     <span className="text-sm font-black text-emerald-600">
                       +{p.amount.toLocaleString()}
                     </span>
+                    <Protect permission="finance.edit">
+                      <button
+                        type="button"
+                        title={isAr ? "تعديل المدفوع" : "Edit what was paid"}
+                        aria-label={isAr ? "تعديل المدفوع" : "Edit what was paid"}
+                        onClick={() => (editPaymentId === p.id ? setEditPaymentId(null) : openPaymentEdit(p))}
+                        className="p-1.5 text-violet-600 hover:bg-violet-50 rounded-lg transition-colors"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    </Protect>
                     <button
                       type="button"
                       title={isAr ? "طباعة الإيصال" : "Print receipt"}
@@ -1304,6 +1501,65 @@ export default function AppointmentMoneyTab({
                     </button>
                   </div>
                 </div>
+                {editPaymentId === p.id && (
+                  <div className="mt-2 rounded-xl border border-violet-200 bg-violet-50/60 p-3 space-y-2 animate-in slide-in-from-top-2 duration-200">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <label className="block">
+                        <span className="text-[11px] font-bold text-ink-muted">{isAr ? "المبلغ" : "Amount"}</span>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          min={0}
+                          value={editPayAmount}
+                          onChange={(e) => setEditPayAmount(e.target.value ? Number(e.target.value) : "")}
+                          className="mt-0.5 w-full h-10 rounded-lg border border-line-strong bg-surface px-3 text-sm font-bold text-ink outline-none focus:border-ink font-figure"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="text-[11px] font-bold text-ink-muted">{isAr ? "طريقة الدفع" : "Method"}</span>
+                        <select
+                          value={editPayMethod}
+                          onChange={(e) => setEditPayMethod(e.target.value)}
+                          className="mt-0.5 w-full h-10 rounded-lg border border-line-strong bg-surface px-2 text-sm font-bold text-ink outline-none focus:border-ink"
+                        >
+                          {METHODS.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {isAr ? m.ar : m.en}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="block">
+                        <span className="text-[11px] font-bold text-ink-muted">{isAr ? "التاريخ" : "Date"}</span>
+                        <input
+                          type="date"
+                          value={editPayDate}
+                          onChange={(e) => setEditPayDate(e.target.value)}
+                          className="mt-0.5 w-full h-10 rounded-lg border border-line-strong bg-surface px-2 text-sm font-bold text-ink outline-none focus:border-ink"
+                        />
+                      </label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={savingPayment}
+                        onClick={() => void savePaymentEdit(p)}
+                        className="h-9 rounded-lg bg-ink-slab px-4 text-sm font-bold text-white disabled:opacity-50 flex items-center gap-1.5"
+                      >
+                        {savingPayment ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                        {isAr ? "حفظ" : "Save"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditPaymentId(null)}
+                        className="h-9 rounded-lg border border-line-strong px-4 text-sm font-bold text-ink-body"
+                      >
+                        {isAr ? "إلغاء" : "Cancel"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                </div>
               ))}
             </div>
           )}
@@ -1314,6 +1570,8 @@ export default function AppointmentMoneyTab({
         <ServiceEditorDrawer
           isOpen={editorOpen}
           inline={false}
+          // This tab lives inside the booking popup (z-[200]); the editor has to open above it.
+          layerClass="z-[260]"
           onClose={() => {
             setEditorOpen(false);
             setEditingNote(null);

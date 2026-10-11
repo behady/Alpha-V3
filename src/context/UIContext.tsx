@@ -121,10 +121,6 @@ interface UIContextType {
    */
   assistantPanelOpen: boolean;
   setAssistantPanelOpen: (open: boolean) => void;
-  appointmentsVisibility: 'all' | 'desktop' | 'hidden';
-  setAppointmentsVisibility: (visibility: 'all' | 'desktop' | 'hidden') => void;
-  latePatientTrackerEnabled: boolean;
-  setLatePatientTrackerEnabled: (enabled: boolean) => void;
   /** How services are arranged inside a patient's clinical note. See components/clinical-notes/ordering. */
   clinicalNoteSort: ClinicalNoteSort;
   setClinicalNoteSort: (sort: ClinicalNoteSort) => void;
@@ -134,6 +130,8 @@ interface UIContextType {
   setClinicalNoteDensity: (density: ClinicalNoteDensity) => void;
   /** The desk or the chair — see lib/uiPreferences. Only read for people who could be either. */
   homeView: 'desk' | 'chair' | 'owner';
+  /** Whether `homeView` was picked on the home tabs or in Settings. Without it a Dentist gets the chair (lib/homeView). */
+  homeViewChosen: boolean;
   setHomeView: (view: 'desk' | 'chair' | 'owner') => void;
   ownerPeriod: 'day' | 'week' | 'month';
   setOwnerPeriod: (period: 'day' | 'week' | 'month') => void;
@@ -160,12 +158,11 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   const [appointmentPanelMode, setAppointmentPanelModeState] = useState<'editor' | 'avatar'>('editor');
   const [receptionPanelActive, setReceptionPanelActive] = useState(false);
   const [assistantPanelOpen, setAssistantPanelOpen] = useState(false);
-  const [appointmentsVisibility, setAppointmentsVisibilityState] = useState<'all' | 'desktop' | 'hidden'>('desktop');
-  const [latePatientTrackerEnabledState, setLatePatientTrackerEnabledState] = useState<boolean>(true);
   const [clinicalNoteSort, setClinicalNoteSortState] = useState<ClinicalNoteSort>('newest');
   const [clinicalNoteGrouping, setClinicalNoteGroupingState] = useState<ClinicalNoteGrouping>('flat');
   const [clinicalNoteDensity, setClinicalNoteDensityState] = useState<ClinicalNoteDensity>('detailed');
   const [homeView, setHomeViewState] = useState<'desk' | 'chair' | 'owner'>('desk');
+  const [homeViewChosen, setHomeViewChosen] = useState(false);
   const [ownerPeriod, setOwnerPeriodState] = useState<'day' | 'week' | 'month'>('month');
 
   /**
@@ -181,12 +178,11 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
     if (prefs.appointmentEditorMode !== undefined) setAppointmentEditorModeState(prefs.appointmentEditorMode);
     if (prefs.patientEditorMode !== undefined) setPatientEditorModeState(prefs.patientEditorMode);
     if (prefs.appointmentPanelMode !== undefined) setAppointmentPanelModeState(prefs.appointmentPanelMode);
-    if (prefs.appointmentsVisibility !== undefined) setAppointmentsVisibilityState(prefs.appointmentsVisibility);
-    if (prefs.latePatientTrackerEnabled !== undefined) setLatePatientTrackerEnabledState(prefs.latePatientTrackerEnabled);
     if (prefs.clinicalNoteSort !== undefined) setClinicalNoteSortState(prefs.clinicalNoteSort);
     if (prefs.clinicalNoteGrouping !== undefined) setClinicalNoteGroupingState(prefs.clinicalNoteGrouping);
     if (prefs.clinicalNoteDensity !== undefined) setClinicalNoteDensityState(prefs.clinicalNoteDensity);
     if (prefs.homeView !== undefined) setHomeViewState(prefs.homeView);
+    if (prefs.homeViewPicked !== undefined) setHomeViewChosen(prefs.homeViewPicked);
     if (prefs.ownerPeriod !== undefined) setOwnerPeriodState(prefs.ownerPeriod);
   }, []);
 
@@ -259,16 +255,6 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
     rememberPreference("appointmentPanelMode", mode);
   }, [rememberPreference]);
 
-  const setAppointmentsVisibility = useCallback((visibility: 'all' | 'desktop' | 'hidden') => {
-    setAppointmentsVisibilityState(visibility);
-    rememberPreference("appointmentsVisibility", visibility);
-  }, [rememberPreference]);
-
-  const setLatePatientTrackerEnabled = useCallback((enabled: boolean) => {
-    setLatePatientTrackerEnabledState(enabled);
-    rememberPreference("latePatientTrackerEnabled", enabled);
-  }, [rememberPreference]);
-
   const setClinicalNoteSort = useCallback((sort: ClinicalNoteSort) => {
     setClinicalNoteSortState(sort);
     rememberPreference("clinicalNoteSort", sort);
@@ -276,7 +262,9 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
 
   const setHomeView = useCallback((view: 'desk' | 'chair' | 'owner') => {
     setHomeViewState(view);
+    setHomeViewChosen(true);
     rememberPreference("homeView", view);
+    rememberPreference("homeViewPicked", true);
   }, [rememberPreference]);
 
   const setOwnerPeriod = useCallback((period: 'day' | 'week' | 'month') => {
@@ -404,7 +392,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   const promptCanSubmit = !promptState.required || promptValue.trim().length > 0;
 
   return (
-    <UIContext.Provider value={{ showToast, confirm, prompt, clinicalEditorMode, setClinicalEditorMode, appointmentEditorMode, setAppointmentEditorMode, patientEditorMode, setPatientEditorMode, appointmentPanelMode, setAppointmentPanelMode, receptionPanelActive, setReceptionPanelActive, assistantPanelOpen, setAssistantPanelOpen, appointmentsVisibility, setAppointmentsVisibility, latePatientTrackerEnabled: latePatientTrackerEnabledState, setLatePatientTrackerEnabled, clinicalNoteSort, setClinicalNoteSort, clinicalNoteGrouping, setClinicalNoteGrouping, clinicalNoteDensity, setClinicalNoteDensity, homeView, setHomeView, ownerPeriod, setOwnerPeriod }}>
+    <UIContext.Provider value={{ showToast, confirm, prompt, clinicalEditorMode, setClinicalEditorMode, appointmentEditorMode, setAppointmentEditorMode, patientEditorMode, setPatientEditorMode, appointmentPanelMode, setAppointmentPanelMode, receptionPanelActive, setReceptionPanelActive, assistantPanelOpen, setAssistantPanelOpen, clinicalNoteSort, setClinicalNoteSort, clinicalNoteGrouping, setClinicalNoteGrouping, clinicalNoteDensity, setClinicalNoteDensity, homeView, homeViewChosen, setHomeView, ownerPeriod, setOwnerPeriod }}>
       {children}
 
       {/* --- TOAST CONTAINER (Smartphone Style) --- */}

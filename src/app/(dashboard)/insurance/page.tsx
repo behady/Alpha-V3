@@ -82,8 +82,37 @@ function InsurancePage() {
     () => (payersReady ? payers!.list.filter((p) => p.active && p.id !== PRIVATE_PAYER_ID && isInsurerFormat(p.format)) : []),
     [payers, payersReady],
   );
+  const [range, setRange] = useState(() => monthRange(cairoToday()));
+  /**
+   * How many approvals each insurer has in the range, from one query over every insurer.
+   *
+   * The list and the Excel show one insurer at a time, and the page used to open on whichever came
+   * first in Settings. An approval saved for another insurer — from the booking popup or the
+   * dashboard's Read approval, which never switch this page — was simply not there, with nothing
+   * on screen to say the other insurer had any. The counts say it, and the page opens on an
+   * insurer that has approvals.
+   */
+  const [rangeCounts, setRangeCounts] = useState<{ key: string; byPayer: Record<string, number> }>({ key: "", byPayer: {} });
+  const countsKey = clinicId && range.from && range.to && range.from <= range.to ? `${clinicId}|${range.from}|${range.to}` : "";
+  useEffect(() => {
+    if (!countsKey || !clinicId) return;
+    return onSnapshot(
+      query(collection(db, "clinics", clinicId, CLAIMS_COLLECTION), where("approvalDate", ">=", range.from), where("approvalDate", "<=", range.to)),
+      (snap) => {
+        const byPayer: Record<string, number> = {};
+        snap.docs.forEach((d) => {
+          const id = d.get("payerId");
+          if (typeof id === "string") byPayer[id] = (byPayer[id] ?? 0) + 1;
+        });
+        setRangeCounts({ key: countsKey, byPayer });
+      },
+      () => setRangeCounts({ key: countsKey, byPayer: {} }),
+    );
+  }, [countsKey, clinicId, range.from, range.to]);
+  const counts = rangeCounts.key === countsKey ? rangeCounts.byPayer : {};
   const [pickedPayer, setPickedPayer] = useState("");
-  const payerId = insurers.some((p) => p.id === pickedPayer) ? pickedPayer : (insurers[0]?.id ?? "");
+  const busiest = insurers.reduce<Payer | null>((best, p) => ((counts[p.id] ?? 0) > (best ? (counts[best.id] ?? 0) : 0) ? p : best), null);
+  const payerId = insurers.some((p) => p.id === pickedPayer) ? pickedPayer : (busiest?.id ?? insurers[0]?.id ?? "");
   const payer = insurers.find((p) => p.id === payerId) ?? null;
   const payerFormat = payer?.format === "nextcare" ? "nextcare" : "metlife";
 
@@ -114,7 +143,6 @@ function InsurancePage() {
   );
 
   // --- range, header, claims ---------------------------------------------------------------------
-  const [range, setRange] = useState(() => monthRange(cairoToday()));
   const [header, setHeaderLine] = useStatementHeader(clinicId);
   const { claims, loading: claimsLoading, failed: claimsFailed } = useClaims(clinicId, payerId, range.from, range.to);
   // NextCare bills by treatment date: its sheet also needs approvals from up to two months earlier that
@@ -331,20 +359,32 @@ function InsurancePage() {
         ) : (
           <>
             {/* --- which insurer ------------------------------------------------------------- */}
-            <label className="flex max-w-sm flex-col gap-1">
+            <div className="flex flex-col gap-1.5">
               <span className="text-[10.5px] font-black uppercase tracking-wider text-ink-muted">{t("insurer")}</span>
-              <select
-                value={payerId}
-                onChange={(e) => setPickedPayer(e.target.value)}
-                className="rounded-xl border border-line bg-surface px-3 py-2.5 text-sm font-bold text-ink outline-none focus:border-ink"
-              >
-                {insurers.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {isAr ? p.nameAr || p.name : p.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <div className="flex flex-wrap gap-2" role="tablist" aria-label={t("insurer")}>
+                {insurers.map((p) => {
+                  const on = p.id === payerId;
+                  const n = counts[p.id] ?? 0;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={on}
+                      onClick={() => setPickedPayer(p.id)}
+                      className={`inline-flex h-11 items-center gap-2 rounded-xl border px-4 text-sm font-bold transition-colors ${
+                        on ? "border-ink-slab bg-ink-slab text-white" : "border-line bg-surface text-ink hover:border-ink"
+                      }`}
+                    >
+                      {isAr ? p.nameAr || p.name : p.name}
+                      <span className={`rounded-full px-2 py-0.5 font-figure text-xs ${on ? "bg-white/15 text-white" : n > 0 ? "bg-accent text-ink" : "bg-surface-muted text-ink-muted"}`}>
+                        {n}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
             <ApprovalDropZone payer={payer} onRead={onRead} />
 

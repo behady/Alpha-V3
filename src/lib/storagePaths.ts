@@ -85,6 +85,22 @@ export function toothImagePath(clinicId: string | null | undefined, tooth: numbe
   return `clinics/${requireClinic(clinicId)}/clinical_notes/tooth_${t}_${Date.now()}.jpg`;
 }
 
+/**
+ * A photograph attached to one treatment on the clinical timeline.
+ *
+ * The note's id is its folder, so the server can check that a photo being attached to a note was
+ * uploaded for that note and not lifted from another clinic's path.
+ */
+export function clinicalNotePhotoPath(clinicId: string | null | undefined, noteId: string, ext = "jpg"): string {
+  const name = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${sanitizeExt(ext)}`;
+  return `${clinicalNotePhotoFolder(clinicId, noteId)}${name}`;
+}
+
+/** The folder every photo of one treatment sits in, trailing slash included. */
+export function clinicalNotePhotoFolder(clinicId: string | null | undefined, noteId: string): string {
+  return `clinics/${requireClinic(clinicId)}/clinical_notes/${requireSegment(noteId, "note id")}/`;
+}
+
 /** The clinic's own logo. */
 export function clinicLogoPath(clinicId: string | null | undefined, filename: string): string {
   // Slashes alone cannot escape once they are stripped, but a run of dots has no legitimate use in

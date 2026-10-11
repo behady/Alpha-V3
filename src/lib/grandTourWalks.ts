@@ -111,7 +111,7 @@ export const TOUR_WALKS: Record<string, DemoAction[]> = {
     { kind: "homeView", view: "owner", say: l("The owner's view — the same clinic as numbers: cash today, who's in, the waiting room, and what slips if nobody acts.", "شاشة المالك — نفس العيادة كأرقام: كاش النهارده، مين موجود، صالة الانتظار، واللي هيضيع لو محدش اتحرك.") },
     pt(l("Cash today", "كاش النهارده"), "Cash today, live.", "كاش النهارده، مباشر."),
     pt(l("What slips if nobody acts", "اللي هيضيع لو محدش اتحرك"), "And the list to act on.", "والقايمة اللي تتحرك عليها."),
-    { kind: "homeView", view: "chair", say: l("And the chair — a dentist's own screen: who's in the chair, their day, their patients' money. It only appears for someone who is a dentist.", "والكرسي — شاشة الدكتور نفسه: مين على الكرسي، يومه، فلوس مرضاه. بتظهر بس لحد دكتور.") },
+    { kind: "homeView", view: "chair", say: l("And the chair — a dentist's own screen: who's in the chair, their day, their patients' money. Everyone has the tab; it opens only for a dentist.", "والكرسي — شاشة الدكتور نفسه: مين على الكرسي، يومه، فلوس مرضاه. التاب عند الكل، بس بيفتح للدكتور بس.") },
     pt(l("In the chair now", "على الكرسي دلوقتي"), "Who's in the chair now, and who's next.", "مين على الكرسي دلوقتي، ومين التالي."),
     pt(l("My day", "يومي"), "Their day.", "يومه."),
     sy("Each person chooses their own under Settings → Interface → Your home screen. I'll put yours back now.", "كل واحد بيختار بتاعته من الإعدادات ← واجهة الاستخدام ← شاشتك الرئيسية. هرجّع بتاعتك دلوقتي."),
@@ -158,12 +158,11 @@ export const TOUR_WALKS: Record<string, DemoAction[]> = {
   ],
 
   appointments: [
-    pt(l("Week", "أسبوع"), "Views: week…", "العرض: أسبوع…", "self"),
-    pt(l("Day", "يوم"), "…day…", "…يوم…", "self"),
-    pt(l("Doctors", "الدكاترة"), "…one column per doctor…", "…عمود لكل دكتور…", "self"),
+    pt(l("Week", "أسبوعي"), "Views: week…", "العرض: أسبوع…", "self"),
+    pt(l("Day", "يومي"), "…day…", "…يوم…", "self"),
+    pt(l("Doctors", "الأطباء"), "…one column per doctor…", "…عمود لكل دكتور…", "self"),
     pt(l("List", "قائمة"), "…or a plain list.", "…أو قايمة عادية.", "self"),
     pt(l("Today", "اليوم"), "Arrows move the days; Today brings you back.", "الأسهم بتنقل الأيام؛ اليوم بيرجّعك.", "self"),
-    pt(l("Filters", "تصفية"), "Filters: by status, doctor, room, or service.", "تصفية: بالحالة، الدكتور، الغرفة، أو الخدمة.", "self"),
     pa("appointment-add", "Add appointment — next stop.", "إضافة موعد — المحطة الجاية."),
     sy("Every appointment carries a colour: yellow unconfirmed, then confirmed, checked in, in chair, completed. Late and no-show have their own.", "كل موعد ليه لون: أصفر غير مؤكد، وبعدين مؤكد، وصل، على الكرسي، مكتمل. المتأخر واللي مجاش ليهم لون لوحدهم."),
   ],
@@ -290,7 +289,6 @@ export const TOUR_WALKS: Record<string, DemoAction[]> = {
   "settings-interface": [
     pt(l("Where things open", "الحاجات بتفتح فين"), "Where things open: the booking form, and what sits beside the schedule.", "الحاجات بتفتح فين: فورم الحجز، واللي بيقعد جنب الجدول."),
     pt(l("The clinical note", "الملف السريري"), "How the clinical note is sorted and grouped.", "الملف السريري بيترتب ويتجمع إزاي."),
-    pt(l("The appointments page", "صفحة المواعيد"), "Whether the calendar shows on phones, and the late-patient alert.", "التقويم يظهر على الموبايل ولا لأ، وتنبيه المريض المتأخر."),
     pt(l("Your home screen", "شاشتك الرئيسية"), "Your home screen: the desk, the owner's view, or the chair.", "شاشتك الرئيسية: المكتب، شاشة المالك، أو الكرسي."),
   ],
   "settings-clinic_profile": [

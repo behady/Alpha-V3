@@ -33,7 +33,7 @@ ok(!serviceMatchesName(s, "Crown"), "no partial matches");
 // Every screen that loads services by a hand-picked field list must carry the Arabic name too.
 {
   const read = (rel: string) => readFileSync(join(import.meta.dirname, "..", rel), "utf8");
-  for (const rel of ["src/components/dashboard/DesktopDashboard.tsx", "src/components/dashboard/MobileDashboard.tsx", "src/app/(dashboard)/appointments/page.tsx"]) {
+  for (const rel of ["src/components/dashboard/DesktopDashboard.tsx", "src/components/dashboard/MobileDashboard.tsx"]) {
     ok(/nameAr: d\.data\(\)\.nameAr/.test(read(rel)), `${rel} loads each service's Arabic name`);
   }
 }

@@ -19,6 +19,7 @@ import {
   bookingHeroPath,
   botMediaPath,
   clinicLogoPath,
+  clinicalNotePhotoPath,
   insuranceDocPath,
   patientAvatarPath,
   patientMediaPath,
@@ -39,6 +40,7 @@ const clinicScoped = [
   patientMediaPath(CLINIC, "p1", "png"),
   patientMediaPath(CLINIC, "p1", "png", "diag_"),
   toothImagePath(CLINIC, 11),
+  clinicalNotePhotoPath(CLINIC, "n1"),
   clinicLogoPath(CLINIC, "my logo.png"),
   bookingHeroPath(CLINIC),
   botMediaPath(CLINIC, "before after.jpg"),
@@ -54,6 +56,7 @@ assert.match(patientAvatarPath(CLINIC, "p1", "jpg"), /^clinics\/clinicA\/patient
 assert.match(patientMediaPath(CLINIC, "p1", "png"), /^clinics\/clinicA\/patients\/p1\/media\/\d+_[a-z0-9]+\.png$/);
 assert.match(patientMediaPath(CLINIC, "p1", "png", "diag_"), /\/media\/diag_\d+_/);
 assert.match(toothImagePath(CLINIC, 11), /^clinics\/clinicA\/clinical_notes\/tooth_11_\d+\.jpg$/);
+assert.match(clinicalNotePhotoPath(CLINIC, "n1"), /^clinics\/clinicA\/clinical_notes\/n1\/\d+_[a-z0-9]+\.jpg$/);
 
 // One clinic's path can never be a prefix of another's.
 assert.ok(!patientAvatarPath("clinicAB", "p1", "jpg").startsWith(`clinics/${CLINIC}/`));
@@ -66,6 +69,7 @@ assert.ok(!patientAvatarPath("clinicAB", "p1", "jpg").startsWith(`clinics/${CLIN
 for (const bad of [null, undefined, "", "   "]) {
   assert.throws(() => patientAvatarPath(bad, "p1", "jpg"), /No clinic selected/);
   assert.throws(() => toothImagePath(bad, 11), /No clinic selected/);
+  assert.throws(() => clinicalNotePhotoPath(bad, "n1"), /No clinic selected/);
   assert.throws(() => clinicLogoPath(bad, "x.png"), /No clinic selected/);
   assert.throws(() => bookingHeroPath(bad), /No clinic selected/);
   // The one that actually happened. BotMediaLibrary read the clinic with `currentClinicId()`,
@@ -86,6 +90,8 @@ for (const stringified of ["null", "undefined", "NaN", "[object Object]"]) {
 }
 assert.throws(() => patientMediaPath(CLINIC, "", "jpg"), /Missing patient id/);
 assert.throws(() => staffProfilePath(""), /Missing user id/);
+assert.throws(() => clinicalNotePhotoPath(CLINIC, ""), /Missing note id/);
+assert.throws(() => clinicalNotePhotoPath(CLINIC, "a/b"), /Invalid note id/);
 
 // --- path escapes -------------------------------------------------------------------------------
 

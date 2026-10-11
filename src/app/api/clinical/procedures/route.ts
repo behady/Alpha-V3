@@ -47,6 +47,7 @@ import { recordLedgerAudit, recordMoneyChange } from "@/lib/server/ledgerAudit";
 import { isApprovalRow } from "@/lib/ledgerInsurer";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { CLAIMS_COLLECTION, applyDentistPicks, dentistRowPatch, isLineStatus, parseClaim } from "@/lib/insurance/claims";
+import { MAX_NOTE_PHOTOS, acceptNotePhoto, parseNotePhotos } from "@/lib/notePhotos";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -947,12 +948,50 @@ async function continueProcedure(args: { clinicId: string; actor: Actor; body: R
 }
 
 // ---------------------------------------------------------------------------------------------
+// photos
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Attach photographs to a treatment, or take one off it. No money moves, so this touches the note
+ * alone. A removed photo's file stays in Storage: the browser cannot delete there (storage.rules),
+ * and an unreferenced picture costs less than a clinical photograph lost to a mis-tap.
+ */
+async function procedurePhotos(args: { clinicId: string; actor: Actor; body: Record<string, unknown> }) {
+  const { clinicId, actor, body } = args;
+  const noteId = String(body.noteId || "").trim();
+  if (!noteId) return bad("Which treatment?");
+
+  const add = Array.isArray(body.add) ? body.add : [];
+  const accepted = add.map((p) => acceptNotePhoto(clinicId, noteId, p));
+  if (accepted.some((p) => p === null)) return bad("That photo was not uploaded for this treatment.");
+  const removePath = typeof body.removePath === "string" ? body.removePath : "";
+  if (accepted.length === 0 && !removePath) return bad("No photo to add or remove.");
+
+  const now = new Date().toISOString();
+  const photos = await adminDb().runTransaction(async (txn) => {
+    const noteRef = adminClinicDoc(clinicId, "clinical_notes", noteId);
+    const snap = await txn.get(noteRef);
+    if (!snap.exists) throw new Error("NOT_FOUND");
+    const next = parseNotePhotos(snap.data()?.photos).filter((p) => p.path !== removePath);
+    for (const p of accepted) {
+      if (p && !next.some((n) => n.path === p.path)) next.push({ ...p, addedAt: now, addedBy: actor.name || "" });
+    }
+    if (next.length > MAX_NOTE_PHOTOS) throw new Error("TOO_MANY_PHOTOS");
+    txn.update(noteRef, { photos: next });
+    return next;
+  });
+
+  return NextResponse.json({ ok: true, noteId, photos });
+}
+
+// ---------------------------------------------------------------------------------------------
 
 const PERMISSION_BY_ACTION: Record<string, string> = {
   create: "clinical.edit",
   update: "clinical.edit",
   move: "clinical.edit",
   continue: "clinical.edit",
+  photos: "clinical.edit",
   delete: "clinical.delete",
 };
 
@@ -993,6 +1032,8 @@ export async function POST(request: Request) {
         return await moveProcedure({ clinicId, actor, body });
       case "continue":
         return await continueProcedure({ clinicId, actor, body });
+      case "photos":
+        return await procedurePhotos({ clinicId, actor, body });
       default:
         return bad("Unknown action.");
     }
@@ -1016,6 +1057,8 @@ export async function POST(request: Request) {
         return bad("That treatment no longer exists. Refresh and try again.", 404);
       case "NO_APPOINTMENT":
         return bad("That visit no longer exists. Refresh and try again.", 404);
+      case "TOO_MANY_PHOTOS":
+        return bad(`A treatment holds up to ${MAX_NOTE_PHOTOS} photos. Remove one before adding more.`);
       case "APPROVAL_NOTE":
         return bad(APPROVAL_NOTE_MESSAGE, 409);
       case "APPROVAL_MOVE":

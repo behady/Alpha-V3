@@ -15,7 +15,6 @@ import {
 } from "firebase/firestore";
 import PatientHistoryDrawer from "@/components/appointments/PatientHistoryDrawer";
 import StarRating from "@/components/StarRating";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
@@ -23,6 +22,7 @@ import { useUI } from "@/context/UIContext";
 import BookingModal, { type BookingEditSnapshot } from "@/components/BookingModal";
 import WeeklyScheduleView from "@/components/dashboard/WeeklyScheduleView";
 import RoomScheduleView from "@/components/dashboard/RoomScheduleView";
+import ScheduleListView from "@/components/dashboard/ScheduleListView";
 import {
   parseApptTimeToMinutes,
   normalizeDateKey,
@@ -30,7 +30,6 @@ import {
   normalizeTimeKey,
   updateBookingTime,
 } from "@/lib/bookingService";
-import LateAppointmentPrompt from "@/components/appointments/LateAppointmentPrompt";
 import NewPatientModal from "@/components/NewPatientModal";
 import PageHeader, { headerButtonPrimary, headerButtonGhost } from "@/components/dashboard/PageHeader";
 import HomeViewTabs from "@/components/dashboard/HomeViewTabs";
@@ -40,12 +39,13 @@ import AppointmentAvatarPanel from "@/components/appointments/AppointmentAvatarP
 import AppointmentStagePicker from "@/components/appointments/AppointmentStagePicker";
 import PrescriptionPrintFinderModal from "@/components/PrescriptionPrintFinderModal";
 import WaitingMoodPicker from "@/components/appointments/WaitingMoodPicker";
+import DeleteAppointmentDialog from "@/components/appointments/DeleteAppointmentDialog";
 import ServiceCombobox from "@/components/shared/ServiceCombobox";
 import ServiceEditorDrawer from "@/components/clinical-notes/ServiceEditorDrawer";
 import { logActivity } from "@/lib/logger";
 import { MoneyApiError, deleteAppointment } from "@/lib/moneyApi";
 import { isDentistStaff } from "@/lib/staffRoles";
-import { doctorCardLabel, pickerValueFromDoctorField } from "@/lib/generalDentist";
+import { GENERAL_DOCTOR_VALUE, doctorCardLabel, generalDoctorLabel, pickerValueFromDoctorField } from "@/lib/generalDentist";
 import { parseClinicSchedule, dayBoundsCovering, visitStartInDay, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import { weekDaysFrom } from "@/lib/weekSchedule";
 import InsurerBadge from "@/components/shared/InsurerBadge";
@@ -114,7 +114,6 @@ type DashboardAppointment = {
   discountFixed?: number;
   discountAmount?: number;
   notes?: string;
-  delayedPromptUntil?: number;
 };
 
 /**
@@ -149,7 +148,7 @@ function editSnapshotOf(apt: DashboardAppointment): BookingEditSnapshot {
 export default function DesktopDashboard() {
   const { language, isRTL, t } = useLanguage();
   const { user } = useAuth();
-  const { showToast, confirm, appointmentEditorMode, appointmentPanelMode, setAppointmentPanelMode, latePatientTrackerEnabled } = useUI();
+  const { showToast, confirm, appointmentEditorMode, appointmentPanelMode, setAppointmentPanelMode } = useUI();
   const router = useRouter();
   const { isAdmin, role, clinic } = useClinic();
   /** "Read an approval" sits where Quick Pay was; it needs the insurance add-on. */
@@ -158,13 +157,19 @@ export default function DesktopDashboard() {
   // The same gate the finance pages use. The week view prints money above each day, and a
   // receptionist without the finance permission should not read the clinic's week in pounds.
   const canSeeMoney = isAdmin || holdsPermission(role, user?.permissions, "access.finance");
+  // A dentist reaches this calendar from their menu now (it is the only calendar). The clinic's
+  // takings for the day are not theirs to read unless they hold the finance permission.
+  const hideIncome = role === "Dentist" && !canSeeMoney;
 
   const [allAppointments, setAllAppointments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
-  /** The day drawn as one column per room instead of one timeline. Only offered when rooms exist. */
-  const [roomsView, setRoomsView] = useState(false);
+  /**
+   * How a single day is drawn: one timeline, a column per room (offered only when rooms exist), a
+   * column per dentist, or a plain list. The week view has one layout of its own.
+   */
+  const [dayLayout, setDayLayout] = useState<"timeline" | "rooms" | "doctors" | "list">("timeline");
   
   const [patientsList, setPatientsList] = useState<any[]>([]);
   const [doctorsList, setDoctorsList] = useState<any[]>([]);
@@ -216,7 +221,7 @@ export default function DesktopDashboard() {
     const line = Number(q.get("line"));
     bookRequest.current = { patientId, claim: claimId && Number.isInteger(line) && line >= 0 ? { claimId, claimLine: line } : null };
     setBookRequestTick((n) => n + 1);
-    router.replace("/");
+    router.replace(window.location.pathname);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const req = bookRequest.current;
@@ -272,32 +277,6 @@ export default function DesktopDashboard() {
   const [printingReceiptPatientId, setPrintingReceiptPatientId] = useState<string | null>(null);
   const [prescriptionFinderOpen, setPrescriptionFinderOpen] = useState(false);
 
-  // Late Appointment Tracker
-  const [realTime, setRealTime] = useState(new Date());
-  const [lateApptToPrompt, setLateApptToPrompt] = useState<any>(null);
-
-  useEffect(() => {
-    const timer = setInterval(() => setRealTime(new Date()), 60000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const isAppointmentLate = (appt: any) => {
-    if (!latePatientTrackerEnabled) return false;
-    // "Rescheduled" is a resolved marker left on the original slot — the visit that was actually
-    // going to happen is a different document now, so this one is never late.
-    const activeStatuses = ["Checked In", "In Chair", "Completed", "Checking Out", "Cancelled", "No Show", "Delayed", "Rescheduled"];
-    if (activeStatuses.includes(appt.status)) return false;
-    if (!appt.date || !appt.time) return false;
-    
-    const minutes = parseApptTimeToMinutes(appt.time);
-    const apptDate = new Date(`${appt.date}T00:00:00`);
-    apptDate.setMinutes(minutes);
-
-    const diffMins = (realTime.getTime() - apptDate.getTime()) / 60000;
-    if (appt.delayedPromptUntil && realTime.getTime() < appt.delayedPromptUntil) return false;
-    
-    return diffMins >= 15;
-  };
 
   // Inline editor state
   const [inlineEdit, setInlineEdit] = useState<Record<string, any>>({});
@@ -319,6 +298,7 @@ export default function DesktopDashboard() {
 
   // Fetch Daily Income (Cash-basis)
   useEffect(() => {
+    if (hideIncome) return;
     const today = getLocalDateKey();
     const q = query(
       getClinicCollection("ledger"),
@@ -344,7 +324,7 @@ export default function DesktopDashboard() {
       setDailyIncome(income);
     });
     return () => unsub();
-  }, []);
+  }, [hideIncome]);
 
   /**
    * What each visit on the schedule came to, for the DAY ON SCREEN.
@@ -906,78 +886,90 @@ export default function DesktopDashboard() {
     }
   };
 
-  const handleLateAction = async (action: "check_in" | "wait" | "cancel" | "delay", newDate?: string, newTime?: string) => {
-    if (!lateApptToPrompt) return;
-    const appt = lateApptToPrompt;
-    try {
-      if (action === "wait") {
-        const waitTime = Date.now() + 15 * 60000;
-        await updateDoc(getClinicDoc("appointments", appt.id), { delayedPromptUntil: waitTime });
-        showToast(language === 'ar' ? 'تم تأجيل التنبيه' : 'Prompt snoozed for 15 mins', 'success');
-      } else if (action === "check_in" || action === "cancel" || action === "delay") {
-        const statusMap = { check_in: "Checked In", cancel: "Cancelled", delay: "Delayed" };
-        const dataToSave: any = {
-          ...appt,
-          existingAppointmentId: appt.id,
-          status: statusMap[action],
-        };
-        if (action === "delay" && newDate && newTime) {
-          dataToSave.date = newDate;
-          dataToSave.time = newTime;
-        }
-        await saveBooking(
-           dataToSave,
-           { uid: user?.uid || 'system', name: user?.name || 'System', role: user?.role || 'staff', language: (language as "en" | "ar") || 'en' },
-           async () => {}
-        );
-      }
-    } catch (e) {
-      console.error(e);
-      showToast(language === 'ar' ? 'خطأ' : 'Error updating appointment', 'error');
+  /** A card opened from the room, dentist or list view: the popup or the side panel, as everywhere. */
+  const openFromColumns = (apt: DashboardAppointment) => {
+    if (appointmentEditorMode === "modal") {
+      setAppointmentToEdit(editSnapshotOf(apt));
+      setActiveModal("booking");
+    } else {
+      void handleSelectAppointmentWrapper(apt);
     }
-    setLateApptToPrompt(null);
   };
 
+  /**
+   * A card dropped in another dentist's column on the doctors view. Changing who treats the
+   * patient is not the same act as moving a time, so it asks first; the save goes through the
+   * normal booking path, which tells the patient if the time moved.
+   */
+  const moveToDentist = async (apt: DashboardAppointment, doctor: { id: string; name: string } | null, date: string, time: string) => {
+    const who = doctor ? doctor.name : generalDoctorLabel(language);
+    const ok = await confirm(
+      language === "ar" ? `تنقل زيارة ${apt.patientName || ""} لـ ${who} الساعة ${time}؟` : `Move ${apt.patientName || "this visit"} to ${who} at ${time}?`,
+      { title: language === "ar" ? "تغيير الطبيب" : "Change dentist", confirmLabel: language === "ar" ? "انقل" : "Move" },
+    );
+    if (!ok) return;
+    try {
+      await handleAutosaveBooking({
+        ...(apt as unknown as Parameters<typeof saveBooking>[0]),
+        existingAppointmentId: apt.id,
+        date,
+        time,
+        doctor: doctor ? doctor.name : "",
+        // Sent explicitly: spreading the visit would carry the previous dentist's id with the new name.
+        doctorId: doctor ? doctor.id : null,
+      } as Parameters<typeof saveBooking>[0]);
+      showToast(language === "ar" ? "اتنقلت" : "Moved", "success");
+    } catch (error) {
+      console.error("Move to dentist failed", error);
+      showToast(error instanceof MoneyApiError ? error.message : language === "ar" ? "مقدرناش ننقلها" : "Could not move that visit", "error");
+    }
+  };
+
+  /**
+   * Deleting a visit asks what happens to the treatments recorded on it (keep them in the
+   * patient's history, or delete them too while nothing is paid) — see DeleteAppointmentDialog.
+   * Every entry point (the calendar card, the booking popup, the side panel) opens it.
+   */
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; patientName?: string } | null>(null);
   const handleDeleteAppointment = async (e: React.MouseEvent | null | string, id?: string) => {
     const appointmentId = typeof e === 'string' ? e : id;
     if (typeof e !== 'string' && e?.stopPropagation) e.stopPropagation();
-    
     if (!appointmentId) return;
+    const appt = allAppointments.find((a) => a.id === appointmentId);
+    setPendingDelete({ id: appointmentId, patientName: appt?.patientName });
+  };
 
-    const msg = language === "ar" ? "هل أنت متأكد من الحذف؟" : "Are you sure you want to delete?";
-    const confirmed = await confirm(msg, {
-      title: language === "ar" ? "حذف الموعد" : "Delete appointment",
-      confirmLabel: language === "ar" ? "احذف" : "Delete",
-      tone: "danger",
-    });
-    if (confirmed) {
-      try {
-        // "keep" is the safe default from a dashboard card: the confirm here is a plain yes/no,
-        // with no room to show what would be lost, so a visit's recorded treatments are detached
-        // into the patient's history rather than deleted. The calendar's own delete offers the
-        // full choice — see DeleteAppointmentDialog.
-        await deleteAppointment(appointmentId, "keep");
-        setAllAppointments((prev) => prev.filter((appt) => appt.id !== appointmentId));
-        showToast(language === "ar" ? "تم الحذف" : "Deleted", "success");
-        
-        if (selectedAppointment?.id === appointmentId) {
-          setSelectedAppointment(null);
-        }
-        if (appointmentToEdit?.id === appointmentId) {
-          setAppointmentToEdit(null);
-          setActiveModal(null);
-        }
-      } catch (error) {
-        // This used to swallow the error entirely, so a refused delete looked to the user like
-        // nothing had happened at all — the exact silent failure worth never shipping again.
-        console.error(error);
-        showToast(
-          error instanceof MoneyApiError
-            ? error.message
-            : language === "ar" ? "حدث خطأ أثناء الحذف" : "Could not delete that appointment",
-          "error"
-        );
+  const performDelete = async (servicesAction: "keep" | "delete") => {
+    if (!pendingDelete) return;
+    const appointmentId = pendingDelete.id;
+    try {
+      const result = await deleteAppointment(appointmentId, servicesAction);
+      setPendingDelete(null);
+      setAllAppointments((prev) => prev.filter((appt) => appt.id !== appointmentId));
+      showToast(
+        result.detachedNotes > 0
+          ? language === "ar"
+            ? `تم حذف الموعد، واتحفظ ${result.detachedNotes} علاج في سجل المريض`
+            : `Appointment deleted; ${result.detachedNotes} treatment(s) kept in the patient's record`
+          : language === "ar" ? "تم الحذف" : "Deleted",
+        "success"
+      );
+      if (selectedAppointment?.id === appointmentId) {
+        setSelectedAppointment(null);
       }
+      if (appointmentToEdit?.id === appointmentId) {
+        setAppointmentToEdit(null);
+        setActiveModal(null);
+      }
+    } catch (error) {
+      // A refused delete must say so; swallowing it looked like nothing had happened at all.
+      console.error(error);
+      showToast(
+        error instanceof MoneyApiError
+          ? error.message
+          : language === "ar" ? "حدث خطأ أثناء الحذف" : "Could not delete that appointment",
+        "error"
+      );
     }
   };
 
@@ -1190,7 +1182,7 @@ export default function DesktopDashboard() {
                 <div className="flex flex-col justify-center px-2 shrink-0">
                   <span className="text-[12px] font-bold uppercase tracking-wider text-slate-500 leading-none">{language === 'ar' ? 'دخل اليوم' : 'Income'}</span>
                   <span className="flex items-center text-2xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-slate-800 to-slate-600 leading-none mt-1.5 drop-shadow-sm">
-                    {dailyIncome === null
+                    {hideIncome ? "—" : dailyIncome === null
                       ? <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
                       : <>{dailyIncome.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}<span className="text-[11px] font-medium text-slate-400 ms-1 uppercase tracking-widest">{language === 'ar' ? 'ج.م' : 'EGP'}</span></>}
                   </span>
@@ -1264,7 +1256,7 @@ export default function DesktopDashboard() {
                         </div>
                         <span className="text-[10px] md:text-xs lg:text-sm font-extrabold text-slate-600 lg:text-slate-700">{language === 'ar' ? 'مريض' : 'Patient'}</span>
                     </button>
-                    <button onClick={() => { setAppointmentToEdit(null); setActiveModal('booking'); }} className="flex flex-col items-center justify-center gap-1.5 lg:gap-2 hover:scale-[1.05] transition-transform group">
+                    <button data-tour="appointment-add" onClick={() => { setAppointmentToEdit(null); setActiveModal('booking'); }} className="flex flex-col items-center justify-center gap-1.5 lg:gap-2 hover:scale-[1.05] transition-transform group">
                         <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-accent-tint text-accent flex items-center justify-center group-hover:bg-accent group-hover:text-ink transition-colors shadow-sm">
                             <Calendar size={28} className="scale-75 lg:scale-100" strokeWidth={2.5} />
                         </div>
@@ -1302,7 +1294,7 @@ export default function DesktopDashboard() {
                     <div className="flex-1 flex items-center justify-center">
                         <div className="flex items-baseline gap-1.5">
                             <span className="text-3xl md:text-4xl lg:text-5xl font-black tracking-tight drop-shadow-sm">
-                                {dailyIncome === null ? <Loader2 className="w-8 h-8 animate-spin inline-block" /> : `$${dailyIncome.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}`}
+                                {hideIncome ? "—" : dailyIncome === null ? <Loader2 className="w-8 h-8 animate-spin inline-block" /> : `$${dailyIncome.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}`}
                             </span>
                         </div>
                     </div>
@@ -1430,14 +1422,14 @@ export default function DesktopDashboard() {
                       <div className="flex items-center gap-1 shrink-0 bg-slate-100/80 rounded-xl p-1 shadow-inner ml-2">
                         <button
                           type="button"
-                          onClick={() => { setViewMode("day"); setRoomsView(false); }}
-                          className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${viewMode === 'day' && !roomsView ? 'bg-surface text-slate-800 shadow-sm' : 'text-ink-muted hover:text-slate-800'}`}
+                          onClick={() => { setViewMode("day"); setDayLayout("timeline"); }}
+                          className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${viewMode === 'day' && dayLayout === "timeline" ? 'bg-surface text-slate-800 shadow-sm' : 'text-ink-muted hover:text-slate-800'}`}
                         >
                           {language === 'ar' ? 'يومي' : 'Day'}
                         </button>
                         <button
                           type="button"
-                          onClick={() => { setViewMode("week"); setRoomsView(false); }}
+                          onClick={() => setViewMode("week")}
                           className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${viewMode === 'week' ? 'bg-surface text-slate-800 shadow-sm' : 'text-ink-muted hover:text-slate-800'}`}
                         >
                           {language === 'ar' ? 'أسبوعي' : 'Week'}
@@ -1445,12 +1437,26 @@ export default function DesktopDashboard() {
                         {branches.some((b) => (b.rooms?.length ?? 0) > 0) && (
                           <button
                             type="button"
-                            onClick={() => { setViewMode("day"); setRoomsView(true); }}
-                            className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${viewMode === 'day' && roomsView ? 'bg-surface text-slate-800 shadow-sm' : 'text-ink-muted hover:text-slate-800'}`}
+                            onClick={() => { setViewMode("day"); setDayLayout("rooms"); }}
+                            className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${viewMode === 'day' && dayLayout === "rooms" ? 'bg-surface text-slate-800 shadow-sm' : 'text-ink-muted hover:text-slate-800'}`}
                           >
                             {language === 'ar' ? 'الغرف' : 'Rooms'}
                           </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => { setViewMode("day"); setDayLayout("doctors"); }}
+                          className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${viewMode === 'day' && dayLayout === "doctors" ? 'bg-surface text-slate-800 shadow-sm' : 'text-ink-muted hover:text-slate-800'}`}
+                        >
+                          {language === 'ar' ? 'الأطباء' : 'Doctors'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setViewMode("day"); setDayLayout("list"); }}
+                          className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${viewMode === 'day' && dayLayout === "list" ? 'bg-surface text-slate-800 shadow-sm' : 'text-ink-muted hover:text-slate-800'}`}
+                        >
+                          {language === 'ar' ? 'قائمة' : 'List'}
+                        </button>
                       </div>
                       
                       {/* Full Screen Toggle */}
@@ -1484,10 +1490,6 @@ export default function DesktopDashboard() {
                         <Pill size={14} />
                         {language === "ar" ? "طباعة وصفة" : "Print Rx"}
                       </button>
-                      <Link href="/appointments" className="flex items-center gap-1 rounded-full bg-surface border border-line px-3 lg:px-4 py-1.5 lg:py-2 text-[10px] lg:text-xs font-bold text-ink-body transition hover:bg-surface-subtle hover:shadow-sm">
-                        {language === "ar" ? "عرض الكل" : "View All"}
-                        <ChevronRight size={12} className={`lg:w-3.5 lg:h-3.5 ${isRTL ? "rotate-180" : ""}`} />
-                      </Link>
                     </div>
                 </div>
                 <div className="flex flex-col flex-1 min-h-[400px] overflow-hidden relative">
@@ -1517,7 +1519,38 @@ export default function DesktopDashboard() {
                                     patientHistory={patientHistory}
                                     visitMoney={visitMoney}
                                 />
-                            ) : roomsView ? (
+                            ) : dayLayout === "list" ? (
+                                <ScheduleListView
+                                    appointments={appointments}
+                                    language={language === "ar" ? "ar" : "en"}
+                                    multiBranch={branches.length > 1}
+                                    selectedId={selectedAppointment?.id ?? null}
+                                    onOpenAppointment={openFromColumns}
+                                />
+                            ) : dayLayout === "doctors" ? (
+                                <RoomScheduleView
+                                    by="doctor"
+                                    doctors={doctorsList}
+                                    appointments={appointments}
+                                    date={normalizeDateKey(scheduleViewDate) || scheduleViewDate}
+                                    language={language === "ar" ? "ar" : "en"}
+                                    config={config}
+                                    branches={branches}
+                                    scopeBranchId={scopeBranchId}
+                                    currentTime={currentTime}
+                                    todayKey={getLocalDateKey()}
+                                    onOpenAppointment={openFromColumns}
+                                    onBookSlot={(time, doctorId) => {
+                                        handleSelectAppointmentWrapper(null);
+                                        setAppointmentToEdit(null);
+                                        setPreSelectedTime(time);
+                                        const doctor = doctorsList.find((d) => d.id === doctorId);
+                                        setPreSelectedDoctor(doctor ? String(doctor.name) : GENERAL_DOCTOR_VALUE);
+                                        setActiveModal("booking");
+                                    }}
+                                    onDoctorDrop={(apt, doctor, date, time) => void moveToDentist(apt, doctor, date, time)}
+                                />
+                            ) : dayLayout === "rooms" && branches.some((b) => (b.rooms?.length ?? 0) > 0) ? (
                                 <RoomScheduleView
                                     appointments={appointments}
                                     date={normalizeDateKey(scheduleViewDate) || scheduleViewDate}
@@ -1527,14 +1560,7 @@ export default function DesktopDashboard() {
                                     scopeBranchId={scopeBranchId}
                                     currentTime={currentTime}
                                     todayKey={getLocalDateKey()}
-                                    onOpenAppointment={(apt) => {
-                                        if (appointmentEditorMode === "modal") {
-                                            setAppointmentToEdit(editSnapshotOf(apt));
-                                            setActiveModal("booking");
-                                        } else {
-                                            handleSelectAppointmentWrapper(apt);
-                                        }
-                                    }}
+                                    onOpenAppointment={openFromColumns}
                                     onBookSlot={(time, roomId, branchId) => {
                                         handleSelectAppointmentWrapper(null);
                                         setAppointmentToEdit(null);
@@ -1739,10 +1765,6 @@ export default function DesktopDashboard() {
                                                                 }}
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
-                                                                    if (isAppointmentLate(apt)) {
-                                                                       setLateApptToPrompt(apt);
-                                                                       return;
-                                                                    }
                                                                     // In pop-up mode a card opens the booking popup on that visit, the same
                                                                     // window a new booking uses, instead of the side panel.
                                                                     if (appointmentEditorMode === "modal") {
@@ -1761,7 +1783,7 @@ export default function DesktopDashboard() {
                                                                         handleSelectAppointmentWrapper(apt);
                                                                     }
                                                                 }}
-                                                                className={`w-full h-full rounded-2xl transition-all hover:shadow-2xl hover:-translate-y-1 hover:z-[60] cursor-grab active:cursor-grabbing flex flex-col relative pl-4 shadow-sm hover:ring-2 hover:ring-white/50 ${selectedAppointment?.id === apt.id ? 'ring-4 ring-white shadow-[0_8px_30px_rgba(0,0,0,0.12)] z-20 -translate-y-1' : ''} bg-accent-tint border border-accent-soft/80 text-slate-800 ${isAppointmentLate(apt) ? 'animate-pulse ring-4 ring-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.6)] z-30' : ''}`}
+                                                                className={`w-full h-full rounded-2xl transition-all hover:shadow-2xl hover:-translate-y-1 hover:z-[60] cursor-grab active:cursor-grabbing flex flex-col relative pl-4 shadow-sm hover:ring-2 hover:ring-white/50 ${selectedAppointment?.id === apt.id ? 'ring-4 ring-white shadow-[0_8px_30px_rgba(0,0,0,0.12)] z-20 -translate-y-1' : ''} bg-accent-tint border border-accent-soft/80 text-slate-800`}
                                                                 style={{ zIndex: selectedAppointment?.id === apt.id ? 20 : 1 }}
                                                             >
                                                             <div className={`absolute left-0 top-0 bottom-0 w-2 ${aptStyles.accent}`}></div>
@@ -2016,6 +2038,15 @@ export default function DesktopDashboard() {
       />
       <QuickPaymentModal isOpen={activeModal === 'payment'} onClose={() => setActiveModal(null)} onSave={() => {}} patients={patientsList} preSelectedPatient={paymentPatient} />
       <ApprovalReadSheet isOpen={readApproval} onClose={() => setReadApproval(false)} onPatient={bookFromApproval} />
+      {pendingDelete && (
+        <DeleteAppointmentDialog
+          appointmentId={pendingDelete.id}
+          patientName={pendingDelete.patientName}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={performDelete}
+        />
+      )}
+
       <PrescriptionPrintFinderModal
         isOpen={prescriptionFinderOpen}
         onClose={() => setPrescriptionFinderOpen(false)}
@@ -2023,13 +2054,6 @@ export default function DesktopDashboard() {
         language={language === "ar" ? "ar" : "en"}
       />
 
-      <LateAppointmentPrompt
-         isOpen={!!lateApptToPrompt}
-         appointment={lateApptToPrompt}
-         onClose={() => setLateApptToPrompt(null)}
-         onAction={handleLateAction}
-         config={config}
-      />
 
 
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
-import { Check, Link2Off, Loader2, Plus, Upload } from "lucide-react";
+import { Check, Link2, Link2Off, Loader2, Plus, Upload, X } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { isInsurerFormat, parsePayers, PRIVATE_PAYER_ID, type Payer } from "@/lib/payers";
 import InsurerBadge from "@/components/shared/InsurerBadge";
@@ -73,6 +73,9 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
   const [payers, setPayers] = useState<Payer[]>([]);
   /** The insurance company whose approvals are on screen. "" = the first tab. */
   const [tab, setTab] = useState("");
+  /** Ticked service lines, as `"claimId|line"`, for the bulk bar. */
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   useEffect(() => {
     if (!clinicId) return;
@@ -164,6 +167,128 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
   };
 
   const linked = (claimId: string, line: number) => claimLinks.some((l) => l.claimId === claimId && l.claimLine === line);
+
+  // --- bulk: tick several services, then one action for all of them ---------------------------------
+  const keyOf = (claimId: string, line: number) => `${claimId}|${line}`;
+  /** Only this insurer's live approvals can be ticked; switching company tab leaves the others out. */
+  const pickable = shown.filter((c) => c.status !== "cancelled");
+  const pickedLines = pickable.flatMap((c) =>
+    c.lines.map((_, i) => ({ claim: c, line: i })).filter(({ line }) => picked.has(keyOf(c.id, line))),
+  );
+  const togglePick = (k: string) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+  const setPickedFor = (keys: string[], on: boolean) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      keys.forEach((k) => (on ? next.add(k) : next.delete(k)));
+      return next;
+    });
+  const allKeys = pickable.flatMap((c) => c.lines.map((_, i) => keyOf(c.id, i)));
+  const allPicked = allKeys.length > 0 && allKeys.every((k) => picked.has(k));
+
+  /** One status for every ticked service: one save per approval, then the working ones join this visit. */
+  const bulkStatus = async (next: LineStatus) => {
+    if (!clinicId || pickedLines.length === 0) return;
+    const byClaim = new Map<string, { claim: InsuranceClaim; lines: number[] }>();
+    for (const { claim, line } of pickedLines) {
+      if (lineStatusOf(claim, line) === next) continue;
+      const entry = byClaim.get(claim.id) ?? { claim, lines: [] };
+      entry.lines.push(line);
+      byClaim.set(claim.id, entry);
+    }
+    if (byClaim.size === 0) {
+      showToast(isAr ? "كلهم على الحالة دي بالفعل" : "They are all at that status already", "info");
+      return;
+    }
+    if (
+      [...byClaim.values()].some((e) => e.claim.status === "sent") &&
+      !(await confirm(
+        isAr
+          ? "فيه موافقة اتبعتت للتأمين خلاص. تغيير حالة الخدمات هيغيّر اللي اتبعت. تكمّل؟"
+          : "An approval here was already sent to the insurer. Changing its services changes what was sent. Continue?",
+        { confirmLabel: isAr ? "كمّل" : "Continue" },
+      ))
+    ) {
+      return;
+    }
+    const working = next !== "Planned";
+    setBulkBusy(true);
+    let done = 0;
+    const errors: string[] = [];
+    try {
+      for (const { claim, lines } of byClaim.values()) {
+        const lineStatus: Record<number, LineStatus> = {};
+        const dentists: Record<number, string> = {};
+        for (const i of lines) {
+          lineStatus[i] = next;
+          if (working && dentistId && claim.dentists[i]?.staffId !== dentistId) dentists[i] = dentistId;
+        }
+        const error = await patchClaim(clinicId, claim.id, { lineStatus, ...(Object.keys(dentists).length ? { dentists } : {}) });
+        if (error) {
+          errors.push(error);
+          continue;
+        }
+        done += lines.length;
+        if (working) lines.forEach((i) => !linked(claim.id, i) && onToggle(keyOf(claim.id, i)));
+      }
+    } catch (err) {
+      errors.push(
+        err instanceof InsuranceCallError && err.kind === "signed_out"
+          ? isAr ? "سجّل دخول تاني" : "Please sign in again"
+          : isAr ? "التحديث ماتمّش" : "Could not update",
+      );
+    } finally {
+      setBulkBusy(false);
+    }
+    if (errors.length) showToast(errors[0], "error");
+    if (done > 0) {
+      showToast(
+        isAr
+          ? `اتحدّثت ${done} خدمة${working ? " واتربطت بالزيارة دي" : ""}`
+          : `${done} service${done === 1 ? "" : "s"} updated${working ? " and linked to this visit" : ""}`,
+        "success",
+      );
+      setPicked(new Set());
+    }
+  };
+
+  /** Book every ticked service on this visit. A completed service is already done and is left alone. */
+  const bulkLink = () => {
+    let added = 0;
+    let skipped = 0;
+    for (const { claim, line } of pickedLines) {
+      if (linked(claim.id, line)) continue;
+      if (lineStatusOf(claim, line) === "Completed") {
+        skipped += 1;
+        continue;
+      }
+      onToggle(keyOf(claim.id, line));
+      added += 1;
+    }
+    showToast(
+      isAr
+        ? `اتربطت ${added} خدمة بالزيارة دي${skipped ? ` — ${skipped} خلصت قبل كده ومتربطتش` : ""}`
+        : `${added} linked to this visit${skipped ? ` — ${skipped} already completed, left as they are` : ""}`,
+      added > 0 ? "success" : "info",
+    );
+    if (added > 0) setPicked(new Set());
+  };
+
+  const bulkUnlink = () => {
+    let removed = 0;
+    for (const { claim, line } of pickedLines) {
+      if (!linked(claim.id, line)) continue;
+      onToggle(keyOf(claim.id, line));
+      removed += 1;
+    }
+    showToast(isAr ? `اتشال الربط من ${removed} خدمة` : `${removed} unlinked from this visit`, removed > 0 ? "success" : "info");
+    if (removed > 0) setPicked(new Set());
+  };
   const total = approvalFigures(shown);
   const tile = (label: string, value: number, strong = false) => (
     <div className={`rounded-2xl border px-5 py-4 ${strong ? "border-ink-slab" : "border-line-strong"}`}>
@@ -236,7 +361,76 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
           ? "اربط الزيارة بخدمة أو أكتر من الموافقة: لما الزيارة تتعلّم خلصت، الخدمات دي بتتعلّم خلصت على الموافقة."
           : "Link this visit to one or more approved services: when the visit is marked done, those services are marked completed on the approval."}
       </p>
+      {/* Bulk: tick services in the tables below, then act on all of them at once. */}
+      {pickable.length > 0 && (
+        <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 rounded-2xl border border-line-strong bg-surface px-4 py-3 shadow-sm">
+          <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-bold text-ink">
+            <input
+              type="checkbox"
+              checked={allPicked}
+              onChange={(e) => setPickedFor(allKeys, e.target.checked)}
+              className="h-5 w-5 accent-black"
+            />
+            {isAr ? "اختار الكل" : "Select all"}
+          </label>
+          {pickedLines.length > 0 ? (
+            <>
+              <span className="rounded-full bg-ink-slab px-2.5 py-0.5 font-figure text-xs font-bold text-white">
+                {pickedLines.length} {isAr ? "مختارة" : "selected"}
+              </span>
+              <span className="mx-1 h-6 w-px bg-line" aria-hidden="true" />
+              {LINE_STATUSES.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  disabled={bulkBusy}
+                  onClick={() => void bulkStatus(s)}
+                  className="h-9 rounded-lg border border-line-strong bg-surface px-3 text-sm font-semibold text-ink transition-colors hover:border-ink hover:bg-surface-subtle disabled:opacity-50"
+                >
+                  {t(LINE_LABEL[s])}
+                </button>
+              ))}
+              <button
+                type="button"
+                disabled={bulkBusy}
+                onClick={bulkLink}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-ink-slab bg-ink-slab px-3 text-sm font-semibold text-white transition-colors hover:opacity-90 disabled:opacity-50"
+              >
+                <Link2 size={14} /> {isAr ? "اربط بالزيارة دي" : "Link to this visit"}
+              </button>
+              {pickedLines.some(({ claim, line }) => linked(claim.id, line)) && (
+                <button
+                  type="button"
+                  disabled={bulkBusy}
+                  onClick={bulkUnlink}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-3 text-sm font-semibold text-ink-body transition-colors hover:border-ink hover:text-danger disabled:opacity-50"
+                >
+                  <Link2Off size={14} /> {isAr ? "شيل الربط" : "Unlink"}
+                </button>
+              )}
+              {bulkBusy && <Loader2 size={16} className="animate-spin text-ink-faint" />}
+              <button
+                type="button"
+                onClick={() => setPicked(new Set())}
+                title={isAr ? "إلغاء الاختيار" : "Clear selection"}
+                aria-label={isAr ? "إلغاء الاختيار" : "Clear selection"}
+                className="ms-auto rounded-lg p-1.5 text-ink-faint hover:bg-surface-muted hover:text-ink"
+              >
+                <X size={16} />
+              </button>
+            </>
+          ) : (
+            <span className="text-[13px] text-ink-body">
+              {isAr
+                ? "علّم على خدمات من الجدول عشان تغيّر حالتها أو تربطها بالزيارة مرة واحدة"
+                : "Tick services below to change their status or link them to this visit in one go"}
+            </span>
+          )}
+        </div>
+      )}
       {sorted.map((c) => {
+        const cardKeys = c.status === "cancelled" ? [] : c.lines.map((_, i) => keyOf(c.id, i));
+        const cardAll = cardKeys.length > 0 && cardKeys.every((k) => picked.has(k));
         const fig = approvalFigures([{ ...c, status: c.status === "cancelled" ? "approved" : c.status }]);
         return (
           <div key={c.id} className={`overflow-hidden rounded-2xl border border-line-strong ${c.status === "cancelled" ? "opacity-60" : ""}`}>
@@ -257,6 +451,17 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
               <table className="w-full min-w-[680px] border-collapse text-[15px]">
                 <thead>
                   <tr className="border-y border-line bg-surface-subtle text-[13px] font-semibold text-ink-body">
+                    <th className="w-10 ps-5 py-2.5">
+                      {cardKeys.length > 0 && (
+                        <input
+                          type="checkbox"
+                          checked={cardAll}
+                          onChange={(e) => setPickedFor(cardKeys, e.target.checked)}
+                          aria-label={isAr ? "اختار كل خدمات الموافقة دي" : "Select every service on this approval"}
+                          className="h-5 w-5 align-middle accent-black"
+                        />
+                      )}
+                    </th>
                     <th className="px-5 py-2.5 text-start font-semibold">{isAr ? "الخدمة" : "Treatment"}</th>
                     <th className="px-4 py-2.5 text-end font-semibold">{isAr ? "الموافق عليه" : "Approved"}</th>
                     <th className="px-4 py-2.5 text-end font-semibold">{isAr ? "على المريض" : "Patient share"}</th>
@@ -272,6 +477,17 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
                     const saving = busy === `${c.id}|${i}`;
                     return (
                       <tr key={i} className={`border-b border-line last:border-b-0 ${isLinked ? "bg-accent-tint" : ""}`}>
+                        <td className="w-10 ps-5 py-3">
+                          {c.status !== "cancelled" && (
+                            <input
+                              type="checkbox"
+                              checked={picked.has(keyOf(c.id, i))}
+                              onChange={() => togglePick(keyOf(c.id, i))}
+                              aria-label={isAr ? `اختار ${line.description}` : `Select ${line.description}`}
+                              className="h-5 w-5 align-middle accent-black"
+                            />
+                          )}
+                        </td>
                         <td className="px-5 py-3">
                           <span className="block font-figure text-[13px] text-ink-muted">{line.code}</span>
                           <span className="text-ink">{line.description}</span>
@@ -328,6 +544,7 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
                 </tbody>
                 <tfoot>
                   <tr className="border-t border-line bg-surface-subtle font-semibold">
+                    <td />
                     <td className="px-5 py-3 text-ink-body">{isAr ? "الإجمالي" : "Total"}</td>
                     <td className="px-4 py-3 text-end font-figure font-medium tabular-nums text-ink">{money(c.totals.approved)}</td>
                     <td className="px-4 py-3 text-end font-figure font-medium tabular-nums text-ink">{money(c.totals.patientShare)}</td>

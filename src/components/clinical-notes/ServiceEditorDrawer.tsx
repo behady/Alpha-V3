@@ -54,6 +54,11 @@ interface Props {
   onSaved: (labSeed?: LabCaseSeed) => void;
   inline?: boolean;
   /**
+   * The overlay's stacking layer. Opened from inside the booking popup (z-[200]) at the default
+   * z-[100], the editor rendered BEHIND the popup: Edit did open it, and nobody could see it.
+   */
+  layerClass?: string;
+  /**
    * Chart-first desktop layout: the teeth chart lives above this form instead of inside it, so the
    * selection has to be owned by the parent. Pass all three together — the selector is hidden here
    * and every read/write of the selection is routed to the parent's state.
@@ -322,7 +327,7 @@ export const TeethChartSelector = memo(function TeethChartSelector({
   });
 
 export default function ServiceEditorDrawer({
-  isOpen, onClose, patientId, patientName, patientDefaultPriceListId, branchId = null, appointmentId, initialNote, servicesList, doctors, onSaved, inline = false,
+  isOpen, onClose, patientId, patientName, patientDefaultPriceListId, branchId = null, appointmentId, initialNote, servicesList, doctors, onSaved, inline = false, layerClass = "z-[100]",
   hideTeethSelector = false, selectedTeethOverride, onSelectedTeethChange, compact = false,
   teethData = {}, treatments = {}, dentistMode = false, meStaffId = ""
 }: Props) {
@@ -1302,7 +1307,7 @@ export default function ServiceEditorDrawer({
 
   if (clinicalEditorMode === 'modal') {
     return createPortal(
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
+      <div className={`fixed inset-0 ${layerClass} flex items-center justify-center p-4 sm:p-6`}>
         <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={onClose} />
         {/*
           Wide enough for the chart to be the size it wants to be. The teeth need ~820px including
@@ -1318,7 +1323,7 @@ export default function ServiceEditorDrawer({
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[100]">
+    <div className={`fixed inset-0 ${layerClass}`}>
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={onClose} />
       <div className="absolute inset-y-0 right-0 w-full max-w-3xl z-50 transform transition-transform duration-300 translate-x-0">
         {content}

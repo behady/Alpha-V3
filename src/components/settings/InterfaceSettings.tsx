@@ -20,20 +20,16 @@
 import { useEffect, useState } from "react";
 import { limit, onSnapshot, query, where } from "firebase/firestore";
 import {
-  AlertTriangle,
   AlignJustify,
   Armchair,
   ArrowDownWideNarrow,
   ArrowUpNarrowWide,
   Calendar,
   CalendarDays,
-  CalendarOff,
   Landmark,
   LayoutDashboard,
   LayoutList,
   ListOrdered,
-  Monitor,
-  MonitorSmartphone,
   MoveVertical,
   PanelRight,
   PencilLine,
@@ -48,9 +44,8 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useSettingsText } from "@/lib/useSettingsText";
 import { useUI } from "@/context/UIContext";
 import { useAuth } from "@/context/AuthContext";
-import { useClinic } from "@/context/ClinicContext";
 import { getClinicCollection } from "@/lib/db-utils";
-import { useAlsoDentist } from "@/lib/useAlsoDentist";
+import { useHomeView } from "@/lib/useHomeView";
 
 /** One answer to one preference question. */
 type Choice<T extends string> = {
@@ -207,8 +202,6 @@ export default function InterfaceSettings() {
     appointmentEditorMode, setAppointmentEditorMode,
     patientEditorMode, setPatientEditorMode,
     appointmentPanelMode, setAppointmentPanelMode,
-    appointmentsVisibility, setAppointmentsVisibility,
-    latePatientTrackerEnabled, setLatePatientTrackerEnabled,
     clinicalNoteSort, setClinicalNoteSort,
     clinicalNoteGrouping, setClinicalNoteGrouping,
     clinicalNoteDensity, setClinicalNoteDensity,
@@ -222,8 +215,9 @@ export default function InterfaceSettings() {
    * choice: a plain dentist always gets the chair, and an admin who never treats has nothing to
    * choose between. The same hook feeds the tab strip on the dashboard, which offers these three.
    */
-  const { isAdmin } = useClinic();
-  const alsoDentist = useAlsoDentist();
+  // The same three screens as the tabs in the band, for everyone; a locked one still opens onto
+  // the "ask the owner" page (lib/homeView).
+  const { view: currentHomeView } = useHomeView();
 
   return (
     <div className="w-full space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
@@ -248,25 +242,20 @@ export default function InterfaceSettings() {
         </div>
       </div>
 
-      {/* Every admin can choose the owner's view over the desk; the chair is offered only to an
-          admin whose team row says they also treat. A stored "chair" for someone no longer a
-          dentist falls back to the first choice rather than showing a dead option. */}
-      {isAdmin && (
-        <Group title={txt.groupHome}>
+      <Group title={txt.groupHome}>
           <PreferenceRow
             icon={Landmark}
             label={txt.homeLabel}
             description={txt.homeDesc}
-            value={homeView === "chair" && !alsoDentist ? "desk" : homeView}
+            value={currentHomeView}
             onChange={setHomeView}
             choices={[
-              { value: "desk", label: txt.homeDesk, icon: LayoutDashboard, hint: txt.homeDeskHint },
               { value: "owner", label: txt.homeOwner, icon: Landmark, hint: txt.homeOwnerHint },
-              ...(alsoDentist ? [{ value: "chair" as const, label: txt.homeChair, icon: Armchair, hint: txt.homeChairHint }] : []),
+              { value: "desk", label: txt.homeDesk, icon: LayoutDashboard, hint: txt.homeDeskHint },
+              { value: "chair", label: txt.homeChair, icon: Armchair, hint: txt.homeChairHint },
             ]}
           />
         </Group>
-      )}
 
       <Group title={txt.groupWhereOpens}>
         <PreferenceRow
@@ -358,29 +347,6 @@ export default function InterfaceSettings() {
             { value: "detailed", label: txt.densityDetailed, icon: LayoutList, hint: txt.densityDetailedHint },
             { value: "compact", label: txt.densityCompact, icon: AlignJustify, hint: txt.densityCompactHint },
           ]}
-        />
-      </Group>
-
-      <Group title={txt.groupAppointmentsPage}>
-        <PreferenceRow
-          icon={Calendar}
-          label={txt.visibilityLabel}
-          description={txt.visibilityDesc}
-          value={appointmentsVisibility}
-          onChange={setAppointmentsVisibility}
-          choices={[
-            { value: "all", label: txt.visibilityAll, icon: MonitorSmartphone, hint: txt.visibilityAllHint },
-            { value: "desktop", label: txt.visibilityDesktop, icon: Monitor, hint: txt.visibilityDesktopHint },
-            { value: "hidden", label: txt.visibilityHidden, icon: CalendarOff, hint: txt.visibilityHiddenHint },
-          ]}
-        />
-
-        <ToggleRow
-          icon={AlertTriangle}
-          label={txt.lateAlertLabel}
-          description={txt.lateAlertDesc}
-          checked={latePatientTrackerEnabled}
-          onChange={setLatePatientTrackerEnabled}
         />
       </Group>
     </div>

@@ -550,7 +550,6 @@ function eq<T>(actual: T, expected: T, message: string) {
    * and every UI fix upstream of this was correct but starved of data.
    */
   for (const rel of [
-    "src/app/(dashboard)/appointments/page.tsx",
     "src/components/dashboard/DesktopDashboard.tsx",
     "src/components/dashboard/MobileDashboard.tsx",
   ]) {
@@ -851,15 +850,23 @@ function eq<T>(actual: T, expected: T, message: string) {
   eq([written.format, written.providerCode], ["metlife", "DNC8144"], "both survive the round trip to the stored document");
 }
 
-// The three booking screens load services through a hand-picked field list. A field missing there
+// The booking screens (the two dashboards; /appointments renders them) load services through a hand-picked field list. A field missing there
 // is silently missing from the booking popup: without pricingMode a flat-fee treatment multiplied
 // by every tooth picked (a 132 consultation became 528 on four teeth, 2026-10-08).
 {
-  for (const rel of ["src/components/dashboard/DesktopDashboard.tsx", "src/components/dashboard/MobileDashboard.tsx", "src/app/(dashboard)/appointments/page.tsx"]) {
+  for (const rel of ["src/components/dashboard/DesktopDashboard.tsx", "src/components/dashboard/MobileDashboard.tsx"]) {
     const src = read(rel);
     ok(/listId: d\.data\(\)\.listId/.test(src), `${rel} loads each service's listId`);
     ok(/pricingMode: d\.data\(\)\.pricingMode/.test(src), `${rel} loads each service's pricingMode`);
   }
+}
+
+// One calendar (2026-10-11): /appointments renders the dashboards' calendar. A second copy of the
+// schedule there is how every fix above used to land on one screen and miss the other.
+{
+  const page = read("src/app/(dashboard)/appointments/page.tsx");
+  ok(/<DesktopDashboard \/>/.test(page) && /<MobileDashboard \/>/.test(page), "the Appointments page draws its own calendar again instead of the dashboard's");
+  ok(!/onSnapshot|getClinicCollection/.test(page), "the Appointments page loads data of its own again — it is a second calendar");
 }
 
 // Dentist mode (chair mode, 2026-10-08): the editor hides every money control for a dentist, but
