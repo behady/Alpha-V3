@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import ApprovalReadSheet from "@/components/insurance/ApprovalReadSheet";
 import { useClinic } from "@/context/ClinicContext";
+import { holdsPermission } from "@/lib/permissions";
 import { isAnyUnlocked } from "@/lib/featureCatalog";
 import { db, auth } from "@/lib/firebase";
 import {
@@ -16,7 +17,6 @@ import {
 } from "firebase/firestore";
 import PatientHistoryDrawer from "@/components/appointments/PatientHistoryDrawer";
 import StarRating from "@/components/StarRating";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
@@ -151,11 +151,14 @@ function DashboardClockWidget({ language, showTime = true }: { language: string,
 
 export default function MobileDashboard() {
   const { language, isRTL, t } = useLanguage();
-  const { clinic } = useClinic();
+  const { clinic, role, isAdmin } = useClinic();
   /** "Read an approval" sits where Quick Pay was; it needs the insurance add-on. */
   const insuranceOn = !!clinic && isAnyUnlocked(clinic, "insurance");
   const [readApproval, setReadApproval] = useState(false);
   const { user } = useAuth();
+  // A dentist reaches this calendar from their menu now (it is the only calendar). The clinic's
+  // takings for the day are not theirs to read unless they hold the finance permission.
+  const hideIncome = role === "Dentist" && !(isAdmin || holdsPermission(role, user?.permissions, "access.finance"));
   const { showToast, confirm, appointmentEditorMode } = useUI();
   const router = useRouter();
 
@@ -301,6 +304,7 @@ export default function MobileDashboard() {
 
   // Fetch Daily Income (Cash-basis)
   useEffect(() => {
+    if (hideIncome) return;
     const today = getLocalDateKey();
     const q = query(
       getClinicCollection("ledger"),
@@ -326,7 +330,7 @@ export default function MobileDashboard() {
       setDailyIncome(income);
     });
     return () => unsub();
-  }, []);
+  }, [hideIncome]);
 
   const fireOwnerWhatsAppAlert = async (alertKey: OwnerAlertKey, message: string) => {
     try {
@@ -923,7 +927,7 @@ export default function MobileDashboard() {
               <div className="p-2 bg-emerald-50 rounded-full"><Wallet size={16} className="text-emerald-600" /></div>
             </div>
             <span className="text-4xl font-black tracking-tighter drop-shadow-sm text-ink">
-              {dailyIncome === null ? <Loader2 className="w-6 h-6 animate-spin text-slate-500" /> : <>{dailyIncome?.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')} <span className="text-lg font-medium text-slate-500 uppercase tracking-widest ml-1">{language === 'ar' ? 'ج.م' : 'EGP'}</span></>}
+              {hideIncome ? "—" : dailyIncome === null ? <Loader2 className="w-6 h-6 animate-spin text-slate-500" /> : <>{dailyIncome?.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')} <span className="text-lg font-medium text-slate-500 uppercase tracking-widest ml-1">{language === 'ar' ? 'ج.م' : 'EGP'}</span></>}
             </span>
           </div>
 
@@ -977,7 +981,7 @@ export default function MobileDashboard() {
                        <div className="p-1.5 bg-emerald-50 rounded-full"><Wallet size={14} className="text-emerald-600" /></div>
                     </div>
                     <div className="flex-1 flex flex-col items-center justify-center relative z-10 min-h-[80px]">
-                        {dailyIncome === null ? (
+                        {hideIncome ? "—" : dailyIncome === null ? (
                             <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
                         ) : (
                             <div className="flex items-baseline justify-center gap-1 w-full">
@@ -1206,10 +1210,6 @@ export default function MobileDashboard() {
                   <Pill size={14} />
                   {language === "ar" ? "طباعة وصفة" : "Print Rx"}
                 </button>
-                <Link href="/appointments" className="flex items-center gap-1 rounded-full bg-surface border border-line px-3 lg:px-4 py-1.5 lg:py-2 text-[10px] lg:text-xs font-bold text-ink-body transition hover:bg-surface-subtle hover:shadow-sm">
-                  {language === "ar" ? "عرض الكل" : "View All"}
-                  <ChevronRight size={12} className={`lg:w-3.5 lg:h-3.5 ${isRTL ? "rotate-180" : ""}`} />
-                </Link>
               </div>
             </div>
 

@@ -158,12 +158,11 @@ export const TOUR_WALKS: Record<string, DemoAction[]> = {
   ],
 
   appointments: [
-    pt(l("Week", "أسبوع"), "Views: week…", "العرض: أسبوع…", "self"),
-    pt(l("Day", "يوم"), "…day…", "…يوم…", "self"),
-    pt(l("Doctors", "الدكاترة"), "…one column per doctor…", "…عمود لكل دكتور…", "self"),
+    pt(l("Week", "أسبوعي"), "Views: week…", "العرض: أسبوع…", "self"),
+    pt(l("Day", "يومي"), "…day…", "…يوم…", "self"),
+    pt(l("Doctors", "الأطباء"), "…one column per doctor…", "…عمود لكل دكتور…", "self"),
     pt(l("List", "قائمة"), "…or a plain list.", "…أو قايمة عادية.", "self"),
     pt(l("Today", "اليوم"), "Arrows move the days; Today brings you back.", "الأسهم بتنقل الأيام؛ اليوم بيرجّعك.", "self"),
-    pt(l("Filters", "تصفية"), "Filters: by status, doctor, room, or service.", "تصفية: بالحالة، الدكتور، الغرفة، أو الخدمة.", "self"),
     pa("appointment-add", "Add appointment — next stop.", "إضافة موعد — المحطة الجاية."),
     sy("Every appointment carries a colour: yellow unconfirmed, then confirmed, checked in, in chair, completed. Late and no-show have their own.", "كل موعد ليه لون: أصفر غير مؤكد، وبعدين مؤكد، وصل، على الكرسي، مكتمل. المتأخر واللي مجاش ليهم لون لوحدهم."),
   ],
@@ -290,7 +289,6 @@ export const TOUR_WALKS: Record<string, DemoAction[]> = {
   "settings-interface": [
     pt(l("Where things open", "الحاجات بتفتح فين"), "Where things open: the booking form, and what sits beside the schedule.", "الحاجات بتفتح فين: فورم الحجز، واللي بيقعد جنب الجدول."),
     pt(l("The clinical note", "الملف السريري"), "How the clinical note is sorted and grouped.", "الملف السريري بيترتب ويتجمع إزاي."),
-    pt(l("The appointments page", "صفحة المواعيد"), "Whether the calendar shows on phones, and the late-patient alert.", "التقويم يظهر على الموبايل ولا لأ، وتنبيه المريض المتأخر."),
     pt(l("Your home screen", "شاشتك الرئيسية"), "Your home screen: the desk, the owner's view, or the chair.", "شاشتك الرئيسية: المكتب، شاشة المالك، أو الكرسي."),
   ],
   "settings-clinic_profile": [

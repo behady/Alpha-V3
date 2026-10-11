@@ -1,12 +1,14 @@
 "use client";
 
 /**
- * The dashboard's room calendar: one day, one column per room.
+ * The dashboard's column calendar: one day, one column per room — or per dentist.
  *
  * Same grid language as the week view (time down the side, visits as cards packed side by side
- * when they overlap), but the columns are rooms, so the desk sees which chair is free when. A click
- * on an empty row books that room at that time; dragging a card moves it in time and, dropped in
- * another room's column, to that room.
+ * when they overlap), but the columns are rooms, so the desk sees which chair is free when, or
+ * dentists, so it sees whose hands are. A click on an empty row books that room (or dentist) at
+ * that time; dragging a card moves it in time and, dropped in another room's column, to that
+ * room. Dropped in another dentist's column it is handed to `onDoctorDrop`, which asks first:
+ * changing who treats is not the same act as moving a time.
  */
 
 import { useMemo } from "react";
@@ -18,7 +20,8 @@ import { getAppointmentStageLabel, getAppointmentStatusStyles } from "@/lib/appo
 import { doctorCardLabel } from "@/lib/generalDentist";
 import { timeRange } from "@/lib/scheduleCard";
 import { WEEK_MIN_CARD_PX, WEEK_ROW_PX, minutesToClock, packOverlaps, weekCardTier } from "@/lib/weekSchedule";
-import { NO_ROOM, roomColumns } from "@/lib/roomSchedule";
+import { NO_DOCTOR, NO_ROOM, doctorColumns, roomColumns, type RoomColumn } from "@/lib/roomSchedule";
+import { generalDoctorLabel } from "@/lib/generalDentist";
 import type { ClinicBranch } from "@/lib/clinicLocations";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -35,8 +38,14 @@ type Props = {
   currentTime: Date;
   todayKey: string;
   onOpenAppointment: (apt: Appt) => void;
-  /** An empty row was clicked: book this room at this time ("hh:mm AM"). */
-  onBookSlot: (time: string, roomId: string, branchId: string) => void;
+  /** An empty row was clicked: book this room (or dentist, by id; "" = General) at this time ("hh:mm AM"). */
+  onBookSlot: (time: string, columnId: string, branchId: string) => void;
+  /** "room" (the default) or one column per dentist. */
+  by?: "room" | "doctor";
+  /** The team, for the dentist columns. */
+  doctors?: ReadonlyArray<{ id: string; name?: string | null }>;
+  /** A card dropped in another dentist's column, at that time. `doctor` is null for General. */
+  onDoctorDrop?: (apt: Appt, doctor: { id: string; name: string } | null, date: string, time: string) => void;
 };
 
 const COL_MIN_PX = 180;
@@ -52,10 +61,19 @@ export default function RoomScheduleView({
   todayKey,
   onOpenAppointment,
   onBookSlot,
+  by = "room",
+  doctors = [],
+  onDoctorDrop,
 }: Props) {
   const isAr = language === "ar";
+  const byDoctor = by === "doctor";
+  /** The catch-all column: "No room", or General. */
+  const LOOSE = byDoctor ? NO_DOCTOR : NO_ROOM;
 
-  const { columns, columnOf } = useMemo(() => roomColumns(branches, scopeBranchId, appointments), [branches, scopeBranchId, appointments]);
+  const { columns, columnOf } = useMemo<{ columns: RoomColumn[]; columnOf: Map<string, string> }>(
+    () => (byDoctor ? doctorColumns(doctors, appointments, generalDoctorLabel(language)) : roomColumns(branches, scopeBranchId, appointments)),
+    [byDoctor, doctors, branches, scopeBranchId, appointments, language],
+  );
 
   const bounds = useMemo(
     () =>
@@ -114,12 +132,16 @@ export default function RoomScheduleView({
     return (nowMin - bounds.start) * pixelsPerMinute;
   }, [date, todayKey, currentTime, bounds, pixelsPerMinute]);
 
-  if (columns.length === 0) {
+  if (columns.length === 0 || (byDoctor && columns.length === 1)) {
     return (
       <div className="m-4 rounded-2xl border border-dashed border-line px-6 py-10 text-center text-sm text-ink-muted">
-        {isAr
-          ? "مفيش غرف متسجلة للفرع ده. ضيف الغرف من الإعدادات ← الفروع والغرف."
-          : "No rooms are set up for this branch. Add them under Settings → Branches & rooms."}
+        {byDoctor
+          ? isAr
+            ? "مفيش أطباء في الفريق لسه. ضيفهم من صفحة الفريق."
+            : "No dentists on the team yet. Add them on the Team page."
+          : isAr
+            ? "مفيش غرف متسجلة للفرع ده. ضيف الغرف من الإعدادات ← الفروع والغرف."
+            : "No rooms are set up for this branch. Add them under Settings → Branches & rooms."}
       </div>
     );
   }
@@ -180,8 +202,17 @@ export default function RoomScheduleView({
                     const { id } = JSON.parse(raw) as { id: string };
                     const rect = e.currentTarget.getBoundingClientRect();
                     const minsFromStart = Math.round((e.clientY - rect.top) / pixelsPerMinute / 5) * 5;
-                    void updateBookingTime(id, date, minutesToClock(bounds.start + minsFromStart));
+                    const time = minutesToClock(bounds.start + minsFromStart);
                     const apt = appointments.find((a) => a.id === id);
+                    if (byDoctor) {
+                      if (apt && columnOf.get(apt.id) !== col.id && onDoctorDrop) {
+                        onDoctorDrop(apt, col.id === LOOSE ? null : { id: col.id, name: col.label }, date, time);
+                      } else {
+                        void updateBookingTime(id, date, time);
+                      }
+                      return;
+                    }
+                    void updateBookingTime(id, date, time);
                     if (apt && col.id !== NO_ROOM && apt.roomId !== col.id) {
                       void updateDoc(getClinicDoc("appointments", id), {
                         roomId: col.id,
@@ -201,7 +232,7 @@ export default function RoomScheduleView({
                     <div
                       key={idx}
                       className={`flex-1 cursor-pointer border-b border-line/60 transition-colors hover:bg-surface-subtle ${slot.outside ? "bg-surface-muted" : ""}`}
-                      onClick={() => onBookSlot(slot.value, col.id === NO_ROOM ? "" : col.id, col.branchId)}
+                      onClick={() => onBookSlot(slot.value, col.id === LOOSE ? "" : col.id, col.branchId)}
                     />
                   ))}
                 </div>
@@ -245,7 +276,7 @@ export default function RoomScheduleView({
                           )}
                           {(tier === "time" || tier === "full") && (
                             <span className="truncate text-[11px] text-ink-body">
-                              {apt.treatment || (isAr ? "كشف" : "Consultation")} · {doctorCardLabel(apt.doctor, language)}
+                              {[apt.treatment || (isAr ? "كشف" : "Consultation"), byDoctor ? apt.roomName : doctorCardLabel(apt.doctor, language)].filter(Boolean).join(" · ")}
                             </span>
                           )}
                           {tier === "full" && (

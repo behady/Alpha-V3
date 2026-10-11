@@ -245,16 +245,16 @@ export const TUTORIALS: Tutorial[] = [
         skipIfRoute: "/appointments",
         optional: true,
         text: {
-          en: "This is the Appointments page — the clinic's schedule lives here. Click it.",
-          ar: "دي صفحة المواعيد — جدول العيادة كله هنا. اضغط عليها.",
+          en: "This opens the calendar — the clinic's schedule lives here. Click it.",
+          ar: "ده بيفتح جدول المواعيد — جدول العيادة كله هنا. اضغط عليه.",
         },
       },
       {
         route: "/appointments",
         anchor: "appointment-add",
         text: {
-          en: "Click Add Appointment to start a new booking. (Tip: clicking any empty slot in the calendar books that exact time.)",
-          ar: "اضغط إضافة موعد عشان تبدأ حجز جديد. (معلومة: لو ضغطت على أي خانة فاضية في الجدول بيتحجز الوقت ده على طول.)",
+          en: "Click Appointment to start a new booking. (Tip: clicking any empty slot in the calendar books that exact time.)",
+          ar: "اضغط موعد عشان تبدأ حجز جديد. (معلومة: لو ضغطت على أي خانة فاضية في الجدول بيتحجز الوقت ده على طول.)",
         },
       },
       {

@@ -39,3 +39,33 @@ export function roomColumns(
   if (loose && columns.length > 0) columns.push({ id: NO_ROOM, label: "", roomName: "", branchId: scopeBranchId });
   return { columns, columnOf };
 }
+
+/** The doctors view's catch-all column: General, plus any visit whose dentist is not on the team. */
+export const NO_DOCTOR = "__no_doctor__";
+
+/**
+ * The doctors view: one column per dentist, then General.
+ *
+ * A visit belongs to the dentist whose id it carries, else to the one whose name it carries (old
+ * bookings and renamed staff), else to General. General always has a column, empty or not, because
+ * the desk books unassigned visits there.
+ */
+export function doctorColumns(
+  doctors: ReadonlyArray<{ id: string; name?: string | null }>,
+  appointments: ReadonlyArray<{ id: string; doctor?: string | null; doctorId?: string | null }>,
+  generalLabel: string,
+): { columns: RoomColumn[]; columnOf: Map<string, string> } {
+  const columns: RoomColumn[] = doctors
+    .filter((d) => String(d.name || "").trim())
+    .map((d) => ({ id: d.id, label: String(d.name).trim(), roomName: "", branchId: "" }));
+  const byId = new Set(columns.map((c) => c.id));
+  const byName = new Map(columns.map((c) => [c.label, c.id]));
+  const columnOf = new Map<string, string>();
+  for (const a of appointments) {
+    const id = String(a.doctorId || "");
+    const name = String(a.doctor || "").trim();
+    columnOf.set(a.id, id && byId.has(id) ? id : (name && byName.get(name)) || NO_DOCTOR);
+  }
+  columns.push({ id: NO_DOCTOR, label: generalLabel, roomName: "", branchId: "" });
+  return { columns, columnOf };
+}
