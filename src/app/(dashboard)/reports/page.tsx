@@ -13,12 +13,14 @@ import {
 import { useClinic } from "@/context/ClinicContext";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import { useActiveBranch } from "@/lib/useActiveBranch";
+import { rowInScope } from "@/lib/branchAccess";
+import { setExportBranchLabel } from "@/components/reports/reportExcelUtils";
 import BranchSelector from "@/components/shared/BranchSelector";
 import { getClinicCollection } from "@/lib/db-utils";
 import FeatureGate, { FeatureLocked } from "@/components/FeatureGate";
 import { isUnlocked } from "@/lib/featureCatalog";
 import { REPORTS, REPORT_GROUPS, reportById, type ReportGroupId } from "@/components/reports/registry";
-import { useReportData, type Row } from "@/components/reports/useReportData";
+import { useReportData, type ReportData, type Row } from "@/components/reports/useReportData";
 import { ReportState } from "@/components/reports/reportKit";
 
 function normalizeDate(val: unknown): string {
@@ -49,7 +51,7 @@ function reportFromUrl(): string | null {
 
 function ReportsPage() {
   const { language } = useLanguage();
-  const { branches, allowedBranches, activeBranchId, setActiveBranchId, canChooseAll } = useActiveBranch();
+  const { branches, allowedBranches, activeBranchId, setActiveBranchId, canChooseAll, scopeBranchId } = useActiveBranch();
   const isAr = language === "ar";
 
   const [reportId, setReportId] = useState<string>(() => reportFromUrl() || "clinic");
@@ -187,7 +189,29 @@ function ReportsPage() {
 
   const inGroup = useMemo(() => REPORTS.filter((r) => r.group === group), [group]);
   const locked = report.feature ? !isUnlocked(clinic, report.feature) : false;
-  const ledger = useMemo(() => (snapshot ? [...snapshot.procedures, ...snapshot.payments] : []), [snapshot]);
+  // One place, before any tab: under a real branch every tab reads that branch's rows only.
+  // "All branches" (and a clinic with no branches) passes everything, old unstamped rows included.
+  const scoped = useMemo(() => {
+    if (!snapshot || scopeBranchId === "") return snapshot;
+    const keep = (rows: Row[]) => rows.filter((r) => rowInScope(r, scopeBranchId));
+    return { ...snapshot, procedures: keep(snapshot.procedures), payments: keep(snapshot.payments), allPatients: keep(snapshot.allPatients) };
+  }, [snapshot, scopeBranchId]);
+  const scopedData = useMemo(() => {
+    if (scopeBranchId === "") return extras.data;
+    const out: ReportData = { ...extras.data };
+    for (const key of ["ledgerPrev", "ledgerLastYear", "ledgerMonths12", "ledgerAll", "appointments", "appointmentsWide"] as const) {
+      const rows = out[key];
+      if (rows) out[key] = rows.filter((r) => rowInScope(r, scopeBranchId));
+    }
+    return out;
+  }, [extras.data, scopeBranchId]);
+  const ledger = useMemo(() => (scoped ? [...scoped.procedures, ...scoped.payments] : []), [scoped]);
+  // Exports say which branch they are about.
+  useEffect(() => {
+    const name = branches.find((b) => b.id === scopeBranchId)?.name;
+    setExportBranchLabel(scopeBranchId !== "" ? (name ?? scopeBranchId) : branches.length > 0 ? (isAr ? "كل الفروع" : "All branches") : null);
+    return () => setExportBranchLabel(null);
+  }, [branches, scopeBranchId, isAr]);
 
   return (
     <PermissionGuard permission="access.reports">
@@ -343,17 +367,17 @@ function ReportsPage() {
               ) : (
                 <div key={report.id}>
                   {report.render({
-                    procedures: snapshot.procedures,
-                    payments: snapshot.payments,
+                    procedures: scoped!.procedures,
+                    payments: scoped!.payments,
                     ledger,
-                    allPatients: snapshot.allPatients,
+                    allPatients: scoped!.allPatients,
                     leads: snapshot.leads,
                     range,
                     rangeLabel,
                     today,
                     isAr,
                     clinic,
-                    data: extras.data,
+                    data: scopedData,
                     payers,
                     setRange,
                   })}

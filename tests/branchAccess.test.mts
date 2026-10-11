@@ -88,4 +88,10 @@ for (const rel of [
   assert.match(readFileSync(new URL(`../${rel}`, import.meta.url), "utf8"), /rowInScope\(/, `${rel} reads money without filtering by the branch on screen`);
 }
 
+// Task 15: reports read the branch on screen, and the export names the branch.
+const reportsPage = readFileSync(new URL("../src/app/(dashboard)/reports/page.tsx", import.meta.url), "utf8");
+assert.match(reportsPage, /rowInScope\(/, "reports no longer filter by the branch on screen");
+const reportsExport = readFileSync(new URL("../src/components/reports/reportExcelUtils.ts", import.meta.url), "utf8");
+assert.match(reportsExport, /"Branch"|الفرع/, "the reports export has no Branch column");
+
 console.log("branchAccess: all checks passed");

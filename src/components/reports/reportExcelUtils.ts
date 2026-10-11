@@ -14,6 +14,17 @@ export const CHART_COLORS = [
 export function parseMoney(v: unknown): number {
   return Number(v ?? 0) || 0;
 }
+
+/**
+ * Which branch the report on screen is about, stamped on every export so a sheet that leaves the
+ * app still says whose money it is. Set by the reports page; null for a clinic with no branches
+ * (then no column is added). Module state on purpose: the tabs build their rows in a dozen places
+ * and all of them end up in `exportToExcel`.
+ */
+let exportBranchLabel: string | null = null;
+export function setExportBranchLabel(label: string | null): void {
+  exportBranchLabel = label;
+}
 /**
  * Exports an array of objects to an Excel file.
  * @param data Array of objects (each object is a row, keys are column headers)
@@ -25,7 +36,10 @@ export function exportToExcel(data: Record<string, any>[], filename: string, isA
     console.warn("No data to export");
     return;
   }
-  const worksheet = XLSX.utils.json_to_sheet(data);
+  // A "Branch" column last, unless the tab already made one.
+  const branchKey = isAr ? "الفرع" : "Branch";
+  const rows = exportBranchLabel === null ? data : data.map((row) => (branchKey in row ? row : { ...row, [branchKey]: exportBranchLabel }));
+  const worksheet = XLSX.utils.json_to_sheet(rows);
   
   // Apply RTL view if Arabic
   if (isAr) {
