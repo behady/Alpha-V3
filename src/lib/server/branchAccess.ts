@@ -14,6 +14,13 @@ const refuse = (status: number, error: string, code: string): BranchCheck => ({
   response: NextResponse.json({ ok: false, error, code }, { status }),
 });
 
+/** The branches this non-admin person may use: their staff row's ticks, or every branch when they have none. Never empty. */
+async function allowedFor(clinicId: string, uid: string, branches: ClinicBranch[]): Promise<ClinicBranch[]> {
+  const found = await adminClinicCollection(clinicId, "staff").where("uid", "==", uid).limit(1).get();
+  const staff = found.empty ? null : (found.docs[0].data() as { branchIds?: unknown });
+  return allowedBranches(branches, staff, false);
+}
+
 /**
  * The one question every money route asks before it writes: which branch is this money for, and
  * may this person put money there?
@@ -22,8 +29,10 @@ const refuse = (status: number, error: string, code: string): BranchCheck => ({
  * admins may use any, everyone else only the branches `allowedBranches` leaves them.
  *
  * `fallback` is for rows nobody chose a branch for (the visit's own branch, say). It is used only
- * when the body sent none, and the id it returns is stamped WITHOUT the allowed-set check: it is
- * the visit's branch, not the person's choice. Only a branch the caller sent is checked.
+ * when the body sent none. An admin gets the id it returns as is; anyone else gets it only if it is
+ * one of the branches `allowedBranches` leaves them, otherwise their first allowed branch: never a
+ * refusal (a phone payment must still be written), and a fallback branch never lands money where
+ * this person may not work. Only a branch the caller sent is refused when it is not theirs.
  */
 export async function assertBranchAllowed(args: {
   clinicId: string;
@@ -38,18 +47,19 @@ export async function assertBranchAllowed(args: {
   if (branches.length === 0) return { ok: true, branchId: null };
 
   const sent = typeof args.branchId === "string" ? args.branchId : "";
+  const admin = isFullAccessRole(args.role);
   if (!sent) {
     const automatic = args.fallback ? await args.fallback(branches) : null;
-    return automatic ? { ok: true, branchId: automatic } : refuse(400, BRANCH_REQUIRED_MESSAGE, "branch_required");
+    if (!automatic) return refuse(400, BRANCH_REQUIRED_MESSAGE, "branch_required");
+    if (admin) return { ok: true, branchId: automatic };
+    const allowed = await allowedFor(args.clinicId, args.uid, branches);
+    return { ok: true, branchId: allowed.some((b) => b.id === automatic) ? automatic : allowed[0].id };
   }
   if (!branches.some((b) => b.id === sent)) return refuse(400, BRANCH_REQUIRED_MESSAGE, "branch_required");
 
-  const admin = isFullAccessRole(args.role);
   if (admin) return { ok: true, branchId: sent };
 
-  const found = await adminClinicCollection(args.clinicId, "staff").where("uid", "==", args.uid).limit(1).get();
-  const staff = found.empty ? null : (found.docs[0].data() as { branchIds?: unknown });
-  const allowed = allowedBranches(branches, staff, false);
+  const allowed = await allowedFor(args.clinicId, args.uid, branches);
   return allowed.some((b) => b.id === sent) ? { ok: true, branchId: sent } : refuse(403, BRANCH_FORBIDDEN_MESSAGE, "branch_forbidden");
 }
 

@@ -13,9 +13,11 @@ import { generateKeyPairSync } from "node:crypto";
 const PROJECT = "demo-branch-money";
 const CLINIC = "C1";
 const NO_BRANCH_CLINIC = "C2";
+const FIRST_IS_FORBIDDEN_CLINIC = "C3";
 const ADMIN = "admin-1";
 const DESK = "desk-1";
 const DESK_2 = "desk-2";
+const DESK_3 = "desk-3";
 
 const { privateKey: PEM } = generateKeyPairSync("rsa", {
   modulusLength: 2048,
@@ -69,6 +71,7 @@ const settlementsRoute = await import("../src/app/api/staff/settlements/route");
 const db = adminDb();
 const clinic = db.collection("clinics").doc(CLINIC);
 const plainClinic = db.collection("clinics").doc(NO_BRANCH_CLINIC);
+const thirdClinic = db.collection("clinics").doc(FIRST_IS_FORBIDDEN_CLINIC);
 const ledger = clinic.collection("ledger");
 
 let passed = 0;
@@ -104,7 +107,7 @@ const settle = (uid: string, extra: Json = {}) =>
   post(settlementsRoute, uid, { clinicId: CLINIC, action: "create", staffId: "S1", kind: "payout", amount: 300, date: "2026-10-01", ...extra });
 const row = async (id: string, collection: Collection = ledger) => (await collection.doc(id).get()).data() as Json | undefined;
 
-for (const c of [clinic, plainClinic]) {
+for (const c of [clinic, plainClinic, thirdClinic]) {
   await db.recursiveDelete(c);
   await c.set({ name: "Branch Test", status: "Active", subscriptionTier: "Premium" });
 }
@@ -119,6 +122,18 @@ await db.collection("users").doc(DESK_2).set({
   clinicRoles: { [NO_BRANCH_CLINIC]: "Receptionist" },
   clinicPermissions: { [NO_BRANCH_CLINIC]: ["finance.add", "access.appointments"] },
 });
+await db.collection("users").doc(DESK_3).set({
+  name: "Desk Third",
+  clinicRoles: { [FIRST_IS_FORBIDDEN_CLINIC]: "Receptionist" },
+  clinicPermissions: { [FIRST_IS_FORBIDDEN_CLINIC]: ["finance.add", "access.appointments"] },
+});
+await thirdClinic.collection("settings").doc("locations").set({
+  branches: [
+    { id: "tag", name: "Tagamoa", rooms: [] },
+    { id: "hel", name: "Heliopolis", rooms: [] },
+  ],
+});
+await thirdClinic.collection("staff").doc("desk-3-staff").set({ uid: DESK_3, name: "Desk Third", role: "Receptionist", branchIds: ["hel"] });
 await clinic.collection("settings").doc("locations").set({
   branches: [
     { id: "hel", name: "Heliopolis", rooms: [] },
@@ -202,7 +217,12 @@ console.log("rows nobody chose a branch for fall back, tier by tier");
   check("a manual entry with no branch takes the first, hel", entry.status === 200 && (await row(entry.json.id))?.branchId === "hel", entry);
 
   const phone = await payment(DESK, "P1", { procedureId: "CH-ledger" });
-  check("a fallback is the visit's branch, not the person's: desk-1 (hel only) gets tag, not a refusal", phone.status === 200 && (await row(phone.json.id))?.branchId === "tag", phone);
+  check("desk-1 (hel only) paying a tag charge with no branch is not refused, and lands on her own hel", phone.status === 200 && (await row(phone.json.id))?.branchId === "hel", phone);
+  const adminAgain = await payment(ADMIN, "P1", { procedureId: "CH-ledger" });
+  check("admin-1 on the same charge still gets tag", adminAgain.status === 200 && (await row(adminAgain.json.id))?.branchId === "tag", adminAgain);
+
+  const third = await expense(DESK_3, {}, FIRST_IS_FORBIDDEN_CLINIC);
+  check("a manual entry with no branch, where the clinic's first branch (tag) is not hers, lands on her hel", third.status === 200 && (await row(third.json.id, thirdClinic.collection("ledger")))?.branchId === "hel", third);
 }
 
 console.log("staff settlements are paid from a branch");
@@ -227,7 +247,7 @@ console.log("a clinic with no branches stamps nothing");
   check("the row exists and has no branchId field at all", !!stored && !("branchId" in stored), stored);
 }
 
-for (const c of [clinic, plainClinic]) await db.recursiveDelete(c);
+for (const c of [clinic, plainClinic, thirdClinic]) await db.recursiveDelete(c);
 authServer.close();
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
