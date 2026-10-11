@@ -109,4 +109,13 @@ assert.match(readFileSync(new URL("../src/lib/automation/briefing/data.ts", impo
 assert.match(readFileSync(new URL("../src/app/api/ai/daily-briefing/route.ts", import.meta.url), "utf8"), /searchParams\.get\("branchId"\)/, "the briefing route ignores the branch");
 assert.match(readFileSync(new URL("../src/components/dashboard/OwnerHome.tsx", import.meta.url), "utf8"), /&branchId=/, "the owner view does not ask for its branch's briefing");
 
+// Task 17: the patient file shows the whole account, each row saying which branch took it.
+const patientFinance = readFileSync(new URL("../src/components/PatientFinance.tsx", import.meta.url), "utf8");
+const moneyTab = readFileSync(new URL("../src/components/appointments/AppointmentMoneyTab.tsx", import.meta.url), "utf8");
+assert.match(patientFinance, /useActiveBranch\(\)/, "the patient file does not look up branch names");
+assert.match(patientFinance, /\.branchId/, "the patient file rows do not say which branch they belong to");
+assert.match(moneyTab, /useActiveBranch\(\)/, "the appointment money tab does not look up branch names");
+assert.match(moneyTab, /r\.branchId/, "the appointment money tab rows do not say which branch they belong to");
+assert.doesNotMatch(patientFinance, /rowInScope\(/, "the patient file must show the whole account, not one branch of it");
+
 console.log("branchAccess: all checks passed");

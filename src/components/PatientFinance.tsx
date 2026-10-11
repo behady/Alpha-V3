@@ -52,6 +52,7 @@ import { allocationMessage, allocationMessageAr, checkAllocation, overAllocation
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import { useBranchForMoney } from "@/lib/useBranchForMoney";
+import { useActiveBranch } from "@/lib/useActiveBranch";
 function formatWhatsAppLedgerMessage(
   patientName: string,
   clinicName: string,
@@ -130,6 +131,8 @@ interface LedgerItem {
     receiptNumber?: string | null;
     addedBy?: string | null;
     receivedBy?: string | null;
+    /** The branch that took this row; older rows have none. */
+    branchId?: string | null;
     /** Who the row is charged to; a payment inherits its treatment's. Absent (Private) on older rows. */
     payerId?: string | null;
     payerName?: string | null;
@@ -183,6 +186,10 @@ function insurerOf(row: { payerId?: string | null; payerName?: string | null }):
 export default function PatientFinance({ patientId }: { patientId: string }) {
   const { showToast, confirm } = useUI();
   const { requireBranchForMoney, picker: branchPicker } = useBranchForMoney();
+  // The file shows the whole account; with two or more branches each row says which one took it.
+  const { branches } = useActiveBranch();
+  const branchName = (id?: string | null) =>
+    branches.length >= 2 && id ? branches.find((b) => b.id === id)?.name || "" : "";
   const { discountSettings, maxDiscountPercent } = usePricingPolicy();
   const { language } = useLanguage();
   const { user } = useAuth();
@@ -1160,7 +1167,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                             <div className="w-4"></div>
                                                         )}
                                                         <div>
-                                                            <div>{item.date}</div>
+                                                            <div>{item.date}{branchName(item.branchId) && <span className="text-[10px] font-bold text-slate-400 ms-1.5">{branchName(item.branchId)}</span>}</div>
                                                             {procTime && (
                                                                 <div className="text-[10px] text-slate-400 font-semibold flex items-center gap-1 mt-0.5">
                                                                     <Clock size={10} className="text-emerald-500 shrink-0" />
@@ -1290,7 +1297,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                         <div className="flex items-center gap-2">
                                                             <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div>
                                                             <div>
-                                                                <div>{payment.date}</div>
+                                                                <div>{payment.date}{branchName(payment.branchId) && <span className="text-[10px] font-bold text-slate-400 ms-1.5">{branchName(payment.branchId)}</span>}</div>
                                                                 {payTime && (
                                                                     <div className="text-[10px] text-slate-400 font-bold flex items-center gap-1 mt-0.5">
                                                                         <Clock size={10} className="text-emerald-500 shrink-0" />
@@ -1356,7 +1363,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                         <tr id={`tx-${payment.id}`} key={payment.id} className={`transition-colors ${highlightTxId === payment.id ? 'bg-blue-50/80 ring-2 ring-blue-500 ring-inset' : 'hover:bg-gray-50'}`}>
                                             <td className="p-4 font-bold text-gray-500 text-xs pl-8">
                                                 <div>
-                                                    <div>{payment.date}</div>
+                                                    <div>{payment.date}{branchName(payment.branchId) && <span className="text-[10px] font-bold text-slate-400 ms-1.5">{branchName(payment.branchId)}</span>}</div>
                                                     {payTime && (
                                                         <div className="text-[10px] text-slate-400 font-bold flex items-center gap-1 mt-0.5">
                                                             <Clock size={10} className="text-emerald-500 shrink-0" />

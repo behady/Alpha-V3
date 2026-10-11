@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import {
   AlertTriangle, Banknote, Check, ChevronDown, History, Loader2, Pencil, Plus, Printer, Receipt, ShieldCheck, Tag, Trash2, User,
@@ -13,6 +13,7 @@ import { treatmentsByTooth } from "@/lib/toothTreatments";
 import { suggestCategory } from "@/lib/dentalIcons";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import { useBranchForMoney } from "@/lib/useBranchForMoney";
+import { useActiveBranch } from "@/lib/useActiveBranch";
 import { checkAllocation, allocationMessage, allocationMessageAr } from "@/lib/paymentAllocation";
 import {
   MoneyApiError, createPayment, createProcedure, deleteProcedure, updateLedgerRow,
@@ -64,6 +65,8 @@ type Charge = {
   payerName: string | null;
   /** The dentist who did it, by name; "" when nobody is on it yet (no money is taken until there is). */
   dentistName: string;
+  /** The branch that took it, named only when the clinic has two or more; "" otherwise. */
+  branchName: string;
 };
 
 type Payment = {
@@ -73,6 +76,7 @@ type Payment = {
   method: string;
   description: string;
   procedureId: string | null;
+  branchName: string;
 };
 
 /** Cash, and the two things Egyptian clinics are actually handed instead of it. */
@@ -111,6 +115,7 @@ export default function AppointmentMoneyTab({
   const { language } = useLanguage();
   const { showToast, confirm } = useUI();
   const { requireBranchForMoney, picker: branchPicker } = useBranchForMoney();
+  const { branches } = useActiveBranch();
   const isAr = language === "ar";
   const { priceLists, payers, discountSettings, maxDiscountPercent } = usePricingPolicy();
 
@@ -351,6 +356,13 @@ export default function AppointmentMoneyTab({
   /** The patient's own side of every row: an approval's insurer part and insurer payments left out. */
   const account = useMemo(() => patientAccount(ledger), [ledger]);
 
+  /** A row's branch by name, only where there is more than one branch to tell apart. */
+  const branchNameOf = useCallback(
+    (id: unknown) =>
+      branches.length >= 2 && typeof id === "string" && id ? branches.find((b) => b.id === id)?.name || "" : "",
+    [branches]
+  );
+
   const charges: Charge[] = useMemo(
     () =>
       ledger
@@ -378,10 +390,11 @@ export default function AppointmentMoneyTab({
                 ? String(r.payerName)
                 : null,
             dentistName: String(r.doctorName || r.doctor || (r.doctorId ? "—" : "")).trim(),
+            branchName: branchNameOf(r.branchId),
           };
         })
         .sort((a, b) => a.date.localeCompare(b.date)),
-    [ledger, account, isAr]
+    [ledger, account, isAr, branchNameOf]
   );
 
   const payments: Payment[] = useMemo(
@@ -397,9 +410,10 @@ export default function AppointmentMoneyTab({
           method: String(r.method || "Cash"),
           description: String(r.description || ""),
           procedureId: typeof r.procedureId === "string" && r.procedureId ? r.procedureId : null,
+          branchName: branchNameOf(r.branchId),
         }))
         .sort((a, b) => b.date.localeCompare(a.date)),
-    [ledger]
+    [ledger, branchNameOf]
   );
 
   const chargeById = useMemo(() => new Map(charges.map((c) => [c.id, c])), [charges]);
@@ -826,6 +840,7 @@ export default function AppointmentMoneyTab({
             <p className="text-[11px] font-semibold text-slate-400 mt-0.5">
               {charge.date}
               {note?.tooth && note.tooth !== "Gen" ? ` · ${note.tooth}` : ""}
+              {charge.branchName && <span className="ms-1 text-slate-500">· {charge.branchName}</span>}
             </p>
             {!charge.dentistName && !settled && (
               <p className="mt-1 text-[11px] font-bold text-danger">
@@ -922,6 +937,7 @@ export default function AppointmentMoneyTab({
             <p className="text-[11px] font-semibold text-slate-400 mt-0.5">
               {charge.date}
               {note?.tooth && note.tooth !== "Gen" ? ` · ${note.tooth}` : ""}
+              {charge.branchName && <span className="ms-1 text-slate-500">· {charge.branchName}</span>}
             </p>
           </div>
           <span className="text-sm font-black text-ink shrink-0">{charge.cost.toLocaleString()}</span>
@@ -1484,6 +1500,7 @@ export default function AppointmentMoneyTab({
                     </p>
                     <p className="text-[11px] font-semibold text-slate-400">
                       {p.date} · {p.method}
+                      {p.branchName && <span className="ms-1 text-slate-500">· {p.branchName}</span>}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
