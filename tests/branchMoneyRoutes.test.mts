@@ -1,6 +1,7 @@
 /**
  * Which branch a piece of money belongs to, through the real money routes, against the Firestore
- * emulator: the ledger route (payments and manual entries) and the staff settlements route.
+ * emulator: the ledger route (payments and manual entries), the staff settlements route and the
+ * insurance claims route.
  *
  *   FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 npm run test:branch-money-routes
  *
@@ -9,6 +10,7 @@
 
 import { createServer } from "node:http";
 import { generateKeyPairSync } from "node:crypto";
+import { SAMPLE_RAW } from "./fixtures/insuranceMetlife.fixture";
 
 const PROJECT = "demo-branch-money";
 const CLINIC = "C1";
@@ -19,6 +21,7 @@ const ADMIN = "admin-1";
 const DESK = "desk-1";
 const DESK_2 = "desk-2";
 const DESK_3 = "desk-3";
+const DESK_4 = "desk-4";
 
 const { privateKey: PEM } = generateKeyPairSync("rsa", {
   modulusLength: 2048,
@@ -68,6 +71,7 @@ const { adminDb } = await import("../src/lib/firebaseAdmin");
 const { SETTLEMENTS_COLLECTION } = await import("../src/lib/staffSettlement");
 const ledgerRoute = await import("../src/app/api/finance/ledger/route");
 const settlementsRoute = await import("../src/app/api/staff/settlements/route");
+const claimsRoute = await import("../src/app/api/insurance/claims/route");
 
 const db = adminDb();
 const clinic = db.collection("clinics").doc(CLINIC);
@@ -90,10 +94,11 @@ function check(label: string, condition: boolean, detail: unknown = "") {
 
 type Json = Record<string, any>;
 type Collection = FirebaseFirestore.CollectionReference;
-async function post(route: { POST: (r: Request) => Promise<Response> }, uid: string, body: Json) {
-  const res = await route.POST(
+async function post(route: { POST: (r: Request) => Promise<Response> }, uid: string, body: Json, method = "POST") {
+  const handler = method === "PATCH" ? (route as unknown as { PATCH: (r: Request) => Promise<Response> }).PATCH : route.POST;
+  const res = await handler(
     new Request("http://localhost/api/test", {
-      method: "POST",
+      method,
       headers: { authorization: `Bearer ${idToken(uid)}`, "content-type": "application/json" },
       body: JSON.stringify(body),
     }),
@@ -312,6 +317,65 @@ console.log("a clinic with no branches still numbers from the clinic-wide counte
   check("a payment with no branches is a 200 numbered with the clinic prefix", r.status === 200 && /^R-\d{4}-0001$/.test(r.json.receiptNumber ?? ""), r);
   const counter = await plainClinic.collection("settings").doc("receipt_counter").get();
   check("it counted on settings/receipt_counter", counter.exists && counter.data()?.last === 1, counter.data());
+}
+
+console.log("an insurance approval belongs to a branch");
+{
+  await receiptsClinic.set({ features: { insurance: true } }, { merge: true });
+  await receiptsClinic.collection("settings").doc("payers").set({
+    payers: [
+      { id: "private", name: "Private", active: true, isDefault: true },
+      { id: "metlife", name: "MetLife", format: "metlife", providerCode: "DNC0001", active: true, isDefault: false },
+    ],
+  });
+  await receiptsClinic.collection("staff").doc("omar").set({ name: "Dr Omar Test", role: "Dentist", commissionPercentage: 40, commissionByPayer: { metlife: 25 } });
+  await receiptsClinic.collection("staff").doc("desk-4-staff").set({ uid: DESK_4, name: "Desk Four", role: "Receptionist", branchIds: ["hel"] });
+  await db.collection("users").doc(DESK_4).set({
+    name: "Desk Four",
+    clinicRoles: { [RECEIPTS_CLINIC]: "Receptionist" },
+    clinicPermissions: { [RECEIPTS_CLINIC]: ["patients.edit", "finance.add"] },
+  });
+  await receiptsClinic.collection("patients").doc("CP").set({ name: "Claim Patient" });
+  const lines = [
+    { code: "D0120", description: "PERIODIC ORAL EVALUATION", amount: 60 },
+    { code: "D2650", description: "INLAY - RESIN-BASED COMPOSITE", amount: 600 },
+  ];
+  const paper = (approvalNumber: string) => ({
+    header: {
+      ...SAMPLE_RAW.header,
+      approvalNumber,
+      approvalDate: "05/10/2026",
+      paperPatientName: "CLAIM PATIENT",
+      estimatedCost: 660,
+      requestedTotal: 660,
+      approvedTotal: 660,
+      patientShareTotal: 0,
+      collectNote: 0,
+    },
+    lines: lines.map((l) => ({
+      code: l.code, description: l.description, unitsRequested: 1, grossPerUnit: l.amount, grossTotal: l.amount,
+      unitsApproved: 1, patientShare: 0, approvedAmount: l.amount, comment: "", confidence: 0.95,
+    })),
+  });
+  const save = (uid: string, approvalNumber: string, branchId: string) =>
+    post(claimsRoute, uid, { clinicId: RECEIPTS_CLINIC, docId: `doc-${approvalNumber}`, payerId: "metlife", extraction: paper(approvalNumber), patient: { id: "CP" }, dentistId: "omar", branchId });
+  const claims = receiptsClinic.collection("insurance_claims");
+
+  const saved = await save(ADMIN, "D7100001", "tag");
+  check("admin-1 saving an approval for Tagamoa is a 201", saved.status === 201 && saved.json.claimId === "metlife_d7100001", saved);
+  const claim = (await claims.doc("metlife_d7100001").get()).data();
+  check("the claim carries branchId tag", claim?.branchId === "tag", claim?.branchId);
+  const rows = (await receiptsClinic.collection("ledger").where("claimId", "==", "metlife_d7100001").where("type", "==", "procedure").get()).docs.map((d) => d.data());
+  check("both treatment rows carry branchId tag", rows.length === 2 && rows.every((r) => r.branchId === "tag"), rows.map((r) => r.branchId));
+
+  const paid = await post(claimsRoute, ADMIN, { clinicId: RECEIPTS_CLINIC, claimId: "metlife_d7100001", patch: { insurerPaid: true }, branchId: "hel" }, "PATCH");
+  check("the insurer's payment, recorded at Heliopolis, is a 200", paid.status === 200 && Array.isArray(paid.json.payments) && paid.json.payments.length === 2, paid);
+  const receipts = await Promise.all((paid.json.payments as string[] ?? []).map((id) => row(id, receiptsClinic.collection("ledger"))));
+  check("each insurer payment is numbered in the Heliopolis series (HEL-000n) and stamped hel", receipts.length === 2 && receipts.every((r) => /^HEL-000\d$/.test(String(r?.receiptNumber)) && r?.branchId === "hel"), receipts.map((r) => [r?.receiptNumber, r?.branchId]));
+
+  const refused = await save(DESK_4, "D7100002", "tag");
+  check("desk-4 (Heliopolis only) saving an approval for Tagamoa is a 403 branch_forbidden", refused.status === 403 && refused.json.code === "branch_forbidden", refused);
+  check("no claim was written", !(await claims.doc("metlife_d7100002").get()).exists);
 }
 
 for (const c of [clinic, plainClinic, thirdClinic, receiptsClinic]) await db.recursiveDelete(c);

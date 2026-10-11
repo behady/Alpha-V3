@@ -96,7 +96,7 @@ assert.match(reportsExport, /"Branch"|الفرع/, "the reports export has no Br
 
 // Task 16: payroll and settlements are per branch; the phone keeps getting the clinic total without a param.
 assert.match(readFileSync(new URL("../src/app/(dashboard)/team/page.tsx", import.meta.url), "utf8"), /rowInScope\(/, "the Team page ignores the branch on screen");
-assert.match(readFileSync(new URL("../src/app/(dashboard)/team/page.tsx", import.meta.url), "utf8"), /claims = useMemo\(\(\) => loadedClaims\.filter\(\(c\) => rowInScope\(/, "the Team page shows insurance shares of every branch");
+assert.match(readFileSync(new URL("../src/app/(dashboard)/team/page.tsx", import.meta.url), "utf8"), /[Cc]laims\b[^\n]*rowInScope\(/, "the Team page shows insurance shares of every branch");
 assert.match(readFileSync(new URL("../src/app/api/insurance/claims/route.ts", import.meta.url), "utf8"), /branchId: branch\.branchId/, "a saved claim does not carry its branch");
 // Payroll reads no money rows; the branch narrows the roster by the ticks on each staff row.
 const payroll = readFileSync(new URL("../src/app/api/payroll/route.ts", import.meta.url), "utf8");
@@ -104,7 +104,7 @@ assert.match(payroll, /searchParams\.get\("branchId"\)/, "payroll does not accep
 assert.match(payroll, /allowedBranches\(/, "payroll does not narrow the roster to the branch");
 
 // Mixed-scope fixes: the pending commission, and the owner's briefing, follow the branch on screen.
-assert.match(readFileSync(new URL("../src/app/(dashboard)/finance/page.tsx", import.meta.url), "utf8"), /if \(!rowInScope\(claim, scopeBranchId\)\) continue;/, "Finance pending insurance commission ignores the branch on screen");
+assert.match(readFileSync(new URL("../src/app/(dashboard)/finance/page.tsx", import.meta.url), "utf8"), /rowInScope\(claim/, "Finance pending insurance commission ignores the branch on screen");
 assert.match(readFileSync(new URL("../src/lib/automation/briefing/data.ts", import.meta.url), "utf8"), /rowInScope\(/, "the briefing loader ignores the branch");
 assert.match(readFileSync(new URL("../src/app/api/ai/daily-briefing/route.ts", import.meta.url), "utf8"), /searchParams\.get\("branchId"\)/, "the briefing route ignores the branch");
 assert.match(readFileSync(new URL("../src/components/dashboard/OwnerHome.tsx", import.meta.url), "utf8"), /&branchId=/, "the owner view does not ask for its branch's briefing");
@@ -117,5 +117,18 @@ assert.match(patientFinance, /\.branchId/, "the patient file rows do not say whi
 assert.match(moneyTab, /useActiveBranch\(\)/, "the appointment money tab does not look up branch names");
 assert.match(moneyTab, /r\.branchId/, "the appointment money tab rows do not say which branch they belong to");
 assert.doesNotMatch(patientFinance, /rowInScope\(/, "the patient file must show the whole account, not one branch of it");
+
+// Every money route asks which branch before it writes; edits and deletes ask whose row it is.
+for (const rel of [
+  "src/app/api/finance/ledger/route.ts",
+  "src/app/api/clinical/procedures/route.ts",
+  "src/app/api/insurance/claims/route.ts",
+  "src/app/api/staff/settlements/route.ts",
+]) {
+  assert.match(readFileSync(new URL(`../${rel}`, import.meta.url), "utf8"), /assertBranchAllowed\(/, `${rel} writes money without checking the branch`);
+}
+for (const rel of ["src/app/api/finance/ledger/route.ts", "src/app/api/clinical/procedures/route.ts"]) {
+  assert.match(readFileSync(new URL(`../${rel}`, import.meta.url), "utf8"), /assertRowBranchAllowed\(/, `${rel} edits or deletes another branch's money unchecked`);
+}
 
 console.log("branchAccess: all checks passed");

@@ -90,6 +90,16 @@ jobs:
         run: npm run --silent test:clinicscope
       - name: Misplaced record detection
         run: npm run --silent test:misplaced
+      - name: Branch access rules and source pins
+        run: npm run --silent test:branch-access
+      - name: Clinic branches and receipt prefixes
+        run: npm run --silent test:clinic-locations
+      - name: Receipt numbers per branch
+        run: npm run --silent test:receipt-numbers
+      - name: Patient account (one account, every branch)
+        run: npm run --silent test:patient-account
+      - name: Home view per role
+        run: npm run --silent test:homeview
       - name: Lint baseline (pre-existing errors only, none added)
         run: node scripts/check-lint-baseline.mjs
       # functions/ has no tests and no build step, so nothing else here would notice a syntax
