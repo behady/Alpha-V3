@@ -266,7 +266,8 @@ export async function loadBriefingData(args: {
     .filter((a) => UNRESOLVED_STATUSES.has(a.status));
 
   const ledgerWindow = inScope(ledgerWindowSnap.docs).map((doc) => mapLedger(doc.id, doc.data() || {}));
-  const ledgerAll = inScope(ledgerAllSnap.docs).map((doc) => mapLedger(doc.id, doc.data() || {}));
+  // Never filtered by branch: it feeds per-patient balances, and one patient is one account.
+  const ledgerAll = ledgerAllSnap.docs.map((doc) => mapLedger(doc.id, doc.data() || {}));
 
   const patientNames = new Map<string, string>();
   const patientCreatedAt = new Map<string, Date>();

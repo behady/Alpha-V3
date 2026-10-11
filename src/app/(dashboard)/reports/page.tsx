@@ -43,6 +43,19 @@ interface Snapshot {
   leads: Row[];
 }
 
+/**
+ * Under a branch, the tabs that tell a new patient from a returning one by the day the file was
+ * opened. There, "opened" becomes the day of the patient's first row at this branch, so a patient
+ * first seen at the other branch is not this branch's new patient.
+ */
+const NEWNESS_TABS = new Set(["clinic", "compare", "lastYear", "year", "incomeSources", "retention", "demographics"]);
+/**
+ * Tabs built on a patient's balance or history. One patient is one account: under a branch they
+ * list only the patients with a row at this branch, but read every row of those patients, from
+ * every branch, so a balance is never split.
+ */
+const BALANCE_TABS = new Set(["receivables", "ltv", "retention", "recall"]);
+
 /** The report named in the URL, so a tab can be linked to and comes back after a reload. */
 function reportFromUrl(): string | null {
   if (typeof window === "undefined") return null;
@@ -76,8 +89,16 @@ function ReportsPage() {
   const rangeLabel = rangeText(range, isAr);
   const today = getToday();
 
-  // The report's extra data, fetched when it is opened and remembered for this range.
-  const extras = useReportData(report.needs, range, clinicId);
+  // The report's extra data, fetched when it is opened and remembered for this range. Under a
+  // branch a new-vs-returning tab also needs the whole ledger, to find each patient's first visit there.
+  const needs = useMemo(
+    () =>
+      scopeBranchId !== "" && NEWNESS_TABS.has(report.id) && !report.needs.includes("ledgerAll")
+        ? [...report.needs, "ledgerAll" as const]
+        : report.needs,
+    [report, scopeBranchId]
+  );
+  const extras = useReportData(needs, range, clinicId);
 
   const pick = (id: string) => {
     setReportId(id);
@@ -194,7 +215,8 @@ function ReportsPage() {
   const scoped = useMemo(() => {
     if (!snapshot || scopeBranchId === "") return snapshot;
     const keep = (rows: Row[]) => rows.filter((r) => rowInScope(r, scopeBranchId));
-    return { ...snapshot, procedures: keep(snapshot.procedures), payments: keep(snapshot.payments), allPatients: keep(snapshot.allPatients) };
+    // The patient list stays whole: every branch sees every patient.
+    return { ...snapshot, procedures: keep(snapshot.procedures), payments: keep(snapshot.payments) };
   }, [snapshot, scopeBranchId]);
   const scopedData = useMemo(() => {
     if (scopeBranchId === "") return extras.data;
@@ -206,6 +228,36 @@ function ReportsPage() {
     return out;
   }, [extras.data, scopeBranchId]);
   const ledger = useMemo(() => (scoped ? [...scoped.procedures, ...scoped.payments] : []), [scoped]);
+  /** Under a branch: every patient with a row at it, and the day of their first one. Null under All branches. */
+  const branchFirstSeen = useMemo(() => {
+    if (scopeBranchId === "" || !extras.data.ledgerAll) return null;
+    const first = new Map<string, string>();
+    for (const r of extras.data.ledgerAll) {
+      const pid = typeof r.patientId === "string" ? r.patientId : "";
+      if (!pid || !rowInScope(r, scopeBranchId)) continue;
+      const day = String(r.normDate || "");
+      const had = first.get(pid);
+      if (had === undefined || (day && (had === "" || day < had))) first.set(pid, day);
+    }
+    return first;
+  }, [extras.data.ledgerAll, scopeBranchId]);
+  // Balance tabs: those patients' whole accounts, every branch's rows (see BALANCE_TABS).
+  const tabData = useMemo(() => {
+    if (!branchFirstSeen || !BALANCE_TABS.has(report.id)) return scopedData;
+    const ofTheirs = (rows: Row[]) => rows.filter((r) => typeof r.patientId === "string" && branchFirstSeen.has(r.patientId));
+    const whole = extras.data;
+    return {
+      ...scopedData,
+      ...(whole.ledgerAll ? { ledgerAll: ofTheirs(whole.ledgerAll) } : {}),
+      ...(whole.appointmentsWide ? { appointmentsWide: ofTheirs(whole.appointmentsWide) } : {}),
+    };
+  }, [branchFirstSeen, report.id, scopedData, extras.data]);
+  // New-vs-returning tabs: a patient's file "opened" the day of their first row at this branch.
+  const tabPatients = useMemo(() => {
+    if (!scoped) return [];
+    if (!branchFirstSeen || !NEWNESS_TABS.has(report.id)) return scoped.allPatients;
+    return scoped.allPatients.map((p) => ({ ...p, createdAt: branchFirstSeen.get(p.id) || null }));
+  }, [scoped, branchFirstSeen, report.id]);
   // Exports say which branch they are about.
   useEffect(() => {
     const name = branches.find((b) => b.id === scopeBranchId)?.name;
@@ -362,22 +414,29 @@ function ReportsPage() {
                 <FeatureLocked feature={report.feature} />
               ) : extras.error ? (
                 <ReportState kind="error" isAr={isAr} text={extras.error} />
-              ) : extras.loading && report.needs.some((k) => !extras.data[k]) ? (
+              ) : extras.loading && needs.some((k) => !extras.data[k]) ? (
                 <ReportState kind="loading" isAr={isAr} />
               ) : (
                 <div key={report.id}>
+                  {scopeBranchId !== "" && BALANCE_TABS.has(report.id) && (
+                    <p className="mb-4 text-[12px] font-semibold text-ink-muted">
+                      {isAr
+                        ? "الأرصدة على مستوى العيادة كلها؛ القائمة بتعرض مرضى الفرع ده."
+                        : "Balances are whole-clinic; this list shows patients seen at this branch."}
+                    </p>
+                  )}
                   {report.render({
                     procedures: scoped!.procedures,
                     payments: scoped!.payments,
                     ledger,
-                    allPatients: scoped!.allPatients,
+                    allPatients: tabPatients,
                     leads: snapshot.leads,
                     range,
                     rangeLabel,
                     today,
                     isAr,
                     clinic,
-                    data: scopedData,
+                    data: tabData,
                     payers,
                     setRange,
                   })}
