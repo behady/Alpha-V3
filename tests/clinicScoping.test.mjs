@@ -27,7 +27,7 @@ assert.ok(
   "moneyApi's POST helper must default the clinic from the active one"
 );
 assert.ok(
-  /clinicId \? \{ \.\.\.body, clinicId \} : body/.test(moneyApi),
+  /\.\.\.body, \.\.\.\(clinicId \? \{ clinicId \} : \{\}\)/.test(moneyApi),
   "the resolved clinic must actually reach the request body"
 );
 
