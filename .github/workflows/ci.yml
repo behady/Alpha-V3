@@ -129,7 +129,7 @@ jobs:
       - run: npm ci
       - name: Rules suite (count is printed by the run)
         run: npm run --silent test:rules
-      - name: Branch money routes (ledger and settlements, real handlers on the emulator)
+      - name: Branch money routes (ledger, settlements, insurance claims and the daily briefing, real handlers on the emulator)
         run: npx firebase-tools@13 emulators:exec --only firestore "npm run --silent test:branch-money-routes"
 
   build:

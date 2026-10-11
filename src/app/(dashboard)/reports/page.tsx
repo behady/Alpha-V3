@@ -253,8 +253,11 @@ function ReportsPage() {
     };
   }, [branchFirstSeen, report.id, scopedData, extras.data]);
   // New-vs-returning tabs: a patient's file "opened" the day of their first row at this branch.
+  // Recall counts every listed patient with no visit as "never seen", and it only sees the visits
+  // of this branch's patients, so it gets only those patients.
   const tabPatients = useMemo(() => {
     if (!scoped) return [];
+    if (branchFirstSeen && report.id === "recall") return scoped.allPatients.filter((p) => branchFirstSeen.has(p.id));
     if (!branchFirstSeen || !NEWNESS_TABS.has(report.id)) return scoped.allPatients;
     return scoped.allPatients.map((p) => ({ ...p, createdAt: branchFirstSeen.get(p.id) || null }));
   }, [scoped, branchFirstSeen, report.id]);

@@ -124,6 +124,7 @@ for (const rel of [
   "src/app/api/clinical/procedures/route.ts",
   "src/app/api/insurance/claims/route.ts",
   "src/app/api/staff/settlements/route.ts",
+  "src/app/api/gemini/route.ts",
 ]) {
   assert.match(readFileSync(new URL(`../${rel}`, import.meta.url), "utf8"), /assertBranchAllowed\(/, `${rel} writes money without checking the branch`);
 }
