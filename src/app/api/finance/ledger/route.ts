@@ -51,6 +51,7 @@ import { allowedDiscount, checkDiscountAllowed, isDiscountMode } from "@/lib/dis
 import { afterLedgerCreate, afterLedgerDelete, afterLedgerUpdate } from "@/lib/alerts/moneyAlerts";
 import { DISCOUNTS_DOC, parseDiscountSettings } from "@/lib/priceLists";
 import { isApprovalRow } from "@/lib/ledgerInsurer";
+import { assertBranchAllowed } from "@/lib/server/branchAccess";
 import {
   RECEIPT_COUNTER_DOC,
   RECEIPT_SETTINGS_DOC,
@@ -131,6 +132,8 @@ const APPROVAL_ROW_LOCKED_FIELDS = ["listPrice", "discountMode", "discountPercen
 const APPROVAL_ROW_MESSAGE = "This treatment comes from an insurance approval; change it on the patient's Insurance tab.";
 /** An expense row written by a staff payout (`settlementId`): the payout on the Team page owns it. */
 const SETTLEMENT_ROW_MESSAGE = "This is a staff payout; change or delete it on the Team page.";
+/** The branch a row was stamped with when it was written is permanent; money does not move between branches by edit. */
+const BRANCH_LOCKED_MESSAGE = "A row's branch can't be changed after it is saved.";
 
 /**
  * Does a posted value differ from the stored one? Screens re-send the price fields on every save,
@@ -213,6 +216,10 @@ async function createPayment(args: {
 
   const procedureId = body.procedureId ? String(body.procedureId).trim() : "";
   const date = /^\d{4}-\d{2}-\d{2}$/.test(String(body.date || "")) ? String(body.date) : todayKey();
+
+  // The payment belongs to the branch on screen, even when the charge it settles was made at another.
+  const branch = await assertBranchAllowed({ clinicId, uid: actor.uid, role: actor.role, branchId: body.branchId });
+  if (!branch.ok) return branch.response;
 
   const staff = await loadStaff(clinicId);
 
@@ -312,7 +319,13 @@ async function createPayment(args: {
       category: typeof body.category === "string" ? body.category : null,
     });
 
-    txn.set(newRef, { ...row, receiptNumber, receiptSeq, createdAt: FieldValue.serverTimestamp() });
+    txn.set(newRef, {
+      ...row,
+      ...(branch.branchId ? { branchId: branch.branchId } : {}),
+      receiptNumber,
+      receiptSeq,
+      createdAt: FieldValue.serverTimestamp(),
+    });
     txn.set(
       adminClinicDoc(clinicId, "settings", RECEIPT_COUNTER_DOC),
       { last: receiptSeq, lastReceiptNumber: receiptNumber, updatedAt: new Date().toISOString() },
@@ -329,7 +342,12 @@ async function createPayment(args: {
       });
     }
 
-    return { id: newRef.id, row: { ...row, receiptNumber, receiptSeq }, patientName, receiptNumber };
+    return {
+      id: newRef.id,
+      row: { ...row, ...(branch.branchId ? { branchId: branch.branchId } : {}), receiptNumber, receiptSeq },
+      patientName,
+      receiptNumber,
+    };
   });
 
   await recordMoneyChange({
@@ -359,6 +377,9 @@ async function createEntry(args: { clinicId: string; actor: Actor; body: Record<
   const type = body.type === "income" ? "income" : body.type === "expense" ? "expense" : null;
   if (!type) return bad("An entry must be income or expense.");
 
+  const branch = await assertBranchAllowed({ clinicId, uid: actor.uid, role: actor.role, branchId: body.branchId });
+  if (!branch.ok) return branch.response;
+
   let row: Record<string, unknown>;
   try {
     row = buildManualEntryRow({
@@ -374,6 +395,7 @@ async function createEntry(args: { clinicId: string; actor: Actor; body: Record<
   } catch (e) {
     return bad(e instanceof Error ? e.message : "Could not save that entry.");
   }
+  if (branch.branchId) row.branchId = branch.branchId;
 
   const ref = await adminClinicCollection(clinicId, "ledger").add({
     ...row,
@@ -420,6 +442,10 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
     const before = snap.data() || {};
     const type = String(before.type || "");
     if (typeof before.settlementId === "string" && before.settlementId) throw new Error("SETTLEMENT_ROW");
+    // Every row type: the branch it was stamped with at creation stays.
+    if (patch.branchId !== undefined && differsFromStored(patch.branchId, before.branchId)) {
+      throw new Error("BRANCH_LOCKED");
+    }
     const approvalRow = type === "procedure" && isApprovalRow(before);
     if (approvalRow && APPROVAL_ROW_LOCKED_FIELDS.some((k) => patch[k] !== undefined && differsFromStored(patch[k], before[k]))) {
       throw new Error("APPROVAL_ROW_LOCKED");
@@ -1149,6 +1175,8 @@ export async function POST(request: Request) {
         return bad(APPROVAL_ROW_MESSAGE);
       case "SETTLEMENT_ROW":
         return bad(SETTLEMENT_ROW_MESSAGE, 409);
+      case "BRANCH_LOCKED":
+        return bad(BRANCH_LOCKED_MESSAGE, 409);
       default:
         reportServerError("finance/ledger failed", e, { action });
         return bad("Something went wrong saving that. Nothing was changed.", 500);
