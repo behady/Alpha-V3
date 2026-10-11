@@ -1383,6 +1383,8 @@ export async function POST(req: Request) {
              if (data.cost) data.cost = Number(data.cost);
              if (data.amount) data.amount = Number(data.amount);
              if (data.paid) data.paid = Number(data.paid);
+             // A ledger row's branch is never editable (same rule as the ledger route's locked field).
+             if (col === "ledger") delete data.branchId;
 
              // Read first so the audit entry can say what the values actually were. Without this
              // the log records that a price or a dose changed but not what it changed from.

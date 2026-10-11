@@ -700,16 +700,32 @@ export async function PATCH(req: Request) {
 
     const claimRef = adminClinicDoc(clinicId, CLAIMS_COLLECTION, claimId);
 
-    // The branch every row this request writes belongs to, resolved once. The patient's share is
-    // cash taken at a screen, so it must name the branch on screen; anything else falls back to the
-    // patient's branch when the call sent none (the insurer's money, a status change's charges).
-    const branch = await assertBranchAllowed({
-      clinicId, uid: authz.uid, role: authz.role, branchId: body.branchId,
-      fallback: collectShare
-        ? undefined
-        : patientBranchFallback(clinicId, async () => newPatientId || String((await claimRef.get()).get("patientId") || "")),
-    });
-    if (!branch.ok) return branch.response;
+    // The branch every row this request writes belongs to, resolved once, and ONLY when the request
+    // writes money: a payment, rows written by a status change, or rows rebuilt by an edit. Any
+    // other edit (a dentist pick, a line state, the treated date) never touches the branch check,
+    // so someone on "All branches" can still edit a claim. The patient's share is cash taken at a
+    // screen, so it must name the branch on screen; anything else falls back to the patient's
+    // branch when the call sent none (the insurer's money, a status change's charges).
+    let writesMoney = paying;
+    if (!writesMoney && (status !== undefined || rawLines !== undefined || rawMetlife !== undefined || newPatientId)) {
+      const pre = parseClaim(claimId, (await claimRef.get()).data());
+      if (pre) {
+        const hasRows = Object.keys(pre.ledgerIds).length > 0;
+        const rebuilds = hasRows && (rawLines !== undefined || rawMetlife !== undefined || !!newPatientId);
+        writesMoney = rebuilds || rowsActionForStatus({ from: pre.status, to: status, hasRows }) === "write";
+      }
+    }
+    let branchId: string | null = null;
+    if (writesMoney) {
+      const branch = await assertBranchAllowed({
+        clinicId, uid: authz.uid, role: authz.role, branchId: body.branchId,
+        fallback: collectShare
+          ? undefined
+          : patientBranchFallback(clinicId, async () => newPatientId || String((await claimRef.get()).get("patientId") || "")),
+      });
+      if (!branch.ok) return branch.response;
+      branchId = branch.branchId;
+    }
     type Collected = { ledgerId: string; amount: number; row: Record<string, unknown> };
     type PatchOutcome =
       | { kind: "no_claim" }
@@ -718,6 +734,7 @@ export async function PATCH(req: Request) {
       | { kind: "no_staff"; ids: string[] }
       | { kind: "not_dentist" }
       | { kind: "bad_line" }
+      | { kind: "state_changed" }
       | { kind: "rows_exist" }
       | { kind: "rows_paid_edit" }
       | { kind: "not_treated" }
@@ -750,6 +767,9 @@ export async function PATCH(req: Request) {
       if (insurerPaid && claim.insurerPaid) return { kind: "already_insurer_paid" };
       if (insurerPaid && !hasRows) return { kind: "no_rows" };
       const rowsAction = rowsActionForStatus({ from: claim.status, to: status, hasRows });
+      // The claim moved between the branch decision above and this read: it would now write rows
+      // nobody chose a branch for. Ask the caller to retry rather than write them unstamped.
+      if (!writesMoney && (rowsAction === "write" || rebuild)) return { kind: "state_changed" };
       const treated = treatedDateAfter({
         status,
         treatedDate,
@@ -996,7 +1016,11 @@ export async function PATCH(req: Request) {
           payerName,
           wording: rowWording(wordingSnap?.get(claim.insurer), {}),
           actor,
-        }, branch.branchId);
+        }, rebuild
+          // A row's branch never changes by edit: rebuilt rows keep the branch the old ones carried
+          // (they share one); only pre-branch rows take the fresh check's answer.
+          ? links.map((l) => chargeSnaps.get(l.ledgerId)).map((s) => (s?.exists ? s.get("branchId") : null)).find((b): b is string => typeof b === "string" && b !== "") ?? branchId
+          : branchId);
         update.ledgerIds = written.ledgerIds;
         created = written.charges;
       }
@@ -1050,7 +1074,7 @@ export async function PATCH(req: Request) {
           const ref = adminClinicCollection(clinicId, "ledger").doc();
           const full = {
             ...row,
-            ...(branch.branchId ? { branchId: branch.branchId } : {}),
+            ...(branchId ? { branchId } : {}),
             receiptNumber: lastReceipt,
             receiptSeq: seq,
             claimId,
@@ -1086,7 +1110,7 @@ export async function PATCH(req: Request) {
           method: "Cash",
           actor: { uid: authz.uid, name: authz.name },
         });
-        if (branch.branchId) row.branchId = branch.branchId;
+        if (branchId) row.branchId = branchId;
         const ledgerRef = adminClinicCollection(clinicId, "ledger").doc();
         collected = { ledgerId: ledgerRef.id, amount, row };
         update.shareCollected = { ledgerId: ledgerRef.id, amount, date };
@@ -1112,6 +1136,7 @@ export async function PATCH(req: Request) {
     if (result.kind === "no_staff") return fail(404, `Staff not found: ${result.ids.join(", ")}.`);
     if (result.kind === "not_dentist") return fail(400, "That staff member is not a dentist.");
     if (result.kind === "bad_line") return fail(400, "lineStatus names a service line that is not on this approval.");
+    if (result.kind === "state_changed") return fail(409, "This approval just changed. Refresh and try again.");
     if (result.kind === "rows_exist") {
       return fail(409, "Save the approval's edits first, then change its status or record a payment.");
     }
