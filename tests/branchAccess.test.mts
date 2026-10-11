@@ -139,8 +139,8 @@ for (const rel of ["src/app/api/finance/ledger/route.ts", "src/app/api/clinical/
   assert.match(financePage, /InsurerTab/, "the Finance page has no insurance-company tab");
   assert.match(financePage, /applyFinanceFilters\(/, "the Finance page filters rows by hand instead of applyFinanceFilters");
   assert.match(financePage, /collectFromInsurer\(/, "the Finance page cannot collect from an insurance company");
-  assert.match(financePage, /rowsBeforeBranches/, "the Clinic tab lost the rows-from-before-branches line");
-  assert.match(financePage, /InsurerBadge/, "payment rows no longer say which company paid");
+  assert.match(financePage, /rows from before branches/, "the Clinic tab lost the rows-from-before-branches line");
+  assert.match(financePage, /<InsurerBadge/, "payment rows no longer say which company paid");
   const insurerTab = readFileSync(new URL("../src/components/finance/InsurerTab.tsx", import.meta.url), "utf8");
   // Insurer money follows the charge's branch; collecting never asks which branch.
   assert.doesNotMatch(insurerTab, /useBranchForMoney/, "collecting from an insurer must not ask which branch");

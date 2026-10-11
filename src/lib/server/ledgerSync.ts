@@ -69,12 +69,8 @@ export async function readProcedurePayments(
   });
 }
 
-/** True when a treatment row names the dentist who did it (by id, or by name on older rows). */
-export function treatmentHasDentist(row: Record<string, unknown> | null | undefined): boolean {
-  if (!row) return false;
-  const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
-  return Boolean(text(row.doctorId) || text(row.doctorName) || text(row.doctor));
-}
+// Lives in lib/insurerLedger so the Finance page's insurer tab can apply the same rule before it asks.
+export { treatmentHasDentist } from "@/lib/insurerLedger";
 
 /**
  * Put the treatment's dentist on every payment already taken for it.

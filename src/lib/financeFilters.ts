@@ -9,7 +9,8 @@ import { ledgerCashValue } from "@/lib/reportHelpers";
 import type { LedgerLite } from "@/lib/insurerLedger";
 
 export type FinanceFilter = {
-  kind: "all" | "payment" | "income" | "expense";
+  /** `in` is every row of money coming in: patient and insurer payments plus other income. */
+  kind: "all" | "in" | "payment" | "income" | "expense";
   method: string | "all";
   /** A payer's id; `PRIVATE_PAYER_ID` also takes treatment and payment rows that name no payer. */
   payerId: string | "all";
@@ -64,15 +65,30 @@ function rowPayer(row: Record<string, unknown>): string {
   return type === "procedure" || type === "payment" ? PRIVATE_PAYER_ID : "";
 }
 
-export function applyFinanceFilters<T extends LedgerLite & Record<string, unknown>>(rows: readonly T[], f: FinanceFilter): T[] {
+/** A dentist's name compared as typed on older rows: no "Dr." prefix, one spelling. */
+const dentistName = (v: unknown) => fold(String(v ?? "").replace(/^\s*Dr\.?\s*/i, ""));
+
+export type FinanceFilterContext = {
+  /**
+   * The chosen dentist's name. A row that names its dentist only by name (written before rows
+   * carried `doctorId`) matches when this name is its dentist's; a row with an id is matched by id.
+   */
+  doctorName?: string;
+};
+
+export function applyFinanceFilters<T extends LedgerLite & Record<string, unknown>>(rows: readonly T[], f: FinanceFilter, ctx: FinanceFilterContext = {}): T[] {
   const patient = fold(f.patientQuery);
+  const wantedDentist = dentistName(ctx.doctorName);
   const receipt = foldArabicDigits(f.receiptQuery).trim().toLowerCase();
   return rows.filter((row) => {
     const type = String(row.type || "");
-    if (f.kind !== "all" && type !== f.kind) return false;
+    if (f.kind === "in" ? type !== "payment" && type !== "income" : f.kind !== "all" && type !== f.kind) return false;
     if (f.method !== "all" && text(row.method) !== f.method) return false;
     if (f.payerId !== "all" && rowPayer(row) !== f.payerId) return false;
-    if (f.doctorId !== "all" && text(row.doctorId) !== f.doctorId) return false;
+    if (f.doctorId !== "all") {
+      const id = text(row.doctorId);
+      if (id ? id !== f.doctorId : !wantedDentist || dentistName(row.doctorName || row.doctor) !== wantedDentist) return false;
+    }
     if (f.category !== "all" && text(row.category) !== f.category) return false;
     if (f.receivedBy !== "all" && text(row.receivedBy) !== f.receivedBy) return false;
     if (patient && !fold(row.patientName).includes(patient) && !fold(row.patientPhone).includes(patient)) return false;

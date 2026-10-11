@@ -1,6 +1,6 @@
 // An insurance company's rows on the Finance page: what it owes, and the patient/insurer split.
 import assert from "node:assert/strict";
-import { insurerRows, insurerTotals, type LedgerLite } from "../src/lib/insurerLedger";
+import { insurerRows, insurerTotals, treatmentHasDentist, type LedgerLite } from "../src/lib/insurerLedger";
 
 const charge = (id: string, extra: Partial<LedgerLite> = {}): LedgerLite => ({
   id, type: "procedure", payerId: "gasco", payerName: "GASCO", cost: 1584, amount: 1584, paid: 0, patientId: "P1", patientName: "Leila Hany", ...extra,
@@ -99,5 +99,12 @@ const pay = (id: string, procedureId: string, amount: number, method: string, ex
   assert.deepEqual(t, { billed: 2584, patientPaid: 500, insurerPaid: 1300, outstanding: 784 });
   assert.deepEqual(insurerTotals([]), { billed: 0, patientPaid: 0, insurerPaid: 0, outstanding: 0 });
 }
+
+// The dentist rule the route refuses NO_DENTIST by, shared with the insurer tab's checkboxes.
+assert.equal(treatmentHasDentist({ doctorId: "d1" }), true);
+assert.equal(treatmentHasDentist({ doctorName: " Dr. Sara " }), true);
+assert.equal(treatmentHasDentist({ doctor: "Sara" }), true, "older rows name the dentist in `doctor`");
+assert.equal(treatmentHasDentist({ doctorId: "  ", doctorName: "" }), false);
+assert.equal(treatmentHasDentist(null), false);
 
 console.log("insurerLedger: all cases pass");

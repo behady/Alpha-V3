@@ -60,6 +60,12 @@ const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 const paymentValue = (r: LedgerLite) =>
   sumPayments([{ paid: r.paid as number | null | undefined, amount: r.amount as number | null | undefined }]);
 
+/** True when a treatment row names the dentist who did it (by id, or by name on older rows). */
+export function treatmentHasDentist(row: Record<string, unknown> | null | undefined): boolean {
+  if (!row) return false;
+  return Boolean(text(row.doctorId) || text(row.doctorName) || text(row.doctor));
+}
+
 /** The treatments this company is the payer of, each with its split. In the order the rows came. */
 export function insurerRows(rows: readonly LedgerLite[], payerId: string): InsurerRow[] {
   const patient = new Map<string, number>();

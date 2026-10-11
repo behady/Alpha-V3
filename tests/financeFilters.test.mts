@@ -18,6 +18,8 @@ assert.deepEqual(ids({}), rows.map((r) => r.id), "the empty filter returns every
 assert.deepEqual(ids({ kind: "payment" }), ["pay1", "pay2", "pay3"]);
 assert.deepEqual(ids({ kind: "income" }), ["inc1"]);
 assert.deepEqual(ids({ kind: "expense" }), ["exp1"]);
+assert.deepEqual(ids({ kind: "in" }), ["pay1", "pay2", "pay3", "inc1"], "money in = payments and other income, never charges or expenses");
+assert.deepEqual(ids({ kind: "in", method: "Cash" }), ["pay1", "inc1"]);
 assert.deepEqual(ids({ kind: "payment", method: "Cash" }), ["pay1"], "kind and method are ANDed");
 assert.deepEqual(ids({ method: "Cash" }), ["pay1", "inc1", "exp1"]);
 assert.deepEqual(ids({ payerId: "gasco" }), ["ch1", "pay1", "pay2"]);
@@ -55,6 +57,21 @@ assert.deepEqual(ids({ onlyOutstanding: true }), ["ch1"]);
 assert.deepEqual(ids({ payerId: "gasco", kind: "payment", method: "Insurance" }), ["pay2"]);
 assert.deepEqual(ids({ patientQuery: "ليلى", doctorId: "d2" }), []);
 assert.deepEqual(ids({ ...EMPTY_FINANCE_FILTER }), rows.map((r) => r.id));
+
+// The dentist: by id where the row has one; an older row with only a name matches the chosen dentist's name.
+{
+  const old = [
+    { id: "n1", type: "payment", paid: 10, doctorId: "d1", doctorName: "Dr. Sara Adel" },
+    { id: "n2", type: "payment", paid: 10, doctorName: "Dr. Sara Adel" },
+    { id: "n3", type: "payment", paid: 10, doctor: "sara adel" },
+    { id: "n4", type: "payment", paid: 10, doctorName: "Omar Said" },
+    { id: "n5", type: "payment", paid: 10, doctorId: "d2", doctorName: "Sara Adel" },
+    { id: "n6", type: "payment", paid: 10 },
+  ];
+  const f = { ...EMPTY_FINANCE_FILTER, doctorId: "d1" };
+  assert.deepEqual(applyFinanceFilters(old, f, { doctorName: "Sara Adel" }).map((r) => r.id), ["n1", "n2", "n3"], "an id wins; a name-only row matches by name");
+  assert.deepEqual(applyFinanceFilters(old, f).map((r) => r.id), ["n1"], "with no name to compare, only the id matches");
+}
 
 // Work that names no payer is the clinic's own: it answers to Private; manual entries answer to nobody.
 {

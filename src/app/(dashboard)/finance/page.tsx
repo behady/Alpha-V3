@@ -65,7 +65,23 @@ interface Transaction {
 
 /** What `applyFinanceFilters` takes: the row with its fields readable by name. */
 type FilterableRow = Transaction & Record<string, unknown>;
-const filterRows = (rows: readonly Transaction[], f: FinanceFilter): Transaction[] => applyFinanceFilters(rows as readonly FilterableRow[], f);
+const filterRows = (rows: readonly Transaction[], f: FinanceFilter, doctorName = ""): Transaction[] =>
+  applyFinanceFilters(rows as readonly FilterableRow[], f, { doctorName });
+
+/**
+ * The search box, over cash rows and charges alike: the filter's patient match (name or phone,
+ * Arabic spellings and digits folded), or the row's note, or the flexible name match it always had.
+ */
+function searchRows<T extends { id: string }>(rows: T[], query: string): T[] {
+  const q = query.trim();
+  if (!q) return rows;
+  const byPatient = new Set(applyFinanceFilters(rows as unknown as FilterableRow[], { ...EMPTY_FINANCE_FILTER, patientQuery: q }).map((r) => r.id));
+  const needle = q.toLowerCase();
+  return rows.filter((row) => {
+    const r = row as unknown as Record<string, unknown>;
+    return byPatient.has(row.id) || String(r.description || "").toLowerCase().includes(needle) || patientMatchesSearch(q, String(r.patientName || ""), undefined);
+  });
+}
 
 /** A payment method as a person says it; stored spellings vary ("Instapay", "InstaPay"). */
 function methodLabel(m: string, isAr: boolean): string {
@@ -438,18 +454,29 @@ export default function FinancePage() {
    * the list and the PDF all read, so no two figures on the page can disagree. The search box is
    * the filter's patient field (name or phone), and also matches a row's note, as it always did.
    */
-  const figureRows = useMemo(() => {
-    const base = filterRows(allTransactions, { ...figureFilter, patientQuery: "" });
-    const q = figureFilter.patientQuery.trim();
-    if (!q) return base;
-    const byPatient = new Set(filterRows(base, { ...EMPTY_FINANCE_FILTER, patientQuery: q }).map((r) => r.id));
-    const needle = q.toLowerCase();
-    return base.filter((t) => byPatient.has(t.id) || (t.description || "").toLowerCase().includes(needle) || patientMatchesSearch(q, t.patientName || "", undefined));
-  }, [allTransactions, figureFilter]);
-  /** The charges behind the Discounts figures, narrowed by what a charge carries: its dentist, its payer, its patient. */
+  /** The chosen dentist's name, so older rows that name a dentist but carry no id still match. */
+  const chosenDentistName = useMemo(() => {
+    if (filter.doctorId === "all") return "";
+    const hit = [...allTransactions, ...(periodProcedures as Partial<Transaction>[])].find((t) => String(t.doctorId || "").trim() === filter.doctorId && (t.doctorName || t.doctor));
+    return hit ? String(hit.doctorName || hit.doctor || "") : "";
+  }, [allTransactions, periodProcedures, filter.doctorId]);
+  const figureRows = useMemo(
+    () => searchRows(filterRows(allTransactions, { ...figureFilter, patientQuery: "" }, chosenDentistName), figureFilter.patientQuery),
+    [allTransactions, figureFilter, chosenDentistName],
+  );
+  /**
+   * The charges behind the Discounts figures, narrowed by what a charge carries: its dentist, its
+   * payer, and the same search as the cash rows. A cash-only filter (method, category, who took
+   * it, receipt, amount) has no meaning on a charge, so the Discounts figures then read "—".
+   */
+  const discountsUnfiltered = filter.method === "all" && filter.category === "all" && filter.receivedBy === "all" && filter.receiptQuery.trim() === "" && filter.amountMin === null && filter.amountMax === null;
   const figureProcedures = useMemo(
-    () => applyFinanceFilters(periodProcedures as (LedgerLite & Record<string, unknown>)[], { ...EMPTY_FINANCE_FILTER, doctorId: filter.doctorId, payerId: filter.payerId, patientQuery: filter.patientQuery }),
-    [periodProcedures, filter.doctorId, filter.payerId, filter.patientQuery],
+    () =>
+      searchRows(
+        applyFinanceFilters(periodProcedures as (LedgerLite & Record<string, unknown>)[], { ...EMPTY_FINANCE_FILTER, doctorId: filter.doctorId, payerId: filter.payerId }, { doctorName: chosenDentistName }),
+        filter.patientQuery,
+      ),
+    [periodProcedures, filter.doctorId, filter.payerId, filter.patientQuery, chosenDentistName],
   );
 
   /** What each filter can be set to, from the rows of the period (a dentist with no rows has nothing to show). */
@@ -551,9 +578,9 @@ export default function FinancePage() {
       .sort((a, b) => b.amount - a.amount);
   }, [figureProcedures, language]);
 
-  // The list is the same rows as the figures, of the kind chosen.
+  // The list is the same rows as the figures, of the kind chosen; "Income" adds up to Cash in.
   const filteredList = useMemo(
-    () => (filter.kind === "all" ? figureRows : figureRows.filter((t) => t.type === filter.kind)),
+    () => (filter.kind === "all" ? figureRows : filterRows(figureRows, { ...EMPTY_FINANCE_FILTER, kind: filter.kind })),
     [figureRows, filter.kind],
   );
 
@@ -1011,7 +1038,7 @@ export default function FinancePage() {
                   </div>
                   <div className="flex justify-between gap-4">
                     <dt className="text-slate-400 font-semibold">{language === "ar" ? "الخصومات" : "Discounts"}</dt>
-                    <dd className="font-black tabular-nums text-violet-300">{isLoading ? "—" : formatCurrency(kpiStats.totalProcedureDiscounts)}</dd>
+                    <dd className="font-black tabular-nums text-violet-300">{isLoading || !discountsUnfiltered ? "—" : formatCurrency(kpiStats.totalProcedureDiscounts)}</dd>
                   </div>
                   <div className="flex justify-between gap-4">
                     <dt className="text-slate-400 font-semibold">{language === "ar" ? "مختبر" : "Lab fees"}</dt>
@@ -1081,7 +1108,7 @@ export default function FinancePage() {
                   </div>
                 </div>
                 <p className="text-2xl xl:text-3xl font-black text-violet-600 tabular-nums mt-4">
-                  {isLoading ? <Loader2 className="w-6 h-6 animate-spin text-violet-300" /> : formatCurrency(kpiStats.totalProcedureDiscounts)}
+                  {isLoading ? <Loader2 className="w-6 h-6 animate-spin text-violet-300" /> : discountsUnfiltered ? formatCurrency(kpiStats.totalProcedureDiscounts) : "—"}
                 </p>
               </div>
               <div className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
@@ -1127,7 +1154,7 @@ export default function FinancePage() {
 
           {/* What was given away, and on what. A total with no breakdown is a number nobody can
               act on — "we discounted 8,000" invites the question this table answers. */}
-          {discountsByReason.length > 0 && (
+          {discountsUnfiltered && discountsByReason.length > 0 && (
             <div className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 shadow-sm p-5 xl:p-6">
               <div className="flex items-center justify-between gap-3 mb-4">
                 <div>
@@ -1284,6 +1311,8 @@ export default function FinancePage() {
               payerId={activeInsurer.id}
               payerName={payerDisplayName(activeInsurer)}
               rows={insurerTabRows}
+              scopeBranchId={scopeBranchId}
+              isLoading={isLoading}
               collect={collectForInsurer}
             />
           ) : (

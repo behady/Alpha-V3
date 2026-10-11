@@ -28,7 +28,8 @@ export type FinanceFilterOptions = {
   receivedBy: FilterOption[];
 };
 
-const KINDS: FinanceFilter["kind"][] = ["all", "payment", "income", "expense"];
+// "Income" (everything that came in) first, so the list that adds up to the Cash in figure is one tap away.
+const KINDS: FinanceFilter["kind"][] = ["all", "in", "payment", "income", "expense"];
 
 const control =
   "bg-surface-subtle border border-line rounded-xl px-3 py-2.5 text-sm font-bold text-slate-700 outline-none cursor-pointer focus:border-accent-soft";
@@ -66,6 +67,7 @@ export default function FinanceFilters({
 
   const kindLabel = (k: FinanceFilter["kind"]) => {
     if (k === "all") return kindAllLabel ? (ar ? kindAllLabel.ar : kindAllLabel.en) : ar ? "الكل" : "All";
+    if (k === "in") return ar ? "إيرادات" : "Income";
     if (k === "payment") return ar ? "مدفوعات" : "Payments";
     if (k === "income") return ar ? "إيرادات أخرى" : "Other income";
     return ar ? "مصروفات" : "Expenses";
