@@ -48,6 +48,9 @@ import { isApprovalRow } from "@/lib/ledgerInsurer";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { CLAIMS_COLLECTION, applyDentistPicks, dentistRowPatch, isLineStatus, parseClaim } from "@/lib/insurance/claims";
 import { MAX_NOTE_PHOTOS, acceptNotePhoto, parseNotePhotos } from "@/lib/notePhotos";
+import { assertBranchAllowed } from "@/lib/server/branchAccess";
+import { branchForAutomaticRow } from "@/lib/branchAccess";
+import { LOCATIONS_DOC, parseClinicBranches } from "@/lib/clinicLocations";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -63,6 +66,26 @@ function bad(error: string, status = 400) {
 
 function todayKey(): string {
   return new Date().toISOString().split("T")[0];
+}
+
+/**
+ * The branch for a charge nobody picked a branch for (a call that sent none): the visit's, else the
+ * patient's, else the clinic's first. Only read when the body names no branch, so a screen that
+ * sends one pays for no extra reads.
+ */
+function visitBranchFallback(clinicId: string, ids: { appointmentId: string | null; patientId: string }) {
+  return async (): Promise<string | null> => {
+    const [locations, appointment, patient] = await Promise.all([
+      adminClinicDoc(clinicId, "settings", LOCATIONS_DOC).get(),
+      ids.appointmentId ? adminClinicDoc(clinicId, "appointments", ids.appointmentId).get() : null,
+      ids.patientId ? adminClinicDoc(clinicId, "patients", ids.patientId).get() : null,
+    ]);
+    return branchForAutomaticRow({
+      appointment: appointment?.exists ? appointment.data() : null,
+      patient: patient?.exists ? patient.data() : null,
+      branches: parseClinicBranches(locations.exists ? locations.data() : null),
+    });
+  };
 }
 
 function asStringArray(value: unknown): string[] {
@@ -392,6 +415,13 @@ async function createProcedure(args: { clinicId: string; actor: Actor; body: Rec
   const appointmentId = body.appointmentId ? String(body.appointmentId).trim() : null;
   const addToLedger = body.addToLedger !== false;
 
+  // The charge belongs to the branch on screen; the clinical note itself is not stamped.
+  const branch = await assertBranchAllowed({
+    clinicId, uid: actor.uid, role: actor.role, branchId: body.branchId,
+    fallback: visitBranchFallback(clinicId, { appointmentId, patientId }),
+  });
+  if (!branch.ok) return branch.response;
+
   const result = await adminDb().runTransaction(async (txn) => {
     const patientSnap = await txn.get(adminClinicDoc(clinicId, "patients", patientId));
     if (!patientSnap.exists) throw new Error("NO_PATIENT");
@@ -419,6 +449,7 @@ async function createProcedure(args: { clinicId: string; actor: Actor; body: Rec
     if (ledgerRef) {
       txn.set(ledgerRef, {
         ...ledgerFields(priced, patientId, patientName, appointmentId),
+        ...(branch.branchId ? { branchId: branch.branchId } : {}),
         clinicalNoteId: noteRef.id,
         paid: 0,
         createdAt: FieldValue.serverTimestamp(),
@@ -642,6 +673,17 @@ async function updateProcedure(args: { clinicId: string; actor: Actor; body: Rec
   );
   const addToLedger = body.addToLedger !== false;
 
+  // Resolved once. Used only if this edit has to create a charge the note never had; a charge that
+  // already exists keeps the branch it was stamped with (ledgerFields carries no branchId).
+  const branch = await assertBranchAllowed({
+    clinicId, uid: actor.uid, role: actor.role, branchId: body.branchId,
+    fallback: visitBranchFallback(clinicId, {
+      appointmentId: typeof current.data()?.appointmentId === "string" ? (current.data()?.appointmentId as string) : null,
+      patientId: String(current.data()?.patientId || ""),
+    }),
+  });
+  if (!branch.ok) return branch.response;
+
   const result = await adminDb().runTransaction(async (txn) => {
     const noteRef = adminClinicDoc(clinicId, "clinical_notes", noteId);
     const noteSnap = await txn.get(noteRef);
@@ -694,6 +736,7 @@ async function updateProcedure(args: { clinicId: string; actor: Actor; body: Rec
         const newRef = adminClinicCollection(clinicId, "ledger").doc();
         txn.set(newRef, {
           ...fields,
+          ...(branch.branchId ? { branchId: branch.branchId } : {}),
           clinicalNoteId: noteId,
           paid: 0,
           createdAt: FieldValue.serverTimestamp(),
