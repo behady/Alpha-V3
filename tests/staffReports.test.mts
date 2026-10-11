@@ -547,7 +547,8 @@ function briefing(over: Partial<Briefing> = {}): Briefing {
   const vercel = JSON.parse(read("vercel.json")) as { crons: { path: string; schedule: string }[] };
   ok(vercel.crons.some((c) => c.path === "/api/automation/alert-sweep" && c.schedule === "*/10 * * * *"), "the alert sweep is not scheduled every ten minutes");
   const ledger = read("src/app/api/finance/ledger/route.ts");
-  ok((ledger.match(/afterLedgerCreate\(/g) || []).length === 2 && ledger.includes("afterLedgerUpdate(") && ledger.includes("afterLedgerDelete("), "a ledger write path has no money-alert hook");
+  // create-payment, create-entry and insurer-collect.
+  ok((ledger.match(/afterLedgerCreate\(/g) || []).length === 3 && ledger.includes("afterLedgerUpdate(") && ledger.includes("afterLedgerDelete("), "a ledger write path has no money-alert hook");
   ok(read("src/app/api/clinical/procedures/route.ts").includes("afterChargeCreate("), "a discounted charge from the clinical route raises nothing");
   const svc = read("src/lib/bookingService.ts");
   ok(svc.includes('"appointment_no_show"') && svc.includes('"appointment_same_day_cancel"') && svc.includes('"appointment_walk_in"'), "the booking service does not raise the flow alerts");

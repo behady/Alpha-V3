@@ -447,8 +447,13 @@ function eq<T>(actual: T, expected: T, message: string) {
     /payerId: typeof procedureData\.payerId/.test(ledger),
     "the payer must be carried from the treatment, never from the request — a payment screen must not be able to move revenue between an insurer and the clinic"
   );
+  // insurer-collect is the one action that is ABOUT a payer: it names the company being collected
+  // from, and refuses any charge whose own payer differs. Every other handler must not read one.
+  const collectStart = ledger.indexOf("async function insurerCollect(");
+  const collectEnd = ledger.indexOf("// create-entry", collectStart);
+  ok(collectStart > 0 && collectEnd > collectStart, "the insurer-collect handler moved: update this guard");
   ok(
-    !/body\.payerId/.test(ledger),
+    !/body\.payerId/.test(ledger.slice(0, collectStart) + ledger.slice(collectEnd)),
     "the payment route reads a payer off the request body, which would let a client re-bill a case"
   );
 
