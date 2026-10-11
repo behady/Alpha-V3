@@ -96,6 +96,8 @@ assert.match(reportsExport, /"Branch"|الفرع/, "the reports export has no Br
 
 // Task 16: payroll and settlements are per branch; the phone keeps getting the clinic total without a param.
 assert.match(readFileSync(new URL("../src/app/(dashboard)/team/page.tsx", import.meta.url), "utf8"), /rowInScope\(/, "the Team page ignores the branch on screen");
+assert.match(readFileSync(new URL("../src/app/(dashboard)/team/page.tsx", import.meta.url), "utf8"), /claims = useMemo\(\(\) => loadedClaims\.filter\(\(c\) => rowInScope\(/, "the Team page shows insurance shares of every branch");
+assert.match(readFileSync(new URL("../src/app/api/insurance/claims/route.ts", import.meta.url), "utf8"), /branchId: branch\.branchId/, "a saved claim does not carry its branch");
 // Payroll reads no money rows; the branch narrows the roster by the ticks on each staff row.
 const payroll = readFileSync(new URL("../src/app/api/payroll/route.ts", import.meta.url), "utf8");
 assert.match(payroll, /searchParams\.get\("branchId"\)/, "payroll does not accept a branch");

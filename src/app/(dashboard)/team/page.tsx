@@ -101,7 +101,10 @@ function TeamPage() {
   // Commission and payroll are read per branch: only the branch on screen's rows count, and rows
   // from before branches show only under All branches.
   const ledger = useMemo(() => loadedLedger.filter((r) => rowInScope(r, scopeBranchId)), [loadedLedger, scopeBranchId]);
-  const [claims, setClaims] = useState<InsuranceClaim[]>([]);
+  const [loadedClaims, setClaims] = useState<InsuranceClaim[]>([]);
+  // Insurance shares are read per branch too: a claim carries the branch its rows were written for,
+  // and claims from before branches show only under All branches.
+  const claims = useMemo(() => loadedClaims.filter((c) => rowInScope(c, scopeBranchId)), [loadedClaims, scopeBranchId]);
   /**
    * The open dentist's WHOLE history, not just the period: every payment on their work, every
    * counted approval, every payout. Settlements are poured over earnings oldest-first, so a
@@ -221,9 +224,9 @@ function TeamPage() {
   // they are left out of the private list. The claims name their treatment rows, which may be dated
   // outside the period a payment falls in.
   const commissions: Map<string, StaffCommission> = useMemo(() => {
-    const insuranceRowIds = new Set(claims.flatMap((c) => Object.values(c.ledgerIds).map((l) => l.ledgerId)));
+    const insuranceRowIds = new Set(loadedClaims.flatMap((c) => Object.values(c.ledgerIds).map((l) => l.ledgerId)));
     return commissionByStaff(ledger, staffDocs.map((d) => ({ id: d.id, name: String(d.name ?? "") })), insuranceRowIds);
-  }, [ledger, staffDocs, claims]);
+  }, [ledger, staffDocs, loadedClaims]);
 
   /**
    * The rail, from the STAFF list rather than from the payroll result.
@@ -306,7 +309,7 @@ function TeamPage() {
     const historyLedger = history.ledger.filter((r) => rowInScope(r, scopeBranchId));
     const historySettlements = history.settlements.filter((s) => rowInScope(s, scopeBranchId));
     const privateWork = commissionByStaff(historyLedger, staff, insuranceRowIds).get(selectedDoc.id) ?? NO_COMMISSION;
-    const insuranceWorkAll = insuranceWorkByStaff(history.claims, wording).get(selectedDoc.id) ?? NO_INSURANCE_WORK;
+    const insuranceWorkAll = insuranceWorkByStaff(history.claims.filter((c) => rowInScope(c, scopeBranchId)), wording).get(selectedDoc.id) ?? NO_INSURANCE_WORK;
     const earnings: Earning[] = [
       ...privateWork.entries.map((e) => ({ key: e.id, date: e.date, amount: e.amount })),
       ...insuranceWorkAll.entries.map((e) => ({ key: `${e.claimId}#${e.lineIndex}`, date: e.date, amount: e.share })),

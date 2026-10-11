@@ -485,6 +485,8 @@ export async function POST(req: Request) {
           read: { checks: stripUndefined(softChecks), at: FieldValue.serverTimestamp() },
           createdAt: FieldValue.serverTimestamp(),
           createdBy: authz.uid,
+          // The claim carries the branch its rows were written for, so the Team page can read it per branch.
+          ...(branch.branchId ? { branchId: branch.branchId } : {}),
           ...stamp,
         });
 
@@ -989,6 +991,11 @@ export async function PATCH(req: Request) {
       let created: Charge[] = [];
       if (rowsAction === "write" || rebuild) {
         const payerName = findPayer(parsePayers(payersSnap?.data()), claim.payerId)?.name ?? claim.payerId;
+        // A row's branch never changes by edit: rebuilt rows keep the branch the old ones carried
+        // (they share one); only pre-branch rows take the fresh check's answer.
+        const rowsBranch: string | null = rebuild
+          ? links.map((l) => chargeSnaps.get(l.ledgerId)).map((s) => (s?.exists ? s.get("branchId") : null)).find((b): b is string => typeof b === "string" && b !== "") ?? branchId
+          : branchId;
         const written = writeTreatmentRows(tx, clinicId, {
           claimId,
           claim: {
@@ -1005,12 +1012,10 @@ export async function PATCH(req: Request) {
           payerName,
           wording: rowWording(wordingSnap?.get(claim.insurer), {}),
           actor,
-        }, rebuild
-          // A row's branch never changes by edit: rebuilt rows keep the branch the old ones carried
-          // (they share one); only pre-branch rows take the fresh check's answer.
-          ? links.map((l) => chargeSnaps.get(l.ledgerId)).map((s) => (s?.exists ? s.get("branchId") : null)).find((b): b is string => typeof b === "string" && b !== "") ?? branchId
-          : branchId);
+        }, rowsBranch);
         update.ledgerIds = written.ledgerIds;
+        // The claim names the branch its rows belong to (the same value the rows got).
+        if (rowsBranch) update.branchId = rowsBranch;
         created = written.charges;
       }
 

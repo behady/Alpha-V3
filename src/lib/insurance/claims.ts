@@ -37,6 +37,8 @@ export type InsuranceClaim = {
   approvalDate: string;
   status: ClaimStatus;
   treatedDate: string | null;
+  /** The branch the claim's treatment rows were written for; absent on claims from before branches. */
+  branchId?: string;
   patientId: string;
   patientName: string;
   paperPatientName: string;
@@ -283,6 +285,7 @@ export function parseClaim(id: string, raw: unknown): InsuranceClaim | null {
     shareCollected: parseShareCollected(r.shareCollected),
     ledgerIds: parseLineLedger(r.ledgerIds, x.lines.length),
     insurerPaid: parseInsurerPaid(r.insurerPaid),
+    ...(trimmed(r.branchId) ? { branchId: trimmed(r.branchId) } : {}),
   };
 }
 
