@@ -16,7 +16,7 @@ const refuse = (status: number, error: string, code: string): BranchCheck => ({
 });
 
 /** The branches this non-admin person may use: their staff row's ticks, or every branch when they have none. Never empty. */
-async function allowedFor(clinicId: string, uid: string, branches: ClinicBranch[]): Promise<ClinicBranch[]> {
+export async function allowedFor(clinicId: string, uid: string, branches: ClinicBranch[]): Promise<ClinicBranch[]> {
   const found = await adminClinicCollection(clinicId, "staff").where("uid", "==", uid).limit(1).get();
   const staff = found.empty ? null : (found.docs[0].data() as { branchIds?: unknown });
   return allowedBranches(branches, staff, false);

@@ -282,7 +282,8 @@ export default function OwnerHome() {
     [pace, lab, absentToday.length, lateToday.length, dayBrief, spike, dayHr]
   );
 
-  const sources = useMemo(() => sourcesOf(patientsSince, isAr ? "غير معروف" : "Unknown"), [patientsSince, isAr]);
+  // Counted by the branch on screen, as the cash beside it is; the cash still looks every patient up.
+  const sources = useMemo(() => sourcesOf(patientsSince.filter((p) => rowInScope(p, scopeBranchId)), isAr ? "غير معروف" : "Unknown"), [patientsSince, scopeBranchId, isAr]);
   const sourceCash = useMemo(() => cashBySource(ledgerSince, patientsSince, isAr ? "غير معروف" : "Unknown"), [ledgerSince, patientsSince, isAr]);
   const billed = useMemo(() => billedByDoctor(ledgerSince), [ledgerSince]);
   const bot = useMemo(() => botShare(conversationsSince), [conversationsSince]);
@@ -431,7 +432,10 @@ export default function OwnerHome() {
             </div>
             <div className="flex flex-col gap-2.5 md:border-s md:border-white/10 md:ps-6 min-w-0">
               <span className={`${eyebrow} text-white/50`}>{isAr ? "أهداف الشهر" : "Month's targets"}</span>
-              {moneyHidden ? <Hidden isAr={isAr} light /> : !revenueTarget && !patientsTarget ? (
+              {moneyHidden ? <Hidden isAr={isAr} light /> : scopeBranchId !== "" ? (
+                // The targets are the clinic's; a bar against one branch's figures would read as behind.
+                <span className="text-[13px] font-semibold text-white/70">{isAr ? "الأهداف محددة للعيادة كلها." : "Targets are set for the whole clinic."}</span>
+              ) : !revenueTarget && !patientsTarget ? (
                 <button onClick={() => router.push("/settings/targets")} className="self-start text-[13px] font-semibold text-white/70 underline underline-offset-4 decoration-white/30 hover:text-white">
                   {isAr ? "حدّد هدف الشهر" : "Set this month's targets"}
                 </button>
@@ -625,7 +629,9 @@ export default function OwnerHome() {
                       {brief.growth.newPatients > brief.growth.newPatientsSeen ? ` · ${brief.growth.newPatients - brief.growth.newPatientsSeen} ${isAr ? "لسه مجاش" : "not seen yet"}` : ""}
                       {brief.trend ? ` · ${isAr ? "مقابل" : "vs"} ${brief.trend.points.find((p) => p.key === "new_patients")?.previous ?? "—"} ${isAr ? "ملف" : "files"} ${periodWord}` : ""}
                     </p>
-                    {patientsTarget ? (
+                    {scopeBranchId !== "" ? (
+                      <p className="text-xs font-semibold text-ink-muted">{isAr ? "الأهداف محددة للعيادة كلها." : "Targets are set for the whole clinic."}</p>
+                    ) : patientsTarget ? (
                       <TargetBar dark={false} label={isAr ? "هدف الشهر (اتشافوا)" : "Month's target (seen)"} value={String(monthBrief?.growth.newPatientsSeen ?? 0)} target={String(targets.monthlyNewPatients)} progress={patientsTarget} isAr={isAr} />
                     ) : (
                       <button onClick={() => router.push("/settings/targets")} className={`${ghost} self-start`}>{isAr ? "حدّد هدف" : "Set a target"} <ArrowUpRight size={12} /></button>

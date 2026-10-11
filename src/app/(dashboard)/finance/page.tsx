@@ -759,6 +759,13 @@ export default function FinancePage() {
       }
 
       const title = language === 'ar' ? "التقرير المالي" : "Financial Report";
+      // Which branch's books these are, when the clinic has branches; a name is escaped before it goes into the page.
+      const branchLabel = branches.length === 0
+        ? ""
+        : scopeBranchId === ""
+          ? (language === 'ar' ? "كل الفروع" : "All branches")
+          : `${language === 'ar' ? "الفرع" : "Branch"}: ${branches.find((b) => b.id === scopeBranchId)?.name ?? ""}`;
+      const branchHtml = branchLabel.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
       const headerHtml = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 2px solid #e2e8f0;">
           <div>
@@ -767,6 +774,7 @@ export default function FinancePage() {
           </div>
           <div style="text-align: ${language === 'ar' ? 'left' : 'right'}; font-size: 12px; color: #94a3b8;">
             <p style="margin: 0;">Period: ${from === to ? from : `${from} → ${to}`}</p>
+            ${branchHtml ? `<p style="margin: 4px 0 0; font-weight: 700; color: #475569;">${branchHtml}</p>` : ""}
             <p style="margin: 4px 0 0; font-size: 10px; opacity: 0.8;">Generated: ${new Date().toLocaleDateString('en-GB')} by ${user?.name || 'Admin'}</p>
           </div>
         </div>

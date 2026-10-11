@@ -5,6 +5,8 @@ import { adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
 import { LOCATIONS_DOC, parseClinicBranches } from "@/lib/clinicLocations";
 import { buildBriefing, resolveBriefingAccess } from "@/lib/automation/briefing/build";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
+import { allowedFor } from "@/lib/server/branchAccess";
+import { isFullAccessRole } from "@/lib/permissions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,12 +42,20 @@ export async function GET(request: Request) {
     const endDate = url.searchParams.get("date")?.trim() || ymdInTimeZone(clinicTimeZone());
 
     // Optional `branchId`: the brief of one branch. An id the clinic does not have is ignored (the
-    // clinic total); no param, as the phone sends, is the clinic total exactly as before.
+    // clinic total); no param, as the phone sends, is the clinic total exactly as before. A
+    // non-admin asking for a branch they may not work in is refused, not quietly answered.
     let branchId = "";
     const wantedBranch = url.searchParams.get("branchId")?.trim() || "";
     if (wantedBranch) {
       const locations = await adminClinicDoc(clinicId, "settings", LOCATIONS_DOC).get();
-      if (parseClinicBranches(locations.exists ? locations.data() : null).some((b) => b.id === wantedBranch)) branchId = wantedBranch;
+      const branches = parseClinicBranches(locations.exists ? locations.data() : null);
+      if (branches.some((b) => b.id === wantedBranch)) branchId = wantedBranch;
+      if (branchId && !isFullAccessRole(authz.role) && !(await allowedFor(clinicId, authz.uid, branches)).some((b) => b.id === branchId)) {
+        return NextResponse.json(
+          { ok: false, error: "You can't see that branch's figures. / مش مسموحلك تشوف أرقام الفرع ده.", code: "branch_forbidden" },
+          { status: 403 }
+        );
+      }
     }
 
     const briefing = await buildBriefing({

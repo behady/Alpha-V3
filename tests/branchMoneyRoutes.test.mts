@@ -72,6 +72,7 @@ const { SETTLEMENTS_COLLECTION } = await import("../src/lib/staffSettlement");
 const ledgerRoute = await import("../src/app/api/finance/ledger/route");
 const settlementsRoute = await import("../src/app/api/staff/settlements/route");
 const claimsRoute = await import("../src/app/api/insurance/claims/route");
+const briefingRoute = await import("../src/app/api/ai/daily-briefing/route");
 
 const db = adminDb();
 const clinic = db.collection("clinics").doc(CLINIC);
@@ -267,6 +268,22 @@ console.log("another branch's money cannot be edited or deleted");
   check("admin-1 editing the tag payment is a 200", adminEdit.status === 200 && (await row(tagId))?.description === "Owner edit", adminEdit);
   const adminDel = await money(ADMIN, { action: "delete", id: tagId });
   check("admin-1 deleting the tag payment is a 200", adminDel.status === 200 && !(await row(tagId)), adminDel);
+}
+
+console.log("a branch's briefing is for the people who work there");
+{
+  const brief = async (uid: string, branchId: string) => {
+    const res = await briefingRoute.GET(
+      new Request(`http://localhost/api/ai/daily-briefing?clinicId=${CLINIC}&period=day&branchId=${branchId}`, { headers: { authorization: `Bearer ${idToken(uid)}` } }),
+    );
+    return { status: res.status, json: (await res.json()) as Json };
+  };
+  const other = await brief(DESK, "tag");
+  check("desk-1 (hel only) asking for Tagamoa's briefing is a 403 branch_forbidden", other.status === 403 && other.json.code === "branch_forbidden", other);
+  const own = await brief(DESK, "hel");
+  check("desk-1 asking for her own Heliopolis briefing is a 200", own.status === 200 && own.json.ok === true, own.status);
+  const owner = await brief(ADMIN, "tag");
+  check("admin-1 asking for Tagamoa's briefing is a 200", owner.status === 200 && owner.json.ok === true, owner.status);
 }
 
 console.log("staff settlements are paid from a branch");

@@ -47,6 +47,7 @@ async function markAppointmentChangePending(appointmentId: string): Promise<void
   }
 }
 import { createProcedure } from "@/lib/moneyApi";
+import { currentBranchId } from "@/lib/branchScope";
 import {
   normalizeDateKey,
   normalizeTimeKey,
@@ -192,9 +193,10 @@ async function writeSessionProcedures(
       status: "Completed",
       date,
       addToLedger: sp.addToLedger,
-      // The visit's own branch (picked in the booking form), so an admin on "All branches" is not
-      // refused for a booking with services. Never an empty id.
-      ...(typeof data.branchId === "string" && data.branchId ? { branchId: data.branchId } : {}),
+      // Under "All branches" only: the visit's own branch (picked in the booking form), so the admin
+      // is not refused for a booking with services. Under a real branch nothing is sent and the
+      // chokepoint attaches the branch on screen. Never an empty id.
+      ...(currentBranchId() === "" && typeof data.branchId === "string" && data.branchId ? { branchId: data.branchId } : {}),
     });
   }
 
