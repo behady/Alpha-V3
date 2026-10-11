@@ -5,6 +5,7 @@ import { Banknote, Edit2, FileSpreadsheet, Loader2, MinusCircle, Save, Trash2 } 
 import type { StaffCommission } from "@/lib/staffCommission";
 import type { StaffInsuranceWork } from "@/lib/staffInsurance";
 import type { StaffSettlementDraft } from "@/lib/moneyApi";
+import type { ClinicBranch } from "@/lib/clinicLocations";
 import type { EarningSettled } from "@/lib/staffSettlement";
 import {
   btnDark, btnGhost, dayOf, Empty, fieldInput, fieldLabel, money, PaidCell, PAY_METHODS, Section, tableHead, todayYmd,
@@ -21,6 +22,7 @@ export default function MoneyTab({
   commission,
   insurance,
   settlement,
+  branches,
   canEdit,
   isAr,
   onSetPct,
@@ -33,6 +35,8 @@ export default function MoneyTab({
   commission: StaffCommission;
   insurance: StaffInsuranceWork;
   settlement: SettlementView | null;
+  /** The clinic's branches, to name where each payout was made; empty for a clinic without any. */
+  branches: readonly ClinicBranch[];
   canEdit: boolean;
   isAr: boolean;
   onSetPct: (paymentId: string, pct: number) => void;
@@ -178,7 +182,10 @@ export default function MoneyTab({
                       {s.kind === "payout" ? (isAr ? "دفعة" : "Payout") : isAr ? "خصم" : "Deduction"}
                       {s.method ? <span className="block text-[12px] font-semibold text-ink-muted">{(PAY_METHODS.find((m) => m.id === s.method) ?? { en: s.method, ar: s.method })[isAr ? "ar" : "en"]}</span> : null}
                     </td>
-                    <td className="py-3 pe-3 font-medium text-ink-body">{s.note || "—"}</td>
+                    <td className="py-3 pe-3 font-medium text-ink-body">
+                      {s.note || "—"}
+                      {branches.length > 0 && s.branchId ? <span className="block text-[12px] font-semibold text-ink-muted">{branches.find((b) => b.id === s.branchId)?.name ?? ""}</span> : null}
+                    </td>
                     <td className={`py-3 pe-3 text-end font-figure font-extrabold ${s.kind === "deduction" ? "text-danger" : "text-ink"}`}>
                       {s.kind === "deduction" ? "−" : ""}{money(s.amount)}
                     </td>

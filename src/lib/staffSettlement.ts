@@ -29,6 +29,8 @@ export type StaffSettlement = {
   method: string | null;
   /** The expense row a payout wrote on the ledger; a deduction moves no cash and has none. */
   ledgerId: string | null;
+  /** The branch the payout or deduction belongs to; absent on settlements from before branches. */
+  branchId?: string;
 };
 
 /** One thing the dentist earned: a payment's commission or an insurance line's share. */
@@ -84,6 +86,7 @@ export function parseSettlement(id: string, raw: unknown): StaffSettlement | nul
     note: typeof r.note === "string" ? r.note.trim() : "",
     method: r.kind === "payout" ? (typeof r.method === "string" && r.method.trim() ? r.method.trim() : "Cash") : null,
     ledgerId: typeof r.ledgerId === "string" && r.ledgerId ? r.ledgerId : null,
+    ...(typeof r.branchId === "string" && r.branchId ? { branchId: r.branchId } : {}),
   };
 }
 

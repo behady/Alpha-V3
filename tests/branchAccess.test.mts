@@ -94,4 +94,11 @@ assert.match(reportsPage, /rowInScope\(/, "reports no longer filter by the branc
 const reportsExport = readFileSync(new URL("../src/components/reports/reportExcelUtils.ts", import.meta.url), "utf8");
 assert.match(reportsExport, /"Branch"|الفرع/, "the reports export has no Branch column");
 
+// Task 16: payroll and settlements are per branch; the phone keeps getting the clinic total without a param.
+assert.match(readFileSync(new URL("../src/app/(dashboard)/team/page.tsx", import.meta.url), "utf8"), /rowInScope\(/, "the Team page ignores the branch on screen");
+// Payroll reads no money rows; the branch narrows the roster by the ticks on each staff row.
+const payroll = readFileSync(new URL("../src/app/api/payroll/route.ts", import.meta.url), "utf8");
+assert.match(payroll, /searchParams\.get\("branchId"\)/, "payroll does not accept a branch");
+assert.match(payroll, /allowedBranches\(/, "payroll does not narrow the roster to the branch");
+
 console.log("branchAccess: all checks passed");

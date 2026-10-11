@@ -55,6 +55,8 @@ export interface StaffRecord {
   commissionPercentage: number;
   overtimeMultiplier: number;
   registeredDeviceId: string | null;
+  /** The branches ticked on the staff row; absent when none are (the person works everywhere). */
+  branchIds?: string[];
   /** Keyed 0-6 (Sunday first), matching JS getDay() and the attendance screen's editor. */
   schedule: Record<number, { active: boolean; start: string; end: string }> | null;
 }
@@ -297,6 +299,7 @@ export async function loadBriefingData(args: {
       commissionPercentage: num(d.commissionPercentage),
       overtimeMultiplier: num(d.overtimeMultiplier) || 1.5,
       registeredDeviceId: str(d.registeredDeviceId) || null,
+      ...(Array.isArray(d.branchIds) ? { branchIds: (d.branchIds as unknown[]).filter((x): x is string => typeof x === "string") } : {}),
       schedule,
     };
   });

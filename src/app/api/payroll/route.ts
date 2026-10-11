@@ -1,7 +1,9 @@
 import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
-import { resolveUserClinicId } from "@/lib/adminClinicDb";
+import { adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
+import { allowedBranches } from "@/lib/branchAccess";
+import { LOCATIONS_DOC, parseClinicBranches } from "@/lib/clinicLocations";
 import { loadBriefingData } from "@/lib/automation/briefing/data";
 import { buildHrSection } from "@/lib/automation/briefing/hr";
 import { resolveBriefingAccess } from "@/lib/automation/briefing/build";
@@ -73,8 +75,23 @@ export async function GET(request: Request) {
       needsHr: true,
     });
 
+    // Optional `branchId`: payroll for the people who work in that branch. Payroll reads no money
+    // rows (needsMoney is off) and staff carry no `branchId`, only the branches ticked on their row,
+    // so the branch narrows the roster, with the same rule as everywhere else: a person with no
+    // ticks works in every branch. A branch that does not exist is ignored (the clinic total), and
+    // the phone, which sends none, keeps getting the clinic total. Response keys do not change.
+    let staff = data.staff;
+    const wantedBranch = url.searchParams.get("branchId")?.trim() || "";
+    if (wantedBranch) {
+      const locations = await adminClinicDoc(clinicId, "settings", LOCATIONS_DOC).get();
+      const branches = parseClinicBranches(locations.exists ? locations.data() : null);
+      if (branches.some((b) => b.id === wantedBranch)) {
+        staff = staff.filter((s) => allowedBranches(branches, s, false).some((b) => b.id === wantedBranch));
+      }
+    }
+
     const { section } = buildHrSection({
-      staff: data.staff,
+      staff,
       punches: data.punches,
       startDate: from,
       endDate: to,

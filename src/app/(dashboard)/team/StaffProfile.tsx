@@ -362,6 +362,7 @@ export default function StaffProfile({
             commission={commission}
             insurance={insurance}
             settlement={settlement}
+            branches={branches}
             canEdit={canEdit}
             isAr={isAr}
             onSetPct={onSetPct}

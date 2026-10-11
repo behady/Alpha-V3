@@ -52,6 +52,7 @@ import { useWording } from "@/components/insurance/useWording";
 import { presetOf, rangeFor, rangeText, getFirstDay, getToday, type DateRange, type RangePreset } from "@/lib/reportHelpers";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { useActiveBranch } from "@/lib/useActiveBranch";
+import { rowInScope } from "@/lib/branchAccess";
 import { useBranchForMoney } from "@/lib/useBranchForMoney";
 import BranchSelector from "@/components/shared/BranchSelector";
 import { settingsText } from "@/config/settingsText";
@@ -78,7 +79,7 @@ function TeamPage() {
   const router = useRouter();
   const params = useSearchParams();
   const isAr = language === "ar";
-  const { branches, allowedBranches, activeBranchId, setActiveBranchId, canChooseAll } = useActiveBranch();
+  const { branches, allowedBranches, activeBranchId, setActiveBranchId, canChooseAll, scopeBranchId } = useActiveBranch();
   const { requireBranchForMoney, picker: branchPicker } = useBranchForMoney();
 
   /**
@@ -96,7 +97,10 @@ function TeamPage() {
   const preset = presetOf(range);
   const [staffDocs, setStaffDocs] = useState<StaffDoc[]>([]);
   const [punches, setPunches] = useState<PunchRecord[]>([]);
-  const [ledger, setLedger] = useState<Record<string, unknown>[]>([]);
+  const [loadedLedger, setLedger] = useState<Record<string, unknown>[]>([]);
+  // Commission and payroll are read per branch: only the branch on screen's rows count, and rows
+  // from before branches show only under All branches.
+  const ledger = useMemo(() => loadedLedger.filter((r) => rowInScope(r, scopeBranchId)), [loadedLedger, scopeBranchId]);
   const [claims, setClaims] = useState<InsuranceClaim[]>([]);
   /**
    * The open dentist's WHOLE history, not just the period: every payment on their work, every
@@ -299,23 +303,25 @@ function TeamPage() {
     if (!history || history.loaded < 3 || !selectedDoc || history.staffId !== selectedDoc.id) return null;
     const staff = [{ id: selectedDoc.id, name: String(selectedDoc.name ?? "") }];
     const insuranceRowIds = new Set(history.claims.flatMap((c) => Object.values(c.ledgerIds).map((l) => l.ledgerId)));
-    const privateWork = commissionByStaff(history.ledger, staff, insuranceRowIds).get(selectedDoc.id) ?? NO_COMMISSION;
+    const historyLedger = history.ledger.filter((r) => rowInScope(r, scopeBranchId));
+    const historySettlements = history.settlements.filter((s) => rowInScope(s, scopeBranchId));
+    const privateWork = commissionByStaff(historyLedger, staff, insuranceRowIds).get(selectedDoc.id) ?? NO_COMMISSION;
     const insuranceWorkAll = insuranceWorkByStaff(history.claims, wording).get(selectedDoc.id) ?? NO_INSURANCE_WORK;
     const earnings: Earning[] = [
       ...privateWork.entries.map((e) => ({ key: e.id, date: e.date, amount: e.amount })),
       ...insuranceWorkAll.entries.map((e) => ({ key: `${e.claimId}#${e.lineIndex}`, date: e.date, amount: e.share })),
     ];
-    const result = settleEarnings(earnings, history.settlements);
-    const inPeriod = settledInPeriod(history.settlements, { start: range.start, end: range.end });
+    const result = settleEarnings(earnings, historySettlements);
+    const inPeriod = settledInPeriod(historySettlements, { start: range.start, end: range.end });
     return {
       byKey: result.byKey,
       owed: result.owed,
       owedBefore: owedBefore(result, earnings, range.start),
       paidInPeriod: inPeriod.paid,
       deductedInPeriod: inPeriod.deducted,
-      items: [...history.settlements].sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id)),
+      items: [...historySettlements].sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id)),
     };
-  }, [history, selectedDoc, wording, range.start, range.end]);
+  }, [history, selectedDoc, wording, range.start, range.end, scopeBranchId]);
 
   const profileStaff: ProfileStaff | null = useMemo(() => {
     if (!selectedDoc) return null;
