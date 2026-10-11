@@ -1717,8 +1717,8 @@ export default function PatientTreatmentPlanTab({
 
       {/* ---------- Editor modal ---------- */}
       {editorOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" dir={isRTL ? "rtl" : "ltr"}>
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" dir={isRTL ? "rtl" : "ltr"}>
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[92dvh] flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
               <h3 className="font-black text-slate-800 flex items-center gap-2">
                 <ClipboardList size={18} className="text-accent" />
@@ -1998,8 +1998,8 @@ export default function PatientTreatmentPlanTab({
 
       {/* ---------- Diagnosis discussion modal ---------- */}
       {diagOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-2 sm:p-4" dir={isRTL ? "rtl" : "ltr"}>
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-6xl h-[94vh] flex flex-col">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-2 sm:p-4" dir={isRTL ? "rtl" : "ltr"}>
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-6xl h-[92dvh] flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
               <h3 className="font-black text-slate-800 flex items-center gap-2 min-w-0">
                 {diagView === "chat" && (
@@ -2311,8 +2311,8 @@ export default function PatientTreatmentPlanTab({
 
       {/* ---------- AI modal ---------- */}
       {aiOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" dir={isRTL ? "rtl" : "ltr"}>
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl max-h-[92vh] flex flex-col">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" dir={isRTL ? "rtl" : "ltr"}>
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl max-h-[92dvh] flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
               <h3 className="font-black text-slate-800 flex items-center gap-2">
                 <Sparkles size={18} className="text-violet-500" /> {txt.aiModalTitle}

@@ -439,8 +439,8 @@ export default function OrthoAiPanel({ patientId, patientName, orthoCase }: { pa
       )}
 
       {teach && (
-        <div className="fixed inset-0 z-[80] bg-black/50 flex items-end sm:items-center justify-center p-3" onClick={() => setTeach(null)}>
-          <div className="bg-surface rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-5 md:p-6 space-y-4" dir={ar ? "rtl" : "ltr"} onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[110] bg-black/50 flex items-end sm:items-center justify-center p-3" onClick={() => setTeach(null)}>
+          <div className="bg-surface rounded-3xl w-full max-w-2xl max-h-[90dvh] overflow-y-auto p-5 md:p-6 space-y-4" dir={ar ? "rtl" : "ltr"} onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h3 className="font-black text-ink flex items-center gap-2">

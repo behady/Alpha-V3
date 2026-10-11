@@ -530,7 +530,7 @@ function LabTrackingPage() {
           — the pile of finished work waiting in a drawer is what the whole feature exists to
           prevent, and it forms one case at a time, right here. */}
       {arrived && (
-        <div className="fixed inset-x-0 bottom-0 z-40 p-4 sm:p-6 pointer-events-none animate-in slide-in-from-bottom">
+        <div className="fixed inset-x-0 bottom-20 lg:bottom-0 z-40 p-4 sm:p-6 pointer-events-none animate-in slide-in-from-bottom">
           <div className="max-w-lg mx-auto bg-slate-900 text-white rounded-2xl shadow-2xl border border-slate-700 p-4 flex items-start gap-3 pointer-events-auto">
             <div className="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-300 flex items-center justify-center shrink-0">
               <Inbox size={20} />

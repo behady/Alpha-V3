@@ -1739,8 +1739,8 @@ export default function FinancePage() {
 
         {/* PDF REPORT MODAL */}
         {isPdfModalOpen && (
-          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
-            <div className="bg-white w-full max-w-md rounded-[1.5rem] shadow-2xl border border-slate-100 overflow-hidden">
+          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4 animate-in fade-in">
+            <div className="bg-white w-full max-w-md max-h-[92dvh] overflow-y-auto rounded-[1.5rem] shadow-2xl border border-slate-100">
               {/* Header */}
               <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/60">
                 <div className="flex items-center gap-2.5">
@@ -1830,8 +1830,8 @@ export default function FinancePage() {
 
         {/* MODAL FOR MANUAL ENTRIES */}
         {isModalOpen && (
-            <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
-              <div className="bg-white w-full max-w-sm rounded-[1.5rem] shadow-2xl border border-slate-100 overflow-hidden">
+            <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4 animate-in fade-in">
+              <div className="bg-white w-full max-w-sm max-h-[92dvh] overflow-y-auto rounded-[1.5rem] shadow-2xl border border-slate-100">
                  <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                     <h2 className="text-base font-bold text-slate-900 tracking-tight">
                       {editingId ? (language === "ar" ? "تعديل بند" : "Edit Manual Entry") : language === "ar" ? "بند جديد في الدفتر" : "Manual Ledger Entry"}

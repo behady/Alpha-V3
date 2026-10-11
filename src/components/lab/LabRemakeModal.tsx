@@ -66,9 +66,9 @@ export default function LabRemakeModal({
   if (!open || !labCase) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-sm p-0 sm:p-4 animate-in fade-in">
+    <div className="fixed inset-0 z-[110] flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-sm p-0 sm:p-4 animate-in fade-in">
       <div
-        className="bg-white w-full sm:max-w-lg rounded-t-[2rem] sm:rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[92vh]"
+        className="bg-white w-full sm:max-w-lg rounded-t-[2rem] sm:rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[92dvh]"
         dir={isAr ? "rtl" : "ltr"}
       >
         <div className="flex items-center justify-between gap-3 px-5 sm:px-7 py-4 border-b border-slate-100 shrink-0">

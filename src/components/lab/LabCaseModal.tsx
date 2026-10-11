@@ -559,9 +559,9 @@ export default function LabCaseModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-sm p-0 sm:p-4 animate-in fade-in">
+    <div className="fixed inset-0 z-[110] flex items-end sm:items-center justify-center bg-slate-900/50 backdrop-blur-sm p-0 sm:p-4 animate-in fade-in">
       <div
-        className="bg-white w-full sm:max-w-3xl max-h-[92vh] rounded-t-[2rem] sm:rounded-[2rem] shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom sm:zoom-in-95"
+        className="bg-white w-full sm:max-w-3xl max-h-[92dvh] rounded-t-[2rem] sm:rounded-[2rem] shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom sm:zoom-in-95"
         dir={isAr ? "rtl" : "ltr"}
       >
         {/* Header */}
