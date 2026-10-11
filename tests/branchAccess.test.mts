@@ -1,5 +1,6 @@
 // Branch access: who may work in which branch, and which rows a branch view shows.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   allowedBranches,
   rowInScope,
@@ -26,5 +27,13 @@ assert.equal(branchForAutomaticRow({ patient: {}, branches }), "hel", "falls bac
 assert.equal(branchForAutomaticRow({ branches: [] }), null);
 assert.equal(isValidBranchIds(["a", "b"]), true);
 assert.equal(isValidBranchIds(["a", 3]), false);
+
+// Task 4: the browser chokepoints attach the branch on screen.
+const money = readFileSync(new URL("../src/lib/moneyApi.ts", import.meta.url), "utf8");
+assert.match(money, /currentBranchId\(\)/, "moneyApi.post no longer attaches the on-screen branch");
+const ins = readFileSync(new URL("../src/components/insurance/api.ts", import.meta.url), "utf8");
+assert.match(ins, /currentBranchId\(\)/, "the insurance client no longer attaches the on-screen branch");
+const hook = readFileSync(new URL("../src/lib/useActiveBranch.ts", import.meta.url), "utf8");
+assert.match(hook, /setCurrentBranchScope\(scopeBranchId\)/, "useActiveBranch no longer publishes the scope");
 
 console.log("branchAccess: all checks passed");

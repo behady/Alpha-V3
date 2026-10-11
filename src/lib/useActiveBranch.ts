@@ -24,6 +24,7 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { onSnapshot } from "firebase/firestore";
 import { getClinicDoc } from "@/lib/db-utils";
+import { setCurrentBranchScope } from "@/lib/branchScope";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { LOCATIONS_DOC, parseClinicBranches, type ClinicBranch } from "@/lib/clinicLocations";
@@ -168,6 +169,11 @@ export function useActiveBranch(): ActiveBranch {
     },
     [selected]
   );
+
+  // Publish the scope so plain modules (the money-call chokepoints) can read it without a hook.
+  useEffect(() => {
+    setCurrentBranchScope(scopeBranchId);
+  }, [scopeBranchId]);
 
   return { branches, activeBranchId: selected, setActiveBranchId, activeBranch, ready, scopeBranchId, matches };
 }

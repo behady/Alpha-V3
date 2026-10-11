@@ -11,6 +11,7 @@
  */
 
 import { auth } from "@/lib/firebase";
+import { currentBranchId } from "@/lib/branchScope";
 import type { Check, MetlifeExtraction, MetlifeHeader, MetlifeLine } from "@/lib/insurance/metlife";
 import type { PatientMatch } from "@/lib/insurance/matchPatient";
 import type { ClaimStatus, LineStatus } from "@/lib/insurance/claims";
@@ -32,12 +33,17 @@ async function call(method: "POST" | "PATCH", path: string, body: unknown): Prom
   const user = auth.currentUser;
   if (!user) throw new InsuranceCallError("signed_out");
   const token = await user.getIdToken();
+  // The branch on screen goes with every call; one already in the body wins, "" is never sent.
+  const scope = currentBranchId();
+  const isObject = body !== null && typeof body === "object" && !Array.isArray(body);
+  const withBranch =
+    isObject && scope && (body as Record<string, unknown>).branchId === undefined ? { ...(body as object), branchId: scope } : body;
   let response: Response;
   try {
     response = await fetch(path, {
       method,
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify(body),
+      body: JSON.stringify(withBranch),
     });
   } catch {
     throw new InsuranceCallError("network");
