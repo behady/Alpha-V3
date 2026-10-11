@@ -7,6 +7,8 @@ import {
   rowInScope,
   branchForAutomaticRow,
   isValidBranchIds,
+  resolveBranchChoice,
+  ALL_BRANCHES,
 } from "../src/lib/branchAccess";
 
 const b = (id: string) => ({ id, name: id, address: "", phone: "", code: "", rooms: [] });
@@ -48,5 +50,16 @@ assert.equal("branchId" in withBranch({ branchId: "" }, ""), false, "no empty ke
 // Task 10: the Team page carries the branches tick-list.
 const settingsTab = readFileSync(new URL("../src/app/(dashboard)/team/SettingsTab.tsx", import.meta.url), "utf8");
 assert.match(settingsTab, /branchIds/, "the Team page lost the branches tick-list");
+
+// Task 11: the branch on screen is always one the person may work in.
+assert.equal(resolveBranchChoice([], ALL_BRANCHES, true), "");
+assert.equal(resolveBranchChoice([b("hel"), b("tag")], ALL_BRANCHES, true), ALL_BRANCHES);
+assert.equal(resolveBranchChoice([b("tag")], ALL_BRANCHES, false), "tag", "a remembered All from before the change resolves to the first allowed branch");
+assert.equal(resolveBranchChoice([b("hel"), b("tag")], "tag", false), "tag");
+assert.equal(resolveBranchChoice([b("tag")], "hel", false), "tag", "a remembered branch outside the allowed set falls back");
+assert.equal(resolveBranchChoice([b("hel"), b("tag")], null, true), "hel");
+const booking = readFileSync(new URL("../src/components/BookingModal.tsx", import.meta.url), "utf8");
+assert.match(booking, /allowedBranches/, "booking no longer limits the branch picker to the allowed branches");
+assert.doesNotMatch(booking, /LOCATIONS_DOC/, "booking loads settings/locations itself again");
 
 console.log("branchAccess: all checks passed");

@@ -43,7 +43,7 @@ import { useAuth } from "@/context/AuthContext";
 import Protect from "@/components/Protect";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { clinicDayBoundsMinutes, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
-import { LOCATIONS_DOC, parseClinicBranches, type ClinicBranch } from "@/lib/clinicLocations";
+import { useActiveBranch } from "@/lib/useActiveBranch";
 import { patientMatchesSearch } from "@/lib/flexibleSearch";
 import {
   findDoctorConflicts,
@@ -335,7 +335,23 @@ export default function BookingModal({
   const resolvedDoctorId = isGeneralDoctorValue(doctor)
     ? null
     : doctors.find((d) => d.name === doctorField)?.id || editAppointment?.doctorId || null;
-  const [branches, setBranches] = useState<ClinicBranch[]>([]);
+  // The branches this person may book into, and their rooms. Not read from settings/locations
+  // here any more: the same answer the dashboard uses, so a restricted person cannot pick a
+  // branch the schedule would not show them.
+  const { allowedBranches, branches: clinicBranches } = useActiveBranch();
+  /**
+   * An appointment already booked on a branch this person may not work in keeps that branch: it is
+   * shown (alone, so there is nothing to switch to) and never re-stamped, so editing the time of
+   * a visit cannot quietly move it across town.
+   */
+  const branches = useMemo(() => {
+    const stored = editAppointment?.branchId;
+    if (stored && !allowedBranches.some((b) => b.id === stored)) {
+      const keep = clinicBranches.find((b) => b.id === stored);
+      if (keep) return [keep];
+    }
+    return allowedBranches;
+  }, [allowedBranches, clinicBranches, editAppointment?.branchId]);
   const [branchId, setBranchId] = useState("");
   const [roomId, setRoomId] = useState("");
   const [date, setDate] = useState(preSelectedDate || getLocalDate());
@@ -516,9 +532,6 @@ export default function BookingModal({
       if (snap.exists() && Array.isArray(snap.data().reasons) && snap.data().reasons.length > 0) {
         setVisitReasonsOptions(snap.data().reasons);
       }
-    });
-    getDoc(getClinicDoc("settings", LOCATIONS_DOC)).then((snap) => {
-      setBranches(parseClinicBranches(snap.exists() ? snap.data() : null));
     });
   }, []);
   

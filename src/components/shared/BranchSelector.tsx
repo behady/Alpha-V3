@@ -6,6 +6,9 @@
  * Renders nothing at all when the clinic has fewer than two branches — a single-site clinic should
  * never be asked a question with one answer, and that is what keeps this feature invisible until
  * somebody actually opens the Branches screen.
+ *
+ * A person limited to a single branch gets a fixed pill with its name and no menu: they should see
+ * where they are, not a choice they do not have.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -16,13 +19,17 @@ import type { ClinicBranch } from "@/lib/clinicLocations";
 
 export default function BranchSelector({
   branches,
+  allowed,
   value,
   onChange,
   allowAll = true,
   compact = false,
   className = "",
 }: {
+  /** Every branch the clinic has: fewer than two and there is nothing to ask. */
   branches: ClinicBranch[];
+  /** The ones this person may work in — what the menu lists. Defaults to all of `branches`. */
+  allowed?: ClinicBranch[];
   value: string;
   onChange: (id: string) => void;
   /** Offer "All branches". Off where a single branch has to be chosen, e.g. creating a record. */
@@ -45,13 +52,28 @@ export default function BranchSelector({
   }, [open]);
 
   if (branches.length < 2) return null;
+  const choices = allowed ?? branches;
+  if (choices.length === 0) return null;
 
   const txt = {
     all: ar ? "كل الفروع" : "All branches",
     branch: ar ? "الفرع" : "Branch",
   };
 
-  const selected = branches.find((b) => b.id === value) || null;
+  if (choices.length === 1) {
+    return (
+      <div
+        className={`flex items-center gap-2 rounded-full border border-line bg-surface font-bold text-slate-700 shadow-sm ${
+          compact ? "px-3 py-1.5 text-[11px]" : "px-4 py-2 text-xs"
+        } ${className}`}
+      >
+        <Building2 size={compact ? 12 : 14} className="text-primary-600" />
+        <span className="max-w-[10rem] truncate">{choices[0].name}</span>
+      </div>
+    );
+  }
+
+  const selected = choices.find((b) => b.id === value) || null;
   const label = value === ALL_BRANCHES ? txt.all : selected?.name || txt.branch;
 
   return (
@@ -95,7 +117,7 @@ export default function BranchSelector({
               <div className="my-1 border-t border-slate-100" />
             </>
           )}
-          {branches.map((b) => (
+          {choices.map((b) => (
             <button
               type="button"
               key={b.id}

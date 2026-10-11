@@ -167,6 +167,8 @@ export default function MobileDashboard() {
   // remembered per clinic, so a phone and a desktop signed in as the same person agree.
   const {
     branches,
+    allowedBranches,
+    canChooseAll,
     activeBranchId,
     setActiveBranchId,
     scopeBranchId,
@@ -1127,8 +1129,10 @@ export default function MobileDashboard() {
                 <div className="flex items-center gap-2 min-w-0">
                   <BranchSelector
                     branches={branches}
+                    allowed={allowedBranches}
                     value={activeBranchId}
                     onChange={setActiveBranchId}
+                    allowAll={canChooseAll}
                     compact
                   />
                   <span className="text-sm font-black text-slate-800 truncate">
@@ -1199,8 +1203,10 @@ export default function MobileDashboard() {
               <div className="hidden lg:flex shrink-0 items-center gap-2 self-center">
                 <BranchSelector
                   branches={branches}
+                  allowed={allowedBranches}
                   value={activeBranchId}
                   onChange={setActiveBranchId}
+                  allowAll={canChooseAll}
                 />
                 <button
                   type="button"

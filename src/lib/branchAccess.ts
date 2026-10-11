@@ -11,6 +11,9 @@
 
 import type { ClinicBranch } from "@/lib/clinicLocations";
 
+/** Explicitly every branch at once. Distinct from "" (this clinic has no branches). */
+export const ALL_BRANCHES = "__all__";
+
 type HasBranchId = { branchId?: unknown } | null | undefined;
 
 /** The branches this person may work in (rules 1 and 2 above). */
@@ -24,6 +27,22 @@ export function allowedBranches(
   if (!Array.isArray(ticked) || ticked.length === 0) return [...branches];
   const mine = branches.filter((b) => ticked.includes(b.id));
   return mine.length > 0 ? mine : [...branches];
+}
+
+/**
+ * The branch that is actually in force on screen: `ALL_BRANCHES` only when an admin asked for it,
+ * else the remembered choice if the person may work there, else the first branch they may.
+ * "" when there is nothing to choose from (a clinic with no branches).
+ */
+export function resolveBranchChoice(
+  allowed: readonly { id: string }[],
+  chosen: string | null,
+  isAdmin: boolean
+): string {
+  if (allowed.length === 0) return "";
+  if (chosen === ALL_BRANCHES && isAdmin) return ALL_BRANCHES;
+  if (chosen && allowed.some((b) => b.id === chosen)) return chosen;
+  return allowed[0].id;
 }
 
 /** Rule 3: does this row show under the chosen branch scope? `""` = All branches. */

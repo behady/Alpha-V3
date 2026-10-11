@@ -266,6 +266,8 @@ export default function DesktopDashboard() {
   // the dashboard is stamped with the branch whose schedule you were looking at.
   const {
     branches,
+    allowedBranches,
+    canChooseAll,
     activeBranchId,
     setActiveBranchId,
     scopeBranchId,
@@ -1479,8 +1481,10 @@ export default function DesktopDashboard() {
                       {/* Which branch's day this is. Renders nothing for a single-site clinic. */}
                       <BranchSelector
                         branches={branches}
+                        allowed={allowedBranches}
                         value={activeBranchId}
                         onChange={setActiveBranchId}
+                        allowAll={canChooseAll}
                       />
                       <button
                         type="button"

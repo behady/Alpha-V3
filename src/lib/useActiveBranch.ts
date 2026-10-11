@@ -28,9 +28,11 @@ import { setCurrentBranchScope } from "@/lib/branchScope";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { LOCATIONS_DOC, parseClinicBranches, type ClinicBranch } from "@/lib/clinicLocations";
+import { ALL_BRANCHES, allowedBranches as allowedBranchesFor, resolveBranchChoice } from "@/lib/branchAccess";
+import { useOwnStaffRow } from "@/lib/useOwnStaffRow";
 
 /** Explicitly every branch at once. Distinct from "" (this clinic has no branches). */
-export const ALL_BRANCHES = "__all__";
+export { ALL_BRANCHES };
 
 const storageKey = (clinicId: string | null) => `alpha.activeBranch.${clinicId || "none"}`;
 
@@ -73,7 +75,12 @@ function readChoice(clinicId: string | null): string | null {
 }
 
 export type ActiveBranch = {
+  /** Every branch the clinic has — for labels and rooms. What this person may use is `allowedBranches`. */
   branches: ClinicBranch[];
+  /** The branches this person may work in: all of them for an admin, else the ones ticked on their staff row. */
+  allowedBranches: ClinicBranch[];
+  /** May this person ask for "All branches"? Admins only, and only where there is more than one to see. */
+  canChooseAll: boolean;
   /** "" when the clinic has no branches; ALL_BRANCHES when every branch is wanted. */
   activeBranchId: string;
   setActiveBranchId: (id: string) => void;
@@ -92,9 +99,11 @@ export type ActiveBranch = {
 
 export function useActiveBranch(): ActiveBranch {
   const { user } = useAuth();
-  const { clinicId } = useClinic();
+  const { clinicId, isAdmin } = useClinic();
+  // Only a non-admin's list depends on their staff row, so an admin never pays for that read.
+  const { row: ownRow, ready: ownRowReady } = useOwnStaffRow(!isAdmin);
   const [branches, setBranches] = useState<ClinicBranch[]>([]);
-  const [ready, setReady] = useState(false);
+  const [branchesRead, setBranchesRead] = useState(false);
   /**
    * What was explicitly chosen — by this person now, or by them last time.
    *
@@ -115,9 +124,9 @@ export function useActiveBranch(): ActiveBranch {
       getClinicDoc("settings", LOCATIONS_DOC),
       (snap) => {
         setBranches(parseClinicBranches(snap.exists() ? snap.data() : null));
-        setReady(true);
+        setBranchesRead(true);
       },
-      () => setReady(true)
+      () => setBranchesRead(true)
     );
     return () => unsub();
   }, [user]);
@@ -144,16 +153,27 @@ export function useActiveBranch(): ActiveBranch {
    * Derived rather than stored, so deleting or renaming a branch can never leave the app filtering
    * against an id nothing matches — which would empty the schedule with no way to tell why.
    */
-  const selected = useMemo(() => {
-    if (branches.length === 0) return "";
-    if (chosen === ALL_BRANCHES) return ALL_BRANCHES;
-    if (chosen && branches.some((b) => b.id === chosen)) return chosen;
-    return branches[0].id;
-  }, [branches, chosen]);
+  const ready = branchesRead && ownRowReady;
+
+  /**
+   * What this person may work in. Until a non-admin's staff row has been read it is EMPTY rather
+   * than "everything": showing every branch for a moment, with a restricted person able to pick
+   * one, is exactly the leak the ticks exist to stop.
+   */
+  const allowedBranches = useMemo(
+    () => (!isAdmin && !ownRowReady ? [] : allowedBranchesFor(branches, ownRow, isAdmin)),
+    [branches, ownRow, isAdmin, ownRowReady]
+  );
+  const canChooseAll = isAdmin && allowedBranches.length > 1;
+
+  const selected = useMemo(
+    () => resolveBranchChoice(allowedBranches, chosen, isAdmin),
+    [allowedBranches, chosen, isAdmin]
+  );
 
   const activeBranch = useMemo(
-    () => branches.find((b) => b.id === selected) || null,
-    [branches, selected]
+    () => allowedBranches.find((b) => b.id === selected) || null,
+    [allowedBranches, selected]
   );
 
   const scopeBranchId = selected === ALL_BRANCHES ? "" : selected;
@@ -175,5 +195,15 @@ export function useActiveBranch(): ActiveBranch {
     setCurrentBranchScope(scopeBranchId);
   }, [scopeBranchId]);
 
-  return { branches, activeBranchId: selected, setActiveBranchId, activeBranch, ready, scopeBranchId, matches };
+  return {
+    branches,
+    allowedBranches,
+    canChooseAll,
+    activeBranchId: selected,
+    setActiveBranchId,
+    activeBranch,
+    ready,
+    scopeBranchId,
+    matches,
+  };
 }

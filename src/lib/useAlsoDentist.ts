@@ -1,11 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { limit, onSnapshot, query, where } from "firebase/firestore";
-import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
-import { getClinicCollection } from "@/lib/db-utils";
 import { isDentistStaff } from "@/lib/staffRoles";
+import { useOwnStaffRow } from "@/lib/useOwnStaffRow";
 
 /**
  * Is the signed-in admin also one of the clinic's dentists?
@@ -24,28 +21,8 @@ export function useAlsoDentist(): boolean {
 
 /** The same, plus whether the answer is in yet: always for a non-admin, after the first read for an admin. */
 export function useAlsoDentistState(): { alsoDentist: boolean; ready: boolean } {
-  const { user } = useAuth();
-  const { clinicId, isAdmin } = useClinic();
-  const [alsoDentist, setAlsoDentist] = useState(false);
-  const [answered, setAnswered] = useState(false);
-
-  useEffect(() => {
-    if (!user?.uid || !clinicId || !isAdmin) return;
-    const q = query(getClinicCollection("staff"), where("uid", "==", user.uid), limit(1));
-    const stop = onSnapshot(q, (snap) => {
-      const row = snap.docs[0]?.data() as { role?: string; isDentist?: boolean } | undefined;
-      setAlsoDentist(!!row && isDentistStaff(row));
-      setAnswered(true);
-    }, () => setAnswered(true));
-    // Clearing on the way out, not on the way in: React runs this before the next run of the
-    // effect, so switching to a clinic where you are not a dentist cannot leave a stale `true`
-    // behind — and it avoids setting state straight from an effect body, which cascades renders.
-    return () => {
-      stop();
-      setAlsoDentist(false);
-      setAnswered(false);
-    };
-  }, [user?.uid, clinicId, isAdmin]);
-
-  return { alsoDentist, ready: !isAdmin || answered };
+  const { isAdmin } = useClinic();
+  // The query is skipped for a non-admin: a plain dentist always gets the chair.
+  const { row, ready } = useOwnStaffRow(isAdmin);
+  return { alsoDentist: isAdmin && !!row && isDentistStaff(row), ready };
 }
