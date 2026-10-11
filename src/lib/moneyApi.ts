@@ -18,7 +18,7 @@ import { auth } from "@/lib/firebase";
 import { CLINIC_INACTIVE_CODE } from "@/lib/clinicStatus";
 import { OVER_ALLOCATION_CODE } from "@/lib/paymentAllocation";
 import { currentClinicId } from "@/lib/db-utils";
-import { currentBranchId } from "@/lib/branchScope";
+import { currentBranchId, withBranch } from "@/lib/branchScope";
 
 export class MoneyApiError extends Error {
   status: number;
@@ -87,14 +87,12 @@ async function post<T = Record<string, unknown>>(path: string, body: Record<stri
    * superadmin panel and anything else acting on another clinic is unaffected.
    */
   const clinicId = body.clinicId ?? currentClinicId();
-  // The branch on screen rides along the same way; an explicit one in the body wins, and an empty
-  // one is never sent (the server reads "" as a missing branch).
-  const branchId = body.branchId ?? currentBranchId();
+  // The branch on screen rides along the same way (see withBranch for the one rule).
 
   const response = await fetch(path, {
     method: "POST",
     headers: await authHeaders(),
-    body: JSON.stringify({ ...body, ...(clinicId ? { clinicId } : {}), ...(branchId ? { branchId } : {}) }),
+    body: JSON.stringify(withBranch({ ...body, ...(clinicId ? { clinicId } : {}) }, currentBranchId())),
   });
 
   let payload: Record<string, unknown> = {};

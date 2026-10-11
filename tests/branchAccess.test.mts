@@ -1,6 +1,7 @@
 // Branch access: who may work in which branch, and which rows a branch view shows.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { withBranch } from "../src/lib/branchScope";
 import {
   allowedBranches,
   rowInScope,
@@ -35,5 +36,13 @@ const ins = readFileSync(new URL("../src/components/insurance/api.ts", import.me
 assert.match(ins, /currentBranchId\(\)/, "the insurance client no longer attaches the on-screen branch");
 const hook = readFileSync(new URL("../src/lib/useActiveBranch.ts", import.meta.url), "utf8");
 assert.match(hook, /setCurrentBranchScope\(scopeBranchId\)/, "useActiveBranch no longer publishes the scope");
+
+// The body-merge rule: a body never carries an empty or null branchId.
+assert.deepEqual(withBranch({ a: 1 }, "hel"), { a: 1, branchId: "hel" });
+assert.deepEqual(withBranch({ branchId: "tag" }, "hel"), { branchId: "tag" });
+assert.deepEqual(withBranch({ branchId: "" }, "hel"), { branchId: "hel" });
+assert.deepEqual(withBranch({ branchId: "" }, ""), {});
+assert.deepEqual(withBranch({ branchId: null }, ""), {});
+assert.equal("branchId" in withBranch({ branchId: "" }, ""), false, "no empty key");
 
 console.log("branchAccess: all checks passed");
