@@ -112,9 +112,9 @@ from Finance. The receipt counters keep counting from where they are — that is
 - [ ] **F5.** Clinic tab: a cash payment on a Gasco treatment shows *"for a Gasco treatment"* under
       it; after F7 the company's payment shows *"Gasco paid"* with the Gasco badge.
 - [ ] **F6.** **Gasco** tab: it opens on everything Gasco still owes, any date ("Only outstanding"
-      is on). The strip shows Billed · Patient paid · Company paid · Outstanding. The MTA row shows
-      its split (what the patient paid in cash vs what Gasco owes). Untick "Only outstanding" → the
-      tab follows the page's period instead.
+      is on). The strip shows Billed · Patient paid · Company paid · Outstanding for the company's
+      whole account, any date. Untick "Only outstanding" → settled rows appear too (the MTA row,
+      paid in full in cash by the patient, shows there with its split).
 - [ ] **F7.** Tick one row → **Mark collected** → confirm → green toast with the receipt number.
       The receipt starts with the prefix of the branch the treatment was done in (HEL- or TAG-),
       whatever branch tab you are on. The row's status turns **Collected**.
