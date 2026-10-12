@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   arrayUnion, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where,
 } from "firebase/firestore";
-import { Armchair, Check, Loader2, Plus, Search, User, X } from "lucide-react";
+import { Armchair, CalendarDays, Check, Loader2, Plus, Search, User, X } from "lucide-react";
 import ChairPopup from "@/components/chair/ChairPopup";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { useAuth } from "@/context/AuthContext";
@@ -95,9 +95,14 @@ export default function DentistHome() {
 
   // --- Live rows -----------------------------------------------------------------------------
   const [todayAppts, setTodayAppts] = useState<Row[]>([]);
-  /** The list shows today or tomorrow — nothing further, by design. The chair is always today. */
-  const [showTomorrow, setShowTomorrow] = useState(false);
-  const viewDate = showTomorrow ? tomorrow : today;
+  /**
+   * The day the list shows: Today and Tomorrow are one tap; any other day comes from the calendar
+   * tab, which then names it. The chair is always today.
+   */
+  const [viewDate, setViewDate] = useState(today);
+  const isToday = viewDate === today;
+  const isTomorrow = viewDate === tomorrow;
+  const otherDay = !isToday && !isTomorrow;
   const [dayAppts, setDayAppts] = useState<Row[]>([]);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [doctors, setDoctors] = useState<Staff[]>([]);
@@ -355,17 +360,38 @@ export default function DentistHome() {
         <div className="rounded-[2rem] border border-line bg-surface shadow-[0_8px_40px_rgba(0,0,0,0.04)] max-lg:relative max-lg:z-10">
           <div className="flex items-center justify-between gap-3 px-5 pt-4 pb-2">
             <div className="flex gap-1 p-1 rounded-full bg-surface-muted" role="tablist">
-              <button type="button" role="tab" aria-selected={!showTomorrow} onClick={() => setShowTomorrow(false)} className={tab(!showTomorrow)}>
+              <button type="button" role="tab" aria-selected={isToday} onClick={() => setViewDate(today)} className={tab(isToday)}>
                 {isAr ? "النهارده" : "Today"}
               </button>
-              <button type="button" role="tab" aria-selected={showTomorrow} onClick={() => setShowTomorrow(true)} className={tab(showTomorrow)}>
+              <button type="button" role="tab" aria-selected={isTomorrow} onClick={() => setViewDate(tomorrow)} className={tab(isTomorrow)}>
                 {isAr ? "بكرة" : "Tomorrow"}
               </button>
+              {/* Any other day: the native date picker sits invisibly over the tab, so one tap opens it. */}
+              <label
+                role="tab"
+                aria-selected={otherDay}
+                title={isAr ? "اختار يوم" : "Pick a day"}
+                className={`relative inline-flex items-center gap-1.5 cursor-pointer ${tab(otherDay)} ${otherDay ? "" : "px-3"}`}
+              >
+                <CalendarDays size={15} />
+                {otherDay && (
+                  <span className="font-figure">
+                    {new Date(`${viewDate}T12:00:00`).toLocaleDateString(isAr ? "ar-EG" : "en-GB", { weekday: "short", day: "numeric", month: "short" })}
+                  </span>
+                )}
+                <input
+                  type="date"
+                  value={viewDate}
+                  onChange={(e) => e.target.value && setViewDate(e.target.value)}
+                  aria-label={isAr ? "اختار يوم" : "Pick a day"}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                />
+              </label>
             </div>
             <div className="flex items-center gap-2">
               <span className="font-figure text-xs font-bold text-ink-muted">
                 {dayMine.length} {isAr ? "مرضى" : "patients"}
-                {!showTomorrow && dayDone ? ` · ${dayDone} ${isAr ? "خلصوا" : "done"}` : ""}
+                {viewDate <= today && dayDone ? ` · ${dayDone} ${isAr ? "خلصوا" : "done"}` : ""}
               </span>
               <button
                 type="button"
@@ -416,9 +442,11 @@ export default function DentistHome() {
 
           {day.length === 0 ? (
             <p className="px-5 pb-6 pt-3 text-sm font-semibold text-ink-faint">
-              {showTomorrow
-                ? (isAr ? "مفيش مواعيد ليك بكرة." : "Nothing booked for you tomorrow.")
-                : (isAr ? "مفيش مواعيد ليك النهارده." : "Nothing booked for you today.")}
+              {isToday
+                ? (isAr ? "مفيش مواعيد ليك النهارده." : "Nothing booked for you today.")
+                : isTomorrow
+                  ? (isAr ? "مفيش مواعيد ليك بكرة." : "Nothing booked for you tomorrow.")
+                  : (isAr ? "مفيش مواعيد ليك في اليوم ده." : "Nothing booked for you on this day.")}
             </p>
           ) : (
             <div className="flex flex-col px-5 pb-2">
