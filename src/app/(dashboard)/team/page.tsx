@@ -41,6 +41,7 @@ import { createStaffSettlement, deleteStaffSettlement, MoneyApiError, setPayment
 import { owedBefore, parseSettlement, SETTLEMENTS_COLLECTION, settledInPeriod, settleEarnings, type Earning, type StaffSettlement } from "@/lib/staffSettlement";
 import FeatureGate from "@/components/FeatureGate";
 import PageHeader from "@/components/dashboard/PageHeader";
+import AddUserModal from "@/components/settings/AddUserModal";
 import { buildHrSection } from "@/lib/automation/briefing/hr";
 import type { HrStaffRow } from "@/lib/automation/briefing/types";
 import type { PunchRecord, StaffRecord } from "@/lib/automation/briefing/data";
@@ -92,6 +93,8 @@ function TeamPage() {
     user?.permissions?.includes("attendance.admin") ||
     user?.permissions?.includes("access.settings");
   const canEdit = Boolean(isAdmin);
+  /** The "add a team member" form, opened from under the list. Admin-only, as the route is. */
+  const [addingPerson, setAddingPerson] = useState(false);
 
   const [range, setRange] = useState<DateRange>({ start: getFirstDay(), end: getToday() });
   const preset = presetOf(range);
@@ -359,6 +362,16 @@ function TeamPage() {
     const companies = payers.filter((p) => p.id !== PRIVATE_PAYER_ID && p.active);
     const companyLists = new Set(companies.map((p) => p.priceListId).filter(Boolean));
     return [
+      // Private patients earn the dentist's usual rate, so the owner can set it in this list
+      // beside the companies rather than in the pay form above.
+      {
+        kind: "usual" as const,
+        id: PRIVATE_PAYER_ID,
+        name: isAr ? "خاص" : "Private",
+        own: usual,
+        fallback: usual,
+        fallbackIsCompany: false,
+      },
       ...companies.map((p) => ({
         kind: "payer" as const,
         id: p.id,
@@ -384,7 +397,10 @@ function TeamPage() {
   const setRate = useCallback(
     async (row: RateRow, value: number | null) => {
       if (!selectedDoc || !canEdit) return;
-      const field = `${row.kind === "payer" ? "commissionByPayer" : "commissionByList"}.${row.id}`;
+      // The usual rate cannot be cleared: it is what every blank line falls back to.
+      if (row.kind === "usual" && value === null) return;
+      const field =
+        row.kind === "usual" ? "commissionPercentage" : `${row.kind === "payer" ? "commissionByPayer" : "commissionByList"}.${row.id}`;
       try {
         // Cleared = removed, never 0: a blank means "the rate beside it", 0 means "earns nothing".
         await updateDoc(getClinicDoc("staff", selectedDoc.id), { [field]: value === null ? deleteField() : value });
@@ -725,9 +741,15 @@ function TeamPage() {
           <div className="flex flex-col items-center gap-3 rounded-3xl border border-dashed border-line bg-surface-subtle px-6 py-14 text-center">
             <Users size={22} className="text-ink-muted" />
             <p className="text-[17px] font-bold text-ink">{isAr ? "مفيش حد في الفريق لسه." : "Nobody on the team yet."}</p>
-            <Link href="/settings/users" className="text-[15px] font-bold text-ink-body underline">
-              {isAr ? "ضيف الفريق" : "Add your team"}
-            </Link>
+            {canEdit ? (
+              <button type="button" onClick={() => setAddingPerson(true)} className="text-[15px] font-bold text-ink-body underline">
+                {isAr ? "ضيف الفريق" : "Add your team"}
+              </button>
+            ) : (
+              <Link href="/settings/users" className="text-[15px] font-bold text-ink-body underline">
+                {isAr ? "ضيف الفريق" : "Add your team"}
+              </Link>
+            )}
           </div>
         ) : (
           /* The list beside the profile on a wide screen, above it on a phone. */
@@ -737,6 +759,7 @@ function TeamPage() {
               selectedId={selectedId}
               onSelect={(id) => router.replace(hrefFor(id, tab), { scroll: false })}
               isAr={isAr}
+              onAddPerson={canEdit ? () => setAddingPerson(true) : undefined}
             />
             {profileStaff && (
               <div data-tour="team-profile" className="min-w-0">
@@ -777,6 +800,8 @@ function TeamPage() {
           </div>
         )}
       </div>
+      {/* The staff listener above picks the new person up on its own; nothing to refresh. */}
+      {addingPerson && <AddUserModal clinicId={clinicId} onClose={() => setAddingPerson(false)} />}
     </div>
   );
 }

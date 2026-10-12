@@ -1,5 +1,6 @@
 "use client";
 
+import { UserPlus } from "lucide-react";
 import { formatStaffRoleLabel } from "@/lib/staffRoles";
 
 export type RailPerson = {
@@ -55,17 +56,23 @@ export function shortName(name: string): string {
  *
  * The dot is the only colour: green while somebody is clocked in, amber when their period has
  * something in it worth looking at. Everything else about a person is on their profile.
+ *
+ * `onAddPerson` puts an "add a team member" button under the list, so the owner can add somebody
+ * from here instead of going to Settings → Staff & logins (the same form opens).
  */
 export default function TeamList({
   people,
   selectedId,
   onSelect,
   isAr,
+  onAddPerson,
 }: {
   people: readonly RailPerson[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   isAr: boolean;
+  /** Absent = this viewer may not add people, and the button is not shown. */
+  onAddPerson?: () => void;
 }) {
   if (people.length === 0) return null;
   const anyOnFloor = people.some((p) => p.onFloor);
@@ -155,6 +162,17 @@ export default function TeamList({
             </span>
           )}
         </p>
+      )}
+      {onAddPerson && (
+        <button
+          type="button"
+          onClick={onAddPerson}
+          data-tour="team-add-person"
+          className="mt-3 inline-flex items-center gap-2 rounded-2xl border border-dashed border-line-strong px-4 py-2.5 text-[15px] font-bold text-ink-body transition-colors hover:bg-surface-muted lg:mt-5 lg:flex lg:w-full"
+        >
+          <UserPlus size={18} className="shrink-0" />
+          {isAr ? "ضيف حد للفريق" : "Add a team member"}
+        </button>
       )}
     </nav>
   );

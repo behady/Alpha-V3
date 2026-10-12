@@ -40,9 +40,13 @@ export type ProfileStaff = {
 /**
  * One line of the dentist's rates: an insurance company or a price list, with what is set for
  * this dentist (null = nothing of their own) and what applies when it is blank.
+ *
+ * `usual` is the "Private" line at the top: the dentist's ordinary `commissionPercentage`, the
+ * same number as the Commission rate under Shifts and pay. It is never blank — it IS the rate the
+ * blank lines fall back to.
  */
 export type RateRow = {
-  kind: "payer" | "list";
+  kind: "usual" | "payer" | "list";
   id: string;
   name: string;
   own: number | null;

@@ -7,25 +7,19 @@
  * rather than from the platform-wide `users` collection, because a person can work at more than
  * one clinic and only their staff row is scoped to this one.
  *
- * The invite form is unchanged from the old page apart from where it lives. Creating the login
- * goes through /api/staff/create on the Admin SDK (via lib/staffLogin, which the clinic setup's
- * team step calls too): the browser cannot create an Auth account, and the route also refuses to
- * hand an existing account a second clinic without saying so.
+ * The invite form is AddUserModal, shared with the Team page. Creating the login goes through
+ * /api/staff/create on the Admin SDK (via lib/staffLogin, which the clinic setup's team step calls
+ * too): the browser cannot create an Auth account, and the route also refuses to hand an existing
+ * account a second clinic without saying so.
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { useSettingsText } from "@/lib/useSettingsText";
 import { onSnapshot } from "firebase/firestore";
-import { Badge, Lock, Mail, Save, User, X } from "lucide-react";
 import UserManagement from "@/components/settings/UserManagement";
+import AddUserModal from "@/components/settings/AddUserModal";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
-import { useLanguage } from "@/context/LanguageContext";
-import { useUI } from "@/context/UIContext";
 import { getClinicCollection } from "@/lib/db-utils";
-import { logActivity } from "@/lib/logger";
-import { isFullAccessRole } from "@/lib/permissions";
-import { createStaffLogin } from "@/lib/staffLogin";
 
 /**
  * Matches the shape UserManagement expects. The index signature is load-bearing: staff rows carry
@@ -44,24 +38,11 @@ type StaffRecord = {
 };
 
 export default function UsersHost() {
-  const { isRTL } = useLanguage();
   const { user } = useAuth();
   const { clinicId } = useClinic();
-  const { showToast } = useUI();
 
   const [staffMembers, setStaffMembers] = useState<StaffRecord[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({
-    name: "",
-    email: "",
-    password: "",
-    role: "Assistant",
-    isDentist: false,
-  });
-
-
-  const txt = useSettingsText("users");
 
   useEffect(() => {
     const unsub = onSnapshot(getClinicCollection("staff"), (snap) => {
@@ -82,41 +63,7 @@ export default function UsersHost() {
     permissions: staff.permissions || [],
   }));
 
-  const openAddUser = useCallback(() => {
-    setForm({ name: "", email: "", password: "", role: "Assistant", isDentist: false });
-    setIsModalOpen(true);
-  }, []);
-
-  const handleSaveUser = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setSaving(true);
-    try {
-      const result = await createStaffLogin({ clinicId, ...form });
-
-      await logActivity(
-        { uid: user?.uid, name: user?.name, role: user?.role },
-        "User Created",
-        `Created user ${form.name} (${form.email.toLowerCase()})`
-      );
-
-      if (!result.isNewUser && result.message) showToast(result.message, "info");
-      else showToast(txt.created, "success");
-
-      setIsModalOpen(false);
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : txt.failed, "error");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const fieldClass = `w-full py-3.5 bg-surface-subtle rounded-xl border border-line font-semibold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all ${
-    isRTL ? "pr-11 pl-4" : "pl-11 pr-4"
-  }`;
-  const labelClass = `text-[11px] font-bold text-ink-muted uppercase tracking-wider ${
-    isRTL ? "pr-1" : "pl-1"
-  }`;
-  const iconClass = `absolute top-1/2 -translate-y-1/2 text-ink-muted ${isRTL ? "right-4" : "left-4"}`;
+  const openAddUser = useCallback(() => setIsModalOpen(true), []);
 
   return (
     <>
@@ -127,114 +74,7 @@ export default function UsersHost() {
         clinicId={clinicId}
       />
 
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-ink/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
-          <div className="bg-surface rounded-[2rem] p-8 w-full max-w-md shadow-2xl animate-in zoom-in-95 border border-line">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-ink tracking-tight">{txt.title}</h2>
-              <button
-                onClick={() => setIsModalOpen(false)}
-                aria-label={txt.close}
-                className="text-ink-muted bg-surface-subtle hover:bg-danger-tint hover:text-danger p-2 rounded-full transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveUser} className="space-y-5">
-              <div className="space-y-1.5">
-                <label className={labelClass}>{txt.fullName}</label>
-                <div className="relative">
-                  <User size={18} className={iconClass} />
-                  <input
-                    required
-                    data-tour="user-name"
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    className={fieldClass}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className={labelClass}>{txt.email}</label>
-                <div className="relative">
-                  <Mail size={18} className={iconClass} />
-                  <input
-                    required
-                    type="email" data-tour="user-email"
-                    value={form.email}
-                    onChange={(e) => setForm({ ...form, email: e.target.value })}
-                    className={fieldClass}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className={labelClass}>{txt.password}</label>
-                <div className="relative">
-                  <Lock size={18} className={iconClass} />
-                  <input
-                    required
-                    type="password" data-tour="user-password"
-                    value={form.password}
-                    onChange={(e) => setForm({ ...form, password: e.target.value })}
-                    placeholder={txt.passwordHint}
-                    className={fieldClass}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className={labelClass}>{txt.role}</label>
-                <div className="relative">
-                  <Badge size={18} className={iconClass} />
-                  <select
-                    data-tour="user-role"
-                    value={form.role}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        role: e.target.value,
-                        isDentist: isFullAccessRole(e.target.value) ? form.isDentist : false,
-                      })
-                    }
-                    className={`${fieldClass} appearance-none cursor-pointer`}
-                  >
-                    <option value="Dentist">{txt.roleDentist}</option>
-                    <option value="Assistant">{txt.roleAssistant}</option>
-                    <option value="Receptionist">{txt.roleReceptionist}</option>
-                    <option value="Admin">{txt.roleAdmin}</option>
-                  </select>
-                </div>
-              </div>
-
-              {isFullAccessRole(form.role) && (
-                <label className="flex items-start gap-3 cursor-pointer rounded-xl border border-line bg-surface-subtle p-4">
-                  <input
-                    type="checkbox"
-                    checked={form.isDentist}
-                    onChange={(e) => setForm({ ...form, isDentist: e.target.checked })}
-                    className="mt-0.5 w-4 h-4 rounded border-line-strong text-accent"
-                  />
-                  <span className="text-sm font-semibold text-ink-body leading-snug">
-                    {txt.alsoDentist}
-                  </span>
-                </label>
-              )}
-
-              <button
-                type="submit"
-                data-tour="user-save"
-                disabled={saving}
-                className="w-full bg-accent text-ink-on-accent py-4 rounded-xl font-bold text-sm shadow-md mt-6 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-60"
-              >
-                <Save size={18} /> {txt.submit}
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
+      {isModalOpen && <AddUserModal clinicId={clinicId} onClose={() => setIsModalOpen(false)} />}
     </>
   );
 }

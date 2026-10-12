@@ -257,8 +257,8 @@ export default function SettingsTab({
           title={isAr ? "النسبة لكل شركة وقائمة أسعار" : "Rate per company and price list"}
           note={
             isAr
-              ? `نسبته العادية ${staff.commissionPercentage}%. اكتب نسبة لشركة أو قائمة أسعار لو بياخد عليها غير كده؛ سيبها فاضية تمشي بالنسبة اللي جنبها.`
-              : `Usual rate ${staff.commissionPercentage}%. Type a rate for a company or price list where they earn differently; leave it blank to use the rate shown beside it.`
+              ? "نسبة الخاص هي نسبته العادية. اكتب نسبة لشركة أو قائمة أسعار لو بياخد عليها غير كده؛ سيبها فاضية تمشي بالنسبة اللي جنبها."
+              : "Private is their usual rate. Type a rate for a company or price list where they earn differently; leave it blank to use the rate shown beside it."
           }
         >
           <ul className="divide-y divide-line">
@@ -267,9 +267,15 @@ export default function SettingsTab({
                 <div className="min-w-0">
                   <p className="text-[15px] font-bold text-ink">{r.name}</p>
                   <p className="text-[13px] font-medium text-ink-muted">
-                    {r.kind === "payer" ? (isAr ? "شركة تأمين" : "Insurance company") : isAr ? "قائمة أسعار" : "Price list"}
-                    {" · "}
-                    {r.own === null
+                    {r.kind === "usual"
+                      ? isAr
+                        ? "المرضى الخاص · ونفس النسبة لأي حاجة مالهاش نسبة"
+                        : "Private patients · also used wherever no other rate is set"
+                      : r.kind === "payer"
+                        ? isAr ? "شركة تأمين" : "Insurance company"
+                        : isAr ? "قائمة أسعار" : "Price list"}
+                    {r.kind !== "usual" && " · "}
+                    {r.kind === "usual" ? null : r.own === null
                       ? isAr
                         ? `بياخد ${r.fallback}% (${r.fallbackIsCompany ? "نسبة الشركة" : "نسبته العادية"})`
                         : `earns ${r.fallback}% (${r.fallbackIsCompany ? "the company's rate" : "their usual rate"})`
@@ -293,6 +299,11 @@ export default function SettingsTab({
                       onBlur={(e) => {
                         const raw = e.target.value.trim();
                         const next = raw === "" ? null : Math.max(0, Math.min(100, Number(raw) || 0));
+                        // The usual rate cannot be emptied; put the number back instead.
+                        if (r.kind === "usual" && next === null) {
+                          e.target.value = String(r.own ?? "");
+                          return;
+                        }
                         if (next === r.own) return;
                         onSetRate(r, next);
                       }}
