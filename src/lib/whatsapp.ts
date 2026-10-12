@@ -21,6 +21,8 @@ type WhatsAppPdfSendArgs = {
   pdfBytes?: Uint8Array;
   filename?: string;
   caption?: string;
+  /** The file's type. PDF unless said otherwise (the daily report sends an Excel file). */
+  mimetype?: string;
 };
 
 /** Normalize to E.164-style string (leading +). Used by callers that store/display numbers. */
@@ -275,7 +277,7 @@ export async function sendWhatsAppPdfFromUrl({
 /** The same document send with the credentials handed in — the platform alerts line is nobody's clinic. */
 export async function sendWapilotDocument(
   config: WapilotConfig,
-  { to, fileUrl, pdfBytes, filename, caption }: Omit<WhatsAppPdfSendArgs, "clinicId">,
+  { to, fileUrl, pdfBytes, filename, caption, mimetype }: Omit<WhatsAppPdfSendArgs, "clinicId">,
 ) {
   assertWapilotReady(config);
   const { instanceId, token, apiRoot, sendDocumentUrlOverride, sendDocumentPathTemplate } = config;
@@ -290,6 +292,7 @@ export async function sendWapilotDocument(
   const trimmedUrl = String(fileUrl || "").trim();
   const captionText = caption || "";
   const chatId = `${digits}@c.us`;
+  const mime = (mimetype || "").trim() || "application/pdf";
 
   // Many Wapilot-compatible endpoints require multipart/form-data with an actual file under `media`.
   if (pdfBytes && pdfBytes.length > 0) {
@@ -303,9 +306,9 @@ export async function sendWapilotDocument(
     form.set("phone_number", digits);
     form.set("caption", captionText);
     form.set("filename", safeFilename);
-    form.set("mimetype", "application/pdf");
+    form.set("mimetype", mime);
     form.set("type", "document");
-    form.set("media", new Blob([pdfArrayBuffer], { type: "application/pdf" }), safeFilename);
+    form.set("media", new Blob([pdfArrayBuffer], { type: mime }), safeFilename);
     if (trimmedUrl) {
       form.set("content", trimmedUrl);
       form.set("file_url", trimmedUrl);
@@ -337,14 +340,14 @@ export async function sendWapilotDocument(
     media: {
       url: trimmedUrl,
       filename: safeFilename,
-      mimetype: "application/pdf",
+      mimetype: mime,
     },
     media_url: trimmedUrl,
     content: trimmedUrl,
     file: trimmedUrl,
     filename: safeFilename,
     caption: captionText,
-    mimetype: "application/pdf",
+    mimetype: mime,
     type: "document",
   };
 

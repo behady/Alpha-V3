@@ -540,9 +540,9 @@ export default function NotificationSettings({
 
                     {anyOn && report && (
                       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl bg-surface-subtle px-3 py-2.5">
-                        <span className={`flex flex-wrap items-center gap-1.5 ${event.report === "dentistDay" || event.report === "summary" || event.report === "payroll" ? "hidden" : ""}`}>
+                        <span className={`flex flex-wrap items-center gap-1.5 ${event.report === "dentistDay" || event.report === "summary" || event.report === "payroll" || event.report === "dailySheet" ? "hidden" : ""}`}>
                           <span className="me-1 text-[10.5px] font-black uppercase tracking-wider text-ink-faint">{txt.reportSections}</span>
-                          {(event.report === "dentistDay" || event.report === "summary" || event.report === "payroll" ? [] : REPORT_SECTIONS).map((key: ReportSection) => {
+                          {(event.report === "dentistDay" || event.report === "summary" || event.report === "payroll" || event.report === "dailySheet" ? [] : REPORT_SECTIONS).map((key: ReportSection) => {
                             const label = key === "money" ? txt.secMoney : key === "appointments" ? txt.secAppointments : key === "patients" ? txt.secPatients : txt.secTeam;
                             const on = report.sections[key];
                             return (
@@ -598,7 +598,7 @@ export default function NotificationSettings({
                             <option value="en">English</option>
                           </select>
                         </label>
-                        {event.report !== "summary" && event.report !== "dentistDay" && (
+                        {event.report !== "summary" && event.report !== "dentistDay" && event.report !== "dailySheet" && (
                           <label className="flex items-center gap-2 text-[11.5px] font-bold text-ink-body">
                             <input
                               type="checkbox"

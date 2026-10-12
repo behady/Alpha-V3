@@ -95,7 +95,7 @@ function eq<T>(actual: T, expected: T, message: string) {
 // --- 2. The reports and their settings --------------------------------------------------------
 {
   const ids = reportEvents().map((e) => e.id).sort();
-  eq(ids, ["eveningDigest", "monthlyReport", "morningBriefClinic", "morningBriefDentist", "ownerSummary", "payrollReport", "weeklyReport"], "the set of scheduled reports changed");
+  eq(ids, ["dailyFinanceSheet", "eveningDigest", "monthlyReport", "morningBriefClinic", "morningBriefDentist", "ownerSummary", "payrollReport", "weeklyReport"], "the set of scheduled reports changed");
   // The other session's "daily_digest" checkbox on Settings → WhatsApp maps onto the AI three-liner.
   eq(notifyEvent("ownerSummary")?.legacyOwnerKey, "daily_digest", "the old daily_digest tick would be lost");
   eq(resolveNotify("ownerSummary", { legacyOwnerAlerts: { daily_digest: true } })?.whatsapp, true, "daily_digest tick not honoured");

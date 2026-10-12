@@ -25,7 +25,7 @@ import type { ReportKind, ResolvedReportPrefs } from "@/lib/notificationCatalog"
  * reader's, so a PDF handed to a receptionist has no money table to begin with.
  */
 
-type PdfKind = Exclude<ReportKind, "summary" | "dentistDay">;
+type PdfKind = Exclude<ReportKind, "summary" | "dentistDay" | "dailySheet">;
 type L = "ar" | "en";
 
 const autoTable = ((autoTableImport as unknown as { default?: unknown }).default || autoTableImport) as (

@@ -161,7 +161,7 @@ export interface DeliverOptions {
    * A file to follow the text, per person: the report as a PDF. Returning null sends no file.
    * Called only for people whose text went out, so a dead gateway costs one failed send, not two.
    */
-  whatsappDocumentFor?: (member: { uid: string; role: string }) => Promise<{ bytes: Uint8Array; filename: string; caption?: string } | null>;
+  whatsappDocumentFor?: (member: { uid: string; role: string }) => Promise<{ bytes: Uint8Array; filename: string; caption?: string; mimetype?: string } | null>;
   /**
    * WhatsApp and nothing else. For the scheduled reports, whose bell row and push already come
    * from the Cloud Functions job at the same hour — sending them twice is how an owner learns to
@@ -194,7 +194,7 @@ export interface DeliverResult {
   queued?: boolean;
   /** Why nobody got it on WhatsApp although the alert has WhatsApp on. */
   whatsappReason?: "off" | "quiet" | "no-gateway" | "platform-not-configured" | "no-phone" | "failed";
-  reason?: "unknown-event" | "off" | "nobody" | "muted" | "quiet" | "no-devices";
+  reason?: "unknown-event" | "off" | "nobody" | "muted" | "quiet" | "no-devices" | "empty-day";
 }
 
 /**

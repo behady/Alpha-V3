@@ -147,6 +147,8 @@ export async function sendStaffDocument(args: {
   bytes: Uint8Array;
   filename: string;
   caption?: string;
+  /** The file's type; PDF when absent. */
+  mimetype?: string;
   /** Path inside the bucket. Defaults to the clinic's reports folder with the file name. */
   storagePath?: string;
   gateway?: StaffGateway | null;
@@ -167,7 +169,7 @@ export async function sendStaffDocument(args: {
   let link = "";
   try {
     const file = adminBucket().file(storagePath);
-    await file.save(Buffer.from(args.bytes), { contentType: "application/pdf", metadata: { cacheControl: "private, max-age=3600" } });
+    await file.save(Buffer.from(args.bytes), { contentType: args.mimetype || "application/pdf", metadata: { cacheControl: "private, max-age=3600" } });
     const [signed] = await file.getSignedUrl({ action: "read", expires: Date.now() + 7 * 24 * 60 * 60 * 1000 });
     link = signed;
   } catch (error) {
@@ -183,7 +185,7 @@ export async function sendStaffDocument(args: {
       if (!result.ok) return { sent: false, reason: "gateway_error", error: result.error || "Meta refused the document" };
       return { sent: true, via: "meta" };
     }
-    await sendWapilotDocument(gateway.config, { to, fileUrl: link || undefined, pdfBytes: args.bytes, filename: safeName, caption: args.caption });
+    await sendWapilotDocument(gateway.config, { to, fileUrl: link || undefined, pdfBytes: args.bytes, filename: safeName, caption: args.caption, mimetype: args.mimetype });
     return { sent: true, via: gateway.platform ? "platform" : "wapilot" };
   } catch (error) {
     return { sent: false, reason: "gateway_error", error: error instanceof Error ? error.message : String(error) };

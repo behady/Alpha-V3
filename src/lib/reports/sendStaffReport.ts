@@ -21,6 +21,17 @@ import {
 import { renderStaffReport, reportPushLine } from "@/lib/reports/staffReportText";
 import { getOrWriteOwnerSummary } from "@/lib/ownerSummary";
 import { digestMessage } from "@/lib/ownerSummaryText";
+import { LOCATIONS_DOC, parseClinicBranches } from "@/lib/clinicLocations";
+import { parsePayers } from "@/lib/payers";
+import {
+  buildDailyFinanceReport,
+  dailyFinanceReportFileName,
+  dailyFinanceReportText,
+  type ReportLedgerRow,
+} from "@/lib/reports/dailyFinanceReport";
+import { dailyFinanceReportBytes } from "@/lib/reports/dailyFinanceReportXlsx";
+
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 /**
  * The scheduled reports, on WhatsApp.
@@ -107,6 +118,50 @@ function appointmentsForDentist(briefing: Briefing, dentist: { id: string; name:
   });
 }
 
+/**
+ * The day's money sheet: a short summary on WhatsApp, then the Excel file. Money only, so it goes
+ * to Owner and Admin and nobody else, whatever roles the clinic ticked.
+ */
+async function sendDailyFinanceSheet(args: SendStaffReportArgs, today: string, isAr: boolean): Promise<DeliverResult> {
+  const { clinicId, event } = args;
+  const [name, ledgerSnap, locationsSnap, payersSnap] = await Promise.all([
+    clinicName(clinicId),
+    // `date` is a day key, sometimes with a time after it; the range catches both.
+    adminClinicCollection(clinicId, "ledger").where("date", ">=", today).where("date", "<=", `${today}\uf8ff`).get(),
+    adminClinicDoc(clinicId, "settings", LOCATIONS_DOC).get().catch(() => null),
+    adminClinicDoc(clinicId, "settings", "payers").get().catch(() => null),
+  ]);
+  const rows: ReportLedgerRow[] = ledgerSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) }));
+  const branches = parseClinicBranches(locationsSnap?.exists ? locationsSnap.data() : null).map((b) => ({ id: b.id, name: b.name }));
+  const payers = parsePayers(payersSnap?.exists ? payersSnap.data() : null);
+  const report = buildDailyFinanceReport({ date: today, rows, branches, payers, isAr });
+
+  // A day nobody paid or was charged is not worth a message — except as a test.
+  if (report.sections.length === 0 && !args.test) {
+    return { raised: false, bellWritten: false, pushed: 0, whatsapped: 0, reason: "empty-day" };
+  }
+  const text = dailyFinanceReportText(report, name, isAr);
+  const file = report.sections.length > 0
+    ? { bytes: dailyFinanceReportBytes(report, name, isAr), filename: dailyFinanceReportFileName(today, isAr), caption: name, mimetype: XLSX_MIME }
+    : null;
+  const title = isAr ? "يومية الفلوس" : "Daily money sheet";
+
+  return deliverClinicNotification(
+    clinicId,
+    { title: args.test ? `🧪 ${title}` : title, body: text.split("\n").slice(1).find(Boolean) || "" },
+    {
+      event: event.id,
+      ...(args.uids ? { uids: args.uids } : {}),
+      whatsappOnly: !args.test,
+      ...(args.allowOutsiders ? { allowOutsiders: true } : {}),
+      ...(args.onDemand ? { forceWhatsapp: true } : {}),
+      data: { screen: "money" },
+      whatsappTextFor: ({ role }) => (reportAccessForRole(role).money ? text : null),
+      ...(file ? { whatsappDocumentFor: async ({ role }: { uid: string; role: string }) => (reportAccessForRole(role).money ? file : null) } : {}),
+    },
+  );
+}
+
 export interface SendStaffReportArgs {
   clinicId: string;
   event: NotifyEvent;
@@ -131,6 +186,8 @@ export async function sendStaffReport(args: SendStaffReportArgs): Promise<Delive
   const prefs = await readAlertPreferences(clinicId);
   const rp = reportPrefs(event.id, prefs);
   const full: BriefingAccess = { money: true, hr: true };
+
+  if (kind === "dailySheet") return sendDailyFinanceSheet(args, today, rp.language !== "en");
 
   /*
    * The AI three-liner. Written once per day and stored (lib/ownerSummary), so the owner's home

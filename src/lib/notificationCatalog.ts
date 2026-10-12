@@ -100,7 +100,7 @@ export interface NotifyTiming {
 }
 
 /** Which of the scheduled reports an event is, when it is one. Decides what the WhatsApp text contains. */
-export type ReportKind = "morning" | "evening" | "dentistDay" | "summary" | "weekly" | "monthly" | "payroll";
+export type ReportKind = "morning" | "evening" | "dentistDay" | "summary" | "weekly" | "monthly" | "payroll" | "dailySheet";
 
 export interface NotifyEvent {
   id: string;
@@ -637,6 +637,22 @@ export const NOTIFY_EVENTS: readonly NotifyEvent[] = [
     bell: true,
     push: true,
     timings: [{ key: "hour", kind: "hourOfDay", en: "Send at", ar: "ابعت الساعة", fallback: 21, min: 0, max: 23 }],
+  },
+
+  {
+    id: "dailyFinanceSheet",
+    group: "reports",
+    waReady: true,
+    report: "dailySheet",
+    en: "The day's money sheet (Excel)",
+    ar: "يومية الفلوس (إكسل)",
+    whenEn: "An Excel file on WhatsApp, each branch on its own: every patient seen — insurance company or own file, the treatment, the dentist, what was due, paid and left, and the dentist's share — with a summary on top.",
+    whenAr: "ملف إكسل على واتساب، كل فرع لوحده: كل مريض — شركة التأمين أو ملف العيادة، العلاج، الدكتور، المطلوب والمدفوع والمتبقي، ونصيب الدكتور — وملخص فوق.",
+    roles: ["Owner"],
+    rolesMax: ["Owner", "Admin"],
+    bell: false,
+    push: false,
+    timings: [{ key: "hour", kind: "hourOfDay", en: "Send at", ar: "ابعت الساعة", fallback: 23, min: 0, max: 23 }],
   },
 
   {
