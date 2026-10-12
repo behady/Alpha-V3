@@ -53,7 +53,7 @@ const GRID = "#E2E8F0";
 const TICK = { fontSize: 11, fill: "#78899F", fontWeight: 600 } as const;
 const ANIM = { isAnimationActive: true, animationDuration: 900, animationEasing: "ease-out" as const };
 
-export default function DentistReport({ me, ledger, patients, showShare, today, isAr, unit: unitProp }: Props) {
+export default function DentistReport({ me, ledger, patients, today, isAr, unit: unitProp }: Props) {
   const { clinicId } = useClinic();
   const unit = unitProp || currencyUnit("EGP", isAr);
   const [kind, setKind] = useState<PeriodKind>("month");
@@ -94,7 +94,6 @@ export default function DentistReport({ me, ledger, patients, showShare, today, 
     { key: "year", label: isAr ? "السنة دي" : "This year" },
   ];
   const eyebrow = "font-display text-[11px] font-black uppercase tracking-[0.12em] text-ink-muted";
-  const hasMoney = money.some((p) => p.charged || p.collected);
   const hasAtt = attendance.some((p) => p.seen || p.noShow || p.cancelled);
   const hasPeople = people.some((p) => p.newPatients || p.returning);
 
@@ -136,16 +135,8 @@ export default function DentistReport({ me, ledger, patients, showShare, today, 
         </div>
       </div>
 
-      {/* The headline figures, counted up. */}
-      <div className={`grid grid-cols-2 lg:grid-cols-4 gap-3 transition-opacity ${loading ? "opacity-60" : ""}`}>
-        <Tile label={isAr ? "اتحاسب" : "Charged"} value={totals.charged} unit={unit} fmt={fmt} />
-        <Tile
-          label={isAr ? "اتحصّل" : "Collected"}
-          value={totals.collected}
-          unit={unit}
-          fmt={fmt}
-          sub={showShare ? `${isAr ? "نصيبي" : "My share"} ${fmt(totals.share)}` : undefined}
-        />
+      {/* The headline figures, counted up. No money: the dentist view shows none (owner, 2026-10-12). */}
+      <div className={`grid grid-cols-2 gap-3 transition-opacity ${loading ? "opacity-60" : ""}`}>
         <Tile
           label={isAr ? "مرضى اتشافوا" : "Patients seen"}
           value={totals.seen}
@@ -162,30 +153,6 @@ export default function DentistReport({ me, ledger, patients, showShare, today, 
       </div>
 
       <div className={`grid grid-cols-1 lg:grid-cols-2 gap-4 transition-opacity ${loading ? "opacity-60" : ""}`}>
-        {/* Money */}
-        <Card title={isAr ? "اتحاسب واتحصّل" : "Charged vs collected"} eyebrow={eyebrow}>
-          {view === "table" ? (
-            <DataTable
-              cols={[isAr ? "اليوم" : "When", isAr ? "اتحاسب" : "Charged", isAr ? "اتحصّل" : "Collected", ...(showShare ? [isAr ? "نصيبي" : "My share"] : [])]}
-              rows={money.map((p) => [p.label, fmt(p.charged), fmt(p.collected), ...(showShare ? [fmt(p.share)] : [])])}
-            />
-          ) : !hasMoney ? (
-            <Empty>{isAr ? "مفيش حسابات في الفترة دي." : "No money in this period yet."}</Empty>
-          ) : (
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={money} barCategoryGap="30%" barGap={2} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
-                <CartesianGrid vertical={false} stroke={GRID} strokeWidth={1} />
-                <XAxis dataKey="label" axisLine={false} tickLine={false} tick={TICK} interval="preserveStartEnd" />
-                <YAxis axisLine={false} tickLine={false} tick={TICK} tickFormatter={(v) => compact(Number(v))} width={44} />
-                <Tooltip cursor={{ fill: "rgba(15,23,42,0.04)" }} content={<Tip fmt={fmt} isAr={isAr} unit={unit} extra={showShare ? { key: "share", label: isAr ? "نصيبي" : "My share" } : undefined} />} />
-                <Legend verticalAlign="top" align="right" iconType="square" iconSize={8} wrapperStyle={{ fontSize: 11, fontWeight: 700, color: "#64748B", paddingBottom: 8 }} />
-                <Bar dataKey="charged" name={isAr ? "اتحاسب" : "Charged"} fill={DEEMPHASIS} radius={[4, 4, 0, 0]} maxBarSize={24} {...ANIM} />
-                <Bar dataKey="collected" name={isAr ? "اتحصّل" : "Collected"} fill={ACCENT} radius={[4, 4, 0, 0]} maxBarSize={24} {...ANIM} animationBegin={120} />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </Card>
-
         {/* Attendance */}
         <Card title={isAr ? "الحضور" : "How bookings ended"} eyebrow={eyebrow}>
           {view === "table" ? (
@@ -402,8 +369,3 @@ function Tip({ active, payload, label, fmt, isAr, unit, extra }: {
   );
 }
 
-function compact(n: number): string {
-  if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-  if (Math.abs(n) >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
-  return String(Math.round(n));
-}
