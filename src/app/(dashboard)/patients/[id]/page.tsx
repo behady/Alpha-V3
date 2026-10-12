@@ -367,7 +367,9 @@ export default function PatientProfile() {
           if (
               tabParam === "finance" || tabParam === "clinical" || tabParam === "overview" ||
               tabParam === "timeline" || tabParam === "xrays" || tabParam === "prescriptions" ||
-              tabParam === "notes" || tabParam === "plan"
+              tabParam === "notes" || tabParam === "plan" ||
+              // The Insurance tab locks itself when the add-on is off, and chair mode moves off it.
+              tabParam === "insurance"
           ) {
               setActiveTab(tabParam);
           } else {
@@ -1081,12 +1083,13 @@ export default function PatientProfile() {
               {/* Phones: how to reach them and what they owe, in the name's place. */}
               <div className="min-w-0 md:hidden">
                 {patient.phone ? (
-                  <button onClick={() => openWhatsApp(patient.phone)} className="inline-flex max-w-full items-center gap-1.5 text-[14px] font-bold text-ink hover:text-emerald-700">
+                  // The invisible ::before widens the tap target to ~41px without moving the text.
+                  <button onClick={() => openWhatsApp(patient.phone)} className="relative max-lg:before:absolute max-lg:before:-inset-x-1 max-lg:before:-inset-y-2.5 max-lg:before:content-[''] inline-flex max-w-full items-center gap-1.5 text-[14px] font-bold text-ink hover:text-emerald-700">
                     <MessageCircle size={14} className="shrink-0 text-emerald-600" /> <bdi dir="ltr" className="truncate font-figure">{patient.phone}</bdi>
                   </button>
                 ) : (
                   <Protect permission="patients.edit" fallback={<span className="text-sm font-semibold text-ink-faint">—</span>}>
-                    <button type="button" onClick={() => setIsEditModalOpen(true)} className="inline-flex items-center gap-1 text-sm font-bold text-ink-muted hover:text-ink">
+                    <button type="button" onClick={() => setIsEditModalOpen(true)} className="relative max-lg:before:absolute max-lg:before:-inset-x-1 max-lg:before:-inset-y-2.5 max-lg:before:content-[''] inline-flex items-center gap-1 text-sm font-bold text-ink-muted hover:text-ink">
                       <Plus size={14} /> {language === 'ar' ? 'أضف تليفون' : 'Add phone'}
                     </button>
                   </Protect>
@@ -1156,7 +1159,7 @@ export default function PatientProfile() {
             const ar = language === 'ar';
             const addButton = (
               <Protect permission="patients.edit" fallback={<span className="text-sm font-semibold text-ink-faint">—</span>}>
-                <button type="button" onClick={() => setIsEditModalOpen(true)} className="inline-flex items-center gap-1 text-sm font-bold text-ink-muted underline-offset-4 hover:text-ink hover:underline">
+                <button type="button" onClick={() => setIsEditModalOpen(true)} className="relative max-lg:before:absolute max-lg:before:-inset-x-1 max-lg:before:-inset-y-2.5 max-lg:before:content-[''] inline-flex items-center gap-1 text-sm font-bold text-ink-muted underline-offset-4 hover:text-ink hover:underline">
                   <Plus size={14} /> {ar ? 'أضف' : 'Add'}
                 </button>
               </Protect>
@@ -1342,13 +1345,16 @@ export default function PatientProfile() {
                       <span className="flex items-start gap-3 min-w-0">
                         <MessageCircleOff size={18} className="text-slate-400 shrink-0 mt-0.5 group-hover:text-rose-500 transition-colors" />
                         <span className="text-sm font-bold text-slate-800 leading-snug">
-                          {t("whatsappOptOutLabel") || "Opt-out of automated WhatsApp messages"}
+                          {t("whatsappOptOutLabel")}
                         </span>
                       </span>
+                      {/* ON = messages are sent. The stored field is still the opt-out flag and the
+                          click still flips it exactly as before — only the wording and the
+                          announced state follow what the green switch shows. */}
                       <button
                         type="button"
                         role="switch"
-                        aria-checked={patient.whatsappOptOut === true}
+                        aria-checked={patient.whatsappOptOut !== true}
                         disabled={whatsappOptOutSaving}
                         onClick={() => handleWhatsAppOptOutChange(!(patient.whatsappOptOut === true))}
                         className={`relative w-12 h-7 rounded-full shrink-0 transition-colors border-2 ${
@@ -1358,8 +1364,8 @@ export default function PatientProfile() {
                         } ${whatsappOptOutSaving ? "opacity-60 pointer-events-none" : ""}`}
                       >
                         <span
-                          className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-surface shadow-md transition-transform duration-200 ${
-                            patient.whatsappOptOut === true ? "translate-x-0" : "translate-x-[1.35rem]"
+                          className={`absolute top-0.5 start-0.5 w-5 h-5 rounded-full bg-surface shadow-md transition-transform duration-200 ${
+                            patient.whatsappOptOut === true ? "translate-x-0" : "translate-x-[1.35rem] rtl:-translate-x-[1.35rem]"
                           }`}
                         />
                       </button>
@@ -1386,13 +1392,13 @@ export default function PatientProfile() {
                       <span className="flex items-start gap-3 min-w-0">
                         <MessageSquareOff size={18} className="text-slate-400 shrink-0 mt-0.5 group-hover:text-rose-500 transition-colors" />
                         <span className="text-sm font-bold text-slate-800 leading-snug">
-                          {language === "ar" ? "إيقاف الرسائل النصية التلقائية" : "Opt-out of automated SMS"}
+                          {language === "ar" ? "الرسائل النصية التلقائية" : "Automated SMS"}
                         </span>
                       </span>
                       <button
                         type="button"
                         role="switch"
-                        aria-checked={smsBlocked}
+                        aria-checked={!smsBlocked}
                         disabled={smsOptOutSaving}
                         onClick={() => handleSmsOptOutChange(!smsBlocked)}
                         className={`relative w-12 h-7 rounded-full shrink-0 transition-colors border-2 ${
@@ -1400,8 +1406,8 @@ export default function PatientProfile() {
                         } ${smsOptOutSaving ? "opacity-60 pointer-events-none" : ""}`}
                       >
                         <span
-                          className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-surface shadow-md transition-transform duration-200 ${
-                            smsBlocked ? "translate-x-0" : "translate-x-[1.35rem]"
+                          className={`absolute top-0.5 start-0.5 w-5 h-5 rounded-full bg-surface shadow-md transition-transform duration-200 ${
+                            smsBlocked ? "translate-x-0" : "translate-x-[1.35rem] rtl:-translate-x-[1.35rem]"
                           }`}
                         />
                       </button>
@@ -2224,67 +2230,69 @@ export default function PatientProfile() {
         {/* --- EDIT MODAL --- */}
         {isEditModalOpen && (
            <div className="fixed inset-0 bg-slate-900/30 flex items-center justify-center z-[100] p-4 backdrop-blur-md animate-in fade-in duration-200">
-              <div className="bg-white rounded-[2.5rem] p-8 w-full max-w-lg shadow-[0_20px_60px_-15px_rgba(0,0,0,0.1)] border border-slate-100 animate-in zoom-in-95 flex flex-col max-h-[90vh]">
-                 <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-100">
-                    <div>
-                        <h2 className="text-xl font-black text-slate-900 tracking-tight">{t('editProfile') || "Edit Profile"}</h2>
-                        <p className="text-xs font-semibold text-ink-muted mt-1">Update patient demographics and history.</p>
+              <div className="bg-white rounded-[2.5rem] p-5 sm:p-8 w-full max-w-lg shadow-[0_20px_60px_-15px_rgba(0,0,0,0.1)] border border-slate-100 animate-in zoom-in-95 flex flex-col max-h-[90vh]">
+                 <div className="flex justify-between items-center gap-3 mb-6 pb-4 border-b border-slate-100">
+                    <div className="min-w-0">
+                        <h2 className="text-xl font-black text-slate-900 tracking-tight">{t('editProfile')}</h2>
+                        <p className="text-xs font-semibold text-ink-muted mt-1">{t('editProfileSubtitle')}</p>
                     </div>
-                    <button onClick={() => setIsEditModalOpen(false)} className="bg-surface-subtle hover:bg-surface-muted text-slate-400 hover:text-ink p-2.5 rounded-full transition-colors"><X size={18}/></button>
+                    <button onClick={() => setIsEditModalOpen(false)} aria-label={language === 'ar' ? 'إغلاق' : 'Close'} className="shrink-0 bg-surface-subtle hover:bg-surface-muted text-slate-400 hover:text-ink p-2.5 rounded-full transition-colors"><X size={18}/></button>
                  </div>
-                 
-                 <form onSubmit={handleUpdate} className="space-y-4 overflow-y-auto pr-2 flex-1 custom-scrollbar">
-                    <div className="grid grid-cols-2 gap-4">
-                       <Input label={t('firstName') || "First Name"} value={editFirstName} onChange={setEditFirstName} />
-                       <Input label={t('lastName') || "Last Name"} value={editLastName} onChange={setEditLastName} />
+
+                 <form onSubmit={handleUpdate} className="space-y-4 overflow-y-auto pe-2 flex-1 custom-scrollbar">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                       <Input label={t('firstName')} value={editFirstName} onChange={setEditFirstName} />
+                       <Input label={t('lastName')} value={editLastName} onChange={setEditLastName} />
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                       <div>
-                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">{t('phone') || "Phone"}</label>
-                          <div className="flex gap-2">
-                            <select
-                              value={editCountryCode}
-                              onChange={e => setEditCountryCode(e.target.value)}
-                              className="w-[45%] px-3 py-3 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all appearance-none cursor-pointer"
-                            >
-                              {COUNTRY_CODE_OPTIONS.map((opt) => (
-                                <option key={opt.code} value={opt.code}>{opt.label}</option>
-                              ))}
-                            </select>
-                            <input
-                              value={editPhone}
-                              onChange={e => setEditPhone(e.target.value)}
-                              placeholder="1001234567"
-                              className="w-[55%] px-4 py-3 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all"
-                            />
-                          </div>
-                       </div>
-                       <div>
-                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">{t('age') || "Age"} / {t('dob') || "DOB"}</label>
-                          <input type="date" value={editDob} onChange={e => setEditDob(e.target.value)} className="w-full px-4 py-3 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all"/>
+                    {/* Phone gets its own full-width row: inside half a column on a phone the country
+                        select and the number squeezed to "Egy" + four digits. */}
+                    <div>
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">{t('phone')}</label>
+                       <div className="flex gap-2">
+                         <select
+                           value={editCountryCode}
+                           onChange={e => setEditCountryCode(e.target.value)}
+                           className="shrink-0 w-auto max-w-[45%] px-3 py-3 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all appearance-none cursor-pointer"
+                         >
+                           {COUNTRY_CODE_OPTIONS.map((opt) => (
+                             <option key={opt.code} value={opt.code}>{opt.label}</option>
+                           ))}
+                         </select>
+                         <input
+                           value={editPhone}
+                           onChange={e => setEditPhone(e.target.value)}
+                           placeholder="1001234567"
+                           dir="ltr"
+                           inputMode="tel"
+                           className="flex-1 min-w-0 px-4 py-3 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all"
+                         />
                        </div>
                     </div>
-                    <Input label={t('address') || "Address"} value={editAddress} onChange={setEditAddress} />
+                    <div>
+                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">{t('patientBirthDate')}</label>
+                       <input type="date" value={editDob} onChange={e => setEditDob(e.target.value)} className="w-full min-w-0 px-4 py-3 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all"/>
+                    </div>
+                    <Input label={t('address')} value={editAddress} onChange={setEditAddress} />
                     <Input label={language === 'ar' ? 'كود ملف الأشعة' : 'X-ray file code'} value={editXrayCode} onChange={setEditXrayCode} />
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                        <div>
-                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">{t('gender') || "Gender"}</label>
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">{t('gender')}</label>
                           <div className="relative">
                               <select value={editGender} onChange={e => setEditGender(e.target.value)} className="w-full px-4 py-3 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none appearance-none focus:bg-surface focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all cursor-pointer">
-                                 <option value="Male">{t('male') || "Male"}</option>
-                                 <option value="Female">{t('female') || "Female"}</option>
+                                 <option value="Male">{t('male')}</option>
+                                 <option value="Female">{t('female')}</option>
                               </select>
-                              <ChevronDown size={14} className="absolute top-1/2 -translate-y-1/2 right-4 text-slate-400 pointer-events-none"/>
+                              <ChevronDown size={14} className="absolute top-1/2 -translate-y-1/2 end-4 text-slate-400 pointer-events-none"/>
                           </div>
                        </div>
                        <div>
-                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">{t('status') || "Status"}</label>
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">{t('status')}</label>
                           <div className="relative">
                               <select value={editStatus} onChange={e => setEditStatus(e.target.value)} className="w-full px-4 py-3 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none appearance-none focus:bg-surface focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all cursor-pointer">
-                                 <option value="Active">{t('statusActive') || "Active"}</option>
-                                 <option value="Archived">{t('statusArchived') || "Archived"}</option>
+                                 <option value="Active">{t('statusActive')}</option>
+                                 <option value="Archived">{t('statusArchived')}</option>
                               </select>
-                              <ChevronDown size={14} className="absolute top-1/2 -translate-y-1/2 right-4 text-slate-400 pointer-events-none"/>
+                              <ChevronDown size={14} className="absolute top-1/2 -translate-y-1/2 end-4 text-slate-400 pointer-events-none"/>
                           </div>
                        </div>
                     </div>
@@ -2292,13 +2300,13 @@ export default function PatientProfile() {
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">{t('referralSource') || "Referral"}</label>
                         <div className="relative">
                             <select value={editReferral} onChange={e => setEditReferral(e.target.value)} className="w-full px-4 py-3 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none appearance-none focus:bg-surface focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all cursor-pointer">
-                               <option value="">{t('select') || "Select..."}</option>
-                               <option value="Walk-in">{t('walkIn') || "Walk-in"}</option>
-                               <option value="Social Media">{t('socialMedia') || "Social Media"}</option>
-                               <option value="Friend/Family">{t('friendFamily') || "Friend/Family"}</option>
-                               <option value="Other Doctor">{t('otherDoctor') || "Other Doctor"}</option>
+                               <option value="">{t('selectPlaceholder')}</option>
+                               <option value="Walk-in">{t('walkIn')}</option>
+                               <option value="Social Media">{t('socialMedia')}</option>
+                               <option value="Friend/Family">{t('friendFamily')}</option>
+                               <option value="Other Doctor">{t('otherDoctor')}</option>
                             </select>
-                            <ChevronDown size={14} className="absolute top-1/2 -translate-y-1/2 right-4 text-slate-400 pointer-events-none"/>
+                            <ChevronDown size={14} className="absolute top-1/2 -translate-y-1/2 end-4 text-slate-400 pointer-events-none"/>
                         </div>
                     </div>
                     <div>

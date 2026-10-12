@@ -1826,8 +1826,9 @@ export default function PatientTreatmentPlanTab({
                       {formVisits.length > 1 && (
                         <button
                           onClick={() => setFormVisits((prev) => prev.filter((v) => v.id !== visit.id))}
-                          className="p-2 rounded-lg text-rose-400 hover:bg-rose-50 transition-colors"
+                          className="p-2 max-lg:min-h-10 max-lg:min-w-10 grid place-items-center rounded-lg text-rose-400 hover:bg-rose-50 transition-colors"
                           title={txt.delete}
+                          aria-label={txt.delete}
                         >
                           <Trash2 size={15} />
                         </button>
@@ -1875,8 +1876,10 @@ export default function PatientTreatmentPlanTab({
                         return (
                         <div key={step.id} className="bg-slate-50/70 border border-slate-100 rounded-2xl p-3.5">
                           <div className="flex items-start gap-2">
-                            <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-2">
-                              <div className="md:col-span-5 rounded-xl">
+                            {/* Phones: two columns, so quantity and unit price sit side by side under
+                                captions (they were two bare number boxes nobody could tell apart). */}
+                            <div className="flex-1 min-w-0 grid grid-cols-2 md:grid-cols-12 gap-2">
+                              <div className="col-span-2 md:col-span-5 rounded-xl">
                                 <ServiceCombobox
                                   services={offeredServices}
                                   priceListId={formPriceListId}
@@ -1904,31 +1907,37 @@ export default function PatientTreatmentPlanTab({
                                 value={step.teeth}
                                 onChange={(e) => updateStep(visit.id, step.id, { teeth: e.target.value })}
                                 placeholder={txt.teethPh}
-                                className="md:col-span-3 rounded-xl border border-line bg-surface px-3 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-accent transition-all"
+                                className="col-span-2 md:col-span-3 rounded-xl border border-line bg-surface px-3 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-accent transition-all"
                               />
-                              <input
-                                type="number"
-                                min={1}
-                                value={step.quantity}
-                                onChange={(e) => updateStep(visit.id, step.id, { quantity: Math.max(1, Math.round(Number(e.target.value) || 1)) })}
-                                title={txt.qty}
-                                className="md:col-span-2 rounded-xl border border-line bg-surface px-3 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-accent transition-all"
-                              />
-                              <input
-                                type="number"
-                                min={0}
-                                value={step.unitPrice}
-                                onChange={(e) => updateStep(visit.id, step.id, { unitPrice: Math.max(0, Number(e.target.value) || 0) })}
-                                title={txt.unitPrice}
-                                className="md:col-span-2 rounded-xl border border-line bg-surface px-3 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-accent transition-all"
-                              />
+                              <label className="md:col-span-2 flex flex-col gap-1 min-w-0">
+                                <span className="md:hidden text-[10px] font-black uppercase tracking-widest text-slate-400 ps-1">{txt.qty}</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  value={step.quantity}
+                                  onChange={(e) => updateStep(visit.id, step.id, { quantity: Math.max(1, Math.round(Number(e.target.value) || 1)) })}
+                                  title={txt.qty}
+                                  className="w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-accent transition-all"
+                                />
+                              </label>
+                              <label className="md:col-span-2 flex flex-col gap-1 min-w-0">
+                                <span className="md:hidden text-[10px] font-black uppercase tracking-widest text-slate-400 ps-1">{txt.unitPrice}</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={step.unitPrice}
+                                  onChange={(e) => updateStep(visit.id, step.id, { unitPrice: Math.max(0, Number(e.target.value) || 0) })}
+                                  title={txt.unitPrice}
+                                  className="w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-accent transition-all"
+                                />
+                              </label>
                               <input
                                 value={step.note}
                                 onChange={(e) => updateStep(visit.id, step.id, { note: e.target.value })}
                                 placeholder={txt.notePh}
-                                className="md:col-span-9 rounded-xl border border-line bg-surface px-3 py-2.5 text-xs font-semibold text-slate-700 outline-none focus:border-accent transition-all"
+                                className="col-span-2 md:col-span-9 rounded-xl border border-line bg-surface px-3 py-2.5 text-xs font-semibold text-slate-700 outline-none focus:border-accent transition-all"
                               />
-                              <div className="md:col-span-3 relative">
+                              <div className="col-span-2 md:col-span-3 relative">
                                 <input
                                   type="number"
                                   min={0}
@@ -1943,8 +1952,9 @@ export default function PatientTreatmentPlanTab({
                             </div>
                             <button
                               onClick={() => updateVisit(visit.id, { steps: visit.steps.filter((s) => s.id !== step.id) })}
-                              className="mt-2.5 p-2 rounded-lg text-rose-400 hover:bg-rose-50 transition-colors shrink-0"
+                              className="mt-2.5 p-2 max-lg:min-h-10 max-lg:min-w-10 grid place-items-center rounded-lg text-rose-400 hover:bg-rose-50 transition-colors shrink-0"
                               title={txt.delete}
+                              aria-label={txt.delete}
                             >
                               <Trash2 size={15} />
                             </button>
@@ -1976,18 +1986,20 @@ export default function PatientTreatmentPlanTab({
               </div>
             </div>
 
-            <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50/60 rounded-b-3xl">
+            {/* Phones: the total on its own line above the buttons — squeezed beside them it wrapped
+                to three lines and "Save plan" to two. */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 sm:px-6 py-4 border-t border-slate-100 bg-slate-50/60 rounded-b-3xl">
               <div className="text-sm font-black text-slate-700">
-                {txt.total}: <span className="text-accent">{money(formTotal)} {currencyUnit(currency, ar)}</span>
+                {txt.total}: <span className="text-accent whitespace-nowrap">{money(formTotal)} {currencyUnit(currency, ar)}</span>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => setEditorOpen(false)} className="px-4 py-2.5 rounded-xl text-sm font-bold text-ink-muted hover:bg-surface-muted transition-colors">
+                <button onClick={() => setEditorOpen(false)} className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl text-sm font-bold text-ink-muted hover:bg-surface-muted transition-colors whitespace-nowrap">
                   {txt.cancel}
                 </button>
                 <button
                   onClick={handleSavePlan}
                   disabled={saving}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-accent text-ink text-sm font-bold hover:bg-accent-strong transition-colors disabled:opacity-60"
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-accent text-ink text-sm font-bold hover:bg-accent-strong transition-colors disabled:opacity-60 whitespace-nowrap"
                 >
                   {saving ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} {txt.save}
                 </button>
@@ -2051,8 +2063,9 @@ export default function PatientTreatmentPlanTab({
                       </div>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDeleteDiagSession(s); }}
-                        className="p-2 rounded-lg text-rose-400 hover:bg-rose-50 transition-colors shrink-0"
+                        className="p-2 max-lg:min-h-10 max-lg:min-w-10 grid place-items-center rounded-lg text-rose-400 hover:bg-rose-50 transition-colors shrink-0"
                         title={txt.delete}
+                        aria-label={txt.delete}
                       >
                         <Trash2 size={14} />
                       </button>
@@ -2241,7 +2254,9 @@ export default function PatientTreatmentPlanTab({
                   diagSending || diagSummarizing
                 )}
               </div>
-              <div className="flex items-end gap-2">
+              {/* Phones: the text box takes a full row of its own and the buttons sit under it —
+                  between four buttons it was ~170px wide. */}
+              <div className="flex flex-wrap sm:flex-nowrap items-end gap-2">
                 <input
                   ref={diagFileRef}
                   type="file"
@@ -2254,6 +2269,7 @@ export default function PatientTreatmentPlanTab({
                   onClick={() => diagFileRef.current?.click()}
                   disabled={diagSending}
                   title={txt.diagAttach}
+                  aria-label={txt.diagAttach}
                   className="p-2.5 rounded-xl text-slate-500 bg-slate-50 border border-slate-200 hover:bg-slate-100 transition-colors disabled:opacity-50 shrink-0"
                 >
                   <Paperclip size={17} />
@@ -2262,6 +2278,7 @@ export default function PatientTreatmentPlanTab({
                   onClick={() => setDiagGalleryOpen((v) => !v)}
                   disabled={diagSending}
                   title={txt.diagGallery}
+                  aria-label={txt.diagGallery}
                   className={`p-2.5 rounded-xl border transition-colors disabled:opacity-50 shrink-0 ${
                     diagGalleryOpen ? "bg-sky-500 text-white border-sky-500" : "text-slate-500 bg-slate-50 border-slate-200 hover:bg-slate-100"
                   }`}
@@ -2280,13 +2297,14 @@ export default function PatientTreatmentPlanTab({
                   placeholder={txt.diagInputPh}
                   rows={1}
                   disabled={diagSending}
-                  className="flex-1 rounded-xl border border-slate-200 px-4 py-3 text-[15px] font-semibold text-slate-800 outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100 transition-all resize-none disabled:opacity-60"
+                  className="order-first sm:order-none basis-full sm:basis-auto min-w-0 flex-1 rounded-xl border border-slate-200 px-4 py-3 text-[15px] font-semibold text-slate-800 outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100 transition-all resize-none disabled:opacity-60"
                 />
                 <button
                   onClick={() => sendDiagMessage()}
                   disabled={diagSending || (!diagInput.trim() && diagPendingImages.length === 0)}
-                  className="p-3 rounded-xl bg-sky-600 text-white hover:bg-sky-700 transition-colors disabled:opacity-50 shrink-0"
+                  className="ms-auto sm:ms-0 p-3 rounded-xl bg-sky-600 text-white hover:bg-sky-700 transition-colors disabled:opacity-50 shrink-0"
                   title={txt.diagSend}
+                  aria-label={txt.diagSend}
                 >
                   <Send size={17} className={isRTL ? "-scale-x-100" : ""} />
                 </button>

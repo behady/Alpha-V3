@@ -247,7 +247,9 @@ export default function NotificationBell({ variant = "default" }: { variant?: "d
 
       {isOpen && (
         <div
-          className="absolute end-0 mt-3 w-80 md:w-96 bg-surface rounded-3xl shadow-2xl border border-line overflow-hidden z-[200] animate-in slide-in-from-top-4"
+          // Phones: pinned to the viewport with a 16px gutter each side. Anchored to the bell, a
+          // 320px panel ran off the left edge in English and widened the page in Arabic.
+          className="fixed inset-x-4 top-16 sm:absolute sm:inset-x-auto sm:top-auto sm:end-0 mt-0 sm:mt-3 sm:w-80 md:w-96 bg-surface rounded-3xl shadow-2xl border border-line overflow-hidden z-[200] animate-in slide-in-from-top-4"
           dir={isRTL ? "rtl" : "ltr"}
         >
           <div className="flex items-center justify-between gap-2 border-b border-line bg-surface-subtle px-5 py-3.5">

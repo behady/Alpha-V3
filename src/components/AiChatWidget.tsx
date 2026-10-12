@@ -166,6 +166,7 @@ export default function AiChatWidget() {
 
   const [creditsUsed, setCreditsUsed] = useState<number>(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesAreaRef = useRef<HTMLDivElement>(null);
 
   // Error breadcrumbs start collecting the moment the dashboard loads — a bug report filed an
   // hour later carries whatever fired in between. The chosen mode survives reloads.
@@ -204,11 +205,16 @@ export default function AiChatWidget() {
   const remainingCredits = Math.max(0, totalLimit - creditsUsed);
   const lowCredits = remainingCredits < totalLimit * 0.1;
 
-  // Auto-scroll chat to bottom
+  // Auto-scroll chat to bottom — once there is a conversation. With none, the panel shows its
+  // introduction and suggestions, and scrolling that to the bottom on open cut off its top
+  // (most visibly on a phone, where the panel is short): it opens at the top instead.
   useEffect(() => {
-    if (isOpen) {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!isOpen) return;
+    if (messages.length === 0 && !isLoading) {
+      if (messagesAreaRef.current) messagesAreaRef.current.scrollTop = 0;
+      return;
     }
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isOpen, isLoading]);
 
   /**
@@ -702,7 +708,7 @@ export default function AiChatWidget() {
           </div>
 
           {/* Messages Area */}
-          <div className="flex-1 overflow-y-auto custom-scrollbar px-5 py-4 space-y-3">
+          <div ref={messagesAreaRef} className="flex-1 overflow-y-auto custom-scrollbar px-5 py-4 space-y-3">
             {messages.length === 0 && (
               <div className="py-4 px-1 space-y-4">
                 <div className="text-center space-y-2">

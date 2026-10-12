@@ -81,6 +81,8 @@ export default function PatientMediaGallery({
   const { clinicId } = useClinic();
   const { showToast } = useUI();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  /** Phones: straight to the back camera, beside the ordinary picker. */
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   // States
   const [activeCategory, setActiveCategory] = useState<string>("All");
@@ -474,6 +476,17 @@ export default function PatientMediaGallery({
         className="hidden"
         onChange={(e) => handleFilesSelected(e.target.files)}
       />
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => {
+          handleFilesSelected(e.target.files);
+          e.target.value = "";
+        }}
+      />
 
       {/* Header Banner */}
       <div className="bg-surface p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -684,15 +697,45 @@ export default function PatientMediaGallery({
                     CATEGORIES.find((c) => c.id === targetUploadCategory)?.label.en
                   }`}
             </h4>
-            <p className="text-xs text-slate-400 mt-1 font-medium">
+            {/* A phone has nothing to drag and no mouse to click with. */}
+            <p className="text-xs text-slate-400 mt-1 font-medium max-md:hidden">
               {language === "ar"
                 ? "اسحب وأسقط الصور هنا أو انقر لاختيار الملفات من جهازك"
                 : "Drag & drop files here or click to select from your device"}
             </p>
+            <p className="text-xs text-slate-400 mt-1 font-medium md:hidden">
+              {language === "ar"
+                ? "صوّر بالكاميرا أو اختار صور من الموبايل"
+                : "Take a photo, or choose pictures from your phone"}
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 md:hidden">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                cameraInputRef.current?.click();
+              }}
+              className="pointer-events-auto inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-ink-slab px-2 py-2 text-xs font-bold leading-tight text-white active:brightness-125"
+            >
+              <Camera size={16} className="shrink-0" />
+              <span>{language === "ar" ? "صوّر" : "Take photo"}</span>
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                fileInputRef.current?.click();
+              }}
+              className="pointer-events-auto inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-accent px-2 py-2 text-xs font-bold leading-tight text-ink shadow-md shadow-black/10 active:scale-95"
+            >
+              <PlusCircle size={16} className="shrink-0" />
+              <span>{language === "ar" ? "اختار صور" : "Choose photos"}</span>
+            </button>
           </div>
           <button
             type="button"
-            className="inline-flex items-center gap-2 bg-accent hover:bg-accent-strong text-ink font-bold text-xs px-5 py-2.5 rounded-xl shadow-md shadow-black/10 transition-all pointer-events-auto active:scale-95"
+            className="max-md:hidden inline-flex items-center gap-2 bg-accent hover:bg-accent-strong text-ink font-bold text-xs px-5 py-2.5 rounded-xl shadow-md shadow-black/10 transition-all pointer-events-auto active:scale-95"
           >
             <PlusCircle size={16} />
             <span>

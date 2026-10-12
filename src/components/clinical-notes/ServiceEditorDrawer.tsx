@@ -567,7 +567,8 @@ export default function ServiceEditorDrawer({
     notes: language === 'ar' ? "ملاحظات" : "Note",
     selectDoctor: language === 'ar' ? "اختر الطبيب" : "Select Doctor",
     status: language === 'ar' ? "الحالة" : "Status",
-    save: language === 'ar' ? "حفظ الإجراء" : "Log Procedure",
+    // Edit mode saves an existing row; "Log" read as adding a second one (the Arabic already said save).
+    save: language === 'ar' ? "حفظ الإجراء" : (initialNote ? "Save procedure" : "Log Procedure"),
     cancel: language === 'ar' ? "إلغاء" : "Cancel",
     addToFinance: language === 'ar' ? "إضافة للمالية" : "Add to Ledger",
     selectError: language === 'ar' ? "اختر الإجراء" : "Name the procedure",
@@ -1260,7 +1261,7 @@ export default function ServiceEditorDrawer({
           {approval ? (
             <>
               {dentistMode ? approvalSummaryBare : approvalSummary}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {statusField}
                 {!dentistMode && doctorField}
               </div>
@@ -1269,7 +1270,7 @@ export default function ServiceEditorDrawer({
           ) : (
           <>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {dateField}
             {statusField}
           </div>

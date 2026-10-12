@@ -447,7 +447,116 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
                 <b className="font-figure text-ink">{money(fig.approved)}</b> · {formatDayLabel(c.approvalDate, isAr, false)} {c.approvalDate.slice(0, 4)}
               </span>
             </div>
-            <div className="custom-scrollbar overflow-x-auto">
+            {/* Phones: one card per approved service. The table needs 680px, so on a phone it
+                scrolled sideways with the status and "use for this visit" off-screen. Same
+                controls, same handlers — only the arrangement differs. */}
+            <div className="md:hidden border-t border-line">
+              {cardKeys.length > 0 && (
+                <label className="flex min-h-11 items-center gap-3 border-b border-line bg-surface-subtle px-4 py-2 text-[13px] font-semibold text-ink-body">
+                  <input
+                    type="checkbox"
+                    checked={cardAll}
+                    onChange={(e) => setPickedFor(cardKeys, e.target.checked)}
+                    className="h-5 w-5 shrink-0 accent-black"
+                  />
+                  {isAr ? "اختار كل خدمات الموافقة دي" : "Select every service on this approval"}
+                </label>
+              )}
+              {c.lines.map((line, i) => {
+                const status = lineStatusOf(c, i);
+                const isLinked = linked(c.id, i);
+                const open = c.status !== "cancelled" && status !== "Completed";
+                const saving = busy === `${c.id}|${i}`;
+                return (
+                  <div key={i} className={`flex flex-col gap-2.5 border-b border-line px-4 py-3 last:border-b-0 ${isLinked ? "bg-accent-tint" : ""}`}>
+                    <div className="flex items-start gap-3">
+                      {c.status !== "cancelled" && (
+                        <input
+                          type="checkbox"
+                          checked={picked.has(keyOf(c.id, i))}
+                          onChange={() => togglePick(keyOf(c.id, i))}
+                          aria-label={isAr ? `اختار ${line.description}` : `Select ${line.description}`}
+                          className="mt-0.5 h-5 w-5 shrink-0 accent-black"
+                        />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <span className="block font-figure text-[13px] text-ink-muted">{line.code}</span>
+                        <span className="block break-words text-ink">{line.description}</span>
+                        {c.dentists[i]?.name && <span className="block text-[13px] text-ink-body">{c.dentists[i].name}</span>}
+                      </div>
+                    </div>
+                    <dl className="grid grid-cols-2 gap-2 text-[13px]">
+                      <div>
+                        <dt className="text-ink-muted">{isAr ? "الموافق عليه" : "Approved"}</dt>
+                        <dd className="font-figure font-medium tabular-nums text-ink">{money(line.approvedAmount)}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-ink-muted">{isAr ? "على المريض" : "Patient share"}</dt>
+                        <dd className="font-figure font-medium tabular-nums text-ink">{money(line.patientShare)}</dd>
+                      </div>
+                    </dl>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        value={status}
+                        disabled={c.status === "cancelled" || saving}
+                        onChange={(e) => void setProgress(c, i, e.target.value as LineStatus)}
+                        aria-label={isAr ? "حالة الخدمة" : "Service status"}
+                        className="h-10 min-w-0 flex-1 rounded-lg border border-line-strong bg-surface px-2.5 text-sm font-semibold text-ink outline-none focus:border-ink disabled:opacity-60"
+                      >
+                        {LINE_STATUSES.map((s) => (
+                          <option key={s} value={s}>
+                            {t(LINE_LABEL[s])}
+                          </option>
+                        ))}
+                      </select>
+                      {saving && <Loader2 size={13} className="animate-spin text-ink-faint" />}
+                      {isLinked ? (
+                        <span className="inline-flex items-center gap-1">
+                          <span className="inline-flex items-center gap-1 text-sm font-bold text-ink">
+                            <Check size={14} /> {isAr ? "الزيارة دي" : "This visit"}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => onToggle(`${c.id}|${i}`)}
+                            title={isAr ? "شيل الربط" : "Unlink"}
+                            aria-label={isAr ? "شيل الربط" : "Unlink"}
+                            className="grid h-10 w-10 place-items-center rounded-lg text-ink-faint hover:bg-surface-muted hover:text-danger"
+                          >
+                            <Link2Off size={14} />
+                          </button>
+                        </span>
+                      ) : open ? (
+                        <button
+                          type="button"
+                          onClick={() => onToggle(`${c.id}|${i}`)}
+                          className="h-10 whitespace-nowrap rounded-xl border border-line-strong bg-surface px-4 text-sm font-semibold text-ink transition-colors hover:border-ink hover:bg-surface-subtle"
+                        >
+                          {isAr ? "للزيارة دي" : "Use for this visit"}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+              <div className="flex flex-col gap-1 border-t border-line bg-surface-subtle px-4 py-3 text-[13px] font-semibold">
+                <div className="flex flex-wrap justify-between gap-x-3 text-ink-body">
+                  <span>{isAr ? "الإجمالي" : "Total"}</span>
+                  <span className="font-figure font-medium tabular-nums text-ink">
+                    {money(c.totals.approved)}
+                    <span className="text-ink-muted"> · {isAr ? "على المريض" : "patient"} </span>
+                    {money(c.totals.patientShare)}
+                  </span>
+                </div>
+                {c.totals.patientShare > 0 && (
+                  <span className="text-ink-body">
+                    {c.shareCollected
+                      ? isAr ? "حصة المريض اتدفعت" : "Patient share collected"
+                      : isAr ? "حصة المريض بتتحصّل من تبويب الدفع" : "Patient share is collected on the Payment tab"}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="custom-scrollbar overflow-x-auto max-md:hidden">
               <table className="w-full min-w-[680px] border-collapse text-[15px]">
                 <thead>
                   <tr className="border-y border-line bg-surface-subtle text-[13px] font-semibold text-ink-body">

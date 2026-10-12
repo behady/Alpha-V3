@@ -183,7 +183,10 @@ export default function PatientTimelineTab({ patientId, hideMoney = false }: { p
         </div>
       )}
 
-      <div className="relative pl-8 border-l-2 border-slate-100 space-y-10 before:absolute before:top-0 before:left-[-2px] before:w-[2px] before:h-8 before:bg-gradient-to-b before:from-slate-100 before:to-primary-500">
+      {/* Logical sides so the rail sits at the start in Arabic too; on a phone the rail, the
+          card padding and the boxes inside each card are pared back, as on the Clinical tab —
+          three nested frames left the text a narrow column in the middle. */}
+      <div className="relative ps-8 max-md:ps-5 border-s-2 border-slate-100 space-y-10 max-md:space-y-6 before:absolute before:top-0 before:start-[-2px] before:w-[2px] before:h-8 before:bg-gradient-to-b before:from-slate-100 before:to-primary-500">
         {visits.map((visit, index) => {
           const isAppt = visit.type === "appointment";
           const title = isAppt
@@ -208,13 +211,13 @@ export default function PatientTimelineTab({ patientId, hideMoney = false }: { p
           return (
             <div key={visit.id} className="relative group">
               {/* Timeline dot */}
-              <div className="absolute -left-[41px] top-1 w-5 h-5 rounded-full border-4 border-white bg-primary-500 shadow-sm transition-transform group-hover:scale-125 z-10"></div>
+              <div className="absolute -start-[41px] max-md:-start-[30px] top-1 w-5 h-5 rounded-full border-4 border-white bg-primary-500 shadow-sm transition-transform group-hover:scale-125 z-10"></div>
 
-              <div className="bg-surface rounded-3xl p-5 border border-line shadow-sm hover:shadow-md transition-all group-hover:border-primary-200">
+              <div className="bg-surface rounded-3xl p-5 max-md:p-4 max-md:rounded-2xl border border-line shadow-sm hover:shadow-md transition-all group-hover:border-primary-200">
                 
                 {/* Header */}
-                <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
-                  <div>
+                <div className="flex flex-wrap items-start justify-between gap-4 max-md:gap-2 mb-5 max-md:mb-3">
+                  <div className="min-w-0">
                     <h3 className="text-lg font-bold text-slate-800">{title}</h3>
                     <p className="text-ink-muted text-sm flex items-center gap-2 mt-1 font-medium">
                       <CalendarDays size={14} className="text-primary-500" />
@@ -234,8 +237,9 @@ export default function PatientTimelineTab({ patientId, hideMoney = false }: { p
                           e.stopPropagation();
                           handleDeleteVisit(visit);
                         }}
-                        className="text-slate-400 hover:text-rose-500 hover:bg-rose-50 p-1.5 rounded-lg transition-colors"
+                        className="text-slate-400 hover:text-rose-500 hover:bg-rose-50 p-1.5 max-lg:p-2.5 rounded-lg transition-colors"
                         title={language === 'ar' ? 'حذف' : 'Delete'}
+                        aria-label={language === 'ar' ? 'حذف' : 'Delete'}
                       >
                         <Trash2 size={18} />
                       </button>
@@ -255,13 +259,13 @@ export default function PatientTimelineTab({ patientId, hideMoney = false }: { p
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     
                     {/* Left Column: Lifecycle / Status History */}
-                    <div className="bg-surface-subtle rounded-2xl p-4 border border-slate-100">
+                    <div className="bg-surface-subtle rounded-2xl p-4 border border-slate-100 max-md:bg-transparent max-md:border-0 max-md:p-0 max-md:rounded-none">
                       <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 mb-3">
                         <Clock size={12} className="text-slate-400" /> {language === "ar" ? "سجل الحالة" : "Status Lifecycle"}
                       </h4>
                       
                       {visit.statusHistory && visit.statusHistory.length > 0 ? (
-                        <div className="space-y-3 relative before:absolute before:left-[7px] before:top-2 before:bottom-2 before:w-[2px] before:bg-slate-200">
+                        <div className="space-y-3 relative before:absolute before:start-[7px] before:top-2 before:bottom-2 before:w-[2px] before:bg-slate-200">
                           {visit.statusHistory.map((h, i) => {
                             let timeStr = "—";
                             if (h.timestamp instanceof Date) {
@@ -297,7 +301,7 @@ export default function PatientTimelineTab({ patientId, hideMoney = false }: { p
                     </div>
 
                     {/* Right Column: Procedures & Notes */}
-                    <div className="bg-surface-subtle rounded-2xl p-4 border border-slate-100">
+                    <div className="bg-surface-subtle rounded-2xl p-4 border border-slate-100 max-md:bg-transparent max-md:border-0 max-md:p-0 max-md:rounded-none">
                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 mb-3">
                         <FileText size={12} className="text-slate-400" /> {language === "ar" ? "الإجراءات الطبية" : "Procedures & Notes"}
                       </h4>
@@ -323,7 +327,7 @@ export default function PatientTimelineTab({ patientId, hideMoney = false }: { p
 
                   </div>
                 ) : (
-                  <div className="bg-emerald-50/50 rounded-2xl p-4 border border-emerald-100/60">
+                  <div className="bg-emerald-50/50 rounded-2xl p-4 border border-emerald-100/60 max-md:bg-transparent max-md:border-0 max-md:p-0 max-md:rounded-none">
                     <h4 className="text-xs font-bold text-emerald-500 uppercase tracking-wider flex items-center gap-1.5 mb-3">
                       <FileText size={12} /> {language === "ar" ? "تفاصيل الإجراء العام" : "General Procedure Details"}
                     </h4>

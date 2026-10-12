@@ -213,19 +213,20 @@ export default function ApprovalDropZone({ payer, onRead }: { payer: Payer | nul
             type="button"
             disabled={disabled}
             onClick={() => cameraRef.current?.click()}
-            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-ink-slab px-3 text-[13px] font-black text-white transition-colors active:brightness-125 disabled:cursor-not-allowed"
+            className="inline-flex min-h-12 min-w-0 items-center justify-center gap-1.5 rounded-xl bg-ink-slab px-2 py-1.5 text-[13px] font-black leading-tight text-white transition-colors active:brightness-125 disabled:cursor-not-allowed"
           >
             <Camera size={17} className="shrink-0" />
-            <span className="truncate">{t("takePhoto")}</span>
+            {/* Wraps to two lines rather than cutting: "Take photo" was "Take ph…" on a phone. */}
+            <span className="min-w-0 text-center">{t("takePhoto")}</span>
           </button>
           <button
             type="button"
             disabled={disabled}
             onClick={() => inputRef.current?.click()}
-            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-line bg-surface px-3 text-[13px] font-black text-ink transition-colors active:bg-surface-subtle disabled:cursor-not-allowed"
+            className="inline-flex min-h-12 min-w-0 items-center justify-center gap-1.5 rounded-xl border border-line bg-surface px-2 py-1.5 text-[13px] font-black leading-tight text-ink transition-colors active:bg-surface-subtle disabled:cursor-not-allowed"
           >
             <FileUp size={17} className="shrink-0" />
-            <span className="truncate">{t("chooseFile")}</span>
+            <span className="min-w-0 text-center">{t("chooseFile")}</span>
           </button>
         </div>
         <input

@@ -435,7 +435,7 @@ export default function DentistHome() {
   const ghost =
     "inline-flex items-center gap-1.5 h-[34px] px-3.5 rounded-xl bg-surface border border-line text-ink text-[12px] font-extrabold uppercase tracking-wide shadow-sm hover:bg-surface-subtle transition-colors disabled:opacity-50 whitespace-nowrap";
   const navBtn =
-    "relative inline-flex items-center justify-center w-7 h-7 rounded-lg bg-surface border border-line text-ink-body hover:bg-surface-subtle hover:text-ink transition-colors";
+    "relative inline-flex items-center justify-center w-10 h-10 lg:w-7 lg:h-7 rounded-lg bg-surface border border-line text-ink-body hover:bg-surface-subtle hover:text-ink transition-colors";
 
   return (
     <div className="min-h-full pb-24 lg:pb-6 text-ink-strong" dir={isRTL ? "rtl" : "ltr"}>
@@ -451,16 +451,19 @@ export default function DentistHome() {
           <HomeViewTabs />
         </PageHeader>
 
+        {/* Phones: the strip is wider than the screen, and a wrapping row anchored to the end
+            pushed it off the start edge where nobody could scroll to it. Below sm it is an even
+            grid of figures instead; from sm up it is the original pill. */}
         <div className="flex flex-wrap items-end justify-end gap-4 px-1">
-          <div className="flex items-stretch bg-surface border border-line rounded-2xl shadow-sm px-1.5 py-2.5">
+          <div className={`grid ${showShare ? "grid-cols-3" : "grid-cols-2"} w-full sm:w-auto sm:flex items-stretch bg-surface border border-line rounded-2xl shadow-sm px-1.5 py-2.5`}>
             <Figure label={isAr ? "دفعوا النهارده" : "My patients paid today"} value={fmt(money.paid)} isAr={isAr} />
             {showShare && (
               <>
-                <span className="w-px bg-line my-0.5" />
+                <span className="hidden sm:block w-px bg-line my-0.5" />
                 <Figure label={isAr ? "نصيبي" : "My share"} value={fmt(money.share)} isAr={isAr} />
               </>
             )}
-            <span className="w-px bg-line my-0.5" />
+            <span className="hidden sm:block w-px bg-line my-0.5" />
             <Figure label={isAr ? "لسه عليهم" : "Still owed by my patients"} value={fmt(owed)} isAr={isAr} />
           </div>
         </div>
@@ -594,7 +597,7 @@ export default function DentistHome() {
                   <ChevronLeft size={14} className="rtl:rotate-180" />
                 </button>
                 {!viewingToday && (
-                  <button onClick={() => setViewDate(today)} className="h-7 px-2.5 rounded-lg bg-ink-slab text-white text-[11px] font-extrabold uppercase tracking-wide">
+                  <button onClick={() => setViewDate(today)} className="h-10 lg:h-7 px-2.5 rounded-lg bg-ink-slab text-white text-[11px] font-extrabold uppercase tracking-wide">
                     {isAr ? "النهارده" : "Today"}
                   </button>
                 )}
@@ -910,9 +913,9 @@ export default function DentistHome() {
 
 function Figure({ label, value, isAr }: { label: string; value: string; isAr: boolean }) {
   return (
-    <div className="flex flex-col justify-center gap-1.5 px-4 md:px-5">
-      <span className="font-display text-[10px] font-black uppercase tracking-[0.12em] text-ink-muted whitespace-nowrap">{label}</span>
-      <span className="font-figure text-[22px] font-extrabold text-ink leading-none">
+    <div className="min-w-0 flex flex-col justify-between sm:justify-center gap-1.5 px-2 sm:px-4 md:px-5">
+      <span className="font-display text-[10px] font-black uppercase tracking-[0.12em] text-ink-muted leading-tight sm:whitespace-nowrap">{label}</span>
+      <span className="font-figure text-[18px] sm:text-[22px] font-extrabold text-ink leading-none">
         {value} <span className="text-[11px] font-semibold text-ink-faint tracking-[0.1em]">{isAr ? "ج.م" : "EGP"}</span>
       </span>
     </div>

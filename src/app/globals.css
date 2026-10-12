@@ -289,14 +289,36 @@ body {
   .text-\[12px\] { font-size: 13.5px; }
   .text-\[13px\] { font-size: 14.5px; }
   .text-\[15px\] { font-size: 16.5px; }
+}
 
-  /* An input below 16px makes iOS Safari zoom the whole page in on focus, which
-     then leaves the layout scrolled sideways. Holding the floor at 16px is the
-     documented way to stop that, and it happens to be more legible anyway. */
+/* An input below 16px makes iOS Safari zoom the whole page in on focus, which
+   then leaves the layout scrolled sideways. Holding the floor at 16px is the
+   documented way to stop that, and it happens to be more legible anyway.
+
+   Unlayered CSS beats Tailwind's layered utilities, so the bare element rule
+   already wins over a layered `text-[14px]`. What it lost to were the phone
+   size classes above — also unlayered, and a class (0,1,0) outranks an element
+   (0,0,1) — so a field carrying `.text-sm` or `.text-[13px]` kept its small
+   size and still zoomed. The second rule names exactly those sub-16px classes
+   with the element in front (0,1,1). Larger classes are left alone, so a big
+   amount field is not shrunk. The class rule runs to `lg` because tablets zoom
+   too; desktop sizes stay exactly as drawn. */
+@media (max-width: 767px) {
   input,
   select,
   textarea {
     font-size: max(16px, 1em);
+  }
+}
+@media (max-width: 1023px) {
+  /* Every size below 16px that the app uses (grep "text-\[" when adding one). */
+  :is(input, select, textarea):is(
+      .text-xs, .text-sm,
+      .text-\[7px\], .text-\[8px\], .text-\[9px\], .text-\[9\.5px\], .text-\[10px\],
+      .text-\[10\.5px\], .text-\[11px\], .text-\[11\.5px\], .text-\[12px\], .text-\[12\.5px\],
+      .text-\[13px\], .text-\[13\.5px\], .text-\[14px\], .text-\[14\.5px\], .text-\[15px\]
+    ) {
+    font-size: 16px;
   }
 }
 

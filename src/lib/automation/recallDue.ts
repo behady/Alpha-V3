@@ -33,7 +33,10 @@ export interface RecallReport {
   patients: RecallDuePatient[];
   counts: { due: number; skippedUpcoming: number; skippedNeverVisited: number };
   truncated: boolean;
+  /** English, as it always was — other readers of this report depend on it. */
   notes: string[];
+  /** The same notes in Arabic, index-for-index beside `notes` (as the briefing does). */
+  notesAr?: string[];
 }
 
 const SCAN_LIMIT = 4000;
@@ -85,12 +88,14 @@ export async function scanRecallDue(clinicId: string): Promise<RecallReport> {
         "No recall interval is set for this clinic, so nothing can be flagged as due. Set one in " +
           "Settings → Recall.",
       ],
+      notesAr: ["مفيش فترة متابعة متحددة للعيادة، فمفيش حد يتعلّم عليه إنه مستحق. حددها من الإعدادات ← المتابعة."],
     };
   }
 
   const thresholdDays = Math.round(intervalMonths * 30);
   const todayKey = ymd(new Date());
   const notes: string[] = [];
+  const notesAr: string[] = [];
 
   const [patientsSnap, apptSnap, notesSnap] = await Promise.all([
     adminClinicCollection(clinicId, "patients").limit(SCAN_LIMIT).get(),
@@ -102,6 +107,7 @@ export async function scanRecallDue(clinicId: string): Promise<RecallReport> {
     patientsSnap.size >= SCAN_LIMIT || apptSnap.size >= SCAN_LIMIT || notesSnap.size >= SCAN_LIMIT;
   if (truncated) {
     notes.push(`Only the first ${SCAN_LIMIT} records per collection were scanned.`);
+    notesAr.push(`اتراجع أول ${SCAN_LIMIT} سجل بس من كل نوع.`);
   }
 
   const lastVisit = new Map<string, { date: Date; collection: string; docId: string }>();
@@ -177,6 +183,10 @@ export async function scanRecallDue(clinicId: string): Promise<RecallReport> {
     `Based on this clinic's recall interval of ${intervalMonths} months. A visit means an ` +
       "attended appointment or a clinical note; cancelled and no-show appointments do not count."
   );
+  notesAr.push(
+    `على أساس فترة المتابعة بتاعة العيادة: ${intervalMonths} شهور. الزيارة يعني ميعاد المريض حضره أو ` +
+      "ملاحظة علاجية؛ المواعيد الملغية واللي محضرش فيها مش بتتحسب."
+  );
 
   return {
     ...base,
@@ -186,5 +196,6 @@ export async function scanRecallDue(clinicId: string): Promise<RecallReport> {
     counts: { due: patients.length, skippedUpcoming, skippedNeverVisited },
     truncated,
     notes,
+    notesAr,
   };
 }

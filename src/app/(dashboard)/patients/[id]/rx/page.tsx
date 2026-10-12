@@ -367,9 +367,8 @@ function PrescriptionStudio() {
       {/* Title and the way back are in the layout's black band; this strip keeps only the tools,
           and stays sticky so Save is reachable from anywhere down the prescription. */}
       <PageHeader
-        eyebrow="Prescription Studio"
+        eyebrow={t("rxStudio")}
         title={patient.name}
-        subtitle={t("rxGeneratingFor")}
         backHref={`/patients/${id}`}
       />
       <header className="bg-surface border-b border-line px-6 py-4 sticky top-0 z-40 shadow-sm print:hidden">
@@ -382,7 +381,7 @@ function PrescriptionStudio() {
                 className="flex-1 md:flex-none bg-accent text-ink hover:bg-accent px-5 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 disabled:opacity-50"
              >
                 {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
-                Save
+                {t("rxSaveButton")}
              </button>
              {canSendPdf && (
              <button
@@ -402,7 +401,7 @@ function PrescriptionStudio() {
                 className="flex-1 md:flex-none bg-accent text-ink-on-accent hover:bg-accent-strong px-5 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 disabled:opacity-50"
              >
                 {isPrinting ? <Loader2 size={18} className="animate-spin"/> : <Printer size={18}/>}
-                Print
+                {t("rxPrintButton")}
              </button>
           </div>
         </div>
@@ -434,10 +433,14 @@ function PrescriptionStudio() {
 
             {/* Drug Adder */}
             <div className="bg-surface p-6 rounded-3xl border border-slate-200/60 shadow-sm space-y-5">
-               <h3 className="font-black text-ink text-lg border-b border-slate-100 pb-3 flex items-center justify-between">
-                  Add Medication
-                  <span className="bg-accent-tint text-accent px-2 py-1 rounded-lg text-[10px] uppercase">
-                    {rxItems.length} in Rx · {drugListSize} drugs
+               <h3 className="font-black text-ink text-lg border-b border-slate-100 pb-3 flex flex-wrap items-center justify-between gap-2">
+                  {t("rxAddMedication")}
+                  {/* Each count is its own isolated run: as one string the Arabic line put the
+                      numbers and the "·" in scrambled order. */}
+                  <span className="bg-accent-tint text-accent px-2 py-1 rounded-lg text-[10px] uppercase inline-flex items-center gap-1">
+                    <bdi><span className="font-figure">{rxItems.length}</span> {t("rxInRx")}</bdi>
+                    <span aria-hidden>·</span>
+                    <bdi><span className="font-figure">{drugListSize}</span> {t("rxDrugsInList")}</bdi>
                   </span>
                </h3>
 
@@ -520,8 +523,8 @@ function PrescriptionStudio() {
                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* Drug Name Input (Always Accessible) */}
                   <div className="space-y-1.5 md:col-span-2">
-                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">
-                        Drug Name
+                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ps-1">
+                        {t("rxDrugName")}
                      </label>
                      <input
                         value={customDrugName} data-tour="rx-drug-name"
@@ -557,7 +560,7 @@ function PrescriptionStudio() {
                </div>
 
                <button data-tour="rx-add-drug" onClick={addDrugToRx} disabled={!customDrugName.trim()} className="w-full bg-accent text-ink-on-accent py-4 rounded-xl font-black text-sm shadow-md mt-2 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:active:scale-100">
-                  <Plus size={18}/> Add to Prescription
+                  <Plus size={18}/> {t("rxAddToPrescription")}
                </button>
             </div>
         </div>

@@ -233,7 +233,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
               onClick={() => onEdit(note)}
               title={txt.edit}
               aria-label={txt.edit}
-              className="p-2.5 rounded-lg text-violet-600 bg-violet-50 hover:bg-violet-100 transition-colors shadow-sm border border-violet-100"
+              className="p-2.5 max-md:p-3 rounded-lg text-violet-600 bg-violet-50 hover:bg-violet-100 transition-colors shadow-sm border border-violet-100"
             >
               <Edit2 size={16} />
             </button>
@@ -247,7 +247,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
             onClick={() => onDelete(note)}
             title={txt.delete}
             aria-label={txt.delete}
-            className="p-2.5 rounded-lg text-rose-600 bg-rose-50 hover:bg-rose-100 transition-colors shadow-sm border border-rose-100"
+            className="p-2.5 max-md:p-3 rounded-lg text-rose-600 bg-rose-50 hover:bg-rose-100 transition-colors shadow-sm border border-rose-100"
           >
             <Trash2 size={16} />
           </button>

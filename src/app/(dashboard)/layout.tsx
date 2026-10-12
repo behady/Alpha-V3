@@ -730,7 +730,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     <button key="menu" data-tour="nav-menu"
                        /* Everything in the sheet is reachable through this button — for the tour's hand. */
                        data-tour-opens={[...allNavItems.map((i) => `nav-${String(i.href).replace(/^\//, "")}`), "nav-settings", "menu-welcome", "menu-help"].join(" ")}
-                       onClick={() => setIsOpen(true)} className="flex items-center justify-center transition-all active:scale-95 group outline-none">
+                       onClick={() => setIsOpen(true)}
+                       aria-label={language === "ar" ? "القائمة" : "Menu"}
+                       className="flex items-center justify-center transition-all active:scale-95 group outline-none">
                        <div className="p-2.5 rounded-full text-white/50 group-hover:bg-white/10 group-hover:text-white transition-all">
                           <Menu size={24} strokeWidth={2.5} />
                        </div>
@@ -739,7 +741,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
              }
              const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
              return (
-                <Link key={item.key} href={item.href} data-tour={`nav-${item.key}`} className="flex items-center justify-center transition-all active:scale-95 group outline-none">
+                <Link
+                  key={item.key}
+                  href={item.href}
+                  data-tour={`nav-${item.key}`}
+                  // Icon-only, so the name is said out loud here (the same label the menu sheet shows).
+                  aria-label={t(item.key)}
+                  aria-current={isActive ? "page" : undefined}
+                  className="flex items-center justify-center transition-all active:scale-95 group outline-none"
+                >
                    <div className={`relative p-2.5 rounded-full transition-all duration-300 flex items-center justify-center ${isActive ? 'bg-[#FACC15] text-ink scale-110 shadow-sm' : 'text-white/50 group-hover:bg-white/10 group-hover:text-white'}`}>
                       <item.icon size={24} strokeWidth={isActive ? 2.5 : 2} />
                       {"badge" in item && (item.badge ?? 0) > 0 && (

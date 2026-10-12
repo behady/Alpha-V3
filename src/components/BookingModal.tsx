@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import ServiceCombobox from "./shared/ServiceCombobox";
@@ -24,6 +24,7 @@ import {
   Phone,
   MapPin,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Wallet,
   Trash2,
@@ -1120,6 +1121,80 @@ export default function BookingModal({
     };
   }, [wideLayout, headerPatientId]);
 
+  /**
+   * The phone sheet's tab strip. Five tabs are wider than a phone, so it scrolls sideways — and
+   * with nothing to say so, the tabs past the edge looked absent and the open one could sit
+   * off-screen. Same treatment as the patient file's strip: fades + nudge arrows at whichever
+   * end has more, and the open tab brought into view (instantly — a smooth scroll issued while
+   * the sheet is still opening stacks up and lands short). scrollLeft is negative in RTL, so
+   * positions are read as distance from the inline start.
+   */
+  const phoneTabStripRef = useRef<HTMLDivElement | null>(null);
+  const phoneTabStripObserver = useRef<{ disconnect: () => void } | null>(null);
+  const [phoneTabEdges, setPhoneTabEdges] = useState({ start: false, end: false });
+  const measurePhoneTabEdges = useCallback(() => {
+    const el = phoneTabStripRef.current;
+    if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    const pos = Math.abs(el.scrollLeft);
+    const next = { start: pos > 2, end: max - pos > 2 };
+    setPhoneTabEdges((prev) => (prev.start === next.start && prev.end === next.end ? prev : next));
+  }, []);
+  const setPhoneTabStrip = useCallback(
+    (el: HTMLDivElement | null) => {
+      phoneTabStripObserver.current?.disconnect();
+      phoneTabStripObserver.current = null;
+      phoneTabStripRef.current = el;
+      if (!el) return;
+      // The strip's own box never changes size when a tab appears or a count badge grows — only
+      // what is inside it does — so the tabs are watched too: resized (a badge, a language
+      // switch) and added or removed (History, Insurance arriving with the patient).
+      const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measurePhoneTabEdges) : null;
+      const watchTabs = () => {
+        if (!ro) return;
+        ro.disconnect();
+        ro.observe(el);
+        Array.from(el.children).forEach((child) => ro.observe(child));
+      };
+      watchTabs();
+      const mo =
+        typeof MutationObserver !== "undefined"
+          ? new MutationObserver(() => {
+              watchTabs();
+              measurePhoneTabEdges();
+            })
+          : null;
+      mo?.observe(el, { childList: true, subtree: true, characterData: true });
+      phoneTabStripObserver.current = {
+        disconnect: () => {
+          ro?.disconnect();
+          mo?.disconnect();
+        },
+      };
+      measurePhoneTabEdges();
+    },
+    [measurePhoneTabEdges]
+  );
+  const nudgePhoneTabStrip = (dir: 1 | -1) => {
+    const el = phoneTabStripRef.current;
+    if (!el) return;
+    const rtl = getComputedStyle(el).direction === "rtl";
+    el.scrollBy({ left: dir * (rtl ? -1 : 1) * el.clientWidth * 0.6, behavior: "auto" });
+  };
+  useEffect(() => {
+    const strip = phoneTabStripRef.current;
+    if (!strip || !isOpen) return;
+    const btn = strip.querySelector<HTMLElement>(`[data-phone-tab="${wideTab}"]`);
+    if (btn && strip.scrollWidth > strip.clientWidth) {
+      // Horizontal only: scrollIntoView would also move the sheet's own scroll.
+      const sr = strip.getBoundingClientRect();
+      const br = btn.getBoundingClientRect();
+      const delta = br.left + br.width / 2 - (sr.left + sr.width / 2);
+      if (Math.abs(delta) > 1) strip.scrollTo({ left: strip.scrollLeft + delta, behavior: "auto" });
+    }
+    measurePhoneTabEdges();
+  }, [wideTab, isOpen, isPhone, language, headerPatientId, quickPay, measurePhoneTabEdges]);
+
   /** Edits on screen that a switch to another visit would throw away. */
   const hasUnsavedEdits =
     sessionProcedures.length > 0 ||
@@ -2027,10 +2102,18 @@ servicesList.length > 0 && (
                 <X size={18} />
               </button>
             </div>
-            <div className="no-scrollbar flex gap-1 overflow-x-auto px-3" role="tablist" aria-label={isAr ? "أقسام الزيارة" : "Visit sections"}>
+            <div className="relative">
+            <div
+              ref={setPhoneTabStrip}
+              onScroll={measurePhoneTabEdges}
+              className="no-scrollbar flex gap-1 overflow-x-auto px-3"
+              role="tablist"
+              aria-label={isAr ? "أقسام الزيارة" : "Visit sections"}
+            >
               {tabs.map((t) => (
                 <button
                   key={t.id}
+                  data-phone-tab={t.id}
                   type="button"
                   role="tab"
                   aria-selected={tab === t.id}
@@ -2045,6 +2128,29 @@ servicesList.length > 0 && (
                   ) : null}
                 </button>
               ))}
+            </div>
+            {phoneTabEdges.start && (
+              <button
+                type="button"
+                tabIndex={-1}
+                onClick={() => nudgePhoneTabStrip(-1)}
+                aria-label={isAr ? "أقسام قبل كده" : "Earlier sections"}
+                className="absolute inset-y-0 start-0 flex w-12 items-center justify-start bg-gradient-to-r from-ink-slab from-40% to-transparent ps-1 text-white/80 rtl:bg-gradient-to-l"
+              >
+                <ChevronLeft size={18} className="rtl:rotate-180" />
+              </button>
+            )}
+            {phoneTabEdges.end && (
+              <button
+                type="button"
+                tabIndex={-1}
+                onClick={() => nudgePhoneTabStrip(1)}
+                aria-label={isAr ? "أقسام أكتر" : "More sections"}
+                className="absolute inset-y-0 end-0 flex w-12 items-center justify-end bg-gradient-to-l from-ink-slab from-40% to-transparent pe-1 text-white/80 rtl:bg-gradient-to-r"
+              >
+                <ChevronRight size={18} className="rtl:rotate-180" />
+              </button>
+            )}
             </div>
           </div>
         ) : (

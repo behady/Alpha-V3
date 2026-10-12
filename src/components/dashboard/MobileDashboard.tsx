@@ -1209,7 +1209,8 @@ export default function MobileDashboard() {
                 <div className="flex items-center gap-2 min-w-0">
                   {/* Just the date: the Today pill beside it, filled while today is on screen,
                       says the rest — and leaves the date room to be read in full. */}
-                  <span className="flex-1 min-w-0 text-sm font-black text-slate-800 truncate">
+                  {/* Wraps instead of cutting: a week range ("Oct 10 – Oct 16") was cut to "Oct 10 – …". */}
+                  <span className="flex-1 min-w-0 text-sm font-black text-slate-800 leading-tight line-clamp-2 break-words">
                     {isWeekView
                       ? `${new Date(`${weekDays[0]}T12:00:00`).toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { day: 'numeric', month: 'short' })} – ${new Date(`${weekDays[6]}T12:00:00`).toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { day: 'numeric', month: 'short' })}`
                       : new Date(`${scheduleViewDate}T12:00:00`).toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { day: 'numeric', month: 'short' })}
@@ -1452,12 +1453,14 @@ export default function MobileDashboard() {
                                     line, where it used to push "Iris mila" down to "Iris …". */}
                                 <div className="flex-1 flex flex-col min-w-0 gap-1">
                                   <h4 className="text-base font-black text-slate-800 leading-snug line-clamp-2 break-words">{apt.patientName}</h4>
-                                  <div className="flex items-center gap-2 min-w-0">
+                                  {/* Wraps: the detail drops under the stage pill when it will not fit
+                                      beside it, instead of being cut to ~60px. */}
+                                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
                                     <span className="shrink-0 text-[9px] font-black text-ink-body uppercase tracking-widest bg-surface-subtle border border-slate-100 px-2 py-0.5 rounded-full whitespace-nowrap">
                                       {getAppointmentStageLabel(apt.status, language)}
                                     </span>
                                     {aptDetail && (
-                                      <span className="min-w-0 text-[11px] font-bold text-ink-muted truncate">{aptDetail}</span>
+                                      <span className="min-w-0 max-w-full text-[11px] font-bold text-ink-muted leading-snug line-clamp-2 break-words">{aptDetail}</span>
                                     )}
                                   </div>
                                 </div>

@@ -168,7 +168,7 @@ export default function OperationsPage() {
                   <div className="px-6 py-3 bg-surface-subtle border-t border-slate-100">
                     {recalls.notes.map((n, i) => (
                       <p key={i} className="text-[11px] font-medium text-slate-400 leading-relaxed">
-                        {n}
+                        {(isAr && recalls.notesAr?.[i]) || n}
                       </p>
                     ))}
                   </div>
@@ -231,7 +231,7 @@ export default function OperationsPage() {
                   <div className="px-6 py-3 bg-amber-50 border-t border-amber-200">
                     {inventory.notes.map((n, i) => (
                       <p key={i} className="text-[11px] font-medium text-amber-900 leading-relaxed">
-                        {n}
+                        {(isAr && inventory.notesAr?.[i]) || n}
                       </p>
                     ))}
                   </div>

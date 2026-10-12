@@ -317,7 +317,7 @@ function LabTrackingPage() {
                 <button
                   key={id}
                   onClick={() => setView(id)}
-                  className={`rounded-full px-4 py-1.5 text-xs font-black uppercase tracking-wide transition-colors ${
+                  className={`rounded-full px-4 py-1.5 max-lg:py-3 text-xs font-black uppercase tracking-wide transition-colors ${
                     view === id ? "bg-white text-ink shadow-sm" : "text-white/60 hover:text-white"
                   }`}
                 >
@@ -347,7 +347,7 @@ function LabTrackingPage() {
 
           {/* Hero + counts */}
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 xl:gap-6 shrink-0">
-            <div className="xl:col-span-5 rounded-3xl bg-slate-900 text-white p-6 xl:p-8 shadow-xl shadow-slate-900/25 relative overflow-hidden border border-slate-800">
+            <div className="xl:col-span-5 rounded-3xl bg-slate-900 text-white p-5 sm:p-6 xl:p-8 shadow-xl shadow-slate-900/25 relative overflow-hidden border border-slate-800">
               <div className="absolute -top-24 -end-24 w-72 h-72 rounded-full bg-accent-soft/15 blur-3xl pointer-events-none" aria-hidden />
               <div className="absolute -bottom-16 -start-16 w-56 h-56 rounded-full bg-sky-500/10 blur-3xl pointer-events-none" aria-hidden />
               <div className="relative">
@@ -365,7 +365,7 @@ function LabTrackingPage() {
                     ? "حالات مسلّمة للمعمل ولسه ما رجعتش"
                     : "Cases handed over and not yet back"}
                 </p>
-                <dl className="mt-8 pt-6 border-t border-white/10 space-y-3 text-sm">
+                <dl className="mt-5 pt-4 sm:mt-8 sm:pt-6 border-t border-white/10 space-y-3 text-sm">
                   <div className="flex justify-between gap-4">
                     <dt className="text-slate-400 font-semibold">{isAr ? "متأخرة" : "Overdue"}</dt>
                     <dd className={`font-black tabular-nums ${summary.overdue > 0 ? "text-rose-300" : "text-ink-muted"}`}>
@@ -384,7 +384,9 @@ function LabTrackingPage() {
               </div>
             </div>
 
-            <div className="xl:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Two across on a phone too: one per row, four tiles and the hero were ~1800px of
+                mostly zeros before the first case. */}
+            <div className="xl:col-span-7 grid grid-cols-2 gap-3 sm:gap-4">
               <Tile
                 label={isAr ? "متأخرة" : "Overdue"}
                 sub={isAr ? "عدّى ميعادها" : "Past the promised date"}
@@ -639,7 +641,7 @@ function Tile({
   return (
     <Wrapper
       {...(onClick ? { onClick, type: "button" as const } : {})}
-      className={`rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100 text-start ${
+      className={`min-w-0 rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-4 sm:p-5 xl:p-6 shadow-sm flex flex-col justify-between sm:min-h-[120px] ring-1 ring-slate-100 text-start ${
         onClick ? "hover:border-line-strong transition-colors" : ""
       }`}
     >
@@ -648,9 +650,9 @@ function Tile({
           <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{label}</p>
           <p className="text-xs text-ink-muted mt-1 font-medium">{sub}</p>
         </div>
-        <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${t.chip}`}>{icon}</div>
+        <div className={`max-sm:hidden w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${t.chip}`}>{icon}</div>
       </div>
-      <p className={`text-2xl xl:text-3xl font-black tabular-nums mt-4 ${t.text}`}>{value}</p>
+      <p className={`text-2xl xl:text-3xl font-black tabular-nums mt-2 sm:mt-4 ${t.text}`}>{value}</p>
     </Wrapper>
   );
 }

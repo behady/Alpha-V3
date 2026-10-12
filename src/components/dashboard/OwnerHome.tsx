@@ -352,17 +352,17 @@ export default function OwnerHome() {
 
         {/* Needs you: only what is actually wrong. Empty is the good news. */}
         <div className="rounded-[2rem] bg-ink-slab text-white p-5 md:p-6 shadow-[0_20px_50px_rgba(26,33,48,0.18)]">
-          <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 mb-3">
             <span className={`${eyebrow} text-white/50`}>{isAr ? "محتاجك" : "Needs you"}</span>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 ms-auto">
               <div className="inline-flex items-center gap-1 rounded-full bg-white/[0.08] p-1">
                 {periods.map((p) => (
-                  <button key={p.key} onClick={() => setPeriod(p.key)} className={`rounded-full px-3 py-1 text-[11px] font-bold transition-colors ${period === p.key ? "bg-white text-ink" : "text-white/60 hover:text-white"}`}>
+                  <button key={p.key} onClick={() => setPeriod(p.key)} className={`rounded-full px-3 py-1 text-[11px] font-bold whitespace-nowrap transition-colors ${period === p.key ? "bg-white text-ink" : "text-white/60 hover:text-white"}`}>
                     {p.label}
                   </button>
                 ))}
               </div>
-              <button onClick={refresh} aria-label={isAr ? "تحديث" : "Refresh"} className="inline-flex items-center justify-center w-[30px] h-[30px] rounded-full bg-white/[0.08] text-white/70 hover:text-white transition-colors">
+              <button onClick={refresh} aria-label={isAr ? "تحديث" : "Refresh"} className="shrink-0 inline-flex items-center justify-center w-[30px] h-[30px] rounded-full bg-white/[0.08] text-white/70 hover:text-white transition-colors">
                 {loadingPeriod ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
               </button>
             </div>
@@ -502,26 +502,34 @@ export default function OwnerHome() {
               <Card title={isAr ? "لكل دكتور" : "Per dentist"} eyebrow={eyebrow} wide>
                 {moneyHidden ? <Hidden isAr={isAr} /> : brief?.production ? (
                   brief.production.doctors.length === 0 ? <p className="text-sm font-semibold text-ink-faint">{isAr ? "مفيش شغل في الفترة دي." : "No work in this period."}</p> : (
+                    <div className="-mx-1 overflow-x-auto px-1">
                     <table className="w-full text-[13px]">
                       <thead>
                         <tr className="text-[10px] font-black uppercase tracking-[0.1em] text-ink-muted">
-                          <th className="text-start font-black pb-2">{isAr ? "الدكتور" : "Dentist"}</th>
-                          <th className="text-end font-black pb-2">{isAr ? "شغل اتعمل" : "Work done"}</th>
-                          <th className="text-end font-black pb-2">{isAr ? "اتحصّل" : "Collected"}</th>
-                          <th className="text-end font-black pb-2">{isAr ? "نصيبه" : "Share owed"}</th>
+                          <th className="text-start align-bottom font-black pb-2">{isAr ? "الدكتور" : "Dentist"}</th>
+                          <th className="text-end align-bottom font-black pb-2 ps-2 sm:ps-3">{isAr ? "شغل اتعمل" : "Work done"}</th>
+                          <th className="text-end align-bottom font-black pb-2 ps-2 sm:ps-3">{isAr ? "اتحصّل" : "Collected"}</th>
+                          <th className="text-end align-bottom font-black pb-2 ps-2 sm:ps-3">{isAr ? "نصيبه" : "Share owed"}</th>
                         </tr>
                       </thead>
                       <tbody>
                         {brief.production.doctors.slice(0, 8).map((d) => (
                           <tr key={d.key} className="border-t border-line/60">
-                            <td className="py-2 font-bold text-ink truncate max-w-[160px]">{d.name} <span className="font-figure text-[11px] font-semibold text-ink-muted">· {d.patientsSeen}</span></td>
-                            <td className="py-2 text-end font-figure font-extrabold text-ink">{billed.has(d.name) ? fmt(billed.get(d.name) || 0) : `${d.procedures} ${isAr ? "إجراء" : "proc."}`}</td>
-                            <td className="py-2 text-end font-figure font-extrabold text-ink">{fmt(d.collected)}</td>
-                            <td className="py-2 text-end font-figure font-extrabold text-ink">{fmt(d.commission)}</td>
+                            {/* The name truncates inside its own block (truncate on a <td> does nothing) and
+                                the patient count sits under it — on one line it ran into the next column and
+                                "Ahmed Roshdy · 1" + "35,649" read as one number. */}
+                            <td className="py-2 max-w-[5.5rem] sm:max-w-[160px]">
+                              <span className="block truncate font-bold text-ink">{d.name}</span>
+                              <span className="block font-figure text-[11px] font-semibold text-ink-muted">{d.patientsSeen} {isAr ? "مريض" : d.patientsSeen === 1 ? "patient" : "patients"}</span>
+                            </td>
+                            <td className="py-2 ps-2 sm:ps-3 text-end font-figure font-extrabold text-ink">{billed.has(d.name) ? fmt(billed.get(d.name) || 0) : `${d.procedures} ${isAr ? "إجراء" : "proc."}`}</td>
+                            <td className="py-2 ps-2 sm:ps-3 text-end font-figure font-extrabold text-ink">{fmt(d.collected)}</td>
+                            <td className="py-2 ps-2 sm:ps-3 text-end font-figure font-extrabold text-ink">{fmt(d.commission)}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
+                    </div>
                   )
                 ) : <Skeleton />}
                 {brief?.money && !moneyHidden && <p className="text-xs font-semibold text-ink-muted">{isAr ? "إجمالي نصيب الدكاترة" : "Total shares owed"} {fmt(brief.money.doctorCommissions)} · {isAr ? "معامل" : "lab"} {fmt(brief.money.labFees)}</p>}

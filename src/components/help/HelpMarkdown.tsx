@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Camera } from "lucide-react";
+import { Camera, X } from "lucide-react";
 
 /**
  * Screenshots are written into the articles before they are captured, as:
@@ -28,6 +30,92 @@ function ScreenshotSlot({ caption }: { caption: string }) {
       </span>
       <span className="text-xs font-semibold leading-relaxed text-ink-muted">{caption}</span>
     </span>
+  );
+}
+
+/**
+ * A screenshot you can open full screen. The shots are of a desktop screen, so in a phone-width
+ * article they were too small to read; a tap opens the picture over everything, fitted to the
+ * screen, and a second tap shows it at full size to pan around. Escape or × closes it.
+ */
+function ZoomableShot({ url, alt, isRTL }: { url: string; alt: string; isRTL: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [actual, setActual] = useState(false);
+  const thumbRef = useRef<HTMLButtonElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    // Focus goes to × while the picture is open and back to the thumbnail after, so a keyboard
+    // or screen-reader user is neither left behind the overlay nor dropped at the top of the page.
+    const thumb = thumbRef.current;
+    closeRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      thumb?.focus();
+    };
+  }, [open]);
+  const label = isRTL ? "تكبير الصورة" : "Enlarge picture";
+  return (
+    <>
+      <button
+        ref={thumbRef}
+        type="button"
+        onClick={() => {
+          setActual(false);
+          setOpen(true);
+        }}
+        aria-label={alt ? `${label}: ${alt}` : label}
+        className="block w-full cursor-zoom-in rounded-2xl"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={url} alt={alt} className="w-full rounded-2xl border border-line shadow-sm" />
+      </button>
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[300] flex flex-col bg-black/90"
+            role="dialog"
+            aria-modal="true"
+            aria-label={alt || label}
+            onClick={() => setOpen(false)}
+          >
+            <div className="flex shrink-0 items-center justify-between gap-3 p-3 text-white" dir={isRTL ? "rtl" : "ltr"}>
+              <p className="min-w-0 text-sm font-semibold text-white/80 line-clamp-2">{alt}</p>
+              <button
+                ref={closeRef}
+                type="button"
+                onClick={() => setOpen(false)}
+                aria-label={isRTL ? "إغلاق" : "Close"}
+                className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/10 hover:bg-white/20"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            {/* A tap on the dark area around the picture closes it (the click bubbles to the
+                overlay); only a tap on the picture itself is kept, to switch the size. */}
+            <div
+              className={`min-h-0 flex-1 overflow-auto overscroll-contain p-3 ${actual ? "" : "flex items-center justify-center"}`}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={url}
+                alt={alt}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActual((v) => !v);
+                }}
+                className={actual ? "max-w-none cursor-zoom-out rounded-lg" : "max-h-full max-w-full cursor-zoom-in rounded-lg object-contain"}
+              />
+            </div>
+          </div>,
+          document.body
+        )}
+    </>
   );
 }
 
@@ -107,12 +195,7 @@ export default function HelpMarkdown({ body, isRTL }: { body: string; isRTL: boo
             }
             return (
               <span className="my-6 flex flex-col gap-2">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={url}
-                  alt={alt || ""}
-                  className="w-full rounded-2xl border border-line shadow-sm"
-                />
+                <ZoomableShot url={url} alt={alt || ""} isRTL={isRTL} />
                 {alt ? (
                   <span className="text-center text-xs font-semibold text-slate-400">{alt}</span>
                 ) : null}

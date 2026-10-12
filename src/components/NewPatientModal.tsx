@@ -238,7 +238,7 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
       <div className={panel}>
 
         {/* HEADER */}
-        <div className="flex items-center justify-between gap-4 bg-ink-slab px-7 py-6 text-white">
+        <div className="flex items-center justify-between gap-4 bg-ink-slab px-5 py-4 sm:px-7 sm:py-6 text-white">
           <div className="flex items-center gap-4 min-w-0">
              <div className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-white/12 ring-1 ring-white/15">
                 <UserPlus size={24} className="text-white/85"/>
@@ -252,7 +252,7 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
         </div>
 
         {/* FORM BODY */}
-        <form onSubmit={handleSubmit} className="p-7 space-y-5 overflow-y-auto custom-scrollbar flex-1 min-h-0">
+        <form onSubmit={handleSubmit} className="p-5 sm:p-7 space-y-5 overflow-y-auto custom-scrollbar flex-1 min-h-0">
            
            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -269,7 +269,7 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
                     <select
                       value={countryCode}
                       onChange={(e) => setCountryCode(e.target.value)}
-                      className="w-[42%] px-4 py-3 border border-line rounded-xl text-[16px] font-semibold text-ink outline-none focus:border-accent bg-surface"
+                      className="shrink-0 w-auto max-w-[45%] px-3 py-3 border border-line rounded-xl text-[16px] font-semibold text-ink outline-none focus:border-accent bg-surface"
                     >
                       {COUNTRY_CODE_OPTIONS.map((opt) => (
                         <option key={opt.code} value={opt.code}>
@@ -281,7 +281,9 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
                       required data-tour="new-patient-phone"
                       value={phone}
                       onChange={e => setPhone(e.target.value)}
-                      className={`w-[58%] px-4 py-3 border rounded-xl text-[16px] font-semibold text-ink outline-none transition-colors ${duplicateWarning ? 'border-amber-300 bg-amber-50 focus:border-amber-500' : 'border-line bg-surface focus:border-accent'}`}
+                      dir="ltr"
+                      inputMode="tel"
+                      className={`flex-1 min-w-0 px-4 py-3 border rounded-xl text-[16px] font-semibold text-ink outline-none transition-colors ${duplicateWarning ? 'border-amber-300 bg-amber-50 focus:border-amber-500' : 'border-line bg-surface focus:border-accent'}`}
                       placeholder={t("patientPhonePlaceholder")}
                     />
                  </div>
@@ -325,7 +327,7 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
               <input value={address} onChange={e => setAddress(e.target.value)} className="w-full px-4 py-3 border border-line rounded-xl text-[16px] font-semibold text-ink outline-none focus:border-accent transition-colors" placeholder={t("patientAddressPlaceholder")}/>
            </div>
 
-           <div className="grid grid-cols-2 gap-4">
+           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                  <label className="mb-1.5 block text-[14px] font-semibold text-ink-body"><Calendar size={14} className="inline mb-0.5 me-1.5 text-ink-muted"/>{t("patientBirthDate")}</label>
                  <input type="date" value={dob} onChange={e => setDob(e.target.value)} className="w-full px-4 py-3 border border-line rounded-xl text-[16px] font-semibold text-ink outline-none focus:border-accent uppercase text-sm transition-colors cursor-pointer"/>
@@ -377,7 +379,7 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
               <input
                  value={allergies}
                  onChange={e => setAllergies(e.target.value)}
-                 placeholder={language === 'ar' ? 'مثال: بنسلين — اتركه فارغاً إن لم يُسأل' : 'e.g. Penicillin — leave blank if not asked'}
+                 placeholder={language === 'ar' ? 'مثال: بنسلين' : 'e.g. Penicillin'}
                  className="w-full px-4 py-3 border border-danger/30 rounded-xl text-[16px] font-semibold text-ink outline-none focus:border-danger bg-danger-tint/40 transition-colors placeholder:font-medium placeholder:text-ink-faint"
               />
            </div>
@@ -389,13 +391,19 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
               <input
                  value={medicalHistory}
                  onChange={e => setMedicalHistory(e.target.value)}
-                 placeholder={language === 'ar' ? 'مثال: سكري، ضغط — اتركه فارغاً إن لم يُسأل' : 'e.g. Diabetes, hypertension — leave blank if not asked'}
+                 placeholder={language === 'ar' ? 'مثال: سكري، ضغط' : 'e.g. Diabetes, hypertension'}
                  className="w-full px-4 py-3 border border-line rounded-xl text-[16px] font-semibold text-ink outline-none focus:border-accent bg-surface transition-colors placeholder:font-medium placeholder:text-ink-faint"
               />
+              {/* Said once, under both fields — inside the placeholders it was cut off on a phone. */}
+              <p className="mt-1.5 text-[13px] font-medium text-ink-muted">
+                 {language === 'ar' ? 'سيب الحساسية والتاريخ الطبي فاضيين لو متسألوش.' : 'Leave allergies and medical history blank if they were not asked.'}
+              </p>
            </div>
 
-           {/* SUBMIT BUTTON */}
-           <div className="pt-2">
+           {/* SUBMIT BUTTON — on a phone it stays pinned to the bottom of the sheet, so the form
+               can be finished without scrolling past every optional field to find it. `-bottom-5`
+               cancels the form's own padding, which sticky positioning measures from. */}
+           <div className="pt-2 max-sm:sticky max-sm:-bottom-5 max-sm:z-10 max-sm:-mx-5 max-sm:-mb-5 max-sm:border-t max-sm:border-line max-sm:bg-surface max-sm:px-5 max-sm:py-3">
                <button 
                  type="submit" 
                  disabled={loading || (!!duplicateWarning && !allowDuplicatePhone)} data-tour="new-patient-save" 

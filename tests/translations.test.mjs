@@ -81,9 +81,21 @@ function sourceFiles(dir, out = []) {
   return out;
 }
 
+/**
+ * A file whose `t` is its own little dictionary rather than this table — the insurance screens
+ * (`const t = tr(isAr)`, `const t = useMemo(() => tr(isAr), …)`) and a report or two
+ * (`const t = (k: keyof typeof TEXT) => …`). Their keys are checked by their own types, and
+ * asking this table about them only produces false alarms. The patterns are deliberately narrow:
+ * a plain `const t = Date.parse(…)` inside a component that also uses the app's `t` must not
+ * switch the check off for that file.
+ */
+const LOCAL_DICTIONARY =
+  /\bconst\s+t\s*=\s*(?:tr\(|useMemo\(\s*\(\)\s*=>\s*tr\(|\(\s*\w+\s*:\s*keyof\s+typeof\b)/;
+
 const asked = new Map(); // key -> the file that asked for it
 for (const file of sourceFiles(join(REPO, "src"))) {
   const text = readFileSync(file, "utf8");
+  if (LOCAL_DICTIONARY.test(text)) continue;
   for (const m of text.matchAll(/\bt\(\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*\)/g)) {
     if (!asked.has(m[1])) asked.set(m[1], file.split(sep).pop());
   }

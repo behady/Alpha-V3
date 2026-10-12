@@ -16,6 +16,7 @@ import {
   Search,
   X,
   Stethoscope,
+  MoveHorizontal,
 } from "lucide-react";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { storage } from "@/lib/firebase";
@@ -604,8 +605,8 @@ export default function TeethChart({
             answer: a chart squeezed into a pop-up on a wide screen scrolled with no hint at all. */}
         {overflowing && (
           <>
-            <div className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-white to-transparent z-20 rounded-l-3xl" />
-            <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-white to-transparent z-20 rounded-r-3xl" />
+            <div className="pointer-events-none absolute inset-y-0 left-0 w-8 lg:w-6 bg-gradient-to-r from-white to-transparent z-20 rounded-l-3xl" />
+            <div className="pointer-events-none absolute inset-y-0 right-0 w-8 lg:w-6 bg-gradient-to-l from-white to-transparent z-20 rounded-r-3xl" />
           </>
         )}
       <div ref={scrollRef} className="w-full overflow-x-auto no-scrollbar" dir="ltr">
@@ -753,6 +754,15 @@ export default function TeethChart({
         </div>
       </div>
       </div>
+
+      {/* The fades alone were too quiet on a phone: the chart opens centred, so both ends are
+          cut and nothing said the row moves. Said in words, only while it actually overflows. */}
+      {overflowing && !dense && (
+        <p className="mt-2 flex items-center justify-center gap-1.5 text-[11px] font-semibold text-ink-muted lg:hidden">
+          <MoveHorizontal size={13} aria-hidden="true" />
+          {language === "ar" ? "اسحب يمين وشمال لباقي الأسنان" : "Swipe sideways for the other teeth"}
+        </p>
+      )}
 
       {/* Legend — outside the scroll area so it stays put while the teeth scroll */}
       {!compactMode && (

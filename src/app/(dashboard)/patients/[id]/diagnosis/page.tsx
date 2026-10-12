@@ -213,7 +213,7 @@ export default function DiagnosisPage() {
         <PageHeader
           eyebrow={language === "ar" ? "التشخيصات السنية" : "Dental Diagnoses"}
           title={patient.name}
-          subtitle={patient.phone || ""}
+          subtitle={patient.phone ? <bdi dir="ltr">{patient.phone}</bdi> : ""}
           backHref={`/patients/${encodeURIComponent(id)}`}
         />
         <header className="bg-white/95 backdrop-blur-md border-b border-slate-200/70 sticky top-0 z-40">
@@ -255,8 +255,9 @@ export default function DiagnosisPage() {
               <button
                 onClick={handleExportPdf}
                 disabled={exporting}
-                className="inline-flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-full bg-accent-soft text-ink shadow-sm shadow-black/10 hover:bg-accent transition-colors disabled:opacity-60"
+                className="inline-flex items-center justify-center gap-1.5 text-[11px] font-bold px-3 py-1.5 max-sm:min-h-10 max-sm:min-w-10 rounded-full bg-accent-soft text-ink shadow-sm shadow-black/10 hover:bg-accent transition-colors disabled:opacity-60"
                 title={language === "ar" ? "تنزيل تقرير PDF" : "Download PDF report"}
+                aria-label={language === "ar" ? "تنزيل تقرير PDF" : "Download PDF report"}
               >
                 {exporting ? <Loader2 size={13} className="animate-spin" /> : <FileDown size={13} />}
                 <span className="hidden sm:inline">{language === "ar" ? "تقرير PDF" : "PDF report"}</span>
@@ -292,7 +293,7 @@ export default function DiagnosisPage() {
           <section className="grid grid-cols-1 xl:grid-cols-5 gap-4 md:gap-5">
             {/* Chart card */}
             <div className="xl:col-span-3 bg-surface rounded-2xl border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] p-3 md:p-5">
-              <div className="flex items-center justify-between mb-3 md:mb-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3 md:mb-4">
                 <h2 className="text-[11px] font-bold text-ink-muted uppercase tracking-widest flex items-center gap-2">
                   <Stethoscope size={14} className="text-blue-500" />
                   {language === "ar" ? "مخطط الأسنان" : "Odontogram"}
@@ -305,13 +306,13 @@ export default function DiagnosisPage() {
                     onClick={() => setPerioMode(false)}
                     className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${!perioMode ? "bg-surface text-slate-800 shadow-sm" : "text-slate-400 hover:text-ink-body"}`}
                   >
-                    Clinical
+                    {language === "ar" ? "سريري" : "Clinical"}
                   </button>
                   <button
                     onClick={() => setPerioMode(true)}
                     className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${perioMode ? "bg-surface text-blue-600 shadow-sm" : "text-slate-400 hover:text-ink-body"}`}
                   >
-                    Perio
+                    {language === "ar" ? "اللثة" : "Perio"}
                   </button>
                 </div>
               </div>

@@ -667,8 +667,10 @@ export default function LabCaseModal({
                 </button>
               </div>
             ) : (
+              <div>
+              {/* The hint sits outside the positioned box, or the icon centres on input + hint. */}
               <div className="relative">
-                <Search size={16} className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Search size={16} className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                 <input
                   value={patientQuery}
                   onChange={(e) => setPatientQuery(e.target.value)}
@@ -698,6 +700,7 @@ export default function LabCaseModal({
                     ))}
                   </div>
                 )}
+              </div>
                 <p className="text-[10px] font-semibold text-slate-400 mt-1.5 leading-relaxed">
                   {isAr
                     ? "الورقة اللي بتروح المعمل فيها الاسم الأول والكود بس — الاسم الكامل مش بيخرج من العيادة."

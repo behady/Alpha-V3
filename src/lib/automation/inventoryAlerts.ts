@@ -28,7 +28,10 @@ export interface InventoryAlertReport {
   clinicId: string;
   lowStock: LowStockItem[];
   counts: { total: number; low: number; outOfStock: number; noThreshold: number };
+  /** English, as it always was — other readers of this report depend on it. */
   notes: string[];
+  /** The same notes in Arabic, index-for-index beside `notes` (as the briefing does). */
+  notesAr?: string[];
 }
 
 const SCAN_LIMIT = 4000;
@@ -41,6 +44,7 @@ function toNumber(v: unknown): number {
 export async function scanInventoryAlerts(clinicId: string): Promise<InventoryAlertReport> {
   const snap = await adminClinicCollection(clinicId, "inventory").limit(SCAN_LIMIT).get();
   const notes: string[] = [];
+  const notesAr: string[] = [];
 
   const lowStock: LowStockItem[] = [];
   let noThreshold = 0;
@@ -79,9 +83,14 @@ export async function scanInventoryAlerts(clinicId: string): Promise<InventoryAl
       `${noThreshold} item${noThreshold === 1 ? " has" : "s have"} no reorder threshold set, so ` +
         "they can never appear in this list. Set one on each item for alerts to cover them."
     );
+    notesAr.push(
+      `${noThreshold} ${noThreshold === 1 ? "صنف ملوش" : "أصناف ملهاش"} حد أدنى لإعادة الطلب، فمش ممكن ` +
+        "تظهر في القائمة دي. حدد الحد الأدنى لكل صنف عشان التنبيهات تشمله."
+    );
   }
   if (snap.size === 0) {
     notes.push("There are no inventory items recorded yet, so there is nothing to check.");
+    notesAr.push("مفيش أصناف متسجلة في المخزون لسه، فمفيش حاجة نراجعها.");
   }
 
   return {
@@ -95,5 +104,6 @@ export async function scanInventoryAlerts(clinicId: string): Promise<InventoryAl
       noThreshold,
     },
     notes,
+    notesAr,
   };
 }

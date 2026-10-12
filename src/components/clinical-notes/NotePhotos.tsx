@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { Camera, ChevronLeft, ChevronRight, Loader2, Trash2, X, Images } from "lucide-react";
+import { Camera, ChevronLeft, ChevronRight, Loader2, Trash2, X, Images, ExternalLink } from "lucide-react";
 import { storage } from "@/lib/firebase";
 import { currentClinicId } from "@/lib/db-utils";
 import { clinicalNotePhotoPath } from "@/lib/storagePaths";
@@ -83,7 +83,7 @@ export function NotePhotoButton({ note, size = 16 }: { note: Note; size?: number
         disabled={uploading}
         title={label}
         aria-label={label}
-        className={`${size >= 16 ? "p-2.5 shadow-sm" : "p-1.5"} rounded-lg text-sky-700 bg-sky-50 hover:bg-sky-100 transition-colors border border-sky-100 disabled:opacity-60`}
+        className={`${size >= 16 ? "p-2.5 max-md:p-3 shadow-sm" : "p-1.5"} rounded-lg text-sky-700 bg-sky-50 hover:bg-sky-100 transition-colors border border-sky-100 disabled:opacity-60`}
       >
         {uploading ? <Loader2 size={size} className="animate-spin" /> : <Camera size={size} />}
       </button>
@@ -205,24 +205,27 @@ function PhotoViewer({
 
   return createPortal(
     <div className="fixed inset-0 z-[200] bg-black/90 flex flex-col" onClick={onClose} role="dialog" aria-modal="true">
-      <div className="flex items-center justify-between gap-3 p-3 text-white" onClick={(e) => e.stopPropagation()}>
-        <div className="min-w-0">
-          <p className="font-bold truncate">{note.procedure}</p>
+      {/* Phones: the title takes the whole first row and the actions go icon-only beneath it —
+          beside three labelled buttons the title was cut to "Dent…" and the meta ran four lines. */}
+      <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-x-3 gap-y-2 p-3 text-white" onClick={(e) => e.stopPropagation()}>
+        <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
+          <p className="font-bold line-clamp-2 sm:line-clamp-none sm:truncate">{note.procedure}</p>
           <p className="text-xs text-white/60">
             {index + 1} / {photos.length}
             {added && !Number.isNaN(added.getTime()) && ` · ${added.toLocaleDateString(ar ? "ar-EG" : "en-GB")}`}
             {photo.addedBy && ` · ${photo.addedBy}`}
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 ms-auto">
           {canEdit && (
             <Protect permission="clinical.edit">
               <button
                 type="button"
                 onClick={() => void remove()}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/10 hover:bg-rose-600 text-sm font-bold"
+                aria-label={ar ? "إزالة الصورة" : "Remove photo"}
+                className="flex items-center justify-center gap-1.5 min-w-10 h-10 sm:h-auto px-3 py-2 rounded-lg bg-white/10 hover:bg-rose-600 text-sm font-bold"
               >
-                <Trash2 size={15} /> {ar ? "إزالة" : "Remove"}
+                <Trash2 size={15} /> <span className="hidden sm:inline">{ar ? "إزالة" : "Remove"}</span>
               </button>
             </Protect>
           )}
@@ -230,15 +233,17 @@ function PhotoViewer({
             href={photo.url}
             target="_blank"
             rel="noreferrer"
-            className="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-bold"
+            aria-label={ar ? "فتح الأصل" : "Open original"}
+            className="flex items-center justify-center gap-1.5 min-w-10 h-10 sm:h-auto px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-bold"
           >
-            {ar ? "فتح الأصل" : "Open original"}
+            <ExternalLink size={15} className="sm:hidden" />
+            <span className="hidden sm:inline">{ar ? "فتح الأصل" : "Open original"}</span>
           </a>
           <button
             type="button"
             onClick={onClose}
             aria-label={ar ? "إغلاق" : "Close"}
-            className="p-2 rounded-lg bg-white/10 hover:bg-white/20"
+            className="grid place-items-center min-w-10 h-10 sm:h-auto sm:min-w-0 p-2 rounded-lg bg-white/10 hover:bg-white/20"
           >
             <X size={18} />
           </button>

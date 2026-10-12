@@ -110,6 +110,17 @@ export default function InventoryPage() {
   const [sortBy, setSortBy] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [filtersExpanded, setFiltersExpanded] = useState(false);
+  /**
+   * Below `lg` the add/edit form and the categories sit under the whole table — on a phone,
+   * ~3000px down. There they stay folded away until "Add item" or a row's edit opens them, so
+   * the page is the list; on a wide screen they are always shown, as before.
+   */
+  const [phoneFormOpen, setPhoneFormOpen] = useState(false);
+  const revealForm = () => {
+    setPhoneFormOpen(true);
+    // After the reveal renders, or there is nothing to scroll to yet.
+    requestAnimationFrame(() => document.getElementById('inventory-form')?.scrollIntoView({ behavior: 'smooth' }));
+  };
 
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -316,7 +327,7 @@ export default function InventoryPage() {
     setFormUnit(item.unit || "pcs");
     setFormIsPercentage(Boolean(item.isPercentage));
     
-    document.getElementById('inventory-form')?.scrollIntoView({ behavior: 'smooth' });
+    revealForm();
   };
 
   const saveMaterial = async () => {
@@ -526,14 +537,14 @@ export default function InventoryPage() {
             </div>
 
             {/* Metric Tiles */}
-            <div className="xl:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
+            <div className="xl:col-span-7 grid grid-cols-2 gap-3 sm:gap-4">
+              <div className="min-w-0 rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-4 sm:p-5 xl:p-6 shadow-sm flex flex-col justify-between sm:min-h-[120px] ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "أصناف مطابقة" : "Total items"}</p>
                     <p className="text-xs text-ink-muted mt-1 font-medium">{language === "ar" ? "حسب الفلاتر" : "Matching filters"}</p>
                   </div>
-                  <div className="w-11 h-11 rounded-2xl bg-accent-tint text-accent flex items-center justify-center shrink-0">
+                  <div className="max-sm:hidden w-11 h-11 rounded-2xl bg-accent-tint text-accent flex items-center justify-center shrink-0">
                     <Layers size={22} />
                   </div>
                 </div>
@@ -542,13 +553,13 @@ export default function InventoryPage() {
                 </p>
               </div>
 
-              <div className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
+              <div className="min-w-0 rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-4 sm:p-5 xl:p-6 shadow-sm flex flex-col justify-between sm:min-h-[120px] ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "أصناف منخفضة" : "Low stock"}</p>
                     <p className="text-xs text-ink-muted mt-1 font-medium">{language === "ar" ? "تتطلب إعادة طلب" : "Requires reorder"}</p>
                   </div>
-                  <div className="w-11 h-11 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                  <div className="max-sm:hidden w-11 h-11 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
                     <AlertTriangle size={22} />
                   </div>
                 </div>
@@ -568,13 +579,13 @@ export default function InventoryPage() {
                 )}
               </div>
 
-              <div className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
+              <div className="min-w-0 rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-4 sm:p-5 xl:p-6 shadow-sm flex flex-col justify-between sm:min-h-[120px] ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "مشتريات" : "Purchased qty"}</p>
                     <p className="text-xs text-ink-muted mt-1 font-medium">{language === "ar" ? "للفترة المحددة" : "Selected period"}</p>
                   </div>
-                  <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                  <div className="max-sm:hidden w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
                     <TrendingUp size={22} />
                   </div>
                 </div>
@@ -583,13 +594,13 @@ export default function InventoryPage() {
                 </p>
               </div>
 
-              <div className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
+              <div className="min-w-0 rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-4 sm:p-5 xl:p-6 shadow-sm flex flex-col justify-between sm:min-h-[120px] ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "استهلاك" : "Consumed qty"}</p>
                     <p className="text-xs text-ink-muted mt-1 font-medium">{language === "ar" ? "للفترة المحددة" : "Selected period"}</p>
                   </div>
-                  <div className="w-11 h-11 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center shrink-0">
+                  <div className="max-sm:hidden w-11 h-11 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center shrink-0">
                     <TrendingDown size={22} />
                   </div>
                 </div>
@@ -639,12 +650,12 @@ export default function InventoryPage() {
                    type="button"
                    onClick={() => {
                      resetForm();
-                     document.getElementById('inventory-form')?.scrollIntoView({ behavior: 'smooth' });
+                     revealForm();
                    }}
                    data-tour="inventory-add" className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs uppercase shadow-md shadow-emerald-600/20 active:scale-[0.98] transition-all"
                  >
                    <Plus size={18} />
-                   <span className="hidden sm:inline">{language === "ar" ? "إضافة صنف" : "Add Item"}</span>
+                   <span>{language === "ar" ? "إضافة صنف" : "Add Item"}</span>
                  </button>
                </Protect>
 
@@ -813,7 +824,7 @@ export default function InventoryPage() {
 
           {/* Forms Section */}
           {showInventoryForm && (
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5" id="inventory-form">
+            <div className={`${phoneFormOpen ? "grid" : "hidden lg:grid"} grid-cols-1 xl:grid-cols-2 gap-5 scroll-mt-28`} id="inventory-form">
               {/* Add / Edit Form */}
             <div className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-5 xl:p-6 shadow-sm ring-1 ring-slate-100 space-y-4">
               <h3 className="text-lg font-black text-ink tracking-tight">{editingItem ? (language === "ar" ? "تعديل صنف" : "Edit item") : language === "ar" ? "إضافة صنف" : "Add item"}</h3>
@@ -866,6 +877,14 @@ export default function InventoryPage() {
                 </button>
                 <button onClick={resetForm} className="px-6 py-3 rounded-xl bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-bold uppercase transition-colors">
                   {language === "ar" ? "تفريغ" : "Clear"}
+                </button>
+                {/* Phones and tablets only: fold the form away again (it is always shown from lg up). */}
+                <button
+                  type="button"
+                  onClick={() => { resetForm(); setPhoneFormOpen(false); }}
+                  className="lg:hidden px-4 py-3 rounded-xl text-slate-500 hover:bg-slate-50 text-xs font-bold uppercase transition-colors"
+                >
+                  {language === "ar" ? "إغلاق" : "Close"}
                 </button>
               </div>
             </div>
