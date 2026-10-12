@@ -15,6 +15,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getDoc, onSnapshot, setDoc } from "firebase/firestore";
 import {
+  ArrowDown,
+  ArrowUp,
   Check,
   ExternalLink,
   Loader2,
@@ -180,6 +182,11 @@ export default function ReceiptHost({ canEdit }: { canEdit: boolean }) {
   const [previewKind, setPreviewKind] = useState<"payment" | "statement">("payment");
   const previewBoxRef = useRef<HTMLDivElement | null>(null);
   const [previewWidth, setPreviewWidth] = useState(0);
+  // Below xl the preview sits under the whole form — thousands of pixels down on a phone — so
+  // the top of the page carries a jump to it, and the preview carries a jump back.
+  const topRef = useRef<HTMLDivElement | null>(null);
+  const previewSectionRef = useRef<HTMLDivElement | null>(null);
+  const jumpTo = (el: HTMLElement | null) => el?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   // How wide the preview column is, minus its own padding — re-measured as the window changes.
   useEffect(() => {
@@ -313,10 +320,18 @@ export default function ReceiptHost({ canEdit }: { canEdit: boolean }) {
 
   return (
     <div className="space-y-8 animate-in fade-in">
-      <div className="border-b border-line pb-6">
+      <div ref={topRef} className="scroll-mt-24 border-b border-line pb-6">
         <h2 className="text-xl font-bold text-ink">{txt.title}</h2>
         <p className="mt-1 max-w-2xl text-sm font-medium leading-relaxed text-ink-muted">{txt.subtitle}</p>
         {!canEdit && <p className="mt-3 text-xs font-semibold text-warn">{txt.readOnly}</p>}
+        <button
+          type="button"
+          onClick={() => jumpTo(previewSectionRef.current)}
+          className="mt-4 inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-line bg-surface px-4 py-2 text-xs font-bold text-ink hover:bg-surface-muted xl:hidden"
+        >
+          <ArrowDown size={14} />
+          {txt.jumpToPreview}
+        </button>
       </div>
 
       <div className="grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
@@ -348,7 +363,7 @@ export default function ReceiptHost({ canEdit }: { canEdit: boolean }) {
                     aria-label={c}
                     disabled={!canEdit}
                     onClick={() => patch({ accent: c })}
-                    className={`flex h-8 w-8 items-center justify-center rounded-full border-2 transition-transform disabled:cursor-not-allowed ${
+                    className={`flex h-8 w-8 items-center justify-center rounded-full border-2 transition-transform disabled:cursor-not-allowed max-lg:h-10 max-lg:w-10 ${
                       form.accent === c ? "scale-110 border-ink" : "border-transparent hover:scale-105"
                     }`}
                     style={{ background: c }}
@@ -361,7 +376,7 @@ export default function ReceiptHost({ canEdit }: { canEdit: boolean }) {
                   value={form.accent}
                   disabled={!canEdit}
                   onChange={(e) => patch({ accent: e.target.value })}
-                  className="h-8 w-10 cursor-pointer rounded-lg border border-line bg-surface p-0.5 disabled:cursor-not-allowed"
+                  className="h-8 w-10 cursor-pointer rounded-lg border border-line bg-surface p-0.5 disabled:cursor-not-allowed max-lg:h-10 max-lg:w-12"
                   aria-label={txt.accent}
                 />
                 <span className="text-xs font-mono text-ink-muted">{form.accent}</span>
@@ -632,13 +647,21 @@ export default function ReceiptHost({ canEdit }: { canEdit: boolean }) {
         </div>
 
         {/* --------------------------------------------------------------- preview */}
-        <div className="xl:sticky xl:top-24 xl:self-start">
+        <div ref={previewSectionRef} className="scroll-mt-24 xl:sticky xl:top-24 xl:self-start">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-ink-muted">{txt.preview}</div>
               <div className="text-xs text-ink-muted">{txt.previewHint}</div>
+              <button
+                type="button"
+                onClick={() => jumpTo(topRef.current)}
+                className="mt-1 inline-flex min-h-10 items-center gap-1.5 text-xs font-bold text-ink underline decoration-line underline-offset-4 xl:hidden"
+              >
+                <ArrowUp size={14} />
+                {txt.backToSettings}
+              </button>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Choice
                 value={previewKind}
                 onChange={setPreviewKind}
@@ -685,7 +708,7 @@ export default function ReceiptHost({ canEdit }: { canEdit: boolean }) {
       {/* Save bar: arrives when there is something to save. */}
       {canEdit && isDirty && (
         <div
-          className={`sticky bottom-4 z-20 flex items-center justify-between gap-3 rounded-2xl border border-line bg-ink px-5 py-3 text-surface shadow-2xl ${
+          className={`sticky bottom-4 z-20 flex items-center max-lg:bottom-24 justify-between gap-3 rounded-2xl border border-line bg-ink px-5 py-3 text-surface shadow-2xl ${
             isRTL ? "flex-row-reverse" : ""
           }`}
         >

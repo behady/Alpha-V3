@@ -523,8 +523,10 @@ export default function PriceListSettings({
             list.active ? "border-line bg-surface-subtle" : "border-line bg-surface-muted opacity-70"
           }`}
         >
-          <div className="min-w-0 flex-1">
-            <p className="flex items-center gap-2 truncate text-sm font-black text-ink">
+          {/* Phone: the name owns the first line (badges wrap under it) and the controls wrap
+              below — beside them the name was crushed to a few letters. */}
+          <div className="min-w-0 flex-1 max-sm:basis-full">
+            <p className="flex items-center gap-2 text-sm font-black text-ink max-sm:flex-wrap max-sm:gap-y-1 sm:truncate">
               {ar && list.nameAr ? list.nameAr : list.name}
               {list.isDefault && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-accent-tint px-2 py-0.5 text-[10px] font-black text-accent">
@@ -584,7 +586,7 @@ export default function PriceListSettings({
                 type="button"
                 onClick={() => void setListInsurance(list, true)}
                 disabled={saving}
-                className="rounded-lg border border-dashed border-line-strong px-2.5 py-1.5 text-[11px] font-bold text-ink-muted transition hover:border-accent hover:text-ink disabled:opacity-50"
+                className="rounded-lg border border-dashed border-line-strong px-2.5 py-1.5 max-lg:min-h-10 text-[11px] font-bold text-ink-muted transition hover:border-accent hover:text-ink disabled:opacity-50"
               >
                 {ar ? "دي قائمة شركة تأمين؟" : "Insurance company list?"}
               </button>
@@ -614,7 +616,7 @@ export default function PriceListSettings({
               type="button"
               onClick={() => onOpenList(list.id)}
               disabled={saving}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[11px] font-bold text-ink-on-accent transition hover:bg-accent-strong disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 max-lg:min-h-10 text-[11px] font-bold text-ink-on-accent transition hover:bg-accent-strong disabled:opacity-50"
             >
               <SlidersHorizontal size={12} /> {txt.editPrices}
             </button>
@@ -623,7 +625,7 @@ export default function PriceListSettings({
                 type="button"
                 onClick={() => makeDefault(list)}
                 disabled={saving}
-                className="rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-ink-muted transition hover:bg-surface hover:text-accent disabled:opacity-50"
+                className="rounded-lg px-2.5 py-1.5 max-lg:min-h-10 text-[11px] font-bold text-ink-muted transition hover:bg-surface hover:text-accent disabled:opacity-50"
               >
                 {txt.makeDefault}
               </button>
@@ -632,7 +634,7 @@ export default function PriceListSettings({
               type="button"
               onClick={() => toggleActive(list)}
               disabled={saving}
-              className="rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-ink-muted transition hover:bg-surface hover:text-ink disabled:opacity-50"
+              className="rounded-lg px-2.5 py-1.5 max-lg:min-h-10 text-[11px] font-bold text-ink-muted transition hover:bg-surface hover:text-ink disabled:opacity-50"
             >
               {list.active ? txt.deactivate : txt.activate}
             </button>
@@ -642,7 +644,7 @@ export default function PriceListSettings({
               disabled={saving || list.isDefault}
               title={list.isDefault ? txt.cannotDeactivateDefault : undefined}
               aria-label={txt.remove}
-              className="rounded-lg p-1.5 text-ink-muted transition hover:bg-danger-tint hover:text-danger disabled:cursor-not-allowed disabled:opacity-30"
+              className="rounded-lg p-1.5 text-ink-muted transition hover:bg-danger-tint hover:text-danger disabled:cursor-not-allowed disabled:opacity-30 max-lg:p-[13px]"
             >
               <Trash2 size={14} />
             </button>
@@ -726,7 +728,7 @@ export default function PriceListSettings({
           {settings.reasons.map((reason) => (
             <span
               key={reason}
-              className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-subtle py-1 pl-3 pr-1.5 text-xs font-bold text-ink-body"
+              className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-subtle py-1 ps-3 pe-1.5 text-xs font-bold text-ink-body max-lg:gap-0 max-lg:py-0 max-lg:pe-0"
             >
               {reason}
               <button
@@ -734,7 +736,7 @@ export default function PriceListSettings({
                 onClick={() => removeReason(reason)}
                 disabled={saving}
                 aria-label={`${txt.remove} ${reason}`}
-                className="rounded-full p-0.5 text-ink-muted transition hover:bg-danger-tint hover:text-danger disabled:opacity-40"
+                className="rounded-full p-0.5 text-ink-muted transition hover:bg-danger-tint hover:text-danger disabled:opacity-40 max-lg:p-[14px]"
               >
                 <X size={12} />
               </button>

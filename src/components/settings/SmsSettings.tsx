@@ -561,7 +561,7 @@ export default function SmsSettings() {
                     type="button"
                     onClick={() => void save({ ...settings, events: { ...settings.events, [type]: !on } })}
                     aria-label={`${eventMeta[type].label} — ${on ? txt.eventOn : txt.eventOff}`}
-                    className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors shrink-0 ${
+                    className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors shrink-0 max-lg:before:absolute max-lg:before:inset-x-0 max-lg:before:-inset-y-1.5 max-lg:before:content-[''] ${
                       on ? "bg-accent" : "bg-surface-muted"
                     }`}
                   >
@@ -582,6 +582,7 @@ export default function SmsSettings() {
                         setSettings({ ...settings, templates: { ...settings.templates, [type]: e.target.value } })
                       }
                       rows={2}
+                      dir="auto"
                       className="mt-3 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-ink outline-none focus:bg-surface focus:border-accent resize-y"
                     />
                     {/* Live cost, because it is otherwise invisible until the bill arrives. */}

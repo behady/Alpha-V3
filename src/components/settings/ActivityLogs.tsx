@@ -146,6 +146,36 @@ function actionLabel(action: string, isAr: boolean): string {
   return action;
 }
 
+/**
+ * The details line as the phone card shows it: raw record ids (Firestore's 20-character mix of
+ * letters and digits) say nothing to a person on a small screen, so they are dropped, along with
+ * an "ID:" or brackets left empty around them. The desktop table still shows the stored text.
+ */
+// Exactly 20 (Firestore auto-id) or 28 (Firebase uid) letters/digits, standing alone, that mix in
+// a digit or mix upper and lower case — an id, not a word.
+const RAW_ID =
+  /(?:\b(?:id|ID|Id)\s*[:#]?\s*)?(?<![A-Za-z0-9_])(?:(?=[A-Za-z0-9]*\d)(?=[A-Za-z0-9]*[A-Za-z])|(?=[A-Za-z0-9]*[a-z])(?=[A-Za-z0-9]*[A-Z][A-Za-z0-9]*[A-Z]))(?:[A-Za-z0-9]{28}|[A-Za-z0-9]{20})(?![A-Za-z0-9_])/g;
+function readableDetails(details: string): string {
+  const text = String(details);
+  const stripped = text.replace(RAW_ID, "");
+  // Nothing was an id: show the text exactly as stored, no tidying.
+  if (stripped === text) return text;
+  return stripped
+    .replace(/\(\s*\)|\[\s*\]/g, "")
+    .replace(/\s+([.,:;)])/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    // "… toward <id>" reads as a dangling "toward" once the id is gone.
+    .replace(/\s+(?:toward|towards|for|on|to|of|in)$/i, "")
+    .trim();
+}
+
+function severityClass(severity: string): string {
+  if (severity === "HIGH" || severity === "CRITICAL") return "border-danger/25 bg-danger-tint text-danger";
+  if (severity === "MEDIUM") return "border-warn/25 bg-warn-tint text-warn";
+  return "bg-surface-subtle text-ink-body border-line";
+}
+
 export default function ActivityLogs() {
   const { language, isRTL } = useLanguage();
   const isAr = language === "ar";
@@ -229,13 +259,13 @@ export default function ActivityLogs() {
     <div className="w-full space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
       {/* An audit trail's first duty is to say what it is showing you, so that what it is NOT
           showing you is never mistaken for what did not happen. */}
-      <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-ink-on-accent shadow-lg shadow-ink-slab/15 sm:px-8">
+      <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">
         <div className="min-w-0 space-y-2">
-          <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-ink-on-accent/45">
+          <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/70">
             <ClipboardList size={12} />
             {language === "ar" ? "سجل النشاط" : "Activity log"}
           </p>
-          <p className="max-w-xl text-[15px] font-bold leading-relaxed text-ink-on-accent sm:text-base">
+          <p className="max-w-xl text-[15px] font-bold leading-relaxed text-white sm:text-base">
             {language === "ar"
               ? "كل إجراء بيتسجل هنا باسم صاحبه وتاريخه — سواء اتعمل بالإيد أو عن طريق المساعد."
               : "Every action lands here with the person who took it and when — whether by hand or through the assistant."}
@@ -291,7 +321,54 @@ export default function ActivityLogs() {
           </select>
         </div>
 
-        <div className="overflow-x-auto rounded-2xl border border-line">
+        {/* Phone: one card per entry — the seven-column table was 837px wide. */}
+        <ul className="space-y-2 sm:hidden">
+          {loading && (
+            <li className="rounded-2xl border border-line px-4 py-8 text-center text-sm font-semibold text-ink-muted">
+              {language === "ar" ? "جاري تحميل السجلات..." : "Loading logs..."}
+            </li>
+          )}
+          {!loading && filteredLogs.length === 0 && (
+            <li className="rounded-2xl border border-line px-4 py-8 text-center text-sm font-semibold text-ink-muted">
+              {language === "ar" ? "لا توجد سجلات حتى الآن." : "No logs found."}
+            </li>
+          )}
+          {!loading &&
+            paginatedLogs.map((log) => {
+              const when = log.timestamp?.toDate ? log.timestamp.toDate() : null;
+              const who = isAr && (!(log.userName || log.user) || (log.userName || log.user) === "Unknown User")
+                ? "غير معروف"
+                : log.userName || log.user || "Unknown";
+              const details = log.details ? readableDetails(log.details) : "";
+              const severity = log.severity || "LOW";
+              return (
+                <li key={log.id} className="space-y-1.5 rounded-2xl border border-line bg-surface px-4 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="min-w-0 text-sm font-bold text-ink">{log.action ? actionLabel(log.action, isAr) : "-"}</p>
+                    <span className={`shrink-0 rounded-lg border px-2 py-0.5 text-[10px] font-black uppercase ${severityClass(severity)}`}>
+                      {sevLabel(severity)}
+                    </span>
+                  </div>
+                  {details && <p className="break-words text-xs leading-relaxed text-ink-body">{details}</p>}
+                  <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-semibold text-ink-muted">
+                    <span className="font-bold text-ink-body">{who}</span>
+                    {log.actor === "ai" && (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-info/25 bg-info-tint px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-info">
+                        <Sparkles size={9} /> AI
+                      </span>
+                    )}
+                    {log.userRole && <span>· {roleLabel(log.userRole)}</span>}
+                    <span>· {moduleLabel(log.module || "system")}</span>
+                  </p>
+                  <p className="text-[11px] font-semibold text-ink-muted">
+                    {when ? when.toLocaleString(language === "ar" ? "ar-EG" : "en-US") : log.date || "-"}
+                  </p>
+                </li>
+              );
+            })}
+        </ul>
+
+        <div className="hidden overflow-x-auto rounded-2xl border border-line sm:block">
           <table className="w-full text-start">
             <thead className="bg-surface-subtle border-b border-line">
               <tr>
@@ -400,14 +477,14 @@ export default function ActivityLogs() {
               <button
                 disabled={currentPage === 1}
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                className="p-2 bg-surface shadow-sm rounded-lg text-ink-body border border-line hover:bg-surface-subtle disabled:opacity-50"
+                className="p-2 max-lg:p-3 bg-surface shadow-sm rounded-lg text-ink-body border border-line hover:bg-surface-subtle disabled:opacity-50"
               >
                 <ChevronLeft size={16} className={isRTL ? "rotate-180" : ""} />
               </button>
               <button
                 disabled={currentPage === totalPages}
                 onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                className="p-2 bg-surface shadow-sm rounded-lg text-ink-body border border-line hover:bg-surface-subtle disabled:opacity-50"
+                className="p-2 max-lg:p-3 bg-surface shadow-sm rounded-lg text-ink-body border border-line hover:bg-surface-subtle disabled:opacity-50"
               >
                 <ChevronRight size={16} className={isRTL ? "rotate-180" : ""} />
               </button>

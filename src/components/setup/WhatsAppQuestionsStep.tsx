@@ -459,11 +459,11 @@ export default function WhatsAppQuestionsStep({ onDone, onSkip }: { onDone: () =
       <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
         <div className="flex items-center gap-4">
           {index > 0 && (
-            <button type="button" onClick={back} disabled={saving} className="inline-flex items-center gap-1.5 text-sm font-bold text-ink-muted hover:text-ink disabled:opacity-50">
+            <button type="button" onClick={back} disabled={saving} className="inline-flex items-center gap-1.5 text-sm font-bold text-ink-muted hover:text-ink disabled:opacity-50 max-lg:min-h-10">
               <Back size={15} /> {t.back}
             </button>
           )}
-          <button type="button" onClick={onSkip} disabled={saving} className="text-sm font-bold text-ink-muted hover:text-ink disabled:opacity-50">
+          <button type="button" onClick={onSkip} disabled={saving} className="text-sm font-bold text-ink-muted hover:text-ink disabled:opacity-50 max-lg:min-h-10">
             {t.skip}
           </button>
         </div>

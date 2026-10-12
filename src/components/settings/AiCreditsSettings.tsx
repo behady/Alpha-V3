@@ -410,7 +410,39 @@ export default function AiCreditsSettings() {
             {txt.empty}
           </p>
         ) : (
-          <div className="overflow-x-auto rounded-2xl border border-line">
+          <>
+          {/* Phone: one card per charge instead of a 620px table to scroll sideways. */}
+          <ul className="space-y-2 sm:hidden">
+            {logRows.map((r) => {
+              const meta = featureMeta(r.feature);
+              const Icon = meta.icon;
+              return (
+                <li key={r.id} className="space-y-1 rounded-2xl border border-line bg-surface px-4 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="flex min-w-0 items-center gap-1.5 text-sm font-bold text-ink-body">
+                      <Icon size={14} className="shrink-0 text-ink-muted" /> {meta.label}
+                    </span>
+                    <span className="shrink-0 whitespace-nowrap font-figure text-sm font-bold text-ink">
+                      {r.credits} {r.credits === 1 ? txt.credit : txt.credits}
+                    </span>
+                  </div>
+                  {r.detail && <p className="text-[11px] font-semibold text-ink-muted">{detailText(r.detail)}</p>}
+                  <p className="flex flex-wrap gap-x-2 text-[11px] font-semibold text-ink-muted">
+                    <span>
+                      {r.createdMs
+                        ? new Date(r.createdMs).toLocaleString(ar ? "ar-EG" : "en-GB", {
+                            day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+                          })
+                        : "—"}
+                    </span>
+                    {r.patientName && <span>· {r.patientName}</span>}
+                    {r.userName && <span>· {whoText(r.userName)}</span>}
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="hidden overflow-x-auto rounded-2xl border border-line sm:block">
             <table className="w-full min-w-[620px] text-sm">
               <thead>
                 <tr className="bg-surface-subtle text-[10px] font-bold uppercase tracking-widest text-ink-muted">
@@ -453,6 +485,7 @@ export default function AiCreditsSettings() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </section>
     </div>

@@ -147,6 +147,83 @@ export default function PriceListImport({
   const modeLabel = (m: ReviewRow["mode"]) =>
     m === "flat" ? (ar ? "للزيارة" : "Per visit") : m === "per_arch" ? (ar ? "للفك" : "Per jaw") : ar ? "للسنة" : "Per tooth";
 
+  /*
+   * The four pieces of a review row. Drawn as table cells from md up and as a card below it — the
+   * same controls either way, so the phone edits exactly what the desktop does.
+   */
+  const renderFileCell = (r: ReviewRow) => (
+    <>
+      <p className="font-semibold text-ink">{r.match.item.name}</p>
+      <p className="text-[12px] font-medium text-ink-muted">
+        {r.match.item.section}
+        {r.match.item.marked ? <span className="ms-2 rounded bg-surface-muted px-1.5 py-0.5 text-[11px] font-bold text-ink-body">**</span> : null}
+      </p>
+      {r.match.suspicious && r.action.kind !== "skip" && (
+        <p className="mt-0.5 flex items-center gap-1 text-[12px] font-bold text-danger">
+          <AlertTriangle size={12} /> {ar ? "السعر ده أكبر بكتير من الباقي — راجعه" : "Far above every other price — check it"}
+        </p>
+      )}
+    </>
+  );
+
+  const renderPrice = (r: ReviewRow, i: number) => (
+    <input
+      type="number"
+      min={0}
+      inputMode="decimal"
+      value={r.price}
+      onChange={(e) => setRow(i, { price: e.target.value })}
+      className="w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 text-end font-figure text-[15px] font-semibold text-ink outline-none focus:border-accent max-md:py-2.5"
+    />
+  );
+
+  const renderGoesOn = (r: ReviewRow, i: number) => {
+    const value = r.action.kind === "match" ? `m:${r.action.serviceId}` : r.action.kind;
+    return (
+      <>
+        <select
+          value={value}
+          onChange={(e) => {
+            const v = e.target.value;
+            setRow(i, { action: v === "new" ? { kind: "new" } : v === "skip" ? { kind: "skip" } : { kind: "match", serviceId: v.slice(2) } });
+          }}
+          className="w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[14px] font-semibold text-ink outline-none focus:border-accent max-md:py-2.5"
+        >
+          <option value="new">{ar ? "➕ علاج جديد على القائمة دي بس" : "➕ New treatment, this list only"}</option>
+          <option value="skip">{ar ? "تخطّي" : "Skip"}</option>
+          {candidates.map((s) => (
+            <option key={s.id} value={`m:${s.id}`}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+        {r.action.kind === "match" && r.match.kind === "close" && r.action.serviceId === r.match.serviceId && (
+          <p className="mt-0.5 text-[12px] font-bold text-warn">{ar ? "مطابقة تقريبية — اتأكد إنه نفس العلاج" : "Close match — make sure it is the same treatment"}</p>
+        )}
+        {r.action.kind === "match" && r.match.kind === "exact" && r.action.serviceId === r.match.serviceId && (
+          <p className="mt-0.5 text-[12px] font-semibold text-ok">{ar ? "نفس الاسم" : "Same name"}</p>
+        )}
+      </>
+    );
+  };
+
+  const renderCharged = (r: ReviewRow, i: number) =>
+    r.action.kind === "new" ? (
+      <select
+        value={r.mode}
+        onChange={(e) => setRow(i, { mode: e.target.value as ReviewRow["mode"] })}
+        className="w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-[13px] font-semibold text-ink outline-none focus:border-accent max-md:py-2.5"
+      >
+        {(["per_tooth", "per_arch", "flat"] as const).map((m) => (
+          <option key={m} value={m}>
+            {modeLabel(m)}
+          </option>
+        ))}
+      </select>
+    ) : (
+      <span className="text-[12.5px] font-medium text-ink-muted">{r.action.kind === "match" ? (ar ? "زي العلاج" : "As the treatment") : "—"}</span>
+    );
+
   if (!rows) {
     return (
       <div className="rounded-2xl border border-line bg-surface-subtle p-5">
@@ -207,7 +284,35 @@ export default function PriceListImport({
         </div>
       </div>
 
-      <div className="mt-4 overflow-x-auto">
+      {/* Below md: one card per row with the very same price box and pickers (the table needs
+          46rem). Both read and write `rows` through the same setRow, so what is saved is the same. */}
+      <ul className="mt-4 space-y-2 md:hidden">
+        {rows.map((r, i) => {
+          const check = r.action.kind !== "skip" && (r.match.suspicious || (r.action.kind === "match" && r.match.kind === "close" && r.action.serviceId === r.match.serviceId));
+          return (
+            <li
+              key={r.match.item.row}
+              className={`space-y-2.5 rounded-xl border border-line px-3 py-3 ${check ? "bg-warn-tint/40" : "bg-surface"} ${r.action.kind === "skip" ? "opacity-50" : ""}`}
+            >
+              <div>{renderFileCell(r)}</div>
+              <label className="block space-y-1">
+                <span className="block text-[11px] font-bold text-ink-muted">{ar ? "السعر" : "Price"}</span>
+                {renderPrice(r, i)}
+              </label>
+              <label className="block space-y-1">
+                <span className="block text-[11px] font-bold text-ink-muted">{ar ? "هيتحفظ على" : "Goes on"}</span>
+                {renderGoesOn(r, i)}
+              </label>
+              <div className="space-y-1">
+                <span className="block text-[11px] font-bold text-ink-muted">{ar ? "بيتحسب" : "Charged"}</span>
+                {renderCharged(r, i)}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      <div className="mt-4 hidden overflow-x-auto md:block">
         <table className="w-full min-w-[46rem] border-collapse text-[14px]">
           <thead>
             <tr className="border-b border-line text-[12.5px] font-bold text-ink-muted">
@@ -220,72 +325,12 @@ export default function PriceListImport({
           <tbody>
             {rows.map((r, i) => {
               const check = r.action.kind !== "skip" && (r.match.suspicious || (r.action.kind === "match" && r.match.kind === "close" && r.action.serviceId === r.match.serviceId));
-              const value = r.action.kind === "match" ? `m:${r.action.serviceId}` : r.action.kind;
               return (
                 <tr key={r.match.item.row} className={`border-b border-line/60 align-top ${check ? "bg-warn-tint/40" : ""} ${r.action.kind === "skip" ? "opacity-50" : ""}`}>
-                  <td className="py-2.5 pe-3">
-                    <p className="font-semibold text-ink">{r.match.item.name}</p>
-                    <p className="text-[12px] font-medium text-ink-muted">
-                      {r.match.item.section}
-                      {r.match.item.marked ? <span className="ms-2 rounded bg-surface-muted px-1.5 py-0.5 text-[11px] font-bold text-ink-body">**</span> : null}
-                    </p>
-                    {r.match.suspicious && r.action.kind !== "skip" && (
-                      <p className="mt-0.5 flex items-center gap-1 text-[12px] font-bold text-danger">
-                        <AlertTriangle size={12} /> {ar ? "السعر ده أكبر بكتير من الباقي — راجعه" : "Far above every other price — check it"}
-                      </p>
-                    )}
-                  </td>
-                  <td className="py-2.5 pe-3">
-                    <input
-                      type="number"
-                      min={0}
-                      inputMode="decimal"
-                      value={r.price}
-                      onChange={(e) => setRow(i, { price: e.target.value })}
-                      className="w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 text-end font-figure text-[15px] font-semibold text-ink outline-none focus:border-accent"
-                    />
-                  </td>
-                  <td className="py-2.5 pe-3">
-                    <select
-                      value={value}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setRow(i, { action: v === "new" ? { kind: "new" } : v === "skip" ? { kind: "skip" } : { kind: "match", serviceId: v.slice(2) } });
-                      }}
-                      className="w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[14px] font-semibold text-ink outline-none focus:border-accent"
-                    >
-                      <option value="new">{ar ? "➕ علاج جديد على القائمة دي بس" : "➕ New treatment, this list only"}</option>
-                      <option value="skip">{ar ? "تخطّي" : "Skip"}</option>
-                      {candidates.map((s) => (
-                        <option key={s.id} value={`m:${s.id}`}>
-                          {s.name}
-                        </option>
-                      ))}
-                    </select>
-                    {r.action.kind === "match" && r.match.kind === "close" && r.action.serviceId === r.match.serviceId && (
-                      <p className="mt-0.5 text-[12px] font-bold text-warn">{ar ? "مطابقة تقريبية — اتأكد إنه نفس العلاج" : "Close match — make sure it is the same treatment"}</p>
-                    )}
-                    {r.action.kind === "match" && r.match.kind === "exact" && r.action.serviceId === r.match.serviceId && (
-                      <p className="mt-0.5 text-[12px] font-semibold text-ok">{ar ? "نفس الاسم" : "Same name"}</p>
-                    )}
-                  </td>
-                  <td className="py-2.5">
-                    {r.action.kind === "new" ? (
-                      <select
-                        value={r.mode}
-                        onChange={(e) => setRow(i, { mode: e.target.value as ReviewRow["mode"] })}
-                        className="w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-[13px] font-semibold text-ink outline-none focus:border-accent"
-                      >
-                        {(["per_tooth", "per_arch", "flat"] as const).map((m) => (
-                          <option key={m} value={m}>
-                            {modeLabel(m)}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span className="text-[12.5px] font-medium text-ink-muted">{r.action.kind === "match" ? (ar ? "زي العلاج" : "As the treatment") : "—"}</span>
-                    )}
-                  </td>
+                  <td className="py-2.5 pe-3">{renderFileCell(r)}</td>
+                  <td className="py-2.5 pe-3">{renderPrice(r, i)}</td>
+                  <td className="py-2.5 pe-3">{renderGoesOn(r, i)}</td>
+                  <td className="py-2.5">{renderCharged(r, i)}</td>
                 </tr>
               );
             })}

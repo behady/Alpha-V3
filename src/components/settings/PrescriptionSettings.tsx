@@ -206,8 +206,10 @@ export default function PrescriptionSettings() {
             {visible.map(entry => {
                 const badge = badgeFor(entry);
                 return (
-                <div key={entry.key} className="flex justify-between items-start gap-3 p-5 bg-surface-subtle rounded-3xl border border-line shadow-sm hover:border-line-strong hover:bg-surface transition-all group">
-                    <div className="min-w-0">
+                <div key={entry.key} className="flex max-lg:flex-wrap justify-between items-start gap-3 p-5 bg-surface-subtle rounded-3xl border border-line shadow-sm hover:border-line-strong hover:bg-surface transition-all group">
+                    {/* Below lg there is no hover, so the buttons are always shown — on their own row
+                        under the dose, so they never take width from it. */}
+                    <div className="min-w-0 max-lg:basis-full">
                         <div className="flex items-center gap-2 flex-wrap">
                           <p className="font-bold text-ink text-base">{entry.name}</p>
                           {badge.label && (
@@ -219,12 +221,13 @@ export default function PrescriptionSettings() {
                         {entry.dose && <p dir="ltr" className="text-sm font-medium text-ink-muted mt-1">{entry.dose}</p>}
                         {entry.doseAr && <p dir="rtl" className="text-sm font-medium text-ink-muted">{entry.doseAr}</p>}
                     </div>
-                    <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-1 shrink-0 max-lg:w-full max-lg:justify-end lg:opacity-0 lg:group-hover:opacity-100 lg:focus-within:opacity-100 transition-opacity">
                         {entry.origin === "customized" && entry.docId && entry.catalogId && (
                           <button
                             onClick={() => restoreBuiltIn(entry.docId!, entry.catalogId!)}
                             title={isAr ? "رجّعه زي ما كان" : "Reset to the built-in version"}
-                            className="text-ink-muted hover:bg-accent-tint hover:text-accent bg-surface rounded-xl transition-colors p-2.5"
+                            aria-label={isAr ? "رجّعه زي ما كان" : "Reset to the built-in version"}
+                            className="text-ink-muted hover:bg-accent-tint hover:text-accent bg-surface rounded-xl transition-colors p-2.5 max-lg:p-3"
                           >
                             <RotateCcw size={16}/>
                           </button>
@@ -232,14 +235,16 @@ export default function PrescriptionSettings() {
                         <button
                           onClick={() => openEditModal(entry)}
                           title={isAr ? "تعديل" : "Edit"}
-                          className="text-ink-muted hover:bg-accent-tint hover:text-accent bg-surface rounded-xl transition-colors p-2.5"
+                          aria-label={isAr ? "تعديل" : "Edit"}
+                          className="text-ink-muted hover:bg-accent-tint hover:text-accent bg-surface rounded-xl transition-colors p-2.5 max-lg:p-3"
                         >
                           <Pencil size={16}/>
                         </button>
                         <button
                           onClick={() => removeDrug(entry)}
                           title={isAr ? "شيله من القائمة" : "Remove from the list"}
-                          className="text-ink-muted hover:bg-danger-tint hover:text-danger bg-surface rounded-xl transition-colors p-2.5"
+                          aria-label={isAr ? "شيله من القائمة" : "Remove from the list"}
+                          className="text-ink-muted hover:bg-danger-tint hover:text-danger bg-surface rounded-xl transition-colors p-2.5 max-lg:p-3"
                         >
                           <Trash2 size={16}/>
                         </button>
@@ -284,7 +289,7 @@ export default function PrescriptionSettings() {
 
         {isDrugModalOpen && (
           <div className="fixed inset-0 bg-ink/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
-              <div className="bg-white rounded-[2rem] p-8 w-full max-w-md shadow-2xl animate-in zoom-in-95 border border-line">
+              <div className="bg-white rounded-[2rem] p-6 sm:p-8 w-full max-w-md max-h-[92dvh] overflow-y-auto shadow-2xl animate-in zoom-in-95 border border-line">
                 <div className="flex justify-between items-center mb-6">
                     <h2 className="text-xl font-bold text-ink tracking-tight">
                       {editing ? (isAr ? "تعديل الدواء" : "Edit medicine") : txt.addDrug}
@@ -299,13 +304,13 @@ export default function PrescriptionSettings() {
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-ink-muted uppercase tracking-widest pl-1">{isAr ? "الجرعة بالإنجليزي" : "Dose (English)"}</label>
+                      <label className="text-[10px] font-black text-ink-muted uppercase tracking-widest ps-1">{isAr ? "الجرعة بالإنجليزي" : "Dose (English)"}</label>
                       <input dir="ltr" value={newDrugDose} onChange={e => setNewDrugDose(e.target.value)} placeholder="1 tablet every 12 hours after food" className="w-full px-4 py-3.5 bg-surface-subtle rounded-xl border border-line font-semibold text-ink outline-none focus:bg-white focus:border-accent transition-all placeholder:text-ink-muted"/>
                     </div>
 
                     {/* Both doses print, one under the other, so both are editable here. */}
                     <div className="space-y-1.5">
-                      <label className="text-[10px] font-black text-ink-muted uppercase tracking-widest pl-1">{isAr ? "الجرعة بالعربي" : "Dose (Arabic)"}</label>
+                      <label className="text-[10px] font-black text-ink-muted uppercase tracking-widest ps-1">{isAr ? "الجرعة بالعربي" : "Dose (Arabic)"}</label>
                       <input dir="rtl" value={newDrugDoseAr} onChange={e => setNewDrugDoseAr(e.target.value)} placeholder="قرص كل 12 ساعة بعد الأكل" className="w-full px-4 py-3.5 bg-surface-subtle rounded-xl border border-line font-semibold text-ink outline-none focus:bg-white focus:border-accent transition-all placeholder:text-ink-muted"/>
                     </div>
 

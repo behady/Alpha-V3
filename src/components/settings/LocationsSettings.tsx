@@ -279,7 +279,7 @@ export default function LocationsSettings() {
                 <button
                   type="button"
                   onClick={() => void removeBranch(branch.id)}
-                  className="shrink-0 rounded-lg p-2 text-ink-muted transition-colors hover:bg-danger-tint hover:text-danger"
+                  className="shrink-0 rounded-lg p-2 text-ink-muted transition-colors hover:bg-danger-tint hover:text-danger max-lg:p-3"
                   aria-label={txt.deleteBranch}
                 >
                   <Trash2 size={16} />
@@ -375,13 +375,19 @@ export default function LocationsSettings() {
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="relative">
-                  <MapPin size={14} className="absolute start-3 top-1/2 -translate-y-1/2 text-ink-muted" />
-                  <input
-                    type="text"
+                  <MapPin size={14} className="absolute start-3 top-[9px] text-ink-muted" />
+                  {/* A one-line textarea that grows with its text, so a long address wraps on a
+                      phone instead of scrolling sideways. Line breaks are kept out, exactly as the
+                      old single-line input did, so the saved value is the same shape. */}
+                  <textarea
+                    rows={1}
                     value={branch.address || ""}
-                    onChange={(e) => updateBranch(branch.id, { address: e.target.value })}
+                    onChange={(e) => updateBranch(branch.id, { address: e.target.value.replace(/\r?\n/g, " ") })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.nativeEvent.isComposing) e.preventDefault();
+                    }}
                     placeholder={txt.address}
-                    className={`w-full rounded-xl py-2 pe-3 ps-9 text-xs font-bold ${INPUT}`}
+                    className={`block w-full resize-none rounded-xl py-2 pe-3 ps-9 text-xs font-bold leading-4 field-sizing-content max-sm:min-h-[3.25rem] ${INPUT}`}
                   />
                 </div>
                 <div className="relative">
@@ -409,13 +415,13 @@ export default function LocationsSettings() {
                   {branch.rooms.map((room) => (
                     <span
                       key={room.id}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface py-1.5 pe-1.5 ps-3 text-xs font-bold text-ink-body shadow-sm"
+                      className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface py-1.5 pe-1.5 ps-3 text-xs font-bold text-ink-body shadow-sm max-lg:gap-0 max-lg:py-0 max-lg:pe-0"
                     >
                       {room.name}
                       <button
                         type="button"
                         onClick={() => removeRoom(branch.id, room.id)}
-                        className="rounded-full p-1 text-ink-muted transition-colors hover:bg-danger-tint hover:text-danger"
+                        className="rounded-full p-1 text-ink-muted transition-colors hover:bg-danger-tint hover:text-danger max-lg:p-3.5"
                         aria-label={txt.deleteRoom}
                       >
                         <Trash2 size={12} />
@@ -457,7 +463,7 @@ export default function LocationsSettings() {
       {/* Nothing here is written until this is pressed, so it says whether there is anything to
           write. The old button sat in the header looking identical either way. */}
       {isDirty && (
-        <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-ink-slab px-4 py-3 shadow-2xl">
+        <div className="sticky bottom-4 z-20 flex flex-wrap items-center max-lg:bottom-24 justify-between gap-3 rounded-2xl border border-white/10 bg-ink-slab px-4 py-3 shadow-2xl">
           <span className="text-xs font-bold text-white/70">{txt.unsaved}</span>
           <span className="flex items-center gap-2">
             <button

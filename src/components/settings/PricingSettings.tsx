@@ -323,7 +323,7 @@ export default function PricingSettings({
                       <DentalIcon id={iconForService(s)} size={24} />
                     </span>
                     <div className="flex-1 min-w-0">
-                      <p className="font-bold text-ink text-sm leading-snug truncate">{serviceDisplayName(s, ar)}</p>
+                      <p className="font-bold text-ink text-sm leading-snug break-words max-lg:line-clamp-2 lg:truncate">{serviceDisplayName(s, ar)}</p>
                       {ar && String((s as { nameAr?: unknown }).nameAr || "").trim() && (
                         <p className="truncate text-[11px] font-semibold text-ink-muted" dir="ltr">{s.name}</p>
                       )}
@@ -361,17 +361,21 @@ export default function PricingSettings({
                         )}
                       </div>
                     </div>
-                    <div className="flex gap-1 shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                    {/* Hover-reveal only where there is a mouse (lg up); tablets and phones always see
+                        the buttons, at a 40px tap size. */}
+                    <div className="flex gap-1 shrink-0 max-lg:flex-col opacity-100 lg:opacity-0 lg:group-hover:opacity-100 lg:focus-within:opacity-100 transition-opacity">
                       <button
                         onClick={() => openEdit(s)}
-                        className="p-2 text-ink-muted hover:bg-accent-tint hover:text-accent rounded-lg transition-all"
+                        aria-label={txt.editTreatment}
+                        className="p-2 max-lg:p-3 text-ink-muted hover:bg-accent-tint hover:text-accent rounded-lg transition-all"
                       >
                         <Edit2 size={16} />
                       </button>
                       <button
                         data-tour="price-row-delete"
                         onClick={() => deleteService(s.id, s.name)}
-                        className="p-2 text-ink-muted hover:bg-danger-tint hover:text-danger rounded-lg transition-all"
+                        aria-label={ar ? "حذف" : "Delete"}
+                        className="p-2 max-lg:p-3 text-ink-muted hover:bg-danger-tint hover:text-danger rounded-lg transition-all"
                       >
                         <Trash2 size={16} />
                       </button>
@@ -387,7 +391,7 @@ export default function PricingSettings({
       {/* Add / edit modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-ink/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
-          <div className="bg-surface rounded-[2rem] w-full max-w-lg shadow-2xl animate-in zoom-in-95 border border-line flex flex-col max-h-[92vh]">
+          <div className="bg-surface rounded-[2rem] w-full max-w-lg shadow-2xl animate-in zoom-in-95 border border-line flex flex-col max-h-[92vh] max-lg:max-h-[92dvh] overflow-hidden">
             <div className="flex justify-between items-center px-7 pt-6 pb-4 border-b border-line">
               <h2 className="text-lg font-black text-ink tracking-tight">
                 {editingService ? txt.editTreatment : txt.newTreatment}
@@ -402,7 +406,7 @@ export default function PricingSettings({
 
             <form onSubmit={handleSave} className="px-7 py-5 space-y-5 overflow-y-auto custom-scrollbar">
               <div className="grid grid-cols-3 gap-3">
-                <div className="col-span-2 space-y-1.5">
+                <div className="col-span-3 sm:col-span-2 space-y-1.5">
                   <label className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.name}</label>
                   <input
                     autoFocus
@@ -418,12 +422,14 @@ export default function PricingSettings({
                   <input
                     value={form.nameAr}
                     onChange={(e) => setForm({ ...form, nameAr: e.target.value })}
-                    placeholder={ar ? "اللي هيظهر للفريق اللي بيشتغل بالعربي" : "Shown to staff who use the app in Arabic"}
+                    // Always an Arabic example: the box is right-to-left Arabic text, and an English
+                    // sentence in it read backwards. The label says what it is for.
+                    placeholder="مثال: تاج زيركون"
                     dir="rtl"
                     className="w-full py-3 px-4 bg-surface-subtle rounded-xl border border-line font-semibold text-ink text-sm outline-none focus:bg-surface focus:border-accent transition-all"
                   />
                 </div>
-                <div className="space-y-1.5">
+                <div className="col-span-3 sm:col-span-1 space-y-1.5">
                   <label className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">
                     {txt.price} ({currency})
                   </label>
@@ -593,12 +599,16 @@ export default function PricingSettings({
                 </div>
               )}
 
-              <button
-                type="submit" data-tour="price-service-save"
-                className="w-full bg-accent text-ink-on-accent py-3.5 rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all flex items-center justify-center gap-2"
-              >
-                <Save size={16} /> {editingService ? txt.update : txt.save}
-              </button>
+              {/* Below lg the Save stays pinned to the bottom of the scrolling form (clear of the
+                  phone's home bar), so it is never a long scroll past the icon grid away. */}
+              <div className="max-lg:sticky max-lg:bottom-0 max-lg:-mx-7 max-lg:-mb-5 max-lg:border-t max-lg:border-line max-lg:bg-surface max-lg:px-7 max-lg:pt-3 max-lg:pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+                <button
+                  type="submit" data-tour="price-service-save"
+                  className="w-full bg-accent text-ink-on-accent py-3.5 rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all flex items-center justify-center gap-2"
+                >
+                  <Save size={16} /> {editingService ? txt.update : txt.save}
+                </button>
+              </div>
             </form>
           </div>
         </div>

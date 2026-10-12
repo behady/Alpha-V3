@@ -26,7 +26,7 @@
  * list, a section is a page of its own, and the back arrow in the black band returns to the list.
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PageHeader from "@/components/dashboard/PageHeader";
 import { useSettingsText } from "@/lib/useSettingsText";
 import { usePathname, useRouter } from "next/navigation";
@@ -140,6 +140,41 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
 
   const txt = useSettingsText("shell");
 
+  /**
+   * Below lg the list and a section are separate pages that share this layout, so moving between
+   * them kept whatever scroll the list had — open Activity log from far down the list and its
+   * title was off-screen. Start every move at the top. Both the window and any scrolling ancestor
+   * are reset, because which one scrolls depends on the dashboard shell. Desktop is untouched:
+   * there the list and the section sit side by side.
+   */
+  const shellRef = useRef<HTMLDivElement | null>(null);
+  const firstPath = useRef(true);
+  // Browser back/forward restores its own scroll position (the list where you left it), so a
+  // move that came from history is left alone.
+  const fromHistory = useRef(false);
+  useEffect(() => {
+    const onPop = () => {
+      fromHistory.current = true;
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  useEffect(() => {
+    if (firstPath.current) {
+      firstPath.current = false;
+      return;
+    }
+    if (fromHistory.current) {
+      fromHistory.current = false;
+      return;
+    }
+    if (typeof window === "undefined" || !window.matchMedia("(max-width: 1023.98px)").matches) return;
+    window.scrollTo(0, 0);
+    for (let el = shellRef.current?.parentElement ?? null; el; el = el.parentElement) {
+      if (el.scrollTop > 0) el.scrollTop = 0;
+    }
+  }, [pathname]);
+
   const label = (s: SettingsSection) => (ar ? s.labelAr : s.labelEn);
   const hint = (s: SettingsSection) => (ar ? s.hintAr : s.hintEn);
 
@@ -190,6 +225,7 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div
+      ref={shellRef}
       className="mx-auto w-full max-w-[1400px] p-4 pb-24 font-sans md:p-8 md:pb-10"
       dir={isRTL ? "rtl" : "ltr"}
     >
@@ -248,14 +284,14 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
               placeholder={txt.search}
               aria-label={txt.search}
               data-tour="settings-search"
-              className="block w-full rounded-xl border-0 bg-surface py-3 pe-10 ps-10 text-[14px] font-medium text-ink ring-1 ring-inset ring-line transition-shadow placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-ink"
+              className="block w-full rounded-xl border-0 bg-surface py-3 pe-10 ps-10 text-[14px] max-lg:pe-12 font-medium text-ink ring-1 ring-inset ring-line transition-shadow placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-ink"
             />
             {query && (
               <button
                 type="button"
                 onClick={() => setQuery("")}
                 aria-label={txt.clear}
-                className="absolute end-2.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-surface-muted hover:text-ink"
+                className="absolute end-2.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-surface-muted hover:text-ink max-lg:end-1 max-lg:h-10 max-lg:w-10"
               >
                 <X size={14} />
               </button>

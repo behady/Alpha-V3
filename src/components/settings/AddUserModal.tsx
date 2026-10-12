@@ -77,7 +77,7 @@ export default function AddUserModal({
   // Portalled to <body>: a fixed overlay rendered inside <main> is clipped by it on some pages.
   return createPortal(
     <div className="fixed inset-0 bg-ink/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4" dir={isRTL ? "rtl" : "ltr"}>
-      <div className="bg-surface rounded-[2rem] p-8 w-full max-w-md shadow-2xl animate-in zoom-in-95 border border-line">
+      <div className="bg-surface rounded-[2rem] p-6 sm:p-8 w-full max-w-md max-h-[92dvh] overflow-y-auto shadow-2xl animate-in zoom-in-95 border border-line">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-bold text-ink tracking-tight">{txt.title}</h2>
           <button
@@ -111,7 +111,7 @@ export default function AddUserModal({
               <Mail size={18} className={iconClass} />
               <input
                 required
-                type="email" data-tour="user-email"
+                type="email" data-tour="user-email" autoComplete="off"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
                 className={fieldClass}
@@ -125,7 +125,7 @@ export default function AddUserModal({
               <Lock size={18} className={iconClass} />
               <input
                 required
-                type="password" data-tour="user-password"
+                type="password" data-tour="user-password" autoComplete="new-password"
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
                 placeholder={txt.passwordHint}

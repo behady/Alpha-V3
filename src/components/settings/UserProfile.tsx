@@ -291,11 +291,13 @@ export default function UserProfile() {
         <div className="rounded-2xl border border-line bg-surface p-5 sm:p-6">
           <label className="block space-y-2">
             <span className="block text-[10px] font-black uppercase tracking-widest text-ink-muted">{txt.phone}</span>
-            <span className="flex gap-2">
+            {/* Phone: country on its own row, number full width under it — side by side the
+                number box was 86px wide. */}
+            <span className="flex flex-col gap-2 sm:flex-row">
               <select
                 value={countryCode}
                 onChange={(e) => setCountryCode(e.target.value)}
-                className={`${INPUT} w-[45%] px-3 py-3`}
+                className={`${INPUT} px-3 py-3 sm:w-[45%]`}
               >
                 {COUNTRY_CODE_OPTIONS.map((opt) => (
                   <option key={opt.code} value={opt.code}>
@@ -303,7 +305,7 @@ export default function UserProfile() {
                   </option>
                 ))}
               </select>
-              <span className="relative block w-[55%]">
+              <span className="relative block w-full sm:w-[55%]">
                 <Phone size={18} className="absolute start-4 top-1/2 -translate-y-1/2 text-ink-muted" />
                 <input
                   type="tel"
@@ -353,7 +355,7 @@ export default function UserProfile() {
       </section>
 
       {isDirty && (
-        <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-ink-slab px-4 py-3 shadow-2xl">
+        <div className="sticky bottom-4 z-20 flex flex-wrap max-lg:bottom-24 items-center justify-between gap-3 rounded-2xl border border-white/10 bg-ink-slab px-4 py-3 shadow-2xl">
           <span className="text-xs font-bold text-white/70">{txt.unsaved}</span>
           <span className="flex items-center gap-2">
             <button

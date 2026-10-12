@@ -5,6 +5,7 @@ import { useSettingsText } from "@/lib/useSettingsText";
 import { X, Search, ChevronDown, ChevronRight, Info, Shield, Crown, RotateCcw, ArrowRightLeft } from "lucide-react";
 import { PERMISSIONS_CATALOG, type PermissionCatalogGroup } from "@/config/permissionsCatalog";
 import { ASSIGNABLE_ROLES, isFullAccessRole, isOwnerRole, presetDiff, rolePreset } from "@/lib/permissions";
+import { formatStaffRoleLabel } from "@/lib/staffRoles";
 
 type UserRow = {
   id: string;
@@ -107,6 +108,9 @@ export default function UserAccessModal({
   const isUpdating = updatingUserId === user.id;
 
   const roleName = user.role || "Assistant";
+  /** On screen only: the stored role stays English (it is data); the words shown follow the language. */
+  const roleText = (role: string) => formatStaffRoleLabel({ role }, isAr);
+  const roleShown = roleText(roleName);
   const presetSize = presetKeys.size;
 
 
@@ -114,7 +118,7 @@ export default function UserAccessModal({
 
     ...sectionText,
 
-    presetLabel: isAr ? `الإعداد الجاهز لدور ${roleName}` : `${roleName} preset`,
+    presetLabel: isAr ? `الإعداد الجاهز لدور ${roleShown}` : `${roleShown} preset`,
 
     presetSwitches: isAr ? `${presetSize} صلاحية` : `${presetSize} switches`,
 
@@ -175,7 +179,7 @@ export default function UserAccessModal({
                   className="w-full py-3 px-4 rounded-xl border border-line text-sm font-bold text-ink bg-surface-subtle outline-none focus:ring-2 focus:ring-accent-soft/20 focus:border-accent-soft transition-all cursor-pointer"
                 >
                   {ASSIGNABLE_ROLES.map((r) => (
-                    <option key={r} value={r}>{r}</option>
+                    <option key={r} value={r}>{roleText(r)}</option>
                   ))}
                 </select>
               )}
@@ -232,7 +236,7 @@ export default function UserAccessModal({
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-1">
               <label className="text-xs font-black text-ink-muted uppercase tracking-widest">
-                Modular Access
+                {txt.modularAccess}
               </label>
             </div>
 
@@ -348,7 +352,9 @@ export default function UserAccessModal({
                             <label
                               key={pk.id}
                               title={hint || undefined}
-                              className={`flex items-center justify-between p-3 rounded-xl transition-colors border border-transparent ${
+                              // Phone: the role badge drops under the name (aligned with it) so the
+                              // permission name gets the row's width.
+                              className={`flex items-center justify-between p-3 rounded-xl transition-colors border border-transparent max-sm:flex-wrap ${
                                 bypassesEverything
                                   ? 'bg-surface-subtle cursor-default'
                                   : isSet
@@ -356,7 +362,7 @@ export default function UserAccessModal({
                                     : 'hover:bg-surface-subtle cursor-pointer'
                               }`}
                             >
-                              <div className="flex items-center gap-4 min-w-0 pr-4">
+                              <div className="flex items-center gap-4 min-w-0 pe-4 max-sm:basis-full max-sm:pe-0">
                                 <div className={`relative w-11 h-6 rounded-full transition-colors duration-300 flex items-center shrink-0 ${
                                   bypassesEverything ? 'bg-line-strong' : isSet ? 'bg-accent-soft' : 'bg-surface-muted'
                                 }`}>
@@ -378,12 +384,12 @@ export default function UserAccessModal({
                                 </div>
                               </div>
                               {bypassesEverything ? (
-                                <span className="shrink-0 px-2 py-1 rounded-md bg-surface-muted text-ink-body text-[10px] font-black uppercase tracking-wider">
+                                <span className="shrink-0 px-2 py-1 rounded-md bg-surface-muted text-ink-body text-[10px] font-black uppercase tracking-wider max-sm:ms-[3.75rem] max-sm:mt-1">
                                   {txt.always}
                                 </span>
                               ) : inPreset ? (
-                                <span className="shrink-0 px-2 py-1 rounded-md bg-surface-muted text-ink-muted text-[10px] font-black uppercase tracking-wider">
-                                  {roleName}
+                                <span className="shrink-0 px-2 py-1 rounded-md bg-surface-muted text-ink-muted text-[10px] font-black uppercase tracking-wider max-sm:ms-[3.75rem] max-sm:mt-1">
+                                  {roleShown}
                                 </span>
                               ) : null}
                             </label>

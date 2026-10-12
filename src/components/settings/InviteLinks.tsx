@@ -215,7 +215,7 @@ export default function InviteLinks({ clinicId }: { clinicId: string | null }) {
       <div>
         <div className="flex items-center justify-between mb-2">
           <p className="text-[11px] font-black text-ink-muted uppercase tracking-widest">{t.active}</p>
-          <button type="button" onClick={() => void load()} className="text-[11px] font-bold text-ink-muted hover:text-ink inline-flex items-center gap-1">
+          <button type="button" onClick={() => void load()} className="text-[11px] font-bold text-ink-muted hover:text-ink inline-flex items-center gap-1 max-lg:min-h-10 max-lg:px-2 max-lg:-me-2">
             <RefreshCcw size={11} /> {t.refresh}
           </button>
         </div>
@@ -246,9 +246,9 @@ export default function InviteLinks({ clinicId }: { clinicId: string | null }) {
                 <p className="text-xs text-ink-muted">{row.status === "active" && row.expiresAt ? `${t.expires} ${fmtDate(row.expiresAt)}` : fmtDate(row.createdAt)}</p>
                 {row.status === "active" && (
                   <div className="flex gap-2">
-                    <button type="button" onClick={() => copy(row.code)} title={t.copy} className="rounded-lg border border-line bg-white p-2 text-ink-muted hover:text-ink"><Copy size={14} /></button>
-                    <button type="button" onClick={() => shareOnWhatsApp(row.code, row.role)} title={t.whatsapp} className="rounded-lg border border-line bg-white p-2 text-ok hover:bg-ok-tint"><MessageCircle size={14} /></button>
-                    <button type="button" onClick={() => revoke(row.code)} title={t.cancel} className="rounded-lg border border-line bg-white p-2 text-danger hover:bg-danger-tint"><XCircle size={14} /></button>
+                    <button type="button" onClick={() => copy(row.code)} title={t.copy} aria-label={t.copy} className="rounded-lg border border-line bg-white p-2 text-ink-muted hover:text-ink max-lg:p-[13px]"><Copy size={14} /></button>
+                    <button type="button" onClick={() => shareOnWhatsApp(row.code, row.role)} title={t.whatsapp} aria-label={t.whatsapp} className="rounded-lg border border-line bg-white p-2 text-ok hover:bg-ok-tint max-lg:p-[13px]"><MessageCircle size={14} /></button>
+                    <button type="button" onClick={() => revoke(row.code)} title={t.cancel} aria-label={t.cancel} className="rounded-lg border border-line bg-white p-2 text-danger hover:bg-danger-tint max-lg:p-[13px]"><XCircle size={14} /></button>
                   </div>
                 )}
               </li>

@@ -487,7 +487,7 @@ function SetupWizard() {
                   title={t.steps[id]}
                   // A save in flight moves on by itself when it lands; a jump now would be undone by it.
                   disabled={saving}
-                  className="flex items-center gap-2 disabled:cursor-wait"
+                  className="flex items-center gap-2 disabled:cursor-wait max-lg:min-h-10 max-lg:min-w-10 max-lg:justify-center"
                 >
                   <span
                     className={`w-6 h-6 rounded-full flex items-center justify-center font-figure text-[11px] ${
@@ -872,7 +872,7 @@ function SetupWizard() {
 
       {!isLast && (
         <div className="mt-4 text-center">
-          <button type="button" onClick={finish} className="text-xs font-bold text-ink-muted hover:text-ink inline-flex items-center gap-1.5">
+          <button type="button" onClick={finish} className="text-xs font-bold text-ink-muted hover:text-ink inline-flex items-center gap-1.5 max-lg:min-h-10 max-lg:px-3">
             <Sparkles size={13} /> {t.skipAll}
           </button>
         </div>
@@ -936,7 +936,7 @@ function Footer({
   return (
     <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
       {onSkip ? (
-        <button type="button" onClick={onSkip} disabled={saving} className="text-sm font-bold text-ink-muted hover:text-ink disabled:opacity-50">
+        <button type="button" onClick={onSkip} disabled={saving} className="text-sm font-bold text-ink-muted hover:text-ink disabled:opacity-50 max-lg:min-h-10">
           {skipLabel}
         </button>
       ) : (

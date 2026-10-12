@@ -122,18 +122,20 @@ export default function PricesHost() {
   }
 
   return (
-    <div className="w-full space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
+    <div className="w-full space-y-5 pb-4 sm:space-y-8" dir={isRTL ? "rtl" : "ltr"}>
       {/* What this screen says, said once at the top: what a treatment costs when nobody chose a
-          list, how much of the catalogue exists, and how far staff may discount it. */}
-      <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">
-        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0 space-y-2">
-            <p className="flex items-center gap-2 font-display text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
+          list, how much of the catalogue exists, and how far staff may discount it.
+          On a phone it is compacted (the page title already names the screen) so the tabs and
+          the treatments are not pushed half a screen down. */}
+      <div className="rounded-[1.75rem] bg-ink-slab px-4 py-4 text-white shadow-lg shadow-ink-slab/15 sm:px-8 sm:py-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-5">
+          <div className="min-w-0 space-y-1.5 sm:space-y-2">
+            <p className="hidden items-center gap-2 font-display text-[10px] font-black uppercase tracking-[0.22em] text-white/45 sm:flex">
               <Tag size={12} />
               {txt.title}
             </p>
-            <p className="font-display text-lg font-bold leading-snug text-white sm:text-xl">{headline}</p>
-            <p className="font-figure text-[15px] tracking-tight text-white/70">{facts}</p>
+            <p className="font-display text-[15px] font-bold leading-snug text-white sm:text-xl">{headline}</p>
+            <p className="font-figure text-[13px] tracking-tight text-white/70 sm:text-[15px]">{facts}</p>
           </div>
 
           <div className="shrink-0">
@@ -160,7 +162,7 @@ export default function PricesHost() {
               data-tour={id === "lists" ? "price-lists-tab" : undefined}
               onClick={() => setTab(id)}
               aria-current={tab === id ? "page" : undefined}
-              className={`whitespace-nowrap border-b-2 pb-3 text-[13px] font-bold transition-colors ${
+              className={`whitespace-nowrap border-b-2 pb-3 text-[13px] max-lg:pt-2.5 font-bold transition-colors ${
                 tab === id
                   ? "border-accent text-ink"
                   : "border-transparent text-ink-muted hover:text-ink-body"

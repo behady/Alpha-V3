@@ -476,7 +476,7 @@ export default function UserManagement({ usersList, currentUser, openAddUser, cl
                     onClick={copyClinicId}
                     title={txt.clinicIdCopy}
                     aria-label={txt.clinicIdCopy}
-                    className="rounded-lg bg-white/10 p-1.5 text-white/70 transition-colors hover:bg-white/20 hover:text-white"
+                    className="rounded-lg bg-white/10 p-1.5 text-white/70 transition-colors hover:bg-white/20 hover:text-white max-lg:p-[13.5px]"
                   >
                     <Copy size={13} />
                   </button>

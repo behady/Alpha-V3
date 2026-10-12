@@ -562,18 +562,18 @@ export default function PriceListWorkspace({
     <div className="w-full space-y-6 pb-4" dir={ar ? "rtl" : "ltr"}>
       {/* The same slab the Prices screen opens with: which list you are pricing, what its
           blanket discount will do to every number below, and the way back. */}
-      <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">
+      <div className="rounded-[1.75rem] bg-ink-slab px-4 py-4 text-white shadow-lg shadow-ink-slab/15 sm:px-8 sm:py-6">
         <button
           type="button"
           onClick={handleBack}
-          className="mb-3 inline-flex items-center gap-1.5 text-xs font-bold text-white/55 transition hover:text-white"
+          className="mb-3 inline-flex min-h-10 items-center gap-1.5 text-xs font-bold text-white/55 transition hover:text-white sm:min-h-0"
         >
           <ArrowLeft size={14} className={isRTL ? "rotate-180" : ""} /> {txt.back}
         </button>
 
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <h3 className="truncate font-display text-2xl font-bold tracking-tight text-white">
+            <h3 className="font-display text-xl font-bold tracking-tight text-white max-sm:line-clamp-2 sm:truncate sm:text-2xl">
               {ar && list.nameAr ? list.nameAr : list.name}
             </h3>
             <p className="mt-1 max-w-prose text-xs font-medium text-white/55">{txt.sub}</p>
@@ -798,17 +798,20 @@ export default function PriceListWorkspace({
                           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted">
                             <DentalIcon id={iconForService(s)} size={18} />
                           </span>
+                          {/* Phone: the name takes its own line (up to two), the chips wrap under it.
+                              From sm up: one line, name truncated, chips beside it as before. */}
+                          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1 sm:flex-nowrap">
                           {own ? (
                             <button
                               type="button"
                               onClick={() => openEditOwn(s)}
                               title={txt.editOwnTitle}
-                              className="truncate text-start text-sm font-bold text-ink underline-offset-4 hover:underline"
+                              className="basis-full text-start text-sm font-bold text-ink underline-offset-4 hover:underline max-sm:line-clamp-2 sm:basis-auto sm:truncate"
                             >
                               {serviceDisplayName(s, ar)}
                             </button>
                           ) : (
-                            <span className={`truncate text-sm font-bold ${isHidden ? "text-ink-muted line-through decoration-ink-muted/40" : "text-ink"}`}>
+                            <span className={`basis-full text-sm font-bold max-sm:line-clamp-2 sm:basis-auto sm:truncate ${isHidden ? "text-ink-muted line-through decoration-ink-muted/40" : "text-ink"}`}>
                               {serviceDisplayName(s, ar)}
                             </span>
                           )}
@@ -827,6 +830,7 @@ export default function PriceListWorkspace({
                               {txt.hiddenTag}
                             </span>
                           )}
+                          </div>
                         </div>
 
                         <span className="text-end font-figure text-sm font-semibold text-ink-muted">
@@ -969,7 +973,7 @@ export default function PriceListWorkspace({
                 <input
                   value={newOwn.nameAr}
                   onChange={(e) => setNewOwn({ ...newOwn, nameAr: e.target.value })}
-                  placeholder={ar ? "اختياري — اللي هيظهر للفريق بالعربي" : "Optional — shown to staff using Arabic"}
+                  placeholder="اختياري — مثال: تاج زيركون"
                   dir="rtl"
                   disabled={ownBusy}
                   className="w-full rounded-xl border border-line bg-surface-subtle px-4 py-3 text-sm font-bold text-ink outline-none transition focus:border-accent focus:bg-surface disabled:opacity-60"
@@ -1055,7 +1059,7 @@ export default function PriceListWorkspace({
 
       {/* Sticky save bar — the list is long, and the Save button must never be a scroll away. */}
       {changed.length > 0 && (
-        <div className="sticky bottom-4 z-20 flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-ink-slab px-4 py-3 shadow-2xl">
+        <div className="sticky bottom-4 z-20 flex items-center max-lg:bottom-24 justify-between gap-3 rounded-2xl border border-white/10 bg-ink-slab px-4 py-3 shadow-2xl">
           <span className="text-xs font-bold text-white/70">{txt.saveCount(changed.length)}</span>
           <span className="flex items-center gap-2">
             <button

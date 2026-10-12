@@ -91,7 +91,9 @@ function Toggle({
       title={label}
       disabled={disabled}
       onClick={onChange}
-      className={`relative inline-flex h-[26px] w-[44px] shrink-0 items-center rounded-full transition-colors disabled:opacity-40 ${
+      // Below lg an invisible band above and below takes the tap target to ~42px without changing
+      // how the switch looks.
+      className={`relative inline-flex h-[26px] w-[44px] shrink-0 items-center rounded-full transition-colors disabled:opacity-40 max-lg:before:absolute max-lg:before:inset-x-0 max-lg:before:-inset-y-2 max-lg:before:content-[''] ${
         on ? "bg-accent" : "bg-surface-muted"
       }`}
     >
@@ -495,14 +497,17 @@ export default function NotificationSettings({
                 const state = tested[event.id];
                 return (
                   <div key={event.id} className="px-4 py-3.5">
-                    <div className="flex items-start justify-between gap-4">
+                    {/* Phone: the three switches sit in a labelled row under the text — beside it
+                        they left the description a 72px column. */}
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                       <div className="min-w-0">
                         <p className="text-[14.5px] font-bold leading-snug text-ink">{isAr ? event.ar : event.en}</p>
                         <p className="mt-0.5 text-[12px] font-medium leading-relaxed text-ink-muted">
                           {isAr ? event.whenAr : event.whenEn}
                         </p>
                       </div>
-                      <div className="flex shrink-0 items-center gap-4">
+                      <div className="flex shrink-0 items-center gap-4 max-sm:gap-8">
+
                         <span className="flex flex-col items-center gap-1">
                           <span className="text-[9.5px] font-black uppercase tracking-wider text-ink-faint">
                             {txt.bellCol}
@@ -791,7 +796,7 @@ export default function NotificationSettings({
       </section>
 
       {isDirty && (
-        <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-ink-slab px-4 py-3 shadow-2xl">
+        <div className="sticky bottom-4 z-20 flex flex-wrap items-center max-lg:bottom-24 justify-between gap-3 rounded-2xl border border-white/10 bg-ink-slab px-4 py-3 shadow-2xl">
           <span className="text-xs font-bold text-white/70">{txt.unsaved}</span>
           <span className="flex items-center gap-2">
             {discard && (

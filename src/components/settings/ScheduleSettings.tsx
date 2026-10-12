@@ -205,7 +205,7 @@ export default function ScheduleSettings({
       </section>
 
       {isDirty ? (
-        <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-ink-slab px-4 py-3 shadow-2xl">
+        <div className="sticky bottom-4 z-20 flex flex-wrap items-center max-lg:bottom-24 justify-between gap-3 rounded-2xl border border-white/10 bg-ink-slab px-4 py-3 shadow-2xl">
           <span className="text-xs font-bold text-white/70">{txt.unsaved}</span>
           <span className="flex items-center gap-2">
             {discard && (

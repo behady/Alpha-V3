@@ -295,7 +295,7 @@ export default function ClinicProfileSettingsPage() {
               <p className="font-display text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
                 {txt.title}
               </p>
-              <p className="truncate font-display text-xl font-bold text-white">
+              <p className="break-words font-display max-sm:line-clamp-2 sm:truncate text-xl font-bold text-white">
                 {form.clinicName?.trim() || txt.unnamed}
               </p>
               {form.rxHeader?.trim() && (
@@ -342,14 +342,28 @@ export default function ClinicProfileSettingsPage() {
                 <img src={shownLogo} alt="" className="max-h-full max-w-full object-contain" />
               </span>
             )}
-            <input
-              type="file"
-              accept="image/*"
-              data-tour="clinic-logo"
-              disabled={readOnly}
-              onChange={handleLogoChange}
-              className="block w-full min-w-0 text-xs font-medium text-ink-body file:me-3 file:rounded-xl file:border-0 file:bg-accent file:px-4 file:py-2 file:text-xs file:font-semibold file:text-ink-on-accent hover:file:bg-accent-strong disabled:opacity-60"
-            />
+            {/* The browser's own file input prints "Choose File / No file chosen" in the browser's
+                language, not the app's — so it is hidden and a labelled button stands in for it. */}
+            <div data-tour="clinic-logo" className="flex min-w-0 flex-wrap items-center gap-3">
+              <label
+                className={`inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-xl bg-accent px-4 py-2 text-xs font-semibold text-ink-on-accent transition hover:bg-accent-strong focus-within:ring-4 focus-within:ring-accent/30 ${
+                  readOnly ? "pointer-events-none opacity-60" : ""
+                }`}
+              >
+                <ImagePlus size={15} />
+                {shownLogo ? txt.logoReplace : txt.logoPick}
+                <input
+                  type="file"
+                  accept="image/*"
+                  disabled={readOnly}
+                  onChange={handleLogoChange}
+                  className="sr-only"
+                />
+              </label>
+              <span className="min-w-0 break-all text-xs font-medium text-ink-body">
+                {logoFile ? logoFile.name : shownLogo ? "" : txt.logoNone}
+              </span>
+            </div>
           </div>
         </Field>
       </Group>
@@ -430,7 +444,7 @@ export default function ClinicProfileSettingsPage() {
       {/* The save button used to sit under the last field, so on this form it was always a scroll
           away from whatever you had just changed. It comes to you instead. */}
       {dirty && !readOnly && (
-        <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-ink-slab px-4 py-3 shadow-2xl">
+        <div className="sticky bottom-4 z-20 flex flex-wrap items-center max-lg:bottom-24 justify-between gap-3 rounded-2xl border border-white/10 bg-ink-slab px-4 py-3 shadow-2xl">
           <span className="text-xs font-bold text-white/70">{txt.unsaved}</span>
           <span className="flex items-center gap-2">
             <button
