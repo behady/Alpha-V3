@@ -18,7 +18,7 @@
  *     no wording (on printed lines) come back in `missingWording` so the desk can fill them in.
  */
 
-import type { InsuranceClaim } from "@/lib/insurance/claims";
+import { claimStatementName, type InsuranceClaim } from "@/lib/insurance/claims";
 
 export type MetlifeStatementLine = { text: string; count: number; requested: number; approved: number };
 
@@ -85,7 +85,7 @@ export function buildMetlifeStatement(args: {
     });
     cases.push({
       serial: cases.length + 1,
-      patientName: c.patientName,
+      patientName: claimStatementName(c),
       policyNumber: c.metlife.policyNumber,
       certificateNumber: c.metlife.certificateNumber,
       dependentCode: c.metlife.dependentCode,

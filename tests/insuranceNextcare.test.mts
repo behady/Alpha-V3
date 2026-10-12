@@ -162,6 +162,15 @@ const elsewhere = { ...claim, id: "nextcare_c4", treatedDate: "2026-08-02" };
 const st = buildNextcareStatement({ claims: [other, held, claim, elsewhere], payerId: "nextcare", payerName: "NextCare", from: "2026-07-01", to: "2026-07-31", wording: {} });
 assert.equal(st.cases.length, 2, "treated in July only; an approval not treated yet is not billed");
 assert.equal(st.cases[0].patientName, "مثال اسم مريض", "by treatment date");
+{
+  // the Arabic name corrected on the approval after saving is what the sheet prints, not the patient file's
+  const fixed = { ...claim, patientName: "اسم قديم غلط", metlife: { ...claim.metlife, paperPatientNameAr: "اسم مصحح" } };
+  const st3 = buildNextcareStatement({ claims: [fixed], payerId: "nextcare", payerName: "NextCare", from: "2026-07-01", to: "2026-07-31", wording: {} });
+  assert.equal(st3.cases[0].patientName, "اسم مصحح");
+  const noAr = { ...claim, patientName: "اسم الملف", metlife: { ...claim.metlife, paperPatientNameAr: "" } };
+  const st4 = buildNextcareStatement({ claims: [noAr], payerId: "nextcare", payerName: "NextCare", from: "2026-07-01", to: "2026-07-31", wording: {} });
+  assert.equal(st4.cases[0].patientName, "اسم الملف", "no Arabic name on the approval: the patient file's");
+}
 assert.equal(st.cases[0].memberNumber, "AB12");
 assert.deepEqual(
   st.cases[0].lines.map((l) => [l.text, l.amount]),

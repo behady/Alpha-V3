@@ -18,7 +18,7 @@ import { storage } from "@/lib/firebase";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { useBranchForMoney } from "@/lib/useBranchForMoney";
-import type { ClaimStatus, InsuranceClaim } from "@/lib/insurance/claims";
+import { claimStatementName, type ClaimStatus, type InsuranceClaim } from "@/lib/insurance/claims";
 import { claimProgress, type LinkedAppointmentLite } from "@/lib/insurance/appointments";
 import type { ClaimPatch } from "./api";
 import { tr, type TextKey } from "./text";
@@ -236,7 +236,7 @@ export default function ClaimsTable({
                   <bdi dir="ltr">{c.approvalNumber}</bdi>
                 </div>
                 <Link href={`/patients/${c.patientId}?tab=insurance`} className="block truncate text-[14px] font-black text-ink hover:underline">
-                  {c.patientName || c.paperPatientName}
+                  {claimStatementName(c)}
                 </Link>
                 <div className="text-[11px] font-semibold text-ink-faint" dir="ltr">
                   {c.insurer === "nextcare" ? c.metlife.certificateNumber : `${c.metlife.certificateNumber}/${c.metlife.dependentCode}`}
@@ -302,7 +302,7 @@ export default function ClaimsTable({
                 </td>
                 <td className="px-3 py-2.5">
                   <Link href={`/patients/${c.patientId}?tab=insurance`} className="text-[13px] font-black text-ink hover:underline">
-                    {c.patientName || c.paperPatientName}
+                    {claimStatementName(c)}
                   </Link>
                   <div className="text-[11px] font-semibold text-ink-faint" dir="ltr">
                     {c.insurer === "metlife" ? `${c.metlife.certificateNumber}/${c.metlife.dependentCode}` : c.metlife.certificateNumber}

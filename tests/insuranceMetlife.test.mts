@@ -54,6 +54,7 @@ import {
 import { insurerOutstanding, isApprovalRow, patientPortion } from "../src/lib/ledgerInsurer";
 import { insuranceWorkByStaff, unassignedLines } from "../src/lib/staffInsurance";
 import { DEFAULT_METLIFE_WORDING, buildMetlifeStatement } from "../src/lib/insuranceStatementMetlife";
+import { claimStatementName } from "../src/lib/insurance/claims";
 import { SAMPLE_RAW, claimFixture, lineFixture } from "./fixtures/insuranceMetlife.fixture";
 import XLSX from "xlsx-js-style";
 import { METLIFE_TITLES, metlifeStatementToWorkbook } from "../src/lib/insuranceStatementMetlifeXlsx";
@@ -671,9 +672,17 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   assert.equal(s.total, s.cases[0].subtotal + s.cases[1].subtotal);
   assert.deepEqual(
     [s.cases[0].patientName, s.cases[0].policyNumber, s.cases[0].certificateNumber, s.cases[0].dependentCode, s.cases[0].date],
-    ["Patient 1", A.metlife.policyNumber, "987", "1", "2026-01-28"],
+    ["مثال اسم مريض", A.metlife.policyNumber, "987", "1", "2026-01-28"],
+    "the sheet prints the approval's Arabic name, not the patient file's",
   );
   assert.equal(s.cases[0].lines[0].count, 1);
+  // the Arabic name corrected on the approval after saving is what prints (DENT INN, 2026-10-12: حالد -> خالد);
+  // an approval with no Arabic name falls back to the patient file's name
+  const fixed = { ...A, patientName: "فريده حالد", metlife: { ...A.metlife, paperPatientNameAr: "فريده خالد" } };
+  const blank = { ...B, metlife: { ...B.metlife, paperPatientNameAr: "  " } };
+  const named = buildMetlifeStatement({ claims: [fixed, blank], ...args });
+  assert.deepEqual(named.cases.map((c) => c.patientName), ["فريده خالد", "Patient 2"]);
+  assert.equal(claimStatementName(fixed), "فريده خالد", "the approvals list shows the same name");
 
   // the range is inclusive at both ends
   const edge = buildMetlifeStatement({ claims: [A, B, D], from: "2026-01-28", to: "2026-02-27", wording: DEFAULT_METLIFE_WORDING });

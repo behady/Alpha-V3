@@ -199,6 +199,16 @@ export function claimMetlifeFrom(h: MetlifeHeader): ClaimMetlife {
 }
 
 /**
+ * The name an approval is listed and billed under: its Arabic name as the desk last corrected it
+ * (the confirm card labels that box "printed on the statement"), else the patient file's name, else
+ * the paper's Latin name. `patientName` alone is a copy of the file's name taken when the claim was
+ * saved, so a correction made on the approval afterwards never reached it.
+ */
+export function claimStatementName(c: Pick<InsuranceClaim, "metlife" | "patientName" | "paperPatientName">): string {
+  return (c.metlife.paperPatientNameAr ?? "").trim() || c.patientName || c.paperPatientName;
+}
+
+/**
  * The claim to store, from a confirmed extraction. The caller has already run the hard checks, so the
  * approval number and date are real; a missing date is stored as "" rather than invented.
  */

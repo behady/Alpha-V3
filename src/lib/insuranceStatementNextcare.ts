@@ -17,7 +17,7 @@
  *     the Arabic half of the paper's own description.
  *   - Cases run by treatment date, then patient name.
  */
-import type { InsuranceClaim } from "@/lib/insurance/claims";
+import { claimStatementName, type InsuranceClaim } from "@/lib/insurance/claims";
 import { memberCodeFromCard } from "@/lib/insurance/nextcare";
 import { insurerToothLabel, type Statement, type StatementCase, type StatementLine } from "@/lib/insuranceStatement";
 
@@ -60,7 +60,7 @@ export function buildNextcareStatement(args: {
   const billed = claims
     .map((c) => ({ c, date: c.treatedDate || c.approvalDate }))
     .filter(({ c, date }) => c.payerId === payerId && (c.status === "treated" || c.status === "sent") && date >= from && date <= to)
-    .sort((a, b) => a.date.localeCompare(b.date) || a.c.patientName.localeCompare(b.c.patientName) || a.c.approvalNumber.localeCompare(b.c.approvalNumber));
+    .sort((a, b) => a.date.localeCompare(b.date) || claimStatementName(a.c).localeCompare(claimStatementName(b.c)) || a.c.approvalNumber.localeCompare(b.c.approvalNumber));
 
   const cases: StatementCase[] = [];
   for (const { c, date } of billed) {
@@ -73,7 +73,7 @@ export function buildNextcareStatement(args: {
     cases.push({
       serial: cases.length + 1,
       patientId: c.patientId,
-      patientName: c.patientName,
+      patientName: claimStatementName(c),
       // Saved with no code (an older save, or a card read without dashes): the card itself says it.
       memberNumber: (c.metlife.memberCode ?? "").trim() || memberCodeFromCard(c.metlife.certificateNumber ?? ""),
       date,
