@@ -81,7 +81,8 @@ export default function PageHeader({
             {title}
           </h1>
           {subtitle && !compact && (
-            <p className="mt-0.5 truncate text-[13px] font-medium text-white/55">{subtitle}</p>
+            // Phones get two lines before the cut, so a long subtitle is read rather than guessed at.
+            <p className="mt-0.5 max-lg:line-clamp-2 lg:truncate text-[13px] font-medium text-white/55">{subtitle}</p>
           )}
         </div>
       </div>

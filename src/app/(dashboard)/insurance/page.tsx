@@ -235,6 +235,8 @@ function InsurancePage() {
   const waiting = (unsaved.key === unsavedKey ? unsaved.rows : []).filter((u) => !open.some((o) => o.docId === u.id));
 
   const [rereading, setRereading] = useState("");
+  /** Phones list the three newest uploads until asked for the rest. */
+  const [showAllWaiting, setShowAllWaiting] = useState(false);
   const reread = async (row: UnsavedDoc) => {
     if (!clinicId || !payer || rereading) return;
     setRereading(row.id);
@@ -405,13 +407,13 @@ function InsurancePage() {
                 </p>
                 <p className="mt-1 text-[12px] font-semibold text-ink-muted">{t("unsavedHint")}</p>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {waiting.slice(0, 30).map((row) => (
+                  {waiting.slice(0, 30).map((row, i) => (
                     <button
                       key={row.id}
                       type="button"
                       disabled={!!rereading}
                       onClick={() => reread(row)}
-                      className="inline-flex max-w-full items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-[12.5px] font-bold text-ink transition-colors hover:border-ink disabled:cursor-wait disabled:opacity-60"
+                      className={`${!showAllWaiting && i >= 3 ? "max-md:hidden" : ""} inline-flex max-w-full items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 max-md:min-h-10 text-[12.5px] font-bold text-ink transition-colors hover:border-ink disabled:cursor-wait disabled:opacity-60`}
                     >
                       {rereading === row.id && <Loader2 size={13} className="animate-spin" />}
                       <span className="truncate" dir="ltr">
@@ -425,6 +427,16 @@ function InsurancePage() {
                     </button>
                   ))}
                 </div>
+                {Math.min(waiting.length, 30) > 3 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllWaiting((v) => !v)}
+                    aria-expanded={showAllWaiting}
+                    className="mt-2 min-h-10 rounded-xl px-2 text-[12.5px] font-black text-ink-body underline underline-offset-2 hover:text-ink md:hidden"
+                  >
+                    {showAllWaiting ? t("showFewerUploads") : t("showAllUploads").replace("{n}", String(Math.min(waiting.length, 30)))}
+                  </button>
+                )}
               </section>
             )}
 

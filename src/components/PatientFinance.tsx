@@ -270,6 +270,18 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
 
   /** The unit beside every figure on this screen: the clinic's currency, ج.م on Arabic screens. */
   const egp = currencyUnit(clinicInfo.currency, language === 'ar');
+  /** A stored payment method as the screen says it. Display only: the stored value is unchanged. */
+  const methodText = (m: string | null | undefined): string => {
+    const v = String(m ?? "");
+    if (language !== 'ar') return v;
+    const k = v.trim().toLowerCase();
+    if (k === "cash") return "كاش";
+    if (k === "visa" || k === "card") return "فيزا";
+    if (k === "instapay") return "إنستاباي";
+    if (k === "insurance") return "تأمين";
+    if (k === "bank transfer") return "تحويل بنكي";
+    return v;
+  };
 
   const txt = {
     totalTreatment: language === 'ar' ? "إجمالي العلاج" : "Total Treatment",
@@ -886,7 +898,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           {payment.method && (
-            <span className="px-2 py-0.5 rounded bg-surface-muted text-ink-body text-[10px] uppercase font-extrabold border border-line">{payment.method}</span>
+            <span className="px-2 py-0.5 rounded bg-surface-muted text-ink-body text-[10px] uppercase font-extrabold border border-line">{methodText(payment.method)}</span>
           )}
           {insurer && (
             <span className="px-2 py-0.5 rounded bg-surface-subtle text-ink-body border border-line text-[10px] font-bold inline-flex items-center gap-1">
@@ -1117,6 +1129,16 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                     <label className="text-[10px] font-black text-green-700 uppercase mb-1 block">{txt.amount}</label>
                     <input ref={payAmountRef} data-tour="finance-pay-amount" type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)} placeholder="0.00" className="w-full p-3.5 rounded-xl border border-green-200 text-sm font-black focus:border-green-500 outline-none" />
                 </div>
+                {/* Phones: the method sits above Confirm, every choice in view, so it is picked
+                    before the payment is recorded. From md up it stays in its row below. */}
+                <div className="md:hidden">
+                    <label className="text-[10px] font-black text-green-700 uppercase mb-1 block">{txt.method}</label>
+                    <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={txt.method}>
+                        {['Cash', 'Visa', 'InstaPay', 'Insurance'].map(m => (
+                            <button key={m} type="button" role="radio" aria-checked={payMethod === m} onClick={() => setPayMethod(m)} className={`min-h-10 px-3.5 rounded-lg text-xs font-black uppercase border whitespace-nowrap transition-all ${payMethod === m ? 'bg-green-600 text-white border-green-600 shadow-sm' : 'bg-white text-green-600 border-green-200 hover:border-green-300'}`}>{methodText(m)}</button>
+                        ))}
+                    </div>
+                </div>
                 <div>
                     <button data-tour="finance-pay-confirm" type="submit" className="w-full bg-green-600 text-white py-3.5 rounded-xl font-black text-xs uppercase shadow-lg hover:bg-green-700 flex items-center justify-center gap-2 transition-all active:scale-95">
                        <Check size={16}/> {txt.confirm}
@@ -1124,9 +1146,9 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                 </div>
             </div>
 
-            <div className="flex gap-4 mt-3 overflow-x-auto pb-2 no-scrollbar">
+            <div className="hidden md:flex gap-4 mt-3 overflow-x-auto pb-2 no-scrollbar">
                 {['Cash', 'Visa', 'InstaPay', 'Insurance'].map(m => (
-                    <button key={m} type="button" onClick={() => setPayMethod(m)} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase border whitespace-nowrap transition-all ${payMethod === m ? 'bg-green-600 text-white border-green-600 shadow-sm' : 'bg-white text-green-600 border-green-200 hover:border-green-300'}`}>{m}</button>
+                    <button key={m} type="button" onClick={() => setPayMethod(m)} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase border whitespace-nowrap transition-all ${payMethod === m ? 'bg-green-600 text-white border-green-600 shadow-sm' : 'bg-white text-green-600 border-green-200 hover:border-green-300'}`}>{methodText(m)}</button>
                 ))}
             </div>
             </form>
@@ -1134,12 +1156,12 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
 
         {editingItem && (
             <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
-                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95">
-                    <div className="px-6 py-4 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 max-h-[92dvh] flex flex-col">
+                    <div className="shrink-0 px-6 py-4 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
                         <h3 className="font-black text-gray-900 uppercase">{txt.editTrans}</h3>
-                        <button onClick={() => setEditingItem(null)} className="p-1 hover:bg-gray-200 rounded-full"><X size={20}/></button>
+                        <button onClick={() => setEditingItem(null)} aria-label={language === 'ar' ? "إغلاق" : "Close"} className="p-1 max-lg:grid max-lg:size-10 max-lg:place-items-center hover:bg-gray-200 rounded-full"><X size={20}/></button>
                     </div>
-                    <form onSubmit={handleUpdate} className="p-6 space-y-4">
+                    <form onSubmit={handleUpdate} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-6 space-y-4">
                         <div><label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">{txt.date}</label><input type="date" value={editingItem.date} onChange={e => setEditingItem({...editingItem, date: e.target.value})} className="w-full p-3 border border-gray-200 rounded-xl font-bold text-sm outline-none focus:border-blue-500"/></div>
                         <div><label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">{txt.description}</label><input type="text" value={editingItem.description} onChange={e => setEditingItem({...editingItem, description: e.target.value})} className="w-full p-3 border border-gray-200 rounded-xl font-bold text-sm outline-none focus:border-blue-500"/></div>
                         {editingItem.type === 'procedure' ? (
@@ -1257,7 +1279,8 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                 <div>
                                     <label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">{txt.method}</label>
                                     <select value={editingItem.method || "Cash"} onChange={e => setEditingItem({...editingItem, method: e.target.value})} className="w-full p-3 border border-gray-200 rounded-xl font-bold text-sm outline-none focus:border-green-500 bg-surface">
-                                        <option>Cash</option><option>Visa</option><option>InstaPay</option><option>Insurance</option>
+                                        {['Cash', 'Visa', 'InstaPay', 'Insurance'].map(m => <option key={m} value={m}>{methodText(m)}</option>)}
+                                        {editingItem.method && !['Cash', 'Visa', 'InstaPay', 'Insurance'].includes(editingItem.method) ? <option value={editingItem.method}>{methodText(editingItem.method)}</option> : null}
                                     </select>
                                 </div>
                             </div>
@@ -1614,7 +1637,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                         <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                                                             {payment.method && (
                                                                 <span className="px-2 py-0.5 rounded bg-surface-muted text-ink-body text-[9px] uppercase font-extrabold inline-block border border-line">
-                                                                    {payment.method}
+                                                                    {methodText(payment.method)}
                                                                 </span>
                                                             )}
                                                             {insurerOf(payment) && (
@@ -1679,7 +1702,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                                                    {payment.method && (
                                                        <span className="px-2 py-0.5 rounded bg-surface-muted text-ink-body text-[9px] uppercase font-extrabold inline-block border border-line">
-                                                           {payment.method}
+                                                           {methodText(payment.method)}
                                                        </span>
                                                    )}
                                                    {payUser && (

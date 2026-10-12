@@ -464,9 +464,9 @@ Is it the same number?`
         </div>
       )}
 
-      <div className="grid gap-0 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+      <div className="grid grid-cols-1 gap-0 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
         {/* --- the document ------------------------------------------------------------------- */}
-        <div className="border-b border-line bg-surface-subtle p-4 lg:border-b-0 lg:border-e">
+        <div className="min-w-0 border-b border-line bg-surface-subtle p-4 lg:border-b-0 lg:border-e">
           {docUrl ? (
             isPdf ? (
               <object data={docUrl} type="application/pdf" className="h-[70vh] w-full rounded-xl border border-line bg-white">
@@ -485,7 +485,7 @@ Is it the same number?`
         </div>
 
         {/* --- the fields --------------------------------------------------------------------- */}
-        <div className="space-y-5 p-5">
+        <div className="min-w-0 space-y-5 p-4 lg:p-5">
 {isAxa ? (
             <>
           <Group title={t("sectionApproval")}>
@@ -591,7 +591,69 @@ Is it the same number?`
               <DentistSelect value={allDentist} dentists={dentists} label={t("colDentist")} placeholder={t("pickDentist")} onChange={(v) => setAll({ dentistId: v })} className={`${cellInput(null)} w-auto min-w-[10rem]`} />
               <StateSelect value={allStatus} label={t("colState")} t={t} onChange={(v) => setAll({ status: v })} className={`${cellInput(null)} w-auto min-w-[8rem]`} />
             </div>
-            <div className={`overflow-x-auto rounded-2xl border ${lineFlagList(hard, "lines") ? "border-rose-400" : "border-line"}`}>
+            {/* Phones and tablets: one card per service line. Same inputs and handlers as the table,
+                which stays the layout from lg up. */}
+            <div className={`space-y-2 lg:hidden ${lineFlagList(hard, "lines") ? "rounded-2xl ring-2 ring-rose-400" : ""}`}>
+              {x.lines.map((l, i) => {
+                const rowFlag = lineFlag(i);
+                const nums: ReadonlyArray<[LineNumber, TextKey]> = isNc
+                  ? [["unitsRequested", "lineUnits"], ["grossPerUnit", "ncLinePrice"], ["unitsApproved", "lineUnitsApproved"], ["patientShare", "linePatientShare"], ["approvedAmount", "ncLineInsurer"]]
+                  : [["unitsRequested", "lineUnits"], ["grossPerUnit", "linePerUnit"], ["grossTotal", "lineGross"], ["unitsApproved", "lineUnitsApproved"], ["patientShare", "linePatientShare"], ["approvedAmount", "lineApproved"]];
+                const phoneField = (flag: "hard" | "soft" | null) => `${fieldInput(flag)} max-lg:text-base`;
+                return (
+                  <div key={i} className={`space-y-2 rounded-2xl border p-3 ${rowFlag === "hard" ? "border-rose-300 bg-rose-50/60" : rowFlag === "soft" ? "border-amber-300 bg-amber-50/60" : "border-line bg-surface"}`}>
+                    <div className="flex items-end gap-2">
+                      <div className="w-24 shrink-0">
+                        <Labelled label={t("lineCode")}>
+                          <input value={l.code} onChange={(e) => setLine(i, { code: e.target.value.toUpperCase() })} className={phoneField(null)} dir="ltr" />
+                        </Labelled>
+                      </div>
+                      <div className="flex-1" />
+                      <button type="button" onClick={() => removeLine(i)} className="grid size-10 shrink-0 place-items-center rounded-xl text-ink-muted hover:bg-rose-50 hover:text-rose-700" aria-label={t("removeLine")}>
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                    <Labelled label={t("lineDescription")}>
+                      <input value={l.description} onChange={(e) => setLine(i, { description: e.target.value })} className={phoneField(null)} dir="ltr" />
+                    </Labelled>
+                    {isNc && (
+                      <Labelled label={t("ncLineTeeth")}>
+                        <input
+                          value={teethDraft[i] ?? (l.teeth ?? []).join(", ")}
+                          onChange={(e) => {
+                            const typed = e.target.value;
+                            setTeethDraft((prev) => ({ ...prev, [i]: typed }));
+                            setLine(i, { teeth: parseTeeth(typed) });
+                          }}
+                          placeholder="44, 46"
+                          className={phoneField(lineFlag(i, "teeth") === "soft" ? "soft" : null)}
+                          dir="ltr"
+                        />
+                      </Labelled>
+                    )}
+                    <div className="grid grid-cols-2 gap-2">
+                      <Labelled label={t("colDentist")}>
+                        <DentistSelect value={meta[i]?.dentistId ?? ""} dentists={dentists} label={t("colDentist")} placeholder={t("pickDentist")} onChange={(v) => setLineMeta(i, { dentistId: v })} className={phoneField(null)} />
+                      </Labelled>
+                      <Labelled label={t("colState")}>
+                        <StateSelect value={meta[i]?.status ?? "Planned"} label={t("colState")} t={t} onChange={(v) => setLineMeta(i, { status: v })} className={phoneField(null)} />
+                      </Labelled>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {nums.map(([f, key]) => (
+                        <Labelled key={f} label={t(key)}>
+                          <NumberBox value={l[f]} onChange={(v) => setLine(i, { [f]: v ?? 0 })} className={phoneField(f === "grossTotal" ? lineFlag(i, "grossTotal") === "hard" ? "hard" : null : null)} />
+                        </Labelled>
+                      ))}
+                    </div>
+                    <Labelled label={t(isNc ? "ncLineReason" : "comment")}>
+                      <input value={l.comment} onChange={(e) => setLine(i, { comment: e.target.value })} className={phoneField(null)} dir="ltr" />
+                    </Labelled>
+                  </div>
+                );
+              })}
+            </div>
+            <div className={`hidden overflow-x-auto rounded-2xl border lg:block ${lineFlagList(hard, "lines") ? "border-rose-400" : "border-line"}`}>
               <table className="w-full min-w-[74rem] border-collapse text-[12.5px]">
                 <thead>
                   <tr className="border-b border-line bg-surface-subtle">

@@ -43,11 +43,23 @@ export const INCOME_CATEGORY_LIST: readonly LedgerCategory[] = [
 /** The ids the P&L always lists, even when a month has nothing under them. */
 export const EXPENSE_CATEGORY_IDS: readonly string[] = EXPENSE_CATEGORY_LIST.map((c) => c.id);
 
+/**
+ * Categories the system writes on payment rows (lib/ledgerWrite, the insurance routes). They are
+ * not offered in the manual-entry pickers; they are listed only so an Arabic screen can name them.
+ * The English is the stored id, so an English screen reads exactly as before.
+ */
+const SYSTEM_CATEGORY_LIST: readonly LedgerCategory[] = [
+  { id: "Treatment Payment", en: "Treatment Payment", ar: "دفعة علاج" },
+  { id: "Advance Payment", en: "Advance Payment", ar: "دفعة مقدمة" },
+  { id: "Insurance Payment", en: "Insurance Payment", ar: "دفعة تأمين" },
+  { id: "Insurance patient share", en: "Insurance patient share", ar: "نصيب المريض (تأمين)" },
+];
+
 /** The category as the screen says it; an id not in the lists is shown as stored. */
 export function categoryLabel(id: string | null | undefined, isAr: boolean): string {
   const key = String(id ?? "").trim();
   if (!key) return "";
-  const hit = EXPENSE_CATEGORY_LIST.find((c) => c.id === key) ?? INCOME_CATEGORY_LIST.find((c) => c.id === key);
+  const hit = EXPENSE_CATEGORY_LIST.find((c) => c.id === key) ?? INCOME_CATEGORY_LIST.find((c) => c.id === key) ?? SYSTEM_CATEGORY_LIST.find((c) => c.id === key);
   if (!hit) return key;
   return isAr ? hit.ar : hit.en;
 }

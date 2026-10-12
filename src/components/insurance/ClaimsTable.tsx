@@ -153,40 +153,42 @@ export default function ClaimsTable({
   const renderActions = (c: InsuranceClaim, big = false) => {
     const busy = busyId === c.id;
     const s = big ? 18 : 14;
+    // Phones: a labelled grid, four to a row, so every action says what it does without a long press.
     return (
-      <div className="flex flex-wrap items-center gap-1">
-        {busy && <Loader2 size={s} className="animate-spin text-ink-muted" />}
+      <div className={big ? "grid grid-cols-4 gap-1" : "flex flex-wrap items-center gap-1"}>
+        {busy && <Loader2 size={s} className={`animate-spin text-ink-muted ${big ? "col-span-4 mx-auto" : ""}`} />}
         {(c.status === "approved" || c.status === "cancelled") && (
-          <Action big={big} label={t("markTreated")} disabled={busy} onClick={() => patch(c, { status: "treated" })}>
+          <Action big={big} short={t("shortTreated")} label={t("markTreated")} disabled={busy} onClick={() => patch(c, { status: "treated" })}>
             <CheckCircle2 size={s} />
           </Action>
         )}
         {(c.status === "treated" || c.status === "sent") && (
-          <Action big={big} label={t("markNotTreated")} disabled={busy} onClick={() => patch(c, { status: "approved" })}>
+          <Action big={big} short={t("shortNotTreated")} label={t("markNotTreated")} disabled={busy} onClick={() => patch(c, { status: "approved" })}>
             <RotateCcw size={s} />
           </Action>
         )}
         {c.status === "treated" && (
-          <Action big={big} label={t("markSent")} disabled={busy} onClick={() => patch(c, { status: "sent" })}>
+          <Action big={big} short={t("shortSent")} label={t("markSent")} disabled={busy} onClick={() => patch(c, { status: "sent" })}>
             <Send size={s} />
           </Action>
         )}
         {(c.status === "treated" || c.status === "sent") && c.totals.patientShare > 0 && !c.shareCollected && (
-          <Action big={big} label={`${t("collectShare")} ${money(c.totals.patientShare)}`} disabled={busy} onClick={() => void collect(c)}>
+          <Action big={big} short={t("shortCollect")} label={`${t("collectShare")} ${money(c.totals.patientShare)}`} disabled={busy} onClick={() => void collect(c)}>
             <Banknote size={s} />
           </Action>
         )}
         {(c.status === "treated" || c.status === "sent") && Object.keys(c.ledgerIds).length > 0 && !c.insurerPaid && (
-          <Action big={big} label={`${t("markInsurerPaid")} ${money(c.totals.approved)}`} disabled={busy} onClick={() => void insurerPaid(c)}>
+          <Action big={big} short={t("shortInsurerPaid")} label={`${t("markInsurerPaid")} ${money(c.totals.approved)}`} disabled={busy} onClick={() => void insurerPaid(c)}>
             <Landmark size={s} />
           </Action>
         )}
-        <Action big={big} label={t("openPdf")} disabled={!c.doc.path} onClick={() => openDoc(c)}>
+        <Action big={big} short={t("shortDoc")} label={t("openPdf")} disabled={!c.doc.path} onClick={() => openDoc(c)}>
           <FileText size={s} />
         </Action>
         {onEdit && c.status !== "cancelled" && (
           <Action
             big={big}
+            short={t("edit")}
             label={t("edit")}
             disabled={busy}
             onClick={() => {
@@ -198,7 +200,7 @@ export default function ClaimsTable({
             <Pencil size={s} />
           </Action>
         )}
-        <Action big={big} label={t("delete")} disabled={busy} onClick={() => remove(c)} danger>
+        <Action big={big} short={t("delete")} label={t("delete")} disabled={busy} onClick={() => remove(c)} danger>
           <Trash2 size={s} />
         </Action>
       </div>
@@ -233,7 +235,7 @@ export default function ClaimsTable({
                 <div className="font-display text-[13px] font-black text-ink">
                   <bdi dir="ltr">{c.approvalNumber}</bdi>
                 </div>
-                <Link href={`/patients/${c.patientId}`} className="block truncate text-[14px] font-black text-ink hover:underline">
+                <Link href={`/patients/${c.patientId}?tab=insurance`} className="block truncate text-[14px] font-black text-ink hover:underline">
                   {c.patientName || c.paperPatientName}
                 </Link>
                 <div className="text-[11px] font-semibold text-ink-faint" dir="ltr">
@@ -299,7 +301,7 @@ export default function ClaimsTable({
                   <bdi dir="ltr">{c.approvalNumber}</bdi>
                 </td>
                 <td className="px-3 py-2.5">
-                  <Link href={`/patients/${c.patientId}`} className="text-[13px] font-black text-ink hover:underline">
+                  <Link href={`/patients/${c.patientId}?tab=insurance`} className="text-[13px] font-black text-ink hover:underline">
                     {c.patientName || c.paperPatientName}
                   </Link>
                   <div className="text-[11px] font-semibold text-ink-faint" dir="ltr">
@@ -344,7 +346,25 @@ export default function ClaimsTable({
   );
 }
 
-function Action({ label, onClick, disabled, danger, big, children }: { label: string; onClick: () => void; disabled?: boolean; danger?: boolean; big?: boolean; children: React.ReactNode }) {
+function Action({ label, short, onClick, disabled, danger, big, children }: { label: string; short?: string; onClick: () => void; disabled?: boolean; danger?: boolean; big?: boolean; children: React.ReactNode }) {
+  if (big && short) {
+    // Phone card: the icon with its word under it; the full wording stays the button's name.
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        title={label}
+        aria-label={label}
+        className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-xl border border-transparent px-1 py-1.5 transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+          danger ? "text-ink-muted hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700" : "text-ink-body hover:border-line hover:bg-surface-subtle hover:text-ink"
+        }`}
+      >
+        {children}
+        <span aria-hidden className="w-full text-center text-[10.5px] font-bold leading-tight">{short}</span>
+      </button>
+    );
+  }
   return (
     <button
       type="button"

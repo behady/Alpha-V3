@@ -117,15 +117,15 @@ export default function FinanceFilters({
 
   return (
     <div className="flex flex-col gap-3 min-w-0 flex-1">
-      <div className="flex flex-col lg:flex-row flex-wrap gap-3 lg:items-center">
+      <div className="flex flex-col lg:flex-row lg:flex-wrap gap-3 lg:items-center">
         {shown("kind") && (
-          <div className="flex bg-surface-muted p-1 rounded-xl border border-slate-200/60 shrink-0 overflow-x-auto no-scrollbar">
+          <div className="flex max-w-full min-w-0 bg-surface-muted p-1 rounded-xl border border-slate-200/60 shrink-0 overflow-x-auto no-scrollbar">
             {KINDS.map((k) => (
               <button
                 key={k}
                 type="button"
                 onClick={() => set("kind", k)}
-                className={`px-3.5 py-2 rounded-lg text-xs font-bold uppercase whitespace-nowrap transition-all ${
+                className={`shrink-0 px-3.5 py-2 max-lg:min-h-10 rounded-lg text-xs font-bold uppercase whitespace-nowrap transition-all ${
                   value.kind === k ? "bg-slate-900 text-white shadow-sm" : "text-slate-500"
                 }`}
               >

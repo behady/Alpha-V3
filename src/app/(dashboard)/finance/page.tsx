@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { localYmd } from "@/lib/clinicDate";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { TrendingUp, TrendingDown, DollarSign, PieChart, Download, Plus, Edit2, Trash2, Loader2, X, Save, CalendarDays, CalendarClock, Users, ChevronLeft, ChevronRight, SlidersHorizontal, ChevronDown, ChevronUp, Wallet, FileText } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, addDoc, query, orderBy, serverTimestamp, deleteDoc, doc, updateDoc, where, getDoc, getDocs, onSnapshot, documentId } from "firebase/firestore";
@@ -192,16 +193,41 @@ export default function FinancePage() {
   const [filter, setFilter] = useState<FinanceFilter>(EMPTY_FINANCE_FILTER);
   const filterType = filter.kind;
   const [timeView, setTimeView] = useState<"daily" | "monthly" | "range">("daily");
-  const [dateRange, setDateRange] = useState(new Date().toISOString().split("T")[0]);
+  const [dateRange, setDateRange] = useState(localYmd());
   const [customStartDate, setCustomStartDate] = useState(
-    new Date().toISOString().split("T")[0]
+    localYmd()
   );
   const [customEndDate, setCustomEndDate] = useState(
-    new Date().toISOString().split("T")[0]
+    localYmd()
   );
 
   const [isFiltersExpanded, setIsFiltersExpanded] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  /** The Clinic/insurer tab strip, and whether tabs are hidden past its end edge (phones show a fade). */
+  const tabStripRef = useRef<HTMLElement>(null);
+  const [tabStripMore, setTabStripMore] = useState(false);
+  /** The ledger card, so a phone that turns the page lands on the list's first row, not its foot. */
+  const ledgerRef = useRef<HTMLDivElement>(null);
+  const goToPage = (next: number) => {
+    setCurrentPage(next);
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 1023.98px)").matches) {
+      // A jump, not a glide: the rows have just been replaced, so there is nothing to watch go by.
+      setTimeout(() => ledgerRef.current?.scrollIntoView({ block: "start" }), 0);
+    }
+  };
+  useEffect(() => {
+    const el = tabStripRef.current;
+    if (!el) return;
+    // scrollLeft runs negative in RTL, so the distance left to scroll is measured either way.
+    const check = () => setTabStripMore(el.scrollWidth - el.clientWidth - Math.abs(el.scrollLeft) > 4);
+    check();
+    el.addEventListener("scroll", check, { passive: true });
+    window.addEventListener("resize", check);
+    return () => {
+      el.removeEventListener("scroll", check);
+      window.removeEventListener("resize", check);
+    };
+  }, [insurers.length, language]);
   const [isLoading, setIsLoading] = useState(true);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -218,13 +244,13 @@ export default function FinancePage() {
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("General");
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(localYmd());
   const [method, setMethod] = useState("Cash");
   const [isRecurring, setIsRecurring] = useState(false);
 
   const handleTimeViewChange = (view: "daily" | "monthly" | "range") => {
     setTimeView(view);
-    const today = new Date().toISOString().split("T")[0];
+    const today = localYmd();
     if (view === "daily") {
       if (dateRange.startsWith(today.slice(0, 7))) setDateRange(today);
       else setDateRange(`${dateRange}-01`);
@@ -397,15 +423,34 @@ export default function FinancePage() {
    * approval instead; the approval number moves to the small line underneath.
    */
   const rowTitle = (tx: Transaction): string => {
-    if (!tx.claimId) return tx.description;
+    if (!tx.claimId) return saidInArabic(tx.description);
     const claim = claimsById.get(tx.claimId);
     const entry = claim && tx.procedureId ? Object.entries(claim.ledgerIds).find(([, l]) => l.ledgerId === tx.procedureId) : undefined;
     const line = claim && entry ? claim.lines[Number(entry[0])] : undefined;
-    if (!line) return tx.description;
+    if (!line) return saidInArabic(tx.description);
     const service = (line.description || line.code || "").trim();
-    if (!service) return tx.description;
+    if (!service) return saidInArabic(tx.description);
     const payer = tx.description.replace(/\s+(paid|-).*$/i, "").trim();
-    return tx.category === "Insurance patient share" ? `${language === "ar" ? "نصيب المريض" : "Patient share"} - ${service}` : `${payer || tx.description} - ${service}`;
+    return tx.category === "Insurance patient share" ? `${language === "ar" ? "نصيب المريض" : "Patient share"} - ${service}` : `${payer || saidInArabic(tx.description)} - ${service}`;
+  };
+  /**
+   * The descriptions the server writes in English ("Payment for …", "Staff pay – …"), said in
+   * Arabic on an Arabic screen. Display only: the stored text, and every search over it, stay as
+   * written. Anything that does not match one of these exact shapes is shown as stored.
+   */
+  const saidInArabic = (raw: string): string => {
+    const desc = String(raw ?? "");
+    if (language !== "ar" || !desc) return desc;
+    const who = (s: string) => (s === "the insurer" ? "شركة التأمين" : s);
+    const what = (s: string) => (s === "treatment" ? "علاج" : s);
+    let m: RegExpMatchArray | null;
+    if ((m = desc.match(/^Insurance payment from (.+?) for (.+)$/))) return `دفعة تأمين من ${who(m[1])} مقابل ${what(m[2])}`;
+    if ((m = desc.match(/^Payment for (.+)$/))) return `دفعة مقابل ${what(m[1])}`;
+    if (desc === "Payment on account") return "دفعة تحت الحساب";
+    if (desc === "Payment") return "دفعة";
+    if ((m = desc.match(/^Staff pay\s*[–-]\s*(.+)$/))) return `اتدفع لـ ${m[1]}`;
+    if ((m = desc.match(/^Patient share - (.+?) approval (\S+) - (.+)$/))) return `نصيب المريض - ${m[1]} موافقة ${m[2]} - ${m[3]}`;
+    return desc;
   };
   /** What the clinic keeps of a row once the dentist has been paid their part: cash − lab − paid. */
   const rowNet = (tx: Transaction, paid: number): number => Math.round((tx.val - (Number(tx.labFee) || 0) - paid) * 100) / 100;
@@ -707,7 +752,7 @@ export default function FinancePage() {
     }
   };
 
-  const closeModal = () => { setIsModalOpen(false); setEditingId(null); setAmount(""); setDescription(""); setCategory("General"); setMethod("Cash"); setIsRecurring(false); setDate(new Date().toISOString().split('T')[0]); };
+  const closeModal = () => { setIsModalOpen(false); setEditingId(null); setAmount(""); setDescription(""); setCategory("General"); setMethod("Cash"); setIsRecurring(false); setDate(localYmd()); };
 
   const openPdfModal = () => {
     // Default date range to current view
@@ -938,7 +983,9 @@ export default function FinancePage() {
         document.body.appendChild(a);
         a.click();
         a.remove();
-        URL.revokeObjectURL(url);
+        // Not at once: iOS Safari is still reading the blob after click() returns, and a URL
+        // revoked that early aborts the download.
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
         
         await logActivity(
           { uid: user?.uid, name: user?.name, role: user?.role },
@@ -1040,7 +1087,9 @@ export default function FinancePage() {
 
           {/* The clinic's own books, then one tab per insurance company. No insurers, no row. */}
           {insurers.length > 0 && (
+            <div className="relative max-w-full w-fit shrink-0">
             <nav
+              ref={tabStripRef}
               aria-label={language === "ar" ? "حسابات العيادة وشركات التأمين" : "Clinic and insurance companies"}
               className="flex max-w-full items-center gap-1 overflow-x-auto no-scrollbar rounded-full border border-line bg-surface p-1 shadow-sm w-fit shrink-0"
             >
@@ -1052,7 +1101,7 @@ export default function FinancePage() {
                     type="button"
                     onClick={() => chooseMoneyTab(tab.id)}
                     aria-current={active ? "page" : undefined}
-                    className={`inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-xs font-bold transition-colors ${
+                    className={`inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 max-lg:min-h-10 text-xs font-bold transition-colors ${
                       active ? "bg-ink-slab text-white" : "text-ink-muted hover:text-ink"
                     }`}
                   >
@@ -1062,6 +1111,11 @@ export default function FinancePage() {
                 );
               })}
             </nav>
+            {/* Phones: a fade on the end edge while more tabs wait off-screen. */}
+            {tabStripMore && (
+              <span aria-hidden className="lg:hidden pointer-events-none absolute inset-y-px end-px w-12 rounded-e-full bg-gradient-to-l rtl:bg-gradient-to-r from-surface to-transparent" />
+            )}
+            </div>
           )}
 
           {/* Phones: the period first (it serves every tab), so the figures below can be read for the day you want. */}
@@ -1129,22 +1183,22 @@ export default function FinancePage() {
               </div>
             </div>
 
-            <div className="xl:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
+            <div className="xl:col-span-7 grid grid-cols-2 gap-3 sm:gap-4">
+              <div className="min-w-0 rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-3.5 sm:p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "المتحصل" : "Cash in"}</p>
                     <p className="text-xs text-ink-muted mt-1 font-medium">{language === "ar" ? "دفعات فعلية" : "Payments received"}</p>
                   </div>
-                  <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                  <div className="max-sm:hidden w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
                     <TrendingUp size={22} />
                   </div>
                 </div>
-                <p className="text-2xl xl:text-3xl font-black text-emerald-600 tabular-nums mt-4">
+                <p className="text-xl sm:text-2xl xl:text-3xl font-black text-emerald-600 tabular-nums mt-3 sm:mt-4">
                   {isLoading ? <Loader2 className="w-6 h-6 animate-spin text-emerald-300" /> : formatCurrency(kpiStats.grossIncome)}
                 </p>
               </div>
-              <div className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
+              <div className="min-w-0 rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-3.5 sm:p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "خصومات ممنوحة" : "Discounts granted"}</p>
@@ -1159,25 +1213,25 @@ export default function FinancePage() {
                       {language === "ar" ? "على العلاج المسجل" : "On treatments charged"}
                     </p>
                   </div>
-                  <div className="w-11 h-11 rounded-2xl bg-violet-50 text-violet-600 flex items-center justify-center shrink-0">
+                  <div className="max-sm:hidden w-11 h-11 rounded-2xl bg-violet-50 text-violet-600 flex items-center justify-center shrink-0">
                     <PieChart size={22} />
                   </div>
                 </div>
-                <p className="text-2xl xl:text-3xl font-black text-violet-600 tabular-nums mt-4">
+                <p className="text-xl sm:text-2xl xl:text-3xl font-black text-violet-600 tabular-nums mt-3 sm:mt-4">
                   {isLoading ? <Loader2 className="w-6 h-6 animate-spin text-violet-300" /> : discountsUnfiltered ? formatCurrency(kpiStats.totalProcedureDiscounts) : "—"}
                 </p>
               </div>
-              <div className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
+              <div className="min-w-0 rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-3.5 sm:p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "نِسَب الأطباء — معلّقة" : "Commissions pending"}</p>
                     <p className="text-xs text-ink-muted mt-1 font-medium">{language === "ar" ? "مش مخصومة لحد ما تتدفع من صفحة الفريق" : "Not deducted until paid from the Team page"}</p>
                   </div>
-                  <div className="w-11 h-11 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                  <div className="max-sm:hidden w-11 h-11 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
                     <Users size={22} />
                   </div>
                 </div>
-                <p className="text-2xl xl:text-3xl font-black text-amber-600 tabular-nums mt-4">
+                <p className="text-xl sm:text-2xl xl:text-3xl font-black text-amber-600 tabular-nums mt-3 sm:mt-4">
                   {isLoading ? (
                     <Loader2 className="w-6 h-6 animate-spin text-amber-300" />
                   ) : (
@@ -1191,17 +1245,17 @@ export default function FinancePage() {
                   </p>
                 )}
               </div>
-              <div className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
+              <div className="min-w-0 rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-3.5 sm:p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "مصروفات" : "Expenses"}</p>
                     <p className="text-xs text-ink-muted mt-1 font-medium">{language === "ar" ? "من غير مرتبات ونِسَب الفريق" : "Without staff pay"}</p>
                   </div>
-                  <div className="w-11 h-11 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center shrink-0">
+                  <div className="max-sm:hidden w-11 h-11 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center shrink-0">
                     <TrendingDown size={22} />
                   </div>
                 </div>
-                <p className="text-2xl xl:text-3xl font-black text-red-600 tabular-nums mt-4">
+                <p className="text-xl sm:text-2xl xl:text-3xl font-black text-red-600 tabular-nums mt-3 sm:mt-4">
                   {isLoading ? <Loader2 className="w-6 h-6 animate-spin text-red-300" /> : `−${formatCurrency(kpiStats.explicitExpenses - kpiStats.staffPay)}`}
                 </p>
               </div>
@@ -1247,12 +1301,14 @@ export default function FinancePage() {
           </>)}
 
           {/* Toolbar — the period serves every tab; entry, filters and the PDF are the Clinic tab's. */}
-          <div className="rounded-2xl xl:rounded-3xl bg-white/95 backdrop-blur border border-slate-200/80 shadow-sm p-4 xl:p-5 flex flex-col gap-4 shrink-0 sticky top-0 z-20">
-            <div className="flex flex-wrap items-center gap-3">
+          {/* On a phone an insurer tab has nothing in this bar (the period is drawn at the top), so
+              the empty card is not drawn there; from lg up it holds the period as before. */}
+          <div className={`rounded-2xl xl:rounded-3xl bg-white/95 backdrop-blur border border-slate-200/80 shadow-sm p-3 lg:p-4 xl:p-5 ${activeInsurer ? "hidden lg:flex" : "flex"} flex-col gap-3 lg:gap-4 shrink-0 sticky top-0 z-20`}>
+            <div className="flex flex-wrap items-center gap-2 lg:gap-3">
               {/* `contents`, so on a desktop the controls are this row's own flex items exactly as
                   before; below lg they are drawn at the top of the page instead. */}
               <div className="hidden lg:contents">{renderPeriodControls(false)}</div>
-              <div className="flex-1 min-w-[80px]" />
+              <div className="hidden lg:block flex-1 min-w-[80px]" />
               {!activeInsurer && (<>
               <Protect permission="finance.add">
                 <button
@@ -1261,28 +1317,41 @@ export default function FinancePage() {
                     setEditingId(null);
                     setIsModalOpen(true);
                   }}
-                  data-tour="finance-expense-btn" className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs uppercase shadow-md shadow-emerald-600/20 active:scale-[0.98] transition-all"
+                  data-tour="finance-expense-btn" className="max-lg:flex-auto max-lg:justify-center max-lg:min-h-11 max-lg:px-3 inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs uppercase shadow-md shadow-emerald-600/20 active:scale-[0.98] transition-all"
                 >
                   <Plus size={18} />
+                  <span className="sm:hidden">{language === "ar" ? "إضافة" : "Add"}</span>
                   <span className="hidden sm:inline">{language === "ar" ? "إدخال يدوي" : "Manual entry"}</span>
                 </button>
               </Protect>
               <button
                 type="button"
                 onClick={() => setIsFiltersExpanded(!isFiltersExpanded)}
-                className={`xl:hidden inline-flex items-center gap-2 px-3 py-2.5 rounded-xl font-bold text-xs border transition-all ${
+                aria-expanded={isFiltersExpanded}
+                className={`xl:hidden max-lg:flex-auto max-lg:justify-center max-lg:min-h-11 inline-flex items-center gap-2 px-3 py-2.5 rounded-xl font-bold text-xs border transition-all ${
                   isFiltersExpanded ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-600 border-slate-200"
                 }`}
               >
                 <SlidersHorizontal size={16} />
+                <span className="lg:hidden">{language === "ar" ? "فلاتر" : "Filters"}</span>
                 {isFiltersExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              </button>
+              {/* Phones: the report sits beside Add and Filters instead of inside the folded filters. */}
+              <button
+                type="button"
+                onClick={openPdfModal}
+                disabled={isLoading}
+                className="lg:hidden flex-auto min-h-11 inline-flex justify-center items-center gap-2 whitespace-nowrap bg-accent text-ink-on-accent hover:bg-accent-strong px-3 py-2.5 rounded-xl font-bold text-xs border border-slate-800 disabled:opacity-50 transition-colors shadow-md"
+              >
+                <FileText size={16} />
+                {language === "ar" ? "تقرير" : "Report"}
               </button>
               </>)}
             </div>
 
             {!activeInsurer && (
             <div
-              className={`${isFiltersExpanded ? "flex" : "hidden"} xl:flex flex-col lg:flex-row flex-wrap gap-3 lg:items-start lg:justify-between border-t border-slate-100 pt-4`}
+              className={`${isFiltersExpanded ? "flex" : "hidden"} xl:flex flex-col lg:flex-row lg:flex-wrap gap-3 lg:items-start lg:justify-between border-t border-slate-100 pt-4`}
             >
               <FinanceFilters
                 value={filter}
@@ -1291,7 +1360,7 @@ export default function FinancePage() {
                 kindAllLabel={{ en: "Summary", ar: "ملخص" }}
                 hide={["onlyOutstanding"]}
               />
-              <div className="flex flex-col sm:flex-row gap-3 shrink-0 lg:justify-end">
+              <div className="hidden lg:flex flex-col sm:flex-row gap-3 shrink-0 lg:justify-end">
                 <div className="flex gap-2 shrink-0">
                   <button
                     type="button"
@@ -1321,7 +1390,7 @@ export default function FinancePage() {
             />
           ) : (
           /* Ledger */
-          <div className="bg-surface rounded-2xl xl:rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden flex flex-col flex-1 min-h-[420px] ring-1 ring-slate-100">
+          <div ref={ledgerRef} className="bg-surface rounded-2xl xl:rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden flex flex-col flex-1 lg:min-h-[420px] max-lg:scroll-mt-24 ring-1 ring-slate-100">
             {isLoading ? (
               <div className="flex-1 flex flex-col items-center justify-center text-slate-400 min-h-[320px]">
                 <Loader2 size={28} className="animate-spin mb-3 text-accent-soft" />
@@ -1360,8 +1429,8 @@ export default function FinancePage() {
                   <dl className="mt-4 space-y-2 text-[14px]">
                     {summary.staffPay.map((r) => (
                       <div key={r.label} className="flex justify-between gap-4">
-                        <dt className="font-semibold text-ink-body">{language === "ar" ? "اتدفع لـ" : "Paid to"} {r.label}</dt>
-                        <dd className="font-black tabular-nums text-red-600">−{r.amount.toLocaleString()}</dd>
+                        <dt className="font-semibold text-ink-body">{language === "ar" ? "اتدفع لـ" : "Paid to"} <bdi>{r.label}</bdi></dt>
+                        <dd className="font-black tabular-nums text-red-600">−{formatCurrency(r.amount)}</dd>
                       </div>
                     ))}
                     <div className="flex justify-between gap-4 border-t border-line pt-2">
@@ -1447,7 +1516,7 @@ export default function FinancePage() {
                                     {rowTitle(tx)}
                                     {tx.isRecurring ? (
                                       <span className="ms-2 align-middle text-[10px] bg-accent-soft text-accent-strong px-1.5 py-0.5 rounded-md font-black uppercase">
-                                        Auto
+                                        {language === "ar" ? "تلقائي" : "Auto"}
                                       </span>
                                     ) : null}
                                   </p>
@@ -1456,7 +1525,7 @@ export default function FinancePage() {
                                     {tx.approvalNumber ? <span className="ms-2 normal-case"><bdi dir="ltr">{language === "ar" ? "موافقة" : "approval"} {tx.approvalNumber}</bdi></span> : null}
                                     {(tx.doctorName || tx.doctor) && (
                                       <span className="text-accent ms-2">
-                                        · Dr. {(tx.doctorName || tx.doctor || "").replace(/^Dr\.\s*/i, "").split(" ")[0]}
+                                        · {language === "ar" ? "د." : "Dr."} <bdi>{(tx.doctorName || tx.doctor || "").replace(/^Dr\.\s*/i, "").split(" ")[0]}</bdi>
                                       </span>
                                     )}
                                   </p>
@@ -1515,7 +1584,7 @@ export default function FinancePage() {
                                     {!isExpense && (d || tx.labFee) ? (
                                       <>
                                         {rowNet(tx, d?.paid ?? 0).toLocaleString()}
-                                        {tx.labFee ? <span className="block text-[10px] font-bold text-orange-700">Lab −{tx.labFee}</span> : null}
+                                        {tx.labFee ? <span className="block text-[10px] font-bold text-orange-700">{language === "ar" ? "معمل" : "Lab"} −{tx.labFee}</span> : null}
                                       </>
                                     ) : (
                                       dash
@@ -1578,36 +1647,42 @@ export default function FinancePage() {
                 <div className="lg:hidden flex-1 overflow-y-auto custom-scrollbar divide-y divide-slate-100">
                   {paginatedTransactions.map((tx) => {
                     const isExpense = tx.type === "expense";
+                    const ar = language === "ar";
+                    const d = rowDentist(tx);
+                    const rowDoctor = (tx.doctorName || tx.doctor || "").replace(/^Dr\.\s*/i, "").split(" ")[0];
+                    // Payments are edited from the patient's file; the button that could never be
+                    // pressed is not drawn on a phone.
+                    const editable = tx.type !== "payment" && tx.type !== "procedure";
                     return (
-                      <div key={tx.id} className="p-4 hover:bg-surface-subtle transition-colors flex flex-col gap-3">
+                      <div key={tx.id} className="px-3.5 py-3 hover:bg-surface-subtle transition-colors flex flex-col gap-2">
                         <div className="flex justify-between items-start gap-3">
-                          <div className="flex items-start gap-3 min-w-0">
+                          <div className="flex items-start gap-2.5 min-w-0">
                             <div
-                              className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                              className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
                                 isExpense ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-600"
                               }`}
                             >
-                              {isExpense ? <TrendingDown size={18} /> : <TrendingUp size={18} />}
+                              {isExpense ? <TrendingDown size={16} /> : <TrendingUp size={16} />}
                             </div>
                             <div className="min-w-0">
-                              <h4 className="font-bold text-ink text-sm leading-snug">{rowTitle(tx)}</h4>
+                              <h4 className="font-bold text-ink text-sm leading-snug line-clamp-2" title={rowTitle(tx)}>{rowTitle(tx)}</h4>
                               {tx.patientId ? (
                                 <button
                                   onClick={() => router.push(`/patients/${tx.patientId}?tab=finance&tx=${tx.id}`)}
-                                  className="text-xs font-bold text-accent mt-1 truncate hover:underline text-start"
+                                  className="block max-w-full text-xs font-bold text-accent mt-0.5 truncate hover:underline text-start"
                                 >
-                                  {tx.patientName?.trim() ? tx.patientName.trim() : "—"}
+                                  <bdi>{tx.patientName?.trim() ? tx.patientName.trim() : "—"}</bdi>
                                 </button>
                               ) : tx.patientName?.trim() ? (
-                                <p className="text-xs font-bold text-accent mt-1 truncate">
-                                  {tx.patientName.trim()}
+                                <p className="text-xs font-bold text-accent mt-0.5 truncate">
+                                  <bdi>{tx.patientName.trim()}</bdi>
                                 </p>
                               ) : null}
-                              <p className="text-[11px] font-bold text-slate-400 uppercase mt-1">
-                                {tx.date} · {categoryLabel(tx.category, language === "ar") || tx.method || "—"}
-                                {(tx.doctorName || tx.doctor) ? (
+                              <p className="text-[11px] font-bold text-slate-400 uppercase mt-0.5">
+                                <bdi dir="ltr">{tx.date}</bdi> · {categoryLabel(tx.category, ar) || (tx.method ? methodLabel(String(tx.method), ar) : "") || "—"}
+                                {rowDoctor && !d ? (
                                   <span className="text-accent ms-1">
-                                    · Dr. {(tx.doctorName || tx.doctor || "").replace(/^Dr\.\s*/i, "").split(" ")[0]}
+                                    · {ar ? "د." : "Dr."} <bdi>{rowDoctor}</bdi>
                                   </span>
                                 ) : null}
                               </p>
@@ -1619,71 +1694,60 @@ export default function FinancePage() {
                             {tx.val.toLocaleString()}
                           </span>
                         </div>
-                        {(() => {
-                          const d = rowDentist(tx);
-                          if (!d && !tx.labFee) return null;
-                          return (
-                            <div className="flex flex-wrap items-center gap-1 ps-12">
-                              {d && (
-                                <span className="text-[11px] font-bold text-ink">
-                                  Dr. {d.name}
-                                  {d.rate != null ? ` · ${d.rate}%` : ""}
-                                  {d.share > 0 ? ` · ${d.share.toLocaleString()}` : ""}
-                                </span>
-                              )}
-                              {d && d.share > 0 ? (
-                                <>
-                                  <span className="text-[9px] bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded border border-emerald-100 font-bold">
-                                    {language === "ar" ? "اتدفع" : "Paid"}: {d.paid.toLocaleString()}
-                                  </span>
-                                  <span className={`text-[9px] px-2 py-0.5 rounded border font-bold ${d.pending > 0 ? "bg-amber-50 text-amber-700 border-amber-100" : "bg-surface-subtle text-ink-muted border-line"}`}>
-                                    {language === "ar" ? "معلّق" : "Pending"}: {d.pending.toLocaleString()}
-                                  </span>
-                                </>
-                              ) : null}
-                              {tx.labFee ? (
-                                <span className="text-[9px] bg-orange-50 text-orange-600 px-2 py-0.5 rounded border border-orange-100 font-bold">
-                                  Lab: {tx.labFee}
-                                </span>
-                              ) : null}
-                              {!isExpense ? (
-                                <span className="text-[9px] bg-surface-subtle text-ink px-2 py-0.5 rounded border border-line font-bold">
-                                  Net: {rowNet(tx, d?.paid ?? 0).toLocaleString()}
-                                </span>
-                              ) : null}
-                            </div>
-                          );
-                        })()}
-                        <div className="flex justify-end gap-2 ps-12">
-                          <Protect permission="finance.edit">
-                            {tx.type !== "payment" && tx.type !== "procedure" ? (
-                              <button
-                                type="button"
-                                onClick={() => handleEdit(tx)}
-                                className="p-2 rounded-lg border border-line text-ink-body"
-                              >
-                                <Edit2 size={16} />
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                disabled
-                                title={language === "ar" ? "تعديل المدفوعات يتم من ملف المريض" : "Edit payments from patient profile"}
-                                className="p-2 rounded-lg border border-line text-slate-300 cursor-not-allowed"
-                              >
-                                <Edit2 size={16} />
-                              </button>
+                        <div className="flex items-end gap-2 ps-[2.625rem]">
+                          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+                            {d && (
+                              <span className="text-[11px] font-bold text-ink">
+                                {ar ? "د." : "Dr."} <bdi>{d.name}</bdi>
+                                {d.rate != null ? ` · ${d.rate}%` : ""}
+                                {d.share > 0 ? ` · ${d.share.toLocaleString()}` : ""}
+                              </span>
                             )}
-                          </Protect>
-                          <Protect permission="finance.delete">
-                            <button
-                              type="button"
-                              data-tour="finance-ledger-delete" onClick={() => handleDelete(tx.id, tx.description)}
-                              className="p-2 rounded-lg border border-line text-red-600"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </Protect>
+                            {d && d.share > 0 ? (
+                              <>
+                                <span className="text-[10px] bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded border border-emerald-100 font-bold">
+                                  {ar ? "اتدفع" : "Paid"}: {d.paid.toLocaleString()}
+                                </span>
+                                <span className={`text-[10px] px-2 py-0.5 rounded border font-bold ${d.pending > 0 ? "bg-amber-50 text-amber-700 border-amber-100" : "bg-surface-subtle text-ink-muted border-line"}`}>
+                                  {ar ? "معلّق" : "Pending"}: {d.pending.toLocaleString()}
+                                </span>
+                              </>
+                            ) : null}
+                            {tx.labFee ? (
+                              <span className="text-[10px] bg-orange-50 text-orange-600 px-2 py-0.5 rounded border border-orange-100 font-bold">
+                                {ar ? "معمل" : "Lab"}: {tx.labFee}
+                              </span>
+                            ) : null}
+                            {!isExpense && (d || tx.labFee) ? (
+                              <span className="text-[10px] bg-surface-subtle text-ink px-2 py-0.5 rounded border border-line font-bold">
+                                {ar ? "الصافي" : "Net"}: {rowNet(tx, d?.paid ?? 0).toLocaleString()}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="flex shrink-0 gap-1.5">
+                            {editable ? (
+                              <Protect permission="finance.edit">
+                                <button
+                                  type="button"
+                                  onClick={() => handleEdit(tx)}
+                                  aria-label={ar ? "تعديل" : "Edit"}
+                                  className="grid size-10 place-items-center rounded-lg border border-line text-ink-body"
+                                >
+                                  <Edit2 size={16} />
+                                </button>
+                              </Protect>
+                            ) : null}
+                            <Protect permission="finance.delete">
+                              <button
+                                type="button"
+                                data-tour="finance-ledger-delete" onClick={() => handleDelete(tx.id, tx.description)}
+                                aria-label={ar ? "حذف" : "Delete"}
+                                className="grid size-10 place-items-center rounded-lg border border-line text-red-600"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </Protect>
+                          </div>
                         </div>
                       </div>
                     );
@@ -1699,9 +1763,9 @@ export default function FinancePage() {
                     <div className="flex items-center gap-1">
                       <button
                         type="button"
-                        onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                        onClick={() => goToPage(Math.max(1, currentPage - 1))}
                         disabled={currentPage === 1}
-                        className="p-2 rounded-xl bg-surface border border-line text-ink-body hover:bg-surface-subtle disabled:opacity-40"
+                        className="p-2 max-lg:min-h-10 max-lg:min-w-10 rounded-xl bg-surface border border-line text-ink-body hover:bg-surface-subtle disabled:opacity-40"
                       >
                         <ChevronLeft size={18} />
                       </button>
@@ -1709,8 +1773,8 @@ export default function FinancePage() {
                         <button
                           key={pageNum}
                           type="button"
-                          onClick={() => setCurrentPage(pageNum)}
-                          className={`min-w-[2.25rem] h-9 px-2 rounded-xl text-xs font-black ${
+                          onClick={() => goToPage(pageNum)}
+                          className={`min-w-[2.25rem] h-9 max-lg:h-10 max-lg:min-w-10 px-2 rounded-xl text-xs font-black ${
                             currentPage === pageNum
                               ? "bg-accent text-ink shadow-md"
                               : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
@@ -1721,9 +1785,9 @@ export default function FinancePage() {
                       ))}
                       <button
                         type="button"
-                        onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                        onClick={() => goToPage(Math.min(totalPages, currentPage + 1))}
                         disabled={currentPage === totalPages}
-                        className="p-2 rounded-xl bg-surface border border-line text-ink-body hover:bg-surface-subtle disabled:opacity-40"
+                        className="p-2 max-lg:min-h-10 max-lg:min-w-10 rounded-xl bg-surface border border-line text-ink-body hover:bg-surface-subtle disabled:opacity-40"
                       >
                         <ChevronRight size={18} />
                       </button>
@@ -1751,7 +1815,7 @@ export default function FinancePage() {
                     <p className="text-[10px] text-slate-400 font-semibold">{language === "ar" ? "اختر محتوى التقرير" : "Customize your report"}</p>
                   </div>
                 </div>
-                <button onClick={() => setIsPdfModalOpen(false)} className="p-1.5 bg-surface-muted hover:bg-red-50 hover:text-red-500 rounded-full text-slate-400 transition-colors">
+                <button onClick={() => setIsPdfModalOpen(false)} aria-label={language === "ar" ? "إغلاق" : "Close"} className="max-lg:grid max-lg:size-10 max-lg:place-items-center p-1.5 bg-surface-muted hover:bg-red-50 hover:text-red-500 rounded-full text-slate-400 transition-colors">
                   <X size={16} />
                 </button>
               </div>
@@ -1767,7 +1831,7 @@ export default function FinancePage() {
                         type="date"
                         value={pdfDateFrom}
                         onChange={e => setPdfDateFrom(e.target.value)}
-                        className="w-full px-3 py-2.5 bg-surface-subtle border border-line rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/15"
+                        className="w-full px-3 py-2.5 bg-surface-subtle border border-line rounded-xl text-xs max-lg:text-base font-bold text-slate-800 outline-none focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/15"
                       />
                     </div>
                     <div>
@@ -1776,7 +1840,7 @@ export default function FinancePage() {
                         type="date"
                         value={pdfDateTo}
                         onChange={e => setPdfDateTo(e.target.value)}
-                        className="w-full px-3 py-2.5 bg-surface-subtle border border-line rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/15"
+                        className="w-full px-3 py-2.5 bg-surface-subtle border border-line rounded-xl text-xs max-lg:text-base font-bold text-slate-800 outline-none focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/15"
                       />
                     </div>
                   </div>
@@ -1835,7 +1899,7 @@ export default function FinancePage() {
                     <h2 className="text-base font-bold text-slate-900 tracking-tight">
                       {editingId ? (language === "ar" ? "تعديل بند" : "Edit Manual Entry") : language === "ar" ? "بند جديد في الدفتر" : "Manual Ledger Entry"}
                     </h2>
-                    <button onClick={closeModal} className="p-1.5 bg-slate-100 hover:bg-red-50 rounded-full text-slate-400 hover:text-red-500"><X size={16}/></button>
+                    <button onClick={closeModal} aria-label={language === "ar" ? "إغلاق" : "Close"} className="max-lg:grid max-lg:size-10 max-lg:place-items-center p-1.5 bg-slate-100 hover:bg-red-50 rounded-full text-slate-400 hover:text-red-500"><X size={16}/></button>
                  </div>
                  <form onSubmit={handleSave} className="p-5 space-y-4">
                     <div className="flex bg-surface-muted p-1 rounded-lg">
@@ -1844,20 +1908,20 @@ export default function FinancePage() {
                     </div>
                     <div className="space-y-1">
                        <label className="text-[9px] font-bold text-ink-muted uppercase tracking-wider ps-1">{t('date')}</label>
-                       <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs font-semibold text-ink outline-none focus:border-accent-soft"/>
+                       <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs max-lg:text-base font-semibold text-ink outline-none focus:border-accent-soft"/>
                     </div>
                     <div className="space-y-1">
                        <label className="text-[9px] font-bold text-ink-muted uppercase tracking-wider ps-1">{t('description')}</label>
-                       <input required value={description} onChange={e => setDescription(e.target.value)} disabled={Boolean(editingId && allTransactions.find((row) => row.id === editingId)?.settlementId)} placeholder={formType === "expense" ? (language === "ar" ? "مثال: فاتورة الكهرباء" : "e.g. Electricity bill") : language === "ar" ? "مثال: بيع فرشة أسنان" : "e.g. Sold a toothbrush"} data-tour="finance-expense-desc" className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs font-semibold text-ink outline-none focus:border-accent-soft"/>
+                       <input required value={description} onChange={e => setDescription(e.target.value)} disabled={Boolean(editingId && allTransactions.find((row) => row.id === editingId)?.settlementId)} placeholder={formType === "expense" ? (language === "ar" ? "مثال: فاتورة الكهرباء" : "e.g. Electricity bill") : language === "ar" ? "مثال: بيع فرشة أسنان" : "e.g. Sold a toothbrush"} data-tour="finance-expense-desc" className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs max-lg:text-base font-semibold text-ink outline-none focus:border-accent-soft"/>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                        <div className="space-y-1">
                           <label className="text-[9px] font-bold text-ink-muted uppercase tracking-wider ps-1">{language === 'ar' ? 'المبلغ' : 'Amount'}</label>
-                          <input required type="number" data-tour="finance-expense-amount" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs font-semibold text-ink outline-none focus:border-accent-soft"/>
+                          <input required type="number" data-tour="finance-expense-amount" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs max-lg:text-base font-semibold text-ink outline-none focus:border-accent-soft"/>
                        </div>
                        <div className="space-y-1">
                           <label className="text-[9px] font-bold text-ink-muted uppercase tracking-wider ps-1">{t('category')}</label>
-                          <select value={category} onChange={e => setCategory(e.target.value)} disabled={Boolean(editingId && allTransactions.find((row) => row.id === editingId)?.settlementId)} className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs font-semibold text-ink outline-none focus:border-accent-soft disabled:text-ink-muted">
+                          <select value={category} onChange={e => setCategory(e.target.value)} disabled={Boolean(editingId && allTransactions.find((row) => row.id === editingId)?.settlementId)} className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs max-lg:text-base font-semibold text-ink outline-none focus:border-accent-soft disabled:text-ink-muted">
                              {(formType === "expense" ? EXPENSE_CATEGORY_LIST : INCOME_CATEGORY_LIST).map((c) => (
                                <option key={c.id} value={c.id}>{language === "ar" ? c.ar : c.en}</option>
                              ))}
@@ -1870,7 +1934,7 @@ export default function FinancePage() {
                     </div>
                     <div className="space-y-1">
                        <label className="text-[9px] font-bold text-ink-muted uppercase tracking-wider ps-1">{language === "ar" ? "طريقة الدفع" : "Paid by"}</label>
-                       <select value={method} onChange={e => setMethod(e.target.value)} className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs font-semibold text-ink outline-none focus:border-accent-soft">
+                       <select value={method} onChange={e => setMethod(e.target.value)} className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs max-lg:text-base font-semibold text-ink outline-none focus:border-accent-soft">
                           {[
                             { id: "Cash", en: "Cash", ar: "كاش" },
                             { id: "Card", en: "Card", ar: "كارت" },
@@ -1906,8 +1970,10 @@ export default function FinancePage() {
 function StatementCard({ title, tone, rows, total, empty, note, isAr }: { title: string; tone: "in" | "out"; rows: { label: string; amount: number }[]; total: number; empty: string; note?: string; isAr: boolean }) {
   const sign = tone === "in" ? "+" : "−";
   const color = tone === "in" ? "text-emerald-600" : "text-red-600";
+  // The same digits as the figures above it (formatCurrency), so one screen never mixes ١٢٣ and 123.
+  const locale = isAr ? "ar-EG" : "en-US";
   return (
-    <div className="rounded-2xl border border-line bg-surface p-5">
+    <div className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
       <h3 className="text-[15px] font-extrabold text-ink">{title}</h3>
       {note && <p className="mt-1 text-[12.5px] font-medium text-ink-muted">{note}</p>}
       {rows.length === 0 ? (
@@ -1917,14 +1983,14 @@ function StatementCard({ title, tone, rows, total, empty, note, isAr }: { title:
           {rows.map((r) => (
             <div key={r.label} className="flex justify-between gap-4">
               <dt className="font-semibold text-ink-body">{r.label}</dt>
-              <dd className={`font-black tabular-nums ${color}`}>{sign}{r.amount.toLocaleString()}</dd>
+              <dd className={`font-black tabular-nums ${color}`}>{sign}{r.amount.toLocaleString(locale)}</dd>
             </div>
           ))}
         </dl>
       )}
       <div className="mt-4 flex justify-between gap-4 border-t border-line pt-3">
         <span className="text-[15px] font-extrabold text-ink">{isAr ? "الإجمالي" : "Total"}</span>
-        <span className={`text-[18px] font-black tabular-nums ${color}`}>{sign}{(Math.round(total * 100) / 100).toLocaleString()}</span>
+        <span className={`text-[18px] font-black tabular-nums ${color}`}>{sign}{(Math.round(total * 100) / 100).toLocaleString(locale)}</span>
       </div>
     </div>
   );

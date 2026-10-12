@@ -27,6 +27,7 @@ import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { openWhatsAppWithText } from "@/lib/whatsappManual";
 import type { RecoveryList, RecoveryRow } from "@/lib/paymentRecovery";
 import PageHeader from "@/components/dashboard/PageHeader";
+import { currencyUnit } from "@/lib/currencyUnit";
 
 /**
  * Where a patient stands after someone has actually spoken to them.
@@ -123,9 +124,26 @@ export default function RecoverPaymentsPage() {
   };
 
   const money = useCallback(
-    (n: number) => `${Math.round(n).toLocaleString(isAr ? "ar-EG" : "en-US")} EGP`,
+    (n: number) => `${Math.round(n).toLocaleString(isAr ? "ar-EG" : "en-US")} ${currencyUnit("EGP", isAr)}`,
     [isAr]
   );
+  /** A count in the same digits as the money beside it. */
+  const count = (n: number) => n.toLocaleString(isAr ? "ar-EG" : "en-US");
+  /**
+   * The scan's notes are written in English by the server (lib/paymentRecovery). On an Arabic screen
+   * the three it writes are said in Arabic from their own figures; anything else shows as sent.
+   */
+  const noteText = (note: string): string => {
+    if (!isAr || !list) return note;
+    let m: RegExpMatchArray | null;
+    if ((m = note.match(/^Only the first (\d+) records/)))
+      return `اتقرا أول ${count(Number(m[1]))} سجل من كل نوع بس، فالإجماليات دي أقل حد مش الصورة كاملة.`;
+    if ((m = note.match(/^(\d+) of these patients have no phone number/)))
+      return `${count(Number(m[1]))} من المرضى دول مالهمش رقم تليفون في الملف، ومش هينفع نكلمهم من هنا.`;
+    if ((m = note.match(/^(\d+) treatment\(s\) have payments recorded against them/)))
+      return `${count(Number(m[1]))} علاج عليهم دفعات متسجلة مش مظبوطة — ${money(list.misallocatedTotal)} إجمالي. أرصدة المرضى دول غلط بالمبلغ ده لصالحهم، فمش ظاهرين في القائمة اللي فوق.`;
+    return note;
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -277,7 +295,7 @@ export default function RecoverPaymentsPage() {
                 <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">{txt.totalOwed}</p>
                 <p className="text-2xl font-black text-ink mt-2">{money(list.totals.totalOwed)}</p>
                 <p className="text-xs font-bold text-slate-400 mt-1">
-                  {list.totals.patients} {txt.patients}
+                  {count(list.totals.patients)} {txt.patients}
                 </p>
               </div>
               <div className="bg-surface rounded-3xl border border-line p-5 shadow-sm">
@@ -322,7 +340,7 @@ export default function RecoverPaymentsPage() {
                           {mis.kind === "orphaned_payment" ? txt.misOrphan : txt.misOver}
                         </span>
                         {mis.kind === "orphaned_payment" ? (
-                          <>{money(mis.paidTotal)} · {mis.paymentIds.length} {txt.misPayments}</>
+                          <>{money(mis.paidTotal)} · {count(mis.paymentIds.length)} {txt.misPayments}</>
                         ) : (
                           <>{mis.procedureDescription} · {money(mis.procedureCost)} → {money(mis.paidTotal)}</>
                         )}
@@ -364,7 +382,7 @@ export default function RecoverPaymentsPage() {
               {list.notes.map((note) => (
                 <p key={note} className="text-xs font-bold text-ink-muted flex items-start gap-2">
                   <AlertCircle size={13} className="text-slate-400 shrink-0 mt-0.5" />
-                  {note}
+                  {noteText(note)}
                 </p>
               ))}
             </div>
@@ -483,15 +501,16 @@ export default function RecoverPaymentsPage() {
 
                           <span className="text-xs font-bold text-slate-400">
                             {txt.lastSeen}:{" "}
-                            {row.ageDays === undefined ? txt.noActivity : `${row.ageDays} ${txt.daysAgo}`}
+                            {row.ageDays === undefined ? txt.noActivity : `${count(row.ageDays)} ${txt.daysAgo}`}
                           </span>
                         </div>
                       </div>
 
                       {/* How much */}
-                      <div className={isRTL ? "text-left" : "text-right"}>
+                      {/* Phones: under the name, on a line of its own, so the name and the phone get the width. */}
+                      <div className={`basis-full sm:basis-auto text-start ${isRTL ? "sm:text-left" : "sm:text-right"}`}>
                         <p className="text-xl font-black text-ink">{money(row.totalOwed)}</p>
-                        <div className="flex items-center gap-2 justify-end mt-0.5 flex-wrap">
+                        <div className="flex items-center gap-2 justify-start sm:justify-end mt-0.5 flex-wrap">
                           {row.balance > 0 && (
                             <span className="text-[10px] font-black text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
                               {money(row.balance)} · {txt.unpaid}
@@ -515,7 +534,7 @@ export default function RecoverPaymentsPage() {
                           href={row.phone ? `tel:${row.phone}` : undefined}
                           onClick={() => row.phone && void setFollowUpStatus(row, "promised")}
                           aria-disabled={!row.phone}
-                          className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black border transition-colors ${
+                          className={`inline-flex items-center gap-1.5 px-3 py-2 max-lg:min-h-10 rounded-xl text-xs font-black border transition-colors ${
                             row.phone
                               ? "bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100"
                               : "bg-surface-subtle text-slate-300 border-line cursor-not-allowed pointer-events-none"
@@ -532,14 +551,14 @@ export default function RecoverPaymentsPage() {
                           }}
                           disabled={!row.phone || row.whatsappOptOut}
                           title={row.whatsappOptOut ? txt.optedOut : txt.whatsapp}
-                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black border bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 disabled:bg-surface-subtle disabled:text-slate-300 disabled:border-line disabled:cursor-not-allowed transition-colors"
+                          className="inline-flex items-center gap-1.5 px-3 py-2 max-lg:min-h-10 rounded-xl text-xs font-black border bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 disabled:bg-surface-subtle disabled:text-slate-300 disabled:border-line disabled:cursor-not-allowed transition-colors"
                         >
                           <MessageCircle size={13} /> {txt.whatsapp}
                         </button>
 
                         <Link
                           href={`/patients/${row.patientId}?tab=finance`}
-                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black border bg-surface-subtle text-ink-body border-line hover:bg-surface-muted transition-colors"
+                          className="inline-flex items-center gap-1.5 px-3 py-2 max-lg:min-h-10 rounded-xl text-xs font-black border bg-surface-subtle text-ink-body border-line hover:bg-surface-muted transition-colors"
                         >
                           {txt.file} <ArrowUpRight size={13} />
                         </Link>
@@ -552,7 +571,7 @@ export default function RecoverPaymentsPage() {
                         <button
                           key={key}
                           onClick={() => void setFollowUpStatus(row, key)}
-                          className={`text-[11px] font-black px-2.5 py-1 rounded-lg border transition-all ${
+                          className={`text-[11px] font-black px-2.5 py-1 max-lg:min-h-10 max-lg:px-3 rounded-lg border transition-all ${
                             status === key
                               ? statusMeta[key].className
                               : "bg-surface text-slate-400 border-line hover:border-line-strong"

@@ -47,7 +47,7 @@ export default function BranchTabs({
             role="tab"
             aria-selected={active}
             onClick={() => onChange(tab.id)}
-            className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 text-xs font-black transition-colors ${
+            className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 max-lg:min-h-10 text-xs font-black transition-colors ${
               active ? "bg-accent text-ink-on-accent shadow-sm" : "text-white/70 hover:bg-white/10 hover:text-white"
             }`}
           >

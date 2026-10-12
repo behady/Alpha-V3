@@ -253,7 +253,7 @@ export default function InsurerTab({
           type="button"
           disabled={busy}
           onClick={() => collect([r])}
-          className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1 text-[11px] font-black text-ink hover:border-slate-400 disabled:opacity-50 whitespace-nowrap"
+          className="inline-flex items-center gap-1.5 max-lg:min-h-10 max-lg:px-4 rounded-full border border-line bg-surface px-3 py-1 text-[11px] font-black text-ink hover:border-slate-400 disabled:opacity-50 whitespace-nowrap"
         >
           <CheckCircle2 size={13} />
           {ar ? "اتحصّل" : "Mark collected"}
@@ -262,8 +262,10 @@ export default function InsurerTab({
     );
   };
 
-  const box = (r: InsurerRow) => {
-    const can = canCollect(r);
+  /** True when the row can be ticked; the phone list draws no box at all for the rest. */
+  const canTick = canCollect;
+  const box = (r: InsurerRow, phone = false) => {
+    const can = canTick(r);
     // Ticking is the first half of collecting, so it is offered only to who may collect.
     return (
       <Protect permission="finance.add">
@@ -273,7 +275,7 @@ export default function InsurerTab({
           checked={can && selected.has(r.charge.id)}
           onChange={() => toggle(r.charge.id)}
           aria-label={ar ? "اختار العلاج" : "Select treatment"}
-          className="size-4 accent-[var(--accent)] disabled:opacity-30"
+          className={`${phone ? "size-5" : "size-4"} accent-[var(--accent)] disabled:opacity-30`}
         />
       </Protect>
     );
@@ -311,7 +313,7 @@ export default function InsurerTab({
 
       <div className="bg-surface rounded-2xl xl:rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden flex flex-col flex-1 min-h-[320px] ring-1 ring-slate-100">
         <div className="flex flex-wrap items-center gap-3 p-4 border-b border-slate-100">
-          <label className="flex items-center gap-2 text-xs font-bold text-ink-body">
+          <label className="flex items-center gap-2 max-lg:min-h-10 text-xs font-bold text-ink-body">
             <input type="checkbox" checked={onlyOutstanding} onChange={(e) => setOnlyOutstanding(e.target.checked)} className="size-4 accent-[var(--accent)]" />
             {ar ? "المتبقي بس" : "Only outstanding"}
           </label>
@@ -321,7 +323,7 @@ export default function InsurerTab({
               type="button"
               disabled={selectable.length === 0 || busy}
               onClick={() => setSelected(allChosen ? new Set() : new Set(selectable.map((r) => r.charge.id)))}
-              className="inline-flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-xs font-bold text-ink-body hover:border-slate-400 disabled:opacity-40"
+              className={`${selectable.length === 0 ? "max-lg:hidden" : ""} max-lg:min-h-10 inline-flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-xs font-bold text-ink-body hover:border-slate-400 disabled:opacity-40`}
             >
               {allChosen ? (ar ? "إلغاء الاختيار" : "Clear selection") : ar ? "اختار كل المتبقي" : "Select all outstanding"}
             </button>
@@ -404,7 +406,7 @@ export default function InsurerTab({
             <div className="lg:hidden divide-y divide-slate-100">
               {visible.map((r) => (
                 <div key={r.charge.id} className="p-4 flex gap-3">
-                  <div className="pt-1">{box(r)}</div>
+                  {canTick(r) ? <label className="-m-2 grid size-9 shrink-0 place-items-center self-start">{box(r, true)}</label> : null}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -436,7 +438,8 @@ export default function InsurerTab({
 
       {/* The batch, held at the bottom of the screen while anything is ticked. */}
       {chosen.length > 0 && (
-        <div className="sticky bottom-20 lg:bottom-4 z-20 flex justify-center">
+        // pe-16 on phones: the AI button floats at the bottom end corner and would cover this button's end.
+        <div className="sticky bottom-20 lg:bottom-4 z-20 flex justify-center max-lg:pe-16">
           <Protect permission="finance.add">
             <button
               type="button"

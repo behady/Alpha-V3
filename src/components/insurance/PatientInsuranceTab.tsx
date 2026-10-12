@@ -276,7 +276,7 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
     <div className="space-y-6">
       {branchPicker}
       {/* --- membership ------------------------------------------------------------------------ */}
-      <section className="rounded-2xl border border-line bg-surface p-6">
+      <section className="rounded-2xl border border-line bg-surface p-4 md:p-6">
         <h3 className="text-[17px] font-black text-ink">{t("tabMembership")}</h3>
         {insurers.length === 0 || Object.keys(membership).length === 0 ? (
           <p className="mt-3 text-[14px] font-semibold text-ink-muted">{t("noMembership")}</p>
@@ -295,7 +295,7 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                       ]
                     : [["memberNumber", m.memberNumber]];
                 return (
-                  <div key={p.id} className="rounded-xl border border-line bg-surface-subtle p-5">
+                  <div key={p.id} className="rounded-xl border border-line bg-surface-subtle p-4 md:p-5">
                     <p className="text-[16px] font-black text-ink">{isAr ? p.nameAr || p.name : p.name}</p>
                     {/* The value sits straight under its label: the number is isolated as left-to-right
                         text, but the cell keeps the page's direction, so both line up at the same edge. */}
@@ -317,7 +317,8 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
       </section>
 
       {/* --- approvals: one card per approval paper -------------------------------------------- */}
-      <section className="rounded-2xl border border-line bg-surface p-4 md:p-6">
+      {/* Phones: no outer card, so each approval card (and the treatment names in it) gets the width. */}
+      <section className="max-md:border-0 max-md:bg-transparent max-md:p-0 rounded-2xl border border-line bg-surface p-4 md:p-6">
         <h3 className="text-[17px] font-black text-ink">
           {t("tabClaims")}
           {claims.length > 0 && <span className="ms-2 font-figure text-[15px] font-bold text-ink-muted">({claims.length})</span>}
@@ -412,9 +413,9 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                 return { name: wording[line.code]?.trim() || line.description, dentist, state, visit: visitCell };
               };
               return (
-                <article key={c.id} className="overflow-hidden rounded-xl border border-line">
+                <article key={c.id} className="overflow-hidden rounded-xl border border-line bg-surface">
                   {/* The paper itself: its number, insurer and date, and what it is worth. */}
-                  <header className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4 border-b border-line bg-surface-subtle px-5 py-4">
+                  <header className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4 border-b border-line bg-surface-subtle px-4 py-4 md:px-5">
                     <div>
                       <p className="text-[12px] font-bold text-ink-muted">{t("approvalNumber")}</p>
                       <p className="mt-0.5 font-figure text-[22px] font-extrabold text-ink">
@@ -440,7 +441,7 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                   </header>
 
                   {/* What can be done to the paper as a whole. */}
-                  <div className="flex flex-wrap items-center gap-2 border-b border-line px-5 py-3">
+                  <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3 md:px-5">
                     <button type="button" onClick={() => openDoc(c)} disabled={!c.doc.path} className={actionBtn}>
                       <FileText size={15} /> {t("openPdf")}
                     </button>
