@@ -217,7 +217,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // with no way back. (`overflow-x: clip` can only hold while overflow-y is not a scroll value —
   // paired with `auto` it computes to `hidden` — which is why this has to be the whole set.)
   // Desktop is identical: the `lg:` classes below are the default branch's.
-  const phoneStickyPage = /^\/patients\/[^/]+$/.test(pathname) || pathname === "/team" || pathname === "/reports";
+  // Every ordinary page now: the Settings save bars, the patient-list search, the prescription
+  // toolbar and the Finance toolbar are all `sticky`, and on a phone none of them stuck while
+  // <main> was a scroll container that never scrolls. Desktop keeps the `lg:` classes unchanged.
+  const phoneStickyPage = true;
   /**
    * The same trap on the phone calendar (the desk dashboard below `lg`): its week agenda pins each
    * day's header with `sticky`, and `overflow-hidden` on <main> would hold them to a box that never
