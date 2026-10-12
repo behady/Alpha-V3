@@ -4,11 +4,15 @@
  * what is left. The clinic kept this by hand in Excel; the Finance page's "Daily sheet" tab draws it
  * from the ledger and exports it in the same shape.
  *
- * A line's figures are the PATIENT's alone:
- * - Total is the treatments charged to them that day: the whole price on an ordinary treatment, the
- *   patient's share on an approval treatment (the insurer's approved part is the insurer's bill,
- *   collected on the insurer's tab). When they paid more than that day's treatments, the extra was
- *   an earlier balance being settled, and the line's total is what they paid.
+ * A line carries the day's work and who answers for it:
+ * - Work is the full price of the day's treatments, whoever pays.
+ * - Company is the part an insurance or contract company answers for: the approved part on an
+ *   approval treatment; on a contract company's treatment with no approval (GASCO), the whole price
+ *   less what the patient paid on it — the same split the company's Finance tab collects.
+ * - Total is the PATIENT's part: the whole price on a private treatment, the share outside the
+ *   approval on an approval treatment, nothing on a contract company's. When they paid more than
+ *   that, the extra was an earlier balance being settled, and the line's total is what they paid.
+ *   (The owner confirmed 2026-10-12: a GASCO patient owes nothing; GASCO does.)
  * - Paid is their payments that day. The insurer's own payments (method "Insurance") are not the
  *   patient's money and are left out.
  * - Remaining is total − paid, never below zero.
@@ -30,6 +34,7 @@ export type SheetLedgerRow = {
   payerId?: unknown;
   payerName?: unknown;
   claimId?: unknown;
+  procedureId?: unknown;
   cost?: unknown;
   amount?: unknown;
   paid?: unknown;
@@ -51,12 +56,18 @@ export type SheetLine = {
   payerNames: string[];
   /** Payment methods, spellings folded ("Card"/"Visa", "Instapay"/"InstaPay"), in the order first used. */
   methods: string[];
+  /** The full price of the day's treatments. */
+  work: number;
+  /** The part an insurance or contract company answers for. */
+  company: number;
   total: number;
   paid: number;
   remaining: number;
 };
 
 export type SheetTotals = {
+  work: number;
+  company: number;
   total: number;
   paid: number;
   remaining: number;
@@ -82,11 +93,29 @@ function millis(v: unknown): number {
   return Number.POSITIVE_INFINITY;
 }
 
+const treatmentCost = (row: SheetLedgerRow) => Math.max(0, num(row.cost) || num(row.amount));
+
+/** A treatment billed to an insurance or contract company rather than to the patient. */
+const companyPays = (row: SheetLedgerRow) => {
+  const payerId = text(row.payerId);
+  return payerId !== "" && payerId !== PRIVATE_PAYER_ID;
+};
+
 /** What the patient is charged on one treatment row. */
 export function patientCharge(row: SheetLedgerRow): number {
-  const cost = num(row.cost) || num(row.amount);
-  if (!isApprovalRow(row)) return Math.max(0, cost);
-  return Math.max(0, cost - Math.min(cost, Math.max(0, num(row.insurerCovered))));
+  const cost = treatmentCost(row);
+  if (isApprovalRow(row)) return Math.max(0, cost - Math.min(cost, Math.max(0, num(row.insurerCovered))));
+  return companyPays(row) ? 0 : cost;
+}
+
+/**
+ * The company's part of one treatment row. `patientPaidOnRow` is what the patient paid against
+ * this treatment; on a contract company's treatment that comes off the company's bill.
+ */
+export function companyCharge(row: SheetLedgerRow, patientPaidOnRow = 0): number {
+  const cost = treatmentCost(row);
+  if (isApprovalRow(row)) return Math.min(cost, Math.max(0, num(row.insurerCovered)));
+  return companyPays(row) ? Math.max(0, cost - patientPaidOnRow) : 0;
 }
 
 /** A payment row's value, read as the Finance page's cash list reads it: `paid`, else `amount`. */
@@ -109,6 +138,14 @@ export function dailySheet(rows: readonly SheetLedgerRow[]): { lines: SheetLine[
   const byKey = new Map<string, Acc>();
   const methodTotals = new Map<string, number>();
 
+  // The patient's own payments against each treatment: they come off a contract company's bill.
+  const paidOnRow = new Map<string, number>();
+  for (const row of rows) {
+    if (!isPatientPayment(row)) continue;
+    const target = text(row.procedureId);
+    if (target) paidOnRow.set(target, (paidOnRow.get(target) ?? 0) + paymentValue(row));
+  }
+
   for (const row of rows) {
     const charge = isLiveCharge(row);
     const payment = isPatientPayment(row);
@@ -120,7 +157,7 @@ export function dailySheet(rows: readonly SheetLedgerRow[]): { lines: SheetLine[
     const key = `${date}|${patientId || `name:${patientName}`}`;
     let acc = byKey.get(key);
     if (!acc) {
-      acc = { date, patientId, patientName, payerIds: [], payerNames: [], methods: [], total: 0, paid: 0, charged: 0, first: millis(row.createdAt) };
+      acc = { date, patientId, patientName, payerIds: [], payerNames: [], methods: [], work: 0, company: 0, total: 0, paid: 0, charged: 0, first: millis(row.createdAt) };
       byKey.set(key, acc);
     }
     if (!acc.patientName && patientName) acc.patientName = patientName;
@@ -133,7 +170,11 @@ export function dailySheet(rows: readonly SheetLedgerRow[]): { lines: SheetLine[
       if (name && !acc.payerNames.includes(name)) acc.payerNames.push(name);
     }
 
-    if (charge) acc.charged += patientCharge(row);
+    if (charge) {
+      acc.charged += patientCharge(row);
+      acc.work += treatmentCost(row);
+      acc.company += companyCharge(row, paidOnRow.get(row.id) ?? 0);
+    }
     if (payment) {
       const value = paymentValue(row);
       acc.paid += value;
@@ -148,10 +189,15 @@ export function dailySheet(rows: readonly SheetLedgerRow[]): { lines: SheetLine[
     const paid = round2(acc.paid);
     const total = round2(Math.max(acc.charged, paid));
     const { date, patientId, patientName, payerIds, payerNames, methods } = acc;
-    return { n: i + 1, date, patientId, patientName, payerIds, payerNames, methods, total, paid, remaining: round2(Math.max(0, total - paid)) };
+    return {
+      n: i + 1, date, patientId, patientName, payerIds, payerNames, methods,
+      work: round2(acc.work), company: round2(acc.company), total, paid, remaining: round2(Math.max(0, total - paid)),
+    };
   });
 
   const totals: SheetTotals = {
+    work: round2(lines.reduce((t, l) => t + l.work, 0)),
+    company: round2(lines.reduce((t, l) => t + l.company, 0)),
     total: round2(lines.reduce((t, l) => t + l.total, 0)),
     paid: round2(lines.reduce((t, l) => t + l.paid, 0)),
     remaining: round2(lines.reduce((t, l) => t + l.remaining, 0)),

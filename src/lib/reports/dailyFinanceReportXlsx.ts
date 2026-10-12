@@ -17,10 +17,10 @@ import type { DailyFinanceReport } from "@/lib/reports/dailyFinanceReport";
 
 type Style = NonNullable<XLSX.CellObject["s"]>;
 
-const W = 11;
+const W = 13;
 /** Logical column (1 = rightmost, "م") → 0-based sheet column. */
 const C = (c: number) => W - c;
-const WIDTHS = [14, 13, 13, 24, 22, 14, 13, 12, 12, 11, 13];
+const WIDTHS = [14, 13, 13, 24, 30, 18, 13, 12, 12, 12, 12, 11, 13];
 
 const WHITE = { style: "thin", color: { rgb: "FFFFFF" } } as const;
 const GRID = { top: WHITE, bottom: WHITE, left: WHITE, right: WHITE };
@@ -47,30 +47,30 @@ const LABELS = {
     title: "التقرير اليومي",
     summary: "الملخص",
     details: "التفاصيل",
-    summaryHead: ["الفرع", "عدد", "المطلوب", "المدفوع", "المتبقي", "نصيب الأطباء"],
-    head: ["م", "التاريخ", "المصدر", "اسم المريض", "الإجراء", "الطبيب", "طريقة الدفع", "المطلوب", "المدفوع", "المتبقي", "نصيب الطبيب"],
+    summaryHead: ["الفرع", "عدد", "قيمة الشغل", "على الشركة", "المطلوب", "المدفوع", "المتبقي", "نصيب الأطباء"],
+    head: ["م", "التاريخ", "المصدر", "اسم المريض", "الإجراء", "الطبيب", "طريقة الدفع", "قيمة الشغل", "على الشركة", "المطلوب", "المدفوع", "المتبقي", "نصيب الطبيب"],
     clinic: "العيادة",
     branch: (name: string) => `فرع ${name}`,
     branchTotal: (name: string) => `إجمالي فرع ${name}`,
     total: "الإجمالي",
     grand: "الإجمالي الكلي",
     empty: "مفيش حركة فلوس في اليوم ده.",
-    note: "المتبقي = المطلوب − المدفوع.   ملف = مريض العيادة (بدون تأمين).   مع التأمين، المطلوب هو نصيب المريض بس.   نصيب الطبيب = النسبة المسجلة على كل علاج اتعمل في اليوم.",
+    note: "قيمة الشغل = سعر كل العلاج اللي اتعمل.   على الشركة = اللي شركة التأمين أو الشركة المتعاقدة هتدفعه.   المطلوب = نصيب المريض.   المتبقي = المطلوب − المدفوع.   ملف = مريض العيادة.   نصيب الطبيب = النسبة المسجلة على كل علاج.",
     sheet: "التقرير اليومي",
   },
   en: {
     title: "Daily report",
     summary: "Summary",
     details: "Details",
-    summaryHead: ["Branch", "Patients", "Due", "Paid", "Remaining", "Dentists' share"],
-    head: ["#", "Date", "Source", "Patient", "Procedure", "Dentist", "Method", "Due", "Paid", "Remaining", "Dentist share"],
+    summaryHead: ["Branch", "Patients", "Work done", "Company owes", "Patient owes", "Paid", "Remaining", "Dentists' share"],
+    head: ["#", "Date", "Source", "Patient", "Procedure", "Dentist", "Method", "Work done", "Company owes", "Patient owes", "Paid", "Remaining", "Dentist share"],
     clinic: "Clinic",
     branch: (name: string) => name,
     branchTotal: (name: string) => `${name} total`,
     total: "Total",
     grand: "Grand total",
     empty: "No money moved on this day.",
-    note: "Remaining = Due − Paid.   File = the clinic's own patient.   With insurance, Due is the patient's part only.   Dentist share = the rate recorded on each treatment done that day.",
+    note: "Work done = the full price of every treatment.   Company owes = what the insurance or contract company pays.   Patient owes = the patient's part.   Remaining = Patient owes − Paid.   File = the clinic's own patient.   Dentist share = the rate recorded on each treatment.",
     sheet: "Daily report",
   },
 };
@@ -149,17 +149,22 @@ export function dailyFinanceReportWorkbook(report: DailyFinanceReport, clinicNam
       str(row, 5, line.procedures, s);
       str(row, 6, line.dentists, s);
       str(row, 7, line.methods, s);
-      numCell(row, 8, line.total, s);
-      numCell(row, 9, line.paid, s);
-      formula(row, 10, `${ref(row, 8)}-${ref(row, 9)}`, line.remaining, s);
-      numCell(row, 11, line.dentistShare, s);
-      height(row, 22);
+      numCell(row, 8, line.work, s);
+      numCell(row, 9, line.company, s);
+      numCell(row, 10, line.total, s);
+      numCell(row, 11, line.paid, s);
+      formula(row, 12, `MAX(0,${ref(row, 10)}-${ref(row, 11)})`, line.remaining, s);
+      numCell(row, 13, line.dentistShare, s);
+      // Wrapped text needs a taller row: Excel does not grow a row whose height the file sets.
+      const lines = Math.max(...([[3, line.source], [4, line.patient], [5, line.procedures], [6, line.dentists], [7, line.methods]] as [number, string][])
+        .map(([c, t]) => Math.ceil(t.length / Math.max(1, WIDTHS[c - 1] - 2))));
+      height(row, Math.max(22, 17 * lines + 6));
       row += 1;
     });
     const last = row - 1;
     mergeRow(row, 1, 7, section.branchId ? L.branchTotal(name) : `${L.total} — ${name}`, TOTAL);
     const t = section.totals;
-    const sums: [number, number][] = [[8, t.total], [9, t.paid], [10, t.remaining], [11, t.dentistShare]];
+    const sums: [number, number][] = [[8, t.work], [9, t.company], [10, t.total], [11, t.paid], [12, t.remaining], [13, t.dentistShare]];
     for (const [c, v] of sums) formula(row, c, `SUM(${ref(first, c)}:${ref(last, c)})`, v, TOTAL);
     height(row, 24);
     subtotalRows.push({ r: row, first, last });
@@ -169,7 +174,7 @@ export function dailyFinanceReportWorkbook(report: DailyFinanceReport, clinicNam
   if (report.sections.length > 1) {
     mergeRow(row, 1, 7, L.grand, BANNER);
     const t = report.totals;
-    const grand: [number, number][] = [[8, t.total], [9, t.paid], [10, t.remaining], [11, t.dentistShare]];
+    const grand: [number, number][] = [[8, t.work], [9, t.company], [10, t.total], [11, t.paid], [12, t.remaining], [13, t.dentistShare]];
     for (const [c, v] of grand) formula(row, c, subtotalRows.map((s) => ref(s.r, c)).join("+"), v, BANNER);
     height(row, 24);
     row += 2;
@@ -183,13 +188,14 @@ export function dailyFinanceReportWorkbook(report: DailyFinanceReport, clinicNam
     const s = BAND(i);
     str(r, 1, section.name || L.clinic, s);
     formula(r, 2, `COUNTA(${ref(sub.first, 4)}:${ref(sub.last, 4)})`, section.totals.patients, s);
-    const cols: [number, number, number][] = [[3, 8, section.totals.total], [4, 9, section.totals.paid], [5, 10, section.totals.remaining], [6, 11, section.totals.dentistShare]];
+    const st = section.totals;
+    const cols: [number, number, number][] = [[3, 8, st.work], [4, 9, st.company], [5, 10, st.total], [6, 11, st.paid], [7, 12, st.remaining], [8, 13, st.dentistShare]];
     for (const [c, from, v] of cols) formula(r, c, ref(sub.r, from), v, s);
     height(r, 22);
   });
   str(summaryTotal, 1, L.total, TOTAL);
   const t = report.totals;
-  const totalCols: [number, number][] = [[2, t.patients], [3, t.total], [4, t.paid], [5, t.remaining], [6, t.dentistShare]];
+  const totalCols: [number, number][] = [[2, t.patients], [3, t.work], [4, t.company], [5, t.total], [6, t.paid], [7, t.remaining], [8, t.dentistShare]];
   for (const [c, v] of totalCols) formula(summaryTotal, c, `SUM(${ref(summaryFirst, c)}:${ref(summaryTotal - 1, c)})`, v, TOTAL);
   height(summaryTotal, 24);
 

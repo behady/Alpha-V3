@@ -36,13 +36,18 @@ export type ReportLine = {
   procedures: string;
   dentists: string;
   methods: string;
+  /** Full price of the day's treatments, whoever pays. */
+  work: number;
+  /** The insurance or contract company's part. */
+  company: number;
+  /** The patient's part (المطلوب). */
   total: number;
   paid: number;
   remaining: number;
   dentistShare: number;
 };
 
-export type ReportTotals = { patients: number; total: number; paid: number; remaining: number; dentistShare: number };
+export type ReportTotals = { patients: number; work: number; company: number; total: number; paid: number; remaining: number; dentistShare: number };
 
 export type ReportSection = {
   /** "" for rows recorded before the clinic had branches, or a clinic with none. */
@@ -118,6 +123,8 @@ function buildSection(
       procedures: extra?.procedures.join(" + ") || (isAr ? "سداد حساب" : "Balance payment"),
       dentists: extra?.dentists.join(" + ") || "—",
       methods: line.methods.map((m) => sheetMethodLabel(m, isAr)).join(" + ") || "—",
+      work: line.work,
+      company: line.company,
       total: line.total,
       paid: line.paid,
       remaining: line.remaining,
@@ -128,8 +135,11 @@ function buildSection(
 }
 
 function totalsOf(lines: readonly ReportLine[]): ReportTotals {
-  const sum = (k: "total" | "paid" | "remaining" | "dentistShare") => round2(lines.reduce((t, l) => t + l[k], 0));
-  return { patients: lines.length, total: sum("total"), paid: sum("paid"), remaining: sum("remaining"), dentistShare: sum("dentistShare") };
+  const sum = (k: "work" | "company" | "total" | "paid" | "remaining" | "dentistShare") => round2(lines.reduce((t, l) => t + l[k], 0));
+  return {
+    patients: lines.length, work: sum("work"), company: sum("company"), total: sum("total"),
+    paid: sum("paid"), remaining: sum("remaining"), dentistShare: sum("dentistShare"),
+  };
 }
 
 /**
@@ -170,10 +180,19 @@ const money = (n: number, isAr: boolean) => Math.round(n).toLocaleString(isAr ? 
 export function dailyFinanceReportText(report: DailyFinanceReport, clinicName: string, isAr: boolean): string {
   const [y, m, d] = report.date.split("-");
   const day = `${d}/${m}/${y}`;
+  // Two lines per block: the work and who answers for it, then the patients' money and the share.
   const line = (t: ReportTotals) =>
     isAr
-      ? `المطلوب ${money(t.total, true)} · المدفوع ${money(t.paid, true)} · المتبقي ${money(t.remaining, true)} · نصيب الأطباء ${money(t.dentistShare, true)}`
-      : `Due ${money(t.total, false)} · Paid ${money(t.paid, false)} · Left ${money(t.remaining, false)} · Dentists ${money(t.dentistShare, false)}`;
+      ? [
+          `قيمة الشغل ${money(t.work, true)} · على الشركات ${money(t.company, true)}`,
+          `المطلوب من المرضى ${money(t.total, true)} · المدفوع ${money(t.paid, true)} · المتبقي ${money(t.remaining, true)}`,
+          `نصيب الأطباء ${money(t.dentistShare, true)}`,
+        ].join("\n")
+      : [
+          `Work ${money(t.work, false)} · Companies ${money(t.company, false)}`,
+          `Patients owe ${money(t.total, false)} · Paid ${money(t.paid, false)} · Left ${money(t.remaining, false)}`,
+          `Dentists ${money(t.dentistShare, false)}`,
+        ].join("\n");
   const out = [`📊 *${clinicName}* — ${isAr ? "التقرير اليومي" : "Daily report"} ${day}`];
   if (report.sections.length === 0) {
     out.push(isAr ? "مفيش حركة فلوس النهارده." : "No money moved today.");

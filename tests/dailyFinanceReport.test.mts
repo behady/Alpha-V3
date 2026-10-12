@@ -86,9 +86,24 @@ const report = buildDailyFinanceReport({ date: D, rows, branches, payers, isAr: 
   eq([maadi.lines[1].source, maadi.lines[1].procedures, maadi.lines[1].dentists], ["ميتلايف", "سداد حساب", "—"], "a payment with no treatment today reads as settling a balance");
   eq(loose.lines.map((l) => l.paid), [100], "a row with no branch is kept, not dropped");
 
-  eq(nasr.totals, { patients: 2, total: 41065, paid: 41000, remaining: 65, dentistShare: 12660 }, "Nasr City's totals");
-  eq(maadi.totals, { patients: 2, total: 2800, paid: 2300, remaining: 500, dentistShare: 875 }, "Maadi's totals");
-  eq(report.totals, { patients: 5, total: 43965, paid: 43400, remaining: 565, dentistShare: 13535 }, "the grand total is every section, and yesterday is not in it");
+  eq([shaimaa.work, shaimaa.company], [2665, 2000], "an approval line: the full work, and the insurer's approved part");
+  eq(nasr.totals, { patients: 2, work: 43065, company: 2000, total: 41065, paid: 41000, remaining: 65, dentistShare: 12660 }, "Nasr City's totals");
+  eq(maadi.totals, { patients: 2, work: 2500, company: 0, total: 2800, paid: 2300, remaining: 500, dentistShare: 875 }, "Maadi's totals");
+  eq(report.totals, { patients: 5, work: 45565, company: 2000, total: 43965, paid: 43400, remaining: 565, dentistShare: 13535 }, "the grand total is every section, and yesterday is not in it");
+}
+
+// --- 2b. A contract company (GASCO): the company owes it, not the patient --------------------------
+{
+  // The case that was wrong on DENT INN's first real report (12 Oct 2026): 4,356 left on the patient.
+  const gasco = (id: string, cost: number, com: number) =>
+    ({ id, type: "procedure", date: D, patientId: "ash", patientName: "اشرف", payerId: "gasco", payerName: "Gasco", serviceName: id, doctorName: "د. أحمد", cost, doctorCommissionAmount: com, createdAt: at(1) }) as ReportLedgerRow;
+  const day = [gasco("كشف", 132, 52.8), gasco("حشو", 2640, 1056), gasco("بطانة", 1584, 633.6)];
+  const g = buildDailyFinanceReport({ date: D, rows: day, branches: [], payers, isAr: true }).sections[0].lines[0];
+  eq([g.source, g.work, g.company, g.total, g.paid, g.remaining, g.dentistShare], ["Gasco", 4356, 4356, 0, 0, 0, 1742.4], "the whole price is on GASCO; the patient owes and has left nothing");
+
+  const copay = [...day, { id: "y", type: "payment", date: D, patientId: "ash", patientName: "اشرف", procedureId: "حشو", paid: 356, method: "Cash", createdAt: at(2) } as ReportLedgerRow];
+  const c = buildDailyFinanceReport({ date: D, rows: copay, branches: [], payers, isAr: true }).sections[0].lines[0];
+  eq([c.work, c.company, c.total, c.paid, c.remaining], [4356, 4000, 356, 356, 0], "cash the patient paid on a GASCO treatment comes off GASCO's part");
 }
 
 // --- 3. The money matches the Finance page's daily sheet, branch by branch ------------------------
@@ -118,6 +133,7 @@ const report = buildDailyFinanceReport({ date: D, rows, branches, payers, isAr: 
   eq(text.split("\n")[0], "📊 *DENT INN* — التقرير اليومي 12/10/2026", "the heading");
   eq(text.includes("*مدينة نصر* (2)") && text.includes("*المعادي* (2)") && text.includes("*الإجمالي* (5)"), true, "one block per branch and the total");
   eq(text.includes("المدفوع ٤١٬٠٠٠"), true, "figures in Arabic digits");
+  eq(text.includes("قيمة الشغل ٤٣٬٠٦٥ · على الشركات ٢٬٠٠٠"), true, "each block opens with the work and the companies' part");
   eq(dailyFinanceReportFileName(D, true), "التقرير-اليومي-2026-10-12.xlsx", "Arabic file name");
 }
 
@@ -129,23 +145,26 @@ const report = buildDailyFinanceReport({ date: D, rows, branches, payers, isAr: 
   const ws = wb.Sheets[wb.SheetNames[0]];
   eq(wb.Workbook?.Views?.[0]?.RTL ?? false, false, "the RTL switch is OFF: right-to-left is done by layout so every viewer shows it");
 
-  // Column 1 of the report ("م") is the RIGHTMOST column (K); the dentist share the leftmost (A).
-  const head = ["K", "J", "I", "H", "G", "F", "E", "D", "C", "B", "A"].map((c) => ws[`${c}11`]?.v);
-  eq(head, ["م", "التاريخ", "المصدر", "اسم المريض", "الإجراء", "الطبيب", "طريقة الدفع", "المطلوب", "المدفوع", "المتبقي", "نصيب الطبيب"], "details headers read right to left");
-  eq([ws.K4.v, ws.J4.v, ws.I4.v], ["الفرع", "عدد", "المطلوب"], "summary headers start at the right edge too");
+  // Column 1 of the report ("م") is the RIGHTMOST sheet column (M); the dentist share the leftmost (A).
+  const L = (c: number) => String.fromCharCode("A".charCodeAt(0) + 13 - c);
+  const at = (c: number, r: number) => ws[`${L(c)}${r}`];
+  const head = Array.from({ length: 13 }, (_, i) => at(i + 1, 11)?.v);
+  eq(head, ["م", "التاريخ", "المصدر", "اسم المريض", "الإجراء", "الطبيب", "طريقة الدفع", "قيمة الشغل", "على الشركة", "المطلوب", "المدفوع", "المتبقي", "نصيب الطبيب"], "details headers read right to left");
+  eq([at(1, 4).v, at(2, 4).v, at(3, 4).v, at(4, 4).v, at(8, 4).v], ["الفرع", "عدد", "قيمة الشغل", "على الشركة", "نصيب الأطباء"], "summary headers start at the right edge too");
   eq(ws.A12.v, "فرع مدينة نصر", "the branch bar's text sits in the merge's anchor, so it is visible");
   eq(
-    [ws.K13.v, ws.J13.v, ws.I13.v, ws.H13.v, ws.G13.v, ws.D13.v, ws.C13.v, ws.B13.f, ws.B13.v, ws.A13.v],
-    [1, 46307, "ملف", "سمير", "زرعة", 40400, 40400, "D13-C13", 0, 12120],
+    [1, 2, 3, 4, 5, 8, 9, 10, 11, 13].map((c) => at(c, 13).v).concat([at(12, 13).f, at(12, 13).v]),
+    [1, 46307, "ملف", "سمير", "زرعة", 40400, 0, 40400, 40400, 12120, "MAX(0,D13-C13)", 0],
     "a patient line: number, real date (12 Oct 2026), file, name, treatment, figures; remaining is a formula",
   );
-  eq([ws.D15.f, ws.D15.v, ws.A15.f, ws.A15.v], ["SUM(D13:D14)", 41065, "SUM(A13:A14)", 12660], "the branch total row: formulas with the figure cached");
-  eq([ws.I5.f, ws.I5.v, ws.F5.v, ws.J5.f, ws.J5.v], ["D15", 41065, 12660, "COUNTA(H13:H14)", 2], "the summary line points at the branch total");
-  eq([ws.I12 === undefined || ws.I12.v === "", ws.F12 === undefined || ws.F12.v === ""], [true, true], "the bar's other cells are blank");
+  eq([at(8, 14).v, at(9, 14).v, at(10, 14).v], [2665, 2000, 665], "the approval line: work, insurer, patient");
+  eq([at(8, 15).f, at(8, 15).v, at(9, 15).v, at(10, 15).v, at(13, 15).f, at(13, 15).v], ["SUM(F13:F14)", 43065, 2000, 41065, "SUM(A13:A14)", 12660], "the branch total row: formulas with the figure cached");
+  eq([at(3, 5).f, at(3, 5).v, at(4, 5).v, at(5, 5).v, at(8, 5).v, at(2, 5).f, at(2, 5).v], ["F15", 43065, 2000, 41065, 12660, "COUNTA(J13:J14)", 2], "the summary line points at the branch total");
+  eq([at(5, 12) === undefined || at(5, 12).v === "", at(8, 12) === undefined || at(8, 12).v === ""], [true, true], "the bar's other cells are blank");
   const grandRow = Object.keys(ws).find((k) => ws[k]?.v === "الإجمالي الكلي");
   eq(Boolean(grandRow), true, "there is a grand total row");
   const gr = Number(grandRow!.replace(/\D/g, ""));
-  eq([ws[`D${gr}`].v, ws[`C${gr}`].v, ws[`B${gr}`].v, ws[`A${gr}`].v], [43965, 43400, 565, 13535], "the grand total");
+  eq([8, 9, 10, 11, 12, 13].map((c) => at(c, gr).v), [45565, 2000, 43965, 43400, 565, 13535], "the grand total");
   eq((ws["!merges"] || []).length > 0, true, "the bars and labels are merged across");
   const looseBar = Object.keys(ws).find((k) => ws[k]?.v === "بدون فرع" && k.startsWith("A"));
   eq(Boolean(looseBar), true, "the no-branch bar reads 'بدون فرع', not 'فرع بدون فرع'");

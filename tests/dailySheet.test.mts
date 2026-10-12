@@ -7,7 +7,7 @@
 // Run with tsx: npm run test:daily-sheet
 import assert from "node:assert/strict";
 import XLSX from "xlsx-js-style";
-import { dailySheet, patientCharge, sheetDay, sheetMethodLabel, type SheetLedgerRow } from "../src/lib/dailySheet";
+import { companyCharge, dailySheet, patientCharge, sheetDay, sheetMethodLabel, type SheetLedgerRow } from "../src/lib/dailySheet";
 import { dailySheetFileName, dailySheetWorkbook } from "../src/lib/dailySheetXlsx";
 
 let checks = 0;
@@ -25,7 +25,13 @@ const at = (ms: number) => ({ toMillis: () => ms });
   eq(patientCharge({ id: "a", type: "procedure", cost: 0, amount: 500 }), 500, "older rows priced on `amount`");
   eq(patientCharge({ id: "a", type: "procedure", cost: 1000, claimId: "c1", insurerCovered: 800 }), 200, "an approval: the patient's share only");
   eq(patientCharge({ id: "a", type: "procedure", cost: 1000, claimId: "c1", insurerCovered: 5000 }), 0, "never below zero");
-  eq(patientCharge({ id: "a", type: "procedure", cost: 1000, payerId: "gasco", insurerCovered: 800 }), 1000, "a contract company with no approval: the whole price stays on the file");
+  // Owner, 2026-10-12: a GASCO patient owes nothing — GASCO does.
+  eq(patientCharge({ id: "a", type: "procedure", cost: 1000, payerId: "gasco", insurerCovered: 800 }), 0, "a contract company with no approval: the patient owes nothing");
+  eq(patientCharge({ id: "a", type: "procedure", cost: 1000, payerId: "private" }), 1000, "a private treatment: the patient owes it");
+  eq(companyCharge({ id: "a", type: "procedure", cost: 1000, payerId: "gasco" }), 1000, "the contract company owes the whole price");
+  eq(companyCharge({ id: "a", type: "procedure", cost: 1000, payerId: "gasco" }, 300), 700, "less what the patient paid on it");
+  eq(companyCharge({ id: "a", type: "procedure", cost: 1000, claimId: "c1", insurerCovered: 800 }), 800, "an approval: the approved part");
+  eq(companyCharge({ id: "a", type: "procedure", cost: 1000, payerId: "private" }), 0, "a private treatment: nothing on any company");
 }
 
 // --- 2. The day's lines -------------------------------------------------------------------------
@@ -113,8 +119,8 @@ const at = (ms: number) => ({ toMillis: () => ms });
   const buf = XLSX.write(
     dailySheetWorkbook({
       lines: [
-        { n: 1, date: "2026-10-07", file: "File", patient: "سمير مصطفى", method: "Cash", total: 40400, paid: 40400, remaining: 0 },
-        { n: 2, date: "2026-10-07", file: "NEXT", patient: "شيماء جمال", method: "Cash", total: 665, paid: 600, remaining: 65 },
+        { n: 1, date: "2026-10-07", file: "File", patient: "سمير مصطفى", method: "Cash", work: 40400, company: 0, total: 40400, paid: 40400, remaining: 0 },
+        { n: 2, date: "2026-10-07", file: "NEXT", patient: "شيماء جمال", method: "Cash", work: 2665, company: 2000, total: 665, paid: 600, remaining: 65 },
       ],
       byMethod: [{ label: "Cash", paid: 41000 }],
       start: "2026-10-07",
@@ -126,18 +132,19 @@ const at = (ms: number) => ({ toMillis: () => ms });
   const wb = XLSX.read(buf, { type: "buffer", cellFormula: true, cellNF: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
   eq(Boolean(wb.Workbook?.Views?.[0]?.RTL), true, "right to left, like the clinic's sheet");
-  eq(["A4", "B4", "C4", "D4", "E4", "F4", "G4", "H4"].map((c) => ws[c]?.v), ["#", "Date", "File", "Patient", "Method", "Total", "Paid", "Remaining"], "the header row");
-  eq([ws.A5.v, ws.C5.v, ws.D5.v, ws.E5.v, ws.F5.v, ws.G5.v, ws.H5.v], [1, "File", "سمير مصطفى", "Cash", 40400, 40400, 0], "a line");
+  eq(["A4", "B4", "C4", "D4", "E4", "F4", "G4", "H4", "I4", "J4"].map((c) => ws[c]?.v), ["#", "Date", "File", "Patient", "Method", "Work done", "Company owes", "Patient owes", "Paid", "Remaining"], "the header row");
+  eq([ws.A5.v, ws.C5.v, ws.D5.v, ws.E5.v, ws.F5.v, ws.G5.v, ws.H5.v, ws.I5.v, ws.J5.v], [1, "File", "سمير مصطفى", "Cash", 40400, 0, 40400, 40400, 0], "a line");
+  eq([ws.F6.v, ws.G6.v, ws.H6.v], [2665, 2000, 665], "an approval line: work, the insurer's part, the patient's part");
   eq(ws.B5.v, 46302, "the date is a real Excel date (7 Oct 2026)");
-  eq([ws.F7.f, ws.F7.v, ws.H7.f, ws.H7.v], ["SUM(F5:F6)", 41065, "SUM(H5:H6)", 65], "totals are formulas with the figure cached");
-  eq([ws.E10.v, ws.G10.v], ["Cash", 41000], "paid by method");
+  eq([ws.F7.f, ws.F7.v, ws.G7.v, ws.H7.f, ws.H7.v, ws.J7.f, ws.J7.v], ["SUM(F5:F6)", 43065, 2000, "SUM(H5:H6)", 41065, "SUM(J5:J6)", 65], "totals are formulas with the figure cached");
+  eq([ws.E10.v, ws.I10.v], ["Cash", 41000], "paid by method, under Paid");
 
   const ar = XLSX.read(
     XLSX.write(dailySheetWorkbook({ lines: [], byMethod: [], start: "2026-10-01", end: "2026-10-31", isAr: true }), { type: "buffer", bookType: "xlsx" }),
     { type: "buffer" },
   );
   const wsAr = ar.Sheets[ar.SheetNames[0]];
-  eq([wsAr.A4.v, wsAr.D4.v, wsAr.H4.v], ["م", "اسم المريض", "المتبقي"], "Arabic headers");
+  eq([wsAr.A4.v, wsAr.D4.v, wsAr.F4.v, wsAr.G4.v, wsAr.J4.v], ["م", "اسم المريض", "قيمة الشغل", "على الشركة", "المتبقي"], "Arabic headers");
   eq(wsAr.A5.v, "مفيش مرضى في الفترة دي.", "an empty period says so");
 }
 

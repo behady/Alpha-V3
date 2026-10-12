@@ -69,6 +69,8 @@ export default function DailySheetTab({
           file: fileLabel(l),
           patient: l.patientName,
           method: methodText(l),
+          work: l.work,
+          company: l.company,
           total: l.total,
           paid: l.paid,
           remaining: l.remaining,
@@ -89,7 +91,9 @@ export default function DailySheetTab({
   };
 
   const figures = [
-    { label: ar ? "الإجمالي" : "Total", value: totals.total, tone: "text-white" },
+    { label: ar ? "قيمة الشغل" : "Work done", value: totals.work, tone: "text-white" },
+    { label: ar ? "على الشركة" : "Company owes", value: totals.company, tone: "text-white/80" },
+    { label: ar ? "المطلوب من المريض" : "Patient owes", value: totals.total, tone: "text-white" },
     { label: ar ? "المدفوع" : "Paid", value: totals.paid, tone: "text-emerald-300" },
     { label: ar ? "المتبقي" : "Remaining", value: totals.remaining, tone: totals.remaining > 0.009 ? "text-amber-300" : "text-white/60" },
   ];
@@ -101,7 +105,7 @@ export default function DailySheetTab({
           <div className="min-w-0">
             <p className="text-xs font-bold uppercase tracking-widest text-white/50">{ar ? "اليومية" : "Daily sheet"}</p>
             <p className="mt-1 text-sm font-medium text-white/60">
-              {ar ? "سطر لكل مريض في اليوم: الملف، طريقة الدفع، الإجمالي، المدفوع والمتبقي." : "One line per patient per day: file, method, total, paid and remaining."}
+              {ar ? "سطر لكل مريض في اليوم: الملف، طريقة الدفع، قيمة الشغل، اللي على الشركة، المطلوب من المريض، المدفوع والمتبقي." : "One line per patient per day: file, method, work done, what the company owes, what the patient owes, paid and remaining."}
             </p>
           </div>
           <button
@@ -114,7 +118,7 @@ export default function DailySheetTab({
             {ar ? "تصدير Excel" : "Export to Excel"}
           </button>
         </div>
-        <dl className="mt-5 grid grid-cols-3 gap-4">
+        <dl className="mt-5 grid grid-cols-2 sm:grid-cols-5 gap-4">
           {figures.map((f) => (
             <div key={f.label} className="min-w-0">
               <dt className="text-[11px] font-bold uppercase tracking-wider text-white/50">{f.label}</dt>
@@ -156,7 +160,9 @@ export default function DailySheetTab({
                     <th className="text-start py-3 px-3">{ar ? "الملف" : "File"}</th>
                     <th className="text-start py-3 px-3">{ar ? "المريض" : "Patient"}</th>
                     <th className="text-start py-3 px-3">{ar ? "طريقة الدفع" : "Method"}</th>
-                    <th className="text-end py-3 px-3 whitespace-nowrap">{ar ? "الإجمالي" : "Total"}</th>
+                    <th className="text-end py-3 px-3 whitespace-nowrap">{ar ? "قيمة الشغل" : "Work done"}</th>
+                    <th className="text-end py-3 px-3 whitespace-nowrap">{ar ? "على الشركة" : "Company owes"}</th>
+                    <th className="text-end py-3 px-3 whitespace-nowrap">{ar ? "المطلوب" : "Patient owes"}</th>
                     <th className="text-end py-3 px-3 whitespace-nowrap">{ar ? "المدفوع" : "Paid"}</th>
                     <th className="text-end py-3 pe-5 ps-3 whitespace-nowrap">{ar ? "المتبقي" : "Remaining"}</th>
                   </tr>
@@ -171,6 +177,8 @@ export default function DailySheetTab({
                         <PatientName line={l} />
                       </td>
                       <td className="py-3 px-3 text-ink-body whitespace-nowrap">{methodText(l)}</td>
+                      <td className="py-3 px-3 text-end font-figure font-bold text-ink-body">{fmt(l.work)}</td>
+                      <td className="py-3 px-3 text-end font-figure font-bold text-ink-body">{fmt(l.company)}</td>
                       <td className="py-3 px-3 text-end font-figure font-bold text-ink">{fmt(l.total)}</td>
                       <td className="py-3 px-3 text-end font-figure text-emerald-700 font-bold">{fmt(l.paid)}</td>
                       <td className={`py-3 pe-5 ps-3 text-end font-figure font-black ${l.remaining > 0.009 ? "text-amber-700" : "text-ink-muted"}`}>{fmt(l.remaining)}</td>
@@ -181,6 +189,8 @@ export default function DailySheetTab({
                   <tr className="border-t-2 border-slate-200 bg-surface-subtle font-black">
                     <td className="py-3 ps-5 pe-2" />
                     <td colSpan={4} className="py-3 px-3 text-ink">{ar ? "الإجمالي" : "Total"}</td>
+                    <td className="py-3 px-3 text-end font-figure text-ink-body">{fmt(totals.work)}</td>
+                    <td className="py-3 px-3 text-end font-figure text-ink-body">{fmt(totals.company)}</td>
                     <td className="py-3 px-3 text-end font-figure text-ink">{fmt(totals.total)}</td>
                     <td className="py-3 px-3 text-end font-figure text-emerald-700">{fmt(totals.paid)}</td>
                     <td className="py-3 pe-5 ps-3 text-end font-figure text-amber-700">{fmt(totals.remaining)}</td>
@@ -207,8 +217,10 @@ export default function DailySheetTab({
                     </div>
                     <p className={`shrink-0 font-figure text-base font-black ${l.remaining > 0.009 ? "text-amber-700" : "text-ink-muted"}`}>{fmt(l.remaining)}</p>
                   </div>
-                  <p className="mt-2 flex gap-4 text-xs font-semibold text-ink-muted">
-                    <span>{ar ? "الإجمالي" : "Total"} <span className="font-figure font-black text-ink">{fmt(l.total)}</span></span>
+                  <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-ink-muted">
+                    <span>{ar ? "الشغل" : "Work"} <span className="font-figure font-black text-ink">{fmt(l.work)}</span></span>
+                    {l.company > 0.009 && <span>{ar ? "على الشركة" : "Company"} <span className="font-figure font-black text-ink">{fmt(l.company)}</span></span>}
+                    <span>{ar ? "المطلوب" : "Patient"} <span className="font-figure font-black text-ink">{fmt(l.total)}</span></span>
                     <span>{ar ? "المدفوع" : "Paid"} <span className="font-figure font-black text-emerald-700">{fmt(l.paid)}</span></span>
                   </p>
                 </li>

@@ -21,6 +21,10 @@ export type DailySheetXlsxLine = {
   file: string;
   patient: string;
   method: string;
+  /** The full price of the day's work, whoever pays. */
+  work: number;
+  /** The insurance or contract company's part. */
+  company: number;
   total: number;
   paid: number;
   remaining: number;
@@ -36,8 +40,8 @@ export type DailySheetXlsxInput = {
   isAr: boolean;
 };
 
-const COLS = 8;
-const COL_WIDTHS = [7, 14, 13, 30, 12, 13, 13, 13];
+const COLS = 10;
+const COL_WIDTHS = [7, 14, 13, 30, 12, 13, 13, 13, 13, 13];
 /** Plain figures like the clinic's own sheet ("40400", "868.25"); "#,##0.##" leaves "40,400." on whole numbers. */
 const MONEY = "General";
 const DATE = "dd/mm/yyyy";
@@ -90,7 +94,7 @@ const LABELS = {
   en: {
     title: "Daily sheet",
     period: (a: string, b: string) => (a === b ? a : `${a} to ${b}`),
-    head: ["#", "Date", "File", "Patient", "Method", "Total", "Paid", "Remaining"],
+    head: ["#", "Date", "File", "Patient", "Method", "Work done", "Company owes", "Patient owes", "Paid", "Remaining"],
     total: "Total",
     byMethod: "Paid by method",
     empty: "No patients in this period.",
@@ -99,7 +103,7 @@ const LABELS = {
   ar: {
     title: "اليومية",
     period: (a: string, b: string) => (a === b ? a : `من ${a} إلى ${b}`),
-    head: ["م", "التاريخ", "الملف", "اسم المريض", "طريقة الدفع", "الإجمالي", "المدفوع", "المتبقي"],
+    head: ["م", "التاريخ", "الملف", "اسم المريض", "طريقة الدفع", "قيمة الشغل", "على الشركة", "المطلوب", "المدفوع", "المتبقي"],
     total: "الإجمالي",
     byMethod: "المدفوع حسب طريقة الدفع",
     empty: "مفيش مرضى في الفترة دي.",
@@ -128,6 +132,8 @@ export function dailySheetWorkbook(input: DailySheetXlsxInput): XLSX.WorkBook {
         s(line.file, band(i)),
         s(line.patient, band(i)),
         s(line.method, band(i)),
+        n(line.work, band(i, { numFmt: MONEY })),
+        n(line.company, band(i, { numFmt: MONEY })),
         n(line.total, band(i, { numFmt: MONEY })),
         n(line.paid, band(i, { numFmt: MONEY })),
         n(line.remaining, band(i, { numFmt: MONEY })),
@@ -137,9 +143,11 @@ export function dailySheetWorkbook(input: DailySheetXlsxInput): XLSX.WorkBook {
     const sum = (c: number, value: number) => f(`SUM(${ref(first, c)}:${ref(last, c)})`, value, STYLE.totalMoney);
     rows.push([
       s(L.total, STYLE.totalLabel), s("", STYLE.totalLabel), s("", STYLE.totalLabel), s("", STYLE.totalLabel), s("", STYLE.totalLabel),
-      sum(5, round2(input.lines.reduce((t, l) => t + l.total, 0))),
-      sum(6, round2(input.lines.reduce((t, l) => t + l.paid, 0))),
-      sum(7, round2(input.lines.reduce((t, l) => t + l.remaining, 0))),
+      sum(5, round2(input.lines.reduce((t, l) => t + l.work, 0))),
+      sum(6, round2(input.lines.reduce((t, l) => t + l.company, 0))),
+      sum(7, round2(input.lines.reduce((t, l) => t + l.total, 0))),
+      sum(8, round2(input.lines.reduce((t, l) => t + l.paid, 0))),
+      sum(9, round2(input.lines.reduce((t, l) => t + l.remaining, 0))),
     ]);
   }
 
@@ -147,7 +155,7 @@ export function dailySheetWorkbook(input: DailySheetXlsxInput): XLSX.WorkBook {
     rows.push(Array<Cell>(COLS).fill(null));
     rows.push([s(L.byMethod, { font: { bold: true } })]);
     for (const m of input.byMethod) {
-      rows.push([null, null, null, null, s(m.label, STYLE.methodLabel), null, n(m.paid, STYLE.methodMoney)]);
+      rows.push([null, null, null, null, s(m.label, STYLE.methodLabel), null, null, null, n(m.paid, STYLE.methodMoney)]);
     }
   }
 
