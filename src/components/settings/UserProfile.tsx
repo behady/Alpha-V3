@@ -4,14 +4,15 @@ import { staffProfilePath } from "@/lib/storagePaths";
 import { useState, useEffect, useRef } from "react";
 import { User, Mail, Phone, Camera, Loader2, Shield, Hash, Smile, FileText, Save, RotateCcw } from "lucide-react";
 import { storage, auth } from "@/lib/firebase";
-import { getDoc, setDoc } from "firebase/firestore";
+import { getDoc, getDocs, limit, query, setDoc, updateDoc, where } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { updateProfile } from "firebase/auth";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useUI } from "@/context/UIContext";
 import { useSettingsText } from "@/lib/useSettingsText";
-import { getClinicDoc } from "@/lib/db-utils";
+import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { useClinic } from "@/context/ClinicContext";
 import { useDirtyFlag } from "@/context/UnsavedChangesContext";
 import {
   DEFAULT_COUNTRY_CODE,
@@ -49,6 +50,7 @@ export default function UserProfile() {
   const { isRTL } = useLanguage();
   const { user } = useAuth();
   const { showToast } = useUI();
+  const { role: clinicRole, clinicId } = useClinic();
   const txt = useSettingsText("profile");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -59,6 +61,13 @@ export default function UserProfile() {
   const [profileData, setProfileData] = useState<Profile>(EMPTY);
   /** What is stored, so a half-edited name or bio can be told apart from a saved one. */
   const [storedProfile, setStoredProfile] = useState<Profile | null>(null);
+  /**
+   * Which staff row is this person's. It is usually `staff/{uid}`, but a row an admin added
+   * before the person had a login has its own id and is found by `uid` or by email — and a clinic
+   * owner has no row at all (creating a clinic never wrote one). Reading only `staff/{uid}` left
+   * every field empty for those people and the Save bar could never appear.
+   */
+  const [staffRow, setStaffRow] = useState<{ id: string; exists: boolean; claimed: boolean; loaded: boolean }>({ id: "", exists: false, claimed: true, loaded: false });
 
   // The photo saves on upload; everything else waits for the Save button, so leaving with a
   // rewritten bio used to discard it without a word.
@@ -74,18 +83,51 @@ export default function UserProfile() {
         return;
       }
       try {
-        const docSnap = await getDoc(getClinicDoc("staff", uid));
-        if (docSnap.exists()) {
-          const data = docSnap.data();
+        const authEmail = (auth.currentUser?.email || "").trim();
+        let rowId = uid;
+        let data: Record<string, unknown> | null = null;
+        const own = await getDoc(getClinicDoc("staff", uid));
+        if (own.exists()) {
+          data = own.data();
+        } else {
+          const byUid = await getDocs(query(getClinicCollection("staff"), where("uid", "==", uid), limit(1)));
+          // By email only a row nobody has claimed yet: one carrying another login's uid is theirs.
+          const byEmail = byUid.empty && authEmail
+            ? await getDocs(query(getClinicCollection("staff"), where("email", "==", authEmail)))
+            : null;
+          const unclaimed = byEmail?.docs.find((d) => !String(d.data().uid || "")) ?? null;
+          const hit = !byUid.empty ? byUid.docs[0] : unclaimed;
+          if (hit) {
+            rowId = hit.id;
+            data = hit.data();
+          }
+        }
+        // A row counts as claimed only when it carries this uid: an old `staff/{uid}` written by the
+        // previous version of this screen has no `uid` field, and nothing that looks people up by
+        // uid (notifications, the own-row hook) can find it until it does.
+        setStaffRow({ id: rowId, exists: data !== null, claimed: !data || String(data.uid || "") === uid, loaded: true });
+        if (!data) {
+          // No row anywhere: start from the login so the screen is not blank and can be saved.
+          const fromLogin: Profile = {
+            ...EMPTY,
+            name: auth.currentUser?.displayName || "",
+            email: authEmail,
+            role: clinicRole || "Staff",
+            photoURL: auth.currentUser?.photoURL || "",
+          };
+          setProfileData(fromLogin);
+          setStoredProfile(fromLogin);
+        }
+        if (data) {
           const split = splitE164ToCountryAndLocal(String(data.phone || ""));
           const loaded: Profile = {
-            name: data.name || "",
-            nickname: data.nickname || "",
+            name: String(data.name || ""),
+            nickname: String(data.nickname || ""),
             phone: split.localNumber,
-            email: data.email || auth.currentUser?.email || "",
-            role: data.role || "Staff",
-            bio: data.bio || "",
-            photoURL: data.photoURL || auth.currentUser?.photoURL || "",
+            email: String(data.email || auth.currentUser?.email || ""),
+            role: String(data.role || "Staff"),
+            bio: String(data.bio || ""),
+            photoURL: String(data.photoURL || auth.currentUser?.photoURL || ""),
           };
           if (split.countryCode) setCountryCode(split.countryCode);
           setProfileData(loaded);
@@ -98,7 +140,37 @@ export default function UserProfile() {
       }
     };
     void fetchProfile();
-  }, [user?.uid]);
+  }, [user?.uid, clinicRole]);
+
+  /**
+   * Make sure this person's row can take their edits, and say which document to write.
+   * - A row added by an admin before this login existed is claimed first: `uid` is the one field
+   *   the rules let its owner write on it, and every later edit needs it.
+   * - No row at all (a clinic owner): create `staff/{uid}` with who they are. Only an admin may
+   *   create staff rows, so for anyone else this throws and the usual "could not save" shows.
+   */
+  const ensureRow = async (): Promise<string> => {
+    const me = auth.currentUser!;
+    // Never guess after a failed load: the person may well have a row we could not read.
+    if (!staffRow.loaded) throw new Error("profile-not-loaded");
+    if (staffRow.exists && staffRow.claimed) return staffRow.id;
+    if (staffRow.exists) {
+      // `uid` alone: the one field the rules let a person write on a row they have not claimed.
+      await updateDoc(getClinicDoc("staff", staffRow.id), { uid: me.uid });
+      setStaffRow((r) => ({ ...r, claimed: true }));
+      return staffRow.id;
+    }
+    // A platform superadmin visiting someone's clinic is not on its staff: creating a row would
+    // put them on the roster and into the clinic's admin alerts.
+    if (user?.isSuperAdmin && !(clinicId && user?.clinicRoles?.[clinicId])) throw new Error("not-clinic-staff");
+    await setDoc(
+      getClinicDoc("staff", me.uid),
+      { uid: me.uid, email: me.email || "", role: clinicRole || "Admin", name: profileData.name || me.displayName || "" },
+      { merge: true }
+    );
+    setStaffRow({ id: me.uid, exists: true, claimed: true, loaded: true });
+    return me.uid;
+  };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -115,6 +187,8 @@ export default function UserProfile() {
 
     setUploadingImage(true);
     try {
+      // Before uploading: if this person cannot have a row, there is no point storing a picture.
+      const rowId = await ensureRow();
       const storageRef = ref(storage, staffProfilePath(auth.currentUser.uid));
       const uploadTask = uploadBytesResumable(storageRef, file);
 
@@ -126,13 +200,19 @@ export default function UserProfile() {
           setUploadingImage(false);
         },
         async () => {
-          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-          await setDoc(getClinicDoc("staff", auth.currentUser!.uid), { photoURL: downloadURL }, { merge: true });
-          if (auth.currentUser) await updateProfile(auth.currentUser, { photoURL: downloadURL });
-          setProfileData((prev) => ({ ...prev, photoURL: downloadURL }));
-          setStoredProfile((prev) => (prev ? { ...prev, photoURL: downloadURL } : prev));
-          showToast(txt.photoUpdated, "success");
-          setUploadingImage(false);
+          try {
+            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+            await setDoc(getClinicDoc("staff", rowId), { photoURL: downloadURL }, { merge: true });
+            if (auth.currentUser) await updateProfile(auth.currentUser, { photoURL: downloadURL });
+            setProfileData((prev) => ({ ...prev, photoURL: downloadURL }));
+            setStoredProfile((prev) => (prev ? { ...prev, photoURL: downloadURL } : prev));
+            showToast(txt.photoUpdated, "success");
+          } catch (error) {
+            console.error("Photo save error:", error);
+            showToast(txt.uploadFailed, "error");
+          } finally {
+            setUploadingImage(false);
+          }
         }
       );
     } catch (error) {
@@ -144,15 +224,17 @@ export default function UserProfile() {
 
   const handleSaveProfile = async () => {
     if (!auth.currentUser) return;
-    const normalizedPhone = buildE164FromCountryCode(countryCode, profileData.phone);
-    if (!normalizedPhone) {
+    // The phone is optional; only a number that cannot be read is refused.
+    const normalizedPhone = profileData.phone.trim() ? buildE164FromCountryCode(countryCode, profileData.phone) : "";
+    if (profileData.phone.trim() && !normalizedPhone) {
       showToast(txt.phoneInvalid, "error");
       return;
     }
     setSaving(true);
     try {
+      const rowId = await ensureRow();
       await setDoc(
-        getClinicDoc("staff", auth.currentUser.uid),
+        getClinicDoc("staff", rowId),
         {
           name: profileData.name,
           nickname: profileData.nickname,
