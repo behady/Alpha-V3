@@ -445,7 +445,9 @@ async function insurerCollect(args: { clinicId: string; actor: Actor; body: Reco
   );
   const lite: LedgerLite[] = chargeIds.map((id) => ({ id, ...(loaded.get(id) as Record<string, unknown>) }));
   for (const snap of paymentSnaps) for (const d of snap.docs) lite.push({ id: d.id, ...(d.data() as Record<string, unknown>) });
-  const wanted = insurerRows(lite, payerId).filter((r) => r.collectable);
+  // Approval rows are collected through their claim (the claims route), never here: paying them
+  // from both doors would pay the company's money twice.
+  const wanted = insurerRows(lite, payerId).filter((r) => r.collectable && !r.viaClaim);
   if (wanted.length === 0) return nothingToCollect();
 
   // The owner's rule: money for a treatment names the dentist who did it.
@@ -497,7 +499,7 @@ async function insurerCollect(args: { clinicId: string; actor: Actor; body: Reco
         rows.push({ id: f.id, ...f.data });
         for (const p of f.payments) rows.push({ id: p.id, type: "payment", procedureId: f.id, paid: p.paid, amount: p.amount, method: p.method });
       }
-      const todo = insurerRows(rows, payerId).filter((r) => r.collectable);
+      const todo = insurerRows(rows, payerId).filter((r) => r.collectable && !r.viaClaim);
       if (todo.length === 0) throw new NothingToCollectError();
 
       const bases = new Map<string, Awaited<ReturnType<typeof readProcedureCommissionBasis>>>();
