@@ -160,12 +160,12 @@ export function dailySheet(rows: readonly SheetLedgerRow[]): { lines: SheetLine[
   return { lines, totals };
 }
 
-/** A payment method the way the clinic writes it on the sheet: Cash, Insta, VC. */
+/** A payment method in plain words. (The clinic's paper says "VC" and "Insta"; on screen "VC" was not understood.) */
 export function sheetMethodLabel(method: string, isAr = false): string {
   const k = method.trim().toLowerCase();
   if (k === "cash") return isAr ? "كاش" : "Cash";
-  if (k === "instapay") return "Insta";
-  if (k === "card") return "VC";
+  if (k === "instapay") return isAr ? "انستاباي" : "InstaPay";
+  if (k === "card") return isAr ? "فيزا" : "Visa";
   if (k === "bank transfer") return isAr ? "تحويل" : "Transfer";
   if (k === "wallet" || k === "vodafone cash") return isAr ? "محفظة" : "Wallet";
   return method.trim() || (isAr ? "أخرى" : "Other");

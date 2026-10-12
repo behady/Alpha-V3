@@ -2,7 +2,7 @@
  * The daily sheet as the clinic kept it in Excel: right to left, a numbered line per patient,
  * banded rows, bold centred figures, then the totals and what came in by each way of paying.
  *
- * The page hands over the lines already worded (company names, "File", Cash/Insta/VC), so the file
+ * The page hands over the lines already worded (company names, "File", Cash/Visa/InstaPay), so the file
  * says exactly what the screen says. Totals are real SUM formulas with the figure cached beside them.
  *
  * Uses xlsx-js-style (fills, fonts, borders); imported dynamically by the page so it only reaches a

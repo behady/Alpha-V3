@@ -100,7 +100,8 @@ const at = (ms: number) => ({ toMillis: () => ms });
 
 // --- 4. Labels -------------------------------------------------------------------------------------
 {
-  eq(["Cash", "Card", "InstaPay", "Bank transfer"].map((m) => sheetMethodLabel(m)), ["Cash", "VC", "Insta", "Transfer"], "the clinic's own words");
+  eq(["Cash", "Card", "InstaPay", "Bank transfer"].map((m) => sheetMethodLabel(m)), ["Cash", "Visa", "InstaPay", "Transfer"], "plain words");
+  eq(["Card", "InstaPay"].map((m) => sheetMethodLabel(m, true)), ["فيزا", "انستاباي"], "Arabic card and InstaPay");
   eq(sheetMethodLabel("Cash", true), "كاش", "Arabic cash");
   eq(sheetDay("2026-10-07"), "07/10/2026", "day/month/year");
   eq(dailySheetFileName("2026-10-07", "2026-10-07"), "daily-sheet-2026-10-07.xlsx", "one day");
