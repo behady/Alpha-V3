@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus, Search, Phone, MapPin, UserX, Loader2, Facebook, Instagram, Users, ChevronRight } from "lucide-react";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, query, orderBy, limit, startAfter, where } from "firebase/firestore";
+import { collection, getDocs, query, orderBy, limit, startAfter } from "firebase/firestore";
 import NewPatientModal from "@/components/NewPatientModal";
 import { patientMatchesSearch } from "@/lib/flexibleSearch";
 import { useLanguage } from "@/context/LanguageContext";
@@ -72,21 +72,14 @@ export default function PatientsPage() {
 
     try {
       const rawSearch = searchTerm.trim();
-      const isPhoneSearch = !!rawSearch && /^[0-9+\-\s()]+$/.test(rawSearch);
 
       const qArgs: any[] = [getClinicCollection("patients")];
 
+      // Names and phones both filter in the browser: phones are stored "+20\u2026" but typed "01\u2026",
+      // and a Firestore prefix query can match neither the other form nor digits mid-number.
       if (rawSearch) {
-          if (isPhoneSearch) {
-              qArgs.push(where("phone", ">=", rawSearch));
-              qArgs.push(where("phone", "<=", rawSearch + '\uf8ff'));
-              qArgs.push(orderBy("phone", "asc"));
-              if (isLoadMore && currentLastVisible) qArgs.push(startAfter(currentLastVisible));
-              qArgs.push(limit(PAGE_SIZE));
-          } else {
-              qArgs.push(orderBy("name", "asc"));
-              qArgs.push(limit(2500));
-          }
+          qArgs.push(orderBy("name", "asc"));
+          qArgs.push(limit(2500));
       } else {
           qArgs.push(orderBy("name", "asc"));
           if (isLoadMore && currentLastVisible) qArgs.push(startAfter(currentLastVisible));
@@ -97,7 +90,7 @@ export default function PatientsPage() {
       const snap = await getDocs(q);
       let data = snap.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
 
-      if (rawSearch && !isPhoneSearch) {
+      if (rawSearch) {
           data = data.filter((p: any) =>
             patientMatchesSearch(rawSearch, String(p.name || ""), p.phone ? String(p.phone) : undefined)
           );
