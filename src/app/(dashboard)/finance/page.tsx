@@ -2,7 +2,7 @@
 
 import { localYmd } from "@/lib/clinicDate";
 import { useState, useEffect, useMemo, useRef } from "react";
-import { TrendingUp, TrendingDown, DollarSign, PieChart, Download, Plus, Edit2, Trash2, Loader2, X, Save, CalendarDays, CalendarClock, Users, ChevronLeft, ChevronRight, SlidersHorizontal, ChevronDown, ChevronUp, Wallet, FileText } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, PieChart, Download, Plus, Edit2, Trash2, Loader2, X, Save, CalendarDays, CalendarClock, Users, ChevronLeft, ChevronRight, SlidersHorizontal, ChevronDown, ChevronUp, Wallet, FileText, FileSpreadsheet } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, addDoc, query, orderBy, serverTimestamp, deleteDoc, doc, updateDoc, where, getDoc, getDocs, onSnapshot, documentId } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
@@ -25,6 +25,7 @@ import { rowInScope } from "@/lib/branchAccess";
 import BranchSelector from "@/components/shared/BranchSelector";
 import BranchTabs from "@/components/finance/BranchTabs";
 import InsurerTab from "@/components/finance/InsurerTab";
+import DailySheetTab from "@/components/finance/DailySheetTab";
 import FinanceFilters, { type FinanceFilterOptions } from "@/components/finance/FinanceFilters";
 import InsurerBadge from "@/components/shared/InsurerBadge";
 import { applyFinanceFilters, EMPTY_FINANCE_FILTER, type FinanceFilter } from "@/lib/financeFilters";
@@ -133,7 +134,7 @@ export default function FinancePage() {
   /** One tab per insurance company the clinic works with; none, and the tab row is not drawn. */
   const insurers = useMemo(() => payers.filter((p) => p.active && p.id !== PRIVATE_PAYER_ID), [payers]);
   const payerDisplayName = (p: { name: string; nameAr?: string }) => (language === "ar" && p.nameAr ? p.nameAr : p.name);
-  // ?tab=<payerId|clinic>. Read from window, not useSearchParams, which would need a Suspense
+  // ?tab=<payerId|sheet|clinic>. Read from window, not useSearchParams, which would need a Suspense
   // boundary around the whole page (the dashboard reads ?book= the same way).
   const [moneyTab, setMoneyTab] = useState("clinic");
   useEffect(() => {
@@ -151,6 +152,10 @@ export default function FinancePage() {
   // Derived, not reset: the payer list arrives after the address is read, and a company removed
   // since the link was made simply falls back to the Clinic tab.
   const activeInsurer = insurers.find((p) => p.id === moneyTab) ?? null;
+  /** The desk's daily sheet (one line per patient per day, exported to Excel). */
+  const sheetTab = !activeInsurer && moneyTab === "sheet";
+  /** A tab other than the Clinic's own: the toolbar keeps only the period for it. */
+  const otherTab = Boolean(activeInsurer) || sheetTab;
 
   /** Every cash row of the period as loaded; `allTransactions` below is the branch on screen. */
   const [loadedTransactions, setAllTransactions] = useState<Transaction[]>([]);
@@ -262,8 +267,8 @@ export default function FinancePage() {
     }
   };
 
-  useEffect(() => {
-    setIsLoading(true);
+  /** The period on screen as two days, yyyy-mm-dd: what is read, and what an export is named for. */
+  const periodBounds = useMemo(() => {
     let startDateStr = dateRange;
     let endDateStr = dateRange;
     if (timeView === "monthly") {
@@ -280,7 +285,12 @@ export default function FinancePage() {
         endDateStr = tmp;
       }
     }
+    return { start: startDateStr, end: endDateStr };
+  }, [dateRange, timeView, customStartDate, customEndDate]);
 
+  useEffect(() => {
+    setIsLoading(true);
+    const { start: startDateStr, end: endDateStr } = periodBounds;
     const q = query(
       getClinicCollection("ledger"),
       where("date", ">=", startDateStr),
@@ -352,7 +362,7 @@ export default function FinancePage() {
       unsub();
       unsubClaims();
     };
-  }, [dateRange, timeView, customStartDate, customEndDate, showToast]);
+  }, [periodBounds, showToast]);
 
   // The approvals behind the listed insurance payments, live, in chunks of 30 (the `in` limit).
   const claimIdsKey = useMemo(
@@ -1085,16 +1095,19 @@ export default function FinancePage() {
           </PageHeader>
           {branchPicker}
 
-          {/* The clinic's own books, then one tab per insurance company. No insurers, no row. */}
-          {insurers.length > 0 && (
-            <div className="relative max-w-full w-fit shrink-0">
+          {/* The clinic's own books, the daily sheet, then one tab per insurance company. */}
+          <div className="relative max-w-full w-fit shrink-0">
             <nav
               ref={tabStripRef}
               aria-label={language === "ar" ? "حسابات العيادة وشركات التأمين" : "Clinic and insurance companies"}
               className="flex max-w-full items-center gap-1 overflow-x-auto no-scrollbar rounded-full border border-line bg-surface p-1 shadow-sm w-fit shrink-0"
             >
-              {[{ id: "clinic", name: language === "ar" ? "العيادة" : "Clinic", insurer: false }, ...insurers.map((p) => ({ id: p.id, name: payerDisplayName(p), insurer: true }))].map((tab) => {
-                const active = tab.id === (activeInsurer ? activeInsurer.id : "clinic");
+              {[
+                { id: "clinic", name: language === "ar" ? "العيادة" : "Clinic", insurer: false },
+                { id: "sheet", name: language === "ar" ? "اليومية" : "Daily sheet", insurer: false },
+                ...insurers.map((p) => ({ id: p.id, name: payerDisplayName(p), insurer: true })),
+              ].map((tab) => {
+                const active = tab.id === (activeInsurer ? activeInsurer.id : sheetTab ? "sheet" : "clinic");
                 return (
                   <button
                     key={tab.id}
@@ -1105,7 +1118,7 @@ export default function FinancePage() {
                       active ? "bg-ink-slab text-white" : "text-ink-muted hover:text-ink"
                     }`}
                   >
-                    {tab.insurer ? <InsurerBadge name={tab.name} size={16} /> : <Wallet size={14} />}
+                    {tab.insurer ? <InsurerBadge name={tab.name} size={16} /> : tab.id === "sheet" ? <FileSpreadsheet size={14} /> : <Wallet size={14} />}
                     {tab.name}
                   </button>
                 );
@@ -1115,13 +1128,12 @@ export default function FinancePage() {
             {tabStripMore && (
               <span aria-hidden className="lg:hidden pointer-events-none absolute inset-y-px end-px w-12 rounded-e-full bg-gradient-to-l rtl:bg-gradient-to-r from-surface to-transparent" />
             )}
-            </div>
-          )}
+          </div>
 
           {/* Phones: the period first (it serves every tab), so the figures below can be read for the day you want. */}
           <div className="lg:hidden flex flex-col gap-2 shrink-0">{renderPeriodControls(true)}</div>
 
-          {!activeInsurer && (<>
+          {!otherTab && (<>
 
           {/* Hero + metric tiles */}
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 xl:gap-6 shrink-0">
@@ -1303,13 +1315,13 @@ export default function FinancePage() {
           {/* Toolbar — the period serves every tab; entry, filters and the PDF are the Clinic tab's. */}
           {/* On a phone an insurer tab has nothing in this bar (the period is drawn at the top), so
               the empty card is not drawn there; from lg up it holds the period as before. */}
-          <div className={`rounded-2xl xl:rounded-3xl bg-white/95 backdrop-blur border border-slate-200/80 shadow-sm p-3 lg:p-4 xl:p-5 ${activeInsurer ? "hidden lg:flex" : "flex"} flex-col gap-3 lg:gap-4 shrink-0 sticky top-0 z-20`}>
+          <div className={`rounded-2xl xl:rounded-3xl bg-white/95 backdrop-blur border border-slate-200/80 shadow-sm p-3 lg:p-4 xl:p-5 ${otherTab ? "hidden lg:flex" : "flex"} flex-col gap-3 lg:gap-4 shrink-0 sticky top-0 z-20`}>
             <div className="flex flex-wrap items-center gap-2 lg:gap-3">
               {/* `contents`, so on a desktop the controls are this row's own flex items exactly as
                   before; below lg they are drawn at the top of the page instead. */}
               <div className="hidden lg:contents">{renderPeriodControls(false)}</div>
               <div className="hidden lg:block flex-1 min-w-[80px]" />
-              {!activeInsurer && (<>
+              {!otherTab && (<>
               <Protect permission="finance.add">
                 <button
                   type="button"
@@ -1349,7 +1361,7 @@ export default function FinancePage() {
               </>)}
             </div>
 
-            {!activeInsurer && (
+            {!otherTab && (
             <div
               className={`${isFiltersExpanded ? "flex" : "hidden"} xl:flex flex-col lg:flex-row lg:flex-wrap gap-3 lg:items-start lg:justify-between border-t border-slate-100 pt-4`}
             >
@@ -1387,6 +1399,15 @@ export default function FinancePage() {
               isLoading={isLoading}
               collect={collectForInsurer}
               collectClaim={collectClaimForInsurer}
+            />
+          ) : sheetTab ? (
+            <DailySheetTab
+              rows={insurerTabRows}
+              isLoading={isLoading}
+              start={periodBounds.start}
+              end={periodBounds.end}
+              payers={payers}
+              branchName={scopeBranchId ? branches.find((b) => b.id === scopeBranchId)?.name : undefined}
             />
           ) : (
           /* Ledger */
