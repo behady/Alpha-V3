@@ -22,6 +22,8 @@ import { getClinicLogo } from "@/lib/clinicLogo";
 import { canAccessNavItem, canShowSettingsNavLink } from "@/lib/navAccess";
 import ReceptionSummonOverlay from "@/components/summon/ReceptionSummonOverlay";
 import { useHomeView } from "@/lib/useHomeView";
+import { ALL_BRANCHES } from "@/lib/branchAccess";
+import { currentBranchLabel } from "@/lib/branchScope";
 import ClinicSwitcher from "@/components/dashboard/ClinicSwitcher";
 import TopNav from "@/components/dashboard/TopNav";
 import { DIRECT_KEYS, SECTION_GROUPS } from "@/components/dashboard/navGroups";
@@ -99,6 +101,21 @@ function TourMenuRow({ className, onPick }: { className: string; onPick: () => v
       <span className="text-base truncate">{language === "ar" ? `جولة مع ${guide}` : `Tour with ${guide}`}</span>
     </button>
   );
+}
+
+/**
+ * The clinic switcher as the phone menu sheet shows it: the clinic's name, and under it the
+ * branch on screen when the clinic has branches.
+ *
+ * The branch name is the one the page underneath already published (lib/branchScope), read when
+ * the sheet opens — not a useActiveBranch() of its own, which would mount a second branch listener
+ * and, while it loaded, publish an empty money scope over the page's real one.
+ */
+function MenuClinicSwitcher() {
+  const { language } = useLanguage();
+  const label = currentBranchLabel();
+  const subtitle = label === ALL_BRANCHES ? (language === "ar" ? "كل الفروع" : "All branches") : label;
+  return <ClinicSwitcher expanded subtitle={subtitle} />;
 }
 
 /**
@@ -434,8 +451,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { key: "patients", href: "/patients", icon: Users },
   ];
 
+  /**
+   * Stand-ins for a shortcut the clinic has not bought. An admin keeps a locked add-on in the
+   * menu sheet (with its lock), but a bottom-bar shortcut that opens onto "Not in your
+   * subscription" is a wasted thumb slot — so locked ones are skipped here and the next of these
+   * takes the slot. The bar never grows: it shows as many shortcuts as it did before the skip.
+   */
+  const mobileFallbacks = [
+    { key: "lab", href: "/lab", icon: FlaskConical },
+    { key: "insurance", href: "/insurance", icon: ShieldCheck },
+    { key: "reports", href: "/reports", icon: FileBarChart },
+  ];
+  const mobileSlots = mobileCandidates.filter((item) => hasAccess(item.key, true)).length;
   const mobileNavItems = [
-    ...mobileCandidates.filter(item => hasAccess(item.key, true)),
+    ...[...mobileCandidates, ...mobileFallbacks]
+      .filter((item) => hasAccess(item.key, true) && !lockedFor(item.key))
+      .slice(0, mobileSlots),
     { key: "menu", href: "#menu", icon: Menu },
   ];
 
@@ -511,7 +542,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
 
             <div className="px-5 pt-4 pb-2 border-b border-line flex items-center justify-center">
-               <ClinicSwitcher />
+               {/* Labelled here: a bare building icon did not say which clinic — or branch — the
+                   phone was working in. */}
+               <MenuClinicSwitcher />
             </div>
 
             <div className="flex-1 overflow-y-auto no-scrollbar p-5 space-y-6">
@@ -657,8 +690,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
              isFullHeightPage
                ? "flex flex-col overflow-hidden"
                : phoneStickyPage
-                 ? "max-lg:overflow-x-clip lg:overflow-x-hidden lg:overflow-y-auto pb-24 lg:pb-0"
-                 : "overflow-x-hidden overflow-y-auto pb-24 lg:pb-0"
+                 ? "max-lg:overflow-x-clip lg:overflow-x-hidden lg:overflow-y-auto pb-32 lg:pb-0"
+                 /* pb-32 on phones, not pb-24: the bottom bar takes 80px and the assistant orb
+                    docked on its edge stands another 36px above it. Scrolled to the end, the
+                    last row of a page now clears both. */
+                 : "overflow-x-hidden overflow-y-auto pb-32 lg:pb-0"
            }`}
          >
              {/* Keyed on the clinic, so switching clinics remounts the page. Every page subscribes

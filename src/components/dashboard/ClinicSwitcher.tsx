@@ -20,9 +20,15 @@ import { useLanguage } from "@/context/LanguageContext";
 export default function ClinicSwitcher({
   expanded = false,
   variant = "default",
-}: { expanded?: boolean; variant?: "default" | "topbar" } = {}) {
+  subtitle = "",
+}: {
+  expanded?: boolean;
+  variant?: "default" | "topbar";
+  /** A second line under the clinic name when `expanded` — the phone menu puts the branch here. */
+  subtitle?: string;
+} = {}) {
   const { user } = useAuth();
-  const { clinicId, setClinicId } = useClinic();
+  const { clinicId, setClinicId, clinic } = useClinic();
   const router = useRouter();
   const { isRTL, language } = useLanguage();
   
@@ -76,7 +82,8 @@ export default function ClinicSwitcher({
 
   if (!user || clinics.length === 0) return null;
 
-  const currentClinicName = clinics.find(c => c.id === clinicId)?.name || "Switch Clinic";
+  const currentClinicName =
+    clinics.find(c => c.id === clinicId)?.name || clinic?.name || (language === "ar" ? "تغيير العيادة" : "Switch Clinic");
 
   if (variant === "topbar") {
     return (
@@ -145,7 +152,10 @@ export default function ClinicSwitcher({
       >
         <Building2 className="size-5 [@media(max-height:840px)]:size-[18px] shrink-0" />
         {expanded && (
-          <span className="truncate text-sm font-bold">{currentClinicName}</span>
+          <span className="flex min-w-0 flex-col text-start leading-tight">
+            <span className="truncate text-sm font-bold">{currentClinicName}</span>
+            {subtitle && <span className="truncate text-xs font-semibold opacity-70">{subtitle}</span>}
+          </span>
         )}
       </button>
 
@@ -158,7 +168,11 @@ export default function ClinicSwitcher({
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div className={`absolute top-0 z-[250] w-64 bg-surface rounded-2xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.15)] border border-slate-100 overflow-hidden ${isRTL ? 'right-full mr-4' : 'left-full ml-4'}`}>
+        <div className={`absolute z-[250] bg-surface rounded-2xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.15)] border border-slate-100 overflow-hidden ${
+          // Expanded it spans its row (the phone menu sheet), so the menu drops straight down;
+          // opening sideways like the old rail's did would put it off the edge of the screen.
+          expanded ? "top-full mt-2 inset-x-3" : `top-0 w-64 ${isRTL ? "right-full mr-4" : "left-full ml-4"}`
+        }`}>
           <div className="bg-surface-subtle px-4 py-3 border-b border-slate-100 flex items-center justify-between">
              <span className="text-xs font-bold text-ink-muted uppercase tracking-wider">{language === 'ar' ? 'مساحات العمل' : 'Workspaces'}</span>
           </div>
@@ -167,7 +181,7 @@ export default function ClinicSwitcher({
               <button
                 key={c.id}
                 onClick={() => handleSwitch(c.id)}
-                className={`w-full text-left flex items-center justify-between px-4 py-3 hover:bg-surface-subtle transition-colors ${clinicId === c.id ? 'bg-indigo-50/50' : ''}`}
+                className={`w-full text-start flex items-center justify-between px-4 py-3 hover:bg-surface-subtle transition-colors ${clinicId === c.id ? 'bg-indigo-50/50' : ''}`}
                 dir={isRTL ? 'rtl' : 'ltr'}
               >
                 <span className={`font-semibold text-sm ${clinicId === c.id ? 'text-indigo-700' : 'text-slate-700'}`}>

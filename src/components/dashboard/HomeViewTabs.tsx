@@ -46,7 +46,8 @@ export default function HomeViewTabs() {
             aria-selected={active}
             onClick={() => setView(tab.key)}
             title={locked ? `${tab.label} — ${isAr ? "محتاج إذن من المالك" : "needs the owner's permission"}` : tab.label}
-            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-bold transition-colors whitespace-nowrap ${
+            /* Below lg the tab is a 40px-tall touch target (it was 39×27, short of a thumb). */
+            className={`inline-flex items-center justify-center gap-1.5 rounded-full px-3 py-1.5 max-lg:min-h-10 max-lg:min-w-11 text-[13px] font-bold transition-colors whitespace-nowrap ${
               active ? "bg-[#FACC15] text-ink" : "text-white/65 hover:bg-white/10 hover:text-white"
             }`}
           >

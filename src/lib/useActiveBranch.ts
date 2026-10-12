@@ -24,7 +24,7 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { onSnapshot } from "firebase/firestore";
 import { getClinicDoc } from "@/lib/db-utils";
-import { setCurrentBranchScope } from "@/lib/branchScope";
+import { setCurrentBranchLabel, setCurrentBranchScope } from "@/lib/branchScope";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { LOCATIONS_DOC, parseClinicBranches, type ClinicBranch } from "@/lib/clinicLocations";
@@ -194,6 +194,13 @@ export function useActiveBranch(): ActiveBranch {
   useEffect(() => {
     setCurrentBranchScope(scopeBranchId);
   }, [scopeBranchId]);
+
+  // And its name, for labels (the phone menu). Only once read, so a hook still loading cannot
+  // blank the name another screen already published.
+  const branchLabel = selected === ALL_BRANCHES ? ALL_BRANCHES : activeBranch?.name || "";
+  useEffect(() => {
+    if (ready) setCurrentBranchLabel(branchLabel);
+  }, [ready, branchLabel]);
 
   return {
     branches,

@@ -15,7 +15,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { AlertTriangle, FileUp, Loader2, PencilLine, RotateCcw, X } from "lucide-react";
+import { AlertTriangle, Camera, FileUp, Loader2, PencilLine, RotateCcw, X } from "lucide-react";
 import { storage } from "@/lib/firebase";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
@@ -52,6 +52,7 @@ export default function ApprovalDropZone({ payer, onRead }: { payer: Payer | nul
   const [items, setItems] = useState<Item[]>([]);
   const [over, setOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
   // The queue lives outside state so the workers see additions made while they run.
   const queue = useRef<Item[]>([]);
   const running = useRef(0);
@@ -171,7 +172,7 @@ export default function ApprovalDropZone({ payer, onRead }: { payer: Payer | nul
           setOver(false);
           if (!disabled && e.dataTransfer.files?.length) addFiles(e.dataTransfer.files);
         }}
-        className={`flex flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed px-6 py-10 text-center transition-colors ${
+        className={`flex flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed px-6 py-10 max-md:px-4 max-md:py-6 text-center transition-colors ${
           disabled
             ? "cursor-not-allowed border-line bg-surface-subtle opacity-60"
             : over
@@ -183,18 +184,61 @@ export default function ApprovalDropZone({ payer, onRead }: { payer: Payer | nul
         <div className="grid size-12 place-items-center rounded-2xl bg-ink-slab text-white">
           <FileUp size={22} />
         </div>
+        {/* Below md there is nothing to drag onto: the wording says "add", and the camera gets a
+            button of its own beside the file picker. Both feed the same addFiles. */}
         <div>
-          <p className="font-display text-lg font-black text-ink">{disabled ? t("dropNoPayer") : t("dropTitle")}</p>
-          <p className="mt-1 text-[13px] font-semibold text-ink-muted">{t("dropHint")}</p>
+          <p className="font-display text-lg font-black text-ink">
+            {disabled ? t("dropNoPayer") : (
+              <>
+                <span className="hidden md:inline">{t("dropTitle")}</span>
+                <span className="md:hidden">{t("dropTitlePhone")}</span>
+              </>
+            )}
+          </p>
+          <p className="mt-1 text-[13px] font-semibold text-ink-muted">
+            <span className="hidden md:inline">{t("dropHint")}</span>
+            <span className="md:hidden">{t("dropHintPhone")}</span>
+          </p>
         </div>
         <button
           type="button"
           disabled={disabled}
           onClick={() => inputRef.current?.click()}
-          className="rounded-xl border border-line bg-surface px-4 py-2 text-[13px] font-black text-ink transition-colors hover:bg-surface-subtle disabled:cursor-not-allowed"
+          className="hidden md:inline-block rounded-xl border border-line bg-surface px-4 py-2 text-[13px] font-black text-ink transition-colors hover:bg-surface-subtle disabled:cursor-not-allowed"
         >
           {t("dropPick")}
         </button>
+        <div className="grid w-full max-w-sm grid-cols-2 gap-2 md:hidden">
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => cameraRef.current?.click()}
+            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-ink-slab px-3 text-[13px] font-black text-white transition-colors active:brightness-125 disabled:cursor-not-allowed"
+          >
+            <Camera size={17} className="shrink-0" />
+            <span className="truncate">{t("takePhoto")}</span>
+          </button>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => inputRef.current?.click()}
+            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-line bg-surface px-3 text-[13px] font-black text-ink transition-colors active:bg-surface-subtle disabled:cursor-not-allowed"
+          >
+            <FileUp size={17} className="shrink-0" />
+            <span className="truncate">{t("chooseFile")}</span>
+          </button>
+        </div>
+        <input
+          ref={cameraRef}
+          type="file"
+          accept="image/jpeg,image/png"
+          capture="environment"
+          hidden
+          onChange={(e) => {
+            if (e.target.files?.length) addFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
         <input
           ref={inputRef}
           type="file"

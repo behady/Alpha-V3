@@ -1067,30 +1067,37 @@ export default function MobileDashboard() {
               </div>
 
               {/* Mobile Compact Date switcher (Visible on Mobile) */}
-              <div className="flex lg:hidden items-center justify-between w-full">
-                <div className="flex items-center gap-2 min-w-0">
+              {/* Two rows on a phone. As one row the branch picker, the date, the arrows, the
+                  calendar and Today did not fit in 375px, and the date — the only flexible part —
+                  was squeezed down to a single letter. The branch picker gets its own row (and
+                  collapses away for a single-site clinic, where it renders nothing). */}
+              <div className="flex lg:hidden flex-col gap-2 w-full min-w-0">
+                <div className="flex items-center min-w-0 empty:hidden">
                   <BranchSelector
                     branches={branches}
                     allowed={allowedBranches}
                     value={activeBranchId}
                     onChange={setActiveBranchId}
                     allowAll={canChooseAll}
-                    compact
                   />
-                  <span className="text-sm font-black text-slate-800 truncate">
-                    {isScheduleToday ? (language === 'ar' ? 'اليوم، ' : 'Today, ') : ''}
+                </div>
+                <div className="flex items-center gap-2 min-w-0">
+                  {/* Just the date: the Today pill beside it, filled while today is on screen,
+                      says the rest — and leaves the date room to be read in full. */}
+                  <span className="flex-1 min-w-0 text-sm font-black text-slate-800 truncate">
                     {new Date(`${scheduleViewDate}T12:00:00`).toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { day: 'numeric', month: 'short' })}
                   </span>
-                  <div className="flex items-center gap-0.5 bg-surface-muted rounded-lg p-0.5 shadow-inner">
+                  <div className="flex items-center gap-0.5 bg-surface-muted rounded-xl p-0.5 shadow-inner shrink-0">
                     <button
                       onClick={() => {
                         const d = new Date(`${scheduleViewDate}T12:00:00`);
                         d.setDate(d.getDate() - 1);
                         setScheduleViewDate(d.toISOString().split("T")[0]);
                       }}
-                      className="p-1 rounded-md text-ink-muted hover:bg-surface hover:text-slate-800 hover:shadow-sm transition-all"
+                      className="size-10 flex items-center justify-center rounded-lg text-ink-muted hover:bg-surface hover:text-slate-800 hover:shadow-sm transition-all"
+                      aria-label={language === "ar" ? "اليوم السابق" : "Previous Day"}
                     >
-                      <ChevronLeft size={14} className={isRTL ? "rotate-180" : ""} />
+                      <ChevronLeft size={16} className={isRTL ? "rotate-180" : ""} />
                     </button>
                     <button
                       onClick={() => {
@@ -1098,13 +1105,12 @@ export default function MobileDashboard() {
                         d.setDate(d.getDate() + 1);
                         setScheduleViewDate(d.toISOString().split("T")[0]);
                       }}
-                      className="p-1 rounded-md text-ink-muted hover:bg-surface hover:text-slate-800 hover:shadow-sm transition-all"
+                      className="size-10 flex items-center justify-center rounded-lg text-ink-muted hover:bg-surface hover:text-slate-800 hover:shadow-sm transition-all"
+                      aria-label={language === "ar" ? "اليوم التالي" : "Next Day"}
                     >
-                      <ChevronRight size={14} className={isRTL ? "rotate-180" : ""} />
+                      <ChevronRight size={16} className={isRTL ? "rotate-180" : ""} />
                     </button>
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
                       const el = scheduleDateInputRef.current;
@@ -1115,13 +1121,20 @@ export default function MobileDashboard() {
                         el.click();
                       }
                     }}
-                    className="p-2 bg-surface-subtle hover:bg-surface-muted rounded-xl text-ink-muted"
+                    className="size-10 shrink-0 flex items-center justify-center bg-surface-subtle hover:bg-surface-muted rounded-xl text-ink-muted"
+                    aria-label={language === "ar" ? "اختر يوماً لعرض المواعيد" : "Pick a day to view appointments"}
                   >
-                    <Calendar size={16} />
+                    <Calendar size={18} />
                   </button>
+                  {/* Always rendered: Sara's tour points at it by its text. */}
                   <button
                     onClick={() => setScheduleViewDate(getLocalDateKey())}
-                    className="text-[10px] font-black uppercase tracking-wider text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100"
+                    aria-pressed={isScheduleToday}
+                    className={`h-10 shrink-0 text-[11px] font-black uppercase tracking-wider px-3.5 rounded-full border ${
+                      isScheduleToday
+                        ? "text-white bg-emerald-600 border-emerald-600"
+                        : "text-emerald-600 bg-emerald-50 border-emerald-100"
+                    }`}
                   >
                     {language === 'ar' ? 'اليوم' : 'Today'}
                   </button>
@@ -1233,6 +1246,12 @@ export default function MobileDashboard() {
                             </div>
                           ) : activeMobileAppts.map(apt => {
                             const aptStyles = getAppointmentStatusStyles(apt.status);
+                            // What the visit is for and who sees the patient, from the fields the
+                            // appointment already carries. Neither known: the line shows the
+                            // status alone, never a bare "-".
+                            const aptWhat = String(apt.treatment || apt.serviceName || "").trim();
+                            const aptWho = String(apt.doctor || "").trim();
+                            const aptDetail = [aptWhat, aptWho].filter(Boolean).join(" · ");
                             return (
                               <div
                                 key={apt.id}
@@ -1247,15 +1266,17 @@ export default function MobileDashboard() {
                                   <span className="text-[10px] font-bold text-slate-400 uppercase">{apt.time?.split(" ")[1]}</span>
                                 </div>
                                 <div className={`w-1 h-12 rounded-full shrink-0 ${aptStyles.accent}`}></div>
-                                <div className="flex-1 flex justify-between items-center min-w-0 gap-2">
-                                  <div className="flex flex-col min-w-0">
-                                    <h4 className="text-base font-black text-slate-800 truncate mb-1">{apt.patientName}</h4>
-                                    <span className="text-[11px] font-bold text-ink-muted truncate">{apt.treatment || '-'}</span>
-                                  </div>
-                                  <div className="flex flex-col items-end shrink-0 gap-1.5">
-                                     <span className="text-[9px] font-black text-ink-body uppercase tracking-widest bg-surface-subtle border border-slate-100 px-2 py-1 rounded-full whitespace-nowrap">
-                                       {getAppointmentStageLabel(apt.status, language)}
-                                     </span>
+                                {/* The name takes the whole width; the status moved to the second
+                                    line, where it used to push "Iris mila" down to "Iris …". */}
+                                <div className="flex-1 flex flex-col min-w-0 gap-1">
+                                  <h4 className="text-base font-black text-slate-800 leading-snug line-clamp-2 break-words">{apt.patientName}</h4>
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className="shrink-0 text-[9px] font-black text-ink-body uppercase tracking-widest bg-surface-subtle border border-slate-100 px-2 py-0.5 rounded-full whitespace-nowrap">
+                                      {getAppointmentStageLabel(apt.status, language)}
+                                    </span>
+                                    {aptDetail && (
+                                      <span className="min-w-0 text-[11px] font-bold text-ink-muted truncate">{aptDetail}</span>
+                                    )}
                                   </div>
                                 </div>
                               </div>

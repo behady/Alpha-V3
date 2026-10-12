@@ -40,6 +40,11 @@ export const TEXT = {
     ar: "PDF أو JPG أو PNG، لحد 8 ميجا للملف. ينفع كذا ملف مرة واحدة.",
   },
   dropPick: { en: "Choose files", ar: "اختار الملفات" },
+  // Phones: no dragging on a touch screen, so the title says what to do and two buttons do it.
+  dropTitlePhone: { en: "Add approval papers", ar: "ضيف ورق الموافقات" },
+  dropHintPhone: { en: "Photo, PDF, JPG or PNG, up to 8 MB each.", ar: "صورة أو PDF أو JPG أو PNG، لحد 8 ميجا للملف." },
+  takePhoto: { en: "Take photo", ar: "صوّر الورقة" },
+  chooseFile: { en: "Choose file", ar: "اختار ملف" },
   dropNoPayer: { en: "Choose an insurer first", ar: "اختار شركة التأمين الأول" },
   uploading: { en: "Uploading…", ar: "بيترفع…" },
   reading: { en: "Reading the paper…", ar: "بنقرا الورقة…" },

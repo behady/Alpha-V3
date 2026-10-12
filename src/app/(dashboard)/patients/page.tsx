@@ -15,6 +15,7 @@ import Protect from "@/components/Protect";
 import { useActiveBranch } from "@/lib/useActiveBranch";
 import BranchSelector from "@/components/shared/BranchSelector";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { foldArabicDigits } from "@/lib/phoneNumber";
 
 const PAGE_SIZE = 15;
 
@@ -51,7 +52,8 @@ export default function PatientsPage() {
       searchPlaceholder: "Search name or phone...", 
       loading: "Loading directory...", 
       noPatients: "Directory is empty",
-      loadMore: "Load More Patients"
+      loadMore: "Load More Patients",
+      call: "Call"
     },
     ar: { 
       title: "المرضى",
@@ -59,7 +61,8 @@ export default function PatientsPage() {
       searchPlaceholder: "بحث بالاسم أو الهاتف...", 
       loading: "جاري تحميل الدليل...", 
       noPatients: "الدليل فارغ",
-      loadMore: "تحميل المزيد"
+      loadMore: "تحميل المزيد",
+      call: "اتصال بـ"
     }
   }[language];
 
@@ -263,41 +266,52 @@ export default function PatientsPage() {
               {/* MOBILE LIST */}
               {/* Same data-tour as the desktop rows above. The tutorial overlay walks every match
                   and takes the first with a real rect, so the display:none half is skipped. */}
-              <div className="md:hidden grid grid-cols-1 gap-3">
-                {patients.map((p, index) => (
-                  <Link
-                     key={p.id}
-                     href={`/patients/${p.id}`} data-tour="patient-row"
-                     className="group relative flex items-center bg-white p-4 rounded-[1.25rem] border border-slate-200 shadow-sm hover:shadow-md hover:border-slate-300 hover:-translate-y-1 transition-all duration-300 outline-none w-full overflow-hidden"
-                  >
-                    <div className="flex items-center justify-between w-full gap-4 relative z-10">
-                        <div className="flex items-center gap-4 min-w-0 flex-1">
-                            <div className="relative shrink-0">
-                                <div className={`w-12 h-12 rounded-full ${getAvatarStyle(p.name)} flex items-center justify-center font-black text-lg`}>
-                                    {p.name.charAt(0).toUpperCase()}
-                                </div>
-                                {renderSourceBadge(p.referral || p.source)}
+              {/* Compact rows, about 64px each: twice as many patients per screen as the old cards.
+                  The name wraps to two lines instead of cutting off, the number sits under it,
+                  and the phone icon is a real call button — a sibling of the row's link, since a
+                  link cannot hold another link. Balance and next visit are not shown: the list
+                  reads only the patient documents, and the `balance` field on them is a stale
+                  leftover (see bookingService), not a figure to show. */}
+              <div className="md:hidden flex flex-col divide-y divide-slate-100 rounded-[1.25rem] border border-slate-200 bg-white shadow-sm overflow-hidden">
+                {patients.map((p) => {
+                  // Folded first: numbers typed on an Arabic keyboard are stored as ٠١٢…, and
+                  // stripping non-digits straight away would leave an empty tel: link.
+                  const dial = foldArabicDigits(String(p.phone || "")).replace(/[^\d+]/g, "");
+                  return (
+                  <div key={p.id} className="flex items-center gap-2 pe-2 min-h-16">
+                    <Link
+                       href={`/patients/${p.id}`} data-tour="patient-row"
+                       className="flex flex-1 min-w-0 items-center gap-3 ps-3 py-2.5 outline-none active:bg-slate-50 transition-colors"
+                    >
+                        <div className="relative shrink-0">
+                            <div className={`w-10 h-10 rounded-full ${getAvatarStyle(p.name)} flex items-center justify-center font-black text-base`}>
+                                {p.name.charAt(0).toUpperCase()}
                             </div>
-                            <div className="flex flex-col min-w-0 justify-center">
-                                <h3 className="text-base font-black text-slate-800 tracking-tight truncate capitalize">
-                                    {p.name}
-                                </h3>
-                                {p.address && (
-                                  <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 mt-1">
-                                      <MapPin size={12} className="shrink-0 text-slate-400"/>
-                                      <span className="truncate">{p.address}</span>
-                                  </div>
-                                )}
-                            </div>
+                            {renderSourceBadge(p.referral || p.source)}
                         </div>
-                        <div className="shrink-0 flex items-center">
-                            <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center border border-slate-200">
-                                <Phone size={14} className="text-slate-500"/>
-                            </div>
+                        <div className="flex flex-col min-w-0">
+                            <h3 className="text-[15px] font-black text-slate-800 tracking-tight leading-snug line-clamp-2 break-words capitalize">
+                                {p.name}
+                            </h3>
+                            {p.phone && (
+                              <span className="self-start max-w-full text-xs font-semibold text-slate-500 truncate" dir="ltr">
+                                {p.phone}
+                              </span>
+                            )}
                         </div>
-                    </div>
-                  </Link>
-                ))}
+                    </Link>
+                    {/\d/.test(dial) && (
+                      <a
+                        href={`tel:${dial}`}
+                        aria-label={`${t.call} ${p.name}`}
+                        className="size-10 shrink-0 rounded-full bg-slate-50 flex items-center justify-center border border-slate-200 text-slate-500 active:bg-slate-100"
+                      >
+                        <Phone size={16} />
+                      </a>
+                    )}
+                  </div>
+                  );
+                })}
               </div>
 
               {!loading && hasMore && (

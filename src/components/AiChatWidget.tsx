@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import React, { Suspense, useState, useEffect, useRef } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { X, Send, Loader2, Trash2, Zap, AlertTriangle, GraduationCap, Sparkles, MessageCircle, LifeBuoy, Bug, Lightbulb, Camera, ImagePlus } from "lucide-react";
 import { useClinic } from "@/context/ClinicContext";
 import { useAuth } from "@/context/AuthContext";
@@ -22,6 +22,17 @@ import { RECEPTIONIST_NAME } from "@/lib/receptionist";
 import AvatarFace from "@/components/appointments/AvatarFace";
 import AssistantMarkdown from "@/components/ai/AssistantMarkdown";
 import { onSnapshot } from "firebase/firestore";
+
+/**
+ * Reports whether a WhatsApp conversation is open (`?chat=` on /chats). Its own component inside
+ * a Suspense boundary, because useSearchParams needs one above it to prerender — and this widget
+ * sits in the layout, above every page.
+ */
+function ChatOpenProbe({ onChange }: { onChange: (open: boolean) => void }) {
+  const open = !!useSearchParams().get("chat");
+  useEffect(() => onChange(open), [open, onChange]);
+  return null;
+}
 
 interface ChatMessage {
   id: string;
@@ -96,6 +107,13 @@ export default function AiChatWidget() {
   const onFarSide = receptionPanelActive ? !isRTL : isRTL;
   const lifted = pathname === "/chats";
   const launcherCornerClass = onFarSide ? "left-5" : "right-5";
+  /**
+   * A phone with a conversation open: the composer's Send button sits in this exact corner, just
+   * above the bottom bar, and no height for the orb clears it without covering the newest
+   * messages. So below lg the launcher steps aside until the conversation is closed.
+   */
+  const [chatOpen, setChatOpen] = useState(false);
+  const hideLauncherOnPhone = lifted && chatOpen;
 
   const [isOpen, setIsOpen] = useState(false);
   const [inputMessage, setInputMessage] = useState("");
@@ -587,14 +605,28 @@ export default function AiChatWidget() {
       {/* Floating launcher — the same orb as the reception assistant, at coat-pocket size.
           Below lg the mobile bottom nav bar (fixed bottom-4, h-16, z-[80], opaque) owns the
           bottom 80px of the screen; bottom-5 sat entirely behind it, which is why the
-          assistant never appeared on phones or tablets. bottom-24 clears the bar. */}
-      <div className={`fixed bottom-24 ${lifted ? "lg:bottom-28" : "lg:bottom-5"} ${launcherCornerClass} z-50 transition-all duration-300`}>
+          assistant never appeared on phones or tablets.
+
+          Below lg it is a 44px orb docked on the bar's end edge (bottom 72px: it overlaps the bar
+          by 8px and stands 36px above it) rather than a 56px orb floating 96–152px up, where it
+          sat on list rows' call buttons and the calendar's Today button. Docked, it belongs to the
+          bar, so it stacks with the bar (z-[81], one above it): whatever covers the bar covers it
+          too. The WhatsApp page keeps the old spot — its composer lives right above the bar. */}
+      {lifted && (
+        <Suspense fallback={null}>
+          <ChatOpenProbe onChange={setChatOpen} />
+        </Suspense>
+      )}
+      <div className={`fixed ${lifted ? "bottom-24 lg:bottom-28" : "bottom-[4.5rem] lg:bottom-5"} ${launcherCornerClass} z-[81] lg:z-50 transition-all duration-300 ${hideLauncherOnPhone ? "max-lg:hidden" : ""}`}>
         <button
           onClick={() => setIsOpen((prev) => !prev)}
           title={alphaName}
-          className="relative w-14 h-14 rounded-full bg-white/80 backdrop-blur-3xl border border-white/60 shadow-[0_8px_30px_rgba(0,0,0,0.12)] flex items-center justify-center transition-all duration-300 hover:scale-105 active:scale-95"
+          aria-label={alphaName}
+          className="relative w-11 h-11 lg:w-14 lg:h-14 rounded-full bg-white/90 lg:bg-white/80 backdrop-blur-3xl border border-white/60 shadow-[0_8px_30px_rgba(0,0,0,0.12)] flex items-center justify-center transition-all duration-300 hover:scale-105 active:scale-95"
         >
-          <AvatarFace state={isLoading ? "thinking" : "idle"} size={44} />
+          <span className="flex max-lg:scale-[0.77]">
+            <AvatarFace state={isLoading ? "thinking" : "idle"} size={44} />
+          </span>
           {lowCredits && (
             <span className="absolute -top-0.5 -end-0.5 w-3.5 h-3.5 rounded-full bg-rose-500 border-2 border-white animate-pulse" />
           )}

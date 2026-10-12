@@ -20,6 +20,22 @@ export function currentBranchId(): string {
 }
 
 /**
+ * The name of the branch on screen, for labels only — the phone menu shows it under the clinic
+ * name. Published beside the scope so the layout can show it without mounting a branch listener
+ * of its own. "" = nothing to show (no branches, or no screen has read them yet); the ALL_BRANCHES
+ * id when every branch is on screen, for the reader to word in its own language.
+ */
+let currentLabel = "";
+
+export function setCurrentBranchLabel(label: string): void {
+  currentLabel = label;
+}
+
+export function currentBranchLabel(): string {
+  return currentLabel;
+}
+
+/**
  * The one rule for putting the branch into an outgoing money body.
  *
  * A branch the caller put in the body wins, provided it is a non-empty string. Otherwise the

@@ -97,7 +97,10 @@ export default function WelcomeCoach() {
        * window with its text cut mid-word. Pinning both edges and capping the width means the
        * worst case is a card that is narrower than intended, never one that is off screen.
        */
-      className={`fixed z-[60] bottom-24 ${lifted ? "lg:bottom-44" : "lg:bottom-20"} inset-x-4 sm:inset-x-6 ${
+      /* Below lg, 120px up: clear of the bottom bar and of the assistant orb docked on its edge
+         (which reaches 116px). On /chats the orb keeps its old 96–140px spot, so the card goes
+         above that instead. */
+      className={`fixed z-[60] ${lifted ? "bottom-36" : "bottom-[7.5rem]"} ${lifted ? "lg:bottom-44" : "lg:bottom-20"} inset-x-4 sm:inset-x-6 ${
         onFarSide ? "sm:end-auto" : "sm:start-auto"
       } sm:w-[22rem] sm:max-w-[calc(100vw-3rem)] max-h-[calc(100dvh-8rem)] overflow-y-auto`}
       dir={isRTL ? "rtl" : "ltr"}

@@ -968,6 +968,55 @@ export default function FinancePage() {
         ? new Date(`${dateRange}-01`).toLocaleDateString(language === "ar" ? "ar-EG" : "en-US", { month: "long", year: "numeric" })
         : `${new Date(customStartDate || dateRange).toLocaleDateString(language === "ar" ? "ar-EG" : "en-GB")} → ${new Date(customEndDate || customStartDate || dateRange).toLocaleDateString(language === "ar" ? "ar-EG" : "en-GB")}`;
 
+  /**
+   * Daily / Monthly / Range and the date for it. Drawn twice from one source: in the toolbar on a
+   * desktop, as it always was, and at the top of the page on a phone — where the toolbar comes
+   * after six cards and the period you are reading was the last thing you could change. The phone
+   * form spreads the three buttons across the row (at a fixed width "Range" spilled out of its
+   * box) and stretches the date inputs to fit.
+   */
+  const renderPeriodControls = (phone: boolean) => {
+    const seg = (active: boolean) =>
+      `flex items-center text-xs font-bold uppercase tracking-wide rounded-lg transition-all ${
+        phone ? "flex-1 min-w-0 justify-center gap-1.5 px-2 min-h-10" : "gap-2 px-4 py-2"
+      } ${active ? "bg-surface shadow text-accent border border-slate-200/50" : "text-ink-muted"}`;
+    const dateInput = `bg-surface-subtle border border-line rounded-xl text-sm font-bold text-slate-800 outline-none cursor-pointer focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/20 transition-all ${
+      phone ? "w-full min-w-0 px-3 min-h-11" : "px-4 py-2.5 min-w-[160px]"
+    }`;
+    return (
+      <>
+        <div className={`flex bg-surface-muted p-1 rounded-xl border border-slate-200/60 ${phone ? "w-full" : "shrink-0"}`}>
+          <button type="button" onClick={() => handleTimeViewChange("daily")} className={seg(timeView === "daily")}>
+            <CalendarDays size={16} className="shrink-0" />
+            <span className={phone ? "truncate" : undefined}>{language === "ar" ? "يومي" : "Daily"}</span>
+          </button>
+          <button type="button" onClick={() => handleTimeViewChange("monthly")} className={seg(timeView === "monthly")}>
+            <CalendarClock size={16} className="shrink-0" />
+            <span className={phone ? "truncate" : undefined}>{language === "ar" ? "شهري" : "Monthly"}</span>
+          </button>
+          <button type="button" onClick={() => handleTimeViewChange("range")} className={seg(timeView === "range")}>
+            <CalendarDays size={16} className="shrink-0" />
+            <span className={phone ? "truncate" : undefined}>{language === "ar" ? "نطاق" : "Range"}</span>
+          </button>
+        </div>
+        {timeView === "range" ? (
+          <div className={phone ? "grid w-full grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2" : "flex flex-wrap items-center gap-2"}>
+            <input type="date" value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} className={dateInput} />
+            <span className="text-slate-400 font-bold text-xs">{phone && isRTL ? "←" : "→"}</span>
+            <input type="date" value={customEndDate} onChange={(e) => setCustomEndDate(e.target.value)} className={dateInput} />
+          </div>
+        ) : (
+          <input
+            type={timeView === "daily" ? "date" : "month"}
+            value={dateRange}
+            onChange={(e) => setDateRange(e.target.value)}
+            className={dateInput}
+          />
+        )}
+      </>
+    );
+  };
+
   return (
     <PermissionGuard permission="access.finance">
       <div className={`min-h-full pb-24 lg:pb-8 flex flex-col font-sans text-slate-800 ${isRTL ? "text-right" : "text-left"}`} dir={isRTL ? "rtl" : "ltr"}>
@@ -1014,6 +1063,9 @@ export default function FinancePage() {
               })}
             </nav>
           )}
+
+          {/* Phones: the period first (it serves every tab), so the figures below can be read for the day you want. */}
+          <div className="lg:hidden flex flex-col gap-2 shrink-0">{renderPeriodControls(true)}</div>
 
           {!activeInsurer && (<>
 
@@ -1197,62 +1249,9 @@ export default function FinancePage() {
           {/* Toolbar — the period serves every tab; entry, filters and the PDF are the Clinic tab's. */}
           <div className="rounded-2xl xl:rounded-3xl bg-white/95 backdrop-blur border border-slate-200/80 shadow-sm p-4 xl:p-5 flex flex-col gap-4 shrink-0 sticky top-0 z-20">
             <div className="flex flex-wrap items-center gap-3">
-              <div className="flex bg-surface-muted p-1 rounded-xl border border-slate-200/60 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => handleTimeViewChange("daily")}
-                  className={`flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wide rounded-lg transition-all ${
-                    timeView === "daily" ? "bg-surface shadow text-accent border border-slate-200/50" : "text-ink-muted"
-                  }`}
-                >
-                  <CalendarDays size={16} />
-                  <span>{language === "ar" ? "يومي" : "Daily"}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleTimeViewChange("monthly")}
-                  className={`flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wide rounded-lg transition-all ${
-                    timeView === "monthly" ? "bg-surface shadow text-accent border border-slate-200/50" : "text-ink-muted"
-                  }`}
-                >
-                  <CalendarClock size={16} />
-                  <span>{language === "ar" ? "شهري" : "Monthly"}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleTimeViewChange("range")}
-                  className={`flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wide rounded-lg transition-all ${
-                    timeView === "range" ? "bg-surface shadow text-accent border border-slate-200/50" : "text-ink-muted"
-                  }`}
-                >
-                  <CalendarDays size={16} />
-                  <span>{language === "ar" ? "نطاق" : "Range"}</span>
-                </button>
-              </div>
-              {timeView === "range" ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  <input
-                    type="date"
-                    value={customStartDate}
-                    onChange={(e) => setCustomStartDate(e.target.value)}
-                    className="bg-surface-subtle border border-line rounded-xl text-sm font-bold text-slate-800 outline-none px-4 py-2.5 min-w-[160px] cursor-pointer focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/20 transition-all"
-                  />
-                  <span className="text-slate-400 font-bold text-xs">→</span>
-                  <input
-                    type="date"
-                    value={customEndDate}
-                    onChange={(e) => setCustomEndDate(e.target.value)}
-                    className="bg-surface-subtle border border-line rounded-xl text-sm font-bold text-slate-800 outline-none px-4 py-2.5 min-w-[160px] cursor-pointer focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/20 transition-all"
-                  />
-                </div>
-              ) : (
-                <input
-                  type={timeView === "daily" ? "date" : "month"}
-                  value={dateRange}
-                  onChange={(e) => setDateRange(e.target.value)}
-                  className="bg-surface-subtle border border-line rounded-xl text-sm font-bold text-slate-800 outline-none px-4 py-2.5 min-w-[160px] cursor-pointer focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/20 transition-all"
-                />
-              )}
+              {/* `contents`, so on a desktop the controls are this row's own flex items exactly as
+                  before; below lg they are drawn at the top of the page instead. */}
+              <div className="hidden lg:contents">{renderPeriodControls(false)}</div>
               <div className="flex-1 min-w-[80px]" />
               {!activeInsurer && (<>
               <Protect permission="finance.add">
