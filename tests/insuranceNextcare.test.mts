@@ -43,6 +43,19 @@ assert.deepEqual(
   [[], ["44", "46"], []],
   "a group goes to the line approved for exactly that many units; nothing is guessed for the rest",
 );
+assert.deepEqual(
+  assignConditionTeeth(
+    [{ unitsApproved: 1, code: "DE-1", description: "Consultation - كشف" }, { unitsApproved: 1, code: "DEN-1" }, { unitsApproved: 2, code: "DEN-5" }, { unitsApproved: 2, code: "DEN-14" }],
+    [["46"], ["24", "25"]],
+  ),
+  [[], ["46"], ["24", "25"], ["24", "25"]],
+  "the exam never takes a tooth; the lining shares the filling's only pair",
+);
+assert.deepEqual(
+  assignConditionTeeth([{ unitsApproved: 2 }, { unitsApproved: 2 }, { unitsApproved: 2 }], [["24", "25"], ["36", "37"]]),
+  [["24", "25"], ["36", "37"], []],
+  "with two pairs on the paper, a third line is left blank rather than guessed",
+);
 
 // --- 3. reading the paper -----------------------------------------------------------------------------
 const x = read();

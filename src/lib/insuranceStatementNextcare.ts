@@ -18,7 +18,7 @@
  *   - Cases run by treatment date, then patient name.
  */
 import { claimStatementName, type InsuranceClaim } from "@/lib/insurance/claims";
-import { memberCodeFromCard } from "@/lib/insurance/nextcare";
+import { isVisitService, memberCodeFromCard } from "@/lib/insurance/nextcare";
 import { insurerToothLabel, type Statement, type StatementCase, type StatementLine } from "@/lib/insuranceStatement";
 
 /** NextCare's codes, in the words the clinic's sheet uses. A clinic's own wording overrides any of them. */
@@ -43,7 +43,8 @@ export function nextcareLineText(line: InsuranceClaim["lines"][number], wording:
   const name = wording[line.code]?.trim() || DEFAULT_NEXTCARE_WORDING[line.code] || arabicHalf(line.description) || line.code;
   const units = Math.round(line.unitsApproved || 0);
   const count = units > 1 ? String(units) : "";
-  const teeth = (line.teeth ?? []).map((t) => insurerToothLabel(Number(t))).filter(Boolean);
+  // The exam is per visit: a tooth an older read pinned on it is not printed.
+  const teeth = isVisitService(line) ? [] : (line.teeth ?? []).map((t) => insurerToothLabel(Number(t))).filter(Boolean);
   return `${count}${name}${teeth.length ? ` رقم ${teeth.join("-")}` : ""}`;
 }
 

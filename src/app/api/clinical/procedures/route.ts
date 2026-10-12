@@ -47,6 +47,7 @@ import { recordLedgerAudit, recordMoneyChange } from "@/lib/server/ledgerAudit";
 import { isApprovalRow } from "@/lib/ledgerInsurer";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { CLAIMS_COLLECTION, applyDentistPicks, dentistRowPatch, isLineStatus, parseClaim } from "@/lib/insurance/claims";
+import { isFdiTooth } from "@/lib/insurance/nextcare";
 import { MAX_NOTE_PHOTOS, acceptNotePhoto, parseNotePhotos } from "@/lib/notePhotos";
 import { assertBranchAllowed, assertRowBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
 
@@ -517,8 +518,31 @@ function approvalNoteChanges(body: Record<string, unknown>, before: Record<strin
   return changed;
 }
 
-/** What the clinical editor may change on an approval's treatment: where it stands, and who did it. */
-const APPROVAL_LINE_FIELDS = new Set(["status", "doctorId"]);
+/**
+ * What the clinical editor may change on an approval's treatment: where it stands, who did it, and
+ * which teeth. The teeth were the approval's alone, but once the rows exist the Insurance tab
+ * refuses every line edit — so a paper whose conditions named no teeth (or the wrong line) left
+ * the monthly sheet with no tooth numbers and no screen anywhere that could add them.
+ */
+const APPROVAL_LINE_FIELDS = new Set(["status", "doctorId", "tooth"]);
+const APPROVAL_TEETH_MESSAGE = "Pick real tooth numbers (11–48, or 51–85 for milk teeth).";
+
+/** The posted teeth for an approval's line: FDI codes, de-duplicated, in the order picked; null when one is not a tooth. */
+function approvalTeeth(body: Record<string, unknown>): string[] | null {
+  const raw = body.selectedTeeth !== undefined ? asStringArray(body.selectedTeeth) : String(body.tooth || "").split(/[,\s]+/);
+  const out: string[] = [];
+  for (const t of raw.map((s) => s.trim()).filter((s) => s && s.toLowerCase() !== "gen")) {
+    if (!isFdiTooth(t)) return null;
+    if (!out.includes(t)) out.push(t);
+  }
+  return out;
+}
+
+/** `Composite (T: 46) | MetLife C-1` → the same with the new teeth; a description without the marker is left alone. */
+function withToothText(description: unknown, toothText: string): string | null {
+  const d = typeof description === "string" ? description : "";
+  return /\(T: [^)]*\)/.test(d) ? d.replace(/\(T: [^)]*\)/, `(T: ${toothText})`) : null;
+}
 const NOT_A_DENTIST_MESSAGE = "Only a dentist can be put on an insurance approval's service.";
 const LINE_STATUS_MESSAGE = "An insurance service is Completed, Planned or Ongoing.";
 
@@ -539,8 +563,10 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
   const status = changed.includes("status") ? body.status : undefined;
   if (status !== undefined && !isLineStatus(status)) return bad(LINE_STATUS_MESSAGE);
   const doctorId = changed.includes("doctorId") ? String(body.doctorId || "").trim() : undefined;
+  const teeth = changed.includes("tooth") ? approvalTeeth(body) : undefined;
+  if (teeth === null) return bad(APPROVAL_TEETH_MESSAGE);
   const answer = () => NextResponse.json({ ok: true, noteId, ledgerId: typeof before.ledgerId === "string" ? before.ledgerId : null, cost: Number(before.cost) || 0 });
-  if (!noteChanged && status === undefined && doctorId === undefined) return answer();
+  if (!noteChanged && status === undefined && doctorId === undefined && teeth === undefined) return answer();
 
   const claimId = String(before.claimId || "");
   const claimRef = adminClinicDoc(clinicId, CLAIMS_COLLECTION, claimId);
@@ -572,7 +598,7 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
       });
     }
     const ledgerRef = adminClinicDoc(clinicId, "ledger", entry[1].ledgerId);
-    const ledgerSnap = doctorId !== undefined ? await tx.get(ledgerRef) : null;
+    const ledgerSnap = doctorId !== undefined || teeth !== undefined ? await tx.get(ledgerRef) : null;
     // Read before any write: the receipts already taken for this service get its dentist too.
     const paidAgainst = doctorId !== undefined ? await readProcedurePayments(tx, clinicId, entry[1].ledgerId) : [];
 
@@ -605,6 +631,20 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
         stampPaymentsDentist(tx, clinicId, paidAgainst, { doctorId: (rowPatch.doctorId as string | null) ?? null, doctorName: String(rowPatch.doctorName ?? "") });
       }
     }
+    if (teeth !== undefined) {
+      // The approval's line is what the monthly sheet prints; the note and its charge say the same.
+      // A flat insurance price: the teeth never move the money.
+      claimUpdate.lines = claim.lines.map((l, k) => {
+        const own = k === i ? teeth : l.teeth;
+        const { teeth: _old, ...rest } = l;
+        void _old;
+        return own && own.length ? { ...rest, teeth: [...own] } : rest;
+      });
+      const toothText = teeth.length ? teeth.join(",") : "Gen";
+      noteUpdate.tooth = toothText;
+      const description = withToothText(ledgerSnap?.data()?.description, toothText);
+      if (ledgerSnap?.exists && description !== null) tx.update(ledgerRef, { description, updatedAt: FieldValue.serverTimestamp() });
+    }
     if (Object.keys(claimUpdate).length > 0) tx.update(claimRef, { ...claimUpdate, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid });
     tx.update(noteRef, noteUpdate);
     const { updatedAt: _stamp, ...after } = noteUpdate;
@@ -618,7 +658,7 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
   if (outcome.kind === "no_line") return bad(APPROVAL_NOTE_MESSAGE, 409);
   await restampStaffSettlementsFor(clinicId, outcome.restamp);
 
-  const what = [noteChanged ? "note" : "", status !== undefined ? `state ${String(status)}` : "", doctorId !== undefined ? "dentist" : ""].filter(Boolean).join(", ");
+  const what = [noteChanged ? "note" : "", status !== undefined ? `state ${String(status)}` : "", doctorId !== undefined ? "dentist" : "", teeth !== undefined ? `teeth ${teeth.join(",") || "none"}` : ""].filter(Boolean).join(", ");
   await recordMoneyChange({
     entry: {
       clinicId, action: "update", collection: "clinical_notes", documentId: noteId,

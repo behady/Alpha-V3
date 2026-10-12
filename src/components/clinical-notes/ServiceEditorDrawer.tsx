@@ -591,8 +591,8 @@ export default function ServiceEditorDrawer({
   };
 
   /**
-   * A treatment an insurance approval wrote. Its service, teeth, date and money come from the
-   * approval paper and change only on the patient's Insurance tab; here the desk sets the state,
+   * A treatment an insurance approval wrote. Its service, date and money come from the approval
+   * paper and change only on the patient's Insurance tab; here the desk sets the teeth, the state,
    * the dentist and the note. The form used to send its whole self back, and anything it
    * re-derived on opening (the price list, say) read as an edit, so the server refused the save.
    */
@@ -612,6 +612,9 @@ export default function ServiceEditorDrawer({
     e.preventDefault();
     if (isSaving) return; // Fix Scenario 1: Double-click protection
     if (approval && initialNote) {
+      // Teeth go only when the chart really changed them: the same teeth in another order are no edit.
+      const sameTeeth = (a: string[]) => [...a].sort().join(",");
+      const teethChanged = sameTeeth(selectedTeeth) !== sameTeeth(parseTeethString(initialNote.tooth || ""));
       setIsSaving(true);
       try {
         await updateApprovalProcedure(initialNote.id, {
@@ -620,6 +623,7 @@ export default function ServiceEditorDrawer({
           status: procedureStatus,
           doctorId: selectedDoctorId || null,
           note: noteText,
+          ...(teethChanged ? { selectedTeeth: [...selectedTeeth] } : {}),
         });
         showToast(language === "ar" ? "اتحفظ" : "Procedure Updated", "success");
         onSaved();
@@ -1024,8 +1028,8 @@ export default function ServiceEditorDrawer({
 
   /**
    * What an insurance approval fixed on this treatment, shown instead of the controls that would
-   * change it. Teeth, service and money are the approval's; the desk changes them on the patient's
-   * Insurance tab, where the approval itself lives.
+   * change it. Service and money are the approval's; the teeth are picked on the chart above and
+   * saved to the approval's line too.
    */
   const approvalSummary = approval ? (
     <div className="rounded-2xl border border-accent-soft bg-accent-tint px-4 py-3.5">
@@ -1060,8 +1064,8 @@ export default function ServiceEditorDrawer({
       </p>
       <p className="mt-2 text-[13px] font-bold leading-relaxed text-accent-ink">
         {language === "ar"
-          ? "العلاج والأسنان والسعر جايين من ورقة الموافقة. عايز تغيّرهم؟ من تبويب التأمين في ملف المريض. هنا تغيّر الحالة والدكتور والملاحظات."
-          : "The treatment, teeth and price come from the approval paper. To change them, go to the patient's Insurance tab. Here you change the state, the dentist and the notes."}
+          ? "العلاج والسعر جايين من ورقة الموافقة. هنا تغيّر الأسنان (من الرسمة) والحالة والدكتور والملاحظات — والأسنان بتتكتب في شيت التأمين."
+          : "The treatment and price come from the approval paper. Here you change the teeth (on the chart), the state, the dentist and the notes — the teeth go onto the insurer's sheet."}
       </p>
     </div>
   ) : null;
@@ -1082,7 +1086,7 @@ export default function ServiceEditorDrawer({
         </p>
       )}
       <p className="mt-2 text-[13px] font-bold leading-relaxed text-accent-ink">
-        {language === "ar" ? "من هنا تغيّر الحالة والملاحظات بس." : "Here you change the state and the notes only."}
+        {language === "ar" ? "من هنا تغيّر الأسنان (من الرسمة) والحالة والملاحظات." : "Here you change the teeth (on the chart), the state and the notes."}
       </p>
     </div>
   ) : null;
@@ -1284,8 +1288,7 @@ export default function ServiceEditorDrawer({
       <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar md:overflow-visible md:flex md:flex-col">
         {!hideTeethSelector && (
           <div
-            className={`md:shrink-0 ${!inline ? "px-6 pt-4 max-md:px-3 max-md:pt-3" : "px-4 pt-4"} ${approval ? "pointer-events-none" : ""}`}
-            aria-disabled={approval ? true : undefined}
+            className={`md:shrink-0 ${!inline ? "px-6 pt-4 max-md:px-3 max-md:pt-3" : "px-4 pt-4"}`}
           >
             <TeethChartSelector
               selected={selectedTeeth}

@@ -236,20 +236,37 @@ export function quadrantTeeth(conditions: string): string[][] {
   return out;
 }
 
+/** A service billed per visit, never per tooth (the exam, DE-1 / كشف): the conditions' teeth are never its. */
+export function isVisitService(line: { code?: unknown; description?: unknown }): boolean {
+  const code = String(line.code ?? "").trim().toUpperCase();
+  const words = String(line.description ?? "").toLowerCase();
+  return code === "DE-1" || /consultation|examination|كشف/.test(words);
+}
+
 /**
  * Teeth for each line, from the conditions' groups: a group goes to the first line approved for exactly
- * that many units that has no teeth yet. Lines approved for nothing, or for a count no group matches,
- * get none — a wrong tooth on a claim is worse than a blank the desk fills in.
+ * that many units that has no teeth yet. When every group of that size is taken and there was only ONE
+ * of that size, the next line shares it — the lining under a filling is on the filling's teeth (DENT INN,
+ * 2026-10: "بطانة كالسيوم 2" and "حشو كمبوزيت 2" on one paper naming one pair). The exam takes none:
+ * it used to take a single-tooth group meant for the x-ray, printing "كشف رقم 6" on the sheet. Lines
+ * approved for nothing, or for a count no group matches, get none — a wrong tooth on a claim is worse
+ * than a blank the desk fills in (on the treatment's chart, which writes back to the approval).
  */
-export function assignConditionTeeth(lines: ReadonlyArray<{ unitsApproved: number }>, groups: string[][]): string[][] {
+export function assignConditionTeeth(
+  lines: ReadonlyArray<{ unitsApproved: number; code?: unknown; description?: unknown }>,
+  groups: string[][],
+): string[][] {
   const used = new Set<number>();
   return lines.map((l) => {
     const n = Math.round(Number(l.unitsApproved) || 0);
-    if (n <= 0) return [];
+    if (n <= 0 || isVisitService(l)) return [];
     const k = groups.findIndex((g, i) => !used.has(i) && g.length === n);
-    if (k < 0) return [];
-    used.add(k);
-    return [...groups[k]];
+    if (k >= 0) {
+      used.add(k);
+      return [...groups[k]];
+    }
+    const sameSize = groups.filter((g) => g.length === n);
+    return sameSize.length === 1 ? [...sameSize[0]] : [];
   });
 }
 
@@ -342,7 +359,7 @@ export function fromNextcareModel(raw: unknown): Record<string, unknown> {
     lines,
     // Teeth come from the conditions, once, at read time; after that they are the desk's.
     teethFromConditions: assignConditionTeeth(
-      lines.map((l) => ({ unitsApproved: parseMoney(l.unitsApproved) ?? 0 })),
+      lines.map((l) => ({ unitsApproved: parseMoney(l.unitsApproved) ?? 0, code: l.code, description: l.description })),
       quadrantTeeth(conditions),
     ),
   };

@@ -135,6 +135,8 @@ jobs:
         run: npm run --silent test:rules
       - name: Branch money routes (ledger, settlements, insurance claims and the daily briefing, real handlers on the emulator)
         run: npx firebase-tools@13 emulators:exec --only firestore "npm run --silent test:branch-money-routes"
+      - name: Teeth on an insurance approval's treatment reach the approval and the monthly sheet
+        run: npx firebase-tools@13 emulators:exec --only firestore "npm run --silent test:approval-teeth-route"
 
   build:
     name: Production build
