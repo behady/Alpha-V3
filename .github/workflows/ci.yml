@@ -102,6 +102,8 @@ jobs:
         run: npm run --silent test:homeview
       - name: Finance daily sheet and its Excel file
         run: npm run --silent test:daily-sheet
+      - name: Finance Excel report and payment method words
+        run: npm run --silent test:finance-excel
       - name: Lint baseline (pre-existing errors only, none added)
         run: node scripts/check-lint-baseline.mjs
       # functions/ has no tests and no build step, so nothing else here would notice a syntax

@@ -166,9 +166,19 @@ export function sheetMethodLabel(method: string, isAr = false): string {
   if (k === "cash") return isAr ? "كاش" : "Cash";
   if (k === "instapay") return isAr ? "انستاباي" : "InstaPay";
   if (k === "card") return isAr ? "فيزا" : "Visa";
+  if (k === "insurance") return isAr ? "تأمين" : "Insurance";
   if (k === "bank transfer") return isAr ? "تحويل" : "Transfer";
   if (k === "wallet" || k === "vodafone cash") return isAr ? "محفظة" : "Wallet";
   return method.trim() || (isAr ? "أخرى" : "Other");
+}
+
+/**
+ * A payment row's stored method in plain words, spellings folded ("Visa" is the card machine,
+ * "Instapay"/"InstaPay" one app); anything else as written. Empty when nothing was recorded.
+ */
+export function paymentMethodLabel(raw: unknown, isAr = false): string {
+  const t = text(raw);
+  return t ? sheetMethodLabel(methodOf(t), isAr) : "";
 }
 
 /** "07/10/2026" from "2026-10-07"; anything else as it came. */

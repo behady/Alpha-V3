@@ -26,6 +26,8 @@ import BranchSelector from "@/components/shared/BranchSelector";
 import BranchTabs from "@/components/finance/BranchTabs";
 import InsurerTab from "@/components/finance/InsurerTab";
 import DailySheetTab from "@/components/finance/DailySheetTab";
+import MethodChip from "@/components/finance/MethodChip";
+import { paymentMethodLabel } from "@/lib/dailySheet";
 import FinanceFilters, { type FinanceFilterOptions } from "@/components/finance/FinanceFilters";
 import InsurerBadge from "@/components/shared/InsurerBadge";
 import { applyFinanceFilters, EMPTY_FINANCE_FILTER, type FinanceFilter } from "@/lib/financeFilters";
@@ -781,6 +783,60 @@ export default function FinancePage() {
     setIsPdfModalOpen(true);
   };
 
+  /** A stored value as text inside the PDF's HTML. */
+  const pdfText = (v: string) => v.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+  /**
+   * The list on screen as a spreadsheet: every row of the period, branch and filters (all pages),
+   * with the screen's columns, the totals, and money in by method.
+   */
+  const exportExcel = async () => {
+    const isAr = language === "ar";
+    try {
+      const [{ default: XLSX }, { financeWorkbook, financeFileName }] = await Promise.all([
+        import("xlsx-js-style"),
+        import("@/lib/financeLedgerXlsx"),
+      ]);
+      const list = filterType === "all" ? figureRows : filteredList;
+      const notRecorded = isAr ? "مش متسجلة" : "Not recorded";
+      const byMethod = new Map<string, number>();
+      const rows = list.map((tx) => {
+        const out = tx.type === "expense";
+        const d = rowDentist(tx);
+        const hasShare = Boolean(d && d.share > 0);
+        const method = paymentMethodLabel(tx.method, isAr);
+        if (!out) byMethod.set(method || notRecorded, (byMethod.get(method || notRecorded) ?? 0) + tx.val);
+        return {
+          date: tx.date,
+          direction: out ? ("out" as const) : ("in" as const),
+          details: rowTitle(tx),
+          category: categoryLabel(tx.category, isAr) || "",
+          patient: tx.patientName?.trim() || "",
+          dentist: d?.name || (tx.doctorName || tx.doctor || "").replace(/^Dr\.\s*/i, ""),
+          rate: d && d.rate != null && hasShare ? d.rate : null,
+          commission: d && hasShare ? d.share : null,
+          commissionPaid: d && hasShare ? d.paid : null,
+          commissionPending: d && hasShare ? d.pending : null,
+          clinicNet: !out && (d || tx.labFee) ? rowNet(tx, d?.paid ?? 0) : null,
+          method,
+          amount: tx.val,
+        };
+      });
+      const wb = financeWorkbook({
+        rows,
+        byMethod: [...byMethod].map(([label, amount]) => ({ label, amount: Math.round(amount * 100) / 100 })),
+        start: periodBounds.start,
+        end: periodBounds.end,
+        branchName: scopeBranchId ? branches.find((b) => b.id === scopeBranchId)?.name : undefined,
+        isAr,
+      });
+      XLSX.writeFile(wb, financeFileName(periodBounds.start, periodBounds.end), { compression: true });
+    } catch (err) {
+      console.error("Finance Excel export failed:", err);
+      showToast(isAr ? "مقدرناش نجهّز ملف الإكسل" : "Could not make the Excel file", "error");
+    }
+  };
+
   const handleExport = async (target: 'download') => {
     setIsExporting(true); setExportTarget(target);
     try {
@@ -870,6 +926,7 @@ export default function FinancePage() {
                   <th style="padding: 10px 12px; background: #f8fafc; color: #475569; font-weight: 700; text-transform: uppercase; font-size: 10px; border-bottom: 1px solid #e2e8f0; text-align: ${language === 'ar' ? 'right' : 'left'};">${language === 'ar' ? 'الوصف' : 'Description'}</th>
                   <th style="padding: 10px 12px; background: #f8fafc; color: #475569; font-weight: 700; text-transform: uppercase; font-size: 10px; border-bottom: 1px solid #e2e8f0; text-align: ${language === 'ar' ? 'right' : 'left'};">${language === 'ar' ? 'المريض' : 'Patient'}</th>
                   <th style="padding: 10px 12px; background: #f8fafc; color: #475569; font-weight: 700; text-transform: uppercase; font-size: 10px; border-bottom: 1px solid #e2e8f0; text-align: ${language === 'ar' ? 'right' : 'left'};">${language === 'ar' ? 'الطبيب' : 'Doctor'}</th>
+                  <th style="padding: 10px 12px; background: #f8fafc; color: #475569; font-weight: 700; text-transform: uppercase; font-size: 10px; border-bottom: 1px solid #e2e8f0; text-align: ${language === 'ar' ? 'right' : 'left'};">${language === 'ar' ? 'طريقة الدفع' : 'Method'}</th>
                   <th style="padding: 10px 12px; background: #f8fafc; color: #475569; font-weight: 700; text-transform: uppercase; font-size: 10px; border-bottom: 1px solid #e2e8f0; text-align: ${language === 'ar' ? 'left' : 'right'};">${language === 'ar' ? 'المبلغ' : 'Amount'}</th>
                 </tr>
               </thead>
@@ -880,6 +937,7 @@ export default function FinancePage() {
                     <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: ${language === 'ar' ? 'right' : 'left'};">${tx.description || '—'}</td>
                     <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: ${language === 'ar' ? 'right' : 'left'};">${tx.patientName || '—'}</td>
                     <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: ${language === 'ar' ? 'right' : 'left'};">${tx.doctorName || tx.doctor || '—'}</td>
+                    <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: ${language === 'ar' ? 'right' : 'left'};">${pdfText(paymentMethodLabel(tx.method, language === 'ar')) || '—'}</td>
                     <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #059669; text-align: ${language === 'ar' ? 'left' : 'right'};">+${tx.val.toLocaleString()}</td>
                   </tr>
                 `).join('')}
@@ -902,6 +960,7 @@ export default function FinancePage() {
                   <th style="padding: 10px 12px; background: #f8fafc; color: #475569; font-weight: 700; text-transform: uppercase; font-size: 10px; border-bottom: 1px solid #e2e8f0; text-align: ${language === 'ar' ? 'right' : 'left'};">${language === 'ar' ? 'التاريخ' : 'Date'}</th>
                   <th style="padding: 10px 12px; background: #f8fafc; color: #475569; font-weight: 700; text-transform: uppercase; font-size: 10px; border-bottom: 1px solid #e2e8f0; text-align: ${language === 'ar' ? 'right' : 'left'};">${language === 'ar' ? 'الوصف' : 'Description'}</th>
                   <th style="padding: 10px 12px; background: #f8fafc; color: #475569; font-weight: 700; text-transform: uppercase; font-size: 10px; border-bottom: 1px solid #e2e8f0; text-align: ${language === 'ar' ? 'right' : 'left'};">${language === 'ar' ? 'الفئة' : 'Category'}</th>
+                  <th style="padding: 10px 12px; background: #f8fafc; color: #475569; font-weight: 700; text-transform: uppercase; font-size: 10px; border-bottom: 1px solid #e2e8f0; text-align: ${language === 'ar' ? 'right' : 'left'};">${language === 'ar' ? 'طريقة الدفع' : 'Method'}</th>
                   <th style="padding: 10px 12px; background: #f8fafc; color: #475569; font-weight: 700; text-transform: uppercase; font-size: 10px; border-bottom: 1px solid #e2e8f0; text-align: ${language === 'ar' ? 'left' : 'right'};">${language === 'ar' ? 'المبلغ' : 'Amount'}</th>
                 </tr>
               </thead>
@@ -911,6 +970,7 @@ export default function FinancePage() {
                     <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: ${language === 'ar' ? 'right' : 'left'};">${tx.date}</td>
                     <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: ${language === 'ar' ? 'right' : 'left'};">${tx.description || '—'}</td>
                     <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: ${language === 'ar' ? 'right' : 'left'};">${categoryLabel(tx.category, language === 'ar') || '—'}</td>
+                    <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: ${language === 'ar' ? 'right' : 'left'};">${pdfText(paymentMethodLabel(tx.method, language === 'ar')) || '—'}</td>
                     <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; font-weight: 700; color: #dc2626; text-align: ${language === 'ar' ? 'left' : 'right'};">-${tx.val.toLocaleString()}</td>
                   </tr>
                 `).join('')}
@@ -1358,6 +1418,15 @@ export default function FinancePage() {
                 <FileText size={16} />
                 {language === "ar" ? "تقرير" : "Report"}
               </button>
+              <button
+                type="button"
+                onClick={exportExcel}
+                disabled={isLoading}
+                className="lg:hidden flex-auto min-h-11 inline-flex justify-center items-center gap-2 whitespace-nowrap bg-surface text-ink border border-line px-3 py-2.5 rounded-xl font-bold text-xs disabled:opacity-50 transition-colors shadow-sm"
+              >
+                <FileSpreadsheet size={16} />
+                Excel
+              </button>
               </>)}
             </div>
 
@@ -1382,6 +1451,15 @@ export default function FinancePage() {
                   >
                     <FileText size={16} />
                     {language === "ar" ? "تقرير PDF" : "PDF Report"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={exportExcel}
+                    disabled={isLoading}
+                    className="flex-1 sm:flex-none inline-flex justify-center items-center gap-2 bg-surface text-ink border border-line hover:border-slate-400 px-4 py-2.5 rounded-xl font-bold text-xs disabled:opacity-50 transition-colors shadow-sm"
+                  >
+                    <FileSpreadsheet size={16} />
+                    {language === "ar" ? "تقرير Excel" : "Excel report"}
                   </button>
                 </div>
               </div>
@@ -1509,6 +1587,7 @@ export default function FinancePage() {
                             <th className="text-end py-4 px-3 w-[110px] whitespace-nowrap">{language === "ar" ? "عمولة اتدفعت" : "Paid commission"}</th>
                             <th className="text-end py-4 px-3 w-[120px] whitespace-nowrap">{language === "ar" ? "عمولة معلّقة" : "Pending commission"}</th>
                             <th className="text-end py-4 px-3 w-[110px] whitespace-nowrap">{language === "ar" ? "صافي العيادة" : "Clinic net"}</th>
+                            <th className="text-start py-4 px-3 w-[110px] whitespace-nowrap">{language === "ar" ? "طريقة الدفع" : "Method"}</th>
                             <th className="text-end py-4 px-6 w-[120px] whitespace-nowrap">{language === "ar" ? "المبلغ المدفوع" : "Amount paid"}</th>
                           </>
                         )}
@@ -1568,7 +1647,7 @@ export default function FinancePage() {
                             {filterType === "expense" ? (
                               <>
                                 <td className="py-4 px-4 align-top text-sm font-semibold text-ink">{categoryLabel(tx.category, language === "ar") || "—"}</td>
-                                <td className="py-4 px-4 align-top text-sm font-semibold text-ink-body">{tx.method || "—"}</td>
+                                <td className="py-4 px-4 align-top"><MethodChip method={tx.method} isAr={language === "ar"} /></td>
                                 <td className="py-4 px-4 align-top text-sm font-semibold text-ink-muted">{tx.isRecurring ? (language === "ar" ? "كل شهر" : "Monthly") : "—"}</td>
                               </>
                             ) : (
@@ -1610,6 +1689,9 @@ export default function FinancePage() {
                                     ) : (
                                       dash
                                     )}
+                                  </td>
+                                  <td className="py-4 px-3 align-top">
+                                    <MethodChip method={tx.method} isAr={language === "ar"} />
                                   </td>
                                 </>
                               );
@@ -1710,10 +1792,13 @@ export default function FinancePage() {
                               {payerCaption(tx)}
                             </div>
                           </div>
-                          <span className={`font-black text-sm tabular-nums shrink-0 ${isExpense ? "text-red-600" : "text-emerald-600"}`}>
-                            {isExpense ? "−" : "+"}
-                            {tx.val.toLocaleString()}
-                          </span>
+                          <div className="flex shrink-0 flex-col items-end gap-1">
+                            <span className={`font-black text-sm tabular-nums ${isExpense ? "text-red-600" : "text-emerald-600"}`}>
+                              {isExpense ? "−" : "+"}
+                              {tx.val.toLocaleString()}
+                            </span>
+                            {tx.method ? <MethodChip method={tx.method} isAr={ar} /> : null}
+                          </div>
                         </div>
                         <div className="flex items-end gap-2 ps-[2.625rem]">
                           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">

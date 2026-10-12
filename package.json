@@ -158,6 +158,7 @@
     "test:insurer-ledger": "npx tsx tests/insurerLedger.test.mts",
     "test:finance-filters": "npx tsx tests/financeFilters.test.mts",
     "test:daily-sheet": "npx tsx tests/dailySheet.test.mts",
+    "test:finance-excel": "npx tsx tests/financeExcel.test.mts",
     "test:clinic-locations": "npx tsx tests/clinicLocations.test.mts",
     "test:listmenu": "npx tsx tests/listMenu.test.mjs",
     "_comment_test_briefing": "The arithmetic behind the daily and weekly brief: double-counted revenue, lateness read on the clinic clock, absence claimed before a shift starts. No network, no emulator.",
