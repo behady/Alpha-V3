@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classify, dailyProactiveCap, inSendWindow, nextWindowOpen, zonedParts } from "../src/policy.js";
+import { classify, dailyProactiveCap, inSendWindow, isStaffPriority, nextWindowOpen, zonedParts } from "../src/policy.js";
 
 const CAIRO = { tz: "Africa/Cairo", startHour: 10, endHour: 22 };
 
@@ -41,4 +41,15 @@ test("a chat that wrote in within 24h gets replies; older or never is proactive"
   assert.equal(classify(now.getTime() - 3600_000, now), "reply");
   assert.equal(classify(now.getTime() - 25 * 3600_000, now), "proactive");
   assert.equal(classify(undefined, now), "proactive");
+});
+
+test("a message to the clinic's own people is staff: never held, unless it is already a reply", () => {
+  const now = new Date("2026-09-27T21:30:00Z"); // 00:30 in Cairo, window long shut
+  assert.equal(classify(undefined, now, { staff: true }), "staff");
+  assert.equal(classify(now.getTime() - 25 * 3600_000, now, { staff: true }), "staff");
+  assert.equal(classify(now.getTime() - 3600_000, now, { staff: true }), "reply");
+  assert.equal(classify(undefined, now, { staff: false }), "proactive", "a patient message is unchanged");
+  assert.equal(isStaffPriority("staff"), true);
+  assert.equal(isStaffPriority(" Staff "), true);
+  for (const v of [undefined, null, "", "high", "patient", true]) assert.equal(isStaffPriority(v), false, String(v));
 });

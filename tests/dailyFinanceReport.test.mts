@@ -184,6 +184,10 @@ const report = buildDailyFinanceReport({ date: D, rows, branches, payers, isAr: 
   const wa = read("src/lib/whatsapp.ts");
   eq(/form\.set\("mimetype", mime\)/.test(wa) && !/form\.set\("mimetype", "application\/pdf"\)/.test(wa), true, "the gateway is told the file's real type");
   eq(/mimetype: args\.mimetype/.test(read("src/lib/staffWhatsapp.ts")), true, "the staff sender passes the type through");
+  // Owner, 2026-10-12: a report must not wait for clinic hours on Alpha's gateway.
+  const staff = read("src/lib/staffWhatsapp.ts");
+  eq((staff.match(/priority: "staff"/g) || []).length, 2, "the staff sender marks both the text and the file as staff");
+  eq(/\.\.\.\(opts\.priority \? \{ priority: opts\.priority \} : \{\}\)/.test(wa) && /form\.set\("priority", priority\)/.test(wa), true, "the marker reaches the gateway on text and on files");
 }
 
 console.log(`daily finance report: ${checks} checks passed`);

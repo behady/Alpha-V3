@@ -7,8 +7,12 @@
  * new number, and it answers people who wrote in without any of those limits — a reply is the
  * one thing WhatsApp never punishes.
  *
- * Two kinds of message, decided per send by `classify`:
+ * Three kinds of message, decided per send by `classify`:
  *   reply      — the patient wrote to this number within the last 24 hours. Sent at once, any hour.
+ *   staff      — the clinic's own people: the owner's nightly report, an alert. The web app marks
+ *                these (`priority: "staff"`); they go to a handful of numbers that asked for them,
+ *                so they leave at any hour, outside the daily allowance, at the reply pace. The
+ *                owner asked for this (2026-10-12): a report held until 10 a.m. is no report.
  *   proactive  — the clinic is starting (or restarting) the conversation. Clinic hours only,
  *                counted against the number's daily allowance, paced like a person typing.
  */
@@ -76,8 +80,14 @@ export function daysBetween(fromMs, toMs) {
   return Math.max(0, Math.floor((toMs - fromMs) / (24 * 3600 * 1000)));
 }
 
-/** A message is a reply if this chat wrote to us within the last 24 hours. */
-export function classify(lastInboundAt, now) {
+/** A message is a reply if this chat wrote to us within the last 24 hours; else staff if marked so. */
+export function classify(lastInboundAt, now, { staff = false } = {}) {
   const at = Number(lastInboundAt) || 0;
-  return at && now.getTime() - at < 24 * 3600 * 1000 ? "reply" : "proactive";
+  if (at && now.getTime() - at < 24 * 3600 * 1000) return "reply";
+  return staff ? "staff" : "proactive";
+}
+
+/** The send call's marker for a message to the clinic's own people. Anything else is a patient message. */
+export function isStaffPriority(value) {
+  return String(value ?? "").trim().toLowerCase() === "staff";
 }

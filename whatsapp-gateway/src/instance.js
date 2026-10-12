@@ -470,16 +470,16 @@ export class Instance {
    * for tomorrow is only re-examined then, by the drain loop, which applies the same rules
    * again — the window may have closed, the allowance may be gone — and re-dates it if needed.
    */
-  #schedule(jid, now = new Date()) {
-    const kind = classify(this.contacts.inbound[jid], now);
-    if (kind === "reply") return { kind, notBefore: now.getTime() };
+  #schedule(jid, now = new Date(), staff = false) {
+    const kind = classify(this.contacts.inbound[jid], now, { staff });
+    if (kind === "reply" || kind === "staff") return { kind, notBefore: now.getTime() };
     if (!inSendWindow(now, this.#window())) return { kind, notBefore: nextWindowOpen(now, this.#window()).getTime(), held: "window" };
     if (this.#dailyStatus(now).left <= 0) return { kind, notBefore: nextWindowOpen(now, this.#window()).getTime(), held: "daily_cap" };
     return { kind, notBefore: now.getTime() };
   }
 
   async #enqueue(item) {
-    const { kind, notBefore, held } = this.#schedule(item.jid);
+    const { kind, notBefore, held } = this.#schedule(item.jid, new Date(), item.staff === true);
     const full = { ...item, id: generateMessageIDV2(), proactive: kind === "proactive", notBefore, createdAt: Date.now(), attempts: 0 };
     await this.queue.push(full);
     if (held) this.log.info({ id: full.id, held, notBefore: new Date(notBefore).toISOString() }, "message held");
@@ -487,16 +487,17 @@ export class Instance {
     return { id: full.id, queued: true, proactive: full.proactive, notBefore, held: held || null };
   }
 
-  async sendText(chatId, text) {
+  /** `opts.staff`: a message to the clinic's own people — never held (see policy.js). */
+  async sendText(chatId, text, opts = {}) {
     const jid = toWaJid(chatId);
     if (!jid) throw Object.assign(new Error("Invalid chat_id"), { statusCode: 400 });
     const body = String(text ?? "");
     if (!body.trim()) throw Object.assign(new Error("text is required"), { statusCode: 400 });
     if (this.state === "restricted") throw Object.assign(new Error(`Sending is paused: ${this.lastError}`), { statusCode: 503 });
-    return this.#enqueue({ jid, kind: "text", text: body });
+    return this.#enqueue({ jid, kind: "text", text: body, staff: opts.staff === true });
   }
 
-  async sendDocument(chatId, { buffer, mimetype, fileName, caption }) {
+  async sendDocument(chatId, { buffer, mimetype, fileName, caption, staff = false }) {
     const jid = toWaJid(chatId);
     if (!jid) throw Object.assign(new Error("Invalid chat_id"), { statusCode: 400 });
     if (!buffer?.length) throw Object.assign(new Error("file is empty"), { statusCode: 400 });
@@ -505,7 +506,7 @@ export class Instance {
     const fileId = generateMessageIDV2();
     const file = join(this.outboxDir, fileId);
     await writeFile(file, buffer);
-    return this.#enqueue({ jid, kind: "document", file, mimetype: mimetype || "application/octet-stream", fileName: fileName || "file", caption: caption || "" });
+    return this.#enqueue({ jid, kind: "document", file, mimetype: mimetype || "application/octet-stream", fileName: fileName || "file", caption: caption || "", staff: staff === true });
   }
 
   #kickDrain() {

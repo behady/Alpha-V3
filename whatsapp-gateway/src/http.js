@@ -4,6 +4,7 @@ import { Readable } from "node:stream";
 import QRCode from "qrcode";
 import { config } from "./config.js";
 import { Registry } from "./registry.js";
+import { isStaffPriority } from "./policy.js";
 
 /**
  * The HTTP face of the gateway. Two audiences, two doors:
@@ -177,7 +178,7 @@ export function createHttpServer({ registry, logger }) {
           const body = await parseBody(req);
           const chatId = body.chat_id || body.chatId || body.phone || body.to;
           const text = body.text ?? body.message ?? body.body;
-          const sent = await inst.sendText(chatId, text);
+          const sent = await inst.sendText(chatId, text, { staff: isStaffPriority(body.priority) });
           // Accepted, not yet sent: the instance paces and may hold it for clinic hours. `id` at
           // the root is what the web app's wapilotMessageId reads first; the same string later
           // arrives on the ack event, which is how the ticks find their message.
@@ -205,7 +206,7 @@ export function createHttpServer({ registry, logger }) {
             mimetype = mimetype || (body.media && body.media.mimetype) || got.type;
             fileName = fileName || (body.media && body.media.filename) || "file";
           }
-          const sent = await inst.sendDocument(chatId, { buffer, mimetype, fileName, caption });
+          const sent = await inst.sendDocument(chatId, { buffer, mimetype, fileName, caption, staff: isStaffPriority(body.priority) });
           return json(res, 200, { ok: true, id: sent.id, data: { id: sent.id, queued: true, proactive: sent.proactive, notBefore: sent.notBefore, held: sent.held } });
         }
 

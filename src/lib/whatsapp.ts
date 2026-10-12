@@ -23,6 +23,8 @@ type WhatsAppPdfSendArgs = {
   caption?: string;
   /** The file's type. PDF unless said otherwise (the daily report sends an Excel file). */
   mimetype?: string;
+  /** "staff": to the clinic's own people — never held by Alpha's gateway (see sendWapilotText). */
+  priority?: "staff";
 };
 
 /** Normalize to E.164-style string (leading +). Used by callers that store/display numbers. */
@@ -87,7 +89,11 @@ export async function sendWhatsApp({ clinicId, to, text }: WhatsAppSendArgs) {
  * `sendWhatsApp` resolves a clinic's own credentials; the platform alerts line is not any
  * clinic's, so its sender (lib/staffWhatsapp.ts) loads that config itself and calls this.
  */
-export async function sendWapilotText(config: WapilotConfig, to: string, text: string) {
+/**
+ * `priority: "staff"` marks a message to the clinic's own people (owner report, alert). Alpha's own
+ * gateway sends those at any hour instead of holding them for clinic hours; Wapilot ignores it.
+ */
+export async function sendWapilotText(config: WapilotConfig, to: string, text: string, opts: { priority?: "staff" } = {}) {
   assertWapilotReady(config);
   const { instanceId, token, apiRoot, sendUrlOverride, sendPathTemplate } = config;
 
@@ -108,6 +114,7 @@ export async function sendWapilotText(config: WapilotConfig, to: string, text: s
   const body = {
     chat_id: chatId,
     text,
+    ...(opts.priority ? { priority: opts.priority } : {}),
   };
 
   const res = await fetch(url, {
@@ -277,7 +284,7 @@ export async function sendWhatsAppPdfFromUrl({
 /** The same document send with the credentials handed in — the platform alerts line is nobody's clinic. */
 export async function sendWapilotDocument(
   config: WapilotConfig,
-  { to, fileUrl, pdfBytes, filename, caption, mimetype }: Omit<WhatsAppPdfSendArgs, "clinicId">,
+  { to, fileUrl, pdfBytes, filename, caption, mimetype, priority }: Omit<WhatsAppPdfSendArgs, "clinicId">,
 ) {
   assertWapilotReady(config);
   const { instanceId, token, apiRoot, sendDocumentUrlOverride, sendDocumentPathTemplate } = config;
@@ -308,6 +315,7 @@ export async function sendWapilotDocument(
     form.set("filename", safeFilename);
     form.set("mimetype", mime);
     form.set("type", "document");
+    if (priority) form.set("priority", priority);
     form.set("media", new Blob([pdfArrayBuffer], { type: mime }), safeFilename);
     if (trimmedUrl) {
       form.set("content", trimmedUrl);
@@ -349,6 +357,7 @@ export async function sendWapilotDocument(
     caption: captionText,
     mimetype: mime,
     type: "document",
+    ...(priority ? { priority } : {}),
   };
 
   const res = await fetch(url, {

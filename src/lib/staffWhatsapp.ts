@@ -118,7 +118,8 @@ export async function sendStaffWhatsApp(args: {
     // One number, many clinics: the reader has to be told whose figures these are before the
     // first line, and a report that already opens with the clinic's name is not stamped twice.
     const name = await clinicDisplayName(args.clinicId);
-    if (name && !text.startsWith(name) && !text.startsWith(`*${name}`)) text = `*${name}*\n${text}`;
+    // "📊 *DENT INN* — …" already names it, emoji first; only the first line is looked at.
+    if (name && !text.split("\n")[0].includes(name)) text = `*${name}*\n${text}`;
   }
 
   try {
@@ -127,7 +128,8 @@ export async function sendStaffWhatsApp(args: {
       if (!result.ok) return { sent: false, reason: "gateway_error", error: result.error || "Meta refused" };
       return { sent: true, via: "meta" };
     }
-    await sendWapilotText(gateway.config, to, text);
+    // Staff messages are never held for clinic hours on Alpha's own gateway (owner, 2026-10-12).
+    await sendWapilotText(gateway.config, to, text, { priority: "staff" });
     return { sent: true, via: gateway.platform ? "platform" : "wapilot" };
   } catch (error) {
     return { sent: false, reason: "gateway_error", error: error instanceof Error ? error.message : String(error) };
@@ -185,7 +187,7 @@ export async function sendStaffDocument(args: {
       if (!result.ok) return { sent: false, reason: "gateway_error", error: result.error || "Meta refused the document" };
       return { sent: true, via: "meta" };
     }
-    await sendWapilotDocument(gateway.config, { to, fileUrl: link || undefined, pdfBytes: args.bytes, filename: safeName, caption: args.caption, mimetype: args.mimetype });
+    await sendWapilotDocument(gateway.config, { to, fileUrl: link || undefined, pdfBytes: args.bytes, filename: safeName, caption: args.caption, mimetype: args.mimetype, priority: "staff" });
     return { sent: true, via: gateway.platform ? "platform" : "wapilot" };
   } catch (error) {
     return { sent: false, reason: "gateway_error", error: error instanceof Error ? error.message : String(error) };
