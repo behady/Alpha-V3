@@ -38,7 +38,7 @@ import DentistReport from "@/components/dashboard/DentistReport";
 import type { Note, Service, Staff } from "@/components/clinical-notes/types";
 import type { ToothData } from "@/lib/diagnosisCatalog";
 import {
-  daysBetween, isDone, isMine, labReturns, moneyToday, openPlans, owedByMyPatients, owedByPatient,
+  daysBetween, isDone, isMine, labReturns, openPlans, owedByPatient,
   pickChair, sortDay, waitingMinutes, type DentistIdentity, type Row,
 } from "@/lib/dentistHome";
 import PageHeader from "@/components/dashboard/PageHeader";
@@ -217,9 +217,6 @@ export default function DentistHome() {
   const heroIsCurrent = !!chair.current;
   const after = chair.current ? chair.next : chair.after;
 
-  const money = useMemo(() => (me ? moneyToday(ledger, me, today) : { paid: 0, share: 0 }), [ledger, me, today]);
-  // A patient's debt is one account for the whole clinic, so it reads the ledger unfiltered; the dentist's own earnings stay per branch.
-  const owed = useMemo(() => (me ? owedByMyPatients(loadedLedger, me) : 0), [loadedLedger, me]);
   const lab = useMemo(() => (me ? labReturns(labCases, me, today) : []), [labCases, me, today]);
   const patientName = useCallback(
     (id: string) => patients.find((p) => p.id === id)?.name || (isAr ? "مريض" : "Patient"),
@@ -477,8 +474,8 @@ export default function DentistHome() {
     <div className="min-h-full pb-2 lg:pb-6 text-ink-strong" dir={isRTL ? "rtl" : "ltr"}>
       <div className="w-full max-w-[1400px] mx-auto p-4 md:p-6 lg:p-5 flex flex-col gap-4">
 
-        {/* The greeting is in the layout's black band; the dentist's own money stays on the page
-            next to the chair, which is what they came here to look at. */}
+        {/* The greeting is in the layout's black band. No money strip: the dentist view shows no
+            money at all (owner, 2026-10-12). */}
         <PageHeader
           title={<><span className="font-light">{greeting}</span> {isAr ? `د. ${firstName}` : `Dr. ${firstName}`}</>}
           subtitle={`${dateLine} · ${timeLine}${branches.length > 0 && activeBranch ? ` · ${activeBranch.name}` : ""}`}
@@ -486,25 +483,6 @@ export default function DentistHome() {
           {/* Renders nothing for a plain dentist — this screen is simply their home. */}
           <HomeViewTabs />
         </PageHeader>
-
-        {/* Phones: the strip is wider than the screen, and a wrapping row anchored to the end
-            pushed it off the start edge where nobody could scroll to it. Below sm it is an even
-            grid of figures instead; from sm up it is the original pill. */}
-        {/* Below sm the labels are the short ones, so the three figures stay one low row and the
-            day list starts near the top of the screen instead of under a three-line caption. */}
-        <div className="flex flex-wrap items-end justify-end gap-4 px-1 max-lg:px-0">
-          <div className={`grid ${showShare ? "grid-cols-3" : "grid-cols-2"} w-full sm:w-auto sm:flex items-stretch bg-surface border border-line rounded-2xl shadow-sm px-1.5 py-2.5 max-sm:py-2`}>
-            <Figure label={isAr ? "دفعوا النهارده" : "My patients paid today"} short={isAr ? "دفعوا النهارده" : "Paid today"} value={fmt(money.paid)} unit={unit} />
-            {showShare && (
-              <>
-                <span className="hidden sm:block w-px bg-line my-0.5" />
-                <Figure label={isAr ? "نصيبي" : "My share"} value={fmt(money.share)} unit={unit} />
-              </>
-            )}
-            <span className="hidden sm:block w-px bg-line my-0.5" />
-            <Figure label={isAr ? "لسه عليهم" : "Still owed by my patients"} short={isAr ? "لسه عليهم" : "Still owed"} value={fmt(owed)} unit={unit} />
-          </div>
-        </div>
 
         {/* Row 2: the chair, and the day */}
         {/* Below lg the day list comes first (order-first on its card) and the slab follows it as
@@ -1032,23 +1010,6 @@ export default function DentistHome() {
 
 // --- Small pieces, kept here because nothing else uses them ------------------------------------
 
-function Figure({ label, short, value, unit }: { label: string; short?: string; value: string; unit: string }) {
-  return (
-    <div className="min-w-0 flex flex-col justify-between sm:justify-center gap-1.5 max-sm:gap-1 px-2 sm:px-4 md:px-5">
-      <span className="font-display text-[10px] font-black uppercase tracking-[0.12em] max-sm:tracking-[0.06em] text-ink-muted leading-tight sm:whitespace-nowrap">
-        {short ? (
-          <>
-            <span className="sm:hidden">{short}</span>
-            <span className="hidden sm:inline">{label}</span>
-          </>
-        ) : label}
-      </span>
-      <span className="font-figure text-[18px] sm:text-[22px] font-extrabold text-ink leading-none">
-        {value} <span className="text-[11px] font-semibold text-ink-faint tracking-[0.1em]">{unit}</span>
-      </span>
-    </div>
-  );
-}
 
 function Chip({ children }: { children: React.ReactNode }) {
   return (
