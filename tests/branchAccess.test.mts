@@ -83,7 +83,6 @@ for (const rel of [
   "src/components/dashboard/DesktopDashboard.tsx",
   "src/components/dashboard/MobileDashboard.tsx",
   "src/components/dashboard/OwnerHome.tsx",
-  "src/components/dashboard/DentistHome.tsx",
 ]) {
   assert.match(readFileSync(new URL(`../${rel}`, import.meta.url), "utf8"), /rowInScope\(/, `${rel} reads money without filtering by the branch on screen`);
 }

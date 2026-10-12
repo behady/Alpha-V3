@@ -1,65 +1,42 @@
 "use client";
 
 import { foldArabicDigits } from "@/lib/phoneNumber";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   arrayUnion, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where,
 } from "firebase/firestore";
-import {
-  Armchair, ArrowUpRight, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, FlaskConical, Loader2, Lock, Plus, ScanLine, Search,
-} from "lucide-react";
+import { Armchair, Check, Loader2, Plus, Search, User, X } from "lucide-react";
 import ChairPopup from "@/components/chair/ChairPopup";
-import { StatusSwitch, STATUS_OPTIONS, type NoteStatus } from "@/components/chair/ChairNoteCard";
-import { canTouch, statusPayload } from "@/lib/chairPopup";
-import { updateApprovalProcedure, updateProcedure } from "@/lib/moneyApi";
-import { XRAY_REPORTS_COLLECTION, worstSeverity, SEVERITY_COLORS, type XrayReport, type XraySeverity } from "@/lib/xrayReport";
-import { auth } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { useActiveBranch } from "@/lib/useActiveBranch";
-import { rowInScope } from "@/lib/branchAccess";
 import { localYmd } from "@/lib/clinicDate";
-import { currencyUnit } from "@/lib/currencyUnit";
-import { parseClinicSchedule, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import { getAppointmentStageLabel, getAppointmentStatusStyles } from "@/lib/appointmentStages";
 import { isDentistStaff } from "@/lib/staffRoles";
-import { LAB_CASES_COLLECTION, workTypeLabel } from "@/lib/labCases";
 import { treatmentsByTooth } from "@/lib/toothTreatments";
 import { suggestCategory } from "@/lib/dentalIcons";
-import { saveBooking } from "@/lib/bookingService";
 import { syncClaimLineFromAppointment } from "@/lib/insurance/appointmentSync";
-import BookingModal from "@/components/BookingModal";
 import ServiceEditorDrawer from "@/components/clinical-notes/ServiceEditorDrawer";
-import DentistReport from "@/components/dashboard/DentistReport";
 import type { Note, Service, Staff } from "@/components/clinical-notes/types";
 import type { ToothData } from "@/lib/diagnosisCatalog";
-import {
-  daysBetween, isDone, isMine, labReturns, openPlans, owedByPatient,
-  pickChair, sortDay, waitingMinutes, type DentistIdentity, type Row,
-} from "@/lib/dentistHome";
+import { isDone, isMine, pickChair, sortDay, waitingMinutes, type DentistIdentity, type Row } from "@/lib/dentistHome";
 import PageHeader from "@/components/dashboard/PageHeader";
 import HomeViewTabs from "@/components/dashboard/HomeViewTabs";
 
 /**
  * What a dentist sees on sign-in, instead of the reception desk.
  *
- * The main dashboard is a desk: booking, check-in, taking money, printing receipts. A dentist does
- * none of that. Their question is "who is next, what am I doing to them, and what came back from
- * the lab?" — so this is one quiet screen answering exactly that, from what the clinic already
- * records: the next patient in the chair, the day as a list, the lab cases waiting on them, the
- * patients they left mid-treatment with no next visit booked, and the money that is theirs.
+ * One screen, one job (owner, 2026-10-12: "more basic and simple"): the next patient, and the
+ * day as a list. Each booking carries two buttons — Profile opens the patient's file, Service opens
+ * the clinical-note pop-up on a blank treatment for that visit. Lab returns, x-rays to sign, open
+ * plans and the dentist's own report left the home on purpose; they live on their own pages.
  *
- * Only their own rows: every booking, ledger row, lab case and clinical note already carries the
- * dentist it belongs to, so nothing new has to be typed in for this screen to fill.
- *
- * Reads are live subscriptions, not fetches — reception checks a patient in and the slab flips
- * to "waiting" on the dentist's screen without anyone pressing anything. Rules already let any
- * clinic member read these collections, so no server route stands between the screen and the
- * data.
+ * Only their own bookings, read live: reception checks a patient in and the screen flips to
+ * "waiting" without anyone pressing anything. No money is read here at all.
  */
 
 type Patient = { id: string; name?: string; teethData?: Record<string, ToothData>; [k: string]: unknown };
@@ -68,16 +45,9 @@ type NoteContext = {
   apt: Row;
   patient: Patient;
   notes: Note[];
-  initialNote: Note | null;
 };
 
 const SEATABLE = new Set(["Scheduled", "Confirmed", "Delayed", "Checked In", "Late", "Pending"]);
-
-/**
- * Below `lg` a tap on a day card opens the chair — on a phone that is the whole job between
- * patients — and the file gets its own button on the card. The desk keeps its tap-to-file.
- */
-const onPhone = () => typeof window !== "undefined" && window.matchMedia("(max-width: 1023.98px)").matches;
 
 export default function DentistHome() {
   const router = useRouter();
@@ -85,9 +55,14 @@ export default function DentistHome() {
   const { clinicId } = useClinic();
   const { language, isRTL } = useLanguage();
   const { showToast } = useUI();
-  const { branches, activeBranch, matches, scopeBranchId, ready: branchReady } = useActiveBranch();
+  const { branches, activeBranch, matches, ready: branchReady } = useActiveBranch();
   const isAr = language === "ar";
   const today = localYmd();
+  const tomorrow = useMemo(() => {
+    const d = new Date(`${today}T12:00:00`);
+    d.setDate(d.getDate() + 1);
+    return localYmd(d);
+  }, [today]);
 
   // A clock for "waiting 6 min" and the greeting. Half a minute is plenty for a wait counter.
   const [now, setNow] = useState(() => Date.now());
@@ -120,28 +95,14 @@ export default function DentistHome() {
 
   // --- Live rows -----------------------------------------------------------------------------
   const [todayAppts, setTodayAppts] = useState<Row[]>([]);
-  /**
-   * The day the list is showing. The chair and the money are always today — they are live things —
-   * but the list can page to tomorrow to see what is coming, or back to see what happened.
-   */
-  const [viewDate, setViewDate] = useState(today);
+  /** The list shows today or tomorrow — nothing further, by design. The chair is always today. */
+  const [showTomorrow, setShowTomorrow] = useState(false);
+  const viewDate = showTomorrow ? tomorrow : today;
   const [dayAppts, setDayAppts] = useState<Row[]>([]);
-  const [futureAppts, setFutureAppts] = useState<Row[]>([]);
-  const [loadedLedger, setLedger] = useState<Row[]>([]);
-  // Their charges and payments at the branch on screen; rows from before branches show only under All branches.
-  const ledger = useMemo(() => loadedLedger.filter((r) => rowInScope(r, scopeBranchId)), [loadedLedger, scopeBranchId]);
-  const [labCases, setLabCases] = useState<Row[]>([]);
-  const [notes, setNotes] = useState<Row[]>([]);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [doctors, setDoctors] = useState<Staff[]>([]);
   const [services, setServices] = useState<Service[]>([]);
-  const [config, setConfig] = useState<ClinicScheduleConfig | null>(null);
-  const [showShare, setShowShare] = useState(true);
-  /** The clinic's currency code, for the unit beside each figure (ج.م in Arabic, not "EGP"). */
-  const [currency, setCurrency] = useState("EGP");
   const [loaded, setLoaded] = useState(false);
-  /** AI x-ray reports nobody has signed yet. Clinic-wide: a report waits for whichever dentist owns the patient. */
-  const [unsignedXrays, setUnsignedXrays] = useState<Row[]>([]);
 
   useEffect(() => {
     if (!me || !clinicId) return;
@@ -153,13 +114,6 @@ export default function DentistHome() {
         setTodayAppts(rows(s));
         setLoaded(true);
       }),
-      // Only to know which mid-treatment patients already have something booked.
-      onSnapshot(query(getClinicCollection("appointments"), where("date", ">", today)), (s) => setFutureAppts(rows(s))),
-      // Every charge and payment attributed to this dentist — the payment inherits the procedure's
-      // dentist when it is taken, so one filter covers both sides.
-      onSnapshot(query(getClinicCollection("ledger"), where("doctorId", "==", me.staffId)), (s) => setLedger(rows(s))),
-      onSnapshot(query(getClinicCollection(LAB_CASES_COLLECTION), where("doctorId", "==", me.staffId)), (s) => setLabCases(rows(s))),
-      onSnapshot(query(getClinicCollection("clinical_notes"), where("doctorId", "==", me.staffId)), (s) => setNotes(rows(s))),
       onSnapshot(query(getClinicCollection("patients"), orderBy("name"), limit(2500)), (s) => setPatients(rows(s) as Patient[])),
       onSnapshot(getClinicCollection("staff"), (s) =>
         setDoctors(
@@ -174,26 +128,11 @@ export default function DentistHome() {
         )
       ),
       onSnapshot(getClinicCollection("services"), (s) => setServices(rows(s) as unknown as Service[])),
-      // `signed` is a flat boolean on the report for exactly this query: no composite index, and
-      // a report the dentist has not confirmed is the one thing on this screen that is theirs to do.
-      onSnapshot(
-        query(getClinicCollection(XRAY_REPORTS_COLLECTION), where("signed", "==", false), limit(30)),
-        (s) => setUnsignedXrays(rows(s)),
-        () => setUnsignedXrays([])
-      ),
-      onSnapshot(getClinicDoc("settings", "clinic_info"), (snap) => {
-        const data = (snap.data() || {}) as Record<string, unknown>;
-        setConfig(parseClinicSchedule(data));
-        const home = (data.dentistHome || {}) as { showShare?: boolean };
-        // On unless the clinic switched it off: a dentist's share is their own pay.
-        setShowShare(home.showShare !== false);
-        setCurrency(typeof data.currency === "string" && data.currency.trim() ? data.currency : "EGP");
-      }),
     ];
     return () => unsubs.forEach((u) => u());
   }, [me, clinicId, today]);
 
-  // The viewed day's list. Its own subscription so paging never disturbs the chair's.
+  // The viewed day's list. Its own subscription so switching days never disturbs the chair's.
   useEffect(() => {
     if (!me || !clinicId) return;
     return onSnapshot(query(getClinicCollection("appointments"), where("date", "==", viewDate)), (s) =>
@@ -211,61 +150,22 @@ export default function DentistHome() {
     [dayAppts, me, matches]
   );
   const day = useMemo(() => sortDay(dayMine), [dayMine]);
-  const viewingToday = viewDate === today;
   const chair = useMemo(() => pickChair(mine), [mine]);
   const hero = chair.current || chair.next;
   const heroIsCurrent = !!chair.current;
-  const after = chair.current ? chair.next : chair.after;
-
-  const lab = useMemo(() => (me ? labReturns(labCases, me, today) : []), [labCases, me, today]);
-  const patientName = useCallback(
-    (id: string) => patients.find((p) => p.id === id)?.name || (isAr ? "مريض" : "Patient"),
-    [patients, isAr]
-  );
-  const plans = useMemo(() => (me ? openPlans(notes, futureAppts, me, today) : []), [notes, futureAppts, me, today]);
-
-  const heroPatientId = String(hero?.patientId || "");
-  const heroBalance = useMemo(
-    () => (me && heroPatientId ? owedByPatient(loadedLedger, me, heroPatientId) : 0),
-    [loadedLedger, me, heroPatientId]
-  );
-  const heroLastSeen = useMemo(() => {
-    if (!heroPatientId) return null;
-    const dates = notes
-      .filter((n) => String(n.patientId) === heroPatientId && String(n.date || "") < today)
-      .map((n) => String(n.date));
-    if (!dates.length) return null;
-    return daysBetween(dates.sort().at(-1) as string, today);
-  }, [notes, heroPatientId, today]);
   const heroWaiting = hero && String(hero.status) === "Checked In" ? waitingMinutes(hero.checkInTime, now) : null;
-
-  const fmt = (n: number) => n.toLocaleString(isAr ? "ar-EG" : "en-US");
   const dayDone = dayMine.filter((a) => isDone(a.status)).length;
-  const dayLabel = (() => {
-    const delta = daysBetween(today, viewDate);
-    if (delta === 0) return isAr ? "النهارده" : "Today";
-    if (delta === 1) return isAr ? "بكرة" : "Tomorrow";
-    if (delta === -1) return isAr ? "إمبارح" : "Yesterday";
-    const d = new Date(`${viewDate}T12:00:00`);
-    return d.toLocaleDateString(isAr ? "ar-EG" : "en-GB", { weekday: "long", day: "numeric", month: "short" });
-  })();
-  const shiftDay = (delta: number) => {
-    const d = new Date(`${viewDate}T12:00:00`);
-    d.setDate(d.getDate() + delta);
-    setViewDate(localYmd(d));
-  };
 
   // --- Acting from it ---------------------------------------------------------------------------
   const [busyId, setBusyId] = useState("");
 
   /**
    * The same write the reception dashboard makes for a status change, so the two screens leave
-   * identical trails. A dentist never checks a patient in (reception does), so the check-in
-   * stamp and attendance row are not repeated here; the check-out stamp is, because "done" from
-   * the chair is exactly the moment the dashboard stamps it.
+   * identical trails. A dentist never checks a patient in (reception does); the check-out stamp is
+   * repeated, because "done" from the chair is exactly the moment the dashboard stamps it.
    */
   const setStatus = async (apt: Row, nextStatus: "In Chair" | "Checking Out") => {
-    if (busyId) return;
+    if (busyId) return false;
     setBusyId(String(apt.id));
     try {
       const payload: Record<string, unknown> = {
@@ -278,97 +178,47 @@ export default function DentistHome() {
       await updateDoc(getClinicDoc("appointments", String(apt.id)), payload);
       // "Done" from the chair marks the insurance service done on its approval, with this dentist on it.
       void syncClaimLineFromAppointment(clinicId, { ...apt, status: nextStatus });
+      return true;
     } catch (e) {
       console.error("Status change failed:", e);
       showToast(isAr ? "حصل خطأ" : "Could not update", "error");
+      return false;
     } finally {
       setBusyId("");
     }
   };
 
-  // Today's note: the one already linked to this visit if there is one, else a fresh one on this
-  // visit. The chart needs the patient's tooth data and every note on them (not just this
-  // dentist's) — the moment of deciding which tooth to treat is the wrong moment for a blank mouth.
-  const [noteCtx, setNoteCtx] = useState<NoteContext | null>(null);
-  const [noteLoading, setNoteLoading] = useState(false);
-  /**
-   * The chair popup: a patient, and today's visit when there is one. Named apart from `chair`
-   * (which is today's seating) on purpose.
-   */
+  /** The chair popup: a patient, and today's visit when there is one. */
   const [chairPop, setChairPop] = useState<{ patientId: string; appointment: { id: string; branchId?: string | null } | null } | null>(null);
   const openChairFor = (a: Row) =>
     setChairPop({ patientId: String(a.patientId || ""), appointment: { id: String(a.id), branchId: (a.branchId as string | null | undefined) ?? null } });
-  /** Every dentist's treatments on the hero's visit — the slab shows them all, mine pressable. */
-  // Keyed by the visit they belong to, so a new hero never shows the previous patient's notes
-  // for the moment before its own listener answers.
-  const [heroNotesState, setHeroNotesState] = useState<{ heroId: string; notes: Note[] }>({ heroId: "", notes: [] });
-  const heroId = hero ? String(hero.id) : "";
-  useEffect(() => {
-    if (!heroId || !clinicId) return;
-    return onSnapshot(
-      query(getClinicCollection("clinical_notes"), where("appointmentId", "==", heroId)),
-      (s) => setHeroNotesState({ heroId, notes: s.docs.map((d) => ({ id: d.id, ...d.data() }) as Note) }),
-      () => setHeroNotesState({ heroId, notes: [] })
-    );
-  }, [heroId, clinicId]);
-  const heroNotes = heroNotesState.heroId === heroId ? heroNotesState.notes : [];
-  /** One status write at a time, so a double tap cannot race itself. */
-  const [noteBusyId, setNoteBusyId] = useState("");
-  const setNoteStatus = async (note: Note, next: NoteStatus) => {
-    if (noteBusyId || !me || !canTouch(note, me)) return;
-    const patientId = String((note as { patientId?: unknown }).patientId || "");
-    if (!patientId) return;
-    setNoteBusyId(note.id);
-    try {
-      if ((note as { claimId?: string }).claimId) {
-        await updateApprovalProcedure(note.id, { patientId, appointmentId: note.appointmentId ?? null, status: next, doctorId: me.staffId, note: note.note ?? "" });
-      } else {
-        await updateProcedure(note.id, { ...statusPayload(note, me, next), patientId });
-      }
-    } catch (e) {
-      console.error("Note status failed:", e);
-      showToast(isAr ? "ماتحفظش — جرّب تاني" : "Not saved — try again", "error");
-    } finally {
-      setNoteBusyId("");
-    }
-  };
-  /** The day card's chip: one tap moves the treatment to the next state. */
-  const cycleStatus = (note: Note) => {
-    const i = STATUS_OPTIONS.findIndex((o) => o.value === (note.status || "Planned"));
-    void setNoteStatus(note, STATUS_OPTIONS[(i + 1) % STATUS_OPTIONS.length].value);
-  };
-  /** The search box over the day list: any patient, into the chair. */
-  const [searchQ, setSearchQ] = useState("");
-  const searchHits = useMemo(() => {
-    // Arabic-Indic digits on either side — the keyboard and stored records both have them —
-    // so fold both before matching.
-    const q = foldArabicDigits(searchQ).trim().toLowerCase();
-    if (q.length < 2) return [];
-    return patients
-      .filter((p) => String(p.name || "").toLowerCase().includes(q) || foldArabicDigits(String(p.phone || "")).includes(q))
-      .slice(0, 8);
-  }, [searchQ, patients]);
 
-  const openNote = async (apt: Row, fresh = false) => {
+  /** Start: seat the patient, then straight into the chair. */
+  const start = async (a: Row) => {
+    if (SEATABLE.has(String(a.status)) && !(await setStatus(a, "In Chair"))) return;
+    openChairFor(a);
+  };
+
+  // The Service button: a blank treatment on this visit, in the clinical-note pop-up. The chart
+  // needs the patient's tooth data and every note on them (not just this dentist's).
+  const [noteCtx, setNoteCtx] = useState<NoteContext | null>(null);
+  const [noteLoadingId, setNoteLoadingId] = useState("");
+  const addService = async (apt: Row) => {
     const patientId = String(apt.patientId || "");
-    if (!patientId || noteLoading) return;
-    setNoteLoading(true);
+    if (!patientId || noteLoadingId) return;
+    setNoteLoadingId(String(apt.id));
     try {
       const [pSnap, nSnap] = await Promise.all([
         getDoc(getClinicDoc("patients", patientId)),
         getDocs(query(getClinicCollection("clinical_notes"), where("patientId", "==", patientId))),
       ]);
       const patient = { id: patientId, ...(pSnap.data() || {}) } as Patient;
-      const all = nSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Note);
-      const linked = apt.clinicalNoteId ? all.find((n) => n.id === apt.clinicalNoteId) : undefined;
-      const onVisit = all.find((n) => n.appointmentId === apt.id);
-      // "Add a treatment" always opens a blank one; the visit's existing notes are on the slab.
-      setNoteCtx({ apt, patient, notes: all, initialNote: fresh ? null : linked || onVisit || null });
+      setNoteCtx({ apt, patient, notes: nSnap.docs.map((d) => ({ id: d.id, ...d.data() }) as Note) });
     } catch (e) {
       console.error("Open note failed:", e);
       showToast(isAr ? "مقدرناش نفتح الملاحظة" : "Could not open the note", "error");
     } finally {
-      setNoteLoading(false);
+      setNoteLoadingId("");
     }
   };
   const noteTreatments = useMemo(() => {
@@ -377,35 +227,17 @@ export default function DentistHome() {
     return treatmentsByTooth(noteCtx.notes, (id) => categoryById.get(id) || undefined, (name) => suggestCategory(name));
   }, [noteCtx, services]);
 
-  // Booking the next visit, with this patient and this dentist already filled in.
-  const [booking, setBooking] = useState<{ id: string; name: string } | null>(null);
-  const ownerAlert = async (alertKey: string, message: string) => {
-    try {
-      const idToken = await auth.currentUser?.getIdToken();
-      if (!idToken) return;
-      await fetch("/api/whatsapp/owner-alert", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ alertKey, message, clinicId }),
-      });
-    } catch (e) {
-      console.warn("Owner WhatsApp alert", e);
-    }
-  };
-  const handleSaveBooking = async (data: Parameters<typeof saveBooking>[0]) => {
-    try {
-      await saveBooking(
-        data,
-        { uid: user?.uid || "", name: user?.name || "System", role: user?.role || "", language: isAr ? "ar" : "en" },
-        ownerAlert
-      );
-      setBooking(null);
-      showToast(isAr ? "تم الحجز" : "Booked", "success");
-    } catch (e) {
-      console.error("Booking save error:", e);
-      showToast(isAr ? "حدث خطأ" : "Could not book", "error");
-    }
-  };
+  /** Any patient, into the chair — a walk-in or a follow-up without a booking. Hidden behind the magnifier. */
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQ, setSearchQ] = useState("");
+  const searchHits = useMemo(() => {
+    // Arabic-Indic digits on either side — the keyboard and stored records both have them.
+    const q = foldArabicDigits(searchQ).trim().toLowerCase();
+    if (q.length < 2) return [];
+    return patients
+      .filter((p) => String(p.name || "").toLowerCase().includes(q) || foldArabicDigits(String(p.phone || "")).includes(q))
+      .slice(0, 8);
+  }, [searchQ, patients]);
 
   // --- Copy ------------------------------------------------------------------------------------
   const hour = new Date(now).getHours();
@@ -414,7 +246,6 @@ export default function DentistHome() {
     : hour < 12 ? "Good morning," : hour < 18 ? "Good afternoon," : "Good evening,";
   const firstName = (me?.name || user?.name || "").split(" ").filter(Boolean)[0] || "";
   const dateLine = new Date(now).toLocaleDateString(isAr ? "ar-EG" : "en-GB", { weekday: "long", day: "numeric", month: "long" });
-  const timeLine = new Date(now).toLocaleTimeString(isAr ? "ar-EG" : "en-GB", { hour: "2-digit", minute: "2-digit" });
 
   // --- Render ----------------------------------------------------------------------------------
   if (me === undefined || (me && (!loaded || !branchReady))) {
@@ -443,201 +274,118 @@ export default function DentistHome() {
     );
   }
 
-  const eyebrow = "font-display text-[11px] font-black uppercase tracking-[0.12em] text-ink-muted";
-  // 40px tall below lg: a thumb, not a cursor.
-  const ghost =
-    "inline-flex items-center gap-1.5 h-[34px] max-lg:h-10 px-3.5 rounded-xl bg-surface border border-line text-ink text-[12px] font-extrabold uppercase tracking-wide shadow-sm hover:bg-surface-subtle transition-colors disabled:opacity-50 whitespace-nowrap";
-  /** The phone card's main action (Seat / Done) on the next or current patient: the slab's black. */
-  const solid =
-    "inline-flex items-center gap-1.5 h-10 px-3.5 rounded-xl bg-ink-slab border border-ink-slab text-white text-[12px] font-extrabold uppercase tracking-wide shadow-sm transition-colors disabled:opacity-50 whitespace-nowrap";
-  const navBtn =
-    "relative inline-flex items-center justify-center w-10 h-10 lg:w-7 lg:h-7 rounded-lg bg-surface border border-line text-ink-body hover:bg-surface-subtle hover:text-ink transition-colors";
-  const unit = currencyUnit(currency, isAr);
-  const dayPicker = (
-    <input
-      type="date"
-      value={viewDate}
-      onChange={(e) => e.target.value && setViewDate(e.target.value)}
-      aria-label={isAr ? "اختار يوم" : "Pick a day"}
-      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-    />
-  );
-  // The phone's day bar says which day in words short enough for one line beside the arrows.
-  const dayShort = (() => {
-    const delta = daysBetween(today, viewDate);
-    if (delta !== null && delta >= -1 && delta <= 1) return dayLabel;
-    return new Date(`${viewDate}T12:00:00`).toLocaleDateString(isAr ? "ar-EG" : "en-GB", { weekday: "short", day: "numeric", month: "short" });
-  })();
+  const eyebrow = "text-[11px] font-bold uppercase tracking-[0.12em]";
+  const tab = (on: boolean) =>
+    `h-9 px-4 rounded-full text-[13px] font-bold transition-colors ${on ? "bg-surface text-ink shadow-sm" : "text-ink-muted hover:text-ink"}`;
+  const pill = "inline-flex items-center gap-1 h-8 px-2.5 rounded-full text-[12px] font-bold whitespace-nowrap transition-colors disabled:opacity-50";
 
   return (
     /* pb-2 below lg: <main> already leaves 128px under the page for the bottom bar and the orb. */
     <div className="min-h-full pb-2 lg:pb-6 text-ink-strong" dir={isRTL ? "rtl" : "ltr"}>
-      <div className="w-full max-w-[1400px] mx-auto p-4 md:p-6 lg:p-5 flex flex-col gap-4">
+      <div className="w-full max-w-2xl mx-auto p-4 md:p-6 lg:p-5 flex flex-col gap-4">
 
-        {/* The greeting is in the layout's black band. No money strip: the dentist view shows no
-            money at all (owner, 2026-10-12). */}
         <PageHeader
           title={<><span className="font-light">{greeting}</span> {isAr ? `د. ${firstName}` : `Dr. ${firstName}`}</>}
-          subtitle={`${dateLine} · ${timeLine}${branches.length > 0 && activeBranch ? ` · ${activeBranch.name}` : ""}`}
+          subtitle={`${dateLine}${branches.length > 0 && activeBranch ? ` · ${activeBranch.name}` : ""}`}
         >
           {/* Renders nothing for a plain dentist — this screen is simply their home. */}
           <HomeViewTabs />
         </PageHeader>
 
-        {/* Row 2: the chair, and the day */}
-        {/* Below lg the day list comes first (order-first on its card) and the slab follows it as
-            the next patient's detail; with nobody left to seat the slab only repeats what the list
-            already says, so the phone drops it. Desktop keeps chair-then-day side by side. */}
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-          <div className={`lg:col-span-3 relative overflow-hidden rounded-[2rem] bg-ink-slab text-white p-7 md:p-9 max-md:p-5 min-h-[360px] max-lg:min-h-0 flex flex-col justify-between shadow-[0_20px_50px_rgba(26,33,48,0.18)] ${hero ? "" : "max-lg:hidden"}`}>
-            <div className="absolute -top-[120px] -end-[80px] w-[380px] h-[380px] rounded-full bg-white/[0.04] pointer-events-none" />
-            {hero ? (
-              <>
-                <div className="relative flex flex-col gap-4">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <span className={`${eyebrow} text-white/55`}>
-                      {heroIsCurrent ? (isAr ? "على الكرسي دلوقتي" : "In the chair now") : (isAr ? "التالي على الكرسي" : "Next in the chair")}
-                    </span>
-                    <span className="inline-flex items-center gap-2 h-6 px-2.5 rounded-full bg-white/[0.08] text-[11px] font-bold text-white/85">
-                      <span className={`w-2 h-2 rounded-full ${getAppointmentStatusStyles(String(hero.status)).dot}`} />
-                      {getAppointmentStageLabel(String(hero.status || ""), isAr ? "ar" : "en")}
-                      {heroWaiting !== null && ` · ${isAr ? `مستني ${heroWaiting} دقيقة` : `waiting ${heroWaiting} min`}`}
-                    </span>
-                  </div>
-                  <div>
-                    <p className="font-figure text-sm font-semibold text-white/60 tracking-wide">
-                      {String(hero.time || "")}
-                      {hero.roomName ? ` · ${String(hero.roomName)}` : ""}
-                    </p>
-                    <h2 className="font-display text-[34px] max-md:text-[28px] md:text-[44px] font-semibold leading-[1.05] text-white mt-1 break-words">
-                      {String(hero.patientName || "")}
-                    </h2>
-                    <p className="text-[15px] font-semibold text-white/70 mt-2">
-                      {String(hero.serviceName || hero.treatment || (isAr ? "بدون إجراء محدد" : "No procedure set"))}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {heroLastSeen !== null && (
-                      <Chip>{isAr ? `آخر زيارة من ${heroLastSeen} يوم` : `Last visit ${heroLastSeen} days ago`}</Chip>
-                    )}
-                    {heroBalance > 0 && <Chip>{isAr ? `عليه ${fmt(heroBalance)} ${unit}` : `Balance ${fmt(heroBalance)} ${unit}`}</Chip>}
-                  </div>
-                  {/* This visit's treatments, every dentist's. Mine carry the status switch. */}
-                  {heroNotes.length > 0 && (
-                    <div className="flex flex-col gap-2">
-                      {heroNotes.map((n) => {
-                        const own = !!me && canTouch(n, me);
-                        const teeth = n.tooth && n.tooth !== "Gen" ? n.tooth : "";
-                        const st = STATUS_OPTIONS.find((o) => o.value === (n.status || "Planned"));
-                        return (
-                          <div key={n.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/15 bg-white/[0.06] px-4 py-3">
-                            <div className="min-w-0">
-                              <p className="text-[16px] font-black text-white leading-tight">{n.procedure}</p>
-                              <p className="text-[12px] font-bold text-white/60">
-                                {teeth && <bdi dir="ltr" className="font-figure">{teeth}</bdi>}
-                                {teeth && " · "}
-                                {own ? (isAr ? "عليك" : "Yours") : `${isAr ? "د." : "Dr."} ${String(n.doctor || (isAr ? "العيادة" : "the clinic"))}`}
-                              </p>
-                            </div>
-                            {own ? (
-                              <div className="w-full sm:w-[300px]">
-                                <StatusSwitch value={(n.status || "Planned") as NoteStatus} busy={noteBusyId === n.id} onChange={(next) => void setNoteStatus(n, next)} isAr={isAr} dark />
-                              </div>
-                            ) : (
-                              <span className="inline-flex items-center gap-1.5 text-[12px] font-bold text-white/70">
-                                <Lock size={12} /> {st ? (isAr ? st.ar : st.en) : ""}
-                              </span>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-                <div className="relative flex flex-wrap items-end justify-between gap-4 mt-6">
-                  <div className="flex flex-wrap gap-2.5">
-                    {heroIsCurrent ? (
-                      <SlabButton primary onClick={() => void setStatus(hero, "Checking Out")} busy={busyId === hero.id}>
-                        <Check size={16} strokeWidth={2.5} /> {isAr ? "خلصت — للاستقبال" : "Done — to the desk"}
-                      </SlabButton>
-                    ) : (
-                      SEATABLE.has(String(hero.status)) && (
-                        <SlabButton primary onClick={() => void setStatus(hero, "In Chair")} busy={busyId === hero.id}>
-                          <Armchair size={16} strokeWidth={2.5} /> {isAr ? "دخّل المريض" : "Seat patient"}
-                        </SlabButton>
-                      )
-                    )}
-                    <SlabButton onClick={() => void openNote(hero, true)} busy={noteLoading}>
-                      <Plus size={16} strokeWidth={3} /> {isAr ? "أضف علاج" : "Add treatment"}
-                    </SlabButton>
-                    <SlabButton onClick={() => setChairPop({ patientId: String(hero.patientId || ""), appointment: { id: String(hero.id), branchId: (hero.branchId as string | null | undefined) ?? null } })}>
-                      <Armchair size={15} /> {isAr ? "افتح الكرسي" : "Open the chair"}
-                    </SlabButton>
-                    <button onClick={() => router.push(`/patients/${hero.patientId}`)} className="inline-flex items-center gap-1 h-11 px-3 text-[12px] font-bold text-white/60 hover:text-white transition-colors">
-                      {isAr ? "الملف" : "File"} <ArrowUpRight size={13} />
-                    </button>
-                  </div>
-                  {after && (
-                    <div className="flex flex-col items-end gap-0.5 text-end">
-                      <span className={`${eyebrow} text-white/40 text-[10px]`}>{isAr ? "بعده" : "After"}</span>
-                      <span className="text-[13px] font-bold text-white/75">
-                        {String(after.time || "")} · {String(after.patientName || "")}
-                        {after.serviceName || after.treatment ? ` · ${String(after.serviceName || after.treatment)}` : ""}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="relative flex flex-col justify-center h-full gap-2">
-                <span className={`${eyebrow} text-white/55`}>{isAr ? "الكرسي" : "The chair"}</span>
-                <h2 className="font-display text-[30px] font-semibold text-white leading-tight">
-                  {mine.length === 0
-                    ? (isAr ? "مفيش مرضى محجوزين ليك النهارده" : "No patients booked for you today")
-                    : (isAr ? "خلصت مرضى النهارده" : "Done for today")}
-                </h2>
-                <p className="text-sm font-semibold text-white/60">
-                  {mine.length === 0
-                    ? (isAr ? "اللي تحت لسه محتاج نظرة." : "What's below still needs a look.")
-                    : (isAr ? `${mine.length} ${isAr ? "مرضى" : ""} اتشافوا.` : `${mine.length} patients seen.`)}
-                </p>
-              </div>
-            )}
+        {/* The next patient. Nobody left to seat: the list below already says so. */}
+        {hero && (
+          <div className="rounded-[2rem] bg-ink-slab text-white p-6 max-md:p-5 flex flex-col gap-5 shadow-[0_20px_50px_rgba(26,33,48,0.18)]">
+            <div className="flex flex-col gap-1.5">
+              <span className={`${eyebrow} text-white/55`}>
+                {heroIsCurrent ? (isAr ? "على الكرسي دلوقتي" : "In the chair now") : (isAr ? "التالي" : "Next")}
+                {heroWaiting !== null && ` · ${isAr ? `مستني ${heroWaiting} دقيقة` : `waiting ${heroWaiting} min`}`}
+              </span>
+              <h2 className="font-display text-[32px] md:text-[38px] font-semibold leading-[1.05] text-white break-words">
+                {String(hero.patientName || "")}
+              </h2>
+              <p className="text-[15px] font-semibold text-white/70">
+                <span className="font-figure text-white">{String(hero.time || "")}</span>
+                {" · "}
+                {String(hero.serviceName || hero.treatment || (isAr ? "بدون إجراء محدد" : "No procedure set"))}
+              </p>
+            </div>
+            <div className="flex gap-2.5">
+              {heroIsCurrent ? (
+                <button
+                  type="button"
+                  onClick={() => void setStatus(hero, "Checking Out")}
+                  disabled={busyId === hero.id}
+                  className="flex-1 inline-flex items-center justify-center gap-2 h-12 rounded-full bg-accent text-ink-on-accent text-[15px] font-bold disabled:opacity-60"
+                >
+                  {busyId === hero.id ? <Loader2 size={16} className="animate-spin" /> : <Check size={17} strokeWidth={2.5} />}
+                  {isAr ? "خلصت — للاستقبال" : "Done — to the desk"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void start(hero)}
+                  disabled={busyId === hero.id}
+                  className="flex-1 inline-flex items-center justify-center gap-2 h-12 rounded-full bg-accent text-ink-on-accent text-[15px] font-bold disabled:opacity-60"
+                >
+                  {busyId === hero.id ? <Loader2 size={16} className="animate-spin" /> : null}
+                  {isAr ? "ابدأ" : "Start"}
+                </button>
+              )}
+              {heroIsCurrent && (
+                <button
+                  type="button"
+                  onClick={() => openChairFor(hero)}
+                  className="inline-flex items-center justify-center gap-1.5 h-12 px-5 rounded-full border border-white/25 text-white text-[14px] font-semibold hover:bg-white/[0.06]"
+                >
+                  <Armchair size={15} /> {isAr ? "الكرسي" : "Chair"}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => router.push(`/patients/${hero.patientId}`)}
+                className="inline-flex items-center justify-center h-12 px-5 rounded-full border border-white/25 text-white text-[14px] font-semibold hover:bg-white/[0.06]"
+              >
+                {isAr ? "الملف" : "File"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* The day. */}
+        <div className="rounded-[2rem] border border-line bg-surface shadow-[0_8px_40px_rgba(0,0,0,0.04)] max-lg:relative max-lg:z-10">
+          <div className="flex items-center justify-between gap-3 px-5 pt-4 pb-2">
+            <div className="flex gap-1 p-1 rounded-full bg-surface-muted" role="tablist">
+              <button type="button" role="tab" aria-selected={!showTomorrow} onClick={() => setShowTomorrow(false)} className={tab(!showTomorrow)}>
+                {isAr ? "النهارده" : "Today"}
+              </button>
+              <button type="button" role="tab" aria-selected={showTomorrow} onClick={() => setShowTomorrow(true)} className={tab(showTomorrow)}>
+                {isAr ? "بكرة" : "Tomorrow"}
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="font-figure text-xs font-bold text-ink-muted">
+                {dayMine.length} {isAr ? "مرضى" : "patients"}
+                {!showTomorrow && dayDone ? ` · ${dayDone} ${isAr ? "خلصوا" : "done"}` : ""}
+              </span>
+              <button
+                type="button"
+                onClick={() => { setSearchOpen((o) => !o); setSearchQ(""); }}
+                aria-label={isAr ? "دوّر على مريض" : "Find a patient"}
+                aria-expanded={searchOpen}
+                className="inline-flex items-center justify-center w-10 h-10 rounded-full border border-line text-ink hover:bg-surface-subtle"
+              >
+                {searchOpen ? <X size={17} /> : <Search size={17} />}
+              </button>
+            </div>
           </div>
 
-          {/* Below lg: first on the page, and `overflow-visible` so the search results are not cut
-              off by the card on a short day and the day bar can stick above the bottom menu. */}
-          <Card className="lg:col-span-2 min-h-[360px] max-lg:min-h-0 max-lg:order-first max-lg:overflow-visible max-lg:relative max-lg:z-10">
-            <div className="flex items-center justify-between gap-3 px-6 pt-5 pb-1 max-lg:px-4 max-lg:pt-4">
-              <div className="flex items-baseline gap-2 min-w-0">
-                <span className={eyebrow}>{isAr ? "يومي" : "My day"}</span>
-                <span className={`font-figure text-xs font-bold truncate ${viewingToday ? "text-ink-faint" : "text-ink"}`}>· {dayLabel}</span>
-              </div>
-              {/* The phone's arrows live in the day bar at the bottom of this card, under the thumb. */}
-              <div className="flex items-center gap-1 shrink-0 max-lg:hidden">
-                <button onClick={() => shiftDay(-1)} aria-label={isAr ? "اليوم اللي قبله" : "Previous day"} className={navBtn}>
-                  <ChevronLeft size={14} className="rtl:rotate-180" />
-                </button>
-                {!viewingToday && (
-                  <button onClick={() => setViewDate(today)} className="h-10 lg:h-7 px-2.5 rounded-lg bg-ink-slab text-white text-[11px] font-extrabold uppercase tracking-wide">
-                    {isAr ? "النهارده" : "Today"}
-                  </button>
-                )}
-                <label className={navBtn} title={isAr ? "اختار يوم" : "Pick a day"}>
-                  <CalendarDays size={14} />
-                  {dayPicker}
-                </label>
-                <button onClick={() => shiftDay(1)} aria-label={isAr ? "اليوم اللي بعده" : "Next day"} className={navBtn}>
-                  <ChevronRight size={14} className="rtl:rotate-180" />
-                </button>
-              </div>
-            </div>
-            {/* Any patient, into the chair — a walk-in or a follow-up without a booking. */}
-            <div className="relative px-6 pb-2 max-lg:px-4">
+          {searchOpen && (
+            <div className="relative px-5 pb-2">
               <label className="flex h-11 items-center gap-2 rounded-xl border border-line bg-surface-subtle px-3 text-ink-muted focus-within:border-ink">
                 <Search size={15} />
                 <input
                   type="search"
+                  autoFocus
                   value={searchQ}
                   onChange={(e) => setSearchQ(e.target.value)}
                   placeholder={isAr ? "دوّر على مريض بالاسم أو التليفون" : "Find a patient by name or phone"}
@@ -645,329 +393,83 @@ export default function DentistHome() {
                 />
               </label>
               {searchHits.length > 0 && (
-                <div className="absolute inset-x-6 max-lg:inset-x-4 top-full z-20 max-lg:z-40 -mt-1 overflow-hidden rounded-xl border border-line bg-surface shadow-xl">
+                <div className="absolute inset-x-5 top-full z-40 -mt-1 overflow-hidden rounded-xl border border-line bg-surface shadow-xl">
                   {searchHits.map((p) => (
                     <button
                       key={p.id}
                       type="button"
                       onClick={() => {
                         setSearchQ("");
+                        setSearchOpen(false);
                         setChairPop({ patientId: p.id, appointment: null });
                       }}
-                      className="flex w-full items-center justify-between gap-3 px-4 py-2.5 max-lg:min-h-12 text-start hover:bg-surface-subtle"
+                      className="flex w-full items-center justify-between gap-3 px-4 py-2.5 min-h-12 text-start hover:bg-surface-subtle"
                     >
-                      <span className="lg:truncate max-lg:break-words text-[14px] font-bold text-ink">{String(p.name || "")}</span>
+                      <span className="break-words text-[14px] font-bold text-ink">{String(p.name || "")}</span>
                       <bdi dir="ltr" className="font-figure text-[12px] font-semibold text-ink-muted shrink-0">{String(p.phone || "")}</bdi>
                     </button>
                   ))}
                 </div>
               )}
             </div>
-            <p className="px-6 pb-2 max-lg:px-4 font-figure text-xs font-bold text-ink-faint">
-              {dayMine.length} {isAr ? "مرضى" : "patients"}
-              {viewDate <= today ? ` · ${dayDone} ${isAr ? "خلصوا" : "done"}` : ""}
-            </p>
-            {day.length === 0 ? (
-              <Empty>
-                {viewingToday
-                  ? (isAr ? "مفيش مواعيد ليك النهارده." : "Nothing booked for you today.")
-                  : (isAr ? "مفيش مواعيد ليك في اليوم ده." : "Nothing booked for you on this day.")}
-              </Empty>
-            ) : (
-              <div className="flex flex-col">
-                {day.map((a) => {
-                  const done = isDone(a.status);
-                  const isHero = viewingToday && hero?.id === a.id;
-                  const isNow = isHero && heroIsCurrent;
-                  const canSeat = viewingToday && !done && String(a.status) !== "In Chair" && SEATABLE.has(String(a.status)) && !chair.current;
-                  const what = String(a.serviceName || a.treatment || "");
-                  const stage = getAppointmentStageLabel(String(a.status || ""), isAr ? "ar" : "en");
-                  const waited = String(a.status) === "Checked In" ? waitingMinutes(a.checkInTime, now) : null;
-                  return (
-                    <div
-                      key={String(a.id)}
-                      onClick={() => (onPhone() ? openChairFor(a) : router.push(`/patients/${a.patientId}`))}
-                      /* Phones: a card, not a line — time and room on the start side, the name in
-                         full, what is being done, the stage, and the buttons under it. The next /
-                         current patient carries a yellow edge and says so in words. */
-                      className={`flex items-center gap-3.5 px-6 py-2.5 border-t border-surface-muted first:border-t-0 cursor-pointer hover:bg-surface-subtle transition-colors max-lg:items-start max-lg:gap-3 max-lg:px-4 max-lg:py-3.5 ${done ? "opacity-50" : ""} ${isHero ? "bg-surface-subtle max-lg:border-s-4 max-lg:border-s-accent max-lg:ps-3" : ""}`}
-                    >
-                      <span className={`text-[13px] w-[64px] shrink-0 max-lg:w-[52px] max-lg:text-[15px] max-lg:flex max-lg:flex-col max-lg:gap-0.5 ${isHero ? "font-extrabold text-ink" : "font-semibold text-ink-body"}`}>
-                        <span className="font-figure">{String(a.time || "")}</span>
-                        {/* The room, on phones only: the desk line has no room for it. */}
-                        {a.roomName ? <span className="lg:hidden text-[11px] font-bold text-ink-muted leading-tight break-words">{String(a.roomName)}</span> : null}
-                      </span>
-                      <span className={`w-2 h-2 rounded-full shrink-0 max-lg:hidden ${getAppointmentStatusStyles(String(a.status)).dot}`} />
-                      <div className="min-w-0 flex-1">
-                        {isHero && (
-                          <p className="lg:hidden mb-0.5 font-display text-[10px] font-black uppercase tracking-[0.12em] text-ink-muted">
-                            {isNow ? (isAr ? "على الكرسي دلوقتي" : "In the chair now") : (isAr ? "التالي على الكرسي" : "Next in the chair")}
-                          </p>
-                        )}
-                        <p className="text-sm font-bold text-ink lg:truncate max-lg:text-[16px] max-lg:leading-snug max-lg:break-words">{String(a.patientName || "")}</p>
-                        <p className="hidden lg:block text-xs font-semibold text-ink-muted truncate">
-                          {a.claimId ? (isAr ? "تأمين · " : "Insurance · ") : ""}
-                          {what}
-                          {what ? " · " : ""}
-                          {stage}
-                        </p>
-                        <p className="lg:hidden mt-0.5 text-[13px] font-semibold text-ink-body break-words">
-                          {a.claimId ? (isAr ? "تأمين · " : "Insurance · ") : ""}
-                          {what || (isAr ? "بدون إجراء محدد" : "No procedure set")}
-                        </p>
-                        <p className="lg:hidden mt-1 inline-flex items-center gap-1.5 text-[12px] font-bold text-ink-muted">
-                          <span className={`w-2 h-2 rounded-full shrink-0 ${getAppointmentStatusStyles(String(a.status)).dot}`} />
-                          {stage}
-                          {waited !== null && ` · ${isAr ? `مستني ${waited} دقيقة` : `waiting ${waited} min`}`}
-                        </p>
-                        {/* My treatments on this visit: one tap moves each to its next state. */}
-                        {(() => {
-                          const onVisit = notes.filter((n) => String(n.appointmentId || "") === String(a.id)) as unknown as Note[];
-                          if (onVisit.length === 0) return null;
-                          return (
-                            <div className="mt-1.5 flex flex-wrap gap-1.5">
-                              {onVisit.map((n) => {
-                                const st = STATUS_OPTIONS.find((o) => o.value === (n.status || "Planned"));
-                                const done = n.status === "Completed";
-                                return (
-                                  <button
-                                    key={n.id}
-                                    type="button"
-                                    disabled={!!noteBusyId}
-                                    onClick={(e) => { e.stopPropagation(); cycleStatus(n); }}
-                                    title={isAr ? "اضغط لتغيير الحالة" : "Tap to change the state"}
-                                    className={`inline-flex h-8 max-lg:h-10 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-bold transition-colors disabled:opacity-60 max-lg:max-w-full ${
-                                      done ? "border-emerald-200 bg-emerald-50 text-emerald-800" : n.status === "Ongoing" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-line bg-surface text-ink"
-                                    }`}
-                                  >
-                                    {noteBusyId === n.id ? <Loader2 size={12} className="animate-spin" /> : done ? <Check size={12} strokeWidth={3} /> : null}
-                                    <span className="truncate max-w-[160px] max-lg:max-w-[200px]">{String(n.procedure || "")}</span>
-                                    <span className="text-ink-muted shrink-0">· {st ? (isAr ? st.ar : st.en) : ""}</span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          );
-                        })()}
-                        {/* Phones: the card's own buttons, under it, at thumb size. The card itself
-                            opens the chair, so the file gets a button here instead. */}
-                        <div className="lg:hidden mt-2.5 flex flex-wrap items-center gap-2">
-                          {isNow && (
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); void setStatus(a, "Checking Out"); }}
-                              disabled={!!busyId}
-                              className={solid}
-                            >
-                              {busyId === a.id ? <Loader2 size={13} className="animate-spin" /> : <Check size={14} strokeWidth={2.5} />}
-                              {isAr ? "خلصت — للاستقبال" : "Done — to the desk"}
-                            </button>
-                          )}
-                          {canSeat && (
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); void setStatus(a, "In Chair"); }}
-                              disabled={!!busyId}
-                              className={isHero ? solid : ghost}
-                            >
-                              {busyId === a.id ? <Loader2 size={13} className="animate-spin" /> : <Armchair size={14} />}
-                              {isAr ? "دخّل المريض" : "Seat patient"}
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); router.push(`/patients/${a.patientId}`); }}
-                            className={ghost}
-                          >
-                            {isAr ? "الملف" : "File"} <ArrowUpRight size={14} />
-                          </button>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); openChairFor(a); }}
-                        title={isAr ? "افتح الكرسي" : "Open the chair"}
-                        aria-label={isAr ? "افتح الكرسي" : "Open the chair"}
-                        className={`${ghost} h-[30px] w-[30px] px-0 justify-center max-lg:hidden`}
-                      >
-                        <Armchair size={13} />
-                      </button>
-                      {canSeat && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); void setStatus(a, "In Chair"); }}
-                          disabled={!!busyId}
-                          className={`${ghost} h-[30px] px-3 text-[11px] max-lg:hidden`}
-                        >
-                          {busyId === a.id ? <Loader2 size={12} className="animate-spin" /> : null}
-                          {isAr ? "دخّل" : "Seat"}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            {/* Phones: the day switch sits at the bottom of the list, held just above the bottom
-                menu while the list scrolls — where the thumb already is. `me-[3.25rem]` leaves the
-                end corner to the assistant orb docked on the menu's edge. */}
-            <div className="lg:hidden sticky bottom-[5.5rem] z-30 ms-3 me-[3.25rem] mb-3 mt-2 flex items-center gap-1 rounded-2xl border border-line bg-surface/95 p-1 shadow-[0_8px_30px_rgba(0,0,0,0.12)] backdrop-blur">
-              <button onClick={() => shiftDay(-1)} aria-label={isAr ? "اليوم اللي قبله" : "Previous day"} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-ink active:bg-surface-subtle">
-                <ChevronLeft size={20} className="rtl:rotate-180" />
-              </button>
-              <label className="relative flex h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl px-2 text-ink active:bg-surface-subtle">
-                <CalendarDays size={15} className="shrink-0 text-ink-muted" />
-                <span className="truncate text-[14px] font-extrabold text-ink">{dayShort}</span>
-                {dayPicker}
-              </label>
-              {!viewingToday && (
-                <button onClick={() => setViewDate(today)} className="h-11 shrink-0 rounded-xl bg-ink-slab px-3 text-[12px] font-extrabold uppercase tracking-wide text-white">
-                  {isAr ? "النهارده" : "Today"}
-                </button>
-              )}
-              <button onClick={() => shiftDay(1)} aria-label={isAr ? "اليوم اللي بعده" : "Next day"} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-ink active:bg-surface-subtle">
-                <ChevronRight size={20} className="rtl:rotate-180" />
-              </button>
-            </div>
-          </Card>
-        </div>
-
-        {/* Row 3: what came back, and what was left open */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <Card>
-            <CardHead
-              title={isAr ? "رجع من المعمل" : "Back from the lab"}
-              right={lab.length ? `${lab.length} · ${lab.filter((c) => c.kind === "late").length} ${isAr ? "متأخر" : "late"}` : ""}
-              eyebrow={eyebrow}
-            />
-            {lab.length === 0 ? (
-              <Empty>{isAr ? "مفيش حالات مستنياك." : "Nothing waiting on you at the lab."}</Empty>
-            ) : (
-              <div className="flex flex-col">
-                {lab.map((c) => {
-                  const pid = String(c.patientId || "");
-                  const tone =
-                    c.kind === "late" ? "bg-danger-tint text-danger"
-                    : c.kind === "due_today" ? "bg-warn-tint text-warn"
-                    : c.kind === "back" ? "bg-ok-tint text-ok"
-                    : "bg-info-tint text-info";
-                  const tag =
-                    c.kind === "late" ? (isAr ? "متأخر" : "Late at lab")
-                    : c.kind === "due_today" ? (isAr ? "مستحق النهارده" : "Due today")
-                    : c.kind === "back" ? (isAr ? "وصل" : "Back")
-                    : (isAr ? "بروفة" : "Try-in back");
-                  return (
-                    <div key={String(c.id)} className="flex flex-wrap items-center gap-3 px-6 py-3 max-lg:px-4 border-t border-surface-muted first:border-t-0">
-                      {/* basis-full below lg: a flex-1 child never wraps (its basis is 0), so the
-                          tag and button squeezed the name to a few letters; now they drop under it. */}
-                      <div className="min-w-0 flex-1 max-lg:basis-full">
-                        <p className="text-sm font-bold text-ink lg:truncate max-lg:break-words">{String(c.patientName || patientName(pid))}</p>
-                        <p className="text-xs font-semibold text-ink-muted lg:truncate max-lg:break-words">
-                          {workTypeLabel(String(c.workType || ""), isAr ? "ar" : "en")}
-                          {Array.isArray(c.teeth) && c.teeth.length ? ` · ${(c.teeth as number[]).join(", ")}` : ""}
-                          {c.labName ? ` · ${String(c.labName)}` : ""}
-                        </p>
-                      </div>
-                      <span className={`inline-flex items-center h-[22px] px-2.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide ${tone}`}>{tag}</span>
-                      {(c.kind === "back" || c.kind === "tryin") && pid && (
-                        <button onClick={() => setBooking({ id: pid, name: String(c.patientName || patientName(pid)) })} className={ghost}>
-                          <CalendarPlus size={13} /> {isAr ? "احجز التركيب" : "Book fitting"}
-                        </button>
-                      )}
-                      {(c.kind === "late" || c.kind === "due_today") && (
-                        <button onClick={() => router.push("/lab")} className={ghost}>
-                          <FlaskConical size={13} /> {isAr ? "افتح المعمل" : "Open lab"}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </Card>
-
-          {unsignedXrays.length > 0 && (
-            <Card>
-              <CardHead title={isAr ? "تقارير أشعة مستنية تأكيدي" : "X-ray reports awaiting my confirmation"} right={`${unsignedXrays.length}`} eyebrow={eyebrow} />
-              <div className="flex flex-col">
-                {[...unsignedXrays]
-                  .sort((a, b) => ((b.createdAt as { toDate?: () => Date })?.toDate?.()?.getTime() || 0) - ((a.createdAt as { toDate?: () => Date })?.toDate?.()?.getTime() || 0))
-                  .slice(0, 8)
-                  .map((x) => {
-                    const report = x.report as XrayReport | undefined;
-                    const worst: XraySeverity = report ? worstSeverity(report) : "normal";
-                    const when = (x.createdAt as { toDate?: () => Date })?.toDate?.();
-                    const pid = String(x.patientId || "");
-                    return (
-                      <div key={String(x.id)} className="flex flex-wrap items-center gap-3 px-6 py-3 max-lg:px-4 border-t border-surface-muted first:border-t-0">
-                        <span className="inline-block h-2.5 w-2.5 rounded-sm shrink-0" style={{ background: SEVERITY_COLORS[worst] }} />
-                        <div className="min-w-0 flex-1 max-lg:basis-[calc(100%-1.375rem)] cursor-pointer" onClick={() => router.push(`/patients/${pid}?tab=xrays`)}>
-                          <p className="text-sm font-bold text-ink lg:truncate max-lg:break-words">{String(x.patientName || patientName(pid))}</p>
-                          <p className="text-xs font-semibold text-ink-muted lg:truncate max-lg:break-words">
-                            {report ? `${report.teeth.length} ${isAr ? "نتيجة" : "finding(s)"}` : ""}
-                            {when ? ` · ${when.toLocaleDateString(isAr ? "ar-EG" : "en-GB")}` : ""}
-                            {x.createdByName ? ` · ${String(x.createdByName)}` : ""}
-                          </p>
-                        </div>
-                        <button onClick={() => router.push(`/patients/${pid}?tab=xrays`)} className={ghost}>
-                          <ScanLine size={13} /> {isAr ? "راجع ووقّع" : "Review & sign"}
-                        </button>
-                      </div>
-                    );
-                  })}
-              </div>
-            </Card>
           )}
 
-          <Card>
-            <CardHead title={isAr ? "خطط سايبها مفتوحة" : "Plans I left open"} right={plans.length ? (isAr ? "من غير موعد جاي" : "No next visit booked") : ""} eyebrow={eyebrow} />
-            {plans.length === 0 ? (
-              <Empty>{isAr ? "كل مريض في نص علاج عنده موعد جاي." : "Every patient mid-treatment has a next visit."}</Empty>
-            ) : (
-              <div className="flex flex-col">
-                {plans.slice(0, 8).map((p) => {
-                  const ago = p.lastNoteDate ? daysBetween(p.lastNoteDate, today) : null;
-                  return (
-                    <div key={p.patientId} className="flex flex-wrap items-center gap-3 px-6 py-3 max-lg:px-4 border-t border-surface-muted first:border-t-0">
-                      <div className="min-w-0 flex-1 max-lg:basis-full cursor-pointer" onClick={() => router.push(`/patients/${p.patientId}`)}>
-                        <p className="text-sm font-bold text-ink lg:truncate max-lg:break-words">{patientName(p.patientId)}</p>
-                        <p className="text-xs font-semibold text-ink-muted lg:truncate max-lg:break-words">
-                          {p.procedure || (isAr ? "علاج جاري" : "Ongoing treatment")}
-                          {p.ongoing > 1 ? ` · ${p.ongoing} ${isAr ? "مفتوحين" : "open"}` : ""}
-                          {ago !== null ? ` · ${isAr ? `آخر زيارة من ${ago} يوم` : `last seen ${ago} days ago`}` : ""}
-                        </p>
-                      </div>
-                      <button onClick={() => setBooking({ id: p.patientId, name: patientName(p.patientId) })} className={ghost}>
-                        <CalendarPlus size={13} /> {isAr ? "احجز اللي بعده" : "Book next"}
+          {day.length === 0 ? (
+            <p className="px-5 pb-6 pt-3 text-sm font-semibold text-ink-faint">
+              {showTomorrow
+                ? (isAr ? "مفيش مواعيد ليك بكرة." : "Nothing booked for you tomorrow.")
+                : (isAr ? "مفيش مواعيد ليك النهارده." : "Nothing booked for you today.")}
+            </p>
+          ) : (
+            <div className="flex flex-col px-5 pb-2">
+              {day.map((a) => {
+                const done = isDone(a.status);
+                const what = String(a.serviceName || a.treatment || "");
+                const stage = getAppointmentStageLabel(String(a.status || ""), isAr ? "ar" : "en");
+                const name = String(a.patientName || "");
+                return (
+                  <div
+                    key={String(a.id)}
+                    className={`flex items-center gap-3 min-h-[66px] py-2 border-t border-surface-muted first:border-t-0 ${done ? "opacity-55" : ""}`}
+                  >
+                    <span className="w-12 shrink-0 font-figure text-[15px] font-semibold text-ink">{String(a.time || "")}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="flex items-center gap-1.5 text-[15px] font-bold text-ink">
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${getAppointmentStatusStyles(String(a.status)).dot}`} title={stage} aria-label={stage} />
+                        <span className="truncate">{name}</span>
+                      </p>
+                      <p className="text-[12px] font-semibold text-ink-muted truncate">
+                        {a.claimId ? (isAr ? "تأمين · " : "Insurance · ") : ""}
+                        {what || stage}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => router.push(`/patients/${a.patientId}`)}
+                        aria-label={isAr ? `ملف ${name}` : `Open ${name}'s profile`}
+                        className={`${pill} border border-line text-ink hover:bg-surface-subtle`}
+                      >
+                        <User size={13} strokeWidth={2.4} /> {isAr ? "الملف" : "Profile"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void addService(a)}
+                        disabled={!!noteLoadingId}
+                        aria-label={isAr ? `أضف خدمة لـ ${name}` : `Add a service for ${name}`}
+                        className={`${pill} bg-ink-slab text-white hover:opacity-90`}
+                      >
+                        {noteLoadingId === a.id ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} strokeWidth={2.6} />}
+                        {isAr ? "خدمة" : "Service"}
                       </button>
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </Card>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
-
-        {/* How the period went — the dentist's own numbers, charted. */}
-        <DentistReport me={me} ledger={ledger} patients={patients} showShare={showShare} today={today} isAr={isAr} unit={unit} />
       </div>
-
-      {booking && config && (
-        <BookingModal
-          isOpen={true}
-          inlineDesktop={false}
-          onClose={() => setBooking(null)}
-          onSave={handleSaveBooking}
-          patients={patients.map((p) => ({ ...p, id: p.id, name: String(p.name || "") }))}
-          doctors={doctors}
-          servicesList={services}
-          settingsConfig={config}
-          preSelectedDate={today}
-          preSelectedTime=""
-          preSelectedDoctor={me.name}
-          preSelectedPatient={booking}
-          preSelectedBranchId={scopeBranchId}
-        />
-      )}
 
       {noteCtx && (
         <ServiceEditorDrawer
@@ -979,7 +481,7 @@ export default function DentistHome() {
           patientDefaultPriceListId={(noteCtx.patient.defaultPriceListId as string | undefined) || null}
           branchId={(noteCtx.apt.branchId as string | undefined) || null}
           appointmentId={String(noteCtx.apt.id)}
-          initialNote={noteCtx.initialNote}
+          initialNote={null}
           servicesList={services}
           doctors={doctors}
           teethData={noteCtx.patient.teethData || {}}
@@ -1006,51 +508,4 @@ export default function DentistHome() {
       )}
     </div>
   );
-}
-
-// --- Small pieces, kept here because nothing else uses them ------------------------------------
-
-
-function Chip({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="inline-flex items-center h-[26px] px-3 rounded-full border border-white/[0.18] text-[11px] font-bold text-white/80">
-      {children}
-    </span>
-  );
-}
-
-function SlabButton({ children, onClick, primary, busy }: { children: React.ReactNode; onClick: () => void; primary?: boolean; busy?: boolean }) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={busy}
-      className={`inline-flex items-center gap-2 h-11 px-5 rounded-[14px] text-[13px] font-extrabold uppercase tracking-wide transition-all active:scale-[0.98] disabled:opacity-60 ${
-        primary ? "bg-white text-ink hover:bg-white/90" : "border border-white/[0.28] text-white hover:bg-white/[0.06]"
-      }`}
-    >
-      {busy ? <Loader2 size={15} className="animate-spin" /> : null}
-      {children}
-    </button>
-  );
-}
-
-function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div className={`rounded-[2rem] border border-white/60 bg-white/80 shadow-[0_8px_40px_rgba(0,0,0,0.04)] backdrop-blur-3xl overflow-hidden flex flex-col ${className}`}>
-      {children}
-    </div>
-  );
-}
-
-function CardHead({ title, right, eyebrow }: { title: string; right?: string; eyebrow: string }) {
-  return (
-    <div className="flex items-center justify-between gap-3 px-6 pt-5 pb-3 max-lg:px-4 max-lg:pt-4">
-      <span className={eyebrow}>{title}</span>
-      {right ? <span className="font-figure text-xs font-bold text-ink-faint text-end">{right}</span> : null}
-    </div>
-  );
-}
-
-function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="px-6 pb-6 pt-2 max-lg:px-4 text-sm font-semibold text-ink-faint">{children}</p>;
 }

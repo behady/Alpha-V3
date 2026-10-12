@@ -92,8 +92,10 @@ eq(canTouch({}, me), false, "a note with no dentist (the clinic's) is locked");
   ok(read("src/components/chair/ChairPopup.tsx").includes("scrollIntoView"), "opening the editor brings it on screen");
   ok(read("src/components/chair/ChairPopup.tsx").includes("statusPayload("), "the popup's status tap uses the shared payload");
   const home = read("src/components/dashboard/DentistHome.tsx");
-  ok(home.includes("statusPayload("), "the home's status tap uses the shared payload");
-  ok(home.includes("heroNotesState.heroId === heroId"), "the slab never shows the previous patient's notes");
+  // The simple home (2026-10-12): each booking has Profile and Service, and reads no money.
+  ok(home.includes("router.push(`/patients/${a.patientId}`)"), "each booking's Profile button opens the patient's file");
+  ok(home.includes("void addService(a)") && home.includes("initialNote={null}"), "each booking's Service button opens the clinical-note pop-up on a blank treatment");
+  ok(!/getClinicCollection\("ledger"\)/.test(home), "the dentist home reads no money");
   const page = read("src/app/(dashboard)/patients/[id]/page.tsx");
   ok(page.includes('chair && (activeTab === "finance" || activeTab === "insurance")'), "a hidden money tab cannot be reached by deep link or the snapshot button in chair mode");
   ok(page.includes("hideMoney={chair}"), "the timeline tab hides amounts in chair mode");
