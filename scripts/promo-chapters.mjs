@@ -30,6 +30,13 @@
  */
 export const SEARCH_PANEL = "div.absolute.start-0.end-0";
 
+/**
+ * The wide booking pop-up, as a scope. It is portalled to <body> with role="dialog"; the tab row
+ * is what tells it apart from the smaller dialogs that open over it (the branch pick, a confirm),
+ * and its aria-label changes from "حجز موعد" to "تعديل الموعد" once the visit is saved.
+ */
+export const BOOKING_POPUP = '[role="dialog"]:has([role="tablist"])';
+
 /** The slot the diary chapter books into. Must be a time the seed leaves empty. */
 export const BOOKING_SLOT = "07:00 PM";
 
@@ -288,6 +295,148 @@ export const CHAPTERS = {
         actions: [
           { do: "clickFirst", text: "تشخيص" },
           { do: "wait", ms: 7000 },
+        ],
+      },
+    ],
+  },
+  // ---------------------------------------------------------------------
+  popup: {
+    title: "The Booking Pop-up",
+    slug: "5-booking-popup",
+    /**
+     * A training video, not a pitch: book a visit, add the service, take the money — all inside
+     * the wide booking pop-up (BookingModal `wide`, the default "modal" appointment editor).
+     *
+     * Every click is scoped to the pop-up (BOOKING_POPUP). Behind it sit the diary's own selects
+     * (branch, dentist) and Ziad's existing appointment cards, and the pop-up's own timeline column
+     * lists his past visits by treatment name — an unscoped "Composite Filling" clicks one of
+     * those and switches the pop-up to an old visit.
+     *
+     * Writes to the demo clinic on every take: the appointment (removed by promo-clean-bookings),
+     * plus a charge and a payment of the same amount on Ziad's account, which net to zero.
+     */
+    beats: [
+      { n: 0, label: "the-desk", url: "/", settle: 9000, actions: [{ do: "wait", ms: 3000 }] },
+      {
+        n: 1, label: "open-popup", settle: 500,
+        actions: [
+          { do: "clickSlot", time: BOOKING_SLOT },
+          { do: "wait", ms: 4000 },
+        ],
+      },
+      {
+        n: 2, label: "pick-patient", settle: 300,
+        actions: [
+          { do: "fill", sel: `${BOOKING_POPUP} input[placeholder^="دور بالاسم"]`, text: "Ziad", perChar: 130 },
+          { do: "wait", ms: 2500 },
+          { do: "clickFirst", text: STAR_PATIENT.name, within: `${BOOKING_POPUP} ${SEARCH_PANEL}` },
+          { do: "wait", ms: 3500 },
+        ],
+      },
+      {
+        // The dentist select's options read "Dr. Hana Mostafa — 5 فاضي"; "فاضي" is what tells it
+        // apart from the diary's own dentist filter behind the pop-up.
+        n: 3, label: "dentist-and-length", settle: 300,
+        actions: [
+          { do: "selectWhere", has: "فاضي", pick: "Dr. Hana" },
+          { do: "wait", ms: 1500 },
+          { do: "click", role: "button", text: "30 دقيقة", exact: true, within: BOOKING_POPUP },
+          { do: "wait", ms: 2500 },
+        ],
+      },
+      {
+        // "اختار الفرع الأول" only exists in the pop-up's branch and room selects. A branch with
+        // rooms will not save without one.
+        n: 4, label: "room-and-times", settle: 300,
+        actions: [
+          { do: "selectWhere", has: "اختار الفرع الأول", pickIndex: 1, optional: true },
+          { do: "wait", ms: 1200 },
+          { do: "selectWhere", has: "اختار الغرفة", pickIndex: 1, optional: true },
+          { do: "wait", ms: 1500 },
+          { do: "wheel", ms: 4500, dy: 60 },
+          { do: "wait", ms: 1500 },
+        ],
+      },
+      {
+        n: 5, label: "reason-and-notes", settle: 300,
+        actions: [
+          { do: "selectWhere", has: "اختار سبب الزيارة", pickIndex: 1, optional: true },
+          { do: "wait", ms: 1000 },
+          { do: "fill", sel: "#booking-notes", text: "عنده حساسية من البنج — يتسأل الأول", perChar: 70 },
+          { do: "wait", ms: 2000 },
+        ],
+      },
+      {
+        n: 6, label: "service-tab", settle: 300,
+        actions: [
+          { do: "click", role: "tab", text: "الخدمة", within: BOOKING_POPUP },
+          { do: "wait", ms: 2500 },
+          { do: "click", role: "button", text: "إضافة إجراء", within: BOOKING_POPUP },
+          { do: "wait", ms: 2000 },
+          { do: "fill", sel: `${BOOKING_POPUP} input[placeholder="اختر الخدمة..."]`, text: "Composite", perChar: 120 },
+          { do: "wait", ms: 2000 },
+          { do: "click", sel: `${BOOKING_POPUP} [data-tour="service-option"]:has-text("Composite Filling")` },
+          { do: "wait", ms: 2000 },
+        ],
+      },
+      {
+        n: 7, label: "teeth-and-confirm", settle: 300,
+        actions: [
+          { do: "click", sel: `${BOOKING_POPUP} [data-tooth="14"]` },
+          { do: "wait", ms: 900 },
+          { do: "click", sel: `${BOOKING_POPUP} [data-tooth="15"]` },
+          { do: "wait", ms: 2500 },
+          { do: "click", role: "button", text: "تأكيد الإجراء", within: BOOKING_POPUP },
+          { do: "wait", ms: 3000 },
+        ],
+      },
+      {
+        // Saves the visit with its services and reopens it on its own Payment tab
+        // (DesktopDashboard handleSaveBookingAndStay). A slot already booked by an earlier take
+        // asks first; the chapter answers yes.
+        n: 8, label: "confirm-and-stay", settle: 300,
+        actions: [
+          { do: "click", role: "tab", text: "الدفع", within: BOOKING_POPUP },
+          { do: "wait", ms: 3500 },
+          { do: "click", role: "button", text: "أكّد الحجز وحصّل دلوقتي", within: BOOKING_POPUP },
+          { do: "wait", ms: 1500 },
+          { do: "click", text: "أيوه، كمّل", optional: true, timeout: 3000 },
+          { do: "wait", ms: 6000 },
+        ],
+      },
+      {
+        // "تحصيل" on the visit's own treatment, not "تحصيل دفعة" on the balance card: the balance
+        // card covers Ziad's whole account and would spread the money over his oldest debts.
+        // The visit's rows come before "زيارات سابقة" in the DOM, so the first exact match is it.
+        n: 9, label: "collect", settle: 300,
+        actions: [
+          { do: "click", role: "button", text: "تحصيل", exact: true, within: BOOKING_POPUP },
+          { do: "wait", ms: 2500 },
+          { do: "click", role: "button", text: "كاش", exact: true, within: BOOKING_POPUP },
+          { do: "wait", ms: 1500 },
+          { do: "click", role: "button", text: "تأكيد", exact: true, within: BOOKING_POPUP },
+          { do: "wait", ms: 1500 },
+          // Only asked when the screen is on "All branches".
+          { do: "click", text: "Main Branch", within: '[role="dialog"][aria-label="أي فرع؟"]', optional: true, timeout: 3000 },
+          { do: "wait", ms: 4000 },
+        ],
+      },
+      {
+        n: 10, label: "paid", settle: 300,
+        actions: [
+          { do: "wheel", ms: 4000, dy: 50 },
+          { do: "wait", ms: 2500 },
+        ],
+      },
+      {
+        n: 11, label: "back-on-the-diary", settle: 300,
+        actions: [
+          { do: "click", role: "button", text: "إلغاء", exact: true, within: BOOKING_POPUP },
+          { do: "wait", ms: 1200 },
+          { do: "click", text: "أيوه، سيبها", optional: true, timeout: 2500 },
+          { do: "wait", ms: 2500 },
+          { do: "scrollTo", text: STAR_PATIENT.name, which: "last", ms: 2500, optional: true },
+          { do: "wait", ms: 4000 },
         ],
       },
     ],
