@@ -60,7 +60,7 @@ import { currentClinicId, getClinicCollection, getClinicDoc } from "@/lib/db-uti
 import { syncClaimLineFromAppointment } from "@/lib/insurance/appointmentSync";
 import PageHeader, { headerButtonPrimary, headerButtonGhost } from "@/components/dashboard/PageHeader";
 import HomeViewTabs from "@/components/dashboard/HomeViewTabs";
-import { weekDaysFrom, daySummary, isOffDay } from "@/lib/weekSchedule";
+import { weekDaysFrom, daySummary, isOffDay, countsAsVisit } from "@/lib/weekSchedule";
 import { NO_DOCTOR, NO_ROOM, doctorColumns, roomColumns } from "@/lib/roomSchedule";
 import { generalDoctorLabel } from "@/lib/generalDentist";
 
@@ -384,12 +384,16 @@ export default function MobileDashboard() {
   // Fetch only appointments for the current view date to prevent severe performance degradation
   // and browser freezes when saving. The week view reads its seven days with the desk week view's
   // own range query, over the same weekDaysFrom() days, so the two can never disagree.
+  // Keyed on the week in Week view and the day otherwise: a tap on another day of the same week
+  // keeps the listener (no re-read, no spinner); a day tap in the day views reads that day.
+  const dayKey = normalizeDateKey(scheduleViewDate) || scheduleViewDate;
+  const listenKey = isWeekView ? weekKey : dayKey;
   useEffect(() => {
     setLoading(true);
-    const viewKey = normalizeDateKey(scheduleViewDate) || scheduleViewDate;
+    const days = listenKey.split(",");
     const q = isWeekView
-      ? query(getClinicCollection("appointments"), where("date", ">=", weekDays[0]), where("date", "<=", weekDays[6]))
-      : query(getClinicCollection("appointments"), where("date", "==", viewKey));
+      ? query(getClinicCollection("appointments"), where("date", ">=", days[0]), where("date", "<=", days[days.length - 1]))
+      : query(getClinicCollection("appointments"), where("date", "==", listenKey));
 
     const unsubAppts = onSnapshot(
       q,
@@ -403,7 +407,7 @@ export default function MobileDashboard() {
       }
     );
     return () => unsubAppts();
-  }, [scheduleViewDate, isWeekView, weekDays]);
+  }, [listenKey, isWeekView]);
 
   const appointments = useMemo(() => {
     const viewKey = normalizeDateKey(scheduleViewDate) || scheduleViewDate;
@@ -1243,7 +1247,11 @@ export default function MobileDashboard() {
                   </button>
                   {/* Always rendered: Sara's tour points at it by its text. */}
                   <button
-                    onClick={() => setScheduleViewDate(getLocalDateKey())}
+                    onClick={() => {
+                      // In the week, Today also brings today's section up, as a strip tap does.
+                      if (isWeekView) setWeekScrollTarget(getLocalDateKey());
+                      setScheduleViewDate(getLocalDateKey());
+                    }}
                     aria-pressed={isWeekView ? weekDays.includes(getLocalDateKey()) : isScheduleToday}
                     className={`h-10 shrink-0 text-[11px] font-black uppercase tracking-wider px-3.5 rounded-full border ${
                       (isWeekView ? weekDays.includes(getLocalDateKey()) : isScheduleToday)
@@ -1268,7 +1276,7 @@ export default function MobileDashboard() {
                       role="tab"
                       aria-selected={phoneView === v.id}
                       onClick={() => setPhoneView(v.id)}
-                      className={`flex-1 min-w-0 h-9 rounded-lg text-xs font-black truncate transition-all ${
+                      className={`flex-1 min-w-0 h-10 rounded-lg text-xs font-black truncate transition-all ${
                         phoneView === v.id ? "bg-surface text-slate-800 shadow-sm" : "text-ink-muted"
                       }`}
                     >
@@ -1357,7 +1365,7 @@ export default function MobileDashboard() {
                       type="button"
                       aria-pressed={on}
                       onClick={() => setDentistFilter(c.id)}
-                      className={`shrink-0 h-8 flex items-center gap-1.5 rounded-full border px-3 text-xs font-black whitespace-nowrap transition-colors ${
+                      className={`shrink-0 h-10 flex items-center gap-1.5 rounded-full border px-3 text-xs font-black whitespace-nowrap transition-colors ${
                         on ? "bg-ink-slab text-white border-ink-slab" : "bg-surface text-slate-700 border-line"
                       }`}
                     >
@@ -1472,8 +1480,10 @@ export default function MobileDashboard() {
                                     <span className="block text-sm font-black text-slate-800 truncate">{title}</span>
                                     <span className="block text-[11px] font-bold text-ink-muted truncate">{summary}</span>
                                   </span>
+                                  {/* Counted the way the summary line counts (daySummary): cancelled,
+                                      no-show and rescheduled cards are listed but are not visits. */}
                                   <span className="shrink-0 min-w-7 h-7 px-2 rounded-full bg-ink-slab text-white text-xs font-black flex items-center justify-center">
-                                    {items.length.toLocaleString(locale)}
+                                    {items.filter((a) => countsAsVisit(a.status)).length.toLocaleString(locale)}
                                   </span>
                                   <ChevronDown size={16} className={`shrink-0 text-ink-muted transition-transform ${folded ? (isRTL ? "rotate-90" : "-rotate-90") : ""}`} />
                                 </button>
@@ -1486,15 +1496,28 @@ export default function MobileDashboard() {
                           /** "3 visits · 12 free slots" — the desk week view's free-slot count, for one dentist's day. */
                           const busySummary = (items: any[]) => {
                             const s = daySummary(items, config, scheduleViewDate);
+                            /** Arabic counting: زيارة (1), زيارتين (2), زيارات (3–10), زيارة (11+). */
+                            const visitsText = (n: number) =>
+                              ar
+                                ? n === 2
+                                  ? "زيارتين"
+                                  : `${n.toLocaleString(locale)} ${n >= 3 && n <= 10 ? "زيارات" : "زيارة"}`
+                                : `${n} visit${n === 1 ? "" : "s"}`;
+                            // Listed but not visits (cancelled, no-show): said apart, so the badge
+                            // (visits only) and this line agree.
+                            const notVisits = items.length - s.visits;
+                            const extra = notVisits > 0
+                              ? (ar ? `، ${notVisits.toLocaleString(locale)} ملغي أو ماحضرش` : ` · ${notVisits} cancelled / no-show`)
+                              : "";
                             if (s.isOffDay) {
-                              if (s.visits === 0) return ar ? "يوم إجازة" : "Day off";
-                              return ar ? `${s.visits.toLocaleString(locale)} زيارة في يوم إجازة` : `${s.visits} visit${s.visits === 1 ? "" : "s"} on a day off`;
+                              if (s.visits === 0) return (ar ? "يوم إجازة" : "Day off") + extra;
+                              return (ar ? `${visitsText(s.visits)} في يوم إجازة` : `${visitsText(s.visits)} on a day off`) + extra;
                             }
-                            if (s.visits === 0) return ar ? "مفيش مواعيد، فاضي طول اليوم" : "Nothing booked, free all day";
+                            if (s.visits === 0) return (ar ? "مفيش زيارات، فاضي طول اليوم" : "No visits, free all day") + extra;
                             // An Arabic comma, not "·": beside Arabic digits a middle dot reads as a zero (٠).
-                            return ar
-                              ? `${s.visits.toLocaleString(locale)} زيارة، ${s.freeSlots.toLocaleString(locale)} من ${s.totalSlots.toLocaleString(locale)} ميعاد فاضي`
-                              : `${s.visits} visit${s.visits === 1 ? "" : "s"} · ${s.freeSlots} of ${s.totalSlots} slots free`;
+                            return (ar
+                              ? `${visitsText(s.visits)}، ${s.freeSlots.toLocaleString(locale)} من ${s.totalSlots.toLocaleString(locale)} ميعاد فاضي`
+                              : `${visitsText(s.visits)} · ${s.freeSlots} of ${s.totalSlots} slots free`) + extra;
                           };
 
                           if (phoneView === "week") {
