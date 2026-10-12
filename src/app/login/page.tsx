@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Mail, Lock, ArrowRight, Loader2, ShieldCheck, KeyRound, AlertCircle, CheckCircle2, Building2, User } from "lucide-react";
+import { Mail, Lock, ArrowRight, Loader2, ShieldCheck, KeyRound, AlertCircle, CheckCircle2, Building2, User, Eye, EyeOff } from "lucide-react";
 import {
   signInWithPopup,
   GoogleAuthProvider,
@@ -11,9 +11,13 @@ import {
   updateProfile,
   sendPasswordResetEmail,
   signOut,
+  initializeAuth,
+  inMemoryPersistence,
+  updatePassword,
 } from "firebase/auth";
+import { deleteApp, initializeApp } from "firebase/app";
 import { doc, getDoc, setDoc } from "firebase/firestore";
-import { auth, db } from "@/lib/firebase";
+import firebaseApp, { auth, db } from "@/lib/firebase";
 import { useLanguage } from "@/context/LanguageContext";
 import { currentSignupKey, finishSignupAttempt } from "@/lib/onboardingSignup";
 import { SETUP_ROUTE } from "@/lib/setupWizard";
@@ -40,9 +44,15 @@ export default function LoginPage() {
    * password", which reads as "you got your details wrong" when the truth is "you have no
    * account yet", so the only thing to do was try again. That is the loop this mode ends.
    */
-  const [mode, setMode] = useState<"signin" | "signup" | "reset">("signin");
+  const [mode, setMode] = useState<"signin" | "signup" | "reset" | "change">("signin");
   const isResetMode = mode === "reset";
   const isSignUpMode = mode === "signup";
+  /**
+   * Change a password knowing the old one. Staff accounts are often made with an address nobody
+   * reads (dr.sara@clinic.com), so "Forgot password?" sends its link nowhere; this needs no email.
+   */
+  const isChangeMode = mode === "change";
+  const [newPassword, setNewPassword] = useState("");
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -90,7 +100,7 @@ export default function LoginPage() {
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
 
-  const switchMode = (next: "signin" | "signup" | "reset") => {
+  const switchMode = (next: "signin" | "signup" | "reset" | "change") => {
     setMode(next);
     setErrorMsg("");
     setSuccessMsg("");
@@ -125,6 +135,17 @@ export default function LoginPage() {
     signUpBtn: language === 'ar' ? "إنشاء الحساب" : "Create account",
     resetBtn: language === 'ar' ? "إرسال رابط الاستعادة" : "Send Reset Link",
     forgotPass: language === 'ar' ? "نسيت كلمة المرور؟" : "Forgot Password?",
+    changePass: language === 'ar' ? "تغيير كلمة المرور" : "Change password",
+    changeTitle: language === 'ar' ? "تغيير كلمة المرور" : "Change password",
+    changeSub: language === 'ar' ? "اكتب إيميلك وكلمة المرور الحالية والجديدة." : "Type your email, your current password and the new one.",
+    oldPassword: language === 'ar' ? "كلمة المرور الحالية" : "Current password",
+    newPassword: language === 'ar' ? "كلمة المرور الجديدة" : "New password",
+    changeBtn: language === 'ar' ? "غيّر كلمة المرور" : "Change password",
+    changeDone: language === 'ar' ? "اتغيرت كلمة المرور. سجّل دخول بالجديدة." : "Password changed. Sign in with the new one.",
+    changeWrong: language === 'ar' ? "الإيميل أو كلمة المرور الحالية غلط." : "The email or the current password is wrong.",
+    changeSame: language === 'ar' ? "كلمة المرور الجديدة هي نفس القديمة." : "The new password is the same as the current one.",
+    showPassword: language === 'ar' ? "إظهار كلمة المرور" : "Show password",
+    hidePassword: language === 'ar' ? "إخفاء كلمة المرور" : "Hide password",
     backToLogin: language === 'ar' ? "العودة لتسجيل الدخول" : "Back to Sign In",
     newHere: language === 'ar' ? "عيادة جديدة؟" : "New clinic?",
     createOne: language === 'ar' ? "أنشئ حساباً" : "Create an account",
@@ -355,6 +376,42 @@ export default function LoginPage() {
     }
   };
 
+  /**
+   * Checked and changed on a throwaway copy of the Firebase app that keeps its sign-in in memory
+   * only: the real session on this page is never touched, so nothing redirects mid-change and
+   * nobody is left signed in on a shared desk computer.
+   */
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !password || !newPassword) return;
+    setErrorMsg("");
+    setSuccessMsg("");
+    if (newPassword === password) {
+      setErrorMsg(txt.changeSame);
+      return;
+    }
+    setLoading(true);
+    const scratch = initializeApp(firebaseApp.options, `password-change-${Date.now()}`);
+    try {
+      const scratchAuth = initializeAuth(scratch, { persistence: inMemoryPersistence });
+      const { user } = await signInWithEmailAndPassword(scratchAuth, email.trim(), password);
+      await updatePassword(user, newPassword);
+      setPassword("");
+      setNewPassword("");
+      setMode("signin");
+      setSuccessMsg(txt.changeDone);
+    } catch (error: any) {
+      console.error(error);
+      const code = String(error?.code || "");
+      setErrorMsg(code === "auth/invalid-credential" || code === "auth/wrong-password" || code === "auth/user-not-found" ? txt.changeWrong : getFriendlyError(code));
+    } finally {
+      setLoading(false);
+      void deleteApp(scratch).catch(() => {});
+    }
+  };
+
+  const fieldClass = `w-full py-4 bg-surface-subtle border-2 border-slate-100 rounded-2xl text-slate-800 font-semibold focus:border-line-strong focus:bg-surface outline-none transition-all pl-12 pr-12`;
+
   return (
     <div className="min-h-screen bg-surface-subtle flex items-center justify-center p-4 font-sans selection:bg-primary-100 selection:text-primary-900" dir={isRTL ? 'rtl' : 'ltr'}>
       <div className="max-w-md w-full bg-white rounded-[2.5rem] p-8 md:p-10 shadow-2xl shadow-slate-200/50 border border-slate-100 animate-in fade-in zoom-in-95 duration-500 relative">
@@ -367,10 +424,10 @@ export default function LoginPage() {
             <ShieldCheck size={32} />
           </div>
           <h1 className="text-3xl font-black text-slate-900 tracking-tight">
-            {isResetMode ? txt.resetTitle : isSignUpMode ? txt.signUpTitle : txt.welcome}
+            {isChangeMode ? txt.changeTitle : isResetMode ? txt.resetTitle : isSignUpMode ? txt.signUpTitle : txt.welcome}
           </h1>
           <p className="text-ink-muted font-medium mt-2">
-            {isResetMode ? txt.resetSub : isSignUpMode ? txt.signUpSub : txt.subWelcome}
+            {isChangeMode ? txt.changeSub : isResetMode ? txt.resetSub : isSignUpMode ? txt.signUpSub : txt.subWelcome}
           </p>
         </div>
 
@@ -405,8 +462,55 @@ export default function LoginPage() {
           </div>
         )}
 
-        {isResetMode ? (
-          <form onSubmit={handleResetPassword} className="space-y-4 animate-in fade-in slide-in-from-right-4">
+        {isChangeMode ? (
+          <form key="change" onSubmit={handleChangePassword} className="space-y-4 animate-in fade-in slide-in-from-right-4">
+            <div className="relative">
+              <Mail size={20} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`} />
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder={txt.email}
+                autoComplete="username"
+                className={`w-full py-4 bg-surface-subtle border-2 border-slate-100 rounded-2xl text-slate-800 font-semibold focus:border-line-strong focus:bg-surface outline-none transition-all ${isRTL ? 'pr-12 pl-4' : 'pl-12 pr-4'}`}
+                required
+              />
+            </div>
+            <PasswordInput
+              value={password}
+              onChange={setPassword}
+              placeholder={txt.oldPassword}
+              autoComplete="current-password"
+              isRTL={isRTL}
+              className={fieldClass}
+              showLabel={txt.showPassword}
+              hideLabel={txt.hidePassword}
+            />
+            <div>
+              <PasswordInput
+                value={newPassword}
+                onChange={setNewPassword}
+                placeholder={txt.newPassword}
+                autoComplete="new-password"
+                minLength={6}
+                isRTL={isRTL}
+                className={fieldClass}
+                showLabel={txt.showPassword}
+                hideLabel={txt.hidePassword}
+              />
+              <p className={`text-xs font-medium text-slate-400 mt-2 ${isRTL ? 'pr-2' : 'pl-2'}`}>{txt.passwordHint}</p>
+            </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-accent text-ink-on-accent py-4 rounded-2xl font-black text-sm shadow-xl shadow-accent/20 hover:bg-accent-strong hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+            >
+              {loading ? <Loader2 size={20} className="animate-spin" /> : <KeyRound size={18} />}
+              {txt.changeBtn}
+            </button>
+          </form>
+        ) : isResetMode ? (
+          <form key="reset" onSubmit={handleResetPassword} className="space-y-4 animate-in fade-in slide-in-from-right-4">
             <div>
               <div className="relative">
                 <Mail size={20} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`} />
@@ -430,7 +534,7 @@ export default function LoginPage() {
             </button>
           </form>
         ) : isSignUpMode ? (
-          <form onSubmit={handleSignUp} className="space-y-4 animate-in fade-in slide-in-from-right-4">
+          <form key="signup" onSubmit={handleSignUp} className="space-y-4 animate-in fade-in slide-in-from-right-4">
             {/* Owner or staff. Decides whether a clinic is created with the account. */}
             <div className="grid grid-cols-2 gap-2 p-1 bg-surface-subtle rounded-2xl border-2 border-slate-100" role="radiogroup">
               {(["owner", "staff"] as const).map((kind) => (
@@ -558,7 +662,7 @@ export default function LoginPage() {
             </>)}
           </form>
         ) : (
-          <form onSubmit={handleEmailLogin} className="space-y-4 animate-in fade-in slide-in-from-left-4">
+          <form key="signin" onSubmit={handleEmailLogin} className="space-y-4 animate-in fade-in slide-in-from-left-4">
             <div>
               <div className="relative">
                 <Mail size={20} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`} />
@@ -572,19 +676,16 @@ export default function LoginPage() {
                 />
               </div>
             </div>
-            <div>
-              <div className="relative">
-                <Lock size={20} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`} />
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder={txt.password}
-                  className={`w-full py-4 bg-surface-subtle border-2 border-slate-100 rounded-2xl text-slate-800 font-semibold focus:border-line-strong focus:bg-surface outline-none transition-all ${isRTL ? 'pr-12 pl-4' : 'pl-12 pr-4'}`}
-                  required
-                />
-              </div>
-            </div>
+            <PasswordInput
+              value={password}
+              onChange={setPassword}
+              placeholder={txt.password}
+              autoComplete="current-password"
+              isRTL={isRTL}
+              className={fieldClass}
+              showLabel={txt.showPassword}
+              hideLabel={txt.hidePassword}
+            />
             
             <div>
               <div className="relative">
@@ -604,7 +705,14 @@ export default function LoginPage() {
               </p>
             </div>
 
-            <div className={`flex ${isRTL ? 'justify-start' : 'justify-end'} pt-1`}>
+            <div className="flex items-center justify-between gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => switchMode("change")}
+                className="text-xs font-bold text-ink-muted hover:text-ink transition-colors"
+              >
+                {txt.changePass}
+              </button>
               <button
                 type="button"
                 onClick={() => switchMode("reset")}
@@ -704,6 +812,58 @@ export default function LoginPage() {
         </div>
 
       </div>
+    </div>
+  );
+}
+
+/** A password box with an eye that shows or hides what was typed. */
+function PasswordInput({
+  value,
+  onChange,
+  placeholder,
+  autoComplete,
+  minLength,
+  isRTL,
+  className,
+  showLabel,
+  hideLabel,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  autoComplete: string;
+  minLength?: number;
+  isRTL: boolean;
+  className: string;
+  showLabel: string;
+  hideLabel: string;
+}) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div className="relative">
+      <Lock size={20} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`} />
+      <input
+        type={visible ? "text" : "password"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+        minLength={minLength}
+        className={className}
+        required
+      />
+      <button
+        type="button"
+        onClick={() => setVisible((v) => !v)}
+        aria-label={visible ? hideLabel : showLabel}
+        aria-pressed={visible}
+        className={`absolute top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 transition-colors ${isRTL ? 'left-3' : 'right-3'}`}
+      >
+        {visible ? <EyeOff size={20} /> : <Eye size={20} />}
+      </button>
     </div>
   );
 }
