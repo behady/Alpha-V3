@@ -883,8 +883,9 @@ function eq<T>(actual: T, expected: T, message: string) {
   ok(/dentistMode\?: boolean/.test(src), "the editor has a dentistMode prop");
   ok(src.includes("addToLedger: dentistNew ? true : addToLedger"), "dentist mode always bills");
   ok(src.includes("doctorId: dentistMode ? meStaffId"), "dentist mode puts the treatment on the dentist themselves");
-  ok(src.includes("unitCost: dentistNew ? null"), "dentist mode never sends a typed cost");
-  ok(/priceListId: dentistNew \? defaultListId/.test(src), "dentist mode charges from the clinic's default list");
+  // Owner, 2026-10-12: the dentist picks the list and may edit the price; still no discount.
+  ok(src.includes("{dentistMode && dentistListField}"), "dentist mode shows a price-list picker");
+  ok(src.includes("discountPayload(dentistNew ? { ...EMPTY_DISCOUNT, priceListId: discount.priceListId } : discount)"), "a dentist's new treatment carries their list but no discount");
 }
 
 console.log(`payers: ${checks} checks passed`);

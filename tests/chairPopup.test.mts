@@ -83,10 +83,10 @@ eq(canTouch({}, me), false, "a note with no dentist (the clinic's) is locked");
 {
   const read = (rel: string) => readFileSync(join(import.meta.dirname, "..", rel), "utf8");
   const editor = read("src/components/clinical-notes/ServiceEditorDrawer.tsx");
-  ok(editor.includes("const dentistNew = dentistMode && !initialNote"), "dentist-mode pricing overrides apply to NEW treatments only; an edit keeps its list, price and discount");
+  ok(editor.includes("const dentistNew = dentistMode && !initialNote"), "dentist-mode billing overrides apply to NEW treatments only; an edit keeps its discount and billing");
   ok(editor.includes("dentistMode ? approvalSummaryBare : approvalSummary"), "an approval row in dentist mode shows no amounts");
   ok((editor.match(/\{!dentistMode && doctorField\}/g) || []).length >= 4, "the dentist picker is hidden in both layouts, approval rows included");
-  ok(editor.includes("(dentistNew ? defaultListId : discount.priceListId) || null"), "a dentist picks from the default list's own menu");
+  ok(editor.includes("serviceMenuById(priceLists, payers, discount.priceListId || null, servicesList)"), "a dentist picks from the menu of the list they chose");
   const card = read("src/components/chair/ChairNoteCard.tsx");
   ok(card.includes('permission="clinical.delete"') && card.includes("!fromApproval"), "delete is shown only to those who may delete, never on an approval row");
   ok(read("src/components/chair/ChairPopup.tsx").includes("scrollIntoView"), "opening the editor brings it on screen");

@@ -31,7 +31,8 @@ import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import type { LabCaseSeed } from "@/lib/labCases";
 import DiscountEditor, { EMPTY_DISCOUNT, discountPayload, type DiscountState } from "@/components/shared/DiscountEditor";
 import { isDiscountMode, resolveListPrice, type DiscountMode } from "@/lib/discountMath";
-import { listsForBranch } from "@/lib/priceLists";
+import { listsForBranch, resolveActiveListId } from "@/lib/priceLists";
+import { PRIVATE_PAYER_ID, payerForPriceList } from "@/lib/payers";
 import { serviceDisplayName, serviceMatchesName } from "@/lib/serviceName";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
 
@@ -405,17 +406,15 @@ export default function ServiceEditorDrawer({
   // Price list + discount for this line. The server recomputes and enforces both; this is the
   // preview and the input.
   const { priceLists, payers, discountSettings, maxDiscountPercent } = usePricingPolicy();
-  /** The clinic's main list: what a dentist's treatment is charged from, this branch's first. */
-  const defaultListId =
-    listsForBranch(priceLists, branchId).find((l) => l.active && l.isDefault)?.id ?? priceLists.find((l) => l.isDefault)?.id ?? "";
   /**
-   * The pricing overrides belong to a NEW treatment only. An edit keeps the list, price and
-   * discount reception gave it (the form seeds them from the note), or a dentist's status change
-   * would re-price an insurer's case onto clinic rates and bill a continued treatment again.
+   * A dentist's NEW treatment: no discount, always billed. The list and the price are the
+   * dentist's own choice now (owner, 2026-10-12) — the list prefills, the box is the price. An
+   * edit keeps the discount and billing reception gave it (the form seeds them from the note).
    */
   const dentistNew = dentistMode && !initialNote;
 
   const [discount, setDiscount] = useState<DiscountState>(EMPTY_DISCOUNT);
+  const activeLists = useMemo(() => listsForBranch(priceLists, branchId).filter((l) => l.active), [priceLists, branchId]);
 
   /**
    * Only what the selected list actually covers.
@@ -428,9 +427,9 @@ export default function ServiceEditorDrawer({
   // Every service whoever pays (coverage lists are gone); only the price list's own menu applies:
   // another list's own treatments are left out, and the shared ones this list hides.
   const offeredServices = useMemo(() => {
-    const offered = serviceMenuById(priceLists, payers, (dentistNew ? defaultListId : discount.priceListId) || null, servicesList);
+    const offered = serviceMenuById(priceLists, payers, discount.priceListId || null, servicesList);
     return servicesList.filter((s) => offered(String(s.id)));
-  }, [servicesList, priceLists, payers, discount.priceListId, dentistNew, defaultListId]);
+  }, [servicesList, priceLists, payers, discount.priceListId]);
 
   /**
    * Re-price a catalogue pick when the prefill list is changed; a free-typed name keeps its price.
@@ -542,6 +541,20 @@ export default function ServiceEditorDrawer({
   }, [isOpen, initialNote]);
 
   /**
+   * The dentist's list picker has no DiscountEditor behind it to make the list real, so do it
+   * here: a blank or retired list would show the select's first option while the state held
+   * nothing (the placeholder trap), and the price would prefill from no list at all. Declared
+   * after the seeding effect on purpose: that one resets the form to a blank list on open, and
+   * effects run in order, so this has to come second or the reset wins and the picker stays blank.
+   */
+  useEffect(() => {
+    if (!dentistMode || activeLists.length === 0) return;
+    if (activeLists.some((l) => l.id === discount.priceListId)) return;
+    setDiscount((d) => ({ ...d, priceListId: resolveActiveListId(activeLists, d.priceListId, patientDefaultPriceListId || null, branchId) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dentistMode, activeLists, discount.priceListId]);
+
+  /**
    * Pick the doctor once the staff list has actually arrived. Split out of the seeding effect so a
    * late-loading list fills this one field instead of resetting the whole form, and so it never
    * overrides a doctor the user has already chosen.
@@ -648,24 +661,24 @@ export default function ServiceEditorDrawer({
       // back-link and the appointment's services[] mirror as one transaction. Those were four
       // separate writes from here, and a failure between any two left a charge with no treatment
       // behind it or a treatment nobody was billed for.
-      // Dentist mode: no typed cost, no discount, no payer choice — the clinic's default list,
-      // billed, on the dentist themselves. The server prices it; the dentist never sees it.
-      const billing = discountPayload(dentistNew ? EMPTY_DISCOUNT : discount);
+      // Dentist mode: the dentist's own list and price, but no discount and no payer choice — a
+      // blank payer means the list's owner pays, so picking an insurer's list makes it their case.
+      // Billed, on the dentist themselves.
+      const billing = discountPayload(dentistNew ? { ...EMPTY_DISCOUNT, priceListId: discount.priceListId } : discount);
       const payload = {
         patientId,
         appointmentId: initialNote ? initialNote.appointmentId ?? null : appointmentId || null,
         procedures,
         selectedTeeth,
         tooth,
-        unitCost: dentistNew ? null : cost === "" ? null : Number(cost),
-        pricingMode: dentistNew ? null : pricingModeOverride,
+        unitCost: cost === "" ? null : Number(cost),
+        pricingMode: pricingModeOverride,
         doctorId: dentistMode ? meStaffId || null : selectedDoctorId,
         status: procedureStatus,
         note: noteText,
         date,
         addToLedger: dentistNew ? true : addToLedger,
         ...billing,
-        priceListId: dentistNew ? defaultListId || null : billing.priceListId,
         patientDefaultPriceListId: patientDefaultPriceListId || null,
         ...(chargeBranchId ? { branchId: chargeBranchId } : {}),
       };
@@ -766,8 +779,8 @@ export default function ServiceEditorDrawer({
    */
   const needsTypedPrice =
     !dentistMode && addToLedger && cost === "" && previewMatched.length < previewProcedures.length;
-  /** A name not in the list: the dentist may still write it; reception prices it later. */
-  const unpricedName = dentistMode && previewMatched.length < previewProcedures.length;
+  /** A name not in the list and no price typed: the dentist may still save it; reception prices it later. */
+  const unpricedName = dentistMode && cost === "" && previewMatched.length < previewProcedures.length;
   const previewUnits = pricingUnitsFor(previewMode, selectedTeeth);
   const previewTotal = previewUnitCost * previewUnits;
   /** True when the picked service predates billing rules, so the fallback is being used. */
@@ -906,6 +919,36 @@ export default function ServiceEditorDrawer({
     </div>
   );
 
+  /**
+   * The dentist's price list: the same choice the desk makes inside DiscountEditor, without the
+   * payer and discount controls around it. Picking a list re-prices a catalogue treatment (the
+   * effect on `discount.priceListId` above); the price box under it stays editable.
+   */
+  const dentistListField = activeLists.length > 0 ? (
+    <div>
+      <label className={labelClass}>{isAr ? "قائمة الأسعار" : "Price list"}</label>
+      {activeLists.length > 1 ? (
+        <select
+          value={activeLists.some((l) => l.id === discount.priceListId) ? discount.priceListId : ""}
+          onChange={(e) => setDiscount((d) => ({ ...d, priceListId: e.target.value }))}
+          className={inputClass}
+        >
+          {activeLists.map((list) => {
+            const owner = payerForPriceList(payers, list.id);
+            return (
+              <option key={list.id} value={list.id}>
+                {isAr && list.nameAr ? list.nameAr : list.name}
+                {owner.id !== PRIVATE_PAYER_ID ? ` · ${isAr ? owner.nameAr || owner.name : owner.name}` : ""}
+              </option>
+            );
+          })}
+        </select>
+      ) : (
+        <p className={inputClass}>{isAr && activeLists[0].nameAr ? activeLists[0].nameAr : activeLists[0].name}</p>
+      )}
+    </div>
+  ) : null;
+
   const procedureField = (
     <div>
       <label className={labelClass}>{txt.procedure}</label>
@@ -952,7 +995,7 @@ export default function ServiceEditorDrawer({
       )}
       {unpricedName && (
         <p className="mt-1 text-[12px] font-bold text-amber-700">
-          {language === "ar" ? "مش في القائمة — الاستقبال هيحط السعر" : "Not in the list — reception sets the price"}
+          {language === "ar" ? "مش في القائمة — اكتب السعر، أو سيبه والاستقبال هيحطه" : "Not in the list — type a price, or leave it for reception"}
         </p>
       )}
     </div>
@@ -1122,7 +1165,8 @@ export default function ServiceEditorDrawer({
           {dateField}
 
           {statusField}
-          {!dentistMode && costField}
+          {dentistMode && dentistListField}
+          {costField}
           {!dentistMode && (
             <div>
               {/* Empty label so this lines up with the fields beside it. */}
@@ -1136,7 +1180,7 @@ export default function ServiceEditorDrawer({
             {saveButton}
           </div>
 
-          {!dentistMode && <div className="md:col-span-4">{billingStrip}</div>}
+          <div className="md:col-span-4">{billingStrip}</div>
 
           <div className="md:col-span-4">{noteField(3)}</div>
 
@@ -1282,7 +1326,12 @@ export default function ServiceEditorDrawer({
             {!dentistMode && extraProceduresField(3)}
           </div>
 
-          {!dentistMode && costField}
+          {dentistMode ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {dentistListField}
+              {costField}
+            </div>
+          ) : costField}
 
           {/*
             The price list, in the drawer as well as in the compact editor.
@@ -1299,7 +1348,7 @@ export default function ServiceEditorDrawer({
           */}
           {!dentistMode && discountField}
 
-          {!dentistMode && billingStrip}
+          {billingStrip}
 
           {noteField(4)}
 
