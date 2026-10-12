@@ -39,8 +39,13 @@ export type InsurerRow = {
   patientPaid: number;
   insurerPaid: number;
   outstanding: number;
-  /** False when the row came from an approval (collected on the Insurance page) or nothing is left. */
+  /** Something is still owed by the company. */
   collectable: boolean;
+  /**
+   * The row was written by an approval paper: its collection goes through the claim (the claims
+   * route pays every treatment on that approval at once), not through `insurer-collect`.
+   */
+  viaClaim: boolean;
 };
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -86,7 +91,7 @@ export function insurerRows(rows: readonly LedgerLite[], payerId: string): Insur
     const patientPaid = round2(patient.get(r.id) ?? 0);
     const insurerPaid = round2(insurer.get(r.id) ?? 0);
     const outstanding = round2(Math.max(0, cost - patientPaid - insurerPaid));
-    out.push({ charge: r, cost, patientPaid, insurerPaid, outstanding, collectable: !isApprovalRow(r) && outstanding > 0.009 });
+    out.push({ charge: r, cost, patientPaid, insurerPaid, outstanding, collectable: outstanding > 0.009, viaClaim: isApprovalRow(r) });
   }
   return out;
 }

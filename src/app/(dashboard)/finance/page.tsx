@@ -16,7 +16,8 @@ import { useRouter } from "next/navigation";
 
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { currentClinicId, getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { recordInsurerPayment } from "@/components/insurance/api";
 import { useBranchForMoney } from "@/lib/useBranchForMoney";
 import { useActiveBranch } from "@/lib/useActiveBranch";
 import { rowInScope } from "@/lib/branchAccess";
@@ -438,6 +439,9 @@ export default function FinancePage() {
   const insurerTabRows = useMemo(() => [...(periodProcedures as LedgerLite[]), ...allTransactions], [periodProcedures, allTransactions]);
   /** The one door insurer money goes through; the tab asks and reports, the route decides the amounts. */
   const collectForInsurer = (payerId: string, chargeIds: string[]) => collectFromInsurer({ payerId, chargeIds });
+  /** An approval's insurer money goes through the claims route, which pays every treatment on it. */
+  const collectClaimForInsurer = (claimId: string, branchId: string | null) =>
+    recordInsurerPayment(currentClinicId() || "", claimId, branchId || undefined);
 
   /**
    * The filter as it applies to the figures: every field but `kind`, which only picks the rows
@@ -1314,6 +1318,7 @@ export default function FinancePage() {
               scopeBranchId={scopeBranchId}
               isLoading={isLoading}
               collect={collectForInsurer}
+              collectClaim={collectClaimForInsurer}
             />
           ) : (
           /* Ledger */

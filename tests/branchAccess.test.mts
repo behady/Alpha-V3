@@ -144,6 +144,8 @@ for (const rel of ["src/app/api/finance/ledger/route.ts", "src/app/api/clinical/
   const insurerTab = readFileSync(new URL("../src/components/finance/InsurerTab.tsx", import.meta.url), "utf8");
   // Insurer money follows the charge's branch; collecting never asks which branch.
   assert.doesNotMatch(insurerTab, /useBranchForMoney/, "collecting from an insurer must not ask which branch");
+  assert.match(insurerTab, /collectClaim\(/, "approval rows lost their Mark collected (through the claim)");
+  assert.match(financePage, /recordInsurerPayment\(/, "the Finance page cannot collect an approval's insurer money");
 }
 
 console.log("branchAccess: all checks passed");

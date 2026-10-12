@@ -38,12 +38,13 @@ const pay = (id: string, procedureId: string, amount: number, method: string, ex
   assert.equal(over[0].outstanding, 0, "overpaid never reads negative");
 }
 
-// A row written by an approval (claimId) is listed but collected on the Insurance page.
+// A row written by an approval (claimId) is collectable too, through its claim.
 {
   const out = insurerRows([charge("C1", { claimId: "metlife_d1" })], "gasco");
   assert.equal(out.length, 1);
   assert.equal(out[0].outstanding, 1584);
-  assert.equal(out[0].collectable, false, "approval rows are collected on the Insurance page");
+  assert.equal(out[0].collectable, true, "an approval row the company still owes is collectable");
+  assert.equal(out[0].viaClaim, true, "…through its claim, not through insurer-collect");
 }
 
 // Private work, another company's work, and non-treatment rows are not this company's.

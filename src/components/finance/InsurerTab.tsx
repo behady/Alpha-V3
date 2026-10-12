@@ -32,7 +32,6 @@ import InsurerBadge from "@/components/shared/InsurerBadge";
 import { getClinicCollection } from "@/lib/db-utils";
 import { rowInScope } from "@/lib/branchAccess";
 import { insurerRows, insurerTotals, treatmentHasDentist, type InsurerRow, type LedgerLite } from "@/lib/insurerLedger";
-import { isApprovalRow } from "@/lib/ledgerInsurer";
 import { MoneyApiError } from "@/lib/moneyApi";
 
 const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
@@ -49,6 +48,7 @@ export default function InsurerTab({
   scopeBranchId,
   isLoading,
   collect: post,
+  collectClaim,
 }: {
   payerId: string;
   payerName: string;
@@ -63,6 +63,11 @@ export default function InsurerTab({
    * listeners, so nothing needs reloading afterwards.
    */
   collect: (payerId: string, chargeIds: string[]) => Promise<{ count: number; receiptNumbers: string[] }>;
+  /**
+   * Records the company's payment for one approval (the claims route pays every treatment on it).
+   * Resolves to the server's message on a refusal, null on success. `branchId` is the rows' branch.
+   */
+  collectClaim: (claimId: string, branchId: string | null) => Promise<string | null>;
 }) {
   const { language } = useLanguage();
   const ar = language === "ar";
@@ -142,7 +147,10 @@ export default function InsurerTab({
   }, [rows, charges, livePayments, payerId]);
   const totals = useMemo(() => insurerTotals(all), [all]);
   const visible = useMemo(() => (onlyOutstanding ? all.filter((r) => r.outstanding > 0.009) : all), [all, onlyOutstanding]);
-  const selectable = useMemo(() => all.filter((r) => r.collectable && hasDentist(r.charge)), [all]);
+  // An approval's insurer money is never held back for a missing dentist (the share was stamped at
+  // assignment); a contract row's is, because the route refuses the whole batch without one.
+  const canCollect = (r: InsurerRow) => r.collectable && (r.viaClaim || hasDentist(r.charge));
+  const selectable = useMemo(() => all.filter(canCollect), [all]);
 
   // A new company, or a row that stopped being collectable (collected, or its dentist removed), drops out.
   useEffect(() => setSelected(new Set()), [payerId]);
@@ -170,24 +178,52 @@ export default function InsurerTab({
   const collect = async (list: InsurerRow[]) => {
     if (list.length === 0 || busy) return;
     const total = round2(list.reduce((s, r) => s + r.outstanding, 0));
+    // Contract rows go through insurer-collect in one batch; approval rows go claim by claim, and
+    // a claim is paid whole — every treatment on that paper, ticked or not.
+    const contract = list.filter((r) => !r.viaClaim);
+    const claims = new Map<string, InsurerRow>();
+    for (const r of list) {
+      const claimId = r.viaClaim ? text(r.charge.claimId) : "";
+      if (claimId && !claims.has(claimId)) claims.set(claimId, r);
+    }
+    const wholeNote =
+      claims.size > 0
+        ? ar
+          ? ` الموافقات بتتحصّل كاملة: كل علاج على نفس الورقة.`
+          : ` An approval is collected whole: every treatment on the same paper.`
+        : "";
     const ok = await confirm(
-      ar
+      (ar
         ? `تسجيل ${fmt(total)} ج.م من ${payerName} عن ${fmt(list.length)} علاج؟`
-        : `Record ${fmt(total)} EGP from ${payerName} for ${list.length} treatment${list.length === 1 ? "" : "s"}?`,
+        : `Record ${fmt(total)} EGP from ${payerName} for ${list.length} treatment${list.length === 1 ? "" : "s"}?`) + wholeNote,
       { title: ar ? "اتحصّل من شركة التأمين" : "Collected from the insurance company", confirmLabel: ar ? "تسجيل" : "Record" },
     );
     if (!ok) return;
     setBusy(true);
     try {
-      const res = await post(payerId, list.map((r) => r.charge.id));
-      const receipts = res.receiptNumbers.filter(Boolean);
+      let count = 0;
+      const receipts: string[] = [];
+      const refusals: string[] = [];
+      if (contract.length > 0) {
+        const res = await post(payerId, contract.map((r) => r.charge.id));
+        count += res.count;
+        receipts.push(...res.receiptNumbers.filter(Boolean));
+      }
+      for (const [claimId, r] of claims) {
+        const refused = await collectClaim(claimId, text(r.charge.branchId) || null);
+        if (refused) refusals.push(refused);
+        else count += list.filter((x) => text(x.charge.claimId) === claimId).length;
+      }
       const range = receipts.length === 0 ? "" : receipts.length === 1 ? receipts[0] : `${receipts[0]}…${receipts[receipts.length - 1]}`;
-      showToast(
-        ar
-          ? `اتحصّل ${fmt(res.count)} علاج${range ? ` — إيصالات ${range}` : ""}`
-          : `${res.count} treatment${res.count === 1 ? "" : "s"} collected${range ? ` — receipts ${range}` : ""}`,
-        "success",
-      );
+      if (count > 0) {
+        showToast(
+          ar
+            ? `اتحصّل ${fmt(count)} علاج${range ? ` — إيصالات ${range}` : ""}`
+            : `${count} treatment${count === 1 ? "" : "s"} collected${range ? ` — receipts ${range}` : ""}`,
+          "success",
+        );
+      }
+      if (refusals.length > 0) showToast(refusals[0], "error");
       setSelected(new Set());
     } catch (e) {
       showToast(e instanceof MoneyApiError ? e.message : ar ? "معرفناش نسجّل التحصيل." : "Could not record the collection.", "error");
@@ -197,12 +233,6 @@ export default function InsurerTab({
   };
 
   const status = (r: InsurerRow) => {
-    if (isApprovalRow(r.charge))
-      return (
-        <Link href="/insurance" className="inline-flex rounded-full border border-line bg-surface-subtle px-2.5 py-0.5 text-[11px] font-bold text-ink-body hover:text-ink hover:border-slate-300 whitespace-nowrap">
-          {ar ? "في صفحة التأمين" : "On the Insurance page"}
-        </Link>
-      );
     if (r.outstanding > 0.009)
       return <span className="inline-flex rounded-full bg-amber-50 text-amber-800 border border-amber-100 px-2.5 py-0.5 text-[11px] font-bold whitespace-nowrap">{ar ? "متبقي" : "Outstanding"}</span>;
     return <span className="inline-flex rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 px-2.5 py-0.5 text-[11px] font-bold whitespace-nowrap">{ar ? "اتحصّل" : "Collected"}</span>;
@@ -215,7 +245,7 @@ export default function InsurerTab({
 
   const action = (r: InsurerRow) => {
     if (!r.collectable) return null;
-    if (!hasDentist(r.charge))
+    if (!r.viaClaim && !hasDentist(r.charge))
       return <span className="text-[11px] font-semibold text-ink-muted">{ar ? "مفيش طبيب على العلاج ده" : "No dentist on this treatment"}</span>;
     return (
       <Protect permission="finance.add">
@@ -233,7 +263,7 @@ export default function InsurerTab({
   };
 
   const box = (r: InsurerRow) => {
-    const can = r.collectable && hasDentist(r.charge);
+    const can = canCollect(r);
     // Ticking is the first half of collecting, so it is offered only to who may collect.
     return (
       <Protect permission="finance.add">
