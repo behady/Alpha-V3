@@ -42,7 +42,7 @@ export default function ClaimsExportBar({
   payerName = "",
 }: {
   claims: InsuranceClaim[];
-  /** Which insurer's sheet: MetLife's own layout, or NextCare's (the clinic's existing sheet, from approvals). */
+  /** Which insurer's sheet: MetLife's own layout, or NextCare's (the clinic's existing sheet, from approvals; AXA has no sheet of its own and borrows it). */
   format?: InsurerFormat;
   /**
    * NextCare bills by TREATMENT date, so its sheet needs approvals from before the range that were
@@ -67,7 +67,7 @@ export default function ClaimsExportBar({
   const { confirm, showToast } = useUI();
 
   const inverted = from > to;
-  const isNc = format === "nextcare";
+  const isNc = format !== undefined && format !== "metlife";
   const statement = useMemo(() => buildMetlifeStatement({ claims, from, to, wording }), [claims, from, to, wording]);
   const ncSource = statementClaims ?? claims;
   const ncStatement = useMemo(
@@ -111,7 +111,7 @@ export default function ClaimsExportBar({
       if (ncStatement) {
         // NextCare: the clinic's own sheet layout (the same writer as the Reports tab), from approvals.
         const [{ default: XLSX }, { statementToWorkbook }] = await Promise.all([import("xlsx-js-style"), import("@/lib/insuranceStatementXlsx")]);
-        XLSX.writeFile(statementToWorkbook(ncStatement, header), `statement-nextcare-${from}-${to}.xlsx`, { compression: true });
+        XLSX.writeFile(statementToWorkbook(ncStatement, header), `statement-${format}-${from}-${to}.xlsx`, { compression: true });
         return;
       }
       const [{ default: XLSX }, { metlifeStatementToWorkbook }] = await Promise.all([

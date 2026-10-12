@@ -26,7 +26,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useClinic } from "@/context/ClinicContext";
 import { useUI } from "@/context/UIContext";
 import { db, storage } from "@/lib/firebase";
-import { isInsurerFormat, parsePayers, PRIVATE_PAYER_ID, type Payer } from "@/lib/payers";
+import { isInsurerFormat, parsePayers, PRIVATE_PAYER_ID, type InsurerFormat, type Payer } from "@/lib/payers";
 import { readInsurance } from "@/lib/patientInsurance";
 import { CLAIMS_COLLECTION, claimExtraction, DOCS_COLLECTION, parseClaim, WORDING_DOC, type InsuranceClaim } from "@/lib/insurance/claims";
 import { DEFAULT_METLIFE_WORDING } from "@/lib/insuranceStatementMetlife";
@@ -114,7 +114,7 @@ function InsurancePage() {
   const busiest = insurers.reduce<Payer | null>((best, p) => ((counts[p.id] ?? 0) > (best ? (counts[best.id] ?? 0) : 0) ? p : best), null);
   const payerId = insurers.some((p) => p.id === pickedPayer) ? pickedPayer : (busiest?.id ?? insurers[0]?.id ?? "");
   const payer = insurers.find((p) => p.id === payerId) ?? null;
-  const payerFormat = payer?.format === "nextcare" ? "nextcare" : "metlife";
+  const payerFormat: InsurerFormat = isInsurerFormat(payer?.format) ? payer.format : "metlife";
 
   // --- the clinic's sheet wording, over the defaults ---------------------------------------------
   const [storedWording, setStoredWording] = useState<Record<string, string>>({});
@@ -145,9 +145,10 @@ function InsurancePage() {
   // --- range, header, claims ---------------------------------------------------------------------
   const [header, setHeaderLine] = useStatementHeader(clinicId);
   const { claims, loading: claimsLoading, failed: claimsFailed } = useClaims(clinicId, payerId, range.from, range.to);
-  // NextCare bills by treatment date: its sheet also needs approvals from up to two months earlier that
-  // were treated inside the range. Loaded for the sheet only; nothing is asked for a MetLife payer.
-  const { claims: nextcareBillable } = useClaims(clinicId, payerFormat === "nextcare" ? payerId : "", shiftIsoDays(range.from, -62), range.to);
+  // NextCare (and AXA, which borrows its sheet) bills by treatment date: the sheet also needs approvals
+  // from up to two months earlier that were treated inside the range. Loaded for the sheet only;
+  // nothing is asked for a MetLife payer.
+  const { claims: nextcareBillable } = useClaims(clinicId, payerFormat !== "metlife" ? payerId : "", shiftIsoDays(range.from, -62), range.to);
 
   // --- the visits booked for approved services, for the progress line under each status ----------
   // One listener for the clinic: `claimId > ""` is every appointment that carries a link, and the
@@ -480,7 +481,7 @@ function InsurancePage() {
             <ClaimsExportBar
               claims={claims}
               format={payerFormat}
-              statementClaims={payerFormat === "nextcare" ? nextcareBillable : undefined}
+              statementClaims={payerFormat !== "metlife" ? nextcareBillable : undefined}
               payerId={payerId}
               payerName={payer?.name ?? ""}
               from={range.from}

@@ -17,6 +17,7 @@ import { createServer } from "node:http";
 import { generateKeyPairSync } from "node:crypto";
 import { SAMPLE_RAW } from "../fixtures/insuranceMetlife.fixture";
 import { NEXTCARE_RAW } from "../fixtures/insuranceNextcare.fixture";
+import { AXA_RAW } from "../fixtures/insuranceAxa.fixture";
 
 const PROJECT = "demo-scn-insurance";
 const CLINIC = "SCN-INS";
@@ -81,6 +82,7 @@ const restoreRoute = await import("../../src/app/api/records/restore/route");
 const { parseClaim } = await import("../../src/lib/insurance/claims");
 const { lineSyncPatch } = await import("../../src/lib/insurance/appointments");
 const { fromNextcareModel, normalizeNextcare } = await import("../../src/lib/insurance/nextcare");
+const { fromAxaModel, normalizeAxa } = await import("../../src/lib/insurance/axa");
 const { buildPayerReport } = await import("../../src/lib/payerReport");
 const { buildMetlifeStatement } = await import("../../src/lib/insuranceStatementMetlife");
 const { buildNextcareStatement } = await import("../../src/lib/insuranceStatementNextcare");
@@ -262,7 +264,7 @@ await col("settings").doc("payers").set({
     { id: "private", name: "Private", active: true, isDefault: true },
     { id: "metlife", name: "MetLife", format: "metlife", providerCode: "DNC0001", active: true, isDefault: false },
     { id: "nextcare", name: "NextCare", format: "nextcare", active: true, isDefault: false },
-    { id: "axa", name: "AXA Egypt", priceListId: "list-axa", dentistRate: 20, active: true, isDefault: false },
+    { id: "axa", name: "AXA Egypt", format: "axa", priceListId: "list-axa", dentistRate: 20, active: true, isDefault: false },
     { id: "gasco", name: "GASCO", priceListId: "list-gasco", dentistRate: 0, active: true, isDefault: false },
     { id: "bupa", name: "Bupa", active: true, isDefault: false },
     { id: "allianz", name: "Allianz", priceListId: "list-allianz", active: true, isDefault: false },
@@ -855,6 +857,32 @@ scenario("I50", "Who may do what: add-on off, no permission, cash without financ
   check("a retired payer takes no new approvals (403)", retired.status === 403, retired.json);
   const future = await saveClaim({ payerId: "metlife", extraction: metlifePaper("D7000055", "30/12/2026", FIVE.slice(0, 1), "KARIM SCENARIO"), patient: { id: "p26" } });
   check("a paper dated in the future fails the hard checks (400)", future.status === 400 && Array.isArray(future.json.checks), future.json.error);
+}
+
+// =====================================================================================================
+scenario("I51", "An AXA claim form (Yodawy) saved on the same claim record: five services on one molar, all paid by AXA");
+// =====================================================================================================
+{
+  await newPatient("p51", "Nesma Scenario");
+  const extraction = normalizeAxa(fromAxaModel(AXA_RAW));
+  const { status, json } = await saveClaim({ payerId: "axa", extraction, patient: { id: "p51" }, dentistId: "mona" });
+  check("saved (201) under an axa_ claim id", status === 201 && String(json.claimId).startsWith("axa_"), json);
+  const C51 = json.claimId as string;
+  const claim = await claimOf(C51);
+  check("insurer axa, 5 service lines, claim number kept", claim?.insurer === "axa" && claim?.lines.length === 5 && claim?.metlife.claimNumber === "1200001", claim?.metlife);
+  check("totals: approved 2951, no patient share", claim?.totals.approved === 2951 && claim?.totals.patientShare === 0, claim?.totals);
+  const rows = await rowsOf(C51);
+  check("all five services become charges, 2951 in all", rows.length === 5 && approx(rows.reduce((t, r) => t + r.amount, 0), 2951), rows.map((r) => r.amount));
+  check("charges are AXA's, dated the service day 2026-08-17", rows.every((r) => r.payerId === "axa" && r.date === "2026-08-17"));
+  const rct = rows.find((r) => r.amount === 1646);
+  check("the root canal charge names its tooth (LR7 = 47)", typeof rct?.description === "string" && /T: 47/.test(rct.description), rct?.description);
+  check("Mona's own AXA rate (35%) outranks the company's 20%: 576.1 on the root canal", claim?.dentists[2]?.rate === 35 && approx(claim?.dentists[2]?.share ?? 0, 576.1), claim?.dentists);
+  const patient = await getDoc("patients", "p51");
+  check("membership: the card number only, no member number invented", patient?.insurance?.axa?.certificateNumber === "51102982A7E0" && !patient?.insurance?.axa?.memberNumber, patient?.insurance);
+  const again = await saveClaim({ payerId: "axa", extraction, patient: { id: "p51" } });
+  check("the same claim form a second time is a duplicate (409)", again.status === 409 && again.json.duplicate?.claimId === C51, again.json);
+  const aug = buildNextcareStatement({ claims: [claim!], payerId: "axa", payerName: "AXA Egypt", from: "2026-08-01", to: "2026-08-31", wording: {} });
+  check("August sheet (NextCare's layout, AXA has none): one case, 2951", aug.cases.length === 1 && aug.total === 2951, aug);
 }
 
 await wipe();

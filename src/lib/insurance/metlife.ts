@@ -80,6 +80,13 @@ export type MetlifeHeader = {
   productName?: string;
   /** The 4-character code the monthly sheet prints before the name: `(3C40)name`. */
   memberCode?: string;
+  // AXA's claim form (lib/insurance/axa.ts) fills these three; the other papers never do.
+  /** The portal's claim number, printed beside the approval number. */
+  claimNumber?: string;
+  /** The "Dental Cop %" printed on the paper: what the patient pays of each line. */
+  copayPercent?: number | null;
+  /** "Limit Surpass (Over Limit)": the part above the policy's limit, if any. */
+  overLimit?: number | null;
 };
 
 export type MetlifeExtraction = { header: MetlifeHeader; lines: MetlifeLine[] };
