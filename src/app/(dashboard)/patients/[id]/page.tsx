@@ -3,14 +3,15 @@ import { patientAvatarPath, patientMediaPath } from "@/lib/storagePaths";
 
 import { deleteRecord, isOrphanWarning, RecycleBinError } from "@/lib/recycleBinApi";
 import { describeLinked } from "@/lib/recycleBin";
-import { Fragment, useState, useEffect, useMemo } from "react";
+import { Fragment, useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { 
   ArrowLeft, ArrowRight, MapPin, Edit2, X, Loader2, AlertTriangle, 
   Activity, User, CalendarDays, Stethoscope, Trash2, 
   ChevronDown, MessageCircle, AlertCircle, Wallet, LayoutDashboard, Users, History, CreditCard,
   PhoneForwarded, CheckCircle2, UserX, Globe, MessageCircleOff, MessageSquare, MessageSquareOff, ScrollText,
-  Star, Printer, Pill, Check, Calendar, Camera, UploadCloud, FilePlus, Eye, Download, StickyNote, ClipboardList, ShieldCheck, MoreHorizontal, Plus
+  Star, Printer, Pill, Check, Calendar, Camera, UploadCloud, FilePlus, Eye, Download, StickyNote, ClipboardList, ShieldCheck, MoreHorizontal, Plus,
+  ChevronLeft, ChevronRight
 } from "lucide-react";
 import { auth, db, storage } from "@/lib/firebase";
 import { doc, onSnapshot, updateDoc, deleteDoc, collection, query, where, limit, orderBy, addDoc, serverTimestamp } from "firebase/firestore";
@@ -230,6 +231,97 @@ export default function PatientProfile() {
   const [dismissedAlert, setDismissedAlert] = useState(false);
   /** The ⋯ menu beside Edit: Rx, diagnosis, ortho, review request. */
   const [moreOpen, setMoreOpen] = useState(false);
+  /**
+   * Phones only: the rarely-needed fields (file and x-ray codes, address, insurer codes) fold
+   * behind "More details" so the tabs and the treatment record start on the first screen. From
+   * `md` up the full list is always shown and this flag does nothing.
+   */
+  const [detailsOpen, setDetailsOpen] = useState(false);
+
+  /**
+   * The tab strip. Below `lg` nine tabs do not fit, so the strip scrolls sideways — and a strip
+   * that scrolls with nothing to say so looked like two tabs. These track whether there is more
+   * to find at either end (the fades and arrows), and keep the open tab in view when it changes.
+   * scrollLeft is negative in RTL, so positions are read as distance from the inline start.
+   */
+  const tabStripRef = useRef<HTMLElement | null>(null);
+  const tabStripObserver = useRef<ResizeObserver | null>(null);
+  const [tabEdges, setTabEdges] = useState({ start: false, end: false });
+  const measureTabEdges = useCallback(() => {
+    const el = tabStripRef.current;
+    if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    const pos = Math.abs(el.scrollLeft);
+    const next = { start: pos > 2, end: max - pos > 2 };
+    setTabEdges((prev) => (prev.start === next.start && prev.end === next.end ? prev : next));
+  }, []);
+  const setTabStrip = useCallback((el: HTMLElement | null) => {
+    tabStripObserver.current?.disconnect();
+    tabStripObserver.current = null;
+    tabStripRef.current = el;
+    if (!el) return;
+    if (typeof ResizeObserver !== "undefined") {
+      const ro = new ResizeObserver(measureTabEdges);
+      ro.observe(el);
+      tabStripObserver.current = ro;
+    }
+    measureTabEdges();
+  }, [measureTabEdges]);
+  /** Nudge the strip by most of its width toward one end; dir is +1 for the inline end. */
+  const scrollTabStrip = (dir: 1 | -1) => {
+    const el = tabStripRef.current;
+    if (!el) return;
+    const rtl = getComputedStyle(el).direction === "rtl";
+    el.scrollBy({ left: dir * (rtl ? -1 : 1) * el.clientWidth * 0.6, behavior: "smooth" });
+  };
+  /**
+   * Which tabs exist. Clinical/Plan, Finance and Insurance appear or vanish as the role, chair
+   * mode and the clinic's add-ons resolve after the first render, and a different list changes
+   * how far the strip scrolls — so the fades are re-measured when it changes. Mirrors `tabs`.
+   */
+  const visibleTabsKey = [
+    canViewClinical ? "clinical,plan" : "",
+    chair ? "" : "finance",
+    clinic && isAnyUnlocked(clinic, "insurance") && !chair ? "insurance" : "",
+  ].join("|");
+  const lastCentredTab = useRef<string | null>(null);
+  useEffect(() => {
+    const strip = tabStripRef.current;
+    if (!strip || !activeTab) return;
+    const btn = strip.querySelector<HTMLElement>(`[data-tour="patient-tab-${activeTab}"]`);
+    if (btn) {
+      // Horizontal only: scrollIntoView would also scroll the page to the strip.
+      const s = strip.getBoundingClientRect();
+      const b = btn.getBoundingClientRect();
+      const delta = b.left + b.width / 2 - (s.left + s.width / 2);
+      // An absolute target, and smooth only when the user changed tab: a relative smooth
+      // scroll issued while the page was still settling (Arabic arrives after the first paint
+      // and flips the strip) stacked onto the previous one and left the open tab off-screen.
+      const smooth = lastCentredTab.current !== null && lastCentredTab.current !== activeTab;
+      lastCentredTab.current = activeTab;
+      if (Math.abs(delta) > 1 && strip.scrollWidth > strip.clientWidth) {
+        strip.scrollTo({ left: strip.scrollLeft + delta, behavior: smooth ? "smooth" : "auto" });
+      }
+    }
+    measureTabEdges();
+    // `loading`: the strip only mounts once the patient has loaded, which may be after the
+    // first tab was chosen (a ?tab= link to a tab at the far end). `language`: switching to
+    // Arabic flips the strip end for end, and the old offset would hide the open tab.
+  }, [activeTab, measureTabEdges, loading, authLoading, language, visibleTabsKey]);
+  /**
+   * Picking a tab while the strip is stuck to the top of a phone screen: bring the page back to
+   * the start of the tab's content, or a short tab would open scrolled past its own top.
+   */
+  const tabsCardRef = useRef<HTMLDivElement | null>(null);
+  const selectTab = (tab: Exclude<typeof activeTab, "">) => {
+    setActiveTab(tab);
+    const card = tabsCardRef.current;
+    const strip = tabStripRef.current?.parentElement;
+    if (!card || !strip || typeof window === "undefined") return;
+    if (!window.matchMedia("(max-width: 1023.98px)").matches) return;
+    const stuck = strip.getBoundingClientRect().top <= 0.5 && card.getBoundingClientRect().top < 0;
+    if (stuck) window.scrollTo({ top: window.scrollY + card.getBoundingClientRect().top });
+  };
   const [isUploadingImage, setIsUploadingImage] = useState(false);
 
   // X-Rays & Media State
@@ -957,10 +1049,17 @@ export default function PatientProfile() {
           * card and the quick-action bar that used to share this space are gone on the owner's
           * word; the actions live in the ⋯ menu beside Edit, and the visits on the tabs below.
           */}
-        <section className="max-w-[1600px] mx-auto mb-4 rounded-3xl border border-line bg-surface px-5 py-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="group relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-line bg-surface-subtle">
+        {/*
+          * On a phone this card used to fill the whole first screen — the name a second time, then
+          * every field including one empty row per insurer — and the tabs began two screens down.
+          * Below `md` it is a header instead: photo, phone, balance, Edit and ⋯ on one row (the
+          * name and age are in the black band directly above), the medical line as a chip because
+          * it is a safety cue, and everything else behind "More details".
+          */}
+        <section className="max-w-[1600px] mx-auto mb-4 rounded-3xl border border-line bg-surface px-5 py-4 max-md:px-4 max-md:py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 max-md:flex-nowrap">
+            <div className="flex min-w-0 items-center gap-3 max-md:flex-1">
+              <div className="group relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-line bg-surface-subtle max-md:h-11 max-md:w-11">
                 <img
                   src={patient.imageUrl || (patient.gender === "Female" ? "https://cdn-icons-png.flaticon.com/512/4140/4140047.png" : "https://cdn-icons-png.flaticon.com/512/4140/4140048.png")}
                   alt={patient.name}
@@ -971,21 +1070,44 @@ export default function PatientProfile() {
                   {isUploadingImage ? <Loader2 size={16} className="animate-spin text-white" /> : <Camera size={16} className="text-white" />}
                 </label>
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 max-md:hidden">
                 <h1 className="truncate text-xl font-black text-ink">{patient.name}</h1>
                 <p className="text-[13px] font-semibold text-ink-muted">
                   {displayAge} {t('yearSymbol') || 'Y'}{patient.gender ? ` · ${patient.gender}` : ""}
                 </p>
               </div>
+              {/* Phones: how to reach them and what they owe, in the name's place. */}
+              <div className="min-w-0 md:hidden">
+                {patient.phone ? (
+                  <button onClick={() => openWhatsApp(patient.phone)} className="inline-flex max-w-full items-center gap-1.5 text-[14px] font-bold text-ink hover:text-emerald-700">
+                    <MessageCircle size={14} className="shrink-0 text-emerald-600" /> <bdi dir="ltr" className="truncate font-figure">{patient.phone}</bdi>
+                  </button>
+                ) : (
+                  <Protect permission="patients.edit" fallback={<span className="text-sm font-semibold text-ink-faint">—</span>}>
+                    <button type="button" onClick={() => setIsEditModalOpen(true)} className="inline-flex items-center gap-1 text-sm font-bold text-ink-muted hover:text-ink">
+                      <Plus size={14} /> {language === 'ar' ? 'أضف تليفون' : 'Add phone'}
+                    </button>
+                  </Protect>
+                )}
+                {!chair && (
+                  <p className="text-[13px] font-semibold text-ink-muted">
+                    {language === 'ar' ? 'الرصيد' : 'Balance'}{' '}
+                    <span className={`font-figure font-bold ${balance > 0 ? "text-rose-700" : "text-ink"}`}>
+                      <bdi dir="ltr">{balance > 0 ? balance.toLocaleString() : '0'}</bdi> {language === 'ar' ? 'ج.م' : 'EGP'}
+                    </span>
+                  </p>
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 max-md:shrink-0">
               <Protect permission="patients.edit">
                 <button
                   data-tour="patient-edit"
                   onClick={() => setIsEditModalOpen(true)}
-                  className="inline-flex h-10 items-center gap-2 rounded-xl bg-ink-slab px-4 text-sm font-bold text-white transition-colors hover:bg-ink"
+                  aria-label={language === 'ar' ? 'تعديل البيانات' : 'Edit details'}
+                  className="inline-flex h-10 items-center gap-2 rounded-xl bg-ink-slab px-4 text-sm font-bold text-white transition-colors hover:bg-ink max-md:w-10 max-md:justify-center max-md:px-0"
                 >
-                  <Edit2 size={15} /> {language === 'ar' ? 'تعديل البيانات' : 'Edit details'}
+                  <Edit2 size={15} /> <span className="max-md:sr-only">{language === 'ar' ? 'تعديل البيانات' : 'Edit details'}</span>
                 </button>
               </Protect>
               <div className="relative">
@@ -1039,8 +1161,10 @@ export default function PatientProfile() {
             );
             // Fields flow on one line and wrap only when the screen runs out; the medical line
             // may grow wide, everything else stays its own width.
-            const field = (label: string, value: React.ReactNode, wide = false) => (
-              <div className={wide ? "min-w-[12rem] grow basis-64" : "min-w-[8rem]"}>
+            // `phoneHidden`: already shown in the phone header above, so not repeated in its
+            // "More details" list.
+            const field = (label: string, value: React.ReactNode, wide = false, phoneHidden = false) => (
+              <div className={`${wide ? "min-w-[12rem] grow basis-64" : "min-w-[8rem]"} ${phoneHidden ? "max-md:hidden" : ""}`}>
                 <dt className="text-[11px] font-bold text-ink-muted">{label}</dt>
                 <dd className="mt-0.5 text-[15px] font-bold text-ink">{value}</dd>
               </div>
@@ -1048,8 +1172,43 @@ export default function PatientProfile() {
             const fileNumber = String((patient as { fileId?: unknown }).fileId || "").trim();
             const insurance = readInsurance(patient as Record<string, unknown>);
             const hasMedical = !!patient.allergies || (!!patient.medicalHistory && patient.medicalHistory !== "None (Healthy)");
+            const medicalText = [patient.allergies && `${ar ? 'حساسية' : 'Allergies'}: ${patient.allergies}`, patient.medicalHistory && patient.medicalHistory !== "None (Healthy)" && patient.medicalHistory]
+              .filter(Boolean)
+              .join(" · ");
+            const xrayCode = String((patient as { xrayCode?: string }).xrayCode || "").trim();
+            const detailsPreview = [
+              fileNumber && `${ar ? 'ملف' : 'File'} ${fileNumber}`,
+              xrayCode && `${ar ? 'أشعة' : 'X-ray'} ${xrayCode}`,
+            ].filter(Boolean).join(" · ");
             return (
-              <dl className="mt-3 flex flex-wrap gap-x-8 gap-y-3 border-t border-line pt-3">
+              <>
+              {/* Phones: the medical line stays in view whatever is folded — recorded allergies
+                  in red, or the amber "ask before prescribing" when nobody has asked yet. */}
+              <div className="mt-3 md:hidden">
+                {hasMedical ? (
+                  <p className="flex items-start gap-1.5 rounded-xl bg-rose-50 px-3 py-2 text-[13px] font-bold leading-snug text-rose-700">
+                    <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                    <span>{medicalText}</span>
+                  </p>
+                ) : (
+                  <div className="flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-[13px] font-bold leading-snug">
+                    <AlertTriangle size={14} className="shrink-0 text-amber-700" />
+                    <span className="min-w-0 flex-1 text-amber-800">{ar ? 'الحساسية لسه ماتسجلتش — اسأل قبل أي دوا' : 'Allergies not recorded — ask before prescribing'}</span>
+                    {addButton}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setDetailsOpen((v) => !v)}
+                  aria-expanded={detailsOpen}
+                  className="mt-2 flex w-full items-center gap-2 rounded-xl border border-line px-3 py-2 text-start text-[13px] font-bold text-ink-body hover:bg-surface-subtle"
+                >
+                  <span className="shrink-0">{ar ? 'تفاصيل أكتر' : 'More details'}</span>
+                  {detailsPreview && <span className="min-w-0 flex-1 truncate font-semibold text-ink-muted" dir="auto">{detailsPreview}</span>}
+                  <ChevronDown size={16} className={`ms-auto shrink-0 transition-transform ${detailsOpen ? "rotate-180" : ""}`} />
+                </button>
+              </div>
+              <dl className={`mt-3 flex-wrap gap-x-8 gap-y-3 border-t border-line pt-3 md:flex ${detailsOpen ? "flex" : "hidden"}`}>
                 {field(ar ? 'رقم الملف' : 'File number', fileNumber ? <bdi dir="ltr" className="font-figure">{fileNumber}</bdi> : <span className="text-ink-faint">—</span>)}
                 {field(ar ? 'كود ملف الأشعة' : 'X-ray file code', <XrayCodeField patientId={id} value={(patient as { xrayCode?: string }).xrayCode} />)}
                 {field(
@@ -1059,6 +1218,8 @@ export default function PatientProfile() {
                       <MessageCircle size={14} className="text-emerald-600" /> <bdi dir="ltr" className="font-figure">{patient.phone}</bdi>
                     </button>
                   ) : addButton,
+                  false,
+                  true,
                 )}
                 {field(ar ? 'العنوان' : 'Address', patient.address ? <span className="block truncate">{patient.address}</span> : addButton)}
                 {!chair && field(
@@ -1066,6 +1227,8 @@ export default function PatientProfile() {
                   <span className={`font-figure ${balance > 0 ? "text-rose-700" : ""}`}>
                     <bdi dir="ltr">{balance > 0 ? balance.toLocaleString() : '0'}</bdi> {ar ? 'ج.م' : 'EGP'}
                   </span>,
+                  false,
+                  true,
                 )}
                 {insurers.map((p) => {
                   const e = insurance[p.id];
@@ -1097,16 +1260,26 @@ export default function PatientProfile() {
                     </span>
                   ),
                   true,
+                  true,
                 )}
               </dl>
+              </>
             );
           })()}
         </section>
 
         {/* MAIN TABS AREA */}
-        <div className="max-w-[1600px] mx-auto bg-surface border border-line rounded-[2rem] p-4 md:p-6 lg:p-8">
+        <div ref={tabsCardRef} className="max-w-[1600px] mx-auto bg-surface border border-line rounded-[2rem] p-4 md:p-6 lg:p-8">
+            {/*
+              * Below `lg` the strip sticks to the top of the screen while the tab scrolls, and
+              * fades out at whichever end has more tabs past it, with an arrow to nudge it. A
+              * 3×3 grid of chips was the alternative; it shows every tab at once but costs three
+              * rows on every screen once it sticks, or a scroll back up when it does not. One
+              * row that stays put, with a visible "more", costs one.
+              */}
+            <div className="relative mb-8 border-b border-line max-lg:sticky max-lg:top-0 max-lg:z-20 max-lg:-mx-4 max-lg:mb-6 max-lg:bg-surface max-lg:px-4 max-lg:pt-2 md:max-lg:-mx-6 md:max-lg:px-6">
             {/* The open tab is a black slab with the brand yellow on it — the one place yellow type reads. */}
-            <nav className="flex items-center gap-2 mb-8 overflow-x-auto no-scrollbar pb-3 border-b border-line">
+            <nav ref={setTabStrip} onScroll={measureTabEdges} className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-3">
               {tabs.filter(tb => tb.show).map(tb => {
                 const Icon = tb.icon;
                 const active = activeTab === tb.id;
@@ -1114,8 +1287,9 @@ export default function PatientProfile() {
                   <button
                     key={tb.id}
                     data-tour={`patient-tab-${tb.id}`}
-                    onClick={() => setActiveTab(tb.id)}
-                    className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-[15px] font-bold transition-all whitespace-nowrap ${
+                    aria-current={active ? "page" : undefined}
+                    onClick={() => selectTab(tb.id)}
+                    className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-[15px] font-bold transition-all whitespace-nowrap max-md:px-4 ${
                       active ? 'bg-ink-slab text-[#FACC15] shadow-sm' : 'text-ink-body hover:bg-surface-subtle'
                     }`}
                   >
@@ -1125,6 +1299,29 @@ export default function PatientProfile() {
                 );
               })}
             </nav>
+            {tabEdges.start && (
+              <button
+                type="button"
+                tabIndex={-1}
+                onClick={() => scrollTabStrip(-1)}
+                aria-label={language === "ar" ? "تبويبات قبل كده" : "Earlier tabs"}
+                className="absolute bottom-3 start-0 top-0 flex w-12 items-center justify-start bg-gradient-to-r from-surface from-40% to-transparent ps-1 text-ink-body rtl:bg-gradient-to-l lg:hidden"
+              >
+                <ChevronLeft size={18} className="rtl:rotate-180" />
+              </button>
+            )}
+            {tabEdges.end && (
+              <button
+                type="button"
+                tabIndex={-1}
+                onClick={() => scrollTabStrip(1)}
+                aria-label={language === "ar" ? "تبويبات أكتر" : "More tabs"}
+                className="absolute bottom-3 end-0 top-0 flex w-12 items-center justify-end bg-gradient-to-l from-surface from-40% to-transparent pe-1 text-ink-body rtl:bg-gradient-to-r lg:hidden"
+              >
+                <ChevronRight size={18} className="rtl:rotate-180" />
+              </button>
+            )}
+            </div>
 
           {/* --- OVERVIEW DASHBOARD --- */}
           {activeTab === "overview" && (
@@ -1556,7 +1753,7 @@ export default function PatientProfile() {
                    <div className={`bg-surface rounded-2xl p-5 md:p-6 border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] flex flex-col h-[480px] ${chair ? "hidden" : ""}`}>
                        <div className="flex items-center justify-between mb-5 shrink-0">
                            <h3 className="text-[10px] font-bold text-ink-muted uppercase tracking-widest flex items-center gap-2"><Wallet size={14} className="text-emerald-500"/> Financial Snapshot</h3>
-                           <button onClick={() => setActiveTab('finance')} className="text-[10px] font-bold text-accent uppercase tracking-widest hover:underline">View Full Ledger</button>
+                           <button onClick={() => selectTab('finance')} className="text-[10px] font-bold text-accent uppercase tracking-widest hover:underline">View Full Ledger</button>
                        </div>
 
                        <div className="grid grid-cols-2 gap-3 mb-6 shrink-0">
@@ -1711,7 +1908,7 @@ export default function PatientProfile() {
                 appointments={appointmentTimeline}
                 media={patientMedia}
                 prescriptions={prescriptionsHistory}
-                onJumpToTab={(tab) => setActiveTab(tab)}
+                onJumpToTab={(tab) => selectTab(tab)}
               />
             </div>
           )}

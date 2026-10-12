@@ -186,6 +186,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const ownHome = homeView !== "desk" || !homeAllowed;
   const isFullHeightPage =
     pathname === "/appointments" || pathname === "/chats" || (pathname === "/" && !ownHome);
+  /**
+   * The patient file pins its tab strip to the top of a phone screen with `position: sticky`.
+   * Below `lg` the WINDOW scrolls — <main> just grows with the page — but <main>'s
+   * `overflow-y-auto` still makes it the strip's scroll container, and a container that never
+   * scrolls never moves anything stuck to it. `overflow-x: clip` hides sideways overflow the same
+   * way without making <main> a scroll container. Only this page, only below `lg`: other pages
+   * carry `sticky` classes that were written against the desktop's scrolling <main>.
+   */
+  const phoneStickyPage = /^\/patients\/[^/]+$/.test(pathname);
   // Unopened patient WhatsApp messages, for the count on the WhatsApp icon in both navs.
   const unreadChats = useUnreadChatCount();
   // And the chime + desktop notification when a new one arrives, on whichever page is open.
@@ -647,7 +656,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
            className={`flex-1 min-h-0 relative animate-in fade-in duration-300 ${
              isFullHeightPage
                ? "flex flex-col overflow-hidden"
-               : "overflow-x-hidden overflow-y-auto pb-24 lg:pb-0"
+               : phoneStickyPage
+                 ? "max-lg:overflow-x-clip lg:overflow-x-hidden lg:overflow-y-auto pb-24 lg:pb-0"
+                 : "overflow-x-hidden overflow-y-auto pb-24 lg:pb-0"
            }`}
          >
              {/* Keyed on the clinic, so switching clinics remounts the page. Every page subscribes

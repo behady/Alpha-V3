@@ -181,6 +181,33 @@ export default function TeethChart({
    */
   const tight = narrow || (avail > 0 && avail < (isPrimary ? 460 : 760));
 
+  /**
+   * Centre again once the chart knows how wide it is. The centring above runs before the first
+   * measurement, against the wider floor, so in a phone-width pop-up the midline sat off to one
+   * side once the teeth dropped to the small size. And when the chart opens with teeth already
+   * picked — editing a treatment on 18 — centre on those, so the picked teeth are on screen.
+   * Keyed on `tight` alone: re-centring on every pick would yank the row away from the finger.
+   */
+  const selectedForCentre = useRef(selectedTeeth);
+  useEffect(() => {
+    selectedForCentre.current = selectedTeeth;
+  });
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || el.scrollWidth - el.clientWidth <= 4) return;
+    const picked = selectedForCentre.current
+      .map((n) => el.querySelector<HTMLElement>(`[data-tooth="${n}"]`))
+      .filter((n): n is HTMLElement => n !== null)
+      .map((n) => n.getBoundingClientRect());
+    if (picked.length === 0) {
+      el.scrollLeft = (el.scrollWidth - el.clientWidth) / 2;
+      return;
+    }
+    const box = el.getBoundingClientRect();
+    const mid = (Math.min(...picked.map((r) => r.left)) + Math.max(...picked.map((r) => r.right))) / 2;
+    el.scrollLeft += mid - (box.left + box.width / 2);
+  }, [tight]);
+
   // Modal/draft state
   const [draftStatuses, setDraftStatuses] = useState<string[]>([]);
   const [draftSurfaces, setDraftSurfaces] = useState<Record<string, string[]>>({});

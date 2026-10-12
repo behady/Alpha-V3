@@ -227,7 +227,7 @@ export const TeethChartSelector = memo(function TeethChartSelector({
       .filter(Boolean) as string[];
 
     return (
-      <div className="w-full p-3 bg-surface border border-line rounded-2xl min-w-0">
+      <div className="w-full p-3 bg-surface border border-line rounded-2xl min-w-0 max-md:p-2.5">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <p className="text-[15px] font-black text-ink">
             {isAr ? "اختار الأسنان" : "Pick the teeth"}
@@ -269,8 +269,11 @@ export const TeethChartSelector = memo(function TeethChartSelector({
          * not there — with nothing on screen to suggest anything had been cut off.
          */}
         {/* The chart, and beside it the three arch ticks: upper on top, full mouth, lower at the
-            bottom — where each sits against the chart it selects. */}
-        <div className="flex items-stretch gap-2">
+            bottom — where each sits against the chart it selects.
+            Phones (below `md`): a 104px tick column beside the chart left it about six teeth a
+            jaw to show, so there the ticks become a row of three chips ABOVE a full-width chart
+            (column-reverse puts the second child first). */}
+        <div className="flex items-stretch gap-2 max-md:flex-col-reverse">
           <div className={`min-w-0 flex-1 rounded-xl border bg-surface-subtle ${markingMissing ? "border-rose-400 border-dashed" : "border-line"}`}>
             <TeethChart
               data={teethData}
@@ -283,7 +286,7 @@ export const TeethChartSelector = memo(function TeethChartSelector({
               onToggleTooth={(id) => (markingMissing ? void toggleMissing(id.toString()) : onToggle(id.toString()))}
             />
           </div>
-          <div className="flex w-[6.5rem] shrink-0 flex-col justify-between gap-2 rounded-xl border border-line bg-surface p-2">
+          <div className="flex w-[6.5rem] shrink-0 flex-col justify-between gap-2 rounded-xl border border-line bg-surface p-2 max-md:w-full max-md:flex-row max-md:gap-1.5 max-md:border-0 max-md:p-0">
             {archBoxes.map(({ pick, label }) => {
               const on = isArchPicked(selected, pick, missing);
               return (
@@ -293,7 +296,7 @@ export const TeethChartSelector = memo(function TeethChartSelector({
                   role="checkbox"
                   aria-checked={on}
                   onClick={() => void pickArch(pick)}
-                  className={`flex flex-1 items-center gap-2 rounded-lg border px-2 py-2 text-start text-[12px] font-bold transition-colors ${
+                  className={`flex flex-1 items-center gap-2 rounded-lg border px-2 py-2 text-start text-[12px] font-bold transition-colors max-md:min-w-0 max-md:justify-center max-md:gap-1.5 max-md:rounded-full max-md:px-1.5 ${
                     on ? "border-ink-slab bg-accent-tint text-ink" : "border-line bg-surface-subtle text-ink-body hover:border-line-strong"
                   }`}
                 >
@@ -1236,7 +1239,7 @@ export default function ServiceEditorDrawer({
       <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar md:overflow-visible md:flex md:flex-col">
         {!hideTeethSelector && (
           <div
-            className={`md:shrink-0 ${!inline ? "px-6 pt-4" : "px-4 pt-4"} ${approval ? "pointer-events-none" : ""}`}
+            className={`md:shrink-0 ${!inline ? "px-6 pt-4 max-md:px-3 max-md:pt-3" : "px-4 pt-4"} ${approval ? "pointer-events-none" : ""}`}
             aria-disabled={approval ? true : undefined}
           >
             <TeethChartSelector
@@ -1307,7 +1310,11 @@ export default function ServiceEditorDrawer({
         </div>
       </div>
 
-      <div className={`px-6 py-4 border-t border-line bg-surface shrink-0 ${!inline ? 'pb-24 lg:pb-4' : ''}`}>
+      {/* No 96px floor under the button on phones any more. It was there to clear the floating
+          bottom nav, but this window is portalled above that nav (z-100 and up against its z-80),
+          so it only ever showed as an empty band. The safe-area inset still keeps the button off
+          an iPhone's home indicator. */}
+      <div className={`px-6 py-4 border-t border-line bg-surface shrink-0 ${!inline ? 'pb-[max(1rem,env(safe-area-inset-bottom))] lg:pb-4' : ''}`}>
         {saveButton}
       </div>
     </div>
@@ -1321,7 +1328,7 @@ export default function ServiceEditorDrawer({
 
   if (clinicalEditorMode === 'modal') {
     return createPortal(
-      <div className={`fixed inset-0 ${layerClass} flex items-center justify-center p-4 sm:p-6`}>
+      <div className={`fixed inset-0 ${layerClass} flex items-center justify-center p-2 sm:p-6`}>
         <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={onClose} />
         {/*
           Wide enough for the chart to be the size it wants to be. The teeth need ~820px including

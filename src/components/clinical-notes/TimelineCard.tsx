@@ -168,16 +168,23 @@ export default function TimelineCard({
   };
 
   return (
-    <div className="bg-surface border border-line rounded-2xl shadow-sm hover:border-line-strong transition-colors overflow-hidden">
+    /*
+     * Phones (below `md`): this card already sits inside the patient file's tab card, and each
+     * treatment inside it sat in a timeline column, in a framed wrapper, in its own card — four
+     * boxes deep, leaving the treatment's name about half the screen to wrap in. Below `md` the
+     * outer frame, the timeline rail and the wrapper go, and the treatment card is the one box.
+     */
+    <div className="bg-surface border border-line rounded-2xl shadow-sm hover:border-line-strong transition-colors overflow-hidden max-md:overflow-visible max-md:rounded-none max-md:border-0 max-md:shadow-none">
       {/* Header */}
-      <div className="p-5 flex items-center justify-between border-b border-line gap-3">
+      <div className="p-5 flex items-center justify-between border-b border-line gap-3 max-md:px-0 max-md:pt-0 max-md:pb-3">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 bg-surface border border-line rounded-xl flex items-center justify-center text-teal-500 shadow-sm shrink-0">
+          <div className="w-10 h-10 bg-surface border border-line rounded-xl flex items-center justify-center text-teal-500 shadow-sm shrink-0 max-md:hidden">
             <Clock size={18} />
           </div>
           <div className="min-w-0">
-            <h3 className="font-black text-ink text-lg truncate">{txt.title}</h3>
-            <p className="text-[12px] font-semibold text-ink-muted truncate">{txt.subtitle}</p>
+            {/* Wraps on a phone rather than cutting off at "Clinical Histor…". */}
+            <h3 className="font-black text-ink text-lg md:truncate max-md:text-base max-md:leading-snug">{txt.title}</h3>
+            <p className="text-[12px] font-semibold text-ink-muted md:truncate">{txt.subtitle}</p>
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -201,7 +208,7 @@ export default function TimelineCard({
       </div>
 
       {/* Timeline Content */}
-      <div className={compact ? "p-4 sm:p-5" : "p-5 sm:p-8"}>
+      <div className={compact ? "p-4 sm:p-5 max-md:px-0 max-md:pb-0" : "p-5 sm:p-8 max-md:px-0 max-md:pb-0"}>
         {manual && services.length > 1 && (
           <p className="mb-4 text-[11px] font-bold text-teal-700 bg-teal-50 border border-teal-100 rounded-xl px-3 py-2 leading-relaxed">
             {txt.manualHint}
@@ -215,8 +222,8 @@ export default function TimelineCard({
         ) : clinicalNoteGrouping === "visit" ? (
           <div className="space-y-6">
             {groups.map((group) => (
-              <section key={group.key} className="rounded-2xl border border-line overflow-hidden">
-                <header className="flex items-center gap-2.5 px-4 py-2.5 bg-surface-subtle border-b border-line">
+              <section key={group.key} className="rounded-2xl border border-line overflow-hidden max-md:overflow-visible max-md:rounded-none max-md:border-0">
+                <header className="flex items-center gap-2.5 px-4 py-2.5 bg-surface-subtle border-b border-line max-md:flex-wrap max-md:gap-y-0.5 max-md:rounded-xl max-md:border max-md:px-3">
                   {group.key === GENERAL_GROUP_KEY ? (
                     <Inbox size={15} className="text-slate-400 shrink-0" />
                   ) : (
@@ -238,7 +245,7 @@ export default function TimelineCard({
                   <span className="ms-auto text-[11px] font-black text-slate-400 shrink-0">{group.notes.length}</span>
                 </header>
 
-                <div className={`p-3 ${compact ? "space-y-1.5" : "space-y-3"}`}>
+                <div className={`p-3 max-md:px-0 ${compact ? "space-y-1.5" : "space-y-3"}`}>
                   {group.notes.map((note) => (
                     <div
                       key={note.id}
@@ -259,7 +266,7 @@ export default function TimelineCard({
         ) : (
           <div className="relative">
             {/* The continuous vertical line */}
-            {!compact && <div className="absolute top-2 bottom-2 left-6 md:left-[120px] w-px bg-slate-200" />}
+            {!compact && <div className="absolute top-2 bottom-2 left-6 md:left-[120px] w-px bg-slate-200 max-md:hidden" />}
 
             <div className={compact ? "space-y-2" : "space-y-6"}>
               {orderedNotes.map((note) => {
@@ -274,9 +281,9 @@ export default function TimelineCard({
                       onDragOver={(e) => manual && e.preventDefault()}
                       onDrop={() => handleDrop(note.id)}
                       onDragEnd={() => setDragId(null)}
-                      className={`flex items-center gap-3 ${dragId === note.id ? "opacity-40" : ""}`}
+                      className={`flex items-center gap-3 max-md:flex-col max-md:items-stretch max-md:gap-1 ${dragId === note.id ? "opacity-40" : ""}`}
                     >
-                      <span className="w-[86px] shrink-0 text-[11px] font-bold text-ink-muted text-end">
+                      <span className="w-[86px] shrink-0 text-[11px] font-bold text-ink-muted text-end max-md:w-auto max-md:text-start">
                         {displayDate}
                       </span>
                       <div className="flex-1 min-w-0">{renderService(note)}</div>
@@ -292,21 +299,21 @@ export default function TimelineCard({
                     onDragOver={(e) => manual && e.preventDefault()}
                     onDrop={() => handleDrop(note.id)}
                     onDragEnd={() => setDragId(null)}
-                    className={`relative flex flex-col md:flex-row gap-4 md:gap-8 group ${
+                    className={`relative flex flex-col md:flex-row gap-4 md:gap-8 group max-md:gap-1.5 ${
                       dragId === note.id ? "opacity-40" : ""
                     }`}
                   >
                     {/* Timestamp Section (Left) */}
-                    <div className="md:w-[100px] shrink-0 pt-2 pl-12 md:pl-0 md:text-right flex flex-col">
+                    <div className="md:w-[100px] shrink-0 pt-2 pl-12 md:pl-0 md:text-right flex flex-col max-md:flex-row max-md:items-baseline max-md:gap-2 max-md:pl-0 max-md:pt-0">
                       <span className="text-[15px] font-black text-ink">{displayDate}</span>
                       {displayTime && <span className="text-xs font-bold text-ink-muted">{displayTime}</span>}
                     </div>
 
                     {/* Timeline Node (Center Dot) */}
-                    <div className="absolute left-6 md:left-[120px] top-3 -translate-x-1/2 w-3 h-3 rounded-full border-2 border-white bg-teal-500 shadow-[0_0_0_2px_rgba(20,184,166,0.2)] group-hover:bg-teal-600 group-hover:scale-125 transition-all duration-300" />
+                    <div className="max-md:hidden absolute left-6 md:left-[120px] top-3 -translate-x-1/2 w-3 h-3 rounded-full border-2 border-white bg-teal-500 shadow-[0_0_0_2px_rgba(20,184,166,0.2)] group-hover:bg-teal-600 group-hover:scale-125 transition-all duration-300" />
 
                     {/* Content Section (Right) */}
-                    <div className="flex-1 ml-12 md:ml-0 bg-surface rounded-xl border border-line shadow-sm hover:shadow-md hover:border-line-strong transition-all p-1">
+                    <div className="flex-1 ml-12 md:ml-0 bg-surface rounded-xl border border-line shadow-sm hover:shadow-md hover:border-line-strong transition-all p-1 max-md:ml-0 max-md:border-0 max-md:p-0 max-md:shadow-none max-md:hover:shadow-none">
                       {renderService(note)}
                     </div>
                   </div>

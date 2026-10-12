@@ -72,7 +72,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
    * be a desktop-only feature.
    */
   const reorderControls = reorder ? (
-    <div className="flex flex-col items-center justify-center shrink-0 -ml-1 mr-1">
+    <div className={`flex flex-col items-center justify-center shrink-0 -ml-1 mr-1 ${compact ? "" : "max-md:m-0 max-md:flex-row max-md:self-center max-md:gap-1"}`}>
       <button
         type="button"
         onClick={reorder.onMoveUp}
@@ -160,10 +160,11 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
    * edge, edit on top.
    */
   return (
-    <div className={`flex items-center justify-between gap-3 p-4 border rounded-xl transition-all group relative ${getContainerStyles(note.status)}`}>
+    /* Phones (below `md`): content full width, buttons in a row underneath instead of a column eating the side. */
+    <div className={`flex items-center justify-between gap-3 p-4 border rounded-xl transition-all group relative max-md:flex-col max-md:items-stretch max-md:gap-2.5 max-md:p-3 ${getContainerStyles(note.status)}`}>
       {reorderControls}
       <div className="flex flex-col items-center gap-2 min-w-0 flex-1 text-center">
-        <p className="font-black text-ink text-xl leading-tight">{note.procedure}</p>
+        <p className="font-black text-ink text-xl leading-tight max-md:text-lg">{note.procedure}</p>
         <div className="flex items-center justify-center gap-2 flex-wrap">
           <span
             className={`flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-md ${getStatusColor(note.status)}`}
@@ -216,7 +217,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
       </div>
 
       {/* Edit above delete, at the edge of the card. Locked (another dentist's, in chair mode): nothing to press. */}
-      <div className={`flex flex-col items-center gap-1.5 shrink-0 ${locked ? "hidden" : ""}`}>
+      <div className={`flex flex-col items-center gap-1.5 shrink-0 max-md:flex-row max-md:justify-center max-md:gap-2 max-md:border-t max-md:border-line max-md:pt-2.5 max-md:empty:hidden ${locked ? "hidden" : ""}`}>
         {!note.isContinued && (
           <Protect permission="clinical.edit">
             <button
