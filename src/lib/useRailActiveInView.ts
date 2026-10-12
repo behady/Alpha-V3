@@ -34,8 +34,9 @@ export function useRailActiveInView(
       const r = rail.getBoundingClientRect();
       const i = item.getBoundingClientRect();
       const pad = 12;
-      if (i.left < r.left + pad) rail.scrollLeft -= r.left + pad - i.left;
-      else if (i.right > r.right - pad) rail.scrollLeft += i.right - (r.right - pad);
+      // scrollBy, not `scrollLeft +=`: the same instant move, without mutating a hook argument.
+      if (i.left < r.left + pad) rail.scrollBy({ left: -(r.left + pad - i.left) });
+      else if (i.right > r.right - pad) rail.scrollBy({ left: i.right - (r.right - pad) });
     };
     // Now (layout is readable inside an effect), and once more after late layout — web fonts,
     // avatars — has settled. Not requestAnimationFrame: it never fires in a background tab.
