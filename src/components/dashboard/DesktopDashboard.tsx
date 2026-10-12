@@ -2018,6 +2018,8 @@ export default function DesktopDashboard() {
           wide
           initialTab={bookingTab}
           onSaveAndStay={handleSaveBookingAndStay}
+          // The owner's rule (2026-10-12): an existing visit's edits in the pop-up save by themselves.
+          onAutosave={handleAutosaveBooking}
           onClose={() => { setActiveModal(null); setAppointmentToEdit(null); setBookingTab("appointment"); setPreSelectedTime(''); setPreSelectedPatient(null); setPreSelectedDoctor(''); setPreSelectedRoomId(''); setPreSelectedRoomBranchId(''); }} 
           onSave={handleSaveBooking} 
           patients={patientsList} 

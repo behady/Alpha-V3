@@ -569,6 +569,17 @@ export default function MobileDashboard() {
     await executeSaveBooking(data);
   };
 
+  /** The same write without closing or toasting: the pop-up autosaves an existing visit as it is edited. */
+  const handleAutosaveBooking = async (data: Parameters<typeof saveBooking>[0]) => {
+    await saveBooking(
+      data,
+      { uid: user?.uid || "", name: user?.name || "System", role: user?.role || "", language: language as "en" | "ar" },
+      async (key: string, msg: string) => {
+        void fireOwnerWhatsAppAlert(key as OwnerAlertKey, msg);
+      },
+    );
+  };
+
   const executeSaveBooking = async (data: any) => {
     try {
       await saveBooking(
@@ -1768,6 +1779,7 @@ export default function MobileDashboard() {
           wide
           quickPay={quickPayMode}
           onSaveAndStay={handleSaveBookingAndStay}
+          onAutosave={handleAutosaveBooking}
           // Delete stays reachable from the visit itself now that a card opens the popup directly.
           // Its dialog asks (once) and closes the popup after a delete — whichever visit it was showing.
           onDelete={(id, visit) => handleDeleteAppointment(id, undefined, { patientName: visit?.patientName, fromPopup: true })}
