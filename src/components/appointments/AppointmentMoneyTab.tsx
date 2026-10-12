@@ -453,21 +453,22 @@ export default function AppointmentMoneyTab({
     () => (patientWide ? [...charges].reverse() : charges.filter((c) => c.clinicalNoteId && visitNoteIds.has(c.clinicalNoteId))),
     [charges, visitNoteIds, patientWide]
   );
-  /** The visit's own treatments, and the ones an approval wrote, which sit apart under their insurer. */
+  /**
+   * The visit's own treatments. The ones an approval wrote (AXA, MetLife, NextCare) are not listed
+   * on this tab at all — the desk asked for them to live on the Insurance tab only — but their
+   * patient share still counts in the figures above, so one line below says how many sit there.
+   */
   const ownVisitCharges = useMemo(() => visitCharges.filter((c) => !c.approval), [visitCharges]);
-  const insurerVisitGroups = useMemo(() => {
-    const groups = new Map<string, Charge[]>();
-    for (const c of visitCharges) {
-      if (!c.approval) continue;
-      const name = c.payerName || (isAr ? "التأمين" : "Insurance");
-      groups.set(name, [...(groups.get(name) ?? []), c]);
-    }
-    return [...groups.entries()];
-  }, [visitCharges, isAr]);
   const olderCharges = useMemo(
-    () => (patientWide ? [] : charges.filter((c) => !(c.clinicalNoteId && visitNoteIds.has(c.clinicalNoteId))).reverse()),
+    () => (patientWide ? [] : charges.filter((c) => !c.approval && !(c.clinicalNoteId && visitNoteIds.has(c.clinicalNoteId))).reverse()),
     [charges, visitNoteIds, patientWide]
   );
+  const approvalCharges = useMemo(() => charges.filter((c) => c.approval), [charges]);
+  const approvalInsurers = useMemo(
+    () => [...new Set(approvalCharges.map((c) => c.payerName || (isAr ? "التأمين" : "Insurance")))],
+    [approvalCharges, isAr]
+  );
+  const approvalShareOwed = money(approvalCharges.reduce((t, c) => t + c.remaining, 0));
 
   /** Treatments the dentist recorded on this visit that were never billed. */
   const unbilledNotes = useMemo(
@@ -1265,25 +1266,13 @@ export default function AppointmentMoneyTab({
           <div className="flex justify-center p-4">
             <Loader2 className="animate-spin text-slate-300" size={22} />
           </div>
-        ) : visitCharges.length === 0 && unbilledNotes.length === 0 ? (
+        ) : ownVisitCharges.length === 0 && unbilledNotes.length === 0 ? (
           <p className="text-sm text-center text-slate-400 italic py-3">
             {patientWide ? (isAr ? "مفيش علاجات متسجلة على المريض ده" : "No treatments on file for this patient") : isAr ? "مفيش خدمات على الزيارة دي" : "No treatments on this visit yet"}
           </p>
         ) : (
           <div className="space-y-2">
             {ownVisitCharges.map((c) => chargeRow(c))}
-            {insurerVisitGroups.map(([insurer, rows]) => (
-              <div key={insurer} className="space-y-2 pt-2">
-                <h4 className="flex items-center gap-1.5 text-[11px] font-black text-ink-muted uppercase tracking-widest">
-                  <ShieldCheck size={13} />
-                  {isAr ? "تأمين" : "Insurance"} · {insurer}
-                  <span className="normal-case tracking-normal font-semibold text-ink-faint">
-                    — {isAr ? "خارج حساب المريض إلا نصيبه" : "only the patient's share counts above"}
-                  </span>
-                </h4>
-                {rows.map((c) => chargeRow(c))}
-              </div>
-            ))}
             {unbilledNotes.map((note) => (
               <div key={note.id} className="rounded-xl border border-dashed border-line-strong bg-surface-subtle px-3 py-2.5">
                 <div className="flex items-center justify-between gap-2">
@@ -1489,6 +1478,21 @@ export default function AppointmentMoneyTab({
             </div>
           )}
         </div>
+      )}
+
+      {/* Insurance approvals are not listed here; the Insurance tab owns them. */}
+      {approvalCharges.length > 0 && (
+        <p className="flex items-center gap-1.5 text-[11px] font-semibold text-ink-faint px-1">
+          <ShieldCheck size={12} />
+          {isAr
+            ? `${approvalCharges.length} علاج على التأمين (${approvalInsurers.join("، ")}) في تبويب التأمين`
+            : `${approvalCharges.length} insurance treatment${approvalCharges.length === 1 ? "" : "s"} (${approvalInsurers.join(", ")}) on the Insurance tab`}
+          {approvalShareOwed > 0 && (
+            <span className="text-amber-700">
+              · {isAr ? "نصيب المريض المتبقي" : "patient share owed"} {approvalShareOwed.toLocaleString()}
+            </span>
+          )}
+        </p>
       )}
 
       {/* Receipts */}
