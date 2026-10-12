@@ -1,5 +1,6 @@
 "use client";
 
+import { foldArabicDigits } from "@/lib/phoneNumber";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -22,6 +23,7 @@ import { useUI } from "@/context/UIContext";
 import { useActiveBranch } from "@/lib/useActiveBranch";
 import { rowInScope } from "@/lib/branchAccess";
 import { localYmd } from "@/lib/clinicDate";
+import { currencyUnit } from "@/lib/currencyUnit";
 import { parseClinicSchedule, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import { getAppointmentStageLabel, getAppointmentStatusStyles } from "@/lib/appointmentStages";
 import { isDentistStaff } from "@/lib/staffRoles";
@@ -70,6 +72,12 @@ type NoteContext = {
 };
 
 const SEATABLE = new Set(["Scheduled", "Confirmed", "Delayed", "Checked In", "Late", "Pending"]);
+
+/**
+ * Below `lg` a tap on a day card opens the chair — on a phone that is the whole job between
+ * patients — and the file gets its own button on the card. The desk keeps its tap-to-file.
+ */
+const onPhone = () => typeof window !== "undefined" && window.matchMedia("(max-width: 1023.98px)").matches;
 
 export default function DentistHome() {
   const router = useRouter();
@@ -129,6 +137,8 @@ export default function DentistHome() {
   const [services, setServices] = useState<Service[]>([]);
   const [config, setConfig] = useState<ClinicScheduleConfig | null>(null);
   const [showShare, setShowShare] = useState(true);
+  /** The clinic's currency code, for the unit beside each figure (ج.م in Arabic, not "EGP"). */
+  const [currency, setCurrency] = useState("EGP");
   const [loaded, setLoaded] = useState(false);
   /** AI x-ray reports nobody has signed yet. Clinic-wide: a report waits for whichever dentist owns the patient. */
   const [unsignedXrays, setUnsignedXrays] = useState<Row[]>([]);
@@ -177,6 +187,7 @@ export default function DentistHome() {
         const home = (data.dentistHome || {}) as { showShare?: boolean };
         // On unless the clinic switched it off: a dentist's share is their own pay.
         setShowShare(home.showShare !== false);
+        setCurrency(typeof data.currency === "string" && data.currency.trim() ? data.currency : "EGP");
       }),
     ];
     return () => unsubs.forEach((u) => u());
@@ -288,6 +299,8 @@ export default function DentistHome() {
    * (which is today's seating) on purpose.
    */
   const [chairPop, setChairPop] = useState<{ patientId: string; appointment: { id: string; branchId?: string | null } | null } | null>(null);
+  const openChairFor = (a: Row) =>
+    setChairPop({ patientId: String(a.patientId || ""), appointment: { id: String(a.id), branchId: (a.branchId as string | null | undefined) ?? null } });
   /** Every dentist's treatments on the hero's visit — the slab shows them all, mine pressable. */
   // Keyed by the visit they belong to, so a new hero never shows the previous patient's notes
   // for the moment before its own listener answers.
@@ -330,10 +343,12 @@ export default function DentistHome() {
   /** The search box over the day list: any patient, into the chair. */
   const [searchQ, setSearchQ] = useState("");
   const searchHits = useMemo(() => {
-    const q = searchQ.trim().toLowerCase();
+    // Arabic-Indic digits on either side — the keyboard and stored records both have them —
+    // so fold both before matching.
+    const q = foldArabicDigits(searchQ).trim().toLowerCase();
     if (q.length < 2) return [];
     return patients
-      .filter((p) => String(p.name || "").toLowerCase().includes(q) || String(p.phone || "").includes(q))
+      .filter((p) => String(p.name || "").toLowerCase().includes(q) || foldArabicDigits(String(p.phone || "")).includes(q))
       .slice(0, 8);
   }, [searchQ, patients]);
 
@@ -432,13 +447,34 @@ export default function DentistHome() {
   }
 
   const eyebrow = "font-display text-[11px] font-black uppercase tracking-[0.12em] text-ink-muted";
+  // 40px tall below lg: a thumb, not a cursor.
   const ghost =
-    "inline-flex items-center gap-1.5 h-[34px] px-3.5 rounded-xl bg-surface border border-line text-ink text-[12px] font-extrabold uppercase tracking-wide shadow-sm hover:bg-surface-subtle transition-colors disabled:opacity-50 whitespace-nowrap";
+    "inline-flex items-center gap-1.5 h-[34px] max-lg:h-10 px-3.5 rounded-xl bg-surface border border-line text-ink text-[12px] font-extrabold uppercase tracking-wide shadow-sm hover:bg-surface-subtle transition-colors disabled:opacity-50 whitespace-nowrap";
+  /** The phone card's main action (Seat / Done) on the next or current patient: the slab's black. */
+  const solid =
+    "inline-flex items-center gap-1.5 h-10 px-3.5 rounded-xl bg-ink-slab border border-ink-slab text-white text-[12px] font-extrabold uppercase tracking-wide shadow-sm transition-colors disabled:opacity-50 whitespace-nowrap";
   const navBtn =
     "relative inline-flex items-center justify-center w-10 h-10 lg:w-7 lg:h-7 rounded-lg bg-surface border border-line text-ink-body hover:bg-surface-subtle hover:text-ink transition-colors";
+  const unit = currencyUnit(currency, isAr);
+  const dayPicker = (
+    <input
+      type="date"
+      value={viewDate}
+      onChange={(e) => e.target.value && setViewDate(e.target.value)}
+      aria-label={isAr ? "اختار يوم" : "Pick a day"}
+      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+    />
+  );
+  // The phone's day bar says which day in words short enough for one line beside the arrows.
+  const dayShort = (() => {
+    const delta = daysBetween(today, viewDate);
+    if (delta !== null && delta >= -1 && delta <= 1) return dayLabel;
+    return new Date(`${viewDate}T12:00:00`).toLocaleDateString(isAr ? "ar-EG" : "en-GB", { weekday: "short", day: "numeric", month: "short" });
+  })();
 
   return (
-    <div className="min-h-full pb-24 lg:pb-6 text-ink-strong" dir={isRTL ? "rtl" : "ltr"}>
+    /* pb-2 below lg: <main> already leaves 128px under the page for the bottom bar and the orb. */
+    <div className="min-h-full pb-2 lg:pb-6 text-ink-strong" dir={isRTL ? "rtl" : "ltr"}>
       <div className="w-full max-w-[1400px] mx-auto p-4 md:p-6 lg:p-5 flex flex-col gap-4">
 
         {/* The greeting is in the layout's black band; the dentist's own money stays on the page
@@ -454,23 +490,28 @@ export default function DentistHome() {
         {/* Phones: the strip is wider than the screen, and a wrapping row anchored to the end
             pushed it off the start edge where nobody could scroll to it. Below sm it is an even
             grid of figures instead; from sm up it is the original pill. */}
-        <div className="flex flex-wrap items-end justify-end gap-4 px-1">
-          <div className={`grid ${showShare ? "grid-cols-3" : "grid-cols-2"} w-full sm:w-auto sm:flex items-stretch bg-surface border border-line rounded-2xl shadow-sm px-1.5 py-2.5`}>
-            <Figure label={isAr ? "دفعوا النهارده" : "My patients paid today"} value={fmt(money.paid)} isAr={isAr} />
+        {/* Below sm the labels are the short ones, so the three figures stay one low row and the
+            day list starts near the top of the screen instead of under a three-line caption. */}
+        <div className="flex flex-wrap items-end justify-end gap-4 px-1 max-lg:px-0">
+          <div className={`grid ${showShare ? "grid-cols-3" : "grid-cols-2"} w-full sm:w-auto sm:flex items-stretch bg-surface border border-line rounded-2xl shadow-sm px-1.5 py-2.5 max-sm:py-2`}>
+            <Figure label={isAr ? "دفعوا النهارده" : "My patients paid today"} short={isAr ? "دفعوا النهارده" : "Paid today"} value={fmt(money.paid)} unit={unit} />
             {showShare && (
               <>
                 <span className="hidden sm:block w-px bg-line my-0.5" />
-                <Figure label={isAr ? "نصيبي" : "My share"} value={fmt(money.share)} isAr={isAr} />
+                <Figure label={isAr ? "نصيبي" : "My share"} value={fmt(money.share)} unit={unit} />
               </>
             )}
             <span className="hidden sm:block w-px bg-line my-0.5" />
-            <Figure label={isAr ? "لسه عليهم" : "Still owed by my patients"} value={fmt(owed)} isAr={isAr} />
+            <Figure label={isAr ? "لسه عليهم" : "Still owed by my patients"} short={isAr ? "لسه عليهم" : "Still owed"} value={fmt(owed)} unit={unit} />
           </div>
         </div>
 
         {/* Row 2: the chair, and the day */}
+        {/* Below lg the day list comes first (order-first on its card) and the slab follows it as
+            the next patient's detail; with nobody left to seat the slab only repeats what the list
+            already says, so the phone drops it. Desktop keeps chair-then-day side by side. */}
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-          <div className="lg:col-span-3 relative overflow-hidden rounded-[2rem] bg-ink-slab text-white p-7 md:p-9 min-h-[360px] flex flex-col justify-between shadow-[0_20px_50px_rgba(26,33,48,0.18)]">
+          <div className={`lg:col-span-3 relative overflow-hidden rounded-[2rem] bg-ink-slab text-white p-7 md:p-9 max-md:p-5 min-h-[360px] max-lg:min-h-0 flex flex-col justify-between shadow-[0_20px_50px_rgba(26,33,48,0.18)] ${hero ? "" : "max-lg:hidden"}`}>
             <div className="absolute -top-[120px] -end-[80px] w-[380px] h-[380px] rounded-full bg-white/[0.04] pointer-events-none" />
             {hero ? (
               <>
@@ -490,7 +531,7 @@ export default function DentistHome() {
                       {String(hero.time || "")}
                       {hero.roomName ? ` · ${String(hero.roomName)}` : ""}
                     </p>
-                    <h2 className="font-display text-[34px] md:text-[44px] font-semibold leading-[1.05] text-white mt-1">
+                    <h2 className="font-display text-[34px] max-md:text-[28px] md:text-[44px] font-semibold leading-[1.05] text-white mt-1 break-words">
                       {String(hero.patientName || "")}
                     </h2>
                     <p className="text-[15px] font-semibold text-white/70 mt-2">
@@ -501,7 +542,7 @@ export default function DentistHome() {
                     {heroLastSeen !== null && (
                       <Chip>{isAr ? `آخر زيارة من ${heroLastSeen} يوم` : `Last visit ${heroLastSeen} days ago`}</Chip>
                     )}
-                    {heroBalance > 0 && <Chip>{isAr ? `عليه ${fmt(heroBalance)} ج.م` : `Balance ${fmt(heroBalance)} EGP`}</Chip>}
+                    {heroBalance > 0 && <Chip>{isAr ? `عليه ${fmt(heroBalance)} ${unit}` : `Balance ${fmt(heroBalance)} ${unit}`}</Chip>}
                   </div>
                   {/* This visit's treatments, every dentist's. Mine carry the status switch. */}
                   {heroNotes.length > 0 && (
@@ -586,13 +627,16 @@ export default function DentistHome() {
             )}
           </div>
 
-          <Card className="lg:col-span-2 min-h-[360px]">
-            <div className="flex items-center justify-between gap-3 px-6 pt-5 pb-1">
+          {/* Below lg: first on the page, and `overflow-visible` so the search results are not cut
+              off by the card on a short day and the day bar can stick above the bottom menu. */}
+          <Card className="lg:col-span-2 min-h-[360px] max-lg:min-h-0 max-lg:order-first max-lg:overflow-visible max-lg:relative max-lg:z-10">
+            <div className="flex items-center justify-between gap-3 px-6 pt-5 pb-1 max-lg:px-4 max-lg:pt-4">
               <div className="flex items-baseline gap-2 min-w-0">
                 <span className={eyebrow}>{isAr ? "يومي" : "My day"}</span>
                 <span className={`font-figure text-xs font-bold truncate ${viewingToday ? "text-ink-faint" : "text-ink"}`}>· {dayLabel}</span>
               </div>
-              <div className="flex items-center gap-1 shrink-0">
+              {/* The phone's arrows live in the day bar at the bottom of this card, under the thumb. */}
+              <div className="flex items-center gap-1 shrink-0 max-lg:hidden">
                 <button onClick={() => shiftDay(-1)} aria-label={isAr ? "اليوم اللي قبله" : "Previous day"} className={navBtn}>
                   <ChevronLeft size={14} className="rtl:rotate-180" />
                 </button>
@@ -603,12 +647,7 @@ export default function DentistHome() {
                 )}
                 <label className={navBtn} title={isAr ? "اختار يوم" : "Pick a day"}>
                   <CalendarDays size={14} />
-                  <input
-                    type="date"
-                    value={viewDate}
-                    onChange={(e) => e.target.value && setViewDate(e.target.value)}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  />
+                  {dayPicker}
                 </label>
                 <button onClick={() => shiftDay(1)} aria-label={isAr ? "اليوم اللي بعده" : "Next day"} className={navBtn}>
                   <ChevronRight size={14} className="rtl:rotate-180" />
@@ -616,7 +655,7 @@ export default function DentistHome() {
               </div>
             </div>
             {/* Any patient, into the chair — a walk-in or a follow-up without a booking. */}
-            <div className="relative px-6 pb-2">
+            <div className="relative px-6 pb-2 max-lg:px-4">
               <label className="flex h-11 items-center gap-2 rounded-xl border border-line bg-surface-subtle px-3 text-ink-muted focus-within:border-ink">
                 <Search size={15} />
                 <input
@@ -628,7 +667,7 @@ export default function DentistHome() {
                 />
               </label>
               {searchHits.length > 0 && (
-                <div className="absolute inset-x-6 top-full z-20 -mt-1 overflow-hidden rounded-xl border border-line bg-surface shadow-xl">
+                <div className="absolute inset-x-6 max-lg:inset-x-4 top-full z-20 max-lg:z-40 -mt-1 overflow-hidden rounded-xl border border-line bg-surface shadow-xl">
                   {searchHits.map((p) => (
                     <button
                       key={p.id}
@@ -637,16 +676,16 @@ export default function DentistHome() {
                         setSearchQ("");
                         setChairPop({ patientId: p.id, appointment: null });
                       }}
-                      className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-start hover:bg-surface-subtle"
+                      className="flex w-full items-center justify-between gap-3 px-4 py-2.5 max-lg:min-h-12 text-start hover:bg-surface-subtle"
                     >
-                      <span className="truncate text-[14px] font-bold text-ink">{String(p.name || "")}</span>
-                      <bdi dir="ltr" className="font-figure text-[12px] font-semibold text-ink-muted">{String(p.phone || "")}</bdi>
+                      <span className="lg:truncate max-lg:break-words text-[14px] font-bold text-ink">{String(p.name || "")}</span>
+                      <bdi dir="ltr" className="font-figure text-[12px] font-semibold text-ink-muted shrink-0">{String(p.phone || "")}</bdi>
                     </button>
                   ))}
                 </div>
               )}
             </div>
-            <p className="px-6 pb-2 font-figure text-xs font-bold text-ink-faint">
+            <p className="px-6 pb-2 max-lg:px-4 font-figure text-xs font-bold text-ink-faint">
               {dayMine.length} {isAr ? "مرضى" : "patients"}
               {viewDate <= today ? ` · ${dayDone} ${isAr ? "خلصوا" : "done"}` : ""}
             </p>
@@ -661,21 +700,47 @@ export default function DentistHome() {
                 {day.map((a) => {
                   const done = isDone(a.status);
                   const isHero = viewingToday && hero?.id === a.id;
+                  const isNow = isHero && heroIsCurrent;
+                  const canSeat = viewingToday && !done && String(a.status) !== "In Chair" && SEATABLE.has(String(a.status)) && !chair.current;
+                  const what = String(a.serviceName || a.treatment || "");
+                  const stage = getAppointmentStageLabel(String(a.status || ""), isAr ? "ar" : "en");
+                  const waited = String(a.status) === "Checked In" ? waitingMinutes(a.checkInTime, now) : null;
                   return (
                     <div
                       key={String(a.id)}
-                      onClick={() => router.push(`/patients/${a.patientId}`)}
-                      className={`flex items-center gap-3.5 px-6 py-2.5 border-t border-surface-muted first:border-t-0 cursor-pointer hover:bg-surface-subtle transition-colors ${done ? "opacity-50" : ""} ${isHero ? "bg-surface-subtle" : ""}`}
+                      onClick={() => (onPhone() ? openChairFor(a) : router.push(`/patients/${a.patientId}`))}
+                      /* Phones: a card, not a line — time and room on the start side, the name in
+                         full, what is being done, the stage, and the buttons under it. The next /
+                         current patient carries a yellow edge and says so in words. */
+                      className={`flex items-center gap-3.5 px-6 py-2.5 border-t border-surface-muted first:border-t-0 cursor-pointer hover:bg-surface-subtle transition-colors max-lg:items-start max-lg:gap-3 max-lg:px-4 max-lg:py-3.5 ${done ? "opacity-50" : ""} ${isHero ? "bg-surface-subtle max-lg:border-s-4 max-lg:border-s-accent max-lg:ps-3" : ""}`}
                     >
-                      <span className={`font-figure text-[13px] w-[64px] shrink-0 ${isHero ? "font-extrabold text-ink" : "font-semibold text-ink-body"}`}>{String(a.time || "")}</span>
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${getAppointmentStatusStyles(String(a.status)).dot}`} />
+                      <span className={`text-[13px] w-[64px] shrink-0 max-lg:w-[52px] max-lg:text-[15px] max-lg:flex max-lg:flex-col max-lg:gap-0.5 ${isHero ? "font-extrabold text-ink" : "font-semibold text-ink-body"}`}>
+                        <span className="font-figure">{String(a.time || "")}</span>
+                        {/* The room, on phones only: the desk line has no room for it. */}
+                        {a.roomName ? <span className="lg:hidden text-[11px] font-bold text-ink-muted leading-tight break-words">{String(a.roomName)}</span> : null}
+                      </span>
+                      <span className={`w-2 h-2 rounded-full shrink-0 max-lg:hidden ${getAppointmentStatusStyles(String(a.status)).dot}`} />
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-bold text-ink truncate">{String(a.patientName || "")}</p>
-                        <p className="text-xs font-semibold text-ink-muted truncate">
+                        {isHero && (
+                          <p className="lg:hidden mb-0.5 font-display text-[10px] font-black uppercase tracking-[0.12em] text-ink-muted">
+                            {isNow ? (isAr ? "على الكرسي دلوقتي" : "In the chair now") : (isAr ? "التالي على الكرسي" : "Next in the chair")}
+                          </p>
+                        )}
+                        <p className="text-sm font-bold text-ink lg:truncate max-lg:text-[16px] max-lg:leading-snug max-lg:break-words">{String(a.patientName || "")}</p>
+                        <p className="hidden lg:block text-xs font-semibold text-ink-muted truncate">
                           {a.claimId ? (isAr ? "تأمين · " : "Insurance · ") : ""}
-                          {String(a.serviceName || a.treatment || "")}
-                          {a.serviceName || a.treatment ? " · " : ""}
-                          {getAppointmentStageLabel(String(a.status || ""), isAr ? "ar" : "en")}
+                          {what}
+                          {what ? " · " : ""}
+                          {stage}
+                        </p>
+                        <p className="lg:hidden mt-0.5 text-[13px] font-semibold text-ink-body break-words">
+                          {a.claimId ? (isAr ? "تأمين · " : "Insurance · ") : ""}
+                          {what || (isAr ? "بدون إجراء محدد" : "No procedure set")}
+                        </p>
+                        <p className="lg:hidden mt-1 inline-flex items-center gap-1.5 text-[12px] font-bold text-ink-muted">
+                          <span className={`w-2 h-2 rounded-full shrink-0 ${getAppointmentStatusStyles(String(a.status)).dot}`} />
+                          {stage}
+                          {waited !== null && ` · ${isAr ? `مستني ${waited} دقيقة` : `waiting ${waited} min`}`}
                         </p>
                         {/* My treatments on this visit: one tap moves each to its next state. */}
                         {(() => {
@@ -693,34 +758,67 @@ export default function DentistHome() {
                                     disabled={!!noteBusyId}
                                     onClick={(e) => { e.stopPropagation(); cycleStatus(n); }}
                                     title={isAr ? "اضغط لتغيير الحالة" : "Tap to change the state"}
-                                    className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-bold transition-colors disabled:opacity-60 ${
+                                    className={`inline-flex h-8 max-lg:h-10 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-bold transition-colors disabled:opacity-60 max-lg:max-w-full ${
                                       done ? "border-emerald-200 bg-emerald-50 text-emerald-800" : n.status === "Ongoing" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-line bg-surface text-ink"
                                     }`}
                                   >
                                     {noteBusyId === n.id ? <Loader2 size={12} className="animate-spin" /> : done ? <Check size={12} strokeWidth={3} /> : null}
-                                    <span className="truncate max-w-[160px]">{String(n.procedure || "")}</span>
-                                    <span className="text-ink-muted">· {st ? (isAr ? st.ar : st.en) : ""}</span>
+                                    <span className="truncate max-w-[160px] max-lg:max-w-[200px]">{String(n.procedure || "")}</span>
+                                    <span className="text-ink-muted shrink-0">· {st ? (isAr ? st.ar : st.en) : ""}</span>
                                   </button>
                                 );
                               })}
                             </div>
                           );
                         })()}
+                        {/* Phones: the card's own buttons, under it, at thumb size. The card itself
+                            opens the chair, so the file gets a button here instead. */}
+                        <div className="lg:hidden mt-2.5 flex flex-wrap items-center gap-2">
+                          {isNow && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); void setStatus(a, "Checking Out"); }}
+                              disabled={!!busyId}
+                              className={solid}
+                            >
+                              {busyId === a.id ? <Loader2 size={13} className="animate-spin" /> : <Check size={14} strokeWidth={2.5} />}
+                              {isAr ? "خلصت — للاستقبال" : "Done — to the desk"}
+                            </button>
+                          )}
+                          {canSeat && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); void setStatus(a, "In Chair"); }}
+                              disabled={!!busyId}
+                              className={isHero ? solid : ghost}
+                            >
+                              {busyId === a.id ? <Loader2 size={13} className="animate-spin" /> : <Armchair size={14} />}
+                              {isAr ? "دخّل المريض" : "Seat patient"}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); router.push(`/patients/${a.patientId}`); }}
+                            className={ghost}
+                          >
+                            {isAr ? "الملف" : "File"} <ArrowUpRight size={14} />
+                          </button>
+                        </div>
                       </div>
                       <button
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); setChairPop({ patientId: String(a.patientId || ""), appointment: { id: String(a.id), branchId: (a.branchId as string | null | undefined) ?? null } }); }}
+                        onClick={(e) => { e.stopPropagation(); openChairFor(a); }}
                         title={isAr ? "افتح الكرسي" : "Open the chair"}
                         aria-label={isAr ? "افتح الكرسي" : "Open the chair"}
-                        className={`${ghost} h-[30px] w-[30px] px-0 justify-center`}
+                        className={`${ghost} h-[30px] w-[30px] px-0 justify-center max-lg:hidden`}
                       >
                         <Armchair size={13} />
                       </button>
-                      {viewingToday && !done && String(a.status) !== "In Chair" && SEATABLE.has(String(a.status)) && !chair.current && (
+                      {canSeat && (
                         <button
                           onClick={(e) => { e.stopPropagation(); void setStatus(a, "In Chair"); }}
                           disabled={!!busyId}
-                          className={`${ghost} h-[30px] px-3 text-[11px]`}
+                          className={`${ghost} h-[30px] px-3 text-[11px] max-lg:hidden`}
                         >
                           {busyId === a.id ? <Loader2 size={12} className="animate-spin" /> : null}
                           {isAr ? "دخّل" : "Seat"}
@@ -731,6 +829,27 @@ export default function DentistHome() {
                 })}
               </div>
             )}
+            {/* Phones: the day switch sits at the bottom of the list, held just above the bottom
+                menu while the list scrolls — where the thumb already is. `me-[3.25rem]` leaves the
+                end corner to the assistant orb docked on the menu's edge. */}
+            <div className="lg:hidden sticky bottom-[5.5rem] z-30 ms-3 me-[3.25rem] mb-3 mt-2 flex items-center gap-1 rounded-2xl border border-line bg-surface/95 p-1 shadow-[0_8px_30px_rgba(0,0,0,0.12)] backdrop-blur">
+              <button onClick={() => shiftDay(-1)} aria-label={isAr ? "اليوم اللي قبله" : "Previous day"} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-ink active:bg-surface-subtle">
+                <ChevronLeft size={20} className="rtl:rotate-180" />
+              </button>
+              <label className="relative flex h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-xl px-2 text-ink active:bg-surface-subtle">
+                <CalendarDays size={15} className="shrink-0 text-ink-muted" />
+                <span className="truncate text-[14px] font-extrabold text-ink">{dayShort}</span>
+                {dayPicker}
+              </label>
+              {!viewingToday && (
+                <button onClick={() => setViewDate(today)} className="h-11 shrink-0 rounded-xl bg-ink-slab px-3 text-[12px] font-extrabold uppercase tracking-wide text-white">
+                  {isAr ? "النهارده" : "Today"}
+                </button>
+              )}
+              <button onClick={() => shiftDay(1)} aria-label={isAr ? "اليوم اللي بعده" : "Next day"} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-ink active:bg-surface-subtle">
+                <ChevronRight size={20} className="rtl:rotate-180" />
+              </button>
+            </div>
           </Card>
         </div>
 
@@ -759,10 +878,12 @@ export default function DentistHome() {
                     : c.kind === "back" ? (isAr ? "وصل" : "Back")
                     : (isAr ? "بروفة" : "Try-in back");
                   return (
-                    <div key={String(c.id)} className="flex flex-wrap items-center gap-3 px-6 py-3 border-t border-surface-muted first:border-t-0">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-bold text-ink truncate">{String(c.patientName || patientName(pid))}</p>
-                        <p className="text-xs font-semibold text-ink-muted truncate">
+                    <div key={String(c.id)} className="flex flex-wrap items-center gap-3 px-6 py-3 max-lg:px-4 border-t border-surface-muted first:border-t-0">
+                      {/* basis-full below lg: a flex-1 child never wraps (its basis is 0), so the
+                          tag and button squeezed the name to a few letters; now they drop under it. */}
+                      <div className="min-w-0 flex-1 max-lg:basis-full">
+                        <p className="text-sm font-bold text-ink lg:truncate max-lg:break-words">{String(c.patientName || patientName(pid))}</p>
+                        <p className="text-xs font-semibold text-ink-muted lg:truncate max-lg:break-words">
                           {workTypeLabel(String(c.workType || ""), isAr ? "ar" : "en")}
                           {Array.isArray(c.teeth) && c.teeth.length ? ` · ${(c.teeth as number[]).join(", ")}` : ""}
                           {c.labName ? ` · ${String(c.labName)}` : ""}
@@ -799,11 +920,11 @@ export default function DentistHome() {
                     const when = (x.createdAt as { toDate?: () => Date })?.toDate?.();
                     const pid = String(x.patientId || "");
                     return (
-                      <div key={String(x.id)} className="flex flex-wrap items-center gap-3 px-6 py-3 border-t border-surface-muted first:border-t-0">
+                      <div key={String(x.id)} className="flex flex-wrap items-center gap-3 px-6 py-3 max-lg:px-4 border-t border-surface-muted first:border-t-0">
                         <span className="inline-block h-2.5 w-2.5 rounded-sm shrink-0" style={{ background: SEVERITY_COLORS[worst] }} />
-                        <div className="min-w-0 flex-1 cursor-pointer" onClick={() => router.push(`/patients/${pid}?tab=xrays`)}>
-                          <p className="text-sm font-bold text-ink truncate">{String(x.patientName || patientName(pid))}</p>
-                          <p className="text-xs font-semibold text-ink-muted truncate">
+                        <div className="min-w-0 flex-1 max-lg:basis-[calc(100%-1.375rem)] cursor-pointer" onClick={() => router.push(`/patients/${pid}?tab=xrays`)}>
+                          <p className="text-sm font-bold text-ink lg:truncate max-lg:break-words">{String(x.patientName || patientName(pid))}</p>
+                          <p className="text-xs font-semibold text-ink-muted lg:truncate max-lg:break-words">
                             {report ? `${report.teeth.length} ${isAr ? "نتيجة" : "finding(s)"}` : ""}
                             {when ? ` · ${when.toLocaleDateString(isAr ? "ar-EG" : "en-GB")}` : ""}
                             {x.createdByName ? ` · ${String(x.createdByName)}` : ""}
@@ -828,10 +949,10 @@ export default function DentistHome() {
                 {plans.slice(0, 8).map((p) => {
                   const ago = p.lastNoteDate ? daysBetween(p.lastNoteDate, today) : null;
                   return (
-                    <div key={p.patientId} className="flex flex-wrap items-center gap-3 px-6 py-3 border-t border-surface-muted first:border-t-0">
-                      <div className="min-w-0 flex-1 cursor-pointer" onClick={() => router.push(`/patients/${p.patientId}`)}>
-                        <p className="text-sm font-bold text-ink truncate">{patientName(p.patientId)}</p>
-                        <p className="text-xs font-semibold text-ink-muted truncate">
+                    <div key={p.patientId} className="flex flex-wrap items-center gap-3 px-6 py-3 max-lg:px-4 border-t border-surface-muted first:border-t-0">
+                      <div className="min-w-0 flex-1 max-lg:basis-full cursor-pointer" onClick={() => router.push(`/patients/${p.patientId}`)}>
+                        <p className="text-sm font-bold text-ink lg:truncate max-lg:break-words">{patientName(p.patientId)}</p>
+                        <p className="text-xs font-semibold text-ink-muted lg:truncate max-lg:break-words">
                           {p.procedure || (isAr ? "علاج جاري" : "Ongoing treatment")}
                           {p.ongoing > 1 ? ` · ${p.ongoing} ${isAr ? "مفتوحين" : "open"}` : ""}
                           {ago !== null ? ` · ${isAr ? `آخر زيارة من ${ago} يوم` : `last seen ${ago} days ago`}` : ""}
@@ -849,7 +970,7 @@ export default function DentistHome() {
         </div>
 
         {/* How the period went — the dentist's own numbers, charted. */}
-        <DentistReport me={me} ledger={ledger} patients={patients} showShare={showShare} today={today} isAr={isAr} />
+        <DentistReport me={me} ledger={ledger} patients={patients} showShare={showShare} today={today} isAr={isAr} unit={unit} />
       </div>
 
       {booking && config && (
@@ -911,12 +1032,19 @@ export default function DentistHome() {
 
 // --- Small pieces, kept here because nothing else uses them ------------------------------------
 
-function Figure({ label, value, isAr }: { label: string; value: string; isAr: boolean }) {
+function Figure({ label, short, value, unit }: { label: string; short?: string; value: string; unit: string }) {
   return (
-    <div className="min-w-0 flex flex-col justify-between sm:justify-center gap-1.5 px-2 sm:px-4 md:px-5">
-      <span className="font-display text-[10px] font-black uppercase tracking-[0.12em] text-ink-muted leading-tight sm:whitespace-nowrap">{label}</span>
+    <div className="min-w-0 flex flex-col justify-between sm:justify-center gap-1.5 max-sm:gap-1 px-2 sm:px-4 md:px-5">
+      <span className="font-display text-[10px] font-black uppercase tracking-[0.12em] max-sm:tracking-[0.06em] text-ink-muted leading-tight sm:whitespace-nowrap">
+        {short ? (
+          <>
+            <span className="sm:hidden">{short}</span>
+            <span className="hidden sm:inline">{label}</span>
+          </>
+        ) : label}
+      </span>
       <span className="font-figure text-[18px] sm:text-[22px] font-extrabold text-ink leading-none">
-        {value} <span className="text-[11px] font-semibold text-ink-faint tracking-[0.1em]">{isAr ? "ج.م" : "EGP"}</span>
+        {value} <span className="text-[11px] font-semibold text-ink-faint tracking-[0.1em]">{unit}</span>
       </span>
     </div>
   );
@@ -955,13 +1083,13 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
 
 function CardHead({ title, right, eyebrow }: { title: string; right?: string; eyebrow: string }) {
   return (
-    <div className="flex items-center justify-between gap-3 px-6 pt-5 pb-3">
+    <div className="flex items-center justify-between gap-3 px-6 pt-5 pb-3 max-lg:px-4 max-lg:pt-4">
       <span className={eyebrow}>{title}</span>
-      {right ? <span className="font-figure text-xs font-bold text-ink-faint">{right}</span> : null}
+      {right ? <span className="font-figure text-xs font-bold text-ink-faint text-end">{right}</span> : null}
     </div>
   );
 }
 
 function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="px-6 pb-6 pt-2 text-sm font-semibold text-ink-faint">{children}</p>;
+  return <p className="px-6 pb-6 pt-2 max-lg:px-4 text-sm font-semibold text-ink-faint">{children}</p>;
 }

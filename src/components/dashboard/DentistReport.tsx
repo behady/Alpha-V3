@@ -8,6 +8,7 @@ import {
 import { Table2, BarChart3 } from "lucide-react";
 import { getClinicCollection } from "@/lib/db-utils";
 import { useClinic } from "@/context/ClinicContext";
+import { currencyUnit } from "@/lib/currencyUnit";
 import type { DentistIdentity, Row } from "@/lib/dentistHome";
 import {
   attendanceByBucket, moneyByBucket, patientsByBucket, periodFor, procedureMix, reportTotals, toYmd,
@@ -36,6 +37,8 @@ type Props = {
   showShare: boolean;
   today: string;
   isAr: boolean;
+  /** The money unit as the screen prints it (lib/currencyUnit). */
+  unit?: string;
 };
 
 /** Six categorical hues drawn from the app's own tokens, in an order the validator passes. */
@@ -50,8 +53,9 @@ const GRID = "#E2E8F0";
 const TICK = { fontSize: 11, fill: "#78899F", fontWeight: 600 } as const;
 const ANIM = { isAnimationActive: true, animationDuration: 900, animationEasing: "ease-out" as const };
 
-export default function DentistReport({ me, ledger, patients, showShare, today, isAr }: Props) {
+export default function DentistReport({ me, ledger, patients, showShare, today, isAr, unit: unitProp }: Props) {
   const { clinicId } = useClinic();
+  const unit = unitProp || currencyUnit("EGP", isAr);
   const [kind, setKind] = useState<PeriodKind>("month");
   const [view, setView] = useState<"charts" | "table">("charts");
   const period = useMemo(() => periodFor(kind, today), [kind, today]);
@@ -100,17 +104,20 @@ export default function DentistReport({ me, ledger, patients, showShare, today, 
       <div className="flex flex-wrap items-center justify-between gap-3 px-1">
         <div className="flex items-baseline gap-2">
           <span className={eyebrow}>{isAr ? "تقريري" : "My report"}</span>
-          <span className="font-figure text-xs font-bold text-ink-faint">
+          {/* Dates read left to right in Arabic too, so the arrow points the way time goes. */}
+          <bdi dir="ltr" className="font-figure text-xs font-bold text-ink-faint">
             {period.start} → {period.end}
-          </span>
+          </bdi>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex items-center gap-1 rounded-full bg-surface border border-slate-200/60 p-1 shadow-sm">
+        {/* Below sm the four periods are an even row across the screen (it was one pill ~345px
+            wide, at the edge of a 375px phone), and every button is 40px tall. */}
+        <div className="flex flex-wrap items-center gap-2 max-sm:w-full">
+          <div className="inline-flex items-center gap-1 rounded-full bg-surface border border-slate-200/60 p-1 shadow-sm max-sm:grid max-sm:w-full max-sm:grid-cols-4 max-sm:rounded-2xl">
             {periods.map((p) => (
               <button
                 key={p.key}
                 onClick={() => setKind(p.key)}
-                className={`rounded-full px-3.5 py-1.5 text-[11px] font-bold transition-colors ${
+                className={`rounded-full px-3.5 py-1.5 text-[11px] font-bold transition-colors max-lg:min-h-10 max-sm:rounded-xl max-sm:px-1 max-sm:leading-tight ${
                   kind === p.key ? "bg-ink-slab text-white" : "text-slate-500 hover:text-slate-900"
                 }`}
               >
@@ -120,7 +127,7 @@ export default function DentistReport({ me, ledger, patients, showShare, today, 
           </div>
           <button
             onClick={() => setView((v) => (v === "charts" ? "table" : "charts"))}
-            className="inline-flex items-center gap-1.5 h-[34px] px-3 rounded-full bg-surface border border-slate-200/60 text-[11px] font-bold text-slate-600 hover:text-slate-900 shadow-sm transition-colors"
+            className="inline-flex items-center gap-1.5 h-[34px] max-lg:h-10 px-3 rounded-full bg-surface border border-slate-200/60 text-[11px] font-bold text-slate-600 hover:text-slate-900 shadow-sm transition-colors"
             aria-pressed={view === "table"}
           >
             {view === "charts" ? <Table2 size={13} /> : <BarChart3 size={13} />}
@@ -131,11 +138,11 @@ export default function DentistReport({ me, ledger, patients, showShare, today, 
 
       {/* The headline figures, counted up. */}
       <div className={`grid grid-cols-2 lg:grid-cols-4 gap-3 transition-opacity ${loading ? "opacity-60" : ""}`}>
-        <Tile label={isAr ? "اتحاسب" : "Charged"} value={totals.charged} unit={isAr ? "ج.م" : "EGP"} fmt={fmt} />
+        <Tile label={isAr ? "اتحاسب" : "Charged"} value={totals.charged} unit={unit} fmt={fmt} />
         <Tile
           label={isAr ? "اتحصّل" : "Collected"}
           value={totals.collected}
-          unit={isAr ? "ج.م" : "EGP"}
+          unit={unit}
           fmt={fmt}
           sub={showShare ? `${isAr ? "نصيبي" : "My share"} ${fmt(totals.share)}` : undefined}
         />
@@ -170,7 +177,7 @@ export default function DentistReport({ me, ledger, patients, showShare, today, 
                 <CartesianGrid vertical={false} stroke={GRID} strokeWidth={1} />
                 <XAxis dataKey="label" axisLine={false} tickLine={false} tick={TICK} interval="preserveStartEnd" />
                 <YAxis axisLine={false} tickLine={false} tick={TICK} tickFormatter={(v) => compact(Number(v))} width={44} />
-                <Tooltip cursor={{ fill: "rgba(15,23,42,0.04)" }} content={<Tip fmt={fmt} isAr={isAr} unit={isAr ? "ج.م" : "EGP"} extra={showShare ? { key: "share", label: isAr ? "نصيبي" : "My share" } : undefined} />} />
+                <Tooltip cursor={{ fill: "rgba(15,23,42,0.04)" }} content={<Tip fmt={fmt} isAr={isAr} unit={unit} extra={showShare ? { key: "share", label: isAr ? "نصيبي" : "My share" } : undefined} />} />
                 <Legend verticalAlign="top" align="right" iconType="square" iconSize={8} wrapperStyle={{ fontSize: 11, fontWeight: 700, color: "#64748B", paddingBottom: 8 }} />
                 <Bar dataKey="charged" name={isAr ? "اتحاسب" : "Charged"} fill={DEEMPHASIS} radius={[4, 4, 0, 0]} maxBarSize={24} {...ANIM} />
                 <Bar dataKey="collected" name={isAr ? "اتحصّل" : "Collected"} fill={ACCENT} radius={[4, 4, 0, 0]} maxBarSize={24} {...ANIM} animationBegin={120} />
@@ -212,7 +219,7 @@ export default function DentistReport({ me, ledger, patients, showShare, today, 
               <Empty>{isAr ? "مفيش إجراءات في الفترة دي." : "No procedures charged in this period yet."}</Empty>
             ) : (
               <DataTable
-                cols={[isAr ? "الإجراء" : "Procedure", isAr ? "العدد" : "Count", isAr ? "ج.م" : "EGP"]}
+                cols={[isAr ? "الإجراء" : "Procedure", isAr ? "العدد" : "Count", unit]}
                 rows={mix.map((s) => [s.name, String(s.count), fmt(s.amount)])}
               />
             )
@@ -236,7 +243,7 @@ export default function DentistReport({ me, ledger, patients, showShare, today, 
                         <Cell key={s.name} fill={s.other ? OTHER_COLOR : MIX_COLORS[i % MIX_COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip content={<Tip fmt={fmt} isAr={isAr} unit={isAr ? "ج.م" : "EGP"} />} />
+                    <Tooltip content={<Tip fmt={fmt} isAr={isAr} unit={unit} />} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -315,7 +322,7 @@ function Tile({ label, value, unit, fmt, sub, tone }: { label: string; value: nu
   return (
     <div className="rounded-2xl bg-surface border border-line shadow-sm px-4 py-3.5 flex flex-col gap-1.5 min-w-0">
       <span className="font-display text-[10px] font-black uppercase tracking-[0.12em] text-ink-muted truncate">{label}</span>
-      <span className={`font-figure text-[24px] font-extrabold leading-none ${tone === "warn" ? "text-warn" : "text-ink"}`} style={{ fontVariantNumeric: "normal" }}>
+      <span className={`font-figure text-[24px] max-sm:text-[20px] font-extrabold leading-none break-words ${tone === "warn" ? "text-warn" : "text-ink"}`} style={{ fontVariantNumeric: "normal" }}>
         {fmt(shown)}
         {unit && <span className="text-[11px] font-semibold text-ink-faint tracking-[0.08em] ms-1">{unit}</span>}
       </span>
@@ -327,7 +334,7 @@ function Tile({ label, value, unit, fmt, sub, tone }: { label: string; value: nu
 function Card({ title, eyebrow, children }: { title: string; eyebrow: string; children: React.ReactNode }) {
   return (
     <div className="rounded-[2rem] border border-white/60 bg-white/80 shadow-[0_8px_40px_rgba(0,0,0,0.04)] backdrop-blur-3xl overflow-hidden flex flex-col">
-      <div className="px-6 pt-5 pb-2">
+      <div className="px-6 pt-5 pb-2 max-lg:px-5 max-lg:pt-4">
         <span className={eyebrow}>{title}</span>
       </div>
       <div className="px-4 pb-4">{children}</div>

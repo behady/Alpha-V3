@@ -239,7 +239,7 @@ export const TeethChartSelector = memo(function TeethChartSelector({
                 type="button"
                 aria-pressed={markingMissing}
                 onClick={() => setMarkingMissing((v) => !v)}
-                className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[12px] font-bold transition-colors ${
+                className={`inline-flex h-8 max-lg:h-10 items-center gap-1.5 rounded-full border px-3 text-[12px] font-bold transition-colors ${
                   markingMissing
                     ? "border-rose-600 bg-rose-600 text-white"
                     : "border-line-strong bg-surface text-ink hover:border-rose-400"
@@ -297,7 +297,7 @@ export const TeethChartSelector = memo(function TeethChartSelector({
                   role="checkbox"
                   aria-checked={on}
                   onClick={() => void pickArch(pick)}
-                  className={`flex flex-1 items-center gap-2 rounded-lg border px-2 py-2 text-start text-[12px] font-bold transition-colors max-md:min-w-0 max-md:justify-center max-md:gap-1.5 max-md:rounded-full max-md:px-1.5 ${
+                  className={`flex flex-1 items-center gap-2 rounded-lg border px-2 py-2 text-start text-[12px] font-bold transition-colors max-md:min-h-10 max-md:min-w-0 max-md:justify-center max-md:gap-1.5 max-md:rounded-full max-md:px-1.5 ${
                     on ? "border-ink-slab bg-accent-tint text-ink" : "border-line bg-surface-subtle text-ink-body hover:border-line-strong"
                   }`}
                 >
@@ -1226,7 +1226,7 @@ export default function ServiceEditorDrawer({
       /* Portalled to <body>, outside the dashboard wrapper that sets the direction and the Arabic
          face — so the window sets both itself, or Arabic reads left-to-right in the system font. */
       dir={isAr ? "rtl" : "ltr"}
-      className={`${cairo.variable} ${isAr ? "arabic-ui" : ""} w-full bg-surface flex flex-col ${!inline ? (clinicalEditorMode === 'modal' ? 'h-full max-h-[90vh] rounded-[2rem] shadow-2xl overflow-hidden' : 'h-full min-h-0 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.2)] rounded-t-3xl rounded-b-none lg:rounded-3xl border border-line overflow-hidden') : 'rounded-2xl border border-line mt-4'}`}
+      className={`${cairo.variable} ${isAr ? "arabic-ui" : ""} w-full bg-surface flex flex-col ${!inline ? (clinicalEditorMode === 'modal' ? 'h-full max-h-[90dvh] rounded-[2rem] shadow-2xl overflow-hidden' : 'h-full min-h-0 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.2)] rounded-t-3xl rounded-b-none lg:rounded-3xl border border-line overflow-hidden') : 'rounded-2xl border border-line mt-4'}`}
     >
       {branchPicker}
       {!inline && (
@@ -1252,7 +1252,7 @@ export default function ServiceEditorDrawer({
             type="button"
             onClick={onClose}
             aria-label={txt.cancel}
-            className="w-9 h-9 rounded-xl border border-white/20 bg-white/5 hover:bg-white/15 text-white flex items-center justify-center transition-colors shrink-0"
+            className="w-9 h-9 max-lg:w-10 max-lg:h-10 rounded-xl border border-white/20 bg-white/5 hover:bg-white/15 text-white flex items-center justify-center transition-colors shrink-0"
           >
             <X size={18} />
           </button>

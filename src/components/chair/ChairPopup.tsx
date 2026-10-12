@@ -248,13 +248,14 @@ export default function ChairPopup({ isOpen, onClose, patientId, appointment, me
               <Armchair size={20} strokeWidth={2.5} />
             </div>
             <div className="min-w-0">
-              <h2 id="chair-title" className="truncate text-lg font-black leading-tight text-[#FACC15]">{patient?.name || "…"}</h2>
+              {/* Phones get the whole name on up to two lines rather than an ellipsis. */}
+              <h2 id="chair-title" className="lg:truncate max-lg:line-clamp-2 max-lg:break-words text-lg font-black leading-tight text-[#FACC15]">{patient?.name || "…"}</h2>
               <p className="truncate text-[13px] font-bold text-white/85">
-                {isAr ? "الكرسي" : "The chair"} · د. {me.name}
+                {isAr ? "الكرسي" : "The chair"} · {isAr ? "د." : "Dr."} {me.name}
               </p>
             </div>
           </div>
-          <button type="button" onClick={onClose} aria-label={isAr ? "إغلاق" : "Close"} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-white/5 text-white transition-colors hover:bg-white/15">
+          <button type="button" onClick={onClose} aria-label={isAr ? "إغلاق" : "Close"} className="flex h-9 w-9 max-lg:h-10 max-lg:w-10 shrink-0 items-center justify-center rounded-xl border border-white/20 bg-white/5 text-white transition-colors hover:bg-white/15">
             <X size={18} />
           </button>
         </div>
@@ -274,7 +275,7 @@ export default function ChairPopup({ isOpen, onClose, patientId, appointment, me
                 </span>
               )}
               {patient.phone && (
-                <button type="button" onClick={() => openWhatsApp(patient.phone)} className="inline-flex items-center gap-1.5 text-ink hover:text-emerald-700">
+                <button type="button" onClick={() => openWhatsApp(patient.phone)} className="inline-flex items-center gap-1.5 text-ink hover:text-emerald-700 max-lg:min-h-10">
                   <MessageCircle size={14} className="text-emerald-600" /> <bdi dir="ltr" className="font-figure">{patient.phone}</bdi>
                 </button>
               )}
@@ -329,7 +330,7 @@ export default function ChairPopup({ isOpen, onClose, patientId, appointment, me
                 }}
               />
               <div className="px-4 pb-3 text-end">
-                <button type="button" onClick={() => setEditor(null)} className="text-[13px] font-bold text-ink-muted underline-offset-4 hover:underline">
+                <button type="button" onClick={() => setEditor(null)} className="text-[13px] font-bold text-ink-muted underline-offset-4 hover:underline max-lg:min-h-10 max-lg:px-2">
                   {isAr ? "إلغاء" : "Cancel"}
                 </button>
               </div>
@@ -405,7 +406,8 @@ export default function ChairPopup({ isOpen, onClose, patientId, appointment, me
           )}
         </div>
 
-        <div className="shrink-0 border-t border-line bg-surface px-4 py-3 md:px-6">
+        {/* The safe-area inset keeps the button off an iPhone's home indicator (full screen below md). */}
+        <div className="shrink-0 border-t border-line bg-surface px-4 py-3 max-md:pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-6">
           <button
             type="button"
             onClick={() => {

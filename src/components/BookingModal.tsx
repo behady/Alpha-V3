@@ -1700,7 +1700,7 @@ servicesList.length > 0 && (
         className={
           inlineDesktop && isDesktop
             ? `flex flex-col w-full h-full min-h-0 overflow-hidden rounded-[2rem] border border-white/60 bg-white/80 shadow-[0_8px_40px_rgba(0,0,0,0.04)] backdrop-blur-3xl transition-all duration-300 ${language === "ar" ? "text-right" : "text-left"}`
-            : `flex max-h-[90vh] sm:max-h-[92vh] w-full max-w-md flex-col overflow-hidden rounded-t-[1.75rem] sm:rounded-b-[1.75rem] border-t sm:border border-slate-200/80 bg-surface shadow-2xl shadow-slate-300/40 ${language === "ar" ? "text-right" : "text-left"}`
+            : `flex max-h-[90dvh] sm:max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-t-[1.75rem] sm:rounded-b-[1.75rem] border-t sm:border border-slate-200/80 bg-surface shadow-2xl shadow-slate-300/40 ${language === "ar" ? "text-right" : "text-left"}`
         }
       >
         {inlineDesktop && isDesktop ? (
@@ -1729,8 +1729,8 @@ servicesList.length > 0 && (
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-full bg-white/10 p-2 text-white transition hover:bg-white/20"
-                aria-label="Close"
+                className="rounded-full bg-white/10 p-2 max-lg:p-[11px] text-white transition hover:bg-white/20"
+                aria-label={language === "ar" ? "إغلاق" : "Close"}
               >
                 <X size={18} />
               </button>

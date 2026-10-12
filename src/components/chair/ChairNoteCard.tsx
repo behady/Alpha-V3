@@ -96,7 +96,7 @@ export default function ChairNoteCard({
             {fromApproval && <span className="rounded-md bg-accent-tint px-1.5 py-0.5 text-[12px] text-accent-ink">{isAr ? "من موافقة تأمين" : "Insurance approval"}</span>}
             {!mine && (
               <span className="inline-flex items-center gap-1 text-ink-muted">
-                <Lock size={12} /> {dentistName ? `د. ${dentistName}` : isAr ? "العيادة" : "The clinic"}
+                <Lock size={12} /> {dentistName ? `${isAr ? "د." : "Dr."} ${dentistName}` : isAr ? "العيادة" : "The clinic"}
               </span>
             )}
           </p>
