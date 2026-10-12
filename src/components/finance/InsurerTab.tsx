@@ -16,6 +16,10 @@
  * because a company that pays in November for October's work would otherwise leave October's rows
  * reading "outstanding" forever, and a collection recorded today would never show on a past month.
  *
+ * "Excel report" writes the company's monthly statement in its own sheet layout (GASCO's), for the
+ * page's period rather than the whole account: the company is billed month by month. Only for a
+ * company with no approval paper; an approval insurer's statement is built on the Insurance page.
+ *
  * Collecting never asks which branch: the money follows each treatment's own branch, which the
  * route takes from the charge. Rows written by an approval are listed for the picture but collected
  * on the Insurance page, where their claim lives.
@@ -23,16 +27,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, Loader2 } from "lucide-react";
+import { CheckCircle2, FileSpreadsheet, Loader2 } from "lucide-react";
 import { onSnapshot, query, where } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
+import { useClinic } from "@/context/ClinicContext";
 import Protect from "@/components/Protect";
 import InsurerBadge from "@/components/shared/InsurerBadge";
 import { getClinicCollection } from "@/lib/db-utils";
 import { rowInScope } from "@/lib/branchAccess";
 import { insurerRows, insurerTotals, treatmentHasDentist, type InsurerRow, type LedgerLite } from "@/lib/insurerLedger";
 import { MoneyApiError } from "@/lib/moneyApi";
+import { buildInsuranceStatement, type StatementRowLite } from "@/lib/insuranceStatement";
+import { useStatementHeader } from "@/lib/insuranceStatementHeader";
 
 const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
@@ -49,6 +56,7 @@ export default function InsurerTab({
   isLoading,
   collect: post,
   collectClaim,
+  statementPeriod,
 }: {
   payerId: string;
   payerName: string;
@@ -68,6 +76,8 @@ export default function InsurerTab({
    * Resolves to the server's message on a refusal, null on success. `branchId` is the rows' branch.
    */
   collectClaim: (claimId: string, branchId: string | null) => Promise<string | null>;
+  /** The page's period, for the Excel statement; absent = no statement for this company (approval insurers). */
+  statementPeriod?: { start: string; end: string };
 }) {
   const { language } = useLanguage();
   const ar = language === "ar";
@@ -166,6 +176,51 @@ export default function InsurerTab({
   const chosenTotal = round2(chosen.reduce((s, r) => s + r.outstanding, 0));
   const allChosen = selectable.length > 0 && chosen.length === selectable.length;
   const fmt = (n: number) => n.toLocaleString(ar ? "ar-EG" : "en-US");
+
+  // --- The monthly statement ---------------------------------------------------------------------
+  const { clinicId } = useClinic();
+  const [header] = useStatementHeader(clinicId);
+  const [exporting, setExporting] = useState(false);
+  const statement = useMemo(() => {
+    if (!statementPeriod) return null;
+    // The tab's own cost (the whole price, as the company is billed), not the row's amount.
+    const rows = charges.map((c) => ({ ...c, amount: Number(c.cost) || Number(c.amount) || 0 }) as StatementRowLite);
+    return buildInsuranceStatement({
+      rows,
+      payerId,
+      payerName,
+      month: statementPeriod.start.slice(0, 7),
+      range: statementPeriod,
+      memberNumbers: new Map(),
+    });
+  }, [charges, payerId, payerName, statementPeriod]);
+  const exportStatement = async () => {
+    if (!statement || !statementPeriod || exporting) return;
+    setExporting(true);
+    try {
+      // The styled writer is 2.7 MB; it is fetched only when somebody actually presses the button.
+      const [{ default: XLSX }, { gascoStatementToWorkbook, gascoFileName }] = await Promise.all([
+        import("xlsx-js-style"),
+        import("@/lib/insuranceStatementGascoXlsx"),
+      ]);
+      // A counted line gets its `2X880` working on the sheet; a flat price is one unit whatever the count.
+      const units = new Map<string, number>();
+      for (const c of charges) {
+        const row = c as Record<string, unknown>;
+        const count = Number(row.unitsCount) || 0;
+        if (count > 1 && text(row.pricingMode) !== "flat") units.set(c.id, count);
+      }
+      XLSX.writeFile(
+        gascoStatementToWorkbook(statement, header, units),
+        gascoFileName(payerName, statementPeriod.start, statementPeriod.end),
+        { compression: true },
+      );
+    } catch {
+      showToast(ar ? "معرفناش نعمل ملف الـ Excel." : "Could not build the Excel file.", "error");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -318,6 +373,23 @@ export default function InsurerTab({
             {ar ? "المتبقي بس" : "Only outstanding"}
           </label>
           <div className="flex-1" />
+          {statement && statementPeriod && (
+            <button
+              type="button"
+              onClick={exportStatement}
+              disabled={loading || exporting || statement.cases.length === 0}
+              title={
+                ar
+                  ? `كشف ${payerName} من ${statementPeriod.start} لـ ${statementPeriod.end}`
+                  : `${payerName} statement, ${statementPeriod.start} to ${statementPeriod.end}`
+              }
+              className="max-lg:min-h-10 inline-flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-xs font-bold text-ink-body hover:border-slate-400 disabled:opacity-40"
+            >
+              {exporting ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />}
+              {ar ? "تقرير Excel" : "Excel report"}
+              <span className="font-figure text-ink-muted">({fmt(statement.cases.length)})</span>
+            </button>
+          )}
           <Protect permission="finance.add">
             <button
               type="button"
