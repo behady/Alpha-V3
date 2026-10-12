@@ -589,14 +589,14 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   const claim = { id: "metlife_d6000001", ...claimFromExtraction({ payerId: "metlife", extraction: normalizeMetlife(SAMPLE_RAW), patientId: "p3", patientName: "x", status: "approved", treatedDate: null, doc }) };
 
   // status → treated date
-  const at = (a: Partial<Parameters<typeof treatedDateAfter>[0]>) => treatedDateAfter({ current: null, approvalDate: "2026-10-03", ...a });
-  assert.equal(at({ status: "treated" }), "2026-10-03", "treated with no date: the approval date");
-  assert.equal(at({ status: "treated", treatedDate: null }), "2026-10-03");
+  const at = (a: Partial<Parameters<typeof treatedDateAfter>[0]>) => treatedDateAfter({ current: null, approvalDate: "2026-10-03", today: "2026-10-12", ...a });
+  assert.equal(at({ status: "treated" }), "2026-10-12", "treated with no date: today, not the approval date");
+  assert.equal(at({ status: "treated", treatedDate: null }), "2026-10-12");
   assert.equal(at({ status: "treated", treatedDate: "2026-10-04" }), "2026-10-04");
   assert.equal(at({ status: "treated", current: "2026-10-05" }), "2026-10-05", "re-marking treated keeps the stored date");
   assert.equal(at({ status: "approved", treatedDate: "2026-10-04", current: "2026-10-05" }), null, "approved is never treated");
   assert.equal(at({ status: "cancelled", current: "2026-10-05" }), undefined, "cancelled leaves it");
-  assert.equal(at({ status: "sent" }), "2026-10-03", "sent with no treated date yet: filled as treated is");
+  assert.equal(at({ status: "sent" }), "2026-10-12", "sent with no treated date yet: filled as treated is");
   assert.equal(at({ status: "sent", current: "2026-10-05" }), undefined, "sent keeps a stored treated date");
   assert.equal(at({ status: "sent", treatedDate: "2026-10-06" }), "2026-10-06");
   assert.equal(at({ treatedDate: null, current: "2026-10-05" }), null, "a date cleared on its own");

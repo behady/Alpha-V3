@@ -135,7 +135,7 @@ export type SaveOutcome =
 
 /**
  * POST /api/insurance/claims. `treatedDate` is never sent: with status "treated" (the default) the
- * server takes the approval date, with "approved" it stores null.
+ * server takes today's date, with "approved" it stores null.
  */
 export async function saveClaim(body: SaveBody): Promise<SaveOutcome> {
   const { status, data } = await call("POST", "/api/insurance/claims", body);

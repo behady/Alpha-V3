@@ -302,9 +302,11 @@ export function parseClaim(id: string, raw: unknown): InsuranceClaim | null {
  * The treated date a status change implies. `undefined` means "leave the stored one".
  *
  * - `approved` (not treated yet): always null, whatever date came with it.
- * - `treated`: the date sent, else the one already stored, else the approval date (the card's default).
+ * - `treated`: the date sent, else the one already stored, else TODAY. Not the approval date: an
+ *   approval is often treated weeks after it was issued, and the treated date decides which month's
+ *   pay and sheet the work lands on (owner, 2026-10-12).
  * - `sent`: sent work was done, so a claim with no treated date yet gets one exactly as `treated` does
- *   (the date sent, else the approval date); one that has a date keeps it unless a new one is sent.
+ *   (the date sent, else today); one that has a date keeps it unless a new one is sent.
  * - anything else, or no status change: the date sent when one was sent, else unchanged.
  */
 export function treatedDateAfter(args: {
@@ -312,14 +314,16 @@ export function treatedDateAfter(args: {
   treatedDate?: string | null;
   current: string | null;
   approvalDate: string;
+  /** Today on the clinic's clock, yyyy-mm-dd. */
+  today: string;
 }): string | null | undefined {
   if (args.status === "approved") return null;
   if (args.status === "treated") {
     if (args.treatedDate) return args.treatedDate;
-    return args.current ?? (args.approvalDate || null);
+    return args.current ?? (args.today || args.approvalDate || null);
   }
   if (args.status === "sent" && args.current === null) {
-    return args.treatedDate || args.approvalDate || null;
+    return args.treatedDate || args.today || args.approvalDate || null;
   }
   return args.treatedDate === undefined ? undefined : args.treatedDate;
 }

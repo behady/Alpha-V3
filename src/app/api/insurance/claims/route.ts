@@ -341,7 +341,8 @@ export async function POST(req: Request) {
     }
     const softChecks: Check[] = checks.filter((c) => c.severity === "soft");
     const claimId = claimDocId(format, h.approvalNumber);
-    const treatedDate = status === "treated" ? (isIsoDate(body.treatedDate) ? body.treatedDate : h.approvalDate) : null;
+    // Saved as treated with no date: treated TODAY, not on the date printed on the approval.
+    const treatedDate = status === "treated" ? (isIsoDate(body.treatedDate) ? body.treatedDate : ymdInTimeZone(clinicTimeZone())) : null;
     const wording = postedWording(body.wording, new Set(extraction.lines.map((l) => l.code).filter(Boolean)));
 
     // --- the document's facts, when no row records them yet ---------------------------------
@@ -771,6 +772,7 @@ export async function PATCH(req: Request) {
         treatedDate,
         current: claim.treatedDate,
         approvalDate: claim.approvalDate,
+        today: ymdInTimeZone(clinicTimeZone()),
       });
       // The rows are dated the treated day, else the approval's own (as insuranceTreatmentRows
       // writes them). When that day moves on rows that stay, the books move with it: the

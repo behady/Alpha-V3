@@ -16,7 +16,7 @@
  * Each service line carries its own dentist and its own state (Completed / Planned / Ongoing, the
  * clinical editor's words); the "same for all services" row above the table fills every line at once,
  * and each line can still be changed on its own afterwards. Neither a status nor `treatedDate` is
- * sent: the server saves the paper as treated on the approval date, and only Completed lines go on
+ * sent: the server saves the paper as treated today, and only Completed lines go on
  * the monthly sheet and into payroll.
  */
 
