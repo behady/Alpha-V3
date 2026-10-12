@@ -152,8 +152,8 @@ export function punchRecordFrom(id: string, data: Record<string, unknown>): Punc
   };
 }
 
-/** `13h 20m`, and "0h 0m" rather than a blank when there is nothing. */
-export function hoursText(minutes: number): string {
+/** `13h 20m` / `13س 20د`, and "0h 0m" rather than a blank when there is nothing. */
+export function hoursText(minutes: number, isAr = false): string {
   const m = Math.max(0, Math.round(Number(minutes) || 0));
-  return `${Math.floor(m / 60)}h ${m % 60}m`;
+  return isAr ? `${Math.floor(m / 60)}س ${m % 60}د` : `${Math.floor(m / 60)}h ${m % 60}m`;
 }

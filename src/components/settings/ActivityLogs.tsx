@@ -22,8 +22,136 @@ type ActivityLog = {
   timestamp?: { toDate?: () => Date };
 };
 
+/*
+ * Display-only Arabic for the values the system itself writes into a log row. The stored values
+ * stay English (the filters and search run on them); anything not listed here — free text, or an
+ * action added later — is shown exactly as stored.
+ */
+const SEVERITY_AR: Record<string, string> = {
+  LOW: "منخفضة",
+  MEDIUM: "متوسطة",
+  HIGH: "عالية",
+  CRITICAL: "حرجة",
+  INFO: "معلومة",
+};
+
+const MODULE_AR: Record<string, string> = {
+  auth: "الدخول",
+  settings: "الإعدادات",
+  users: "المستخدمين",
+  patients: "المرضى",
+  appointments: "المواعيد",
+  clinical: "العلاج",
+  finance: "الحسابات",
+  inventory: "المخزون",
+  attendance: "الحضور",
+  system: "النظام",
+};
+
+const ROLE_AR: Record<string, string> = {
+  owner: "المالك",
+  admin: "مدير",
+  dentist: "طبيب",
+  receptionist: "استقبال",
+  assistant: "مساعد",
+  superadmin: "مدير المنصة",
+};
+
+/** Keyed in lower case: the same action has been written in Title Case and in sentence case. */
+const ACTION_AR: Record<string, string> = {
+  "appointment created": "إنشاء موعد",
+  "appointment updated": "تعديل موعد",
+  "appointment deleted": "حذف موعد",
+  "patient created": "إضافة مريض",
+  "patient updated": "تعديل بيانات مريض",
+  "payment received": "استلام دفعة",
+  "procedure logged": "تسجيل إجراء",
+  "procedure updated": "تعديل إجراء",
+  "procedure deleted": "حذف إجراء",
+  "procedure moved": "نقل إجراء",
+  "procedure continued": "استكمال إجراء",
+  "finance entry created": "إضافة قيد مالي",
+  "finance entry updated": "تعديل قيد مالي",
+  "finance entry deleted": "حذف قيد مالي",
+  "finance report exported": "تصدير تقرير مالي",
+  "commission split updated": "تعديل نسبة العمولة",
+  "lab fee corrected": "تصحيح رسوم المعمل",
+  "record restored": "استرجاع سجل",
+  "record permanently deleted": "حذف سجل نهائيًا",
+  "records deleted": "حذف سجلات",
+  "staff deduction recorded": "تسجيل خصم على موظف",
+  "staff deduction removed": "إلغاء خصم على موظف",
+  "staff paid": "صرف مستحقات موظف",
+  "staff payment deleted": "حذف دفعة موظف",
+  "staff payment edited": "تعديل دفعة موظف",
+  "staff updated": "تعديل بيانات موظف",
+  "staff device unlinked": "فك ربط جهاز موظف",
+  "staff attendance settings updated": "تعديل إعدادات حضور موظف",
+  "attendance log updated": "تعديل سجل حضور",
+  "attendance log deleted": "حذف سجل حضور",
+  "overtime decision": "قرار الوقت الإضافي",
+  "price lists updated": "تحديث قوائم الأسعار",
+  "settings updated": "تحديث الإعدادات",
+  "discount policy updated": "تعديل سياسة الخصم",
+  "clinic profile updated": "تحديث بيانات العيادة",
+  "whatsapp settings updated": "تحديث إعدادات الواتساب",
+  "wapilot connection updated": "تحديث ربط الواتساب",
+  "user created": "إضافة مستخدم",
+  "user deleted": "حذف مستخدم",
+  "role updated": "تعديل الدور",
+  "permissions updated": "تعديل الصلاحيات",
+  "permissions reset": "إعادة ضبط الصلاحيات",
+  "password overridden": "تغيير كلمة المرور",
+  "ownership transferred": "نقل ملكية العيادة",
+  "dentist flag updated": "تعديل صفة الطبيب",
+  "media uploaded": "رفع ملف",
+  "treatment plan created": "إنشاء خطة علاج",
+  "treatment plan updated": "تعديل خطة علاج",
+  "treatment plan deleted": "حذف خطة علاج",
+  "diagnosis chat deleted": "حذف محادثة تشخيص",
+  "inventory item created": "إضافة صنف للمخزون",
+  "inventory item updated": "تعديل صنف في المخزون",
+  "lead added": "إضافة عميل محتمل",
+  "lead converted": "تحويل عميل محتمل لمريض",
+  "list emptied": "تفريغ قائمة",
+  "marketing content created": "إنشاء محتوى تسويقي",
+  "marketing post published": "نشر منشور تسويقي",
+  "marketing campaign launched": "إطلاق حملة تسويقية",
+  "marketing voice profile updated": "تحديث أسلوب الكتابة التسويقي",
+  "odontogram updated from ai x-ray report": "تحديث خريطة الأسنان من تقرير الأشعة بالذكاء الاصطناعي",
+};
+
+/** lib/serverLogger writes "Alpha AI <verb> <collection> record" for the assistant's own changes. */
+const AI_VERB_AR: Record<string, string> = { created: "أضاف", updated: "عدّل", deleted: "حذف" };
+const AI_RECORD_AR: Record<string, string> = {
+  patients: "مريض",
+  appointments: "موعد",
+  clinical_notes: "ملاحظة علاجية",
+  ledger: "قيد مالي",
+  expenses: "مصروف",
+  inventory: "صنف مخزون",
+  inventory_transactions: "حركة مخزون",
+  staff: "موظف",
+};
+
+function actionLabel(action: string, isAr: boolean): string {
+  if (!isAr) return action;
+  // String(): an old row can hold a non-string here, and a throw would blank the whole table.
+  const key = String(action).trim().toLowerCase();
+  const hit = ACTION_AR[key];
+  if (hit) return hit;
+  const ai = /^alpha ai (created|updated|deleted) ([a-z_]+) record$/.exec(key);
+  if (ai) return `المساعد الذكي ${AI_VERB_AR[ai[1]]} ${AI_RECORD_AR[ai[2]] ? `سجل ${AI_RECORD_AR[ai[2]]}` : "سجل"}`;
+  if (/^ai ortho .* report signed$/.test(key)) return "اعتماد تقرير تقويم من الذكاء الاصطناعي";
+  return action;
+}
+
 export default function ActivityLogs() {
   const { language, isRTL } = useLanguage();
+  const isAr = language === "ar";
+  const sevLabel = (s: string) => (isAr ? SEVERITY_AR[s] ?? s : s);
+  const moduleLabel = (m: string) => (isAr ? MODULE_AR[m] ?? m : m);
+  const roleLabel = (r: string) => (isAr ? ROLE_AR[String(r).trim().toLowerCase()] ?? r : r);
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [queryText, setQueryText] = useState("");
@@ -137,7 +265,7 @@ export default function ActivityLogs() {
             <option value="all">{language === "ar" ? "كل الوحدات" : "All Modules"}</option>
             {modules.map((module) => (
               <option key={module} value={module}>
-                {module}
+                {moduleLabel(module)}
               </option>
             ))}
           </select>
@@ -156,10 +284,10 @@ export default function ActivityLogs() {
             className="py-3 px-4 bg-surface-subtle rounded-xl border border-line font-semibold text-ink outline-none focus:bg-surface focus:border-accent transition-all"
           >
             <option value="all">{language === "ar" ? "كل الدرجات" : "All Severities"}</option>
-            <option value="LOW">LOW</option>
-            <option value="MEDIUM">MEDIUM</option>
-            <option value="HIGH">HIGH</option>
-            <option value="CRITICAL">CRITICAL</option>
+            <option value="LOW">{sevLabel("LOW")}</option>
+            <option value="MEDIUM">{sevLabel("MEDIUM")}</option>
+            <option value="HIGH">{sevLabel("HIGH")}</option>
+            <option value="CRITICAL">{sevLabel("CRITICAL")}</option>
           </select>
         </div>
 
@@ -167,13 +295,13 @@ export default function ActivityLogs() {
           <table className="w-full text-start">
             <thead className="bg-surface-subtle border-b border-line">
               <tr>
-                <th className="px-4 py-3 text-[11px] font-bold text-ink-muted uppercase">User</th>
-                <th className="px-4 py-3 text-[11px] font-bold text-ink-muted uppercase">Role</th>
-                <th className="px-4 py-3 text-[11px] font-bold text-ink-muted uppercase">Module</th>
-                <th className="px-4 py-3 text-[11px] font-bold text-ink-muted uppercase">Severity</th>
-                <th className="px-4 py-3 text-[11px] font-bold text-ink-muted uppercase">Action</th>
-                <th className="px-4 py-3 text-[11px] font-bold text-ink-muted uppercase">Details</th>
-                <th className="px-4 py-3 text-[11px] font-bold text-ink-muted uppercase">Date</th>
+                <th className="px-4 py-3 text-[11px] font-bold text-ink-muted uppercase">{isAr ? "المستخدم" : "User"}</th>
+                <th className="px-4 py-3 text-[11px] font-bold text-ink-muted uppercase">{isAr ? "الدور" : "Role"}</th>
+                <th className="px-4 py-3 text-[11px] font-bold text-ink-muted uppercase">{isAr ? "القسم" : "Module"}</th>
+                <th className="px-4 py-3 text-[11px] font-bold text-ink-muted uppercase">{isAr ? "الأهمية" : "Severity"}</th>
+                <th className="px-4 py-3 text-[11px] font-bold text-ink-muted uppercase">{isAr ? "الإجراء" : "Action"}</th>
+                <th className="px-4 py-3 text-[11px] font-bold text-ink-muted uppercase">{isAr ? "التفاصيل" : "Details"}</th>
+                <th className="px-4 py-3 text-[11px] font-bold text-ink-muted uppercase">{isAr ? "التاريخ" : "Date"}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
@@ -200,7 +328,10 @@ export default function ActivityLogs() {
                     <tr key={log.id} className="bg-surface hover:bg-surface-subtle">
                       <td className="px-4 py-3 text-sm font-bold text-ink">
                         <span className="flex items-center gap-2">
-                          {log.userName || log.user || "Unknown"}
+                          {/* lib/logger writes "Unknown User" when it has no name to record. */}
+                          {isAr && (!(log.userName || log.user) || (log.userName || log.user) === "Unknown User")
+                            ? "غير معروف"
+                            : log.userName || log.user || "Unknown"}
                           {log.actor === "ai" && (
                             // The person stays accountable, but it should be obvious at a glance
                             // that the change came through the assistant rather than by hand.
@@ -210,8 +341,8 @@ export default function ActivityLogs() {
                           )}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-xs font-semibold text-ink-body">{log.userRole || "-"}</td>
-                      <td className="px-4 py-3 text-[11px] font-black text-ink-body uppercase">{log.module || "system"}</td>
+                      <td className="px-4 py-3 text-xs font-semibold text-ink-body">{log.userRole ? roleLabel(log.userRole) : "-"}</td>
+                      <td className="px-4 py-3 text-[11px] font-black text-ink-body uppercase">{moduleLabel(log.module || "system")}</td>
                       <td className="px-4 py-3 text-[11px] font-black uppercase">
                         <span
                           className={`px-2 py-1 rounded-lg border ${
@@ -222,10 +353,10 @@ export default function ActivityLogs() {
                               : "bg-surface-subtle text-ink-body border-line"
                           }`}
                         >
-                          {log.severity || "LOW"}
+                          {sevLabel(log.severity || "LOW")}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-xs font-bold text-ink">{log.action || "-"}</td>
+                      <td className="px-4 py-3 text-xs font-bold text-ink">{log.action ? actionLabel(log.action, isAr) : "-"}</td>
                       <td className="px-4 py-3 text-xs text-ink-body">{log.details || "-"}</td>
                       <td className="px-4 py-3 text-xs font-semibold text-ink-body">
                         {when

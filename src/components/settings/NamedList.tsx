@@ -52,6 +52,7 @@ export default function NamedList({
   icon: Icon,
   text,
   canEdit = true,
+  displayLabel,
 }: {
   /** Registry id, so unsaved edits can be named when someone tries to leave. */
   sectionId: string;
@@ -63,6 +64,8 @@ export default function NamedList({
   icon: LucideIcon;
   text: NamedListText;
   canEdit?: boolean;
+  /** What a stored item reads as on screen (e.g. Arabic for a seeded English default). Display only. */
+  displayLabel?: (item: string) => string;
 }) {
   const { showToast } = useUI();
   const { isRTL } = useLanguage();
@@ -176,12 +179,12 @@ export default function NamedList({
           ) : (
             items.map((item, index) => (
               <div key={`${item}-${index}`} className="flex items-center gap-3 py-3">
-                <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">{item}</span>
+                <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">{displayLabel ? displayLabel(item) : item}</span>
                 {canEdit && (
                   <button
                     type="button"
                     onClick={() => setItems(items.filter((_, i) => i !== index))}
-                    aria-label={`${text.remove}: ${item}`}
+                    aria-label={`${text.remove}: ${displayLabel ? displayLabel(item) : item}`}
                     className="shrink-0 rounded-lg p-2 text-ink-faint transition-colors hover:bg-danger-tint hover:text-danger"
                   >
                     <Trash2 size={15} />

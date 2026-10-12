@@ -73,7 +73,7 @@ export default function AttendanceTab({
                           </span>
                         )}
                         {log.status !== "active" && (
-                          <span className="font-figure text-ink-muted">{hoursText(log.durationMinutes)}</span>
+                          <span className="font-figure text-ink-muted">{hoursText(log.durationMinutes, isAr)}</span>
                         )}
                         {log.checkInDistanceM != null && (
                           <span className={`inline-flex items-center gap-1.5 ${far ? "font-bold text-danger" : "text-ink-muted"}`}>

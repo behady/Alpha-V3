@@ -233,7 +233,7 @@ export default function StaffProfile({
   ];
 
   const slabFigures = [
-    { v: hoursText(minutesWorked), l: isAr ? "ساعات الشغل" : "Hours worked" },
+    { v: hoursText(minutesWorked, isAr), l: isAr ? "ساعات الشغل" : "Hours worked" },
     ...(dentist ? [{ v: money(earned), l: isAr ? "كسب في الفترة دي" : "Earned this period" }] : [{ v: money(basePay), l: isAr ? "المرتب" : "Base pay" }]),
     ...(settlement ? [{ v: money(settlement.paidInPeriod), l: isAr ? "اتدفع له" : "Paid out" }] : []),
   ];

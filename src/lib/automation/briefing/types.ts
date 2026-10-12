@@ -256,6 +256,11 @@ export interface Briefing {
   nextUp: NextUpSection;
   trend?: TrendSection;
   notes: string[];
+  /**
+   * The same notes in Arabic, index-for-index with `notes`. Optional because a brief built before
+   * it existed (or by an older server) will not carry it — readers fall back to `notes`.
+   */
+  notesAr?: string[];
 
   /**
    * Quiet balances, repeated at the top level where they used to live.

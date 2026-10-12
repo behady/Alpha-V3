@@ -3,6 +3,8 @@
 import { Network } from "lucide-react";
 import NamedList from "@/components/settings/NamedList";
 import { useSettingsText } from "@/lib/useSettingsText";
+import { useLanguage } from "@/context/LanguageContext";
+import { patientSourceLabel } from "@/lib/patientSourceLabel";
 
 /** The document and field the patient form reads its source list from. */
 export const PATIENT_SOURCES_DOC = "patient_sources";
@@ -24,6 +26,7 @@ const DEFAULT_SOURCES = [
 
 export default function PatientSourcesSettings({ canEdit }: { canEdit: boolean }) {
   const txt = useSettingsText("patientSources");
+  const { isRTL } = useLanguage();
 
   return (
     <NamedList
@@ -33,6 +36,7 @@ export default function PatientSourcesSettings({ canEdit }: { canEdit: boolean }
       defaults={DEFAULT_SOURCES}
       icon={Network}
       canEdit={canEdit}
+      displayLabel={(s) => patientSourceLabel(s, isRTL)}
       text={{
         ...txt,
         countLabel: (n) => `${n} ${n === 1 ? txt.countOne : txt.countMany}`,

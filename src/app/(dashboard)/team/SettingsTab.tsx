@@ -114,7 +114,7 @@ export default function SettingsTab({
             <Stat value={money(staff.baseSalary)} label={isAr ? "المرتب الشهري" : "Monthly salary"} />
             {dentist && <Stat value={`${staff.commissionPercentage}%`} label={isAr ? "نسبة العمولة" : "Commission rate"} />}
             <Stat value={`${staff.overtimeMultiplier || 1.5}×`} label={isAr ? "الساعة الزيادة بتتحسب" : "Extra hours are paid at"} />
-            <Stat value={hoursText(weeklyMinutes(schedule))} label={isAr ? "ساعات في الأسبوع" : "Hours a week"} />
+            <Stat value={hoursText(weeklyMinutes(schedule), isAr)} label={isAr ? "ساعات في الأسبوع" : "Hours a week"} />
             <div className="col-span-2 sm:col-span-4">
               <p className="text-[14px] font-bold text-ink-muted">{isAr ? "أيام الشغل" : "Working days"}</p>
               <ul className="mt-2 flex flex-wrap gap-2">
@@ -173,7 +173,7 @@ export default function SettingsTab({
               <div className="mb-3 flex items-center justify-between">
                 <span className="text-[16px] font-extrabold text-ink">{isAr ? "أيام ومواعيد الشغل" : "Working days and hours"}</span>
                 <span className="font-figure text-[15px] font-bold text-ink-body">
-                  {hoursText(rosterMins)} {isAr ? "في الأسبوع" : "a week"}
+                  {hoursText(rosterMins, isAr)} {isAr ? "في الأسبوع" : "a week"}
                 </span>
               </div>
               <div className="space-y-2">

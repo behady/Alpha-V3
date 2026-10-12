@@ -580,11 +580,12 @@ export default function AttendancePage() {
     if (activeSession && activeSession.checkIn) {
       interval = setInterval(() => {
         const diff = new Date().getTime() - activeSession.checkIn.toDate().getTime();
-        setLiveDuration(`${Math.floor(diff / 3600000)}h ${Math.floor((diff % 3600000) / 60000)}m ${Math.floor((diff % 60000) / 1000)}s`);
+        const [h, m, s] = [Math.floor(diff / 3600000), Math.floor((diff % 3600000) / 60000), Math.floor((diff % 60000) / 1000)];
+        setLiveDuration(language === "ar" ? `${h}س ${m}د ${s}ث` : `${h}h ${m}m ${s}s`);
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [activeSession]);
+  }, [activeSession, language]);
 
   // --- ACTIONS ---
 

@@ -41,6 +41,7 @@ import { collection, query, where, getDocs, doc, getDoc, addDoc, updateDoc, serv
 import { appointmentLinkFields, openLines, parseClaimLinks, type ClaimLink } from "@/lib/insurance/appointments";
 import { CLAIMS_COLLECTION, parseClaim, type InsuranceClaim } from "@/lib/insurance/claims";
 import { useLanguage } from "@/context/LanguageContext";
+import { patientSourceLabel } from "@/lib/patientSourceLabel";
 import { useUI } from "@/context/UIContext";
 import { useAuth } from "@/context/AuthContext";
 import Protect from "@/components/Protect";
@@ -1268,7 +1269,7 @@ export default function BookingModal({
                   >
                     <option value="">{language === "ar" ? "مصدر المريض (اختياري)" : "Patient Source (Optional)"}</option>
                     {sourcesOptions.map(s => (
-                      <option key={s} value={s}>{s}</option>
+                      <option key={s} value={s}>{patientSourceLabel(s, language === "ar")}</option>
                     ))}
                   </select>
                 </div>

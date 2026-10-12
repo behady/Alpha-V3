@@ -5,6 +5,7 @@ import Protect from "@/components/Protect";
 import InsurerBadge from "@/components/shared/InsurerBadge";
 import { PRIVATE_PAYER_ID } from "@/lib/payers";
 import { NotePhotoButton, NotePhotoStrip } from "./NotePhotos";
+import { STATUS_OPTIONS } from "@/components/chair/ChairNoteCard";
 
 interface Props {
   note: Note;
@@ -29,6 +30,14 @@ interface Props {
 
 export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue, compact = false, reorder, hideMoney = false, locked = false }: Props) {
   const { language } = useLanguage();
+  const isAr = language === "ar";
+  /** Stored status ids are English; the pill shows the app's own word for them. */
+  const statusValue = note.status || "Planned";
+  const statusOpt = STATUS_OPTIONS.find((o) => o.value === statusValue);
+  const statusText = isAr && statusOpt ? statusOpt.ar : statusValue;
+  const costText = isAr
+    ? `${Number(note.cost).toLocaleString()} ج.م`
+    : `EGP ${Number(note.cost).toLocaleString()}`;
   /** The insurer this note is charged to; nothing for the clinic's own work or for older notes. */
   const insurer = note.payerId && note.payerId !== PRIVATE_PAYER_ID && note.payerName ? note.payerName : null;
 
@@ -108,7 +117,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
           className={`w-2 h-2 rounded-full shrink-0 ${
             note.status === "Completed" ? "bg-emerald-500" : note.status === "Ongoing" ? "bg-amber-500" : "bg-slate-300"
           }`}
-          title={note.status || "Planned"}
+          title={statusText}
         />
 
         <p className="font-bold text-ink truncate text-sm min-w-0 flex-1">{note.procedure}</p>
@@ -124,7 +133,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
         <NotePhotoStrip note={note} compact canEdit={!locked} />
 
         {!hideMoney && Number(note.cost) > 0 && (
-          <span className="text-xs font-black text-ink-body shrink-0">EGP {Number(note.cost).toLocaleString()}</span>
+          <span className="text-xs font-black text-ink-body shrink-0">{costText}</span>
         )}
 
         <div className={`flex items-center gap-1 shrink-0 ${locked ? "hidden" : ""}`}>
@@ -175,7 +184,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
               </span>
             )}
-            {note.status || "Planned"}
+            {statusText}
           </span>
           {note.tooth && note.tooth !== "Gen" && (
             <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-surface-subtle text-ink border border-line">
@@ -205,11 +214,11 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
         {(note.doctor || (!hideMoney && Number(note.cost) > 0)) && (
           <div className="flex items-center justify-center gap-3 flex-wrap">
             {note.doctor && (
-              <p className="text-sm font-bold text-ink-muted">Dr. {note.doctor}</p>
+              <p className="text-sm font-bold text-ink-muted">{isAr ? "د." : "Dr."} {note.doctor}</p>
             )}
             {!hideMoney && Number(note.cost) > 0 && (
               <p className="text-sm font-black text-ink bg-surface-muted px-2.5 py-1 rounded-md font-figure">
-                <bdi dir="ltr">EGP {Number(note.cost).toLocaleString()}</bdi>
+                <bdi dir={isAr ? "rtl" : "ltr"}>{costText}</bdi>
               </p>
             )}
           </div>

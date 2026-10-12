@@ -51,6 +51,12 @@ export default function TopNav({
   const { t, language, toggleLanguage } = useLanguage();
   const { user } = useAuth();
   const { clinicId, role, isAdmin, isReadOnly } = useClinic();
+  // The stored role is an English id; the band under the name reads it in the screen's language.
+  const roleText = role
+    ? language === "ar"
+      ? ({ Admin: "مدير", Owner: "المالك", Dentist: "طبيب", Receptionist: "استقبال", Assistant: "مساعد" } as Record<string, string>)[role] ?? role
+      : role
+    : "";
   const tour = useTourOptional();
 
   const [logoUrl, setLogoUrl] = useState("");
@@ -308,7 +314,7 @@ export default function TopNav({
                 {user?.name || "—"}
               </span>
               <span className="block truncate text-[11px] font-medium leading-tight text-white/50">
-                {role || (language === "ar" ? "مستخدم" : "Member")}
+                {roleText || (language === "ar" ? "مستخدم" : "Member")}
               </span>
             </span>
             <ChevronDown size={14} className={`hidden text-white/50 transition-transform md:block ${open === "account" ? "rotate-180" : ""}`} />
@@ -318,7 +324,7 @@ export default function TopNav({
             <div className={`${menuPanel} end-0`}>
               <div className="border-b border-line px-3 pb-2.5 pt-1.5 md:hidden">
                 <p className="truncate text-[13px] font-black text-ink">{user?.name || "—"}</p>
-                <p className="truncate text-[11px] font-medium text-ink-muted">{role || ""}</p>
+                <p className="truncate text-[11px] font-medium text-ink-muted">{roleText}</p>
               </div>
 
               {showQuickSetup && (

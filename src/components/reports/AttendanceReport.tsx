@@ -57,7 +57,7 @@ export default function AttendanceReport({ payments, range, isAr, data, clinic }
     <div className="space-y-8">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <div className="rounded-2xl border border-line bg-surface p-4"><Figure value={String(lines.length)} label={isAr ? "أفراد" : "People"} tone="muted" /></div>
-        <div className="rounded-2xl border border-line bg-surface p-4"><Figure value={`${Math.round(totals.hours)}h`} label={isAr ? "ساعات شغل" : "Hours worked"} /></div>
+        <div className="rounded-2xl border border-line bg-surface p-4"><Figure value={`${Math.round(totals.hours)}${isAr ? "س" : "h"}`} label={isAr ? "ساعات شغل" : "Hours worked"} /></div>
         <div className="rounded-2xl border border-line bg-surface p-4"><Figure value={String(totals.late)} label={isAr ? "أيام تأخير" : "Late days"} tone={totals.late > 0 ? "bad" : "muted"} /></div>
         <div className="rounded-2xl border border-line bg-surface p-4"><Figure value={String(totals.absent)} label={isAr ? "أيام غياب" : "Absent days"} tone={totals.absent > 0 ? "bad" : "muted"} /></div>
         <div className="rounded-2xl border border-line bg-surface p-4"><Figure value={`${fmt(totals.pay)} ${egp}`} label={isAr ? "مرتبات تقديرية" : "Estimated wages"} /></div>
@@ -65,15 +65,15 @@ export default function AttendanceReport({ payments, range, isAr, data, clinic }
       </div>
 
       {totals.otPending > 0 && (
-        <Note>{isAr ? `${hoursText(totals.otPending)} إضافي لسه مستني اعتماد — مش محسوب في المرتبات فوق.` : `${hoursText(totals.otPending)} of overtime is still awaiting approval and is not in the wages above.`}</Note>
+        <Note>{isAr ? `${hoursText(totals.otPending, isAr)} إضافي لسه مستني اعتماد — مش محسوب في المرتبات فوق.` : `${hoursText(totals.otPending, isAr)} of overtime is still awaiting approval and is not in the wages above.`}</Note>
       )}
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <ChartFrame title={isAr ? "الساعات" : "Hours"}>
-          <Bars rows={lines.map((l, i) => ({ label: l.name, value: l.hours, text: hoursText(l.minutesWorked), color: i === 0 ? MARK : INK }))} />
+          <Bars rows={lines.map((l, i) => ({ label: l.name, value: l.hours, text: hoursText(l.minutesWorked, isAr), color: i === 0 ? MARK : INK }))} />
         </ChartFrame>
         <ChartFrame title={isAr ? "التأخير بالدقايق" : "Lateness, in minutes"}>
-          <Bars rows={[...lines].sort((a, b) => b.lateMinutes - a.lateMinutes).map((l) => ({ label: `${l.name} · ${l.lateDays} ${isAr ? "يوم" : "days"}`, value: l.lateMinutes, text: hoursText(l.lateMinutes), color: INK, warn: l.lateMinutes > 120 }))} />
+          <Bars rows={[...lines].sort((a, b) => b.lateMinutes - a.lateMinutes).map((l) => ({ label: `${l.name} · ${l.lateDays} ${isAr ? "يوم" : "days"}`, value: l.lateMinutes, text: hoursText(l.lateMinutes, isAr), color: INK, warn: l.lateMinutes > 120 }))} />
         </ChartFrame>
       </div>
 
@@ -87,10 +87,10 @@ export default function AttendanceReport({ payments, range, isAr, data, clinic }
           columns={[
             { key: "name", label: isAr ? "الاسم" : "Name", render: (l) => (<div><a href={`/team?staff=${l.staffId}`} className="text-[13px] font-bold text-ink hover:underline">{l.name}</a><span className="block text-[11px] font-medium text-ink-faint">{l.role}{!l.hasSchedule && (isAr ? " · بدون روستر" : " · no roster")}</span></div>) },
             { key: "daysWorked", label: isAr ? "أيام" : "Days", align: "end", render: (l) => <Num v={l.daysWorked} /> },
-            { key: "hours", label: isAr ? "ساعات" : "Hours", align: "end", render: (l) => <span className="font-figure text-[12.5px] text-ink-body">{hoursText(l.minutesWorked)}</span>, exportValue: (l) => l.hours },
-            { key: "lateDays", label: isAr ? "تأخير" : "Late", align: "end", render: (l) => <span className={`font-figure text-[12.5px] ${l.lateDays > 0 ? "text-danger" : "text-ink-faint"}`}>{l.lateDays}{l.lateMinutes ? ` · ${hoursText(l.lateMinutes)}` : ""}</span> },
+            { key: "hours", label: isAr ? "ساعات" : "Hours", align: "end", render: (l) => <span className="font-figure text-[12.5px] text-ink-body">{hoursText(l.minutesWorked, isAr)}</span>, exportValue: (l) => l.hours },
+            { key: "lateDays", label: isAr ? "تأخير" : "Late", align: "end", render: (l) => <span className={`font-figure text-[12.5px] ${l.lateDays > 0 ? "text-danger" : "text-ink-faint"}`}>{l.lateDays}{l.lateMinutes ? ` · ${hoursText(l.lateMinutes, isAr)}` : ""}</span> },
             { key: "absentDays", label: isAr ? "غياب" : "Absent", align: "end", render: (l) => <Num v={l.absentDays} bad={l.absentDays > 0} muted={l.absentDays === 0} /> },
-            { key: "overtimeApprovedMinutes", label: isAr ? "إضافي معتمد" : "Overtime", align: "end", render: (l) => <span className="font-figure text-[12.5px] text-ink-body">{l.overtimeApprovedMinutes ? hoursText(l.overtimeApprovedMinutes) : "—"}{l.overtimePendingMinutes ? <span className="text-ink-faint"> (+{hoursText(l.overtimePendingMinutes)})</span> : null}</span>, exportValue: (l) => l.overtimeApprovedMinutes },
+            { key: "overtimeApprovedMinutes", label: isAr ? "إضافي معتمد" : "Overtime", align: "end", render: (l) => <span className="font-figure text-[12.5px] text-ink-body">{l.overtimeApprovedMinutes ? hoursText(l.overtimeApprovedMinutes, isAr) : "—"}{l.overtimePendingMinutes ? <span className="text-ink-faint"> (+{hoursText(l.overtimePendingMinutes, isAr)})</span> : null}</span>, exportValue: (l) => l.overtimeApprovedMinutes },
             { key: "estimatedPay", label: isAr ? "المرتب" : "Wages", align: "end", render: (l) => <Num v={l.estimatedPay} />, total: <Num v={totals.pay} bold /> },
             { key: "commission", label: isAr ? "النسبة" : "Commission", align: "end", render: (l) => <Num v={l.commission} muted={l.commission === 0} />, total: <Num v={totals.commission} bold /> },
             { key: "total", label: isAr ? "الإجمالي" : "Total", align: "end", render: (l) => <Num v={l.total} bold />, total: <Num v={totals.pay + totals.commission} bold /> },

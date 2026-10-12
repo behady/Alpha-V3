@@ -6,7 +6,7 @@ import { Search, ArrowRight, ArrowLeft } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 // From helpSections, not help: `help.ts` reads the articles with node:fs and cannot be bundled
 // for the browser.
-import { HELP_SECTIONS, type HelpArticle } from "@/lib/helpSections";
+import { HELP_SECTIONS, helpTagLabel, type HelpArticle } from "@/lib/helpSections";
 import PageHeader from "@/components/dashboard/PageHeader";
 
 export default function HelpIndex({ articles }: { articles: { en: HelpArticle[]; ar: HelpArticle[] } }) {
@@ -93,7 +93,7 @@ export default function HelpIndex({ articles }: { articles: { en: HelpArticle[];
                         <h3 className="text-sm font-black tracking-tight text-ink">{a.title}</h3>
                         {a.plan ? (
                           <span className="rounded-lg border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-violet-700">
-                            {a.plan}
+                            {helpTagLabel(a.plan, isAr)}
                           </span>
                         ) : null}
                         {a.roles.map((r) => (
@@ -101,7 +101,7 @@ export default function HelpIndex({ articles }: { articles: { en: HelpArticle[];
                             key={r}
                             className="rounded-lg border border-line bg-surface-subtle px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-ink-muted"
                           >
-                            {r}
+                            {helpTagLabel(r, isAr)}
                           </span>
                         ))}
                       </div>

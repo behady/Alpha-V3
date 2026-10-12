@@ -26,6 +26,7 @@ import { listsForBranch, resolveActiveListId } from "@/lib/priceLists";
 import { PRIVATE_PAYER_ID, findPayer, payerForPriceList, payerStamp } from "@/lib/payers";
 import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
 import { isUnlocked } from "@/lib/featureCatalog";
+import { currencyUnit } from "@/lib/currencyUnit";
 import {
   buildTreatmentPlanSrcDoc,
   treatmentPlanSrcDocToPdfBlob,
@@ -1480,7 +1481,7 @@ export default function PatientTreatmentPlanTab({
             <tr className="border-t-2 border-line bg-slate-50/60">
               <td colSpan={5} className="px-3 py-2.5 text-end text-[10px] font-black text-ink-muted uppercase tracking-widest">{txt.visitSubtotal}</td>
               <td className="px-3 py-2.5 text-end font-black text-slate-700 whitespace-nowrap">
-                {money(stepsSum(steps))} {planCurrency}
+                {money(stepsSum(steps))} {currencyUnit(planCurrency, ar)}
               </td>
             </tr>
           )}
@@ -1521,7 +1522,7 @@ export default function PatientTreatmentPlanTab({
         <div className="flex justify-end">
           <div className="bg-slate-900 text-white rounded-xl px-4 py-2.5 flex items-center gap-3">
             <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{txt.total}</span>
-            <span className="text-base font-black">{money(visitsTotal(visits as any))} {planCurrency}</span>
+            <span className="text-base font-black">{money(visitsTotal(visits as any))} {currencyUnit(planCurrency, ar)}</span>
           </div>
         </div>
       </div>
@@ -1950,7 +1951,7 @@ export default function PatientTreatmentPlanTab({
                           </div>
                           <div className="flex items-center justify-end gap-2 mt-2">
                             <span className="text-xs font-black text-ink-muted">
-                              {money(step.unitPrice * step.quantity)} {currency}
+                              {money(step.unitPrice * step.quantity)} {currencyUnit(currency, ar)}
                             </span>
                           </div>
                         </div>
@@ -1977,7 +1978,7 @@ export default function PatientTreatmentPlanTab({
 
             <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50/60 rounded-b-3xl">
               <div className="text-sm font-black text-slate-700">
-                {txt.total}: <span className="text-accent">{money(formTotal)} {currency}</span>
+                {txt.total}: <span className="text-accent">{money(formTotal)} {currencyUnit(currency, ar)}</span>
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => setEditorOpen(false)} className="px-4 py-2.5 rounded-xl text-sm font-bold text-ink-muted hover:bg-surface-muted transition-colors">

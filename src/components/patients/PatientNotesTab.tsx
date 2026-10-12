@@ -22,6 +22,8 @@ import {
 import { getClinicCollection } from "@/lib/db-utils";
 import { useLanguage } from "@/context/LanguageContext";
 import { findOption, getStatusesFromTooth } from "@/lib/diagnosisCatalog";
+import { getAppointmentStageLabel } from "@/lib/appointmentStages";
+import { STATUS_OPTIONS as NOTE_STATUS_OPTIONS } from "@/components/chair/ChairNoteCard";
 import { normalizeRxItemsFromRecord } from "@/lib/prescriptionRecord";
 
 /**
@@ -266,8 +268,12 @@ export default function PatientNotesTab({
       const chips: string[] = [];
       const tooth = cleanText(n.tooth);
       if (tooth && tooth !== "Gen") chips.push(`${pick(isAr, "Tooth", "سن")} ${tooth}`);
-      if (cleanText(n.status)) chips.push(cleanText(n.status));
-      if (Number(n.cost) > 0) chips.push(`${Number(n.cost).toLocaleString()} EGP`);
+      const status = cleanText(n.status);
+      if (status) {
+        const opt = NOTE_STATUS_OPTIONS.find((o) => o.value === status);
+        chips.push(isAr && opt ? opt.ar : status);
+      }
+      if (Number(n.cost) > 0) chips.push(`${Number(n.cost).toLocaleString()} ${isAr ? "ج.م" : "EGP"}`);
       out.push({
         key: `clinical_${n.id}`,
         source: "clinical",
@@ -286,7 +292,7 @@ export default function PatientNotesTab({
       const body = cleanText(a.notes);
       if (!body) return;
       const chips: string[] = [];
-      if (cleanText(a.status)) chips.push(cleanText(a.status));
+      if (cleanText(a.status)) chips.push(isAr ? getAppointmentStageLabel(cleanText(a.status), "ar") : cleanText(a.status));
       if (cleanText(a.time)) chips.push(cleanText(a.time));
       if (cleanText(a.branchName)) chips.push(cleanText(a.branchName));
       out.push({

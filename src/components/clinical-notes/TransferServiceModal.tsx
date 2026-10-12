@@ -76,10 +76,10 @@ export default function TransferServiceModal({
                     <div>
                       <p className="font-bold text-ink flex items-center gap-2">
                         <Calendar size={14} className="text-slate-400" />
-                        {dateStr || "Unknown Date"}
+                        {dateStr || (language === "ar" ? "تاريخ غير معروف" : "Unknown Date")}
                       </p>
                       <p className="text-xs font-bold text-ink-muted mt-1">
-                        {appt.time || ""} • {appt.treatment || "Consultation"}
+                        {appt.time || ""} • {appt.treatment || (language === "ar" ? "كشف" : "Consultation")}
                       </p>
                     </div>
                     <ArrowRight size={16} className="text-primary-500 opacity-0 group-hover:opacity-100 transition-opacity" />

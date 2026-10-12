@@ -99,9 +99,70 @@ export default function AiCreditsSettings() {
     ortho_followup: { label: ar ? "متابعة تقويم" : "Ortho follow-up", icon: ClipboardList },
     ortho_coach: { label: ar ? "تعليم الذكاء الاصطناعي للتقويم" : "Ortho AI coaching", icon: Sparkles },
     marketing: { label: ar ? "المحتوى التسويقي" : "Marketing content", icon: Megaphone },
+    owner_summary: { label: ar ? "ملخص المالك اليومي" : "Owner's daily summary", icon: ClipboardList },
+    insurance_read: { label: ar ? "قراءة موافقة التأمين" : "Insurance approval reading", icon: ScanLine },
+    whatsapp_bot: { label: ar ? "بوت الواتساب" : "WhatsApp bot reply", icon: MessageCircle },
+    whatsapp_sales: { label: ar ? "بوت الواتساب (مبيعات)" : "WhatsApp bot (sales)", icon: MessageCircle },
+    whatsapp_photo: { label: ar ? "قراءة صورة على الواتساب" : "WhatsApp photo reading", icon: ScanLine },
+    whatsapp_voice: { label: ar ? "تفريغ رسالة صوتية" : "WhatsApp voice note", icon: MessageCircle },
+    lead_grade: { label: ar ? "تقييم العملاء المحتملين" : "Lead grading", icon: Sparkles },
+    lead_flow_draft: { label: ar ? "مسودة ردود العملاء المحتملين" : "Lead reply draft", icon: Sparkles },
+    "tour-free": { label: ar ? "الجولة التعريفية (مجانًا)" : "Guided tour (free)", icon: Sparkles },
   };
   const featureMeta = (key: string) =>
     FEATURE_META[key] || { label: key || (ar ? "أخرى" : "Other"), icon: HelpCircle };
+
+  /**
+   * The detail line is written by the server in English. The pieces it is built from are a known,
+   * small set ("8 lines", "deep read", "Owner's summary for 2026-10-10"…), so the Arabic screen
+   * swaps those pieces; anything else in it (a payer's name, a patient's question) stays as written.
+   */
+  const detailText = (detail: string): string => {
+    if (!ar || !detail) return detail;
+    const whole = /^Owner's summary for (\d{4}-\d{2}-\d{2})$/.exec(detail);
+    if (whole) return `ملخص المالك ليوم ${whole[1]}`;
+    const PHRASES: Record<string, string> = {
+      "no approval number": "بدون رقم موافقة",
+      "read failed": "القراءة فشلت",
+      "read failed after the model answered": "القراءة فشلت بعد رد الذكاء الاصطناعي",
+      "deep read": "قراءة معمّقة",
+      deep: "معمّقة",
+      compare: "مقارنة",
+      "with image": "بصورة",
+      "with photos": "بصور",
+      "diagnosis summary": "ملخص التشخيص",
+      "super mode": "الوضع المتقدم",
+      "refinement round": "جولة تحسين",
+      "to Arabic": "للعربي",
+      "to English": "للإنجليزي",
+      calibrated: "معايَر",
+      uncalibrated: "غير معايَر",
+      "with ceph": "مع السيفالومتري",
+      "from AI diagnosis": "من تشخيص الذكاء الاصطناعي",
+      "from written diagnosis": "من التشخيص المكتوب",
+    };
+    const COUNTED: Array<[RegExp, string]> = [
+      [/^(\d+) lines?$/, "بند"],
+      [/^(\d+) images?$/, "صورة"],
+      [/^(\d+) photos?$/, "صورة"],
+      [/^(\d+) landmarks$/, "نقطة"],
+      [/^(\d+) visits$/, "زيارة"],
+      [/^(\d+) months in$/, "شهر من البداية"],
+    ];
+    return detail
+      .split(" · ")
+      .map((part) => {
+        if (PHRASES[part]) return PHRASES[part];
+        for (const [re, unit] of COUNTED) {
+          const m = re.exec(part);
+          if (m) return `${m[1]} ${unit}`;
+        }
+        return part;
+      })
+      .join(" · ");
+  };
+  /** The bot charges under its own name; it is not a person, so its label is translated. */
+  const whoText = (name: string) => (ar && name === "WhatsApp Bot" ? "بوت الواتساب" : name);
 
   // Every month that ever recorded usage — feeds the month picker and the exact totals.
   useEffect(() => {
@@ -378,11 +439,11 @@ export default function AiCreditsSettings() {
                           <Icon size={14} className="shrink-0 text-ink-muted" /> {meta.label}
                         </span>
                         {r.detail && (
-                          <span className="block ps-5 text-[11px] font-semibold text-ink-muted">{r.detail}</span>
+                          <span className="block ps-5 text-[11px] font-semibold text-ink-muted">{detailText(r.detail)}</span>
                         )}
                       </td>
                       <td className="px-3 py-2.5 font-semibold text-ink-body">{r.patientName || "—"}</td>
-                      <td className="px-3 py-2.5 font-semibold text-ink-body">{r.userName || "—"}</td>
+                      <td className="px-3 py-2.5 font-semibold text-ink-body">{r.userName ? whoText(r.userName) : "—"}</td>
                       <td className="whitespace-nowrap px-3 py-2.5 text-end font-figure font-bold text-ink">
                         {r.credits} {r.credits === 1 ? txt.credit : txt.credits}
                       </td>

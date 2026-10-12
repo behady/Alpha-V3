@@ -16,10 +16,14 @@ const formatTime = (ts: any) => {
     return "-";
 };
 
-const formatDuration = (mins: number) => {
-    if (!mins) return "0h 0m";
-    return `${Math.floor(mins / 60)}h ${Math.floor(mins % 60)}m`;
+const formatDuration = (mins: number, ar = false) => {
+    const h = mins ? Math.floor(mins / 60) : 0;
+    const m = mins ? Math.floor(mins % 60) : 0;
+    return ar ? `${h}س ${m}د` : `${h}h ${m}m`;
 };
+
+/** The pay figures here are always the clinic's own currency; Arabic screens write it ج.م. */
+const egp = (ar: boolean) => (ar ? "ج.م" : "EGP");
 
 const toInputFormat = (ts: any) => {
     if (!ts) return "";
@@ -42,7 +46,7 @@ export const PersonalWorksheet = ({
     activeSession, isDeviceBlocked, isDeviceMismatch, liveDuration, actionLoading, handlePunch, 
     myCalculatedStats, personalLogs, myProfile, language
 }: any) => {
-  const { t } = useLanguage();
+  const { t, isRTL } = useLanguage();
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-in slide-in-from-bottom-4 duration-500">
         {/* LEFT COLUMN: Terminal & Earnings */}
@@ -75,7 +79,7 @@ export const PersonalWorksheet = ({
                             <div className="mb-8 w-full bg-white border border-emerald-100/50 shadow-sm rounded-2xl p-5 relative overflow-hidden">
                                 <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-400 rounded-full blur-[40px] opacity-10 pointer-events-none"></div>
                                 <p className="text-[11px] font-black uppercase text-emerald-600/70 tracking-widest mb-1">{t("attCurrentSession")}</p>
-                                <p className="text-3xl font-black text-emerald-600 tabular-nums tracking-tight">{liveDuration || "0h 0m 0s"}</p>
+                                <p className="text-3xl font-black text-emerald-600 tabular-nums tracking-tight">{liveDuration || (isRTL ? "0س 0د 0ث" : "0h 0m 0s")}</p>
                             </div>
                         )}
 
@@ -106,17 +110,17 @@ export const PersonalWorksheet = ({
                     </div>
                     <div className="space-y-5 relative z-10">
                         <div>
-                            <p className="text-4xl font-black text-white tabular-nums tracking-tight">{Math.floor(myCalculatedStats.finalTotalPay).toLocaleString()} <span className="text-lg text-slate-400 font-bold ml-1">EGP</span></p>
+                            <p className="text-4xl font-black text-white tabular-nums tracking-tight">{Math.floor(myCalculatedStats.finalTotalPay).toLocaleString()} <span className="text-lg text-slate-400 font-bold ms-1">{egp(isRTL)}</span></p>
                             <p className="text-[11px] font-bold text-emerald-400 mt-2 flex items-center gap-1.5"><TrendingUp size={14}/> {t("attAutoCalculated")}</p>
                         </div>
                         <div className="grid grid-cols-2 gap-4 pt-5 border-t border-white/10">
                             <div className="bg-white/5 rounded-xl p-3 border border-white/5">
                                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">{t("attBasePay")}</p>
-                                <p className="font-bold text-[15px] text-white tracking-tight">{Math.floor(myCalculatedStats.estimatedBasePay).toLocaleString()} EGP</p>
+                                <p className="font-bold text-[15px] text-white tracking-tight">{Math.floor(myCalculatedStats.estimatedBasePay).toLocaleString()} {egp(isRTL)}</p>
                             </div>
                             <div className="bg-white/5 rounded-xl p-3 border border-white/5">
                                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">{t("attCommissions")}</p>
-                                <p className="font-bold text-[15px] text-emerald-400 tracking-tight">+{Math.floor(myCalculatedStats.earnedCommissions).toLocaleString()} EGP</p>
+                                <p className="font-bold text-[15px] text-emerald-400 tracking-tight">+{Math.floor(myCalculatedStats.earnedCommissions).toLocaleString()} {egp(isRTL)}</p>
                             </div>
                         </div>
                     </div>
@@ -153,7 +157,7 @@ export const PersonalWorksheet = ({
                                         <td className="py-3 px-5 font-bold text-ink rounded-s-2xl group-hover:bg-surface-subtle transition-colors">{log.date || (log.checkIn && log.checkIn.toDate().toISOString().split('T')[0])}</td>
                                         <td className="py-3 px-4 font-bold text-ink-body text-center group-hover:bg-surface-subtle transition-colors">{formatTime(log.checkIn)}</td>
                                         <td className="py-3 px-4 font-bold text-ink-body text-center group-hover:bg-surface-subtle transition-colors">{formatTime(log.checkOut)}</td>
-                                        <td className="py-3 px-4 font-black text-ink text-center group-hover:bg-surface-subtle transition-colors">{log.status === 'active' ? <span className="text-emerald-500 animate-pulse">{t("attInProgress")}</span> : formatDuration(log.durationMinutes)}</td>
+                                        <td className="py-3 px-4 font-black text-ink text-center group-hover:bg-surface-subtle transition-colors">{log.status === 'active' ? <span className="text-emerald-500 animate-pulse">{t("attInProgress")}</span> : formatDuration(log.durationMinutes, isRTL)}</td>
                                         <td className="py-3 px-5 text-end rounded-e-2xl group-hover:bg-surface-subtle transition-colors">
                                             {log.status === 'active' ? (
                                                 <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-600 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-emerald-100 shadow-sm">
@@ -186,7 +190,7 @@ export const TeamOverview = ({
     filterUser, setFilterUser, allStaff, payrollData, handleGeneratePayrollPDF, 
     handleGenerateCommissionPDF, openSettingsModal, openLogsModal, commissionBreakdownRows, handleUpdateCommissionEntry
 }: any) => {
-  const { t } = useLanguage();
+  const { t, isRTL } = useLanguage();
   return (
     <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
         {/* ADMIN FILTER BAR */}
@@ -277,20 +281,20 @@ export const TeamOverview = ({
                                     <td className="py-4 px-4 group-hover:bg-surface-subtle transition-colors">
                                         <div className="flex items-center justify-center gap-2">
                                             <button onClick={() => openSettingsModal(staff)} className={`flex items-center justify-center gap-1.5 bg-surface border px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm ${staff.registeredDeviceId ? 'border-line text-ink-body hover:text-accent hover:border-accent-soft hover:shadow-md' : 'border-orange-200/60 bg-orange-50/50 text-orange-600 hover:bg-orange-100 hover:border-orange-300'}`}>
-                                                <Settings2 size={14} className={staff.registeredDeviceId ? 'text-slate-400 group-hover:text-accent' : ''}/> {Math.floor(staff.expectedMonthlyHours)}h | {staff.commissionPercentage}%
+                                                <Settings2 size={14} className={staff.registeredDeviceId ? 'text-slate-400 group-hover:text-accent' : ''}/> {Math.floor(staff.expectedMonthlyHours)}{isRTL ? "س" : "h"} | {staff.commissionPercentage}%
                                             </button>
                                             <button onClick={() => openLogsModal(staff)} className="flex items-center justify-center gap-1.5 bg-surface border border-line px-3 py-1.5 rounded-xl text-xs font-bold text-ink-body hover:text-accent hover:border-accent-soft hover:shadow-md transition-all shadow-sm">
-                                                <History size={14} className="text-slate-400 group-hover:text-accent"/> Logs
+                                                <History size={14} className="text-slate-400 group-hover:text-accent"/> {isRTL ? "السجل" : "Logs"}
                                             </button>
                                         </div>
                                     </td>
                                     <td className="py-4 px-4 text-end group-hover:bg-surface-subtle transition-colors">
-                                        <p className="font-black text-ink-body">{formatDuration(staff.regularMinutes)}</p>
-                                        {staff.missingMinutes > 0 && <p className="text-[10px] font-bold text-red-500 flex justify-end items-center gap-1"><TrendingDown size={10}/> {formatDuration(staff.missingMinutes)}</p>}
+                                        <p className="font-black text-ink-body">{formatDuration(staff.regularMinutes, isRTL)}</p>
+                                        {staff.missingMinutes > 0 && <p className="text-[10px] font-bold text-red-500 flex justify-end items-center gap-1"><TrendingDown size={10}/> {formatDuration(staff.missingMinutes, isRTL)}</p>}
                                     </td>
                                     <td className="py-4 px-4 text-end group-hover:bg-surface-subtle transition-colors">
-                                        <p className="font-black text-accent">{formatDuration(staff.approvedOvertimeMinutes)}</p>
-                                        {staff.pendingOvertimeMinutes > 0 && <p className="text-[10px] font-bold text-amber-500 flex justify-end items-center gap-1">Pend: {formatDuration(staff.pendingOvertimeMinutes)}</p>}
+                                        <p className="font-black text-accent">{formatDuration(staff.approvedOvertimeMinutes, isRTL)}</p>
+                                        {staff.pendingOvertimeMinutes > 0 && <p className="text-[10px] font-bold text-amber-500 flex justify-end items-center gap-1">{isRTL ? "معلّق:" : "Pend:"} {formatDuration(staff.pendingOvertimeMinutes, isRTL)}</p>}
                                     </td>
                                     <td className="py-4 px-4 text-end font-bold text-ink-muted group-hover:bg-surface-subtle transition-colors tabular-nums">{Math.floor(staff.estimatedBasePay).toLocaleString()}</td>
                                     <td className="py-4 px-4 text-end group-hover:bg-surface-subtle transition-colors tabular-nums">
@@ -311,15 +315,17 @@ export const TeamOverview = ({
                 <div>
                     <h3 className="font-black text-ink text-xl mb-1">{t("attCommissionEngine")}</h3>
                     <p className="text-[13px] font-semibold text-ink-muted max-w-2xl">
-                        Shows exactly where commission comes from (patient + service). Editing % recalculates doctor share and clinic profit in ledger.
+                        {isRTL
+                          ? "بيوضح كل عمولة جت منين (المريض + الخدمة). تعديل النسبة بيعيد حساب نصيب الطبيب وربح العيادة في الحسابات."
+                          : "Shows exactly where commission comes from (patient + service). Editing % recalculates doctor share and clinic profit in ledger."}
                     </p>
                 </div>
                 <div className="flex items-center gap-4">
                     <span className="text-[11px] font-black uppercase tracking-widest text-accent bg-accent-tint border border-accent-soft px-3 py-1.5 rounded-xl shadow-sm">
-                        {commissionBreakdownRows.length} entries
+                        {commissionBreakdownRows.length} {isRTL ? "قيد" : "entries"}
                     </span>
                     <button onClick={handleGenerateCommissionPDF} className="bg-gradient-to-br from-indigo-500 to-indigo-600 text-white px-5 py-3 rounded-xl font-bold text-sm flex items-center gap-2 shadow-[0_4px_14px_rgba(79,70,229,0.3)] hover:shadow-[0_6px_20px_rgba(79,70,229,0.4)] hover:-translate-y-0.5 transition-all shrink-0 active:scale-95">
-                        <FileText size={16} className="text-indigo-200"/> Export PDF
+                        <FileText size={16} className="text-indigo-200"/> {isRTL ? "تصدير PDF" : "Export PDF"}
                     </button>
                 </div>
             </div>
@@ -335,7 +341,7 @@ export const TeamOverview = ({
                             <th className="py-3 px-4 whitespace-nowrap text-end">{t("attPayment")}</th>
                             <th className="py-3 px-4 whitespace-nowrap text-end">{t("attLabFee")}</th>
                             <th className="py-3 px-4 whitespace-nowrap text-end">{t("attNet")}</th>
-                            <th className="py-3 px-4 whitespace-nowrap text-center">% Split</th>
+                            <th className="py-3 px-4 whitespace-nowrap text-center">{isRTL ? "النسبة %" : "% Split"}</th>
                             <th className="py-3 px-4 whitespace-nowrap text-end text-accent">{t("attDoctorComm")}</th>
                             <th className="py-3 px-5 whitespace-nowrap text-end text-emerald-600">{t("attClinicProfit")}</th>
                         </tr>
@@ -413,7 +419,7 @@ export const TeamOverview = ({
 // 3. EDIT STAFF LOGS MODAL (NEW)
 // ==========================================
 export const StaffLogsModal = ({ isOpen, onClose, staffName, logs, handleUpdateLog, handleDeleteLog, handleOvertimeDecision }: any) => {
-  const { t } = useLanguage();
+  const { t, isRTL } = useLanguage();
     const [editingLogId, setEditingLogId] = useState<string | null>(null);
     const [editIn, setEditIn] = useState("");
     const [editOut, setEditOut] = useState("");
@@ -471,7 +477,7 @@ export const StaffLogsModal = ({ isOpen, onClose, staffName, logs, handleUpdateL
                                             </p>
                                             <div className="text-xs font-semibold text-ink-muted mt-1 flex items-center gap-2 flex-wrap">
                                                 <span>In: {formatTime(log.checkIn)}</span> <span className="text-slate-300">•</span> <span>Out: {formatTime(log.checkOut)}</span> 
-                                                <span className="text-slate-300">•</span> <span className="text-slate-700 font-bold">{formatDuration(log.durationMinutes)}</span>
+                                                <span className="text-slate-300">•</span> <span className="text-slate-700 font-bold">{formatDuration(log.durationMinutes, isRTL)}</span>
                                             </div>
                                             {log.status === 'completed' && log.durationMinutes > 0 && (
                                                 <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100 w-full">
@@ -492,12 +498,12 @@ export const StaffLogsModal = ({ isOpen, onClose, staffName, logs, handleUpdateL
                                 <div className="flex items-center gap-2 shrink-0">
                                     {editingLogId === log.id ? (
                                         <>
-                                            <button onClick={() => saveEdit(log.id)} className="bg-emerald-600 text-white p-2 rounded-lg font-bold text-xs flex items-center gap-1 shadow-sm"><Save size={14}/> Save</button>
+                                            <button onClick={() => saveEdit(log.id)} className="bg-emerald-600 text-white p-2 rounded-lg font-bold text-xs flex items-center gap-1 shadow-sm"><Save size={14}/> {t("save")}</button>
                                             <button onClick={() => setEditingLogId(null)} className="bg-white border border-slate-200 text-slate-600 p-2 rounded-lg font-bold text-xs shadow-sm">{t("attCancel")}</button>
                                         </>
                                     ) : (
                                         <>
-                                            <button onClick={() => startEdit(log)} className="bg-surface border border-line text-ink-body hover:text-accent p-2 rounded-lg font-bold text-xs flex items-center gap-1 shadow-sm"><Edit2 size={14}/> Edit</button>
+                                            <button onClick={() => startEdit(log)} className="bg-surface border border-line text-ink-body hover:text-accent p-2 rounded-lg font-bold text-xs flex items-center gap-1 shadow-sm"><Edit2 size={14}/> {t("edit")}</button>
                                             <button onClick={() => handleDeleteLog(log.id)} className="bg-surface border border-line text-slate-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg shadow-sm"><Trash2 size={14}/></button>
                                         </>
                                     )}

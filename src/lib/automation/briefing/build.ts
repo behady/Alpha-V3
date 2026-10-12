@@ -158,7 +158,16 @@ export async function buildBriefing(args: {
 
   const timeZone = clinicTimeZone();
   const today = ymdInTimeZone(timeZone);
+  // Each note is written in both languages here, where the facts are known, so the screen and
+  // the PDF never have to pattern-match English sentences to translate them. `notes` stays the
+  // English list it always was (the Android app and the AI routes read it); `notesAr` runs
+  // index-for-index beside it.
   const notes: string[] = [];
+  const notesAr: string[] = [];
+  const note = (en: string, ar: string) => {
+    notes.push(en);
+    notesAr.push(ar);
+  };
 
   const { startDate, previousStart, previousEnd, sameWeekday, comparisonStart, aheadStart, aheadEnd, previousLabel } =
     briefingWindow(period, endDate);
@@ -215,15 +224,18 @@ export async function buildBriefing(args: {
     : null;
 
   if (productionResult && productionResult.unattributedCollected > 0) {
-    notes.push(
-      `${Math.round(productionResult.unattributedCollected).toLocaleString()} was collected on rows ` +
-        "with no doctor recorded, so it appears in the totals but under no name in the per-doctor table."
+    const unattributed = Math.round(productionResult.unattributedCollected).toLocaleString("en-US");
+    note(
+      `${unattributed} was collected on rows ` +
+        "with no doctor recorded, so it appears in the totals but under no name in the per-doctor table.",
+      `${unattributed} اتحصّلت على قيود من غير طبيب مسجّل، فبتظهر في الإجمالي لكن مش تحت اسم أي طبيب في جدول الأطباء.`
     );
   }
   if (access.money && !data.schedule.isConfigured) {
-    notes.push(
+    note(
       "Chair utilisation is blank because the clinic's opening hours have not been set. " +
-        "Settings → Schedule fills it in."
+        "Settings → Schedule fills it in.",
+      "استغلال وقت الكرسي فاضي لأن مواعيد عمل العيادة لسه مش متحددة. حددها من الإعدادات ← جدول العيادة."
     );
   }
 
@@ -243,25 +255,33 @@ export async function buildBriefing(args: {
     : null;
 
   if (hrResult && hrResult.section.withoutSchedule > 0) {
-    notes.push(
-      `${hrResult.section.withoutSchedule} staff member${hrResult.section.withoutSchedule === 1 ? " has" : "s have"} ` +
+    const n = hrResult.section.withoutSchedule;
+    note(
+      `${n} staff member${n === 1 ? " has" : "s have"} ` +
         "no work schedule set, so they can never be counted late or absent. Attendance → the ⚙ beside " +
-        "their name sets one."
+        "their name sets one.",
+      (n === 1
+        ? "فرد من الفريق مالوش جدول شغل، فعمره ما هيتحسب متأخر أو غايب. "
+        : `${n} من الفريق مالهمش جدول شغل، فعمرهم ما هيتحسبوا متأخرين أو غايبين. `) +
+        "حدّد الجدول من الحضور والانصراف ← علامة ⚙ جنب الاسم."
     );
   }
   if (hrResult && hrResult.section.absentDays > 0) {
-    notes.push(
+    note(
       "Nothing in this system records leave or sick days, so an agreed day off reads here as an " +
-        "absence. Check before acting on one."
+        "absence. Check before acting on one.",
+      "السيستم مش بيسجّل الإجازات ولا الأيام المرضية، فيوم الإجازة المتفق عليه بيظهر هنا غياب. اتأكد قبل ما تتصرف على أساسه."
     );
   }
 
   // --- Balances, actions, growth, stock -------------------------------------------------------
   const stale = buildStaleBalances(data.ledgerAll, data.patientNames, today);
   if (access.money && data.ledgerAllTruncated) {
-    notes.push(
+    note(
       "The balance scan reads a capped slice of the ledger, so on a long history some accounts " +
-        "will be missing from that list. Every other figure here comes from an exact date range."
+        "will be missing from that list. Every other figure here comes from an exact date range.",
+      "فحص الأرصدة بيقرا جزء محدود من الحسابات، فمع تاريخ طويل ممكن حسابات تكون ناقصة من القائمة دي. " +
+        "باقي الأرقام هنا كلها من فترة تواريخ مضبوطة."
     );
   }
 
@@ -282,9 +302,11 @@ export async function buildBriefing(args: {
   });
 
   if (actions.staleBalanceTotal !== null && actions.staleBalances.length > 0) {
-    notes.push(
+    note(
       `"No recent activity" means no ledger entry for ${STALE_DAYS}+ days. It is not the same as overdue — ` +
-        "this system does not record payment due dates."
+        "this system does not record payment due dates.",
+      `"بلا حركة حديثة" معناها مفيش أي قيد في الحسابات من ${STALE_DAYS} يوم أو أكتر. ده مش معناه إن الفلوس متأخرة — ` +
+        "السيستم مش بيسجّل مواعيد استحقاق للدفع."
     );
   }
 
@@ -357,6 +379,7 @@ export async function buildBriefing(args: {
     nextUp,
     trend,
     notes,
+    notesAr,
     // Repeated from `actions` for the Android app — see the note on the type.
     staleBalances: actions.staleBalances,
     staleBalanceTotal: actions.staleBalanceTotal,

@@ -714,7 +714,7 @@ export function buildBriefingSrcDoc(payload: BriefingPdfPayload): string {
   );
 
   const notesBlock = b.notes.length
-    ? `<section class="block notes"><h2>${esc(c.notes)}</h2><ul>${b.notes
+    ? `<section class="block notes"><h2>${esc(c.notes)}</h2><ul>${(isAr && b.notesAr?.length === b.notes.length ? b.notesAr : b.notes)
         .map((n) => `<li>${esc(n)}</li>`)
         .join("")}</ul></section>`
     : "";

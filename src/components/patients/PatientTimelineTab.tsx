@@ -9,6 +9,8 @@ import { useUI } from "@/context/UIContext";
 import { Loader2, CalendarDays, Clock, CheckCircle2, AlertCircle, Star, FileText, Trash2 } from "lucide-react";
 import { MoneyApiError, deleteAppointment, deleteProcedure } from "@/lib/moneyApi";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { getAppointmentStageLabel } from "@/lib/appointmentStages";
+import { STATUS_OPTIONS as NOTE_STATUS_OPTIONS } from "@/components/chair/ChairNoteCard";
 
 interface StatusHistoryEntry {
   status: string;
@@ -31,6 +33,15 @@ interface VisitEntry {
 
 export default function PatientTimelineTab({ patientId, hideMoney = false }: { patientId: string; hideMoney?: boolean }) {
   const { language } = useLanguage();
+  const isAr = language === "ar";
+  // Stored statuses are English ids; only the Arabic screen swaps them for the app's own labels.
+  const apptStatusLabel = (s: string | undefined) => (isAr ? getAppointmentStageLabel(s, "ar") : s || "");
+  const noteStatusLabel = (s: string | undefined, fallback: string) => {
+    const v = s || fallback;
+    if (!isAr) return v;
+    return NOTE_STATUS_OPTIONS.find((o) => o.value === v)?.ar ?? v;
+  };
+  const timeLocale = isAr ? "ar-EG" : "en-US";
   const { user } = useAuth();
   const { showToast, confirm } = useUI();
   const [visits, setVisits] = useState<VisitEntry[]>([]);
@@ -175,7 +186,10 @@ export default function PatientTimelineTab({ patientId, hideMoney = false }: { p
       <div className="relative pl-8 border-l-2 border-slate-100 space-y-10 before:absolute before:top-0 before:left-[-2px] before:w-[2px] before:h-8 before:bg-gradient-to-b before:from-slate-100 before:to-primary-500">
         {visits.map((visit, index) => {
           const isAppt = visit.type === "appointment";
-          const title = isAppt ? visit.treatment || "Consultation" : visit.procedure || visit.title || "Clinical Note";
+          const title = isAppt
+            ? // "Consultation" is also what online booking stores when the patient named nothing.
+              (visit.treatment && !(isAr && visit.treatment === "Consultation") ? visit.treatment : isAr ? "كشف" : "Consultation")
+            : visit.procedure || visit.title || (isAr ? "ملاحظة سريرية" : "Clinical Note");
           const formattedDate = visit.dateObj.toLocaleDateString(language === "ar" ? "ar-EG" : "en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
           
           let latenessMsg = null;
@@ -212,7 +226,7 @@ export default function PatientTimelineTab({ patientId, hideMoney = false }: { p
                     <div className="flex items-center gap-3">
                       {isAppt && (
                         <span className="px-3 py-1 bg-surface-muted text-slate-700 text-xs font-bold rounded-full border border-line">
-                          {visit.status}
+                          {apptStatusLabel(visit.status)}
                         </span>
                       )}
                       <button 
@@ -251,17 +265,17 @@ export default function PatientTimelineTab({ patientId, hideMoney = false }: { p
                           {visit.statusHistory.map((h, i) => {
                             let timeStr = "—";
                             if (h.timestamp instanceof Date) {
-                               timeStr = h.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                               timeStr = h.timestamp.toLocaleTimeString(timeLocale, { hour: '2-digit', minute: '2-digit' });
                             } else if (h.timestamp?.toDate) {
-                               timeStr = h.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                               timeStr = h.timestamp.toDate().toLocaleTimeString(timeLocale, { hour: '2-digit', minute: '2-digit' });
                             } else if (typeof h.timestamp === "string" || typeof h.timestamp === "number") {
-                               timeStr = new Date(h.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                               timeStr = new Date(h.timestamp).toLocaleTimeString(timeLocale, { hour: '2-digit', minute: '2-digit' });
                             }
                             return (
                               <div key={i} className="flex gap-3 relative z-10 text-sm">
                                 <div className="w-4 h-4 rounded-full bg-surface border-2 border-line-strong shrink-0 mt-0.5"></div>
                                 <div>
-                                  <p className="font-semibold text-slate-700 leading-none">{h.status}</p>
+                                  <p className="font-semibold text-slate-700 leading-none">{apptStatusLabel(h.status)}</p>
                                   <p className="text-xs text-slate-400 mt-1.5 font-medium">{timeStr} • {h.modifiedBy}</p>
                                 </div>
                               </div>
@@ -289,10 +303,10 @@ export default function PatientTimelineTab({ patientId, hideMoney = false }: { p
                       </h4>
                       {visit.noteDetails ? (
                         <div className="bg-surface p-3.5 rounded-xl border border-line shadow-sm">
-                          <p className="font-semibold text-sm text-slate-800">{visit.noteDetails.procedure || visit.noteDetails.title || "Note"}</p>
+                          <p className="font-semibold text-sm text-slate-800">{visit.noteDetails.procedure || visit.noteDetails.title || (isAr ? "ملاحظة" : "Note")}</p>
                           <p className="text-xs font-bold text-ink-muted mt-2 flex items-center gap-1.5">
                             <CheckCircle2 size={14} className={visit.noteDetails.status === "Completed" ? "text-emerald-500" : "text-blue-500"} />
-                            <span className={visit.noteDetails.status === "Completed" ? "text-emerald-600" : "text-blue-600"}>{visit.noteDetails.status || "Ongoing"}</span>
+                            <span className={visit.noteDetails.status === "Completed" ? "text-emerald-600" : "text-blue-600"}>{noteStatusLabel(visit.noteDetails.status, "Ongoing")}</span>
                           </p>
                           {visit.noteDetails.note && (
                             <div className="mt-3 bg-surface-subtle p-2.5 rounded-lg border border-slate-100">
@@ -315,9 +329,9 @@ export default function PatientTimelineTab({ patientId, hideMoney = false }: { p
                     </h4>
                     <div className="bg-surface p-4 rounded-xl border border-emerald-100 shadow-sm">
                       <div className="flex items-center justify-between mb-3">
-                        <p className="font-semibold text-sm text-slate-800">{visit.procedure || visit.title || "Procedure"}</p>
+                        <p className="font-semibold text-sm text-slate-800">{visit.procedure || visit.title || (isAr ? "إجراء" : "Procedure")}</p>
                         <span className="px-2.5 py-1 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-md">
-                          {visit.status || "Completed"}
+                          {noteStatusLabel(visit.status, "Completed")}
                         </span>
                       </div>
                       
@@ -337,7 +351,7 @@ export default function PatientTimelineTab({ patientId, hideMoney = false }: { p
                         {!hideMoney && visit.cost !== undefined && (
                           <div>
                             <p className="text-slate-400 text-xs font-bold uppercase mb-0.5">{language === "ar" ? "التكلفة" : "Cost"}</p>
-                            <p className="text-slate-700 font-bold">{visit.cost} EGP</p>
+                            <p className="text-slate-700 font-bold">{visit.cost} {isAr ? "ج.م" : "EGP"}</p>
                           </div>
                         )}
                       </div>

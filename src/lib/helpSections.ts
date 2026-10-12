@@ -34,6 +34,26 @@ export type HelpArticle = {
   body: string;
 };
 
+/**
+ * The role and plan tags in an article's front matter are written in English in both languages'
+ * files (they name the app's role ids). The Arabic screen shows the app's own Arabic word for
+ * them; a tag not listed here is shown as written.
+ */
+const TAG_AR: Record<string, string> = {
+  owner: "المالك",
+  admin: "مدير",
+  receptionist: "استقبال",
+  dentist: "طبيب",
+  assistant: "مساعد",
+  pro: "برو",
+  "add-on": "إضافة",
+};
+
+export function helpTagLabel(tag: string, isAr: boolean): string {
+  if (!isAr) return tag;
+  return TAG_AR[tag.trim().toLowerCase()] ?? tag;
+}
+
 export const HELP_SECTIONS: {
   id: HelpSectionId;
   titleEn: string;

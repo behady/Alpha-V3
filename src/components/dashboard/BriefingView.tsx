@@ -25,6 +25,8 @@ import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { printBriefing } from "@/lib/briefingPdfHtml";
 import type { Briefing } from "@/lib/automation/briefing/types";
+import { currencyUnit } from "@/lib/currencyUnit";
+import { categoryLabel } from "@/lib/expenseCategories";
 
 /**
  * The brief on screen — one component for both periods.
@@ -51,6 +53,39 @@ const TREND_COPY: Record<string, { en: string; ar: string }> = {
   new_patients: { en: "New patients", ar: "مرضى جدد" },
   missed: { en: "Missed", ar: "ملغاة" },
 };
+
+/**
+ * Payment methods as the ledger stores them (English ids, in whatever case the screen that wrote
+ * them used). Anything not listed here was typed by someone and is shown as stored.
+ */
+const METHOD_COPY: Record<string, { en: string; ar: string }> = {
+  cash: { en: "Cash", ar: "كاش" },
+  card: { en: "Card", ar: "كارت" },
+  visa: { en: "Visa", ar: "فيزا" },
+  instapay: { en: "InstaPay", ar: "إنستاباي" },
+  "bank transfer": { en: "Bank transfer", ar: "تحويل بنكي" },
+  transfer: { en: "Bank transfer", ar: "تحويل بنكي" },
+  insurance: { en: "Insurance", ar: "تأمين" },
+  wallet: { en: "Wallet", ar: "محفظة" },
+  "vodafone cash": { en: "Vodafone Cash", ar: "فودافون كاش" },
+  cheque: { en: "Cheque", ar: "شيك" },
+  other: { en: "Other", ar: "أخرى" },
+};
+
+/** Staff roles are stored as English ids. */
+const ROLE_AR: Record<string, string> = {
+  Admin: "مدير",
+  Owner: "المالك",
+  Dentist: "طبيب",
+  Receptionist: "استقبال",
+  Assistant: "مساعد",
+};
+
+function methodLabel(method: string, isAr: boolean): string {
+  const hit = METHOD_COPY[String(method || "").trim().toLowerCase()];
+  if (!hit) return method;
+  return isAr ? hit.ar : hit.en;
+}
 
 const WEEKDAY_SHORT: Record<"en" | "ar", string[]> = {
   en: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
@@ -232,13 +267,14 @@ export default function BriefingView({ period }: { period: Period }) {
 
   const locale = isAr ? "ar-EG" : "en-US";
   const money = useMemo(
-    () => (n: number) => `${Math.round(n).toLocaleString(locale)} ${clinicInfo.currency}`,
-    [locale, clinicInfo.currency]
+    () => (n: number) => `${Math.round(n).toLocaleString(locale)} ${currencyUnit(clinicInfo.currency, isAr)}`,
+    [locale, clinicInfo.currency, isAr]
   );
   const num = useMemo(() => (n: number) => Math.round(n).toLocaleString(locale), [locale]);
   const hours = useCallback(
-    (minutes: number) => `${Math.floor(minutes / 60)}h ${String(Math.round(minutes % 60)).padStart(2, "0")}`,
-    []
+    (minutes: number) =>
+      `${Math.floor(minutes / 60)}${isAr ? "س" : "h"} ${String(Math.round(minutes % 60)).padStart(2, "0")}${isAr ? "د" : ""}`,
+    [isAr]
   );
 
   const onPrint = useCallback(() => {
@@ -476,7 +512,7 @@ export default function BriefingView({ period }: { period: Period }) {
                 {b.money.byMethod.map((s) => (
                   <Row
                     key={s.method}
-                    name={s.method}
+                    name={isAr ? methodLabel(s.method, true) : s.method}
                     meta={<span className="font-figure text-[13px] text-ink">{money(s.amount)}</span>}
                   />
                 ))}
@@ -490,7 +526,7 @@ export default function BriefingView({ period }: { period: Period }) {
                 {b.money.expensesByCategory.map((s) => (
                   <Row
                     key={s.category}
-                    name={s.category}
+                    name={isAr ? categoryLabel(s.category, true) || s.category : s.category}
                     meta={<span className="font-figure text-[13px] text-ink">{money(s.amount)}</span>}
                   />
                 ))}
@@ -623,7 +659,7 @@ export default function BriefingView({ period }: { period: Period }) {
                         {s.activeNow && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />}
                       </div>
                       <div className="flex flex-wrap gap-1 mt-0.5">
-                        <span className="text-[10px] font-bold text-slate-400">{s.role}</span>
+                        <span className="text-[10px] font-bold text-slate-400">{isAr ? ROLE_AR[s.role] ?? s.role : s.role}</span>
                         {s.flags.map((f) => (
                           <span
                             key={f}
@@ -881,7 +917,7 @@ export default function BriefingView({ period }: { period: Period }) {
             {isAr ? "ملاحظات مهمة" : "Worth knowing"}
           </p>
           <ul className="space-y-2">
-            {b.notes.map((n, i) => (
+            {(isAr && b.notesAr?.length === b.notes.length ? b.notesAr : b.notes).map((n, i) => (
               <li
                 key={i}
                 className={`text-[11px] font-medium text-ink-muted leading-relaxed ${

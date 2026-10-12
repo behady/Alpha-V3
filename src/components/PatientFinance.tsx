@@ -24,6 +24,7 @@ import {
 } from "firebase/firestore";
 import { useUI } from "@/context/UIContext";
 import { useLanguage } from "@/context/LanguageContext";
+import { currencyUnit } from "@/lib/currencyUnit";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
@@ -266,6 +267,9 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
   const toggleProcExpand = (id: string) => {
     setExpandedProcs(prev => ({ ...prev, [id]: !prev[id] }));
   };
+
+  /** The unit beside every figure on this screen: the clinic's currency, ج.م on Arabic screens. */
+  const egp = currencyUnit(clinicInfo.currency, language === 'ar');
 
   const txt = {
     totalTreatment: language === 'ar' ? "إجمالي العلاج" : "Total Treatment",
@@ -877,7 +881,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
           </div>
           <div className="text-end shrink-0">
             <div className="text-lg font-black text-green-600 tabular-nums leading-tight">{payment.paid > 0 ? payment.paid.toLocaleString() : "-"}</div>
-            <div className="text-[10px] font-bold text-gray-400">EGP</div>
+            <div className="text-[10px] font-bold text-gray-400">{egp}</div>
           </div>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -977,11 +981,11 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
         <div className="hidden md:grid md:grid-cols-3 gap-4">
             <div className="bg-surface p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col items-center justify-center gap-2">
             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{txt.totalTreatment}</span>
-            <span className="text-2xl font-black text-gray-900">{totalCost.toLocaleString()} <span className="text-xs text-gray-400">EGP</span></span>
+            <span className="text-2xl font-black text-gray-900">{totalCost.toLocaleString()} <span className="text-xs text-gray-400">{egp}</span></span>
             </div>
             <div className="bg-surface p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col items-center justify-center gap-2">
             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{txt.totalPaid}</span>
-            <span className="text-2xl font-black text-green-600">{totalPaid.toLocaleString()} <span className="text-xs text-green-400">EGP</span></span>
+            <span className="text-2xl font-black text-green-600">{totalPaid.toLocaleString()} <span className="text-xs text-green-400">{egp}</span></span>
             </div>
             {/*
               A negative balance is not a smaller amount owed — it is money the clinic is holding.
@@ -991,7 +995,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
             */}
             <div className={`p-5 rounded-2xl border shadow-sm flex flex-col items-center justify-center gap-2 ${balance > 0 ? 'bg-red-50 border-red-100' : balance < 0 ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-100'}`}>
             <span className={`text-[10px] font-black uppercase tracking-widest ${balance > 0 ? 'text-red-400' : balance < 0 ? 'text-amber-600' : 'text-green-500'}`}>{balance < 0 ? txt.creditBalance : txt.balanceDue}</span>
-            <span className={`text-2xl font-black ${balance > 0 ? 'text-red-600' : balance < 0 ? 'text-amber-700' : 'text-green-600'}`}>{Math.abs(balance).toLocaleString()} <span className="text-xs opacity-50">EGP</span></span>
+            <span className={`text-2xl font-black ${balance > 0 ? 'text-red-600' : balance < 0 ? 'text-amber-700' : 'text-green-600'}`}>{Math.abs(balance).toLocaleString()} <span className="text-xs opacity-50">{egp}</span></span>
             {awaitingInsurer > 0 && (
               <span className="text-[11px] font-bold text-ink-muted">
                 {language === 'ar' ? `في انتظار شركة التأمين: ${awaitingInsurer.toLocaleString()} ج.م` : `Awaiting the insurer: ${awaitingInsurer.toLocaleString()} EGP`}
@@ -1096,7 +1100,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                 <div className={`px-2.5 py-1 rounded-md text-[10px] font-black uppercase tracking-wider shrink-0 ${
                                     proc.isPaid ? 'bg-gray-200 text-gray-500' : 'bg-red-50 text-red-600 border border-red-100'
                                 }`}>
-                                    {proc.isPaid ? txt.paidLabel : `${proc.remaining} EGP`}
+                                    {proc.isPaid ? txt.paidLabel : `${proc.remaining} ${egp}`}
                                 </div>
                             </button>
                         ))}
@@ -1153,7 +1157,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                 <div><label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">%</label><input type="number" value={editingItem.discountPercent ?? ""} onChange={e => setEditingItem({...editingItem, discountPercent: Number(e.target.value)})} className="w-full p-3 border border-gray-200 rounded-xl font-black text-sm outline-none focus:border-blue-500"/></div>
                               )}
                               {editingItem.discountMode === "fixed" && (
-                                <div><label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">EGP</label><input type="number" value={editingItem.discountFixed ?? ""} onChange={e => setEditingItem({...editingItem, discountFixed: Number(e.target.value)})} className="w-full p-3 border border-gray-200 rounded-xl font-black text-sm outline-none focus:border-blue-500"/></div>
+                                <div><label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">{egp}</label><input type="number" value={editingItem.discountFixed ?? ""} onChange={e => setEditingItem({...editingItem, discountFixed: Number(e.target.value)})} className="w-full p-3 border border-gray-200 rounded-xl font-black text-sm outline-none focus:border-blue-500"/></div>
                               )}
                               {editingItem.discountMode !== "none" && (
                                 <div>
@@ -1178,7 +1182,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                 </div>
                               )}
                               {editingItem.discountMode === "none" && (
-                                <div><label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">{txt.cost} (EGP)</label><input type="number" value={editingItem.cost} onChange={e => setEditingItem({...editingItem, cost: Number(e.target.value), listPrice: Number(e.target.value) })} className="w-full p-3 border border-gray-200 rounded-xl font-black text-sm outline-none focus:border-blue-500"/></div>
+                                <div><label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">{txt.cost} ({egp})</label><input type="number" value={editingItem.cost} onChange={e => setEditingItem({...editingItem, cost: Number(e.target.value), listPrice: Number(e.target.value) })} className="w-full p-3 border border-gray-200 rounded-xl font-black text-sm outline-none focus:border-blue-500"/></div>
                               )}
                               <p className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-2 py-1.5">
                                 {language === "ar" ? "المبلغ النهائي بعد الخصم:" : "Final after discount:"}{" "}
@@ -1189,13 +1193,13 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                     if (mode === "percent") {
                                       const p = Math.min(100, Math.max(0, Number(editingItem.discountPercent) || 0));
                                       const da = Math.round(((list * p) / 100) * 100) / 100;
-                                      return `${Math.max(0, list - da).toLocaleString()} EGP`;
+                                      return `${Math.max(0, list - da).toLocaleString()} ${egp}`;
                                     }
                                     if (mode === "fixed") {
                                       const f = Math.min(list, Math.max(0, Number(editingItem.discountFixed) || 0));
-                                      return `${Math.max(0, list - f).toLocaleString()} EGP`;
+                                      return `${Math.max(0, list - f).toLocaleString()} ${egp}`;
                                     }
-                                    return `${(Number(editingItem.cost) || 0).toLocaleString()} EGP`;
+                                    return `${(Number(editingItem.cost) || 0).toLocaleString()} ${egp}`;
                                   })()}
                                 </span>
                               </p>
@@ -1232,7 +1236,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                   )}
                                   {proceduresWithBalance.map(proc => (
                                     <option key={proc.id} value={proc.id}>
-                                      {proc.date} · {proc.description.split('(')[0].trim()} · {(Number(proc.cost) || 0).toLocaleString()} EGP
+                                      {proc.date} · {proc.description.split('(')[0].trim()} · {(Number(proc.cost) || 0).toLocaleString()} {egp}
                                       {proc.remaining > 0 ? ` (${proc.remaining.toLocaleString()} ${txt.remainingOn})` : ` (${txt.settledFull})`}
                                     </option>
                                   ))}
@@ -1299,7 +1303,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                         </div>
                         <div className="text-end shrink-0">
                           <div className="text-lg font-black text-gray-900 tabular-nums leading-tight">{item.cost > 0 ? item.cost.toLocaleString() : "-"}</div>
-                          <div className="text-[10px] font-bold text-gray-400">EGP</div>
+                          <div className="text-[10px] font-bold text-gray-400">{egp}</div>
                         </div>
                       </div>
 
@@ -1328,7 +1332,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
 
                       {item.overpaid > 0 && (
                         <div className="mt-2 rounded-lg border border-amber-300 bg-amber-100/80 px-2 py-1.5 text-[10px] font-black leading-relaxed text-amber-900">
-                          <span className="inline-flex items-center gap-1"><AlertTriangle size={11} className="shrink-0" />{txt.overpaidBy} {item.overpaid.toLocaleString()} EGP</span>
+                          <span className="inline-flex items-center gap-1"><AlertTriangle size={11} className="shrink-0" />{txt.overpaidBy} {item.overpaid.toLocaleString()} {egp}</span>
                           <div className="font-bold text-amber-800 mt-0.5">{txt.overpaidHint}</div>
                         </div>
                       )}
@@ -1508,7 +1512,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                        <div className="mt-1.5 rounded-lg border border-amber-300 bg-amber-100/80 px-2 py-1.5 text-[10px] font-black leading-relaxed text-amber-900 w-fit max-w-sm">
                                                          <span className="inline-flex items-center gap-1">
                                                            <AlertTriangle size={11} className="shrink-0" />
-                                                           {txt.overpaidBy} {item.overpaid.toLocaleString()} EGP
+                                                           {txt.overpaidBy} {item.overpaid.toLocaleString()} {egp}
                                                          </span>
                                                          <div className="font-bold text-amber-800 mt-0.5">{txt.overpaidHint}</div>
                                                        </div>

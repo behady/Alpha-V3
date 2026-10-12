@@ -8,6 +8,7 @@ import { db } from "@/lib/firebase";
 import { collection, addDoc, serverTimestamp, query, where, getDocs, doc, runTransaction, getDoc } from "firebase/firestore";
 import { useUI } from "@/context/UIContext";
 import { useLanguage } from "@/context/LanguageContext";
+import { patientSourceLabel } from "@/lib/patientSourceLabel";
 import { useAuth } from "@/context/AuthContext";
 import { logActivity } from "@/lib/logger";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
@@ -363,7 +364,7 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
               <select value={referral} onChange={e => setReferral(e.target.value)} className="w-full px-4 py-3 border border-line rounded-xl text-[16px] font-semibold text-ink outline-none focus:border-accent bg-surface appearance-none cursor-pointer transition-colors">
                  <option value="">{t("selectReferralSource")}</option>
                  {sourcesOptions.map((src) => (
-                   <option key={src} value={src}>{src}</option>
+                   <option key={src} value={src}>{patientSourceLabel(src, language === "ar")}</option>
                  ))}
               </select>
               <ChevronDown size={16} className="absolute end-4 top-[46px] text-ink-muted pointer-events-none"/>

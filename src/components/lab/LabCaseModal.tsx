@@ -982,7 +982,7 @@ export default function LabCaseModal({
                 dir="ltr"
                 value={agreedPrice}
                 onChange={(e) => setAgreedPrice(e.target.value)}
-                placeholder="EGP"
+                placeholder={isAr ? "ج.م" : "EGP"}
                 className={INPUT}
               />
               {/* The estimate the treatment was actually booked at, when it disagrees.
