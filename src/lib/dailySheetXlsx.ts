@@ -38,7 +38,8 @@ export type DailySheetXlsxInput = {
 
 const COLS = 8;
 const COL_WIDTHS = [7, 14, 13, 30, 12, 13, 13, 13];
-const MONEY = "#,##0.##";
+/** Plain figures like the clinic's own sheet ("40400", "868.25"); "#,##0.##" leaves "40,400." on whole numbers. */
+const MONEY = "General";
 const DATE = "dd/mm/yyyy";
 
 const WHITE = { style: "thin", color: { rgb: "FFFFFF" } } as const;
