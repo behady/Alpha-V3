@@ -5,9 +5,10 @@
  * patient paid at the counter, what the company has paid, and what it still owes — with "Mark
  * collected" on a row, or on every selected row at once.
  *
- * It opens on the debt: with "Only outstanding" on (the default) the tab reads every charge of
- * this company, whatever its date, on the branch on screen, and lists the unpaid ones. Untick it
- * and it lists the page's period instead, settled rows included.
+ * It is the company's whole account, whatever the page's period: every charge billed to it on
+ * the branch on screen, from any date. The figures always cover all of it; "Only outstanding"
+ * (on by default) only shortens the list to the unpaid rows. Otherwise "Billed 0" would greet a
+ * company whose one treatment the patient happened to pay in cash.
  *
  * The figures come from `insurerRows`, the same function the route recomputes with before it
  * writes, so the screen and the receipt can never disagree about what was owed. The charges'
@@ -38,12 +39,6 @@ const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
 /** The route refuses a whole batch when one treatment names no dentist, so such rows cannot be ticked. */
 const hasDentist = (charge: LedgerLite) => treatmentHasDentist(charge as Record<string, unknown>);
-
-/** Still owed by the charge's own `paid` stamp — the Finance filter's "only outstanding" rule. */
-function owesByStamp(r: Record<string, unknown>): boolean {
-  const cost = Number(r.cost) || Number(r.amount) || 0;
-  return cost - (Number(r.paid) || 0) > 0.009;
-}
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -78,8 +73,8 @@ export default function InsurerTab({
   /** Every payment against this company's charges, whatever its date, by payment id. */
   const [livePayments, setLivePayments] = useState<Map<string, LedgerLite>>(new Map());
   /**
-   * "Only outstanding" is the debt, whatever its date: every charge of this company, read here.
-   * null while it loads; `backlogFailed` falls back to the page's period rather than to nothing.
+   * Every charge of this company, read here, whatever its date. null while it loads;
+   * `backlogFailed` falls back to the page's period rather than to nothing.
    */
   const [backlog, setBacklog] = useState<LedgerLite[] | null>(null);
   const [backlogFailed, setBacklogFailed] = useState(false);
@@ -87,25 +82,22 @@ export default function InsurerTab({
   useEffect(() => {
     setBacklog(null);
     setBacklogFailed(false);
-    if (!onlyOutstanding) return;
     // Two equality filters: served by the single-field indexes, no composite index needed.
     return onSnapshot(
       query(getClinicCollection("ledger"), where("payerId", "==", payerId), where("type", "==", "procedure")),
       (snap) => setBacklog(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) }))),
       () => setBacklogFailed(true),
     );
-  }, [payerId, onlyOutstanding]);
+  }, [payerId]);
 
-  const useBacklog = onlyOutstanding && !backlogFailed;
+  const useBacklog = !backlogFailed;
   const charges = useMemo(() => {
     if (useBacklog) {
-      // The branch on screen, live rows only, and — so the payment reads below stay few — only the
-      // charges still owing by their own stamp; `insurerRows` then works out each split exactly.
+      // The branch on screen, live rows only; `insurerRows` works out each split exactly.
       return (backlog ?? []).filter((r) => {
         const row = r as Record<string, unknown>;
         if (!rowInScope(row, scopeBranchId)) return false;
-        if (["deleted", "cancelled"].includes(String(row.status || "").toLowerCase())) return false;
-        return owesByStamp(row);
+        return !["deleted", "cancelled"].includes(String(row.status || "").toLowerCase());
       });
     }
     return rows.filter((r) => String(r.type || "") === "procedure" && text(r.payerId) === payerId);
@@ -274,7 +266,7 @@ export default function InsurerTab({
         </div>
         <p className="mt-1 text-xs font-medium text-white/55">
           {useBacklog
-            ? ar ? "كل العلاج اللي لسه عليه فلوس، من أي تاريخ." : "Every treatment still owed, from any date."
+            ? ar ? `كل العلاج على حساب ${payerName}، من أي تاريخ.` : `Every treatment billed to ${payerName}, from any date.`
             : ar ? "علاج الفترة اللي فوق." : "Treatments in the period above."}
         </p>
         <dl className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -315,14 +307,18 @@ export default function InsurerTab({
           <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-16">
             <p className="font-bold text-ink-body">
               {useBacklog
-                ? ar ? `مفيش حاجة متبقية على ${payerName}.` : `${payerName} owes nothing.`
+                ? all.length === 0
+                  ? ar ? `مفيش علاج على حساب ${payerName} لسه.` : `No ${payerName} treatments yet.`
+                  : ar ? `مفيش حاجة متبقية على ${payerName}.` : `${payerName} owes nothing.`
                 : all.length === 0
                   ? ar ? `مفيش علاج على حساب ${payerName} في الفترة دي.` : `No ${payerName} treatments in this period.`
                   : ar ? `مفيش حاجة متبقية على ${payerName} في الفترة دي.` : `${payerName} owes nothing for this period.`}
             </p>
             <p className="text-sm text-ink-muted mt-1">
               {useBacklog
-                ? ar ? "شيل \"المتبقي بس\" عشان تشوف علاج الفترة كله." : "Untick \"Only outstanding\" to see every treatment in the period."
+                ? all.length === 0
+                  ? ar ? "العلاج اللي يتسجل على حساب الشركة هيظهر هنا." : "Treatments charged to the company will show here."
+                  : ar ? "شيل \"المتبقي بس\" عشان تشوف كل العلاج." : "Untick \"Only outstanding\" to see every treatment."
                 : ar ? "غيّر التاريخ أو الفرع." : "Try another date or branch."}
             </p>
           </div>
