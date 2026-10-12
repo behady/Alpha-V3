@@ -212,6 +212,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
    * carry `sticky` classes that were written against the desktop's scrolling <main>.
    */
   const phoneStickyPage = /^\/patients\/[^/]+$/.test(pathname);
+  /**
+   * The same trap on the phone calendar (the desk dashboard below `lg`): its week agenda pins each
+   * day's header with `sticky`, and `overflow-hidden` on <main> would hold them to a box that never
+   * scrolls. `clip` clips the same and leaves the window as the scroller. Desktop keeps `hidden`.
+   */
+  const phoneCalendarPage = pathname === "/appointments" || (pathname === "/" && !ownHome);
   // Unopened patient WhatsApp messages, for the count on the WhatsApp icon in both navs.
   const unreadChats = useUnreadChatCount();
   // And the chime + desktop notification when a new one arrives, on whichever page is open.
@@ -688,7 +694,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               after the band was lowered: the band was never the thing that outranked them. */
            className={`flex-1 min-h-0 relative animate-in fade-in duration-300 ${
              isFullHeightPage
-               ? "flex flex-col overflow-hidden"
+               ? phoneCalendarPage
+                 ? "flex flex-col max-lg:overflow-clip lg:overflow-hidden"
+                 : "flex flex-col overflow-hidden"
                : phoneStickyPage
                  ? "max-lg:overflow-x-clip lg:overflow-x-hidden lg:overflow-y-auto pb-32 lg:pb-0"
                  /* pb-32 on phones, not pb-24: the bottom bar takes 80px and the assistant orb

@@ -60,6 +60,17 @@ import { currentClinicId, getClinicCollection, getClinicDoc } from "@/lib/db-uti
 import { syncClaimLineFromAppointment } from "@/lib/insurance/appointmentSync";
 import PageHeader, { headerButtonPrimary, headerButtonGhost } from "@/components/dashboard/PageHeader";
 import HomeViewTabs from "@/components/dashboard/HomeViewTabs";
+import { weekDaysFrom, daySummary, isOffDay } from "@/lib/weekSchedule";
+import { NO_DOCTOR, NO_ROOM, doctorColumns, roomColumns } from "@/lib/roomSchedule";
+import { generalDoctorLabel } from "@/lib/generalDentist";
+
+/**
+ * How the phone draws its calendar. The desk's switch (Timeline / Week / Rooms / Doctors / List)
+ * folded to what a phone can show: Day is the card list, Week a seven-day agenda of the same
+ * cards, Dentists and Rooms the day grouped into sections instead of side-by-side columns.
+ */
+type PhoneView = "day" | "week" | "dentists" | "rooms";
+
 function getLocalDateKey(): string {
   const d = new Date();
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split("T")[0];
@@ -358,12 +369,27 @@ export default function MobileDashboard() {
 
   // Removed 1000ms timer to prevent 60fps re-rendering of entire dashboard
 
+  /** Day / Week / Dentists / Rooms. The desk keeps its own switch in plain component state too. */
+  const [phoneView, setPhoneView] = useState<PhoneView>("day");
+  /** One dentist's visits only, on Day and Week: a doctorColumns() column id, "" = everyone. */
+  const [dentistFilter, setDentistFilter] = useState("");
+  /** Dentists / Rooms sections the person folded away. */
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
+  const isWeekView = phoneView === "week";
+  // Keyed on the week itself, so picking another day of the same week keeps the listener (and
+  // the scroll position) instead of re-reading the same seven days.
+  const weekKey = weekDaysFrom(scheduleViewDate).join(",");
+  const weekDays = useMemo(() => weekKey.split(","), [weekKey]);
+
   // Fetch only appointments for the current view date to prevent severe performance degradation
-  // and browser freezes when saving.
+  // and browser freezes when saving. The week view reads its seven days with the desk week view's
+  // own range query, over the same weekDaysFrom() days, so the two can never disagree.
   useEffect(() => {
     setLoading(true);
     const viewKey = normalizeDateKey(scheduleViewDate) || scheduleViewDate;
-    const q = query(getClinicCollection("appointments"), where("date", "==", viewKey));
+    const q = isWeekView
+      ? query(getClinicCollection("appointments"), where("date", ">=", weekDays[0]), where("date", "<=", weekDays[6]))
+      : query(getClinicCollection("appointments"), where("date", "==", viewKey));
 
     const unsubAppts = onSnapshot(
       q,
@@ -377,7 +403,7 @@ export default function MobileDashboard() {
       }
     );
     return () => unsubAppts();
-  }, [scheduleViewDate]);
+  }, [scheduleViewDate, isWeekView, weekDays]);
 
   const appointments = useMemo(() => {
     const viewKey = normalizeDateKey(scheduleViewDate) || scheduleViewDate;
@@ -386,6 +412,99 @@ export default function MobileDashboard() {
       .filter((a) => normalizeDateKey(a.date) === viewKey)
       .sort((a, b) => normalizeTimeKey(a.time).localeCompare(normalizeTimeKey(b.time)));
   }, [allAppointments, scheduleViewDate, branchMatches]);
+
+  /** The week on screen, branch first — the desk week view's filter — then by day and time. */
+  const weekAppointments = useMemo(() => {
+    if (!isWeekView) return [];
+    const inWeek = new Set(weekDays);
+    return allAppointments
+      .filter((a) => branchMatches(a.branchId))
+      .filter((a) => inWeek.has(normalizeDateKey(a.date) || String(a.date || "")))
+      .sort((a, b) =>
+        String(normalizeDateKey(a.date)).localeCompare(String(normalizeDateKey(b.date))) ||
+        normalizeTimeKey(a.time).localeCompare(normalizeTimeKey(b.time)),
+      );
+  }, [allAppointments, isWeekView, weekDays, branchMatches]);
+
+  /** What the phone lists: a "Rescheduled" marker is not a visit any more, so no card for it. */
+  const listedAppointments = useMemo(
+    () => (isWeekView ? weekAppointments : appointments).filter((a) => a.status !== "Rescheduled"),
+    [isWeekView, weekAppointments, appointments],
+  );
+
+  /**
+   * Which dentist each listed visit belongs to — the desk's Doctors view rule (id, else name, else
+   * General), from the same helper, so a chip's count and the Dentists sections always agree.
+   */
+  const dentistGrouping = useMemo(
+    () => doctorColumns(doctorsList, listedAppointments, generalDoctorLabel(language)),
+    [doctorsList, listedAppointments, language],
+  );
+
+  /**
+   * The dentist chips: everyone who works on the branch on screen (no ticked branches = every
+   * branch), plus anyone who has a visit here anyway, so a count is never hidden. General only
+   * when something is booked under it.
+   */
+  const dentistChips = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const col of dentistGrouping.columnOf.values()) counts.set(col, (counts.get(col) || 0) + 1);
+    const worksHere = (id: string) => {
+      if (!scopeBranchId) return true;
+      const ids = (doctorsList.find((d) => d.id === id) as { branchIds?: unknown } | undefined)?.branchIds;
+      return !Array.isArray(ids) || ids.length === 0 || ids.includes(scopeBranchId);
+    };
+    return dentistGrouping.columns
+      .filter((c) => (c.id === NO_DOCTOR ? (counts.get(c.id) || 0) > 0 : worksHere(c.id) || (counts.get(c.id) || 0) > 0))
+      .map((c) => ({ id: c.id, label: c.label, count: counts.get(c.id) || 0 }));
+  }, [dentistGrouping, doctorsList, scopeBranchId]);
+
+  // A filter on a dentist who is no longer on screen (another branch, another week) lets go.
+  useEffect(() => {
+    if (dentistFilter && !dentistChips.some((c) => c.id === dentistFilter)) setDentistFilter("");
+  }, [dentistChips, dentistFilter]);
+
+  /** Day and Week list these: the listed visits, narrowed to the chosen dentist. */
+  const filteredAppointments = useMemo(
+    () => (dentistFilter ? listedAppointments.filter((a) => dentistGrouping.columnOf.get(a.id) === dentistFilter) : listedAppointments),
+    [listedAppointments, dentistFilter, dentistGrouping],
+  );
+
+  /** Rooms appear in the switch only when the clinic has any, as on the desk. */
+  const clinicHasRooms = branches.some((b) => (b.rooms?.length ?? 0) > 0);
+  useEffect(() => {
+    if (phoneView === "rooms" && !clinicHasRooms) setPhoneView("day");
+  }, [phoneView, clinicHasRooms]);
+
+  const toggleGroup = (id: string) =>
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  // A day tapped on the strip while the week is on screen brings that day's section up (the page
+  // scrolls on a phone). Only on that tap: opening the week or stepping weeks stays put.
+  const [weekScrollTarget, setWeekScrollTarget] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isWeekView || loading || !weekScrollTarget) return;
+    // After the strip has re-centred itself (its own smooth scroll, 100ms after a date change):
+    // started together, one smooth scroll cancels the other.
+    const key = weekScrollTarget;
+    const id = setTimeout(() => {
+      document.getElementById(`week-day-${key}`)?.scrollIntoView({ block: "start", behavior: "smooth" });
+      setWeekScrollTarget(null);
+    }, 450);
+    return () => clearTimeout(id);
+  }, [isWeekView, loading, weekScrollTarget]);
+
+  /** Back or forward one step: a week in the week view, a day everywhere else. */
+  const stepSchedule = (dir: 1 | -1) => {
+    const d = new Date(`${scheduleViewDate}T12:00:00`);
+    d.setDate(d.getDate() + dir * (isWeekView ? 7 : 1));
+    setScheduleViewDate(d.toISOString().split("T")[0]);
+  };
 
   // 2. Live lists (patients, doctors, services) so dashboard actions sync without refresh.
   useEffect(() => {
@@ -398,7 +517,9 @@ export default function MobileDashboard() {
         snap.docs
           .map((d) => ({ id: d.id, ...d.data() } as { id: string; name?: string; role?: string; isDentist?: boolean }))
           .filter((s) => isDentistStaff(s))
-          .map((s) => ({ id: s.id, name: s.name as string }))
+          // branchIds: which branches the dentist works in, for the phone's dentist chips
+          // (absent = every branch). The booking popup reads id and name only.
+          .map((s) => ({ id: s.id, name: s.name as string, branchIds: (s as { branchIds?: unknown }).branchIds }))
       );
     });
     const unsubServices = onSnapshot(
@@ -839,7 +960,7 @@ export default function MobileDashboard() {
   }, [scheduleViewDate, language]);
 
   return (
-    <div className={`min-h-full lg:min-h-0 lg:h-full relative overflow-hidden pb-24 lg:pb-0 font-sans text-ink-slab lg:text-white ${isRTL ? 'text-right' : 'text-left'}`}>
+    <div className={`min-h-full lg:min-h-0 lg:h-full relative overflow-clip lg:overflow-hidden pb-24 lg:pb-0 font-sans text-ink-slab lg:text-white ${isRTL ? 'text-right' : 'text-left'}`}>
       <div className="relative z-10 w-full max-w-[1920px] mx-auto p-4 md:p-6 md:pt-8 lg:p-4 lg:pt-3 space-y-3 md:space-y-4 lg:space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-500 lg:h-full lg:flex lg:flex-col">
 
         {/* The greeting and the two quick actions now sit in the layout's black band, so they
@@ -1000,7 +1121,7 @@ export default function MobileDashboard() {
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4 mt-4 lg:mt-0">
 
           {/* 5. SCHEDULE LIST WIDGET */}
-          <div className="flex-1 flex flex-col bg-white/30 backdrop-blur-[40px] border border-white/50 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] h-[600px] lg:h-full lg:min-h-0 overflow-hidden">
+          <div className="flex-1 flex flex-col bg-white/30 backdrop-blur-[40px] border border-white/50 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] h-[600px] lg:h-full lg:min-h-0 overflow-clip lg:overflow-hidden">
             {/* Header (Desktop: Original, Mobile: Calendar Header like reference image) */}
             <div className="flex justify-between items-center gap-3 px-4 md:px-6 py-4 border-b border-white/40 bg-transparent shrink-0">
               {/* Desktop Date switcher (Hidden on Mobile) */}
@@ -1085,28 +1206,22 @@ export default function MobileDashboard() {
                   {/* Just the date: the Today pill beside it, filled while today is on screen,
                       says the rest — and leaves the date room to be read in full. */}
                   <span className="flex-1 min-w-0 text-sm font-black text-slate-800 truncate">
-                    {new Date(`${scheduleViewDate}T12:00:00`).toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { day: 'numeric', month: 'short' })}
+                    {isWeekView
+                      ? `${new Date(`${weekDays[0]}T12:00:00`).toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { day: 'numeric', month: 'short' })} – ${new Date(`${weekDays[6]}T12:00:00`).toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { day: 'numeric', month: 'short' })}`
+                      : new Date(`${scheduleViewDate}T12:00:00`).toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { day: 'numeric', month: 'short' })}
                   </span>
                   <div className="flex items-center gap-0.5 bg-surface-muted rounded-xl p-0.5 shadow-inner shrink-0">
                     <button
-                      onClick={() => {
-                        const d = new Date(`${scheduleViewDate}T12:00:00`);
-                        d.setDate(d.getDate() - 1);
-                        setScheduleViewDate(d.toISOString().split("T")[0]);
-                      }}
+                      onClick={() => stepSchedule(-1)}
                       className="size-10 flex items-center justify-center rounded-lg text-ink-muted hover:bg-surface hover:text-slate-800 hover:shadow-sm transition-all"
-                      aria-label={language === "ar" ? "اليوم السابق" : "Previous Day"}
+                      aria-label={isWeekView ? (language === "ar" ? "الأسبوع السابق" : "Previous Week") : (language === "ar" ? "اليوم السابق" : "Previous Day")}
                     >
                       <ChevronLeft size={16} className={isRTL ? "rotate-180" : ""} />
                     </button>
                     <button
-                      onClick={() => {
-                        const d = new Date(`${scheduleViewDate}T12:00:00`);
-                        d.setDate(d.getDate() + 1);
-                        setScheduleViewDate(d.toISOString().split("T")[0]);
-                      }}
+                      onClick={() => stepSchedule(1)}
                       className="size-10 flex items-center justify-center rounded-lg text-ink-muted hover:bg-surface hover:text-slate-800 hover:shadow-sm transition-all"
-                      aria-label={language === "ar" ? "اليوم التالي" : "Next Day"}
+                      aria-label={isWeekView ? (language === "ar" ? "الأسبوع التالي" : "Next Week") : (language === "ar" ? "اليوم التالي" : "Next Day")}
                     >
                       <ChevronRight size={16} className={isRTL ? "rotate-180" : ""} />
                     </button>
@@ -1129,15 +1244,37 @@ export default function MobileDashboard() {
                   {/* Always rendered: Sara's tour points at it by its text. */}
                   <button
                     onClick={() => setScheduleViewDate(getLocalDateKey())}
-                    aria-pressed={isScheduleToday}
+                    aria-pressed={isWeekView ? weekDays.includes(getLocalDateKey()) : isScheduleToday}
                     className={`h-10 shrink-0 text-[11px] font-black uppercase tracking-wider px-3.5 rounded-full border ${
-                      isScheduleToday
+                      (isWeekView ? weekDays.includes(getLocalDateKey()) : isScheduleToday)
                         ? "text-white bg-emerald-600 border-emerald-600"
                         : "text-emerald-600 bg-emerald-50 border-emerald-100"
                     }`}
                   >
                     {language === 'ar' ? 'اليوم' : 'Today'}
                   </button>
+                </div>
+                {/* The desk's view switch, phone-sized. Rooms only when the clinic has rooms. */}
+                <div role="tablist" aria-label={language === "ar" ? "طريقة العرض" : "Calendar view"} className="flex items-center gap-0.5 bg-surface-muted rounded-xl p-0.5 shadow-inner">
+                  {([
+                    { id: "day", en: "Day", ar: "يومي" },
+                    { id: "week", en: "Week", ar: "أسبوعي" },
+                    { id: "dentists", en: "Dentists", ar: "الأطباء" },
+                    ...(clinicHasRooms ? [{ id: "rooms", en: "Rooms", ar: "الغرف" }] : []),
+                  ] as { id: PhoneView; en: string; ar: string }[]).map((v) => (
+                    <button
+                      key={v.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={phoneView === v.id}
+                      onClick={() => setPhoneView(v.id)}
+                      className={`flex-1 min-w-0 h-9 rounded-lg text-xs font-black truncate transition-all ${
+                        phoneView === v.id ? "bg-surface text-slate-800 shadow-sm" : "text-ink-muted"
+                      }`}
+                    >
+                      {language === "ar" ? v.ar : v.en}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -1187,10 +1324,16 @@ export default function MobileDashboard() {
                   <button
                     key={idx}
                     id={`day-btn-${dateKey}`}
-                    onClick={() => setScheduleViewDate(dateKey)}
+                    onClick={() => {
+                      if (isWeekView) setWeekScrollTarget(dateKey);
+                      setScheduleViewDate(dateKey);
+                    }}
                     className={`flex-shrink-0 w-12 h-14 flex flex-col items-center justify-center gap-1 rounded-2xl transition-all ${isSelected
                         ? 'bg-slate-900 text-white font-extrabold shadow-md shadow-slate-900/20 scale-[1.03]'
-                        : 'text-slate-500 hover:text-slate-900 bg-slate-50/50 hover:bg-slate-50 border border-slate-100/50'
+                        : isWeekView && weekDays.includes(dateKey)
+                          // The rest of the week on screen, so the strip shows which seven days the agenda holds.
+                          ? 'text-slate-900 bg-slate-200/70 border border-slate-300/60'
+                          : 'text-slate-500 hover:text-slate-900 bg-slate-50/50 hover:bg-slate-50 border border-slate-100/50'
                       }`}
                   >
                     <span className="text-[8px] tracking-wide font-black uppercase opacity-85 leading-none">
@@ -1202,11 +1345,39 @@ export default function MobileDashboard() {
                 );
               })}
             </div>
-            <div className="flex flex-col flex-1 min-h-[400px] overflow-hidden relative">
+            {/* One dentist at a time, on Day and Week. Counts are for what is on screen: the day,
+                or the whole week. Only when there is more than one name to choose between. */}
+            {(phoneView === "day" || phoneView === "week") && dentistChips.length > 1 && (
+              <div className="flex lg:hidden px-3 py-2 bg-surface border-b border-slate-100 shrink-0 overflow-x-auto no-scrollbar gap-1.5" role="group" aria-label={language === "ar" ? "فلتر الأطباء" : "Dentist filter"}>
+                {[{ id: "", label: language === "ar" ? "الكل" : "All", count: listedAppointments.length }, ...dentistChips].map((c) => {
+                  const on = dentistFilter === c.id;
+                  return (
+                    <button
+                      key={c.id || "__all__"}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => setDentistFilter(c.id)}
+                      className={`shrink-0 h-8 flex items-center gap-1.5 rounded-full border px-3 text-xs font-black whitespace-nowrap transition-colors ${
+                        on ? "bg-ink-slab text-white border-ink-slab" : "bg-surface text-slate-700 border-line"
+                      }`}
+                    >
+                      <span className="max-w-[9rem] truncate">{c.label}</span>
+                      <span className={`text-[10px] font-black ${on ? "text-white/70" : "text-ink-muted"}`}>
+                        {c.count.toLocaleString(language === "ar" ? "ar-EG" : "en-US")}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {/* Below lg the schedule grows with its content and the page scrolls, so these clip
+                (overflow: clip) instead of becoming scroll boxes: a scroll box that never scrolls
+                would pin the week's sticky day headers to itself, where they never stick. */}
+            <div className="flex flex-col flex-1 min-h-[400px] overflow-clip lg:overflow-hidden relative">
               {loading ? (
                 <div className="py-32 flex justify-center"><Loader2 className="animate-spin text-primary-500" size={32} /></div>
               ) : (
-                <div className="flex-1 overflow-y-auto overflow-x-auto custom-scrollbar relative pb-48">
+                <div className="flex-1 overflow-visible lg:overflow-y-auto lg:overflow-x-auto custom-scrollbar relative pb-48">
                   {(() => {
                     const sched = config;
                     const bounds = clinicDayBoundsMinutes(sched);
@@ -1238,13 +1409,16 @@ export default function MobileDashboard() {
                       <>
                       {/* === MOBILE: Chronological List View === */}
                       <div className="lg:hidden flex flex-col gap-4 p-2 pb-24">
+                        {(() => {
+                          const ar = language === "ar";
+                          const locale = ar ? "ar-EG" : "en-US";
+                          const emptyNote = (text: string) => (
+                            <div className="text-center py-10 px-4 text-slate-400 font-bold text-sm">{text}</div>
+                          );
+                          const chosenDentist = dentistChips.find((c) => c.id === dentistFilter)?.label;
 
-                        <div className="flex flex-col gap-3 px-1">
-                          {activeMobileAppts.length === 0 ? (
-                            <div className="text-center py-10 text-slate-400 font-bold text-sm">
-                              {language === 'ar' ? 'لا توجد مواعيد' : 'No appointments'}
-                            </div>
-                          ) : activeMobileAppts.map(apt => {
+                          /** One visit. Every view uses this card, and a tap opens the booking pop-up on it. */
+                          const card = (apt: any) => {
                             const aptStyles = getAppointmentStatusStyles(apt.status);
                             // What the visit is for and who sees the patient, from the fields the
                             // appointment already carries. Neither known: the line shows the
@@ -1281,8 +1455,127 @@ export default function MobileDashboard() {
                                 </div>
                               </div>
                             );
-                          })}
-                        </div>
+                          };
+
+                          /** A folding section header for the Dentists and Rooms views. */
+                          const group = (id: string, title: string, items: any[], summary: string) => {
+                            const folded = collapsedGroups.has(id);
+                            return (
+                              <section key={id} className="flex flex-col gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleGroup(id)}
+                                  aria-expanded={!folded}
+                                  className="sticky top-0 z-10 flex items-center gap-2 w-full rounded-2xl bg-surface-muted/95 backdrop-blur px-3 py-2.5 text-start"
+                                >
+                                  <span className="flex-1 min-w-0">
+                                    <span className="block text-sm font-black text-slate-800 truncate">{title}</span>
+                                    <span className="block text-[11px] font-bold text-ink-muted truncate">{summary}</span>
+                                  </span>
+                                  <span className="shrink-0 min-w-7 h-7 px-2 rounded-full bg-ink-slab text-white text-xs font-black flex items-center justify-center">
+                                    {items.length.toLocaleString(locale)}
+                                  </span>
+                                  <ChevronDown size={16} className={`shrink-0 text-ink-muted transition-transform ${folded ? (isRTL ? "rotate-90" : "-rotate-90") : ""}`} />
+                                </button>
+                                {/* An empty section is its header alone: the summary line already says so. */}
+                                {!folded && items.length > 0 && <div className="flex flex-col gap-3">{items.map(card)}</div>}
+                              </section>
+                            );
+                          };
+
+                          /** "3 visits · 12 free slots" — the desk week view's free-slot count, for one dentist's day. */
+                          const busySummary = (items: any[]) => {
+                            const s = daySummary(items, config, scheduleViewDate);
+                            if (s.isOffDay) {
+                              if (s.visits === 0) return ar ? "يوم إجازة" : "Day off";
+                              return ar ? `${s.visits.toLocaleString(locale)} زيارة في يوم إجازة` : `${s.visits} visit${s.visits === 1 ? "" : "s"} on a day off`;
+                            }
+                            if (s.visits === 0) return ar ? "مفيش مواعيد، فاضي طول اليوم" : "Nothing booked, free all day";
+                            // An Arabic comma, not "·": beside Arabic digits a middle dot reads as a zero (٠).
+                            return ar
+                              ? `${s.visits.toLocaleString(locale)} زيارة، ${s.freeSlots.toLocaleString(locale)} من ${s.totalSlots.toLocaleString(locale)} ميعاد فاضي`
+                              : `${s.visits} visit${s.visits === 1 ? "" : "s"} · ${s.freeSlots} of ${s.totalSlots} slots free`;
+                          };
+
+                          if (phoneView === "week") {
+                            return (
+                              <div className="flex flex-col gap-4 px-1">
+                                {weekDays.map((key) => {
+                                  const items = filteredAppointments.filter((a) => normalizeDateKey(a.date) === key);
+                                  const d = new Date(`${key}T12:00:00`);
+                                  const isTodayKey = key === getLocalDateKey();
+                                  return (
+                                    <section key={key} id={`week-day-${key}`} className="flex flex-col gap-2">
+                                      <div className="sticky top-0 z-10 flex items-center gap-2 rounded-2xl bg-surface-muted/95 backdrop-blur px-3 py-2">
+                                        <span className="flex-1 min-w-0 text-sm font-black text-slate-800 truncate">
+                                          {d.toLocaleDateString(locale, { weekday: "long", day: "numeric", month: "short" })}
+                                          {isTodayKey && <span className="ms-2 text-[10px] font-black uppercase text-emerald-600">{ar ? "اليوم" : "Today"}</span>}
+                                        </span>
+                                        {isOffDay(key, config) && items.length === 0 ? (
+                                          <span className="shrink-0 text-[11px] font-bold text-ink-muted">{ar ? "إجازة" : "Day off"}</span>
+                                        ) : (
+                                          <span className={`shrink-0 min-w-7 h-7 px-2 rounded-full text-xs font-black flex items-center justify-center ${items.length ? "bg-ink-slab text-white" : "bg-surface text-ink-muted"}`}>
+                                            {items.length.toLocaleString(locale)}
+                                          </span>
+                                        )}
+                                      </div>
+                                      {items.length > 0 && <div className="flex flex-col gap-3">{items.map(card)}</div>}
+                                    </section>
+                                  );
+                                })}
+                                {filteredAppointments.length === 0 && emptyNote(
+                                  chosenDentist
+                                    ? (ar ? `مفيش مواعيد لـ ${chosenDentist} الأسبوع ده` : `No appointments for ${chosenDentist} this week`)
+                                    : (ar ? "مفيش مواعيد الأسبوع ده" : "No appointments this week"),
+                                )}
+                              </div>
+                            );
+                          }
+
+                          if (phoneView === "dentists") {
+                            const sections = dentistChips.map((c) => ({
+                              ...c,
+                              items: listedAppointments.filter((a) => dentistGrouping.columnOf.get(a.id) === c.id),
+                            }));
+                            if (sections.length === 0) {
+                              return emptyNote(ar ? "مفيش أطباء في الفريق لسه. ضيفهم من صفحة الفريق." : "No dentists on the team yet. Add them on the Team page.");
+                            }
+                            return (
+                              <div className="flex flex-col gap-4 px-1">
+                                {sections.map((s) => group(`doc:${s.id}`, s.label, s.items, busySummary(s.items)))}
+                              </div>
+                            );
+                          }
+
+                          if (phoneView === "rooms") {
+                            const { columns, columnOf } = roomColumns(branches, scopeBranchId, listedAppointments);
+                            if (columns.length === 0) {
+                              return emptyNote(ar ? "مفيش غرف متسجلة للفرع ده. ضيف الغرف من الإعدادات ← الفروع والغرف." : "No rooms are set up for this branch. Add them under Settings → Branches & rooms.");
+                            }
+                            return (
+                              <div className="flex flex-col gap-4 px-1">
+                                {columns.map((col) => {
+                                  const items = listedAppointments.filter((a) => columnOf.get(a.id) === col.id);
+                                  const title = col.id === NO_ROOM ? (ar ? "من غير غرفة" : "No room") : col.label;
+                                  return group(`room:${col.id}`, title, items, col.id === NO_ROOM ? (ar ? "مواعيد من غير غرفة" : "Visits with no room") : busySummary(items));
+                                })}
+                              </div>
+                            );
+                          }
+
+                          // Day
+                          return (
+                            <div className="flex flex-col gap-3 px-1">
+                              {filteredAppointments.length === 0
+                                ? emptyNote(
+                                    chosenDentist
+                                      ? (ar ? `مفيش مواعيد لـ ${chosenDentist} في اليوم ده` : `No appointments for ${chosenDentist} on this day`)
+                                      : (ar ? "لا توجد مواعيد" : "No appointments"),
+                                  )
+                                : filteredAppointments.map(card)}
+                            </div>
+                          );
+                        })()}
                       </div>
 
                       {/* === DESKTOP: Timeline Grid === */}
