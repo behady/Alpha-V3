@@ -217,17 +217,18 @@ export function isFdiTooth(code: string): boolean {
 
 /**
  * Every tooth group written in the insurer's shorthand, in order: `L.R 4-6` → [["44","46"]].
- * The dashes separate teeth (4-5-6 is three teeth, 4-6 is two), as on the paper; letters A–E are milk
- * teeth. Text that is not a quadrant ("refer back if exceeds 1673.25") yields nothing.
+ * Dashes (or commas, plus signs, ampersands) separate teeth (4-5-6 is three teeth, 4-6 is two), as on
+ * the paper; letters A–E are milk teeth. `UR6 UR7` is two groups of one. Text that is not a quadrant
+ * ("refer back if exceeds 1673.25") yields nothing.
  */
 export function quadrantTeeth(conditions: string): string[][] {
   const out: string[][] = [];
-  const re = /\b([UL])\s*\.?\s*([RL])\s*\.?\s*([1-8A-E](?:\s*-\s*[1-8A-E])*)(?![0-9A-Za-z])/gi;
+  const re = /\b([UL])\s*\.?\s*([RL])\s*\.?\s*([1-8A-E](?:\s*[-,+&]\s*[1-8A-E])*)(?![0-9A-Za-z])/gi;
   for (const m of String(conditions ?? "").matchAll(re)) {
     const quadrant = QUADRANT[`${m[1]}${m[2]}`.toUpperCase()];
     if (!quadrant) continue;
     const group: string[] = [];
-    for (const raw of m[3].split("-").map((s) => s.trim().toUpperCase())) {
+    for (const raw of m[3].split(/[-,+&]/).map((s) => s.trim().toUpperCase())) {
       const code = /[A-E]/.test(raw) ? `${quadrant + 4}${"ABCDE".indexOf(raw) + 1}` : `${quadrant}${raw}`;
       if (isFdiTooth(code) && !group.includes(code)) group.push(code);
     }
@@ -244,30 +245,53 @@ export function isVisitService(line: { code?: unknown; description?: unknown }):
 }
 
 /**
- * Teeth for each line, from the conditions' groups: a group goes to the first line approved for exactly
- * that many units that has no teeth yet. When every group of that size is taken and there was only ONE
- * of that size, the next line shares it — the lining under a filling is on the filling's teeth (DENT INN,
- * 2026-10: "بطانة كالسيوم 2" and "حشو كمبوزيت 2" on one paper naming one pair). The exam takes none:
- * it used to take a single-tooth group meant for the x-ray, printing "كشف رقم 6" on the sheet. Lines
- * approved for nothing, or for a count no group matches, get none — a wrong tooth on a claim is worse
- * than a blank the desk fills in (on the treatment's chart, which writes back to the approval).
+ * Teeth for each line, from the conditions' groups. Lines with the most units go first, each taking an
+ * unused group of exactly its size. Failing that, a multi-unit line takes the teeth written one by one
+ * when together they are exactly its count — DENT INN's paper (2026-10) wrote "UR6 UR7" for two
+ * fillings, and each single tooth used to go to the exam and the x-ray instead. A line left over shares
+ * the teeth already given to its size when the paper names only one such set: the lining under a filling
+ * is on the filling's teeth. The exam is per visit and takes none ("كشف رقم 6" on the sheet). Lines
+ * approved for nothing, or for a count nothing fits, get none — a wrong tooth on a claim is worse than a
+ * blank the desk fills in (on the treatment's chart, which writes back to the approval).
  */
 export function assignConditionTeeth(
   lines: ReadonlyArray<{ unitsApproved: number; code?: unknown; description?: unknown }>,
   groups: string[][],
 ): string[][] {
-  const used = new Set<number>();
-  return lines.map((l) => {
+  const out: string[][] = lines.map(() => []);
+  const units = lines.map((l) => {
     const n = Math.round(Number(l.unitsApproved) || 0);
-    if (n <= 0 || isVisitService(l)) return [];
-    const k = groups.findIndex((g, i) => !used.has(i) && g.length === n);
+    return n > 0 && !isVisitService(l) ? n : 0;
+  });
+  const order = units.map((_, i) => i).filter((i) => units[i] > 0).sort((a, b) => units[b] - units[a] || a - b);
+  const used = new Set<number>();
+  // The distinct sets of teeth handed out so far, by size: what a leftover line may share.
+  const given = new Map<number, string[][]>();
+  const give = (i: number, teeth: string[]) => {
+    out[i] = [...teeth];
+    const sets = given.get(teeth.length) ?? [];
+    if (!sets.some((t) => t.join() === teeth.join())) sets.push([...teeth]);
+    given.set(teeth.length, sets);
+  };
+  for (const i of order) {
+    const n = units[i];
+    const k = groups.findIndex((g, j) => !used.has(j) && g.length === n);
     if (k >= 0) {
       used.add(k);
-      return [...groups[k]];
+      give(i, groups[k]);
+      continue;
     }
-    const sameSize = groups.filter((g) => g.length === n);
-    return sameSize.length === 1 ? [...sameSize[0]] : [];
-  });
+    const free = groups.map((_, j) => j).filter((j) => !used.has(j));
+    const freeTeeth = [...new Set(free.flatMap((j) => groups[j]))];
+    if (n > 1 && free.length > 1 && freeTeeth.length === n) {
+      free.forEach((j) => used.add(j));
+      give(i, freeTeeth);
+      continue;
+    }
+    const sets = given.get(n) ?? [];
+    if (sets.length === 1) out[i] = [...sets[0]];
+  }
+  return out;
 }
 
 function cleanTeeth(v: unknown): string[] {

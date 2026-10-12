@@ -15,10 +15,12 @@
  *   - Lines NextCare refused (nothing approved) are left out.
  *   - A line's words: the clinic's wording for the code, else NextCare's usual Arabic name for it, else
  *     the Arabic half of the paper's own description.
+ *   - A line's teeth: its own, else the ones the paper's conditions give it (`metlife.comment`, read
+ *     again with today's rules — an approval saved before "UR6 UR7" was understood still prints them).
  *   - Cases run by treatment date, then patient name.
  */
 import { claimStatementName, type InsuranceClaim } from "@/lib/insurance/claims";
-import { isVisitService, memberCodeFromCard } from "@/lib/insurance/nextcare";
+import { assignConditionTeeth, isVisitService, memberCodeFromCard, quadrantTeeth } from "@/lib/insurance/nextcare";
 import { insurerToothLabel, type Statement, type StatementCase, type StatementLine } from "@/lib/insuranceStatement";
 
 /** NextCare's codes, in the words the clinic's sheet uses. A clinic's own wording overrides any of them. */
@@ -66,9 +68,11 @@ export function buildNextcareStatement(args: {
   const cases: StatementCase[] = [];
   for (const { c, date } of billed) {
     const lines: StatementLine[] = [];
+    const fromPaper = assignConditionTeeth(c.lines, quadrantTeeth(c.metlife.comment ?? ""));
     c.lines.forEach((l, i) => {
       if (l.approvedAmount <= 0) return;
-      lines.push({ text: nextcareLineText(l, wording), amount: money(l.approvedAmount), rowId: `${c.id}#${i}` });
+      const withTeeth = l.teeth && l.teeth.length ? l : { ...l, teeth: fromPaper[i] ?? [] };
+      lines.push({ text: nextcareLineText(withTeeth, wording), amount: money(l.approvedAmount), rowId: `${c.id}#${i}` });
     });
     if (lines.length === 0) continue;
     cases.push({

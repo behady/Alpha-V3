@@ -56,6 +56,21 @@ assert.deepEqual(
   [["24", "25"], ["36", "37"], []],
   "with two pairs on the paper, a third line is left blank rather than guessed",
 );
+assert.deepEqual(quadrantTeeth("UR6 UR7"), [["16"], ["17"]], "two teeth written one by one are two groups");
+assert.deepEqual(quadrantTeeth("U.R 6,7 & L.L 4+5"), [["16", "17"], ["34", "35"]], "commas and plus signs separate teeth like dashes");
+assert.deepEqual(
+  assignConditionTeeth(
+    [
+      { unitsApproved: 2, code: "DEN-5", description: "Calcium lining - بطانة كالسيوم" },
+      { unitsApproved: 1, code: "DE-1", description: "Consultation - كشف" },
+      { unitsApproved: 1, code: "DEN-1", description: "X-ray - اشعه عاديه" },
+      { unitsApproved: 2, code: "DEN-14", description: "Composite - حشو كمبوزيت" },
+    ],
+    quadrantTeeth("UR6 UR7"),
+  ),
+  [["16", "17"], [], [], ["16", "17"]],
+  "DENT INN's paper: 'UR6 UR7' is the pair for the two-unit filling and its lining, never the exam's or the x-ray's",
+);
 
 // --- 3. reading the paper -----------------------------------------------------------------------------
 const x = read();
@@ -196,6 +211,15 @@ assert.deepEqual(
 assert.equal(st.cases[0].subtotal, 1673.25, "each visit totals exactly what NextCare approved");
 assert.equal(st.total, 3346.5);
 assert.deepEqual(st.missingMemberNumber.map((m) => m.patientId), ["p2"]);
+{
+  // Saved before "UR6 UR7" was understood: the lines carry no teeth, the paper's conditions still do.
+  const bare = { ...claim, lines: claim.lines.map(({ teeth: _t, ...l }) => l), metlife: { ...claim.metlife, comment: "UR6 UR7\nrefer back if exceeds 1673.25" } };
+  const st5 = buildNextcareStatement({ claims: [bare], payerId: "nextcare", payerName: "NextCare", from: "2026-07-01", to: "2026-07-31", wording: {} });
+  assert.equal(st5.cases[0].lines[0].text, "2حشو كمبوزيت رقم 6-7", "an older approval's sheet reads the teeth from its saved conditions");
+  const typed = { ...bare, lines: bare.lines.map((l) => (l.code === "DEN-14" ? { ...l, teeth: ["24", "25"] } : l)) };
+  const st6 = buildNextcareStatement({ claims: [typed], payerId: "nextcare", payerName: "NextCare", from: "2026-07-01", to: "2026-07-31", wording: {} });
+  assert.equal(st6.cases[0].lines[0].text, "2حشو كمبوزيت رقم 4-5", "teeth picked by the desk win over the paper's");
+}
 // No code saved but the card is on the approval: the sheet takes the card's first four characters.
 const noCode = { ...claim, id: "nextcare_c5", metlife: { ...claim.metlife, memberCode: "", certificateNumber: "7A21-3C9E-0B44-91D2" } };
 const stCard = buildNextcareStatement({ claims: [noCode], payerId: "nextcare", payerName: "NextCare", from: "2026-07-01", to: "2026-07-31", wording: {} });
