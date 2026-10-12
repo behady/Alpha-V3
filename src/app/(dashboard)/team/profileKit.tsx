@@ -68,12 +68,25 @@ export type PayDraft = {
  * it: a figure per line (by the payment id or `${claimId}#${lineIndex}`), the one number still owed,
  * and the part of it that predates the period on screen.
  */
+/** One unpaid line dated before the period: a private payment's commission or an insurance share. */
+export type EarlierWork = {
+  key: string;
+  date: string;
+  patientName: string;
+  service: string;
+  /** The approval number for insurance work; null for a private payment. */
+  approvalNumber: string | null;
+  remaining: number;
+};
+
 export type SettlementView = {
   byKey: Map<string, EarningSettled>;
   /** Still owed over everything ever earned and settled. Negative: paid ahead of the work. */
   owed: number;
   /** Unpaid on work dated before the period: the debt the period inherits. */
   owedBefore: number;
+  /** The work behind `owedBefore`, oldest first, so the carried figure is never a bare number. */
+  earlier: EarlierWork[];
   paidInPeriod: number;
   deductedInPeriod: number;
   /** Every payout and deduction, newest first. */

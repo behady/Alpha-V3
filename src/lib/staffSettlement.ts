@@ -146,6 +146,18 @@ export function owedBefore(result: SettlementResult, earnings: readonly Earning[
   return round2(sum);
 }
 
+/**
+ * The lines behind `owedBefore`, oldest first: each earning dated before `date` with something still
+ * unpaid. The period's tables only list the period, so without these the carried figure names no
+ * work at all — an insurance approval dated last month showed as "590 from before" and nothing else.
+ */
+export function unpaidBefore(result: SettlementResult, earnings: readonly Earning[], date: string): Array<{ key: string; date: string; remaining: number }> {
+  return earnings
+    .filter((e) => e.date < date && (result.byKey.get(e.key)?.remaining ?? 0) > 0)
+    .map((e) => ({ key: e.key, date: e.date, remaining: result.byKey.get(e.key)?.remaining ?? 0 }))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.key.localeCompare(b.key));
+}
+
 /** Payouts and deductions dated inside a period, summed by kind. */
 export function settledInPeriod(settlements: readonly StaffSettlement[], period: { start: string; end: string }): { paid: number; deducted: number } {
   let paid = 0;

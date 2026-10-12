@@ -336,6 +336,41 @@ export default function MoneyTab({
         )}
       </Section>
 
+      {/*
+        --- still owed on work dated before the period ---------------------------------------
+        The header's "incl. X from before this period" used to be the only trace of this work: the
+        tables below list the period alone, so an insurance approval dated last month was counted in
+        the total and shown nowhere. These are the lines behind that figure.
+      */}
+      {settlement && settlement.earlier.length > 0 && (
+        <Section
+          title={isAr ? "لسه مستحق من قبل الفترة دي" : "Still owed from before this period"}
+          note={
+            isAr
+              ? "شغل تاريخه قبل الفترة اللي على الشاشة ولسه ماتدفعش كله. غيّر الفترة من فوق عشان تشوف تفاصيله كاملة."
+              : "Work dated before the period on screen that is not fully paid yet. Change the period above to see it in full."
+          }
+        >
+          <ul className="divide-y divide-line/60">
+            {settlement.earlier.map((e) => (
+              <li key={e.key} className="flex items-start justify-between gap-3 py-3">
+                <div className="min-w-0">
+                  <p className="break-words text-[15px] font-semibold text-ink">{e.patientName || "—"}</p>
+                  <p className="break-words text-[13px] font-semibold text-ink-body">
+                    {e.service || "—"}
+                    {e.approvalNumber !== null && (
+                      <span className="text-ink-muted"> · {isAr ? "تأمين" : "Insurance"}{e.approvalNumber ? ` #${e.approvalNumber}` : ""}</span>
+                    )}
+                  </p>
+                  <p className="mt-0.5 text-[13px] font-semibold text-ink-muted">{dayOf(e.date, isAr)} {e.date.slice(0, 4)}</p>
+                </div>
+                <span className="shrink-0 font-figure text-[16px] font-extrabold text-ink">{money(e.remaining)}</span>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
       {/* --- what they earned, payment by payment -------------------------------------------- */}
       {dentist && (
         <Section

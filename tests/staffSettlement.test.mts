@@ -4,7 +4,7 @@
  *   npm run test:staff-settlement
  */
 import assert from "node:assert/strict";
-import { owedBefore, parseSettlement, settleEarnings, settledInPeriod, type Earning, type StaffSettlement } from "../src/lib/staffSettlement";
+import { owedBefore, parseSettlement, settleEarnings, settledInPeriod, unpaidBefore, type Earning, type StaffSettlement } from "../src/lib/staffSettlement";
 
 const earnings: Earning[] = [
   { key: "pay-b", date: "2026-09-10", amount: 300 },
@@ -56,6 +56,17 @@ const s = (id: string, kind: "payout" | "deduction", amount: number, date: strin
   const r = settleEarnings(earnings, pool);
   assert.equal(owedBefore(r, earnings, "2026-10-01"), 50, "800 of September work, 750 settled: 50 carried into October");
   assert.deepEqual(settledInPeriod(pool, { start: "2026-10-01", end: "2026-10-31" }), { paid: 100, deducted: 50 });
+  // The carried figure is never a bare number: the lines behind it, oldest first, fully paid ones left out.
+  assert.deepEqual(unpaidBefore(r, earnings, "2026-10-01"), [{ key: "pay-b", date: "2026-09-10", remaining: 50 }]);
+  assert.deepEqual(unpaidBefore(r, earnings, "2026-09-01"), [], "nothing dated before September");
+}
+
+// --- an insurance line dated before the period is listed, not just added to the carried total ----
+{
+  const work: Earning[] = [{ key: "claim9#0", date: "2026-09-14", amount: 590 }];
+  const r = settleEarnings(work, []);
+  assert.equal(owedBefore(r, work, "2026-10-01"), 590);
+  assert.deepEqual(unpaidBefore(r, work, "2026-10-01"), [{ key: "claim9#0", date: "2026-09-14", remaining: 590 }]);
 }
 
 // --- settlement order decides cash vs deduction on a shared line, never the total ----------------

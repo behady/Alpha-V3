@@ -38,7 +38,7 @@ import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { logActivity } from "@/lib/logger";
 import { deleteRecord, RecycleBinError } from "@/lib/recycleBinApi";
 import { createStaffSettlement, deleteStaffSettlement, MoneyApiError, setPaymentCommission, updateStaffSettlement, type StaffSettlementDraft } from "@/lib/moneyApi";
-import { owedBefore, parseSettlement, SETTLEMENTS_COLLECTION, settledInPeriod, settleEarnings, type Earning, type StaffSettlement } from "@/lib/staffSettlement";
+import { owedBefore, parseSettlement, SETTLEMENTS_COLLECTION, settledInPeriod, settleEarnings, unpaidBefore, type Earning, type StaffSettlement } from "@/lib/staffSettlement";
 import FeatureGate from "@/components/FeatureGate";
 import PageHeader from "@/components/dashboard/PageHeader";
 import AddUserModal from "@/components/settings/AddUserModal";
@@ -59,7 +59,7 @@ import BranchSelector from "@/components/shared/BranchSelector";
 import { settingsText } from "@/config/settingsText";
 import TeamList, { type RailPerson } from "./TeamList";
 import StaffProfile, { type PayDraft, type ProfileStaff, type RateRow, type SettlementView } from "./StaffProfile";
-import { parseTab, type ProfileTab } from "./profileKit";
+import { parseTab, type EarlierWork, type ProfileTab } from "./profileKit";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import { PRIVATE_PAYER_ID } from "@/lib/payers";
 import { STANDARD_LIST_ID } from "@/lib/priceLists";
@@ -319,10 +319,18 @@ function TeamPage() {
     ];
     const result = settleEarnings(earnings, historySettlements);
     const inPeriod = settledInPeriod(historySettlements, { start: range.start, end: range.end });
+    const describe = new Map<string, Omit<EarlierWork, "key" | "date" | "remaining">>([
+      ...privateWork.entries.map((e) => [e.id, { patientName: e.patientName, service: e.serviceName, approvalNumber: null }] as const),
+      ...insuranceWorkAll.entries.map((e) => [`${e.claimId}#${e.lineIndex}`, { patientName: e.patientName, service: e.service, approvalNumber: e.approvalNumber }] as const),
+    ]);
     return {
       byKey: result.byKey,
       owed: result.owed,
       owedBefore: owedBefore(result, earnings, range.start),
+      earlier: unpaidBefore(result, earnings, range.start).map((u) => ({
+        ...u,
+        ...(describe.get(u.key) ?? { patientName: "", service: "", approvalNumber: null }),
+      })),
       paidInPeriod: inPeriod.paid,
       deductedInPeriod: inPeriod.deducted,
       items: [...historySettlements].sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id)),
