@@ -25,9 +25,14 @@ type Props = {
   patientName?: string;
   onCancel: () => void;
   onConfirm: (servicesAction: "keep" | "delete") => void | Promise<void>;
+  /**
+   * The overlay's stacking layer. Opened from the booking popup (z-[200]) at the default z-[100],
+   * the dialog rendered behind the popup and the Delete button looked dead.
+   */
+  layerClass?: string;
 };
 
-export default function DeleteAppointmentDialog({ appointmentId, patientName, onCancel, onConfirm }: Props) {
+export default function DeleteAppointmentDialog({ appointmentId, patientName, onCancel, onConfirm, layerClass = "z-[100]" }: Props) {
   const { language } = useLanguage();
   const ar = language === "ar";
 
@@ -95,7 +100,7 @@ export default function DeleteAppointmentDialog({ appointmentId, patientName, on
   };
 
   const body = (
-    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-slate-900/50 p-0 sm:p-4" dir={ar ? "rtl" : "ltr"}>
+    <div className={`fixed inset-0 ${layerClass} flex items-end sm:items-center justify-center bg-slate-900/50 p-0 sm:p-4`} dir={ar ? "rtl" : "ltr"}>
       <div className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl sm:rounded-2xl bg-white shadow-2xl">
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
           <div className="flex items-center gap-3">

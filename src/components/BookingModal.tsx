@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 import ServiceCombobox from "./shared/ServiceCombobox";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import { listsForBranch, resolveActiveListId } from "@/lib/priceLists";
@@ -23,6 +24,8 @@ import {
   Phone,
   MapPin,
   ChevronDown,
+  ChevronRight,
+  Wallet,
   Trash2,
   CloudOff,
   Pencil,
@@ -197,7 +200,18 @@ interface Props {
   /** Full appointment document for edit mode — same modal as booking */
   editAppointment?: BookingEditSnapshot | null;
   preSelectedPatient?: { id: string; name: string } | null;
-  onDelete?: (appointmentId: string) => void | Promise<void>;
+  /**
+   * Delete the visit on screen. The phone popup hands it straight over (the caller's own dialog does
+   * the asking) along with the visit's patient name, since the visit may be on another day than the
+   * caller's list.
+   */
+  onDelete?: (appointmentId: string, visit?: { patientName?: string }) => void | Promise<void>;
+  /**
+   * Take a payment on the patient's whole account (the phone's "Pay on account", which the old
+   * appointment sheet's Quick Pay used to do). The caller closes this popup and opens its own payment
+   * window. Absent = the button is not offered.
+   */
+  onPayAccount?: (patient: { id: string; name: string }) => void;
   inlineDesktop?: boolean;
   servicesList?: any[];
   /**
@@ -255,6 +269,7 @@ export default function BookingModal({
   patients,
   doctors,
   onDelete,
+  onPayAccount,
   preSelectedDate,
   preSelectedTime: preSelectedTimeProp,
   preSelectedDoctor,
@@ -273,6 +288,7 @@ export default function BookingModal({
   const { language } = useLanguage();
   const { showToast, confirm } = useUI();
   const { user } = useAuth();
+  const router = useRouter();
 
   /**
    * The wide popup moves between the patient's visits without closing: a card on its timeline
@@ -1044,7 +1060,13 @@ export default function BookingModal({
   }, [autosaveState]);
 
   // --- the wide popup ---------------------------------------------------------------------------
-  const wideLayout = wide && isDesktop && !inlineDesktop;
+  /**
+   * The wide popup's features on every screen. Below 1024px it is laid out as a full-screen phone
+   * sheet (`isPhone`): same tabs, same form, same save — only the arrangement differs. A caller that
+   * did not ask for `wide` still gets the old one-column form.
+   */
+  const wideLayout = wide && !inlineDesktop;
+  const isPhone = !isDesktop;
   /**
    * The patient's charted mouth and treatment history, for the Add-procedure teeth chart: so it
    * shows what is already there, and so ticking a whole arch knows which teeth are gone.
@@ -1068,7 +1090,8 @@ export default function BookingModal({
     const categoryById = new Map((servicesList as Array<{ id?: unknown; category?: string }>).map((sv) => [String(sv.id), sv.category]));
     return treatmentsByTooth(chartNotes, (id) => categoryById.get(id) || undefined, (name) => suggestCategory(name));
   }, [chartNotes, servicesList]);
-  type WideTab = "appointment" | "service" | "payment" | "insurance";
+  /** "history" is the phone's tab for the patient timeline, which sits in a side column on a desktop. */
+  type WideTab = "appointment" | "service" | "payment" | "insurance" | "history";
   const [wideTab, setWideTab] = useState<WideTab>("appointment");
   /** The Insurance tab's "add another insurance" / "upload for this company": opens the upload panel on that insurer. */
   const [uploadRequest, setUploadRequest] = useState<{ n: number; payerId?: string }>({ n: 0 });
@@ -1117,8 +1140,28 @@ export default function BookingModal({
       );
       if (!leave) return;
     }
-    setWideTab((t) => (next.kind === "new" && t !== "appointment" && t !== "service" ? "appointment" : t));
+    // On a phone the visit picked in the History tab opens on its Appointment tab, as it would beside the timeline.
+    setWideTab((t) => ((next.kind === "new" && t !== "appointment" && t !== "service") || t === "history" ? "appointment" : t));
     setSwitchedTo(next);
+  };
+
+  /**
+   * Leave the popup for somewhere else (the patient file, the account payment window). Asks first
+   * when there are edits that would be lost, the same question a switch to another visit asks.
+   */
+  const leaveFor = async (go: () => void) => {
+    if (hasUnsavedEdits && !autosaveOn) {
+      const leave = await confirm(
+        language === "ar" ? "في تعديلات على الزيارة دي لسه مش متحفظة. تسيبها؟" : "This visit has changes that are not saved yet. Leave them?",
+        {
+          title: language === "ar" ? "تعديلات مش متحفظة" : "Unsaved changes",
+          confirmLabel: language === "ar" ? "أيوه، سيبها" : "Leave them",
+          cancelLabel: language === "ar" ? "لأ" : "Stay",
+        }
+      );
+      if (!leave) return;
+    }
+    go();
   };
 
   if (!isOpen) return null;
@@ -1380,7 +1423,7 @@ servicesList.length > 0 && (
                   teethData={chartTeeth}
                   treatments={chartTreatments}
                   isAr={language === 'ar'}
-                  narrow={false}
+                  narrow={isPhone}
                   patientId={headerPatientId || undefined}
                 />
                 <p className="mt-1.5 text-xs font-semibold text-ink-body">
@@ -1792,22 +1835,52 @@ servicesList.length > 0 && (
           { id: "payment", label: isAr ? "الدفع" : "Payment" },
           { id: "insurance", label: isAr ? "التأمين" : "Insurance", count: lineOptions.length || undefined },
         ];
+    // The phone has no room for the timeline column, so the timeline is a tab of its own.
+    if (isPhone) tabs.push({ id: "history", label: isAr ? "الزيارات" : "History" });
+    // "history" exists only on a phone; a screen widened past 1024px while on it falls back to the visit.
+    const tab: WideTab = !isPhone && wideTab === "history" ? "appointment" : wideTab;
+    const whenLabel =
+      date && startMin !== null
+        ? `${formatDayLabel(date, isAr)} · ${formatTimeLabel(time, isAr)} – ${formatTimeLabel(minutesToTimeKey(startMin + Number(duration)), isAr)}`
+        : isAr
+          ? "لسه مفيش ميعاد"
+          : "No time picked yet";
+    const timeline = (
+      <PatientTimeline
+        patientId={headerPatientId}
+        activeId={editAppointment?.id ?? null}
+        language={language}
+        canBookAnother={!!headerPatientId}
+        onPick={(a: TimelineAppointment) => void switchVisit({ kind: "edit", appt: a as unknown as BookingEditSnapshot })}
+        onNew={() => selectedPatient && void switchVisit({ kind: "new", patient: { id: String(selectedPatient.id), name: selectedPatient.name } })}
+      />
+    );
     const visitTitle = editAppointment
       ? isAr
         ? `تعديل زيارة ${formatDayLabel(editAppointment.date || date, true)}`
         : `Editing the ${formatDayLabel(editAppointment.date || date, false)} visit`
-      : isAr
-        ? "حجز زيارة جديدة"
-        : "Booking a new visit";
+      : quickPay
+        ? isAr
+          ? "حساب المريض كله، من غير زيارة"
+          : "The patient's whole account, no visit"
+        : isAr
+          ? "حجز زيارة جديدة"
+          : "Booking a new visit";
     const panelHead = (title: string, withStatus: boolean) => (
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b border-line pb-5">
+      <div
+        className={
+          isPhone
+            ? "mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2.5 border-b border-line pb-4"
+            : "mb-3 flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b border-line pb-5"
+        }
+      >
         <div>
-          <h3 className="font-figure text-2xl font-semibold leading-tight text-ink">{title}</h3>
+          <h3 className={`font-figure ${isPhone ? "text-xl" : "text-2xl"} font-semibold leading-tight text-ink`}>{title}</h3>
           <p className="mt-1 text-sm text-ink-body">{visitTitle}</p>
         </div>
         {withStatus && (
           <div className="flex items-center gap-3">
-            <span className="text-base font-semibold text-ink-body">{isAr ? "الحالة" : "Status"}</span>
+            <span className={isPhone ? "text-sm font-semibold text-ink-body" : "text-base font-semibold text-ink-body"}>{isAr ? "الحالة" : "Status"}</span>
             <AppointmentStagePicker value={appointmentStatus} onChange={setAppointmentStatus} language={isAr ? "ar" : "en"} isolateClicks={false} large />
           </div>
         )}
@@ -1875,9 +1948,106 @@ servicesList.length > 0 && (
         aria-label={editAppointment ? txt.editTitle : txt.title}
         // The popup is portalled to <body>, outside any page that sets the direction, so it sets its own.
         dir={isAr ? "rtl" : "ltr"}
-        className={`${cairo.variable} ${isAr ? "booking-popup-ar text-right" : "text-left"} flex h-[min(980px,calc(100vh-1.5rem))] w-[min(1480px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-[22px] bg-surface text-[15px] text-ink antialiased shadow-[0_32px_90px_-24px_rgba(0,0,0,0.6)] ring-1 ring-black/10`}
+        className={
+          isPhone
+            ? `${cairo.variable} ${isAr ? "booking-popup-ar text-right" : "text-left"} flex h-full w-full flex-col overflow-hidden bg-surface text-[15px] text-ink antialiased`
+            : `${cairo.variable} ${isAr ? "booking-popup-ar text-right" : "text-left"} flex h-[min(980px,calc(100vh-1.5rem))] w-[min(1480px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-[22px] bg-surface text-[15px] text-ink antialiased shadow-[0_32px_90px_-24px_rgba(0,0,0,0.6)] ring-1 ring-black/10`
+        }
       >
-        {/* Header band: who, then the tabs sitting on its bottom edge like folder tabs */}
+        {isPhone ? (
+          /* Phone header: who and a close button, then the tabs as one row that scrolls sideways. */
+          <div className="shrink-0 bg-ink-slab pt-[env(safe-area-inset-top,0px)] text-white">
+            <div className="flex items-center gap-3 px-4 pt-3 pb-3">
+              {(() => {
+                const who = (
+                  <>
+              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/12 font-figure text-sm font-semibold ring-1 ring-white/15" aria-hidden="true">
+                {initials || <User size={18} className="text-white/75" />}
+              </div>
+              <div className="min-w-0 flex-1">
+                <h2 className="truncate font-figure text-lg font-semibold leading-tight">
+                  {patientName || (editAppointment ? "" : quickPay ? (isAr ? "دفع سريع" : "Quick pay") : isAr ? "مريض جديد" : "New booking")}
+                </h2>
+                {(() => {
+                  const phoneNo = card?.phone || (isNewPatient && newPatientPhone ? `${newPatientCountryCode} ${newPatientPhone}` : "");
+                  if (!card?.fileId && !phoneNo) {
+                    return (
+                      <p className="truncate text-xs text-white/70">
+                        {!patientName && !editAppointment ? (isAr ? "اختار المريض تحت" : "Pick the patient below") : visitTitle}
+                      </p>
+                    );
+                  }
+                  return (
+                    <p className="truncate text-xs text-white/70">
+                      {card?.fileId && (
+                        <>
+                          {isAr ? "ملف" : "File"} <b className="font-figure font-semibold text-white">{card.fileId}</b>
+                        </>
+                      )}
+                      {card?.fileId && phoneNo ? " · " : null}
+                      {phoneNo && (
+                        <bdi dir="ltr" className="font-figure font-semibold text-white">
+                          {phoneNo}
+                        </bdi>
+                      )}
+                    </p>
+                  );
+                })()}
+              </div>
+                  </>
+                );
+                // An existing visit: the name opens the patient's file (what the old appointment sheet's
+                // name did). Not while booking a new one — leaving would drop the draft without asking.
+                return headerPatientId && editAppointment ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void leaveFor(() => {
+                        router.push(`/patients/${headerPatientId}`);
+                        onClose();
+                      })
+                    }
+                    aria-label={isAr ? `افتح ملف ${patientName}` : `Open ${patientName}'s patient file`}
+                    className="-m-1 flex min-w-0 flex-1 items-center gap-3 rounded-xl p-1 text-start transition-colors active:bg-white/10"
+                  >
+                    {who}
+                    <ChevronRight size={18} className={`shrink-0 text-white/60 ${isAr ? "rotate-180" : ""}`} aria-hidden="true" />
+                  </button>
+                ) : (
+                  <div className="flex min-w-0 flex-1 items-center gap-3">{who}</div>
+                );
+              })()}
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label={isAr ? "إغلاق" : "Close"}
+                className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-white/20 text-white/80 transition-colors active:bg-white/10"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="no-scrollbar flex gap-1 overflow-x-auto px-3" role="tablist" aria-label={isAr ? "أقسام الزيارة" : "Visit sections"}>
+              {tabs.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === t.id}
+                  onClick={() => setWideTab(t.id)}
+                  className={`inline-flex shrink-0 items-center gap-1.5 rounded-t-xl px-4 pt-2.5 pb-3 text-sm font-semibold transition-colors ${
+                    tab === t.id ? "bg-surface text-ink" : "text-white/70 active:bg-white/10"
+                  }`}
+                >
+                  {t.label}
+                  {t.count ? (
+                    <span className="grid h-5 min-w-5 place-items-center rounded-full bg-accent px-1.5 text-xs font-bold text-ink-on-accent">{t.count}</span>
+                  ) : null}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+        /* Header band: who, then the tabs sitting on its bottom edge like folder tabs */
         <div className="grid shrink-0 grid-cols-[312px_minmax(0,1fr)_auto] items-end bg-ink-slab ps-7 pe-6 pt-6 text-white">
           <div className="flex min-w-0 items-center gap-4 pb-6">
             <div className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-white/12 font-figure text-lg font-semibold ring-1 ring-white/15" aria-hidden="true">
@@ -1909,10 +2079,10 @@ servicesList.length > 0 && (
                 key={t.id}
                 type="button"
                 role="tab"
-                aria-selected={wideTab === t.id}
+                aria-selected={tab === t.id}
                 onClick={() => setWideTab(t.id)}
                 className={`inline-flex shrink-0 items-center gap-2 rounded-t-2xl px-6 pt-3.5 pb-4 text-[15px] font-semibold transition-colors ${
-                  wideTab === t.id ? "bg-surface text-ink" : "text-white/70 hover:bg-white/5 hover:text-white"
+                  tab === t.id ? "bg-surface text-ink" : "text-white/70 hover:bg-white/5 hover:text-white"
                 }`}
               >
                 {t.label}
@@ -1931,28 +2101,32 @@ servicesList.length > 0 && (
             <X size={18} />
           </button>
         </div>
+        )}
 
-        <div className="grid min-h-0 flex-1 grid-cols-[340px_minmax(0,1fr)]">
-          <aside className="flex min-h-0 flex-col border-e border-line bg-surface-subtle px-7 pt-6 pb-3" aria-label={isAr ? "سجل الزيارات" : "Patient timeline"}>
-            <PatientTimeline
-              patientId={headerPatientId}
-              activeId={editAppointment?.id ?? null}
-              language={language}
-              canBookAnother={!!headerPatientId}
-              onPick={(a: TimelineAppointment) => void switchVisit({ kind: "edit", appt: a as unknown as BookingEditSnapshot })}
-              onNew={() => selectedPatient && void switchVisit({ kind: "new", patient: { id: String(selectedPatient.id), name: selectedPatient.name } })}
-            />
-          </aside>
+        <div className={isPhone ? "flex min-h-0 flex-1 flex-col" : "grid min-h-0 flex-1 grid-cols-[340px_minmax(0,1fr)]"}>
+          {!isPhone && (
+            <aside className="flex min-h-0 flex-col border-e border-line bg-surface-subtle px-7 pt-6 pb-3" aria-label={isAr ? "سجل الزيارات" : "Patient timeline"}>
+              {timeline}
+            </aside>
+          )}
 
-          <div className="custom-scrollbar min-h-0 overflow-y-auto px-9 pt-7 pb-10" role="tabpanel">
-            {wideTab === "appointment" && quickPay && (
+          <div
+            className={isPhone ? "custom-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-5 pb-8" : "custom-scrollbar min-h-0 overflow-y-auto px-9 pt-7 pb-10"}
+            role="tabpanel"
+          >
+            {tab === "history" && (
+              <div className="rounded-2xl bg-surface-subtle px-4 pt-4 pb-2" aria-label={isAr ? "سجل الزيارات" : "Patient timeline"}>
+                {timeline}
+              </div>
+            )}
+            {tab === "appointment" && quickPay && (
               <>
                 {panelHead(isAr ? "المريض" : "Patient", false)}
                 <p className="mb-4 text-[15px] font-medium text-ink-body">{isAr ? "اختار المريض، وهتلاقي كل اللي عليه في تبويب الدفع." : "Pick the patient; everything they owe is on the Payment tab."}</p>
                 <div className="pb-5">{patientSection}</div>
               </>
             )}
-            {wideTab === "appointment" && !quickPay && (
+            {tab === "appointment" && !quickPay && (
               <>
                 {panelHead(isAr ? "الموعد" : "Appointment", true)}
                 {!editAppointment && <div className="pb-5">{patientSection}</div>}
@@ -1994,6 +2168,7 @@ servicesList.length > 0 && (
                   }}
                   roomId={roomId}
                   setRoomId={setRoomId}
+                  phone={isPhone}
                 />
                 <div className={fieldRow}>
                   <label className={fieldLabel} htmlFor="booking-reason">
@@ -2023,7 +2198,7 @@ servicesList.length > 0 && (
               </>
             )}
 
-            {wideTab === "service" && (
+            {tab === "service" && (
               <>
                 {panelHead(isAr ? "الخدمة" : "Service", false)}
                 {editAppointment ? (
@@ -2032,16 +2207,38 @@ servicesList.length > 0 && (
                   // it follows the new dentist even before Save changes.
                   <AppointmentMoneyTab key={`svc-${editAppointment.id}`} appointment={{ ...editAppointment, doctorId: resolvedDoctorId }} section="service" doctorsList={doctors} servicesList={servicesList} />
                 ) : servicesList.length > 0 ? (
-                  <div className="mt-4 overflow-hidden rounded-2xl border border-line [&>div]:border-t-0 [&>div]:pt-6">{addProcedureSection}</div>
+                  <div
+                    className={
+                      isPhone
+                        ? "mt-4 overflow-hidden rounded-2xl border border-line [&>div]:border-t-0 [&>div]:px-3 [&>div]:pt-4 [&>div]:pb-4"
+                        : "mt-4 overflow-hidden rounded-2xl border border-line [&>div]:border-t-0 [&>div]:pt-6"
+                    }
+                  >
+                    {addProcedureSection}
+                  </div>
                 ) : (
                   <p className="mt-4 text-[15px] text-ink-body">{txt.noServices}</p>
                 )}
               </>
             )}
 
-            {wideTab === "payment" && (
+            {tab === "payment" && (
               <>
                 {panelHead(isAr ? "الدفع" : "Payment", false)}
+                {/* The patient's whole account, not just this visit: the caller's payment window. */}
+                {/* Existing visits only: a new booking's draft is not counted as unsaved, so leaving it would lose it. */}
+                {onPayAccount && headerPatientId && editAppointment && !quickPay && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void leaveFor(() => onPayAccount({ id: headerPatientId, name: selectedPatient?.name || editAppointment?.patientName || "" }))
+                    }
+                    className="mb-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-line-strong bg-surface px-4 text-[15px] font-semibold text-ink transition-colors active:bg-surface-subtle"
+                  >
+                    <Wallet size={17} aria-hidden="true" />
+                    {isAr ? "دفع على الحساب كله" : "Pay on account"}
+                  </button>
+                )}
                 {claimsLoaded && <InsuranceShareDue claims={patientClaims.claims} language={language} />}
                 {editAppointment ? (
                   <AppointmentMoneyTab key={`pay-${editAppointment.id}`} appointment={editAppointment} section="payment" doctorsList={doctors} servicesList={servicesList} />
@@ -2063,7 +2260,7 @@ servicesList.length > 0 && (
               </>
             )}
 
-            {wideTab === "insurance" && (
+            {tab === "insurance" && (
               <>
                 {panelHead(isAr ? "التأمين" : "Insurance", false)}
                 {headerPatientId ? (
@@ -2104,7 +2301,65 @@ servicesList.length > 0 && (
           </div>
         </div>
 
-        {/* Footer: what will be saved, and the buttons */}
+        {isPhone ? (
+          /* Phone footer: always on screen, above the home indicator. What will be saved, then the buttons. */
+          <div className="shrink-0 border-t border-line-strong bg-surface px-4 pt-2.5 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]">
+            {!quickPay && (
+              <div className="mb-2.5 min-w-0">
+                <p className="truncate font-figure text-[15px] font-semibold tabular-nums text-ink">{whenLabel}</p>
+                <p className="truncate text-xs text-ink-body">
+                  {doctorLabel} · {durationLabel} · {getAppointmentStageLabel(appointmentStatus, isAr ? "ar" : "en")}
+                </p>
+                {blockingReasons.length > 0 && !isChecking && (
+                  <p className="mt-1 text-xs font-semibold text-warn">
+                    {txt.stillNeeded} {blockingReasons.join(isAr ? "، " : ", ")}
+                  </p>
+                )}
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              {editAppointment && onDelete && (
+                <Protect permission="appointments.delete">
+                  <button
+                    type="button"
+                    // No "are you sure" here: the caller's delete dialog asks (and says what happens to
+                    // the treatments), so asking first as well made Delete a two-question job.
+                    onClick={() => void onDelete(editAppointment.id, { patientName: editAppointment.patientName })}
+                    data-tour="appointment-delete"
+                    aria-label={isAr ? "حذف الموعد" : "Delete appointment"}
+                    className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border border-danger/30 text-danger transition-colors active:bg-danger-tint"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </Protect>
+              )}
+              <button
+                type="button"
+                onClick={onClose}
+                className={`h-12 min-w-0 flex-1 rounded-xl px-3 text-[15px] font-semibold transition-colors ${quickPay ? "bg-accent font-bold text-ink-on-accent active:bg-accent-strong" : "border border-line-strong text-ink-body active:border-ink"}`}
+              >
+                {autosaveOn || quickPay ? txt.done : txt.cancel}
+              </button>
+              {quickPay ? null : autosaveOn ? (
+                <div className="flex flex-[2] items-center justify-center">
+                  <BookingAutosaveChip state={autosaveState} isAr={isAr} />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void handleSubmit()}
+                  data-tour="booking-confirm"
+                  disabled={isChecking || holdSave || blockingReasons.length > 0}
+                  className="inline-flex h-12 min-w-0 flex-[2] items-center justify-center gap-2 rounded-xl bg-accent px-3 text-[15px] font-bold text-ink-on-accent shadow-sm transition-colors active:bg-accent-strong disabled:opacity-40"
+                >
+                  {(isChecking || holdSave) && <Loader2 size={16} className="animate-spin" />}
+                  <span className="truncate">{editAppointment ? txt.saveEdit : txt.confirm}</span>
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+        /* Footer: what will be saved, and the buttons */
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-6 gap-y-3 border-t border-line-strong bg-surface px-8 py-5">
           <div className="min-w-0">
             <p className="font-figure text-lg font-semibold tabular-nums text-ink">
@@ -2158,12 +2413,22 @@ servicesList.length > 0 && (
             )}
           </div>
         </div>
+        )}
       </div>
     );
   }
 
   if (wideLayout) {
     if (!portalTarget) return null;
+    if (isPhone) {
+      // Full screen on a phone: no backdrop to tap past, nothing beside it to see.
+      return createPortal(
+        <div className="fixed inset-0 z-[200] flex flex-col bg-surface animate-in fade-in">
+          {renderWide()}
+        </div>,
+        portalTarget
+      );
+    }
     return createPortal(
       <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-[2px] animate-in fade-in">
         {renderWide()}

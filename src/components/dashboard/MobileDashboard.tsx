@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Calendar, Plus, ChevronRight, ChevronLeft, Wallet, User, Clock, Check,
   Loader2, Edit, Printer, UserX, MessageCircle, Pill, Receipt,
-  X, Save, Trash2, FileText, ChevronDown, Bell, UserPlus, AlertCircle, ScanLine
+  X, Save, Trash2, ChevronDown, Bell, UserPlus, AlertCircle, ScanLine
 } from "lucide-react";
 import ApprovalReadSheet from "@/components/insurance/ApprovalReadSheet";
 import { useClinic } from "@/context/ClinicContext";
@@ -29,8 +29,6 @@ import {
   normalizeTimeKey,
 } from "@/lib/bookingService";
 import NewPatientModal from "@/components/NewPatientModal";
-import QuickPaymentModal from "@/components/QuickPaymentModal";
-import AppointmentSidePanel from "@/components/appointments/AppointmentSidePanel";
 import AppointmentStagePicker from "@/components/appointments/AppointmentStagePicker";
 import PrescriptionPrintFinderModal from "@/components/PrescriptionPrintFinderModal";
 import WaitingMoodPicker from "@/components/appointments/WaitingMoodPicker";
@@ -41,7 +39,6 @@ import { logActivity } from "@/lib/logger";
 import { MoneyApiError, deleteAppointment } from "@/lib/moneyApi";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { parseClinicSchedule, clinicDayBoundsMinutes, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
-import { pickerValueFromDoctorField } from "@/lib/generalDentist";
 import { rowInScope } from "@/lib/branchAccess";
 import { useActiveBranch } from "@/lib/useActiveBranch";
 import BranchSelector from "@/components/shared/BranchSelector";
@@ -127,6 +124,33 @@ type DashboardAppointment = {
   notes?: string;
 };
 
+/**
+ * What the booking popup needs from a schedule card — the desk dashboard's builder, field for field.
+ * The popup saves what it was given, so leaving out the dentist id, branch, room or insurance link
+ * here would quietly clear them on the next save.
+ */
+function editSnapshotOf(apt: DashboardAppointment): BookingEditSnapshot {
+  const raw = apt as DashboardAppointment & {
+    doctorId?: string | null;
+    branchId?: string | null;
+    roomId?: string | null;
+    claimId?: string | null;
+    claimLine?: number | null;
+    claimLinks?: unknown;
+  };
+  return {
+    id: apt.id, patientId: String(apt.patientId), patientName: apt.patientName!,
+    treatment: apt.treatment!, doctor: apt.doctor!, doctorId: raw.doctorId ?? null, date: apt.date!,
+    time: apt.time!, duration: apt.duration!, clinicalNoteId: apt.clinicalNoteId ?? null,
+    branchId: raw.branchId ?? null, roomId: raw.roomId ?? null,
+    claimId: raw.claimId ?? null, claimLine: raw.claimLine ?? null, claimLinks: raw.claimLinks,
+    cost: apt.cost!,
+    listPrice: apt.listPrice ?? undefined, discountMode: apt.discountMode ?? undefined,
+    discountPercent: apt.discountPercent ?? undefined, discountFixed: apt.discountFixed ?? undefined,
+    discountAmount: apt.discountAmount ?? undefined, notes: apt.notes!, status: apt.status || "Scheduled",
+  };
+}
+
 function DashboardClockWidget({ language, showTime = true }: { language: string, showTime?: boolean }) {
   const [time, setTime] = useState(new Date());
   useEffect(() => {
@@ -160,7 +184,7 @@ export default function MobileDashboard() {
   // A dentist reaches this calendar from their menu now (it is the only calendar). The clinic's
   // takings for the day are not theirs to read unless they hold the finance permission.
   const hideIncome = role === "Dentist" && !(isAdmin || holdsPermission(role, user?.permissions, "access.finance"));
-  const { showToast, confirm, appointmentEditorMode } = useUI();
+  const { showToast } = useUI();
   const router = useRouter();
 
   const [allAppointments, setAllAppointments] = useState<any[]>([]);
@@ -183,15 +207,16 @@ export default function MobileDashboard() {
 
 
   // Modal State
-  const [activeModal, setActiveModal] = useState<'patient' | 'booking' | 'payment' | null>(null);
+  const [activeModal, setActiveModal] = useState<'patient' | 'booking' | null>(null);
   const [pendingCheckoutPayload, setPendingCheckoutPayload] = useState<any | null>(null);
-  const [paymentPatient, setPaymentPatient] = useState<{ id: string, name: string } | null>(null);
+  /** The booking popup in Quick Pay mode: one patient's whole account, no visit (its "Pay on account"). */
+  const [quickPayMode, setQuickPayMode] = useState(false);
   const [preSelectedTime, setPreSelectedTime] = useState<string>("");
   const [preSelectedPatient, setPreSelectedPatient] = useState<{ id: string; name: string } | null>(null);
   const [preSelectedDoctor, setPreSelectedDoctor] = useState<string>("");
   /** The approved service a "book this patient" link asked for, and the popup tab it opens on. */
   const [preSelectedClaimLine, setPreSelectedClaimLine] = useState<ClaimLink | null>(null);
-  const [bookingTab, setBookingTab] = useState<"appointment" | "insurance">("appointment");
+  const [bookingTab, setBookingTab] = useState<"appointment" | "service" | "payment" | "insurance">("appointment");
   // ?book=<patientId>[&claim=<claimId>&line=<n>] — the Leads screen and the patient file booking a
   // patient (one approved service, from the Insurance tab). Read once, then the address is cleared
   // so a refresh does not reopen it. The desk dashboard reads the same link.
@@ -229,8 +254,6 @@ export default function MobileDashboard() {
       })
       .catch((err) => console.error("Book from link: patient read failed", err));
   }, [patientsList]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [showDelayPrompt, setShowDelayPrompt] = useState(false);
-  const [delayedAppointmentData, setDelayedAppointmentData] = useState<any>(null);
 
   const [historyDrawerPatientId, setHistoryDrawerPatientId] = useState("");
   const [historyDrawerPatientName, setHistoryDrawerPatientName] = useState("");
@@ -244,7 +267,6 @@ export default function MobileDashboard() {
     // Placeholder until the clinic's own settings load.
     isConfigured: false,
   });
-  const [selectedAppointment, setSelectedAppointment] = useState<DashboardAppointment | null>(null);
   const [appointmentToEdit, setAppointmentToEdit] = useState<BookingEditSnapshot | null>(null);
   const [scheduleViewDate, setScheduleViewDate] = useState(getLocalDateKey);
   const daysOfWeek = useMemo(() => {
@@ -275,7 +297,6 @@ export default function MobileDashboard() {
   }, [scheduleViewDate]);
 
   const scheduleDateInputRef = useRef<HTMLInputElement>(null);
-  const lastTapRef = useRef<{ time: number; id: string } | null>(null);
   const [printingRxPatientId, setPrintingRxPatientId] = useState<string | null>(null);
   const [printingReceiptPatientId, setPrintingReceiptPatientId] = useState<string | null>(null);
   const [prescriptionFinderOpen, setPrescriptionFinderOpen] = useState(false);
@@ -286,22 +307,6 @@ export default function MobileDashboard() {
     const timer = setInterval(() => setRealTime(new Date()), 60000);
     return () => clearInterval(timer);
   }, []);
-
-
-  // Inline editor state
-  const [inlineEdit, setInlineEdit] = useState<Record<string, any>>({});
-
-  const [inlineSaving, setInlineSaving] = useState(false);
-  const [patientLedger, setPatientLedger] = useState<any[]>([]);
-  const [ledgerLoading, setLedgerLoading] = useState(false);
-
-  // Inline payment state
-  const [showInlinePayment, setShowInlinePayment] = useState(false);
-  const [unpaidProcedures, setUnpaidProcedures] = useState<any[]>([]);
-  const [selectedProcedure, setSelectedProcedure] = useState<any>(null);
-  const [inlinePayAmount, setInlinePayAmount] = useState<number | "">("");
-  const [inlinePayLoading, setInlinePayLoading] = useState(false);
-  const [unpaidLoading, setUnpaidLoading] = useState(false);
 
   const [dailyIncome, setDailyIncome] = useState<number | null>(null);
 
@@ -352,124 +357,6 @@ export default function MobileDashboard() {
   };
 
   // Removed 1000ms timer to prevent 60fps re-rendering of entire dashboard
-
-  // Fetch ledger entries when selected appointment changes
-  useEffect(() => {
-    if (!selectedAppointment?.patientId) {
-      setPatientLedger([]);
-      return;
-    }
-    setLedgerLoading(true);
-    const q = query(
-      getClinicCollection("ledger"),
-      where("patientId", "==", selectedAppointment.patientId)
-    );
-    const unsub = onSnapshot(q, (snap) => {
-      const records = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      // Client-side sort by createdAt descending
-      records.sort((a: any, b: any) => {
-        const tA = a.createdAt?.toMillis?.() || 0;
-        const tB = b.createdAt?.toMillis?.() || 0;
-        return tB - tA;
-      });
-      setPatientLedger(records);
-      setLedgerLoading(false);
-    }, (error) => {
-      console.error("Ledger query error:", error);
-      setLedgerLoading(false);
-    });
-    return () => unsub();
-  }, [selectedAppointment?.patientId]);
-
-  // Initialize inline edit form when appointment is selected
-  useEffect(() => {
-    if (selectedAppointment) {
-      setInlineEdit({
-        patientName: selectedAppointment.patientName || '',
-        treatment: selectedAppointment.treatment || '',
-        doctor: selectedAppointment.doctor || '',
-        date: selectedAppointment.date || '',
-        time: selectedAppointment.time || '',
-        duration: selectedAppointment.duration || 30,
-        status: selectedAppointment.status || 'Scheduled',
-        notes: selectedAppointment.notes || '',
-        cost: selectedAppointment.cost || 0,
-        serviceId: selectedAppointment.serviceId || '',
-        serviceName: selectedAppointment.serviceName || '',
-      });
-    }
-  }, [selectedAppointment?.id]);
-
-  const hasUnsavedChanges = useMemo(() => {
-    if (!selectedAppointment) return false;
-    const fields = ['patientName', 'treatment', 'doctor', 'date', 'time', 'duration', 'status', 'notes', 'cost', 'serviceId'];
-    for (const key of fields) {
-      let oldVal = (selectedAppointment as any)[key];
-      let newVal = inlineEdit[key];
-      if (oldVal == null) oldVal = '';
-      if (newVal == null) newVal = '';
-      if (String(oldVal) !== String(newVal)) return true;
-    }
-    return false;
-  }, [selectedAppointment, inlineEdit]);
-
-  const saveInlineEdit = async (): Promise<boolean> => {
-    if (!selectedAppointment) return false;
-    if (inlineEdit.status === "Delayed" && selectedAppointment.status !== "Delayed") {
-      setDelayedAppointmentData({ ...inlineEdit, id: selectedAppointment.id });
-      setShowDelayPrompt(true);
-      return false;
-    }
-    setInlineSaving(true);
-    try {
-      const updatePayload: any = {
-        patientName: inlineEdit.patientName,
-        treatment: inlineEdit.treatment,
-        doctor: inlineEdit.doctor,
-        date: inlineEdit.date,
-        time: inlineEdit.time,
-        duration: Number(inlineEdit.duration) || 30,
-        status: inlineEdit.status,
-        notes: inlineEdit.notes,
-        cost: Number(inlineEdit.cost) || 0,
-        serviceId: inlineEdit.serviceId || null,
-        serviceName: inlineEdit.serviceName || null,
-        modifiedBy: user?.name || 'System',
-        updatedAt: serverTimestamp(),
-      };
-
-      Object.keys(updatePayload).forEach(key => {
-        if (updatePayload[key] === undefined) delete updatePayload[key];
-      });
-
-      await updateDoc(getClinicDoc("appointments", selectedAppointment.id), updatePayload);
-      void syncClaimLineFromAppointment(currentClinicId(), { ...selectedAppointment, status: inlineEdit.status });
-      showToast(language === 'ar' ? 'تم الحفظ' : 'Saved!', 'success');
-      return true;
-    } catch (e) {
-      console.error(e);
-      showToast(language === 'ar' ? 'خطأ' : 'Error saving', 'error');
-      return false;
-    } finally {
-      setInlineSaving(false);
-    }
-  };
-
-  const handleSelectAppointmentWrapper = async (apt: DashboardAppointment | null) => {
-    if (hasUnsavedChanges && selectedAppointment && apt?.id !== selectedAppointment.id) {
-      const wantToSave = await confirm(
-        language === "ar"
-          ? "لديك تغييرات غير محفوظة. هل تريد حفظها قبل المتابعة؟"
-          : "You have unsaved changes. Do you want to save them before proceeding?",
-        { confirmLabel: language === "ar" ? "حفظ" : "Save", cancelLabel: language === "ar" ? "تجاهل" : "Discard" }
-      );
-      if (wantToSave) {
-        const success = await saveInlineEdit();
-        if (!success) return; // if save failed or hit delay prompt, abort switch
-      }
-    }
-    setSelectedAppointment(apt);
-  };
 
   // Fetch only appointments for the current view date to prevent severe performance degradation
   // and browser freezes when saving.
@@ -582,6 +469,67 @@ export default function MobileDashboard() {
     }
   };
 
+  /**
+   * A new booking confirmed from the popup's Payment tab: saved with its services, and the popup
+   * stays open on the saved visit's Payment tab so the money is taken at once. The desk
+   * dashboard's handler, line for line.
+   */
+  const handleSaveBookingAndStay = async (data: any) => {
+    try {
+      const saved = await saveBooking(
+        data,
+        { uid: user?.uid || "", name: user?.name || "System", role: user?.role || "", language: language as "en" | "ar" },
+        async (key: string, msg: string) => {
+          void fireOwnerWhatsAppAlert(key as OwnerAlertKey, msg);
+        },
+      );
+      setAppointmentToEdit({
+        id: saved.appointmentId,
+        patientId: saved.patientId,
+        patientName: String(data.patientName || ""),
+        treatment: String(data.treatment || ""),
+        doctor: String(data.doctor || ""),
+        doctorId: data.doctorId ?? null,
+        date: String(data.date || ""),
+        time: String(data.time || ""),
+        duration: Number(data.duration) || 30,
+        clinicalNoteId: null,
+        branchId: data.branchId ?? null,
+        roomId: data.roomId ?? null,
+        claimId: data.claimId ?? null,
+        claimLine: data.claimLine ?? null,
+        claimLinks: data.claimLinks,
+        cost: Number(data.cost) || 0,
+        notes: String(data.notes || ""),
+        status: String(data.status || "Scheduled"),
+      } as BookingEditSnapshot);
+      setBookingTab("payment");
+      showToast(language === "ar" ? "الحجز اتسجّل — حصّل من هنا" : "Booked — take the payment here", "success");
+    } catch (error) {
+      console.error("Booking save error:", error);
+      showToast(language === "ar" ? "حدث خطأ" : "Error saving appointment", "error");
+    }
+  };
+
+  /** A schedule card opens the booking popup on that visit — the same window a new booking uses. */
+  const openAppointment = (apt: DashboardAppointment) => {
+    setAppointmentToEdit(editSnapshotOf(apt));
+    setBookingTab("appointment");
+    setActiveModal("booking");
+  };
+
+  /** Everything the booking popup's own Close resets. Shared so every way out leaves the same state. */
+  const closeBooking = () => {
+    setActiveModal(null);
+    setAppointmentToEdit(null);
+    setPreSelectedTime("");
+    setPreSelectedPatient(null);
+    setPreSelectedDoctor("");
+    setPreSelectedClaimLine(null);
+    setBookingTab("appointment");
+    setQuickPayMode(false);
+  };
+
 
 
   const handleWaitingMoodChange = async (id: string, waitingMood: string) => {
@@ -592,9 +540,6 @@ export default function MobileDashboard() {
       });
       setAllAppointments((prev) =>
         prev.map((a) => (a.id === id ? { ...a, waitingMood } : a))
-      );
-      setSelectedAppointment((prev) =>
-        prev?.id === id ? { ...prev, waitingMood } : prev
       );
     } catch (error) {
       console.error(error);
@@ -681,15 +626,6 @@ export default function MobileDashboard() {
             : a
         )
       );
-      setSelectedAppointment((prev) =>
-        prev?.id === id
-          ? {
-            ...prev,
-            status: nextStatus,
-            ...(nextStatus === "Checked In" && !prev.waitingMood ? { waitingMood: "neutral" } : {}),
-          }
-          : prev
-      );
       showToast(language === "ar" ? "تم تحديث المرحلة" : "Stage updated", "success");
     } catch (error) {
       console.error(error);
@@ -711,15 +647,20 @@ export default function MobileDashboard() {
   /**
    * Deleting a visit asks what happens to the treatments recorded on it (keep them in the
    * patient's history, or delete them too while nothing is paid) — see DeleteAppointmentDialog.
-   * Every entry point (the calendar card, the booking popup, the side panel) opens it.
+   * The booking popup's Delete opens it (a card opens the popup).
    */
-  const [pendingDelete, setPendingDelete] = useState<{ id: string; patientName?: string } | null>(null);
-  const handleDeleteAppointment = async (e: React.MouseEvent | null | string, id?: string) => {
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; patientName?: string; fromPopup?: boolean } | null>(null);
+  const handleDeleteAppointment = async (
+    e: React.MouseEvent | null | string,
+    id?: string,
+    /** From the booking popup: the visit's own name (it may be on another day than the one on screen). */
+    from?: { patientName?: string; fromPopup?: boolean },
+  ) => {
     const appointmentId = typeof e === 'string' ? e : id;
     if (typeof e !== 'string' && e?.stopPropagation) e.stopPropagation();
     if (!appointmentId) return;
     const appt = allAppointments.find((a) => a.id === appointmentId);
-    setPendingDelete({ id: appointmentId, patientName: appt?.patientName });
+    setPendingDelete({ id: appointmentId, patientName: from?.patientName || appt?.patientName, fromPopup: from?.fromPopup });
   };
 
   const performDelete = async (servicesAction: "keep" | "delete") => {
@@ -737,12 +678,11 @@ export default function MobileDashboard() {
           : language === "ar" ? "تم الحذف" : "Deleted",
         "success"
       );
-      if (selectedAppointment?.id === appointmentId) {
-        setSelectedAppointment(null);
-      }
-      if (appointmentToEdit?.id === appointmentId) {
-        setAppointmentToEdit(null);
-        setActiveModal(null);
+      // The popup can be showing a different visit than the one it was opened on (its History tab
+      // switches visits), so a delete started from it always closes it — never leave it open on a
+      // visit that no longer exists, where a later Save would write to a deleted document.
+      if (pendingDelete.fromPopup || appointmentToEdit?.id === appointmentId) {
+        closeBooking();
       }
     } catch (error) {
       // A refused delete must say so; swallowing it looked like nothing had happened at all.
@@ -1298,9 +1238,9 @@ export default function MobileDashboard() {
                                 key={apt.id}
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleSelectAppointmentWrapper(apt);
+                                  openAppointment(apt);
                                 }}
-                                className={`flex bg-surface rounded-3xl border border-slate-100 shadow-sm p-4 gap-4 items-center transition-transform active:scale-[0.98] ${selectedAppointment?.id === apt.id ? 'ring-2 ring-emerald-500 shadow-md' : ''}`}
+                                className={`flex bg-surface rounded-3xl border border-slate-100 shadow-sm p-4 gap-4 items-center transition-transform active:scale-[0.98]`}
                               >
                                 <div className="flex flex-col items-center justify-center shrink-0 w-16">
                                   <span className="text-sm font-black text-slate-800 leading-none mb-1">{apt.time?.split(" ")[0]}</span>
@@ -1339,7 +1279,6 @@ export default function MobileDashboard() {
                                 className={`border-b ${isHourSlot ? 'border-accent-soft/40' : 'border-dashed border-accent-soft/20'} flex-1 relative pointer-events-auto cursor-pointer hover:bg-emerald-50/30 transition-colors group/slot`}
                                 style={{ height: `${rowHeight}px` }}
                                 onClick={() => {
-                                  handleSelectAppointmentWrapper(null);
                                   setAppointmentToEdit(null);
                                   setPreSelectedTime(slot.label);
                                   setActiveModal('booking');
@@ -1437,9 +1376,9 @@ export default function MobileDashboard() {
                                   <div
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      handleSelectAppointmentWrapper(apt);
+                                      openAppointment(apt);
                                     }}
-                                    className={`w-full h-full rounded-2xl bg-surface border border-slate-100 shadow-sm transition-all hover:scale-[1.01] hover:shadow-md cursor-pointer overflow-hidden flex relative ${selectedAppointment?.id === apt.id ? 'ring-2 ring-emerald-500 scale-[1.01] z-10 shadow-md' : ''}`}
+                                    className={`w-full h-full rounded-2xl bg-surface border border-slate-100 shadow-sm transition-all hover:scale-[1.01] hover:shadow-md cursor-pointer overflow-hidden flex relative`}
                                   >
                                     {/* Accent color bar on the left */}
                                     <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${aptStyles.accent}`}></div>
@@ -1476,58 +1415,34 @@ export default function MobileDashboard() {
             </div>
           </div>
 
-          {/* 6. PATIENT LEDGER / EDIT PANEL */}
-          <div className="hidden lg:flex w-full lg:w-[400px] xl:w-[450px] shrink-0 flex-col gap-4 z-20">
-            {selectedAppointment ? (
-              <AppointmentSidePanel
-                selectedAppointment={selectedAppointment}
-                onClose={() => handleSelectAppointmentWrapper(null)}
-                onEditFull={(appt) => {
-                  setAppointmentToEdit(appt);
-                  setActiveModal("booking");
-                }}
-                onDelete={(id) => handleDeleteAppointment(null, id)}
-                onSaveBooking={handleSaveBooking}
-                onQuickPay={(pid, pname) => {
-                  setPaymentPatient({ id: pid, name: pname });
-                  setActiveModal("payment");
-                }}
-                doctorsList={doctorsList}
-              />
-            ) : activeModal === 'booking' && appointmentEditorMode === 'drawer' ? (
-              <BookingModal
-                isOpen={activeModal === 'booking'}
-                inlineDesktop={true}
-                onClose={() => { setActiveModal(null); setAppointmentToEdit(null); setPreSelectedTime(''); setPreSelectedPatient(null); setPreSelectedDoctor(''); }}
-                onSave={handleSaveBooking}
-                patients={patientsList}
-                doctors={doctorsList}
-
-                settingsConfig={config}
-                editAppointment={appointmentToEdit}
-                preSelectedDate={normalizeDateKey(scheduleViewDate)}
-                preSelectedTime={preSelectedTime}
-                preSelectedDoctor={preSelectedDoctor}
-                preSelectedPatient={preSelectedPatient}
-                preSelectedBranchId={scopeBranchId}
-                servicesList={servicesList}
-              />
-            ) : (
-              <div className="flex-1 flex flex-col items-center justify-center text-white/60 lg:text-indigo-900/40 p-6 text-center">
-                <FileText size={48} className="mb-4 opacity-40 lg:opacity-30 lg:text-indigo-400" />
-                <p className="text-lg font-bold text-white lg:text-indigo-950 mb-1">Select an Appointment</p>
-                <p className="text-sm font-medium opacity-80 lg:text-slate-500 lg:opacity-100 max-w-[250px]">Click on any appointment in the schedule to view finances and edit details.</p>
-              </div>
-            )}
-          </div>
         </div>
       </div>
 
       {activeModal === 'booking' && (
         <BookingModal
+          // A fresh popup when it turns into Quick Pay, so nothing of the visit it came from carries over.
+          key={quickPayMode ? `quickpay-${preSelectedPatient?.id ?? ""}` : "booking"}
           isOpen={true}
           inlineDesktop={false}
-          onClose={() => { setActiveModal(null); setAppointmentToEdit(null); setPreSelectedTime(''); setPreSelectedPatient(null); setPreSelectedDoctor(''); setPreSelectedClaimLine(null); setBookingTab("appointment"); }}
+          // The new booking pop-up (tabs, timeline, every time of the day), in its phone layout.
+          wide
+          quickPay={quickPayMode}
+          onSaveAndStay={handleSaveBookingAndStay}
+          // Delete stays reachable from the visit itself now that a card opens the popup directly.
+          // Its dialog asks (once) and closes the popup after a delete — whichever visit it was showing.
+          onDelete={(id, visit) => handleDeleteAppointment(id, undefined, { patientName: visit?.patientName, fromPopup: true })}
+          // The old appointment sheet's Quick Pay: the patient's whole account. The popup itself
+          // turns into Quick Pay for that patient — its payment view is the branch-aware one.
+          onPayAccount={(p) => {
+            setAppointmentToEdit(null);
+            setPreSelectedTime("");
+            setPreSelectedDoctor("");
+            setPreSelectedClaimLine(null);
+            setPreSelectedPatient(p);
+            setBookingTab("payment");
+            setQuickPayMode(true);
+          }}
+          onClose={closeBooking}
           onSave={handleSaveBooking}
           patients={patientsList}
           doctors={doctorsList}
@@ -1551,11 +1466,12 @@ export default function MobileDashboard() {
           patientName={pendingDelete.patientName}
           onCancel={() => setPendingDelete(null)}
           onConfirm={performDelete}
+          // Opened from the booking popup (z-[200]); it has to sit above it.
+          layerClass="z-[260]"
         />
       )}
 
       <NewPatientModal isOpen={activeModal === 'patient'} onClose={() => setActiveModal(null)} onSuccess={() => { }} preSelectedBranchId={scopeBranchId} />
-      <QuickPaymentModal isOpen={activeModal === 'payment'} onClose={() => setActiveModal(null)} onSave={() => { }} patients={patientsList} preSelectedPatient={paymentPatient} />
       <ApprovalReadSheet
         isOpen={readApproval}
         onClose={() => setReadApproval(false)}
@@ -1577,145 +1493,8 @@ export default function MobileDashboard() {
 
 
 
-      {showDelayPrompt && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[9999] p-4">
-          <div className="bg-white rounded-[32px] p-6 max-w-md w-full shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
-            <h3 className="text-xl font-black text-slate-900 mb-2">
-              {language === 'ar' ? 'تأجيل الموعد' : 'Delay Appointment'}
-            </h3>
-            <p className="text-sm font-medium text-ink-body mb-6 leading-relaxed">
-              {language === 'ar'
-                ? 'هل تريد جدولة موعد جديد لهذا المريض الآن، أم تركه غير محدد بعد؟'
-                : 'Would you like to schedule a new appointment for this patient now, or leave it as not set yet?'}
-            </p>
-            <div className="flex flex-col gap-2">
-              <button
-                onClick={async () => {
-                  setShowDelayPrompt(false);
-                  setInlineSaving(true);
-                  try {
-                    await updateDoc(getClinicDoc("appointments", delayedAppointmentData.id), {
-                      patientName: delayedAppointmentData.patientName,
-                      treatment: delayedAppointmentData.treatment,
-                      doctor: delayedAppointmentData.doctor,
-                      date: delayedAppointmentData.date,
-                      time: delayedAppointmentData.time,
-                      duration: Number(delayedAppointmentData.duration) || 30,
-                      status: "Delayed",
-                      notes: delayedAppointmentData.notes,
-                      cost: Number(delayedAppointmentData.cost) || 0,
-                      serviceId: delayedAppointmentData.serviceId || null,
-                      serviceName: delayedAppointmentData.serviceName || null,
-                      modifiedBy: user?.name || 'System',
-                      updatedAt: serverTimestamp(),
-                    });
-
-                    setAppointmentToEdit(null);
-                    setPreSelectedPatient({
-                      id: selectedAppointment!.patientId!,
-                      name: selectedAppointment!.patientName!
-                    });
-                    // A visit that was General stays General when it is rebooked.
-                    setPreSelectedDoctor(pickerValueFromDoctorField(selectedAppointment!.doctor));
-                    setActiveModal("booking");
-
-                    showToast(language === 'ar' ? 'تم تأجيل الموعد، افتح حجز جديد' : 'Appointment delayed, opening new booking...', 'success');
-                    handleSelectAppointmentWrapper(null);
-                  } catch (e) {
-                    console.error(e);
-                    showToast('Error saving', 'error');
-                  } finally {
-                    setInlineSaving(false);
-                  }
-                }}
-                className="w-full bg-accent-soft hover:bg-accent text-ink font-black py-3 rounded-xl transition-colors text-sm shadow-sm shadow-accent-soft/30"
-              >
-                {language === 'ar' ? 'جدولة موعد جديد' : 'Schedule New Appointment'}
-              </button>
-              <button
-                onClick={async () => {
-                  setShowDelayPrompt(false);
-                  setInlineSaving(true);
-                  try {
-                    await updateDoc(getClinicDoc("appointments", delayedAppointmentData.id), {
-                      patientName: delayedAppointmentData.patientName,
-                      treatment: delayedAppointmentData.treatment,
-                      doctor: delayedAppointmentData.doctor,
-                      date: delayedAppointmentData.date,
-                      time: delayedAppointmentData.time,
-                      duration: Number(delayedAppointmentData.duration) || 30,
-                      status: "Delayed",
-                      notes: delayedAppointmentData.notes,
-                      cost: Number(delayedAppointmentData.cost) || 0,
-                      serviceId: delayedAppointmentData.serviceId || null,
-                      serviceName: delayedAppointmentData.serviceName || null,
-                      modifiedBy: user?.name || 'System',
-                      updatedAt: serverTimestamp(),
-                    });
-                    showToast(language === 'ar' ? 'تم التأجيل' : 'Appointment delayed', 'success');
-                    handleSelectAppointmentWrapper(null);
-                  } catch (e) {
-                    console.error(e);
-                    showToast('Error saving', 'error');
-                  } finally {
-                    setInlineSaving(false);
-                  }
-                }}
-                className="w-full bg-surface-muted hover:bg-slate-200 text-slate-700 font-black py-3 rounded-xl transition-colors text-sm"
-              >
-                {language === 'ar' ? 'غير محدد بعد' : 'Not Set Yet'}
-              </button>
-              <button
-                onClick={() => setShowDelayPrompt(false)}
-                className="w-full bg-surface hover:bg-surface-subtle text-ink-muted font-bold py-2.5 rounded-xl border border-line transition-colors text-sm mt-2"
-              >
-                {language === 'ar' ? 'إلغاء' : 'Cancel'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* Mobile Appointment Details Sheet */}
-      {selectedAppointment && (
-        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm lg:hidden flex flex-col justify-end">
-          <div className="bg-white rounded-t-[2.5rem] w-full max-h-[85vh] flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-300">
-            {/* Header bar to pull down or close */}
-            <div className="w-12 h-1 bg-slate-200 rounded-full mx-auto my-3 shrink-0" />
-            <div className="flex justify-between items-center px-6 pb-2 shrink-0">
-              <h3 className="text-lg font-black text-ink">{language === 'ar' ? 'تفاصيل الموعد' : 'Appointment Details'}</h3>
-              <button
-                onClick={() => handleSelectAppointmentWrapper(null)}
-                className="p-2 bg-surface-subtle hover:bg-surface-muted rounded-full text-slate-400"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto px-6 pb-8 custom-scrollbar">
-              <AppointmentSidePanel
-                selectedAppointment={selectedAppointment}
-                onClose={() => handleSelectAppointmentWrapper(null)}
-                onEditFull={(appt) => {
-                  setAppointmentToEdit(appt);
-                  setActiveModal("booking");
-                  handleSelectAppointmentWrapper(null);
-                }}
-                onDelete={(id) => {
-                  handleDeleteAppointment(null, id);
-                  handleSelectAppointmentWrapper(null);
-                }}
-                onSaveBooking={handleSaveBooking}
-                onQuickPay={(pid, pname) => {
-                  setPaymentPatient({ id: pid, name: pname });
-                  setActiveModal("payment");
-                  handleSelectAppointmentWrapper(null);
-                }}
-                doctorsList={doctorsList}
-                servicesList={servicesList}
-              />
-            </div>
-          </div>
-        </div>
-      )}
+      {/* The old "Appointment Details" bottom sheet is gone: a card now opens the booking popup on
+          that visit, which carries the same edit, the Payment tab (Quick Pay's job) and Delete. */}
       {/* Patient History Drawer */}
       <PatientHistoryDrawer
         isOpen={!!historyDrawerPatientId}

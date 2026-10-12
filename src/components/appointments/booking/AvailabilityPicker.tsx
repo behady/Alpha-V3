@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { onSnapshot, query, where } from "firebase/firestore";
 import { Loader2 } from "lucide-react";
 import { getClinicCollection } from "@/lib/db-utils";
@@ -36,6 +36,12 @@ type Props = {
   setBranchId?: (v: string) => void;
   roomId?: string;
   setRoomId?: (v: string) => void;
+  /**
+   * The phone layout of the booking popup: the fortnight scrolls sideways instead of squeezing
+   * seven days across, the times sit three to a row, and labels sit above their fields. Same
+   * choices, same data — only the arrangement differs. The desktop popup leaves it off.
+   */
+  phone?: boolean;
 };
 
 /** Staff id for a picker value — the same resolution BookingModal saves with. */
@@ -70,6 +76,7 @@ export default function AvailabilityPicker({
   setBranchId,
   roomId = "",
   setRoomId,
+  phone = false,
 }: Props) {
   const isAr = language === "ar";
   const today = todayKey();
@@ -142,8 +149,23 @@ export default function AvailabilityPicker({
   const countLabel = (n: number) => (n === 0 ? (isAr ? "مليان" : "fully booked") : isAr ? `${n} فاضي` : `${n} free`);
 
   // Same label and control columns as the rest of the popup, so every row lines up.
-  const row = "grid grid-cols-1 items-start gap-2 border-t border-line py-5 first:border-t-0 xl:grid-cols-[168px_minmax(0,1fr)] xl:gap-6";
-  const label = "pt-3 text-sm font-semibold text-ink-body";
+  const row = phone
+    ? "grid grid-cols-1 items-start gap-2 border-t border-line py-4 first:border-t-0"
+    : "grid grid-cols-1 items-start gap-2 border-t border-line py-5 first:border-t-0 xl:grid-cols-[168px_minmax(0,1fr)] xl:gap-6";
+  const label = phone ? "text-sm font-semibold text-ink-body" : "pt-3 text-sm font-semibold text-ink-body";
+
+  // Phone: keep the chosen day in view on the sideways strip. scrollBy is relative, so it moves the
+  // right way in Arabic too, where scrollLeft counts from the other edge.
+  const stripRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!phone) return;
+    const strip = stripRef.current;
+    const picked = strip?.querySelector<HTMLElement>('[aria-pressed="true"]');
+    if (!strip || !picked) return;
+    const s = strip.getBoundingClientRect();
+    const b = picked.getBoundingClientRect();
+    strip.scrollBy({ left: b.left + b.width / 2 - (s.left + s.width / 2) });
+  }, [phone, date, stripStart]);
   const selectClass =
     "h-12 w-full rounded-xl border border-line-strong bg-surface px-3.5 text-[15px] font-semibold text-ink outline-none transition-colors focus:border-ink focus:ring-2 focus:ring-ink/10";
 
@@ -177,7 +199,7 @@ export default function AvailabilityPicker({
       {branches.length > 0 && (
         <div className={row}>
           <div className={label}>{isAr ? "الفرع والغرفة" : "Branch & room"}</div>
-          <div className="flex max-w-2xl flex-wrap gap-3">
+          <div className={phone ? "grid grid-cols-1 gap-3" : "flex max-w-2xl flex-wrap gap-3"}>
             {branches.length > 1 && (
               <select
                 value={branchId}
@@ -244,6 +266,22 @@ export default function AvailabilityPicker({
 
       {/* Date */}
       <div className={row}>
+        {phone ? (
+          // One line: the label, and the "other day" picker beside it.
+          <div className="flex items-center justify-between gap-3">
+            <span className={label}>{isAr ? "اليوم" : "Date"}</span>
+            <label className="flex min-w-0 items-center gap-2 text-xs font-normal text-ink-muted">
+              {isAr ? "يوم تاني:" : "Other day:"}
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => e.target.value && setDate(e.target.value)}
+                data-tour="booking-date"
+                className="h-9 w-[150px] min-w-0 rounded-lg border border-line-strong bg-surface px-2 text-[13px] font-semibold text-ink outline-none focus:border-ink"
+              />
+            </label>
+          </div>
+        ) : (
         <div className={label}>
           {isAr ? "اليوم" : "Date"}
           <label className="mt-2 block text-xs font-normal text-ink-muted">
@@ -257,7 +295,8 @@ export default function AvailabilityPicker({
             />
           </label>
         </div>
-        <div className="grid grid-cols-7 gap-2">
+        )}
+        <div ref={stripRef} className={phone ? "no-scrollbar -mx-4 flex snap-x gap-2 overflow-x-auto px-4 pb-1" : "grid grid-cols-7 gap-2"}>
           {days.map((k) => {
             const [y, m, d] = k.split("-").map(Number);
             const closed = isClinicOffDay(k, sched.offDays);
@@ -270,7 +309,7 @@ export default function AvailabilityPicker({
                 onClick={() => setDate(k)}
                 aria-pressed={selected}
                 aria-label={`${formatDayLabel(k, isAr)}${closed ? (isAr ? "، العيادة قافلة" : ", clinic closed") : n !== null ? `, ${countLabel(n)}` : ""}`}
-                className={`grid min-w-0 justify-items-center gap-0.5 rounded-xl border py-2.5 transition-colors ${
+                className={`grid ${phone ? "w-[62px] shrink-0 snap-start" : "min-w-0"} justify-items-center gap-0.5 rounded-xl border py-2.5 transition-colors ${
                   selected
                     ? "border-ink-slab bg-ink-slab text-white"
                     : closed
@@ -281,7 +320,7 @@ export default function AvailabilityPicker({
                 <span className={`text-xs font-semibold uppercase tracking-wide ${selected ? "text-white/75" : "text-ink-body"}`}>
                   {k === today ? (isAr ? "النهارده" : "Today") : new Date(y, m - 1, d).toLocaleDateString(isAr ? "ar-EG" : "en-GB", { weekday: "short" })}
                 </span>
-                <span className="font-figure text-2xl font-semibold leading-tight">{d}</span>
+                <span className={`font-figure ${phone ? "text-xl" : "text-2xl"} font-semibold leading-tight`}>{d}</span>
                 <span className={`text-xs font-medium ${selected ? "text-white/75" : n === 0 ? "text-danger" : "text-ink-body"}`}>
                   {closed ? (isAr ? "قافلة" : "Closed") : n === null ? "·" : n === 0 ? (isAr ? "مليان" : "Full") : isAr ? `${n} فاضي` : `${n} free`}
                 </span>
@@ -295,7 +334,7 @@ export default function AvailabilityPicker({
       <div className={row}>
         <div className={label}>{isAr ? "المواعيد" : "Available slot"}</div>
         <div className="overflow-hidden rounded-2xl border border-line-strong">
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-line bg-surface-subtle px-5 py-3.5">
+          <div className={`flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-line bg-surface-subtle ${phone ? "px-4 py-3" : "px-5 py-3.5"}`}>
             <span className="font-figure text-lg font-semibold text-ink">{formatDayLabel(date, isAr)}</span>
             <span className="flex flex-wrap items-center gap-4 text-[13px] text-ink-body">
               <span>
@@ -330,14 +369,14 @@ export default function AvailabilityPicker({
               <Loader2 size={16} className="animate-spin" /> {isAr ? "بنشوف المواعيد…" : "Checking the diary…"}
             </div>
           ) : (
-            <div className="grid gap-2 px-5 pt-2 pb-5" data-tour="booking-time">
+            <div className={phone ? "grid gap-2 px-3 pt-1 pb-4" : "grid gap-2 px-5 pt-2 pb-5"} data-tour="booking-time">
               {groups.map((cells, gi) => (
-                <div key={gi} className="grid grid-cols-1 gap-2 pt-3 xl:grid-cols-[96px_minmax(0,1fr)] xl:gap-4">
-                  <span className="pt-3 text-sm font-semibold text-ink-body">{groupNames[gi]}</span>
+                <div key={gi} className={phone ? "grid grid-cols-1 gap-2 pt-3" : "grid grid-cols-1 gap-2 pt-3 xl:grid-cols-[96px_minmax(0,1fr)] xl:gap-4"}>
+                  <span className={phone ? "text-sm font-semibold text-ink-body" : "pt-3 text-sm font-semibold text-ink-body"}>{groupNames[gi]}</span>
                   {cells.length === 0 ? (
-                    <span className="pt-3 text-sm text-ink-muted">{isAr ? "مفيش مواعيد" : "No times"}</span>
+                    <span className={phone ? "text-sm text-ink-muted" : "pt-3 text-sm text-ink-muted"}>{isAr ? "مفيش مواعيد" : "No times"}</span>
                   ) : (
-                    <div className="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-2">
+                    <div className={phone ? "grid grid-cols-3 gap-2 sm:grid-cols-[repeat(auto-fill,minmax(112px,1fr))]" : "grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-2"}>
                       {cells.map((s) => {
                         const selected = s.current;
                         return (
