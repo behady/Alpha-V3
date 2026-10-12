@@ -211,7 +211,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
    * way without making <main> a scroll container. Only this page, only below `lg`: other pages
    * carry `sticky` classes that were written against the desktop's scrolling <main>.
    */
-  const phoneStickyPage = /^\/patients\/[^/]+$/.test(pathname);
+  // /team: the staff profile's tab bar is sticky in the same way. /reports has nothing sticky, but
+  // it gets `clip` for the other half of the reason: with `hidden`, <main> is still a scroll box
+  // sideways, and a focus or programmatic scroll into a wide report shifted the whole page left
+  // with no way back. (`overflow-x: clip` can only hold while overflow-y is not a scroll value —
+  // paired with `auto` it computes to `hidden` — which is why this has to be the whole set.)
+  // Desktop is identical: the `lg:` classes below are the default branch's.
+  const phoneStickyPage = /^\/patients\/[^/]+$/.test(pathname) || pathname === "/team" || pathname === "/reports";
   /**
    * The same trap on the phone calendar (the desk dashboard below `lg`): its week agenda pins each
    * day's header with `sticky`, and `overflow-hidden` on <main> would hold them to a box that never

@@ -11,6 +11,7 @@ import { punchRecordFrom, staffRecordFrom, hoursText } from "@/lib/hrClient";
 import { commissionByStaff } from "@/lib/staffCommission";
 import { localYmd } from "@/lib/clinicDate";
 import { getFirstDay } from "@/lib/reportHelpers";
+import { formatStaffRoleLabel } from "@/lib/staffRoles";
 
 const EMPTY: never[] = [];
 
@@ -85,7 +86,7 @@ export default function AttendanceReport({ payments, range, isAr, data, clinic }
           rowKey={(l) => l.staffId}
           exportName="Attendance_Payroll"
           columns={[
-            { key: "name", label: isAr ? "الاسم" : "Name", render: (l) => (<div><a href={`/team?staff=${l.staffId}`} className="text-[13px] font-bold text-ink hover:underline">{l.name}</a><span className="block text-[11px] font-medium text-ink-faint">{l.role}{!l.hasSchedule && (isAr ? " · بدون روستر" : " · no roster")}</span></div>) },
+            { key: "name", label: isAr ? "الاسم" : "Name", render: (l) => (<div><a href={`/team?staff=${l.staffId}`} className="text-[13px] font-bold text-ink hover:underline">{l.name}</a><span className="block text-[11px] font-medium text-ink-faint">{formatStaffRoleLabel({ role: l.role }, isAr)}{!l.hasSchedule && (isAr ? " · بدون روستر" : " · no roster")}</span></div>) },
             { key: "daysWorked", label: isAr ? "أيام" : "Days", align: "end", render: (l) => <Num v={l.daysWorked} /> },
             { key: "hours", label: isAr ? "ساعات" : "Hours", align: "end", render: (l) => <span className="font-figure text-[12.5px] text-ink-body">{hoursText(l.minutesWorked, isAr)}</span>, exportValue: (l) => l.hours },
             { key: "lateDays", label: isAr ? "تأخير" : "Late", align: "end", render: (l) => <span className={`font-figure text-[12.5px] ${l.lateDays > 0 ? "text-danger" : "text-ink-faint"}`}>{l.lateDays}{l.lateMinutes ? ` · ${hoursText(l.lateMinutes, isAr)}` : ""}</span> },

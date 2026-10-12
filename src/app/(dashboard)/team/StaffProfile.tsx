@@ -1,6 +1,7 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
+import { useRailActiveInView } from "@/lib/useRailActiveInView";
 import { AlertTriangle, ArrowRight, CalendarCheck, Clock, Smartphone, Timer, UserX } from "lucide-react";
 import type { HrStaffRow } from "@/lib/automation/briefing/types";
 import type { PunchRecord } from "@/lib/automation/briefing/data";
@@ -100,6 +101,9 @@ export default function StaffProfile({
   /** Save the branches this person may work in; null = every branch. */
   onSaveBranchIds: (ids: string[] | null) => void | Promise<void>;
 }) {
+  // Between sm and lg the tab bar is a sideways strip; keep the open tab (e.g. from `?tab=`) in view.
+  const tabBarRef = useRef<HTMLDivElement>(null);
+  useRailActiveInView(tabBarRef, `${staff.id}|${tab}`);
   const dentist = isDentistStaff(staff);
   const first = shortName(staff.name);
   const basePay = row?.estimatedPay ?? 0;
@@ -277,10 +281,13 @@ export default function StaffProfile({
       </div>
 
       {/* --- the tab bar: one row, sticks under the band so it is always a click away ---------- */}
+      {/* Phones: four equal columns, any badge under its label, so all four tabs fit in 340px
+          (the strip was ~450px wide and Settings sat off the edge with no hint). sm+: the strip. */}
       <div
+        ref={tabBarRef}
         role="tablist"
         aria-label={isAr ? "أقسام الملف" : "Profile sections"}
-        className="sticky top-0 z-10 flex gap-1 overflow-x-auto border-x border-b border-line bg-surface px-2 no-scrollbar sm:px-4"
+        className="sticky top-0 z-10 grid grid-cols-4 gap-0.5 border-x border-b border-line bg-surface px-1 no-scrollbar sm:flex sm:gap-1 sm:overflow-x-auto sm:px-4"
       >
         {tabs.map((t) => {
           const active = t.id === tab;
@@ -291,14 +298,15 @@ export default function StaffProfile({
               role="tab"
               aria-selected={active}
               onClick={() => onTab(t.id)}
-              className={`relative flex shrink-0 items-center gap-2 px-3 py-4 text-[16px] font-bold transition-colors sm:px-4 ${
+              className={`relative flex min-w-0 flex-col items-center justify-center gap-1 px-0 py-3 text-[clamp(12px,3.5vw,14px)] font-bold transition-colors sm:shrink-0 sm:flex-row sm:gap-2 sm:px-4 sm:py-4 sm:text-[16px] ${
                 active ? "text-ink" : "text-ink-muted hover:text-ink"
               }`}
             >
-              {t.label}
+              <span className="max-w-full truncate">{t.label}</span>
               {t.badge && (
                 <span
-                  className={`font-figure rounded-full px-2 py-0.5 text-[12px] font-bold ${
+                  title={t.badge}
+                  className={`font-figure max-w-full truncate rounded-full px-1.5 py-0.5 text-[11px] font-bold sm:px-2 sm:text-[12px] ${
                     t.warn ? "bg-accent text-ink" : "bg-surface-muted text-ink-body"
                   }`}
                 >
@@ -329,7 +337,8 @@ export default function StaffProfile({
                         <button
                           type="button"
                           onClick={() => onTab(f.goTo!)}
-                          className="ms-2 inline-flex items-center gap-1 text-[14px] font-bold text-ink-body underline decoration-line underline-offset-4 hover:text-ink"
+                          /* The ::after pad grows the tap target to ~44px tall without moving the text. */
+                          className="relative ms-2 inline-flex items-center gap-1 text-[14px] font-bold text-ink-body underline decoration-line underline-offset-4 after:absolute after:-inset-x-1 after:-inset-y-3 hover:text-ink"
                         >
                           {f.goTo === "attendance" ? (isAr ? "افتح الحضور" : "Open Attendance") : isAr ? "افتح الإعدادات" : "Open Settings"}
                           <ArrowRight size={14} className={isAr ? "rotate-180" : ""} />

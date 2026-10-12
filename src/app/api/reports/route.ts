@@ -14,7 +14,6 @@ import { loadBriefingData } from "@/lib/automation/briefing/data";
 import { buildHrSection } from "@/lib/automation/briefing/hr";
 import { resolveBriefingAccess } from "@/lib/automation/briefing/build";
 import type { PayrollRow } from "@/lib/reports/opsStats";
-import { getFirstDay } from "@/lib/reportHelpers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -103,7 +102,9 @@ export async function GET(request: Request) {
           nowMinutes: Number(new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", hour12: false }).format(now)) * 60 + now.getUTCMinutes(),
           timeZone,
           geofenceRadiusM: Number((clinic as { geofenceRadiusM?: number } | null)?.geofenceRadiusM) || 200,
-          monthStart: getFirstDay(),
+          // The 1st of the clinic's month, from the same clinic-timezone `today` — not the
+          // server's (UTC) calendar, which is still last month for the first hours of the 1st.
+          monthStart: `${today.slice(0, 8)}01`,
         });
         payroll = section.staff as PayrollRow[];
       }

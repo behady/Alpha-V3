@@ -5,6 +5,7 @@ import { Network, ChevronDown, ChevronRight, FileSpreadsheet, Download } from "l
 import { exportToExcel, parseMoney } from "./reportExcelUtils";
 import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
 import { ledgerCashValue } from "@/lib/reportHelpers";
+import { currencyUnit } from "@/lib/currencyUnit";
 import { useUI } from "@/context/UIContext";
 import { attributeService, buildProcedureIndex } from "@/lib/serviceAttribution";
 import { Bars, ChartFrame, GHOST, INK, MARK } from "@/components/reports/chartKit";
@@ -38,8 +39,13 @@ interface PatientData {
  */
 function patientChannel(patient: PatientData | null, rowReferral: unknown): string {
   const raw = String(patient?.referral || patient?.source || rowReferral || "").trim();
-  return raw || "Unknown / Walk-in";
+  return raw || UNKNOWN_SOURCE;
 }
+
+/** The group key for patients with no channel. Stays English (it is the key and the export value); */
+const UNKNOWN_SOURCE = "Unknown / Walk-in";
+/** …only the label on screen is translated. */
+const sourceLabel = (name: string, isAr: boolean) => (isAr && name === UNKNOWN_SOURCE ? "غير معروف / حضور مباشر" : name);
 
 interface Props {
   procedures: Record<string, unknown>[];
@@ -54,6 +60,7 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
   const chartRef = useRef<HTMLDivElement>(null);
   const [exporting, setExporting] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const cur = currencyUnit("EGP", isAr);
 
   const patientMap = useMemo(() => {
     const m: Record<string, PatientData> = {};
@@ -299,11 +306,11 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
         {[
           { l: isAr ? "المصادر" : "Sources", v: stats.length.toString(), c: "text-blue-600" },
           { l: isAr ? "عدد المرضى" : "Patients (active)", v: totalPatients.toString(), c: "text-emerald-600" },
-          { l: isAr ? "إجمالي الدخل" : "Total Income", v: `${totalIncome.toLocaleString()} EGP`, c: "text-ink" },
+          { l: isAr ? "إجمالي الدخل" : "Total Income", v: `${totalIncome.toLocaleString()} ${cur}`, c: "text-ink" },
         ].map((k) => (
-          <div key={k.l} className="bg-surface border border-line shadow-sm rounded-2xl p-4">
+          <div key={k.l} className="min-w-0 bg-surface border border-line shadow-sm rounded-2xl p-3 sm:p-4">
             <p className="text-[10px] font-black text-ink-muted uppercase tracking-wider">{k.l}</p>
-            <p className={`text-xl font-black tabular-nums mt-1 ${k.c}`}>{k.v}</p>
+            <p className={`text-[clamp(15px,4.5vw,20px)] sm:text-xl font-black tabular-nums mt-1 break-words ${k.c}`}>{k.v}</p>
           </div>
         ))}
       </div>
@@ -328,7 +335,7 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
             <Bars
               rows={[
                 ...stats.slice(0, 6).map((s, i) => ({
-                  label: s.name,
+                  label: sourceLabel(s.name, isAr),
                   value: s.totalIncome,
                   text: `${s.totalIncome.toLocaleString()} ${isAr ? "ج.م" : "EGP"}`,
                   color: i === 0 ? MARK : INK,
@@ -348,7 +355,7 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
 
         {/* Sources table with expandable rows */}
         <div className="xl:col-span-8 bg-surface rounded-2xl border border-line shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center">
+          <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap justify-between items-center gap-2">
             <h3 className="text-sm font-black text-ink">{isAr ? "تفاصيل المصادر" : "Source Details"}</h3>
             <div className="flex items-center gap-2">
               <button
@@ -377,10 +384,10 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
                   onClick={() => setExpanded(expanded === s.name ? null : s.name)}
                   className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-surface-subtle transition-colors text-start"
                 >
-                  <span className="flex-1 font-bold text-sm text-slate-800">{s.name}</span>
+                  <span className="flex-1 min-w-0 break-words font-bold text-sm text-slate-800" dir="auto">{sourceLabel(s.name, isAr)}</span>
                   <span className="text-xs text-ink-muted font-semibold">{s.patientCount} {isAr ? "مريض" : "patients"}</span>
-                  <span className="text-xs font-black text-emerald-600 tabular-nums w-24 text-end">{s.totalIncome.toLocaleString()} EGP</span>
-                  {expanded === s.name ? <ChevronDown size={15} className="text-slate-400 shrink-0" /> : <ChevronRight size={15} className="text-slate-400 shrink-0" />}
+                  <span className="text-xs font-black text-emerald-600 tabular-nums w-24 text-end">{s.totalIncome.toLocaleString()} {cur}</span>
+                  {expanded === s.name ? <ChevronDown size={15} className="text-slate-400 shrink-0" /> : <ChevronRight size={15} className="text-slate-400 shrink-0 rtl:rotate-180" />}
                 </button>
 
                 {expanded === s.name && (
@@ -413,7 +420,7 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
                     {/* Patients — all of them, with a file link, a phone and what they had. */}
                     <div>
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">
-                        {isAr ? `المرضى من ${s.name}` : `Patients from ${s.name}`}
+                        {isAr ? `المرضى من ${sourceLabel(s.name, isAr)}` : `Patients from ${s.name}`}
                       </p>
                       <div className="bg-surface rounded-xl border border-line overflow-hidden">
                         <PatientDrilldown

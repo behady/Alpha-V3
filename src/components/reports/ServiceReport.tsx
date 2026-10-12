@@ -286,7 +286,7 @@ export default function ServiceReport({ procedures, payments, allPatients, range
 
         {/* Table */}
         <div className="xl:col-span-7 bg-surface rounded-2xl border border-line shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center">
+          <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap justify-between items-center gap-2">
             <h3 className="text-sm font-black text-ink">{isAr ? "تفاصيل الخدمات" : "Service Breakdown"}</h3>
             <div className="flex items-center gap-2">
             <button

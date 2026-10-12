@@ -112,7 +112,7 @@ export default function PatientDrilldown({
                 onChange={(e) => setQuery(e.target.value)}
                 onClick={(e) => e.stopPropagation()}
                 placeholder={t.search}
-                className="w-52 rounded-xl border border-line bg-surface py-1.5 pe-2.5 ps-8 text-[12.5px] font-bold text-ink outline-none transition focus:border-accent"
+                className="w-52 max-w-full rounded-xl border border-line bg-surface py-1.5 pe-2.5 ps-8 text-[12.5px] font-bold text-ink outline-none transition focus:border-accent"
               />
             </span>
           )}
@@ -137,7 +137,55 @@ export default function PatientDrilldown({
       ) : filtered.length === 0 ? (
         <p className="px-4 py-6 text-center text-[12.5px] font-medium text-ink-faint">{t.noMatch}</p>
       ) : (
-        <div className="overflow-x-auto">
+        <>
+        {/* Phones: a card per patient — the 40rem table hid what they paid. Same rows and total. */}
+        <ul className="divide-y divide-line border-t border-line md:hidden">
+          {shown.map((r, i) => (
+            <li key={r.patientId || `${r.name}-${i}`} className="px-4 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  {r.patientId ? (
+                    <Link href={`/patients/${r.patientId}`} onClick={(e) => e.stopPropagation()} className="break-words text-[13px] font-bold text-ink hover:underline">
+                      {r.name}
+                    </Link>
+                  ) : (
+                    <span className="break-words text-[13px] font-bold text-ink">{r.name}</span>
+                  )}
+                  {r.phone && (
+                    <a href={`tel:${r.phone}`} onClick={(e) => e.stopPropagation()} dir="ltr" className="block font-figure text-[11.5px] text-ink-faint">
+                      {r.phone}
+                    </a>
+                  )}
+                </div>
+                <div className="shrink-0 text-end">
+                  <span className="font-figure text-[13px] font-bold text-ink">{fmt(r.paid)}</span>
+                  {r.charged > r.paid && <span className="block font-figure text-[10.5px] font-bold text-danger"><bdi dir="ltr">−{fmt(r.charged - r.paid)}</bdi></span>}
+                </div>
+              </div>
+              {r.services.length > 0 && (
+                <p className="mt-1 line-clamp-2 text-[12px] font-medium text-ink-body">{r.services.join(" + ")}</p>
+              )}
+              {r.procedures > 1 && (
+                <p className="font-figure text-[11px] text-ink-faint">{isAr ? `${r.procedures} علاجات` : `${r.procedures} treatments`}</p>
+              )}
+              <p className="mt-0.5 text-[11px] font-medium text-ink-faint">
+                {t.visits}: {r.visits}
+                {r.lastDate ? ` · ${r.firstDate && r.firstDate !== r.lastDate ? `${dayText(r.firstDate, isAr)} → ${dayText(r.lastDate, isAr)}` : dayText(r.lastDate, isAr)}` : ""}
+                {r.doctors.length > 0 ? ` · ${r.doctors.join(", ")}` : ""}
+              </p>
+            </li>
+          ))}
+          {filtered.length > 1 && (
+            <li className="flex items-baseline justify-between gap-3 bg-surface-subtle px-4 py-2.5">
+              <span className="text-[11px] font-black uppercase tracking-wider text-ink-muted">
+                {filtered.length} {t.patientWord(filtered.length)}
+                {query && <span className="ms-2 normal-case tracking-normal text-ink-faint">{isAr ? "(بعد البحث)" : "(filtered)"}</span>}
+              </span>
+              <span className="font-figure text-[13px] font-bold text-ink">{fmt(filtered.reduce((s, r) => s + r.paid, 0))}</span>
+            </li>
+          )}
+        </ul>
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full min-w-[40rem] border-collapse">
             <thead>
               <tr className="border-y border-line bg-surface-subtle">
@@ -229,6 +277,7 @@ export default function PatientDrilldown({
             )}
           </table>
         </div>
+        </>
       )}
 
       {hidden > 0 && (

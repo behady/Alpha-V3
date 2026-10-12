@@ -150,7 +150,7 @@ export function DataTable<T>({
   return (
     <section className="overflow-hidden rounded-2xl border border-line bg-surface">
       {(title || exportName) && (
-        <div className="flex items-center justify-between gap-3 px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
           <h3 className="text-sm font-black tracking-tight text-ink">{title}</h3>
           {exportName && rows.length > 0 && (
             <button
@@ -167,7 +167,62 @@ export function DataTable<T>({
       {rows.length === 0 ? (
         <p className="px-4 py-8 text-center text-[12.5px] font-medium text-ink-faint">{emptyText || (isAr ? "مفيش بيانات في الفترة دي." : "Nothing in this period.")}</p>
       ) : (
-        <div className="overflow-x-auto">
+        <>
+        {/*
+          Phones: one card per row — the first column is the card's title, every other column a
+          "label · value" line. The tables run to seven or eight columns, and at 340px the scroll box
+          showed the first two and hid the money. Same cells, same click/expand, same totals.
+        */}
+        <ul className="divide-y divide-line border-t border-line md:hidden">
+          {shown.map((r) => {
+            const k = rowKey(r);
+            const open = expanded === k;
+            const cell = (c: Column<T>) => (c.render ? c.render(r) : String((r as Record<string, unknown>)[c.key] ?? ""));
+            const [head, ...rest] = columns;
+            return (
+              <li key={k} className={open ? "bg-surface-subtle" : ""}>
+                <div
+                  role={onRowClick ? "button" : undefined}
+                  tabIndex={onRowClick ? 0 : undefined}
+                  onClick={onRowClick ? () => onRowClick(r) : undefined}
+                  onKeyDown={onRowClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onRowClick(r); } } : undefined}
+                  className={`px-4 py-3 ${onRowClick ? "cursor-pointer active:bg-surface-subtle" : ""}`}
+                >
+                  {head && <div className={`min-w-0 break-words text-[13.5px] font-bold text-ink ${head.className || ""}`}>{cell(head)}</div>}
+                  {rest.length > 0 && (
+                    <dl className="mt-1.5 space-y-1">
+                      {rest.map((c) => (
+                        <div key={c.key} className="flex items-baseline justify-between gap-3">
+                          {c.label ? <dt className="shrink-0 text-[11.5px] font-semibold text-ink-muted">{c.label}</dt> : null}
+                          <dd className={`min-w-0 break-words text-end text-[12.5px] text-ink-body ${c.label ? "" : "w-full"}`}>{cell(c)}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  )}
+                </div>
+                {open && renderExpanded && <div className="border-t border-line bg-surface-subtle/60">{renderExpanded(r)}</div>}
+              </li>
+            );
+          })}
+          {hasTotals && (
+            <li className="bg-surface-subtle px-4 py-3">
+              <p className="text-[11px] font-black uppercase tracking-wider text-ink-muted">{isAr ? "الإجمالي" : "Total"}</p>
+              <dl className="mt-1.5 space-y-1">
+                {/* The first column's total cell is the table's own "Total" label; the card says it
+                    already, above, so it is left out here. */}
+                {columns.slice(1).map((c) =>
+                  c.total !== undefined && c.total !== null && c.total !== "" ? (
+                    <div key={c.key} className="flex items-baseline justify-between gap-3">
+                      <dt className="shrink-0 text-[11.5px] font-semibold text-ink-muted">{c.label}</dt>
+                      <dd className="min-w-0 break-words text-end font-figure text-[12.5px] font-bold text-ink">{c.total}</dd>
+                    </div>
+                  ) : null,
+                )}
+              </dl>
+            </li>
+          )}
+        </ul>
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full border-collapse">
             <thead>
               <tr className="border-y border-line bg-surface-subtle">
@@ -218,6 +273,7 @@ export function DataTable<T>({
             )}
           </table>
         </div>
+        </>
       )}
       {rows.length > pageSize && (
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-2.5">
@@ -230,7 +286,7 @@ export function DataTable<T>({
               onClick={() => setPage(Math.max(1, current - 1))}
               disabled={current <= 1}
               aria-label={isAr ? "السابق" : "Previous"}
-              className="grid size-8 place-items-center rounded-xl border border-line text-ink-body transition-colors hover:text-ink disabled:opacity-40"
+              className="grid size-8 place-items-center rounded-xl border border-line text-ink-body transition-colors hover:text-ink disabled:opacity-40 max-md:size-10"
             >
               {isAr ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
             </button>
@@ -240,7 +296,7 @@ export function DataTable<T>({
               onClick={() => setPage(Math.min(pages, current + 1))}
               disabled={current >= pages}
               aria-label={isAr ? "التالي" : "Next"}
-              className="grid size-8 place-items-center rounded-xl border border-line text-ink-body transition-colors hover:text-ink disabled:opacity-40"
+              className="grid size-8 place-items-center rounded-xl border border-line text-ink-body transition-colors hover:text-ink disabled:opacity-40 max-md:size-10"
             >
               {isAr ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
             </button>
@@ -392,7 +448,7 @@ export function Note({ children }: { children: ReactNode }) {
 /** A section heading in the reports' small-caps style. */
 export function SectionTitle({ children, aside }: { children: ReactNode; aside?: ReactNode }) {
   return (
-    <div className="mb-3 flex items-center justify-between gap-3 px-1">
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-3 px-1">
       <h3 className="font-display text-[11px] font-black uppercase tracking-[0.18em] text-ink-muted">{children}</h3>
       {aside}
     </div>

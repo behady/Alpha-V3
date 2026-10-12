@@ -44,6 +44,13 @@ export default function PayerReport({ procedures, payments, payers, rangeLabel, 
     [procedures, payments, payers],
   );
   const payroll = useMemo(() => byDoctor(report), [report]);
+  /** On-screen name only: "Private" (the stored/default payer name) and insurers' Arabic names. */
+  const payerLabel = (p: { payerId: string; payerName: string }) =>
+    !isAr
+      ? p.payerName
+      : p.payerId === PRIVATE_PAYER_ID
+        ? "خاص"
+        : payers.find((x) => x.id === p.payerId)?.nameAr || p.payerName;
   const [open, setOpen] = useState<string | null>(null);
   /**
    * What an expanded insurer shows. "Which patients came from this insurance" is the owner's
@@ -122,7 +129,7 @@ export default function PayerReport({ procedures, payments, payers, rangeLabel, 
                   <div className="mb-1.5 flex items-center justify-between gap-3">
                     <span className="flex min-w-0 items-center gap-2 text-[13px] font-bold text-ink">
                       <InsurerBadge name={p.payerName} isPrivate={p.payerId === PRIVATE_PAYER_ID} size={16} />
-                      <span className="truncate">{p.payerName}</span>
+                      <span dir="auto" className="truncate">{payerLabel(p)}</span>
                     </span>
                     <span className="shrink-0 font-figure text-xs font-semibold text-ink-muted">
                       {fmt(p.collected)} / {fmt(p.charged)}
@@ -218,7 +225,7 @@ export default function PayerReport({ procedures, payments, payers, rangeLabel, 
                         <span className="flex items-center gap-1.5 text-[13.5px] font-bold text-ink">
                           {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                           <InsurerBadge name={p.payerName} isPrivate={p.payerId === PRIVATE_PAYER_ID} size={22} />
-                          {p.payerName}
+                          {payerLabel(p)}
                         </span>
                       </td>
                       <td className="px-3 py-2.5 text-end font-figure text-[13px] text-ink-body">{p.cases}</td>
@@ -369,7 +376,7 @@ export default function PayerReport({ procedures, payments, payers, rangeLabel, 
                       key={p.payerId}
                       className="px-3 py-3 text-end text-[10.5px] font-black uppercase tracking-wider text-ink-muted"
                     >
-                      {p.payerName}
+                      {payerLabel(p)}
                     </th>
                   ))}
                   <th className="px-4 py-3 text-end text-[10.5px] font-black uppercase tracking-wider text-ink">

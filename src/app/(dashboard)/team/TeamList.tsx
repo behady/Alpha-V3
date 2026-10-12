@@ -1,7 +1,9 @@
 "use client";
 
 import { UserPlus } from "lucide-react";
+import { useRef } from "react";
 import { formatStaffRoleLabel } from "@/lib/staffRoles";
+import { useRailActiveInView } from "@/lib/useRailActiveInView";
 
 export type RailPerson = {
   id: string;
@@ -74,6 +76,11 @@ export default function TeamList({
   /** Absent = this viewer may not add people, and the button is not shown. */
   onAddPerson?: () => void;
 }) {
+  // On a phone the list is a sideways strip: after a reload or a deep link the selected person
+  // could be off the edge. (A no-op on desktop, where the list is a column that does not scroll.)
+  const railRef = useRef<HTMLDivElement>(null);
+  useRailActiveInView(railRef, `${selectedId}|${people.length}`);
+
   if (people.length === 0) return null;
   const anyOnFloor = people.some((p) => p.onFloor);
   const anyAttention = people.some((p) => !p.onFloor && p.needsAttention);
@@ -87,6 +94,7 @@ export default function TeamList({
   return (
     <nav aria-label={isAr ? "الفريق" : "Team"} data-tour="team-rail" className="min-w-0 lg:sticky lg:top-5 lg:self-start">
       <div
+        ref={railRef}
         role="tablist"
         className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1 pb-1 lg:mx-0 lg:flex-col lg:gap-0 lg:overflow-visible lg:px-0 lg:pb-0"
       >

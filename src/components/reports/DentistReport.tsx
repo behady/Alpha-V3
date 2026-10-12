@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import { Download, UserCheck, FileSpreadsheet } from "lucide-react";
 import { exportToExcel, parseMoney } from "./reportExcelUtils";
 import { ledgerCashValue } from "@/lib/reportHelpers";
+import { currencyUnit } from "@/lib/currencyUnit";
 import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
 import { useUI } from "@/context/UIContext";
 import Protect from "@/components/Protect";
@@ -35,6 +36,14 @@ export default function DentistReport({ procedures, payments, allPatients, range
   const chartRef = useRef<HTMLDivElement>(null);
   const [exporting, setExporting] = useState(false);
   const [selectedDentist, setSelectedDentist] = useState<string>("");
+  /*
+    Display-only wording. "Unassigned" and "General" are the grouping keys below (and what the
+    exports carry), so they stay as they are in the data; only what is drawn on screen changes.
+  */
+  const cur = currencyUnit("EGP", isAr);
+  const docName = (name: string) =>
+    name === "Unassigned" ? (isAr ? "بدون طبيب" : "Unassigned") : isAr ? `د. ${name}` : `Dr. ${name}`;
+  const svcName = (name: string) => (isAr && name === "General" ? "عام" : name);
 
   const patientMap = useMemo(() => {
     const m: Record<string, ReportPatient> = {};
@@ -364,17 +373,17 @@ export default function DentistReport({ procedures, payments, allPatients, range
             }`}
           >
             <div className="flex items-center gap-2 mb-3">
-              <p className={`text-xs font-black uppercase tracking-wide ${activeDentist?.name === s.name ? "text-slate-300" : "text-slate-500"}`}>
-                Dr. {s.name}
+              <p dir="auto" className={`text-xs font-black uppercase tracking-wide ${activeDentist?.name === s.name ? "text-slate-300" : "text-slate-500"}`}>
+                {docName(s.name)}
               </p>
             </div>
             <p className={`text-xl font-black tabular-nums ${activeDentist?.name === s.name ? "text-white" : "text-emerald-600"}`}>
-              {s.totalIncome.toLocaleString()} <span className="text-xs font-bold">EGP</span>
+              {s.totalIncome.toLocaleString()} <span className="text-xs font-bold">{cur}</span>
             </p>
             <div className={`flex justify-between mt-2 text-xs font-semibold ${activeDentist?.name === s.name ? "text-slate-400" : "text-slate-500"}`}>
               <span>{s.procedures.reduce((a, p) => a + p.count, 0)} {isAr ? "إجراء" : "procedures"}</span>
               <span className={activeDentist?.name === s.name ? "text-amber-300" : "text-amber-600"}>
-                Comm: {s.commission.toLocaleString()}
+                {isAr ? "العمولة:" : "Comm:"} {s.commission.toLocaleString()}
               </span>
             </div>
           </button>
@@ -386,11 +395,12 @@ export default function DentistReport({ procedures, payments, allPatients, range
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
           {/* Pie Chart */}
           <div className="xl:col-span-5 bg-surface rounded-2xl border border-line p-5 shadow-sm">
-            <h3 className="text-sm font-black text-ink mb-1">Dr. {activeDentist.name}</h3>
-            {/* Export hint */}
+            <h3 dir="auto" className="text-sm font-black text-ink mb-1">{docName(activeDentist.name)}</h3>
+            {/* Export hint. The button is in the Procedure Detail card — beside this one on a wide
+                screen, below it on a phone — so the hint names the card instead of "above". */}
             <div className="flex items-center gap-2 text-[11px] text-slate-400 font-medium pt-2">
-              <FileSpreadsheet size={14} />
-              <span>{isAr ? "اضغط على زر Excel لتصدير ملخص أداء الأطباء كجدول بيانات." : "Click the Excel button above to export a summary of dentist performance as a spreadsheet."}</span>
+              <FileSpreadsheet size={14} className="shrink-0" />
+              <span>{isAr ? "زرار Excel في «الإجراءات بالتفصيل» بيصدّر ملخص أداء الأطباء كجدول بيانات." : "The Excel button on Procedure Detail exports a summary of dentist performance as a spreadsheet."}</span>
             </div>
             {/*
               Was a donut of how MANY treatments each dentist did, which answers the less
@@ -403,9 +413,9 @@ export default function DentistReport({ procedures, payments, allPatients, range
             <div ref={chartRef}>
               <Bars
                 rows={activeDentist.procedures.slice(0, 8).map((p, i) => ({
-                  label: p.name,
+                  label: svcName(p.name),
                   value: p.income,
-                  text: `${p.count} × · ${p.income.toLocaleString()} ${isAr ? "ج.م" : "EGP"}`,
+                  text: `${p.count} × · ${p.income.toLocaleString()} ${cur}`,
                   color: i === 0 ? MARK : INK,
                 }))}
               />
@@ -427,20 +437,23 @@ export default function DentistReport({ procedures, payments, allPatients, range
 
           {/* Bar chart per procedure */}
           <div className="xl:col-span-7 bg-surface rounded-2xl border border-line p-5 shadow-sm">
-            <div className="flex justify-between items-center mb-4">
+            {/* Wraps on a phone: the picker takes a full row, the three exports wrap under it.
+                Unwrapped they ran ~600px wide and the buttons sat off the screen (off the left in
+                Arabic). Unchanged on a wide screen. */}
+            <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
               <h3 className="text-sm font-black text-ink">
                 {isAr ? "الإجراءات بالتفصيل" : "Procedure Detail"}
               </h3>
-              <div className="flex items-center gap-2">
+              <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
                 <select
                   value={selectedDentist || dentistNames[0]}
                   onChange={(e) => setSelectedDentist(e.target.value)}
-                  className="px-3 py-1.5 rounded-xl border border-line text-xs font-bold bg-surface outline-none"
+                  className="w-full max-w-full px-3 py-1.5 rounded-xl border border-line text-xs font-bold bg-surface outline-none max-sm:min-h-10 sm:w-auto"
                 >
-                  {dentistNames.map((n) => <option key={n} value={n}>Dr. {n}</option>)}
+                  {dentistNames.map((n) => <option key={n} value={n}>{docName(n)}</option>)}
                 </select>
                 <Protect permission="reports.export">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       onClick={handleDentistPdfExport}
                       disabled={exporting}
@@ -482,7 +495,7 @@ export default function DentistReport({ procedures, payments, allPatients, range
             */}
             <Bars
               rows={activeDentist.procedures.slice(0, 10).map((p, i) => ({
-                label: p.name,
+                label: svcName(p.name),
                 value: p.count,
                 text: isAr ? `${p.count} مرة` : `${p.count}×`,
                 color: i === 0 ? MARK : INK,
@@ -496,7 +509,7 @@ export default function DentistReport({ procedures, payments, allPatients, range
             <PatientDrilldown
               rows={activePatients}
               isAr={isAr}
-              title={isAr ? `مرضى د. ${activeDentist.name}` : `Patients of Dr. ${activeDentist.name}`}
+              title={activeDentist.name === "Unassigned" ? (isAr ? "مرضى بدون طبيب" : "Patients with no dentist") : isAr ? `مرضى د. ${activeDentist.name}` : `Patients of Dr. ${activeDentist.name}`}
               note={isAr ? `اللي اتعالجوا أو دفعوا عند الدكتور في الفترة دي (${rangeLabel})` : `Treated by or paid to this dentist in ${rangeLabel}`}
               exportName={`Dentist_Patients_${activeDentist.name.replace(/[^\p{L}\p{N}]+/gu, "_")}`}
             />

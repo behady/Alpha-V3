@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { Timestamp } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
+import { localYmd } from "@/lib/clinicDate";
 
 // --- HELPERS ---
 const formatTime = (ts: any) => {
@@ -44,9 +45,16 @@ const DAY_KEYS: Record<string, string> = {
 // ==========================================
 export const PersonalWorksheet = ({ 
     activeSession, isDeviceBlocked, isDeviceMismatch, liveDuration, actionLoading, handlePunch, 
-    myCalculatedStats, personalLogs, myProfile, language
+    myCalculatedStats, personalLogs, myProfile, language, periodType
 }: any) => {
   const { t, isRTL } = useLanguage();
+  // The figures follow the period picked above the sheet, so the title has to as well — it used to
+  // say "this month" whatever was chosen.
+  const earningsTitle =
+    periodType === 'today' ? (isRTL ? 'أرباح النهارده' : "Today's earnings")
+    : periodType === 'week' ? (isRTL ? 'أرباح الأسبوع ده' : "This week's earnings")
+    : periodType === 'custom' ? (isRTL ? 'أرباح الفترة دي' : 'Earnings for this period')
+    : t("attMonthEarnings");
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-in slide-in-from-bottom-4 duration-500">
         {/* LEFT COLUMN: Terminal & Earnings */}
@@ -106,7 +114,7 @@ export const PersonalWorksheet = ({
                 <div className="bg-gradient-to-br from-ink-strong to-ink rounded-[2rem] p-7 shadow-xl border border-ink-slab text-white relative overflow-hidden transition-transform hover:-translate-y-1 duration-300">
                     <div className="absolute top-0 right-0 w-40 h-40 bg-accent-soft rounded-full blur-[60px] opacity-20 pointer-events-none"></div>
                     <div className="flex items-center justify-between mb-6 relative z-10">
-                        <h3 className="font-bold text-slate-300 uppercase tracking-widest text-[11px] flex items-center gap-2"><DollarSign size={14}/> {t("attMonthEarnings")}</h3>
+                        <h3 className="font-bold text-slate-300 uppercase tracking-widest text-[11px] flex items-center gap-2"><DollarSign size={14}/> {earningsTitle}</h3>
                     </div>
                     <div className="space-y-5 relative z-10">
                         <div>
@@ -141,11 +149,11 @@ export const PersonalWorksheet = ({
                     <table className="w-full text-start text-sm border-separate border-spacing-y-1">
                         <thead className="text-ink-muted font-black text-[10px] uppercase tracking-widest sticky top-0 bg-surface z-10">
                             <tr>
-                                <th className="py-3 px-5">{t("attDate")}</th>
-                                <th className="py-3 px-4 text-center">{t("attClockIn")}</th>
-                                <th className="py-3 px-4 text-center">{t("attClockOut")}</th>
-                                <th className="py-3 px-4 text-center">{t("attTotalTime")}</th>
-                                <th className="py-3 px-5 text-end">{t("attStatus")}</th>
+                                <th className="py-3 px-2 sm:px-5">{t("attDate")}</th>
+                                <th className="py-3 px-2 sm:px-4 text-center">{t("attClockIn")}</th>
+                                <th className="py-3 px-2 sm:px-4 text-center">{t("attClockOut")}</th>
+                                <th className="py-3 px-2 sm:px-4 text-center">{t("attTotalTime")}</th>
+                                <th className="py-3 px-2 sm:px-5 text-end">{t("attStatus")}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -154,18 +162,18 @@ export const PersonalWorksheet = ({
                             ) : (
                                 personalLogs.map((log: any) => (
                                     <tr key={log.id} className="group hover:bg-surface-subtle transition-colors">
-                                        <td className="py-3 px-5 font-bold text-ink rounded-s-2xl group-hover:bg-surface-subtle transition-colors">{log.date || (log.checkIn && log.checkIn.toDate().toISOString().split('T')[0])}</td>
-                                        <td className="py-3 px-4 font-bold text-ink-body text-center group-hover:bg-surface-subtle transition-colors">{formatTime(log.checkIn)}</td>
-                                        <td className="py-3 px-4 font-bold text-ink-body text-center group-hover:bg-surface-subtle transition-colors">{formatTime(log.checkOut)}</td>
-                                        <td className="py-3 px-4 font-black text-ink text-center group-hover:bg-surface-subtle transition-colors">{log.status === 'active' ? <span className="text-emerald-500 animate-pulse">{t("attInProgress")}</span> : formatDuration(log.durationMinutes, isRTL)}</td>
-                                        <td className="py-3 px-5 text-end rounded-e-2xl group-hover:bg-surface-subtle transition-colors">
+                                        <td className="py-3 px-2 sm:px-5 font-bold text-ink rounded-s-2xl group-hover:bg-surface-subtle transition-colors">{log.date || (log.checkIn && log.checkIn.toDate() && localYmd(log.checkIn.toDate()))}</td>
+                                        <td className="py-3 px-2 sm:px-4 font-bold text-ink-body text-center group-hover:bg-surface-subtle transition-colors">{formatTime(log.checkIn)}</td>
+                                        <td className="py-3 px-2 sm:px-4 font-bold text-ink-body text-center group-hover:bg-surface-subtle transition-colors">{formatTime(log.checkOut)}</td>
+                                        <td className="py-3 px-2 sm:px-4 font-black text-ink text-center group-hover:bg-surface-subtle transition-colors">{log.status === 'active' ? <span className="text-emerald-500 animate-pulse">{t("attInProgress")}</span> : formatDuration(log.durationMinutes, isRTL)}</td>
+                                        <td className="py-3 px-2 sm:px-5 text-end rounded-e-2xl group-hover:bg-surface-subtle transition-colors">
                                             {log.status === 'active' ? (
-                                                <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-600 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-emerald-100 shadow-sm">
+                                                <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-600 px-2 sm:px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-emerald-100 shadow-sm">
                                                     <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span></span>
                                                     {t("attActive")}
                                                 </span>
                                             ) : (
-                                                <span className="inline-flex items-center gap-1.5 bg-surface border border-line text-ink-muted px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-sm">
+                                                <span className="inline-flex items-center gap-1.5 bg-surface border border-line text-ink-muted px-2 sm:px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-sm">
                                                     <CheckCircle2 size={12} className="text-emerald-500"/> {t("attLogged")}
                                                 </span>
                                             )}

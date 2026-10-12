@@ -103,22 +103,30 @@ export default function CaseSheetReport({ procedures, payments, rangeLabel, isAr
 
   const selectClass =
     "rounded-xl border border-line bg-surface px-2.5 py-2 text-[12.5px] font-bold text-ink-body outline-none transition focus:border-accent";
+  /*
+    A select is as wide as its longest option, and "All services" carried a 600px treatment name:
+    on a phone the filter ran off the screen and dragged the page sideways. Full width (one per
+    row) below sm, natural width above.
+  */
+  const filterClass = `${selectClass} w-full min-w-0 max-w-full max-sm:min-h-10 sm:w-auto`;
+  /** On-screen only: the stored default payer name is English. */
+  const payerLabel = (r: { payerId: string; payerName: string }) => (isAr && r.payerId === PRIVATE_PAYER_ID ? "خاص" : r.payerName);
 
   return (
     <div className="space-y-4">
       {/* --- the filters, one per column that has something to choose from ------------------ */}
       <div className="flex flex-wrap items-center gap-2">
-        <span className="relative">
+        <span className="relative w-full sm:w-auto">
           <Search size={13} className="pointer-events-none absolute top-1/2 start-2.5 -translate-y-1/2 text-ink-faint" />
           <input
             value={filters.patient}
             onChange={(e) => set({ patient: e.target.value })}
             placeholder={isAr ? "ابحث باسم المريض" : "Search patient"}
-            className="w-44 rounded-xl border border-line bg-surface py-2 pe-2.5 ps-8 text-[12.5px] font-bold text-ink outline-none transition focus:border-accent"
+            className="w-full max-sm:min-h-10 sm:w-44 rounded-xl border border-line bg-surface py-2 pe-2.5 ps-8 text-[12.5px] font-bold text-ink outline-none transition focus:border-accent"
           />
         </span>
 
-        <select value={filters.payerId} onChange={(e) => set({ payerId: e.target.value })} className={selectClass}>
+        <select value={filters.payerId} onChange={(e) => set({ payerId: e.target.value })} className={filterClass}>
           <option value="">{isAr ? "كل الشركات" : "All companies"}</option>
           {payers.map((o) => (
             <option key={o.value} value={o.value}>
@@ -127,7 +135,7 @@ export default function CaseSheetReport({ procedures, payments, rangeLabel, isAr
           ))}
         </select>
 
-        <select value={filters.doctorId} onChange={(e) => set({ doctorId: e.target.value })} className={selectClass}>
+        <select value={filters.doctorId} onChange={(e) => set({ doctorId: e.target.value })} className={filterClass}>
           <option value="">{isAr ? "كل الأطباء" : "All dentists"}</option>
           {doctors.map((o) => (
             <option key={o.value} value={o.value === "general" ? "" : o.value}>
@@ -136,7 +144,7 @@ export default function CaseSheetReport({ procedures, payments, rangeLabel, isAr
           ))}
         </select>
 
-        <select value={filters.service} onChange={(e) => set({ service: e.target.value })} className={selectClass}>
+        <select value={filters.service} onChange={(e) => set({ service: e.target.value })} className={filterClass}>
           <option value="">{isAr ? "كل الخدمات" : "All services"}</option>
           {services.map((o) => (
             <option key={o.value} value={o.value}>
@@ -145,7 +153,7 @@ export default function CaseSheetReport({ procedures, payments, rangeLabel, isAr
           ))}
         </select>
 
-        <select value={filters.settled} onChange={(e) => set({ settled: e.target.value })} className={selectClass}>
+        <select value={filters.settled} onChange={(e) => set({ settled: e.target.value })} className={filterClass}>
           <option value="">{isAr ? "الكل" : "Any status"}</option>
           <option value="paid">{isAr ? "مدفوع بالكامل" : "Paid"}</option>
           <option value="partly">{isAr ? "مدفوع جزئياً" : "Part paid"}</option>
@@ -178,7 +186,82 @@ export default function CaseSheetReport({ procedures, payments, rangeLabel, isAr
       </div>
 
       {/* --- the sheet ---------------------------------------------------------------------- */}
-      <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
+      {/* Phones: one card per case (the table is 52rem). Same rows, same paging, same totals. */}
+      <ul className="divide-y divide-line rounded-2xl border border-line bg-surface md:hidden">
+        {paged.rows.length === 0 ? (
+          <li className="px-4 py-10 text-center text-[13px] font-medium text-ink-faint">
+            {all.length === 0
+              ? isAr ? "مفيش حالات في الفترة دي." : "No cases in this period."
+              : isAr ? "مفيش حالات مطابقة للفلاتر." : "No cases match these filters."}
+          </li>
+        ) : (
+          paged.rows.map((r) => {
+            const state = settlementOf(r);
+            return (
+              <li key={r.id} className="px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="min-w-0 break-words text-[13.5px] font-bold text-ink">{r.patientName}</p>
+                  <span className="shrink-0 font-figure text-[12px] text-ink-faint">{r.date}</span>
+                </div>
+                <p className="mt-0.5 break-words text-[12.5px] font-medium text-ink-body">{r.service}</p>
+                <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12px] font-semibold text-ink-muted">
+                  <InsurerBadge name={r.payerName} isPrivate={r.payerId === PRIVATE_PAYER_ID} size={16} />
+                  <span dir="auto">{payerLabel(r)}</span>
+                  {r.doctorName ? <span>· <bdi>{r.doctorName}</bdi></span> : null}
+                </p>
+                <dl className="mt-2 grid grid-cols-3 gap-2">
+                  <div className="min-w-0">
+                    <dt className="text-[11px] font-semibold text-ink-muted">{columns[4]}</dt>
+                    <dd className="font-figure text-[13px] text-ink-muted">{fmt(r.price)}</dd>
+                  </div>
+                  <div className="min-w-0">
+                    <dt className="text-[11px] font-semibold text-ink-muted">{columns[5]}</dt>
+                    <dd className="font-figure text-[13px] font-bold text-ink">
+                      {fmt(r.paid)}
+                      {state !== "paid" && (
+                        <span className="block text-[10.5px] font-bold text-danger">
+                          {/* bdi ltr: in Arabic a bare "−495" lays out with the sign at the far end. */}
+                          {state === "unpaid" ? (isAr ? "مش مدفوع" : "unpaid") : <bdi dir="ltr">−{fmt(r.price - r.paid)}</bdi>}
+                        </span>
+                      )}
+                    </dd>
+                  </div>
+                  <div className="min-w-0">
+                    <dt className="text-[11px] font-semibold text-ink-muted">{columns[7]}</dt>
+                    <dd className="font-figure text-[13px] text-ink-body">{fmt(r.share)}</dd>
+                  </div>
+                </dl>
+              </li>
+            );
+          })
+        )}
+        {rows.length > 0 && (
+          <li className="bg-surface-subtle px-4 py-3">
+            <p className="text-[11.5px] font-black uppercase tracking-wider text-ink-muted">
+              {isAr ? `إجمالي ${totals.cases} حالة` : `${totals.cases} cases`}
+              {dirty && <span className="ms-2 normal-case tracking-normal text-ink-faint">{isAr ? "(بعد الفلترة)" : "(filtered)"}</span>}
+            </p>
+            <dl className="mt-2 grid grid-cols-3 gap-2">
+              <div className="min-w-0">
+                <dt className="text-[11px] font-semibold text-ink-muted">{columns[4]}</dt>
+                <dd className="font-figure text-[13px] text-ink-muted">{fmt(totals.price)}</dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="text-[11px] font-semibold text-ink-muted">{columns[5]}</dt>
+                <dd className="font-figure text-[13px] font-bold text-ink">
+                  {fmt(totals.paid)}
+                  {totals.outstanding > 0 && <span className="block text-[10.5px] font-bold text-danger"><bdi dir="ltr">−{fmt(totals.outstanding)}</bdi></span>}
+                </dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="text-[11px] font-semibold text-ink-muted">{columns[7]}</dt>
+                <dd className="font-figure text-[13px] font-bold text-ink">{fmt(totals.share)}</dd>
+              </div>
+            </dl>
+          </li>
+        )}
+      </ul>
+      <div className="hidden overflow-x-auto rounded-2xl border border-line bg-surface md:block">
         <table className="w-full min-w-[52rem] border-collapse">
           <thead>
             <tr className="border-b border-line bg-surface-subtle">
@@ -216,7 +299,7 @@ export default function CaseSheetReport({ procedures, payments, rangeLabel, isAr
                     <td className="px-3 py-2.5 text-[13px] font-bold text-ink">
                       <span className="flex items-center gap-1.5">
                         <InsurerBadge name={r.payerName} isPrivate={r.payerId === PRIVATE_PAYER_ID} size={20} />
-                        {r.payerName}
+                        {payerLabel(r)}
                       </span>
                     </td>
                     <td className="px-3 py-2.5 text-[13px] font-medium text-ink-body">{r.patientName}</td>

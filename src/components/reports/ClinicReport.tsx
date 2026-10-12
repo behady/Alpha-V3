@@ -10,6 +10,7 @@ import { ChevronDown, ChevronRight, Download, Building2, FileSpreadsheet } from 
 import { exportToExcel, parseMoney } from "./reportExcelUtils";
 import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
 import { ledgerCashValue } from "@/lib/reportHelpers";
+import { currencyUnit } from "@/lib/currencyUnit";
 import { useUI } from "@/context/UIContext";
 import { attributeService, buildProcedureIndex, type AttributableRow } from "@/lib/serviceAttribution";
 import { ANIM, Bars, ChartFrame, Figure, GRID, INK, MARK, ReportEmpty, ReportTip, TICK } from "@/components/reports/chartKit";
@@ -44,6 +45,8 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
   const chartRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const [exporting, setExporting] = useState(false);
+  /** The unit beside on-screen figures: "ج.م" in Arabic. PDFs and Excel keep their own wording. */
+  const cur = currencyUnit("EGP", isAr);
   /** Which row of the full procedure table is open to its patients. */
   const [expandedService, setExpandedService] = useState<string | null>(null);
 
@@ -354,13 +357,15 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
       */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
         {[
-          { l: isAr ? "إجمالي الدخل" : "Total Income", v: `${totalIncome.toLocaleString()} EGP` },
-          { l: isAr ? "نِسَب الأطباء المستحقة" : "Commissions owed", v: `${totalCommissions.toLocaleString()} EGP`, tone: "muted" as const },
-          { l: isAr ? "المصروفات" : "Expenses", v: `(${totalExpenses.toLocaleString()}) EGP`, tone: "muted" as const },
+          // Each number is isolated left-to-right (U+2066 … U+2069): beside an Arabic unit, a bare
+          // "-39,286" would otherwise be laid out right-to-left with its minus sign at the far end.
+          { l: isAr ? "إجمالي الدخل" : "Total Income", v: `⁦${totalIncome.toLocaleString()}⁩ ${cur}` },
+          { l: isAr ? "نِسَب الأطباء المستحقة" : "Commissions owed", v: `⁦${totalCommissions.toLocaleString()}⁩ ${cur}`, tone: "muted" as const },
+          { l: isAr ? "المصروفات" : "Expenses", v: `⁦(${totalExpenses.toLocaleString()})⁩ ${cur}`, tone: "muted" as const },
           // The one figure that earns a colour, and only when it is actually negative.
-          { l: isAr ? "صافي الربح" : "Net Profit", v: `${netProfit.toLocaleString()} EGP`, tone: netProfit >= 0 ? ("ink" as const) : ("bad" as const) },
+          { l: isAr ? "صافي الربح" : "Net Profit", v: `⁦${netProfit.toLocaleString()}⁩ ${cur}`, tone: netProfit >= 0 ? ("ink" as const) : ("bad" as const) },
         ].map((k) => (
-          <div key={k.l} className="bg-surface border border-line shadow-sm rounded-2xl p-4">
+          <div key={k.l} className="min-w-0 bg-surface border border-line shadow-sm rounded-2xl p-3 sm:p-4">
             <Figure value={k.v} label={k.l} tone={k.tone} />
           </div>
         ))}
@@ -396,7 +401,7 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
               </div>
               <p className="text-3xl font-black tabular-nums text-ink">{p.count}</p>
               <p className="text-sm font-semibold text-ink-muted mt-1">
-                {p.income.toLocaleString()} EGP {isAr ? "مدفوع" : "paid"}
+                {p.income.toLocaleString()} {cur} {isAr ? "مدفوع" : "paid"}
               </p>
             </div>
             <PatientDrilldown rows={p.rows} isAr={isAr} title={p.label} note={p.note} exportName={p.file} />
@@ -491,9 +496,9 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
 
         {/* Top procedures bar */}
         <div className="xl:col-span-8 bg-surface rounded-2xl border border-line p-5 shadow-sm">
-          <div className="flex justify-between items-center mb-4">
+          <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
             <h3 className="text-sm font-black text-ink">{isAr ? "أكثر الإجراءات" : "Top Procedures by Income"}</h3>
-            <div className="flex gap-2 mb-4">
+            <div className="flex gap-2 sm:mb-4">
               <div className="flex items-center gap-2">
                 <button
                   onClick={handlePdfExport}
@@ -530,7 +535,7 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
                   width={90}
                   tickFormatter={(v: string) => v.length > 15 ? v.slice(0, 15) + "…" : v}
                 />
-                <Tooltip formatter={(v) => [`${Number(v || 0).toLocaleString()} EGP`, isAr ? "الدخل" : "Income"]} />
+                <Tooltip formatter={(v) => [`${Number(v || 0).toLocaleString()} ${cur}`, isAr ? "الدخل" : "Income"]} />
                 {/* One ink. Eight bars of eight colours said nothing the eight lengths did not. */}
                 <Bar dataKey="income" fill={INK} radius={[0, 4, 4, 0]} animationDuration={ANIM} />
               </BarChart>

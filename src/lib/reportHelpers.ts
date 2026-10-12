@@ -1,5 +1,15 @@
-export const getFirstDay = () => new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split("T")[0];
-export const getToday = () => new Date().toISOString().split("T")[0];
+import { localYmd } from "./clinicDate";
+
+/**
+ * Today and the 1st of this month, on the device's own calendar, YYYY-MM-DD.
+ *
+ * Both used to go through `toISOString()`, which reads the date in UTC. In Cairo (UTC+2/+3) local
+ * midnight on the 1st is the previous evening in UTC, so "this month" started on the 30th/31st —
+ * the default range matched no preset and every default total included a day of last month. And
+ * before 02:00/03:00 "today" was still yesterday. Built from local date parts instead.
+ */
+export const getToday = () => localYmd();
+export const getFirstDay = () => `${localYmd().slice(0, 8)}01`;
 
 /**
  * Cash actually collected (or spent) on a ledger row.

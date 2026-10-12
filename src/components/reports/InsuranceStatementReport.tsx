@@ -205,7 +205,39 @@ export default function InsuranceStatementReport({ procedures, allPatients, rang
         {statement.cases.length === 0 ? (
           <ReportState kind="empty" isAr={isAr} text={t("noCases")} />
         ) : (
-          <div className="overflow-x-auto rounded-2xl border border-line bg-surface">
+          <>
+          {/* Phones: one card per case. The 40rem table showed only # and CASE at 340px — the
+              services and the values, which are the statement, were off the edge. */}
+          <ul className="divide-y divide-line rounded-2xl border border-line bg-surface md:hidden">
+            {statement.cases.map((c) => (
+              <li key={`${c.patientId}-${c.serial}`} className="px-4 py-3">
+                <div className="flex items-start gap-3">
+                  <span className="shrink-0 font-display text-[13px] font-black tabular-nums text-ink-muted">{c.serial}</span>
+                  <div className="min-w-0 flex-1">
+                    <PatientLink id={c.patientId} name={caseLabel(c)} isAr={isAr} />
+                    <div className="text-[11px] font-semibold text-ink-faint">{c.date}</div>
+                  </div>
+                </div>
+                <ul className="mt-2 space-y-1">
+                  {c.lines.map((line) => (
+                    <li key={line.rowId} className="flex items-baseline justify-between gap-3">
+                      <span className="min-w-0 break-words text-[13px] font-semibold text-ink-body">{line.text}</span>
+                      <span className="shrink-0 text-[13px] font-bold tabular-nums text-ink">{money(line.amount)}</span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-2 flex items-baseline justify-between gap-3 border-t border-line pt-2">
+                  <span className="text-[11px] font-black uppercase tracking-wider text-ink-muted">{t("subtotal")}</span>
+                  <span className="text-[13px] font-black tabular-nums text-ink">{money(c.subtotal)}</span>
+                </div>
+              </li>
+            ))}
+            <li className="flex items-baseline justify-between gap-3 bg-surface-subtle px-4 py-3">
+              <span className="text-[12px] font-black uppercase tracking-wider text-ink">{t("total")}</span>
+              <span className="font-display text-[15px] font-black tabular-nums text-ink">{money(statement.total)}</span>
+            </li>
+          </ul>
+          <div className="hidden overflow-x-auto rounded-2xl border border-line bg-surface md:block">
             <table className="w-full min-w-[40rem] border-collapse">
               <thead>
                 <tr className="border-b border-line bg-surface-subtle">
@@ -227,6 +259,7 @@ export default function InsuranceStatementReport({ procedures, allPatients, rang
               </tbody>
             </table>
           </div>
+          </>
         )}
       </section>
     </div>

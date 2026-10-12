@@ -17,7 +17,7 @@ import { FeatureLocked } from "@/components/FeatureGate";
 
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { getFirstDay, getToday } from "@/lib/reportHelpers";
+import { getFirstDay, getToday, rangeFor } from "@/lib/reportHelpers";
 import { htmlToPdfBlob, buildReportHtmlBase } from "@/components/reports/reportPdfHtmlUtils";
 
 // IMPORTING OUR NEW SPLIT COMPONENTS
@@ -1182,9 +1182,11 @@ export default function AttendancePage() {
           below them, so they read as part of the sheet rather than as page chrome. */}
       <div className="flex flex-col xl:flex-row justify-end items-start xl:items-center gap-4">
         
-        <div className="flex flex-col sm:flex-row items-center gap-3 w-full xl:w-auto overflow-x-auto pb-1">
+        {/* Phones: stretch instead of centring. A centred column inside an overflow box puts the
+            overflow on both sides, and the left half can never be scrolled to ("ustom Range"). */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full xl:w-auto sm:overflow-x-auto pb-1">
             {/* GLOBAL DATE RANGE SELECTOR */}
-            <div className="flex items-center gap-2 bg-surface p-1 rounded-xl border border-line shadow-sm shrink-0">
+            <div className="flex max-sm:flex-wrap items-center gap-2 bg-surface p-1 rounded-xl border border-line shadow-sm shrink-0">
                 <select 
                     value={dateRangeType}
                     onChange={(e) => {
@@ -1194,25 +1196,27 @@ export default function AttendancePage() {
                         if (val === 'today') {
                             setStartDate(todayStr); setEndDate(todayStr);
                         } else if (val === 'week') {
-                            const d = new Date(); d.setDate(d.getDate() - d.getDay());
-                            setStartDate(d.toISOString().split('T')[0]); setEndDate(todayStr);
+                            // The same week as Team and Reports: starts Saturday, on the local calendar
+                            // (this used to go back to Sunday, in UTC — a day early before 02/03:00 Cairo).
+                            setStartDate(rangeFor('week', todayStr).start); setEndDate(todayStr);
                         } else if (val === 'month') {
                             setStartDate(getFirstDay()); setEndDate(todayStr);
                         }
                     }}
-                    className="bg-transparent text-sm font-bold text-slate-700 outline-none cursor-pointer pl-3 py-1.5"
+                    className="bg-transparent text-sm font-bold text-slate-700 outline-none cursor-pointer ps-3 py-1.5 max-sm:min-h-10 max-sm:flex-1 max-sm:pe-2"
                 >
-                    <option value="today">{language === 'ar' ? 'اليوم' : 'Today'}</option>
-                    <option value="week">{language === 'ar' ? 'هذا الأسبوع' : 'This Week'}</option>
-                    <option value="month">{language === 'ar' ? 'هذا الشهر' : 'This Month'}</option>
+                    {/* Same words as the Team page's period pills (Egyptian Arabic). */}
+                    <option value="today">{language === 'ar' ? 'النهارده' : 'Today'}</option>
+                    <option value="week">{language === 'ar' ? 'الأسبوع ده' : 'This Week'}</option>
+                    <option value="month">{language === 'ar' ? 'الشهر ده' : 'This Month'}</option>
                     <option value="custom">{language === 'ar' ? 'فترة مخصصة' : 'Custom Range'}</option>
                 </select>
 
                 {dateRangeType === 'custom' && (
-                    <div className="flex items-center bg-surface-subtle rounded-lg px-2 py-1 mx-1 border border-slate-100">
-                        <input type="date" value={startDate} onChange={e => {setStartDate(e.target.value); setDateRangeType('custom');}} className="bg-transparent text-xs font-bold text-ink-body outline-none w-[110px]" />
+                    <div className="flex items-center bg-surface-subtle rounded-lg px-2 py-1 mx-1 border border-slate-100 max-sm:w-full max-sm:mx-0 max-sm:gap-1">
+                        <input type="date" value={startDate} onChange={e => {setStartDate(e.target.value); setDateRangeType('custom');}} aria-label={language === 'ar' ? 'من' : 'From'} className="bg-transparent text-xs font-bold text-ink-body outline-none w-[110px] max-sm:w-auto max-sm:min-w-0 max-sm:flex-1 max-sm:min-h-10 max-sm:text-sm" />
                         <span className="text-slate-300 mx-1 font-bold">-</span>
-                        <input type="date" value={endDate} onChange={e => {setEndDate(e.target.value); setDateRangeType('custom');}} className="bg-transparent text-xs font-bold text-ink-body outline-none w-[110px]" />
+                        <input type="date" value={endDate} onChange={e => {setEndDate(e.target.value); setDateRangeType('custom');}} aria-label={language === 'ar' ? 'إلى' : 'To'} className="bg-transparent text-xs font-bold text-ink-body outline-none w-[110px] max-sm:w-auto max-sm:min-w-0 max-sm:flex-1 max-sm:min-h-10 max-sm:text-sm" />
                     </div>
                 )}
             </div>
@@ -1240,6 +1244,7 @@ export default function AttendancePage() {
               activeSession={activeSession} isDeviceBlocked={isDeviceBlocked} isDeviceMismatch={isDeviceMismatch} liveDuration={liveDuration} 
               actionLoading={actionLoading} handlePunch={handlePunch} myCalculatedStats={myCalculatedStats} 
               personalLogs={personalLogs} myProfile={myProfile} language={language}
+              periodType={dateRangeType}
           />
       )}
       {viewMode === 'team' && canAdmin && (

@@ -67,7 +67,8 @@ export function Bars({
       {rows.map((r, i) => (
         <div key={`${r.label}-${i}`}>
           <div className="flex items-center justify-between gap-3 mb-1">
-            <span className={`text-[13px] font-bold truncate ${r.warn ? "text-danger" : "text-ink"}`}>{r.label}</span>
+            {/* dir="auto": an English name on an Arabic page is cut at ITS end, not its start. */}
+            <span dir="auto" className={`min-w-0 text-[13px] font-bold truncate ${r.warn ? "text-danger" : "text-ink"}`}>{r.label}</span>
             <span className="font-figure text-xs font-semibold text-ink-muted shrink-0">{r.text}</span>
           </div>
           <div className="h-2 rounded bg-surface-muted overflow-hidden">
@@ -181,7 +182,10 @@ export function Figure({
   const colour = tone === "bad" ? "text-danger" : tone === "muted" ? "text-ink-muted" : "text-ink";
   return (
     <div className="flex flex-col gap-1 min-w-0">
-      <span className={`font-figure text-[26px] font-extrabold leading-none ${colour}`}>{value}</span>
+      {/* Phones: scale with the screen, so "16,682.85 EGP" stays inside a two-up tile instead of
+          running 15px past it; the unit may drop to a second line, the digits never split.
+          sm+: the fixed 26px as before. */}
+      <span className={`font-figure text-[clamp(16px,4.8vw,26px)] font-extrabold leading-tight sm:leading-none sm:text-[26px] ${colour}`}>{value}</span>
       <span className="text-[11px] font-semibold text-ink-muted leading-tight">{label}</span>
     </div>
   );

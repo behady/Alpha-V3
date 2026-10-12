@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Banknote, Edit2, FileSpreadsheet, Loader2, MinusCircle, Save, Trash2 } from "lucide-react";
 import type { StaffCommission } from "@/lib/staffCommission";
 import type { StaffInsuranceWork } from "@/lib/staffInsurance";
@@ -57,6 +57,79 @@ export default function MoneyTab({
 
   /** The settled part of one earning line, for the Paid column. */
   const settledOf = (key: string): EarningSettled | null => settlement?.byKey.get(key) ?? null;
+
+  /*
+    Phones get each row as a stacked card instead of the table. The tables are 30–36rem wide, and in
+    a 340px card they hid exactly the columns that matter — the amount, the editable rate, the share.
+    The cards below use the same handlers and the same figures; the tables are unchanged from md up.
+  */
+
+  /** The editable (or read-only) rate on one commission payment — shared by the table and the card. */
+  const pctCell = (e: StaffCommission["entries"][number], inputClass: string) =>
+    canEdit ? (
+      <span className="inline-flex items-center gap-1">
+        <input
+          type="number"
+          min={0}
+          max={100}
+          step="0.5"
+          inputMode="decimal"
+          aria-label={isAr ? "نسبة الدفعة" : "Rate on this payment"}
+          value={pctDraft[e.id] ?? (e.pct == null ? "" : String(e.pct))}
+          onChange={(ev) => setPctDraft((d) => ({ ...d, [e.id]: ev.target.value }))}
+          onBlur={(ev) => {
+            const raw = ev.target.value.trim();
+            setPctDraft((d) => {
+              const next = { ...d };
+              delete next[e.id];
+              return next;
+            });
+            if (raw === "") return;
+            const next = Math.max(0, Math.min(100, Number(raw) || 0));
+            if (e.pct != null && next === e.pct) return;
+            onSetPct(e.id, next);
+          }}
+          onKeyDown={(ev) => {
+            if (ev.key === "Enter") (ev.target as HTMLInputElement).blur();
+            if (ev.key === "Escape") {
+              setPctDraft((d) => {
+                const next = { ...d };
+                delete next[e.id];
+                return next;
+              });
+              (ev.target as HTMLInputElement).blur();
+            }
+          }}
+          className={inputClass}
+        />
+        <span className="font-figure text-[14px] font-semibold text-ink-muted">%</span>
+      </span>
+    ) : (
+      <span className="font-figure font-semibold text-ink-muted">
+        {e.pct == null ? "—" : `${e.pct}%`}
+      </span>
+    );
+
+  /** PaidCell's content without the <td>, for the phone cards. */
+  const paidValue = (settled: EarningSettled | null) =>
+    !settled ? (
+      <span className="font-figure font-semibold text-ink-muted">—</span>
+    ) : (
+      <span className={`font-figure font-semibold ${settled.remaining === 0 ? "text-ink" : "text-ink-muted"}`}>
+        {money(settled.paid)}
+        {settled.deducted > 0 && (
+          <span className="block text-[12px] font-semibold text-danger"><bdi dir="ltr">−{money(settled.deducted)}</bdi> {isAr ? "خصم" : "deducted"}</span>
+        )}
+      </span>
+    );
+
+  /** One label-over-value cell of a phone card. */
+  const cardFigure = (label: string, value: ReactNode) => (
+    <div className="min-w-0">
+      <dt className="text-[12px] font-bold text-ink-muted">{label}</dt>
+      <dd className="mt-0.5 text-[15px]">{value}</dd>
+    </div>
+  );
 
   return (
     <>
@@ -163,7 +236,50 @@ export default function MoneyTab({
         ) : settlement.items.length === 0 ? (
           <Empty text={isAr ? `لسه ماتسجلش أي دفعة لـ ${first}.` : `Nothing recorded for ${first} yet.`} />
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <ul className="divide-y divide-line/60 md:hidden">
+            {settlement.items.map((s) => (
+              <li key={s.id} className="flex items-start gap-3 py-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[15px] font-semibold text-ink">
+                    {s.kind === "payout" ? (isAr ? "دفعة" : "Payout") : isAr ? "خصم" : "Deduction"}
+                    {s.method ? <span className="text-ink-muted"> · {(PAY_METHODS.find((m) => m.id === s.method) ?? { en: s.method, ar: s.method })[isAr ? "ar" : "en"]}</span> : null}
+                  </p>
+                  <p className="mt-0.5 text-[13px] font-semibold text-ink-muted">
+                    {dayOf(s.date, isAr)} {s.date.slice(0, 4)}
+                    {branches.length > 0 && s.branchId ? ` · ${branches.find((b) => b.id === s.branchId)?.name ?? ""}` : ""}
+                  </p>
+                  {s.note ? <p className="mt-1 break-words text-[14px] font-medium text-ink-body">{s.note}</p> : null}
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <span className={`font-figure text-[16px] font-extrabold ${s.kind === "deduction" ? "text-danger" : "text-ink"}`}>
+                    <bdi dir="ltr">{s.kind === "deduction" ? "−" : ""}{money(s.amount)}</bdi>
+                  </span>
+                  {canEdit && (
+                    <span className="-me-2 inline-flex gap-1">
+                      <button
+                        type="button"
+                        aria-label={isAr ? "تعديل" : "Edit"}
+                        className="grid size-10 place-items-center rounded-lg text-ink-muted hover:bg-surface-muted hover:text-ink"
+                        onClick={() => setSettleForm({ id: s.id, kind: s.kind, amount: String(s.amount), date: s.date, note: s.note, method: s.method ?? "Cash" })}
+                      >
+                        <Edit2 size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={isAr ? "حذف" : "Delete"}
+                        className="grid size-10 place-items-center rounded-lg text-ink-muted hover:bg-surface-muted hover:text-danger"
+                        onClick={() => void onDeleteSettlement(s.id)}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </span>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[30rem] border-collapse text-[14px]">
               <thead>
                 <tr className={tableHead}>
@@ -216,6 +332,7 @@ export default function MoneyTab({
               </tbody>
             </table>
           </div>
+          </>
         )}
       </Section>
 
@@ -258,7 +375,31 @@ export default function MoneyTab({
           {commission.entries.length === 0 ? (
             <Empty text={isAr ? "مفيش فلوس اتحصّلت على شغله في الفترة دي." : "No payments for their work in this period yet."} />
           ) : (
-            <div className="overflow-x-auto">
+            <>
+            <ul className="divide-y divide-line/60 md:hidden">
+              {commission.entries.map((e) => (
+                <li key={e.id} className="py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="break-words text-[15px] font-semibold text-ink">{e.patientName}</p>
+                      <p className="break-words text-[13px] font-semibold text-ink-body">{e.serviceName}</p>
+                    </div>
+                    <span className="shrink-0 text-[13px] font-semibold text-ink-muted">{dayOf(e.date, isAr)}</span>
+                  </div>
+                  <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2">
+                    {cardFigure(isAr ? "المدفوع" : "Patient paid", <span className="font-figure font-semibold text-ink-body">{money(e.paid)}</span>)}
+                    {cardFigure("%", pctCell(e, "min-h-10 w-20 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-end font-figure text-[15px] font-bold text-ink outline-none focus:border-accent"))}
+                    {cardFigure(isAr ? "نصيبه" : "Their share", <span className="font-figure font-extrabold text-ink">{money(e.amount)}</span>)}
+                    {cardFigure(isAr ? "اتدفع له" : "Paid to them", paidValue(settledOf(e.id)))}
+                  </dl>
+                </li>
+              ))}
+              <li className="flex items-center justify-between gap-3 py-3">
+                <span className="text-[15px] font-bold text-ink">{isAr ? "الإجمالي" : "Total"}</span>
+                <span className="font-figure text-[18px] font-extrabold text-ink">{money(commission.total)}</span>
+              </li>
+            </ul>
+            <div className="hidden overflow-x-auto md:block">
               <table className="w-full min-w-[34rem] border-collapse text-[14px]">
                 <thead>
                   <tr className={tableHead}>
@@ -284,49 +425,7 @@ export default function MoneyTab({
                         the share and the clinic's profit and stamps the row as set by hand.
                       */}
                       <td className="py-3 pe-3 text-end">
-                        {canEdit ? (
-                          <span className="inline-flex items-center gap-1">
-                            <input
-                              type="number"
-                              min={0}
-                              max={100}
-                              step="0.5"
-                              inputMode="decimal"
-                              aria-label={isAr ? "نسبة الدفعة" : "Rate on this payment"}
-                              value={pctDraft[e.id] ?? (e.pct == null ? "" : String(e.pct))}
-                              onChange={(ev) => setPctDraft((d) => ({ ...d, [e.id]: ev.target.value }))}
-                              onBlur={(ev) => {
-                                const raw = ev.target.value.trim();
-                                setPctDraft((d) => {
-                                  const next = { ...d };
-                                  delete next[e.id];
-                                  return next;
-                                });
-                                if (raw === "") return;
-                                const next = Math.max(0, Math.min(100, Number(raw) || 0));
-                                if (e.pct != null && next === e.pct) return;
-                                onSetPct(e.id, next);
-                              }}
-                              onKeyDown={(ev) => {
-                                if (ev.key === "Enter") (ev.target as HTMLInputElement).blur();
-                                if (ev.key === "Escape") {
-                                  setPctDraft((d) => {
-                                    const next = { ...d };
-                                    delete next[e.id];
-                                    return next;
-                                  });
-                                  (ev.target as HTMLInputElement).blur();
-                                }
-                              }}
-                              className="w-20 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-end font-figure text-[15px] font-bold text-ink outline-none focus:border-accent"
-                            />
-                            <span className="font-figure text-[14px] font-semibold text-ink-muted">%</span>
-                          </span>
-                        ) : (
-                          <span className="font-figure font-semibold text-ink-muted">
-                            {e.pct == null ? "—" : `${e.pct}%`}
-                          </span>
-                        )}
+                        {pctCell(e, "w-20 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-end font-figure text-[15px] font-bold text-ink outline-none focus:border-accent")}
                       </td>
                       <td className="py-3 pe-3 text-end font-figure font-extrabold text-ink">{money(e.amount)}</td>
                       <PaidCell settled={settledOf(e.id)} isAr={isAr} />
@@ -342,6 +441,7 @@ export default function MoneyTab({
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </Section>
       )}
@@ -356,7 +456,35 @@ export default function MoneyTab({
               : "Services this dentist did on insurance approvals. Their share is worked out on the approved amount and kept apart from private work."
           }
         >
-          <div className="overflow-x-auto">
+          <ul className="divide-y divide-line/60 md:hidden">
+            {insurance.entries.map((e) => (
+              <li key={e.claimId + "-" + e.lineIndex} className="py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="break-words text-[15px] font-semibold text-ink">{e.patientName}</p>
+                    <p className="break-words text-[13px] font-semibold text-ink-body">{e.service}</p>
+                    <p className="text-[12px] font-semibold text-ink-muted">
+                      {isAr ? "رقم الموافقة" : "Approval no."} <bdi dir="ltr" className="font-figure">{e.approvalNumber}</bdi>
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-[13px] font-semibold text-ink-muted">{dayOf(e.date, isAr)}</span>
+                </div>
+                <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2">
+                  {cardFigure(isAr ? "الموافق عليه" : "Approved", <span className="font-figure font-semibold text-ink-body">{money(e.approved)}</span>)}
+                  {cardFigure("%", <span className="font-figure font-semibold text-ink-body">{e.rate}%</span>)}
+                  {cardFigure(isAr ? "نصيبه" : "Their share", <span className="font-figure font-extrabold text-ink">{money(e.share)}</span>)}
+                  {cardFigure(isAr ? "اتدفع له" : "Paid to them", paidValue(settledOf(`${e.claimId}#${e.lineIndex}`)))}
+                </dl>
+              </li>
+            ))}
+            <li className="py-3">
+              <dl className="grid grid-cols-2 gap-x-4">
+                {cardFigure(isAr ? "إجمالي الموافق عليه" : "Total approved", <span className="font-figure text-[18px] font-extrabold text-ink">{money(insurance.approved)}</span>)}
+                {cardFigure(isAr ? "إجمالي نصيبه" : "Total share", <span className="font-figure text-[18px] font-extrabold text-ink">{money(insurance.total)}</span>)}
+              </dl>
+            </li>
+          </ul>
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[36rem] border-collapse text-[14px]">
               <thead>
                 <tr className={tableHead}>

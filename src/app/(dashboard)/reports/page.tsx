@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRailActiveInView } from "@/lib/useRailActiveInView";
 import { Loader2, RefreshCw, CalendarDays, Lock } from "lucide-react";
 import { getDocs, query, where, Timestamp } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
@@ -84,6 +85,14 @@ function ReportsPage() {
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+
+  // Both rails scroll sideways on a phone; keep the chosen group and report in view, including the
+  // one a `?report=` link opened on. The rails are held in state through callback refs: they sit
+  // inside PermissionGuard and can mount after this component's first effects have run.
+  const [groupRail, groupRailRef] = useState<HTMLDivElement | null>(null);
+  const [reportRail, reportRailRef] = useState<HTMLDivElement | null>(null);
+  useRailActiveInView(groupRail, group, '[aria-current="page"]');
+  useRailActiveInView(reportRail, `${group}|${reportId}`, '[aria-current="page"]');
 
   const preset = presetOf(range);
   const rangeLabel = rangeText(range, isAr);
@@ -332,6 +341,7 @@ function ReportsPage() {
           */}
           <div className="space-y-3">
             <div
+              ref={groupRailRef}
               data-tour="reports-tabs"
               className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1 pb-1"
             >
@@ -361,7 +371,7 @@ function ReportsPage() {
                 );
               })}
             </div>
-            <div className="no-scrollbar -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+            <div ref={reportRailRef} className="no-scrollbar -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
               {inGroup.map((r) => {
                 const Icon = r.icon;
                 const active = report.id === r.id;
@@ -373,7 +383,7 @@ function ReportsPage() {
                     onClick={() => pick(r.id)}
                     aria-current={active ? "page" : undefined}
                     title={isAr ? r.hintAr : r.hintEn}
-                    className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-[12.5px] font-bold transition-colors ${
+                    className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-[12.5px] font-bold transition-colors max-lg:min-h-10 ${
                       active ? "bg-surface-muted text-ink ring-1 ring-line" : "text-ink-muted hover:bg-surface-subtle hover:text-ink"
                     }`}
                   >
@@ -405,7 +415,7 @@ function ReportsPage() {
               a spinner card, so every tweak of a date collapsed the page to a small box and then
               threw it back open — a jump on the most common interaction this screen has.
             */
-            <div className={`bg-surface rounded-3xl border border-line shadow-sm p-6 transition-opacity ${loading || extras.loading ? "pointer-events-none opacity-50" : "opacity-100"}`}>
+            <div className={`bg-surface rounded-3xl border border-line shadow-sm p-4 sm:p-6 transition-opacity ${loading || extras.loading ? "pointer-events-none opacity-50" : "opacity-100"}`}>
               {/* Which report, and over what — said once, in words, rather than twice in ISO. */}
               <div className="flex items-start justify-between gap-3 mb-6">
                 <div>

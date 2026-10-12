@@ -182,7 +182,7 @@ export default function SettingsTab({
                   return (
                     <div
                       key={day}
-                      className={`flex flex-wrap items-center gap-4 rounded-2xl border px-4 py-3 transition-colors ${
+                      className={`flex flex-wrap items-center gap-x-4 gap-y-3 rounded-2xl border px-3 py-3 transition-colors sm:gap-4 sm:px-4 ${
                         cfg.active ? "border-line bg-surface" : "border-line/60 bg-surface-subtle"
                       }`}
                     >
@@ -196,20 +196,23 @@ export default function SettingsTab({
                         <span className={`text-[16px] font-bold ${cfg.active ? "text-ink" : "text-ink-muted"}`}>{label}</span>
                       </label>
                       {cfg.active ? (
-                        <div className="flex items-center gap-2.5">
+                        /* Phones: "From [time]" over "to [time]", each input as wide as the card
+                           (the flex row was 377px in a 302px card and cut the end time off; two
+                           inputs side by side still clipped the AM/PM mark). sm+: unchanged row. */
+                        <div className="grid w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-2 sm:flex sm:w-auto sm:gap-2.5">
                           <span className="text-[14px] font-semibold text-ink-muted">{isAr ? "من" : "From"}</span>
                           <input
                             type="time"
                             value={cfg.start}
                             onChange={(e) => setDay(day, { start: e.target.value })}
-                            className="rounded-xl border border-line bg-surface px-3 py-2 font-figure text-[15px] font-bold text-ink outline-none"
+                            className="w-full min-w-0 min-h-10 rounded-xl border border-line bg-surface px-2 py-2 font-figure text-[15px] font-bold text-ink outline-none sm:w-auto sm:px-3"
                           />
                           <span className="text-[14px] font-semibold text-ink-muted">{isAr ? "لـ" : "to"}</span>
                           <input
                             type="time"
                             value={cfg.end}
                             onChange={(e) => setDay(day, { end: e.target.value })}
-                            className="rounded-xl border border-line bg-surface px-3 py-2 font-figure text-[15px] font-bold text-ink outline-none"
+                            className="w-full min-w-0 min-h-10 rounded-xl border border-line bg-surface px-2 py-2 font-figure text-[15px] font-bold text-ink outline-none sm:w-auto sm:px-3"
                           />
                         </div>
                       ) : (
