@@ -180,7 +180,7 @@ export default function DiscountEditor({
       {/* Who pays, chosen outright. Any service can be billed to any payer; the price box is the price. */}
       {activePayers.length > 1 && (
         <div>
-          <label className="mb-1 block text-[11px] font-black uppercase tracking-widest text-slate-400">
+          <label className="mb-1 block text-[11px] font-black uppercase tracking-widest text-accent">
             <Info size={11} className="mr-1 inline" />
             {ar ? "مين بيدفع" : "Who pays"}
           </label>
@@ -204,7 +204,7 @@ export default function DiscountEditor({
           than having to remember that "no list shown" meant the standard one. */}
       {activeLists.length > 0 && (
         <div>
-          <label className="mb-1 block text-[11px] font-black uppercase tracking-widest text-slate-400">
+          <label className="mb-1 block text-[11px] font-black uppercase tracking-widest text-accent">
             <Tag size={11} className="mr-1 inline" />
             {txt.priceList}
             <span className="ms-1 normal-case tracking-normal text-slate-400">{ar ? "(بيملّي السعر بس)" : "(prefills the price only)"}</span>
@@ -243,7 +243,7 @@ export default function DiscountEditor({
       )}
 
       <div>
-        <label className="mb-1 block text-[11px] font-black uppercase tracking-widest text-slate-400">
+        <label className="mb-1 block text-[11px] font-black uppercase tracking-widest text-accent">
           <Percent size={11} className="mr-1 inline" />
           {txt.discount}
         </label>
@@ -292,7 +292,7 @@ export default function DiscountEditor({
 
       {applied.discountAmount > 0 && (
         <div>
-          <label className="mb-1 block text-[11px] font-black uppercase tracking-widest text-slate-400">
+          <label className="mb-1 block text-[11px] font-black uppercase tracking-widest text-accent">
             {txt.reason}
           </label>
           <select
