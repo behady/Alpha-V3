@@ -77,7 +77,7 @@ export type EventKey =
   | "settings.branches"|"settings.services"|"settings.insurers"|"settings.labs";
 export type Refs = Partial<Record<
   "appointmentId"|"ledgerId"|"noteId"|"claimId"|"labCaseId"|"staffId"|"staffName"|"payerName"
-  |"receiptNumber"|"method"|"procedure"|"date"|"time"|"doctor"|"approvalNumber"|"labName"|"status"|"count",
+  |"receiptNumber"|"method"|"procedure"|"date"|"time"|"doctor"|"approvalNumber"|"labName"|"status"|"count"|"listPrice",
   string | number>>;
 export interface ActivityEvent {
   event: EventKey;
@@ -131,7 +131,7 @@ export function diffChanges(prev: Record<string, unknown>, next: Record<string, 
   - `settings` → settings
 
   On top of that, `procedure.added|edited` also gets **discount** when below the list (rule below) or when it has a `discount` change, and **insurance** when `refs.claimId` is set.
-- **Below the list:** a `price` change, or a `refs` pair, where the list price is greater than 0 and the price is lower. The list price comes from `changes` field `listPrice`, or from the change `price` `from` on add. Simplest: on `procedure.added` the route passes `changes: [{field:"listPrice", from:null, to:list}, {field:"price", from:null, to:cost}]`. Never applies when `refs.claimId` is set.
+- **Below the list:** `list = changes.listPrice.to ?? refs.listPrice` and `price = changes.price.to`. It is below the list when `list > 0 && price < list`. `procedure.added` passes `changes: [{field:"listPrice", from:null, to:list}, {field:"price", from:null, to:cost}]`; `procedure.edited` passes `refs.listPrice` (the current list price) plus the `price` change when the price changed. Never applies when `refs.claimId` is set.
 - **Flag (`isFlagged`) is true for:**
   - every `discount.*`
   - `procedure.added|edited` below the list
@@ -268,7 +268,7 @@ export async function patientNameOf(clinicId: string, patientId: string | null |
 | Site | Event | Fields |
 |---|---|---|
 | procedures create (≈489) | `procedure.added` | patientId, patientName `result.patientName`, amount `priced.pricing.cost`, changes `[listPrice null→priced.pricing.listPrice, price null→cost]`, plus `discount null→discountAmount` if > 0, reason `discountReason`, refs `{procedure: priced.displayProcedure, appointmentId, noteId: result.noteId, ledgerId: result.ledgerId, doctor: priced.doctorName, payerName: priced.payer.payerName}` (payer only when not private) |
-| procedures update (≈871) | `procedure.edited` | changes `diffChanges(result.before, {procedure, cost, listPrice, discountAmount, status, payerName, date}` (values taken from `priced`), with the field list `["procedure","cost","listPrice","discountAmount","status","payerName","date"])`. Then rename field `cost` to `price` and `discountAmount` to `discount`. Patient name from `result.patientName`. If the changes are empty, write nothing. |
+| procedures update (≈871) | `procedure.edited` | refs `{listPrice: priced.pricing.listPrice, procedure}`; changes `diffChanges(result.before, {procedure, cost, listPrice, discountAmount, status, payerName, date}` (values taken from `priced`), with the field list `["procedure","cost","listPrice","discountAmount","status","payerName","date"])`. Then rename field `cost` to `price` and `discountAmount` to `discount`. Patient name from `result.patientName`. If the changes are empty, write nothing. |
 | procedures updateApprovalNote (≈694) | `procedure.edited` | refs `{claimId, procedure: before.procedure}`, changes from `what` as label-only entries, patientName `await patientNameOf(clinicId, before.patientId)` |
 | procedures delete (≈944) | `procedure.deleted` | amount `note.cost`, patientName `charge?.data()?.patientName ?? await patientNameOf(...)`, refs `{procedure, count: cascade-1}` |
 | procedures move (≈1003) / continue (≈1064) | `procedure.moved` / `procedure.continued` | patientName via `patientNameOf`, refs `{procedure, date: result.newDate}` |
