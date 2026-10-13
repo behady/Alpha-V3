@@ -105,6 +105,7 @@
     "_comment_test_recyclebin": "The recycle bin's boundaries. A server route bypasses firestore.rules entirely, so every limit the rules enforce is re-enforced here or it is gone: path escapes, audit trails, the Admin short-circuit, and a restore that never overwrites.",
     "test:recyclebin": "npx tsx tests/recycleBin.test.mjs",
     "test:bin-cascade": "npx tsx tests/recycleBinCascade.test.mts",
+    "test:staged-once": "npx tsx tests/stagedProcedureOnce.test.mts",
     "test:note-photos-route": "npx tsx tests/notePhotosRoute.test.mts",
     "test:approval-teeth-route": "npx tsx tests/approvalTeethRoute.test.mts",
     "test:branch-money-routes": "npx tsx tests/branchMoneyRoutes.test.mts",

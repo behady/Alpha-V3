@@ -295,6 +295,12 @@ export type ProcedureWriteArgs = {
   clinicId?: string | null;
   /** Which branch the charge belongs to. Only pass a real id; omitted, the on-screen branch rides along. */
   branchId?: string;
+  /**
+   * Create only: a key unique to this one treatment, for a request that may be sent again (a
+   * staged treatment riding a save of its visit). The server writes the first and answers every
+   * repeat with what it already wrote. Leave it out for an ordinary add — two real fillings are two adds.
+   */
+  requestKey?: string;
 };
 
 export type ProcedureWriteResult = { noteId: string; ledgerId: string | null; cost: number };

@@ -38,3 +38,16 @@ export function stagedChargeTotal(list: readonly StagedPricing[]): number {
 export function toothListLabel(teeth: readonly string[]): string {
   return [...teeth].sort((a, b) => Number(a) - Number(b)).join(", ");
 }
+
+/**
+ * A staged treatment's id, and the request key its save is sent under.
+ *
+ * The server writes a create carrying a key once and answers every repeat with what it already
+ * wrote (api/clinical/procedures), so the key must be unique to this one treatment: random, not
+ * the clock — two receptionists staging in the same millisecond would otherwise share one.
+ */
+export function newStagedId(): string {
+  const c = globalThis.crypto;
+  if (c && typeof c.randomUUID === "function") return `stg_${c.randomUUID()}`;
+  return `stg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
+}

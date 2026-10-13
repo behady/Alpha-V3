@@ -385,10 +385,24 @@ function syncedAppointmentServices(
 // create
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * A create that may be sent more than once for the same treatment carries a request key, and the
+ * key becomes the note's document id: the first request writes it, every repeat finds it there.
+ *
+ * The booking form stages treatments in memory and sends them with a save of the visit. Its side
+ * drawer autosaved an existing visit while treatments were still staged, so every later autosave
+ * sent them again and one filling was charged twice. The browser can lose track of what it already
+ * sent; a document id cannot be written twice. A request without a key (an ordinary add, or two
+ * real fillings added one after the other) is written every time, as before.
+ */
+const REQUEST_KEY = /^[A-Za-z0-9_-]{8,100}$/;
+
 async function createProcedure(args: { clinicId: string; actor: Actor; body: Record<string, unknown> }) {
   const { clinicId, actor, body } = args;
   const patientId = String(body.patientId || "").trim();
   if (!patientId) return bad("A treatment needs a patient.");
+  const requestKey = body.requestKey === undefined || body.requestKey === null ? null : String(body.requestKey);
+  if (requestKey !== null && !REQUEST_KEY.test(requestKey)) return bad("Invalid request key.");
 
   const priced = await priceRequest(clinicId, body, actor);
   const appointmentId = body.appointmentId ? String(body.appointmentId).trim() : null;
@@ -401,7 +415,20 @@ async function createProcedure(args: { clinicId: string; actor: Actor; body: Rec
   });
   if (!branch.ok) return branch.response;
 
+  const notes = adminClinicCollection(clinicId, "clinical_notes");
   const result = await adminDb().runTransaction(async (txn) => {
+    const noteRef = requestKey ? notes.doc(`req_${requestKey}`) : notes.doc();
+    if (requestKey) {
+      const already = await txn.get(noteRef);
+      if (already.exists) {
+        const stored = already.data() || {};
+        // Someone else's treatment under the same key is a client bug, not a repeat: answering it
+        // would hand this patient another patient's note id.
+        if (String(stored.patientId || "") !== patientId) throw new Error("REQUEST_KEY_TAKEN");
+        return { repeat: true as const, noteId: noteRef.id, ledgerId: (stored.ledgerId as string | null) ?? null, cost: Number(stored.cost) || 0 };
+      }
+    }
+
     const patientSnap = await txn.get(adminClinicDoc(clinicId, "patients", patientId));
     if (!patientSnap.exists) throw new Error("NO_PATIENT");
     const patientName = String(patientSnap.data()?.name || "") || null;
@@ -409,7 +436,6 @@ async function createProcedure(args: { clinicId: string; actor: Actor; body: Rec
     const appointmentRef = appointmentId ? adminClinicDoc(clinicId, "appointments", appointmentId) : null;
     const appointmentSnap = appointmentRef ? await txn.get(appointmentRef) : null;
 
-    const noteRef = adminClinicCollection(clinicId, "clinical_notes").doc();
     const shouldBill = addToLedger && priced.pricing.cost > 0;
     const ledgerRef = shouldBill ? adminClinicCollection(clinicId, "ledger").doc() : null;
 
@@ -422,6 +448,7 @@ async function createProcedure(args: { clinicId: string; actor: Actor; body: Rec
       createdByName: actor.name,
       createdByRole: actor.role,
       createdAt: FieldValue.serverTimestamp(),
+      ...(requestKey ? { requestKey } : {}),
     };
     txn.set(noteRef, note);
 
@@ -451,8 +478,13 @@ async function createProcedure(args: { clinicId: string; actor: Actor; body: Rec
       );
     }
 
-    return { noteId: noteRef.id, ledgerId: ledgerRef?.id || null, note, patientName };
+    return { repeat: false as const, noteId: noteRef.id, ledgerId: ledgerRef?.id || null, note, patientName };
   });
+
+  // A repeat wrote nothing, so there is nothing to audit or alert on — just the original's ids.
+  if (result.repeat) {
+    return NextResponse.json({ ok: true, noteId: result.noteId, ledgerId: result.ledgerId, cost: result.cost, repeat: true });
+  }
 
   await recordMoneyChange({
     entry: {
@@ -1147,6 +1179,8 @@ export async function POST(request: Request) {
         return bad("That payer is not on this clinic's list any more. Pick another under Settings → Payers.");
       case "NO_PATIENT":
         return bad("That patient no longer exists.", 404);
+      case "REQUEST_KEY_TAKEN":
+        return bad("That treatment was already recorded for another patient. Refresh and add it again.", 409);
       case "NOT_FOUND":
         return bad("That treatment no longer exists. Refresh and try again.", 404);
       case "NO_APPOINTMENT":

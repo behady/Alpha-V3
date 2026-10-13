@@ -4,7 +4,8 @@
 // teeth make (per tooth, per jaw, or flat). The server applies the same rule when the booking is
 // saved (lib/procedurePricing), so what the popup shows is what gets charged.
 import assert from "node:assert/strict";
-import { stagedChargeTotal, stagedLineTotal, stagedUnits, toothListLabel } from "../src/lib/stagedProcedures";
+import { readFileSync } from "node:fs";
+import { newStagedId, stagedChargeTotal, stagedLineTotal, stagedUnits, toothListLabel } from "../src/lib/stagedProcedures";
 
 const filling = { cost: 900, addToLedger: true, teeth: ["16", "17"], pricingMode: "per_tooth" as const };
 assert.equal(stagedUnits(filling), 2);
@@ -31,5 +32,25 @@ assert.equal(
 
 assert.equal(toothListLabel(["17", "16", "55"]), "16, 17, 55", "teeth listed in number order");
 assert.equal(toothListLabel([]), "");
+
+// Each staged treatment is saved under its id as a request key (api/clinical/procedures writes a
+// key once), so the id must pass the server's key rule and never repeat.
+const ids = new Set(Array.from({ length: 500 }, () => newStagedId()));
+assert.equal(ids.size, 500, "staged ids never repeat");
+for (const id of ids) assert.match(id, /^[A-Za-z0-9_-]{8,100}$/, "a staged id is a usable request key");
+
+// The 2026-10-13 duplicate charges: autosave re-sent staged treatments on every settled edit.
+// Autosave must never carry them, and an existing visit in the side drawer adds treatments on the
+// spot (AppointmentMoneyTab) instead of staging them for a later save.
+const modal = readFileSync(new URL("../src/components/BookingModal.tsx", import.meta.url), "utf8");
+assert.match(modal, /onAutosave\(\{ \.\.\.buildPayload\(\), sessionProcedures: \[\] \}\)/, "autosave sends no staged treatments");
+assert.doesNotMatch(modal, /onAutosave\(buildPayload\(\)\)/, "no autosave path sends the whole form with its staged treatments");
+const flat = modal.replace(/\r/g, "");
+const drawerAt = flat.indexOf("{editAppointment ? (\n  // An existing visit records");
+assert.ok(drawerAt >= 0, "the drawer's treatment section branches on an existing visit");
+const drawerBlock = flat.slice(drawerAt).split("\n").slice(0, 10).join("\n");
+assert.match(drawerBlock, /<AppointmentMoneyTab [^\n]*section="service"[^\n]*\/>\n {2}<\/div>\n\) : \(\n {2}addProcedureSection\n\)\}/, "the drawer edits an existing visit's treatments in place");
+const booking = readFileSync(new URL("../src/lib/bookingService.ts", import.meta.url), "utf8");
+assert.match(booking, /requestKey: sp\.id/, "a staged treatment is saved under its id");
 
 console.log("stagedProcedures: all checks passed");

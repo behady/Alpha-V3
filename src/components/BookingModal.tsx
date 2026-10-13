@@ -78,7 +78,7 @@ import { TeethChartSelector } from "./clinical-notes/ServiceEditorDrawer";
 import { treatmentsByTooth, type TreatmentSourceNote } from "@/lib/toothTreatments";
 import { suggestCategory } from "@/lib/dentalIcons";
 import type { ToothData } from "@/lib/diagnosisCatalog";
-import { stagedChargeTotal, stagedLineTotal, stagedMode, stagedUnits, toothListLabel } from "@/lib/stagedProcedures";
+import { newStagedId, stagedChargeTotal, stagedLineTotal, stagedMode, stagedUnits, toothListLabel } from "@/lib/stagedProcedures";
 import { PRIVATE_PAYER_ID, payerForPriceList } from "@/lib/payers";
 import { serviceMenuById } from "@/lib/serviceMenu";
 import { serviceDisplayName } from "@/lib/serviceName";
@@ -1033,7 +1033,11 @@ export default function BookingModal({
     autosaveBusy.current = true;
     setAutosaveState("saving");
     try {
-      await onAutosave(buildPayload());
+      // Never the staged treatments. Autosave fires on every settled edit and the snapshot it
+      // compares against is not refreshed after a save, so a treatment riding along here went out
+      // again with each later edit — one filling, two charges. Treatments on an existing visit are
+      // written on the spot by the Service section (AppointmentMoneyTab), once.
+      await onAutosave({ ...buildPayload(), sessionProcedures: [] });
       setAutosaveState("saved");
     } catch (e) {
       console.error("Autosave failed:", e);
@@ -1574,7 +1578,7 @@ servicesList.length > 0 && (
                 setAddingProcedure(true);
                 try {
                   const newProcedure = {
-                    id: editingProcId || Date.now().toString(),
+                    id: editingProcId || newStagedId(),
                     // The catalog entry this came from. Carried through to the ledger row so
                     // reports can group on a stable id instead of parsing the description.
                     serviceId: String(svc.id),
@@ -1791,7 +1795,16 @@ servicesList.length > 0 && (
   </div>
 )}
 
-{addProcedureSection}
+{editAppointment ? (
+  // An existing visit records a treatment the moment it is confirmed, as the pop-up and the phone
+  // do. Staging it here meant it only reached the books on some later save — and with autosave on,
+  // on every later save, so one filling was charged twice; or on none, and it was lost on Done.
+  <div className="border-t border-slate-100 px-6 pb-6">
+    <AppointmentMoneyTab key={`svc-${editAppointment.id}`} appointment={{ ...editAppointment, doctorId: resolvedDoctorId }} section="service" doctorsList={doctors} servicesList={servicesList} />
+  </div>
+) : (
+  addProcedureSection
+)}
 
 
           <SlotPicker

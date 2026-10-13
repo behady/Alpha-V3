@@ -111,6 +111,8 @@ export interface BookingSavePayload {
    * treatment added from the patient's file. No teeth = a general treatment ("Gen"), one unit.
    */
   sessionProcedures?: {
+    /** The staged row's id (lib/stagedProcedures newStagedId), sent as the request key. */
+    id?: string;
     serviceId?: string | null;
     name: string;
     cost: number;
@@ -193,6 +195,9 @@ async function writeSessionProcedures(
       status: "Completed",
       date,
       addToLedger: sp.addToLedger,
+      // Written once however often this save is sent: a repeat comes back as the treatment
+      // already recorded. An id that cannot be a key is simply sent without one.
+      ...(sp.id && /^[A-Za-z0-9_-]{8,100}$/.test(sp.id) ? { requestKey: sp.id } : {}),
       // Under "All branches" only: the visit's own branch (picked in the booking form), so the admin
       // is not refused for a booking with services. Under a real branch nothing is sent and the
       // chokepoint attaches the branch on screen. Never an empty id.
