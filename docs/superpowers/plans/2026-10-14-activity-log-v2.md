@@ -268,7 +268,7 @@ export async function patientNameOf(clinicId: string, patientId: string | null |
 | Site | Event | Fields |
 |---|---|---|
 | procedures create (≈489) | `procedure.added` | patientId, patientName `result.patientName`, amount `priced.pricing.cost`, changes `[listPrice null→priced.pricing.listPrice, price null→cost]`, plus `discount null→discountAmount` if > 0, reason `discountReason`, refs `{procedure: priced.displayProcedure, appointmentId, noteId: result.noteId, ledgerId: result.ledgerId, doctor: priced.doctorName, payerName: priced.payer.payerName}` (payer only when not private) |
-| procedures update (≈871) | `procedure.edited` | changes `diffChanges(result.before, {cost, listPrice, discountAmount, procedure, status, payerName, date}, ["procedure","price"…])`, with `cost` renamed to field `price`. Patient name from `result.patientName`. If the changes are empty, write nothing. |
+| procedures update (≈871) | `procedure.edited` | changes `diffChanges(result.before, {procedure, cost, listPrice, discountAmount, status, payerName, date}` (values taken from `priced`), with the field list `["procedure","cost","listPrice","discountAmount","status","payerName","date"])`. Then rename field `cost` to `price` and `discountAmount` to `discount`. Patient name from `result.patientName`. If the changes are empty, write nothing. |
 | procedures updateApprovalNote (≈694) | `procedure.edited` | refs `{claimId, procedure: before.procedure}`, changes from `what` as label-only entries, patientName `await patientNameOf(clinicId, before.patientId)` |
 | procedures delete (≈944) | `procedure.deleted` | amount `note.cost`, patientName `charge?.data()?.patientName ?? await patientNameOf(...)`, refs `{procedure, count: cascade-1}` |
 | procedures move (≈1003) / continue (≈1064) | `procedure.moved` / `procedure.continued` | patientName via `patientNameOf`, refs `{procedure, date: result.newDate}` |
@@ -358,7 +358,7 @@ export async function patientNameOf(clinicId: string, patientId: string | null |
   - `src/components/dashboard/DesktopDashboard.tsx` (`handleStatusChange` ≈788, `saveInlineEdit` ≈491, `updateBookingTime` caller ≈1630)
   - `src/components/dashboard/MobileDashboard.tsx` (`handleStatusChange` ≈686)
   - `src/components/dashboard/DentistHome.tsx` (`setStatus` ≈172)
-  - `src/components/.../WeeklyScheduleView.tsx` (≈263), `RoomScheduleView.tsx` (≈211-222)
+  - `src/components/dashboard/WeeklyScheduleView.tsx` (≈263), `src/components/dashboard/RoomScheduleView.tsx` (≈211-222)
 - Test: `tests/activityAppointmentDiff.test.mts`; script `"test:activity-appointments"`
 
 **Interfaces:**
@@ -413,17 +413,17 @@ assert.deepEqual(d.map((e) => e.event), ["appointment.edited", "discount.given"]
   - 872/886/916/1183 → `plan.edited` / `plan.created` / `plan.deleted`, with refs `{procedure: title}`.
   - handleSetStatus ≈931 → `plan.status` with the status change.
 - Lab, logged at the call sites (each already has `useAuth` or a user name; use `useAuth().user`):
-  - `LabCaseModal.tsx`: ≈503 create → `lab.created` (refs `{labName, status}`, amount `agreedPrice`); ≈499 update → `lab.edited` (diff `["labName","agreedPrice","dueDate","status"]`); ≈545 delete → `lab.deleted`.
+  - `src/components/lab/LabCaseModal.tsx`: ≈503 create → `lab.created` (refs `{labName, status}`, amount `agreedPrice`); ≈499 update → `lab.edited` (diff `["labName","agreedPrice","dueDate","status"]`); ≈545 delete → `lab.deleted`.
   - `src/app/(dashboard)/lab/page.tsx`: ≈245 advance → `lab.status` (status from→to); ≈279 remake → `lab.remake` (reason).
-  - `LabAccountsPanel.tsx`: ≈87 → `lab.paid` (amount, refs `{labName, method}`); ≈119 → `lab.payment.deleted`.
+  - `src/components/lab/LabAccountsPanel.tsx`: ≈87 → `lab.paid` (amount, refs `{labName, method}`); ≈119 → `lab.payment.deleted`.
 - `src/app/(dashboard)/team/page.tsx`:
   - setRate ≈415, saveBranchIds ≈435 and savePay ≈476 → `staff.edited`, refs `{staffId, staffName}`.
   - Changes: commission from→to; branches as joined branch names (via `useActiveBranch().branches`); and `diffChanges(selectedDoc, draft, ["baseSalary","commissionPercentage","overtimeMultiplier","speciality"])`.
 - Settings, each adding `useAuth`:
-  - `LocationsSettings.tsx` handleSave ≈100 → `settings.branches`: one change per added (`null → name`), removed (`name → null`) or renamed (`old → new`) branch, matched by id.
-  - `PricingSettings.tsx` ≈188/191/215 → `settings.services` with service name and price from→to.
-  - `PayersSettings.tsx` saveDraft ≈397 and remove ≈269 → `settings.insurers` with insurer name from→to.
-  - `DentalLabsSettings.tsx` ≈127 → `settings.labs`, the lab-name diff by id.
+  - `src/components/settings/LocationsSettings.tsx` handleSave ≈100 → `settings.branches`: one change per added (`null → name`), removed (`name → null`) or renamed (`old → new`) branch, matched by id.
+  - `src/components/settings/PricingSettings.tsx` ≈188/191/215 → `settings.services` with service name and price from→to.
+  - `src/components/settings/PayersSettings.tsx` saveDraft ≈397 and remove ≈269 → `settings.insurers` with insurer name from→to.
+  - `src/components/settings/DentalLabsSettings.tsx` ≈127 → `settings.labs`, the lab-name diff by id.
 - `src/components/settings/UserManagement.tsx` ≈133: the legacy "User Deleted" details carry the user's name instead of the uid. A plain string change; no event needed.
 
 **Interfaces:** Consumes `logEvent` and `diffChanges`. Produces nothing new.
