@@ -1,6 +1,10 @@
 import { db } from "@/lib/firebase";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { currentBranchId } from "@/lib/branchScope";
+import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
+import { storedFields, stripUndefined } from "@/lib/activity/catalogue";
+import type { ActivityEvent, AuditUser as EventUser } from "@/lib/activity/types";
 
 type AuditUser = {
   uid?: string;
@@ -80,3 +84,34 @@ export const logActivity = async (
     console.error("Failed to write system log:", error);
   }
 };
+
+/**
+ * Activity log v2, client side: records a structured event. The sentence, severity, module and
+ * categories are derived from the event by the catalogue, so a screen only says what happened.
+ *
+ * Writes the same legacy fields as `logActivity` (older screens and reports still read them) plus
+ * the event itself. `date` is the clinic's calendar day, not UTC. An event with no branch gets the
+ * branch on screen. Never throws.
+ */
+export async function logEvent(user: EventUser | null | undefined, e: ActivityEvent): Promise<void> {
+  try {
+    const userName = user?.name || "Unknown User";
+    const stored = storedFields(e);
+    await addDoc(
+      getClinicCollection("system_logs"),
+      stripUndefined({
+        userId: user?.uid || null,
+        userName,
+        userRole: user?.role || null,
+        user: userName,
+        ...e,
+        branchId: e.branchId === undefined ? currentBranchId() || null : e.branchId,
+        ...stored,
+        timestamp: serverTimestamp(),
+        date: ymdInTimeZone(clinicTimeZone()),
+      }),
+    );
+  } catch (error) {
+    console.error("Failed to write activity event:", error);
+  }
+}

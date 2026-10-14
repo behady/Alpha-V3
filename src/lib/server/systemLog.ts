@@ -11,6 +11,9 @@
 
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection } from "@/lib/adminClinicDb";
+import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
+import { storedFields, stripUndefined } from "@/lib/activity/catalogue";
+import type { ActivityEvent, AuditUser } from "@/lib/activity/types";
 
 export type LogSeverity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 export type LogModule =
@@ -50,5 +53,36 @@ export async function logActivityServer(args: {
     });
   } catch (error) {
     console.error("logActivityServer: failed to write system log", { clinicId: args.clinicId }, error);
+  }
+}
+
+/**
+ * Activity log v2, server side: records a structured event beside the old free-text lines.
+ *
+ * Same fields as `logEvent` in lib/logger (legacy keys, the event, and what the catalogue derives
+ * from it) so both writers land in one list. `date` is the clinic's calendar day, where the
+ * writers above use UTC. Never throws.
+ */
+export async function logEventServer(args: {
+  clinicId: string;
+  user: AuditUser;
+  event: ActivityEvent;
+}): Promise<void> {
+  const userName = args.user.name || "Unknown User";
+  try {
+    await adminClinicCollection(args.clinicId, "system_logs").add(
+      stripUndefined({
+        userId: args.user.uid || null,
+        userName,
+        userRole: args.user.role || null,
+        user: userName,
+        ...args.event,
+        ...storedFields(args.event),
+        timestamp: FieldValue.serverTimestamp(),
+        date: ymdInTimeZone(clinicTimeZone()),
+      }),
+    );
+  } catch (error) {
+    console.error("logEventServer: failed to write activity event", { clinicId: args.clinicId }, error);
   }
 }

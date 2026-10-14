@@ -16,7 +16,8 @@
 
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection } from "@/lib/adminClinicDb";
-import { logActivityServer } from "@/lib/server/systemLog";
+import { logActivityServer, logEventServer } from "@/lib/server/systemLog";
+import type { ActivityEvent } from "@/lib/activity/types";
 
 export const LEDGER_AUDIT_COLLECTION = "ledger_audit";
 
@@ -76,20 +77,27 @@ export async function recordLedgerAuditBatch(entries: LedgerAuditEntry[]): Promi
  */
 export async function recordMoneyChange(args: {
   entry: LedgerAuditEntry;
-  /** Activity-log sentence, e.g. "Payment Received". */
-  action: string;
-  details: string;
+  /** Activity-log sentence, e.g. "Payment Received". Ignored when `event` is given. */
+  action?: string;
+  details?: string;
   severity?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  /**
+   * The structured activity-log event. When present it writes the activity line (action, details,
+   * severity and module all come from the catalogue) and the three fields above are ignored.
+   */
+  event?: ActivityEvent;
 }): Promise<void> {
   await Promise.all([
     recordLedgerAudit(args.entry),
-    logActivityServer({
-      clinicId: args.entry.clinicId,
-      user: args.entry.actor,
-      action: args.action,
-      details: args.details,
-      severity: args.severity || (args.entry.action === "delete" ? "HIGH" : "MEDIUM"),
-      module: "finance",
-    }),
+    args.event
+      ? logEventServer({ clinicId: args.entry.clinicId, user: args.entry.actor, event: args.event })
+      : logActivityServer({
+          clinicId: args.entry.clinicId,
+          user: args.entry.actor,
+          action: args.action ?? "",
+          details: args.details,
+          severity: args.severity || (args.entry.action === "delete" ? "HIGH" : "MEDIUM"),
+          module: "finance",
+        }),
   ]);
 }
