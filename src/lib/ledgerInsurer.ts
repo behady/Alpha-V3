@@ -31,14 +31,16 @@ function num(v: unknown): number {
 
 /**
  * The insurer's unpaid part of this row: zero for ordinary rows, payments, and rows the insurer has
- * settled. On a company row with no paper (`isCompanyRow`, e.g. GASCO) it is everything not yet
- * paid on it — `paid` is the server's running total of every payment against the row, the
- * patient's cash and the company's alike — so the patient is never shown as owing the company's bill.
+ * settled. On a company row with no paper (`isCompanyRow`, e.g. GASCO) the company owes the whole
+ * price: it is the price less what has been paid on the row, and only the company's money lands
+ * there — the ledger route refuses the patient's cash against a company row (that cash is the
+ * patient's credit), and a deleted collection brings the debt back because `paid` is recomputed.
+ * `insurerPaidAt` is not read for these rows for that reason: deleting the payment does not clear it.
  */
 export function insurerOutstanding(row: InsurerRowLite): number {
   if (String(row.type || "") !== "procedure") return 0;
-  if (row.insurerPaidAt) return 0;
   if (isCompanyRow(row)) return Math.max(0, (num(row.cost) || num(row.amount)) - num(row.paid));
+  if (row.insurerPaidAt) return 0;
   return Math.max(0, num(row.insurerCovered));
 }
 
@@ -75,8 +77,9 @@ export type AccountRowLite = {
 
 /**
  * Charged to a company with no approval paper (GASCO and the like): the desk picked the company,
- * not the patient, as who pays. The company owes all of it; whatever cash the patient put on it at
- * the counter is the patient's share. `"private"` is the clinic's own payer id (see payers.ts).
+ * not the patient, as who pays. The company owes all of it, always — the owner's rule (2026-10-14):
+ * cash the patient pays is the patient's credit and never comes off the company's bill.
+ * `"private"` is the clinic's own payer id (see payers.ts).
  */
 export function isCompanyRow(row: { claimId?: unknown; payerId?: unknown } | null | undefined): boolean {
   if (!row || isApprovalRow(row)) return false;
@@ -111,11 +114,11 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
  * paid yet, so the figures are the patient's alone.
  *
  * A company row (`isCompanyRow`, e.g. GASCO with no paper) is the company's bill outright: the
- * desk chose the company as who pays, so the patient owes nothing on it. Cash the patient did put
- * on it counts as their share (cost and paid alike, so it nets to zero); the company's own payments
- * (`INSURER_PAYMENT_METHOD`, written by Finance → "Mark collected") leave the paid. Before
- * 2026-10-14 these rows counted in full as the patient's, and the desk was shown a GASCO patient
- * "owing" the whole visit.
+ * desk chose the company as who pays, so the patient owes nothing on it and the company owes all
+ * of it. The company's own payments (`INSURER_PAYMENT_METHOD`, written by Finance → "Mark
+ * collected") leave the paid; any cash of the patient's on it (from before the route refused
+ * that) stays in the paid and so reads as the patient's credit. Before 2026-10-14 these rows
+ * counted in full as the patient's, and the desk was shown a GASCO patient "owing" the whole visit.
  *
  * `paid` on a row is the server's running total of every payment against it, so the patient's
  * part of it is that total less the insurer's payments.
@@ -151,13 +154,10 @@ export function patientAccount(rows: readonly AccountRowLite[]): {
     const approval = approvalIds.has(r.id);
     const company = companyIds.has(r.id);
     const insurerPaid = round2(insurerPaidOn.get(r.id) ?? 0);
-    const patientPaid = round2(Math.max(0, num(r.paid) - insurerPaid));
-    const insurerPart = approval
-      ? Math.min(rowCost, Math.max(0, num(r.insurerCovered)))
-      : company
-        ? round2(Math.max(0, rowCost - patientPaid))
-        : 0;
-    const patientDue = company ? Math.min(rowCost, patientPaid) : round2(rowCost - insurerPart);
+    // On a company row nothing settles a patient's debt — there is none — so their cash is unallocated credit.
+    const patientPaid = company ? 0 : round2(Math.max(0, num(r.paid) - insurerPaid));
+    const insurerPart = approval ? Math.min(rowCost, Math.max(0, num(r.insurerCovered))) : company ? rowCost : 0;
+    const patientDue = round2(rowCost - insurerPart);
     byCharge.set(r.id, { approval, company, insurerPart, insurerPaid, patientDue, patientPaid, patientLeft: round2(Math.max(0, patientDue - patientPaid)) });
     cost += patientDue;
     // The gap between the paper's gross and the approved price is the insurer's tariff, not a

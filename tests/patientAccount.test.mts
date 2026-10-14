@@ -22,16 +22,15 @@ const approvalRow = {
 const cash = (id: string, procedureId: string, paid: number) => ({ id, type: "payment", paid, amount: paid, method: "Cash", procedureId });
 
 check("an unpaid approval: only the share is the patient's", () => {
-  const a = patientAccount([privateRow, contractRow, approvalRow, cash("x1", "p1", 800), cash("x2", "g1", 1584)]);
-  assert.equal(a.cost, 800 + 1584 + 100);
-  assert.equal(a.paid, 2384);
+  const a = patientAccount([privateRow, { ...contractRow, paid: 0 }, approvalRow, cash("x1", "p1", 800)]);
+  assert.equal(a.cost, 800 + 100);
+  assert.equal(a.paid, 800);
   assert.equal(a.remaining, 100);
   // The approval's gross-to-approved gap is the insurer's tariff, not the patient's discount.
   assert.equal(a.discount, 0);
   const side = a.byCharge.get("a1")!;
   assert.deepEqual(side, { approval: true, company: false, insurerPart: 868.25, insurerPaid: 0, patientDue: 100, patientPaid: 0, patientLeft: 100 });
-  // Cash the patient did put on a company row is their share: it is in the cost and the paid alike.
-  assert.deepEqual(a.byCharge.get("g1"), { approval: false, company: true, insurerPart: 0, insurerPaid: 0, patientDue: 1584, patientPaid: 1584, patientLeft: 0 });
+  assert.deepEqual(a.byCharge.get("g1"), { approval: false, company: true, insurerPart: 1584, insurerPaid: 0, patientDue: 0, patientPaid: 0, patientLeft: 0 });
 });
 
 check("the insurer's cheque is not the patient's money", () => {
@@ -89,16 +88,18 @@ check("a company row (Gasco, no paper) is not the patient's bill", () => {
   assert.deepEqual(a.byCharge.get("g1"), { approval: false, company: true, insurerPart: 1584, insurerPaid: 0, patientDue: 0, patientPaid: 0, patientLeft: 0 });
 });
 
-check("Gasco's collection leaves the patient's paid; part cash, part company", () => {
+check("the patient's cash on a company row is their credit; Gasco still owes the whole price", () => {
+  // The owner's rule, 2026-10-14: never subtracted from Gasco. (The route now refuses such a
+  // payment; this is a row from before that.)
   const a = patientAccount([
-    { id: "g1", type: "procedure", cost: 1000, paid: 1000, payerId: "gasco" },
+    { id: "g1", type: "procedure", cost: 1000, paid: 1200, payerId: "gasco" },
     cash("c", "g1", 200),
-    { id: "ins", type: "payment", paid: 800, amount: 800, method: "Insurance", procedureId: "g1" },
+    { id: "ins", type: "payment", paid: 1000, amount: 1000, method: "Insurance", procedureId: "g1" },
   ]);
+  assert.equal(a.cost, 0);
   assert.equal(a.paid, 200);
-  assert.equal(a.cost, 200);
-  assert.equal(a.remaining, 0);
-  assert.deepEqual(a.byCharge.get("g1"), { approval: false, company: true, insurerPart: 800, insurerPaid: 800, patientDue: 200, patientPaid: 200, patientLeft: 0 });
+  assert.equal(a.remaining, -200, "200 of credit");
+  assert.deepEqual(a.byCharge.get("g1"), { approval: false, company: true, insurerPart: 1000, insurerPaid: 1000, patientDue: 0, patientPaid: 0, patientLeft: 0 });
 });
 
 check("payer Private, blank or absent is the patient's own work", () => {
@@ -114,10 +115,11 @@ check("patientPortion: the patient file, reminders and receipts agree on a compa
   assert.equal(isCompanyRow(unpaid), true);
   assert.equal(insurerOutstanding(unpaid), 1584);
   assert.equal(patientPortion(unpaid), 0, "a reminder would ask the patient for Gasco's 1,584");
-  const partCash = { ...unpaid, paid: 300 };
-  assert.equal(insurerOutstanding(partCash), 1284);
-  assert.equal(patientPortion(partCash), 300, "the cash they paid is theirs, not an overpayment");
-  assert.equal(insurerOutstanding({ ...unpaid, paid: 1584 }), 0);
+  // Collected from Gasco: the company's payment and the portion cancel out in every tally.
+  assert.equal(insurerOutstanding({ ...unpaid, paid: 1584, insurerPaidAt: "2026-10-14" }), 0);
+  assert.equal(patientPortion({ ...unpaid, paid: 1584, insurerPaidAt: "2026-10-14" }), 1584);
+  // The collection deleted: `paid` is recomputed to 0 but the stamp stays. Gasco owes it again.
+  assert.equal(insurerOutstanding({ ...unpaid, paid: 0, insurerPaidAt: "2026-10-14" }), 1584);
   // An approval row keeps its own rule even with a payer on it.
   const approval = { type: "procedure", cost: 968.25, paid: 0, claimId: "c1", payerId: "nextcare", insurerCovered: 868.25 };
   assert.equal(isCompanyRow(approval), false);

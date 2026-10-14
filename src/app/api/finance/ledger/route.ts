@@ -50,7 +50,7 @@ import { recalcCommissionFromPayment } from "@/lib/ledgerCommission";
 import { allowedDiscount, checkDiscountAllowed, isDiscountMode } from "@/lib/discountMath";
 import { afterLedgerCreate, afterLedgerDelete, afterLedgerUpdate } from "@/lib/alerts/moneyAlerts";
 import { DISCOUNTS_DOC, parseDiscountSettings } from "@/lib/priceLists";
-import { INSURER_PAYMENT_METHOD, isApprovalRow } from "@/lib/ledgerInsurer";
+import { INSURER_PAYMENT_METHOD, isApprovalRow, isCompanyRow } from "@/lib/ledgerInsurer";
 import { insurerRows, type LedgerLite } from "@/lib/insurerLedger";
 import { PRIVATE_PAYER_ID } from "@/lib/payers";
 import { LOCATIONS_DOC, parseClinicBranches } from "@/lib/clinicLocations";
@@ -246,6 +246,10 @@ async function createPayment(args: {
       // One patient's money settles only their own treatment — the same rule the edit path holds.
       // Without it a mistyped procedure id put patient A's receipt against patient B's balance.
       if (String(procedureData.patientId || "") !== patientId) throw new Error("WRONG_PATIENT");
+      // A company's treatment (Gasco, no paper) is the company's bill, whole: the patient owes
+      // nothing on it, and their cash is credit on account. The company's money comes in through
+      // insurer-collect, never here.
+      if (isCompanyRow(procedureData)) throw new Error("COMPANY_ROW");
       // The owner's rule: money from a patient for a treatment names the dentist who did it.
       if (!treatmentHasDentist(procedureData)) throw new Error("NO_DENTIST");
 
@@ -1425,6 +1429,16 @@ export async function POST(request: Request) {
         );
       case "NOT_A_PROCEDURE":
         return bad("A payment can only be linked to a treatment charge.");
+      case "COMPANY_ROW":
+        return NextResponse.json(
+          {
+            ok: false,
+            reason: "COMPANY_ROW",
+            error:
+              "This treatment is on the insurance company's account — the patient owes nothing on it. Take the patient's money on account (credit), and collect the company's from Finance. / العلاج ده على حساب الشركة والمريض مش عليه حاجة فيه. خد فلوس المريض كرصيد ليه، وفلوس الشركة بتتحصل من المالية.",
+          },
+          { status: 409 },
+        );
       case "WRONG_PATIENT":
         return bad("A payment can only settle a treatment belonging to the same patient.");
       case "NO_PATIENT":

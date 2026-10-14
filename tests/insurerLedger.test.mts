@@ -10,6 +10,7 @@ const pay = (id: string, procedureId: string, amount: number, method: string, ex
 });
 
 // A Gasco charge of 1584, 500 paid in cash by the patient and 300 already paid by the company.
+// The owner's rule (2026-10-14): the patient's cash is their credit, never off the company's bill.
 {
   const rows = [charge("C1", { paid: 800 }), pay("P1", "C1", 500, "Cash"), pay("P2", "C1", 300, "Insurance")];
   const out = insurerRows(rows, "gasco");
@@ -18,7 +19,7 @@ const pay = (id: string, procedureId: string, amount: number, method: string, ex
   assert.equal(out[0].cost, 1584);
   assert.equal(out[0].patientPaid, 500);
   assert.equal(out[0].insurerPaid, 300);
-  assert.equal(out[0].outstanding, 784);
+  assert.equal(out[0].outstanding, 1284, "1584 less the company's 300; the patient's 500 is not subtracted");
   assert.equal(out[0].collectable, true);
 }
 
@@ -30,12 +31,14 @@ const pay = (id: string, procedureId: string, amount: number, method: string, ex
 
 // A settled charge is not collectable, and never goes negative.
 {
-  const rows = [charge("C1", { cost: 400, amount: 400 }), pay("P1", "C1", 150, "Cash"), pay("P2", "C1", 250, "Insurance")];
+  const rows = [charge("C1", { cost: 400, amount: 400 }), pay("P2", "C1", 400, "Insurance")];
   const out = insurerRows(rows, "gasco");
   assert.equal(out[0].outstanding, 0);
   assert.equal(out[0].collectable, false, "nothing left to collect");
-  const over = insurerRows([charge("C1", { cost: 400, amount: 400 }), pay("P1", "C1", 500, "Cash")], "gasco");
+  const over = insurerRows([charge("C1", { cost: 400, amount: 400 }), pay("P2", "C1", 500, "Insurance")], "gasco");
   assert.equal(over[0].outstanding, 0, "overpaid never reads negative");
+  const cashOnly = insurerRows([charge("C1", { cost: 400, amount: 400 }), pay("P1", "C1", 400, "Cash")], "gasco");
+  assert.equal(cashOnly[0].outstanding, 400, "the patient paying in full leaves the company owing in full");
 }
 
 // A row written by an approval (claimId) is collectable too, through its claim.
@@ -81,7 +84,7 @@ const pay = (id: string, procedureId: string, amount: number, method: string, ex
   const out = insurerRows(rows, "gasco");
   assert.equal(out[0].patientPaid, 400, "paid wins over a placeholder amount; paid: 0 is not the amount");
   assert.equal(out[0].insurerPaid, 200, "no paid falls back to amount");
-  assert.equal(out[0].outstanding, 984);
+  assert.equal(out[0].outstanding, 1384, "1584 less the company's 200 only");
 }
 
 // Cost falls back to amount, like every other reader of a charge.
@@ -97,7 +100,7 @@ const pay = (id: string, procedureId: string, amount: number, method: string, ex
     charge("C2", { cost: 1000, amount: 1000 }), pay("P3", "C2", 1000, "Insurance"),
   ];
   const t = insurerTotals(insurerRows(rows, "gasco"));
-  assert.deepEqual(t, { billed: 2584, patientPaid: 500, insurerPaid: 1300, outstanding: 784 });
+  assert.deepEqual(t, { billed: 2584, patientPaid: 500, insurerPaid: 1300, outstanding: 1284 });
   assert.deepEqual(insurerTotals([]), { billed: 0, patientPaid: 0, insurerPaid: 0, outstanding: 0 });
 }
 

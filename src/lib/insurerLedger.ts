@@ -2,10 +2,12 @@
  * An insurance company's rows on the Finance page: each treatment it is the payer of, split into
  * what the patient paid at the counter and what the company has paid, and what is still owed.
  *
- * For a contract company with no paper (GASCO and the like) there is no claim and no approval: what
- * the patient paid in cash on a treatment is the patient's share, and the rest is the company's.
- * A payment is the company's when its method is the insurer's (`INSURER_PAYMENT_METHOD`); every
- * other payment against the treatment is the patient's.
+ * For a contract company with no paper (GASCO and the like) there is no claim and no approval: the
+ * company owes the whole price. Cash the patient paid is the patient's credit and never comes off
+ * the company's bill (the owner's rule, 2026-10-14). A payment is the company's when its method is
+ * the insurer's (`INSURER_PAYMENT_METHOD`); every other payment against the treatment is the
+ * patient's, shown for reference only. On an approval row the patient's share is real, so there
+ * the patient's cash does count.
  *
  * Pure, shared by the Finance page and its tests. The route recomputes the same figures from the
  * database before it writes, so a stale screen cannot collect more than is owed.
@@ -90,8 +92,9 @@ export function insurerRows(rows: readonly LedgerLite[], payerId: string): Insur
     const cost = round2(num(r.cost) || num(r.amount));
     const patientPaid = round2(patient.get(r.id) ?? 0);
     const insurerPaid = round2(insurer.get(r.id) ?? 0);
-    const outstanding = round2(Math.max(0, cost - patientPaid - insurerPaid));
-    out.push({ charge: r, cost, patientPaid, insurerPaid, outstanding, collectable: outstanding > 0.009, viaClaim: isApprovalRow(r) });
+    const viaClaim = isApprovalRow(r);
+    const outstanding = round2(Math.max(0, cost - (viaClaim ? patientPaid : 0) - insurerPaid));
+    out.push({ charge: r, cost, patientPaid, insurerPaid, outstanding, collectable: outstanding > 0.009, viaClaim });
   }
   return out;
 }

@@ -910,9 +910,11 @@ export default function AppointmentMoneyTab({
             </p>
             <p className="flex items-center gap-1.5 text-ink-body">
               <User size={13} className="text-ink-muted" />
-              {charge.paid - charge.insurerPaid > 0.009
-                ? `${isAr ? "المريض دفع" : "The patient paid"} ${money(charge.paid - charge.insurerPaid).toLocaleString()}`
-                : isAr ? "مفيش حاجة على المريض" : "Nothing for the patient to pay"}
+              {isAr ? "مفيش حاجة على المريض" : "Nothing for the patient to pay"}
+              {charge.paid - charge.insurerPaid > 0.009 &&
+                (isAr
+                  ? ` · دفع ${money(charge.paid - charge.insurerPaid).toLocaleString()} وده رصيد ليه`
+                  : ` · the ${money(charge.paid - charge.insurerPaid).toLocaleString()} they paid is their credit`)}
             </p>
           </div>
         )}
