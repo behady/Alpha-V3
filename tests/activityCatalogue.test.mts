@@ -1,0 +1,151 @@
+/**
+ * Activity log v2: the event catalogue turns a structured event into one sentence (Arabic or
+ * English), decides which categories it belongs to and whether it is flagged, and the diff helper
+ * reports only what really changed. These cases pin the sentence shapes, the below-list discount
+ * rule, the legacy fallback and the undefined-stripping that Firestore needs.
+ *
+ * Run: npx tsx tests/activityCatalogue.test.mts
+ */
+
+import assert from "node:assert/strict";
+import {
+  ALL_EVENT_KEYS,
+  categoriesOf,
+  categoriesOfLog,
+  describeLog,
+  fieldLabel,
+  isFlagged,
+  money,
+  sentence,
+  storedFields,
+  stripUndefined,
+} from "../src/lib/activity/catalogue";
+import { diffChanges } from "../src/lib/activity/diff";
+
+let checks = 0;
+const ok = (cond: boolean, msg: string) => {
+  checks++;
+  assert.ok(cond, msg);
+};
+const eq = <T,>(a: T, b: T, msg?: string) => {
+  checks++;
+  assert.equal(a, b, msg);
+};
+const deep = (a: unknown, b: unknown, msg?: string) => {
+  checks++;
+  assert.deepEqual(a, b, msg);
+};
+
+// --- 1. discount + payment sentences ---
+const disc = { event: "discount.given", amount: 200, patientName: "عمر حسام علي",
+  refs: { procedure: "حشو كومبوزيت" }, changes: [{ field: "price", from: 1500, to: 1300 }], reason: "قريب الدكتور" } as const;
+eq(sentence(disc, "ar"), "خصم 200 ج لـ عمر حسام علي على حشو كومبوزيت (1,500 → 1,300) · السبب: قريب الدكتور");
+eq(sentence(disc, "en"), "Discount 200 EGP for عمر حسام علي on حشو كومبوزيت (1,500 → 1,300) · Reason: قريب الدكتور");
+eq(isFlagged(disc), true);
+deep(categoriesOf(disc), ["discount", "money"]);
+const pay = { event: "payment.received", amount: 800, patientName: "عمر حسام علي",
+  refs: { method: "Cash", procedure: "حشو اطفال", receiptNumber: "R-2026-0035" } } as const;
+eq(sentence(pay, "ar"), "استلام 800 ج كاش من عمر حسام علي · حشو اطفال · إيصال R-2026-0035");
+eq(isFlagged(pay), false);
+
+// --- 2. missing fields never leak ---
+const bare = { event: "payment.deleted" } as const;
+for (const lang of ["ar", "en"] as const) ok(!/undefined|NaN|null/.test(sentence(bare, lang)), `bare ${lang}`);
+
+// --- 3. below-list rule ---
+const added = (list: number | null, cost: number, claimId?: string) => ({ event: "procedure.added", amount: cost,
+  changes: [{ field: "listPrice", from: null, to: list }, { field: "price", from: null, to: cost }],
+  refs: claimId ? { claimId } : {} }) as const;
+eq(isFlagged(added(1500, 1300)), true);
+ok(categoriesOf(added(1500, 1300)).includes("discount"), "below list is a discount");
+eq(isFlagged(added(0, 1300)), false);
+eq(isFlagged(added(null, 1300)), false);
+eq(isFlagged(added(1500, 900, "claim1")), false);
+ok(categoriesOf(added(1500, 900, "claim1")).includes("insurance"), "claim procedure is insurance");
+ok(!categoriesOf(added(1500, 900, "claim1")).includes("discount"), "claim procedure is never a discount");
+eq(isFlagged({ event: "insurance.status", changes: [{ field: "status", from: "approved", to: "cancelled" }] }), true);
+eq(isFlagged({ event: "insurance.status", changes: [{ field: "status", from: "approved", to: "treated" }] }), false);
+// procedure.edited carries the current list price in refs
+eq(isFlagged({ event: "procedure.edited", refs: { listPrice: 1500 }, changes: [{ field: "price", from: 1500, to: 1200 }] }), true);
+eq(isFlagged({ event: "procedure.edited", refs: { listPrice: 1500 }, changes: [{ field: "notes", from: null, to: null }] }), false);
+ok(categoriesOf({ event: "procedure.edited", changes: [{ field: "discount", from: 0, to: 100 }] }).includes("discount"), "discount change");
+
+// --- 4. every key renders in both languages without leaks ---
+for (const key of ALL_EVENT_KEYS) for (const lang of ["ar", "en"] as const) {
+  const s = sentence({ event: key }, lang);
+  ok(s.length > 0 && !/undefined|NaN|null/.test(s), `${key} ${lang}: ${s}`);
+  const full = sentence({ event: key, amount: 1200, patientName: "Sara", reason: "r", refs: { procedure: "Filling", staffName: "Dr X", payerName: "MetLife", labName: "L", status: "approved", count: 3, method: "InstaPay", date: "2026-10-01", time: "05:00 PM", doctor: "Dr Y" },
+    changes: [{ field: "price", from: 1, to: 2 }, { field: "notes", from: null, to: null }] }, lang);
+  ok(!/undefined|NaN|\bnull\b/.test(full), `${key} ${lang} full: ${full}`);
+}
+// every key has a category and a real sentence (the switch's fallback would print the key itself)
+eq(new Set(ALL_EVENT_KEYS).size, ALL_EVENT_KEYS.length, "keys are unique");
+eq(ALL_EVENT_KEYS.length, 58, "the brief's union has 58 keys");
+for (const key of ALL_EVENT_KEYS) {
+  ok(categoriesOf({ event: key }).length > 0, `${key} has a category`);
+  for (const lang of ["ar", "en"] as const) ok(sentence({ event: key }, lang) !== key, `${key} ${lang} has its own sentence`);
+}
+
+// --- 5. category and flag table ---
+deep(categoriesOf({ event: "staff.deduction.added" }), ["money", "team"]);
+deep(categoriesOf({ event: "staff.edited" }), ["team"]);
+deep(categoriesOf({ event: "insurer.collected" }), ["insurance", "money"]);
+deep(categoriesOf({ event: "lab.paid" }), ["lab", "money"]);
+deep(categoriesOf({ event: "plan.created" }), ["clinical"]);
+deep(categoriesOf({ event: "record.purged" }), ["patient"]);
+deep(categoriesOf({ event: "settings.labs" }), ["settings"]);
+for (const k of ["payment.edited", "payment.deleted", "procedure.deleted", "commission.changed", "labfee.corrected", "appointment.deleted",
+  "patient.deleted", "record.deleted", "record.purged", "lab.deleted", "lab.payment.deleted", "staff.payout.edited", "staff.deduction.removed",
+  "expense.deleted", "income.edited", "discount.removed", "discount.changed"] as const) eq(isFlagged({ event: k }), true, k);
+for (const k of ["payment.received", "procedure.moved", "appointment.created", "patient.restored", "lab.paid", "staff.paid", "plan.deleted"] as const)
+  eq(isFlagged({ event: k }), false, k);
+
+// --- 6. storedFields ---
+const sf = storedFields(disc);
+eq(sf.v, 2); eq(sf.severity, "HIGH"); eq(sf.module, "finance");
+ok(!/[A-Za-z0-9]{20}/.test(sf.details), "no raw ids in details");
+eq(sf.details, sentence(disc, "en"));
+eq(sf.action, "Discount Given");
+eq(storedFields(pay).severity, "MEDIUM");
+eq(storedFields({ event: "appointment.created" }).module, "appointments");
+eq(storedFields({ event: "staff.edited" }).module, "users");
+eq(storedFields({ event: "lab.created" }).module, "system");
+eq(storedFields({ event: "insurance.created" }).module, "finance");
+
+// --- 7. legacy fallback ---
+eq(describeLog({ id: "x", action: "Payment Received", details: "800 EGP from عمر toward n7EuTEtedn3m3QDHjpi8" }, "en"),
+  "Payment Received · 800 EGP from عمر");
+eq(describeLog({ id: "x", action: "Payment Received" }, "en"), "Payment Received");
+eq(describeLog({ id: "x", action: "Payment Received", details: "" }, "ar"), "استلام دفعة");
+eq(describeLog({ id: "x", v: 2, event: "payment.received", amount: 5 }, "en"), sentence({ event: "payment.received", amount: 5 }, "en"));
+deep(categoriesOfLog({ id: "x", module: "appointments" }), ["appointment"]);
+deep(categoriesOfLog({ id: "x", module: "finance" }), ["money"]);
+deep(categoriesOfLog({ id: "x" }), ["system"]);
+deep(categoriesOfLog({ id: "x", v: 2, categories: ["lab", "money"] }), ["lab", "money"]);
+
+// --- 8. stripUndefined ---
+deep(stripUndefined({ a: 1, b: undefined, c: { d: undefined, e: [1, undefined] } }), { a: 1, c: { e: [1] } });
+deep(stripUndefined({ a: null, b: 0, c: "" }), { a: null, b: 0, c: "" });
+const d = new Date(0);
+eq(stripUndefined({ d }).d, d, "Date instances pass through");
+
+// --- 9. diffChanges ---
+deep(diffChanges({ time: "05:00 PM", notes: "x", cost: "1500" }, { time: "06:30 PM", notes: "y", cost: 1500 }, ["time", "cost"]),
+  [{ field: "time", from: "05:00 PM", to: "06:30 PM" }]);
+deep(diffChanges({ a: "" }, { a: null }, ["a"]), []);
+deep(diffChanges({ a: " x " }, { a: "x" }, ["a"]), []);
+deep(diffChanges({ a: undefined }, { a: "" }, ["a"]), []);
+deep(diffChanges({ a: 1, b: 2 }, { a: 5, b: 6 }, ["b", "a"]), [{ field: "b", from: 2, to: 6 }, { field: "a", from: 1, to: 5 }]);
+deep(diffChanges({ tags: [1, 2] }, { tags: [1, 3] }, ["tags"]), [{ field: "tags", from: null, to: null }]);
+deep(diffChanges({ tags: [1, 2] }, { tags: [1, 2] }, ["tags"]), []);
+deep(diffChanges({ at: { toDate: () => new Date("2026-10-01T10:00:00Z") } }, { at: "2026-10-02" }, ["at"]), [{ field: "at", from: "2026-10-01", to: "2026-10-02" }]);
+deep(diffChanges({ at: new Date("2026-10-01T10:00:00Z") }, { at: "2026-10-01" }, ["at"]), []);
+deep(diffChanges({ a: null }, { a: "new" }, ["a"]), [{ field: "a", from: null, to: "new" }]);
+
+// --- 10. helpers ---
+eq(money(1200, "ar"), "1,200 ج");
+eq(money(1200, "en"), "1,200 EGP");
+ok(fieldLabel("price", "ar").length > 0 && fieldLabel("price", "en") === "Price", "field labels");
+eq(fieldLabel("someUnknownField", "en"), "someUnknownField");
+
+console.log(`activityCatalogue: ${checks} checks passed`);
