@@ -58,6 +58,8 @@ type Charge = {
   remaining: number;
   /** Written by an insurance approval: priced, edited and deleted on the Insurance tab, not here. */
   approval: boolean;
+  /** Charged to a company with no approval (Gasco): the company's bill, collected on Finance, never from the patient. */
+  company: boolean;
   /** The insurer's approved part of an approval row, and what the insurer has paid of it. */
   insurerPart: number;
   insurerPaid: number;
@@ -381,6 +383,7 @@ export default function AppointmentMoneyTab({
           const paid = money(r.paid);
           const side = account.byCharge.get(r.id);
           const approval = !!side?.approval;
+          const company = !!side?.company;
           return {
             id: r.id,
             description: String(r.description || (isAr ? "إجراء" : "Treatment")),
@@ -390,8 +393,9 @@ export default function AppointmentMoneyTab({
             listPrice: money(r.listPrice || r.cost),
             discountAmount: money(r.discountAmount),
             clinicalNoteId: typeof r.clinicalNoteId === "string" ? r.clinicalNoteId : null,
-            remaining: approval ? side!.patientLeft : money(cost - paid),
+            remaining: approval || company ? side!.patientLeft : money(cost - paid),
             approval,
+            company,
             insurerPart: side?.insurerPart ?? 0,
             insurerPaid: side?.insurerPaid ?? 0,
             payerName:
@@ -469,6 +473,16 @@ export default function AppointmentMoneyTab({
     [approvalCharges, isAr]
   );
   const approvalShareOwed = money(approvalCharges.reduce((t, c) => t + c.remaining, 0));
+  /** What each company (Gasco…) still owes on its own treatments: left out of the patient's figures above. */
+  const companyOwed = useMemo(() => {
+    const byName = new Map<string, number>();
+    for (const c of charges) {
+      if (!c.company) continue;
+      const name = c.payerName || (isAr ? "الشركة" : "Company");
+      byName.set(name, money((byName.get(name) ?? 0) + Math.max(0, c.insurerPart - c.insurerPaid)));
+    }
+    return [...byName].filter(([, owed]) => owed > 0.009);
+  }, [charges, isAr]);
 
   /** Treatments the dentist recorded on this visit that were never billed. */
   const unbilledNotes = useMemo(
@@ -661,7 +675,7 @@ export default function AppointmentMoneyTab({
     }
 
     // An approval row's price is the insurer's tariff: no discount reaches it from here.
-    const targets = (discountTarget === "visit" ? visitCharges : [chargeById.get(discountTarget || "")].filter(Boolean) as Charge[]).filter((c) => !c.approval && c.mine);
+    const targets = (discountTarget === "visit" ? visitCharges : [chargeById.get(discountTarget || "")].filter(Boolean) as Charge[]).filter((c) => !c.approval && !c.company && c.mine);
     if (targets.length === 0) {
       showToast(isAr ? "مفيش إجراءات على الزيارة دي" : "There is nothing to discount on this visit", "error");
       return;
@@ -841,6 +855,7 @@ export default function AppointmentMoneyTab({
     const note = noteForCharge(charge);
     const settled = charge.remaining <= 0.009;
     if (charge.approval) return approvalRow(charge, note, settled, dim);
+    const companyLeft = charge.company ? money(charge.insurerPart - charge.insurerPaid) : 0;
     return (
       <div
         key={charge.id}
@@ -854,13 +869,13 @@ export default function AppointmentMoneyTab({
               {note?.tooth && note.tooth !== "Gen" ? ` · ${note.tooth}` : ""}
               {charge.branchName && <span className="ms-1 text-slate-500">· {charge.branchName}</span>}
             </p>
-            {!charge.dentistName && !settled && (
+            {!charge.dentistName && (!settled || companyLeft > 0.009) && (
               <p className="mt-1 text-[11px] font-bold text-danger">
                 {isAr ? "مفيش طبيب على العلاج ده — اختاره قبل ما تحصّل" : "No dentist on this treatment — choose one before taking money"}
               </p>
             )}
             {/* The insurer is a fact of the charge, not of the patient: say it on the row it belongs to. */}
-            {charge.payerName && (
+            {charge.payerName && !charge.company && (
               <p className="mt-1 flex items-center gap-1.5 text-[11px] font-bold text-ink-body">
                 <InsurerBadge name={charge.payerName} size={14} />
                 <span className="truncate">
@@ -879,8 +894,33 @@ export default function AppointmentMoneyTab({
           </p>
         )}
 
+        {/* The company's bill, not the patient's: who pays, how much, and whether it came in. */}
+        {charge.company && (
+          <div className="mt-1.5 space-y-1 text-[11px] font-bold">
+            <p className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-ink-body">
+              <span className="flex items-center gap-1.5">
+                <InsurerBadge name={charge.payerName || ""} size={14} />
+                <span>
+                  {isAr ? `${charge.payerName} تدفع` : `${charge.payerName} pays`} {charge.insurerPart.toLocaleString()}
+                </span>
+              </span>
+              <span className={`shrink-0 ${companyLeft > 0.009 ? "text-ink-muted" : "text-emerald-600"}`}>
+                {companyLeft > 0.009 ? (isAr ? "مستني الشركة" : "Awaiting the company") : isAr ? "اتدفع" : "Paid"}
+              </span>
+            </p>
+            <p className="flex items-center gap-1.5 text-ink-body">
+              <User size={13} className="text-ink-muted" />
+              {charge.paid - charge.insurerPaid > 0.009
+                ? `${isAr ? "المريض دفع" : "The patient paid"} ${money(charge.paid - charge.insurerPaid).toLocaleString()}`
+                : isAr ? "مفيش حاجة على المريض" : "Nothing for the patient to pay"}
+            </p>
+          </div>
+        )}
+
         <div className="flex items-center justify-between gap-2 mt-2">
-          {settled ? (
+          {charge.company ? (
+            <span />
+          ) : settled ? (
             <span className="text-[11px] font-bold text-emerald-600">{isAr ? "مدفوع بالكامل" : "Paid in full"}</span>
           ) : (
             <span className="text-[11px] font-bold text-amber-600">
@@ -897,7 +937,7 @@ export default function AppointmentMoneyTab({
                 <Banknote size={13} className="text-emerald-600" /> {isAr ? "تحصيل" : "Collect"}
               </button>
             )}
-            {charge.mine && (
+            {charge.mine && !charge.company && (
               <button
                 onClick={() => openDiscount(charge.id)}
                 className="text-[11px] font-bold rounded-full border border-line px-3 py-1 flex items-center gap-1 text-ink-muted hover:bg-surface-muted transition-colors"
@@ -1139,6 +1179,20 @@ export default function AppointmentMoneyTab({
           {isAr ? "المدفوع" : "paid"} {totalPaid.toLocaleString()}
         </p>
           </>
+        )}
+
+        {companyOwed.length > 0 && (
+          <p className="mt-2 flex items-start gap-1.5 text-[11px] font-bold text-ink-body">
+            <ShieldCheck size={13} className="mt-px shrink-0 text-ink-muted" />
+            <span>
+              {companyOwed
+                .map(([name, owed]) => (isAr ? `${owed.toLocaleString()} على حساب ${name}` : `${owed.toLocaleString()} on ${name}'s account`))
+                .join(isAr ? "، " : ", ")}
+              {isAr
+                ? " — مش على المريض، ومش محسوبة فوق. بتتحصل من المالية ← تبويب الشركة."
+                : " — not the patient's, and not counted above. Collected on Finance → the company's tab."}
+            </span>
+          </p>
         )}
 
         {credit > 0.009 && (

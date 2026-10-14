@@ -2,7 +2,7 @@
 // insurer part and the insurer's payments kept out. Invented figures only.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { patientAccount } from "../src/lib/ledgerInsurer";
+import { insurerOutstanding, isCompanyRow, patientAccount, patientPortion } from "../src/lib/ledgerInsurer";
 
 let passed = 0;
 const check = (name: string, fn: () => void) => {
@@ -29,8 +29,9 @@ check("an unpaid approval: only the share is the patient's", () => {
   // The approval's gross-to-approved gap is the insurer's tariff, not the patient's discount.
   assert.equal(a.discount, 0);
   const side = a.byCharge.get("a1")!;
-  assert.deepEqual(side, { approval: true, insurerPart: 868.25, insurerPaid: 0, patientDue: 100, patientPaid: 0, patientLeft: 100 });
-  assert.equal(a.byCharge.get("g1")!.approval, false, "a hand-added insurer row is the patient's to settle");
+  assert.deepEqual(side, { approval: true, company: false, insurerPart: 868.25, insurerPaid: 0, patientDue: 100, patientPaid: 0, patientLeft: 100 });
+  // Cash the patient did put on a company row is their share: it is in the cost and the paid alike.
+  assert.deepEqual(a.byCharge.get("g1"), { approval: false, company: true, insurerPart: 0, insurerPaid: 0, patientDue: 1584, patientPaid: 1584, patientLeft: 0 });
 });
 
 check("the insurer's cheque is not the patient's money", () => {
@@ -70,6 +71,58 @@ check("an approval with no patient share costs the patient nothing", () => {
   assert.equal(a.cost, 0);
   assert.equal(a.remaining, 0);
   assert.equal(a.byCharge.get("a1")!.patientDue, 0);
+});
+
+check("a company row (Gasco, no paper) is not the patient's bill", () => {
+  // The owner's screenshot, 2026-10-14: a GASCO visit of 1,584 + 66 + 66 read "Remaining 1,980".
+  const rows = [
+    { id: "g1", type: "procedure", cost: 1584, paid: 0, payerId: "gasco", payerName: "Gasco", discountAmount: 50 },
+    { id: "g2", type: "procedure", cost: 66, paid: 0, payerId: "gasco", payerName: "Gasco" },
+    { id: "g3", type: "procedure", cost: 66, paid: 0, payerId: "gasco", payerName: "Gasco" },
+    { ...privateRow, paid: 0 },
+  ];
+  const a = patientAccount(rows);
+  assert.equal(a.cost, 800, "only the private filling is the patient's");
+  assert.equal(a.paid, 0);
+  assert.equal(a.remaining, 800);
+  assert.equal(a.discount, 0, "a discount on Gasco's bill is not the patient's");
+  assert.deepEqual(a.byCharge.get("g1"), { approval: false, company: true, insurerPart: 1584, insurerPaid: 0, patientDue: 0, patientPaid: 0, patientLeft: 0 });
+});
+
+check("Gasco's collection leaves the patient's paid; part cash, part company", () => {
+  const a = patientAccount([
+    { id: "g1", type: "procedure", cost: 1000, paid: 1000, payerId: "gasco" },
+    cash("c", "g1", 200),
+    { id: "ins", type: "payment", paid: 800, amount: 800, method: "Insurance", procedureId: "g1" },
+  ]);
+  assert.equal(a.paid, 200);
+  assert.equal(a.cost, 200);
+  assert.equal(a.remaining, 0);
+  assert.deepEqual(a.byCharge.get("g1"), { approval: false, company: true, insurerPart: 800, insurerPaid: 800, patientDue: 200, patientPaid: 200, patientLeft: 0 });
+});
+
+check("payer Private, blank or absent is the patient's own work", () => {
+  for (const payerId of ["private", "", undefined, "  "]) {
+    const a = patientAccount([{ id: "p", type: "procedure", cost: 500, paid: 0, payerId }]);
+    assert.equal(a.remaining, 500, `payerId ${JSON.stringify(payerId)}`);
+    assert.equal(a.byCharge.get("p")!.company, false);
+  }
+});
+
+check("patientPortion: the patient file, reminders and receipts agree on a company row", () => {
+  const unpaid = { type: "procedure", cost: 1584, paid: 0, payerId: "gasco" };
+  assert.equal(isCompanyRow(unpaid), true);
+  assert.equal(insurerOutstanding(unpaid), 1584);
+  assert.equal(patientPortion(unpaid), 0, "a reminder would ask the patient for Gasco's 1,584");
+  const partCash = { ...unpaid, paid: 300 };
+  assert.equal(insurerOutstanding(partCash), 1284);
+  assert.equal(patientPortion(partCash), 300, "the cash they paid is theirs, not an overpayment");
+  assert.equal(insurerOutstanding({ ...unpaid, paid: 1584 }), 0);
+  // An approval row keeps its own rule even with a payer on it.
+  const approval = { type: "procedure", cost: 968.25, paid: 0, claimId: "c1", payerId: "nextcare", insurerCovered: 868.25 };
+  assert.equal(isCompanyRow(approval), false);
+  assert.equal(patientPortion(approval), 100);
+  assert.equal(patientPortion({ type: "procedure", cost: 500, payerId: "private" }), 500);
 });
 
 check("the Payment tab reads its figures from patientAccount", () => {
