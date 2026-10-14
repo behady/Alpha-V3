@@ -10,8 +10,8 @@ const eq = (a: unknown, b: unknown, m: string) => { assert.equal(a, b, m); check
 
 eq(isChairMode({ role: "Dentist" }), true, "role Dentist, always");
 eq(isChairMode({ role: "Dentist", homeView: "desk" }), true, "role Dentist even on the desk view");
-eq(isChairMode({ role: "Admin", isDentist: true, homeView: "chair" }), true, "admin-dentist on the chair home");
-eq(isChairMode({ role: "Owner", isDentist: true, homeView: "chair" }), true, "owner-dentist on the chair home");
+eq(isChairMode({ role: "Admin", isDentist: true, homeView: "chair" }), false, "admin-dentist on the chair home still sees prices and discounts (owner, 2026-10-14)");
+eq(isChairMode({ role: "Owner", isDentist: true, homeView: "chair" }), false, "owner-dentist on the chair home still sees prices and discounts");
 eq(isChairMode({ role: "Admin", isDentist: true, homeView: "desk" }), false, "admin-dentist on the desk keeps the full editor");
 eq(isChairMode({ role: "Admin", isDentist: false, homeView: "chair" }), false, "an admin who is not a dentist never gets it");
 eq(isChairMode({ role: "Receptionist", homeView: "chair" }), false, "reception never gets it");
