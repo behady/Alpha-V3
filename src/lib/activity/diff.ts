@@ -4,9 +4,11 @@
  * vs 1500, "" vs null, a Timestamp vs the same day as text) is not reported as an edit.
  */
 
+import { clinicTimeZone, ymdInTimeZone } from "../clinicDate";
 import type { Change, Scalar } from "./types";
 
-const isoDay = (d: Date): string | null => (Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10));
+/** The calendar day on the clinic's clock: 01:00 in Cairo is still yesterday in UTC. */
+const isoDay = (d: Date): string | null => (Number.isNaN(d.getTime()) ? null : ymdInTimeZone(clinicTimeZone(), d));
 
 /** Firestore Timestamps expose toDate(); the rest of the world uses Date. */
 function asDate(value: unknown): Date | null {
@@ -27,7 +29,8 @@ function normalise(value: unknown): Norm {
   if (typeof value === "string") {
     const t = value.trim();
     if (t === "") return { kind: "scalar", value: null };
-    if (/^-?\d+(\.\d+)?$/.test(t)) return { kind: "scalar", value: Number(t) };
+    // A phone or code ("01012345678", 9+ digits) is an identifier, not a quantity: keep it as text.
+    if (/^-?\d+(\.\d+)?$/.test(t) && !/^0\d/.test(t) && !/^-?\d{9,}/.test(t)) return { kind: "scalar", value: Number(t) };
     return { kind: "scalar", value: t };
   }
   if (typeof value === "number") return { kind: "scalar", value: Number.isFinite(value) ? value : null };

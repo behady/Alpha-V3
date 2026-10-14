@@ -142,6 +142,28 @@ deep(diffChanges({ at: { toDate: () => new Date("2026-10-01T10:00:00Z") } }, { a
 deep(diffChanges({ at: new Date("2026-10-01T10:00:00Z") }, { at: "2026-10-01" }, ["at"]), []);
 deep(diffChanges({ a: null }, { a: "new" }, ["a"]), [{ field: "a", from: null, to: "new" }]);
 
+// --- 9b. review fixes: identifiers stay text, clinic-clock dates, money-only grouping ---
+deep(diffChanges({ phone: "01012345678" }, { phone: "01022223333" }, ["phone"]), [{ field: "phone", from: "01012345678", to: "01022223333" }]);
+deep(diffChanges({ code: "1234567890" }, { code: "1234567891" }, ["code"]), [{ field: "code", from: "1234567890", to: "1234567891" }]);
+deep(diffChanges({ cost: "1500" }, { cost: "1800" }, ["cost"]), [{ field: "cost", from: 1500, to: 1800 }]);
+eq(sentence({ event: "patient.edited", patientName: "Sara", changes: [{ field: "phone", from: "01012345678", to: "01022223333" }] }, "en"),
+  "Patient edited: Sara · Phone 01012345678 → 01022223333");
+eq(sentence({ event: "patient.edited", patientName: "سارة", changes: [{ field: "phone", from: 1012345678, to: 1022223333 }] }, "ar"),
+  "تعديل بيانات مريض سارة · الهاتف 1012345678 → 1022223333");
+eq(sentence({ event: "procedure.edited", patientName: "Sara", refs: { procedure: "Filling" }, changes: [{ field: "price", from: 1500, to: 1300 }, { field: "commission", from: 30, to: 40 }] }, "en"),
+  "Procedure edited: Filling for Sara · Price 1,500 → 1,300, Commission 30 → 40");
+// 22:00 UTC on 13 Oct is 01:00 on 14 Oct in Cairo (UTC+3 in October 2026)
+deep(diffChanges({ d: new Date("2026-10-13T22:00:00Z") }, { d: "2026-10-15" }, ["d"]), [{ field: "d", from: "2026-10-14", to: "2026-10-15" }]);
+deep(diffChanges({ d: { toDate: () => new Date("2026-10-13T22:00:00Z") } }, { d: "2026-10-14" }, ["d"]), []);
+eq(sentence({ event: "expense.added", amount: 350, refs: { procedure: "إيجار" } }, "ar"), "إضافة مصروف إيجار 350 ج");
+eq(sentence({ event: "income.deleted", amount: 90, refs: { procedure: "Rent share" } }, "en"), "Income deleted Rent share 90 EGP");
+eq(sentence({ event: "insurance.status", patientName: "سارة", refs: { payerName: "MetLife", approvalNumber: "A-77" },
+  changes: [{ field: "status", from: "approved", to: "cancelled" }] }, "ar"),
+  "تغيير حالة موافقة التأمين لـ سارة عند MetLife رقم A-77 · الحالة معتمدة → ملغاة");
+ok(sentence({ event: "insurance.edited", patientName: "Sara", refs: { payerName: "AXA", approvalNumber: "9" } }, "en").includes("at AXA no. 9"), "insurance.edited shows payer and approval");
+ok(sentence({ event: "lab.status", refs: { status: "ready" } }, "en").includes("(ready)"), "lab.status shows refs.status");
+ok(sentence({ event: "lab.created", refs: { status: "approved" } }, "ar").includes("(معتمدة)"), "lab.created shows refs.status");
+
 // --- 10. helpers ---
 eq(money(1200, "ar"), "1,200 ج");
 eq(money(1200, "en"), "1,200 EGP");

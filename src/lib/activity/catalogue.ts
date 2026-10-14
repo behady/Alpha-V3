@@ -93,9 +93,14 @@ const STATUS_AR: Record<string, string> = {
   collected: "تم التحصيل",
 };
 
+const MONEY_FIELDS: ReadonlySet<string> = new Set([
+  "price", "listPrice", "discount", "amount", "paid", "cost", "labFee", "baseSalary",
+]);
+
 function valueText(field: string, v: Scalar, lang: Lang): string {
   if (v === null || v === undefined || v === "") return "—";
-  if (typeof v === "number") return Number.isFinite(v) ? num(v) : "—";
+  // Thousands grouping is for money only: a phone, an approval number or a percentage prints raw.
+  if (typeof v === "number") return Number.isFinite(v) ? (MONEY_FIELDS.has(field) ? num(v) : String(v)) : "—";
   if (typeof v === "boolean") return lang === "ar" ? (v ? "نعم" : "لا") : v ? "Yes" : "No";
   if (field === "method") return methodLabel(v, lang) ?? "—";
   if (field === "status" && lang === "ar") return STATUS_AR[String(v).trim().toLowerCase()] ?? String(v);
@@ -301,6 +306,8 @@ export function sentence(e: ActivityEvent, lang: Lang): string {
   const reason = text(e.reason);
   const count = isNum(Number(r.count)) && r.count !== undefined && r.count !== "" ? Number(r.count) : null;
   const receipt = text(r.receiptNumber);
+  const labStatusRaw = text(r.status);
+  const labStatus = labStatusRaw ? valueText("status", labStatusRaw, lang) : null;
 
   /** Every change except the list-price context, as "label from → to". */
   const others = (skip: string[] = []): string | null => {
@@ -350,12 +357,12 @@ export function sentence(e: ActivityEvent, lang: Lang): string {
       break;
 
     // ------------------------------------------------------------ expenses and income
-    case "expense.added": head = j(t("إضافة مصروف", "Expense added"), amt); extras.push(others()); break;
-    case "expense.edited": head = j(t("تعديل مصروف", "Expense edited"), amt); extras.push(others()); break;
-    case "expense.deleted": head = j(t("حذف مصروف", "Expense deleted"), amt); extras.push(others()); break;
-    case "income.added": head = j(t("إضافة إيراد", "Income added"), amt); extras.push(others()); break;
-    case "income.edited": head = j(t("تعديل إيراد", "Income edited"), amt); extras.push(others()); break;
-    case "income.deleted": head = j(t("حذف إيراد", "Income deleted"), amt); extras.push(others()); break;
+    case "expense.added": head = j(t("إضافة مصروف", "Expense added"), proc, amt); extras.push(others()); break;
+    case "expense.edited": head = j(t("تعديل مصروف", "Expense edited"), proc, amt); extras.push(others()); break;
+    case "expense.deleted": head = j(t("حذف مصروف", "Expense deleted"), proc, amt); extras.push(others()); break;
+    case "income.added": head = j(t("إضافة إيراد", "Income added"), proc, amt); extras.push(others()); break;
+    case "income.edited": head = j(t("تعديل إيراد", "Income edited"), proc, amt); extras.push(others()); break;
+    case "income.deleted": head = j(t("حذف إيراد", "Income deleted"), proc, amt); extras.push(others()); break;
     case "commission.changed":
       head = j(t("تعديل نسبة العمولة", "Commission split changed"), proc && t(`على ${proc}`, `on ${proc}`), Pn && t(`لـ ${Pn}`, `for ${Pn}`));
       extras.push(others());
@@ -395,11 +402,13 @@ export function sentence(e: ActivityEvent, lang: Lang): string {
       break;
     }
     case "insurance.status":
-      head = j(t("تغيير حالة موافقة التأمين", "Insurance approval status changed"), t("لـ", "for"), P, payer && `(${payer})`);
+      head = j(t("تغيير حالة موافقة التأمين", "Insurance approval status changed"), t("لـ", "for"), P,
+        payer && t(`عند ${payer}`, `at ${payer}`), text(r.approvalNumber) && t(`رقم ${text(r.approvalNumber)}`, `no. ${text(r.approvalNumber)}`));
       extras.push(others());
       break;
     case "insurance.edited":
-      head = j(t("تعديل موافقة التأمين", "Insurance approval edited"), t("لـ", "for"), P, payer && `(${payer})`);
+      head = j(t("تعديل موافقة التأمين", "Insurance approval edited"), t("لـ", "for"), P,
+        payer && t(`عند ${payer}`, `at ${payer}`), text(r.approvalNumber) && t(`رقم ${text(r.approvalNumber)}`, `no. ${text(r.approvalNumber)}`));
       extras.push(others());
       break;
     case "insurer.collected":
@@ -451,9 +460,9 @@ export function sentence(e: ActivityEvent, lang: Lang): string {
     case "media.uploaded": head = j(t("رفع ملف", "File uploaded"), t("لـ", "for"), P, proc); break;
 
     // ------------------------------------------------------------ lab
-    case "lab.created": head = j(t("إنشاء طلب معمل", "Lab case created"), lab && t(`لدى ${lab}`, `at ${lab}`), Pn && t(`لـ ${Pn}`, `for ${Pn}`), proc); break;
+    case "lab.created": head = j(t("إنشاء طلب معمل", "Lab case created"), lab && t(`لدى ${lab}`, `at ${lab}`), Pn && t(`لـ ${Pn}`, `for ${Pn}`), proc, labStatus && `(${labStatus})`); break;
     case "lab.edited": head = j(t("تعديل طلب معمل", "Lab case edited"), lab && t(`لدى ${lab}`, `at ${lab}`), Pn && t(`لـ ${Pn}`, `for ${Pn}`)); extras.push(others()); break;
-    case "lab.status": head = j(t("تغيير حالة طلب معمل", "Lab case status changed"), lab && t(`لدى ${lab}`, `at ${lab}`), Pn && t(`لـ ${Pn}`, `for ${Pn}`)); extras.push(others()); break;
+    case "lab.status": head = j(t("تغيير حالة طلب معمل", "Lab case status changed"), lab && t(`لدى ${lab}`, `at ${lab}`), Pn && t(`لـ ${Pn}`, `for ${Pn}`), labStatus && `(${labStatus})`); extras.push(others()); break;
     case "lab.remake": head = j(t("إعادة تصنيع طلب معمل", "Lab case remake"), lab && t(`لدى ${lab}`, `at ${lab}`), Pn && t(`لـ ${Pn}`, `for ${Pn}`)); break;
     case "lab.deleted": head = j(t("حذف طلب معمل", "Lab case deleted"), lab && t(`لدى ${lab}`, `at ${lab}`), Pn && t(`لـ ${Pn}`, `for ${Pn}`)); break;
     case "lab.paid": head = j(t("دفع", "Paid"), amt, lab ? t(`لمعمل ${lab}`, `to ${lab}`) : t("للمعمل", "to the lab")); break;
