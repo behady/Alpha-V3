@@ -38,6 +38,7 @@ import Protect from "@/components/Protect";
 import PatientFinance from "@/components/PatientFinance";
 import PatientClinical from "@/components/PatientClinical";
 import PatientTimelineTab from "@/components/patients/PatientTimelineTab";
+import ActivityFeed from "@/components/activity/ActivityFeed";
 import PatientNotesTab from "@/components/patients/PatientNotesTab";
 import PatientMediaGallery from "@/components/patients/PatientMediaGallery";
 import PatientTreatmentPlanTab from "@/components/patients/PatientTreatmentPlanTab";
@@ -224,10 +225,12 @@ export default function PatientProfile() {
   const canViewOrtho = isAdmin || user?.role === "Admin" || user?.role === "Dentist" || user?.permissions?.includes("access.ortho");
 
   // Start empty so we don't flash the wrong tab during auth load
-  const [activeTab, setActiveTab] = useState<"overview" | "clinical" | "plan" | "finance" | "insurance" | "timeline" | "xrays" | "prescriptions" | "notes" | "">("");
+  const [activeTab, setActiveTab] = useState<"overview" | "clinical" | "plan" | "finance" | "insurance" | "timeline" | "xrays" | "prescriptions" | "notes" | "activity" | "">("");
   // A hidden tab stays hidden: the overview's "full ledger" button and a ?tab=finance link used
   // to land on it anyway. Adjusted during render, not in an effect.
   if (chair && (activeTab === "finance" || activeTab === "insurance")) setActiveTab(canViewClinical ? "clinical" : "overview");
+  // The Activity tab is for the owner and admins, and never in chair mode; a link to it for anyone else lands on the default tab.
+  if ((chair || !isAdmin) && activeTab === "activity") setActiveTab(canViewClinical ? "clinical" : "overview");
   const [hasSetInitialTab, setHasSetInitialTab] = useState(false);
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -286,6 +289,7 @@ export default function PatientProfile() {
     canViewClinical ? "clinical,plan" : "",
     chair ? "" : "finance",
     clinic && isAnyUnlocked(clinic, "insurance") && !chair ? "insurance" : "",
+    isAdmin && !chair ? "activity" : "",
   ].join("|");
   const lastCentredTab = useRef<string | null>(null);
   useEffect(() => {
@@ -370,7 +374,9 @@ export default function PatientProfile() {
               tabParam === "timeline" || tabParam === "xrays" || tabParam === "prescriptions" ||
               tabParam === "notes" || tabParam === "plan" ||
               // The Insurance tab locks itself when the add-on is off, and chair mode moves off it.
-              tabParam === "insurance"
+              tabParam === "insurance" ||
+              // Owner/admin only; anyone else falls through to the default tab below.
+              (tabParam === "activity" && isAdmin && !chair)
           ) {
               setActiveTab(tabParam);
           } else {
@@ -378,7 +384,7 @@ export default function PatientProfile() {
           }
           setHasSetInitialTab(true);
       }
-  }, [authLoading, canViewClinical, hasSetInitialTab, tabParam]);
+  }, [authLoading, canViewClinical, hasSetInitialTab, tabParam, isAdmin, chair]);
 
   const calculateAge = (dob: string) => {
     if (!dob) return "N/A";
@@ -1040,7 +1046,7 @@ export default function PatientProfile() {
   ];
   const avatarGradient = avatarPalette[(patient.name || "").length % avatarPalette.length];
 
-  const tabs: Array<{ id: "clinical" | "overview" | "plan" | "finance" | "insurance" | "timeline" | "xrays" | "prescriptions" | "notes"; label: string; icon: any; show: boolean }> = [
+  const tabs: Array<{ id: "clinical" | "overview" | "plan" | "finance" | "insurance" | "timeline" | "xrays" | "prescriptions" | "notes" | "activity"; label: string; icon: any; show: boolean }> = [
     { id: "clinical", label: language === "ar" ? "السجل السريري" : "Clinical", icon: Activity, show: !!canViewClinical },
     { id: "plan", label: language === "ar" ? "خطة العلاج" : "Treatment Plan", icon: ClipboardList, show: !!canViewClinical },
     { id: "finance", label: language === "ar" ? "المالية" : "Finance", icon: Wallet, show: !chair },
@@ -1051,6 +1057,8 @@ export default function PatientProfile() {
     { id: "xrays", label: language === "ar" ? "الأشعة والصور" : "X-Rays & Photos", icon: Camera, show: true },
     { id: "prescriptions", label: language === "ar" ? "الروشتات والوصفات" : "Prescriptions", icon: Pill, show: true },
     { id: "notes", label: language === "ar" ? "الملاحظات" : "Notes", icon: StickyNote, show: true },
+    // Everything done on this patient's file, who did it and when. Owner and admins only.
+    { id: "activity", label: language === "ar" ? "سجل النشاط" : "Activity", icon: ScrollText, show: isAdmin && !chair },
   ];
 
   return (
@@ -1917,6 +1925,13 @@ export default function PatientProfile() {
              </div>
           )}
           
+          {/* --- ACTIVITY TAB --- */}
+          {activeTab === "activity" && isAdmin && !chair && (
+            <div className="animate-in fade-in duration-300 mt-6">
+              <ActivityFeed patientId={patient.id} />
+            </div>
+          )}
+
           {/* --- FINANCE TAB --- */}
           {activeTab === "finance" && (
             <div className="animate-in fade-in duration-300 mt-6">

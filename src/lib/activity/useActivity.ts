@@ -108,7 +108,8 @@ export function useActivityRange(start: Date, end: Date): {
   };
 }
 
-type PatientResult = { key: string; logs: ActivityLogDoc[]; cursor: Snap | null; hasOlder: boolean; error: boolean };
+/** `scope` is whose entries these are (clinic and patient), so a refresh can keep showing them but a different patient never does. */
+type PatientResult = { key: string; scope: string; logs: ActivityLogDoc[]; cursor: Snap | null; hasOlder: boolean; error: boolean };
 
 /**
  * One patient's entries, newest first, 200 at a time with "load older". Needs the composite index
@@ -120,13 +121,18 @@ export function usePatientActivity(patientId: string): {
   hasOlder: boolean;
   loadOlder: () => void;
   error: boolean;
+  /** "Load older" failed: the entries already on screen stay, and the page says so beside the button. */
+  olderError: boolean;
   reload: () => void;
 } {
   const { clinicId } = useClinic();
   const [tick, setTick] = useState(0);
-  const key = `${clinicId ?? ""}|${patientId}|${tick}`;
-  const [result, setResult] = useState<PatientResult>({ key: "", logs: [], cursor: null, hasOlder: false, error: false });
+  const scope = `${clinicId ?? ""}|${patientId}`;
+  const key = `${scope}|${tick}`;
+  const [result, setResult] = useState<PatientResult>({ key: "", scope: "", logs: [], cursor: null, hasOlder: false, error: false });
   const [olderBusy, setOlderBusy] = useState(false);
+  // The request a failed "load older" belongs to; a refresh or another patient clears it by changing the key.
+  const [olderFailedKey, setOlderFailedKey] = useState("");
 
   useEffect(() => {
     if (!clinicId || !patientId) return;
@@ -142,6 +148,7 @@ export function usePatientActivity(patientId: string): {
         if (cancelled) return;
         setResult({
           key,
+          scope,
           logs: snap.docs.map(toLog),
           cursor: snap.docs[snap.docs.length - 1] ?? null,
           hasOlder: snap.docs.length === PATIENT_PAGE_SIZE,
@@ -149,13 +156,13 @@ export function usePatientActivity(patientId: string): {
         });
       } catch (err) {
         console.error("Activity log: could not read the patient's entries", err);
-        if (!cancelled) setResult({ key, logs: [], cursor: null, hasOlder: false, error: true });
+        if (!cancelled) setResult({ key, scope, logs: [], cursor: null, hasOlder: false, error: true });
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [clinicId, patientId, key]);
+  }, [clinicId, patientId, key, scope]);
 
   const current = result.key === key;
 
@@ -164,6 +171,7 @@ export function usePatientActivity(patientId: string): {
     const forKey = result.key;
     const cursor = result.cursor;
     setOlderBusy(true);
+    setOlderFailedKey("");
     (async () => {
       try {
         const snap = await getDocs(query(
@@ -181,7 +189,7 @@ export function usePatientActivity(patientId: string): {
         }));
       } catch (err) {
         console.error("Activity log: could not read older entries", err);
-        setResult((r) => (r.key !== forKey ? r : { ...r, error: true }));
+        setOlderFailedKey(forKey);
       } finally {
         setOlderBusy(false);
       }
@@ -191,11 +199,14 @@ export function usePatientActivity(patientId: string): {
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
   return {
-    logs: current ? result.logs : [],
+    // While a refresh is in flight the same patient's previous answer stays on screen (dimmed by
+    // the page) instead of blanking; another patient's entries are never shown.
+    logs: result.scope === scope ? result.logs : [],
     loading: !current || olderBusy,
     hasOlder: current && result.hasOlder,
     loadOlder,
     error: current && result.error,
+    olderError: current && olderFailedKey === key,
     reload,
   };
 }

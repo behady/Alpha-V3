@@ -175,7 +175,7 @@ function PatientFeed({ patientId }: { patientId: string }) {
   const isAr = language === "ar";
   const tz = clinicTimeZone();
   const [now, setNow] = useState(() => new Date());
-  const { logs, loading, hasOlder, loadOlder, error, reload } = usePatientActivity(patientId);
+  const { logs, loading, hasOlder, loadOlder, error, olderError, reload } = usePatientActivity(patientId);
   return (
     <FeedView
       logs={logs}
@@ -191,7 +191,7 @@ function PatientFeed({ patientId }: { patientId: string }) {
       patientMode
       footer={
         hasOlder ? (
-          <div className="flex justify-center">
+          <div className="flex flex-col items-center gap-2">
             <button
               type="button"
               onClick={loadOlder}
@@ -201,6 +201,11 @@ function PatientFeed({ patientId }: { patientId: string }) {
               {loading && <Loader2 size={14} className="animate-spin" aria-hidden="true" />}
               {isAr ? "حمّل أقدم" : "Load older"}
             </button>
+            {olderError && (
+              <p role="alert" className="text-[12px] font-bold text-ink-muted">
+                {isAr ? "مقدرناش نحمّل الأقدم. حاول تاني." : "Could not load older entries. Try again."}
+              </p>
+            )}
           </div>
         ) : null
       }
@@ -270,7 +275,8 @@ function FeedView({
     () => foldGroups(person ? everyoneHere.filter((l) => personKey(l) === person) : everyoneHere),
     [everyoneHere, person],
   );
-  const summaryTab = tab === "money" || tab === "discount" || tab === "insurance" ? tab : null;
+  // The people summary compares staff over a date range; on one patient's file it has no audience.
+  const summaryTab = !patientMode && (tab === "money" || tab === "discount" || tab === "insurance") ? tab : null;
   const summary = useMemo(() => (summaryTab ? summarize(everyoneHere, summaryTab) : []), [everyoneHere, summaryTab]);
   const flaggedCount = useMemo(() => folded.filter((f) => f.log.flag === true).length, [folded]);
 
@@ -349,6 +355,14 @@ function FeedView({
 
         {dateControls && <div className="mt-4 border-t border-white/10 pt-4">{dateControls}</div>}
       </section>
+
+      {patientMode && (
+        <p className="px-1 text-[12px] font-semibold text-ink-muted">
+          {isAr
+            ? "السجل ده بيبدأ من 14 أكتوبر 2026 — الإجراءات القديمة في صفحة سجل النشاط"
+            : "This log starts on 14 October 2026 — older actions are on the Activity log page"}
+        </p>
+      )}
 
       {/* Tabs */}
       <div role="group" aria-label={isAr ? "الأقسام" : "Sections"} className="flex flex-wrap gap-1.5">
