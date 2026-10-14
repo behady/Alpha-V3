@@ -1152,7 +1152,14 @@ export async function PATCH(req: Request) {
       return fail(409, `Choose the dentist first for: ${result.services.join(", ")}. / اختار الطبيب الأول لـ: ${result.services.join("، ")}.`);
     if (result.kind === "already_insurer_paid") return fail(409, "The insurer's payment was already recorded for this approval.");
     if (result.kind === "no_rows") return fail(400, "This approval has no treatment rows to settle (it was saved before treatments were recorded from approvals).");
-    if (result.kind === "nothing_left") return fail(400, "Nothing left to settle on this approval.");
+    if (result.kind === "nothing_left") {
+      return fail(
+        400,
+        collectShare
+          ? "The patient's share is already paid on these treatments. / حصة المريض مدفوعة بالفعل على العلاجات دي."
+          : "Nothing left to settle on this approval.",
+      );
+    }
     if (result.kind === "checks") {
       return fail(400, "The edit does not add up. Fix the marked fields and save again.", { checks: result.checks });
     }

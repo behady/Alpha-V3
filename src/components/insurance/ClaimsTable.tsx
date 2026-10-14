@@ -22,6 +22,7 @@ import { claimStatementName, type ClaimStatus, type InsuranceClaim } from "@/lib
 import { claimProgress, type LinkedAppointmentLite } from "@/lib/insurance/appointments";
 import type { ClaimPatch } from "./api";
 import { tr, type TextKey } from "./text";
+import { useOpenShares } from "./useOpenShares";
 
 const STATUS: Record<ClaimStatus, { key: TextKey; pill: string }> = {
   approved: { key: "statusApproved", pill: "border-amber-200 bg-amber-50 text-amber-800" },
@@ -62,6 +63,8 @@ export default function ClaimsTable({
   const { confirm, showToast } = useUI();
   const { requireBranchForMoney, picker: branchPicker } = useBranchForMoney();
   const [busyId, setBusyId] = useState("");
+  // The share still unpaid, from the treatment rows: ordinary payments at the counter count too.
+  const openShare = useOpenShares(claims);
 
   /** A claim already sent to MetLife is checked with the desk before anything changes it. */
   const sentOk = async (claim: InsuranceClaim) =>
@@ -82,8 +85,8 @@ export default function ClaimsTable({
   };
 
   /** Money is asked about first, with the figure, exactly as the patient's Insurance tab asks. */
-  const collect = async (claim: InsuranceClaim) => {
-    const question = t("confirmShare").replace("{amount}", money(claim.totals.patientShare)).replace("{number}", claim.approvalNumber);
+  const collect = async (claim: InsuranceClaim, amount: number) => {
+    const question = t("confirmShare").replace("{amount}", money(amount)).replace("{number}", claim.approvalNumber);
     if (!(await confirm(question, { confirmLabel: t("collectShare") }))) return;
     // The "already sent" warning comes before the branch pick, so nobody picks and is then warned.
     if (!(await sentOk(claim))) return;
@@ -149,6 +152,9 @@ export default function ClaimsTable({
     { approved: 0, share: 0 },
   );
 
+  /** What Collect would take; the claim's own figure while its rows load. */
+  const shareDue = (c: InsuranceClaim) => openShare(c) ?? c.totals.patientShare;
+
   /** The row's buttons; `big` gives each a 40px target for the phone cards. */
   const renderActions = (c: InsuranceClaim, big = false) => {
     const busy = busyId === c.id;
@@ -172,8 +178,8 @@ export default function ClaimsTable({
             <Send size={s} />
           </Action>
         )}
-        {(c.status === "treated" || c.status === "sent") && c.totals.patientShare > 0 && !c.shareCollected && (
-          <Action big={big} short={t("shortCollect")} label={`${t("collectShare")} ${money(c.totals.patientShare)}`} disabled={busy} onClick={() => void collect(c)}>
+        {(c.status === "treated" || c.status === "sent") && shareDue(c) > 0 && (
+          <Action big={big} short={t("shortCollect")} label={`${t("collectShare")} ${money(shareDue(c))}`} disabled={busy} onClick={() => void collect(c, shareDue(c))}>
             <Banknote size={s} />
           </Action>
         )}

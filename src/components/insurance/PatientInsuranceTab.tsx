@@ -33,6 +33,7 @@ import { isAnyUnlocked } from "@/lib/featureCatalog";
 import { CLAIMS_COLLECTION, LINE_STATUSES, lineStatusOf, parseClaim, type ClaimStatus, type InsuranceClaim, type LineStatus } from "@/lib/insurance/claims";
 import { bookLineUrl, claimProgress, lineBooking, type LinkedAppointmentLite } from "@/lib/insurance/appointments";
 import { readInsurance } from "@/lib/patientInsurance";
+import { useOpenShares } from "./useOpenShares";
 import { parsePayers, PRIVATE_PAYER_ID, type Payer } from "@/lib/payers";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { collectPatientShare, patchClaim, recordInsurerPayment, InsuranceCallError, type ClaimPatch } from "./api";
@@ -62,6 +63,8 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
   const [payers, setPayers] = useState<Payer[]>([]);
   const [dentists, setDentists] = useState<Dentist[]>([]);
   const [claims, setClaims] = useState<InsuranceClaim[]>([]);
+  // The share still unpaid, from the treatment rows: the desk may have taken it as ordinary payments.
+  const openShare = useOpenShares(claims);
   /** This patient's appointments, for the Visit column: which approved service is booked, done, or neither. */
   const [appointments, setAppointments] = useState<LinkedAppointmentLite[]>([]);
   const [loading, setLoading] = useState(true);
@@ -198,9 +201,8 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
     }
   };
 
-  const collect = async (claim: InsuranceClaim) => {
-    if (!clinicId || claim.totals.patientShare <= 0 || claim.shareCollected) return;
-    const amount = claim.totals.patientShare;
+  const collect = async (claim: InsuranceClaim, amount: number) => {
+    if (!clinicId || amount <= 0 || claim.shareCollected) return;
     const ok = await confirm(t("confirmShare").replace("{amount}", money(amount)).replace("{number}", claim.approvalNumber), { confirmLabel: t("collectShare") });
     if (!ok) return;
     // Cash taken under "All branches" is told which branch it belongs to first.
@@ -470,9 +472,13 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                         <span className={doneChip}>
                           <CheckCircle2 size={15} /> {t("shareCollectedOn")} <bdi dir="ltr">{c.shareCollected.date}</bdi>
                         </span>
+                      ) : openShare(c) === 0 ? (
+                        <span className={doneChip}>
+                          <CheckCircle2 size={15} /> {t("sharePaid")}
+                        </span>
                       ) : (c.status === "treated" || c.status === "sent") && (
-                        <button type="button" onClick={() => collect(c)} disabled={isBusy} className={actionBtn}>
-                          <Banknote size={15} /> {t("collectShare")} <bdi dir="ltr" className="font-figure">{money(c.totals.patientShare)}</bdi>
+                        <button type="button" onClick={() => collect(c, openShare(c) ?? c.totals.patientShare)} disabled={isBusy} className={actionBtn}>
+                          <Banknote size={15} /> {t("collectShare")} <bdi dir="ltr" className="font-figure">{money(openShare(c) ?? c.totals.patientShare)}</bdi>
                         </button>
                       ))}
                     {Object.keys(c.dentists).length > 0 && (

@@ -7,6 +7,7 @@ import { db } from "@/lib/firebase";
 import { isInsurerFormat, parsePayers, PRIVATE_PAYER_ID, type Payer } from "@/lib/payers";
 import InsurerBadge from "@/components/shared/InsurerBadge";
 import { patchClaim, InsuranceCallError } from "@/components/insurance/api";
+import { useOpenShares } from "@/components/insurance/useOpenShares";
 import { useClinic } from "@/context/ClinicContext";
 import { useUI } from "@/context/UIContext";
 import { LINE_STATUSES, lineStatusOf, type InsuranceClaim, type LineStatus } from "@/lib/insurance/claims";
@@ -71,6 +72,8 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
   const { showToast, confirm } = useUI();
   const [busy, setBusy] = useState("");
   const [payers, setPayers] = useState<Payer[]>([]);
+  // Paid by the Collect button or by ordinary payments against the treatments: either way, paid.
+  const openShare = useOpenShares(claims);
   /** The insurance company whose approvals are on screen. "" = the first tab. */
   const [tab, setTab] = useState("");
   /** Ticked service lines, as `"claimId|line"`, for the bulk bar. */
@@ -549,7 +552,7 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
                 </div>
                 {c.totals.patientShare > 0 && (
                   <span className="text-ink-body">
-                    {c.shareCollected
+                    {openShare(c) === 0
                       ? isAr ? "حصة المريض اتدفعت" : "Patient share collected"
                       : isAr ? "حصة المريض بتتحصّل من تبويب الدفع" : "Patient share is collected on the Payment tab"}
                   </span>
@@ -659,7 +662,7 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
                     <td className="px-4 py-3 text-end font-figure font-medium tabular-nums text-ink">{money(c.totals.patientShare)}</td>
                     <td colSpan={2} className="px-4 py-3 text-[13px] font-semibold text-ink-body">
                       {c.totals.patientShare > 0 &&
-                        (c.shareCollected
+                        (openShare(c) === 0
                           ? isAr ? "حصة المريض اتدفعت" : "Patient share collected"
                           : isAr ? "حصة المريض بتتحصّل من تبويب الدفع" : "Patient share is collected on the Payment tab")}
                     </td>

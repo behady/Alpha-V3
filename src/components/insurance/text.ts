@@ -257,6 +257,7 @@ export const TEXT = {
   share: { en: "Patient share", ar: "حصة المريض" },
   collectShare: { en: "Collect patient share", ar: "تحصيل حصة المريض" },
   shareCollectedOn: { en: "Collected on", ar: "اتحصّلت يوم" },
+  sharePaid: { en: "Patient share paid", ar: "حصة المريض اتدفعت" },
   shareCollectedToast: { en: "Patient share recorded in today's cash", ar: "حصة المريض اتسجلت في كاش النهاردة" },
   shareFailed: { en: "Could not record the patient share", ar: "ما قدرناش نسجل حصة المريض" },
   confirmShare: { en: "Record {amount} EGP cash from the patient for approval {number}?", ar: "تسجيل {amount} جنيه كاش من المريض لموافقة {number}؟" },

@@ -14,6 +14,7 @@ import { normalizeNextcare } from "./nextcare";
 import { normalizeAxa } from "./axa";
 import { commissionRateFor, isInsurerFormat, type CommissionRates, type InsurerFormat, type Payer } from "@/lib/payers";
 import { readInsurance, writeInsurance, type PatientInsuranceEntry } from "../patientInsurance";
+import { patientPortion, type InsurerRowLite } from "../ledgerInsurer";
 
 export const CLAIMS_COLLECTION = "insurance_claims";
 export const DOCS_COLLECTION = "insurance_docs";
@@ -676,6 +677,40 @@ export function insuranceTreatmentRows(args: TreatmentRowArgs): TreatmentRow[] {
 export function cappedPayment(wanted: number, cost: number, alreadyPaid: number): number {
   const open = round2(Number(cost) - Number(alreadyPaid));
   return Math.max(0, round2(Math.min(Number(wanted) || 0, Number.isFinite(open) ? open : 0)));
+}
+
+/** Does the patient's share of this approval still need a look at its rows? */
+export function shareMayBeOpen(claim: Pick<InsuranceClaim, "status" | "totals" | "shareCollected">): boolean {
+  return claim.status !== "cancelled" && claim.totals.patientShare > 0 && !claim.shareCollected;
+}
+
+/**
+ * How much of the patient's share is still unpaid, read from the treatment rows themselves.
+ *
+ * `shareCollected` is stamped only by the "Collect" button. The desk may just as well take the
+ * share with an ordinary payment against each treatment (Instapay at the counter, say), and then
+ * the stamp never comes — the money is in, the button keeps asking for it. So the rows decide:
+ * each line's share capped at the patient's open part of its row, exactly as the claims route caps
+ * what Collect would record. `rows` maps a ledger id to its row, `null` for a row that no longer
+ * exists (skipped, as the route skips it); an id not in the map yet means "still loading" → null.
+ * A claim with no rows (saved before treatment) has nothing to read: its whole share is open.
+ */
+export function shareStillOpen(
+  claim: Pick<InsuranceClaim, "status" | "totals" | "shareCollected" | "lines" | "ledgerIds">,
+  rows: ReadonlyMap<string, InsurerRowLite | null>,
+): number | null {
+  if (!shareMayBeOpen(claim)) return 0;
+  const links = Object.entries(claim.ledgerIds);
+  if (links.length === 0) return claim.totals.patientShare;
+  let open = 0;
+  for (const [index, link] of links) {
+    if (!rows.has(link.ledgerId)) return null;
+    const row = rows.get(link.ledgerId);
+    const line = claim.lines[Number(index)];
+    if (!row || !line) continue;
+    open += cappedPayment(line.patientShare, patientPortion(row), Number(row.paid) || 0);
+  }
+  return round2(open);
 }
 
 /**

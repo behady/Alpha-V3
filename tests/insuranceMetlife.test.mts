@@ -45,6 +45,8 @@ import {
   dentistRowPatch,
   lineCharge,
   cappedPayment,
+  shareMayBeOpen,
+  shareStillOpen,
   rowsActionForStatus,
   LINE_STATUSES,
   lineStatusOf,
@@ -1035,6 +1037,35 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   assert.equal(cappedPayment(500, 600, 300), 300, "capped at what is open");
   assert.equal(cappedPayment(100, 600, 650), 0, "an overpaid row takes nothing more");
   assert.equal(cappedPayment(33.333, 100, 0), 33.33);
+
+  // the patient's share still open, read from the rows: the desk took the whole share as ordinary
+  // payments against each treatment, and the Collect card used to stay up asking for it
+  {
+    const claim = {
+      status: "treated" as const,
+      totals: { requested: 1800, approved: 900, patientShare: 900 },
+      shareCollected: null,
+      lines: [lineFixture({ approvedAmount: 600, patientShare: 600 }), lineFixture({ approvedAmount: 300, patientShare: 300 })],
+      ledgerIds: { 0: { ledgerId: "a", noteId: "na" }, 1: { ledgerId: "b", noteId: "nb" } },
+    };
+    const row = (cost: number, covered: number, paid: number) => ({ type: "procedure", cost, insurerCovered: covered, paid });
+    const rows = (a: ReturnType<typeof row> | null, b: ReturnType<typeof row> | null) => new Map([["a", a], ["b", b]]);
+    assert.equal(shareStillOpen(claim, rows(row(1200, 600, 600), row(600, 300, 300))), 0, "paid at the counter: nothing to collect");
+    assert.equal(shareStillOpen(claim, rows(row(1200, 600, 0), row(600, 300, 0))), 900, "nothing paid: the whole share");
+    assert.equal(shareStillOpen(claim, rows(row(1200, 600, 600), row(600, 300, 100))), 200, "part paid: the rest");
+    assert.equal(shareStillOpen(claim, rows(row(1200, 600, 600), null)), 0, "a deleted row is skipped, as the route skips it");
+    assert.equal(shareStillOpen(claim, new Map([["a", row(1200, 600, 0)]])), null, "a row still loading: unknown, not zero");
+    assert.equal(shareStillOpen({ ...claim, ledgerIds: {} }, new Map()), 900, "no rows yet: the whole share is open");
+    assert.equal(shareStillOpen({ ...claim, shareCollected: { ledgerId: "p", amount: 900, date: "2026-10-13" } }, new Map()), 0, "collected by the button");
+    assert.equal(shareStillOpen({ ...claim, status: "cancelled" as const }, new Map()), 0, "a cancelled approval asks for nothing");
+    assert.equal(
+      shareStillOpen(claim, rows({ ...row(1200, 600, 1200), insurerPaidAt: "2026-10-20" } as ReturnType<typeof row>, row(600, 300, 300))),
+      0,
+      "the insurer paid too: the patient's part is still covered",
+    );
+    assert.equal(shareMayBeOpen(claim), true);
+    assert.equal(shareMayBeOpen({ ...claim, totals: { ...claim.totals, patientShare: 0 } }), false);
+  }
 
   // what a status change does to the rows
   assert.equal(rowsActionForStatus({ from: "approved", to: "treated", hasRows: false }), "write");
