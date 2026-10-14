@@ -60,6 +60,37 @@ export function diffChanges(
 }
 
 /**
+ * What changed in a settings list of named items (branches, labs, insurers), matched by id: one
+ * change per removed item (`name → null`), renamed item (`old → new`) and added item (`null →
+ * name`), in that order. Only names are ever reported, never the ids. `field` is the label the
+ * changes are shown under ("branch", "lab", "payer").
+ */
+export function branchListChanges(
+  prev: ReadonlyArray<{ id: string; name?: string | null }>,
+  next: ReadonlyArray<{ id: string; name?: string | null }>,
+  field = "branch",
+): Change[] {
+  const nameOf = (n: string | null | undefined): string | null => {
+    const t = typeof n === "string" ? n.trim() : "";
+    return t === "" ? null : t;
+  };
+  const before = new Map(prev.map((p) => [p.id, nameOf(p.name)]));
+  const after = new Map(next.map((n) => [n.id, nameOf(n.name)]));
+  const out: Change[] = [];
+  for (const [id, name] of before) {
+    if (!after.has(id)) {
+      if (name !== null) out.push({ field, from: name, to: null });
+    } else if (after.get(id) !== name) {
+      out.push({ field, from: name, to: after.get(id) ?? null });
+    }
+  }
+  for (const [id, name] of after) {
+    if (!before.has(id) && name !== null) out.push({ field, from: null, to: name });
+  }
+  return out;
+}
+
+/**
  * Which discount event a treatment's discount moving from `old` to `neu` is, and the figure the
  * line shows: the new discount when one is given, the old one when it is taken off, and the
  * difference when it is changed. No change is no event.

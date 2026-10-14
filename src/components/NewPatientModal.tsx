@@ -10,7 +10,7 @@ import { useUI } from "@/context/UIContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { patientSourceLabel } from "@/lib/patientSourceLabel";
 import { useAuth } from "@/context/AuthContext";
-import { logActivity } from "@/lib/logger";
+import { logEvent } from "@/lib/logger";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { LOCATIONS_DOC, parseClinicBranches, type ClinicBranch } from "@/lib/clinicLocations";
 import { onSnapshot } from "firebase/firestore";
@@ -169,7 +169,7 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
       const generatedFileId = `PT-${newIdNumber}`;
 
       // 3. SAVE THE PATIENT
-      await addDoc(getClinicCollection("patients"), {
+      const ref = await addDoc(getClinicCollection("patients"), {
         fileId: generatedFileId,
         name,
         phone: normalizedPhone,
@@ -190,10 +190,9 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
         teethData: {} 
       });
 
-      await logActivity(
+      void logEvent(
         { uid: user?.uid, name: user?.name, role: user?.role },
-        "Patient Created",
-        `Created patient ${name} (${generatedFileId})`
+        { event: "patient.created", patientId: ref.id, patientName: name, branchId: branchId || undefined },
       );
       
       showToast(language === 'ar' ? `تم الحفظ! رقم الملف: ${generatedFileId}` : `Saved! File ID: ${generatedFileId}`, "success");

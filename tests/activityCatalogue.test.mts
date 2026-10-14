@@ -20,7 +20,7 @@ import {
   storedFields,
   stripUndefined,
 } from "../src/lib/activity/catalogue";
-import { diffChanges, discountEvent } from "../src/lib/activity/diff";
+import { branchListChanges, diffChanges, discountEvent } from "../src/lib/activity/diff";
 
 let checks = 0;
 const ok = (cond: boolean, msg: string) => {
@@ -141,6 +141,34 @@ deep(diffChanges({ tags: [1, 2] }, { tags: [1, 2] }, ["tags"]), []);
 deep(diffChanges({ at: { toDate: () => new Date("2026-10-01T10:00:00Z") } }, { at: "2026-10-02" }, ["at"]), [{ field: "at", from: "2026-10-01", to: "2026-10-02" }]);
 deep(diffChanges({ at: new Date("2026-10-01T10:00:00Z") }, { at: "2026-10-01" }, ["at"]), []);
 deep(diffChanges({ a: null }, { a: "new" }, ["a"]), [{ field: "a", from: null, to: "new" }]);
+
+// --- 9a. branchListChanges: a list of {id, name} compared by id (branches, labs, insurers) ---
+deep(branchListChanges([{ id: "a", name: "مصر الجديدة" }], [{ id: "a", name: "مصر الجديدة" }, { id: "b", name: "التجمع" }]),
+  [{ field: "branch", from: null, to: "التجمع" }]);
+deep(branchListChanges([{ id: "a", name: "A" }], [{ id: "a", name: "B" }]), [{ field: "branch", from: "A", to: "B" }]);
+deep(branchListChanges([{ id: "a", name: "A" }], []), [{ field: "branch", from: "A", to: null }]);
+deep(branchListChanges([{ id: "a", name: " A " }], [{ id: "a", name: "A" }]), [], "a re-typed name is no change");
+deep(branchListChanges([{ id: "a", name: "A" }], [{ id: "b", name: "B" }], "lab"),
+  [{ field: "lab", from: "A", to: null }, { field: "lab", from: null, to: "B" }], "removed before added; the field is the caller's");
+eq(sentence({ event: "settings.labs", changes: branchListChanges([], [{ id: "x", name: "معمل النور" }], "lab") }, "ar"),
+  "تعديل المعامل · المعمل — → معمل النور");
+eq(sentence({ event: "lab.status", refs: { labName: "النور" }, changes: [{ field: "status", from: "at_lab", to: "back" }] }, "ar"),
+  "تغيير حالة طلب معمل لدى النور · الحالة في المعمل → وصلت العيادة", "lab stage codes are said in words");
+eq(sentence({ event: "lab.created", refs: { labName: "Nour", status: "at_lab" } }, "en"), "Lab case created at Nour (At lab)");
+eq(sentence({ event: "staff.edited", refs: { staffName: "Mona" }, changes: [{ field: "baseSalary", from: 5000, to: 6000 }] }, "en"),
+  "Staff details edited: Mona · Base salary 5,000 → 6,000");
+eq(sentence({ event: "staff.edited", refs: { staffName: "منى", payerName: "GASCO" }, changes: [{ field: "commission", from: 30, to: 40 }] }, "ar"),
+  "تعديل بيانات منى (GASCO) · العمولة 30 → 40", "a per-insurer rate names the insurer");
+eq(sentence({ event: "settings.services", refs: { procedure: "حشو" }, changes: [{ field: "price", from: 500, to: 600 }] }, "ar"),
+  "تعديل قائمة الخدمات (حشو) · السعر 500 → 600", "a price-only edit names the treatment");
+eq(sentence({ event: "settings.insurers", refs: { payerName: "GASCO" }, changes: [{ field: "listPrices", from: null, to: null }] }, "en"),
+  "Insurers updated (GASCO) · List prices");
+eq(sentence({ event: "plan.status", patientName: "سارة", changes: [{ field: "status", from: "draft", to: "accepted" }] }, "ar"),
+  "تغيير حالة خطة علاج لـ سارة · الحالة مسودة → مقبولة");
+for (const f of ["address", "dob", "gender", "referral", "baseSalary", "commissionPercentage", "overtimeMultiplier", "speciality",
+  "lab", "labName", "agreedPrice", "dueDate", "title", "total", "steps", "schedule", "listPrices", "room", "payer", "service"]) {
+  ok(fieldLabel(f, "en") !== f && fieldLabel(f, "ar") !== f, `label for ${f}`);
+}
 
 // --- 9b. review fixes: identifiers stay text, clinic-clock dates, money-only grouping ---
 deep(diffChanges({ phone: "01012345678" }, { phone: "01022223333" }, ["phone"]), [{ field: "phone", from: "01012345678", to: "01022223333" }]);

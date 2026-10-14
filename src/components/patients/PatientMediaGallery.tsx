@@ -35,7 +35,7 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { addDoc, deleteDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { storage } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
-import { logActivity } from "@/lib/logger";
+import { logEvent } from "@/lib/logger";
 import { useUI } from "@/context/UIContext";
 import { XrayReadButton, XrayReadModal, XrayReportsSection, XrayReportDialog, useMounted, useXrayReports, useXrayFeature, type SavedXrayReport } from "./XrayAiReport";
 import { XRAY_AUTO_READ_DOC, XRAY_AUTO_READ_CATEGORIES, type XrayAutoReadSettings } from "@/lib/xrayReport";
@@ -283,10 +283,9 @@ export default function PatientMediaGallery({
         }
       }
 
-      await logActivity(
-        { uid: user?.uid || "", name: user?.name || "", role: user?.role || "" },
-        "Media Uploaded",
-        `Uploaded ${stagingFiles.length} photo(s) for patient ${patientName}`
+      void logEvent(
+        { uid: user?.uid, name: user?.name, role: user?.role },
+        { event: "media.uploaded", patientId, patientName: patientName || null, refs: { count: stagingFiles.length } },
       );
 
       showToast(

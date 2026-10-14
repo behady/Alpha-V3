@@ -17,7 +17,9 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
-import { logActivity } from "@/lib/logger";
+import { logActivity, logEvent } from "@/lib/logger";
+import { diffChanges } from "@/lib/activity/diff";
+import type { Change } from "@/lib/activity/types";
 import ServiceCombobox, { type ComboboxService } from "@/components/shared/ServiceCombobox";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import InsurerBadge from "@/components/shared/InsurerBadge";
@@ -90,6 +92,24 @@ type TreatmentPlan = {
   /** AI translations cached per language by /api/ai/translate-treatment-plan. */
   translations?: Partial<Record<"en" | "ar", PlanTranslation>>;
 };
+
+/**
+ * The plan's visits and steps as one comparable string, for the activity log: an edit that only
+ * re-saves the same steps is not reported, one that changes any of them is ("Steps").
+ */
+function planStepsKey(plan: { visits?: PlanVisit[]; steps?: PlanStep[] } | null | undefined): string {
+  const raw = plan?.visits;
+  const visits = Array.isArray(raw) ? raw : [{ label: "", date: "", time: "", steps: plan?.steps ?? [] }];
+  return JSON.stringify(
+    visits.map((v) => [
+      String(v?.label ?? "").trim(), String(v?.date ?? ""), String(v?.time ?? ""),
+      (Array.isArray(v?.steps) ? v.steps : []).map((st) => [
+        String(st?.serviceName ?? "").trim(), String(st?.teeth ?? "").trim(), Number(st?.quantity) || 0,
+        Number(st?.unitPrice) || 0, String(st?.note ?? "").trim(),
+      ]),
+    ]),
+  );
+}
 
 type AiStep = PlanStep & { unmatched?: boolean };
 type AiVisit = {
@@ -868,12 +888,20 @@ export default function PatientTreatmentPlanTab({
         updatedAt: serverTimestamp(),
       };
       if (editingPlanId) {
+        const prevPlan = plans.find((p) => p.id === editingPlanId);
         await updateDoc(getClinicDoc("treatment_plans", editingPlanId), payload as any);
-        await logActivity(
-          { uid: user?.uid, name: user?.name, role: user?.role },
-          "Treatment Plan Updated",
-          `Updated treatment plan "${title}" for ${patient?.name || patientId}`
+        const planChanges: Change[] = diffChanges(
+          { title: prevPlan?.title, description: prevPlan?.description, total: prevPlan?.total },
+          { title: payload.title, description: payload.description, total: payload.total },
+          ["title", "description", "total"],
         );
+        if (planStepsKey(prevPlan) !== planStepsKey({ visits })) planChanges.push({ field: "steps", from: null, to: null });
+        if (planChanges.length) {
+          void logEvent(
+            { uid: user?.uid, name: user?.name, role: user?.role },
+            { event: "plan.edited", patientId, patientName: patient?.name || null, changes: planChanges, refs: { procedure: title } },
+          );
+        }
       } else {
         await addDoc(getClinicCollection("treatment_plans"), {
           ...payload,
@@ -883,10 +911,9 @@ export default function PatientTreatmentPlanTab({
           createdBy: user?.uid || "",
           createdAt: serverTimestamp(),
         } as any);
-        await logActivity(
+        void logEvent(
           { uid: user?.uid, name: user?.name, role: user?.role },
-          "Treatment Plan Created",
-          `Created treatment plan "${title}" for ${patient?.name || patientId}`
+          { event: "plan.created", patientId, patientName: patient?.name || null, amount: payload.total, refs: { procedure: title } },
         );
       }
       setEditorOpen(false);
@@ -913,10 +940,9 @@ export default function PatientTreatmentPlanTab({
     if (!ok) return;
     try {
       await deleteRecord(clinicId || "", "treatment_plans", plan.id);
-      await logActivity(
+      void logEvent(
         { uid: user?.uid, name: user?.name, role: user?.role },
-        "Treatment Plan Deleted",
-        `Deleted treatment plan "${plan.title}" for ${patient?.name || patientId}`
+        { event: "plan.deleted", patientId, patientName: patient?.name || null, refs: { procedure: plan.title } },
       );
       showToast(ar ? "تم النقل إلى المحذوفات" : "Moved to Recently Deleted", "success");
     } catch (e) {
@@ -929,6 +955,13 @@ export default function PatientTreatmentPlanTab({
     if (plan.status === status) return;
     try {
       await updateDoc(getClinicDoc("treatment_plans", plan.id), { status, updatedAt: serverTimestamp() });
+      void logEvent(
+        { uid: user?.uid, name: user?.name, role: user?.role },
+        {
+          event: "plan.status", patientId, patientName: patient?.name || null,
+          changes: [{ field: "status", from: plan.status || null, to: status }], refs: { procedure: plan.title },
+        },
+      );
     } catch (e) {
       console.error(e);
       showToast(ar ? "فشل تغيير الحالة" : "Failed to change status", "error");
@@ -1180,10 +1213,9 @@ export default function PatientTreatmentPlanTab({
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       } as any);
-      await logActivity(
+      void logEvent(
         { uid: user?.uid, name: user?.name, role: user?.role },
-        "Treatment Plan Created",
-        `Saved AI-suggested treatment plan "${option.title}" for ${patient?.name || patientId}`
+        { event: "plan.created", patientId, patientName: patient?.name || null, amount: visitsTotal(visits), refs: { procedure: option.title } },
       );
       showToast(ar ? "تم حفظ الخطة — راجعها وعدّل الأسعار الناقصة" : "Plan saved — review it and fill any missing prices", "success");
     } catch (e) {

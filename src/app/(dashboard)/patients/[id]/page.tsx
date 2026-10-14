@@ -26,7 +26,8 @@ import { generalDoctorLabel } from "@/lib/generalDentist";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { useChairMode } from "@/lib/useChairMode";
-import { logActivity } from "@/lib/logger";
+import { logEvent } from "@/lib/logger";
+import { diffChanges } from "@/lib/activity/diff";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import { PRIVATE_PAYER_ID } from "@/lib/payers";
 import { readInsurance, writeInsurance, type PatientInsuranceEntry } from "@/lib/patientInsurance";
@@ -705,11 +706,24 @@ export default function PatientProfile() {
         status: editStatus,
         insurance: writeInsurance(editInsurance),
       });
-      await logActivity(
-        { uid: user?.uid, name: user?.name, role: user?.role },
-        "Patient Updated",
-        `Updated patient profile: ${combinedName} (${id})`
+      // The stored record calls the birthday `dateOfBirth`; the log reports it as `dob`.
+      const patientChanges = diffChanges(
+        {
+          name: patient?.name, phone: patient?.phone, address: patient?.address, dob: patient?.dateOfBirth,
+          gender: patient?.gender, status: patient?.status, referral: patient?.referral,
+        },
+        {
+          name: combinedName, phone: normalizedPhone, address: editAddress, dob: editDob,
+          gender: editGender, status: editStatus, referral: editReferral,
+        },
+        ["name", "phone", "address", "dob", "gender", "status", "referral"],
       );
+      if (patientChanges.length) {
+        void logEvent(
+          { uid: user?.uid, name: user?.name, role: user?.role },
+          { event: "patient.edited", patientId: id, patientName: combinedName, changes: patientChanges },
+        );
+      }
       setIsEditModalOpen(false);
       showToast(t('updateSuccess') || "Profile Updated", "success");
     } catch (error) {
@@ -971,10 +985,9 @@ export default function PatientProfile() {
         });
       }
 
-      await logActivity(
+      void logEvent(
         { uid: user?.uid, name: user?.name, role: user?.role },
-        "Media Uploaded",
-        `Uploaded ${files.length} X-Ray/Photo(s) for patient ${patient?.name}`
+        { event: "media.uploaded", patientId: id, patientName: patient?.name || null, refs: { count: files.length } },
       );
 
       showToast(language === "ar" ? "تم رفع الصور/الأشعة بنجاح" : "Media uploaded successfully", "success");

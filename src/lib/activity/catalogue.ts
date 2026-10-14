@@ -11,6 +11,7 @@
 import { actionLabel, readableDetails } from "./legacy";
 import { countedNoun } from "../arabicCount";
 import { getAppointmentStageLabel } from "../appointmentStages";
+import { LAB_CASE_STATUSES } from "../labCases";
 import type { ActivityEvent, ActivityLogDoc, Category, Change, EventKey, Refs, Scalar } from "./types";
 
 type Lang = "ar" | "en";
@@ -72,6 +73,24 @@ const FIELD_LABELS: Record<string, [string, string]> = {
   patient: ["المريض", "Patient"],
   lines: ["خدمات الموافقة", "Approval services"],
   metlife: ["بيانات الموافقة", "Approval details"],
+  // Patient file, staff pay, lab cases and settings lists (activity log v2, client screens).
+  address: ["العنوان", "Address"],
+  dob: ["تاريخ الميلاد", "Date of birth"],
+  gender: ["النوع", "Gender"],
+  referral: ["مصدر الإحالة", "Referral"],
+  baseSalary: ["الراتب الأساسي", "Base salary"],
+  commissionPercentage: ["نسبة العمولة", "Commission %"],
+  overtimeMultiplier: ["معامل الإضافي", "Overtime multiplier"],
+  speciality: ["التخصص", "Speciality"],
+  lab: ["المعمل", "Lab"],
+  labName: ["المعمل", "Lab"],
+  agreedPrice: ["السعر المتفق عليه", "Agreed price"],
+  dueDate: ["تاريخ التسليم", "Due date"],
+  title: ["العنوان", "Title"],
+  total: ["الإجمالي", "Total"],
+  steps: ["خطوات العلاج", "Steps"],
+  schedule: ["مواعيد العمل", "Work schedule"],
+  listPrices: ["أسعار القوائم", "List prices"],
 };
 
 export function fieldLabel(field: string, lang: Lang): string {
@@ -104,6 +123,10 @@ const STATUS_AR: Record<string, string> = {
   rejected: "مرفوضة",
   claimed: "تم تقديم المطالبة",
   collected: "تم التحصيل",
+  // A treatment plan's states.
+  presented: "معروضة على المريض",
+  accepted: "مقبولة",
+  declined: "مرفوضة",
 };
 
 /**
@@ -129,8 +152,13 @@ function treatments(n: number, lang: Lang): string {
 }
 
 const MONEY_FIELDS: ReadonlySet<string> = new Set([
-  "price", "listPrice", "discount", "amount", "paid", "cost", "labFee", "baseSalary",
+  "price", "listPrice", "discount", "amount", "paid", "cost", "labFee", "baseSalary", "agreedPrice", "total",
 ]);
+
+/** A lab case's stage codes ("at_lab"), said in words; "cancelled" is left to STATUS_AR. */
+const LAB_STATUS_TEXT: ReadonlyMap<string, [string, string]> = new Map(
+  LAB_CASE_STATUSES.filter((s) => s.id !== "cancelled").map((s) => [s.id, [s.ar, s.en] as [string, string]]),
+);
 
 function valueText(field: string, v: Scalar, lang: Lang): string {
   if (v === null || v === undefined || v === "") return "—";
@@ -138,6 +166,10 @@ function valueText(field: string, v: Scalar, lang: Lang): string {
   if (typeof v === "number") return Number.isFinite(v) ? (MONEY_FIELDS.has(field) ? num(v) : String(v)) : "—";
   if (typeof v === "boolean") return lang === "ar" ? (v ? "نعم" : "لا") : v ? "Yes" : "No";
   if (field === "method") return methodLabel(v, lang) ?? "—";
+  if (field === "status") {
+    const lab = LAB_STATUS_TEXT.get(String(v).trim());
+    if (lab) return lab[lang === "ar" ? 0 : 1];
+  }
   if (field === "status" && lang === "ar") {
     // An appointment's stages are stored capitalised ("Checked In"); insurance and lab statuses
     // are lower-case codes, so the two never collide.
@@ -423,7 +455,8 @@ export function sentence(e: ActivityEvent, lang: Lang): string {
     case "staff.deduction.added": head = j(t("تسجيل خصم على", "Staff deduction added for"), staff, amt); break;
     case "staff.deduction.edited": head = j(t("تعديل خصم على", "Staff deduction edited for"), staff, amt); extras.push(others()); break;
     case "staff.deduction.removed": head = j(t("إلغاء خصم على", "Staff deduction removed for"), staff, amt); break;
-    case "staff.edited": head = j(t("تعديل بيانات", "Staff details edited:"), staff); extras.push(others()); break;
+    // A rate for one insurer or list names it, so "Commission 30 → 40" says whose rate it was.
+    case "staff.edited": head = j(t("تعديل بيانات", "Staff details edited:"), staff, payer && `(${payer})`); extras.push(others()); break;
 
     // ------------------------------------------------------------ discounts
     case "discount.given":
@@ -530,8 +563,8 @@ export function sentence(e: ActivityEvent, lang: Lang): string {
 
     // ------------------------------------------------------------ settings
     case "settings.branches": head = t("تعديل الفروع", "Branches updated"); extras.push(others()); break;
-    case "settings.services": head = t("تعديل قائمة الخدمات", "Services updated"); extras.push(others()); break;
-    case "settings.insurers": head = t("تعديل شركات التأمين", "Insurers updated"); extras.push(others()); break;
+    case "settings.services": head = j(t("تعديل قائمة الخدمات", "Services updated"), proc && `(${proc})`); extras.push(others()); break;
+    case "settings.insurers": head = j(t("تعديل شركات التأمين", "Insurers updated"), payer && `(${payer})`); extras.push(others()); break;
     case "settings.labs": head = t("تعديل المعامل", "Labs updated"); extras.push(others()); break;
 
     default:
