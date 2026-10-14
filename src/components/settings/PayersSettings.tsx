@@ -18,6 +18,7 @@ import {
 import { useUI } from "@/context/UIContext";
 import { useAuth } from "@/context/AuthContext";
 import { logEvent } from "@/lib/logger";
+import { safeLog } from "@/lib/activity/safe";
 import type { Change } from "@/lib/activity/types";
 import { diffChanges } from "@/lib/activity/diff";
 import { useClinic } from "@/context/ClinicContext";
@@ -472,26 +473,29 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
       }
       if (writes > 0) await batch.commit();
 
-      const insurerChanges: Change[] = [];
-      const oldName = (existing?.name || "").trim();
-      if (isNew || !existing) insurerChanges.push({ field: "payer", from: null, to: name });
-      else if (oldName !== name) insurerChanges.push({ field: "payer", from: oldName || null, to: name });
-      // The approval format also retires the insurer's price list, so it is said from → to.
-      insurerChanges.push(...diffChanges(
-        { nameAr: existing?.nameAr, format: existing?.format, providerCode: existing?.providerCode },
-        { nameAr, format, providerCode },
-        ["nameAr", "format", "providerCode"],
-      ));
-      if (priceWrites > 0) insurerChanges.push({ field: "listPrices", from: null, to: null });
-      if (rateWrites > 0) insurerChanges.push({ field: "commission", from: null, to: null });
-      if (insurerChanges.length) {
-        // The insurer's name is said once: in the change when it is new or renamed, else beside the title.
-        const named = insurerChanges.some((c) => c.field === "payer");
-        void logEvent(
-          { uid: user?.uid, name: user?.name, role: user?.role },
-          { event: "settings.insurers", changes: insurerChanges, refs: named ? undefined : { payerName: name } },
-        );
-      }
+      // Saved. Describing it for the activity log must never turn that into a "could not save".
+      safeLog(() => {
+        const insurerChanges: Change[] = [];
+        const oldName = (existing?.name || "").trim();
+        if (isNew || !existing) insurerChanges.push({ field: "payer", from: null, to: name });
+        else if (oldName !== name) insurerChanges.push({ field: "payer", from: oldName || null, to: name });
+        // The approval format also retires the insurer's price list, so it is said from → to.
+        insurerChanges.push(...diffChanges(
+          { nameAr: existing?.nameAr, format: existing?.format, providerCode: existing?.providerCode },
+          { nameAr, format, providerCode },
+          ["nameAr", "format", "providerCode"],
+        ));
+        if (priceWrites > 0) insurerChanges.push({ field: "listPrices", from: null, to: null });
+        if (rateWrites > 0) insurerChanges.push({ field: "commission", from: null, to: null });
+        if (insurerChanges.length) {
+          // The insurer's name is said once: in the change when it is new or renamed, else beside the title.
+          const named = insurerChanges.some((c) => c.field === "payer");
+          void logEvent(
+            { uid: user?.uid, name: user?.name, role: user?.role },
+            { event: "settings.insurers", changes: insurerChanges, refs: named ? undefined : { payerName: name } },
+          );
+        }
+      }, undefined);
 
       await load();
       setDraft(null);

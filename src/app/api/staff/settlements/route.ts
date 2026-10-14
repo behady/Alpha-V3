@@ -26,6 +26,7 @@ import { buildManualEntryRow } from "@/lib/ledgerWrite";
 import { recordLedgerAudit, recordMoneyChange } from "@/lib/server/ledgerAudit";
 import { logEventServer } from "@/lib/server/systemLog";
 import { diffChanges } from "@/lib/activity/diff";
+import { safeEvents } from "@/lib/activity/safe";
 import type { ActivityEvent } from "@/lib/activity/types";
 import { isSettlementKind, SETTLEMENTS_COLLECTION } from "@/lib/staffSettlement";
 import { restampStaffSettlements } from "@/lib/server/staffSettlementSync";
@@ -235,8 +236,11 @@ async function update(args: { clinicId: string; actor: Actor; body: Record<strin
   });
 
   // Only the fields this edit carried, and only those that really moved: a re-sent figure is no edit.
-  const changes = diffChanges(outcome.before, patch, ["amount", "date", "method", "note"].filter((f) => f in patch))
-    .map((c) => (c.field === "note" ? { ...c, field: "notes" } : c));
+  // Already committed: describing the edit must never turn that into an error.
+  const changes = safeEvents(() =>
+    diffChanges(outcome.before, patch, ["amount", "date", "method", "note"].filter((f) => f in patch))
+      .map((c) => (c.field === "note" ? { ...c, field: "notes" } : c)),
+  );
   const event: ActivityEvent | null = changes.length
     ? {
         event: outcome.before.kind === "payout" ? "staff.payout.edited" : "staff.deduction.edited",

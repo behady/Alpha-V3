@@ -42,6 +42,7 @@ import {
   PRIVATE_PAYER_ID,
 } from "@/lib/payers";
 import { diffChanges } from "@/lib/activity/diff";
+import { safeEvents } from "@/lib/activity/safe";
 import type { Change } from "@/lib/activity/types";
 import { patientNameOf } from "@/lib/server/patientName";
 import { buildDeleteContext, evaluateDelete } from "@/lib/deletePolicy";
@@ -911,7 +912,8 @@ async function updateProcedure(args: { clinicId: string; actor: Actor; body: Rec
   // one, so a first edit of it does not read as "discount — → 0".
   // The dentist is money too: changing it re-stamps both dentists' payouts.
   const RENAMED: Record<string, string> = { cost: "price", discountAmount: "discount", payerName: "payer", note: "notes" };
-  const changes = diffChanges(
+  // Already committed: describing the edit must never turn that into an error.
+  const changes = safeEvents(() => diffChanges(
     { ...result.before, discountAmount: Number(result.before.discountAmount) || 0 },
     {
       procedure: priced.displayProcedure,
@@ -927,7 +929,7 @@ async function updateProcedure(args: { clinicId: string; actor: Actor; body: Rec
       note: String(body.note || ""),
     },
     ["procedure", "cost", "listPrice", "discountAmount", "status", "payerName", "date", "doctor", "tooth", "note"],
-  ).map((c) => ({ ...c, field: RENAMED[c.field] ?? c.field }));
+  ).map((c) => ({ ...c, field: RENAMED[c.field] ?? c.field })));
 
   const after = { cost: priced.pricing.cost, procedure: priced.displayProcedure, status: priced.status };
   const entry = {

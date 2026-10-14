@@ -16,6 +16,7 @@ import { applyProcedureSync, readProcedurePayments, stampPaymentsDentist, type P
 import { recordMoneyChange } from "@/lib/server/ledgerAudit";
 import { logEventServer } from "@/lib/server/systemLog";
 import type { Change } from "@/lib/activity/types";
+import { safeEvents } from "@/lib/activity/safe";
 import { restampStaffSettlementsFor } from "@/lib/server/staffSettlementSync";
 import { afterLedgerCreate } from "@/lib/alerts/moneyAlerts";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
@@ -1198,17 +1199,21 @@ export async function PATCH(req: Request) {
         updatedBy: authz.uid,
       });
       // What this edit changed on the approval itself, for the activity line. Labels only (the
-      // values are maps of lines and staff ids), and each only when it really moved.
-      const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
-      const edits: Change[] = [];
-      if (statePicks && !same(lineStatus, claim.lineStatus)) edits.push({ field: "lineStatus", from: null, to: null });
-      if (picks && !same(dentists, claim.dentists)) edits.push({ field: "dentists", from: null, to: null });
-      if (patientSnap && newPatientId !== claim.patientId) edits.push({ field: "patient", from: null, to: null });
-      if (rawLines !== undefined && !same(lines, claim.lines)) edits.push({ field: "lines", from: null, to: null });
-      if (rawMetlife !== undefined && !same(metlife, claim.metlife)) edits.push({ field: "metlife", from: null, to: null });
-      if (treatedDate !== undefined && treated !== undefined && treated !== claim.treatedDate) {
-        edits.push({ field: "date", from: claim.treatedDate ?? null, to: treated ?? null });
-      }
+      // values are maps of lines and staff ids), and each only when it really moved. Guarded: a
+      // throw here would abort the transaction, and the log must never cost the save.
+      const edits: Change[] = safeEvents(() => {
+        const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+        const out: Change[] = [];
+        if (statePicks && !same(lineStatus, claim.lineStatus)) out.push({ field: "lineStatus", from: null, to: null });
+        if (picks && !same(dentists, claim.dentists)) out.push({ field: "dentists", from: null, to: null });
+        if (patientSnap && newPatientId !== claim.patientId) out.push({ field: "patient", from: null, to: null });
+        if (rawLines !== undefined && !same(lines, claim.lines)) out.push({ field: "lines", from: null, to: null });
+        if (rawMetlife !== undefined && !same(metlife, claim.metlife)) out.push({ field: "metlife", from: null, to: null });
+        if (treatedDate !== undefined && treated !== undefined && treated !== claim.treatedDate) {
+          out.push({ field: "date", from: claim.treatedDate ?? null, to: treated ?? null });
+        }
+        return out;
+      });
       return {
         kind: "ok", created, removed, payments, what: collectShare ? "share" : "insurer", collected, rebuilt: rebuild, restamp, redated, rowDate: rowDateAfter,
         fromStatus: claim.status,

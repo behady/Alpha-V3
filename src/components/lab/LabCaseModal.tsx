@@ -8,6 +8,7 @@ import { useUI } from "@/context/UIContext";
 import { useAuth } from "@/context/AuthContext";
 import { logEvent } from "@/lib/logger";
 import { diffChanges, labelOnlyChange } from "@/lib/activity/diff";
+import { safeEvents } from "@/lib/activity/safe";
 import type { Change } from "@/lib/activity/types";
 import Protect from "@/components/Protect";
 import LabTeethPicker from "@/components/lab/LabTeethPicker";
@@ -504,41 +505,45 @@ export default function LabCaseModal({
         await updateLabCase(existing.id, common as Partial<LabCase>, clearable);
         // The form does not carry the status (advancing a case is the board's job), so only the
         // fields it writes are compared. An empty price is written as 0 and read as "no price".
-        const labChanges: Change[] = diffChanges(
-          { labName: existing.labName, agreedPrice: existing.agreedPrice || null, dueDate: existing.dueDate },
-          { labName: common.labName, agreedPrice: common.agreedPrice || null, dueDate: common.dueDate },
-          ["labName", "agreedPrice", "dueDate"],
-        );
-        // The patient and the dentist by name, never by id.
-        const personChange = (field: string, oldId?: string, oldName?: string, newId?: string, newName?: string) => {
-          const from = (oldName || "").trim() || null;
-          const to = (newName || "").trim() || null;
-          if ((oldId || "") !== (newId || "") || from !== to) labChanges.push({ field, from, to });
-        };
-        personChange("patient", existing.patientId, existing.patientName, common.patientId, common.patientName);
-        personChange("doctor", existing.doctorId, existing.doctorName, common.doctorId, common.doctorName);
-        // The order itself, by label alone. A field an old case never stored reads as what the form
-        // showed for it, so re-saving an untouched case reports nothing.
-        const oldSentVia = existing.sentVia || (workTypeFor(existing.workType || "zirconia").digitalByDefault ? "digital" : "driver");
-        labChanges.push(
-          ...labelOnlyChange("workType", existing.workType, common.workType),
-          ...labelOnlyChange("teeth", existing.teeth, common.teeth),
-          ...labelOnlyChange(
-            "shade",
-            [existing.bodyShade, existing.cervicalShade, existing.gumShade],
-            [common.bodyShade, common.cervicalShade, common.gumShade],
-          ),
-          ...labelOnlyChange("notes", existing.notes, common.notes),
-          ...labelOnlyChange(
-            "details",
-            [existing.workDescription, existing.units || null, existing.material, existing.implantSystem, existing.implantPlatform,
-              existing.abutmentType, existing.retention, existing.guideType, existing.sleeveSystem, oldSentVia,
-              !!existing.needsTryIn, existing.patientPhone],
-            [common.workDescription, common.units || null, common.material, common.implantSystem, common.implantPlatform,
-              common.abutmentType, common.retention, common.guideType, common.sleeveSystem, common.sentVia,
-              !!common.needsTryIn, common.patientPhone],
-          ),
-        );
+        // The case is already saved: describing the edit must never turn that into an error.
+        const labChanges: Change[] = safeEvents(() => {
+          const out: Change[] = diffChanges(
+            { labName: existing.labName, agreedPrice: existing.agreedPrice || null, dueDate: existing.dueDate },
+            { labName: common.labName, agreedPrice: common.agreedPrice || null, dueDate: common.dueDate },
+            ["labName", "agreedPrice", "dueDate"],
+          );
+          // The patient and the dentist by name, never by id.
+          const personChange = (field: string, oldId?: string, oldName?: string, newId?: string, newName?: string) => {
+            const from = (oldName || "").trim() || null;
+            const to = (newName || "").trim() || null;
+            if ((oldId || "") !== (newId || "") || from !== to) out.push({ field, from, to });
+          };
+          personChange("patient", existing.patientId, existing.patientName, common.patientId, common.patientName);
+          personChange("doctor", existing.doctorId, existing.doctorName, common.doctorId, common.doctorName);
+          // The order itself, by label alone. A field an old case never stored reads as what the form
+          // showed for it, so re-saving an untouched case reports nothing.
+          const oldSentVia = existing.sentVia || (workTypeFor(existing.workType || "zirconia").digitalByDefault ? "digital" : "driver");
+          out.push(
+            ...labelOnlyChange("workType", existing.workType, common.workType),
+            ...labelOnlyChange("teeth", existing.teeth, common.teeth),
+            ...labelOnlyChange(
+              "shade",
+              [existing.bodyShade, existing.cervicalShade, existing.gumShade],
+              [common.bodyShade, common.cervicalShade, common.gumShade],
+            ),
+            ...labelOnlyChange("notes", existing.notes, common.notes),
+            ...labelOnlyChange(
+              "details",
+              [existing.workDescription, existing.units || null, existing.material, existing.implantSystem, existing.implantPlatform,
+                existing.abutmentType, existing.retention, existing.guideType, existing.sleeveSystem, oldSentVia,
+                !!existing.needsTryIn, existing.patientPhone],
+              [common.workDescription, common.units || null, common.material, common.implantSystem, common.implantPlatform,
+                common.abutmentType, common.retention, common.guideType, common.sleeveSystem, common.sentVia,
+                !!common.needsTryIn, common.patientPhone],
+            ),
+          );
+          return out;
+        });
         if (labChanges.length) {
           void logEvent(
             { uid: user?.uid, name: user?.name, role: user?.role },

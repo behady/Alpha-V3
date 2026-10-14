@@ -44,6 +44,7 @@ import ServiceCombobox from "@/components/shared/ServiceCombobox";
 import ServiceEditorDrawer from "@/components/clinical-notes/ServiceEditorDrawer";
 import { logActivity } from "@/lib/logger";
 import { appointmentEvents } from "@/lib/activity/appointmentDiff";
+import { safeEvents } from "@/lib/activity/safe";
 import { logAppointmentEvents, logAppointmentStatus } from "@/lib/activity/appointmentLog";
 import { MoneyApiError, deleteAppointment } from "@/lib/moneyApi";
 import { isDentistStaff } from "@/lib/staffRoles";
@@ -522,11 +523,13 @@ export default function DesktopDashboard() {
       await updateDoc(getClinicDoc("appointments", selectedAppointment.id), updatePayload);
       void logAppointmentEvents(
         { uid: user?.uid, name: user?.name, role: user?.role },
-        appointmentEvents(selectedAppointment as unknown as Record<string, unknown>, updatePayload, {
-          patientId: selectedAppointment.patientId || undefined,
-          patientName: inlineEdit.patientName || selectedAppointment.patientName || undefined,
-          appointmentId: selectedAppointment.id,
-        }),
+        safeEvents(() =>
+          appointmentEvents(selectedAppointment as unknown as Record<string, unknown>, updatePayload, {
+            patientId: selectedAppointment.patientId || undefined,
+            patientName: inlineEdit.patientName || selectedAppointment.patientName || undefined,
+            appointmentId: selectedAppointment.id,
+          }),
+        ),
       );
       void syncClaimLineFromAppointment(currentClinicId(), { ...selectedAppointment, status: inlineEdit.status });
       showToast(language === 'ar' ? 'تم الحفظ' : 'Saved!', 'success');

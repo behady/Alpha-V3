@@ -56,6 +56,7 @@ import { PRIVATE_PAYER_ID } from "@/lib/payers";
 import { LOCATIONS_DOC, parseClinicBranches } from "@/lib/clinicLocations";
 import { logEventServer } from "@/lib/server/systemLog";
 import { diffChanges, discountEvent } from "@/lib/activity/diff";
+import { safeLog } from "@/lib/activity/safe";
 import type { ActivityEvent, Change, EventKey } from "@/lib/activity/types";
 import { assertBranchAllowed, assertRowBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
 import {
@@ -629,7 +630,9 @@ async function insurerCollect(args: { clinicId: string; actor: Actor; body: Reco
   // spans branches belongs to no single one.
   const collectedBranches = new Set(result.written.map((w) => (typeof w.row.branchId === "string" ? w.row.branchId : "")));
   const collectedBranch = collectedBranches.size === 1 ? [...collectedBranches][0] || null : null;
-  void logEventServer({
+  // Awaited: a serverless function may be frozen the moment it answers, dropping an unawaited write.
+  // logEventServer never throws, so this cannot fail the collection.
+  await logEventServer({
     clinicId,
     user: actor,
     event: {
@@ -714,6 +717,24 @@ function figureOf(value: unknown): number | null {
   if (value === undefined || value === null || value === "") return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * The figure a deleted row is logged with. Expense and treatment rows store `paid: 0` as a
+ * placeholder, so `paid ?? amount` would log them as free: pick the field per row type, the way
+ * `ledgerCashValue` does, falling through a zero to the next candidate.
+ */
+function deletedFigureOf(type: string, row: Record<string, unknown>): number | null {
+  const candidates =
+    type === "expense" || type === "procedure" ? [row.cost, row.amount] : [row.paid, row.amount];
+  let fallback: number | null = null;
+  for (const candidate of candidates) {
+    const n = figureOf(candidate);
+    if (n === null) continue;
+    if (n !== 0) return n;
+    fallback = 0;
+  }
+  return fallback;
 }
 
 const EDITED_EVENT: Record<string, EventKey> = {
@@ -1188,7 +1209,8 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
     clinicId, action: "update" as const, collection: "ledger" as const, documentId: id,
     before: result.before, after: result.update, actor, via: "finance/ledger:update",
   };
-  const event = updateEvent(result.before, result.update, result.type, body.groupId);
+  // The row is already saved: describing the edit must never turn that into an error.
+  const event = safeLog(() => updateEvent(result.before, result.update, result.type, body.groupId), null);
   if (event) await recordMoneyChange({ entry, event });
   // Nothing a person would call an edit (a re-sent, identical figure): the before/after record stays.
   else await recordLedgerAudit(entry);
@@ -1467,7 +1489,7 @@ async function deleteRow(args: { clinicId: string; actor: Actor; body: Record<st
       event: DELETED_EVENT[type] ?? "expense.deleted",
       patientId: textOf(target.patientId) ?? null,
       patientName: textOf(target.patientName) ?? null,
-      amount: figureOf(target.paid ?? target.amount),
+      amount: deletedFigureOf(type, target),
       branchId: textOf(target.branchId) ?? null,
       refs: {
         method: textOf(target.method),

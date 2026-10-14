@@ -15,6 +15,7 @@ import {
 } from "firebase/firestore";
 import { logEvent } from "@/lib/logger";
 import { appointmentEvents, appointmentMoveEvent } from "@/lib/activity/appointmentDiff";
+import { safeEvents, safeLog } from "@/lib/activity/safe";
 import { logAppointmentEvents } from "@/lib/activity/appointmentLog";
 import type { AuditUser } from "@/lib/activity/types";
 import { sendPatientAppointmentWhatsApp } from "@/lib/sendPatientAppointmentWhatsAppClient";
@@ -349,11 +350,13 @@ export async function saveBooking(
     // What this save changed, if anything: a notes-only autosave writes nothing.
     await logAppointmentEvents(
       { uid: userCtx.uid, name: userCtx.name, role: userCtx.role },
-      appointmentEvents(prev as Record<string, unknown>, updatePayload, {
-        patientId: data.patientId ? String(data.patientId) : undefined,
-        patientName: data.patientName,
-        appointmentId: aid,
-      }),
+      safeEvents(() =>
+        appointmentEvents(prev as Record<string, unknown>, updatePayload, {
+          patientId: data.patientId ? String(data.patientId) : undefined,
+          patientName: data.patientName,
+          appointmentId: aid,
+        }),
+      ),
     );
 
     void fireOwnerWhatsAppAlert(
@@ -556,7 +559,7 @@ export async function updateBookingTime(id: string, newDate: string, newTime: st
     });
   }
   if (moved) {
-    const event = appointmentMoveEvent(prev, id, newDate, newTime);
+    const event = safeLog(() => appointmentMoveEvent(prev, id, newDate, newTime), null);
     if (event) await logEvent(user, event);
   }
 }

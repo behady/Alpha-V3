@@ -11,6 +11,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { useAuth } from "@/context/AuthContext";
 import { logEvent } from "@/lib/logger";
+import { safeLog } from "@/lib/activity/safe";
 import { diffChanges, labelOnlyChange } from "@/lib/activity/diff";
 import { matchesTokenizedSubstring } from "@/lib/flexibleSearch";
 import { DEFAULT_PRICING_MODE, isPricingMode, type PricingMode } from "@/components/clinical-notes/utils";
@@ -215,24 +216,27 @@ export default function PricingSettings({
       const auditUser = { uid: user?.uid, name: user?.name, role: user?.role };
       if (editingService) {
         await updateDoc(getClinicDoc("services", editingService.id), payload);
-        // The name is reported as `service`; a lab fee or duration left empty reads as "none".
-        // Category and icon are ids, so they are said by label alone.
-        const before = serviceForLog(editingService);
-        const after = serviceForLog({ ...payload, durationMinutes: payload.durationMinutes ?? undefined });
-        const changes = [
-          ...diffChanges(before, after, ["service", "nameAr", "price", "labFee", "duration", "requiresLab", "pricingMode", "listPrices"]),
-          ...labelOnlyChange("category", before.category, after.category),
-          ...labelOnlyChange("icon", before.icon, after.icon),
-        ];
-        if (changes.length) {
-          // A price-only edit still names the treatment it was made to.
-          const renamed = changes.some((c) => c.field === "service");
-          void logEvent(auditUser, {
-            event: "settings.services",
-            changes,
-            refs: renamed ? undefined : { procedure: payload.name },
-          });
-        }
+        // Saved. Describing it for the activity log must never turn that into a "failed to save".
+        safeLog(() => {
+          // The name is reported as `service`; a lab fee or duration left empty reads as "none".
+          // Category and icon are ids, so they are said by label alone.
+          const before = serviceForLog(editingService);
+          const after = serviceForLog({ ...payload, durationMinutes: payload.durationMinutes ?? undefined });
+          const changes = [
+            ...diffChanges(before, after, ["service", "nameAr", "price", "labFee", "duration", "requiresLab", "pricingMode", "listPrices"]),
+            ...labelOnlyChange("category", before.category, after.category),
+            ...labelOnlyChange("icon", before.icon, after.icon),
+          ];
+          if (changes.length) {
+            // A price-only edit still names the treatment it was made to.
+            const renamed = changes.some((c) => c.field === "service");
+            void logEvent(auditUser, {
+              event: "settings.services",
+              changes,
+              refs: renamed ? undefined : { procedure: payload.name },
+            });
+          }
+        }, undefined);
         showToast(ar ? "تم تحديث العلاج" : "Treatment updated", "success");
       } else {
         await addDoc(getClinicCollection("services"), { ...payload, createdAt: new Date().toISOString() });

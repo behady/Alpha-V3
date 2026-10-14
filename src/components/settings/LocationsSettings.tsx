@@ -19,6 +19,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useClinic } from "@/context/ClinicContext";
 import { useAuth } from "@/context/AuthContext";
 import { logEvent } from "@/lib/logger";
+import { safeLog } from "@/lib/activity/safe";
 import { branchListChanges, namedItemChanges } from "@/lib/activity/diff";
 import { isUnlocked } from "@/lib/featureCatalog";
 import { useSettingsText } from "@/lib/useSettingsText";
@@ -106,28 +107,31 @@ export default function LocationsSettings() {
         { branches: toSave, updatedAt: new Date().toISOString() },
         { merge: true }
       );
-      // Branches by name (added, removed, renamed), then for each branch that stayed its details
-      // (the receipt prefix decides how its receipts are numbered) and its rooms by name.
-      const before = stored ?? [];
-      const changes = branchListChanges(before, toSave, "branch");
-      const details = namedItemChanges(before, toSave, [
-        "address", "phone", "code", "receiptPrefix", "etaBranchCode", "taxRegistration",
-      ]);
-      changes.push(...details.changes);
-      const touched = new Set(details.names);
-      for (const b of toSave) {
-        const old = before.find((p) => p.id === b.id);
-        if (!old) continue;
-        const rooms = branchListChanges(old.rooms ?? [], b.rooms ?? [], "room");
-        if (rooms.length && b.name.trim()) touched.add(b.name.trim());
-        changes.push(...rooms);
-      }
-      if (changes.length) {
-        void logEvent(
-          { uid: user?.uid, name: user?.name, role: user?.role },
-          { event: "settings.branches", changes, refs: touched.size ? { branchName: Array.from(touched).join(", ") } : undefined },
-        );
-      }
+      // Saved. Describing it for the activity log must never turn that into a "could not save".
+      safeLog(() => {
+        // Branches by name (added, removed, renamed), then for each branch that stayed its details
+        // (the receipt prefix decides how its receipts are numbered) and its rooms by name.
+        const before = stored ?? [];
+        const changes = branchListChanges(before, toSave, "branch");
+        const details = namedItemChanges(before, toSave, [
+          "address", "phone", "code", "receiptPrefix", "etaBranchCode", "taxRegistration",
+        ]);
+        changes.push(...details.changes);
+        const touched = new Set(details.names);
+        for (const b of toSave) {
+          const old = before.find((p) => p.id === b.id);
+          if (!old) continue;
+          const rooms = branchListChanges(old.rooms ?? [], b.rooms ?? [], "room");
+          if (rooms.length && b.name.trim()) touched.add(b.name.trim());
+          changes.push(...rooms);
+        }
+        if (changes.length) {
+          void logEvent(
+            { uid: user?.uid, name: user?.name, role: user?.role },
+            { event: "settings.branches", changes, refs: touched.size ? { branchName: Array.from(touched).join(", ") } : undefined },
+          );
+        }
+      }, undefined);
       setBranches(toSave);
       setStored(toSave);
       markSaved();

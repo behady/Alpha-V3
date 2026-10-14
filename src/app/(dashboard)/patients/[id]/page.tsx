@@ -28,6 +28,7 @@ import { useClinic } from "@/context/ClinicContext";
 import { useChairMode } from "@/lib/useChairMode";
 import { logEvent } from "@/lib/logger";
 import { diffChanges, labelOnlyChange } from "@/lib/activity/diff";
+import { safeLog } from "@/lib/activity/safe";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import { PRIVATE_PAYER_ID } from "@/lib/payers";
 import { readInsurance, writeInsurance, type PatientInsuranceEntry } from "@/lib/patientInsurance";
@@ -712,32 +713,35 @@ export default function PatientProfile() {
         status: editStatus,
         insurance: writeInsurance(editInsurance),
       });
-      // The stored record calls the birthday `dateOfBirth`; the log reports it as `dob`.
-      const patientChanges = diffChanges(
-        {
-          name: patient?.name, phone: patient?.phone, address: patient?.address, dob: patient?.dateOfBirth,
-          gender: patient?.gender, status: patient?.status, referral: patient?.referral,
-        },
-        {
-          name: combinedName, phone: normalizedPhone, address: editAddress, dob: editDob,
-          gender: editGender, status: editStatus, referral: editReferral,
-        },
-        ["name", "phone", "address", "dob", "gender", "status", "referral"],
-      );
-      // Medical text, insurance numbers and the x-ray code are said by label alone: what the
-      // patient is allergic to does not belong in an activity log every admin can read.
-      patientChanges.push(
-        ...labelOnlyChange("allergies", patient?.allergies, editAllergies),
-        ...labelOnlyChange("medicalHistory", patient?.medicalHistory, finalHistory),
-        ...labelOnlyChange("insurance", writeInsurance(readInsurance((patient ?? {}) as Record<string, unknown>)), writeInsurance(editInsurance)),
-        ...labelOnlyChange("xrayCode", patient?.xrayCode, editXrayCode.trim().slice(0, 80)),
-      );
-      if (patientChanges.length) {
-        void logEvent(
-          { uid: user?.uid, name: user?.name, role: user?.role },
-          { event: "patient.edited", patientId: id, patientName: combinedName, changes: patientChanges },
+      // Saved. Describing it for the activity log must never turn that into a "failed to update".
+      safeLog(() => {
+        // The stored record calls the birthday `dateOfBirth`; the log reports it as `dob`.
+        const patientChanges = diffChanges(
+          {
+            name: patient?.name, phone: patient?.phone, address: patient?.address, dob: patient?.dateOfBirth,
+            gender: patient?.gender, status: patient?.status, referral: patient?.referral,
+          },
+          {
+            name: combinedName, phone: normalizedPhone, address: editAddress, dob: editDob,
+            gender: editGender, status: editStatus, referral: editReferral,
+          },
+          ["name", "phone", "address", "dob", "gender", "status", "referral"],
         );
-      }
+        // Medical text, insurance numbers and the x-ray code are said by label alone: what the
+        // patient is allergic to does not belong in an activity log every admin can read.
+        patientChanges.push(
+          ...labelOnlyChange("allergies", patient?.allergies, editAllergies),
+          ...labelOnlyChange("medicalHistory", patient?.medicalHistory, finalHistory),
+          ...labelOnlyChange("insurance", writeInsurance(readInsurance((patient ?? {}) as Record<string, unknown>)), writeInsurance(editInsurance)),
+          ...labelOnlyChange("xrayCode", patient?.xrayCode, editXrayCode.trim().slice(0, 80)),
+        );
+        if (patientChanges.length) {
+          void logEvent(
+            { uid: user?.uid, name: user?.name, role: user?.role },
+            { event: "patient.edited", patientId: id, patientName: combinedName, changes: patientChanges },
+          );
+        }
+      }, undefined);
       setIsEditModalOpen(false);
       showToast(t('updateSuccess') || "Profile Updated", "success");
     } catch (error) {

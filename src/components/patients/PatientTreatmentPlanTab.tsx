@@ -19,6 +19,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { logActivity, logEvent } from "@/lib/logger";
 import { diffChanges } from "@/lib/activity/diff";
+import { safeLog } from "@/lib/activity/safe";
 import type { Change } from "@/lib/activity/types";
 import ServiceCombobox, { type ComboboxService } from "@/components/shared/ServiceCombobox";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
@@ -890,18 +891,21 @@ export default function PatientTreatmentPlanTab({
       if (editingPlanId) {
         const prevPlan = plans.find((p) => p.id === editingPlanId);
         await updateDoc(getClinicDoc("treatment_plans", editingPlanId), payload as any);
-        const planChanges: Change[] = diffChanges(
-          { title: prevPlan?.title, description: prevPlan?.description, total: prevPlan?.total },
-          { title: payload.title, description: payload.description, total: payload.total },
-          ["title", "description", "total"],
-        );
-        if (planStepsKey(prevPlan) !== planStepsKey({ visits })) planChanges.push({ field: "steps", from: null, to: null });
-        if (planChanges.length) {
-          void logEvent(
-            { uid: user?.uid, name: user?.name, role: user?.role },
-            { event: "plan.edited", patientId, patientName: patient?.name || null, changes: planChanges, refs: { procedure: title } },
+        // Saved. Describing it for the activity log must never turn that into a "failed to save".
+        safeLog(() => {
+          const planChanges: Change[] = diffChanges(
+            { title: prevPlan?.title, description: prevPlan?.description, total: prevPlan?.total },
+            { title: payload.title, description: payload.description, total: payload.total },
+            ["title", "description", "total"],
           );
-        }
+          if (planStepsKey(prevPlan) !== planStepsKey({ visits })) planChanges.push({ field: "steps", from: null, to: null });
+          if (planChanges.length) {
+            void logEvent(
+              { uid: user?.uid, name: user?.name, role: user?.role },
+              { event: "plan.edited", patientId, patientName: patient?.name || null, changes: planChanges, refs: { procedure: title } },
+            );
+          }
+        }, undefined);
       } else {
         await addDoc(getClinicCollection("treatment_plans"), {
           ...payload,

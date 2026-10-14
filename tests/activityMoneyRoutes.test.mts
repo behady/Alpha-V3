@@ -297,6 +297,16 @@ check("the expense is accepted", exp.status === 200, exp);
   check("one expense.added with its description and amount", logs.length === 1 && log.refs?.procedure === "Gloves" && log.amount === 250 && log.branchId === "hel", log);
 }
 
+console.log("\n8b. the expense deleted (its row stores paid: 0)");
+{
+  const expGone = await ledgerPost({ action: "delete", id: String(exp.json.id) });
+  check("the delete is accepted", expGone.status === 200 && expGone.json.ok === true, expGone);
+  const logs = await logsFor("expense.deleted");
+  const log = logs[0] ?? {};
+  check("one expense.deleted", logs.length === 1, logs.length);
+  check("logged with the real amount (250), not the placeholder zero", log.amount === 250, log.amount);
+}
+
 console.log("\n9. the treatment deleted");
 const del = await procPost({ action: "delete", noteId });
 check("the delete is accepted", del.status === 200 && del.json.ok === true, del);
@@ -305,6 +315,21 @@ check("the delete is accepted", del.status === 200 && del.json.ok === true, del)
   const log = logs[0] ?? {};
   check("one procedure.deleted", logs.length === 1, logs.length);
   check("amount, patient, branch and linked-row count", log.amount === 1400 && log.patientName === PATIENT && log.branchId === "hel" && log.refs?.count === 1, log);
+}
+
+console.log("\n9b. an unpaid charge deleted from the finance screen (its row stores paid: 0)");
+{
+  const charge = await procPost({
+    action: "create", patientId: "P1", procedures: ["Filling"], selectedTeeth: [], tooth: "Gen", unitCost: 600,
+    pricingMode: "per_tooth", doctorId: "D1", status: "Completed", date: "2026-10-13", branchId: "hel",
+  });
+  check("the charge is accepted", charge.status === 200 && charge.json.ok === true, charge);
+  const chargeGone = await ledgerPost({ action: "delete", id: String(charge.json.ledgerId) });
+  check("the ledger delete is accepted", chargeGone.status === 200 && chargeGone.json.ok === true, chargeGone);
+  const logs = await logsFor("procedure.deleted");
+  const log = logs[0] ?? {};
+  check("one more procedure.deleted", logs.length === 2, logs.length);
+  check("logged with the charged price (600), not the placeholder zero", log.amount === 600, log.amount);
 }
 
 console.log("\nno line anywhere carries undefined or a raw id in its details");

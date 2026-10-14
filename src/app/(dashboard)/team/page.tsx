@@ -37,6 +37,7 @@ import { useUI } from "@/context/UIContext";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { logActivity, logEvent } from "@/lib/logger";
 import { diffChanges } from "@/lib/activity/diff";
+import { safeLog } from "@/lib/activity/safe";
 import type { Change } from "@/lib/activity/types";
 import { deleteRecord, RecycleBinError } from "@/lib/recycleBinApi";
 import { createStaffSettlement, deleteStaffSettlement, MoneyApiError, setPaymentCommission, updateStaffSettlement, type StaffSettlementDraft } from "@/lib/moneyApi";
@@ -450,24 +451,27 @@ function TeamPage() {
       try {
         // All ticked = the field goes away (absent means every branch); never undefined.
         await updateDoc(getClinicDoc("staff", selectedDoc.id), { branchIds: ids ?? deleteField() });
-        // Shown by name, never by id: "all branches" (no list) is every branch's name.
-        const namesOf = (list: unknown): string | null => {
-          const wanted = Array.isArray(list) ? new Set(list.map(String)) : null;
-          const names = branches.filter((b) => !wanted || wanted.has(b.id)).map((b) => b.name).filter(Boolean);
-          return names.length ? names.join(", ") : null;
-        };
-        const fromNames = namesOf(selectedDoc.branchIds);
-        const toNames = namesOf(ids);
-        if (fromNames !== toNames) {
-          void logEvent(
-            { uid: user?.uid, name: user?.name, role: user?.role },
-            {
-              event: "staff.edited",
-              changes: [{ field: "branch", from: fromNames, to: toNames }],
-              refs: { staffId: selectedDoc.id, staffName: String(selectedDoc.name ?? "") || undefined },
-            },
-          );
-        }
+        // Saved. Describing it for the activity log must never turn that into a "could not save".
+        safeLog(() => {
+          // Shown by name, never by id: "all branches" (no list) is every branch's name.
+          const namesOf = (list: unknown): string | null => {
+            const wanted = Array.isArray(list) ? new Set(list.map(String)) : null;
+            const names = branches.filter((b) => !wanted || wanted.has(b.id)).map((b) => b.name).filter(Boolean);
+            return names.length ? names.join(", ") : null;
+          };
+          const fromNames = namesOf(selectedDoc.branchIds);
+          const toNames = namesOf(ids);
+          if (fromNames !== toNames) {
+            void logEvent(
+              { uid: user?.uid, name: user?.name, role: user?.role },
+              {
+                event: "staff.edited",
+                changes: [{ field: "branch", from: fromNames, to: toNames }],
+                refs: { staffId: selectedDoc.id, staffName: String(selectedDoc.name ?? "") || undefined },
+              },
+            );
+          }
+        }, undefined);
         showToast(bt.branchesSaved, "success");
       } catch {
         showToast(bt.branchesFailed, "error");
@@ -504,24 +508,27 @@ function TeamPage() {
           // Firestore refuses `undefined` outright, so an empty box is stored as an empty string.
           speciality: draft.speciality.trim(),
         });
-        const payChanges: Change[] = diffChanges(
-          selectedDoc,
-          { ...draft, speciality: draft.speciality.trim() },
-          ["baseSalary", "commissionPercentage", "overtimeMultiplier", "speciality"],
-        );
-        if (stableKey(selectedDoc.attendanceSchedule) !== stableKey(draft.schedule)) {
-          payChanges.push({ field: "schedule", from: null, to: null });
-        }
-        if (payChanges.length) {
-          void logEvent(
-            { uid: user?.uid, name: user?.name, role: user?.role },
-            {
-              event: "staff.edited",
-              changes: payChanges,
-              refs: { staffId: selectedDoc.id, staffName: String(selectedDoc.name ?? "") || undefined },
-            },
+        // Saved. Describing it for the activity log must never turn that into a "could not save".
+        safeLog(() => {
+          const payChanges: Change[] = diffChanges(
+            selectedDoc,
+            { ...draft, speciality: draft.speciality.trim() },
+            ["baseSalary", "commissionPercentage", "overtimeMultiplier", "speciality"],
           );
-        }
+          if (stableKey(selectedDoc.attendanceSchedule) !== stableKey(draft.schedule)) {
+            payChanges.push({ field: "schedule", from: null, to: null });
+          }
+          if (payChanges.length) {
+            void logEvent(
+              { uid: user?.uid, name: user?.name, role: user?.role },
+              {
+                event: "staff.edited",
+                changes: payChanges,
+                refs: { staffId: selectedDoc.id, staffName: String(selectedDoc.name ?? "") || undefined },
+              },
+            );
+          }
+        }, undefined);
         showToast(isAr ? "اتحفظ" : "Saved", "success");
       } catch (err) {
         // The code names which of the three it was: a rules refusal (wrong role, or a suspended

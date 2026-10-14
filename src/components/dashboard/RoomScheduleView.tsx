@@ -17,6 +17,7 @@ import { getClinicDoc } from "@/lib/db-utils";
 import { parseApptTimeToMinutes, updateBookingTime } from "@/lib/bookingService";
 import { useAuth } from "@/context/AuthContext";
 import { appointmentEvents } from "@/lib/activity/appointmentDiff";
+import { safeEvents } from "@/lib/activity/safe";
 import { logAppointmentEvents } from "@/lib/activity/appointmentLog";
 import { dayBoundsCovering, visitStartInDay, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import { getAppointmentStageLabel, getAppointmentStatusStyles } from "@/lib/appointmentStages";
@@ -231,10 +232,12 @@ export default function RoomScheduleView({
                           // Branch names, not ids, for the log: resolved from the branch list on screen.
                           logAppointmentEvents(
                             auditUser,
-                            appointmentEvents(
-                              { ...apt, branchName: branchNameOf(apt.branchId) ?? apt.branchName },
-                              { roomName: col.roomName, branchId, branchName: branchNameOf(branchId) },
-                              { patientId: apt.patientId || undefined, patientName: apt.patientName || undefined, appointmentId: id },
+                            safeEvents(() =>
+                              appointmentEvents(
+                                { ...apt, branchName: branchNameOf(apt.branchId) ?? apt.branchName },
+                                { roomName: col.roomName, branchId, branchName: branchNameOf(branchId) },
+                                { patientId: apt.patientId || undefined, patientName: apt.patientName || undefined, appointmentId: id },
+                              ),
                             ),
                           ),
                         )
