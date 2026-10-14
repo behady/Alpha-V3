@@ -909,7 +909,8 @@ async function updateProcedure(args: { clinicId: string; actor: Actor; body: Rec
   // Only what really changed, with the price and discount under the names the catalogue reads.
   // A note from before discounts existed has no discountAmount: that is no discount, not a blank
   // one, so a first edit of it does not read as "discount — → 0".
-  const RENAMED: Record<string, string> = { cost: "price", discountAmount: "discount", payerName: "payer" };
+  // The dentist is money too: changing it re-stamps both dentists' payouts.
+  const RENAMED: Record<string, string> = { cost: "price", discountAmount: "discount", payerName: "payer", note: "notes" };
   const changes = diffChanges(
     { ...result.before, discountAmount: Number(result.before.discountAmount) || 0 },
     {
@@ -920,8 +921,12 @@ async function updateProcedure(args: { clinicId: string; actor: Actor; body: Rec
       status: priced.status,
       payerName: priced.payer.payerName,
       date: priced.date,
+      doctor: priced.doctorName,
+      tooth: priced.toothText,
+      // What noteFields writes: the posted note, blank when none was sent.
+      note: String(body.note || ""),
     },
-    ["procedure", "cost", "listPrice", "discountAmount", "status", "payerName", "date"],
+    ["procedure", "cost", "listPrice", "discountAmount", "status", "payerName", "date", "doctor", "tooth", "note"],
   ).map((c) => ({ ...c, field: RENAMED[c.field] ?? c.field }));
 
   const after = { cost: priced.pricing.cost, procedure: priced.displayProcedure, status: priced.status };

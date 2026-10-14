@@ -59,6 +59,7 @@ const FIELD_LABELS: Record<string, [string, string]> = {
   duration: ["المدة", "Duration"],
   tooth: ["السن", "Tooth"],
   quantity: ["الكمية", "Quantity"],
+  reason: ["السبب", "Reason"],
 };
 
 export function fieldLabel(field: string, lang: Lang): string {

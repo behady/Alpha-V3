@@ -730,7 +730,7 @@ const DELETED_EVENT: Record<string, EventKey> = {
   procedure: "procedure.deleted",
 };
 /** The fields an edit is described by, and the names the catalogue labels them with. */
-const EDIT_DIFF_FIELDS = ["paid", "amount", "method", "date", "description", "listPrice", "category", "note"] as const;
+const EDIT_DIFF_FIELDS = ["paid", "amount", "method", "date", "description", "listPrice", "category", "note", "discountReason"] as const;
 
 /**
  * The activity line for an edit to a ledger row, or null when nothing a person would call an edit
@@ -774,7 +774,8 @@ function updateEvent(
 
   const event = EDITED_EVENT[type];
   if (!event) return null;
-  const RENAMED: Record<string, string> = { note: "notes", ...(type === "procedure" ? { amount: "price" } : {}) };
+  // A reworded discount reason on a standing discount is an edit someone should be able to see.
+  const RENAMED: Record<string, string> = { note: "notes", discountReason: "reason", ...(type === "procedure" ? { amount: "price" } : {}) };
   const changes: Change[] = diffChanges(before, update, EDIT_DIFF_FIELDS.filter((f) => f in update))
     .map((c) => ({ ...c, field: RENAMED[c.field] ?? c.field }));
   // A payment moved to another treatment: named by label alone, since its values are raw ids.

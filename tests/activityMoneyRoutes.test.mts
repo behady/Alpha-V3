@@ -113,6 +113,7 @@ await db.collection("users").doc(OWNER).set({ name: "Owner Tester", clinicRoles:
 await col("settings").doc("locations").set({ branches: [{ id: "hel", name: "Heliopolis", rooms: [], receiptPrefix: "HEL" }] });
 await col("settings").doc("discounts").set({ reasons: ["قريب", "x"] });
 await col("staff").doc("D1").set({ name: "Dr One", role: "Dentist", commissionPercentage: 50 });
+await col("staff").doc("D2").set({ name: "Dr Two", role: "Dentist", commissionPercentage: 40 });
 await col("patients").doc("P1").set({ name: PATIENT });
 
 console.log("\n1. a treatment charged under the list price");
@@ -259,6 +260,32 @@ check("the edit is accepted", edited.status === 200 && edited.json.ok === true, 
   });
   check("an unchanged re-save is accepted", again.status === 200, again);
   check("and writes no activity line", (await col("system_logs").get()).size === before);
+}
+
+console.log("\n7b. only the dentist changed (both dentists' payouts move)");
+{
+  const dentist = await procPost({
+    action: "update", noteId, patientId: "P1", procedures: ["Crown"], selectedTeeth: [], tooth: "Gen", unitCost: 1500,
+    pricingMode: "per_tooth", doctorId: "D2", status: "Completed", date: "2026-10-13", discountMode: "fixed", discountValue: 100, discountReason: "قريب",
+  });
+  check("the dentist change is accepted", dentist.status === 200 && dentist.json.ok === true, dentist);
+  const logs = await logsFor("procedure.edited");
+  check("one more procedure.edited", logs.length === 2, logs.length);
+  check("its only change is the doctor", JSON.stringify(logs[0]?.changes) === JSON.stringify([{ field: "doctor", from: "Dr One", to: "Dr Two" }]), logs[0]?.changes);
+  check("the sentence names the field", typeof logs[0]?.details === "string" && logs[0].details.includes("Doctor Dr One → Dr Two"), logs[0]?.details);
+}
+
+console.log("\n7c. only the reason reworded on a standing discount");
+{
+  const discountLines = async () =>
+    (await logsFor("discount.given")).length + (await logsFor("discount.changed")).length + (await logsFor("discount.removed")).length;
+  const discountBefore = await discountLines();
+  const reworded = await ledgerPost({ action: "update", id: chargeId, patch: { discountReason: "x" } });
+  check("the reword is accepted", reworded.status === 200 && reworded.json.ok === true, reworded);
+  const logs = await logsFor("procedure.edited");
+  check("one more procedure.edited", logs.length === 3, logs.length);
+  check("its only change is the reason", JSON.stringify(logs[0]?.changes) === JSON.stringify([{ field: "reason", from: "قريب", to: "x" }]), logs[0]?.changes);
+  check("no discount.* event for it", (await discountLines()) === discountBefore);
 }
 
 console.log("\n8. an expense");
