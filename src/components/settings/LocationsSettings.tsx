@@ -17,6 +17,9 @@ import {
 import { useUI } from "@/context/UIContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useClinic } from "@/context/ClinicContext";
+import { useAuth } from "@/context/AuthContext";
+import { logEvent } from "@/lib/logger";
+import { branchListChanges } from "@/lib/activity/diff";
 import { isUnlocked } from "@/lib/featureCatalog";
 import { useSettingsText } from "@/lib/useSettingsText";
 import { countedNoun } from "@/lib/arabicCount";
@@ -51,6 +54,7 @@ export default function LocationsSettings() {
   const { showToast, confirm } = useUI();
   const { language, isRTL } = useLanguage();
   const { clinic } = useClinic();
+  const { user } = useAuth();
   const isAr = language === "ar";
   const txt = useSettingsText("locations");
   // One branch is always included; the second is the add-on. Branches already saved stay —
@@ -102,6 +106,16 @@ export default function LocationsSettings() {
         { branches: toSave, updatedAt: new Date().toISOString() },
         { merge: true }
       );
+      // Branches by name (added, removed, renamed), then the rooms of each branch that stayed.
+      const before = stored ?? [];
+      const changes = branchListChanges(before, toSave, "branch");
+      for (const b of toSave) {
+        const old = before.find((p) => p.id === b.id);
+        if (old) changes.push(...branchListChanges(old.rooms ?? [], b.rooms ?? [], "room"));
+      }
+      if (changes.length) {
+        void logEvent({ uid: user?.uid, name: user?.name, role: user?.role }, { event: "settings.branches", changes });
+      }
       setBranches(toSave);
       setStored(toSave);
       markSaved();

@@ -19,6 +19,9 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { useUI } from "@/context/UIContext";
+import { useAuth } from "@/context/AuthContext";
+import { logEvent } from "@/lib/logger";
+import { branchListChanges } from "@/lib/activity/diff";
 import { useLanguage } from "@/context/LanguageContext";
 import { useSettingsText } from "@/lib/useSettingsText";
 import { countedNoun } from "@/lib/arabicCount";
@@ -61,6 +64,7 @@ const INPUT =
 
 export default function DentalLabsSettings() {
   const { showToast, confirm } = useUI();
+  const { user } = useAuth();
   const { language, isRTL } = useLanguage();
   const isAr = language === "ar";
   const txt = useSettingsText("labs");
@@ -132,6 +136,11 @@ export default function DentalLabsSettings() {
         { labs: serializeDentalLabs(labs), paper, updatedAt: new Date().toISOString() },
         { merge: true }
       );
+      // Labs added, removed or renamed, matched by id and said by name.
+      const labChanges = branchListChanges(stored?.labs ?? [], labs, "lab");
+      if (labChanges.length) {
+        void logEvent({ uid: user?.uid, name: user?.name, role: user?.role }, { event: "settings.labs", changes: labChanges });
+      }
       setStored({ labs, paper });
       markSaved();
       showToast(txt.saved, "success");

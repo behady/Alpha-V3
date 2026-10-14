@@ -16,6 +16,9 @@ import {
   X,
 } from "lucide-react";
 import { useUI } from "@/context/UIContext";
+import { useAuth } from "@/context/AuthContext";
+import { logEvent } from "@/lib/logger";
+import type { Change } from "@/lib/activity/types";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useDirtyFlag } from "@/context/UnsavedChangesContext";
@@ -125,6 +128,7 @@ type Draft = {
 export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
   const { language, isRTL } = useLanguage();
   const { showToast } = useUI();
+  const { user } = useAuth();
   const { clinicId } = useClinic();
   const isAr = language === "ar";
   const Forward = isRTL ? ArrowLeft : ArrowRight;
@@ -271,6 +275,10 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
         payersDocFrom(payers.filter((p) => p.id !== payer.id)),
         { merge: true },
       );
+      void logEvent(
+        { uid: user?.uid, name: user?.name, role: user?.role },
+        { event: "settings.insurers", changes: [{ field: "payer", from: payer.name || null, to: null }] },
+      );
 
       /**
        * Take the insurer's price list with it.
@@ -401,6 +409,10 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
       // different answers and the store has to keep them apart.
       const batch = writeBatch(db);
       let writes = 0;
+      // What the activity log says changed besides the name: prices (and the treatments typed in
+      // the table), and the dentists' rates for this insurer.
+      let priceWrites = 0;
+      let rateWrites = 0;
       for (const service of format ? [] : services) {
         const before = service.prices[listId];
         const after = draft.prices[service.id];
@@ -412,6 +424,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
         else delete nextPrices[listId];
         batch.update(getClinicDoc("services", service.id), { prices: nextPrices });
         writes++;
+        priceWrites++;
       }
       for (const row of format ? [] : newRows) {
         // Shaped like a service the Prices screen would create; category and icon are
@@ -434,6 +447,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
           createdAt: new Date().toISOString(),
         });
         writes++;
+        priceWrites++;
       }
       for (const [id, raw] of Object.entries(draft.renamed)) {
         const name = raw.trim();
@@ -441,6 +455,7 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
         if (!current || !name || name === current.name) continue;
         batch.update(getClinicDoc("services", id), { name });
         writes++;
+        priceWrites++;
       }
       for (const member of staff) {
         const before = member.commissionByPayer[payerId];
@@ -452,8 +467,24 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
           commissionByPayer: withCommissionRate(member.commissionByPayer, payerId, afterSet ? after : null),
         });
         writes++;
+        rateWrites++;
       }
       if (writes > 0) await batch.commit();
+
+      const insurerChanges: Change[] = [];
+      const oldName = (existing?.name || "").trim();
+      if (isNew || !existing) insurerChanges.push({ field: "payer", from: null, to: name });
+      else if (oldName !== name) insurerChanges.push({ field: "payer", from: oldName || null, to: name });
+      if (priceWrites > 0) insurerChanges.push({ field: "listPrices", from: null, to: null });
+      if (rateWrites > 0) insurerChanges.push({ field: "commission", from: null, to: null });
+      if (insurerChanges.length) {
+        // The insurer's name is said once: in the change when it is new or renamed, else beside the title.
+        const named = insurerChanges.some((c) => c.field === "payer");
+        void logEvent(
+          { uid: user?.uid, name: user?.name, role: user?.role },
+          { event: "settings.insurers", changes: insurerChanges, refs: named ? undefined : { payerName: name } },
+        );
+      }
 
       await load();
       setDraft(null);

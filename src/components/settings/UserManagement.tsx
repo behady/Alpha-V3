@@ -113,6 +113,9 @@ export default function UserManagement({ usersList, currentUser, openAddUser, cl
   };
 
   const handleDeleteUser = async (userId: string, uid: string | undefined, staffId: string | undefined) => {
+    // Named before the delete, while the row is still on the list: the log says who, never an id.
+    const removed = usersList.find((u) => u.id === userId);
+    const removedName = removed?.name || removed?.email || "a user";
     if (await confirm(txt.deleteMsg)) {
       try {
         const token = await auth.currentUser?.getIdToken();
@@ -133,7 +136,7 @@ export default function UserManagement({ usersList, currentUser, openAddUser, cl
         await logActivity(
           currentUser?.name || "Admin",
           "User Deleted",
-          `Removed user ID: ${userId} from clinic`,
+          `Removed user ${removedName} from clinic`,
           "system_logs",
           { severity: "CRITICAL", module: "users" }
         );

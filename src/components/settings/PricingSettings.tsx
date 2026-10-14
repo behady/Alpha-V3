@@ -9,6 +9,9 @@ import { Search, Plus, Edit2, Trash2, X, Save, Clock, FlaskConical, AlertTriangl
 import { updateDoc, addDoc } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
+import { useAuth } from "@/context/AuthContext";
+import { logEvent } from "@/lib/logger";
+import { diffChanges } from "@/lib/activity/diff";
 import { matchesTokenizedSubstring } from "@/lib/flexibleSearch";
 import { DEFAULT_PRICING_MODE, isPricingMode, type PricingMode } from "@/components/clinical-notes/utils";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
@@ -22,6 +25,21 @@ import {
   suggestCategory,
   suggestIcon,
 } from "@/lib/dentalIcons";
+
+/**
+ * The parts of a treatment the activity log reports on, in comparable form: an empty lab fee and
+ * a missing one are both "none", and the per-list prices are keyed in a fixed order.
+ */
+function serviceForLog(s: Pick<ServiceRow, "name" | "price" | "estimatedLabFee" | "durationMinutes" | "prices">) {
+  const prices = s.prices || {};
+  return {
+    service: s.name,
+    price: s.price,
+    labFee: s.estimatedLabFee || null,
+    duration: s.durationMinutes || null,
+    listPrices: Object.keys(prices).sort().map((k) => [k, prices[k]]),
+  };
+}
 
 export interface ServiceRow {
   id: string;
@@ -66,6 +84,7 @@ export default function PricingSettings({
   const { clinicId } = useClinic();
   const { language, isRTL } = useLanguage();
   const { showToast, confirm } = useUI();
+  const { user } = useAuth();
 
   const [serviceSearch, setServiceSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
@@ -184,11 +203,31 @@ export default function PricingSettings({
     };
 
     try {
+      const auditUser = { uid: user?.uid, name: user?.name, role: user?.role };
       if (editingService) {
         await updateDoc(getClinicDoc("services", editingService.id), payload);
+        // The name is reported as `service`; a lab fee or duration left empty reads as "none".
+        const changes = diffChanges(
+          serviceForLog(editingService),
+          serviceForLog({ ...payload, durationMinutes: payload.durationMinutes ?? undefined }),
+          ["service", "price", "labFee", "duration", "listPrices"],
+        );
+        if (changes.length) {
+          // A price-only edit still names the treatment it was made to.
+          const renamed = changes.some((c) => c.field === "service");
+          void logEvent(auditUser, {
+            event: "settings.services",
+            changes,
+            refs: renamed ? undefined : { procedure: payload.name },
+          });
+        }
         showToast(ar ? "تم تحديث العلاج" : "Treatment updated", "success");
       } else {
         await addDoc(getClinicCollection("services"), { ...payload, createdAt: new Date().toISOString() });
+        void logEvent(auditUser, {
+          event: "settings.services",
+          changes: [{ field: "service", from: null, to: payload.name }, { field: "price", from: null, to: payload.price }],
+        });
         showToast(ar ? "تمت إضافة العلاج" : "Treatment added", "success");
       }
       setIsModalOpen(false);
@@ -213,6 +252,17 @@ export default function PricingSettings({
     if (await confirm(ar ? `حذف "${name}" من قائمة الأسعار؟` : `Remove "${name}" from the price list?`)) {
       try {
         await deleteRecord(clinicId || "", "services", id);
+        const gone = services.find((s) => s.id === id);
+        void logEvent(
+          { uid: user?.uid, name: user?.name, role: user?.role },
+          {
+            event: "settings.services",
+            changes: [
+              { field: "service", from: name || gone?.name || null, to: null },
+              ...(typeof gone?.price === "number" ? [{ field: "price", from: gone.price, to: null }] : []),
+            ],
+          },
+        );
         showToast(ar ? "تم نقل العلاج إلى المحذوفات" : "Treatment moved to Recently Deleted", "info");
       } catch (err) {
         showToast(err instanceof RecycleBinError ? err.message : ar ? "تعذر الحذف" : "Could not delete", "error");
