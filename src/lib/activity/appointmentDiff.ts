@@ -62,6 +62,22 @@ function branchChange(prev: Doc, next: Doc): Change {
   return { field: "branch", from: a.name, to: b.name };
 }
 
+/**
+ * The approval links a save carries, as a comparable key. `claimLinks` is the list saveBooking
+ * writes; an old doc may hold only the `claimId`/`claimLine` pair, read as one link.
+ */
+function linksKey(doc: Doc): string {
+  const list = Array.isArray(doc.claimLinks)
+    ? (doc.claimLinks as Array<{ claimId?: unknown; claimLine?: unknown }>)
+    : textOf(doc.claimId)
+      ? [{ claimId: doc.claimId, claimLine: doc.claimLine }]
+      : [];
+  return list
+    .map((l) => `${String(l?.claimId ?? "")}#${String(l?.claimLine ?? "")}`)
+    .sort()
+    .join("|");
+}
+
 /** The branch an event about this appointment is filed under; none = the writer uses the branch on screen. */
 function branchOf(...docs: Doc[]): string | undefined {
   for (const d of docs) {
@@ -85,6 +101,21 @@ export function appointmentEvents(prev: Doc, next: Doc, ctx: Ctx): ActivityEvent
     c.field === "branchId" ? branchChange(p, n) : { ...c, field: SHOWN_AS[c.field] ?? c.field },
   );
 
+  // The visit moved to another patient: said by name (never by id) and told in both files.
+  const prevPatient = textOf(p.patientId);
+  const patientMoved = has(n, "patientId") && textOf(n.patientId) !== prevPatient;
+  if (patientMoved) {
+    changes.unshift({ field: "patient", from: textOf(p.patientName), to: textOf(n.patientName) ?? textOf(ctx.patientName) });
+  }
+  // The service picked for the visit, by name (a swap at the same price changes no figure).
+  if (has(n, "serviceName")) {
+    changes.push(...diffChanges(p, n, ["serviceName"]).map((c) => ({ ...c, field: "service" })));
+  }
+  // An insurance approval linked, unlinked or swapped: the label alone (its ids mean nothing to a reader).
+  if ((has(n, "claimLinks") || has(n, "claimId")) && linksKey(p) !== linksKey(n)) {
+    changes.push({ field: "approval", from: null, to: null });
+  }
+
   const base = {
     patientId: ctx.patientId,
     patientName: ctx.patientName,
@@ -99,7 +130,13 @@ export function appointmentEvents(prev: Doc, next: Doc, ctx: Ctx): ActivityEvent
   };
 
   const out: ActivityEvent[] = [];
-  if (changes.length) out.push({ event: "appointment.edited", ...base, changes, refs });
+  if (changes.length) {
+    out.push({ event: "appointment.edited", ...base, changes, refs });
+    // The patient the visit was taken from keeps the entry in their own story too.
+    if (patientMoved && prevPatient && prevPatient !== base.patientId) {
+      out.push({ event: "appointment.edited", ...base, patientId: prevPatient, patientName: textOf(p.patientName) ?? undefined, changes, refs });
+    }
+  }
 
   // Only a save that sent a discount can have changed it. Old docs without one, and an uncharged
   // visit's null, read as 0.

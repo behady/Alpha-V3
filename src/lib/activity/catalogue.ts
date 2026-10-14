@@ -61,6 +61,8 @@ const FIELD_LABELS: Record<string, [string, string]> = {
   duration: ["المدة", "Duration"],
   room: ["الغرفة", "Room"],
   treatment: ["سبب الزيارة", "Visit reason"],
+  service: ["الخدمة", "Service"],
+  approval: ["موافقة التأمين", "Insurance approval"],
   tooth: ["السن", "Tooth"],
   quantity: ["الكمية", "Quantity"],
   reason: ["السبب", "Reason"],

@@ -96,6 +96,33 @@ ok(stAr.includes("غير مؤكد") && stAr.includes("ملغي"), `appointment s
 ok(!stAr.includes("Scheduled"), "no English status inside the Arabic sentence");
 ok(!/undefined/.test(sentence(st[0], "en")) && !/undefined/.test(stAr), "no undefined");
 
+// --- 5b. patient, service and approval link (Ruling R8) ---
+const swap = appointmentEvents(
+  { patientId: "pOld", patientName: "سارة", time: "05:00 PM" },
+  { patientId: "pNew", patientName: "عمر", time: "05:00 PM" },
+  { patientId: "pNew", patientName: "عمر", appointmentId: "a1" });
+deep(swap.map((e) => [e.event, e.patientId, e.patientName]), [["appointment.edited", "pNew", "عمر"], ["appointment.edited", "pOld", "سارة"]]);
+deep(swap[0].changes, [{ field: "patient", from: "سارة", to: "عمر" }]);
+deep(swap[1].changes, swap[0].changes, "same changes in both files");
+ok(!sentence(swap[0], "en").includes("pOld") && !sentence(swap[0], "en").includes("pNew"), "no patient ids in the sentence");
+// Same patient re-sent: nothing.
+deep(appointmentEvents({ patientId: "p1", patientName: "عمر" }, { patientId: "p1", patientName: "عمر" }, ctx), []);
+// Service swapped at the same price.
+const svc = appointmentEvents({ serviceName: "حشو", cost: 500 }, { serviceName: "تنظيف", cost: 500 }, ctx);
+eq(svc.length, 1);
+eq(svc[0].event, "appointment.edited");
+deep(svc[0].changes, [{ field: "service", from: "حشو", to: "تنظيف" }]);
+// Approval linked, unlinked, unchanged (old pair vs new list form).
+const link = appointmentEvents({ claimLinks: [] }, { claimLinks: [{ claimId: "c1", claimLine: 0 }], claimId: "c1", claimLine: 0 }, ctx);
+deep(link[0].changes, [{ field: "approval", from: null, to: null }]);
+deep(appointmentEvents({ claimId: "c1", claimLine: 0 }, { claimLinks: [], claimId: null, claimLine: null }, ctx)[0].changes,
+  [{ field: "approval", from: null, to: null }], "unlinked");
+deep(appointmentEvents({ claimId: "c1", claimLine: 0 }, { claimLinks: [{ claimId: "c1", claimLine: 0 }], claimId: "c1", claimLine: 0 }, ctx), [], "same link, old shape");
+deep(appointmentEvents({ claimId: "c1", claimLine: 0, serviceName: "حشو" }, { time: "05:00 PM" }, { ...ctx }).filter((e) => e.changes?.some((c) => c.field !== "time")), [], "not sent = not compared");
+eq(fieldLabel("service", "ar"), "الخدمة");
+eq(fieldLabel("approval", "en"), "Insurance approval");
+ok(!sentence(link[0], "ar").includes("c1"), "no claim id in the sentence");
+
 // --- 6. drag to move ---
 const mv = appointmentMoveEvent(
   { date: "2026-10-14", time: "05:00 PM", doctor: "د. سارة", patientId: "p1", patientName: "عمر", branchId: "b1" },
