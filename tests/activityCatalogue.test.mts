@@ -36,10 +36,13 @@ const deep = (a: unknown, b: unknown, msg?: string) => {
   assert.deepEqual(a, b, msg);
 };
 
+/** An Arabic "from → to": each value isolated, the arrow pointing left (old on the right, new on the left). */
+const rtl = (a: string, b: string) => `\u2068${a}\u2069 ← \u2068${b}\u2069`;
+
 // --- 1. discount + payment sentences ---
 const disc = { event: "discount.given", amount: 200, patientName: "عمر حسام علي",
   refs: { procedure: "حشو كومبوزيت" }, changes: [{ field: "price", from: 1500, to: 1300 }], reason: "قريب الدكتور" } as const;
-eq(sentence(disc, "ar"), "خصم 200 ج لـ عمر حسام علي على حشو كومبوزيت (1,500 → 1,300) · السبب: قريب الدكتور");
+eq(sentence(disc, "ar"), `خصم 200 ج لـ عمر حسام علي على حشو كومبوزيت (${rtl("1,500", "1,300")}) · السبب: قريب الدكتور`);
 eq(sentence(disc, "en"), "Discount 200 EGP for عمر حسام علي on حشو كومبوزيت (1,500 → 1,300) · Reason: قريب الدكتور");
 eq(isFlagged(disc), true);
 deep(categoriesOf(disc), ["discount", "money"]);
@@ -151,7 +154,7 @@ deep(branchListChanges([{ id: "a", name: " A " }], [{ id: "a", name: "A" }]), []
 deep(branchListChanges([{ id: "a", name: "A" }], [{ id: "b", name: "B" }], "lab"),
   [{ field: "lab", from: "A", to: null }, { field: "lab", from: null, to: "B" }], "removed before added; the field is the caller's");
 eq(sentence({ event: "settings.labs", changes: branchListChanges([], [{ id: "x", name: "معمل النور" }], "lab") }, "ar"),
-  "تعديل المعامل · المعمل — → معمل النور");
+  `تعديل المعامل · المعمل ${rtl("—", "معمل النور")}`);
 
 // --- 9a2. labelOnlyChange / namedItemChanges (settings details, medical text, maps) ---
 deep(labelOnlyChange("allergies", "Penicillin", "Penicillin, latex"), [{ field: "allergies", from: null, to: null }], "medical text by label only");
@@ -169,25 +172,25 @@ deep(namedItemChanges([{ id: "a", name: "A", prices: { z: 1 } }], [{ id: "a", na
   { changes: [{ field: "prices", from: null, to: null }], names: ["A"] });
 deep(namedItemChanges([{ id: "a", name: "A", phone: "1" }], [{ id: "a", name: "A", phone: "1" }], ["phone"]), { changes: [], names: [] });
 eq(sentence({ event: "settings.branches", refs: { branchName: "مصر الجديدة" }, changes: [{ field: "receiptPrefix", from: "HEL", to: "MAD" }] }, "ar"),
-  "تعديل الفروع (مصر الجديدة) · بادئة الإيصالات HEL → MAD");
+  `تعديل الفروع (مصر الجديدة) · بادئة الإيصالات ${rtl("HEL", "MAD")}`);
 eq(sentence({ event: "settings.labs", refs: { labName: "النور" }, changes: [{ field: "paper", from: "a4_two_up", to: "a5" }] }, "en").startsWith("Labs updated (النور) · Order paper size "), true);
 eq(sentence({ event: "settings.services", refs: { procedure: "Crown" }, changes: [{ field: "pricingMode", from: "per_tooth", to: "flat" }] }, "en"),
   "Services updated (Crown) · Billing Per tooth → Flat fee");
 eq(sentence({ event: "settings.insurers", refs: { payerName: "X" }, changes: [{ field: "format", from: null, to: "metlife" }] }, "ar"),
-  "تعديل شركات التأمين (X) · نموذج الموافقة — → متلايف");
+  `تعديل شركات التأمين (X) · نموذج الموافقة ${rtl("—", "متلايف")}`);
 eq(sentence({ event: "lab.status", refs: { labName: "النور" }, changes: [{ field: "status", from: "at_lab", to: "back" }] }, "ar"),
-  "تغيير حالة طلب معمل لدى النور · الحالة في المعمل → وصلت العيادة", "lab stage codes are said in words");
+  `تغيير حالة طلب معمل لدى النور · الحالة ${rtl("في المعمل", "وصلت العيادة")}`, "lab stage codes are said in words");
 eq(sentence({ event: "lab.created", refs: { labName: "Nour", status: "at_lab" } }, "en"), "Lab case created at Nour (At lab)");
 eq(sentence({ event: "staff.edited", refs: { staffName: "Mona" }, changes: [{ field: "baseSalary", from: 5000, to: 6000 }] }, "en"),
   "Staff details edited: Mona · Base salary 5,000 → 6,000");
 eq(sentence({ event: "staff.edited", refs: { staffName: "منى", payerName: "GASCO" }, changes: [{ field: "commission", from: 30, to: 40 }] }, "ar"),
-  "تعديل بيانات منى (GASCO) · العمولة 30 → 40", "a per-insurer rate names the insurer");
+  `تعديل بيانات منى (GASCO) · العمولة ${rtl("30", "40")}`, "a per-insurer rate names the insurer");
 eq(sentence({ event: "settings.services", refs: { procedure: "حشو" }, changes: [{ field: "price", from: 500, to: 600 }] }, "ar"),
-  "تعديل قائمة الخدمات (حشو) · السعر 500 → 600", "a price-only edit names the treatment");
+  `تعديل قائمة الخدمات (حشو) · السعر ${rtl("500", "600")}`, "a price-only edit names the treatment");
 eq(sentence({ event: "settings.insurers", refs: { payerName: "GASCO" }, changes: [{ field: "listPrices", from: null, to: null }] }, "en"),
   "Insurers updated (GASCO) · List prices");
 eq(sentence({ event: "plan.status", patientName: "سارة", changes: [{ field: "status", from: "draft", to: "accepted" }] }, "ar"),
-  "تغيير حالة خطة علاج لـ سارة · الحالة مسودة → مقبولة");
+  `تغيير حالة خطة علاج لـ سارة · الحالة ${rtl("مسودة", "مقبولة")}`);
 for (const f of ["address", "dob", "gender", "referral", "baseSalary", "commissionPercentage", "overtimeMultiplier", "speciality",
   "lab", "labName", "agreedPrice", "dueDate", "title", "total", "steps", "schedule", "listPrices", "room", "payer", "service",
   "whatsapp", "driverName", "turnaroundDays", "labPrices", "paper", "code", "receiptPrefix", "etaBranchCode", "taxRegistration",
@@ -203,7 +206,7 @@ deep(diffChanges({ cost: "1500" }, { cost: "1800" }, ["cost"]), [{ field: "cost"
 eq(sentence({ event: "patient.edited", patientName: "Sara", changes: [{ field: "phone", from: "01012345678", to: "01022223333" }] }, "en"),
   "Patient edited: Sara · Phone 01012345678 → 01022223333");
 eq(sentence({ event: "patient.edited", patientName: "سارة", changes: [{ field: "phone", from: 1012345678, to: 1022223333 }] }, "ar"),
-  "تعديل بيانات مريض سارة · الهاتف 1012345678 → 1022223333");
+  `تعديل بيانات مريض سارة · الهاتف ${rtl("1012345678", "1022223333")}`);
 eq(sentence({ event: "procedure.edited", patientName: "Sara", refs: { procedure: "Filling" }, changes: [{ field: "price", from: 1500, to: 1300 }, { field: "commission", from: 30, to: 40 }] }, "en"),
   "Procedure edited: Filling for Sara · Price 1,500 → 1,300, Commission 30 → 40");
 // 22:00 UTC on 13 Oct is 01:00 on 14 Oct in Cairo (UTC+3 in October 2026)
@@ -213,7 +216,7 @@ eq(sentence({ event: "expense.added", amount: 350, refs: { procedure: "إيجا�
 eq(sentence({ event: "income.deleted", amount: 90, refs: { procedure: "Rent share" } }, "en"), "Income deleted Rent share 90 EGP");
 eq(sentence({ event: "insurance.status", patientName: "سارة", refs: { payerName: "MetLife", approvalNumber: "A-77" },
   changes: [{ field: "status", from: "approved", to: "cancelled" }] }, "ar"),
-  "تغيير حالة موافقة التأمين لـ سارة عند MetLife رقم A-77 · الحالة معتمدة → ملغاة");
+  `تغيير حالة موافقة التأمين لـ سارة عند MetLife رقم A-77 · الحالة ${rtl("معتمدة", "ملغاة")}`);
 ok(sentence({ event: "insurance.edited", patientName: "Sara", refs: { payerName: "AXA", approvalNumber: "9" } }, "en").includes("at AXA no. 9"), "insurance.edited shows payer and approval");
 ok(sentence({ event: "lab.status", refs: { status: "ready" } }, "en").includes("(ready)"), "lab.status shows refs.status");
 ok(sentence({ event: "lab.created", refs: { status: "approved" } }, "ar").includes("(معتمدة)"), "lab.created shows refs.status");
@@ -260,5 +263,29 @@ eq(money(1200, "ar"), "1,200 ج");
 eq(money(1200, "en"), "1,200 EGP");
 ok(fieldLabel("price", "ar").length > 0 && fieldLabel("price", "en") === "Price", "field labels");
 eq(fieldLabel("someUnknownField", "en"), "someUnknownField");
+
+// --- 11. final review fixes ---
+// Arabic arrows point from the old value to the new one in a right-to-left line.
+{
+  const priceEdit = { event: "procedure.edited", patientName: "سارة", refs: { procedure: "حشو" }, changes: [{ field: "price", from: 1300, to: 1500 }] } as const;
+  const ar = sentence(priceEdit, "ar");
+  ok(ar.includes("⁨1,300⁩ ← ⁨1,500⁩"), `Arabic: each value isolated, "←" between, old first: ${ar}`);
+  ok(!ar.includes("→"), "no right-pointing arrow in Arabic");
+  ok(sentence(priceEdit, "en").includes("1,300 → 1,500"), "English keeps its arrow");
+  ok(sentence(disc, "ar").includes(`(${rtl("1,500", "1,300")})`), "the discount's price arrow too");
+}
+// A visit deleted with its charges is money; one that kept them is not.
+deep(categoriesOf({ event: "appointment.deleted", amount: 1500, reason: "with treatments" }), ["appointment", "money"]);
+deep(categoriesOf({ event: "appointment.deleted", reason: "kept treatments" }), ["appointment"]);
+deep(categoriesOf({ event: "appointment.deleted", amount: 0 }), ["appointment"]);
+// An approval deleted from the bin is filed under Insurance, and Money when its charges went too.
+deep(categoriesOf({ event: "record.deleted", refs: { claimId: "metlife_1", count: 3 }, amount: 1200 }), ["patient", "insurance", "money"]);
+deep(categoriesOf({ event: "record.deleted", refs: { claimId: "metlife_1", count: 1 } }), ["patient", "insurance"]);
+deep(categoriesOf({ event: "record.deleted", refs: { count: 1 }, amount: 50 }), ["patient"], "no claim: still a plain record");
+// Charges an approval edit replaces are book-keeping: not flagged. A charge taken off as not treated still is.
+eq(isFlagged({ event: "procedure.deleted", reason: "replaced", amount: 600 }), false);
+eq(isFlagged({ event: "procedure.deleted", reason: "not treated", amount: 600 }), true);
+eq(isFlagged({ event: "procedure.deleted", amount: 600 }), true);
+eq(storedFields({ event: "procedure.deleted", reason: "replaced", amount: 600 }).severity, "MEDIUM");
 
 console.log(`activityCatalogue: ${checks} checks passed`);

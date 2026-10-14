@@ -221,11 +221,22 @@ export function valueText(field: string, v: Scalar, lang: Lang): string {
   return String(v);
 }
 
+/**
+ * "from → to". In an Arabic (right-to-left) line a "→" between two values is drawn pointing back at
+ * the old one ("1,300 → 1,500" reads new-to-old), so Arabic isolates each value (U+2068 … U+2069)
+ * and uses "←": the old value sits on the right and the arrow points left to the new one.
+ */
+function fromTo(field: string, from: Scalar, to: Scalar, lang: Lang): string {
+  const a = valueText(field, from, lang);
+  const b = valueText(field, to, lang);
+  return lang === "ar" ? `\u2068${a}\u2069 ← \u2068${b}\u2069` : `${a} → ${b}`;
+}
+
 /** "label from → to"; a change with no values on either side (an array or object) is its label alone. */
 function changeText(c: Change, lang: Lang): string {
   const label = fieldLabel(c.field, lang);
   if ((c.from === null || c.from === undefined) && (c.to === null || c.to === undefined)) return label;
-  return `${label} ${valueText(c.field, c.from, lang)} → ${valueText(c.field, c.to, lang)}`;
+  return `${label} ${fromTo(c.field, c.from, c.to, lang)}`;
 }
 
 const findChange = (e: ActivityEvent, field: string): Change | undefined => e.changes?.find((c) => c.field === field);
@@ -277,8 +288,20 @@ export function categoriesOf(e: ActivityEvent): Category[] {
     if (belowList(e) || findChange(e, "discount")) cats.push("discount");
     if (e.refs?.claimId) cats.push("insurance");
   }
+  // A visit deleted with its treatments took their charges with it: that is money leaving the books.
+  if (e.event === "appointment.deleted" && isNum(e.amount) && e.amount > 0) cats.push("money");
+  // An insurance approval deleted from the bin names its claim; `amount` is set only when its
+  // charges went with it.
+  if (e.event === "record.deleted" && e.refs?.claimId) {
+    cats.push("insurance");
+    if (isNum(e.amount)) cats.push("money");
+  }
   return Array.from(new Set(cats));
 }
+
+/** An approval rebuilt by an edit replaces its charges; that is book-keeping, not a deletion to review. */
+const isReplacedCharge = (e: ActivityEvent) =>
+  e.event === "procedure.deleted" && String(e.reason ?? "").trim().toLowerCase() === "replaced";
 
 const ALWAYS_FLAGGED: ReadonlySet<EventKey> = new Set<EventKey>([
   "discount.given", "discount.changed", "discount.removed",
@@ -291,6 +314,7 @@ const ALWAYS_FLAGGED: ReadonlySet<EventKey> = new Set<EventKey>([
 ]);
 
 export function isFlagged(e: ActivityEvent): boolean {
+  if (isReplacedCharge(e)) return false;
   if (ALWAYS_FLAGGED.has(e.event)) return true;
   if (belowList(e)) return true;
   if (e.event === "insurance.status") {
@@ -399,7 +423,7 @@ export function storedFields(e: ActivityEvent): {
 /** `from → to` of one named change, numbers with thousands separators and no label. */
 function arrow(c: Change | undefined, lang: Lang): string | null {
   if (!c) return null;
-  return `${valueText(c.field, c.from, lang)} → ${valueText(c.field, c.to, lang)}`;
+  return fromTo(c.field, c.from, c.to, lang);
 }
 
 export function sentence(e: ActivityEvent, lang: Lang): string {

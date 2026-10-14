@@ -341,7 +341,7 @@ function FeedView({
         <div className="mt-3 flex flex-wrap items-end gap-x-8 gap-y-3">
           <p className="flex items-baseline gap-2">
             <span className="font-figure text-[40px] font-semibold leading-none md:text-[48px]">{firstLoad || error ? "—" : num(folded.length)}</span>
-            <span className="text-sm font-semibold text-white/45">{isAr ? "إجراء" : folded.length === 1 ? "action" : "actions"}</span>
+            <span className="text-sm font-semibold text-white/45">{isAr ? "حركة" : folded.length === 1 ? "action" : "actions"}</span>
           </p>
           <p className="flex items-baseline gap-2">
             <span className="font-figure text-[26px] font-semibold leading-none">{firstLoad || error ? "—" : num(flaggedCount)}</span>
@@ -359,7 +359,7 @@ function FeedView({
       {patientMode && (
         <p className="px-1 text-[12px] font-semibold text-ink-muted">
           {isAr
-            ? "السجل ده بيبدأ من 14 أكتوبر 2026 — الإجراءات القديمة في صفحة سجل النشاط"
+            ? "السجل ده بيبدأ من 14 أكتوبر 2026 — الحركات القديمة في صفحة سجل النشاط"
             : "This log starts on 14 October 2026 — older actions are on the Activity log page"}
         </p>
       )}
@@ -434,7 +434,7 @@ function FeedView({
 
       {capped && (
         <p className="rounded-2xl border border-line bg-surface px-4 py-3 text-[13px] font-semibold text-ink-body">
-          {isAr ? "عرض أول 5,000 إجراء في الفترة دي — ضيّق التاريخ" : "Showing the first 5,000 actions in this period — narrow the dates"}
+          {isAr ? "عرض أول 5,000 حركة في الفترة دي — ضيّق التاريخ" : "Showing the first 5,000 actions in this period — narrow the dates"}
         </p>
       )}
 

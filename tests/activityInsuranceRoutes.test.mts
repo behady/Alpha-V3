@@ -296,6 +296,24 @@ console.log("\n6. a patient to the bin, back, and purged");
   check("it reads as the patient's whole file", rp[0]?.details === "Permanently deleted patient file Bin Patient" && rp[0]?.refs?.procedure === undefined, rp[0]?.details);
 }
 
+console.log("\n7. the approval, treated again, deleted from the bin with its charges");
+{
+  const r = await patchClaim(CLAIM, { status: "treated" });
+  check("treated again", r.status === 200 && r.json.ok === true, r);
+  const rows = (await col("ledger").where("claimId", "==", CLAIM).get()).docs.map((d) => d.data());
+  check("it has treatment rows to take with it", rows.length > 0, rows.length);
+  const charged = Math.round(rows.reduce((s, row) => s + (Number(row.cost) || Number(row.amount) || 0), 0) * 100) / 100;
+  const del = await call(deleteRoute.POST, { items: [{ collection: "insurance_claims", documentId: CLAIM }] });
+  check("the delete is accepted", del.status === 200 && del.json.deleted === 1, del);
+  const log = (await logsFor("record.deleted"))[0] ?? {};
+  // The approval stores its payer's id, not its name, so no payerName rides along (never the raw id).
+  check("it names the claim", log.refs?.claimId === CLAIM && log.refs?.payerName === undefined, log.refs);
+  check("it names the patient and the branch", log.patientId === "P1" && log.patientName === PATIENT && log.branchId === "hel", { p: log.patientId, n: log.patientName, b: log.branchId });
+  check("filed under insurance and money (its charges went too)", log.categories?.includes("insurance") && log.categories?.includes("money"), log.categories);
+  check("amount is the charges that went with it", log.amount === charged && charged > 0, { amount: log.amount, charged });
+  check("still flagged", log.flag === true, log.flag);
+}
+
 console.log("\nno line anywhere carries a raw id in its details, and every line is v2");
 {
   const all = (await col("system_logs").get()).docs.map((d) => d.data());

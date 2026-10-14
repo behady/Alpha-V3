@@ -185,6 +185,31 @@ function statusTo(log: ActivityLogDoc): string {
   return typeof to === "string" ? to.trim().toLowerCase() : "";
 }
 
+/** A change's side as a number, absent as 0. */
+function figure(v: unknown): number {
+  const n = v === null || v === undefined || v === "" ? NaN : Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * The discount a treatment line carries, for the Discounts summary. A charge saved with a discount
+ * (`procedure.added` with a `discount` change) is that discount; one priced under the list with no
+ * discount (never an insurer's price) is the gap; an edit that moved the discount is the difference,
+ * which, like `discount.changed`, takes money back off when the discount shrank.
+ */
+function procedureDiscount(log: ActivityLogDoc): number {
+  const change = (field: string) => log.changes?.find((c) => c.field === field);
+  const discount = change("discount");
+  if (log.event === "procedure.edited") return discount ? figure(discount.to) - figure(discount.from) : 0;
+  if (discount) return figure(discount.to);
+  if (log.refs?.claimId) return 0;
+  const list = figure(change("listPrice")?.to ?? log.refs?.listPrice);
+  const priceChange = change("price");
+  if (!priceChange || priceChange.to === null || priceChange.to === undefined) return 0;
+  const gap = list - figure(priceChange.to);
+  return list > 0 && gap > 0 ? gap : 0;
+}
+
 /**
  * Which summary item an entry counts towards on a tab, and the money it adds. Edits and insurance
  * status changes are counted, not summed: their amount is a value after the edit, not money moved.
@@ -196,6 +221,8 @@ function classify(log: ActivityLogDoc, tab: "money" | "discount" | "insurance"):
   if (tab === "money") {
     if (ev === "payment.received") return { key: "received", amount: amt, countIt: true };
     if (MONEY_EDITS.has(ev)) return { key: "edited", amount: 0, countIt: true };
+    // An approval rebuilt by an edit replaces its charges: book-keeping, not money someone deleted.
+    if (ev === "procedure.deleted" && String(log.reason ?? "").trim().toLowerCase() === "replaced") return null;
     if (ev.endsWith(".deleted") && categoriesOfLog(log).includes("money")) return { key: "deleted", amount: amt, countIt: true };
     return null;
   }
@@ -203,6 +230,11 @@ function classify(log: ActivityLogDoc, tab: "money" | "discount" | "insurance"):
     if (ev === "discount.given" || ev === "discount.changed") return { key: "discounts", amount: amt, countIt: true };
     // A removed discount takes its money back off the person's total, and is not a discount given.
     if (ev === "discount.removed") return { key: "discounts", amount: -amt, countIt: false };
+    if (ev === "procedure.added" || ev === "procedure.edited") {
+      const d = Math.round(procedureDiscount(log) * 100) / 100;
+      if (d === 0) return null;
+      return { key: "discounts", amount: d, countIt: d > 0 };
+    }
     return null;
   }
   if (ev === "insurance.created") return { key: "insCreated", amount: 0, countIt: true };

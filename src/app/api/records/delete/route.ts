@@ -81,6 +81,40 @@ type Child = {
 
 const keyOf = (i: Item) => `${i.collection}|${i.documentId}`;
 
+const textOf = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
+
+/** A ledger row's charged figure: cost, else amount, past a placeholder zero. */
+function chargedFigure(row: Record<string, unknown>): number {
+  for (const candidate of [row.cost, row.amount, row.paid]) {
+    const n = Number(candidate ?? 0) || 0;
+    if (n !== 0) return n;
+  }
+  return 0;
+}
+
+/**
+ * What one record deleted on its own says about itself on the activity line: whose file it was in,
+ * its branch, and for an insurance approval the claim and payer, plus the money of the charges
+ * that went with it (`amount` is set only then, which is what files the line under Money).
+ */
+function singleRecordFacts(r: { collection: string; documentId: string; snapshot: Record<string, unknown>; ledger: Array<Record<string, unknown>> }): {
+  patientId: string | null; patientName: string | null; branchId: string | null; amount?: number;
+  refs: { claimId?: string; payerName?: string };
+} {
+  // A patient's own record already has its patient.deleted line under the patient's name; naming
+  // the patient here too would read "deleted a record from X's file: X".
+  const isPatient = r.collection === "patients";
+  const isClaim = r.collection === "insurance_claims";
+  const payerName = isClaim ? textOf(r.snapshot.payerName) : null;
+  return {
+    patientId: isPatient ? null : textOf(r.snapshot.patientId),
+    patientName: isPatient ? null : textOf(r.snapshot.patientName),
+    branchId: textOf(r.snapshot.branchId),
+    ...(isClaim && r.ledger.length > 0 ? { amount: Math.round(r.ledger.reduce((s, l) => s + chargedFigure(l), 0) * 100) / 100 } : {}),
+    refs: isClaim ? { claimId: r.documentId, ...(payerName ? { payerName } : {}) } : {},
+  };
+}
+
 /** Firestore's code for a failed precondition: something changed after it was read. */
 function isChangedUnderUs(err: unknown): boolean {
   const code = (err as { code?: unknown })?.code;
@@ -258,6 +292,9 @@ export async function POST(request: Request) {
     const binnedPatients: Array<{ id: string; name: string | null; linked: number }> = [];
     // The bin label of each record named in the request that moved, so a single delete can say what it was.
     const binnedLabels: string[] = [];
+    // The same records with their snapshots and the ledger rows binned with them, so a single
+    // delete's line can name its patient, branch and (for an approval) claim and money.
+    const binnedRecords: Array<{ collection: string; documentId: string; snapshot: Record<string, unknown>; ledger: Array<Record<string, unknown>> }> = [];
     let linkedTotal = 0;
     // An approval deleted in the same request as another approval's rows, or the like: each
     // document is queued once, under whichever entry reached it first.
@@ -381,6 +418,12 @@ export async function POST(request: Request) {
       linkedTotal += children.length;
       queued++;
       binnedLabels.push(label);
+      binnedRecords.push({
+        collection: row.item.collection,
+        documentId: row.item.documentId,
+        snapshot,
+        ledger: children.filter((c) => c.collection === "ledger").map((c) => c.snapshot),
+      });
       if (row.item.collection === "patients") {
         const name = typeof snapshot.name === "string" && snapshot.name.trim() ? snapshot.name.trim() : null;
         binnedPatients.push({ id: row.item.documentId, name, linked: children.length });
@@ -429,6 +472,9 @@ export async function POST(request: Request) {
     const deletedCount = results.filter((r) => r.status === "deleted").length;
     if (deletedCount > 0) {
       const user = { uid: auth.uid, name: auth.name, role: auth.role };
+      // One record deleted on its own is filed under its patient (and an approval under Insurance,
+      // with Money when its charges went too), so the patient's file and those tabs can see it.
+      const single = binnedRecords.length === 1 ? singleRecordFacts(binnedRecords[0]) : null;
       await logEventServer({
         clinicId,
         user,
@@ -436,7 +482,19 @@ export async function POST(request: Request) {
         event: {
           event: "record.deleted",
           reason: reason?.trim() || null,
-          refs: { count: deletedCount + linkedTotal, ...(binnedLabels.length === 1 ? { procedure: binnedLabels[0] } : {}) },
+          ...(single
+            ? {
+                patientId: single.patientId,
+                patientName: single.patientName,
+                branchId: single.branchId,
+                ...(single.amount !== undefined ? { amount: single.amount } : {}),
+              }
+            : {}),
+          refs: {
+            count: deletedCount + linkedTotal,
+            ...(binnedLabels.length === 1 ? { procedure: binnedLabels[0] } : {}),
+            ...(single?.refs ?? {}),
+          },
         },
       });
       // A patient's whole file leaving is its own line, under the patient's name.

@@ -19,6 +19,7 @@ import {
   summarize,
   summaryItemText,
 } from "../src/lib/activity/feed";
+import { categoriesOf } from "../src/lib/activity/catalogue";
 
 let checks = 0;
 const eq = <T,>(a: T, b: T, msg?: string) => {
@@ -170,12 +171,50 @@ deep(money, [
   { userId: "m", userName: "Malak", items: [{ key: "edited", count: 1, amount: 0 }, { key: "deleted", count: 1, amount: 900 }] },
   { userId: "s", userName: "Sara", items: [{ key: "received", count: 2, amount: 500 }, { key: "edited", count: 1, amount: 0 }] },
 ], "people by total money, edits counted not summed, non-money deletes left out, legacy rows ignored");
+const deletes = summarize([
+  { id: "1", v: 2, event: "appointment.deleted", categories: categoriesOf({ event: "appointment.deleted", amount: 400 }), userId: "m", userName: "Malak", amount: 400 },
+  { id: "2", v: 2, event: "appointment.deleted", categories: categoriesOf({ event: "appointment.deleted" }), userId: "m", userName: "Malak" },
+  { id: "3", v: 2, event: "procedure.deleted", categories: ["money"], userId: "m", userName: "Malak", amount: 700, reason: "replaced" },
+  { id: "4", v: 2, event: "procedure.deleted", categories: ["money"], userId: "m", userName: "Malak", amount: 300, reason: "not treated" },
+], "money");
+deep(deletes, [{ userId: "m", userName: "Malak", items: [{ key: "deleted", count: 2, amount: 700 }] }],
+  "a visit deleted with its charges counts as a money deletion; one with none does not; an approval's replaced charges do not");
 const disc = summarize([
   { id: "1", v: 2, event: "discount.given", categories: ["discount", "money"], userId: "m", userName: "Malak", amount: 100, groupId: "g" },
   { id: "2", v: 2, event: "discount.given", categories: ["discount", "money"], userId: "m", userName: "Malak", amount: 50, groupId: "g" },
   { id: "3", v: 2, event: "discount.changed", categories: ["discount", "money"], userId: "m", userName: "Malak", amount: 30 },
 ], "discount");
 deep(disc, [{ userId: "m", userName: "Malak", items: [{ key: "discounts", count: 2, amount: 180 }] }], "a visit discount counts once");
+// Most discounts are given at the chair: a treatment saved with a discount, or priced under the list.
+const chair = summarize([
+  { id: "1", v: 2, event: "procedure.added", categories: ["money", "discount"], userId: "d", userName: "Dina", amount: 1300,
+    changes: [{ field: "listPrice", from: null, to: 1500 }, { field: "price", from: null, to: 1300 }, { field: "discount", from: null, to: 200 }] },
+  { id: "2", v: 2, event: "procedure.added", categories: ["money", "discount"], userId: "d", userName: "Dina", amount: 900,
+    changes: [{ field: "listPrice", from: null, to: 1000 }, { field: "price", from: null, to: 900 }] },
+  { id: "3", v: 2, event: "procedure.added", categories: ["money", "insurance"], userId: "d", userName: "Dina", amount: 400,
+    refs: { claimId: "c1" }, changes: [{ field: "listPrice", from: null, to: 1000 }, { field: "price", from: null, to: 400 }] },
+  { id: "4", v: 2, event: "procedure.added", categories: ["money"], userId: "d", userName: "Dina", amount: 1000,
+    changes: [{ field: "listPrice", from: null, to: 1000 }, { field: "price", from: null, to: 1000 }] },
+], "discount");
+deep(chair, [{ userId: "d", userName: "Dina", items: [{ key: "discounts", count: 2, amount: 300 }] }],
+  "a treatment's own discount and a below-list price both count; an insurer's price and a full price do not");
+const chairGroup = summarize([
+  { id: "1", v: 2, event: "procedure.added", categories: ["money", "discount"], userId: "d", userName: "Dina", groupId: "v1",
+    changes: [{ field: "discount", from: null, to: 100 }] },
+  { id: "2", v: 2, event: "procedure.added", categories: ["money", "discount"], userId: "d", userName: "Dina", groupId: "v1",
+    changes: [{ field: "discount", from: null, to: 50 }] },
+], "discount");
+deep(chairGroup, [{ userId: "d", userName: "Dina", items: [{ key: "discounts", count: 1, amount: 150 }] }], "a visit's treatments under one group count once");
+const edits = summarize([
+  { id: "1", v: 2, event: "procedure.edited", categories: ["money", "discount"], userId: "e", userName: "Eman",
+    changes: [{ field: "price", from: 1500, to: 1400 }, { field: "discount", from: 0, to: 100 }] },
+  { id: "2", v: 2, event: "procedure.edited", categories: ["money", "discount"], userId: "e", userName: "Eman",
+    changes: [{ field: "discount", from: 100, to: 60 }] },
+  { id: "3", v: 2, event: "procedure.edited", categories: ["money", "discount"], userId: "e", userName: "Eman",
+    changes: [{ field: "price", from: 1000, to: 900 }, { field: "listPrice", from: 1000, to: 1000 }] },
+], "discount");
+deep(edits, [{ userId: "e", userName: "Eman", items: [{ key: "discounts", count: 1, amount: 60 }] }],
+  "an edit that raises the discount counts the difference; one that lowers it takes money off uncounted; an edit with no discount change is not a discount");
 const ins = summarize([
   { id: "1", v: 2, event: "insurance.created", categories: ["insurance"], userId: "a", userName: "Aya" },
   { id: "2", v: 2, event: "insurance.status", categories: ["insurance"], userId: "a", userName: "Aya", changes: [{ field: "status", from: "pending", to: "approved" }] },
