@@ -16,6 +16,7 @@ import { useUI } from "@/context/UIContext";
 import { useActiveBranch } from "@/lib/useActiveBranch";
 import { localYmd } from "@/lib/clinicDate";
 import { getAppointmentStageLabel, getAppointmentStatusStyles } from "@/lib/appointmentStages";
+import { logAppointmentStatus } from "@/lib/activity/appointmentLog";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { treatmentsByTooth } from "@/lib/toothTreatments";
 import { suggestCategory } from "@/lib/dentalIcons";
@@ -181,6 +182,20 @@ export default function DentistHome() {
       };
       if (nextStatus === "Checking Out" && !apt.checkOutTime) payload.checkOutTime = serverTimestamp();
       await updateDoc(getClinicDoc("appointments", String(apt.id)), payload);
+      const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+      void logAppointmentStatus(
+        { uid: user?.uid, name: user?.name, role: user?.role },
+        {
+          id: String(apt.id),
+          patientId: str(apt.patientId),
+          patientName: str(apt.patientName),
+          branchId: str(apt.branchId),
+          status: str(apt.status) || "Scheduled",
+          date: str(apt.date),
+          time: str(apt.time),
+        },
+        nextStatus,
+      );
       // "Done" from the chair marks the insurance service done on its approval, with this dentist on it.
       void syncClaimLineFromAppointment(clinicId, { ...apt, status: nextStatus });
       return true;

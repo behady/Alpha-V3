@@ -18,6 +18,7 @@
 import React, { useMemo } from "react";
 import { CircleDashed, UserX, Wallet } from "lucide-react";
 import { parseApptTimeToMinutes, updateBookingTime } from "@/lib/bookingService";
+import { useAuth } from "@/context/AuthContext";
 import { dayBoundsCovering, visitStartInDay, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import { getAppointmentStageLabel, getAppointmentStatusStyles, normalizeAppointmentStatus } from "@/lib/appointmentStages";
 import { medicalAlert, timeRange, type PatientHistory, type VisitMoney } from "@/lib/scheduleCard";
@@ -74,6 +75,7 @@ export default function WeeklyScheduleView({
     patientHistory,
     visitMoney,
 }: WeeklyScheduleViewProps) {
+    const { user } = useAuth();
     const isAr = language === 'ar';
     const locale = isAr ? 'ar-EG' : 'en-US';
     const num = (n: number) => n.toLocaleString(locale);
@@ -260,7 +262,7 @@ export default function WeeklyScheduleView({
                                             const minsFromStart = Math.round((y / pixelsPerMinute) / 5) * 5;
                                             const newTime = minutesToClock(bounds.start + minsFromStart);
 
-                                            void updateBookingTime(data.id, dateStr, newTime);
+                                            void updateBookingTime(data.id, dateStr, newTime, { uid: user?.uid, name: user?.name, role: user?.role });
                                         } catch(err) { console.error(err); }
                                     }}>
                                     {/* Rows: a click on an empty one books there */}

@@ -10,6 +10,7 @@
 
 import { actionLabel, readableDetails } from "./legacy";
 import { countedNoun } from "../arabicCount";
+import { getAppointmentStageLabel } from "../appointmentStages";
 import type { ActivityEvent, ActivityLogDoc, Category, Change, EventKey, Refs, Scalar } from "./types";
 
 type Lang = "ar" | "en";
@@ -58,6 +59,8 @@ const FIELD_LABELS: Record<string, [string, string]> = {
   payer: ["شركة التأمين", "Insurer"],
   approvalNumber: ["رقم الموافقة", "Approval number"],
   duration: ["المدة", "Duration"],
+  room: ["الغرفة", "Room"],
+  treatment: ["سبب الزيارة", "Visit reason"],
   tooth: ["السن", "Tooth"],
   quantity: ["الكمية", "Quantity"],
   reason: ["السبب", "Reason"],
@@ -133,7 +136,14 @@ function valueText(field: string, v: Scalar, lang: Lang): string {
   if (typeof v === "number") return Number.isFinite(v) ? (MONEY_FIELDS.has(field) ? num(v) : String(v)) : "—";
   if (typeof v === "boolean") return lang === "ar" ? (v ? "نعم" : "لا") : v ? "Yes" : "No";
   if (field === "method") return methodLabel(v, lang) ?? "—";
-  if (field === "status" && lang === "ar") return STATUS_AR[String(v).trim().toLowerCase()] ?? String(v);
+  if (field === "status" && lang === "ar") {
+    // An appointment's stages are stored capitalised ("Checked In"); insurance and lab statuses
+    // are lower-case codes, so the two never collide.
+    const raw = String(v).trim();
+    const stage = /^[A-Z]/.test(raw) ? getAppointmentStageLabel(raw, "ar") : raw;
+    if (stage !== raw) return stage;
+    return STATUS_AR[raw.toLowerCase()] ?? raw;
+  }
   return String(v);
 }
 

@@ -43,6 +43,8 @@ import DeleteAppointmentDialog from "@/components/appointments/DeleteAppointment
 import ServiceCombobox from "@/components/shared/ServiceCombobox";
 import ServiceEditorDrawer from "@/components/clinical-notes/ServiceEditorDrawer";
 import { logActivity } from "@/lib/logger";
+import { appointmentEvents } from "@/lib/activity/appointmentDiff";
+import { logAppointmentEvents, logAppointmentStatus } from "@/lib/activity/appointmentLog";
 import { MoneyApiError, deleteAppointment } from "@/lib/moneyApi";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { GENERAL_DOCTOR_VALUE, doctorCardLabel, generalDoctorLabel, pickerValueFromDoctorField } from "@/lib/generalDentist";
@@ -518,6 +520,14 @@ export default function DesktopDashboard() {
       });
 
       await updateDoc(getClinicDoc("appointments", selectedAppointment.id), updatePayload);
+      void logAppointmentEvents(
+        { uid: user?.uid, name: user?.name, role: user?.role },
+        appointmentEvents(selectedAppointment as unknown as Record<string, unknown>, updatePayload, {
+          patientId: selectedAppointment.patientId || undefined,
+          patientName: inlineEdit.patientName || selectedAppointment.patientName || undefined,
+          appointmentId: selectedAppointment.id,
+        }),
+      );
       void syncClaimLineFromAppointment(currentClinicId(), { ...selectedAppointment, status: inlineEdit.status });
       showToast(language === 'ar' ? 'تم الحفظ' : 'Saved!', 'success');
       return true;
@@ -814,6 +824,11 @@ export default function DesktopDashboard() {
       }
 
       await updateDoc(getClinicDoc("appointments", id), updatePayload);
+      void logAppointmentStatus(
+        { uid: user?.uid, name: user?.name, role: user?.role },
+        { id, patientId: appt.patientId, patientName: appt.patientName, branchId: appt.branchId, status: prevStatus, date: appt.date, time: appt.time },
+        nextStatus,
+      );
       // A finished visit for an insurance service marks that service done on its approval.
       void syncClaimLineFromAppointment(currentClinicId(), { ...appt, status: nextStatus });
 
@@ -1627,7 +1642,7 @@ export default function DesktopDashboard() {
                                                 const mins = m % 60;
                                                 const newTime = `${h.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
                                                 
-                                                void updateBookingTime(data.id, scheduleViewDate, newTime);
+                                                void updateBookingTime(data.id, scheduleViewDate, newTime, { uid: user?.uid, name: user?.name, role: user?.role });
                                             } catch(err) { console.error(err); }
                                         }}
                                     >

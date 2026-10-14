@@ -36,6 +36,7 @@ import DeleteAppointmentDialog from "@/components/appointments/DeleteAppointment
 import ServiceCombobox from "@/components/shared/ServiceCombobox";
 import ServiceEditorDrawer from "@/components/clinical-notes/ServiceEditorDrawer";
 import { logActivity } from "@/lib/logger";
+import { logAppointmentStatus } from "@/lib/activity/appointmentLog";
 import { MoneyApiError, deleteAppointment } from "@/lib/moneyApi";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { parseClinicSchedule, clinicDayBoundsMinutes, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
@@ -712,6 +713,11 @@ export default function MobileDashboard() {
       }
 
       await updateDoc(getClinicDoc("appointments", id), updatePayload);
+      void logAppointmentStatus(
+        { uid: user?.uid, name: user?.name, role: user?.role },
+        { id, patientId: appt.patientId, patientName: appt.patientName, branchId: appt.branchId, status: prevStatus, date: appt.date, time: appt.time },
+        nextStatus,
+      );
       // A finished visit for an insurance service marks that service done on its approval.
       void syncClaimLineFromAppointment(currentClinicId(), { ...appt, status: nextStatus });
 

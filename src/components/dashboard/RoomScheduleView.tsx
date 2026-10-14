@@ -15,6 +15,9 @@ import { useMemo } from "react";
 import { updateDoc, serverTimestamp } from "firebase/firestore";
 import { getClinicDoc } from "@/lib/db-utils";
 import { parseApptTimeToMinutes, updateBookingTime } from "@/lib/bookingService";
+import { useAuth } from "@/context/AuthContext";
+import { appointmentEvents } from "@/lib/activity/appointmentDiff";
+import { logAppointmentEvents } from "@/lib/activity/appointmentLog";
 import { dayBoundsCovering, visitStartInDay, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import { getAppointmentStageLabel, getAppointmentStatusStyles } from "@/lib/appointmentStages";
 import { doctorCardLabel } from "@/lib/generalDentist";
@@ -65,6 +68,9 @@ export default function RoomScheduleView({
   doctors = [],
   onDoctorDrop,
 }: Props) {
+  const { user } = useAuth();
+  const auditUser = { uid: user?.uid, name: user?.name, role: user?.role };
+  const branchNameOf = (id: unknown): string | undefined => branches.find((b) => b.id === id)?.name || undefined;
   const isAr = language === "ar";
   const byDoctor = by === "doctor";
   /** The catch-all column: "No room", or General. */
@@ -208,18 +214,31 @@ export default function RoomScheduleView({
                       if (apt && columnOf.get(apt.id) !== col.id && onDoctorDrop) {
                         onDoctorDrop(apt, col.id === LOOSE ? null : { id: col.id, name: col.label }, date, time);
                       } else {
-                        void updateBookingTime(id, date, time);
+                        void updateBookingTime(id, date, time, auditUser);
                       }
                       return;
                     }
-                    void updateBookingTime(id, date, time);
+                    void updateBookingTime(id, date, time, auditUser);
                     if (apt && col.id !== NO_ROOM && apt.roomId !== col.id) {
+                      const branchId = col.branchId || apt.branchId || null;
                       void updateDoc(getClinicDoc("appointments", id), {
                         roomId: col.id,
                         roomName: col.roomName,
-                        branchId: col.branchId || apt.branchId || null,
+                        branchId,
                         updatedAt: serverTimestamp(),
-                      }).catch((err) => console.error("Room move failed", err));
+                      })
+                        .then(() =>
+                          // Branch names, not ids, for the log: resolved from the branch list on screen.
+                          logAppointmentEvents(
+                            auditUser,
+                            appointmentEvents(
+                              { ...apt, branchName: branchNameOf(apt.branchId) ?? apt.branchName },
+                              { roomName: col.roomName, branchId, branchName: branchNameOf(branchId) },
+                              { patientId: apt.patientId || undefined, patientName: apt.patientName || undefined, appointmentId: id },
+                            ),
+                          ),
+                        )
+                        .catch((err) => console.error("Room move failed", err));
                     }
                   } catch (err) {
                     console.error(err);

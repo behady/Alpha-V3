@@ -13,7 +13,10 @@ import {
   where,
   getDocs,
 } from "firebase/firestore";
-import { logActivity } from "@/lib/logger";
+import { logEvent } from "@/lib/logger";
+import { appointmentEvents, appointmentMoveEvent } from "@/lib/activity/appointmentDiff";
+import { logAppointmentEvents } from "@/lib/activity/appointmentLog";
+import type { AuditUser } from "@/lib/activity/types";
 import { sendPatientAppointmentWhatsApp } from "@/lib/sendPatientAppointmentWhatsAppClient";
 import { currentClinicId, getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { syncClaimLineFromAppointment } from "@/lib/insurance/appointmentSync";
@@ -255,6 +258,16 @@ export async function saveBooking(
       teethData: {},
     });
     data.patientId = pRef.id;
+    await logEvent(
+      { uid: userCtx.uid, name: userCtx.name, role: userCtx.role },
+      {
+        event: "patient.created",
+        patientId: pRef.id,
+        patientName: data.patientName,
+        branchId: data.branchId || undefined,
+        refs: { count: generatedFileId },
+      },
+    );
   }
 
   if (data.existingAppointmentId) {
@@ -333,10 +346,14 @@ export async function saveBooking(
       date: normalizedDate || data.date || prev.date,
     });
 
-    await logActivity(
+    // What this save changed, if anything: a notes-only autosave writes nothing.
+    await logAppointmentEvents(
       { uid: userCtx.uid, name: userCtx.name, role: userCtx.role },
-      "Appointment Updated",
-      `Updated ${data.patientName} appointment ${aid}`
+      appointmentEvents(prev as Record<string, unknown>, updatePayload, {
+        patientId: data.patientId ? String(data.patientId) : undefined,
+        patientName: data.patientName,
+        appointmentId: aid,
+      }),
     );
 
     void fireOwnerWhatsAppAlert(
@@ -459,10 +476,20 @@ export async function saveBooking(
   // A walk-in saved straight as done still tells its approval.
   void syncClaimLineFromAppointment(currentClinicId(), { ...(linkFieldsFrom(data) ?? {}), status: data.status || "Scheduled", doctorId: data.doctorId, date: normalizedDate || data.date });
 
-  await logActivity(
+  await logEvent(
     { uid: userCtx.uid, name: userCtx.name, role: userCtx.role },
-    "Appointment Created",
-    `Booked ${data.patientName} on ${normalizedDate || data.date} at ${normalizedTime || data.time} with ${data.doctor}`
+    {
+      event: "appointment.created",
+      patientId: data.patientId ? String(data.patientId) : undefined,
+      patientName: data.patientName,
+      branchId: data.branchId || undefined,
+      refs: {
+        appointmentId: appRef.id,
+        date: normalizedDate || data.date,
+        time: normalizedTime || data.time,
+        ...(data.doctor ? { doctor: data.doctor } : {}),
+      },
+    },
   );
 
   void fireOwnerWhatsAppAlert(
@@ -503,7 +530,7 @@ export async function saveBooking(
  * is now the user's and the write is one guarded transaction. See DeleteAppointmentDialog.
  */
 
-export async function updateBookingTime(id: string, newDate: string, newTime: string): Promise<void> {
+export async function updateBookingTime(id: string, newDate: string, newTime: string, user?: AuditUser): Promise<void> {
   const ref = getClinicDoc('appointments', id);
   // Read before write, because the patient message needs to know whether the slot actually moved
   // — and who the patient is. Dragging a card onto the slot it already occupies happens all the
@@ -527,5 +554,9 @@ export async function updateBookingTime(id: string, newDate: string, newTime: st
       doctor: String(prev.doctor || ""),
       patientName: typeof prev.patientName === "string" ? prev.patientName : undefined,
     });
+  }
+  if (moved) {
+    const event = appointmentMoveEvent(prev, id, newDate, newTime);
+    if (event) await logEvent(user, event);
   }
 }
