@@ -694,9 +694,16 @@ export default function AppointmentMoneyTab({
     }
 
     setDiscounting(true);
+    // One discount spread over several treatments reads as one group in the activity log. A log tag
+    // must never stop the discount: randomUUID is missing outside a secure context, so fall back.
+    const groupId = targets.length > 1
+      ? (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `g_${Date.now()}_${Math.random().toString(36).slice(2)}`)
+      : undefined;
     try {
       for (const { charge, patch } of patches) {
-        await updateLedgerRow(charge.id, patch);
+        await updateLedgerRow(charge.id, patch, undefined, groupId ? { groupId } : undefined);
       }
       showToast(isAr ? "تم الخصم" : "Discount applied", "success");
       setDiscountTarget(null);

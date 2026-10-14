@@ -54,7 +54,9 @@ import { INSURER_PAYMENT_METHOD, isApprovalRow } from "@/lib/ledgerInsurer";
 import { insurerRows, type LedgerLite } from "@/lib/insurerLedger";
 import { PRIVATE_PAYER_ID } from "@/lib/payers";
 import { LOCATIONS_DOC, parseClinicBranches } from "@/lib/clinicLocations";
-import { logActivityServer } from "@/lib/server/systemLog";
+import { logEventServer } from "@/lib/server/systemLog";
+import { diffChanges, discountEvent } from "@/lib/activity/diff";
+import type { ActivityEvent, Change, EventKey } from "@/lib/activity/types";
 import { assertBranchAllowed, assertRowBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
 import {
   RECEIPT_SETTINGS_DOC,
@@ -114,6 +116,20 @@ function todayKey(): string {
 /** Rounded the way the row will store it (ledgerWrite's rule), so a figure is judged as saved. */
 function money(value: number): number {
   return Number((Number(value) || 0).toFixed(2));
+}
+
+/**
+ * A payment's description as the activity line names it: the treatment, without the "Payment for"
+ * the row's own description starts with (the line already says it is a payment). Undefined when blank.
+ */
+function treatmentText(description: unknown): string | undefined {
+  const text = typeof description === "string" ? description.replace(/^\s*(Payment for|تسديد دفعة لـ)\s*:?\s*/i, "").trim() : "";
+  return text || undefined;
+}
+
+/** A plain-text field of a stored row, or undefined (so an activity ref is simply left off). */
+function textOf(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 /** Only the fields a client is allowed to change, per row type. Everything else is derived. */
@@ -371,8 +387,19 @@ async function createPayment(args: {
       actor,
       via: "finance/ledger:create-payment",
     },
-    action: "Payment Received",
-    details: `${amount} EGP from ${result.patientName || patientId}${procedureId ? ` toward ${procedureId}` : " (on account)"}`,
+    event: {
+      event: "payment.received",
+      patientId,
+      patientName: result.patientName,
+      amount,
+      branchId: branch.branchId,
+      refs: {
+        method: textOf((result.row as Record<string, unknown>).method),
+        receiptNumber: result.receiptNumber,
+        procedure: treatmentText((result.row as Record<string, unknown>).description),
+        ledgerId: result.id,
+      },
+    },
   });
 
   void afterLedgerCreate(clinicId, result.row as Record<string, unknown>, actor);
@@ -598,13 +625,19 @@ async function insurerCollect(args: { clinicId: string; actor: Actor; body: Reco
       clinicId, action: "create" as const, collection: "ledger" as const, documentId: w.id, after: w.row, actor, via: "finance/ledger:insurer-collect",
     })),
   );
-  void logActivityServer({
+  // One line for the whole collection. Its branch is the one every receipt landed in; a batch that
+  // spans branches belongs to no single one.
+  const collectedBranches = new Set(result.written.map((w) => (typeof w.row.branchId === "string" ? w.row.branchId : "")));
+  const collectedBranch = collectedBranches.size === 1 ? [...collectedBranches][0] || null : null;
+  void logEventServer({
     clinicId,
     user: actor,
-    action: "Insurance Payment Collected",
-    details: `${result.paid} EGP from ${payerId} across ${result.count} treatment${result.count === 1 ? "" : "s"}`,
-    severity: "MEDIUM",
-    module: "finance",
+    event: {
+      event: "insurer.collected",
+      amount: result.paid,
+      branchId: collectedBranch,
+      refs: { payerName: textOf(result.written[0]?.row.payerName), count: result.count },
+    },
   });
   for (const w of result.written) void afterLedgerCreate(clinicId, w.row, actor);
 
@@ -651,8 +684,12 @@ async function createEntry(args: { clinicId: string; actor: Actor; body: Record<
 
   await recordMoneyChange({
     entry: { clinicId, action: "create", collection: "ledger", documentId: ref.id, after: row, actor, via: "finance/ledger:create-entry" },
-    action: type === "income" ? "Finance Entry Created" : "Finance Entry Created",
-    details: `${type.toUpperCase()} ${row.amount} EGP - ${row.description}`,
+    event: {
+      event: type === "income" ? "income.added" : "expense.added",
+      amount: Number(row.amount) || 0,
+      branchId: typeof row.branchId === "string" ? row.branchId : null,
+      refs: { procedure: textOf(row.description), ledgerId: ref.id },
+    },
   });
 
   void afterLedgerCreate(clinicId, row, actor);
@@ -671,6 +708,106 @@ async function rowBranchGate(clinicId: string, actor: Actor, id: string) {
 // ---------------------------------------------------------------------------------------------
 // update
 // ---------------------------------------------------------------------------------------------
+
+/** A stored figure as an activity-log value: a finite number, else null. */
+function figureOf(value: unknown): number | null {
+  if (value === undefined || value === null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+const EDITED_EVENT: Record<string, EventKey> = {
+  payment: "payment.edited",
+  expense: "expense.edited",
+  income: "income.edited",
+  procedure: "procedure.edited",
+};
+/** A row of no known type (only very old data) is deleted as a plain entry, and logged as one. */
+const DELETED_EVENT: Record<string, EventKey> = {
+  payment: "payment.deleted",
+  expense: "expense.deleted",
+  income: "income.deleted",
+  procedure: "procedure.deleted",
+};
+/** The fields an edit is described by, and the names the catalogue labels them with. */
+const EDIT_DIFF_FIELDS = ["paid", "amount", "method", "date", "description", "listPrice", "category", "note"] as const;
+
+/**
+ * The activity line for an edit to a ledger row, or null when nothing a person would call an edit
+ * changed. A treatment whose discount moved is a discount event; anything else is "<type>.edited"
+ * listing only the fields the edit carried that really changed.
+ */
+function updateEvent(
+  before: Record<string, unknown>,
+  update: Record<string, unknown>,
+  type: string,
+  rawGroupId: unknown,
+): ActivityEvent | null {
+  // A visit-wide discount is several rows saved one after another; the client tags them alike.
+  // Undefined, not null, when there is none: the writer drops it rather than storing an empty field.
+  const groupId = typeof rawGroupId === "string" && rawGroupId.trim() && rawGroupId.length <= 64 ? rawGroupId : undefined;
+  const common = {
+    patientId: textOf(before.patientId) ?? null,
+    patientName: textOf(before.patientName) ?? null,
+    branchId: textOf(before.branchId) ?? null,
+  };
+
+  if (type === "procedure" && "discountAmount" in update) {
+    const old = Number(before.discountAmount) || 0;
+    const neu = Number(update.discountAmount) || 0;
+    const which = discountEvent(old, neu);
+    if (which) {
+      return {
+        ...common,
+        event: which.event,
+        amount: which.amount,
+        changes: [
+          { field: "price", from: figureOf(before.cost), to: figureOf(update.cost) },
+          { field: "discount", from: old, to: neu },
+        ],
+        reason: textOf(update.discountReason ?? before.discountReason) ?? null,
+        groupId,
+        refs: { procedure: textOf(before.description) },
+      };
+    }
+  }
+
+  const event = EDITED_EVENT[type];
+  if (!event) return null;
+  const RENAMED: Record<string, string> = { note: "notes", ...(type === "procedure" ? { amount: "price" } : {}) };
+  const changes: Change[] = diffChanges(before, update, EDIT_DIFF_FIELDS.filter((f) => f in update))
+    .map((c) => ({ ...c, field: RENAMED[c.field] ?? c.field }));
+  // A payment moved to another treatment: named by label alone, since its values are raw ids.
+  if (type === "payment" && "procedureId" in update && String(update.procedureId ?? "") !== String(before.procedureId ?? "")) {
+    changes.push({ field: "procedure", from: null, to: null });
+  }
+  if (changes.length === 0) return null;
+
+  if (type === "payment") {
+    return {
+      ...common, event, changes, groupId,
+      amount: figureOf(update.paid ?? before.paid ?? before.amount),
+      refs: { method: textOf(update.method ?? before.method), receiptNumber: textOf(before.receiptNumber) },
+    };
+  }
+  if (type === "procedure") {
+    const list = figureOf(update.listPrice ?? before.listPrice);
+    return {
+      ...common, event, changes, groupId,
+      refs: {
+        procedure: textOf(before.description),
+        ...(list !== null ? { listPrice: list } : {}),
+        // An approval's price is the insurer's; the claim id keeps it off the below-list flag.
+        ...(textOf(before.claimId) ? { claimId: textOf(before.claimId) } : {}),
+      },
+    };
+  }
+  return {
+    ...common, event, changes, groupId,
+    amount: figureOf(update.amount ?? before.amount),
+    refs: { procedure: textOf(update.description ?? before.description) },
+  };
+}
 
 async function updateRow(args: { clinicId: string; actor: Actor; body: Record<string, unknown> }) {
   const { clinicId, actor, body } = args;
@@ -1046,14 +1183,14 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
   });
   if (result.unchanged) return NextResponse.json({ ok: true, id });
 
-  await recordMoneyChange({
-    entry: {
-      clinicId, action: "update", collection: "ledger", documentId: id,
-      before: result.before, after: result.update, actor, via: "finance/ledger:update",
-    },
-    action: "Finance Entry Updated",
-    details: `${result.type} ${id}`,
-  });
+  const entry = {
+    clinicId, action: "update" as const, collection: "ledger" as const, documentId: id,
+    before: result.before, after: result.update, actor, via: "finance/ledger:update",
+  };
+  const event = updateEvent(result.before, result.update, result.type, body.groupId);
+  if (event) await recordMoneyChange({ entry, event });
+  // Nothing a person would call an edit (a re-sent, identical figure): the before/after record stays.
+  else await recordLedgerAudit(entry);
 
   void afterLedgerUpdate(clinicId, result.before as Record<string, unknown>, result.update as Record<string, unknown>, actor);
   return NextResponse.json({ ok: true, id });
@@ -1117,8 +1254,14 @@ async function setCommission(args: { clinicId: string; actor: Actor; body: Recor
       clinicId, action: "update", collection: "ledger", documentId: id,
       before: result.before, after: result.update, actor, via: "finance/ledger:set-commission",
     },
-    action: "Commission Split Updated",
-    details: `Set the split on payment ${id} to ${percent}% by hand`,
+    event: {
+      event: "commission.changed",
+      patientId: textOf(result.before.patientId) ?? null,
+      patientName: textOf(result.before.patientName) ?? null,
+      branchId: textOf(result.before.branchId) ?? null,
+      changes: [{ field: "commission", from: figureOf(result.before.doctorCommissionPercentage), to: percent }],
+      refs: { procedure: treatmentText(result.before.description), doctor: textOf(result.before.doctorName) },
+    },
   });
 
   return NextResponse.json({ ok: true, id });
@@ -1209,12 +1352,15 @@ async function setLabFee(args: { clinicId: string; actor: Actor; body: Record<st
       clinicId, action: "update", collection: "ledger", documentId: id,
       before: result.before, after: result.update, actor, via: "finance/ledger:set-lab-fee",
     },
-    action: "Lab Fee Corrected",
-    details:
-      `Lab fee on treatment ${id} corrected from ${result.previous} to ${labFee}` +
-      (result.payments ? `, rebalancing ${result.payments} payment(s)` : "") +
-      (reason ? ` — ${reason}` : ""),
-    severity: "HIGH",
+    event: {
+      event: "labfee.corrected",
+      patientId: textOf(result.before.patientId) ?? null,
+      patientName: textOf(result.before.patientName) ?? null,
+      branchId: textOf(result.before.branchId) ?? null,
+      changes: [{ field: "labFee", from: result.previous, to: labFee }],
+      reason: reason || null,
+      refs: { procedure: textOf(result.before.description), count: result.payments },
+    },
   });
 
   return NextResponse.json({ ok: true, id, previousLabFee: result.previous, labFee });
@@ -1316,9 +1462,19 @@ async function deleteRow(args: { clinicId: string; actor: Actor; body: Record<st
       clinicId, action: "delete", collection: "ledger", documentId: id,
       before: target, actor, via: "finance/ledger:delete",
     },
-    action: "Finance Entry Deleted",
-    details: `Deleted ${type} ${id}: ${String(target.description || "")}`,
-    severity: "HIGH",
+    event: {
+      event: DELETED_EVENT[type] ?? "expense.deleted",
+      patientId: textOf(target.patientId) ?? null,
+      patientName: textOf(target.patientName) ?? null,
+      amount: figureOf(target.paid ?? target.amount),
+      branchId: textOf(target.branchId) ?? null,
+      refs: {
+        method: textOf(target.method),
+        receiptNumber: textOf(target.receiptNumber),
+        procedure: type === "payment" ? treatmentText(target.description) : textOf(target.description),
+        ...(verdict.cascade.length > 1 ? { count: verdict.cascade.length - 1 } : {}),
+      },
+    },
   });
 
   // Cascaded rows are recorded individually so each is searchable by its own id.

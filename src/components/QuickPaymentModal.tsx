@@ -12,8 +12,6 @@ import {
 } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
-import { useAuth } from "@/context/AuthContext";
-import { logActivity } from "@/lib/logger";
 import { patientMatchesSearch } from "@/lib/flexibleSearch";
 import { sendPatientPaymentWhatsApp } from "@/lib/sendPatientPaymentWhatsAppClient";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
@@ -36,7 +34,6 @@ export default function QuickPaymentModal({ isOpen, onClose, onSave, patients, p
   const { showToast } = useUI();
   const { requireBranchForMoney, picker: branchPicker } = useBranchForMoney();
     const { language, isRTL } = useLanguage();
-    const { user } = useAuth();
     
     // --- TRANSLATIONS DICTIONARY ---
     const t = {
@@ -207,13 +204,8 @@ export default function QuickPaymentModal({ isOpen, onClose, onSave, patients, p
             // not make it look like the money was not taken.
             void sendPatientPaymentWhatsApp({ patientId: String(selectedPatient.id), ledgerId: paymentId });
 
-            await logActivity(
-                { uid: user?.uid, name: user?.name, role: user?.role },
-                "Payment Received",
-                isGeneral
-                    ? `General payment received from ${selectedPatient.name}: ${amountToPay} EGP`
-                    : `Treatment payment for ${selectedPatient.name}: ${amountToPay} EGP toward "${selectedProcedure.description}"`
-            );
+            // The activity line is written by the payments route (payment.received); a second one
+            // here put every payment on the activity screen twice.
 
             onSave();
             onClose();

@@ -187,8 +187,20 @@ export function createLedgerEntry(args: CreateEntryArgs): Promise<{ id: string }
  * so this is not the same as deleting the row and re-entering it: the payment keeps its date, its
  * method, who collected it, and its place in the audit trail.
  */
-export function updateLedgerRow(id: string, patch: Record<string, unknown>, clinicId?: string | null) {
-  return post("/api/finance/ledger", { action: "update", id, patch, clinicId });
+export function updateLedgerRow(
+  id: string,
+  patch: Record<string, unknown>,
+  clinicId?: string | null,
+  /** `groupId` ties several rows saved by one action (a visit-wide discount) into one activity group. */
+  meta?: { groupId?: string },
+) {
+  return post("/api/finance/ledger", {
+    action: "update",
+    id,
+    patch,
+    clinicId,
+    ...(meta?.groupId ? { groupId: meta.groupId } : {}),
+  });
 }
 
 /** Throws MoneyApiError with reason "HAS_PAYMENTS" when money has been collected against it. */

@@ -39,7 +39,11 @@ import {
   parsePayers,
   payerStamp,
   payerForPriceList,
+  PRIVATE_PAYER_ID,
 } from "@/lib/payers";
+import { diffChanges } from "@/lib/activity/diff";
+import type { Change } from "@/lib/activity/types";
+import { patientNameOf } from "@/lib/server/patientName";
 import { buildDeleteContext, evaluateDelete } from "@/lib/deletePolicy";
 import { applyProcedureSync, readProcedureCommissionBasis, readProcedurePayments, stampPaymentsDentist } from "@/lib/server/ledgerSync";
 import { restampStaffSettlementsFor } from "@/lib/server/staffSettlementSync";
@@ -491,8 +495,27 @@ async function createProcedure(args: { clinicId: string; actor: Actor; body: Rec
       clinicId, action: "create", collection: "clinical_notes", documentId: result.noteId,
       after: result.note, actor, via: "clinical/procedures:create",
     },
-    action: "Procedure Logged",
-    details: `${priced.displayProcedure} (${priced.pricing.cost} EGP) for ${result.patientName || patientId}`,
+    event: {
+      event: "procedure.added",
+      patientId,
+      patientName: result.patientName,
+      amount: priced.pricing.cost,
+      changes: [
+        { field: "listPrice", from: null, to: priced.pricing.listPrice },
+        { field: "price", from: null, to: priced.pricing.cost },
+        ...(priced.pricing.discountAmount > 0 ? [{ field: "discount", from: null, to: priced.pricing.discountAmount }] : []),
+      ],
+      reason: priced.pricing.discountReason,
+      branchId: branch.branchId,
+      refs: {
+        procedure: priced.displayProcedure,
+        ...(appointmentId ? { appointmentId } : {}),
+        noteId: result.noteId,
+        ...(result.ledgerId ? { ledgerId: result.ledgerId } : {}),
+        ...(priced.doctorName ? { doctor: priced.doctorName } : {}),
+        ...(priced.payer.payerId !== PRIVATE_PAYER_ID ? { payerName: priced.payer.payerName } : {}),
+      },
+    },
   });
 
   if (result.ledgerId) {
@@ -586,7 +609,7 @@ const LINE_STATUS_MESSAGE = "An insurance service is Completed, Planned or Ongoi
  * written to the approval in the same transaction, so the Insurance tab, the monthly sheet and
  * payroll see exactly what the clinical tab shows.
  */
-async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: Record<string, unknown>; noteId: string; before: Record<string, unknown> }) {
+async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: Record<string, unknown>; noteId: string; before: Record<string, unknown>; branchId?: string | null }) {
   const { clinicId, actor, body, noteId, before } = args;
   const changed = approvalNoteChanges(body, before);
   if (changed.some((field) => !APPROVAL_LINE_FIELDS.has(field))) return bad(APPROVAL_NOTE_MESSAGE, 409);
@@ -690,14 +713,26 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
   if (outcome.kind === "no_line") return bad(APPROVAL_NOTE_MESSAGE, 409);
   await restampStaffSettlementsFor(clinicId, outcome.restamp);
 
-  const what = [noteChanged ? "note" : "", status !== undefined ? `state ${String(status)}` : "", doctorId !== undefined ? "dentist" : "", teeth !== undefined ? `teeth ${teeth.join(",") || "none"}` : ""].filter(Boolean).join(", ");
+  // What changed, by label alone (the catalogue prints "Notes, Status, Doctor, Tooth").
+  const what: Change[] = [
+    ...(noteChanged ? ["notes"] : []),
+    ...(status !== undefined ? ["status"] : []),
+    ...(doctorId !== undefined ? ["doctor"] : []),
+    ...(teeth !== undefined ? ["tooth"] : []),
+  ].map((field) => ({ field, from: null, to: null }));
   await recordMoneyChange({
     entry: {
       clinicId, action: "update", collection: "clinical_notes", documentId: noteId,
       before, after: outcome.after, actor, via: "clinical/procedures:update",
     },
-    action: "Procedure Updated",
-    details: `${what} on ${String(before.procedure || "treatment")} (insurance approval ${claimId})`,
+    event: {
+      event: "procedure.edited",
+      patientId: typeof before.patientId === "string" ? before.patientId : null,
+      patientName: await patientNameOf(clinicId, typeof before.patientId === "string" ? before.patientId : null),
+      changes: what,
+      branchId: args.branchId ?? null,
+      refs: { claimId, procedure: String(before.procedure || "") || undefined },
+    },
   });
   return answer();
 }
@@ -730,15 +765,18 @@ async function updateProcedure(args: { clinicId: string; actor: Actor; body: Rec
   const current = await adminClinicDoc(clinicId, "clinical_notes", noteId).get();
   // Another branch's charge is not this person's to change. Read before the transaction: a
   // charge's branch never changes by edit.
+  // Kept for the activity line too: an edit is logged against the branch of the charge it changes.
+  const chargeBranch = current.exists ? await linkedChargeBranch(clinicId, noteId, current.data()) : null;
   if (current.exists) {
     const gate = await assertRowBranchAllowed({
       clinicId, uid: actor.uid, role: actor.role,
-      rowBranchId: await linkedChargeBranch(clinicId, noteId, current.data()),
+      rowBranchId: chargeBranch,
     });
     if (!gate.ok) return gate.response;
   }
+  const chargeBranchId = typeof chargeBranch === "string" && chargeBranch ? chargeBranch : null;
   if (current.exists && isApprovalRow(current.data())) {
-    return await updateApprovalNote({ clinicId, actor, body, noteId, before: current.data() || {} });
+    return await updateApprovalNote({ clinicId, actor, body, noteId, before: current.data() || {}, branchId: chargeBranchId });
   }
 
   const storedPayerId = current.exists ? current.data()?.payerId : null;
@@ -868,15 +906,47 @@ async function updateProcedure(args: { clinicId: string; actor: Actor; body: Rec
   });
   await restampStaffSettlementsFor(clinicId, result.restamp);
 
-  await recordMoneyChange({
-    entry: {
-      clinicId, action: "update", collection: "clinical_notes", documentId: noteId,
-      before: result.before, after: { cost: priced.pricing.cost, procedure: priced.displayProcedure, status: priced.status },
-      actor, via: "clinical/procedures:update",
+  // Only what really changed, with the price and discount under the names the catalogue reads.
+  // A note from before discounts existed has no discountAmount: that is no discount, not a blank
+  // one, so a first edit of it does not read as "discount — → 0".
+  const RENAMED: Record<string, string> = { cost: "price", discountAmount: "discount", payerName: "payer" };
+  const changes = diffChanges(
+    { ...result.before, discountAmount: Number(result.before.discountAmount) || 0 },
+    {
+      procedure: priced.displayProcedure,
+      cost: priced.pricing.cost,
+      listPrice: priced.pricing.listPrice,
+      discountAmount: priced.pricing.discountAmount,
+      status: priced.status,
+      payerName: priced.payer.payerName,
+      date: priced.date,
     },
-    action: "Procedure Updated",
-    details: `${priced.displayProcedure} (${priced.pricing.cost} EGP) for ${result.patientName || result.patientId}`,
-  });
+    ["procedure", "cost", "listPrice", "discountAmount", "status", "payerName", "date"],
+  ).map((c) => ({ ...c, field: RENAMED[c.field] ?? c.field }));
+
+  const after = { cost: priced.pricing.cost, procedure: priced.displayProcedure, status: priced.status };
+  const entry = {
+    clinicId, action: "update" as const, collection: "clinical_notes" as const, documentId: noteId,
+    before: result.before, after, actor, via: "clinical/procedures:update",
+  };
+  if (changes.length > 0) {
+    await recordMoneyChange({
+      entry,
+      event: {
+        event: "procedure.edited",
+        patientId: result.patientId || null,
+        patientName: result.patientName,
+        changes,
+        // The discount's reason belongs on the line only when the discount is what moved.
+        reason: changes.some((c) => c.field === "discount") ? priced.pricing.discountReason : null,
+        branchId: chargeBranchId ?? branch.branchId,
+        refs: { listPrice: priced.pricing.listPrice, procedure: priced.displayProcedure },
+      },
+    });
+  } else {
+    // Nothing a person would call an edit: the before/after record is still kept, the activity line is not.
+    await recordLedgerAudit(entry);
+  }
 
   return NextResponse.json({ ok: true, noteId, ledgerId: result.ledgerId, cost: priced.pricing.cost });
 }
@@ -900,9 +970,10 @@ async function deleteProcedure(args: { clinicId: string; actor: Actor; body: Rec
   const linkedSnap = await adminClinicCollection(clinicId, "ledger").where("clinicalNoteId", "==", noteId).get();
   if (linkedSnap.docs.some((d) => isApprovalRow(d.data()))) return bad(APPROVAL_DELETE_MESSAGE, 409);
   const charge = linkedSnap.docs.find((d) => String(d.data().type) === "procedure");
+  const chargeBranch = charge ? charge.data().branchId : await linkedChargeBranch(clinicId, noteId, note);
   const gate = await assertRowBranchAllowed({
     clinicId, uid: actor.uid, role: actor.role,
-    rowBranchId: charge ? charge.data().branchId : await linkedChargeBranch(clinicId, noteId, note),
+    rowBranchId: chargeBranch,
   });
   if (!gate.ok) return gate.response;
   const related: Array<{ id: string; type?: string; procedureId?: string | null; clinicalNoteId?: string | null }> =
@@ -946,9 +1017,14 @@ async function deleteProcedure(args: { clinicId: string; actor: Actor; body: Rec
       clinicId, action: "delete", collection: "clinical_notes", documentId: noteId,
       before: note, actor, via: "clinical/procedures:delete",
     },
-    action: "Procedure Deleted",
-    details: `Deleted ${String(note.procedure || "treatment")} and ${verdict.cascade.length - 1} linked finance row(s)`,
-    severity: "HIGH",
+    event: {
+      event: "procedure.deleted",
+      patientId: typeof note.patientId === "string" ? note.patientId : null,
+      patientName: (charge?.data()?.patientName as string | undefined) || (await patientNameOf(clinicId, typeof note.patientId === "string" ? note.patientId : null)),
+      amount: Number(note.cost) || 0,
+      branchId: typeof chargeBranch === "string" && chargeBranch ? chargeBranch : null,
+      refs: { procedure: String(note.procedure || "") || undefined, count: verdict.cascade.length - 1 },
+    },
   });
   for (const item of verdict.cascade) {
     if (item.id === noteId) continue;
@@ -976,6 +1052,9 @@ async function moveProcedure(args: { clinicId: string; actor: Actor; body: Recor
   // payroll read. Moving it here would re-date the books alone and the three would disagree.
   if (linkedSnap.docs.some((d) => isApprovalRow(d.data()))) return bad(APPROVAL_MOVE_MESSAGE, 409);
   const linkedIds = linkedSnap.docs.map((d) => d.id);
+  // For the activity line only: the branch of the charge that moves with the treatment.
+  const movedCharge = linkedSnap.docs.find((d) => String(d.data().type) === "procedure")?.data()?.branchId;
+  const movedBranchId = typeof movedCharge === "string" && movedCharge ? movedCharge : null;
 
   const result = await adminDb().runTransaction(async (txn) => {
     const noteRef = adminClinicDoc(clinicId, "clinical_notes", noteId);
@@ -1006,8 +1085,17 @@ async function moveProcedure(args: { clinicId: string; actor: Actor; body: Recor
       before: result.before, after: { appointmentId: targetAppointmentId, date: result.newDate },
       actor, via: "clinical/procedures:move",
     },
-    action: "Procedure Moved",
-    details: `Moved ${String(result.before.procedure || "treatment")} to visit ${targetAppointmentId}`,
+    event: {
+      event: "procedure.moved",
+      patientId: typeof result.before.patientId === "string" ? result.before.patientId : null,
+      patientName: await patientNameOf(clinicId, typeof result.before.patientId === "string" ? result.before.patientId : null),
+      branchId: movedBranchId,
+      refs: {
+        procedure: String(result.before.procedure || "") || undefined,
+        date: result.newDate || undefined,
+        appointmentId: targetAppointmentId,
+      },
+    },
   });
 
   return NextResponse.json({ ok: true, noteId, date: result.newDate });
@@ -1058,16 +1146,29 @@ async function continueProcedure(args: { clinicId: string; actor: Actor; body: R
     };
     txn.set(newRef, continued);
 
-    return { newNoteId: newRef.id, continued, sourceProcedure: String(source.procedure || "treatment") };
+    return { newNoteId: newRef.id, continued, sourceProcedure: String(source.procedure || "treatment"), source, newDate };
   });
 
+  // For the activity line only, and never allowed to fail the request: the original charge's branch.
+  const sourceBranch = await linkedChargeBranch(clinicId, noteId, result.source).catch(() => null);
+  const patientId = typeof result.source.patientId === "string" ? result.source.patientId : null;
   await recordMoneyChange({
     entry: {
       clinicId, action: "create", collection: "clinical_notes", documentId: result.newNoteId,
       after: result.continued, actor, via: "clinical/procedures:continue",
     },
-    action: "Procedure Continued",
-    details: `Continued ${result.sourceProcedure} into visit ${targetAppointmentId} at no extra charge`,
+    event: {
+      event: "procedure.continued",
+      patientId,
+      patientName: await patientNameOf(clinicId, patientId),
+      branchId: typeof sourceBranch === "string" && sourceBranch ? sourceBranch : null,
+      refs: {
+        procedure: result.sourceProcedure,
+        date: result.newDate || undefined,
+        appointmentId: targetAppointmentId,
+        noteId: result.newNoteId,
+      },
+    },
   });
 
   return NextResponse.json({ ok: true, noteId: result.newNoteId });

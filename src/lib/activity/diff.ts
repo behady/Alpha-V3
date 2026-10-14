@@ -58,3 +58,19 @@ export function diffChanges(
   }
   return out;
 }
+
+/**
+ * Which discount event a treatment's discount moving from `old` to `neu` is, and the figure the
+ * line shows: the new discount when one is given, the old one when it is taken off, and the
+ * difference when it is changed. No change is no event.
+ */
+export function discountEvent(
+  old: number,
+  neu: number,
+): { event: "discount.given" | "discount.changed" | "discount.removed"; amount: number } | null {
+  if (old === neu) return null;
+  if (old === 0 && neu > 0) return { event: "discount.given", amount: neu };
+  if (neu === 0 && old > 0) return { event: "discount.removed", amount: old };
+  // Rounded to the piastre: 0.3 - 0.1 is 0.19999999999999998 in floating point.
+  return { event: "discount.changed", amount: Math.round((neu - old) * 100) / 100 };
+}

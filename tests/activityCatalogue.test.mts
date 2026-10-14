@@ -20,7 +20,7 @@ import {
   storedFields,
   stripUndefined,
 } from "../src/lib/activity/catalogue";
-import { diffChanges } from "../src/lib/activity/diff";
+import { diffChanges, discountEvent } from "../src/lib/activity/diff";
 
 let checks = 0;
 const ok = (cond: boolean, msg: string) => {
@@ -163,6 +163,15 @@ eq(sentence({ event: "insurance.status", patientName: "سارة", refs: { payerN
 ok(sentence({ event: "insurance.edited", patientName: "Sara", refs: { payerName: "AXA", approvalNumber: "9" } }, "en").includes("at AXA no. 9"), "insurance.edited shows payer and approval");
 ok(sentence({ event: "lab.status", refs: { status: "ready" } }, "en").includes("(ready)"), "lab.status shows refs.status");
 ok(sentence({ event: "lab.created", refs: { status: "approved" } }, "ar").includes("(معتمدة)"), "lab.created shows refs.status");
+
+// --- 9b. discountEvent: which discount event a before/after pair is ---
+eq(discountEvent(200, 200), null, "an unchanged discount is no event");
+eq(discountEvent(0, 0), null, "no discount either side is no event");
+deep(discountEvent(0, 200), { event: "discount.given", amount: 200 });
+deep(discountEvent(300, 0), { event: "discount.removed", amount: 300 });
+deep(discountEvent(200, 300), { event: "discount.changed", amount: 100 });
+deep(discountEvent(300, 100), { event: "discount.changed", amount: -200 });
+deep(discountEvent(0.1, 0.3), { event: "discount.changed", amount: 0.2 }, "no floating-point tail");
 
 // --- 10. helpers ---
 eq(money(1200, "ar"), "1,200 ج");
