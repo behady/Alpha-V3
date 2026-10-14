@@ -9,6 +9,7 @@
  */
 
 import { actionLabel, readableDetails } from "./legacy";
+import { countedNoun } from "../arabicCount";
 import type { ActivityEvent, ActivityLogDoc, Category, Change, EventKey, Refs, Scalar } from "./types";
 
 type Lang = "ar" | "en";
@@ -99,6 +100,28 @@ const STATUS_AR: Record<string, string> = {
   claimed: "تم تقديم المطالبة",
   collected: "تم التحصيل",
 };
+
+/**
+ * The reason codes the server writes itself, said in words. A reason a person typed is not in here
+ * and prints as typed.
+ */
+const REASON_TEXT: Record<string, [string, string]> = {
+  "kept treatments": ["مع الإبقاء على الخدمات", "treatments kept"],
+  "with treatments": ["مع حذف الخدمات", "treatments deleted too"],
+  "not treated": ["لم يتم العلاج", "not treated"],
+  replaced: ["استبدال بعد تعديل الموافقة", "replaced by the edited approval"],
+};
+function reasonText(reason: string, lang: Lang): string {
+  const hit = REASON_TEXT[reason.trim().toLowerCase()];
+  return hit ? hit[lang === "ar" ? 0 : 1] : reason;
+}
+
+/** "3 خدمات" / "3 treatments", with the Arabic counting rule. */
+function treatments(n: number, lang: Lang): string {
+  return lang === "ar"
+    ? countedNoun(n, true, { one: "خدمة واحدة", two: "خدمتين", few: "خدمات", many: "خدمة" })
+    : countedNoun(n, false, { one: "treatment", two: "treatments", few: "treatments", many: "treatments" });
+}
 
 const MONEY_FIELDS: ReadonlySet<string> = new Set([
   "price", "listPrice", "discount", "amount", "paid", "cost", "labFee", "baseSalary",
@@ -326,6 +349,8 @@ export function sentence(e: ActivityEvent, lang: Lang): string {
 
   let head = "";
   const extras: Array<string | null> = [];
+  /** Set when the sentence already said the reason in its own words, so the tail does not repeat it. */
+  let reasonSaid = false;
 
   switch (e.event) {
     // ------------------------------------------------------------ procedures
@@ -439,9 +464,20 @@ export function sentence(e: ActivityEvent, lang: Lang): string {
       head = j(t("نقل موعد", "Appointment moved:"), P);
       extras.push(others());
       break;
-    case "appointment.deleted":
+    case "appointment.deleted": {
       head = j(t("حذف موعد", "Appointment deleted:"), P, when);
+      const code = reason?.toLowerCase();
+      if (code === "with treatments") {
+        // The visit's treatments and their charges went with it: say how many and how much money.
+        const what = count ? treatments(count, lang) : t("الخدمات", "its treatments");
+        extras.push(ar ? j(`مع حذف ${what}`, amt && `و ${amt}`) : j(`with ${what}`, amt && `and ${amt}`, "removed"));
+        reasonSaid = true;
+      } else if (code === "kept treatments") {
+        extras.push(reasonText(code, lang));
+        reasonSaid = true;
+      }
       break;
+    }
 
     // ------------------------------------------------------------ patients and records
     case "patient.created": head = j(t("إضافة مريض", "Patient added:"), P); break;
@@ -454,6 +490,11 @@ export function sentence(e: ActivityEvent, lang: Lang): string {
       const verb = e.event === "record.deleted" ? t("حذف", "Deleted")
         : e.event === "record.restored" ? t("استرجاع", "Restored")
         : t("حذف نهائي لـ", "Permanently deleted");
+      if (e.event === "record.purged" && Pn && !proc) {
+        // The purged entry is the patient: their whole file is gone, not one record from it.
+        head = j(t("حذف نهائي لملف المريض", "Permanently deleted patient file"), Pn);
+        break;
+      }
       const what = count !== null && count !== 1 ? t(`سجلات (${num(count)})`, `${num(count)} records`) : t("سجل", "a record");
       head = j(verb, what, Pn && t(`من ملف ${Pn}`, `from ${Pn}'s file`), proc);
       break;
@@ -485,7 +526,8 @@ export function sentence(e: ActivityEvent, lang: Lang): string {
       head = String(e.event ?? "");
   }
 
-  const tail = reason ? [t(`السبب: ${reason}`, `Reason: ${reason}`)] : [];
+  const said = reason && !reasonSaid ? reasonText(reason, lang) : null;
+  const tail = said ? [t(`السبب: ${said}`, `Reason: ${said}`)] : [];
   return [head, ...extras, ...tail].filter((p): p is string => !!p && p.trim() !== "").join(" · ");
 }
 

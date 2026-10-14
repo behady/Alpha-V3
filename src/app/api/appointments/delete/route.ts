@@ -262,6 +262,10 @@ export async function POST(request: Request) {
         patientId: textOf(appointment.patientId) ?? null,
         patientName: textOf(appointment.patientName) ?? null,
         branchId: textOf(appointment.branchId) ?? null,
+        // The money that left with the treatments: what the deleted visit's treatments cost.
+        ...(servicesAction === "delete"
+          ? { amount: Math.round(notes.reduce((sum, n) => sum + (Number(n.data.cost) || 0), 0) * 100) / 100 }
+          : {}),
         reason: servicesAction === "delete" ? "with treatments" : "kept treatments",
         refs: { date: textOf(appointment.date), time: textOf(appointment.time), doctor: textOf(appointment.doctor), count: notes.length },
       },

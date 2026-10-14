@@ -173,6 +173,34 @@ deep(discountEvent(200, 300), { event: "discount.changed", amount: 100 });
 deep(discountEvent(300, 100), { event: "discount.changed", amount: -200 });
 deep(discountEvent(0.1, 0.3), { event: "discount.changed", amount: 0.2 }, "no floating-point tail");
 
+// --- 9b. Task 4 review: purged patient file, appointment money, reason codes in words ---
+const purgedPatient = { event: "record.purged", patientId: "P9", patientName: "سارة علي" } as const;
+eq(sentence(purgedPatient, "ar"), "حذف نهائي لملف المريض سارة علي");
+eq(sentence(purgedPatient, "en"), "Permanently deleted patient file سارة علي");
+eq(sentence({ event: "record.purged", patientName: "Sara", refs: { count: 8 } }, "en"), "Permanently deleted patient file Sara", "a purged patient with linked records is still the patient file");
+eq(sentence({ event: "record.purged", patientName: "Sara", refs: { procedure: "Crown" } }, "en"), "Permanently deleted a record from Sara's file Crown", "a record from a file keeps its own sentence");
+eq(sentence({ event: "record.purged", refs: { procedure: "Amoxicillin" } }, "ar"), "حذف نهائي لـ سجل Amoxicillin");
+
+const apptGone = { event: "appointment.deleted", patientName: "سارة", amount: 1500, reason: "with treatments", refs: { date: "2026-10-20", time: "18:00", count: 3 } } as const;
+eq(sentence(apptGone, "ar"), "حذف موعد سارة 2026-10-20 18:00 · مع حذف 3 خدمات و 1,500 ج");
+eq(sentence(apptGone, "en"), "Appointment deleted: سارة 2026-10-20 18:00 · with 3 treatments and 1,500 EGP removed");
+eq(sentence({ ...apptGone, refs: { ...apptGone.refs, count: 1 } }, "ar"), "حذف موعد سارة 2026-10-20 18:00 · مع حذف خدمة واحدة و 1,500 ج");
+eq(sentence({ ...apptGone, refs: { ...apptGone.refs, count: 2 } }, "ar"), "حذف موعد سارة 2026-10-20 18:00 · مع حذف خدمتين و 1,500 ج");
+eq(sentence({ ...apptGone, refs: { ...apptGone.refs, count: 1 } }, "en"), "Appointment deleted: سارة 2026-10-20 18:00 · with 1 treatment and 1,500 EGP removed");
+const apptKept = { event: "appointment.deleted", patientName: "سارة", reason: "kept treatments", refs: { date: "2026-10-20", time: "18:00", count: 2 } } as const;
+eq(sentence(apptKept, "ar"), "حذف موعد سارة 2026-10-20 18:00 · مع الإبقاء على الخدمات");
+eq(sentence(apptKept, "en"), "Appointment deleted: سارة 2026-10-20 18:00 · treatments kept");
+
+const notTreated = { event: "procedure.deleted", patientName: "سارة", amount: 600, reason: "not treated", refs: { procedure: "Inlay" } } as const;
+eq(sentence(notTreated, "ar"), "حذف إجراء Inlay لـ سارة (600 ج) · السبب: لم يتم العلاج");
+eq(sentence(notTreated, "en"), "Procedure deleted: Inlay for سارة (600 EGP) · Reason: not treated");
+eq(sentence({ ...notTreated, reason: "replaced" }, "ar"), "حذف إجراء Inlay لـ سارة (600 ج) · السبب: استبدال بعد تعديل الموافقة");
+eq(sentence({ ...notTreated, reason: "replaced" }, "en"), "Procedure deleted: Inlay for سارة (600 EGP) · Reason: replaced by the edited approval");
+eq(sentence({ event: "record.deleted", reason: "with treatments" }, "ar"), "حذف سجل · السبب: مع حذف الخدمات", "a known code is translated wherever it appears");
+eq(sentence({ ...notTreated, reason: "دخل بالغلط" }, "ar"), "حذف إجراء Inlay لـ سارة (600 ج) · السبب: دخل بالغلط", "a typed reason prints as typed");
+ok(!/[A-Za-z]{3,}/.test(sentence(apptKept, "ar") + sentence(apptGone, "ar") + sentence({ ...notTreated, refs: {} }, "ar") + sentence({ ...notTreated, reason: "replaced", refs: {} }, "ar")),
+  "no English words left in the Arabic sentences");
+
 // --- 10. helpers ---
 eq(money(1200, "ar"), "1,200 ج");
 eq(money(1200, "en"), "1,200 EGP");

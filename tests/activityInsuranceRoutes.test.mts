@@ -243,6 +243,22 @@ console.log("\n5. an appointment deleted");
   check("module is appointments", log.module === "appointments", log.module);
   check("it names the patient, branch and reason", log.patientName === PATIENT && log.branchId === "hel" && log.reason === "kept treatments", log);
   check("it is flagged", log.flag === true, log.flag);
+  check("keeping the treatments carries no money", log.amount === undefined, log.amount);
+}
+
+console.log("\n5b. an appointment deleted with its treatments and their charges");
+{
+  await col("appointments").doc("A2").set({ patientId: "P1", patientName: PATIENT, date: "2026-10-21", time: "19:00", doctor: "Dr One", branchId: "hel" });
+  await col("clinical_notes").doc("AN1").set({ patientId: "P1", appointmentId: "A2", procedure: "Crown", cost: 1200, ledgerId: "AL1" });
+  await col("clinical_notes").doc("AN2").set({ patientId: "P1", appointmentId: "A2", procedure: "Filling", cost: 300, ledgerId: "AL2" });
+  await col("ledger").doc("AL1").set({ patientId: "P1", type: "procedure", appointmentId: "A2", clinicalNoteId: "AN1", amount: 1200, cost: 1200 });
+  await col("ledger").doc("AL2").set({ patientId: "P1", type: "procedure", appointmentId: "A2", clinicalNoteId: "AN2", amount: 300, cost: 300 });
+  const r = await call(apptDeleteRoute.POST, { appointmentId: "A2", servicesAction: "delete" });
+  check("the delete is accepted", r.status === 200 && r.json.ok === true && r.json.deletedLedgerRows === 2, r);
+  const log = (await logsFor("appointment.deleted"))[0] ?? {};
+  check("amount is the deleted charges' total (1,500)", log.amount === 1500, log.amount);
+  check("count is the treatments, reason the code", log.refs?.count === 2 && log.reason === "with treatments", { refs: log.refs, reason: log.reason });
+  check("the sentence says the money went", log.details === "Appointment deleted: EXAMPLE PATIENT NAME 2026-10-21 19:00 · with 2 treatments and 1,500 EGP removed", log.details);
 }
 
 console.log("\n6. a patient to the bin, back, and purged");
@@ -277,6 +293,7 @@ console.log("\n6. a patient to the bin, back, and purged");
   check("the purge is accepted", purged.status === 200 && purged.json.ok === true, purged);
   const rp = await logsFor("record.purged");
   check("one record.purged naming the patient, flagged", rp.length === 1 && rp[0]?.patientName === "Bin Patient" && rp[0]?.flag === true, rp[0]);
+  check("it reads as the patient's whole file", rp[0]?.details === "Permanently deleted patient file Bin Patient" && rp[0]?.refs?.procedure === undefined, rp[0]?.details);
 }
 
 console.log("\nno line anywhere carries a raw id in its details, and every line is v2");
