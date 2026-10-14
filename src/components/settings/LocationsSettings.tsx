@@ -19,7 +19,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useClinic } from "@/context/ClinicContext";
 import { useAuth } from "@/context/AuthContext";
 import { logEvent } from "@/lib/logger";
-import { branchListChanges } from "@/lib/activity/diff";
+import { branchListChanges, namedItemChanges } from "@/lib/activity/diff";
 import { isUnlocked } from "@/lib/featureCatalog";
 import { useSettingsText } from "@/lib/useSettingsText";
 import { countedNoun } from "@/lib/arabicCount";
@@ -106,15 +106,27 @@ export default function LocationsSettings() {
         { branches: toSave, updatedAt: new Date().toISOString() },
         { merge: true }
       );
-      // Branches by name (added, removed, renamed), then the rooms of each branch that stayed.
+      // Branches by name (added, removed, renamed), then for each branch that stayed its details
+      // (the receipt prefix decides how its receipts are numbered) and its rooms by name.
       const before = stored ?? [];
       const changes = branchListChanges(before, toSave, "branch");
+      const details = namedItemChanges(before, toSave, [
+        "address", "phone", "code", "receiptPrefix", "etaBranchCode", "taxRegistration",
+      ]);
+      changes.push(...details.changes);
+      const touched = new Set(details.names);
       for (const b of toSave) {
         const old = before.find((p) => p.id === b.id);
-        if (old) changes.push(...branchListChanges(old.rooms ?? [], b.rooms ?? [], "room"));
+        if (!old) continue;
+        const rooms = branchListChanges(old.rooms ?? [], b.rooms ?? [], "room");
+        if (rooms.length && b.name.trim()) touched.add(b.name.trim());
+        changes.push(...rooms);
       }
       if (changes.length) {
-        void logEvent({ uid: user?.uid, name: user?.name, role: user?.role }, { event: "settings.branches", changes });
+        void logEvent(
+          { uid: user?.uid, name: user?.name, role: user?.role },
+          { event: "settings.branches", changes, refs: touched.size ? { branchName: Array.from(touched).join(", ") } : undefined },
+        );
       }
       setBranches(toSave);
       setStored(toSave);

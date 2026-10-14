@@ -60,6 +60,62 @@ export function diffChanges(
 }
 
 /**
+ * Any value as a comparable key: scalars as diffChanges sees them (trimmed, "" = null, dates on
+ * the clinic clock), objects with their keys sorted and blank entries dropped, and an empty list
+ * or object the same as nothing. So a map read back from Firestore in another key order, or an
+ * absent field against an empty one, is not a change.
+ */
+function keyOf(value: unknown): string {
+  if (Array.isArray(value)) return value.length ? `[${value.map(keyOf).join(",")}]` : "null";
+  if (value && typeof value === "object" && !asDate(value)) {
+    const o = value as Record<string, unknown>;
+    const keys = Object.keys(o).filter((k) => keyOf(o[k]) !== "null").sort();
+    return keys.length ? `{${keys.map((k) => `${JSON.stringify(k)}:${keyOf(o[k])}`).join(",")}}` : "null";
+  }
+  const n = normalise(value);
+  return n.kind === "scalar" ? JSON.stringify(n.value) : n.key;
+}
+
+/**
+ * A change reported by its label alone, for values that must not or cannot be printed (medical
+ * text, maps, slugs): one `{field, from: null, to: null}` when the two sides differ, else none.
+ */
+export function labelOnlyChange(field: string, prev: unknown, next: unknown): Change[] {
+  return keyOf(prev) === keyOf(next) ? [] : [{ field, from: null, to: null }];
+}
+
+/**
+ * The details of the items of a named list that are on both sides (matched by id): `valueFields`
+ * as from → to, `labelFields` by label alone. `names` lists the items that changed, by name, so
+ * the event can say which branch, lab or insurer it was about. Added, removed and renamed items
+ * are branchListChanges' job, not this one's.
+ */
+export function namedItemChanges<T extends { id: string; name?: string | null }>(
+  prev: ReadonlyArray<T>,
+  next: ReadonlyArray<T>,
+  valueFields: readonly string[],
+  labelFields: readonly string[] = [],
+): { changes: Change[]; names: string[] } {
+  const changes: Change[] = [];
+  const names: string[] = [];
+  for (const item of next) {
+    const old = prev.find((p) => p.id === item.id);
+    if (!old) continue;
+    const a = old as unknown as Record<string, unknown>;
+    const b = item as unknown as Record<string, unknown>;
+    const mine = [
+      ...diffChanges(a, b, valueFields),
+      ...labelFields.flatMap((f) => labelOnlyChange(f, a[f], b[f])),
+    ];
+    if (!mine.length) continue;
+    changes.push(...mine);
+    const name = String(item.name ?? old.name ?? "").trim();
+    if (name && !names.includes(name)) names.push(name);
+  }
+  return { changes, names };
+}
+
+/**
  * What changed in a settings list of named items (branches, labs, insurers), matched by id: one
  * change per removed item (`name → null`), renamed item (`old → new`) and added item (`null →
  * name`), in that order. Only names are ever reported, never the ids. `field` is the label the

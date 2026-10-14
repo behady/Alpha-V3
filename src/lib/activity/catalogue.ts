@@ -11,7 +11,8 @@
 import { actionLabel, readableDetails } from "./legacy";
 import { countedNoun } from "../arabicCount";
 import { getAppointmentStageLabel } from "../appointmentStages";
-import { LAB_CASE_STATUSES } from "../labCases";
+import { LAB_CASE_STATUSES, LAB_PAPER_OPTIONS } from "../labCases";
+import { INSURER_FORMATS } from "../payers";
 import type { ActivityEvent, ActivityLogDoc, Category, Change, EventKey, Refs, Scalar } from "./types";
 
 type Lang = "ar" | "en";
@@ -91,6 +92,32 @@ const FIELD_LABELS: Record<string, [string, string]> = {
   steps: ["خطوات العلاج", "Steps"],
   schedule: ["مواعيد العمل", "Work schedule"],
   listPrices: ["أسعار القوائم", "List prices"],
+  // Settings details: labs, branches, insurers and treatments.
+  whatsapp: ["واتساب", "WhatsApp"],
+  driverName: ["اسم المندوب", "Driver"],
+  turnaroundDays: ["مدة التسليم بالأيام", "Turnaround (days)"],
+  labPrices: ["أسعار المعمل", "Lab prices"],
+  paper: ["مقاس ورقة الطلب", "Order paper size"],
+  code: ["كود الفرع", "Branch code"],
+  receiptPrefix: ["بادئة الإيصالات", "Receipt prefix"],
+  etaBranchCode: ["كود الفرع في منظومة الإيصال الإلكتروني", "ETA branch code"],
+  taxRegistration: ["رقم التسجيل الضريبي", "Tax registration"],
+  format: ["نموذج الموافقة", "Approval format"],
+  providerCode: ["كود مقدم الخدمة", "Provider code"],
+  nameAr: ["الاسم بالعربي", "Arabic name"],
+  requiresLab: ["يحتاج معمل", "Needs a lab"],
+  pricingMode: ["طريقة التسعير", "Billing"],
+  icon: ["الأيقونة", "Icon"],
+  // Patient file: said by label only, the text itself never reaches the log.
+  allergies: ["الحساسية", "Allergies"],
+  medicalHistory: ["التاريخ المرضي", "Medical history"],
+  insurance: ["بيانات التأمين", "Insurance details"],
+  xrayCode: ["كود الأشعة", "X-ray code"],
+  // A lab case's order.
+  workType: ["نوع الشغل", "Work type"],
+  teeth: ["الأسنان", "Teeth"],
+  shade: ["اللون", "Shade"],
+  details: ["تفاصيل الطلب", "Order details"],
 };
 
 export function fieldLabel(field: string, lang: Lang): string {
@@ -160,12 +187,25 @@ const LAB_STATUS_TEXT: ReadonlyMap<string, [string, string]> = new Map(
   LAB_CASE_STATUSES.filter((s) => s.id !== "cancelled").map((s) => [s.id, [s.ar, s.en] as [string, string]]),
 );
 
+/** Stored codes said in words, per field: a billing mode, an insurer's approval format, a paper size. */
+const VALUE_WORDS: Record<string, ReadonlyMap<string, [string, string]>> = {
+  pricingMode: new Map([
+    ["per_tooth", ["لكل سن", "Per tooth"]],
+    ["flat", ["سعر ثابت", "Flat fee"]],
+    ["per_arch", ["لكل فك", "Per arch"]],
+  ]),
+  format: new Map(INSURER_FORMATS.map((f) => [f.id, [f.ar, f.en] as [string, string]])),
+  paper: new Map(LAB_PAPER_OPTIONS.map((o) => [o.id, [o.ar, o.en] as [string, string]])),
+};
+
 function valueText(field: string, v: Scalar, lang: Lang): string {
   if (v === null || v === undefined || v === "") return "—";
   // Thousands grouping is for money only: a phone, an approval number or a percentage prints raw.
   if (typeof v === "number") return Number.isFinite(v) ? (MONEY_FIELDS.has(field) ? num(v) : String(v)) : "—";
   if (typeof v === "boolean") return lang === "ar" ? (v ? "نعم" : "لا") : v ? "Yes" : "No";
   if (field === "method") return methodLabel(v, lang) ?? "—";
+  const words = VALUE_WORDS[field]?.get(String(v).trim());
+  if (words) return words[lang === "ar" ? 0 : 1];
   if (field === "status") {
     const lab = LAB_STATUS_TEXT.get(String(v).trim());
     if (lab) return lab[lang === "ar" ? 0 : 1];
@@ -562,10 +602,10 @@ export function sentence(e: ActivityEvent, lang: Lang): string {
     case "lab.payment.deleted": head = j(t("حذف دفعة معمل", "Lab payment deleted"), amt, lab && `(${lab})`); break;
 
     // ------------------------------------------------------------ settings
-    case "settings.branches": head = t("تعديل الفروع", "Branches updated"); extras.push(others()); break;
+    case "settings.branches": head = j(t("تعديل الفروع", "Branches updated"), text(r.branchName) && `(${text(r.branchName)})`); extras.push(others()); break;
     case "settings.services": head = j(t("تعديل قائمة الخدمات", "Services updated"), proc && `(${proc})`); extras.push(others()); break;
     case "settings.insurers": head = j(t("تعديل شركات التأمين", "Insurers updated"), payer && `(${payer})`); extras.push(others()); break;
-    case "settings.labs": head = t("تعديل المعامل", "Labs updated"); extras.push(others()); break;
+    case "settings.labs": head = j(t("تعديل المعامل", "Labs updated"), lab && `(${lab})`); extras.push(others()); break;
 
     default:
       head = String(e.event ?? "");

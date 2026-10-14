@@ -11,7 +11,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { useAuth } from "@/context/AuthContext";
 import { logEvent } from "@/lib/logger";
-import { diffChanges } from "@/lib/activity/diff";
+import { diffChanges, labelOnlyChange } from "@/lib/activity/diff";
 import { matchesTokenizedSubstring } from "@/lib/flexibleSearch";
 import { DEFAULT_PRICING_MODE, isPricingMode, type PricingMode } from "@/components/clinical-notes/utils";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
@@ -28,9 +28,13 @@ import {
 
 /**
  * The parts of a treatment the activity log reports on, in comparable form: an empty lab fee and
- * a missing one are both "none", and the per-list prices are keyed in a fixed order.
+ * a missing one are both "none", and the per-list prices are keyed in a fixed order. A field an
+ * old record never stored reads as what the edit form showed for it (per tooth, the suggested
+ * category and icon, no lab), so the first save of an old record does not report it as changed.
  */
-function serviceForLog(s: Pick<ServiceRow, "name" | "price" | "estimatedLabFee" | "durationMinutes" | "prices">) {
+function serviceForLog(
+  s: Pick<ServiceRow, "name" | "price" | "estimatedLabFee" | "durationMinutes" | "prices" | "requiresLab" | "pricingMode" | "category" | "icon"> & { nameAr?: unknown },
+) {
   const prices = s.prices || {};
   return {
     service: s.name,
@@ -38,6 +42,11 @@ function serviceForLog(s: Pick<ServiceRow, "name" | "price" | "estimatedLabFee" 
     labFee: s.estimatedLabFee || null,
     duration: s.durationMinutes || null,
     listPrices: Object.keys(prices).sort().map((k) => [k, prices[k]]),
+    nameAr: typeof s.nameAr === "string" ? s.nameAr : "",
+    requiresLab: !!s.requiresLab,
+    pricingMode: isPricingMode(s.pricingMode) ? s.pricingMode : DEFAULT_PRICING_MODE,
+    category: s.category || suggestCategory(s.name),
+    icon: iconForService(s),
   };
 }
 
@@ -207,11 +216,14 @@ export default function PricingSettings({
       if (editingService) {
         await updateDoc(getClinicDoc("services", editingService.id), payload);
         // The name is reported as `service`; a lab fee or duration left empty reads as "none".
-        const changes = diffChanges(
-          serviceForLog(editingService),
-          serviceForLog({ ...payload, durationMinutes: payload.durationMinutes ?? undefined }),
-          ["service", "price", "labFee", "duration", "listPrices"],
-        );
+        // Category and icon are ids, so they are said by label alone.
+        const before = serviceForLog(editingService);
+        const after = serviceForLog({ ...payload, durationMinutes: payload.durationMinutes ?? undefined });
+        const changes = [
+          ...diffChanges(before, after, ["service", "nameAr", "price", "labFee", "duration", "requiresLab", "pricingMode", "listPrices"]),
+          ...labelOnlyChange("category", before.category, after.category),
+          ...labelOnlyChange("icon", before.icon, after.icon),
+        ];
         if (changes.length) {
           // A price-only edit still names the treatment it was made to.
           const renamed = changes.some((c) => c.field === "service");

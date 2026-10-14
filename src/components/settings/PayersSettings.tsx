@@ -19,6 +19,7 @@ import { useUI } from "@/context/UIContext";
 import { useAuth } from "@/context/AuthContext";
 import { logEvent } from "@/lib/logger";
 import type { Change } from "@/lib/activity/types";
+import { diffChanges } from "@/lib/activity/diff";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useDirtyFlag } from "@/context/UnsavedChangesContext";
@@ -475,6 +476,12 @@ export default function PayersSettings({ canEdit }: { canEdit: boolean }) {
       const oldName = (existing?.name || "").trim();
       if (isNew || !existing) insurerChanges.push({ field: "payer", from: null, to: name });
       else if (oldName !== name) insurerChanges.push({ field: "payer", from: oldName || null, to: name });
+      // The approval format also retires the insurer's price list, so it is said from → to.
+      insurerChanges.push(...diffChanges(
+        { nameAr: existing?.nameAr, format: existing?.format, providerCode: existing?.providerCode },
+        { nameAr, format, providerCode },
+        ["nameAr", "format", "providerCode"],
+      ));
       if (priceWrites > 0) insurerChanges.push({ field: "listPrices", from: null, to: null });
       if (rateWrites > 0) insurerChanges.push({ field: "commission", from: null, to: null });
       if (insurerChanges.length) {

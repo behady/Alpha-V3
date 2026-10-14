@@ -27,7 +27,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { useChairMode } from "@/lib/useChairMode";
 import { logEvent } from "@/lib/logger";
-import { diffChanges } from "@/lib/activity/diff";
+import { diffChanges, labelOnlyChange } from "@/lib/activity/diff";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import { PRIVATE_PAYER_ID } from "@/lib/payers";
 import { readInsurance, writeInsurance, type PatientInsuranceEntry } from "@/lib/patientInsurance";
@@ -717,6 +717,14 @@ export default function PatientProfile() {
           gender: editGender, status: editStatus, referral: editReferral,
         },
         ["name", "phone", "address", "dob", "gender", "status", "referral"],
+      );
+      // Medical text, insurance numbers and the x-ray code are said by label alone: what the
+      // patient is allergic to does not belong in an activity log every admin can read.
+      patientChanges.push(
+        ...labelOnlyChange("allergies", patient?.allergies, editAllergies),
+        ...labelOnlyChange("medicalHistory", patient?.medicalHistory, finalHistory),
+        ...labelOnlyChange("insurance", writeInsurance(readInsurance((patient ?? {}) as Record<string, unknown>)), writeInsurance(editInsurance)),
+        ...labelOnlyChange("xrayCode", patient?.xrayCode, editXrayCode.trim().slice(0, 80)),
       );
       if (patientChanges.length) {
         void logEvent(

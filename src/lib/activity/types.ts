@@ -29,7 +29,7 @@ export type EventKey =
 export type Refs = Partial<Record<
   | "appointmentId" | "ledgerId" | "noteId" | "claimId" | "labCaseId" | "staffId" | "staffName" | "payerName"
   | "receiptNumber" | "method" | "procedure" | "date" | "time" | "doctor" | "approvalNumber" | "labName"
-  | "status" | "count" | "listPrice",
+  | "status" | "count" | "listPrice" | "branchName",
   string | number>>;
 
 export interface ActivityEvent {

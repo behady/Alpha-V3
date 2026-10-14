@@ -20,7 +20,7 @@ import {
   storedFields,
   stripUndefined,
 } from "../src/lib/activity/catalogue";
-import { branchListChanges, diffChanges, discountEvent } from "../src/lib/activity/diff";
+import { branchListChanges, diffChanges, discountEvent, labelOnlyChange, namedItemChanges } from "../src/lib/activity/diff";
 
 let checks = 0;
 const ok = (cond: boolean, msg: string) => {
@@ -152,6 +152,29 @@ deep(branchListChanges([{ id: "a", name: "A" }], [{ id: "b", name: "B" }], "lab"
   [{ field: "lab", from: "A", to: null }, { field: "lab", from: null, to: "B" }], "removed before added; the field is the caller's");
 eq(sentence({ event: "settings.labs", changes: branchListChanges([], [{ id: "x", name: "معمل النور" }], "lab") }, "ar"),
   "تعديل المعامل · المعمل — → معمل النور");
+
+// --- 9a2. labelOnlyChange / namedItemChanges (settings details, medical text, maps) ---
+deep(labelOnlyChange("allergies", "Penicillin", "Penicillin, latex"), [{ field: "allergies", from: null, to: null }], "medical text by label only");
+deep(labelOnlyChange("allergies", " x ", "x"), []);
+deep(labelOnlyChange("labPrices", { a: 1, b: 2 }, { b: 2, a: 1 }), [], "key order is not a change");
+deep(labelOnlyChange("labPrices", undefined, {}), [], "absent and empty are the same");
+deep(labelOnlyChange("insurance", { p1: { memberNumber: "" } }, {}), [], "blank entries are nothing");
+deep(labelOnlyChange("labPrices", { a: 1 }, { a: 2 }), [{ field: "labPrices", from: null, to: null }]);
+deep(namedItemChanges(
+  [{ id: "a", name: "مصر الجديدة", phone: "0100", prices: { z: 1 } }, { id: "b", name: "التجمع", phone: "" }],
+  [{ id: "a", name: "مصر الجديدة", phone: "0111", prices: { z: 1 } }, { id: "b", name: "التجمع", phone: "" }, { id: "c", name: "جديد", phone: "9" }],
+  ["phone"], ["prices"]),
+  { changes: [{ field: "phone", from: "0100", to: "0111" }], names: ["مصر الجديدة"] }, "only items on both sides, named");
+deep(namedItemChanges([{ id: "a", name: "A", prices: { z: 1 } }], [{ id: "a", name: "A", prices: { z: 2 } }], [], ["prices"]),
+  { changes: [{ field: "prices", from: null, to: null }], names: ["A"] });
+deep(namedItemChanges([{ id: "a", name: "A", phone: "1" }], [{ id: "a", name: "A", phone: "1" }], ["phone"]), { changes: [], names: [] });
+eq(sentence({ event: "settings.branches", refs: { branchName: "مصر الجديدة" }, changes: [{ field: "receiptPrefix", from: "HEL", to: "MAD" }] }, "ar"),
+  "تعديل الفروع (مصر الجديدة) · بادئة الإيصالات HEL → MAD");
+eq(sentence({ event: "settings.labs", refs: { labName: "النور" }, changes: [{ field: "paper", from: "a4_two_up", to: "a5" }] }, "en").startsWith("Labs updated (النور) · Order paper size "), true);
+eq(sentence({ event: "settings.services", refs: { procedure: "Crown" }, changes: [{ field: "pricingMode", from: "per_tooth", to: "flat" }] }, "en"),
+  "Services updated (Crown) · Billing Per tooth → Flat fee");
+eq(sentence({ event: "settings.insurers", refs: { payerName: "X" }, changes: [{ field: "format", from: null, to: "metlife" }] }, "ar"),
+  "تعديل شركات التأمين (X) · نموذج الموافقة — → متلايف");
 eq(sentence({ event: "lab.status", refs: { labName: "النور" }, changes: [{ field: "status", from: "at_lab", to: "back" }] }, "ar"),
   "تغيير حالة طلب معمل لدى النور · الحالة في المعمل → وصلت العيادة", "lab stage codes are said in words");
 eq(sentence({ event: "lab.created", refs: { labName: "Nour", status: "at_lab" } }, "en"), "Lab case created at Nour (At lab)");
@@ -166,7 +189,10 @@ eq(sentence({ event: "settings.insurers", refs: { payerName: "GASCO" }, changes:
 eq(sentence({ event: "plan.status", patientName: "سارة", changes: [{ field: "status", from: "draft", to: "accepted" }] }, "ar"),
   "تغيير حالة خطة علاج لـ سارة · الحالة مسودة → مقبولة");
 for (const f of ["address", "dob", "gender", "referral", "baseSalary", "commissionPercentage", "overtimeMultiplier", "speciality",
-  "lab", "labName", "agreedPrice", "dueDate", "title", "total", "steps", "schedule", "listPrices", "room", "payer", "service"]) {
+  "lab", "labName", "agreedPrice", "dueDate", "title", "total", "steps", "schedule", "listPrices", "room", "payer", "service",
+  "whatsapp", "driverName", "turnaroundDays", "labPrices", "paper", "code", "receiptPrefix", "etaBranchCode", "taxRegistration",
+  "format", "providerCode", "nameAr", "requiresLab", "pricingMode", "icon", "category", "allergies", "medicalHistory", "insurance",
+  "xrayCode", "workType", "teeth", "shade", "details", "patient", "doctor", "notes"]) {
   ok(fieldLabel(f, "en") !== f && fieldLabel(f, "ar") !== f, `label for ${f}`);
 }
 

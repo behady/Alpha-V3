@@ -21,7 +21,7 @@ import {
 import { useUI } from "@/context/UIContext";
 import { useAuth } from "@/context/AuthContext";
 import { logEvent } from "@/lib/logger";
-import { branchListChanges } from "@/lib/activity/diff";
+import { branchListChanges, diffChanges, namedItemChanges } from "@/lib/activity/diff";
 import { useLanguage } from "@/context/LanguageContext";
 import { useSettingsText } from "@/lib/useSettingsText";
 import { countedNoun } from "@/lib/arabicCount";
@@ -136,10 +136,24 @@ export default function DentalLabsSettings() {
         { labs: serializeDentalLabs(labs), paper, updatedAt: new Date().toISOString() },
         { merge: true }
       );
-      // Labs added, removed or renamed, matched by id and said by name.
-      const labChanges = branchListChanges(stored?.labs ?? [], labs, "lab");
+      // Labs added, removed or renamed (matched by id, said by name), then the details of the labs
+      // that stayed (their price list by label alone), then the order paper size.
+      const before = stored?.labs ?? [];
+      const details = namedItemChanges(
+        before, labs,
+        ["phone", "whatsapp", "address", "driverName", "turnaroundDays", "notes"],
+        ["prices"],
+      );
+      const labChanges = [
+        ...branchListChanges(before, labs, "lab"),
+        ...details.changes.map((c) => (c.field === "prices" ? { ...c, field: "labPrices" } : c)),
+        ...diffChanges({ paper: stored?.paper }, { paper }, ["paper"]),
+      ];
       if (labChanges.length) {
-        void logEvent({ uid: user?.uid, name: user?.name, role: user?.role }, { event: "settings.labs", changes: labChanges });
+        void logEvent(
+          { uid: user?.uid, name: user?.name, role: user?.role },
+          { event: "settings.labs", changes: labChanges, refs: details.names.length ? { labName: details.names.join(", ") } : undefined },
+        );
       }
       setStored({ labs, paper });
       markSaved();
