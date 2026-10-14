@@ -275,6 +275,7 @@ export function fromAxaModel(raw: unknown): Record<string, unknown> {
       confidence: l.confidence,
     };
   });
+  shiftExcessToPatient(lines, money(h.byInsurer), money(h.byPatient));
   const confidence = isRecord(h.confidence) ? h.confidence : {};
   const notes = [text(h.providerNote)].filter(Boolean);
   return {
@@ -315,6 +316,27 @@ export function fromAxaModel(raw: unknown): Record<string, unknown> {
     },
     lines,
   };
+}
+
+/**
+ * A member past the dental ceiling pays the excess ("Limit Surpass (Over Limit)"), but the paper says so
+ * only in its totals: every line still shows its full net. When the printed totals tell exactly that
+ * story (the insurer pays less than the lines, the patient the same amount more), the excess is moved
+ * from the insurer to the patient from the last line back, the services that ran past the ceiling.
+ * Totals that do not match that story are left alone for the hard check to catch.
+ */
+function shiftExcessToPatient(lines: { patientShare: number | null; approvedAmount: number | null }[], byInsurer: number | null, byPatient: number | null): void {
+  if (byInsurer === null || byPatient === null || lines.some((l) => l.approvedAmount === null || l.patientShare === null)) return;
+  const insurer = round2(lines.reduce((t, l) => t + l.approvedAmount!, 0));
+  const share = round2(lines.reduce((t, l) => t + l.patientShare!, 0));
+  let excess = round2(insurer - byInsurer);
+  if (excess <= 0.01 || Math.abs(share + excess - byPatient) > 0.01) return;
+  for (let i = lines.length - 1; i >= 0 && excess > 0; i--) {
+    const moved = Math.min(excess, lines[i].approvedAmount!);
+    lines[i].approvedAmount = round2(lines[i].approvedAmount! - moved);
+    lines[i].patientShare = round2(lines[i].patientShare! + moved);
+    excess = round2(excess - moved);
+  }
 }
 
 const HEADER_CONFIDENCE = ["approvalNumber", "approvalDate", "certificateNumber", "policyNumber", "paperPatientName", "approvedTotal", "patientShareTotal"];

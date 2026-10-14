@@ -77,6 +77,36 @@ assert.equal(y.lines[2].patientShare, 329.2, "20% of 1646");
 assert.equal(y.lines[2].approvedAmount, 1316.8);
 assert.deepEqual(ids(checkAxa(y, ctx), "hard"), [], "the split adds up to both printed totals");
 
+// over the ceiling: the paper charges the excess to the patient in its totals only, never on a line.
+// The excess is taken off the insurer from the last line back, so the lines add up to both totals.
+const over = clone(AXA_RAW);
+over.header.overLimit = "451.00 EGP";
+over.header.byPatient = "451.00 EGP";
+over.header.byInsurer = "2500.00 EGP";
+const o = read(over);
+assert.equal(o.lines[4].patientShare, 451, "the last line carries the excess");
+assert.equal(o.lines[4].approvedAmount, 130);
+assert.equal(o.lines[3].patientShare, 0);
+assert.deepEqual(ids(checkAxa(o, ctx), "hard"), [], "an over-limit paper saves");
+assert.ok(ids(checkAxa(o, ctx), "soft").includes("over_limit"), "and still asks for a look");
+assert.deepEqual(normalizeAxa(clone(o)), o);
+// an excess bigger than the last line runs on into the one before it
+const bigOver = clone(over);
+bigOver.header.overLimit = "700.00 EGP";
+bigOver.header.byPatient = "700.00 EGP";
+bigOver.header.byInsurer = "2251.00 EGP";
+const b = read(bigOver);
+assert.equal(b.lines[4].approvedAmount, 0);
+assert.equal(b.lines[4].patientShare, 581);
+assert.equal(b.lines[3].patientShare, 119);
+assert.equal(b.lines[3].approvedAmount, 365);
+assert.deepEqual(ids(checkAxa(b, ctx), "hard"), []);
+// totals that do not tell that story are left alone for the hard check to catch
+const misread = clone(AXA_RAW);
+misread.header.byInsurer = "2500.00 EGP";
+assert.equal(read(misread).lines[4].approvedAmount, 581, "no By Patient to absorb the gap: nothing moves");
+assert.ok(ids(checkAxa(read(misread), ctx), "hard").includes("approved_total"));
+
 // a discount on a line: the net, not the gross, is what is paid
 const discounted = clone(AXA_RAW);
 (discounted.lines[2] as Record<string, unknown>).discount = 146;
