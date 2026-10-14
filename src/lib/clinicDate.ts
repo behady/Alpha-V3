@@ -71,3 +71,28 @@ export function instantAtHourInTimeZone(timeZone: string, hour: number, now = ne
   const settledOffset = timeZoneOffsetMs(timeZone, firstGuess);
   return new Date(naive - settledOffset);
 }
+
+/**
+ * The instant a calendar day `ymd` (YYYY-MM-DD) begins in `timeZone`: that zone's midnight.
+ *
+ * Same two passes as `instantAtHourInTimeZone`. On the day summer time starts, Egypt's clocks jump
+ * from 00:00 straight to 01:00, so there is no midnight: the second pass lands on the jump itself,
+ * which is the first instant of that day. When summer time ends at midnight, the day still opens
+ * once, on the winter offset.
+ */
+export function instantAtYmd(timeZone: string, ymd: string): Date {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const naive = Date.UTC(y, m - 1, d, 0, 0, 0);
+
+  const firstGuess = new Date(naive - timeZoneOffsetMs(timeZone, new Date(naive)));
+  const settledOffset = timeZoneOffsetMs(timeZone, firstGuess);
+  return new Date(naive - settledOffset);
+}
+
+/** A calendar date `days` away from `ymd`, by the calendar (no clock, so no summer-time drift). */
+export function addDaysYmd(ymd: string, days: number): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const at = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  at.setUTCDate(at.getUTCDate() + days);
+  return at.toISOString().slice(0, 10);
+}

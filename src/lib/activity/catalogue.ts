@@ -166,7 +166,7 @@ const REASON_TEXT: Record<string, [string, string]> = {
   "not treated": ["لم يتم العلاج", "not treated"],
   replaced: ["استبدال بعد تعديل الموافقة", "replaced by the edited approval"],
 };
-function reasonText(reason: string, lang: Lang): string {
+export function reasonText(reason: string, lang: Lang): string {
   const hit = REASON_TEXT[reason.trim().toLowerCase()];
   return hit ? hit[lang === "ar" ? 0 : 1] : reason;
 }
@@ -198,7 +198,7 @@ const VALUE_WORDS: Record<string, ReadonlyMap<string, [string, string]>> = {
   paper: new Map(LAB_PAPER_OPTIONS.map((o) => [o.id, [o.ar, o.en] as [string, string]])),
 };
 
-function valueText(field: string, v: Scalar, lang: Lang): string {
+export function valueText(field: string, v: Scalar, lang: Lang): string {
   if (v === null || v === undefined || v === "") return "—";
   // Thousands grouping is for money only: a phone, an approval number or a percentage prints raw.
   if (typeof v === "number") return Number.isFinite(v) ? (MONEY_FIELDS.has(field) ? num(v) : String(v)) : "—";
