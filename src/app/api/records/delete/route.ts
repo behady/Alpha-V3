@@ -3,7 +3,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
-import { logActivityServer } from "@/lib/server/systemLog";
+import { logEventServer } from "@/lib/server/systemLog";
 import { reportServerError } from "@/lib/server/reportError";
 import { recordLedgerAuditBatch } from "@/lib/server/ledgerAudit";
 import {
@@ -20,7 +20,6 @@ import {
   checkPatientCascade,
   claimLinkedRows,
   labelFor,
-  logModuleFor,
 } from "@/lib/recycleBin";
 import {
   approximateBytes,
@@ -255,6 +254,10 @@ export async function POST(request: Request) {
     let queued = 0;
     let actionBytes = 0;
     const binnedLedger: Array<{ id: string; before: Record<string, unknown>; via: string }> = [];
+    // The patients this request moves, each named on its own activity line once the batch commits.
+    const binnedPatients: Array<{ id: string; name: string | null; linked: number }> = [];
+    // The bin label of each record named in the request that moved, so a single delete can say what it was.
+    const binnedLabels: string[] = [];
     let linkedTotal = 0;
     // An approval deleted in the same request as another approval's rows, or the like: each
     // document is queued once, under whichever entry reached it first.
@@ -377,6 +380,11 @@ export async function POST(request: Request) {
       actionBytes += rowBytes;
       linkedTotal += children.length;
       queued++;
+      binnedLabels.push(label);
+      if (row.item.collection === "patients") {
+        const name = typeof snapshot.name === "string" && snapshot.name.trim() ? snapshot.name.trim() : null;
+        binnedPatients.push({ id: row.item.documentId, name, linked: children.length });
+      }
       results.push({ ...row.item, status: "deleted", ...(children.length ? { linked: children.length } : {}) });
     }
 
@@ -420,16 +428,31 @@ export async function POST(request: Request) {
 
     const deletedCount = results.filter((r) => r.status === "deleted").length;
     if (deletedCount > 0) {
-      const breakdown = [...new Set(validated.map((v) => v.collection))].join(", ");
-      const linked = linkedTotal > 0 ? ` with ${linkedTotal} linked record(s)` : "";
-      await logActivityServer({
+      const user = { uid: auth.uid, name: auth.name, role: auth.role };
+      await logEventServer({
         clinicId,
-        user: { uid: auth.uid, name: auth.name, role: auth.role },
-        action: "Records Deleted",
-        details: `Moved ${deletedCount} record(s) to Recently Deleted (${breakdown})${linked}${reason ? ` — ${reason}` : ""}`,
-        severity: validated.some((v) => v.collection === "patients") ? "CRITICAL" : "HIGH",
-        module: logModuleFor(validated.map((v) => v.collection)),
+        user,
+        // Everything that moved: the records named and the ones that went with them.
+        event: {
+          event: "record.deleted",
+          reason: reason?.trim() || null,
+          refs: { count: deletedCount + linkedTotal, ...(binnedLabels.length === 1 ? { procedure: binnedLabels[0] } : {}) },
+        },
       });
+      // A patient's whole file leaving is its own line, under the patient's name.
+      for (const p of binnedPatients) {
+        await logEventServer({
+          clinicId,
+          user,
+          event: {
+            event: "patient.deleted",
+            patientId: p.id,
+            patientName: p.name,
+            reason: reason?.trim() || null,
+            ...(p.linked > 0 ? { refs: { count: p.linked + 1 } } : {}),
+          },
+        });
+      }
     }
 
     return NextResponse.json({ ok: true, actionId, deleted: deletedCount, results });

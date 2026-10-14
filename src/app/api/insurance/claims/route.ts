@@ -14,6 +14,8 @@ import { RECEIPT_SETTINGS_DOC, formatReceiptNumber, normalizeReceiptSettings, re
 import type { ClinicBranch } from "@/lib/clinicLocations";
 import { applyProcedureSync, readProcedurePayments, stampPaymentsDentist, type PaymentRowLite } from "@/lib/server/ledgerSync";
 import { recordMoneyChange } from "@/lib/server/ledgerAudit";
+import { logEventServer } from "@/lib/server/systemLog";
+import type { Change } from "@/lib/activity/types";
 import { restampStaffSettlementsFor } from "@/lib/server/staffSettlementSync";
 import { afterLedgerCreate } from "@/lib/alerts/moneyAlerts";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
@@ -161,20 +163,59 @@ function writeTreatmentRows(tx: Transaction, clinicId: string, args: TreatmentRo
 
 type Actor = { uid: string; name: string; role: string };
 
+/** A plain-text field of a stored row, or undefined (so an activity ref is simply left off). */
+function textOf(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+/** A money figure of a stored row, or null when it is not a number. */
+function figureOf(value: unknown): number | null {
+  const n = Number(value);
+  return value === null || value === undefined || value === "" || !Number.isFinite(n) ? null : n;
+}
+
+/** What every activity line about this approval's rows carries: the approval and its insurer. */
+type ClaimRefs = { claimId: string; payerName: string | undefined; approvalNumber: string | undefined };
+
+/** A treatment row's name for the activity line: the clinic's wording, not the paper's raw description. */
+function rowService(row: Record<string, unknown>): string | undefined {
+  return textOf(row.serviceName) ?? textOf(row.description);
+}
+
 /**
- * The trail a treatment logged by hand leaves: one audit row per charge. No discount alert: a
- * line the insurer approved for less than the paper asked is the insurer's decision, not a
- * discount anyone at the desk gave, and every reduced line would otherwise raise one.
+ * The trail a treatment logged by hand leaves: one audit row per charge. No discount alert, and
+ * no discount on the activity line: a line the insurer approved for less than the paper asked is
+ * the insurer's decision, not a discount anyone at the desk gave, and every reduced line would
+ * otherwise raise one.
  */
-async function auditCharges(clinicId: string, charges: Charge[], actor: Actor, via: string): Promise<void> {
+async function auditCharges(clinicId: string, charges: Charge[], actor: Actor, via: string, claim: ClaimRefs): Promise<void> {
   await Promise.all(
-    charges.map((c) =>
-      recordMoneyChange({
+    charges.map((c) => {
+      const amount = figureOf(c.row.amount) ?? 0;
+      const listPrice = figureOf(c.row.listPrice);
+      return recordMoneyChange({
         entry: { clinicId, action: "create", collection: "ledger", documentId: c.id, after: c.row, actor, via },
-        action: "Procedure Logged",
-        details: `${String(c.row.description)} - ${c.row.amount} EGP`,
-      }).catch((err) => reportServerError("Insurance treatment audit failed:", err)),
-    ),
+        event: {
+          event: "procedure.added",
+          patientId: textOf(c.row.patientId) ?? null,
+          patientName: textOf(c.row.patientName) ?? null,
+          amount,
+          changes: [
+            ...(listPrice !== null ? [{ field: "listPrice", from: null, to: listPrice }] : []),
+            { field: "price", from: null, to: amount },
+          ],
+          branchId: textOf(c.row.branchId) ?? null,
+          refs: {
+            procedure: rowService(c.row),
+            ledgerId: c.id,
+            doctor: textOf(c.row.doctorName),
+            claimId: claim.claimId,
+            payerName: claim.payerName ?? textOf(c.row.payerName),
+            approvalNumber: claim.approvalNumber ?? textOf(c.row.approvalNumber),
+          },
+        },
+      }).catch((err) => reportServerError("Insurance treatment audit failed:", err));
+    }),
   );
 }
 
@@ -383,7 +424,7 @@ export async function POST(req: Request) {
       | { kind: "no_patient" }
       | { kind: "no_staff" }
       | { kind: "not_dentist" }
-      | { kind: "saved"; charges: Charge[] };
+      | { kind: "saved"; charges: Charge[]; patientName: string; total: number; lineCount: number };
     let outcome: Outcome;
     try {
       outcome = await adminDb().runTransaction(async (tx): Promise<Outcome> => {
@@ -512,7 +553,15 @@ export async function POST(req: Request) {
         if (Object.keys(learned).length) {
           tx.set(wordingRef, { [format]: stripUndefined(learned), ...stamp }, { merge: true });
         }
-        return { kind: "saved", charges };
+        // For the activity line only: who, the approval's whole value (the insurer's part and the
+        // patient's), and how many services it holds.
+        return {
+          kind: "saved",
+          charges,
+          patientName,
+          total: round2(claim.totals.approved + claim.totals.patientShare),
+          lineCount: claim.lines.length,
+        };
       });
     } catch (err) {
       // Two tabs in the same instant: the loser's create fails rather than retrying into the read.
@@ -540,8 +589,22 @@ export async function POST(req: Request) {
     if (outcome.kind === "no_patient") return fail(404, "That patient was not found.");
     if (outcome.kind === "no_staff") return fail(404, "That dentist was not found.");
     if (outcome.kind === "not_dentist") return fail(400, "That staff member is not a dentist.");
-    if (outcome.kind === "saved" && outcome.charges.length) {
-      await auditCharges(clinicId, outcome.charges, { uid: authz.uid, name: authz.name, role: authz.role }, "insurance/claims:save");
+    const actor: Actor = { uid: authz.uid, name: authz.name, role: authz.role };
+    const claimRefs: ClaimRefs = { claimId, payerName: textOf(payer.name), approvalNumber: textOf(h.approvalNumber) };
+    await logEventServer({
+      clinicId,
+      user: actor,
+      event: {
+        event: "insurance.created",
+        patientId: patientRef.id,
+        patientName: textOf(outcome.patientName) ?? null,
+        amount: outcome.total,
+        branchId: branch.branchId,
+        refs: { ...claimRefs, status, count: outcome.lineCount },
+      },
+    });
+    if (outcome.charges.length) {
+      await auditCharges(clinicId, outcome.charges, actor, "insurance/claims:save", claimRefs);
     }
     return NextResponse.json({ ok: true, claimId, patientId: patientRef.id }, { status: 201 });
   } catch (error) {
@@ -743,7 +806,13 @@ export async function PATCH(req: Request) {
       | { kind: "no_rows" }
       | { kind: "nothing_left" }
       | { kind: "checks"; checks: Check[] }
-      | { kind: "ok"; created: Charge[]; removed: Charge[]; payments: Charge[] | null; what: "share" | "insurer"; collected: Collected | null; rebuilt: boolean; restamp: Array<string | null>; redated: Array<{ id: string; from: unknown }>; rowDate: string };
+      | {
+          kind: "ok"; created: Charge[]; removed: Charge[]; payments: Charge[] | null; what: "share" | "insurer"; collected: Collected | null; rebuilt: boolean; restamp: Array<string | null>;
+          redated: Array<{ id: string; from: unknown; service: string | undefined; branchId: string | undefined }>; rowDate: string;
+          // For the activity lines only: the claim as it stood, who it is for, and what this edit changed.
+          fromStatus: ClaimStatus; patientId: string; patientName: string; payerId: string; payerName: string | null;
+          approvalNumber: string; claimBranchId: string | null; edits: Change[];
+        };
     const result = await adminDb().runTransaction(async (tx): Promise<PatchOutcome> => {
       // --- reads: every one of them before the first write --------------------------------------
       const claimSnap = await tx.get(claimRef);
@@ -962,13 +1031,13 @@ export async function PATCH(req: Request) {
       }
       // The treated day moved: every charge and note the approval wrote moves with it. The payments
       // against them keep their own dates; the money arrived when it arrived.
-      const redated: Array<{ id: string; from: unknown }> = [];
+      const redated: Array<{ id: string; from: unknown; service: string | undefined; branchId: string | undefined }> = [];
       if (redate) {
         for (const l of links) {
           const snap = chargeSnaps.get(l.ledgerId);
           if (snap?.exists && snap.get("date") !== rowDateAfter) {
             chargeUpdate(l.ledgerId, { date: rowDateAfter, updatedAt: FieldValue.serverTimestamp() });
-            redated.push({ id: l.ledgerId, from: snap.get("date") ?? null });
+            redated.push({ id: l.ledgerId, from: snap.get("date") ?? null, service: rowService(snap.data() ?? {}), branchId: textOf(snap.get("branchId")) });
           }
           const note = noteSnaps.get(l.noteId);
           if (note?.exists && note.get("date") !== rowDateAfter) noteUpdate(l.noteId, { date: rowDateAfter, updatedAt: FieldValue.serverTimestamp() });
@@ -1128,7 +1197,29 @@ export async function PATCH(req: Request) {
         updatedAt: FieldValue.serverTimestamp(),
         updatedBy: authz.uid,
       });
-      return { kind: "ok", created, removed, payments, what: collectShare ? "share" : "insurer", collected, rebuilt: rebuild, restamp, redated, rowDate: rowDateAfter };
+      // What this edit changed on the approval itself, for the activity line. Labels only (the
+      // values are maps of lines and staff ids), and each only when it really moved.
+      const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+      const edits: Change[] = [];
+      if (statePicks && !same(lineStatus, claim.lineStatus)) edits.push({ field: "lineStatus", from: null, to: null });
+      if (picks && !same(dentists, claim.dentists)) edits.push({ field: "dentists", from: null, to: null });
+      if (patientSnap && newPatientId !== claim.patientId) edits.push({ field: "patient", from: null, to: null });
+      if (rawLines !== undefined && !same(lines, claim.lines)) edits.push({ field: "lines", from: null, to: null });
+      if (rawMetlife !== undefined && !same(metlife, claim.metlife)) edits.push({ field: "metlife", from: null, to: null });
+      if (treatedDate !== undefined && treated !== undefined && treated !== claim.treatedDate) {
+        edits.push({ field: "date", from: claim.treatedDate ?? null, to: treated ?? null });
+      }
+      return {
+        kind: "ok", created, removed, payments, what: collectShare ? "share" : "insurer", collected, rebuilt: rebuild, restamp, redated, rowDate: rowDateAfter,
+        fromStatus: claim.status,
+        patientId: patientSnap ? newPatientId : claim.patientId,
+        patientName,
+        payerId: claim.payerId,
+        payerName: payersSnap ? findPayer(parsePayers(payersSnap.data()), claim.payerId)?.name ?? null : null,
+        approvalNumber: claim.approvalNumber,
+        claimBranchId: textOf(update.branchId) ?? textOf(claimSnap.get("branchId")) ?? null,
+        edits,
+      };
     });
 
     if (result.kind === "no_claim") return fail(404, "That claim was not found.");
@@ -1158,25 +1249,65 @@ export async function PATCH(req: Request) {
     }
 
     await restampStaffSettlementsFor(clinicId, result.restamp);
+
+    // The activity lines. The insurer's name is read again only when the transaction had no reason to.
+    const payerName = result.payerName
+      ?? findPayer(parsePayers((await adminClinicDoc(clinicId, "settings", "payers").get().catch(() => null))?.data()), result.payerId)?.name
+      ?? null;
+    const claimRefs: ClaimRefs = { claimId, payerName: textOf(payerName), approvalNumber: textOf(result.approvalNumber) };
+    const who = { patientId: textOf(result.patientId) ?? null, patientName: textOf(result.patientName) ?? null };
+    if (status !== undefined && status !== result.fromStatus) {
+      await logEventServer({
+        clinicId,
+        user: actor,
+        event: {
+          event: "insurance.status",
+          ...who,
+          changes: [{ field: "status", from: result.fromStatus, to: status }],
+          branchId: result.claimBranchId,
+          refs: claimRefs,
+        },
+      });
+    }
+    if (result.edits.length) {
+      await logEventServer({
+        clinicId,
+        user: actor,
+        event: { event: "insurance.edited", ...who, changes: result.edits, branchId: result.claimBranchId, refs: claimRefs },
+      });
+    }
+
     if (result.redated.length) {
       await Promise.all(
         result.redated.map((r) =>
           recordMoneyChange({
             entry: { clinicId, action: "update", collection: "ledger", documentId: r.id, before: { date: r.from }, after: { date: result.rowDate }, actor, via: "insurance/claims:treated-date" },
-            action: "Procedure Moved",
-            details: `Approval ${claimId} treated ${result.rowDate}: its charge moved from ${String(r.from)}`,
+            event: {
+              event: "procedure.moved",
+              ...who,
+              changes: [{ field: "date", from: textOf(r.from) ?? null, to: result.rowDate }],
+              branchId: r.branchId ?? null,
+              refs: { ...claimRefs, procedure: r.service, date: result.rowDate, ledgerId: r.id },
+            },
           }).catch((err) => reportServerError("Insurance re-date audit failed:", err)),
         ),
       );
     }
-    if (result.created.length) await auditCharges(clinicId, result.created, actor, result.rebuilt ? "insurance/claims:edited" : "insurance/claims:treated");
+    if (result.created.length) await auditCharges(clinicId, result.created, actor, result.rebuilt ? "insurance/claims:edited" : "insurance/claims:treated", claimRefs);
     if (result.removed.length) {
       await Promise.all(
         result.removed.map((c) =>
           recordMoneyChange({
             entry: { clinicId, action: "delete", collection: "ledger", documentId: c.id, before: c.row, actor, via: result.rebuilt ? "insurance/claims:edited" : "insurance/claims:not-treated" },
-            action: "Procedure Deleted",
-            details: `${String(c.row.description)} - ${result.rebuilt ? "replaced by the edited approval" : "the approval is no longer marked treated"}`,
+            event: {
+              event: "procedure.deleted",
+              patientId: textOf(c.row.patientId) ?? null,
+              patientName: textOf(c.row.patientName) ?? null,
+              amount: figureOf(c.row.amount) ?? 0,
+              reason: result.rebuilt ? "replaced" : "not treated",
+              branchId: textOf(c.row.branchId) ?? null,
+              refs: { ...claimRefs, procedure: rowService(c.row) },
+            },
           }).catch((err) => reportServerError("Insurance treatment removal audit failed:", err)),
         ),
       );
@@ -1187,8 +1318,20 @@ export async function PATCH(req: Request) {
         result.payments.map((p) =>
           recordMoneyChange({
             entry: { clinicId, action: "create", collection: "ledger", documentId: p.id, after: p.row, actor, via: what === "share" ? "insurance/claims:collect-share" : "insurance/claims:insurer-paid" },
-            action: "Payment Received",
-            details: `${p.row.paid} EGP ${what === "share" ? "patient share" : "from the insurer"} - ${String(p.row.description)}`,
+            event: {
+              event: "payment.received",
+              patientId: textOf(p.row.patientId) ?? null,
+              patientName: textOf(p.row.patientName) ?? null,
+              amount: figureOf(p.row.paid) ?? 0,
+              branchId: textOf(p.row.branchId) ?? null,
+              refs: {
+                ...claimRefs,
+                method: textOf(p.row.method),
+                receiptNumber: textOf(p.row.receiptNumber),
+                procedure: textOf(p.row.description),
+                ledgerId: p.id,
+              },
+            },
           }).catch((err) => reportServerError("Insurance payment audit failed:", err)),
         ),
       );
@@ -1200,8 +1343,13 @@ export async function PATCH(req: Request) {
       const c = result.collected;
       await recordMoneyChange({
         entry: { clinicId, action: "create", collection: "ledger", documentId: c.ledgerId, after: c.row, actor, via: "insurance/claims:collect-share" },
-        action: "Finance Entry Created",
-        details: `INCOME ${c.amount} EGP - ${String(c.row.description)}`,
+        event: {
+          event: "income.added",
+          ...who,
+          amount: c.amount,
+          branchId: textOf(c.row.branchId) ?? null,
+          refs: { ...claimRefs, procedure: textOf(c.row.description), method: textOf(c.row.method), ledgerId: c.ledgerId },
+        },
       }).catch((err) => reportServerError("Insurance share audit failed:", err));
       void afterLedgerCreate(clinicId, c.row, actor);
       return NextResponse.json({ ok: true, shareCollected: { ledgerId: c.ledgerId, amount: c.amount } });

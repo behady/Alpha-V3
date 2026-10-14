@@ -4,7 +4,7 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { COLLECTION_WRITE_PERMISSIONS, isFullAccessRole } from "@/lib/permissions";
-import { logActivityServer } from "@/lib/server/systemLog";
+import { logEventServer } from "@/lib/server/systemLog";
 import { reportServerError } from "@/lib/server/reportError";
 import { recordLedgerAuditBatch } from "@/lib/server/ledgerAudit";
 import {
@@ -16,7 +16,6 @@ import {
   checkRestorable,
   checkRestoreAllowed,
   labelFor,
-  logModuleFor,
   restoreOverrides,
 } from "@/lib/recycleBin";
 import { binCollection, binEntry, binPayload, closeEntries } from "@/lib/server/recycleBinStore";
@@ -273,13 +272,14 @@ export async function POST(request: Request) {
       );
     }
 
-    await logActivityServer({
+    const label = typeof entry.label === "string" && entry.label.trim() ? entry.label.trim() : null;
+    await logEventServer({
       clinicId,
       user: { uid: auth.uid, name: auth.name, role: auth.role },
-      action: "Record Restored",
-      details: `Restored ${collection}/${documentId} (${entry.label || "record"})${children.length ? ` with ${children.length} linked record(s)` : ""} from Recently Deleted`,
-      severity: "HIGH",
-      module: logModuleFor([collection]),
+      event:
+        collection === "patients"
+          ? { event: "patient.restored", patientId: documentId, patientName: label, ...(children.length ? { refs: { count: children.length + 1 } } : {}) }
+          : { event: "record.restored", refs: { procedure: label ?? undefined, ...(children.length ? { count: children.length + 1 } : {}) } },
     });
 
     return NextResponse.json({ ok: true, collection, documentId });

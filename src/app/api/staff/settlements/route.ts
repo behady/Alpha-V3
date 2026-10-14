@@ -23,8 +23,10 @@ import { adminClinicCollection, adminClinicDoc, resolveUserClinicId } from "@/li
 import { requireAdminUser } from "@/lib/apiStaffAuth";
 import { assertBranchAllowed } from "@/lib/server/branchAccess";
 import { buildManualEntryRow } from "@/lib/ledgerWrite";
-import { recordMoneyChange } from "@/lib/server/ledgerAudit";
-import { logActivityServer } from "@/lib/server/systemLog";
+import { recordLedgerAudit, recordMoneyChange } from "@/lib/server/ledgerAudit";
+import { logEventServer } from "@/lib/server/systemLog";
+import { diffChanges } from "@/lib/activity/diff";
+import type { ActivityEvent } from "@/lib/activity/types";
 import { isSettlementKind, SETTLEMENTS_COLLECTION } from "@/lib/staffSettlement";
 import { restampStaffSettlements } from "@/lib/server/staffSettlementSync";
 
@@ -162,14 +164,20 @@ async function create(args: { clinicId: string; actor: Actor; body: Record<strin
     if (ledgerRef && row) tx.set(ledgerRef, { ...row, createdAt: FieldValue.serverTimestamp() });
   });
 
+  const event: ActivityEvent = {
+    event: kind === "payout" ? "staff.paid" : "staff.deduction.added",
+    amount,
+    reason: note || null,
+    branchId: branch.branchId,
+    refs: { staffId, staffName, date, ...(kind === "payout" ? { method } : {}) },
+  };
   if (ledgerRef && row) {
     await recordMoneyChange({
       entry: { clinicId, action: "create", collection: "ledger", documentId: ledgerRef.id, after: row, actor, via: "staff/settlements:create" },
-      action: "Staff Paid",
-      details: `${amount} EGP paid to ${staffName} on ${date}`,
+      event,
     });
   } else {
-    await logActivityServer({ clinicId, user: actor, action: "Staff Deduction Recorded", details: `${amount} EGP held from ${staffName} on ${date}${note ? ` — ${note}` : ""}`, severity: "MEDIUM", module: "finance" });
+    await logEventServer({ clinicId, user: actor, event });
   }
   await restamp(clinicId, staffId);
   return NextResponse.json({ ok: true, id: settlementRef.id, ledgerId: ledgerRef?.id ?? null });
@@ -218,15 +226,32 @@ async function update(args: { clinicId: string; actor: Actor; body: Record<strin
       tx.update(ledgerRef, rowPatch);
       ledgerAfter = { ...ledgerBefore, ...rowPatch };
     }
-    return { staffId: String(before.staffId || ""), staffName: String(before.staffName || ""), ledgerId, ledgerBefore, ledgerAfter };
+    return {
+      staffId: String(before.staffId || ""), staffName: String(before.staffName || ""), ledgerId, ledgerBefore, ledgerAfter,
+      // The settlement as it stood, for the activity line.
+      before: { kind: before.kind, amount: before.amount, date: before.date, note: before.note, method: before.method } as Record<string, unknown>,
+      branchId: typeof before.branchId === "string" && before.branchId ? before.branchId : null,
+    };
   });
 
+  // Only the fields this edit carried, and only those that really moved: a re-sent figure is no edit.
+  const changes = diffChanges(outcome.before, patch, ["amount", "date", "method", "note"].filter((f) => f in patch))
+    .map((c) => (c.field === "note" ? { ...c, field: "notes" } : c));
+  const event: ActivityEvent | null = changes.length
+    ? {
+        event: outcome.before.kind === "payout" ? "staff.payout.edited" : "staff.deduction.edited",
+        amount: Number(patch.amount ?? outcome.before.amount) || 0,
+        changes,
+        branchId: outcome.branchId,
+        refs: { staffId: outcome.staffId || undefined, staffName: outcome.staffName || undefined },
+      }
+    : null;
   if (outcome.ledgerBefore && outcome.ledgerAfter) {
-    await recordMoneyChange({
-      entry: { clinicId, action: "update", collection: "ledger", documentId: outcome.ledgerId, before: outcome.ledgerBefore, after: outcome.ledgerAfter, actor, via: "staff/settlements:update" },
-      action: "Staff Payment Edited",
-      details: `Payout to ${outcome.staffName} changed`,
-    });
+    const entry = { clinicId, action: "update" as const, collection: "ledger" as const, documentId: outcome.ledgerId, before: outcome.ledgerBefore, after: outcome.ledgerAfter, actor, via: "staff/settlements:update" };
+    if (event) await recordMoneyChange({ entry, event });
+    else await recordLedgerAudit(entry);
+  } else if (event) {
+    await logEventServer({ clinicId, user: actor, event });
   }
   await restamp(clinicId, outcome.staffId);
   return NextResponse.json({ ok: true });
@@ -251,17 +276,27 @@ async function remove(args: { clinicId: string; actor: Actor; body: Record<strin
       ledgerBefore = ledgerSnap.data() || {};
       tx.delete(ledgerRef);
     }
-    return { staffId: String(before.staffId || ""), staffName: String(before.staffName || ""), amount: Number(before.amount) || 0, ledgerId, ledgerBefore };
+    return {
+      staffId: String(before.staffId || ""), staffName: String(before.staffName || ""), amount: Number(before.amount) || 0, ledgerId, ledgerBefore,
+      // For the activity line only.
+      kind: before.kind, date: typeof before.date === "string" ? before.date : "",
+      branchId: typeof before.branchId === "string" && before.branchId ? before.branchId : null,
+    };
   });
 
+  const event: ActivityEvent = {
+    event: outcome.kind === "payout" ? "staff.payout.deleted" : "staff.deduction.removed",
+    amount: outcome.amount,
+    branchId: outcome.branchId,
+    refs: { staffId: outcome.staffId || undefined, staffName: outcome.staffName || undefined, date: outcome.date || undefined },
+  };
   if (outcome.ledgerBefore) {
     await recordMoneyChange({
       entry: { clinicId, action: "delete", collection: "ledger", documentId: outcome.ledgerId, before: outcome.ledgerBefore, actor, via: "staff/settlements:delete" },
-      action: "Staff Payment Deleted",
-      details: `${outcome.amount} EGP payout to ${outcome.staffName} removed`,
+      event,
     });
   } else {
-    await logActivityServer({ clinicId, user: actor, action: "Staff Deduction Removed", details: `${outcome.amount} EGP deduction from ${outcome.staffName} removed`, severity: "MEDIUM", module: "finance" });
+    await logEventServer({ clinicId, user: actor, event });
   }
   await restamp(clinicId, outcome.staffId);
   return NextResponse.json({ ok: true });

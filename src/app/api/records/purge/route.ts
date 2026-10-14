@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
-import { logActivityServer } from "@/lib/server/systemLog";
+import { logEventServer } from "@/lib/server/systemLog";
 import { reportServerError } from "@/lib/server/reportError";
-import { checkNotCascadeChild, logModuleFor } from "@/lib/recycleBin";
+import { checkNotCascadeChild } from "@/lib/recycleBin";
 import { binCollection, binEntry, closeEntries } from "@/lib/server/recycleBinStore";
 
 /**
@@ -82,13 +82,17 @@ export async function POST(request: Request) {
       { purgedByUid: auth.uid },
     );
 
-    await logActivityServer({
+    const label = typeof entry.label === "string" && entry.label.trim() ? entry.label.trim() : null;
+    const isPatient = entry.collection === "patients";
+    await logEventServer({
       clinicId,
       user: { uid: auth.uid, name: auth.name, role: auth.role },
-      action: "Record Permanently Deleted",
-      details: `Purged ${entry.collection}/${entry.documentId} (${entry.label || "record"})${children.length ? ` with ${children.length} linked record(s)` : ""} from Recently Deleted`,
-      severity: "CRITICAL",
-      module: logModuleFor([String(entry.collection || "")]),
+      event: {
+        event: "record.purged",
+        ...(isPatient ? { patientId: typeof entry.documentId === "string" ? entry.documentId : null, patientName: label } : {}),
+        // Everything that went for good: the entry and the records binned with it.
+        refs: { ...(isPatient ? {} : { procedure: label ?? undefined }), ...(children.length ? { count: children.length + 1 } : {}) },
+      },
     });
 
     return NextResponse.json({ ok: true, filesRetained: paths.length });

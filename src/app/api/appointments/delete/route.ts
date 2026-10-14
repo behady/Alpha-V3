@@ -35,6 +35,11 @@ function bad(error: string, status = 400) {
   return NextResponse.json({ ok: false, error }, { status });
 }
 
+/** A plain-text field of a stored document, or undefined (so an activity ref is simply left off). */
+function textOf(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 type LedgerRow = { id: string; type: string; procedureId: string | null; clinicalNoteId: string | null };
 
 /**
@@ -252,12 +257,14 @@ export async function POST(request: Request) {
         clinicId, action: "delete", collection: "appointments", documentId: appointmentId,
         before: appointment, actor, via: `appointments/delete:${servicesAction}`,
       },
-      action: "Appointment Deleted",
-      details:
-        servicesAction === "delete"
-          ? `Deleted appointment for ${String(appointment.patientName || "Unknown")} along with ${notes.length} treatment(s) and ${ledgerRows.length} finance row(s)`
-          : `Deleted appointment for ${String(appointment.patientName || "Unknown")}; kept ${notes.length} treatment(s) in the patient's record`,
-      severity: "HIGH",
+      event: {
+        event: "appointment.deleted",
+        patientId: textOf(appointment.patientId) ?? null,
+        patientName: textOf(appointment.patientName) ?? null,
+        branchId: textOf(appointment.branchId) ?? null,
+        reason: servicesAction === "delete" ? "with treatments" : "kept treatments",
+        refs: { date: textOf(appointment.date), time: textOf(appointment.time), doctor: textOf(appointment.doctor), count: notes.length },
+      },
     });
 
     if (servicesAction === "delete") {

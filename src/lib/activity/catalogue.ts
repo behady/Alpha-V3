@@ -60,6 +60,12 @@ const FIELD_LABELS: Record<string, [string, string]> = {
   tooth: ["السن", "Tooth"],
   quantity: ["الكمية", "Quantity"],
   reason: ["السبب", "Reason"],
+  // An insurance approval's own parts, named by label alone (their values are maps, not figures).
+  lineStatus: ["حالة الخدمات", "Service states"],
+  dentists: ["الأطباء", "Dentists"],
+  patient: ["المريض", "Patient"],
+  lines: ["خدمات الموافقة", "Approval services"],
+  metlife: ["بيانات الموافقة", "Approval details"],
 };
 
 export function fieldLabel(field: string, lang: Lang): string {
