@@ -35,7 +35,9 @@ import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
-import { logActivity } from "@/lib/logger";
+import { logActivity, logEvent } from "@/lib/logger";
+import { diffChanges } from "@/lib/activity/diff";
+import type { Change } from "@/lib/activity/types";
 import { deleteRecord, RecycleBinError } from "@/lib/recycleBinApi";
 import { createStaffSettlement, deleteStaffSettlement, MoneyApiError, setPaymentCommission, updateStaffSettlement, type StaffSettlementDraft } from "@/lib/moneyApi";
 import { owedBefore, parseSettlement, SETTLEMENTS_COLLECTION, settledInPeriod, settleEarnings, unpaidBefore, type Earning, type StaffSettlement } from "@/lib/staffSettlement";
@@ -65,6 +67,16 @@ import { PRIVATE_PAYER_ID } from "@/lib/payers";
 import { STANDARD_LIST_ID } from "@/lib/priceLists";
 
 type StaffDoc = { id: string } & Record<string, unknown>;
+
+/** JSON with the keys sorted, so the same schedule read back from Firestore compares equal. */
+function stableKey(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableKey).join(",")}]`;
+  if (value && typeof value === "object") {
+    const o = value as Record<string, unknown>;
+    return `{${Object.keys(o).filter((k) => o[k] !== undefined).sort().map((k) => `${JSON.stringify(k)}:${stableKey(o[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
 
 /** Local calendar day, matching how a punch is filed. A UTC slice moves an evening shift a day. */
 function localYmd(d: Date): string {
@@ -412,11 +424,17 @@ function TeamPage() {
       try {
         // Cleared = removed, never 0: a blank means "the rate beside it", 0 means "earns nothing".
         await updateDoc(getClinicDoc("staff", selectedDoc.id), { [field]: value === null ? deleteField() : value });
-        await logActivity(
-          { uid: user?.uid, name: user?.name, role: user?.role },
-          "Staff Updated",
-          `${String(selectedDoc.name ?? "")}: rate on ${row.name} ${value === null ? "cleared" : `set to ${value}%`}`,
-        );
+        if (row.own !== value) {
+          void logEvent(
+            { uid: user?.uid, name: user?.name, role: user?.role },
+            {
+              event: "staff.edited",
+              changes: [{ field: "commission", from: row.own, to: value }],
+              // Which company or list the rate is for; the usual rate has none.
+              refs: { staffId: selectedDoc.id, staffName: String(selectedDoc.name ?? "") || undefined, payerName: row.kind === "usual" ? undefined : row.name },
+            },
+          );
+        }
         showToast(isAr ? "النسبة اتحفظت" : "Rate saved", "success");
       } catch {
         showToast(isAr ? "مقدرناش نحفظ النسبة" : "Could not save that rate", "error");
@@ -432,17 +450,30 @@ function TeamPage() {
       try {
         // All ticked = the field goes away (absent means every branch); never undefined.
         await updateDoc(getClinicDoc("staff", selectedDoc.id), { branchIds: ids ?? deleteField() });
-        await logActivity(
-          { uid: user?.uid, name: user?.name, role: user?.role },
-          "Staff Updated",
-          `${String(selectedDoc.name ?? "")}: branches ${ids === null ? "set to all" : ids.join(", ")}`,
-        );
+        // Shown by name, never by id: "all branches" (no list) is every branch's name.
+        const namesOf = (list: unknown): string | null => {
+          const wanted = Array.isArray(list) ? new Set(list.map(String)) : null;
+          const names = branches.filter((b) => !wanted || wanted.has(b.id)).map((b) => b.name).filter(Boolean);
+          return names.length ? names.join(", ") : null;
+        };
+        const fromNames = namesOf(selectedDoc.branchIds);
+        const toNames = namesOf(ids);
+        if (fromNames !== toNames) {
+          void logEvent(
+            { uid: user?.uid, name: user?.name, role: user?.role },
+            {
+              event: "staff.edited",
+              changes: [{ field: "branch", from: fromNames, to: toNames }],
+              refs: { staffId: selectedDoc.id, staffName: String(selectedDoc.name ?? "") || undefined },
+            },
+          );
+        }
         showToast(bt.branchesSaved, "success");
       } catch {
         showToast(bt.branchesFailed, "error");
       }
     },
-    [selectedDoc, canEdit, user, showToast, isAr],
+    [selectedDoc, canEdit, user, showToast, isAr, branches],
   );
 
   const selectedSchedule: { schedule: Schedule; assumed: boolean } = useMemo(
@@ -473,11 +504,24 @@ function TeamPage() {
           // Firestore refuses `undefined` outright, so an empty box is stored as an empty string.
           speciality: draft.speciality.trim(),
         });
-        await logActivity(
-          { uid: user?.uid, name: user?.name, role: user?.role },
-          "Staff Attendance Settings Updated",
-          `Updated shift, pay and speciality for ${String(selectedDoc.name ?? selectedDoc.id)}`,
+        const payChanges: Change[] = diffChanges(
+          selectedDoc,
+          { ...draft, speciality: draft.speciality.trim() },
+          ["baseSalary", "commissionPercentage", "overtimeMultiplier", "speciality"],
         );
+        if (stableKey(selectedDoc.attendanceSchedule) !== stableKey(draft.schedule)) {
+          payChanges.push({ field: "schedule", from: null, to: null });
+        }
+        if (payChanges.length) {
+          void logEvent(
+            { uid: user?.uid, name: user?.name, role: user?.role },
+            {
+              event: "staff.edited",
+              changes: payChanges,
+              refs: { staffId: selectedDoc.id, staffName: String(selectedDoc.name ?? "") || undefined },
+            },
+          );
+        }
         showToast(isAr ? "اتحفظ" : "Saved", "success");
       } catch (err) {
         // The code names which of the three it was: a rules refusal (wrong role, or a suspended

@@ -5,6 +5,9 @@ import { getDoc, getDocs, limit, orderBy, query } from "firebase/firestore";
 import { Loader2, Search, X, FlaskConical, Info, Trash2 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
+import { useAuth } from "@/context/AuthContext";
+import { logEvent } from "@/lib/logger";
+import { diffChanges } from "@/lib/activity/diff";
 import Protect from "@/components/Protect";
 import LabTeethPicker from "@/components/lab/LabTeethPicker";
 import { MoneyApiError, setProcedureLabFee } from "@/lib/moneyApi";
@@ -76,6 +79,7 @@ export default function LabCaseModal({
 }: Props) {
   const { language } = useLanguage();
   const { showToast, confirm } = useUI();
+  const { user } = useAuth();
   const isAr = language === "ar";
   const isEdit = Boolean(existing);
 
@@ -497,6 +501,23 @@ export default function LabCaseModal({
         ].filter((k) => !String((common as Record<string, unknown>)[k] ?? "").trim());
 
         await updateLabCase(existing.id, common as Partial<LabCase>, clearable);
+        // The form does not carry the status (advancing a case is the board's job), so only the
+        // fields it writes are compared. An empty price is written as 0 and read as "no price".
+        const labChanges = diffChanges(
+          { labName: existing.labName, agreedPrice: existing.agreedPrice || null, dueDate: existing.dueDate },
+          { labName: common.labName, agreedPrice: common.agreedPrice || null, dueDate: common.dueDate },
+          ["labName", "agreedPrice", "dueDate"],
+        );
+        if (labChanges.length) {
+          void logEvent(
+            { uid: user?.uid, name: user?.name, role: user?.role },
+            {
+              event: "lab.edited", patientId: common.patientId || null, patientName: common.patientName || null,
+              branchId: existing.branchId || undefined, changes: labChanges,
+              refs: { labCaseId: existing.id, labName: common.labName || existing.labName },
+            },
+          );
+        }
         onSaved({ id: existing.id, code: existing.code, isNew: false });
         showToast(isAr ? "تم حفظ الحالة" : "Case saved", "success");
       } else {
@@ -509,6 +530,14 @@ export default function LabCaseModal({
           sentAt: sendNow ? localYmd() : undefined,
           createdBy: currentUserName,
         });
+        void logEvent(
+          { uid: user?.uid, name: user?.name, role: user?.role },
+          {
+            event: "lab.created", patientId: common.patientId || null, patientName: common.patientName || null,
+            branchId: branch?.id || undefined, amount: common.agreedPrice || null,
+            refs: { labCaseId: created.id, labName: common.labName, status: sendNow ? "at_lab" : "draft" },
+          },
+        );
         onSaved({ id: created.id, code: created.code, isNew: true });
         showToast(
           isAr ? `اتعملت الحالة ${created.code}` : `Case ${created.code} created`,
@@ -543,6 +572,14 @@ export default function LabCaseModal({
     setDeleting(true);
     try {
       await deleteLabCase(existing.id);
+      void logEvent(
+        { uid: user?.uid, name: user?.name, role: user?.role },
+        {
+          event: "lab.deleted", patientId: existing.patientId || null, patientName: existing.patientName || null,
+          branchId: existing.branchId || undefined, amount: existing.agreedPrice || null,
+          refs: { labCaseId: existing.id, labName: existing.labName, status: existing.status },
+        },
+      );
       showToast(isAr ? `اتمسح الأمر ${existing.code}` : `Order ${existing.code} deleted`, "success");
       onClose();
     } catch (err) {

@@ -21,6 +21,8 @@ import {
 import Protect from "@/components/Protect";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
+import { useAuth } from "@/context/AuthContext";
+import { logEvent } from "@/lib/logger";
 import { localYmd } from "@/lib/clinicDate";
 import type { DentalLab } from "@/lib/dentalLabs";
 import { workTypeLabel, type LabCase } from "@/lib/labCases";
@@ -55,6 +57,7 @@ export default function LabAccountsPanel({
 }) {
   const { language } = useLanguage();
   const { showToast, confirm } = useUI();
+  const { user } = useAuth();
   const isAr = language === "ar";
 
   const [openLab, setOpenLab] = useState("");
@@ -93,6 +96,10 @@ export default function LabAccountsPanel({
         reference: reference.trim(),
         createdBy: currentUserName,
       });
+      void logEvent(
+        { uid: user?.uid, name: user?.name, role: user?.role },
+        { event: "lab.paid", amount: Math.round(value * 100) / 100, refs: { labName: lab.name, method: method || "cash", date } },
+      );
       showToast(
         isAr ? `اتسجل دفع ${money(value)} لـ ${lab.name}` : `Paid ${money(value)} to ${lab.name}`,
         "success"
@@ -117,6 +124,13 @@ export default function LabAccountsPanel({
     setBusy(payment.id);
     try {
       await deleteLabPayment(payment.id);
+      void logEvent(
+        { uid: user?.uid, name: user?.name, role: user?.role },
+        {
+          event: "lab.payment.deleted", amount: Number(payment.amount) || null,
+          refs: { labName: payment.labName, method: payment.method, date: payment.date },
+        },
+      );
       showToast(isAr ? "اتحذفت الدفعة" : "Payment deleted", "info");
     } catch {
       showToast(isAr ? "فشل الحذف" : "Could not delete it", "error");

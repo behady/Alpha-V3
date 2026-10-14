@@ -65,6 +65,7 @@ import {
   type LabOrderPaper,
 } from "@/lib/labCases";
 import { advanceLabCase, createRemake } from "@/lib/labCaseWrite";
+import { logEvent } from "@/lib/logger";
 import { LAB_PAYMENTS_COLLECTION, type LabPayment } from "@/lib/labAccounts";
 import { loadLabOrderClinic, printLabOrder } from "@/lib/labOrderPrint";
 import { notifyLabCaseReady } from "@/lib/labNotify";
@@ -243,6 +244,14 @@ function LabTrackingPage() {
       setBusyId(labCase.id);
       try {
         await advanceLabCase(labCase, next, { by: user?.name });
+        void logEvent(
+          { uid: user?.uid, name: user?.name, role: user?.role },
+          {
+            event: "lab.status", patientId: labCase.patientId || null, patientName: labCase.patientName || null,
+            branchId: labCase.branchId || undefined, changes: [{ field: "status", from: labCase.status || null, to: next }],
+            refs: { labCaseId: labCase.id, labName: labCase.labName },
+          },
+        );
         if (next === "back") {
           // The bell, and then the person. The alert is for whoever is not looking at this screen;
           // the prompt is for whoever just clicked, because they are the one holding the case.
@@ -277,6 +286,14 @@ function LabTrackingPage() {
       if (!remaking) return;
       try {
         const created = await createRemake(remaking, { ...args, by: user?.name });
+        void logEvent(
+          { uid: user?.uid, name: user?.name, role: user?.role },
+          {
+            event: "lab.remake", patientId: remaking.patientId || null, patientName: remaking.patientName || null,
+            branchId: remaking.branchId || undefined, amount: args.agreedPrice || null, reason: args.reason.trim() || null,
+            refs: { labCaseId: created.id, labName: remaking.labName },
+          },
+        );
         showToast(
           isAr ? `اتعمل أمر إعادة ${created.code}` : `Remake ${created.code} raised`,
           "success"
