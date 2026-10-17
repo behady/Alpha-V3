@@ -134,6 +134,8 @@
     "_comment_test_payers": "Insurance work: who paid for a case, what it was worth, and what each dentist earned on it. The assertions that matter are the refusals - an insurer with no rate set pays the dentist their USUAL percentage rather than nothing, a retired insurer named by a stale screen is not resurrected, a payment route may not read a payer off the request body, and two rates in one period read as null rather than as one of them. Plus the arithmetic agreeing with itself: the payer view and the payroll view must total the same, or the owner is holding two answers.",
     "test:schedule-card": "npx tsx tests/scheduleCard.test.mts",
     "test:week-schedule": "npx tsx tests/weekSchedule.test.mts",
+    "test:rename": "npx tsx tests/staffRename.test.mts",
+    "test:rename-route": "npx tsx tests/renameStaffRoute.test.mts",
     "test:staff": "npx tsx tests/staffProfile.test.mts",
     "test:staff-settlement": "npx tsx tests/staffSettlement.test.mts",
     "test:payers": "npx tsx tests/payers.test.mts",

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSettingsText } from "@/lib/useSettingsText";
-import { Users, Shield, Trash2, AlertCircle, Plus, KeyRound, X, Save, Lock, Loader2, Copy, Stethoscope, Crown } from "lucide-react";
+import { Users, Shield, Trash2, AlertCircle, Plus, KeyRound, X, Save, Lock, Loader2, Copy, Stethoscope, Crown, Pencil } from "lucide-react";
 import { formatStaffRoleLabel, isDentistStaff } from "@/lib/staffRoles";
 import { isFullAccessRole, isOwnerRole, rolePreset } from "@/lib/permissions";
 import { useClinic } from "@/context/ClinicContext";
@@ -50,6 +50,10 @@ export default function UserManagement({ usersList, currentUser, openAddUser, cl
   const [resetTarget, setResetTarget] = useState<{ uid: string; name: string } | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [isResetting, setIsResetting] = useState(false);
+
+  const [renameTarget, setRenameTarget] = useState<{ staffId: string; name: string } | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [isRenaming, setIsRenaming] = useState(false);
 
   const totalAssignable = getAllPermissionIds().length;
 
@@ -183,6 +187,52 @@ export default function UserManagement({ usersList, currentUser, openAddUser, cl
       showToast(error instanceof Error ? error.message : "Failed to update password", "error");
     } finally {
       setIsResetting(false);
+    }
+  };
+
+  /**
+   * Rename someone, and every record that copied their old name — bookings, treatments, payments,
+   * reports. The copying is why this is a server call and not a field edit: the staff row is one
+   * document, the name is on thousands. See /api/admin/rename-staff and lib/staffRename.
+   */
+  const executeRename = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!renameTarget) return;
+    const name = renameValue.replace(/\s+/g, " ").trim();
+    if (!name || name === renameTarget.name) return;
+
+    setIsRenaming(true);
+    try {
+      const firebaseUser = auth.currentUser;
+      if (!firebaseUser) throw new Error(isAr ? "سجّل الدخول أولاً" : "Sign in required");
+      const token = await firebaseUser.getIdToken();
+      const res = await fetch("/api/admin/rename-staff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ clinicId, staffId: renameTarget.staffId, name }),
+      });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok || !result?.ok) throw new Error(result?.error || txt.errorMsg);
+
+      const n = Number(result.documents) || 0;
+      showToast(
+        isAr
+          ? `تم تغيير الاسم إلى ${name} — واتحدّث في ${n} سجل قديم`
+          : `Renamed to ${name} — ${n} old ${n === 1 ? "record" : "records"} updated`,
+        "success"
+      );
+      await logActivity(
+        currentUser?.name || "Admin",
+        "Staff Renamed",
+        `Renamed ${renameTarget.name || "(no name)"} to ${name}; ${n} records updated`,
+        "system_logs",
+        { severity: "MEDIUM", module: "users" }
+      );
+      setRenameTarget(null);
+    } catch (error: unknown) {
+      showToast(error instanceof Error ? error.message : txt.errorMsg, "error");
+    } finally {
+      setIsRenaming(false);
     }
   };
 
@@ -571,6 +621,21 @@ export default function UserManagement({ usersList, currentUser, openAddUser, cl
               <div className="min-w-0 flex-1">
                 <p className="flex flex-wrap items-center gap-2">
                   <span className="truncate text-sm font-black text-ink">{u.name || txt.unnamed}</span>
+                  {/* The owner's name is the owner's to change — the API refuses this too. */}
+                  {u.staffId && !(isOwnerRole(u.role) && u.uid !== currentUser?.uid) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRenameTarget({ staffId: u.staffId!, name: u.name || "" });
+                        setRenameValue(u.name || "");
+                      }}
+                      title={isAr ? "تغيير الاسم" : "Change name"}
+                      aria-label={isAr ? "تغيير الاسم" : "Change name"}
+                      className="-mx-1 rounded-md p-1 text-ink-muted transition-colors hover:bg-surface-muted hover:text-ink"
+                    >
+                      <Pencil size={13} />
+                    </button>
+                  )}
                   <span
                     className={`inline-flex items-center gap-1 rounded-lg border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
                       isOwnerRole(u.role)
@@ -728,6 +793,65 @@ export default function UserManagement({ usersList, currentUser, openAddUser, cl
               >
                 {isResetting ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
                 {isAr ? "حفظ وتحديث النظام" : "Force Update System"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {renameTarget && (
+        <div className="fixed inset-0 bg-ink/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+          <div className="bg-surface rounded-[2rem] p-8 w-full max-w-md shadow-2xl animate-in zoom-in-95 border border-line">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold text-ink tracking-tight">
+                {isAr ? "تغيير الاسم" : "Change name"}
+              </h2>
+              <button
+                type="button"
+                onClick={() => !isRenaming && setRenameTarget(null)}
+                disabled={isRenaming}
+                className="text-ink-muted bg-surface-subtle hover:bg-danger-tint hover:text-danger p-2 rounded-full transition-colors disabled:opacity-50"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={executeRename} className="space-y-5">
+              <div className="space-y-1.5">
+                <label className={`text-[11px] font-bold text-ink-muted uppercase tracking-wider ${isRTL ? "pr-1" : "pl-1"}`}>
+                  {isAr ? "الاسم الجديد" : "New name"}
+                </label>
+                <input
+                  autoFocus
+                  required
+                  type="text"
+                  maxLength={80}
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  disabled={isRenaming}
+                  className="w-full py-3.5 px-4 bg-surface-subtle rounded-xl border border-line font-semibold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all"
+                />
+              </div>
+
+              <p className="text-xs font-medium leading-relaxed text-ink-body">
+                {isAr
+                  ? `كل السجلات القديمة اللي عليها اسم «${renameTarget.name || "—"}» — المواعيد والعلاجات والمدفوعات والتقارير — هتتحدّث للاسم الجديد. ممكن ياخد دقيقة.`
+                  : `Every old record carrying "${renameTarget.name || "—"}" — appointments, treatments, payments, reports — is updated to the new name. This can take a minute.`}
+              </p>
+
+              <button
+                type="submit"
+                disabled={
+                  isRenaming ||
+                  !renameValue.trim() ||
+                  renameValue.replace(/\s+/g, " ").trim() === renameTarget.name
+                }
+                className="w-full bg-accent text-ink-on-accent py-4 rounded-xl font-bold text-sm shadow-md active:scale-95 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+              >
+                {isRenaming ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+                {isRenaming
+                  ? isAr ? "جاري تحديث السجلات…" : "Updating records…"
+                  : isAr ? "حفظ الاسم" : "Save name"}
               </button>
             </form>
           </div>
