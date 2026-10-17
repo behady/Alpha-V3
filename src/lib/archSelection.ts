@@ -21,10 +21,34 @@ export type ArchPick = "upper" | "lower" | "full";
 export const UPPER_ARCH = ["18", "17", "16", "15", "14", "13", "12", "11", "21", "22", "23", "24", "25", "26", "27", "28"];
 export const LOWER_ARCH = ["48", "47", "46", "45", "44", "43", "42", "41", "31", "32", "33", "34", "35", "36", "37", "38"];
 
-export function archTeeth(pick: ArchPick): string[] {
-  if (pick === "upper") return UPPER_ARCH;
-  if (pick === "lower") return LOWER_ARCH;
-  return [...UPPER_ARCH, ...LOWER_ARCH];
+/** The milk teeth, same order: 55…51, 61…65 and 85…81, 71…75. */
+export const PRIMARY_UPPER_ARCH = ["55", "54", "53", "52", "51", "61", "62", "63", "64", "65"];
+export const PRIMARY_LOWER_ARCH = ["85", "84", "83", "82", "81", "71", "72", "73", "74", "75"];
+
+/** FDI quadrants 5–8 are the milk teeth. */
+export function isPrimaryTooth(code: string): boolean {
+  return /^[5-8][1-5]$/.test(String(code).trim());
+}
+
+/**
+ * Which chart a selection belongs on: "primary" when every tooth picked is a milk tooth,
+ * "permanent" when every one is an adult tooth, null when nothing is picked or it is mixed.
+ * The picker follows this when a saved treatment is reopened, so a child's filling on 75 opens
+ * on the child chart instead of an adult chart where the picked tooth is not even drawn.
+ */
+export function dentitionOf(selected: readonly string[]): "primary" | "permanent" | null {
+  if (selected.length === 0) return null;
+  if (selected.every(isPrimaryTooth)) return "primary";
+  if (selected.some(isPrimaryTooth)) return null;
+  return "permanent";
+}
+
+export function archTeeth(pick: ArchPick, primary = false): string[] {
+  const upper = primary ? PRIMARY_UPPER_ARCH : UPPER_ARCH;
+  const lower = primary ? PRIMARY_LOWER_ARCH : LOWER_ARCH;
+  if (pick === "upper") return upper;
+  if (pick === "lower") return lower;
+  return [...upper, ...lower];
 }
 
 /** Teeth the chart records as gone: a missing diagnosis, or an extraction nothing has replaced. */
@@ -46,16 +70,16 @@ export function missingTeeth(
  * Is this arch "ticked"? Every tooth of it the patient still has is selected — so an arch picked
  * without its missing teeth still shows as picked, and so does one picked with them.
  */
-export function isArchPicked(selected: readonly string[], pick: ArchPick, missing: ReadonlySet<string>): boolean {
+export function isArchPicked(selected: readonly string[], pick: ArchPick, missing: ReadonlySet<string>, primary = false): boolean {
   const have = new Set(selected);
-  const present = archTeeth(pick).filter((t) => !missing.has(t));
-  const wanted = present.length > 0 ? present : archTeeth(pick);
+  const present = archTeeth(pick, primary).filter((t) => !missing.has(t));
+  const wanted = present.length > 0 ? present : archTeeth(pick, primary);
   return wanted.every((t) => have.has(t));
 }
 
 /** The arch's missing teeth, in chart order: what the dentist is asked about. */
-export function missingInArch(pick: ArchPick, missing: ReadonlySet<string>): string[] {
-  return archTeeth(pick).filter((t) => missing.has(t));
+export function missingInArch(pick: ArchPick, missing: ReadonlySet<string>, primary = false): string[] {
+  return archTeeth(pick, primary).filter((t) => missing.has(t));
 }
 
 /**
@@ -67,10 +91,11 @@ export function toggleArch(
   selected: readonly string[],
   pick: ArchPick,
   missing: ReadonlySet<string>,
-  includeMissing: boolean
+  includeMissing: boolean,
+  primary = false
 ): string[] {
-  const teeth = archTeeth(pick);
-  if (isArchPicked(selected, pick, missing)) return selected.filter((t) => !teeth.includes(t));
+  const teeth = archTeeth(pick, primary);
+  if (isArchPicked(selected, pick, missing, primary)) return selected.filter((t) => !teeth.includes(t));
   const add = teeth.filter((t) => includeMissing || !missing.has(t));
   const kept = includeMissing ? selected : selected.filter((t) => !(teeth.includes(t) && missing.has(t)));
   return Array.from(new Set([...kept, ...add]));

@@ -8,7 +8,8 @@ import { auth, db } from "@/lib/firebase";
 import { collection, addDoc, doc, updateDoc, serverTimestamp, getDocs, query, where, deleteDoc, getDoc } from "firebase/firestore";
 import { getStorage, ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { useUI } from "@/context/UIContext";
-import { isArchPicked, missingInArch, missingTeeth, toggleArch, type ArchPick } from "@/lib/archSelection";
+import { dentitionOf, isArchPicked, isPrimaryTooth, missingInArch, missingTeeth, toggleArch, type ArchPick } from "@/lib/archSelection";
+import DentitionSwitch from "@/components/teeth/DentitionSwitch";
 import { isMissingStatus, normalizeToothData } from "@/lib/diagnosisCatalog";
 import { cairo } from "@/lib/fonts/arabic";
 import InsurerBadge from "@/components/shared/InsurerBadge";
@@ -133,6 +134,19 @@ export const TeethChartSelector = memo(function TeethChartSelector({
 
     /** Marking mode: taps flag teeth as missing instead of picking them for the treatment. */
     const [markingMissing, setMarkingMissing] = useState(false);
+
+    /**
+     * Adult or Child chart. Starts on whatever the picked teeth already are, and follows them when
+     * a saved treatment loads in after the panel opened — a filling on 75 must reopen on the child
+     * chart, where 75 is drawn. A mixed selection (a 9-year-old's 55 and 16) leaves it alone.
+     */
+    const [primary, setPrimary] = useState(() => dentitionOf(selected) === "primary");
+    const dentition = dentitionOf(selected);
+    useEffect(() => {
+      if (dentition) setPrimary(dentition === "primary");
+    }, [dentition]);
+    /** Picked teeth the chart on screen does not draw, so they are never picked invisibly. */
+    const offChart = selected.filter((t) => isPrimaryTooth(t) !== primary);
     /**
      * What this panel has written since it opened, over the chart it was given. The booking popup
      * loads the patient once rather than listening, so without this a tooth marked missing there
@@ -179,9 +193,9 @@ export const TeethChartSelector = memo(function TeethChartSelector({
      * bridge over a gap does, a scaling does not). Closing the question counts them out.
      */
     const pickArch = async (pick: ArchPick) => {
-      const gone = missingInArch(pick, missing);
+      const gone = missingInArch(pick, missing, primary);
       let includeMissing = false;
-      if (gone.length > 0 && !isArchPicked(selected, pick, missing)) {
+      if (gone.length > 0 && !isArchPicked(selected, pick, missing, primary)) {
         includeMissing = await confirm(
           isAr
             ? `الأسنان دي متسجلة مخلوعة أو مش موجودة: ${gone.join("، ")}. تتحسب مع الفك؟`
@@ -193,7 +207,7 @@ export const TeethChartSelector = memo(function TeethChartSelector({
           }
         );
       }
-      onSetSelected((prev) => toggleArch(prev, pick, missing, includeMissing));
+      onSetSelected((prev) => toggleArch(prev, pick, missing, includeMissing, primary));
     };
 
     const archBoxes: Array<{ pick: ArchPick; label: string }> = [
@@ -234,6 +248,7 @@ export const TeethChartSelector = memo(function TeethChartSelector({
             {isAr ? "اختار الأسنان" : "Pick the teeth"}
           </p>
           <div className="flex flex-wrap items-center gap-2">
+            <DentitionSwitch primary={primary} onChange={setPrimary} isAr={isAr} />
             {patientId && (
               <button
                 type="button"
@@ -283,13 +298,14 @@ export const TeethChartSelector = memo(function TeethChartSelector({
               compactMode={true}
               dense
               narrow={narrow}
+              isPrimary={primary}
               selectedTeeth={selectedNumbers}
               onToggleTooth={(id) => (markingMissing ? void toggleMissing(id.toString()) : onToggle(id.toString()))}
             />
           </div>
           <div className="flex w-[6.5rem] shrink-0 flex-col justify-between gap-2 rounded-xl border border-line bg-surface p-2 max-md:w-full max-md:flex-row max-md:gap-1.5 max-md:border-0 max-md:p-0">
             {archBoxes.map(({ pick, label }) => {
-              const on = isArchPicked(selected, pick, missing);
+              const on = isArchPicked(selected, pick, missing, primary);
               return (
                 <button
                   key={pick}
@@ -315,6 +331,17 @@ export const TeethChartSelector = memo(function TeethChartSelector({
             })}
           </div>
         </div>
+
+        {offChart.length > 0 && (
+          <p className="mt-2 text-[12px] font-bold text-ink-body leading-relaxed">
+            <span className="text-ink-muted">
+              {primary
+                ? isAr ? "مختار كمان من أسنان البالغ:" : "Also picked on the adult chart:"
+                : isAr ? "مختار كمان من أسنان الأطفال:" : "Also picked on the child chart:"}
+            </span>{" "}
+            {offChart.join(", ")}
+          </p>
+        )}
 
         {onSelected.length > 0 && (
           <p className="mt-2 text-[12px] font-bold text-ink-body leading-relaxed">

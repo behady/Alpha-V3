@@ -4,7 +4,12 @@ export const ALL_TEETH = [
   "18","17","16","15","14","13","12","11","21","22","23","24","25","26","27","28",
   "48","47","46","45","44","43","42","41","31","32","33","34","35","36","37","38",
 ];
-export const UPPER_LEFT_TEETH = ["18","17","16","15","14","13","12","11"];
+/** The milk teeth (FDI quadrants 5–8). A treatment can be recorded on these from the Child chart. */
+export const PRIMARY_TEETH = [
+  "55","54","53","52","51","61","62","63","64","65",
+  "85","84","83","82","81","71","72","73","74","75",
+];
+export const UPPER_LEFT_TEETH =["18","17","16","15","14","13","12","11"];
 export const UPPER_RIGHT_TEETH = ["21","22","23","24","25","26","27","28"];
 export const LOWER_LEFT_TEETH = ["48","47","46","45","44","43","42","41"];
 export const LOWER_RIGHT_TEETH = ["31","32","33","34","35","36","37","38"];
@@ -74,7 +79,9 @@ export function parseTeethString(raw: string): string[] {
     .split(/[\s,;/-]+/)
     .map((t) => t.trim())
     .filter(Boolean);
-  return Array.from(new Set(tokens.filter((t) => ALL_TEETH.includes(t))));
+  // Milk teeth too: reading only the adult numbers here meant a treatment saved on 75 reopened
+  // with no tooth picked, and re-saving it quietly turned it into a general procedure.
+  return Array.from(new Set(tokens.filter((t) => ALL_TEETH.includes(t) || PRIMARY_TEETH.includes(t))));
 }
 
 

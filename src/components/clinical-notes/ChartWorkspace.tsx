@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Eraser, Hand, Loader2, Pencil, X } from "lucide-react";
 import TeethChart from "@/components/TeethChart";
 import { useLanguage } from "@/context/LanguageContext";
@@ -8,7 +8,8 @@ import { getCategoryForStatus, normalizeToothData, type ToothData } from "@/lib/
 import ServiceEditorDrawer from "./ServiceEditorDrawer";
 import { Note, Service, Staff } from "./types";
 import { TREATMENT_STATES, resolveTreatments, type ToothTreatment, type TreatmentStateId } from "@/lib/toothTreatments";
-import { LOWER_LEFT_TEETH, LOWER_RIGHT_TEETH, UPPER_LEFT_TEETH, UPPER_RIGHT_TEETH } from "./utils";
+import { archTeeth, dentitionOf } from "@/lib/archSelection";
+import DentitionSwitch from "@/components/teeth/DentitionSwitch";
 import type { LabCaseSeed } from "@/lib/labCases";
 
 /**
@@ -139,16 +140,20 @@ export default function ChartWorkspace({
     );
   };
 
+  /** Adult or Child chart; follows the teeth of a treatment opened for editing. See TeethChartSelector. */
+  const [primary, setPrimary] = useState(() => dentitionOf(selectedTeeth) === "primary");
+  const dentition = dentitionOf(selectedTeeth);
+  useEffect(() => {
+    if (dentition) setPrimary(dentition === "primary");
+  }, [dentition]);
+
   const handleSelectArch = (arch: "upper" | "lower") => {
-    const archTeeth =
-      arch === "upper"
-        ? [...UPPER_RIGHT_TEETH, ...UPPER_LEFT_TEETH]
-        : [...LOWER_RIGHT_TEETH, ...LOWER_LEFT_TEETH];
-    const allSelected = archTeeth.every((t) => selectedTeeth.includes(t));
+    const teeth = archTeeth(arch, primary);
+    const allSelected = teeth.every((t) => selectedTeeth.includes(t));
     onSelectedTeethChange(
       allSelected
-        ? selectedTeeth.filter((t) => !archTeeth.includes(t))
-        : Array.from(new Set([...selectedTeeth, ...archTeeth]))
+        ? selectedTeeth.filter((t) => !teeth.includes(t))
+        : Array.from(new Set([...selectedTeeth, ...teeth]))
     );
   };
 
@@ -188,6 +193,7 @@ export default function ChartWorkspace({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          <DentitionSwitch primary={primary} onChange={setPrimary} isAr={isAr} />
           {editingNote && (
             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[11px] font-black">
               <Pencil size={12} />
@@ -220,6 +226,7 @@ export default function ChartWorkspace({
             selectionMode
             compactMode
             wide
+            isPrimary={primary}
             selectedTeeth={selectedNumbers}
             onToggleTooth={toggleTooth}
             onSelectArch={handleSelectArch}
