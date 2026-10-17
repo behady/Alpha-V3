@@ -1475,6 +1475,20 @@ export default function MobileDashboard() {
                                     )}
                                   </div>
                                 </div>
+                                {/* Straight to the patient's file; the rest of the card still opens the booking. */}
+                                {apt.patientId && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      router.push(`/patients/${apt.patientId}`);
+                                    }}
+                                    aria-label={ar ? `ملف ${apt.patientName || ""}` : `Open ${apt.patientName || "patient"}'s profile`}
+                                    className="shrink-0 self-start inline-flex items-center gap-1 h-8 px-2.5 rounded-full border border-line text-ink text-[12px] font-bold whitespace-nowrap transition-colors hover:bg-surface-subtle active:bg-surface-subtle"
+                                  >
+                                    <User size={13} strokeWidth={2.4} /> {ar ? "الملف" : "Profile"}
+                                  </button>
+                                )}
                               </div>
                             );
                           };
