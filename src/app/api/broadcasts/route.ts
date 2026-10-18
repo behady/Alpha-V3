@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { reportServerError } from "@/lib/server/reportError";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
 import { clinicHasFeature } from "@/lib/clinicFeatures";
+import { getClinicProfileAdmin } from "@/lib/clinicProfileServer";
 import {
   BroadcastError,
   broadcastFailures,
@@ -29,7 +30,7 @@ export const maxDuration = 120;
 
 type Body = {
   clinicId?: string;
-  action?: "overview" | "create" | "pause" | "resume" | "cancel" | "test" | "failures";
+  action?: "overview" | "list" | "create" | "pause" | "resume" | "cancel" | "test" | "failures";
   id?: string;
   name?: string;
   versions?: unknown;
@@ -76,15 +77,27 @@ export async function POST(request: Request) {
         await sendBroadcastTest(clinicId, String(body.phone || ""), String(body.text || ""));
         return NextResponse.json({ ok: true });
       }
+      case "list": {
+        // The refresh while a broadcast runs: no patient scan, which reads the whole list.
+        const [line, broadcasts] = await Promise.all([broadcastLine(clinicId), listBroadcasts(clinicId)]);
+        return NextResponse.json({ ok: true, line, problem: lineProblem(line), broadcasts });
+      }
       case "failures": {
         return NextResponse.json({ ok: true, rows: await broadcastFailures(clinicId, String(body.id || "")) });
       }
       default: {
-        const [line, audience, broadcasts] = await Promise.all([broadcastLine(clinicId), buildAudience(clinicId), listBroadcasts(clinicId)]);
+        const [line, audience, broadcasts, profile] = await Promise.all([
+          broadcastLine(clinicId),
+          buildAudience(clinicId),
+          listBroadcasts(clinicId),
+          getClinicProfileAdmin(clinicId),
+        ]);
         return NextResponse.json({
           ok: true,
           line,
           problem: lineProblem(line),
+          // What {{clinic_name}} becomes — the profile name, which is what the server merges.
+          clinicName: profile?.clinicName?.trim() || "",
           audience: {
             count: audience.recipients.length,
             totalPatients: audience.totalPatients,

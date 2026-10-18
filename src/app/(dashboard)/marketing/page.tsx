@@ -9,8 +9,9 @@ import {
   ChevronLeft, ChevronRight, Trash2, Clock, X, FileText, Clapperboard, Target,
   Sparkles, CheckCircle2, AlertTriangle, CalendarPlus, Film, Star, SlidersHorizontal,
   Send, UserX, ClipboardList, Cake, Armchair, PartyPopper, ThumbsDown,
-  TrendingUp, QrCode, Printer, Link2, Search, Palette, Camera,
+  TrendingUp, QrCode, Printer, Link2, Search, Palette, Camera, Megaphone,
 } from "lucide-react";
+import Link from "next/link";
 import QRCode from "qrcode";
 import LeadFunnelReport from "@/components/reports/LeadFunnelReport";
 import { DEFAULT_LEAD_SOURCES } from "@/lib/leads";
@@ -1740,6 +1741,24 @@ export default function MarketingPage() {
                   {isAr ? "ابدأ حملة" : "Start a campaign"}
                 </button>
               </div>
+            )}
+
+            {/* Everyone, not a segment: the broadcast lives on the WhatsApp page, where it is paced. */}
+            {!campSegment && isAdmin && (
+              <Link
+                href="/chats/broadcast"
+                className="flex items-center gap-3 rounded-2xl bg-ink-slab px-5 py-4 text-white transition hover:bg-ink-strong"
+              >
+                <Megaphone size={18} className="shrink-0" />
+                <span className="flex-1">
+                  <span className="block text-sm font-black">{isAr ? "رسالة لكل المرضى" : "Message all patients"}</span>
+                  <span className="block text-xs text-white/60">
+                    {isAr
+                      ? "اكتب رسالة واحدة والسيستم يبعتها لكل مرضاك على مهل من رقم العيادة — بأمان."
+                      : "Write one message; the system sends it to every patient slowly, from the clinic's number — safely."}
+                  </span>
+                </span>
+              </Link>
             )}
 
             {/* Segment picker */}
