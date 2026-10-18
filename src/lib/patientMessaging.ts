@@ -95,6 +95,8 @@ export function normalizeReplyText(raw: string): string {
 const OPT_OUT_REPLIES = new Set([
   // English
   "stop",
+  // STOP in Arabic letters, the way most Egyptians type it — a broadcast asks for STOP.
+  "ستوب",
   "unsubscribe",
   "opt out",
   "optout",
@@ -263,6 +265,8 @@ export function appendOptOutFooter(text: string, footer: string, separator = "\n
     return body;
   }
   if (/\bstop\b/i.test(body) && /repl(y|ies)|send/i.test(body)) return body;
+  // An Arabic sentence asking for the English word, as broadcasts write it: "... ابعت STOP".
+  if (/\bstop\b|ستوب/i.test(body) && /(ابعت|ارسل|أرسل|اكتب)/.test(body)) return body;
 
   return `${body.replace(/\s+$/, "")}${separator}${footer}`;
 }
