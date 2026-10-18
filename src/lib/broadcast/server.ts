@@ -4,7 +4,7 @@ import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { conversationKey } from "@/lib/bot/conversation";
 import { isWhatsAppBlocked } from "@/lib/patientMessaging";
 import { pickPatientPhone } from "@/lib/patientPhone";
-import { normalizeToE164, normalizeToInternationalDigits } from "@/lib/whatsapp";
+import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { deliverWhatsAppMessage, resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
 import { mergeWhatsAppTemplate } from "@/lib/whatsappTemplateMerge";
 import { loadMetaWhatsappConfig } from "@/lib/metaWhatsapp";
@@ -200,7 +200,8 @@ export async function buildAudience(clinicId: string): Promise<Audience> {
     const data = (doc.data() || {}) as Record<string, unknown>;
     if (data.deleted === true || data.isDeleted === true) continue;
     const raw = pickPatientPhone(data);
-    const digits = raw ? normalizeToInternationalDigits(raw) : "";
+    // Numbers typed or imported without the country code ("010…") are read as Egyptian.
+    const digits = raw ? normalizeToE164AssumingCountry(raw).replace(/\D/g, "") : "";
     if (!digits || !looksLikeMobile(digits)) {
       excludedNoPhone += 1;
       continue;
@@ -396,7 +397,7 @@ export function mergeBroadcast(template: string, vars: { name: string; clinicNam
   });
   // A patient with no name on file is greeted without one, rather than as "أهلاً أ/ 🌷".
   return merged
-    .replace(/أ\/\s*(?=[^؀-ۿA-Za-z]|$)/g, "")
+    .replace(/أ\/[ \t]*(?![ \t]*\p{L})/gu, "")
     .replace(/[ \t]{2,}/g, " ")
     .replace(/[ \t]+\n/g, "\n")
     .trim();
@@ -404,7 +405,7 @@ export function mergeBroadcast(template: string, vars: { name: string; clinicNam
 
 /** Send one finished message to one number now — the "send me a test" button. */
 export async function sendBroadcastTest(clinicId: string, phone: string, template: string): Promise<void> {
-  const to = normalizeToE164(phone);
+  const to = normalizeToE164AssumingCountry(phone);
   if (!to) throw new BroadcastError("That phone number is not valid.", "رقم الموبايل ده مش صحيح.");
   if (hasBlockingIssue(checkBroadcastMessage(template))) {
     throw new BroadcastError("Fix the red items in the message first.", "صلّح النقط الحمرا في الرسالة الأول.");
@@ -507,6 +508,11 @@ export async function runBroadcastTick(id: string, now = new Date()): Promise<Ti
 
     const cursor = Number(claimed.cursor) || 0;
     const rows = await ref.collection(RECIPIENTS).orderBy(FieldPath.documentId()).startAt(pad(cursor)).limit(n).get();
+    if (rows.empty) {
+      // Nobody left past the cursor: finished, whatever the stored total says.
+      await release({ status: "done", finishedAt: FieldValue.serverTimestamp() });
+      return { id, clinicId, sent: 0, note: "finished" };
+    }
     const versions: string[] = Array.isArray(claimed.versions) ? claimed.versions.map(String) : [];
     const profile = await getClinicProfileAdmin(clinicId);
     const clinicName = profile?.clinicName?.trim() || "";

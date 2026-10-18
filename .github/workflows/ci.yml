@@ -65,6 +65,8 @@ jobs:
         run: npm run --silent test:sms-schedule
       - name: Patient messaging opt-outs
         run: npm run --silent test:optout
+      - name: Patient broadcasts
+        run: npm run --silent test:broadcast
       - name: Attendance geofence
         run: npm run --silent test:attendance
       - name: Recycle bin boundaries

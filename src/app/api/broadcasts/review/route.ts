@@ -87,7 +87,8 @@ WRITE:
 - summary: one or two plain sentences for a receptionist, not a marketer.
 - issues: only real ones, most serious first, each with a concrete fix. Empty if there are none.
 - improved: the same message rewritten to be safer and warmer. KEEP every fact exactly (names, address, percentages, dates, phone numbers) and keep the tokens {{first_name}}, {{patient_name}}, {{clinic_name}} wherever they appear. NEVER invent a fact, price, date or address. Keep any "send STOP" line (add one if missing). Same language and dialect as the original. If the message is already good, return it with only small improvements.
-- tips: 2–4 short, practical tips about SENDING this broadcast safely (not about the wording already covered above).
+- tips: 2–4 short, practical tips about SENDING this broadcast safely (not about the wording already covered above). Do not suggest anything the system already does (listed under HOW IT WILL BE SENT) — e.g. removing people who reply STOP is automatic.
+- Leave any text in [square brackets] exactly as it is: the clinic has not filled it in yet.
 
 Write summary, issues and tips in ${language === "ar" ? "Egyptian Arabic, simple and friendly" : "plain English"}. Return JSON only.`;
 }
@@ -161,7 +162,8 @@ export async function POST(request: Request) {
           return { severity, problem: clean(o.problem, 300), fix: clean(o.fix, 300) };
         })
         .filter((i) => i.problem),
-      improved: clean(raw.improved, 1500),
+      // The model sometimes writes line breaks as the two characters "\n" inside the JSON string.
+      improved: clean(raw.improved, 1500).replace(/\\n/g, "\n"),
       tips: (Array.isArray(raw.tips) ? raw.tips : []).map((t) => clean(t, 240)).filter(Boolean).slice(0, 4),
     };
 

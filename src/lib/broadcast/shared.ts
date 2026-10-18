@@ -346,6 +346,8 @@ export function firstNameOf(full: string): string {
     .split(/\s+/)
     .filter(Boolean)
     .filter((w) => !/^(د\.?|دكتور|دكتورة|م\.?|أ\.?|ا\.?|أ\/|mr\.?|mrs\.?|ms\.?|dr\.?)$/i.test(w));
+  // "عبد الله", "أبو بكر", "أم كلثوم": the first word alone is not a name.
+  if (words.length > 1 && /^(عبد|عبد ال|ابو|أبو|ام|أم|abdel|abd|abu)$/i.test(words[0])) return `${words[0]} ${words[1]}`;
   return words[0] || String(full || "").trim();
 }
 

@@ -546,12 +546,17 @@ export default function BroadcastPanel() {
                 </p>
                 <p className="mt-1.5 text-xs text-ink-muted">
                   {t(`Finishes around ${addDays(plan.length, false)}.`, `هتخلص تقريباً يوم ${addDays(plan.length, true)}.`)}{" "}
-                  {line?.daysLinked === null || (line?.daysLinked ?? 0) < 6
+                  {line?.daysLinked === null || line?.daysLinked === undefined
                     ? t(
-                        `A newly linked number starts at ${plan[0] ?? 0} a day and speeds up over its first week.`,
-                        `الرقم المربوط جديد بيبدأ بـ ${nf(plan[0] ?? 0, true)} في اليوم ويسرّع على مدار أول أسبوع.`
+                        `Counted from the day you link the number: it starts at ${plan[0] ?? 0} a day and speeds up over its first week.`,
+                        `محسوبة من يوم ما تربط الرقم: بيبدأ بـ ${nf(plan[0] ?? 0, true)} في اليوم ويسرّع على مدار أول أسبوع.`
                       )
-                    : ""}
+                    : line.daysLinked < 6
+                      ? t(
+                          `The number was linked recently, so it starts at ${plan[0] ?? 0} a day and speeds up over its first week.`,
+                          `الرقم مربوط من قريب، فبيبدأ بـ ${nf(plan[0] ?? 0, true)} في اليوم ويسرّع على مدار أول أسبوع.`
+                        )
+                      : ""}
                 </p>
                 <PlanBars plan={plan} />
               </div>
@@ -588,6 +593,8 @@ export default function BroadcastPanel() {
               <p className="text-center text-[11px] text-ink-muted">
                 {running
                   ? t("One broadcast at a time — the one below is still going.", "رسالة جماعية واحدة في المرة — اللي تحت لسه شغالة.")
+                  : versions.every((v) => !v.trim())
+                    ? t("Write the message first.", "اكتب الرسالة الأول.")
                   : blocked
                     ? t("Fix the red items first.", "صلّح النقط الحمرا الأول.")
                     : t("Give it a name.", "اكتب اسم للرسالة.")}

@@ -75,3 +75,10 @@ assert.equal(appendOptOutFooter(dentInn, WHATSAPP_OPT_OUT_FOOTER_AR), dentInn, "
 assert.ok(appendOptOutFooter("أهلاً", WHATSAPP_OPT_OUT_FOOTER_AR).endsWith(WHATSAPP_OPT_OUT_FOOTER_AR));
 
 console.log("broadcast tests passed");
+
+// Compound Arabic first names stay whole.
+import { firstNameOf as fn } from "../src/lib/broadcast/shared";
+assert.equal(fn("عبد الله محمد"), "عبد الله");
+assert.equal(fn("أبو بكر سالم"), "أبو بكر");
+assert.equal(fn("أحمد عبد الله"), "أحمد");
+console.log("first-name tests passed");
