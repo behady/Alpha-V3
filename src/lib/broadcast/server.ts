@@ -2,11 +2,10 @@ import { FieldPath, FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { conversationKey } from "@/lib/bot/conversation";
-import { isWhatsAppBlocked } from "@/lib/patientMessaging";
+import { isWhatsAppBlocked, WHATSAPP_OPT_OUT_FOOTER_AR, WHATSAPP_OPT_OUT_FOOTER_BILINGUAL } from "@/lib/patientMessaging";
 import { pickPatientPhone } from "@/lib/patientPhone";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { deliverWhatsAppMessage, resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
-import { mergeWhatsAppTemplate } from "@/lib/whatsappTemplateMerge";
 import { loadMetaWhatsappConfig } from "@/lib/metaWhatsapp";
 import { getClinicProfileAdmin } from "@/lib/clinicProfileServer";
 import {
@@ -23,8 +22,9 @@ import {
   BROADCAST_WINDOW,
   broadcastShareOfAllowance,
   checkBroadcastMessage,
-  firstNameOf,
   hasBlockingIssue,
+  mergeBroadcast,
+  missingClinicName,
   perTickRelease,
   versionFor,
   type BroadcastStatus,
@@ -162,63 +162,119 @@ function looksLikeMobile(digits: string): boolean {
   return true;
 }
 
+/** Only the fields the list is built from: a patient record can carry a whole chart. */
+const AUDIENCE_FIELDS = [
+  "name",
+  "fullName",
+  "createdAt",
+  "whatsappOptOut",
+  "deleted",
+  "isDeleted",
+  "phone",
+  "phoneNumber",
+  "phoneE164",
+  "patientPhone",
+  "mobile",
+  "whatsapp",
+  "whatsApp",
+  "contactNumber",
+  "telephone",
+  "primaryPhone",
+];
+
+/** The international digits a patient record is reached on, or "" when it is not a mobile. */
+function recordDigits(data: Record<string, unknown>): { raw: string; digits: string } {
+  const raw = pickPatientPhone(data);
+  // Numbers typed or imported without the country code ("010…") are read as Egyptian.
+  const digits = raw ? normalizeToE164AssumingCountry(raw).replace(/\D/g, "") : "";
+  return { raw, digits: digits && looksLikeMobile(digits) ? digits : "" };
+}
+
 /**
  * Every patient who may be messaged, once per number.
  *
- * The three stop lists are read in bulk here rather than per patient, because twelve hundred
- * patients × three point reads is the slowest way to answer one question. The delivery
- * chokepoint checks each one again at the moment it sends, so a STOP between building the list
- * and reaching that patient is still honoured.
+ * A stop is a property of the NUMBER, not of one record: a mother who asked to be left alone must
+ * not be reached through her child's record on the same phone. So the stop lists are gathered
+ * first, across every record, and only then is anyone added.
+ *
+ * Read in bulk rather than per patient, because twelve hundred patients × three point reads is
+ * the slowest way to answer one question. The tick re-reads each patient's record just before
+ * sending, and the delivery chokepoint checks the stop lists again, so a stop that arrives after
+ * launch is honoured too.
  */
 export async function buildAudience(clinicId: string): Promise<Audience> {
   const [patientsSnap, optOutSnap, convoSnap] = await Promise.all([
-    adminClinicCollection(clinicId, "patients").get(),
+    adminClinicCollection(clinicId, "patients").select(...AUDIENCE_FIELDS).get(),
     adminClinicCollection(clinicId, "messaging_opt_outs").select().get(),
     adminClinicCollection(clinicId, "whatsapp_conversations").where("optedOut", "==", true).select().get(),
   ]);
-  const optedOutDigits = new Set(optOutSnap.docs.map((d) => d.id));
-  const optedOutConvos = new Set(convoSnap.docs.map((d) => d.id));
+  const stoppedDigits = new Set(optOutSnap.docs.map((d) => d.id));
+  const stoppedConvos = new Set(convoSnap.docs.map((d) => d.id));
 
+  // Oldest record first, so the adult who registered the family keeps the number, not the child.
+  const millis = (d: FirebaseFirestore.QueryDocumentSnapshot) => {
+    const v = d.get("createdAt") as { toMillis?: () => number } | string | number | undefined;
+    if (v && typeof v === "object" && typeof v.toMillis === "function") return v.toMillis();
+    const n = typeof v === "number" ? v : Date.parse(String(v || ""));
+    return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
+  };
+  const rows = [...patientsSnap.docs]
+    .sort((a, b) => millis(a) - millis(b))
+    .map((doc) => {
+      const data = (doc.data() || {}) as Record<string, unknown>;
+      return { doc, data, ...recordDigits(data) };
+    })
+    .filter((r) => r.data.deleted !== true && r.data.isDeleted !== true);
+
+  // Pass 1: every number someone asked to stop, through any record or channel.
+  for (const r of rows) {
+    if (!r.digits) continue;
+    if (isWhatsAppBlocked(r.data as { whatsappOptOut?: boolean }) || stoppedConvos.has(conversationKey(r.raw))) {
+      stoppedDigits.add(r.digits);
+    }
+  }
+
+  // Pass 2: everyone else, once per number.
   const seen = new Set<string>();
   const recipients: AudienceRecipient[] = [];
   let excludedOptedOut = 0;
   let excludedDuplicates = 0;
   let excludedNoPhone = 0;
-
-  // Oldest record first, so the adult who registered the family keeps the number, not the child.
-  const docs = [...patientsSnap.docs].sort((a, b) => {
-    const t = (d: FirebaseFirestore.QueryDocumentSnapshot) => {
-      const v = d.data()?.createdAt as { toMillis?: () => number } | string | number | undefined;
-      if (v && typeof v === "object" && typeof v.toMillis === "function") return v.toMillis();
-      const n = typeof v === "number" ? v : Date.parse(String(v || ""));
-      return Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER;
-    };
-    return t(a) - t(b);
-  });
-
-  for (const doc of docs) {
-    const data = (doc.data() || {}) as Record<string, unknown>;
-    if (data.deleted === true || data.isDeleted === true) continue;
-    const raw = pickPatientPhone(data);
-    // Numbers typed or imported without the country code ("010…") are read as Egyptian.
-    const digits = raw ? normalizeToE164AssumingCountry(raw).replace(/\D/g, "") : "";
-    if (!digits || !looksLikeMobile(digits)) {
+  for (const r of rows) {
+    if (!r.digits) {
       excludedNoPhone += 1;
       continue;
     }
-    if (isWhatsAppBlocked(data as { whatsappOptOut?: boolean }) || optedOutDigits.has(digits) || optedOutConvos.has(conversationKey(raw))) {
+    if (stoppedDigits.has(r.digits)) {
       excludedOptedOut += 1;
       continue;
     }
-    if (seen.has(digits)) {
+    if (seen.has(r.digits)) {
       excludedDuplicates += 1;
       continue;
     }
-    seen.add(digits);
-    recipients.push({ patientId: doc.id, name: String(data.name || data.fullName || "").trim(), phone: `+${digits}` });
+    seen.add(r.digits);
+    recipients.push({ patientId: r.doc.id, name: String(r.data.name || r.data.fullName || "").trim(), phone: `+${r.digits}` });
   }
 
-  return { recipients, totalPatients: patientsSnap.size, excludedOptedOut, excludedDuplicates, excludedNoPhone };
+  return { recipients, totalPatients: rows.length, excludedOptedOut, excludedDuplicates, excludedNoPhone };
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* What every message is merged with                                                            */
+/* ------------------------------------------------------------------------------------------ */
+
+/** The clinic name {{clinic_name}} becomes, and the stop line every broadcast ends with. */
+export async function broadcastContext(clinicId: string): Promise<{ clinicName: string; footer: string }> {
+  const [profile, settings] = await Promise.all([
+    getClinicProfileAdmin(clinicId).catch(() => null),
+    adminClinicDoc(clinicId, "settings", "whatsapp").get().catch(() => null),
+  ]);
+  const arabicOnly = settings?.exists ? settings.data()?.templatePack === "arabic" : false;
+  return {
+    clinicName: profile?.clinicName?.trim() || "",
+    footer: arabicOnly ? WHATSAPP_OPT_OUT_FOOTER_AR : WHATSAPP_OPT_OUT_FOOTER_BILINGUAL,
+  };
 }
 
 /* ------------------------------------------------------------------------------------------ */
@@ -247,7 +303,7 @@ export function summarize(id: string, d: FirebaseFirestore.DocumentData): Broadc
     excludedOptedOut: Number(d.excludedOptedOut) || 0,
     excludedDuplicates: Number(d.excludedDuplicates) || 0,
     excludedNoPhone: Number(d.excludedNoPhone) || 0,
-    createdAt: ms(d.createdAt) || 0,
+    createdAt: ms(d.createdAt) || Number(d.createdAtMs) || 0,
     createdByName: d.createdByName || null,
     lastSentAt: ms(d.lastSentAt),
     finishedAt: ms(d.finishedAt),
@@ -272,6 +328,14 @@ export function cleanVersions(raw: unknown): string[] {
     .slice(0, 3);
 }
 
+/** A launch that died while writing its rows stops blocking new ones after this long. */
+const BUILDING_STALE_MS = 15 * 60_000;
+
+function isLive(d: FirebaseFirestore.DocumentData): boolean {
+  if (d.status === "running" || d.status === "paused") return true;
+  return d.status === "building" && Date.now() - (Number(d.createdAtMs) || 0) < BUILDING_STALE_MS;
+}
+
 export async function createBroadcast(args: {
   clinicId: string;
   uid: string;
@@ -291,13 +355,21 @@ export async function createBroadcast(args: {
   }
   const dailyLimit = Math.max(BROADCAST_MIN_DAILY, Math.min(BROADCAST_MAX_DAILY, Math.floor(Number(args.dailyLimit) || 0)));
 
+  const { clinicName } = await broadcastContext(clinicId);
+  if (missingClinicName(versions, clinicName)) {
+    throw new BroadcastError(
+      "The message uses the clinic name, but the clinic profile has none. Write the name into the message, or fill it in Settings → Clinic profile.",
+      "الرسالة فيها اسم العيادة، بس ملف العيادة مفيهوش اسم. اكتب الاسم في الرسالة بنفسك، أو املاه من الإعدادات ← بيانات العيادة."
+    );
+  }
+
   const line = await broadcastLine(clinicId);
   const problem = lineProblem(line);
   if (problem) throw new BroadcastError(problem.en, problem.ar, 409);
 
   // Filtered in memory: one equality filter needs no composite index.
   const existing = await adminDb().collection(BROADCASTS).where("clinicId", "==", clinicId).get();
-  if (existing.docs.some((d) => d.data().status === "running" || d.data().status === "paused")) {
+  if (existing.docs.some((d) => isLive(d.data()))) {
     throw new BroadcastError(
       "Another broadcast is still going. Finish or cancel it first — two at once would double the pace.",
       "فيه رسالة جماعية تانية لسه شغالة. خلّصها أو الغيها الأول — اتنين مع بعض يضاعفوا السرعة.",
@@ -310,15 +382,19 @@ export async function createBroadcast(args: {
     throw new BroadcastError("No patient on file can be messaged.", "مفيش ولا مريض متسجل ينفع نبعتله.");
   }
 
+  // Written as `building` first: the cron only picks up `running`, so it can never see a broadcast
+  // whose rows are half written and decide there is nobody left to send to.
   const ref = adminDb().collection(BROADCASTS).doc();
   await ref.set({
     clinicId,
     name,
     versions,
-    status: "running" as BroadcastStatus,
+    status: "building" as BroadcastStatus,
     pausedReason: null,
     dailyLimit,
     total: audience.recipients.length,
+    // Rows to walk. Grows past `total` when a patient is put back at the end of the line.
+    rowCount: audience.recipients.length,
     cursor: 0,
     sent: 0,
     skipped: 0,
@@ -329,6 +405,7 @@ export async function createBroadcast(args: {
     dayKey: "",
     sentOnDay: 0,
     createdAt: FieldValue.serverTimestamp(),
+    createdAtMs: Date.now(),
     createdBy: uid,
     createdByName: userName,
     lastSentAt: null,
@@ -336,21 +413,28 @@ export async function createBroadcast(args: {
     tickLockUntil: 0,
   });
 
-  // The list is frozen at launch: a patient added next week was not part of what was approved.
-  for (let start = 0; start < audience.recipients.length; start += 400) {
-    const batch = adminDb().batch();
-    audience.recipients.slice(start, start + 400).forEach((r, j) => {
-      const i = start + j;
-      batch.set(ref.collection(RECIPIENTS).doc(pad(i)), {
-        i,
-        patientId: r.patientId,
-        name: r.name,
-        phone: r.phone,
-        version: versionFor(i, versions.length),
-        status: "queued",
+  try {
+    // The list is frozen at launch: a patient added next week was not part of what was approved.
+    for (let start = 0; start < audience.recipients.length; start += 400) {
+      const batch = adminDb().batch();
+      audience.recipients.slice(start, start + 400).forEach((r, j) => {
+        const i = start + j;
+        batch.set(ref.collection(RECIPIENTS).doc(pad(i)), {
+          i,
+          patientId: r.patientId,
+          name: r.name,
+          phone: r.phone,
+          version: versionFor(i, versions.length),
+          status: "queued",
+          deferrals: 0,
+        });
       });
-    });
-    await batch.commit();
+      await batch.commit();
+    }
+    await ref.update({ status: "running" as BroadcastStatus });
+  } catch (e) {
+    await ref.update({ status: "cancelled", pausedReason: "build_failed", finishedAt: FieldValue.serverTimestamp() }).catch(() => {});
+    throw e;
   }
 
   return summarize(ref.id, (await ref.get()).data() || {});
@@ -363,6 +447,7 @@ export async function steerBroadcast(clinicId: string, id: string, action: "paus
   if (!snap.exists || snap.data()?.clinicId !== clinicId) throw new BroadcastError("Broadcast not found.", "الرسالة الجماعية مش موجودة.", 404);
   const status = snap.data()?.status as BroadcastStatus;
   if (status === "done" || status === "cancelled") throw new BroadcastError("This broadcast has finished.", "الرسالة الجماعية دي خلصت.");
+  if (status === "building") throw new BroadcastError("It is still being prepared. Try again in a minute.", "لسه بتتجهز. جرّب كمان دقيقة.", 409);
 
   if (action === "resume") {
     const problem = lineProblem(await broadcastLine(clinicId));
@@ -385,24 +470,6 @@ export async function broadcastFailures(clinicId: string, id: string): Promise<{
   return rows.docs.map((d) => ({ name: String(d.data().name || ""), phone: String(d.data().phone || ""), error: String(d.data().error || "") }));
 }
 
-/* ------------------------------------------------------------------------------------------ */
-/* Merging                                                                                      */
-/* ------------------------------------------------------------------------------------------ */
-
-export function mergeBroadcast(template: string, vars: { name: string; clinicName: string }): string {
-  const merged = mergeWhatsAppTemplate(template, {
-    first_name: firstNameOf(vars.name),
-    patient_name: vars.name,
-    clinic_name: vars.clinicName,
-  });
-  // A patient with no name on file is greeted without one, rather than as "أهلاً أ/ 🌷".
-  return merged
-    .replace(/أ\/[ \t]*(?![ \t]*\p{L})/gu, "")
-    .replace(/[ \t]{2,}/g, " ")
-    .replace(/[ \t]+\n/g, "\n")
-    .trim();
-}
-
 /** Send one finished message to one number now — the "send me a test" button. */
 export async function sendBroadcastTest(clinicId: string, phone: string, template: string): Promise<void> {
   const to = normalizeToE164AssumingCountry(phone);
@@ -412,8 +479,11 @@ export async function sendBroadcastTest(clinicId: string, phone: string, templat
   }
   const problem = lineProblem(await broadcastLine(clinicId));
   if (problem) throw new BroadcastError(problem.en, problem.ar, 409);
-  const profile = await getClinicProfileAdmin(clinicId);
-  const text = mergeBroadcast(template, { name: "أحمد", clinicName: profile?.clinicName?.trim() || "" });
+  const ctx = await broadcastContext(clinicId);
+  if (missingClinicName([template], ctx.clinicName)) {
+    throw new BroadcastError("The clinic profile has no name for {{clinic_name}}.", "ملف العيادة مفيهوش اسم لـ {{clinic_name}}.");
+  }
+  const text = mergeBroadcast(template, { name: "أحمد", ...ctx });
   const result = await deliverWhatsAppMessage({ clinicId, to, text, audience: "patient" });
   if (result.mode !== "auto") {
     throw new BroadcastError(
@@ -443,6 +513,9 @@ function cairoParts(now: Date): { ymd: string; minutes: number } {
 
 export type TickResult = { id: string; clinicId: string; sent: number; note: string };
 
+/** A flood-guard refusal is retried this many times (at the back of the line) before it is a skip. */
+const MAX_DEFERRALS = 2;
+
 /**
  * One cron tick for one broadcast: decide how many may leave now, send them, record it.
  *
@@ -451,12 +524,18 @@ export type TickResult = { id: string; clinicId: string; sent: number; note: str
  * against what the warm-up leaves after reserving room for reminders. A tick that finds any of
  * them closed sends nothing and waits for the next one; a restricted or disconnected number
  * pauses the broadcast so it cannot quietly restart when the line comes back.
+ *
+ * Progress is written after EVERY message, not once at the end: a tick cut short by the
+ * function's time limit must not leave messages that went out uncounted, or the next tick would
+ * hand out today's ceiling a second time. And the status is only ever changed while it still
+ * says `running`, so a Cancel or Pause pressed while a tick is sending is never overwritten.
  */
-export async function runBroadcastTick(id: string, now = new Date()): Promise<TickResult> {
-  const ref = adminDb().collection(BROADCASTS).doc(id);
+export async function runBroadcastTick(id: string, now = new Date(), deadline = Number.POSITIVE_INFINITY): Promise<TickResult> {
+  const db = adminDb();
+  const ref = db.collection(BROADCASTS).doc(id);
 
   // Claim the tick: two overlapping cron runs must not both send this broadcast's next batch.
-  const claimed = await adminDb().runTransaction(async (tx) => {
+  const claimed = await db.runTransaction(async (tx) => {
     const s = await tx.get(ref);
     const d = s.data();
     if (!d || d.status !== "running") return null;
@@ -466,33 +545,44 @@ export async function runBroadcastTick(id: string, now = new Date()): Promise<Ti
   });
   if (!claimed) return { id, clinicId: "", sent: 0, note: "not running or locked" };
   const clinicId = String(claimed.clinicId);
-  const release = (patch: Record<string, unknown> = {}) => ref.update({ tickLockUntil: 0, ...patch });
+
+  const unlock = () => ref.update({ tickLockUntil: 0 });
+  /** Change the status only if nobody paused or cancelled it meanwhile. Always unlocks. */
+  const settle = (patch: Record<string, unknown>) =>
+    db.runTransaction(async (tx) => {
+      const s = await tx.get(ref);
+      tx.update(ref, s.data()?.status === "running" ? { ...patch, tickLockUntil: 0 } : { tickLockUntil: 0 });
+    });
+  const stillRunning = async () => (await ref.get()).data()?.status === "running";
 
   try {
     const { ymd, minutes } = cairoParts(now);
     const open = BROADCAST_WINDOW.startHour * 60;
     const close = BROADCAST_WINDOW.endHour * 60;
     if (minutes < open || minutes >= close) {
-      await release();
+      await unlock();
       return { id, clinicId, sent: 0, note: "outside clinic hours" };
     }
 
     const line = await broadcastLine(clinicId);
     if (line.state === "restricted" || line.officialChannel || !line.onGateway || ["logged_out", "qr", "qr_expired"].includes(line.state)) {
       const reason = line.state === "restricted" ? "restricted" : "disconnected";
-      await release({ status: "paused", pausedReason: reason });
+      await settle({ status: "paused", pausedReason: reason });
       return { id, clinicId, sent: 0, note: `paused: ${reason}` };
     }
     if (line.state !== "open" || !line.autoSending) {
-      await release();
+      await unlock();
       return { id, clinicId, sent: 0, note: `line ${line.state}` };
     }
     if ((line.queued ?? 0) > GATEWAY_BACKLOG_LIMIT) {
-      await release();
+      await unlock();
       return { id, clinicId, sent: 0, note: "gateway still sending the last batch" };
     }
 
-    const sentOnDay = claimed.dayKey === ymd ? Number(claimed.sentOnDay) || 0 : 0;
+    // A new day starts its count from zero.
+    let sentOnDay = claimed.dayKey === ymd ? Number(claimed.sentOnDay) || 0 : 0;
+    if (claimed.dayKey !== ymd) await ref.update({ dayKey: ymd, sentOnDay: 0 });
+
     const dailyLimit = Number(claimed.dailyLimit) || BROADCAST_MIN_DAILY;
     let leftToday = dailyLimit - sentOnDay;
     if (line.dailyCap !== null) {
@@ -502,39 +592,80 @@ export async function runBroadcastTick(id: string, now = new Date()): Promise<Ti
     }
     const n = perTickRelease({ leftToday, minutesLeftInWindow: close - minutes, tickMinutes: TICK_MINUTES });
     if (n <= 0) {
-      await release({ dayKey: ymd, sentOnDay });
+      await unlock();
       return { id, clinicId, sent: 0, note: "today's share is used" };
     }
 
     const cursor = Number(claimed.cursor) || 0;
-    const rows = await ref.collection(RECIPIENTS).orderBy(FieldPath.documentId()).startAt(pad(cursor)).limit(n).get();
+    // More rows than sends: a skipped or deferred patient must not use up one of today's sends.
+    const rows = await ref.collection(RECIPIENTS).orderBy(FieldPath.documentId()).startAt(pad(cursor)).limit(n + 20).get();
     if (rows.empty) {
-      // Nobody left past the cursor: finished, whatever the stored total says.
-      await release({ status: "done", finishedAt: FieldValue.serverTimestamp() });
+      await settle({ status: "done", finishedAt: FieldValue.serverTimestamp() });
       return { id, clinicId, sent: 0, note: "finished" };
     }
     const versions: string[] = Array.isArray(claimed.versions) ? claimed.versions.map(String) : [];
-    const profile = await getClinicProfileAdmin(clinicId);
-    const clinicName = profile?.clinicName?.trim() || "";
+    const ctx = await broadcastContext(clinicId);
+
+    // Each patient's record as it is NOW: removed from the clinic, or told the desk to stop,
+    // since the list was frozen at launch.
+    const patientRefs = rows.docs.map((r) => adminClinicDoc(clinicId, "patients", String(r.get("patientId") || "_")));
+    const patientSnaps = await db.getAll(...patientRefs);
+    const patients = new Map(patientSnaps.map((s) => [s.ref.id, s]));
 
     let sent = 0;
     let skipped = 0;
     let failed = 0;
     let consecutiveErrors = 0;
-    let processed = 0;
+
+    /** Record one row's outcome on the broadcast at once, moving the cursor past it. */
+    const advance = (rowIndex: number, counters: Record<string, number>) =>
+      ref.update({
+        cursor: rowIndex + 1,
+        ...Object.fromEntries(Object.entries(counters).map(([k, v]) => [k, FieldValue.increment(v)])),
+        ...(counters.sent ? { lastSentAt: FieldValue.serverTimestamp() } : {}),
+      });
+
     for (const row of rows.docs) {
+      if (sent >= n || Date.now() > deadline) break;
+      if (!(await stillRunning())) break;
       const r = row.data();
+      const rowIndex = Number(r.i);
       if (r.status !== "queued") {
-        processed += 1;
+        await advance(rowIndex, {});
         continue;
       }
+
+      const patient = patients.get(String(r.patientId || "_"));
+      const pdata = patient?.exists ? ((patient.data() || {}) as Record<string, unknown>) : null;
+      const gone = !pdata || pdata.deleted === true || pdata.isDeleted === true;
+      if (gone || isWhatsAppBlocked(pdata as { whatsappOptOut?: boolean })) {
+        skipped += 1;
+        await row.ref.update({ status: "skipped", error: gone ? "patient removed" : "asked to stop" });
+        await advance(rowIndex, { skipped: 1 });
+        continue;
+      }
+
       const template = versions[Number(r.version) || 0] || versions[0] || "";
-      const text = mergeBroadcast(template, { name: String(r.name || ""), clinicName });
+      const text = mergeBroadcast(template, { name: String(r.name || ""), ...ctx });
+      let result: Awaited<ReturnType<typeof deliverWhatsAppMessage>>;
       try {
-        const result = await deliverWhatsAppMessage({ clinicId, to: String(r.phone), text, audience: "patient" });
-        if (result.mode === "auto") {
-          sent += 1;
-          consecutiveErrors = 0;
+        result = await deliverWhatsAppMessage({ clinicId, to: String(r.phone), text, audience: "patient" });
+      } catch (e) {
+        failed += 1;
+        consecutiveErrors += 1;
+        await row.ref.update({ status: "failed", error: e instanceof Error ? e.message.slice(0, 200) : "send failed" });
+        await advance(rowIndex, { failed: 1 });
+        if (consecutiveErrors >= 3) break;
+        continue;
+      }
+
+      if (result.mode === "auto") {
+        sent += 1;
+        sentOnDay += 1;
+        consecutiveErrors = 0;
+        await advance(rowIndex, { sent: 1, sentOnDay: 1 });
+        // Bookkeeping after a message that went out: a failure here must not count it as failed.
+        try {
           await row.ref.update({ status: "sent", sentAt: FieldValue.serverTimestamp() });
           await adminClinicCollection(clinicId, "whatsapp_logs").add({
             patientId: r.patientId,
@@ -544,58 +675,76 @@ export async function runBroadcastTick(id: string, now = new Date()): Promise<Ti
             status: "success",
             createdAt: FieldValue.serverTimestamp(),
           });
-        } else if (result.mode === "blocked") {
+        } catch (e) {
+          console.warn("[broadcast] bookkeeping after a send failed", e);
+        }
+      } else if (result.mode === "blocked" && result.reason === "flood") {
+        // Too many automatic messages to this patient this hour — not a refusal. Back of the line.
+        const deferrals = Number(r.deferrals) || 0;
+        if (deferrals >= MAX_DEFERRALS) {
           skipped += 1;
-          await row.ref.update({ status: "skipped", error: result.reason === "opted_out" ? "asked to stop" : "messaged too often this hour" });
+          await row.ref.update({ status: "skipped", error: "messaged too often by the clinic" });
+          await advance(rowIndex, { skipped: 1 });
         } else {
-          // The line went to manual between the check and this send: stop here, retry next tick.
-          break;
+          await db.runTransaction(async (tx) => {
+            const s = await tx.get(ref);
+            const at = Number(s.data()?.rowCount) || Number(s.data()?.total) || 0;
+            tx.set(ref.collection(RECIPIENTS).doc(pad(at)), { ...r, i: at, status: "queued", deferrals: deferrals + 1 });
+            tx.update(ref, { rowCount: at + 1 });
+            tx.update(row.ref, { status: "deferred", error: "moved to the end of the list" });
+          });
+          await advance(rowIndex, {});
         }
-      } catch (e) {
-        failed += 1;
-        consecutiveErrors += 1;
-        await row.ref.update({ status: "failed", error: e instanceof Error ? e.message.slice(0, 200) : "send failed" });
-        if (consecutiveErrors >= 3) {
-          processed += 1;
-          break;
-        }
+      } else if (result.mode === "blocked") {
+        skipped += 1;
+        await row.ref.update({ status: "skipped", error: "asked to stop" });
+        await advance(rowIndex, { skipped: 1 });
+      } else {
+        // The line went to manual between the check and this send: stop here, retry next tick.
+        break;
       }
-      processed += 1;
     }
 
-    const newCursor = cursor + processed;
-    const total = Number(claimed.total) || 0;
-    const finished = newCursor >= total;
-    await release({
-      cursor: newCursor,
-      sent: FieldValue.increment(sent),
-      skipped: FieldValue.increment(skipped),
-      failed: FieldValue.increment(failed),
-      dayKey: ymd,
-      sentOnDay: sentOnDay + sent,
-      ...(sent ? { lastSentAt: FieldValue.serverTimestamp() } : {}),
-      ...(finished ? { status: "done", finishedAt: FieldValue.serverTimestamp() } : {}),
-      // Three gateway errors in a row is the gateway, not three bad numbers: pause and say so.
-      ...(consecutiveErrors >= 3 && !finished ? { status: "paused", pausedReason: "errors" } : {}),
-    });
-    return { id, clinicId, sent, note: finished ? "finished" : `sent ${sent}, skipped ${skipped}, failed ${failed}` };
+    // Three gateway errors in a row is the gateway, not three bad numbers: pause and say so.
+    if (consecutiveErrors >= 3) {
+      await settle({ status: "paused", pausedReason: "errors" });
+      return { id, clinicId, sent, note: "paused: errors" };
+    }
+    const after = (await ref.get()).data() || {};
+    const rowCount = Number(after.rowCount) || Number(after.total) || 0;
+    if ((Number(after.cursor) || 0) >= rowCount) {
+      await settle({ status: "done", finishedAt: FieldValue.serverTimestamp() });
+      return { id, clinicId, sent, note: "finished" };
+    }
+    await unlock();
+    return { id, clinicId, sent, note: `sent ${sent}, skipped ${skipped}, failed ${failed}` };
   } catch (e) {
-    await release().catch(() => {});
+    await unlock().catch(() => {});
     throw e;
   }
 }
 
-/** Every running broadcast, one tick each. Called by the cron. */
+/** Ticks running at once. The gateway paces each clinic's number itself; this only bounds the cron. */
+const TICK_CONCURRENCY = 4;
+/** Stop starting sends this long into the cron's 300-second allowance. */
+const TICK_BUDGET_MS = 240_000;
+
+/** Every running broadcast, one tick each, a few at a time. Called by the cron. */
 export async function runAllBroadcastTicks(now = new Date()): Promise<TickResult[]> {
+  const deadline = Date.now() + TICK_BUDGET_MS;
   const snap = await adminDb().collection(BROADCASTS).where("status", "==", "running").get();
+  const queue = [...snap.docs];
   const out: TickResult[] = [];
-  for (const doc of snap.docs) {
-    try {
-      out.push(await runBroadcastTick(doc.id, now));
-    } catch (e) {
-      out.push({ id: doc.id, clinicId: String(doc.data().clinicId || ""), sent: 0, note: `error: ${e instanceof Error ? e.message : String(e)}` });
+  const worker = async () => {
+    for (let doc = queue.shift(); doc; doc = queue.shift()) {
+      try {
+        out.push(await runBroadcastTick(doc.id, now, deadline));
+      } catch (e) {
+        out.push({ id: doc.id, clinicId: String(doc.data().clinicId || ""), sent: 0, note: `error: ${e instanceof Error ? e.message : String(e)}` });
+      }
     }
-  }
+  };
+  await Promise.all(Array.from({ length: Math.min(TICK_CONCURRENCY, queue.length) }, worker));
   return out;
 }
 

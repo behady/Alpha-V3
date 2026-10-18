@@ -11,10 +11,14 @@
  * with a phone would keep, which is the pace WhatsApp does not punish.
  */
 
+import { appendOptOutFooter } from "@/lib/patientMessaging";
+import { mergeWhatsAppTemplate } from "@/lib/whatsappTemplateMerge";
+
 /** Merge tokens the server fills per patient. Bracketed `[...]` text is for the clinic to replace. */
 export const BROADCAST_TOKENS = ["{{first_name}}", "{{patient_name}}", "{{clinic_name}}"] as const;
 
-export type BroadcastStatus = "running" | "paused" | "done" | "cancelled";
+/** `building`: the recipient rows are still being written; the cron never touches it. */
+export type BroadcastStatus = "building" | "running" | "paused" | "done" | "cancelled";
 
 export type BroadcastRecipientStatus = "queued" | "sent" | "skipped" | "failed";
 
@@ -354,6 +358,35 @@ export function firstNameOf(full: string): string {
 /** Which version a recipient gets. Stable per position, so a re-run gives the same answer. */
 export function versionFor(index: number, versions: number): number {
   return versions <= 1 ? 0 : index % versions;
+}
+
+/**
+ * The message one patient receives, exactly — shared by the screen's preview and the server's send
+ * so the two can never disagree.
+ *
+ * The stop line is appended here, unconditionally, rather than left to the delivery chokepoint:
+ * a clinic may switch the general opt-out footer off for its reminders, but a promotion to the
+ * whole list without a way to stop is the message that gets a number reported. `footer` is the
+ * clinic's footer wording (Arabic-only or bilingual); a message that already asks for STOP in its
+ * own words gets nothing added (appendOptOutFooter is idempotent on the keyword).
+ */
+export function mergeBroadcast(template: string, vars: { name: string; clinicName: string; footer: string }): string {
+  const merged = mergeWhatsAppTemplate(template, {
+    first_name: firstNameOf(vars.name),
+    patient_name: vars.name,
+    clinic_name: vars.clinicName,
+  })
+    // A patient with no name on file is greeted without one, rather than as "أهلاً أ/ 🌷".
+    .replace(/أ\/[ \t]*(?![ \t]*\p{L})/gu, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
+  return appendOptOutFooter(merged, vars.footer);
+}
+
+/** A version that uses {{clinic_name}} while the clinic profile has no name would send "من ." */
+export function missingClinicName(versions: string[], clinicName: string): boolean {
+  return !clinicName.trim() && versions.some((v) => v.includes("{{clinic_name}}"));
 }
 
 /** What the AI check returns (api/broadcasts/review). */

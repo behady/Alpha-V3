@@ -20,7 +20,7 @@ import { auth } from "@/lib/firebase";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
-import { appendOptOutFooter, WHATSAPP_OPT_OUT_FOOTER_BILINGUAL } from "@/lib/patientMessaging";
+import { WHATSAPP_OPT_OUT_FOOTER_BILINGUAL } from "@/lib/patientMessaging";
 import {
   BROADCAST_MAX_DAILY,
   BROADCAST_TEMPLATES,
@@ -29,6 +29,8 @@ import {
   checkBroadcastMessage,
   firstNameOf,
   hasBlockingIssue,
+  mergeBroadcast,
+  missingClinicName,
   planBroadcastDays,
   type BroadcastCheck,
   type BroadcastReview,
@@ -60,6 +62,8 @@ type Overview = {
   line: Line;
   problem: { en: string; ar: string } | null;
   clinicName?: string;
+  /** The stop line the server appends; the preview uses the same one. */
+  footer?: string;
   audience?: { count: number; totalPatients: number; excludedOptedOut: number; excludedDuplicates: number; excludedNoPhone: number };
   broadcasts: BroadcastSummary[];
 };
@@ -109,7 +113,7 @@ export default function BroadcastPanel() {
 
   const [overview, setOverview] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState("");
+  const [loadError, setLoadError] = useState<{ en: string; ar: string } | null>(null);
 
   const [name, setName] = useState("");
   const [versions, setVersions] = useState<string[]>([""]);
@@ -130,16 +134,19 @@ export default function BroadcastPanel() {
       if (!clinicId) return;
       try {
         const data = await call<Overview>({ clinicId, action: light ? "list" : "overview" });
-        setOverview((prev) => (light && prev ? { ...prev, ...data, audience: prev.audience, clinicName: prev.clinicName } : data));
-        setLoadError("");
+        setOverview((prev) =>
+          light && prev ? { ...prev, ...data, audience: prev.audience, clinicName: prev.clinicName, footer: prev.footer } : data
+        );
+        setLoadError(null);
       } catch (e) {
-        if (!light) setLoadError(errText(e));
+        // Kept in both languages so switching language does not re-run the whole patient scan.
+        const err = e as Error & { ar?: string };
+        if (!light) setLoadError({ en: err.message || String(e), ar: err.ar || err.message || String(e) });
       } finally {
         setLoading(false);
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [clinicId, isAr]
+    [clinicId]
   );
 
   useEffect(() => {
@@ -157,17 +164,14 @@ export default function BroadcastPanel() {
 
   const checks = useMemo(() => checkBroadcastMessage(text), [text]);
   const allChecks = useMemo(() => versions.map((v) => checkBroadcastMessage(v)), [versions]);
-  const blocked = allChecks.some((c) => hasBlockingIssue(c)) || versions.every((v) => !v.trim());
+  const noClinicName = !!overview && missingClinicName(versions, clinicName);
+  const blocked = allChecks.some((c) => hasBlockingIssue(c)) || versions.every((v) => !v.trim()) || noClinicName;
 
   const preview = useMemo(() => {
     if (!text.trim()) return "";
-    const merged = text
-      .split("{{first_name}}").join(firstNameOf(SAMPLE_NAME))
-      .split("{{patient_name}}").join(SAMPLE_NAME)
-      .split("{{clinic_name}}").join(clinicName || t("Your clinic", "عيادتك"));
-    return appendOptOutFooter(merged, WHATSAPP_OPT_OUT_FOOTER_BILINGUAL);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [text, clinicName, isAr]);
+    // The server's own merge, so the bubble is exactly what the patient receives.
+    return mergeBroadcast(text, { name: SAMPLE_NAME, clinicName, footer: overview?.footer || WHATSAPP_OPT_OUT_FOOTER_BILINGUAL });
+  }, [text, clinicName, overview?.footer]);
 
   const audienceCount = overview?.audience?.count ?? 0;
   const plan = useMemo(
@@ -300,7 +304,7 @@ export default function BroadcastPanel() {
   if (loadError) {
     return (
       <div className="rounded-2xl border border-danger/25 bg-danger-tint p-5 text-sm font-semibold text-danger">
-        {loadError}
+        {isAr ? loadError.ar : loadError.en}
         <button onClick={() => void load()} className="ms-3 underline">
           {t("Try again", "جرّب تاني")}
         </button>
@@ -469,6 +473,15 @@ export default function BroadcastPanel() {
           </div>
 
           <ChecksList checks={checks} isAr={isAr} />
+          {noClinicName && (
+            <p className="flex items-start gap-2 text-[13px] font-semibold leading-5 text-danger">
+              <XCircle size={15} className="mt-0.5 shrink-0" />
+              {t(
+                "The message uses the clinic name, but the clinic profile has none. Write the name yourself, or fill it in Settings → Clinic profile.",
+                "الرسالة فيها اسم العيادة، بس ملف العيادة مفيهوش اسم. اكتب الاسم بنفسك، أو املاه من الإعدادات ← بيانات العيادة."
+              )}
+            </p>
+          )}
 
           {/* The AI's read */}
           <div className="rounded-xl border border-line p-4">
@@ -720,6 +733,7 @@ function pausedReasonText(reason: string, isAr: boolean): string {
 
 function StatusWord({ b, isAr }: { b: BroadcastSummary; isAr: boolean }) {
   const map: Record<string, [string, string, string]> = {
+    building: ["Preparing", "بتتجهز", "text-ink-muted"],
     running: ["Sending", "شغالة", "text-ok"],
     paused: ["Paused", "متوقفة", "text-warn"],
     done: ["Finished", "خلصت", "text-ink"],

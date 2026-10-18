@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { reportServerError } from "@/lib/server/reportError";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
 import { clinicHasFeature } from "@/lib/clinicFeatures";
-import { getClinicProfileAdmin } from "@/lib/clinicProfileServer";
 import {
   BroadcastError,
+  broadcastContext,
   broadcastFailures,
   broadcastLine,
   buildAudience,
@@ -86,18 +86,19 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: true, rows: await broadcastFailures(clinicId, String(body.id || "")) });
       }
       default: {
-        const [line, audience, broadcasts, profile] = await Promise.all([
+        const [line, audience, broadcasts, context] = await Promise.all([
           broadcastLine(clinicId),
           buildAudience(clinicId),
           listBroadcasts(clinicId),
-          getClinicProfileAdmin(clinicId),
+          broadcastContext(clinicId),
         ]);
         return NextResponse.json({
           ok: true,
           line,
           problem: lineProblem(line),
-          // What {{clinic_name}} becomes — the profile name, which is what the server merges.
-          clinicName: profile?.clinicName?.trim() || "",
+          // What {{clinic_name}} becomes and the stop line — the preview merges with exactly these.
+          clinicName: context.clinicName,
+          footer: context.footer,
           audience: {
             count: audience.recipients.length,
             totalPatients: audience.totalPatients,
