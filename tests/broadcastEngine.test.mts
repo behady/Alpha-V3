@@ -75,7 +75,7 @@ process.env.NEXT_PUBLIC_FIREBASE_API_KEY ||= "test-key";
 process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||= PROJECT;
 
 const { adminDb } = await import("../src/lib/firebaseAdmin");
-const { buildAudience, createBroadcast, runBroadcastTick, steerBroadcast, BROADCASTS, BroadcastError } = await import("../src/lib/broadcast/server");
+const { broadcastRecipients, buildAudience, createBroadcast, runBroadcastTick, steerBroadcast, BROADCASTS, BroadcastError } = await import("../src/lib/broadcast/server");
 const { mergeBroadcast } = await import("../src/lib/broadcast/shared");
 const { WHATSAPP_OPT_OUT_FOOTER_AR } = await import("../src/lib/patientMessaging");
 
@@ -231,6 +231,19 @@ assert.equal(s.sent, 14, "17 patients less those three");
 assert.ok(gw.sends.some((x) => x.chat_id === "201151000009@c.us"), "the deferred patient got it at the end");
 assert.equal(new Set(gw.sends.map((x) => x.chat_id)).size, gw.sends.length, "nobody twice");
 
+/* ---------------- the patients list ---------------- */
+const list = await broadcastRecipients(CLINIC, b.id);
+assert.equal(list.length, 17, "every patient once — the deferred row's first copy is hidden");
+assert.equal(list.filter((x) => x.state === "sent").length, 14);
+assert.equal(list.filter((x) => x.state === "not_sent").length, 3);
+assert.equal(list.filter((x) => x.state === "waiting").length, 0);
+assert.ok(list.filter((x) => x.state === "sent").every((x) => typeof x.sentAt === "number" && x.sentAt > 0), "every sent row has its time");
+assert.deepEqual(
+  list.filter((x) => x.state === "not_sent").map((x) => x.reason).sort(),
+  ["asked to stop", "asked to stop", "patient removed"]
+);
+await assert.rejects(broadcastRecipients("OTHER", b.id), BroadcastError, "another clinic cannot list it");
+
 /* ---------------- Cancel pressed while a tick is sending ---------------- */
 const c = await createBroadcast({ clinicId: CLINIC, uid: "u", userName: "Sohila", name: "Again", versions: [message], dailyLimit: 150 });
 const cref = db.collection(BROADCASTS).doc(c.id);
@@ -246,6 +259,9 @@ assert.equal(cs.status, "cancelled", "the tick did not overwrite the cancel");
 assert.equal(gw.sends.length - before, 1, "nothing more left after the cancel");
 assert.equal(cs.sent, 1, "the one that went out is counted");
 assert.equal(cs.tickLockUntil, 0);
+const clist = await broadcastRecipients(CLINIC, c.id);
+assert.equal(clist.filter((x) => x.state === "sent").length, 1);
+assert.equal(clist.filter((x) => x.state === "waiting").length, clist.length - 1, "the rest are listed as never reached");
 
 /* ---------------- greetings ---------------- */
 const footer = WHATSAPP_OPT_OUT_FOOTER_AR;

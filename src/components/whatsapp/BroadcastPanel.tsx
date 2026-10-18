@@ -12,7 +12,9 @@ import {
   RefreshCw,
   Send,
   ShieldCheck,
+  Search,
   Sparkles,
+  Users,
   X,
   XCircle,
 } from "lucide-react";
@@ -31,8 +33,11 @@ import {
   hasBlockingIssue,
   mergeBroadcast,
   missingClinicName,
+  notSentReason,
+  recipientMatches,
   planBroadcastDays,
   type BroadcastCheck,
+  type BroadcastRecipientRow,
   type BroadcastReview,
   type BroadcastSummary,
 } from "@/lib/broadcast/shared";
@@ -123,7 +128,7 @@ export default function BroadcastPanel() {
   const [busy, setBusy] = useState<string>("");
   const [review, setReview] = useState<{ forText: string; data: BroadcastReview } | null>(null);
   const [explainOpen, setExplainOpen] = useState(true);
-  const [failures, setFailures] = useState<{ id: string; rows: { name: string; phone: string; error: string }[] } | null>(null);
+  const [listFor, setListFor] = useState<{ broadcast: BroadcastSummary; tab: RecipientTab } | null>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
 
   const text = versions[active] || "";
@@ -281,16 +286,6 @@ export default function BroadcastPanel() {
       showToast(errText(e), "error");
     } finally {
       setBusy("");
-    }
-  };
-
-  const showFailures = async (b: BroadcastSummary) => {
-    if (failures?.id === b.id) return setFailures(null);
-    try {
-      const data = await call<{ rows: { name: string; phone: string; error: string }[] }>({ clinicId, action: "failures", id: b.id });
-      setFailures({ id: b.id, rows: data.rows });
-    } catch (e) {
-      showToast(errText(e), "error");
     }
   };
 
@@ -644,15 +639,22 @@ export default function BroadcastPanel() {
                         {(b.failed > 0 || b.skipped > 0) && (
                           <>
                             {" · "}
-                            <button onClick={() => void showFailures(b)} className="underline">
+                            <button onClick={() => setListFor({ broadcast: b, tab: "not_sent" })} className="underline">
                               {t(`${b.failed + b.skipped} not sent`, `${nf(b.failed + b.skipped, true)} متبعتتش`)}
                             </button>
                           </>
                         )}
                       </p>
                     </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => setListFor({ broadcast: b, tab: b.sent > 0 ? "sent" : "waiting" })}
+                        className="flex items-center gap-1.5 rounded-xl border border-line px-3 py-1.5 text-xs font-bold text-ink hover:border-ink"
+                      >
+                        <Users size={13} /> {t("Patients", "المرضى")}
+                      </button>
                     {(b.status === "running" || b.status === "paused") && (
-                      <div className="flex items-center gap-2">
+                      <>
                         {b.status === "running" ? (
                           <button
                             onClick={() => void steer(b, "pause")}
@@ -677,8 +679,9 @@ export default function BroadcastPanel() {
                         >
                           {t("Cancel", "إلغاء")}
                         </button>
-                      </div>
+                      </>
                     )}
+                    </div>
                   </div>
                   <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-muted">
                     <div className="h-full rounded-full bg-ink-slab transition-all" style={{ width: `${pct}%` }} />
@@ -689,26 +692,21 @@ export default function BroadcastPanel() {
                       {pausedReasonText(b.pausedReason, isAr)}
                     </p>
                   )}
-                  {failures?.id === b.id && (
-                    <div className="mt-3 max-h-56 overflow-auto rounded-xl bg-surface-subtle p-3 text-xs">
-                      {failures.rows.length === 0 ? (
-                        <p className="text-ink-muted">{t("Nothing to show.", "مفيش حاجة.")}</p>
-                      ) : (
-                        failures.rows.map((r, i) => (
-                          <p key={i} className="flex justify-between gap-3 py-0.5">
-                            <span className="font-semibold text-ink">{r.name || "—"}</span>
-                            <span dir="ltr" className="text-ink-muted">{r.phone}</span>
-                            <span className="text-ink-muted">{r.error}</span>
-                          </p>
-                        ))
-                      )}
-                    </div>
-                  )}
                 </div>
               );
             })}
           </div>
         </section>
+      )}
+
+      {listFor && (
+        <RecipientsDialog
+          clinicId={clinicId || ""}
+          broadcast={listFor.broadcast}
+          initialTab={listFor.tab}
+          isAr={isAr}
+          onClose={() => setListFor(null)}
+        />
       )}
     </div>
   );
@@ -940,6 +938,203 @@ function SafetyExplainer({ isAr }: { isAr: boolean }) {
             </li>
           ))}
         </ul>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------------------------------ */
+
+type RecipientTab = "sent" | "waiting" | "not_sent";
+
+/** Rows drawn at once. The search box finds anyone beyond them. */
+const LIST_LIMIT = 300;
+
+/**
+ * Who got the message, who is still in line, and who will not get it and why.
+ *
+ * Built for the phone call "did you send me something?": search a name or a few digits of the
+ * number and the row answers with the time it went out, its place in the line, or the reason.
+ */
+function RecipientsDialog(props: {
+  clinicId: string;
+  broadcast: BroadcastSummary;
+  initialTab: RecipientTab;
+  isAr: boolean;
+  onClose: () => void;
+}) {
+  const { clinicId, broadcast, initialTab, isAr, onClose } = props;
+  const t = (en: string, ar: string) => (isAr ? ar : en);
+  const [rows, setRows] = useState<BroadcastRecipientRow[] | null>(null);
+  const [error, setError] = useState<{ en: string; ar: string } | null>(null);
+  const [tab, setTab] = useState<RecipientTab>(initialTab);
+  const [query, setQuery] = useState("");
+
+  // Bumped by "Try again" to fetch once more.
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let live = true;
+    call<{ rows: BroadcastRecipientRow[] }>({ clinicId, action: "recipients", id: broadcast.id })
+      .then((data) => {
+        if (!live) return;
+        setRows(data.rows);
+        setError(null);
+      })
+      .catch((e: Error & { ar?: string }) => {
+        if (live) setError({ en: e.message, ar: e.ar || e.message });
+      });
+    return () => {
+      live = false;
+    };
+  }, [clinicId, broadcast.id, attempt]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const counts = useMemo(() => {
+    const c = { sent: 0, waiting: 0, not_sent: 0 };
+    for (const r of rows || []) c[r.state] += 1;
+    return c;
+  }, [rows]);
+
+  // Place in line, counted among those still waiting: "12th in line" is what the desk can say.
+  const placeInLine = useMemo(() => {
+    const m = new Map<number, number>();
+    let n = 0;
+    for (const r of rows || []) if (r.state === "waiting") m.set(r.i, ++n);
+    return m;
+  }, [rows]);
+
+  const visible = useMemo(() => {
+    const q = query.trim();
+    // A search looks across every tab: the caller does not know which list they are on.
+    const pool = (rows || []).filter((r) => (q ? recipientMatches(r, q) : r.state === tab));
+    if (!q && tab === "sent") pool.sort((a, b) => (b.sentAt || 0) - (a.sentAt || 0));
+    return pool;
+  }, [rows, tab, query]);
+
+  const when = (ms: number | null) =>
+    ms
+      ? new Date(ms).toLocaleString(isAr ? "ar-EG" : "en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })
+      : "";
+
+  const tabs: { id: RecipientTab; en: string; ar: string }[] = [
+    { id: "sent", en: "Sent", ar: "اتبعتلهم" },
+    { id: "waiting", en: "Waiting", ar: "في الانتظار" },
+    { id: "not_sent", en: "Not sent", ar: "متبعتلهمش" },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-6" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("Patients on this broadcast", "مرضى الرسالة الجماعية")}
+        dir={isAr ? "rtl" : "ltr"}
+        onClick={(e) => e.stopPropagation()}
+        className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-[1.75rem] bg-surface shadow-2xl sm:rounded-[1.75rem]"
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-line px-5 pb-4 pt-5">
+          <div className="min-w-0">
+            <p className="text-xs font-bold text-ink-muted">{t("Patients", "المرضى")}</p>
+            <p className="truncate text-base font-black text-ink">{broadcast.name}</p>
+          </div>
+          <button onClick={onClose} aria-label={t("Close", "قفل")} className="rounded-full p-2 text-ink-muted hover:bg-surface-subtle hover:text-ink">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="space-y-3 border-b border-line px-5 py-4">
+          <label className="relative block">
+            <Search size={15} className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-ink-faint" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              autoFocus
+              placeholder={t("Search a name or part of the number", "دوّر باسم أو جزء من الرقم")}
+              className="w-full rounded-xl border border-line bg-surface-subtle py-2.5 pe-3 ps-9 text-sm font-semibold text-ink outline-none focus:border-accent focus:bg-surface"
+            />
+          </label>
+          {!query.trim() && (
+            <div className="flex w-fit gap-1 rounded-full border border-line bg-surface p-1">
+              {tabs.map((x) => (
+                <button
+                  key={x.id}
+                  onClick={() => setTab(x.id)}
+                  className={`rounded-full px-3.5 py-1.5 text-xs font-bold ${tab === x.id ? "bg-ink-slab text-white" : "text-ink-muted hover:text-ink"}`}
+                >
+                  {isAr ? x.ar : x.en} <span className="opacity-70">{nf(counts[x.id], isAr)}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="min-h-[200px] flex-1 overflow-y-auto">
+          {error ? (
+            <div className="p-5 text-sm font-semibold text-danger">
+              {isAr ? error.ar : error.en}
+              <button onClick={() => setAttempt((n) => n + 1)} className="ms-3 underline">
+                {t("Try again", "جرّب تاني")}
+              </button>
+            </div>
+          ) : !rows ? (
+            <div className="flex items-center gap-2 p-5 text-sm text-ink-muted">
+              <Loader2 size={16} className="animate-spin" /> {t("Loading…", "بيحمّل…")}
+            </div>
+          ) : visible.length === 0 ? (
+            <p className="p-8 text-center text-sm text-ink-muted">
+              {query.trim()
+                ? t("Nobody on this broadcast matches.", "مفيش حد في الرسالة دي بالاسم أو الرقم ده.")
+                : tab === "waiting"
+                  ? t("Nobody is waiting.", "مفيش حد مستني.")
+                  : tab === "sent"
+                    ? t("Nothing has gone out yet.", "لسه متبعتش حاجة.")
+                    : t("Everyone was reached or is in line.", "كله اتبعتله أو في الانتظار.")}
+            </p>
+          ) : (
+            <ul className="divide-y divide-line">
+              {visible.slice(0, LIST_LIMIT).map((r) => (
+                <li key={r.i} className="flex items-center justify-between gap-3 px-5 py-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-bold text-ink">{r.name || "—"}</p>
+                    <p dir="ltr" className="text-xs text-ink-muted rtl:text-right">
+                      {r.phone}
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-end text-xs">
+                    {r.state === "sent" ? (
+                      <span className="flex items-center gap-1.5 font-bold text-ok">
+                        <CheckCircle2 size={13} /> {when(r.sentAt) || t("Sent", "اتبعتت")}
+                      </span>
+                    ) : r.state === "waiting" ? (
+                      <span className="font-semibold text-ink-muted">
+                        {broadcast.status === "cancelled"
+                          ? t("Cancelled before their turn", "اتلغت قبل دوره")
+                          : t(`No. ${placeInLine.get(r.i) ?? ""} in line`, `رقم ${nf(placeInLine.get(r.i) ?? 0, true)} في الدور`)}
+                      </span>
+                    ) : (
+                      <span className="font-semibold text-danger">{notSentReason(r.reason, isAr)}</span>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          {rows && visible.length > LIST_LIMIT && (
+            <p className="px-5 py-3 text-center text-xs text-ink-muted">
+              {t(
+                `Showing ${LIST_LIMIT} of ${visible.length}. Search to find anyone else.`,
+                `ظاهر ${nf(LIST_LIMIT, true)} من ${nf(visible.length, true)}. دوّر علشان تلاقي أي حد تاني.`
+              )}
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );

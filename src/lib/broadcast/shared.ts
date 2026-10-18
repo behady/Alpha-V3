@@ -398,3 +398,58 @@ export type BroadcastReview = {
   improved: string;
   tips: string[];
 };
+
+/* ------------------------------------------------------------------------------------------ */
+/* Who got it                                                                                   */
+/* ------------------------------------------------------------------------------------------ */
+
+/** One patient on a broadcast, as the "Patients" list shows them. */
+export type BroadcastRecipientRow = {
+  i: number;
+  patientId: string;
+  name: string;
+  phone: string;
+  state: "sent" | "waiting" | "not_sent";
+  sentAt: number | null;
+  /** Why it was not sent: the server's short reason, or "failed". */
+  reason: string;
+};
+
+const foldDigits = (s: string) => s.replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
+/** Alef/yaa/taa-marbuta spellings fold together, so "احمد" finds "أحمد". */
+const foldArabic = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/[\u064B-\u0652]/g, "");
+
+/**
+ * Does this row match what the desk typed? Name anywhere in it, or digits anywhere in the number —
+ * "0101234" finds +20101234…, the way the patient reads their own number over the phone.
+ */
+export function recipientMatches(row: Pick<BroadcastRecipientRow, "name" | "phone">, query: string): boolean {
+  const q = query.trim();
+  if (!q) return true;
+  const digits = foldDigits(q).replace(/\D/g, "");
+  if (digits.length >= 3 && /^[\d\s+٠-٩-]+$/.test(q)) {
+    const local = digits.replace(/^0+/, "");
+    const phone = row.phone.replace(/\D/g, "");
+    return phone.includes(local);
+  }
+  return foldArabic(row.name).includes(foldArabic(q));
+}
+
+/** The reason a row was not sent, in words the desk can repeat to the patient. */
+export function notSentReason(reason: string, isAr: boolean): string {
+  const map: Record<string, [string, string]> = {
+    "asked to stop": ["Asked not to receive messages", "طلب إيقاف الرسايل"],
+    "patient removed": ["Patient was deleted", "المريض اتمسح"],
+    "messaged too often by the clinic": ["Had too many messages from the clinic that hour", "وصله رسايل كتير من العيادة في نفس الساعة"],
+    "messaged too often this hour": ["Had too many messages from the clinic that hour", "وصله رسايل كتير من العيادة في نفس الساعة"],
+    failed: ["Could not be sent", "مقدرناش نبعتها"],
+  };
+  const hit = map[reason];
+  return hit ? hit[isAr ? 1 : 0] : isAr ? "مقدرناش نبعتها" : "Could not be sent";
+}

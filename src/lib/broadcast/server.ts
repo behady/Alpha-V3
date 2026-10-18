@@ -27,6 +27,7 @@ import {
   missingClinicName,
   perTickRelease,
   versionFor,
+  type BroadcastRecipientRow,
   type BroadcastStatus,
   type BroadcastSummary,
 } from "@/lib/broadcast/shared";
@@ -461,13 +462,33 @@ export async function steerBroadcast(clinicId: string, id: string, action: "paus
   return summarize(id, (await ref.get()).data() || {});
 }
 
-/** The rows the screen shows under a broadcast: the latest failures, to fix a number or two. */
-export async function broadcastFailures(clinicId: string, id: string): Promise<{ name: string; phone: string; error: string }[]> {
+/**
+ * Everyone on a broadcast and where they stand — the "Patients" list under each broadcast.
+ *
+ * Returned whole (a clinic's list is a couple of thousand rows of a few short fields) so the
+ * screen can switch tabs and search without asking again. A row the flood guard moved to the
+ * back of the line exists twice; only its live copy is returned, so nobody is listed twice.
+ */
+export async function broadcastRecipients(clinicId: string, id: string): Promise<BroadcastRecipientRow[]> {
   const ref = adminDb().collection(BROADCASTS).doc(id);
   const snap = await ref.get();
-  if (!snap.exists || snap.data()?.clinicId !== clinicId) return [];
-  const rows = await ref.collection(RECIPIENTS).where("status", "in", ["failed", "skipped"]).limit(50).get();
-  return rows.docs.map((d) => ({ name: String(d.data().name || ""), phone: String(d.data().phone || ""), error: String(d.data().error || "") }));
+  if (!snap.exists || snap.data()?.clinicId !== clinicId) throw new BroadcastError("Broadcast not found.", "الرسالة الجماعية مش موجودة.", 404);
+  const rows = await ref.collection(RECIPIENTS).select("i", "patientId", "name", "phone", "status", "sentAt", "error").get();
+  const out: BroadcastRecipientRow[] = [];
+  for (const d of rows.docs) {
+    const r = d.data();
+    if (r.status === "deferred") continue;
+    out.push({
+      i: Number(r.i) || 0,
+      patientId: String(r.patientId || ""),
+      name: String(r.name || ""),
+      phone: String(r.phone || ""),
+      state: r.status === "sent" ? "sent" : r.status === "queued" ? "waiting" : "not_sent",
+      sentAt: ms(r.sentAt),
+      reason: r.status === "failed" ? "failed" : String(r.error || ""),
+    });
+  }
+  return out.sort((a, b) => a.i - b.i);
 }
 
 /** Send one finished message to one number now — the "send me a test" button. */

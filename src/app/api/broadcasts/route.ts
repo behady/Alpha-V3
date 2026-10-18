@@ -5,7 +5,7 @@ import { clinicHasFeature } from "@/lib/clinicFeatures";
 import {
   BroadcastError,
   broadcastContext,
-  broadcastFailures,
+  broadcastRecipients,
   broadcastLine,
   buildAudience,
   cleanVersions,
@@ -30,7 +30,7 @@ export const maxDuration = 120;
 
 type Body = {
   clinicId?: string;
-  action?: "overview" | "list" | "create" | "pause" | "resume" | "cancel" | "test" | "failures";
+  action?: "overview" | "list" | "create" | "pause" | "resume" | "cancel" | "test" | "recipients";
   id?: string;
   name?: string;
   versions?: unknown;
@@ -82,8 +82,8 @@ export async function POST(request: Request) {
         const [line, broadcasts] = await Promise.all([broadcastLine(clinicId), listBroadcasts(clinicId)]);
         return NextResponse.json({ ok: true, line, problem: lineProblem(line), broadcasts });
       }
-      case "failures": {
-        return NextResponse.json({ ok: true, rows: await broadcastFailures(clinicId, String(body.id || "")) });
+      case "recipients": {
+        return NextResponse.json({ ok: true, rows: await broadcastRecipients(clinicId, String(body.id || "")) });
       }
       default: {
         const [line, audience, broadcasts, context] = await Promise.all([

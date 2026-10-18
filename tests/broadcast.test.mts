@@ -82,3 +82,18 @@ assert.equal(fn("عبد الله محمد"), "عبد الله");
 assert.equal(fn("أبو بكر سالم"), "أبو بكر");
 assert.equal(fn("أحمد عبد الله"), "أحمد");
 console.log("first-name tests passed");
+
+// The patients list: search by name (spelling-tolerant) or any run of digits in the number.
+import { notSentReason, recipientMatches } from "../src/lib/broadcast/shared";
+const row = { name: "أحمد عبد الله", phone: "+201012345678" };
+assert.ok(recipientMatches(row, "احمد"), "alef forms fold");
+assert.ok(recipientMatches(row, "عبد"));
+assert.ok(recipientMatches(row, "01012345678"), "local form finds the international number");
+assert.ok(recipientMatches(row, "2345"), "digits mid-number");
+assert.ok(recipientMatches(row, "٠١٠١٢٣"), "Arabic digits");
+assert.ok(!recipientMatches(row, "0111"), "a different prefix does not match");
+assert.ok(!recipientMatches(row, "منى"));
+assert.ok(recipientMatches(row, "  "), "empty search shows everyone");
+assert.equal(notSentReason("asked to stop", true), "طلب إيقاف الرسايل");
+assert.equal(notSentReason("something new", false), "Could not be sent");
+console.log("recipient list tests passed");
