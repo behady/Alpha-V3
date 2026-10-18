@@ -353,3 +353,13 @@ export function firstNameOf(full: string): string {
 export function versionFor(index: number, versions: number): number {
   return versions <= 1 ? 0 : index % versions;
 }
+
+/** What the AI check returns (api/broadcasts/review). */
+export type BroadcastReview = {
+  verdict: "safe" | "caution" | "risky";
+  score: number;
+  summary: string;
+  issues: { severity: "high" | "medium" | "low"; problem: string; fix: string }[];
+  improved: string;
+  tips: string[];
+};
