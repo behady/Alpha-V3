@@ -17,4 +17,13 @@ eq(isChairMode({ role: "Admin", isDentist: false, homeView: "chair" }), false, "
 eq(isChairMode({ role: "Receptionist", homeView: "chair" }), false, "reception never gets it");
 eq(isChairMode({}), false, "nothing known = not chair mode");
 
+// The dentist home's "+ Service" and the chair popup used to pass `dentistMode` literally, so an
+// owner adding a service there lost the discount (owner, 2026-10-22). Both must ask the rule.
+import { readFileSync } from "node:fs";
+for (const f of ["src/components/dashboard/DentistHome.tsx", "src/components/chair/ChairPopup.tsx"]) {
+  const src = readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
+  eq(/\bdentistMode\s*\n/.test(src) || /\bdentistMode\s*\/?>/.test(src), false, `${f}: no hard-coded dentistMode`);
+  eq(src.includes("isChairMode({ role })"), true, `${f}: dentistMode follows the role rule`);
+}
+
 console.log(`chair mode: ${checks} checks passed`);

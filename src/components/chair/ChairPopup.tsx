@@ -18,6 +18,7 @@ import { suggestCategory } from "@/lib/dentalIcons";
 import type { DentistIdentity } from "@/lib/dentistHome";
 import type { ToothData } from "@/lib/diagnosisCatalog";
 import { isAnyUnlocked } from "@/lib/featureCatalog";
+import { isChairMode } from "@/lib/chairMode";
 import { cairo } from "@/lib/fonts/arabic";
 import { CLAIMS_COLLECTION, parseClaim, type InsuranceClaim, type LineStatus } from "@/lib/insurance/claims";
 import { deleteProcedure, updateApprovalProcedure, updateProcedure } from "@/lib/moneyApi";
@@ -74,7 +75,9 @@ function ageOf(d: Record<string, unknown>): string {
 export default function ChairPopup({ isOpen, onClose, patientId, appointment, me, services, doctors }: Props) {
   const { language } = useLanguage();
   const isAr = language === "ar";
-  const { clinicId, clinic } = useClinic();
+  const { clinicId, clinic, role } = useClinic();
+  // Owner/Admin keep discount, payer and billing in the editor; only the Dentist role is money-free.
+  const moneyFree = isChairMode({ role });
   const { showToast, confirm } = useUI();
   const insuranceOn = !!clinic && isAnyUnlocked(clinic, "insurance");
 
@@ -321,7 +324,7 @@ export default function ChairPopup({ isOpen, onClose, patientId, appointment, me
                 onSelectedTeethChange={setChartTeeth}
                 teethData={patient.teethData}
                 treatments={treatments}
-                dentistMode
+                dentistMode={moneyFree}
                 meStaffId={me.staffId}
                 onSaved={() => {
                   setEditor(null);

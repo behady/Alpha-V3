@@ -593,11 +593,13 @@ export default function ServiceEditorDrawer({
       if (byName) setSelectedDoctorId(byName.id);
       return;
     }
-    const defaultDocId = (user && isDentistStaff(user))
+    // Opened from a dentist's own home (an owner who treats keeps the picker): default to them.
+    const mine = meStaffId ? doctors.find(d => d.id === meStaffId)?.id : undefined;
+    const defaultDocId = mine || ((user && isDentistStaff(user))
         ? (doctors.find(d => d.name.toLowerCase() === user.name.toLowerCase() || d.id === user.uid)?.id || doctors[0]?.id)
-        : doctors[0]?.id;
+        : doctors[0]?.id);
     if (defaultDocId) setSelectedDoctorId(defaultDocId);
-  }, [isOpen, initialNote, doctors, user, selectedDoctorId]);
+  }, [isOpen, initialNote, doctors, user, selectedDoctorId, meStaffId]);
 
   const txt = {
     title: initialNote ? (language === "ar" ? "تعديل الإجراء" : "Edit Procedure") : (language === "ar" ? "إجراء جديد" : "New Procedure"),

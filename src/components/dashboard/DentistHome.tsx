@@ -17,6 +17,7 @@ import { useActiveBranch } from "@/lib/useActiveBranch";
 import { localYmd } from "@/lib/clinicDate";
 import { getAppointmentStageLabel, getAppointmentStatusStyles } from "@/lib/appointmentStages";
 import { isDentistStaff } from "@/lib/staffRoles";
+import { isChairMode } from "@/lib/chairMode";
 import { treatmentsByTooth } from "@/lib/toothTreatments";
 import { suggestCategory } from "@/lib/dentalIcons";
 import { syncClaimLineFromAppointment } from "@/lib/insurance/appointmentSync";
@@ -52,7 +53,10 @@ const SEATABLE = new Set(["Scheduled", "Confirmed", "Delayed", "Checked In", "La
 export default function DentistHome() {
   const router = useRouter();
   const { user } = useAuth();
-  const { clinicId } = useClinic();
+  const { clinicId, role } = useClinic();
+  // An Owner or Admin on this home keeps the full editor (discount, payer, billing); only the
+  // Dentist role gets the money-free one — the same rule as the patient file.
+  const moneyFree = isChairMode({ role });
   const { language, isRTL } = useLanguage();
   const { showToast } = useUI();
   const { branches, activeBranch, matches, ready: branchReady } = useActiveBranch();
@@ -514,7 +518,7 @@ export default function DentistHome() {
           doctors={doctors}
           teethData={noteCtx.patient.teethData || {}}
           treatments={noteTreatments}
-          dentistMode
+          dentistMode={moneyFree}
           meStaffId={me?.staffId ?? ""}
           onSaved={() => {
             setNoteCtx(null);
