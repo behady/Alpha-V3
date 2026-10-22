@@ -181,6 +181,11 @@ export function sortForCard(rows: CallReminder[], nowMs: number): CallReminder[]
   return [...rows].sort((a, b) => a.fireAtMs - b.fireAtMs || a.createdAtMs - b.createdAtMs);
 }
 
+/** What the dashboard card shows: open calls dated today or earlier, overdue first. */
+export function dueOnCard(rows: CallReminder[], nowMs: number, todayYmd: string): CallReminder[] {
+  return sortForCard(rows.filter((r) => r.status === "open" && r.date <= todayYmd), nowMs);
+}
+
 /* --- words ------------------------------------------------------------------------------------- */
 
 const AR_MONTHS = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];

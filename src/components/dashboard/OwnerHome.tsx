@@ -36,6 +36,7 @@ import {
 } from "@/lib/ownerAlerts";
 import PageHeader from "@/components/dashboard/PageHeader";
 import HomeViewTabs from "@/components/dashboard/HomeViewTabs";
+import CallsTodayCard from "@/components/calls/CallsTodayCard";
 import Sparkline from "@/components/dashboard/Sparkline";
 
 /**
@@ -459,6 +460,9 @@ export default function OwnerHome() {
             </div>
           </div>
         </div>
+
+        {/* Today's calls the desk promised to make; renders nothing when there are none. */}
+        <CallsTodayCard />
 
         {/* Tabs */}
         <div className="flex flex-wrap gap-1.5 bg-surface border border-slate-200/60 rounded-2xl p-1.5 shadow-sm self-start">

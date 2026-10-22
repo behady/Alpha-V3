@@ -192,4 +192,22 @@ eq(/headerPatientId\s*&&[\s\S]{0,400}CallReminderDialog|setCallReminderOpen\(tru
 eq(/!isNewPatient|headerPatientId/.test(src("src/components/BookingModal.tsx").split("setCallReminderOpen(true)")[0].slice(-600)), true, "never for a patient not yet saved");
 eq(src("src/app/(dashboard)/patients/[id]/page.tsx").includes("<PatientCallsPanel"), true, "the patient file lists its calls");
 
+/* --- the dashboard card ----------------------------------------------------------------------- */
+
+{
+  const { dueOnCard } = await import("../src/lib/callReminders");
+  const now = Date.parse("2026-10-22T10:00:00Z");
+  const tomorrowRow = base({ id: "tomorrow", date: "2026-10-23", fireAtMs: Date.parse("2026-10-23T07:00:00Z") });
+  const doneRow = base({ id: "done", status: "done" });
+  eq(dueOnCard([tomorrowRow, noon, doneRow, late, morning], now, "2026-10-22").map((r) => r.id), ["late", "morning", "noon"], "today's and overdue open calls, overdue first; not tomorrow's, not handled ones");
+
+  const host = src("src/components/calls/CallBookingHost.tsx");
+  const save = host.indexOf("await saveBooking(");
+  const book = host.indexOf("markCallBooked(");
+  eq(save > -1 && book > save, true, "a call is marked booked only after the booking itself saved");
+  for (const rel of ["src/components/dashboard/DesktopDashboard.tsx", "src/components/dashboard/OwnerHome.tsx"]) {
+    eq(src(rel).includes("<CallsTodayCard"), true, `${rel} shows today's calls`);
+  }
+}
+
 console.log(`call reminders: ${checks} checks passed`);

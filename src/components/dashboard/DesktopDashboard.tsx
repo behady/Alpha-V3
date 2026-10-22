@@ -32,6 +32,7 @@ import {
 } from "@/lib/bookingService";
 import NewPatientModal from "@/components/NewPatientModal";
 import PageHeader, { headerButtonPrimary, headerButtonGhost } from "@/components/dashboard/PageHeader";
+import CallsTodayCard from "@/components/calls/CallsTodayCard";
 import HomeViewTabs from "@/components/dashboard/HomeViewTabs";
 import QuickPaymentModal from "@/components/QuickPaymentModal";
 import AppointmentSidePanel from "@/components/appointments/AppointmentSidePanel";
@@ -1332,6 +1333,13 @@ export default function DesktopDashboard() {
                 </div>
             </div>
         </div>
+        )}
+
+        {/* Today's calls the desk promised to make; renders nothing when there are none. */}
+        {!isFullScreen && (
+          <div className="mt-4 lg:mb-4 lg:mt-0">
+            <CallsTodayCard />
+          </div>
         )}
 
         {/* === MAIN DASHBOARD CONTENT: Schedule + Detail === */}
