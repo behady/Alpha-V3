@@ -111,6 +111,8 @@ export const PATIENT_CASCADE_COLLECTIONS = [
   "ortho_ai_reports",
   "ortho_cases",
   "ortho_sessions",
+  // Calls the desk planned to make: nothing should be sent about a patient in the bin.
+  "call_reminders",
 ] as const;
 
 /**
@@ -131,6 +133,7 @@ const CASCADE_DELETE_PERMISSION: Record<string, string> = {
   ortho_sessions: "clinical.delete",
   patient_media: "patients.edit",
   insurance_claims: "patients.edit",
+  call_reminders: "patients.delete",
 };
 
 /** May this person move (or bring back) a patient's file holding these records? */
@@ -212,6 +215,7 @@ const LINKED_NAMES: Record<string, [string, string]> = {
   ortho_ai_reports: ["ortho AI reports", "تقارير تقويم"],
   ortho_cases: ["ortho case", "ملف تقويم"],
   ortho_sessions: ["ortho visits", "زيارات تقويم"],
+  call_reminders: ["planned calls", "مكالمات"],
 };
 
 /**

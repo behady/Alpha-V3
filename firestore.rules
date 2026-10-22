@@ -230,6 +230,9 @@ service cloud.firestore {
         // line items of one it did — and the commission record that pays us is written in the
         // same batch. The clinic reads these; only the server writes them.
         && sub != 'supply_orders'
+        // Call reminders are written only by /api/call-reminders (who may delete, handled once);
+        // the 10-minute sweep messages staff from them.
+        && sub != 'call_reminders'
         && sub != 'ledger' && sub != 'ledger_audit'
         && sub != 'clinical_notes' && sub != 'services'
         // Everything the recycle bin covers. A client delete on these would destroy the record
@@ -799,6 +802,13 @@ service cloud.firestore {
        * together, so without that exclusion this deny would do nothing at all.
        */
       match /supply_orders/{orderId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow create, update, delete: if false;
+      }
+
+      // Read live by the desk's card, the Calls page and the patient file; written only by
+      // /api/call-reminders (held out of memberMayWrite above).
+      match /call_reminders/{reminderId} {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
         allow create, update, delete: if false;
       }

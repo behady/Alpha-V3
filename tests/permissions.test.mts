@@ -143,6 +143,9 @@ const MUST_BE_EXCLUDED = [
   // commission row that pays us. A member able to write here could invent or edit an order the
   // supplier is about to deliver in exchange for cash.
   "supply_orders",
+  // Written only by /api/call-reminders, which checks who may delete one and that each is handled
+  // once. The 10-minute sweep messages staff from these rows.
+  "call_reminders",
   "ledger",
   "ledger_audit",
   "clinical_notes",

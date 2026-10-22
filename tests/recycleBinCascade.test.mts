@@ -150,6 +150,8 @@ await col("treatment_plans").doc("TP1").set({ patientId: "P1", title: "Full mout
 await col("lab_cases").doc("LC1").set({ patientId: "P1", code: "LAB-0001" });
 // Filed under the patient's own id, with no patientId field: written before the field existed.
 await col("ortho_cases").doc("P1").set({ startedAt: "2026-01-01" });
+// A call the desk promised to make.
+await col("call_reminders").doc("CR1").set({ patientId: "P1", reason: "سعر التركيبة", status: "open" });
 
 console.log("insurance approval saved for the patient");
 {
@@ -165,6 +167,7 @@ console.log("deleting the patient: first the counts");
   check("the first call stops with what would go", status === 409 && json.reason === "HAS_CHILDREN", json);
   check("the counts name the money, the visit, the approval", json.counts?.ledger === 7 && json.counts?.appointments === 1 && json.counts?.insurance_claims === 1, json.counts);
   check("the ortho case filed under the patient's id is counted", json.counts?.ortho_cases === 1, json.counts);
+  check("the planned call is counted", json.counts?.call_reminders === 1, json.counts);
   check("the message says they go to Recently Deleted", /Recently Deleted/.test(json.error), json.error);
   check("nothing moved yet", await exists("patients", "P1") && await exists("ledger", "L1"));
 }
@@ -179,7 +182,7 @@ console.log("deleting the patient without permission to delete money");
   check("nothing moved", (await exists("patients", "P1")) && (await countFor("ledger", "P1")) === 7);
 }
 
-const LINKED = 7 + 6 + 1 + 1 + 1 + 1 + 1 + 1; // ledger, notes, appointment, rx, media, plan, ortho, approval
+const LINKED = 7 + 6 + 1 + 1 + 1 + 1 + 1 + 1 + 1; // ledger, notes, appointment, rx, media, plan, ortho, approval, call
 console.log("deleting the patient: confirmed");
 {
   const { status, json } = await deletePatient("P1", true);
@@ -191,6 +194,7 @@ console.log("deleting the patient: confirmed");
   check("the visit, notes, image, plan and ortho case are gone",
     !(await exists("appointments", "A1")) && (await countFor("clinical_notes", "P1")) === 0 && !(await exists("patient_media", "M1")) &&
     !(await exists("treatment_plans", "TP1")) && !(await exists("ortho_cases", "P1")));
+  check("the planned call goes too, so nothing is sent about a deleted patient", !(await exists("call_reminders", "CR1")));
   check("the lab case stays: it is what the clinic owes the lab", await exists("lab_cases", "LC1"));
   check("another patient's money is untouched", await exists("ledger", "L9"));
   const children = await bin.where("cascadeOf", "==", entryOf("patients", "P1")).get();
@@ -230,6 +234,7 @@ console.log("restoring the patient");
   check("the patient comes back", status === 200 && json.ok === true, json);
   check("with every charge and payment", (await countFor("ledger", "P1")) === 7);
   check("with the approval, the visit and the ortho case", (await exists("insurance_claims", CLAIM)) && (await exists("appointments", "A1")) && (await exists("ortho_cases", "P1")));
+  check("and the planned call", await exists("call_reminders", "CR1"));
   const l1 = (await col("ledger").doc("L1").get()).data();
   check("money comes back exactly as it was", l1?.amount === 500 && l1?.paid === 500 && l1?.description === "Crown", l1);
   check("an accepted plan comes back as a draft, so it texts nobody", (await col("treatment_plans").doc("TP1").get()).data()?.status === "draft");
