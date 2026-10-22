@@ -3,7 +3,7 @@
 import { Fragment, useMemo, useRef, useState } from "react";
 import {
   Tooltip, ResponsiveContainer,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  XAxis, YAxis, CartesianGrid,
   AreaChart, Area,
 } from "recharts";
 import { ChevronDown, ChevronRight, Download, Building2, FileSpreadsheet } from "lucide-react";
@@ -43,7 +43,6 @@ function normalizeDate(val: unknown): string {
 export default function ClinicReport({ procedures, payments, allPatients, startDate, endDate, rangeLabel, isAr }: Props) {
   const { showToast } = useUI();
   const chartRef = useRef<HTMLDivElement>(null);
-  const barRef = useRef<HTMLDivElement>(null);
   const [exporting, setExporting] = useState(false);
   /** The unit beside on-screen figures: "ج.م" in Arabic. PDFs and Excel keep their own wording. */
   const cur = currencyUnit("EGP", isAr);
@@ -519,28 +518,19 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
               </div>
             </div>
           </div>
-          <div ref={barRef}>
-            <ResponsiveContainer width="100%" height={230}>
-              <BarChart
-                data={serviceStats.slice(0, 8)}
-                layout="vertical"
-                margin={{ left: 90, right: 20 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                <XAxis type="number" tick={{ fontSize: 10, fontWeight: "bold" }} />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  tick={{ fontSize: 8.5, fontWeight: "bold", fill: "#64748b" }}
-                  width={90}
-                  tickFormatter={(v: string) => v.length > 15 ? v.slice(0, 15) + "…" : v}
-                />
-                <Tooltip formatter={(v) => [`${Number(v || 0).toLocaleString()} ${cur}`, isAr ? "الدخل" : "Income"]} />
-                {/* One ink. Eight bars of eight colours said nothing the eight lengths did not. */}
-                <Bar dataKey="income" fill={INK} radius={[0, 4, 4, 0]} animationDuration={ANIM} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+          {/*
+            The same labelled bars as every other report, not a Recharts category axis. That axis
+            drew its names as SVG text anchored for left-to-right, so in Arabic each treatment name
+            ran over its own bar — and it cut them at 15 letters at 8.5px besides.
+          */}
+          <Bars
+            rows={serviceStats.slice(0, 8).map((s, i) => ({
+              label: s.name,
+              value: s.income,
+              text: `${s.income.toLocaleString()} ${cur}`,
+              color: i === 0 ? MARK : INK,
+            }))}
+          />
         </div>
       </div>
 
