@@ -136,6 +136,9 @@ export async function reschedule(clinicId: string, actor: Actor, id: string, dat
       createdAt: FieldValue.serverTimestamp(),
     };
     if (cur.sourceNoteId) next.sourceNoteId = cur.sourceNoteId;
+    // What was said on this call travels to the next one, where the person calling will read it.
+    const said = noteField(note).note;
+    if (said) next.previousNote = said;
     tx.set(nextRef, next);
   });
   return result.ok ? { ok: true, id: nextRef.id } : result;

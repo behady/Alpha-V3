@@ -226,4 +226,21 @@ eq(src("src/app/(dashboard)/patients/[id]/page.tsx").includes("<PatientCallsPane
   eq(src("src/app/(dashboard)/calls/page.tsx").includes("CallRow"), true, "the page lists calls with their actions");
 }
 
+/* --- final review fixes ----------------------------------------------------------------------- */
+
+{
+  const card = src("src/components/calls/CallsTodayCard.tsx");
+  eq(/<ul className="[^"]*max-h-\[[^"]*overflow-y-auto/.test(card), true, "the card scrolls inside a capped height, so the calendar keeps its room");
+  eq(/setInterval\(|visibilitychange/.test(card), true, "the card's day moves on when the clock passes midnight");
+  eq(src("src/components/dashboard/MobileDashboard.tsx").includes("<CallsTodayCard"), true, "phones in desk view see today's calls too");
+
+  const modal = src("src/components/BookingModal.tsx");
+  eq(/if \(e\.key === "Escape" && !callReminderOpenRef\.current\) onClose\(\);/.test(modal), true, "Esc in the reminder window does not close the booking pop-up behind it");
+
+  const host = src("src/components/calls/CallBookingHost.tsx");
+  eq(/String\(data\.patientId\) === reminder\.patientId/.test(host), true, "a call closes as booked only for its own patient");
+
+  eq(src("src/components/calls/CallRow.tsx").includes("reminder.previousNote"), true, "an open call shows what was said on the call before it");
+}
+
 console.log(`call reminders: ${checks} checks passed`);

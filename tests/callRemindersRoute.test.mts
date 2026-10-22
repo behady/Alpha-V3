@@ -171,6 +171,7 @@ let firstId = "";
   check("the old one is closed and points forward", old.status === "rescheduled" && old.nextId === json.id && old.note === "ما ردتش" && old.handledBy?.uid === DESK2, old);
   check("the new one is open, same people and reason, points back", next.status === "open" && next.previousId === id && next.reason === old.reason && JSON.stringify(next.recipient) === JSON.stringify(old.recipient), next);
   check("the new one fires at its own time", next.fireAt?.toMillis() === computeFireAt(later, "16:30", 9).getTime());
+  check("the new one carries what was said on the last call", next.previousNote === "ما ردتش", next.previousNote);
 }
 
 /* --- book ------------------------------------------------------------------------------------- */

@@ -56,6 +56,7 @@ import { printPatientReceipt } from "@/lib/printPatientReceipt";
 
 import { getAppointmentStatusStyles, getAppointmentStageLabel } from "@/lib/appointmentStages";
 import UserClockWidget from "@/components/dashboard/UserClockWidget";
+import CallsTodayCard from "@/components/calls/CallsTodayCard";
 import { currentClinicId, getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { syncClaimLineFromAppointment } from "@/lib/insurance/appointmentSync";
 import PageHeader, { headerButtonPrimary, headerButtonGhost } from "@/components/dashboard/PageHeader";
@@ -1130,6 +1131,11 @@ export default function MobileDashboard() {
             </button>
             )}
           </div>
+        </div>
+
+        {/* Today's calls the desk promised to make; renders nothing when there are none. */}
+        <div className="mt-4">
+          <CallsTodayCard />
         </div>
 
         {/* === MAIN DASHBOARD CONTENT: Schedule + Detail === */}

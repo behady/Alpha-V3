@@ -76,12 +76,18 @@ export default function CallBookingHost({ reminder, onClose }: { reminder: CallR
         { uid: user?.uid || "", name: user?.name || "System", role: user?.role || "", language: language as "en" | "ar" },
         sendOwnerAlert,
       );
-      try {
-        await markCallBooked(reminder.id, saved.appointmentId, String(data.date || ""));
-        showToast(isAr ? "الميعاد اتحجز والمكالمة اتقفلت" : "Booked, and the call is closed", "success");
-      } catch (e) {
+      // The patient can be changed inside the pop-up; a booking for someone else does not close
+      // this patient's call.
+      if (String(data.patientId) === reminder.patientId || String(saved.patientId) === reminder.patientId) {
+        try {
+          await markCallBooked(reminder.id, saved.appointmentId, String(data.date || ""));
+          showToast(isAr ? "الميعاد اتحجز والمكالمة اتقفلت" : "Booked, and the call is closed", "success");
+        } catch (e) {
         // The visit is booked either way; say so, and that the call is still open.
-        showToast(`${isAr ? "الميعاد اتحجز، بس المكالمة لسه مفتوحة:" : "Booked, but the call is still open:"} ${callReminderErrorText(e, isAr)}`, "error");
+          showToast(`${isAr ? "الميعاد اتحجز، بس المكالمة لسه مفتوحة:" : "Booked, but the call is still open:"} ${callReminderErrorText(e, isAr)}`, "error");
+        }
+      } else {
+        showToast(isAr ? "الميعاد اتحجز لمريض تاني، والمكالمة لسه مفتوحة" : "Booked for another patient; this call is still open", "success");
       }
       onClose();
     } catch (error) {

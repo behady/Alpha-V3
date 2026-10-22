@@ -67,26 +67,31 @@ export async function sendDueCallReminders(clinicId: string, now: Date, out: str
   let sent = 0;
   for (const doc of due.docs) {
     if (!(await claim(doc.ref))) continue;
-    const reminder = reminderFromDoc(doc.id, doc.data() || {});
-
-    const patient = await adminClinicDoc(clinicId, "patients", reminder.patientId).get();
-    if (!patient.exists) {
-      await doc.ref.update({ deliveryError: "patient-missing" });
-      continue;
-    }
-    const p = patient.data() || {};
-    reminder.patientName = String(p.name || reminder.patientName);
-    reminder.patientPhone = String(p.phone || reminder.patientPhone);
-
-    staff ??= await staffWithBranches(clinicId);
-    const uids = resolveRecipients(reminder.recipient, reminder.branchId, staff);
-    if (uids.length === 0) {
-      await doc.ref.update({ deliveryError: "nobody" });
-      continue;
-    }
-
+    // Claimed means it will not be picked up again, so anything that goes wrong from here on is
+    // written onto the reminder — the card still shows it, and the reason is there to read.
+    const fail = (reason: string) => doc.ref.update({ deliveryError: reason.slice(0, 200) }).catch(() => undefined);
     try {
-      await deliver(
+      const reminder = reminderFromDoc(doc.id, doc.data() || {});
+
+      const patient = await adminClinicDoc(clinicId, "patients", reminder.patientId).get();
+      if (!patient.exists) {
+        await fail("patient-missing");
+        continue;
+      }
+      const p = patient.data() || {};
+      reminder.patientName = String(p.name || reminder.patientName);
+      reminder.patientPhone = String(p.phone || reminder.patientPhone);
+
+      staff ??= await staffWithBranches(clinicId);
+      const uids = resolveRecipients(reminder.recipient, reminder.branchId, staff);
+      if (uids.length === 0) {
+        await fail("nobody");
+        continue;
+      }
+
+      // The gate never throws: it answers. Muted, switched off or nobody left is a refusal to
+      // record, not a send to count.
+      const result = await deliver(
         clinicId,
         { title: "📞 تذكير بمكالمة", body: `${reminder.patientName} — ${reminder.reason}` },
         {
@@ -97,10 +102,14 @@ export async function sendDueCallReminders(clinicId: string, now: Date, out: str
           whatsappText: reminderWhatsappText(reminder, `${APP_URL}/calls?id=${doc.id}`),
         },
       );
+      if (!result.raised || result.reason === "nobody") {
+        await fail(result.reason || "failed");
+        continue;
+      }
       sent += 1;
       out.push(`callReminderDue:${doc.id}`);
     } catch (e) {
-      await doc.ref.update({ deliveryError: String((e as Error)?.message || e).slice(0, 200) });
+      await fail(String((e as Error)?.message || e));
     }
   }
   return sent;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, PhoneCall } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
@@ -21,8 +21,19 @@ export default function CallsTodayCard() {
   const isAr = language === "ar";
   const { rows } = useOpenCallReminders();
   const [booking, setBooking] = useState<CallReminder | null>(null);
-  // Read once per mount: the card orders by each call's own time, not by the moment of render.
-  const [nowMs] = useState(() => Date.now());
+  // The clock the card reads. Ticks once a minute and on coming back to the tab, so a desk tab
+  // left open overnight moves to the new day by itself.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const tick = () => setNowMs(Date.now());
+    const timer = window.setInterval(tick, 60_000);
+    const onVisible = () => document.visibilityState === "visible" && tick();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
 
   const today = ymdInTimeZone(clinicTimeZone(), new Date(nowMs));
   const due = dueOnCard(rows, nowMs, today);
@@ -39,7 +50,8 @@ export default function CallsTodayCard() {
           {isAr ? "كل المكالمات" : "All calls"} <ArrowUpRight size={13} />
         </Link>
       </div>
-      <ul className="divide-y divide-line">
+      {/* Capped and scrolling: on the desk the calendar below is the main thing on screen. */}
+      <ul className="max-h-[30vh] divide-y divide-line overflow-y-auto">
         {due.map((r) => (
           <CallRow key={r.id} reminder={r} meUid={user?.uid || ""} todayYmd={today} onBook={setBooking} />
         ))}

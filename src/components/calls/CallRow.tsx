@@ -94,6 +94,11 @@ export default function CallRow({
             )}
           </div>
           <p className="text-sm font-semibold text-ink-body">{reminder.reason}</p>
+          {reminder.previousNote && (
+            <p className="text-xs font-semibold text-ink-muted">
+              {isAr ? "المرة اللي فاتت:" : "Last time:"} {reminder.previousNote}
+            </p>
+          )}
           <p className="text-xs font-bold text-ink-muted">
             {orphan ? (isAr ? "مالهاش حد" : "Nobody assigned") : recipientLabel(r, isAr)}
             {mine && <span className="ms-1.5 rounded-full bg-accent px-1.5 py-px text-[var(--accent-ink)]">{isAr ? "ليك" : "yours"}</span>}

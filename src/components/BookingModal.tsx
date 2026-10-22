@@ -335,10 +335,16 @@ export default function BookingModal({
   const [selectedPatient, setSelectedPatient] = useState<{ id: string; name: string } | null>(preSelectedPatient);
   /** "Call them Thursday" from the pop-up — only for a patient who already has a file. */
   const [callReminderOpen, setCallReminderOpen] = useState(false);
+  // Read by the Esc handler below without re-binding it: Esc in the reminder window closes that
+  // window, not the booking (and the half-filled booking) behind it.
+  const callReminderOpenRef = useRef(false);
+  useEffect(() => {
+    callReminderOpenRef.current = callReminderOpen;
+  }, [callReminderOpen]);
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && !callReminderOpenRef.current) onClose();
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);

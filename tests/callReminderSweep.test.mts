@@ -175,6 +175,25 @@ const read = async (id: string) => (await col("call_reminders").doc(id).get()).d
   check("done before it fired: nothing sent", calls.length === 0);
 }
 
+/* --- the gate said no: recorded, not counted as sent ------------------------------------------ */
+{
+  await seed();
+  await addReminder("r8");
+  const out: string[] = [];
+  const muted = (async () => ({ raised: false, bellWritten: false, pushed: 0, whatsapped: 0, reason: "muted" })) as never;
+  const sent = await sendDueCallReminders(CLINIC, NOW, out, { deliver: muted });
+  const after = await read("r8");
+  check("refused by the gate: not counted", sent === 0 && !out.includes("callReminderDue:r8"), { sent, out });
+  check("refused by the gate: the reason is on the reminder", after.deliveryError === "muted", after.deliveryError);
+}
+{
+  await seed();
+  await addReminder("r9");
+  const nobody = (async () => ({ raised: true, bellWritten: false, pushed: 0, whatsapped: 0, reason: "nobody" })) as never;
+  await sendDueCallReminders(CLINIC, NOW, [], { deliver: nobody });
+  check("the gate found nobody: shown as nobody on the card", (await read("r9")).deliveryError === "nobody");
+}
+
 /* --- the evening list -------------------------------------------------------------------------- */
 const prefsAt = (hour: number) => ({ timings: { callRemindersMissed: { hour } } }) as never;
 const EVENING = new Date("2026-10-22T18:05:00Z"); // 21:05 in Cairo

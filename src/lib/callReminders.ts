@@ -41,6 +41,8 @@ export interface CallReminder {
   recipient: ReminderRecipient;
   status: ReminderStatus;
   note?: string;
+  /** What was said on the call before this one, when this one is a "call again". */
+  previousNote?: string;
   handledBy?: { uid: string; name: string };
   handledAtMs?: number;
   appointmentId?: string;
@@ -283,6 +285,7 @@ export function reminderFromDoc(id: string, d: Record<string, unknown>): CallRem
   const extra: Partial<CallReminder> = {
     sourceNoteId: optStr(d.sourceNoteId),
     note: optStr(d.note),
+    previousNote: optStr(d.previousNote),
     handledBy: d.handledBy ? who(d.handledBy) : undefined,
     handledAtMs: toMs(d.handledAt),
     appointmentId: optStr(d.appointmentId),
