@@ -136,7 +136,7 @@ export default function CallReminderDialog({
         aria-modal="true"
         aria-labelledby="call-reminder-title"
         dir={isAr ? "rtl" : "ltr"}
-        className="w-full max-w-md rounded-t-3xl bg-surface p-5 shadow-2xl sm:rounded-3xl pb-[max(1.25rem,env(safe-area-inset-bottom,0px))]"
+        className="max-h-[90dvh] overflow-y-auto w-full max-w-md rounded-t-3xl bg-surface p-5 shadow-2xl sm:rounded-3xl pb-[max(1.25rem,env(safe-area-inset-bottom,0px))]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-start justify-between gap-3">

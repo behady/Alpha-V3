@@ -241,6 +241,7 @@ eq(src("src/app/(dashboard)/patients/[id]/page.tsx").includes("<PatientCallsPane
   eq(/String\(data\.patientId\) === reminder\.patientId/.test(host), true, "a call closes as booked only for its own patient");
 
   eq(src("src/components/calls/CallRow.tsx").includes("reminder.previousNote"), true, "an open call shows what was said on the call before it");
+  eq(/role="dialog"[\s\S]{0,300}max-h-\[90dvh\] overflow-y-auto/.test(src("src/components/calls/CallReminderDialog.tsx")), true, "on a short phone the window scrolls, so Save is always reachable");
 }
 
 console.log(`call reminders: ${checks} checks passed`);
