@@ -63,7 +63,7 @@ export async function POST(request: Request) {
         notification: {
           title,
           body: notificationBody,
-          icon: "/logo.png",
+          icon: "/icons/icon-192.png",
           requireInteraction: true,
         },
         fcmOptions: { link: "/" },
