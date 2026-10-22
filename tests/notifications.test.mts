@@ -109,6 +109,7 @@ const read = (rel: string) => readFileSync(join(REPO, rel), "utf8");
     "src/lib/alerts/moneyAlerts.ts",
     "src/lib/alerts/sweep.ts",
     "src/lib/alerts/complaint.ts",
+    "src/lib/alerts/callReminderSweep.ts",
   ];
   const raised = new Set<string>();
   for (const rel of SOURCES) {
@@ -315,6 +316,9 @@ const read = (rel: string) => readFileSync(join(REPO, rel), "utf8");
     "patientRequestedChange",
     "unhappyReview",
     "aiCreditsOut",
+    // A call reminder fires at a day and time somebody chose on purpose; holding it until the quiet
+    // window ends would move the call the clinic promised the patient.
+    "callReminderDue",
     // A patient physically in the waiting room past the clinic's own limit: by definition inside
     // opening hours, and the person to tell is standing thirty feet away.
     "patientWaitingLong",

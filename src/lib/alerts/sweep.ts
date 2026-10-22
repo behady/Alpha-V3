@@ -7,6 +7,7 @@ import { NOTIFY_EVENTS, notifyEvent, notifyTiming, reportPrefs, resolveNotify, t
 import { clinicHourNow, deliverClinicNotification, readAlertPreferences } from "@/lib/notificationDelivery";
 import { getAiCreditLimit } from "@/lib/subscriptions";
 import type { Clinic } from "@/types/saas";
+import { sendDueCallReminders, sendMissedCalls } from "@/lib/alerts/callReminderSweep";
 
 /**
  * The alerts that nobody's click raises: they are true for a while before anyone notices.
@@ -268,12 +269,15 @@ export async function runAlertSweep(clinicId: string, now = new Date()): Promise
   // Every ten minutes: the two that are about people standing in the building.
   if (any("patientWaitingLong")) await waitingPatients(clinicId, prefs, today, now, out).catch((e) => console.warn("waiting sweep:", e));
   if (any("staffLate", "staffAbsent")) await staffAttendance(clinicId, prefs, today, now, out).catch((e) => console.warn("attendance sweep:", e));
+  // Call reminders set for a day and time by the desk (lib/alerts/callReminderSweep.ts).
+  if (any("callReminderDue")) await sendDueCallReminders(clinicId, now, out).catch((e) => console.warn("call reminders sweep:", e));
 
   // Once an hour, in the first tick: the slow-moving ones, and the batched digests.
   const minute = clinicMinutesNow(now) % 60;
   if (minute < 10) {
     if (any("labCaseOverdue")) await overdueLabCases(clinicId, prefs, today, out).catch((e) => console.warn("lab sweep:", e));
     if (any("aiCreditsLow")) await aiCreditsLow(clinicId, prefs, out).catch((e) => console.warn("credits sweep:", e));
+    if (any("callRemindersMissed")) await sendMissedCalls(clinicId, prefs, today, now, out).catch((e) => console.warn("missed calls sweep:", e));
     await flushQueue(clinicId, "hourly", prefs, today, out).catch((e) => console.warn("hourly flush:", e));
     if (clinicHourNow(now) === notifyTiming("eveningDigest", "hour", prefs)) {
       await flushQueue(clinicId, "daily", prefs, today, out).catch((e) => console.warn("daily flush:", e));
