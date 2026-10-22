@@ -21,9 +21,11 @@ export default function CallsTodayCard() {
   const isAr = language === "ar";
   const { rows } = useOpenCallReminders();
   const [booking, setBooking] = useState<CallReminder | null>(null);
+  // Read once per mount: the card orders by each call's own time, not by the moment of render.
+  const [nowMs] = useState(() => Date.now());
 
-  const today = ymdInTimeZone(clinicTimeZone(), new Date());
-  const due = dueOnCard(rows, Date.now(), today);
+  const today = ymdInTimeZone(clinicTimeZone(), new Date(nowMs));
+  const due = dueOnCard(rows, nowMs, today);
   if (due.length === 0 && !booking) return null;
 
   return (
