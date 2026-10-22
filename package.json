@@ -123,6 +123,7 @@
     "test:teeth": "npx tsx tests/toothTreatments.test.mjs",
     "test:arch": "npx tsx tests/archSelection.test.mts",
     "test:chair": "npx tsx tests/chairMode.test.mts",
+    "test:calls": "npx tsx tests/callReminders.test.mts",
     "test:chair-popup": "npx tsx tests/chairPopup.test.mts",
     "test:service-name": "npx tsx tests/serviceName.test.mts",
     "_comment_test_clinicscope": "Every money and clinical write must name its clinic. The routes otherwise fall back to the caller's defaultClinicId, so a procedure logged at a second clinic was priced, attributed and written into the first one — visible only as 'Choose the dentist' for a dentist who was on screen. The API client attaches it now; this stops that becoming a per-call-site duty again.",
