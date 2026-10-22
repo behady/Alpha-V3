@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Users, Calendar, Wallet, Settings, Sparkles,
   FileBarChart, Menu, X, LogOut, Languages,
   Package, Clock, FlaskConical, ShieldCheck,
-  LifeBuoy, Inbox, Megaphone, Rocket, ShoppingBag, Lock, Activity, UserRound
+  LifeBuoy, Inbox, Megaphone, Rocket, ShoppingBag, Lock, Activity, UserRound, PhoneCall
 } from "lucide-react";
 import { isAnyUnlocked, type FeatureKey } from "@/lib/featureCatalog";
 
@@ -293,6 +293,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
      * the one page a receptionist opens all day — a patient writing is a patient at the desk.
      */
     { key: "chats", href: "/chats", icon: WhatsAppIcon, badge: unreadChats },
+    // Calls the desk promised to make (call reminders). On phones it sits in the menu sheet; the
+    // dashboard card is where the day's calls are worked.
+    { key: "calls", href: "/calls", icon: PhoneCall },
     { key: "marketing", href: "/marketing", icon: Megaphone },
     { key: "patients", href: "/patients", icon: Users },
     { key: "appointments", href: "/appointments", icon: Calendar },
@@ -376,6 +379,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
     // Same key the message queue has always used, so reception has it without a permissions edit.
     if (key === 'chats') return canAccessNavItem('patients', user, isAdmin);
+    // Calls are made to patients: whoever works the patient list works this page.
+    if (key === 'calls') return canAccessNavItem('patients', user, isAdmin);
 
     // Approvals are patient paperwork: whoever works the patient list works this page.
     if (key === 'insurance') return canAccessNavItem('patients', user, isAdmin);

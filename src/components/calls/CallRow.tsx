@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { CalendarPlus, Check, Loader2, Phone, RotateCcw } from "lucide-react";
+import { CalendarPlus, Check, Loader2, Phone, RotateCcw, Trash2 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { daysLate, quickDate, recipientLabel, type CallReminder } from "@/lib/callReminders";
@@ -26,12 +26,15 @@ export default function CallRow({
   meUid,
   todayYmd,
   onBook,
+  onDelete,
   highlighted = false,
 }: {
   reminder: CallReminder;
   meUid: string;
   todayYmd: string;
   onBook: (r: CallReminder) => void;
+  /** Offered only to whoever may delete it (its creator, or an Owner/Admin). */
+  onDelete?: (r: CallReminder) => void;
   highlighted?: boolean;
 }) {
   const { language } = useLanguage();
@@ -109,6 +112,16 @@ export default function CallRow({
           <button type="button" onClick={() => onBook(reminder)} className="inline-flex h-9 items-center gap-1.5 rounded-full border border-line bg-surface px-3.5 text-sm font-bold text-ink">
             <CalendarPlus size={14} /> {isAr ? "احجز" : "Book"}
           </button>
+          {onDelete && (
+            <button
+              type="button"
+              onClick={() => onDelete(reminder)}
+              aria-label={isAr ? "امسح التذكير" : "Delete reminder"}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full text-ink-muted hover:bg-rose-50 hover:text-rose-700"
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
         </div>
       )}
 

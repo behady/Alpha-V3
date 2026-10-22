@@ -210,4 +210,20 @@ eq(src("src/app/(dashboard)/patients/[id]/page.tsx").includes("<PatientCallsPane
   }
 }
 
+/* --- the Calls page ---------------------------------------------------------------------------- */
+
+{
+  const { callsTab } = await import("../src/lib/callReminders");
+  const now = Date.parse("2026-10-22T10:00:00Z");
+  eq(callsTab(morning, now, "2026-10-22"), "today", "open and due today");
+  eq(callsTab(late, now, "2026-10-22"), "late", "open from an earlier day");
+  eq(callsTab(base({ date: "2026-10-25" }), now, "2026-10-22"), "upcoming", "open for a later day");
+  eq(callsTab(base({ status: "booked" }), now, "2026-10-22"), "done", "anything handled");
+
+  const layout = src("src/app/(dashboard)/layout.tsx");
+  eq(layout.includes('href: "/calls"'), true, "the menu links the Calls page");
+  eq(/key === 'calls'\) return canAccessNavItem\('patients'/.test(layout), true, "whoever works the patient list sees it");
+  eq(src("src/app/(dashboard)/calls/page.tsx").includes("CallRow"), true, "the page lists calls with their actions");
+}
+
 console.log(`call reminders: ${checks} checks passed`);

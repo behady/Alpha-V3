@@ -186,6 +186,14 @@ export function dueOnCard(rows: CallReminder[], nowMs: number, todayYmd: string)
   return sortForCard(rows.filter((r) => r.status === "open" && r.date <= todayYmd), nowMs);
 }
 
+/** Which tab of the Calls page a reminder sits on. */
+export function callsTab(r: Pick<CallReminder, "status" | "date">, nowMs: number, todayYmd: string): "today" | "late" | "upcoming" | "done" {
+  void nowMs;
+  if (r.status !== "open") return "done";
+  if (r.date < todayYmd) return "late";
+  return r.date === todayYmd ? "today" : "upcoming";
+}
+
 /* --- words ------------------------------------------------------------------------------------- */
 
 const AR_MONTHS = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
