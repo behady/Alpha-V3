@@ -28,7 +28,7 @@ export interface Actor {
   role: string | null | undefined;
 }
 
-export type Outcome<T = Record<string, never>> = ({ ok: true } & T) | { ok: false; status: number; error: string };
+export type Outcome<T extends object = object> = ({ ok: true } & T) | { ok: false; status: number; error: string };
 
 const fail = (status: number, error: string) => ({ ok: false as const, status, error });
 const reminders = (clinicId: string) => adminClinicCollection(clinicId, CALL_REMINDERS_COLLECTION);

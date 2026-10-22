@@ -25,6 +25,7 @@ export async function POST(request: Request) {
   const staff = await requireStaffUser(request, typeof body.clinicId === "string" ? body.clinicId : undefined);
   if (!staff.ok) return staff.response;
   const clinicId = staff.clinicId;
+  if (!clinicId) return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
   const actor: Actor = { uid: staff.uid, name: staff.name || "", role: staff.role };
   const id = String(body.id || "");
 
