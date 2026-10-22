@@ -210,7 +210,7 @@ export default function WhatsAppConnectStep({ onConnectedChange }: { onConnected
     return (
       <p className="text-sm font-medium text-ink-body bg-surface-subtle border border-line rounded-xl px-4 py-3">
         {t.notAvailable}{" "}
-        <Link href="/settings/whatsapp" className="font-bold underline">{t.openSettings}</Link>
+        <Link href="/chats/settings" className="font-bold underline">{t.openSettings}</Link>
       </p>
     );
   }
@@ -242,7 +242,7 @@ export default function WhatsAppConnectStep({ onConnectedChange }: { onConnected
       {gateway.state === "restricted" ? (
         <p className="text-sm text-danger bg-danger/5 border border-danger/25 rounded-xl px-4 py-3 leading-relaxed">
           {t.restricted}{" "}
-          <Link href="/settings/whatsapp" className="font-bold underline">{t.openSettings}</Link>
+          <Link href="/chats/settings" className="font-bold underline">{t.openSettings}</Link>
         </p>
       ) : !gateway.managed || gateway.state === "missing" || gateway.state === "qr_expired" ? (
         <div className="space-y-2">

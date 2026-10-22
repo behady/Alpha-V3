@@ -115,8 +115,8 @@ export function lineProblem(line: BroadcastLine): { en: string; ar: string } | n
   }
   if (!line.onGateway) {
     return {
-      en: "Link the clinic's WhatsApp number first: Settings → WhatsApp setup → Connect by QR.",
-      ar: "اربط رقم واتساب العيادة الأول: الإعدادات ← إعداد واتساب ← الربط بالـ QR.",
+      en: "Link the clinic's WhatsApp number first: WhatsApp → Settings → Connect by QR.",
+      ar: "اربط رقم واتساب العيادة الأول: واتساب ← الإعدادات ← الربط بالـ QR.",
     };
   }
   if (line.state === "restricted") {
@@ -127,14 +127,14 @@ export function lineProblem(line: BroadcastLine): { en: string; ar: string } | n
   }
   if (line.state !== "open") {
     return {
-      en: "The clinic's number is not connected right now. Open Settings → WhatsApp setup and scan the QR again.",
-      ar: "رقم العيادة مش متصل دلوقتي. افتح الإعدادات ← إعداد واتساب وامسح الـ QR تاني.",
+      en: "The clinic's number is not connected right now. Open WhatsApp → Settings and scan the QR again.",
+      ar: "رقم العيادة مش متصل دلوقتي. افتح واتساب ← الإعدادات وامسح الـ QR تاني.",
     };
   }
   if (!line.autoSending) {
     return {
-      en: "Automatic sending is off for this clinic (Settings → WhatsApp setup, or the WhatsApp messages add-on).",
-      ar: "الإرسال التلقائي مقفول للعيادة دي (الإعدادات ← إعداد واتساب، أو إضافة رسائل واتساب).",
+      en: "Automatic sending is off for this clinic (WhatsApp → Settings, or the WhatsApp messages add-on).",
+      ar: "الإرسال التلقائي مقفول للعيادة دي (واتساب ← الإعدادات، أو إضافة رسائل واتساب).",
     };
   }
   return null;

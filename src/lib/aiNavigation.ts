@@ -28,6 +28,8 @@ export const NAVIGABLE_EXACT: readonly string[] = [
   "/chats/bot",
   "/chats/leads",
   "/chats/misses",
+  "/chats/settings",
+  "/chats/broadcast",
   "/finance",
   "/finance/recovery",
   "/help",

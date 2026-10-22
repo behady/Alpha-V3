@@ -494,11 +494,13 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     edit: ADMIN,
     // Both WhatsApp add-ons are configured here, so either one opens it.
     feature: ["whatsappIntegration", "whatsappBot"],
+    // The owner asked (2026-10-22) for every WhatsApp setting on the WhatsApp page, the number too.
+    movedTo: "/chats/settings",
   },
   // The bot and the AI are slices of the same document as WhatsApp above — one component,
   // three entries — because the seven-tab page they came from mixed the bot's switches with the
   // AI's and nobody could tell which was which. Since 2026-09-29 those two are tabs of the
-  // WhatsApp page (`movedTo`), beside the chats they shape; the number stays here.
+  // WhatsApp page (`movedTo`), beside the chats they shape; since 2026-10-22 the setup is too.
   {
     id: "whatsapp_bot",
     route: "/settings/whatsapp-bot",

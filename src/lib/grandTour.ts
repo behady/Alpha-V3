@@ -1074,7 +1074,7 @@ const SETTINGS_NARRATION: Record<string, SettingsNarration> = {
       { en: "How do I test the bot safely?", ar: "أجرّب البوت بأمان إزاي؟" },
     ],
     knowledge:
-      "WhatsApp (/settings/whatsapp, admin, plan feature whatsappIntegration): connect the clinic's WhatsApp Business number (Meta), the assistant's name and persona notes, ready answers (question → answer pairs the bot uses first), coaching notes (house rules), the media library (photos/videos it may send on request), the medicine list it may discuss, message templates, working of handoff to humans, and the Playground — a sandbox chat to test the bot without a real patient or real bookings. Bot replies spend AI credits; testing in the playground also spends them.",
+      "WhatsApp setup (the WhatsApp page's Settings tab, /chats/settings — it moved out of Settings on 2026-10-22; admin, plan feature whatsappIntegration): connect the clinic's WhatsApp Business number (Meta), the assistant's name and persona notes, ready answers (question → answer pairs the bot uses first), coaching notes (house rules), the media library (photos/videos it may send on request), the medicine list it may discuss, message templates, working of handoff to humans, and the Playground — a sandbox chat to test the bot without a real patient or real bookings. Bot replies spend AI credits; testing in the playground also spends them.",
   },
   whatsapp_bot: {
     say: {

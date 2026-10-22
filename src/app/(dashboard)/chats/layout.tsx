@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bot, BrainCircuit, Lock, Megaphone, MessageCircle, MessageSquareWarning, Users, type LucideIcon } from "lucide-react";
+import { Bot, BrainCircuit, Lock, Megaphone, MessageCircle, MessageSquareWarning, Settings, Users, type LucideIcon } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
@@ -30,7 +30,7 @@ import { isAnyUnlocked, type FeatureKey } from "@/lib/featureCatalog";
  */
 
 type HubTab = {
-  key: "chats" | "leads" | "broadcast" | "bot" | "ai" | "misses";
+  key: "chats" | "leads" | "broadcast" | "bot" | "ai" | "misses" | "settings";
   href: string;
   icon: LucideIcon;
   en: string;
@@ -71,6 +71,8 @@ function WhatsAppHub({ children }: { children: React.ReactNode }) {
     // Not an add-on of its own, and empty without a bot to miss anything — so hidden rather than
     // locked when there is none; the Bot tab's lock already says what to buy.
     { key: "misses", href: "/chats/misses", icon: MessageSquareWarning, en: "Bot misses", ar: "اللي فات البوت", allowed: can("access.patients") && isAnyUnlocked(clinic, ["whatsappBot", "aiChat"]) },
+    // The number, the automatic messages' wording and the alerts — Settings → WhatsApp setup until 2026-10-22.
+    { key: "settings", href: "/chats/settings", icon: Settings, en: "Settings", ar: "الإعدادات", allowed: canViewSection(section("whatsapp"), viewer).allowed },
   ];
 
   const tabs = all
