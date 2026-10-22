@@ -24,6 +24,7 @@ interface Props {
   onDeleteService: (note: Note) => void;
   onMoveService: (note: Note) => void;
   onContinueService: (note: Note) => void;
+  onCallReminderService?: (note: Note) => void;
   /** Persists a hand-arranged order. Only called while the timeline is in manual mode. */
   onReorder: (changes: { id: string; sortIndex: number }[]) => Promise<void> | void;
   /** Chair mode: no EGP chips on the cards. */
@@ -40,6 +41,7 @@ export default function TimelineCard({
   onDeleteService,
   onMoveService,
   onContinueService,
+  onCallReminderService,
   onReorder,
   hideMoney = false,
   canEditNote,
@@ -150,6 +152,7 @@ export default function TimelineCard({
         onDelete={onDeleteService}
         onMove={onMoveService}
         onContinue={onContinueService}
+        onCallReminder={onCallReminderService}
         compact={compact}
         hideMoney={hideMoney}
         locked={canEditNote ? !canEditNote(note) : false}

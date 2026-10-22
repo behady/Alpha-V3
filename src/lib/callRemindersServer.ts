@@ -5,6 +5,7 @@ import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import { notifyTiming } from "@/lib/notificationCatalog";
 import { readAlertPreferences } from "@/lib/notificationDelivery";
 import { isFullAccessRole } from "@/lib/permissions";
+import { ALL_BRANCHES } from "@/lib/branchAccess";
 import {
   CALL_REMINDERS_COLLECTION,
   cleanReason,
@@ -53,7 +54,8 @@ export async function createReminder(clinicId: string, actor: Actor, input: Remi
     patientId: v.patientId,
     patientName: String(p.name || ""),
     patientPhone: String(p.phone || ""),
-    branchId: branchId || null,
+    // "All branches" is a way of looking, not a place a call belongs to.
+    branchId: branchId && branchId !== ALL_BRANCHES ? branchId : null,
     reason: v.reason,
     source: v.source === "booking" || v.source === "treatment" ? v.source : "patient",
     date: v.date,

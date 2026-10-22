@@ -26,6 +26,7 @@ import { useActiveBranch, ALL_BRANCHES } from "@/lib/useActiveBranch";
 import { LABS_SETTINGS_DOC, parseDentalLabs, type DentalLab } from "@/lib/dentalLabs";
 import type { LabCaseSeed } from "@/lib/labCases";
 import { getDoc } from "firebase/firestore";
+import CallReminderDialog from "@/components/calls/CallReminderDialog";
 
 export default function ClinicalNotesContainer({
   patientId,
@@ -104,6 +105,8 @@ export default function ClinicalNotesContainer({
 
   // Transfer state
   const [transferModalOpen, setTransferModalOpen] = useState(false);
+  /** The treatment a follow-up call is being set for ("call in three days to check on them"). */
+  const [callNote, setCallNote] = useState<Note | null>(null);
   const [transferAction, setTransferAction] = useState<"move" | "continue">("move");
   const [transferNote, setTransferNote] = useState<Note | null>(null);
 
@@ -318,11 +321,23 @@ export default function ClinicalNotesContainer({
       onDeleteService={handleDeleteService}
       onMoveService={(note) => openTransferModal(note, "move")}
       onContinueService={(note) => openTransferModal(note, "continue")}
+      onCallReminderService={(note) => setCallNote(note)}
       onReorder={handleReorder}
       hideMoney={chair}
       canEditNote={canEditNote}
     />
   );
+
+  const callReminderModal = callNote ? (
+    <CallReminderDialog
+      isOpen={true}
+      onClose={() => setCallNote(null)}
+      patient={{ id: patientId, name: patientName }}
+      source="treatment"
+      sourceNoteId={callNote.id}
+      initialReason={`${language === "ar" ? "متابعة" : "Follow-up"}: ${callNote.procedure || ""}${callNote.tooth && callNote.tooth !== "Gen" ? ` — ${language === "ar" ? "سنة" : "tooth"} ${callNote.tooth}` : ""}`}
+    />
+  ) : null;
 
   const transferModal = transferNote ? (
     <TransferServiceModal
@@ -442,6 +457,7 @@ export default function ClinicalNotesContainer({
         {timeline}
         {labOrderUi}
         {transferModal}
+        {callReminderModal}
       </div>
     );
   }
@@ -487,6 +503,7 @@ export default function ClinicalNotesContainer({
 
       {labOrderUi}
       {transferModal}
+      {callReminderModal}
     </div>
   );
 }

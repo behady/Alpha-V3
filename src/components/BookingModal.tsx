@@ -30,7 +30,9 @@ import {
   Trash2,
   CloudOff,
   Pencil,
+  PhoneForwarded,
 } from "lucide-react";
+import CallReminderDialog from "@/components/calls/CallReminderDialog";
 import {
   DEFAULT_COUNTRY_CODE,
   COUNTRY_CODE_OPTIONS,
@@ -331,6 +333,8 @@ export default function BookingModal({
   }, []);
 
   const [selectedPatient, setSelectedPatient] = useState<{ id: string; name: string } | null>(preSelectedPatient);
+  /** "Call them Thursday" from the pop-up — only for a patient who already has a file. */
+  const [callReminderOpen, setCallReminderOpen] = useState(false);
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -2043,6 +2047,14 @@ servicesList.length > 0 && (
             : `${cairo.variable} ${isAr ? "booking-popup-ar text-right" : "text-left"} flex h-[min(980px,calc(100vh-1.5rem))] w-[min(1480px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-[22px] bg-surface text-[15px] text-ink antialiased shadow-[0_32px_90px_-24px_rgba(0,0,0,0.6)] ring-1 ring-black/10`
         }
       >
+        {headerPatientId && !isNewPatient && (
+          <CallReminderDialog
+            isOpen={callReminderOpen}
+            onClose={() => setCallReminderOpen(false)}
+            patient={{ id: headerPatientId, name: selectedPatient?.name || editAppointment?.patientName || "" }}
+            source="booking"
+          />
+        )}
         {isPhone ? (
           /* Phone header: who and a close button, then the tabs as one row that scrolls sideways. */
           <div className="shrink-0 bg-ink-slab pt-[env(safe-area-inset-top,0px)] text-white">
@@ -2106,6 +2118,16 @@ servicesList.length > 0 && (
                   <div className="flex min-w-0 flex-1 items-center gap-3">{who}</div>
                 );
               })()}
+              {headerPatientId && !isNewPatient && (
+                <button
+                  type="button"
+                  onClick={() => setCallReminderOpen(true)}
+                  aria-label={isAr ? "تذكير بمكالمة" : "Call reminder"}
+                  className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-white/20 text-white/80 transition-colors active:bg-white/10"
+                >
+                  <PhoneForwarded size={17} />
+                </button>
+              )}
               <button
                 type="button"
                 onClick={onClose}
@@ -2190,6 +2212,18 @@ servicesList.length > 0 && (
               )}
               {!patientName && !editAppointment && (
                 <p className="text-sm text-white/70">{isAr ? "اختار المريض تحت" : "Pick the patient below"}</p>
+              )}
+              {/* A patient not yet saved has no file for a reminder to belong to. */}
+              {headerPatientId && !isNewPatient && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setCallReminderOpen(true)}
+                    className="mt-1 inline-flex items-center gap-1.5 self-start rounded-full bg-white/10 px-3 py-1 text-sm font-bold text-white transition-colors hover:bg-white/20"
+                  >
+                    <PhoneForwarded size={14} aria-hidden="true" /> {isAr ? "تذكير بمكالمة" : "Call reminder"}
+                  </button>
+                </>
               )}
             </div>
           </div>

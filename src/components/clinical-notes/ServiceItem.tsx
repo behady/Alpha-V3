@@ -1,4 +1,4 @@
-import { Edit2, ArrowRightLeft, Copy, Trash2, RefreshCcw, GripVertical, ChevronUp, ChevronDown } from "lucide-react";
+import { Edit2, ArrowRightLeft, Copy, Trash2, RefreshCcw, GripVertical, ChevronUp, ChevronDown, PhoneForwarded } from "lucide-react";
 import { Note } from "./types";
 import { useLanguage } from "@/context/LanguageContext";
 import Protect from "@/components/Protect";
@@ -13,6 +13,8 @@ interface Props {
   onDelete: (note: Note) => void;
   onMove: (note: Note) => void;
   onContinue: (note: Note) => void;
+  /** "Call to check on them in three days" — opens the call reminder window for this treatment. */
+  onCallReminder?: (note: Note) => void;
   /** One dense line instead of the full card. Set from the Interface setting. */
   compact?: boolean;
   /** Reorder affordances, shown only while the timeline is in manual order. */
@@ -28,7 +30,7 @@ interface Props {
   locked?: boolean;
 }
 
-export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue, compact = false, reorder, hideMoney = false, locked = false }: Props) {
+export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue, onCallReminder, compact = false, reorder, hideMoney = false, locked = false }: Props) {
   const { language } = useLanguage();
   const isAr = language === "ar";
   /** Stored status ids are English; the pill shows the app's own word for them. */
@@ -46,6 +48,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
     move: language === "ar" ? "نقل إلى موعد آخر" : "Move to another appointment",
     continue: language === "ar" ? "استكمال في موعد آخر" : "Continue in another appointment",
     delete: language === "ar" ? "حذف" : "Delete",
+    callReminder: language === "ar" ? "تذكير بمكالمة" : "Call reminder",
     dragHint: language === "ar" ? "اسحب لإعادة الترتيب" : "Drag to reorder",
     moveUp: language === "ar" ? "تحريك لأعلى" : "Move up",
     moveDown: language === "ar" ? "تحريك لأسفل" : "Move down",
@@ -138,6 +141,16 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
 
         <div className={`flex items-center gap-1 shrink-0 ${locked ? "hidden" : ""}`}>
           <NotePhotoButton note={note} size={13} />
+          {onCallReminder && (
+            <button
+              onClick={() => onCallReminder(note)}
+              title={txt.callReminder}
+              aria-label={txt.callReminder}
+              className="p-1.5 rounded-lg text-ink-body bg-surface-subtle hover:bg-surface-muted transition-colors border border-line"
+            >
+              <PhoneForwarded size={13} />
+            </button>
+          )}
           {!note.isContinued && (
             <Protect permission="clinical.edit">
               <button
@@ -241,6 +254,17 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
         )}
 
         <NotePhotoButton note={note} />
+
+        {onCallReminder && (
+          <button
+            onClick={() => onCallReminder(note)}
+            title={txt.callReminder}
+            aria-label={txt.callReminder}
+            className="p-2.5 max-md:p-3 rounded-lg text-ink-body bg-surface-subtle hover:bg-surface-muted transition-colors shadow-sm border border-line"
+          >
+            <PhoneForwarded size={16} />
+          </button>
+        )}
 
         <Protect permission="clinical.delete">
           <button

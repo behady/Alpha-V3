@@ -38,6 +38,8 @@ import PatientFinance from "@/components/PatientFinance";
 import PatientClinical from "@/components/PatientClinical";
 import PatientTimelineTab from "@/components/patients/PatientTimelineTab";
 import PatientNotesTab from "@/components/patients/PatientNotesTab";
+import CallReminderDialog from "@/components/calls/CallReminderDialog";
+import PatientCallsPanel from "@/components/calls/PatientCallsPanel";
 import PatientMediaGallery from "@/components/patients/PatientMediaGallery";
 import PatientTreatmentPlanTab from "@/components/patients/PatientTreatmentPlanTab";
 import XrayCodeField from "@/components/patients/XrayCodeField";
@@ -233,6 +235,8 @@ export default function PatientProfile() {
   const [dismissedAlert, setDismissedAlert] = useState(false);
   /** The ⋯ menu beside Edit: Rx, diagnosis, ortho, review request. */
   const [moreOpen, setMoreOpen] = useState(false);
+  /** "Call this patient on Thursday" — the window beside Edit. */
+  const [callReminderOpen, setCallReminderOpen] = useState(false);
   /**
    * Phones only: the rarely-needed fields (file and x-ray codes, address, insurer codes) fold
    * behind "More details" so the tabs and the treatment record start on the first screen. From
@@ -1105,6 +1109,14 @@ export default function PatientProfile() {
               </div>
             </div>
             <div className="flex items-center gap-2 max-md:shrink-0">
+              <button
+                type="button"
+                onClick={() => setCallReminderOpen(true)}
+                aria-label={language === 'ar' ? 'تذكير بمكالمة' : 'Call reminder'}
+                className="inline-flex h-10 items-center gap-2 rounded-xl border border-line bg-surface px-4 text-sm font-bold text-ink transition-colors hover:bg-surface-subtle max-md:w-10 max-md:justify-center max-md:px-0"
+              >
+                <PhoneForwarded size={15} /> <span className="max-md:sr-only">{language === 'ar' ? 'تذكير بمكالمة' : 'Call reminder'}</span>
+              </button>
               <Protect permission="patients.edit">
                 <button
                   data-tour="patient-edit"
@@ -1154,6 +1166,8 @@ export default function PatientProfile() {
               </div>
             </div>
           </div>
+
+          <PatientCallsPanel patientId={id} />
 
           {(() => {
             const ar = language === 'ar';
@@ -2225,6 +2239,15 @@ export default function PatientProfile() {
               </div>
             </div>
           </div>
+        )}
+
+        {patient && (
+          <CallReminderDialog
+            isOpen={callReminderOpen}
+            onClose={() => setCallReminderOpen(false)}
+            patient={{ id, name: String(patient.name || "") }}
+            source="patient"
+          />
         )}
 
         {/* --- EDIT MODAL --- */}

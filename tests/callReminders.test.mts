@@ -175,4 +175,21 @@ eq(fromDoc.id, "r9", "id carried");
 eq(fromDoc.fireAtMs, Date.parse("2026-10-22T09:00:00Z"), "timestamps become epoch ms");
 eq(fromDoc.handledAtMs, undefined, "absent optional fields stay absent");
 
+/* --- where reminders are created (source checks) -------------------------------------------- */
+
+const { readFileSync } = await import("node:fs");
+const src = (rel: string) => readFileSync(new URL(`../${rel}`, import.meta.url), "utf8");
+
+for (const rel of ["src/app/(dashboard)/patients/[id]/page.tsx", "src/components/BookingModal.tsx", "src/components/clinical-notes/index.tsx"]) {
+  eq(src(rel).includes("CallReminderDialog"), true, `${rel} opens the call reminder window`);
+}
+{
+  const dialog = src("src/components/calls/CallReminderDialog.tsx");
+  for (const chip of ["بكرة", "بعد ٣ أيام", "بعد أسبوع", "بعد شهر"]) eq(dialog.includes(chip), true, `the window offers "${chip}"`);
+  eq(dialog.includes("createCallReminder("), true, "the window saves through the route");
+}
+eq(/headerPatientId\s*&&[\s\S]{0,400}CallReminderDialog|setCallReminderOpen\(true\)/.test(src("src/components/BookingModal.tsx")), true, "the booking pop-up offers it for a chosen patient");
+eq(/!isNewPatient|headerPatientId/.test(src("src/components/BookingModal.tsx").split("setCallReminderOpen(true)")[0].slice(-600)), true, "never for a patient not yet saved");
+eq(src("src/app/(dashboard)/patients/[id]/page.tsx").includes("<PatientCallsPanel"), true, "the patient file lists its calls");
+
 console.log(`call reminders: ${checks} checks passed`);
