@@ -50,6 +50,9 @@ import { recalcCommissionFromPayment } from "@/lib/ledgerCommission";
 import { allowedDiscount, checkDiscountAllowed, isDiscountMode } from "@/lib/discountMath";
 import { afterLedgerCreate, afterLedgerDelete, afterLedgerUpdate } from "@/lib/alerts/moneyAlerts";
 import { DISCOUNTS_DOC, parseDiscountSettings } from "@/lib/priceLists";
+import { PAST_DAY_LOCKED, PAST_DAY_LOCKED_MESSAGE, refusesPastPayment, refusesPastPaymentEdit } from "@/lib/pastDayLock";
+import { isFullAccessRole } from "@/lib/permissions";
+import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import { INSURER_PAYMENT_METHOD, isApprovalRow, isCompanyRow } from "@/lib/ledgerInsurer";
 import { insurerRows, type LedgerLite } from "@/lib/insurerLedger";
 import { PRIVATE_PAYER_ID } from "@/lib/payers";
@@ -110,6 +113,19 @@ class OverAllocationError extends Error {
 function todayKey(): string {
   return new Date().toISOString().split("T")[0];
 }
+
+/**
+ * Whether the clinic has turned on the past-day lock, read only when it could matter: an Owner or
+ * Admin is never refused, so their writes do not pay for the settings read.
+ */
+async function pastDayLockOn(clinicId: string, actor: Actor): Promise<boolean> {
+  if (isFullAccessRole(actor.role)) return false;
+  const snap = await adminClinicDoc(clinicId, "settings", DISCOUNTS_DOC).get();
+  return parseDiscountSettings(snap.data() ?? null).lockPastPaymentsNonAdmin;
+}
+
+/** Today in the clinic's zone: the day the lock calls open. Not `todayKey`, which is UTC. */
+const clinicToday = () => ymdInTimeZone(clinicTimeZone());
 
 /** Rounded the way the row will store it (ledgerWrite's rule), so a figure is judged as saved. */
 function money(value: number): number {
@@ -221,6 +237,14 @@ async function createPayment(args: {
 
   const procedureId = body.procedureId ? String(body.procedureId).trim() : "";
   const date = /^\d{4}-\d{2}-\d{2}$/.test(String(body.date || "")) ? String(body.date) : todayKey();
+
+  // Only a date the screen chose: the default above is the server's own (UTC) day, which just
+  // after midnight in Cairo is yesterday, and a payment taken then is not being backdated.
+  const sentDate = /^\d{4}-\d{2}-\d{2}$/.test(String(body.date || "")) ? String(body.date) : "";
+  if (sentDate && sentDate < clinicToday()) {
+    const locked = await pastDayLockOn(clinicId, actor);
+    if (refusesPastPayment({ locked, role: actor.role, today: clinicToday(), date: sentDate })) return bad(PAST_DAY_LOCKED_MESSAGE, 403);
+  }
 
   // The payment belongs to the branch on screen, even when the charge it settles was made at another.
   // The phone sends no branch: then the settled charge's own, its visit's, the patient's, the first.
@@ -697,6 +721,10 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
   const discountSettings = touchesDiscount
     ? parseDiscountSettings((await adminClinicDoc(clinicId, "settings", DISCOUNTS_DOC).get()).data() ?? null)
     : null;
+  // Read before the transaction, which cannot read after it writes; only when the edit names a
+  // date or an amount, the two things the lock is about.
+  const pastDayLocked = patch.date !== undefined || patch.paid !== undefined ? await pastDayLockOn(clinicId, actor) : false;
+  const today = clinicToday();
 
   const result = await adminDb().runTransaction(async (txn) => {
     const ref = adminClinicDoc(clinicId, "ledger", id);
@@ -729,6 +757,10 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
 
     if (update.date !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(String(update.date))) {
       throw new Error("BAD_DATE");
+    }
+
+    if (type === "payment" && refusesPastPaymentEdit({ locked: pastDayLocked, role: actor.role, today, before, patch: update })) {
+      throw new Error(PAST_DAY_LOCKED);
     }
 
     if (type === "payment") {
@@ -1461,6 +1493,8 @@ export async function POST(request: Request) {
         return bad(SETTLEMENT_ROW_MESSAGE, 409);
       case "BRANCH_LOCKED":
         return bad(BRANCH_LOCKED_MESSAGE, 409);
+      case PAST_DAY_LOCKED:
+        return bad(PAST_DAY_LOCKED_MESSAGE, 403);
       default:
         reportServerError("finance/ledger failed", e, { action });
         return bad("Something went wrong saving that. Nothing was changed.", 500);

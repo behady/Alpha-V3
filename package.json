@@ -167,6 +167,8 @@
     "test:finance-filters": "npx tsx tests/financeFilters.test.mts",
     "test:daily-sheet": "npx tsx tests/dailySheet.test.mts",
     "test:daily-finance-report": "npx tsx tests/dailyFinanceReport.test.mts",
+    "test:past-day-lock": "npx tsx tests/pastDayLock.test.mts",
+    "test:credit-suggestions": "npx tsx tests/creditSuggestions.test.mts",
     "test:finance-excel": "npx tsx tests/financeExcel.test.mts",
     "test:clinic-locations": "npx tsx tests/clinicLocations.test.mts",
     "test:listmenu": "npx tsx tests/listMenu.test.mjs",

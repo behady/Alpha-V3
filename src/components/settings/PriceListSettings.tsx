@@ -805,6 +805,26 @@ export default function PriceListSettings({
             </label>
           </div>
         </div>
+
+        <div className="mt-6 border-t border-line pt-5">
+          <h4 className="text-sm font-black text-ink">{txt.pastLockTitle}</h4>
+          <p className="mt-1 max-w-prose text-xs font-medium text-ink-muted">{txt.pastLockSub}</p>
+          <label className="mt-3 flex cursor-pointer items-center gap-2 text-xs font-bold text-ink-body">
+            <input
+              type="checkbox"
+              checked={settings.lockPastPaymentsNonAdmin}
+              disabled={saving}
+              onChange={(e) =>
+                persistSettings(
+                  { ...settings, lockPastPaymentsNonAdmin: e.target.checked },
+                  e.target.checked ? "Locked payments on earlier days to Owner and Admin" : "Unlocked payments on earlier days"
+                )
+              }
+              className="h-4 w-4 rounded border-line-strong text-accent focus:ring-accent"
+            />
+            {txt.pastLockToggle}
+          </label>
+        </div>
       </section>
       )}
 

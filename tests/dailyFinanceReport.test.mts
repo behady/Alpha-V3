@@ -13,9 +13,12 @@ import XLSX from "xlsx-js-style";
 import { dailySheet } from "../src/lib/dailySheet";
 import { PRIVATE_PAYER, type Payer } from "../src/lib/payers";
 import {
+  accountBalances,
   buildDailyFinanceReport,
   dailyFinanceReportFileName,
   dailyFinanceReportText,
+  isEmptyReport,
+  latePayments,
   procedureName,
   type ReportLedgerRow,
 } from "../src/lib/reports/dailyFinanceReport";
@@ -87,9 +90,9 @@ const report = buildDailyFinanceReport({ date: D, rows, branches, payers, isAr: 
   eq(loose.lines.map((l) => l.paid), [100], "a row with no branch is kept, not dropped");
 
   eq([shaimaa.work, shaimaa.company], [2665, 2000], "an approval line: the full work, and the insurer's approved part");
-  eq(nasr.totals, { patients: 2, work: 43065, company: 2000, total: 41065, paid: 41000, remaining: 65, dentistShare: 12660 }, "Nasr City's totals");
-  eq(maadi.totals, { patients: 2, work: 2500, company: 0, total: 2800, paid: 2300, remaining: 500, dentistShare: 875 }, "Maadi's totals");
-  eq(report.totals, { patients: 5, work: 45565, company: 2000, total: 43965, paid: 43400, remaining: 565, dentistShare: 13535 }, "the grand total is every section, and yesterday is not in it");
+  eq(nasr.totals, { patients: 2, work: 43065, company: 2000, total: 41065, paid: 41000, remaining: 65, dentistShare: 12660, owed: 0 }, "Nasr City's totals");
+  eq(maadi.totals, { patients: 2, work: 2500, company: 0, total: 2800, paid: 2300, remaining: 500, dentistShare: 875, owed: 0 }, "Maadi's totals");
+  eq(report.totals, { patients: 5, work: 45565, company: 2000, total: 43965, paid: 43400, remaining: 565, dentistShare: 13535, owed: 0 }, "the grand total is every section, and yesterday is not in it");
 }
 
 // --- 2b. A contract company (GASCO): the company owes it, not the patient --------------------------
@@ -146,27 +149,28 @@ const report = buildDailyFinanceReport({ date: D, rows, branches, payers, isAr: 
   eq(wb.Workbook?.Views?.[0]?.RTL ?? false, false, "the RTL switch is OFF: right-to-left is done by layout so every viewer shows it");
 
   // Column 1 of the report ("م") is the RIGHTMOST sheet column (M); the dentist share the leftmost (A).
-  const L = (c: number) => String.fromCharCode("A".charCodeAt(0) + 13 - c);
+  const L = (c: number) => String.fromCharCode("A".charCodeAt(0) + 14 - c);
   const at = (c: number, r: number) => ws[`${L(c)}${r}`];
-  const head = Array.from({ length: 13 }, (_, i) => at(i + 1, 11)?.v);
-  eq(head, ["م", "التاريخ", "المصدر", "اسم المريض", "الإجراء", "الطبيب", "طريقة الدفع", "قيمة الشغل", "على الشركة", "المطلوب", "المدفوع", "المتبقي", "نصيب الطبيب"], "details headers read right to left");
+  const head = Array.from({ length: 14 }, (_, i) => at(i + 1, 11)?.v);
+  eq(head, ["م", "التاريخ", "المصدر", "اسم المريض", "الإجراء", "الطبيب", "طريقة الدفع", "قيمة الشغل", "على الشركة", "المطلوب", "المدفوع", "المتبقي", "نصيب الطبيب", "رصيد الحساب"], "details headers read right to left");
   eq([at(1, 4).v, at(2, 4).v, at(3, 4).v, at(4, 4).v, at(8, 4).v], ["الفرع", "عدد", "قيمة الشغل", "على الشركة", "نصيب الأطباء"], "summary headers start at the right edge too");
   eq(ws.A12.v, "فرع مدينة نصر", "the branch bar's text sits in the merge's anchor, so it is visible");
+  eq(at(14, 13).v, "—", "no balances were looked up: the column says so instead of showing 0");
   eq(
     [1, 2, 3, 4, 5, 8, 9, 10, 11, 13].map((c) => at(c, 13).v).concat([at(12, 13).f, at(12, 13).v]),
-    [1, 46307, "ملف", "سمير", "زرعة", 40400, 0, 40400, 40400, 12120, "MAX(0,D13-C13)", 0],
+    [1, 46307, "ملف", "سمير", "زرعة", 40400, 0, 40400, 40400, 12120, "MAX(0,E13-D13)", 0],
     "a patient line: number, real date (12 Oct 2026), file, name, treatment, figures; remaining is a formula",
   );
   eq([at(8, 14).v, at(9, 14).v, at(10, 14).v], [2665, 2000, 665], "the approval line: work, insurer, patient");
-  eq([at(8, 15).f, at(8, 15).v, at(9, 15).v, at(10, 15).v, at(13, 15).f, at(13, 15).v], ["SUM(F13:F14)", 43065, 2000, 41065, "SUM(A13:A14)", 12660], "the branch total row: formulas with the figure cached");
-  eq([at(3, 5).f, at(3, 5).v, at(4, 5).v, at(5, 5).v, at(8, 5).v, at(2, 5).f, at(2, 5).v], ["F15", 43065, 2000, 41065, 12660, "COUNTA(J13:J14)", 2], "the summary line points at the branch total");
+  eq([at(8, 15).f, at(8, 15).v, at(9, 15).v, at(10, 15).v, at(13, 15).f, at(13, 15).v], ["SUM(G13:G14)", 43065, 2000, 41065, "SUM(B13:B14)", 12660], "the branch total row: formulas with the figure cached");
+  eq([at(3, 5).f, at(3, 5).v, at(4, 5).v, at(5, 5).v, at(8, 5).v, at(2, 5).f, at(2, 5).v], ["G15", 43065, 2000, 41065, 12660, "COUNTA(K13:K14)", 2], "the summary line points at the branch total");
   eq([at(5, 12) === undefined || at(5, 12).v === "", at(8, 12) === undefined || at(8, 12).v === ""], [true, true], "the bar's other cells are blank");
   const grandRow = Object.keys(ws).find((k) => ws[k]?.v === "الإجمالي الكلي");
   eq(Boolean(grandRow), true, "there is a grand total row");
   const gr = Number(grandRow!.replace(/\D/g, ""));
   eq([8, 9, 10, 11, 12, 13].map((c) => at(c, gr).v), [45565, 2000, 43965, 43400, 565, 13535], "the grand total");
   eq((ws["!merges"] || []).length > 0, true, "the bars and labels are merged across");
-  const looseBar = Object.keys(ws).find((k) => ws[k]?.v === "بدون فرع" && k.startsWith("A"));
+  const looseBar = Object.keys(ws).find((k) => ws[k]?.v === "بدون فرع" && /^A\d/.test(k));
   eq(Boolean(looseBar), true, "the no-branch bar reads 'بدون فرع', not 'فرع بدون فرع'");
 
   const en = dailyFinanceReportWorkbook(buildDailyFinanceReport({ date: D, rows: [], branches, payers, isAr: false }), "DENT INN", false);
@@ -188,6 +192,157 @@ const report = buildDailyFinanceReport({ date: D, rows, branches, payers, isAr: 
   const staff = read("src/lib/staffWhatsapp.ts");
   eq((staff.match(/priority: "staff"/g) || []).length, 2, "the staff sender marks both the text and the file as staff");
   eq(/\.\.\.\(opts\.priority \? \{ priority: opts\.priority \} : \{\}\)/.test(wa) && /form\.set\("priority", priority\)/.test(wa), true, "the marker reaches the gateway on text and on files");
+}
+
+// --- 8. The account balance: DENT INN, 24 Oct 2026 -------------------------------------------------
+{
+  // A 1,500 deposit on the 21st as a general payment, an implant of 20,000 on the 24th, 8,500 paid
+  // on the 24th, and 10,000 entered on the 24th but dated the 21st and linked to the implant. The
+  // patient's file said nothing was owed; the sheet said 11,500 was. Both are now on the sheet.
+  const D21 = "2026-10-21";
+  const D24 = "2026-10-24";
+  const P = { patientId: "imp", patientName: "مريض الزرعة", branchId: "nasr" };
+  const ledger: ReportLedgerRow[] = [
+    { id: "dep", type: "payment", date: D21, ...P, paid: 1500, amount: 1500, method: "Cash", procedureId: null, createdAt: at(100), addedBy: "Malak" },
+    { id: "imp", type: "procedure", date: D24, ...P, serviceName: "زرعة", doctorName: "د. أحمد", cost: 20000, amount: 20000, doctorCommissionAmount: 8000, createdAt: at(200) },
+    { id: "pay", type: "payment", date: D24, ...P, paid: 8500, amount: 8500, method: "Cash", procedureId: "imp", createdAt: at(300), addedBy: "Malak" },
+    { id: "ten", type: "payment", date: D21, ...P, paid: 10000, amount: 10000, method: "Cash", procedureId: "imp", createdAt: at(310), addedBy: "Malak" },
+    // Someone else's row and a later day are not this patient's balance at the end of the 24th.
+    { id: "oth", type: "procedure", date: D24, patientId: "x", patientName: "x", cost: 999, createdAt: at(1) },
+    { id: "fut", type: "payment", date: "2026-10-30", ...P, paid: 700, method: "Cash", createdAt: at(400) },
+  ];
+  eq(accountBalances(ledger, D24).get("imp"), 0, "the file's figure: 20,000 − 1,500 − 8,500 − 10,000");
+  eq(accountBalances(ledger, D21).get("imp"), -11500, "at the end of the 21st the clinic held 11,500 for them");
+  eq(accountBalances(ledger, "2026-10-30").get("imp"), -700, "a later payment counts from its own day");
+
+  const day = ledger.filter((r) => r.date === D24);
+  const plain = buildDailyFinanceReport({ date: D24, rows: day, branches, payers, isAr: true });
+  eq([plain.hasBalances, plain.sections[0].lines[0].balance], [false, null], "without the patients' ledgers there is no balance, not a zero");
+  eq(dailyFinanceReportText(plain, "DENT INN", true).includes("المستحق فعلاً"), false, "and the message does not claim one");
+
+  const full = buildDailyFinanceReport({ date: D24, rows: day, branches, payers, isAr: true, accountRows: ledger });
+  const line = full.sections[0].lines.find((l) => l.patient === "مريض الزرعة")!;
+  eq([line.total, line.paid, line.remaining, line.balance], [20000, 8500, 11500, 0], "the day's figures stay as they were; the account says nothing is owed");
+  eq(full.totals.owed, 999, "only what is really owed is totalled: the other patient's 999, not the implant's 11,500");
+  const ar = dailyFinanceReportText(full, "DENT INN", true);
+  eq(ar.includes("المستحق فعلاً على حساباتهم (بعد المدفوع مقدماً) ٩٩٩"), true, "the message carries the real figure");
+  eq(dailyFinanceReportText(full, "DENT INN", false).includes("Still owed on their accounts (after earlier payments) 999"), true, "in English too");
+
+  // A credit does not pay another patient's debt, and a debt carried in from before is still owed.
+  const mixed: ReportLedgerRow[] = [
+    { id: "a1", type: "payment", date: D21, patientId: "a", patientName: "A", paid: 3000, method: "Cash", createdAt: at(1) },
+    { id: "a2", type: "procedure", date: D24, patientId: "a", patientName: "A", cost: 1000, createdAt: at(2) },
+    { id: "b1", type: "procedure", date: D21, patientId: "b", patientName: "B", cost: 400, createdAt: at(3) },
+    { id: "b2", type: "procedure", date: D24, patientId: "b", patientName: "B", cost: 600, createdAt: at(4) },
+    { id: "b3", type: "payment", date: D24, patientId: "b", patientName: "B", paid: 100, method: "Cash", createdAt: at(5) },
+  ];
+  const m = buildDailyFinanceReport({ date: D24, rows: mixed.filter((r) => r.date === D24), branches: [], payers, isAr: false, accountRows: mixed });
+  eq(m.sections[0].lines.map((l) => [l.patient, l.remaining, l.balance]), [["A", 1000, -2000], ["B", 500, 900]], "A is in credit, B owes the old 400 too");
+  eq(m.totals.owed, 900, "owed is B's 900; A's credit does not cancel it");
+
+  // An approval treatment: the insurer's unpaid part is the insurer's, as in the patient's file.
+  const approval: ReportLedgerRow[] = [
+    { id: "q1", type: "procedure", date: D24, patientId: "q", patientName: "Q", payerId: "nextcare", claimId: "c9", cost: 2665, insurerCovered: 2000, createdAt: at(1) },
+    { id: "q2", type: "payment", date: D24, patientId: "q", patientName: "Q", paid: 600, method: "Card", createdAt: at(2) },
+  ];
+  eq(accountBalances(approval, D24).get("q"), 65, "665 is the patient's part, 600 of it paid");
+
+  // --- the Excel file shows it ---
+  const wb = XLSX.read(dailyFinanceReportBytes(full, "DENT INN", true), { type: "array", cellFormula: true });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const L = (c: number) => String.fromCharCode("A".charCodeAt(0) + 14 - c);
+  const rowOf = (v: string) => Number(Object.keys(ws).find((k) => ws[k]?.v === v)!.replace(/\D/g, ""));
+  const r = rowOf("مريض الزرعة");
+  eq([ws[`${L(10)}${r}`].v, ws[`${L(11)}${r}`].v, ws[`${L(12)}${r}`].v, ws[`${L(14)}${r}`].v], [20000, 8500, 11500, 0], "the line: owed today, paid today, remaining today, account balance");
+  const credit = XLSX.read(dailyFinanceReportBytes(m, "DENT INN", true), { type: "array", cellFormula: true, cellStyles: true });
+  const wsc = credit.Sheets[credit.SheetNames[0]];
+  const ra = Number(Object.keys(wsc).find((k) => wsc[k]?.v === "A" && /^K\d/.test(k))!.replace(/\D/g, ""));
+  eq([wsc[`A${ra}`].v, wsc[`A${ra}`].z], [-2000, 'General;"له "General;0'], "a credit is stored as a negative figure that reads 'له' (held for the patient)");
+  const totalRow = Object.keys(wsc).find((k) => /^A\d/.test(k) && String(wsc[k]?.f || "").startsWith("SUMIF("));
+  eq([wsc[totalRow!].f, wsc[totalRow!].v], [`SUMIF(A${ra}:A${ra + 1},">0")`, 900], "the total counts only what is owed");
+  eq(wsc.F4.v, "المستحق على الحسابات", "the summary has the owed column too");
+}
+
+// --- 9. Payments recorded on the day for another day -----------------------------------------------
+{
+  const D24 = "2026-10-24";
+  const P = { patientName: "مريض الزرعة", patientId: "imp", branchId: "nasr" };
+  // As the rows stand after the edits.
+  const ten = { id: "ten", type: "payment", date: "2026-10-21", ...P, paid: 10000, method: "Cash", addedBy: "Malak", createdAt: at(310) } as ReportLedgerRow;
+  const pay = { id: "pay", type: "payment", date: D24, ...P, paid: 8500, method: "Cash", addedBy: "Malak", createdAt: at(300) } as ReportLedgerRow;
+  const imp = { id: "imp", type: "procedure", date: D24, ...P, cost: 20000, createdAt: at(200) } as ReportLedgerRow;
+  const ins = { id: "ins", type: "payment", date: "2026-10-20", ...P, paid: 2000, method: "Insurance", createdAt: at(320) } as ReportLedgerRow;
+  const old = { id: "old", type: "payment", date: "2026-10-05", patientName: "قديم", patientId: "o", paid: 700, method: "Instapay", addedBy: "Sara", createdAt: at(5) } as ReportLedgerRow;
+  const back = { id: "back", type: "payment", date: "2026-10-10", patientName: "رجعت", patientId: "r", paid: 50, method: "Cash", createdAt: at(6) } as ReportLedgerRow;
+
+  // The 10,000 was entered on the 24th dated the 24th, then moved to the 21st.
+  const asEntered = latePayments({ date: D24, created: [ten, pay, imp, ins], moved: [], moves: [], branches });
+  eq(asEntered.map((l) => [l.id, l.date, l.movedFrom, l.amount, l.branch, l.by]), [["ten", "2026-10-21", null, 10000, "مدينة نصر", "Malak"]],
+    "created on the day for another day: listed; today's own payment, the treatment and the insurer's cheque are not");
+
+  const moves = [
+    { id: "ten", from: D24, to: "2026-10-21", by: "Malak" },
+    { id: "old", from: "2026-10-01", to: "2026-10-03", by: "Sara" },
+    { id: "old", from: "2026-10-03", to: "2026-10-05", by: "Ahmed" },
+    { id: "back", from: "2026-10-10", to: "2026-10-12", by: "Sara" },
+    { id: "back", from: "2026-10-12", to: "2026-10-10", by: "Sara" },
+  ];
+  const late = latePayments({ date: D24, created: [ten, pay, imp], moved: [ten, old, back], moves, branches });
+  eq(late.map((l) => [l.id, l.date, l.movedFrom, l.by]), [["old", "2026-10-05", "2026-10-01", "Ahmed"], ["ten", "2026-10-21", D24, "Malak"]],
+    "a date edit is listed from where the payment stood that morning, by whoever moved it last; moved and moved back is not listed; oldest day first");
+
+  const moveIn = { ...back, id: "in", date: D24 } as ReportLedgerRow;
+  eq(latePayments({ date: D24, created: [], moved: [moveIn], moves: [{ id: "in", from: "2026-10-20", to: D24, by: "Sara" }], branches }).map((l) => l.movedFrom), ["2026-10-20"],
+    "moved INTO the day is listed too: the 20th lost that money after its report went out");
+
+  const report = buildDailyFinanceReport({ date: D24, rows: [imp, pay], branches, payers, isAr: true, createdRows: [ten, pay, imp], movedRows: [ten, old, back], moves });
+  eq([report.late.length, report.lateTotal], [2, 10700], "the report carries them, with their total");
+  const ar = dailyFinanceReportText(report, "DENT INN", true);
+  eq(ar.includes("⚠️ *دفعات اتسجلت النهارده على أيام تانية* (2) · ١٠٬٧٠٠"), true, "the message flags them");
+  eq(ar.includes("• مريض الزرعة ١٠٬٠٠٠ · اتنقلت من 24/10/2026 لـ 21/10/2026 — Malak"), true, "each one: who, how much, where it went, who did it");
+  eq(dailyFinanceReportText(report, "DENT INN", false).includes("• قديم 700 · moved from 01/10/2026 to 05/10/2026 — Ahmed"), true, "in English too");
+
+  const many = Array.from({ length: 7 }, (_, i) => ({ ...old, id: `m${i}`, date: "2026-10-01" }) as ReportLedgerRow);
+  const manyText = dailyFinanceReportText(buildDailyFinanceReport({ date: D24, rows: [], branches, payers, isAr: true, createdRows: many }), "DENT INN", true);
+  eq([(manyText.match(/^• /gm) || []).length, manyText.includes("• و2 كمان في الملف")], [6, true], "five by name, then a count");
+
+  // 01:30 in Cairo on the 25th is 22:30 UTC on the 24th: a payment sent with no date is dated the
+  // 24th by the route's UTC default. Nobody at the desk chose that, so it is not a late entry.
+  const night = { toMillis: () => Date.parse("2026-10-24T22:30:00Z") };
+  const midnight = { id: "mid", type: "payment", date: "2026-10-24", ...P, paid: 300, method: "Cash", createdAt: night } as ReportLedgerRow;
+  eq(latePayments({ date: "2026-10-25", created: [midnight], moved: [], moves: [], branches }), [], "the server's own after-midnight date is not flagged");
+  eq(latePayments({ date: "2026-10-25", created: [{ ...midnight, date: "2026-10-23" } as ReportLedgerRow], moved: [], moves: [], branches }).length, 1, "a date someone chose still is");
+
+  // A day with nothing but a late entry is still sent, and says what happened.
+  const onlyLate = buildDailyFinanceReport({ date: D24, rows: [], branches, payers, isAr: true, createdRows: [ten] });
+  eq([onlyLate.sections.length, isEmptyReport(onlyLate)], [0, false], "not an empty day");
+  eq(isEmptyReport(buildDailyFinanceReport({ date: D24, rows: [], branches, payers, isAr: true })), true, "and a day with nothing at all still is");
+  const onlyText = dailyFinanceReportText(onlyLate, "DENT INN", true);
+  eq(onlyText.includes("مفيش حركة فلوس النهارده.") && onlyText.includes("اتسجلت النهارده على أيام تانية"), true, "the quiet-day message still flags the late payment");
+
+  // --- the Excel file lists them under their own bar ---
+  const wb = XLSX.read(dailyFinanceReportBytes(report, "DENT INN", true), { type: "array", cellFormula: true });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const L = (c: number) => String.fromCharCode("A".charCodeAt(0) + 14 - c);
+  const bar = Object.keys(ws).find((k) => ws[k]?.v === "دفعات اتسجلت في اليوم ده على أيام تانية");
+  eq(Boolean(bar), true, "the late block has its bar");
+  const r = Number(bar!.replace(/\D/g, "")) + 2;
+  eq([1, 2, 3, 4, 5, 6, 7, 8].map((c) => ws[`${L(c)}${r}`]?.v), [1, 46300, "—", "قديم", "اتنقلت من 01/10/2026", "Ahmed", "انستاباي", 700], "a late line: number, the day it is on, branch, patient, what happened, who, method, amount");
+  eq(ws[`${L(5)}${r + 1}`].v, "اتنقلت من 24/10/2026", "the 10,000's line says where it came from");
+  eq([ws[`${L(8)}${r + 2}`].f, ws[`${L(8)}${r + 2}`].v], [`SUM(${L(8)}${r}:${L(8)}${r + 1})`, 10700], "and the block has its total");
+  const empty = XLSX.read(dailyFinanceReportBytes(onlyLate, "DENT INN", true), { type: "array" });
+  const wse = empty.Sheets[empty.SheetNames[0]];
+  eq(Object.keys(wse).some((k) => wse[k]?.v === "دفعات اتسجلت في اليوم ده على أيام تانية"), true, "a file with no patient lines still lists them");
+}
+
+// --- 10. Wiring: the sender looks up balances and late payments, and never fails for want of them -
+{
+  const sender = readFileSync(new URL("../src/lib/reports/sendStaffReport.ts", import.meta.url), "utf8");
+  eq(/where\("patientId", "in", chunk\)/.test(sender) && /i \+= 30/.test(sender), true, "the day's patients' ledgers, 30 ids per query");
+  eq(/where\("createdAt", ">=", start\)\.where\("createdAt", "<", end\)/.test(sender), true, "payments created on the clinic's day");
+  eq(/LEDGER_AUDIT_COLLECTION\)\.where\("at", ">=", start\)\.where\("at", "<", end\)/.test(sender), true, "date edits from the audit trail");
+  eq((sender.match(/console\.warn\("Daily sheet: [^"]+ unavailable:"/g) || []).length, 2, "both lookups fall back instead of failing the report");
+  eq(/if \(isEmptyReport\(report\) && !args\.test\)/.test(sender), true, "a day with only a late payment is still sent");
 }
 
 console.log(`daily finance report: ${checks} checks passed`);

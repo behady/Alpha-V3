@@ -104,6 +104,12 @@ jobs:
         run: npm run --silent test:homeview
       - name: Finance daily sheet and its Excel file
         run: npm run --silent test:daily-sheet
+      - name: Nightly money report (account balances, payments recorded for other days)
+        run: npm run --silent test:daily-finance-report
+      - name: Past-day payment lock
+        run: npm run --silent test:past-day-lock
+      - name: Money on account offered to treatments
+        run: npm run --silent test:credit-suggestions
       - name: Finance Excel report and payment method words
         run: npm run --silent test:finance-excel
       - name: Contract company statement (GASCO layout)

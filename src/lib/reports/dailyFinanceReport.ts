@@ -12,11 +12,25 @@
  * that day, not of the money that came in. A payment row carries its own copy of the commission;
  * reading both would count every paid treatment twice.
  *
- * Pure: the sender passes the day's ledger rows, the test passes fixtures.
+ * Two things the day's rows cannot say on their own, so the sender passes more:
+ *
+ * - The patient's ACCOUNT balance at the end of the day. "Remaining" is the day's work less the
+ *   day's money, and a deposit paid last week is not in the day. DENT INN, 24 Oct 2026: an implant
+ *   of 20,000, 8,500 paid that day and 11,500 paid on the 21st — the sheet said 11,500 remaining,
+ *   the patient's file said nothing owed, and the file was right. The balance is the profile's
+ *   rule (every treatment's patient part, less every payment, up to the end of the day), so the
+ *   report and the file agree on what a person owes.
+ * - Payments recorded on the day for another day: entered late, or moved there by a date edit.
+ *   They change a day whose report has already gone out, so they are listed where the owner will
+ *   see them instead of quietly rewriting that day.
+ *
+ * Pure: the sender passes the ledger rows, the test passes fixtures.
  */
 
-import { dailySheet, sheetMethodLabel, type SheetLedgerRow } from "@/lib/dailySheet";
+import { dailySheet, sheetDay, sheetMethodLabel, type SheetLedgerRow } from "@/lib/dailySheet";
+import { INSURER_PAYMENT_METHOD, patientPortion } from "@/lib/ledgerInsurer";
 import { findPayer, type Payer } from "@/lib/payers";
+import { ledgerCashValue } from "@/lib/reportHelpers";
 
 export type ReportLedgerRow = SheetLedgerRow & {
   branchId?: unknown;
@@ -25,6 +39,8 @@ export type ReportLedgerRow = SheetLedgerRow & {
   doctorName?: unknown;
   doctor?: unknown;
   doctorCommissionAmount?: unknown;
+  addedBy?: unknown;
+  receivedBy?: unknown;
 };
 
 export type ReportLine = {
@@ -45,9 +61,36 @@ export type ReportLine = {
   paid: number;
   remaining: number;
   dentistShare: number;
+  /**
+   * What the patient's account stands at once the day is done: positive is owed, negative is money
+   * the clinic holds for them. Null when it was not looked up (a row with no patient file).
+   */
+  balance: number | null;
 };
 
-export type ReportTotals = { patients: number; work: number; company: number; total: number; paid: number; remaining: number; dentistShare: number };
+export type ReportTotals = {
+  patients: number; work: number; company: number; total: number; paid: number; remaining: number; dentistShare: number;
+  /** What the day's patients still owe on their accounts: the positive balances only. */
+  owed: number;
+};
+
+/** A patient payment recorded on the report's day for a different day. */
+export type LatePayment = {
+  id: string;
+  /** The day the payment is dated, now. */
+  date: string;
+  /** The day it was dated before a date edit made on the report's day; null when entered late. */
+  movedFrom: string | null;
+  patient: string;
+  branch: string;
+  method: string;
+  amount: number;
+  /** Who entered it, or who moved it. */
+  by: string;
+};
+
+/** A date edit made on the report's day, from the ledger's audit trail. */
+export type PaymentMove = { id: string; from: string; to: string; by: string };
 
 export type ReportSection = {
   /** "" for rows recorded before the clinic had branches, or a clinic with none. */
@@ -61,6 +104,10 @@ export type DailyFinanceReport = {
   date: string;
   sections: ReportSection[];
   totals: ReportTotals;
+  /** Whether account balances were looked up; the text and the file only show them if so. */
+  hasBalances: boolean;
+  late: LatePayment[];
+  lateTotal: number;
 };
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -95,6 +142,7 @@ function buildSection(
   rows: readonly ReportLedgerRow[],
   payers: readonly Payer[],
   isAr: boolean,
+  balances: ReadonlyMap<string, number> | null,
 ): { lines: ReportLine[]; totals: ReportTotals } {
   const extras = new Map<string, { procedures: string[]; dentists: string[]; share: number }>();
   for (const row of rows) {
@@ -129,6 +177,7 @@ function buildSection(
       paid: line.paid,
       remaining: line.remaining,
       dentistShare: round2(extra?.share ?? 0),
+      balance: balances && line.patientId ? round2(balances.get(line.patientId) ?? 0) : null,
     };
   });
   return { lines: out, totals: totalsOf(out) };
@@ -139,13 +188,109 @@ function totalsOf(lines: readonly ReportLine[]): ReportTotals {
   return {
     patients: lines.length, work: sum("work"), company: sum("company"), total: sum("total"),
     paid: sum("paid"), remaining: sum("remaining"), dentistShare: sum("dentistShare"),
+    owed: round2(lines.reduce((t, l) => t + Math.max(0, l.balance ?? 0), 0)),
   };
+}
+
+const isLive = (row: ReportLedgerRow) => !["deleted", "cancelled"].includes(String(row.status || "").toLowerCase());
+
+/**
+ * Each patient's account at the end of `date`, by patient id: the patient's part of every
+ * treatment, less every payment, dated on or before that day. The rule the patient's file and the
+ * receivables report use (`patientPortion`, `ledgerCashValue`), so the three never disagree.
+ */
+export function accountBalances(rows: readonly ReportLedgerRow[], date: string): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const row of rows) {
+    const patientId = text(row.patientId);
+    if (!patientId || !isLive(row)) continue;
+    const day = text(row.date).slice(0, 10);
+    if (day && day > date) continue;
+    const type = String(row.type || "");
+    const delta = type === "procedure" ? patientPortion(row) : type === "payment" ? -ledgerCashValue(row) : 0;
+    if (delta !== 0) out.set(patientId, (out.get(patientId) ?? 0) + delta);
+  }
+  return out;
+}
+
+/**
+ * The patient payments recorded on `date` for another day. `created` is the rows created on the
+ * day and `moved` the rows a date edit touched on the day, both as they stand now; `moves` are that
+ * day's date edits. A payment moved and moved back is not listed; the insurer's own payments are
+ * not the patient's money and are left out, as on the sheet.
+ */
+export function latePayments(args: {
+  date: string;
+  created: readonly ReportLedgerRow[];
+  moved: readonly ReportLedgerRow[];
+  moves: readonly PaymentMove[];
+  branches: readonly { id: string; name: string }[];
+}): LatePayment[] {
+  const { date, branches } = args;
+  // The day's first edit holds where the payment stood that morning; the last, who moved it.
+  const moved = new Map<string, { from: string; by: string }>();
+  for (const m of args.moves) {
+    const prior = moved.get(m.id);
+    moved.set(m.id, { from: prior?.from ?? m.from.slice(0, 10), by: m.by || prior?.by || "" });
+  }
+  const createdIds = new Set(args.created.map((r) => r.id));
+  const seen = new Set<string>();
+  const out: { item: LatePayment; order: number }[] = [];
+  for (const row of [...args.created, ...args.moved]) {
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    if (String(row.type || "") !== "payment" || !isLive(row) || text(row.method) === INSURER_PAYMENT_METHOD) continue;
+    const amount = ledgerCashValue(row);
+    if (amount <= 0) continue;
+    const day = text(row.date).slice(0, 10);
+    const move = moved.get(row.id);
+    const from = move && move.from !== day ? move.from : null;
+    if (!from && (day === date || !createdIds.has(row.id) || day === serverDefaultDay(row.createdAt))) continue;
+    out.push({
+      item: {
+        id: row.id,
+        date: day,
+        movedFrom: from,
+        patient: text(row.patientName),
+        branch: branches.find((b) => b.id === text(row.branchId))?.name ?? "",
+        method: text(row.method),
+        amount: round2(amount),
+        by: (from ? move?.by : "") || text(row.addedBy) || text(row.receivedBy),
+      },
+      order: millisOf(row.createdAt),
+    });
+  }
+  return out
+    .sort((a, b) => (a.item.date !== b.item.date ? (a.item.date < b.item.date ? -1 : 1) : a.order - b.order))
+    .map((o) => o.item);
+}
+
+/**
+ * The date the ledger route gives a payment sent with none (the web screens send none): the UTC
+ * day it was saved. Just after midnight in Cairo that is still yesterday, so a payment taken then
+ * is dated yesterday by the server, not by anyone at the desk — not a late entry.
+ */
+function serverDefaultDay(createdAt: unknown): string {
+  const ms = millisOf(createdAt);
+  return ms > 0 ? new Date(ms).toISOString().slice(0, 10) : "";
+}
+
+function millisOf(v: unknown): number {
+  if (typeof v === "number") return v;
+  if (typeof v === "string") return Date.parse(v) || 0;
+  if (v && typeof v === "object" && "toMillis" in v && typeof (v as { toMillis: unknown }).toMillis === "function") {
+    return (v as { toMillis: () => number }).toMillis();
+  }
+  return 0;
 }
 
 /**
  * The day's report. `branches` is the clinic's list in its own order; a clinic with none gets one
  * section with no branch name. Rows stamped with a branch that no longer exists, or with none,
  * go to a last section so no money drops out of the total.
+ *
+ * `accountRows` is the whole ledger of the day's patients, for their balances; without it the
+ * balance is not shown. `createdRows`, `movedRows` and `moves` are what `latePayments` reads.
  */
 export function buildDailyFinanceReport(args: {
   date: string;
@@ -153,25 +298,39 @@ export function buildDailyFinanceReport(args: {
   branches: readonly { id: string; name: string }[];
   payers: readonly Payer[];
   isAr: boolean;
+  accountRows?: readonly ReportLedgerRow[];
+  createdRows?: readonly ReportLedgerRow[];
+  movedRows?: readonly ReportLedgerRow[];
+  moves?: readonly PaymentMove[];
 }): DailyFinanceReport {
   const { date, branches, payers, isAr } = args;
+  const balances = args.accountRows ? accountBalances(args.accountRows, date) : null;
   const rows = args.rows.map((r) => ({ ...r, date: text(r.date).slice(0, 10) })).filter((r) => r.date === date);
 
   const known = new Set(branches.map((b) => b.id));
   const sections: ReportSection[] = [];
   for (const branch of branches) {
     const mine = rows.filter((r) => text(r.branchId) === branch.id);
-    const built = buildSection(mine, payers, isAr);
+    const built = buildSection(mine, payers, isAr, balances);
     if (built.lines.length > 0) sections.push({ branchId: branch.id, name: branch.name, ...built });
   }
   const loose = rows.filter((r) => !known.has(text(r.branchId)));
-  const looseBuilt = buildSection(loose, payers, isAr);
+  const looseBuilt = buildSection(loose, payers, isAr, balances);
   if (looseBuilt.lines.length > 0) {
     sections.push({ branchId: "", name: branches.length > 0 ? (isAr ? "بدون فرع" : "No branch") : "", ...looseBuilt });
   }
 
   const all = sections.flatMap((s) => s.lines);
-  return { date, sections, totals: totalsOf(all) };
+  const late = latePayments({ date, created: args.createdRows ?? [], moved: args.movedRows ?? [], moves: args.moves ?? [], branches });
+  return {
+    date, sections, totals: totalsOf(all), hasBalances: balances !== null,
+    late, lateTotal: round2(late.reduce((t, l) => t + l.amount, 0)),
+  };
+}
+
+/** A report with nothing in it: no patient's money moved and nothing was recorded late. */
+export function isEmptyReport(report: DailyFinanceReport): boolean {
+  return report.sections.length === 0 && report.late.length === 0;
 }
 
 const money = (n: number, isAr: boolean) => Math.round(n).toLocaleString(isAr ? "ar-EG" : "en-US");
@@ -181,21 +340,26 @@ export function dailyFinanceReportText(report: DailyFinanceReport, clinicName: s
   const [y, m, d] = report.date.split("-");
   const day = `${d}/${m}/${y}`;
   // Two lines per block: the work and who answers for it, then the patients' money and the share.
+  // The account line only when balances were looked up: a missing figure must not read as zero.
   const line = (t: ReportTotals) =>
-    isAr
+    (isAr
       ? [
           `قيمة الشغل ${money(t.work, true)} · على الشركات ${money(t.company, true)}`,
           `المطلوب من المرضى ${money(t.total, true)} · المدفوع ${money(t.paid, true)} · المتبقي ${money(t.remaining, true)}`,
+          ...(report.hasBalances ? [`المستحق فعلاً على حساباتهم (بعد المدفوع مقدماً) ${money(t.owed, true)}`] : []),
           `نصيب الأطباء ${money(t.dentistShare, true)}`,
-        ].join("\n")
+        ]
       : [
           `Work ${money(t.work, false)} · Companies ${money(t.company, false)}`,
           `Patients owe ${money(t.total, false)} · Paid ${money(t.paid, false)} · Left ${money(t.remaining, false)}`,
+          ...(report.hasBalances ? [`Still owed on their accounts (after earlier payments) ${money(t.owed, false)}`] : []),
           `Dentists ${money(t.dentistShare, false)}`,
-        ].join("\n");
+        ]
+    ).join("\n");
   const out = [`📊 *${clinicName}* — ${isAr ? "التقرير اليومي" : "Daily report"} ${day}`];
   if (report.sections.length === 0) {
     out.push(isAr ? "مفيش حركة فلوس النهارده." : "No money moved today.");
+    out.push(...lateBlock(report, isAr));
     return out.join("\n");
   }
   const named = report.sections.filter((s) => s.name);
@@ -205,8 +369,38 @@ export function dailyFinanceReportText(report: DailyFinanceReport, clinicName: s
   } else {
     out.push("", `${isAr ? "عدد المرضى" : "Patients"}: ${report.totals.patients}`, line(report.totals));
   }
+  out.push(...lateBlock(report, isAr));
   out.push("", isAr ? "التفاصيل في ملف الإكسل 👇" : "Details in the Excel file 👇");
   return out.join("\n");
+}
+
+/** How many late payments the message names one by one; the file has them all. */
+const LATE_LINES = 5;
+
+function lateBlock(report: DailyFinanceReport, isAr: boolean): string[] {
+  if (report.late.length === 0) return [];
+  const head = isAr
+    ? `⚠️ *دفعات اتسجلت النهارده على أيام تانية* (${report.late.length}) · ${money(report.lateTotal, true)}`
+    : `⚠️ *Payments recorded today for other days* (${report.late.length}) · ${money(report.lateTotal, false)}`;
+  const items = report.late.slice(0, LATE_LINES).map((l) => `• ${lateLine(l, isAr)}`);
+  const more = report.late.length - LATE_LINES;
+  if (more > 0) items.push(isAr ? `• و${more} كمان في الملف` : `• and ${more} more in the file`);
+  return ["", head, ...items];
+}
+
+/** One late payment in words: who, how much, the day it is on now, and how it got there. */
+export function lateLine(l: LatePayment, isAr: boolean): string {
+  const how = l.movedFrom
+    ? isAr ? `اتنقلت من ${sheetDay(l.movedFrom)} لـ ${sheetDay(l.date)}` : `moved from ${sheetDay(l.movedFrom)} to ${sheetDay(l.date)}`
+    : isAr ? `بتاريخ ${sheetDay(l.date)}` : `dated ${sheetDay(l.date)}`;
+  const by = l.by ? ` — ${l.by}` : "";
+  return `${l.patient || "—"} ${money(l.amount, isAr)} · ${how}${by}`;
+}
+
+/** The note column of a late payment in the file. */
+export function lateNote(l: LatePayment, isAr: boolean): string {
+  if (l.movedFrom) return isAr ? `اتنقلت من ${sheetDay(l.movedFrom)}` : `Moved from ${sheetDay(l.movedFrom)}`;
+  return isAr ? "اتسجلت متأخر" : "Entered late";
 }
 
 export function dailyFinanceReportFileName(date: string, isAr: boolean): string {

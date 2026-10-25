@@ -682,6 +682,12 @@ export const SETTINGS_TEXT = {
     capTitle: { en: "Discount ceiling for non-Admins", ar: "حد الخصم لغير المديرين" },
     capSub: { en: "The most anyone who is not an Admin can take off. Admins have no ceiling.", ar: "أعلى نسبة يقدر أي حد غير المدير يخصمها. المدير مالوش حد." },
     noCap: { en: "No ceiling", ar: "بدون حد" },
+    pastLockTitle: { en: "Payments on earlier days", ar: "الدفعات على أيام فاتت" },
+    pastLockSub: {
+      en: "When on, only an Owner or Admin can record a payment on an earlier day, move a payment to or from an earlier day, or change the amount of one there. A day's nightly report has already gone out by then, so this keeps it true. Anyone can still record today's payments and fix a payment's note.",
+      ar: "لما تتفعّل، المالك أو الأدمن بس هو اللي يقدر يسجل دفعة على يوم فات، أو ينقل دفعة من أو ليوم فات، أو يغيّر مبلغ دفعة عليه. التقرير اليومي بتاع اليوم ده بيكون اتبعت خلاص، فده بيحافظ عليه صح. أي حد لسه يقدر يسجل دفعات النهارده ويعدّل ملاحظة الدفعة.",
+    },
+    pastLockToggle: { en: "Only Owner and Admin", ar: "المالك والأدمن بس" },
     saved: { en: "Saved", ar: "اتحفظ" },
     failed: { en: "Could not save", ar: "فشل الحفظ" },
     editPrices: { en: "Prices", ar: "الأسعار" },

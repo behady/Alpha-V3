@@ -54,6 +54,8 @@ import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import { useBranchForMoney } from "@/lib/useBranchForMoney";
 import { useActiveBranch } from "@/lib/useActiveBranch";
+import { creditSuggestions, type CreditRow } from "@/lib/creditSuggestions";
+import CreditSuggestionsCard from "@/components/finance/CreditSuggestionsCard";
 function formatWhatsAppLedgerMessage(
   patientName: string,
   clinicName: string,
@@ -658,6 +660,21 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
     return `${base} — Before ${listPrice} → After ${finalCost} (${tag})`;
   };
 
+  // General payments a treatment could now take — a deposit paid before the work was recorded.
+  // Offered to whoever may edit money, on rows of the branch on screen; linked only on their click.
+  const credits = hasEditAccess && !isReadOnly
+    ? creditSuggestions(transactions as unknown as CreditRow[]).filter((c) => rowIsMine(c.branchId || null))
+    : [];
+  const applyCredit = async (paymentId: string, procedureId: string) => {
+    try {
+      // Only the link: the route keeps the amount and date, and moves the dentist and the share.
+      await updateLedgerRow(paymentId, { procedureId }, clinic?.id);
+      showToast(language === 'ar' ? "اتربطت بالعلاج" : "Linked to the treatment", "success");
+    } catch (error) {
+      showToast(error instanceof MoneyApiError ? error.message : txt.updateError, "error");
+    }
+  };
+
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingItem) return;
@@ -1015,6 +1032,8 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
             )}
             </div>
         </div>
+
+        <CreditSuggestionsCard suggestions={credits} isAr={language === 'ar'} currency={egp} onApply={applyCredit} />
 
         <div className="flex flex-col lg:flex-row justify-between items-stretch lg:items-center bg-surface p-4 rounded-xl border border-gray-200 shadow-sm gap-4 overflow-hidden">
             <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2 min-w-0">
