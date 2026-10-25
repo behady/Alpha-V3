@@ -1,9 +1,9 @@
-import { FieldValue } from "firebase-admin/firestore";
+import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { buildBriefing } from "@/lib/automation/briefing/build";
 import type { Briefing, BriefingAccess } from "@/lib/automation/briefing/types";
-import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
+import { clinicTimeZone, instantAtHourInTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import {
   reportDueOn,
   reportEvents,
@@ -27,8 +27,11 @@ import {
   buildDailyFinanceReport,
   dailyFinanceReportFileName,
   dailyFinanceReportText,
+  isEmptyReport,
+  type PaymentMove,
   type ReportLedgerRow,
 } from "@/lib/reports/dailyFinanceReport";
+import { LEDGER_AUDIT_COLLECTION } from "@/lib/server/ledgerAudit";
 import { dailyFinanceReportBytes } from "@/lib/reports/dailyFinanceReportXlsx";
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -118,6 +121,70 @@ function appointmentsForDentist(briefing: Briefing, dentist: { id: string; name:
   });
 }
 
+type LedgerDocs = { docs: { id: string; data: () => unknown }[] };
+const rowsOf = (snap: LedgerDocs): ReportLedgerRow[] => snap.docs.map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) }));
+
+/** The instants a clinic day starts and ends, for the server timestamps the ledger is stamped with. */
+function clinicDayBounds(dateKey: string): { start: Timestamp; end: Timestamp } {
+  const tz = clinicTimeZone();
+  const startOf = (key: string) => instantAtHourInTimeZone(tz, 0, new Date(`${key}T12:00:00Z`));
+  return { start: Timestamp.fromDate(startOf(dateKey)), end: Timestamp.fromDate(startOf(shiftDays(dateKey, 1))) };
+}
+
+/**
+ * The whole ledger of the day's patients, for their account balances. Null when it could not be
+ * read: the sheet then goes out without balances rather than not at all.
+ */
+async function patientLedgers(clinicId: string, dayRows: readonly ReportLedgerRow[]): Promise<ReportLedgerRow[] | null> {
+  const ids = [...new Set(dayRows.map((r) => String(r.patientId || "").trim()).filter(Boolean))];
+  try {
+    const chunks: string[][] = [];
+    // Firestore's `in` takes 30 values at most.
+    for (let i = 0; i < ids.length; i += 30) chunks.push(ids.slice(i, i + 30));
+    const snaps = await Promise.all(chunks.map((chunk) => adminClinicCollection(clinicId, "ledger").where("patientId", "in", chunk).get()));
+    return snaps.flatMap(rowsOf);
+  } catch (error) {
+    console.warn("Daily sheet: patient balances unavailable:", error);
+    return null;
+  }
+}
+
+/**
+ * What was recorded on the day for another day: the rows created on it, and the payments a date
+ * edit moved on it (from the audit trail, which keeps the date before and after). Empty when it
+ * could not be read, as above.
+ */
+async function lateCandidates(clinicId: string, dateKey: string): Promise<{ createdRows: ReportLedgerRow[]; movedRows: ReportLedgerRow[]; moves: PaymentMove[] }> {
+  const none = { createdRows: [], movedRows: [], moves: [] };
+  try {
+    const { start, end } = clinicDayBounds(dateKey);
+    const [created, audit] = await Promise.all([
+      adminClinicCollection(clinicId, "ledger").where("createdAt", ">=", start).where("createdAt", "<", end).get(),
+      adminClinicCollection(clinicId, LEDGER_AUDIT_COLLECTION).where("at", ">=", start).where("at", "<", end).get(),
+    ]);
+    const moves: { move: PaymentMove; at: number }[] = [];
+    for (const doc of audit.docs) {
+      const a = doc.data() as Record<string, unknown>;
+      const before = (a.before || {}) as Record<string, unknown>;
+      const after = (a.after || {}) as Record<string, unknown>;
+      if (a.action !== "update" || a.collection !== "ledger" || String(before.type || "") !== "payment") continue;
+      const from = String(before.date || "").slice(0, 10);
+      const to = String(after.date ?? "").slice(0, 10);
+      if (!to || to === from) continue;
+      moves.push({ move: { id: String(a.documentId || ""), from, to, by: String(a.byName || "") }, at: (a.at as Timestamp | undefined)?.toMillis?.() ?? 0 });
+    }
+    // Oldest first: `latePayments` reads the day's first edit as where the payment stood that morning.
+    moves.sort((x, y) => x.at - y.at);
+    const ids = [...new Set(moves.map((m) => m.move.id).filter(Boolean))];
+    const movedSnaps = ids.length > 0 ? await adminDb().getAll(...ids.map((id) => adminClinicDoc(clinicId, "ledger", id))) : [];
+    const movedRows = movedSnaps.filter((d) => d.exists).map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) }) as ReportLedgerRow);
+    return { createdRows: rowsOf(created), movedRows, moves: moves.map((m) => m.move) };
+  } catch (error) {
+    console.warn("Daily sheet: late payments unavailable:", error);
+    return none;
+  }
+}
+
 /**
  * The day's money sheet: a short summary on WhatsApp, then the Excel file. Money only, so it goes
  * to Owner and Admin and nobody else, whatever roles the clinic ticked.
@@ -131,17 +198,18 @@ async function sendDailyFinanceSheet(args: SendStaffReportArgs, today: string, i
     adminClinicDoc(clinicId, "settings", LOCATIONS_DOC).get().catch(() => null),
     adminClinicDoc(clinicId, "settings", "payers").get().catch(() => null),
   ]);
-  const rows: ReportLedgerRow[] = ledgerSnap.docs.map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) }));
+  const rows = rowsOf(ledgerSnap);
   const branches = parseClinicBranches(locationsSnap?.exists ? locationsSnap.data() : null).map((b) => ({ id: b.id, name: b.name }));
   const payers = parsePayers(payersSnap?.exists ? payersSnap.data() : null);
-  const report = buildDailyFinanceReport({ date: today, rows, branches, payers, isAr });
+  const [accountRows, late] = await Promise.all([patientLedgers(clinicId, rows), lateCandidates(clinicId, today)]);
+  const report = buildDailyFinanceReport({ date: today, rows, branches, payers, isAr, ...(accountRows ? { accountRows } : {}), ...late });
 
-  // A day nobody paid or was charged is not worth a message — except as a test.
-  if (report.sections.length === 0 && !args.test) {
+  // A day nobody paid, was charged or had a payment entered late is not worth a message — except as a test.
+  if (isEmptyReport(report) && !args.test) {
     return { raised: false, bellWritten: false, pushed: 0, whatsapped: 0, reason: "empty-day" };
   }
   const text = dailyFinanceReportText(report, name, isAr);
-  const file = report.sections.length > 0
+  const file = !isEmptyReport(report)
     ? { bytes: dailyFinanceReportBytes(report, name, isAr), filename: dailyFinanceReportFileName(today, isAr), caption: name, mimetype: XLSX_MIME }
     : null;
   const title = isAr ? "يومية الفلوس" : "Daily money sheet";

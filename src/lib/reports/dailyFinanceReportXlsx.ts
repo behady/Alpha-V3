@@ -13,14 +13,15 @@
  */
 
 import XLSX from "xlsx-js-style";
-import type { DailyFinanceReport } from "@/lib/reports/dailyFinanceReport";
+import { lateNote, type DailyFinanceReport } from "@/lib/reports/dailyFinanceReport";
+import { paymentMethodLabel } from "@/lib/dailySheet";
 
 type Style = NonNullable<XLSX.CellObject["s"]>;
 
-const W = 13;
+const W = 14;
 /** Logical column (1 = rightmost, "م") → 0-based sheet column. */
 const C = (c: number) => W - c;
-const WIDTHS = [14, 13, 13, 24, 30, 18, 13, 12, 12, 12, 12, 11, 13];
+const WIDTHS = [14, 13, 13, 24, 30, 18, 13, 12, 12, 12, 12, 11, 13, 14];
 
 const WHITE = { style: "thin", color: { rgb: "FFFFFF" } } as const;
 const GRID = { top: WHITE, bottom: WHITE, left: WHITE, right: WHITE };
@@ -29,6 +30,8 @@ const CENTER = { horizontal: "center", vertical: "center", wrapText: true } as c
 const RIGHT = { horizontal: "right", vertical: "center", readingOrder: 2 } as const;
 const BANDS = ["F2DCDB", "E6B8B7"];
 const NUM = "General";
+/** An account balance: a negative one is money the clinic holds for the patient, and says so. */
+const BALANCE_NUM = { ar: 'General;"له "General;0', en: 'General;"credit "General;0' };
 const DATE = "dd/mm/yyyy";
 
 const cellStyle = (bg: string, color = "000000", sz = 12): Style => ({
@@ -47,30 +50,34 @@ const LABELS = {
     title: "التقرير اليومي",
     summary: "الملخص",
     details: "التفاصيل",
-    summaryHead: ["الفرع", "عدد", "قيمة الشغل", "على الشركة", "المطلوب", "المدفوع", "المتبقي", "نصيب الأطباء"],
-    head: ["م", "التاريخ", "المصدر", "اسم المريض", "الإجراء", "الطبيب", "طريقة الدفع", "قيمة الشغل", "على الشركة", "المطلوب", "المدفوع", "المتبقي", "نصيب الطبيب"],
+    summaryHead: ["الفرع", "عدد", "قيمة الشغل", "على الشركة", "المطلوب", "المدفوع", "المتبقي", "نصيب الأطباء", "المستحق على الحسابات"],
+    head: ["م", "التاريخ", "المصدر", "اسم المريض", "الإجراء", "الطبيب", "طريقة الدفع", "قيمة الشغل", "على الشركة", "المطلوب", "المدفوع", "المتبقي", "نصيب الطبيب", "رصيد الحساب"],
+    late: "دفعات اتسجلت في اليوم ده على أيام تانية",
+    lateHead: ["م", "التاريخ", "الفرع", "اسم المريض", "اللي حصل", "سجلها", "طريقة الدفع", "المبلغ"],
     clinic: "العيادة",
     branch: (name: string) => `فرع ${name}`,
     branchTotal: (name: string) => `إجمالي فرع ${name}`,
     total: "الإجمالي",
     grand: "الإجمالي الكلي",
     empty: "مفيش حركة فلوس في اليوم ده.",
-    note: "قيمة الشغل = سعر كل العلاج اللي اتعمل.   على الشركة = اللي شركة التأمين أو الشركة المتعاقدة هتدفعه.   المطلوب = نصيب المريض.   المتبقي = المطلوب − المدفوع.   ملف = مريض العيادة.   نصيب الطبيب = النسبة المسجلة على كل علاج.",
+    note: "قيمة الشغل = سعر كل العلاج اللي اتعمل.   على الشركة = اللي شركة التأمين أو الشركة المتعاقدة هتدفعه.   المطلوب = نصيب المريض.   المتبقي = المطلوب − المدفوع في اليوم ده.   رصيد الحساب = كل اللي على المريض لحد آخر اليوم − كل اللي دفعه، يعني بيحسب المدفوع مقدماً (له = فلوس مقدمة للمريض).   ملف = مريض العيادة.   نصيب الطبيب = النسبة المسجلة على كل علاج.",
     sheet: "التقرير اليومي",
   },
   en: {
     title: "Daily report",
     summary: "Summary",
     details: "Details",
-    summaryHead: ["Branch", "Patients", "Work done", "Company owes", "Patient owes", "Paid", "Remaining", "Dentists' share"],
-    head: ["#", "Date", "Source", "Patient", "Procedure", "Dentist", "Method", "Work done", "Company owes", "Patient owes", "Paid", "Remaining", "Dentist share"],
+    summaryHead: ["Branch", "Patients", "Work done", "Company owes", "Patient owes", "Paid", "Remaining", "Dentists' share", "Owed on accounts"],
+    head: ["#", "Date", "Source", "Patient", "Procedure", "Dentist", "Method", "Work done", "Company owes", "Patient owes", "Paid", "Remaining", "Dentist share", "Account balance"],
+    late: "Payments recorded on this day for other days",
+    lateHead: ["#", "Date", "Branch", "Patient", "What happened", "By", "Method", "Amount"],
     clinic: "Clinic",
     branch: (name: string) => name,
     branchTotal: (name: string) => `${name} total`,
     total: "Total",
     grand: "Grand total",
     empty: "No money moved on this day.",
-    note: "Work done = the full price of every treatment.   Company owes = what the insurance or contract company pays.   Patient owes = the patient's part.   Remaining = Patient owes − Paid.   File = the clinic's own patient.   Dentist share = the rate recorded on each treatment.",
+    note: "Work done = the full price of every treatment.   Company owes = what the insurance or contract company pays.   Patient owes = the patient's part.   Remaining = Patient owes − Paid on this day.   Account balance = everything the patient owes up to the end of the day − everything they have paid, earlier payments included (credit = money held for the patient).   File = the clinic's own patient.   Dentist share = the rate recorded on each treatment.",
     sheet: "Daily report",
   },
 };
@@ -93,6 +100,7 @@ export function dailyFinanceReportWorkbook(report: DailyFinanceReport, clinicNam
   };
   const str = (r: number, c: number, v: string, s: Style) => put(r, c, { t: "s", v, s });
   const numCell = (r: number, c: number, v: number, s: Style) => put(r, c, { t: "n", v, s: { ...s, numFmt: NUM } });
+  const balanceFmt = isAr ? BALANCE_NUM.ar : BALANCE_NUM.en;
   const formula = (r: number, c: number, f: string, v: number, s: Style) => put(r, c, { t: "n", f, v, s: { ...s, numFmt: NUM } });
   const ref = (r: number, c: number) => XLSX.utils.encode_cell({ r, c: C(c) });
   /** Merge logical columns a..b (a < b) on one row; the text lives in the merge's left anchor. */
@@ -109,6 +117,8 @@ export function dailyFinanceReportWorkbook(report: DailyFinanceReport, clinicNam
 
   if (report.sections.length === 0) {
     mergeRow(row, 1, W, L.empty, { font: { name: "Arial", sz: 12, italic: true, color: { rgb: "666666" } } });
+    row += 2;
+    lateBlock();
     return finish();
   }
 
@@ -155,6 +165,8 @@ export function dailyFinanceReportWorkbook(report: DailyFinanceReport, clinicNam
       numCell(row, 11, line.paid, s);
       formula(row, 12, `MAX(0,${ref(row, 10)}-${ref(row, 11)})`, line.remaining, s);
       numCell(row, 13, line.dentistShare, s);
+      if (line.balance === null) str(row, 14, "—", s);
+      else put(row, 14, { t: "n", v: line.balance, z: balanceFmt, s: { ...s, numFmt: balanceFmt } });
       // Wrapped text needs a taller row: Excel does not grow a row whose height the file sets.
       const lines = Math.max(...([[3, line.source], [4, line.patient], [5, line.procedures], [6, line.dentists], [7, line.methods]] as [number, string][])
         .map(([c, t]) => Math.ceil(t.length / Math.max(1, WIDTHS[c - 1] - 2))));
@@ -166,6 +178,8 @@ export function dailyFinanceReportWorkbook(report: DailyFinanceReport, clinicNam
     const t = section.totals;
     const sums: [number, number][] = [[8, t.work], [9, t.company], [10, t.total], [11, t.paid], [12, t.remaining], [13, t.dentistShare]];
     for (const [c, v] of sums) formula(row, c, `SUM(${ref(first, c)}:${ref(last, c)})`, v, TOTAL);
+    // What is owed, not the net: one patient's credit does not pay another's debt.
+    formula(row, 14, `SUMIF(${ref(first, 14)}:${ref(last, 14)},">0")`, t.owed, TOTAL);
     height(row, 24);
     subtotalRows.push({ r: row, first, last });
     row += 2;
@@ -176,9 +190,11 @@ export function dailyFinanceReportWorkbook(report: DailyFinanceReport, clinicNam
     const t = report.totals;
     const grand: [number, number][] = [[8, t.work], [9, t.company], [10, t.total], [11, t.paid], [12, t.remaining], [13, t.dentistShare]];
     for (const [c, v] of grand) formula(row, c, subtotalRows.map((s) => ref(s.r, c)).join("+"), v, BANNER);
+    formula(row, 14, subtotalRows.map((s) => ref(s.r, 14)).join("+"), t.owed, BANNER);
     height(row, 24);
     row += 2;
   }
+  lateBlock();
   mergeRow(row, 1, W, L.note, { font: { name: "Arial", sz: 9, italic: true } });
 
   // --- the summary lines point at each branch's total row ---
@@ -189,17 +205,48 @@ export function dailyFinanceReportWorkbook(report: DailyFinanceReport, clinicNam
     str(r, 1, section.name || L.clinic, s);
     formula(r, 2, `COUNTA(${ref(sub.first, 4)}:${ref(sub.last, 4)})`, section.totals.patients, s);
     const st = section.totals;
-    const cols: [number, number, number][] = [[3, 8, st.work], [4, 9, st.company], [5, 10, st.total], [6, 11, st.paid], [7, 12, st.remaining], [8, 13, st.dentistShare]];
+    const cols: [number, number, number][] = [[3, 8, st.work], [4, 9, st.company], [5, 10, st.total], [6, 11, st.paid], [7, 12, st.remaining], [8, 13, st.dentistShare], [9, 14, st.owed]];
     for (const [c, from, v] of cols) formula(r, c, ref(sub.r, from), v, s);
     height(r, 22);
   });
   str(summaryTotal, 1, L.total, TOTAL);
   const t = report.totals;
-  const totalCols: [number, number][] = [[2, t.patients], [3, t.work], [4, t.company], [5, t.total], [6, t.paid], [7, t.remaining], [8, t.dentistShare]];
+  const totalCols: [number, number][] = [[2, t.patients], [3, t.work], [4, t.company], [5, t.total], [6, t.paid], [7, t.remaining], [8, t.dentistShare], [9, t.owed]];
   for (const [c, v] of totalCols) formula(summaryTotal, c, `SUM(${ref(summaryFirst, c)}:${ref(summaryTotal - 1, c)})`, v, TOTAL);
   height(summaryTotal, 24);
 
   return finish();
+
+  /** The payments recorded on the day for another day, under their own bar, with their total. */
+  function lateBlock() {
+    if (report.late.length === 0) return;
+    mergeRow(row, 1, W, L.late, BANNER);
+    height(row, 24);
+    row += 1;
+    L.lateHead.forEach((h, i) => str(row, i + 1, h, HEAD));
+    height(row, 30);
+    row += 1;
+    const first = row;
+    report.late.forEach((l, i) => {
+      const s = BAND(i);
+      numCell(row, 1, i + 1, s);
+      const serial = dateSerial(l.date);
+      if (serial === null) str(row, 2, l.date, s);
+      else put(row, 2, { t: "n", v: serial, z: DATE, s: { ...s, numFmt: DATE } });
+      str(row, 3, l.branch || "—", s);
+      str(row, 4, l.patient || "—", s);
+      str(row, 5, lateNote(l, isAr), s);
+      str(row, 6, l.by || "—", s);
+      str(row, 7, paymentMethodLabel(l.method, isAr) || "—", s);
+      numCell(row, 8, l.amount, s);
+      height(row, 22);
+      row += 1;
+    });
+    mergeRow(row, 1, 7, L.total, TOTAL);
+    formula(row, 8, `SUM(${ref(first, 8)}:${ref(row - 1, 8)})`, report.lateTotal, TOTAL);
+    height(row, 24);
+    row += 2;
+  }
 
   function finish(): XLSX.WorkBook {
     ws["!ref"] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(row, 1), c: W - 1 } });
