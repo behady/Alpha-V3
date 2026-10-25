@@ -68,6 +68,11 @@ export type DiscountSettings = {
   reasons: string[];
   /** Highest discount a non-Admin may apply. null = no ceiling. */
   maxDiscountPercentNonAdmin: number | null;
+  /**
+   * Only an Owner or Admin may record, move or change a patient's payment on a day that has
+   * already closed (lib/pastDayLock). Off unless the clinic turns it on.
+   */
+  lockPastPaymentsNonAdmin: boolean;
 };
 
 /**
@@ -229,6 +234,7 @@ export function parseDiscountSettings(data: Record<string, unknown> | null | und
         : rawMax === undefined
           ? DEFAULT_MAX_DISCOUNT_PERCENT_NON_ADMIN
           : clampPercent(rawMax),
+    lockPastPaymentsNonAdmin: data?.lockPastPaymentsNonAdmin === true,
   };
 }
 

@@ -331,7 +331,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     labelAr: "العلاجات والأسعار",
     hintEn: "Every treatment and its price, price lists and discounts.",
     hintAr: "كل علاج وسعره، وقوائم الأسعار والخصومات.",
-    keywords: ["prices", "price list", "discount", "services", "الأسعار", "خصم"],
+    keywords: ["prices", "price list", "discount", "services", "backdate", "earlier day", "الأسعار", "خصم", "دفعة بتاريخ قديم"],
     writes: [
       { kind: "collection", name: "services" },
       { kind: "settingsDoc", docId: "price_lists" },

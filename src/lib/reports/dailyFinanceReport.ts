@@ -245,7 +245,7 @@ export function latePayments(args: {
     const day = text(row.date).slice(0, 10);
     const move = moved.get(row.id);
     const from = move && move.from !== day ? move.from : null;
-    if (!from && (day === date || !createdIds.has(row.id))) continue;
+    if (!from && (day === date || !createdIds.has(row.id) || day === serverDefaultDay(row.createdAt))) continue;
     out.push({
       item: {
         id: row.id,
@@ -263,6 +263,16 @@ export function latePayments(args: {
   return out
     .sort((a, b) => (a.item.date !== b.item.date ? (a.item.date < b.item.date ? -1 : 1) : a.order - b.order))
     .map((o) => o.item);
+}
+
+/**
+ * The date the ledger route gives a payment sent with none (the web screens send none): the UTC
+ * day it was saved. Just after midnight in Cairo that is still yesterday, so a payment taken then
+ * is dated yesterday by the server, not by anyone at the desk — not a late entry.
+ */
+function serverDefaultDay(createdAt: unknown): string {
+  const ms = millisOf(createdAt);
+  return ms > 0 ? new Date(ms).toISOString().slice(0, 10) : "";
 }
 
 function millisOf(v: unknown): number {

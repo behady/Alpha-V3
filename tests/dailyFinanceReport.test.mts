@@ -306,6 +306,13 @@ const report = buildDailyFinanceReport({ date: D, rows, branches, payers, isAr: 
   const manyText = dailyFinanceReportText(buildDailyFinanceReport({ date: D24, rows: [], branches, payers, isAr: true, createdRows: many }), "DENT INN", true);
   eq([(manyText.match(/^• /gm) || []).length, manyText.includes("• و2 كمان في الملف")], [6, true], "five by name, then a count");
 
+  // 01:30 in Cairo on the 25th is 22:30 UTC on the 24th: a payment sent with no date is dated the
+  // 24th by the route's UTC default. Nobody at the desk chose that, so it is not a late entry.
+  const night = { toMillis: () => Date.parse("2026-10-24T22:30:00Z") };
+  const midnight = { id: "mid", type: "payment", date: "2026-10-24", ...P, paid: 300, method: "Cash", createdAt: night } as ReportLedgerRow;
+  eq(latePayments({ date: "2026-10-25", created: [midnight], moved: [], moves: [], branches }), [], "the server's own after-midnight date is not flagged");
+  eq(latePayments({ date: "2026-10-25", created: [{ ...midnight, date: "2026-10-23" } as ReportLedgerRow], moved: [], moves: [], branches }).length, 1, "a date someone chose still is");
+
   // A day with nothing but a late entry is still sent, and says what happened.
   const onlyLate = buildDailyFinanceReport({ date: D24, rows: [], branches, payers, isAr: true, createdRows: [ten] });
   eq([onlyLate.sections.length, isEmptyReport(onlyLate)], [0, false], "not an empty day");
