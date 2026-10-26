@@ -31,7 +31,8 @@ export const SECTION_GROUPS = [
     titleAr: "المزيد",
     // `store` sits next to `inventory` because that is where someone stands when they notice
     // they have run out of something.
-    keys: ["chats", "appointments", "leads", "inventory", "store", "ortho", "attendance", "intelligence", "marketing"],
+    // `calls` (call reminders) beside WhatsApp: both are "who do we owe a reply or a ring".
+    keys: ["chats", "calls", "appointments", "leads", "inventory", "store", "ortho", "attendance", "intelligence", "marketing"],
   },
 ];
 

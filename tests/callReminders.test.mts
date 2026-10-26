@@ -222,6 +222,9 @@ eq(src("src/app/(dashboard)/patients/[id]/page.tsx").includes("<PatientCallsPane
 
   const layout = src("src/app/(dashboard)/layout.tsx");
   eq(layout.includes('href: "/calls"'), true, "the menu links the Calls page");
+  // The top bar and the phone menu only show keys that sit in a group; a key in no group is dropped.
+  const { SECTION_GROUPS, DIRECT_KEYS } = await import("../src/components/dashboard/navGroups");
+  eq(DIRECT_KEYS.includes("calls") || SECTION_GROUPS.some((g) => g.keys.includes("calls")), true, "the Calls page sits in a menu group, so it actually shows");
   eq(/key === 'calls'\) return canAccessNavItem\('patients'/.test(layout), true, "whoever works the patient list sees it");
   eq(src("src/app/(dashboard)/calls/page.tsx").includes("CallRow"), true, "the page lists calls with their actions");
 }
