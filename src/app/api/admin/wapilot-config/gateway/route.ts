@@ -132,7 +132,12 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => ({}))) as { clinicId?: string; action?: "connect" | "disconnect" | "relink" | "resume" };
+  const body = (await request.json().catch(() => ({}))) as {
+    clinicId?: string;
+    action?: "connect" | "disconnect" | "relink" | "resume";
+    /** connect only: the admin confirmed swapping the clinic's Wapilot keys for a QR. */
+    replaceWapilot?: boolean;
+  };
   const target = await resolveTarget(request, typeof body.clinicId === "string" ? body.clinicId.trim() || undefined : undefined);
   if (target instanceof NextResponse) return target;
 
@@ -144,14 +149,19 @@ export async function POST(request: Request) {
     const instanceId = instanceFor(target);
 
     if (body.action === "connect") {
-      // A clinic already on real Wapilot keeps it unless it disconnects first: silently
+      // A clinic already on real Wapilot keeps it unless the admin confirms the swap: silently
       // replacing working credentials with an unscanned instance would stop its messages.
       const existing = await storedCredentials(target);
-      if (existing?.instanceId && existing?.apiToken && !isAlphaGatewayCredentials(existing)) {
+      if (existing?.instanceId && existing?.apiToken && !isAlphaGatewayCredentials(existing) && body.replaceWapilot !== true) {
         return NextResponse.json(
-          { ok: false, error: "This clinic is connected through Wapilot. Remove that connection first, then connect by QR." },
+          { ok: false, code: "wapilot_connected", error: "This clinic is connected through Wapilot. Remove that connection first, then connect by QR." },
           { status: 409 },
         );
+      }
+      // Wapilot leftovers (sendPath, sendDocumentPath, phone hint) would ride along under the
+      // merge below and point the gateway's sends at Wapilot's paths, so they go first.
+      if (existing && !isAlphaGatewayCredentials(existing)) {
+        await docFor(target).set({ [WAPILOT_SECRET_FIELD]: FieldValue.delete() }, { merge: true });
       }
 
       // The platform line only sends; replies to it are nobody's patient conversation.

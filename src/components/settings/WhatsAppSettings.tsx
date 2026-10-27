@@ -841,6 +841,10 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
         language === "ar"
           ? "فصل واتساب العيادة؟ رسائل المرضى الأوتوماتيكية هتقف لحد ما توصّل تاني."
           : "Disconnect the clinic's WhatsApp? Automatic patient messages stop until you connect again.",
+      gwConfirmReplaceWapilot:
+        language === "ar"
+          ? "العيادة دي متوصّلة بـ Wapilot. تبدّل لمسح QR؟ مفاتيح Wapilot هتتشال، والرسائل هتقف لحد ما تمسح الكود."
+          : "This clinic is connected through Wapilot. Switch to QR? The Wapilot keys are removed and messages pause until you scan.",
       gwOrWapilot: language === "ar" ? "أو استخدم Wapilot بدل كده" : "Or use Wapilot instead",
       gwRestricted:
         language === "ar"
@@ -961,13 +965,17 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
     const u = auth.currentUser;
     if (!u) return;
     if (action === "disconnect" && !window.confirm(txt.gwConfirmDisconnect)) return;
+    // A clinic on Wapilot switches only on purpose: its messages pause until the QR is scanned.
+    // (Gateway credentials also report source "clinic", hence the managed check.)
+    const replaceWapilot = action === "connect" && !gateway?.managed && wapilotStatus?.source === "clinic";
+    if (replaceWapilot && !window.confirm(txt.gwConfirmReplaceWapilot)) return;
     setGatewayBusy(true);
     try {
       const idToken = await u.getIdToken();
       const res = await fetch("/api/admin/wapilot-config/gateway", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ clinicId, action }),
+        body: JSON.stringify({ clinicId, action, replaceWapilot }),
       });
       const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
       if (!res.ok || !data.ok) throw new Error(typeof data.error === "string" ? data.error : txt.failed);
