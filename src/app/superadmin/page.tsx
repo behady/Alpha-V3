@@ -355,15 +355,15 @@ export default function SuperAdminDashboard() {
         )}
 
         {/* Where Sara's tour loses people, across every clinic. */}
-        {activeTab === "tour" && <TourTab />}
+        {activeTab === "tour" && <DarkPanel><TourTab /></DarkPanel>}
         {/* Supplier invoices per clinic. Superadmin only — a clinic sees credits, never money. */}
-        {activeTab === "costs" && <CostsTab />}
+        {activeTab === "costs" && <DarkPanel><CostsTab /></DarkPanel>}
         {activeTab === "analytics" && <AnalyticsTab clinics={clinics} />}
         {activeTab === "users" && <UsersTab users={allUsers} onToggleSuperAdmin={handleToggleSuperAdmin} />}
         {activeTab === "meta" && <MetaTab />}
-        {activeTab === "supply" && <SupplyStoreTab />}
+        {activeTab === "supply" && <DarkPanel><SupplyStoreTab /></DarkPanel>}
         {activeTab === "migrate" && <MigrateTab clinics={clinics} />}
-        {activeTab === "misplaced" && <MisplacedRecordsTab />}
+        {activeTab === "misplaced" && <DarkPanel><MisplacedRecordsTab /></DarkPanel>}
         {activeTab === "platform" && <PlatformTab />}
       </main>
 
@@ -386,4 +386,12 @@ export default function SuperAdminDashboard() {
       )}
     </div>
   );
+}
+
+/**
+ * Costs, Supply store, Tour and Data audit were written in light-on-dark colours. On the light
+ * console page their white text vanished, so they sit on the menu's own near-black slab instead.
+ */
+function DarkPanel({ children }: { children: React.ReactNode }) {
+  return <div className="rounded-2xl bg-ink-slab text-slate-200 p-4 md:p-6">{children}</div>;
 }

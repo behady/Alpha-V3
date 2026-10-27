@@ -402,7 +402,7 @@ export default function SupplyStoreTab() {
             disabled={saving}
             onClick={() => void save({ enabled: !config?.enabled })}
             className={`ms-auto rounded-lg px-5 py-2.5 text-sm font-black disabled:opacity-60 ${
-              config?.enabled ? "bg-rose-500/20 text-rose-300 border border-rose-500/40" : "bg-emerald-500 text-white"
+              config?.enabled ? "bg-rose-500/20 text-rose-300 border border-rose-500/40" : "bg-emerald-400 text-slate-950"
             }`}
           >
             {config?.enabled ? "Switch the store off" : "Switch the store on"}

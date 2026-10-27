@@ -166,7 +166,7 @@ export function PlatformTab() {
   if (loading) {
     return (
       <div className="p-16 flex justify-center">
-        <Loader2 className="animate-spin text-slate-400" size={32} />
+        <Loader2 className="animate-spin text-slate-500" size={32} />
       </div>
     );
   }
@@ -212,7 +212,7 @@ export function PlatformTab() {
               onChange={(e) => setPolicy((p) => ({ ...p, trialDays: Number(e.target.value) }))}
               className={`${INPUT} disabled:opacity-50`}
             />
-            <p className="mt-1.5 text-[11px] font-semibold text-slate-400">
+            <p className="mt-1.5 text-[11px] font-semibold text-slate-500">
               {MIN_TRIAL_DAYS}–{MAX_TRIAL_DAYS}. Counted from the moment the clinic is created.
             </p>
           </div>
@@ -228,7 +228,7 @@ export function PlatformTab() {
               onChange={(e) => setPolicy((p) => ({ ...p, warnWithinDays: Number(e.target.value) }))}
               className={`${INPUT} disabled:opacity-50`}
             />
-            <p className="mt-1.5 text-[11px] font-semibold text-slate-400">
+            <p className="mt-1.5 text-[11px] font-semibold text-slate-500">
               A countdown banner appears this many days before the end. 0 switches it off.
             </p>
           </div>
@@ -257,7 +257,7 @@ export function PlatformTab() {
                 />
               </span>
             </button>
-            <p className="mt-1.5 text-[11px] font-semibold text-slate-400">
+            <p className="mt-1.5 text-[11px] font-semibold text-slate-500">
               Off means new clinics get no end date at all — trials run indefinitely, as they did
               before this setting existed.
             </p>
@@ -330,7 +330,7 @@ export function PlatformTab() {
             </button>
           )}
         </div>
-        <p className="mt-2 text-[11px] font-semibold text-slate-400">
+        <p className="mt-2 text-[11px] font-semibold text-slate-500">
           Nobody loses access with less than this much warning, however long ago they signed up.
         </p>
 
@@ -379,7 +379,7 @@ export function PlatformTab() {
                         <tr key={row.clinicId} className="border-t border-line">
                           <td className="px-4 py-2.5">
                             <span className="font-bold text-ink">{row.name}</span>
-                            <span className="ms-2 font-mono text-[10px] text-slate-400">
+                            <span className="ms-2 font-mono text-[10px] text-slate-500">
                               {row.clinicId}
                             </span>
                           </td>

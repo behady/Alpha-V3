@@ -203,7 +203,7 @@ export function MetaTab() {
             {busy ? <Loader2 size={15} className="animate-spin" /> : <Plug size={15} />} Connect
           </button>
         </div>
-        <p className="text-[11px] text-slate-400 font-semibold mt-3">
+        <p className="text-[11px] text-slate-500 font-semibold mt-3">
           New customer? Send them your partner link, then assign their page to the system user in Business settings — it will
           appear here on the next refresh. New forms on a connected page need nothing: every form&apos;s leads arrive automatically.
         </p>
@@ -217,10 +217,10 @@ export function MetaTab() {
         </div>
         {loading ? (
           <div className="flex justify-center py-10">
-            <Loader2 className="w-6 h-6 text-slate-400 animate-spin" />
+            <Loader2 className="w-6 h-6 text-slate-500 animate-spin" />
           </div>
         ) : connections.length === 0 ? (
-          <p className="text-sm text-slate-400 font-bold text-center py-10">No pages connected yet.</p>
+          <p className="text-sm text-slate-500 font-bold text-center py-10">No pages connected yet.</p>
         ) : (
           <div className="divide-y divide-slate-100">
             {connections.map((c) => {
@@ -231,7 +231,7 @@ export function MetaTab() {
                   <p className="font-bold text-sm text-slate-800 truncate">{c.pageName || c.pageId}</p>
                   <p className="text-xs text-ink-muted font-semibold">
                     → {clinicName(c.clinicId)}
-                    <span className="text-slate-300"> · </span>
+                    <span className="text-slate-500"> · </span>
                     <span dir="ltr">{c.pageId}</span>
                   </p>
                   <p className={`text-[11px] font-bold mt-1 flex items-center gap-1.5 ${h.tone}`}>

@@ -223,7 +223,7 @@ export function AlertsLineCard() {
           </p>
         </div>
         {loading ? (
-          <Loader2 size={18} className="animate-spin text-slate-400" />
+          <Loader2 size={18} className="animate-spin text-slate-500" />
         ) : status?.configured ? (
           <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">
             <Check size={14} /> Connected{status.from === "env" ? " (from env)" : ""}

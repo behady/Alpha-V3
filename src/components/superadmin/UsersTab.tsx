@@ -34,7 +34,7 @@ export function UsersTab({ users, onToggleSuperAdmin }: UsersTabProps) {
           </div>
         </div>
         <div className="w-full md:w-96 relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
           <input
             type="search"
             placeholder="Search users by name, email, or ID..."
@@ -49,7 +49,7 @@ export function UsersTab({ users, onToggleSuperAdmin }: UsersTabProps) {
       <div className="bg-surface rounded-[2rem] border border-slate-200/60 shadow-sm overflow-hidden">
         {filteredUsers.length === 0 ? (
           <div className="p-16 text-center">
-            <div className="w-20 h-20 bg-surface-muted text-slate-300 rounded-3xl flex items-center justify-center mx-auto mb-4">
+            <div className="w-20 h-20 bg-surface-muted text-slate-500 rounded-3xl flex items-center justify-center mx-auto mb-4">
               <Users size={32} />
             </div>
             <h3 className="text-lg font-bold text-slate-700">No users found</h3>
@@ -59,7 +59,7 @@ export function UsersTab({ users, onToggleSuperAdmin }: UsersTabProps) {
           <div className="overflow-x-auto">
             <table className="w-full text-start border-collapse">
               <thead>
-                <tr className="bg-surface-subtle border-b border-slate-100 text-xs font-black text-slate-400 uppercase tracking-widest">
+                <tr className="bg-surface-subtle border-b border-slate-100 text-xs font-black text-slate-500 uppercase tracking-widest">
                   <th className="px-6 py-4">User</th>
                   <th className="px-6 py-4">Created At</th>
                   <th className="px-6 py-4 text-center">Clinics</th>
@@ -81,7 +81,7 @@ export function UsersTab({ users, onToggleSuperAdmin }: UsersTabProps) {
                           <div>
                             <p className="font-bold text-ink">{user.name || "No Name"}</p>
                             <p className="text-xs text-ink-muted">{user.email || "No Email"}</p>
-                            <p className="text-xs font-mono text-slate-400 mt-0.5" title={user.id}>ID: {user.id.slice(0, 8)}...</p>
+                            <p className="text-xs font-mono text-slate-500 mt-0.5" title={user.id}>ID: {user.id.slice(0, 8)}...</p>
                           </div>
                         </div>
                       </td>
@@ -91,7 +91,7 @@ export function UsersTab({ users, onToggleSuperAdmin }: UsersTabProps) {
                             {new Date(user.createdAt.toDate ? user.createdAt.toDate() : user.createdAt).toLocaleDateString()}
                           </span>
                         ) : (
-                          <span className="text-sm text-slate-400">Unknown</span>
+                          <span className="text-sm text-slate-500">Unknown</span>
                         )}
                       </td>
                       <td className="px-6 py-4 text-center">

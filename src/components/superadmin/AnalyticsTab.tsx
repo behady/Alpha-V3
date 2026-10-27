@@ -130,7 +130,7 @@ export function AnalyticsTab({ clinics }: AnalyticsTabProps) {
           </div>
           <div className="h-64 flex justify-center">
             {revenueData.length === 0 ? (
-              <div className="flex items-center justify-center h-full text-slate-400 font-bold">No active MRR</div>
+              <div className="flex items-center justify-center h-full text-slate-500 font-bold">No active MRR</div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -172,12 +172,12 @@ export function AnalyticsTab({ clinics }: AnalyticsTabProps) {
         </div>
         <div className="divide-y divide-slate-100">
           {topClinics.length === 0 ? (
-            <p className="text-sm text-slate-400 py-4">No clinics available.</p>
+            <p className="text-sm text-slate-500 py-4">No clinics available.</p>
           ) : (
             topClinics.map((clinic, idx) => (
               <div key={clinic.id} className="py-4 flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                  <div className="text-slate-300 font-black text-xl w-6">{idx + 1}</div>
+                  <div className="text-slate-500 font-black text-xl w-6">{idx + 1}</div>
                   <div>
                     <h4 className="font-bold text-ink">{clinic.name}</h4>
                     <span className="text-xs text-ink-muted">ID: {clinic.id}</span>

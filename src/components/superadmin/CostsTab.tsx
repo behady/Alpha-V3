@@ -188,8 +188,10 @@ export function CostsTab() {
                       <td className="px-3 py-2.5 font-semibold text-slate-300">{r.tier}</td>
                       <td className="px-3 py-2.5 font-figure font-semibold text-slate-300">{egp(r.monthlyRevenueEgp)}</td>
                       <td className="px-3 py-2.5 font-figure font-semibold text-slate-400">
-                        {r.creditsUsed.toLocaleString("en-US")}
-                        {r.creditLimit > 0 && <span className="text-slate-600"> / {r.creditLimit.toLocaleString("en-US")}</span>}
+                        <span dir="ltr">
+                          {r.creditsUsed.toLocaleString("en-US")}
+                          {r.creditLimit > 0 && <span className="text-slate-400"> / {r.creditLimit.toLocaleString("en-US")}</span>}
+                        </span>
                       </td>
                       <td className="px-3 py-2.5 font-figure font-semibold text-slate-300">
                         ${r.aiCostUsd.toFixed(3)}
@@ -205,7 +207,7 @@ export function CostsTab() {
                       <td className="px-3 py-2.5 font-figure font-semibold text-slate-300">
                         ${waUsd.toFixed(3)}
                         {r.whatsappBilledUsd === null && waUsd > 0 && (
-                          <span className="ms-1 text-[10px] font-bold uppercase text-slate-600">est</span>
+                          <span className="ms-1 text-[10px] font-bold uppercase text-slate-400">est</span>
                         )}
                       </td>
                       <td className="px-3 py-2.5 font-figure font-bold text-amber-300">{egp(r.totalCostEgp)}</td>
