@@ -3,8 +3,8 @@
 import Link from "next/link";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MessageCircle, Save, Loader2, Send, Plug, CheckCircle2, AlertCircle, Lock, QrCode, Unplug, RefreshCw } from "lucide-react";
-import { doc, onSnapshot, setDoc } from "firebase/firestore";
+import { MessageCircle, Save, Loader2, Send, Plug, CheckCircle2, AlertCircle, Lock, QrCode, Unplug, RefreshCw, MessageSquareText } from "lucide-react";
+import { deleteField, doc, onSnapshot, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import BotPlayground from "./BotPlayground";
 import BotMediaLibrary from "./BotMediaLibrary";
@@ -17,9 +17,15 @@ import { useUI } from "@/context/UIContext";
 import { currentClinicId } from "@/lib/db-utils";
 import { isAnyUnlocked, isUnlocked, SUPPORT_WHATSAPP } from "@/lib/featureCatalog";
 import BotScriptsEditor from "@/components/settings/BotScriptsEditor";
+import AutoReplySteps, { type AutoReplyStepRow } from "@/components/whatsapp/AutoReplySteps";
+import BotBriefEditor from "@/components/whatsapp/BotBriefEditor";
+import InterviewDialog from "@/components/whatsapp/InterviewDialog";
+import { briefFilled, cleanBrief, factsFilled, stepsForMode, type AutoReplyStep } from "@/lib/bot/brief";
+import { answerModeOf } from "@/lib/setupWizard";
 import { logActivity } from "@/lib/logger";
 import { useDirtyFlag } from "@/context/UnsavedChangesContext";
 import type {
+  BotBrief,
   WhatsAppMessageTemplate,
   WhatsAppSettingsDocument,
   WhatsAppTemplateType,
@@ -151,6 +157,8 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
       ? (data.ownerAlerts as WhatsAppSettingsDocument["ownerAlerts"])
       : {};
 
+  const botBrief = cleanBrief(data?.botBrief);
+
   return {
     isPatientAutomationEnabled: Boolean(data?.isPatientAutomationEnabled),
     isLeadAutoReplyEnabled: Boolean(data?.isLeadAutoReplyEnabled),
@@ -180,6 +188,8 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
     botClinicalMode: data?.botClinicalMode === "dentist" ? "dentist" : "handoff",
     ...(typeof data?.botAiMaxReplies === "number" ? { botAiMaxReplies: data.botAiMaxReplies } : {}),
     botCoaching: typeof data?.botCoaching === "string" ? data.botCoaching : "",
+    // Same rule as botFacts: an empty brief stays absent rather than becoming `{}` or `undefined`.
+    ...(Object.keys(botBrief).length ? { botBrief } : {}),
     botPersonaName: typeof data?.botPersonaName === "string" ? data.botPersonaName : "",
     botHumanTouch: data?.botHumanTouch !== false,
     botQuietNudge: data?.botQuietNudge !== false,
@@ -199,25 +209,38 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
   };
 }
 
-/** The four jobs this page does, in the order someone new to it needs them. */
-const WHATSAPP_TABS = ["connection", "assistant", "answers", "playground", "ai", "messages", "wording", "alerts"] as const;
+/**
+ * The brief as it goes to Firestore.
+ *
+ * Only set, non-default keys are written (cleanBrief), and a key the owner cleared is deleted
+ * explicitly: the save is a merge, which would otherwise keep the old value inside the stored map
+ * and the listener would put it straight back on screen.
+ */
+const BRIEF_KEYS = ["focus", "tone", "prices", "neverSay", "handoffWhen"] as const;
+function briefForWrite(b: BotBrief): Record<string, unknown> {
+  const clean: Record<string, unknown> = { ...cleanBrief(b) };
+  for (const k of BRIEF_KEYS) if (!(k in clean)) clean[k] = deleteField();
+  return clean;
+}
+
+/** The jobs this page does, in the order someone new to it needs them. */
+const WHATSAPP_TABS = ["connection", "autoreply", "messages", "wording", "alerts"] as const;
 type WhatsAppTab = (typeof WHATSAPP_TABS)[number];
 
 /**
- * One settings document, three menu entries.
+ * One settings document, two menu entries.
  *
  * Everything here writes `settings/whatsapp`, and the state, the listener and the optimistic
  * save are one piece — so the screen stays one component and the Settings menu decides which
- * slice of it to show. "channel" is the number and the automatic messages, "bot" is the
- * scripted receptionist, "ai" is the model that may answer when the script cannot. They were
- * one seven-tab page and nobody could tell the bot's switches from the AI's.
+ * slice of it to show. "channel" is the number and the automatic messages, "bot" is Auto-reply:
+ * who answers patients (nobody, the bot, the AI, or both) and the chosen mode's setup steps. The
+ * Bot and AI used to be separate entries and nobody could tell the bot's switches from the AI's.
  */
-export type WhatsAppSection = "all" | "channel" | "bot" | "ai";
+export type WhatsAppSection = "all" | "channel" | "bot";
 const SECTION_TABS: Record<WhatsAppSection, readonly WhatsAppTab[]> = {
   all: WHATSAPP_TABS,
   channel: ["connection", "messages", "wording", "alerts"],
-  bot: ["assistant", "answers", "playground"],
-  ai: ["ai"],
+  bot: ["autoreply"],
 };
 
 /** What the QR-connect card knows about this clinic on Alpha's own gateway (see lib/waGateway). */
@@ -290,6 +313,17 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
    */
   const [saveError, setSaveError] = useState<string | null>(null);
   const [tab, setTab] = useState<WhatsAppTab>(SECTION_TABS[section][0]);
+  /**
+   * The open Auto-reply step. `undefined` until the owner picks one, which means "the mode's first
+   * step"; `null` means they closed them all.
+   */
+  const [openStep, setOpenStep] = useState<AutoReplyStep | null | undefined>(undefined);
+  const [interviewOpen, setInterviewOpen] = useState(false);
+  // Old links to the AI tab arrive as ?step=ai and land on the AI's brief. Read once after mount,
+  // not through useSearchParams, so the page needs no Suspense boundary.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("step") === "ai") setOpenStep("brief");
+  }, []);
   /** The last state the server confirmed, to restore when a write is refused. */
   const serverState = useRef<WhatsAppSettingsDocument | null>(null);
   const [state, setState] = useState<WhatsAppSettingsDocument>({
@@ -428,25 +462,49 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
       savingNow: language === "ar" ? "جارٍ الحفظ..." : "Saving...",
       savedAll: language === "ar" ? "كل التغييرات محفوظة" : "All changes saved",
       tab_connection: language === "ar" ? "الاتصال" : "Connection",
-      tab_assistant: language === "ar" ? "البوت" : "Bot",
-      tab_ai: language === "ar" ? "الذكاء الاصطناعي" : "AI",
-      tab_answers: language === "ar" ? "الردود الجاهزة" : "Ready answers",
-      tab_playground: language === "ar" ? "جرّب البوت" : "Try it",
+      tab_autoreply: language === "ar" ? "الرد الآلي" : "Auto-reply",
       tab_messages: language === "ar" ? "الرسائل التلقائية" : "Automations",
       tab_wording: language === "ar" ? "الصياغة" : "Wording",
       tab_alerts: language === "ar" ? "تنبيهات المالك" : "Owner alerts",
       tabHint_connection: language === "ar" ? "ربط رقم الواتساب بالنظام واختبار الإرسال." : "Link the clinic's WhatsApp number and test sending.",
-      tabHint_assistant: language === "ar" ? "البوت اللي بيرد على المرضى بردود جاهزة: شغّله واختار مين يرد." : "The bot that answers patients from ready scripts: switch it on and choose who answers.",
-      tabHint_ai: language === "ar" ? "الذكاء الاصطناعي اللي بيرد لما البوت ميعرفش: اسمه، تعليماته، وحد ردوده. كل رد بيخصم رصيد." : "The AI that answers when the bot cannot: its name, its instructions, its reply cap. Every reply spends a credit.",
-      tabHint_answers: language === "ar" ? "إجابات بكلماتك للأسئلة اللي النظام معندوش بياناتها. كل خانة تملاها بتوفر رد بشري." : "Your own words for the questions the system has no data for. Every box you fill saves a staff reply.",
-      tabHint_playground: language === "ar" ? "اتكلم مع البوت زي المريض وشوف بيرد إزاي. مفيش حاجة بتتبعت لحد." : "Chat with the bot as a patient and see what it says. Nothing is sent to anyone.",
+      tabHint_autoreply: language === "ar" ? "اختار مين يرد على المرضى، وبعدين امشي على خطوات الوضع ده بالترتيب." : "Choose who answers patients, then work through that mode's steps in order.",
       tabHint_messages: language === "ar" ? "الرسايل اللي العيادة بتبعتها لوحدها: تأكيدات، تذكيرات، متابعة بعد الزيارة، واسترجاع الغايبين." : "Messages the clinic sends by itself: confirmations, reminders, after-visit follow-ups, winning back the absent.",
       tabHint_wording: language === "ar" ? "نص كل رسالة تلقائية، بالعربي أو بلغتين." : "The text of each automatic message, Arabic or bilingual.",
       tabHint_alerts: language === "ar" ? "إيه اللي يوصلك انت على واتساب لما حاجة تحصل في النظام." : "What reaches you on WhatsApp when something happens in the system.",
-      botOffFirst: language === "ar" ? "شغّل البوت الأول: واتساب ← البوت ← «مين اللي بيرد على المرضى؟»." : "Switch the bot on first: WhatsApp → Bot → \"Who answers patients?\".",
-      aiNotAnswering: language === "ar" ? "الذكاء الاصطناعي مش بيرد دلوقتي. من واتساب ← البوت اختار «البوت + الذكاء الاصطناعي» أو «الذكاء الاصطناعي بس»." : "The AI is not answering right now. In WhatsApp → Bot choose \"Bot + AI\" or \"AI only\".",
-      answerModeOff: language === "ar" ? "محدش" : "Nobody",
+      answerModeOff: language === "ar" ? "محدش" : "Off",
+      answerModeOffCard: language === "ar" ? "محدش بيرد تلقائي، والفريق بيرد بنفسه." : "Nobody answers; staff reply by hand.",
       answerModeOffHint: language === "ar" ? "الرسايل تتجمع في المحادثات والفريق يرد بنفسه." : "Messages collect in Chats and the team answers by hand.",
+      stepClinic: language === "ar" ? "عن عيادتك" : "About your clinic",
+      stepReplies: language === "ar" ? "الردود الجاهزة" : "Fixed replies",
+      stepBrief: language === "ar" ? "الذكاء الاصطناعي يتكلم إزاي" : "How the AI should talk",
+      stepBehaviour: language === "ar" ? "التصرف والحدود" : "Behaviour and limits",
+      stepTest: language === "ar" ? "جرّبه" : "Test it",
+      stepFilled: (filled: number, total: number) =>
+        language === "ar"
+          ? `${filled.toLocaleString("ar-EG")} من ${total.toLocaleString("ar-EG")}`
+          : `${filled} of ${total} filled`,
+      stepReplyCount: (n: number) =>
+        n === 0
+          ? language === "ar" ? "مفيش ردود" : "No replies"
+          : language === "ar"
+          ? n === 1
+            ? "رد واحد"
+            : n === 2
+              ? "ردين"
+              : n >= 3 && n <= 10
+                ? `${n.toLocaleString("ar-EG")} ردود`
+                : `${n.toLocaleString("ar-EG")} رد`
+          : `${n} ${n === 1 ? "reply" : "replies"}`,
+      repliesOptional:
+        language === "ar"
+          ? "اختياري — الردود دي بتشتغل قبل الذكاء الاصطناعي"
+          : "optional — these fire before the AI",
+      interviewMe: language === "ar" ? "احكيلنا عن عيادتك" : "Interview me",
+      interviewMeHint:
+        language === "ar"
+          ? "اوصف العيادة مرة واحدة بكلامك، والذكاء الاصطناعي يجهّز الخانات دي وانت تراجعها. ١ كريدت."
+          : "Describe the clinic once in your own words; the AI drafts these boxes for you to review. 1 credit.",
+      briefAnythingElse: language === "ar" ? "أي حاجة تانية" : "Anything else",
       needsBotAddon: language === "ar" ? "يحتاج إضافة البوت." : "Needs the Scripted Bot add-on.",
       needsAiAddon: language === "ar" ? "يحتاج إضافة المساعد الذكي." : "Needs the AI Assistant add-on.",
       groupAppointments: language === "ar" ? "المواعيد" : "Appointments",
@@ -454,10 +512,8 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
       groupWinBack: language === "ar" ? "استرجاع اللي غابوا" : "Winning people back",
       title:
         section === "bot"
-          ? language === "ar" ? "بوت واتساب" : "WhatsApp Bot"
-          : section === "ai"
-            ? language === "ar" ? "المساعد الذكي" : "AI Assistant"
-            : language === "ar" ? "واتساب" : "WhatsApp",
+          ? language === "ar" ? "الرد الآلي على واتساب" : "WhatsApp auto-reply"
+          : language === "ar" ? "واتساب" : "WhatsApp",
       patientCard: language === "ar" ? "أتمتة رسائل المرضى" : "Patient automation",
     saveRefused:
       language === "ar"
@@ -577,18 +633,18 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
       answerModeBot: language === "ar" ? "البوت بس" : "Bot only",
       answerModeBotHint:
         language === "ar"
-          ? "أزرار وقوائم وردود جاهزة بكلماتك. مفيش ذكاء اصطناعي ومفيش كريدت. أي سؤال خارج القائمة بيروح لموظف."
-          : "Buttons, menus and your ready answers. No AI, no credits. Anything off-menu goes to a person.",
+          ? "ببلاش. ردود جاهزة وقوايم وأزرار حجز. أي سؤال مش معروف بيروح لموظف."
+          : "Free. Fixed answers, menus, booking buttons. Unknown questions go to staff.",
       answerModeBoth: language === "ar" ? "البوت + الذكاء الاصطناعي" : "Bot + AI",
       answerModeBothHint:
         language === "ar"
-          ? "البوت يرد الأول ببلاش من الأزرار والردود الجاهزة، والذكاء الاصطناعي يجاوب على الأسئلة الحرة بس، بحد أقصى تختاره."
-          : "The bot answers first, free, from buttons and ready answers; the AI handles only free-text questions, up to a cap you choose.",
+          ? "البوت بيرد على اللي يعرفه ببلاش، والذكاء الاصطناعي بياخد الباقي بس، لحد عدد ردود محدد في كل محادثة."
+          : "The bot answers what it can for free; the AI handles only the rest, up to a per-chat limit.",
       answerModeAi: language === "ar" ? "الذكاء الاصطناعي بس" : "AI only",
       answerModeAiHint:
         language === "ar"
-          ? "موظف مبيعات ذكي بيتكلم مع المريض من أول رسالة لحد الحجز، بإنسانية ومن غير أزرار. الأجندة والأمان (الألم، الشكاوى) بيفضلوا ثابتين. كل رد ١ كريدت."
-          : "A smart salesperson talks with the patient from the first message to the booking, human-like, no buttons. Calendar and safety (pain, complaints) stay fixed. 1 credit per reply.",
+          ? "الذكاء الاصطناعي بيقود كل محادثة زي موظف مبيعات. الحجز والإلغاء وتأكيد «تمام» بيفضلوا على أزرار النظام. بيخصم كريدت."
+          : "The AI leads every chat like a salesperson. Bookings, cancelling and \"تمام\" confirmations still run on the system's buttons. Costs credits.",
       aiSettingsTitle: language === "ar" ? "إعدادات الذكاء الاصطناعي" : "AI settings",
       botSales: language === "ar" ? "الذكاء الاصطناعي يقود المحادثة (وضع البائع)" : "AI leads the conversation (salesperson mode)",
       botSalesHint:
@@ -633,7 +689,6 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
         language === "ar"
           ? "لما المريض يقول «ضرسي بيوجعني» أو «لثتي وارمة»، بدل ما يوعده بمكالمة، الذكاء الاصطناعي يسأله سؤال أو اتنين (فين؟ بقاله قد إيه؟)، يطمّنه بنصايح عامة آمنة من غير تشخيص أو أدوية بالاسم، وبعدين يعرض عليه أقرب ميعاد. الحالات الطارئة (نزيف مش بيقف، ورم في الوش مع سخونية، إصابة، صعوبة بلع) ومرضى السكر والضغط بتتحول لموظف زي ما هي."
           : "When a patient says \"my tooth hurts\" or \"my gum is swollen\", instead of promising a call-back the AI asks one or two questions (where? since when?), reassures with safe general advice — no diagnosis, no drug names — and then offers the earliest appointment. Emergencies (bleeding that won't stop, facial swelling with fever, injuries, trouble swallowing) and diabetic or blood-pressure patients still go straight to a person.",
-      factsTitle: language === "ar" ? "ردود جاهزة على أسئلة المرضى" : "Ready answers for common questions",
       factsHint:
         language === "ar"
           ? "دي الأسئلة اللي المرضى بيسألوها والنظام معندوش إجابتها. أي خانة تسيبها فاضية، البوت هيقول «الاستقبال هيتواصل معاك» ومش هيخمّن أبداً. أي خانة تملاها، البوت هيرد بيها فوراً وببلاش — من غير ما تدفع كريدت ومن غير ما موظف يرد."
@@ -1165,6 +1220,7 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
         getClinicDoc(WHATSAPP_SETTINGS_DOC_REF.collection, WHATSAPP_SETTINGS_DOC_REF.docId),
         {
           ...next,
+          ...(next.botBrief ? { botBrief: briefForWrite(next.botBrief) } : {}),
           updatedAt: new Date().toISOString(),
         },
         { merge: true }
@@ -1319,6 +1375,357 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
       </div>
     );
   }
+
+  /*
+   * Auto-reply: pick a mode, then only that mode's steps. Every block below is one the old Bot,
+   * Ready answers, AI and Try it tabs showed, moved into the step it belongs to; the state, the
+   * listener and the save are the same ones the rest of the page uses.
+   */
+  const autoReplyMode = answerModeOf(state as unknown as Record<string, unknown>);
+  const aiMode = autoReplyMode === "ai" || autoReplyMode === "both";
+  const modeSteps = stepsForMode(autoReplyMode);
+  // A step the current mode does not have (the brief, after switching to Bot only) falls back to
+  // the mode's first step rather than leaving the list with nothing open.
+  const openAutoReplyStep =
+    openStep === null
+      ? null
+      : openStep !== undefined && modeSteps.some((s) => s.id === openStep)
+        ? openStep
+        : (modeSteps[0]?.id ?? null);
+  // Saves whatever the state holds once the update queued just before has applied — a choice
+  // calls onChange then onCommit in one click, and `state` in this closure is still the old one.
+  const persistLatest = () =>
+    setState((s) => {
+      void persist(s, "silent");
+      return s;
+    });
+
+  const interviewButton =
+    aiMode && aiInPlan ? (
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-surface-subtle px-4 py-3">
+        <button
+          type="button"
+          onClick={() => setInterviewOpen(true)}
+          className="inline-flex items-center gap-2 rounded-xl bg-ink-slab px-4 py-2 text-xs font-black text-white hover:bg-ink"
+        >
+          <MessageSquareText size={14} />
+          {txt.interviewMe}
+        </button>
+        <p className="min-w-0 flex-1 text-xs leading-relaxed text-ink-muted">{txt.interviewMeHint}</p>
+      </div>
+    ) : null;
+
+  const aiLockNotice = !aiInPlan ? (
+    <div className="flex items-start gap-2 rounded-xl border border-line bg-surface-subtle px-3 py-2.5 text-xs font-bold text-ink-body">
+      <Lock size={14} className="mt-0.5 shrink-0" />
+      <span>
+        {txt.needsAiAddon}{" "}
+        <a dir="ltr" className="underline" href={`https://wa.me/${SUPPORT_WHATSAPP.replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer">{SUPPORT_WHATSAPP}</a>
+      </span>
+    </div>
+  ) : null;
+
+  /*
+    The answers the system does not otherwise hold.
+    Every one of these questions reached a receptionist every single time, or reached
+    the model with no data and came back as general dentistry in the clinic's voice.
+    Empty stays safe — the bot says a person will follow up rather than guessing.
+  */
+  const clinicStep = (
+    <div className="space-y-3">
+      {interviewButton}
+      <p className="text-xs text-ink-body leading-relaxed">{txt.factsHint}</p>
+      <div className="grid gap-3">
+        {(
+          [
+            { key: "whyUs" as const, label: txt.factWhyUs, ph: txt.factWhyUsPh },
+            { key: "consultation" as const, label: txt.factConsultation, ph: txt.factConsultationPh },
+            { key: "dentists" as const, label: txt.factDentists, ph: txt.factDentistsPh },
+            { key: "walkIn" as const, label: txt.factWalkIn, ph: txt.factWalkInPh },
+            { key: "durations" as const, label: txt.factDurations, ph: txt.factDurationsPh },
+            { key: "sessions" as const, label: txt.factSessions, ph: txt.factSessionsPh },
+            { key: "installments" as const, label: txt.factInstallments, ph: txt.factInstallmentsPh },
+            { key: "offers" as const, label: txt.factOffers, ph: txt.factOffersPh },
+            { key: "offersUntil" as const, label: txt.factOffersUntil, ph: txt.factOffersUntilPh },
+            { key: "insurance" as const, label: txt.factInsurance, ph: txt.factInsurancePh },
+            { key: "notOffered" as const, label: txt.factNotOffered, ph: txt.factNotOfferedPh },
+            { key: "aftercare" as const, label: txt.factAftercare, ph: txt.factAftercarePh },
+            { key: "parking" as const, label: txt.factParking, ph: txt.factParkingPh },
+            { key: "mapsUrl" as const, label: txt.factMaps, ph: txt.factMapsPh },
+          ]
+        ).map(({ key, label, ph }) => (
+          <label key={key} className="block space-y-1">
+            <span className="text-xs font-bold text-ink">{label}</span>
+            {key === "offersUntil" ? (
+              <input
+                type="date"
+                className="block rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-accent-soft focus:ring-1 focus:ring-accent-soft/30"
+                value={state.botFacts?.offersUntil ?? ""}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setState((s) => ({ ...s, botFacts: { ...(s.botFacts ?? {}), offersUntil: value } }));
+                }}
+                onBlur={() => void persist(state, "silent")}
+              />
+            ) : (
+            <textarea
+              rows={key === "mapsUrl" ? 1 : 2}
+              dir="auto"
+              className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-muted focus:border-accent-soft focus:ring-1 focus:ring-accent-soft/30 resize-y"
+              placeholder={ph}
+              value={state.botFacts?.[key] ?? ""}
+              onChange={(e) => {
+                const value = e.target.value;
+                setState((s) => ({ ...s, botFacts: { ...(s.botFacts ?? {}), [key]: value } }));
+              }}
+              // Saved on blur rather than per keystroke: these are sentences, and a
+              // write per character is a write per character.
+              onBlur={() => void persist(state, "silent")}
+            />
+            )}
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+
+  const repliesStep = (
+    <div className="space-y-6">
+      {modeSteps.find((s) => s.id === "replies")?.optional && (
+        <p className="text-xs font-bold text-ink-muted">{txt.repliesOptional}</p>
+      )}
+      {/* The clinic's own trigger→reply scripts. Free, verbatim, and matched before every built-in answer. */}
+      <BotScriptsEditor
+        scripts={state.botScripts ?? []}
+        onChange={(botScripts) => {
+          setState((s) => {
+            const next = { ...s, botScripts };
+            void persist(next, "silent");
+            return next;
+          });
+        }}
+      />
+      <BotMediaLibrary />
+      <BotMedicineList />
+    </div>
+  );
+
+  const briefStep = (
+    <div className="space-y-3">
+      {aiLockNotice}
+      {interviewButton}
+      <BotBriefEditor
+        brief={state.botBrief ?? {}}
+        onChange={(botBrief) => setState((s) => ({ ...s, botBrief }))}
+        onCommit={persistLatest}
+        showBotPriceNote={autoReplyMode === "both"}
+        isAr={language === "ar"}
+      />
+      {/* "Anything else": the free coaching box, unchanged, as the brief's sixth card. */}
+      <label className="block space-y-2 rounded-xl border border-line bg-surface-subtle p-4">
+        <span className="block text-sm font-black text-ink">{txt.briefAnythingElse}</span>
+        <span className="block text-xs leading-relaxed text-ink-muted">{txt.botCoaching}</span>
+        <textarea
+          rows={4}
+          dir="auto"
+          className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-muted focus:border-accent-soft focus:ring-1 focus:ring-accent-soft/30 resize-y"
+          placeholder={txt.botCoachingPh}
+          value={state.botCoaching ?? ""}
+          onChange={(e) => {
+            const value = e.target.value;
+            setState((s) => ({ ...s, botCoaching: value }));
+          }}
+          onBlur={() => void persist(state, "silent")}
+        />
+        <span className="block max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botCoachingHint}</span>
+      </label>
+    </div>
+  );
+
+  const behaviourStep = (
+    <div className="space-y-3">
+      <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botLimits}</p>
+      <label className="flex items-center justify-between gap-4 cursor-pointer pt-1">
+        <span className="text-sm font-bold text-ink leading-relaxed">{txt.botStrangers}</span>
+        <input
+          type="checkbox"
+          className="h-5 w-5 rounded border-line-strong text-ink-muted focus:ring-accent-soft/30 shrink-0"
+          checked={state.botAnswerStrangers === true}
+          onChange={(e) => {
+            const checked = e.target.checked;
+            setState((s) => {
+              const next = { ...s, botAnswerStrangers: checked };
+              void persist(next, "silent");
+              return next;
+            });
+          }}
+        />
+      </label>
+      <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botStrangersHint}</p>
+      <label className="flex items-center justify-between gap-4 cursor-pointer pt-1">
+        <span className="text-sm font-bold text-ink leading-relaxed">{txt.botAutoConfirm}</span>
+        <input
+          type="checkbox"
+          className="h-5 w-5 rounded border-line-strong text-ink-muted focus:ring-accent-soft/30 shrink-0"
+          checked={state.botAutoConfirmBookings === true}
+          onChange={(e) => {
+            const checked = e.target.checked;
+            setState((s) => {
+              const next = { ...s, botAutoConfirmBookings: checked };
+              void persist(next, "silent");
+              return next;
+            });
+          }}
+        />
+      </label>
+      <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botAutoConfirmHint}</p>
+
+      {/* How long a staff reply keeps the bot out of the thread. */}
+      <div className="flex flex-wrap items-center gap-3 pt-1">
+        <span className="text-sm font-bold text-ink">{txt.botClaim}</span>
+        <input
+          type="number"
+          min={0}
+          max={1440}
+          className="w-24 rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-ink"
+          value={state.botHumanClaimMinutes === undefined ? "" : state.botHumanClaimMinutes}
+          placeholder="15"
+          onChange={(e) => {
+            const raw = e.target.value;
+            const n = Math.max(0, Math.min(1440, Math.round(Number(raw) || 0)));
+            setState((s) => ({ ...s, botHumanClaimMinutes: raw === "" ? undefined : n }));
+          }}
+          onBlur={() => void persist(state, "silent")}
+        />
+        <span className="text-xs text-ink-muted">{txt.botClaimUnit}</span>
+      </div>
+      <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botClaimHint}</p>
+
+      {/* The AI's own settings: name, cap, pacing, symptoms. Meaningless without it, so AI modes only. */}
+      {aiMode && (
+        <div className="space-y-3 border-t border-line pt-4">
+          <p className="text-[11px] font-black uppercase tracking-widest text-ink-body">{txt.aiSettingsTitle}</p>
+          {aiLockNotice}
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-xs font-bold text-ink">{txt.botPersona}</span>
+            <input
+              type="text"
+              dir="auto"
+              className="w-40 rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-muted"
+              placeholder={txt.botPersonaPh}
+              value={state.botPersonaName ?? ""}
+              onChange={(e) => {
+                const value = e.target.value;
+                setState((s) => ({ ...s, botPersonaName: value }));
+              }}
+              onBlur={() => void persist(state, "silent")}
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            <span className="text-xs font-bold text-ink">{txt.botAiCap}</span>
+            <input
+              type="number"
+              min={1}
+              max={200}
+              disabled={state.botAiMaxReplies === 0}
+              className="w-24 rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-ink disabled:opacity-40"
+              value={state.botAiMaxReplies === 0 || state.botAiMaxReplies === undefined ? "" : state.botAiMaxReplies}
+              placeholder={state.botMode === "ai_first" ? "∞" : "3"}
+              onChange={(e) => {
+                const n = Math.max(1, Math.min(200, Number(e.target.value) || 0));
+                setState((s) => ({ ...s, botAiMaxReplies: e.target.value === "" ? undefined : n }));
+              }}
+              onBlur={() => void persist(state, "silent")}
+            />
+            <label className="flex items-center gap-2 text-xs font-bold text-ink cursor-pointer">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-line-strong"
+                checked={state.botAiMaxReplies === 0 || (state.botAiMaxReplies === undefined && state.botMode === "ai_first")}
+                onChange={(e) => {
+                  const unlimited = e.target.checked;
+                  setState((s) => {
+                    const next = { ...s, botAiMaxReplies: unlimited ? 0 : 12 };
+                    void persist(next, "silent");
+                    return next;
+                  });
+                }}
+              />
+              {txt.botAiCapUnlimited}
+            </label>
+          </div>
+          <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botAiCapHint}</p>
+
+          <label className="flex items-center justify-between gap-4 cursor-pointer">
+            <span className="text-xs font-bold text-ink leading-relaxed">{txt.botHumanTouch}</span>
+            <input
+              type="checkbox"
+              className="h-5 w-5 rounded border-line-strong text-ink-muted focus:ring-accent-soft/30 shrink-0"
+              checked={state.botHumanTouch !== false}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setState((s) => {
+                  const next = { ...s, botHumanTouch: on };
+                  void persist(next, "silent");
+                  return next;
+                });
+              }}
+            />
+          </label>
+
+          <label className="flex items-center justify-between gap-4 cursor-pointer">
+            <span className="text-xs font-bold text-ink leading-relaxed">{txt.botQuietNudge}</span>
+            <input
+              type="checkbox"
+              className="h-5 w-5 rounded border-line-strong text-ink-muted focus:ring-accent-soft/30 shrink-0"
+              checked={state.botQuietNudge !== false}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setState((s) => {
+                  const next = { ...s, botQuietNudge: on };
+                  void persist(next, "silent");
+                  return next;
+                });
+              }}
+            />
+          </label>
+
+          {/* Symptoms: a person, or the AI as a dentist first. Needs the AI on to mean anything. */}
+          <label className={`flex items-center justify-between gap-4 pt-1 ${state.botAiEnabled ? "cursor-pointer" : "opacity-50"}`}>
+            <span className="text-sm font-bold text-ink leading-relaxed">{txt.botDentist}</span>
+            <input
+              type="checkbox"
+              className="h-5 w-5 rounded border-line-strong text-ink-muted focus:ring-accent-soft/30 shrink-0"
+              disabled={!state.botAiEnabled}
+              checked={state.botClinicalMode === "dentist"}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setState((s) => {
+                  const next = { ...s, botClinicalMode: on ? ("dentist" as const) : ("handoff" as const) };
+                  void persist(next, "silent");
+                  return next;
+                });
+              }}
+            />
+          </label>
+          <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botDentistHint}</p>
+        </div>
+      )}
+    </div>
+  );
+
+  const factsCount = factsFilled(state.botFacts);
+  const briefCount = briefFilled(state.botBrief, state.botCoaching);
+  const replyCount = (state.botScripts ?? []).filter((s) => s.enabled !== false).length;
+  const stepView: Record<AutoReplyStep, Omit<AutoReplyStepRow, "id" | "optional">> = {
+    clinic: { title: txt.stepClinic, badge: txt.stepFilled(factsCount.filled, factsCount.total), content: clinicStep },
+    replies: { title: txt.stepReplies, badge: txt.stepReplyCount(replyCount), content: repliesStep },
+    brief: { title: txt.stepBrief, badge: txt.stepFilled(briefCount.filled, briefCount.total), content: briefStep },
+    behaviour: { title: txt.stepBehaviour, content: behaviourStep },
+    test: { title: txt.stepTest, content: <BotPlayground /> },
+  };
+  const autoReplySteps: AutoReplyStepRow[] = modeSteps.map((s) => ({ ...s, ...stepView[s.id] }));
 
   return (
     <div className="w-full space-y-10 pb-4" dir={isRTL ? "rtl" : "ltr"}>
@@ -2210,14 +2617,13 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
       </div>
       )}
 
-      {(tab === "assistant" || tab === "answers" || tab === "playground" || tab === "ai" || tab === "alerts") && (
+      {(tab === "autoreply" || tab === "alerts") && (
         <div className="space-y-6">
-      <div hidden={tab === "alerts"} className="flex flex-col gap-8">
+      <div hidden={tab !== "autoreply"} className="flex flex-col gap-8">
         {/* Answering inbound messages. Sits under the opt-out card because it shares the same
             risk: this is the one feature that talks to a patient with no staff member deciding
             to, so its off-switch and its limits belong where they can be read together. */}
         <div className="space-y-3">
-          <div hidden={tab !== "assistant"} className="space-y-3">
           <p className="text-[11px] font-black uppercase tracking-widest text-ink-body">{txt.botTitle}</p>
           {/* The receptionist is its own add-on. Without it the switch stays visible but inert,
               and the line under it says who to write to — a switch that quietly does nothing is
@@ -2243,15 +2649,14 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             {(
               [
-                { id: "off", label: txt.answerModeOff, hint: txt.answerModeOffHint, enabled: false, mode: "assisted" as const, ai: false, needsBot: false, needsAi: false },
+                { id: "off", label: txt.answerModeOff, hint: txt.answerModeOffCard, enabled: false, mode: "assisted" as const, ai: false, needsBot: false, needsAi: false },
                 { id: "bot", label: txt.answerModeBot, hint: txt.answerModeBotHint, enabled: true, mode: "assisted" as const, ai: false, needsBot: !botInPlan, needsAi: false },
-                { id: "both", label: txt.answerModeBoth, hint: txt.answerModeBothHint, enabled: true, mode: "assisted" as const, ai: true, needsBot: !botInPlan, needsAi: !aiInPlan },
                 // The AI answers through the bot engine, so "AI only" still needs the bot add-on.
                 { id: "ai", label: txt.answerModeAi, hint: txt.answerModeAiHint, enabled: true, mode: "ai_first" as const, ai: true, needsBot: !botInPlan, needsAi: !aiInPlan },
+                { id: "both", label: txt.answerModeBoth, hint: txt.answerModeBothHint, enabled: true, mode: "assisted" as const, ai: true, needsBot: !botInPlan, needsAi: !aiInPlan },
               ]
             ).map((opt) => {
-              const current = state.botEnabled !== true ? "off" : state.botMode === "ai_first" ? "ai" : state.botAiEnabled ? "both" : "bot";
-              const active = current === opt.id;
+              const active = autoReplyMode === opt.id;
               const locked = opt.needsBot || opt.needsAi;
               return (
                 <button
@@ -2281,297 +2686,35 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
               );
             })}
           </div>
-          <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botLimits}</p>
-          </div>
-          {state.botEnabled !== true && tab !== "assistant" && (
-            <p className="text-xs font-bold text-warn bg-warn-tint border border-warn/25 rounded-lg px-3 py-2">{txt.botOffFirst}</p>
-          )}
 
-          {state.botEnabled === true && (
-            <>
-              <div hidden={tab !== "assistant"} className="space-y-3">
+          {autoReplyMode === "off" ? (
+            <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.answerModeOffHint}</p>
+          ) : (
+            <div className="space-y-4 pt-3">
               {(state.deliveryMode ?? (canSendAutomatically ? "auto" : "manual")) !== "auto" && (
                 <p className="text-xs font-bold text-warn bg-warn-tint border border-warn/25 rounded-lg px-3 py-2 leading-relaxed">
                   {txt.botNeedsGateway}
                 </p>
               )}
-              <label className="flex items-center justify-between gap-4 cursor-pointer pt-1">
-                <span className="text-sm font-bold text-ink leading-relaxed">{txt.botStrangers}</span>
-                <input
-                  type="checkbox"
-                  className="h-5 w-5 rounded border-line-strong text-ink-muted focus:ring-accent-soft/30 shrink-0"
-                  checked={state.botAnswerStrangers === true}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    setState((s) => {
-                      const next = { ...s, botAnswerStrangers: checked };
-                      void persist(next, "silent");
-                      return next;
-                    });
-                  }}
-                />
-              </label>
-              <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botStrangersHint}</p>
-              <label className="flex items-center justify-between gap-4 cursor-pointer pt-1">
-                <span className="text-sm font-bold text-ink leading-relaxed">{txt.botAutoConfirm}</span>
-                <input
-                  type="checkbox"
-                  className="h-5 w-5 rounded border-line-strong text-ink-muted focus:ring-accent-soft/30 shrink-0"
-                  checked={state.botAutoConfirmBookings === true}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    setState((s) => {
-                      const next = { ...s, botAutoConfirmBookings: checked };
-                      void persist(next, "silent");
-                      return next;
-                    });
-                  }}
-                />
-              </label>
-              <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botAutoConfirmHint}</p>
-
-              {/* Symptoms: a person, or the AI as a dentist first. Needs the AI on to mean anything. */}
-              <label className={`flex items-center justify-between gap-4 pt-1 ${state.botAiEnabled ? "cursor-pointer" : "opacity-50"}`}>
-                <span className="text-sm font-bold text-ink leading-relaxed">{txt.botDentist}</span>
-                <input
-                  type="checkbox"
-                  className="h-5 w-5 rounded border-line-strong text-ink-muted focus:ring-accent-soft/30 shrink-0"
-                  disabled={!state.botAiEnabled}
-                  checked={state.botClinicalMode === "dentist"}
-                  onChange={(e) => {
-                    const on = e.target.checked;
-                    setState((s) => {
-                      const next = { ...s, botClinicalMode: on ? ("dentist" as const) : ("handoff" as const) };
-                      void persist(next, "silent");
-                      return next;
-                    });
-                  }}
-                />
-              </label>
-              <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botDentistHint}</p>
-
-              {/* How long a staff reply keeps the bot out of the thread. */}
-              <div className="flex flex-wrap items-center gap-3 pt-1">
-                <span className="text-sm font-bold text-ink">{txt.botClaim}</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={1440}
-                  className="w-24 rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-ink"
-                  value={state.botHumanClaimMinutes === undefined ? "" : state.botHumanClaimMinutes}
-                  placeholder="15"
-                  onChange={(e) => {
-                    const raw = e.target.value;
-                    const n = Math.max(0, Math.min(1440, Math.round(Number(raw) || 0)));
-                    setState((s) => ({ ...s, botHumanClaimMinutes: raw === "" ? undefined : n }));
-                  }}
-                  onBlur={() => void persist(state, "silent")}
-                />
-                <span className="text-xs text-ink-muted">{txt.botClaimUnit}</span>
-              </div>
-              <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botClaimHint}</p>
-              </div>
-
-              {/* The AI's own settings: cap, name, pacing, coaching. Meaningless without it. */}
-              <div hidden={tab !== "ai"} className="space-y-3">
-                <p className="text-[11px] font-black uppercase tracking-widest text-ink-body">{txt.aiSettingsTitle}</p>
-                {!aiInPlan && (
-                  <div className="flex items-start gap-2 rounded-xl border border-line bg-surface-subtle px-3 py-2.5 text-xs font-bold text-ink-body">
-                    <Lock size={14} className="mt-0.5 shrink-0" />
-                    <span>
-                      {txt.needsAiAddon}{" "}
-                      <a dir="ltr" className="underline" href={`https://wa.me/${SUPPORT_WHATSAPP.replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer">{SUPPORT_WHATSAPP}</a>
-                    </span>
-                  </div>
-                )}
-                {aiInPlan && !state.botAiEnabled && state.botMode !== "ai_first" && (
-                  <p className="text-xs font-bold text-warn bg-warn-tint border border-warn/25 rounded-lg px-3 py-2 leading-relaxed">{txt.aiNotAnswering}</p>
-                )}
-
-                <div className="flex flex-wrap items-center gap-3">
-                  <span className="text-xs font-bold text-ink">{txt.botAiCap}</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={200}
-                    disabled={state.botAiMaxReplies === 0}
-                    className="w-24 rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-ink disabled:opacity-40"
-                    value={state.botAiMaxReplies === 0 || state.botAiMaxReplies === undefined ? "" : state.botAiMaxReplies}
-                    placeholder={state.botMode === "ai_first" ? "∞" : "3"}
-                    onChange={(e) => {
-                      const n = Math.max(1, Math.min(200, Number(e.target.value) || 0));
-                      setState((s) => ({ ...s, botAiMaxReplies: e.target.value === "" ? undefined : n }));
-                    }}
-                    onBlur={() => void persist(state, "silent")}
-                  />
-                  <label className="flex items-center gap-2 text-xs font-bold text-ink cursor-pointer">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded border-line-strong"
-                      checked={state.botAiMaxReplies === 0 || (state.botAiMaxReplies === undefined && state.botMode === "ai_first")}
-                      onChange={(e) => {
-                        const unlimited = e.target.checked;
-                        setState((s) => {
-                          const next = { ...s, botAiMaxReplies: unlimited ? 0 : 12 };
-                          void persist(next, "silent");
-                          return next;
-                        });
-                      }}
-                    />
-                    {txt.botAiCapUnlimited}
-                  </label>
-                </div>
-                <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botAiCapHint}</p>
-
-                <div className="flex flex-wrap items-center gap-3 pt-1">
-                  <span className="text-xs font-bold text-ink">{txt.botPersona}</span>
-                  <input
-                    type="text"
-                    dir="auto"
-                    className="w-40 rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-muted"
-                    placeholder={txt.botPersonaPh}
-                    value={state.botPersonaName ?? ""}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      setState((s) => ({ ...s, botPersonaName: value }));
-                    }}
-                    onBlur={() => void persist(state, "silent")}
-                  />
-                </div>
-                <label className="flex items-center justify-between gap-4 cursor-pointer">
-                  <span className="text-xs font-bold text-ink leading-relaxed">{txt.botHumanTouch}</span>
-                  <input
-                    type="checkbox"
-                    className="h-5 w-5 rounded border-line-strong text-ink-muted focus:ring-accent-soft/30 shrink-0"
-                    checked={state.botHumanTouch !== false}
-                    onChange={(e) => {
-                      const on = e.target.checked;
-                      setState((s) => {
-                        const next = { ...s, botHumanTouch: on };
-                        void persist(next, "silent");
-                        return next;
-                      });
-                    }}
-                  />
-                </label>
-
-                <label className="flex items-center justify-between gap-4 cursor-pointer">
-                  <span className="text-xs font-bold text-ink leading-relaxed">{txt.botQuietNudge}</span>
-                  <input
-                    type="checkbox"
-                    className="h-5 w-5 rounded border-line-strong text-ink-muted focus:ring-accent-soft/30 shrink-0"
-                    checked={state.botQuietNudge !== false}
-                    onChange={(e) => {
-                      const on = e.target.checked;
-                      setState((s) => {
-                        const next = { ...s, botQuietNudge: on };
-                        void persist(next, "silent");
-                        return next;
-                      });
-                    }}
-                  />
-                </label>
-
-                <label className="block space-y-1 pt-1">
-                  <span className="text-xs font-bold text-ink">{txt.botCoaching}</span>
-                  <textarea
-                    rows={4}
-                    dir="auto"
-                    className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-muted focus:border-accent-soft focus:ring-1 focus:ring-accent-soft/30 resize-y"
-                    placeholder={txt.botCoachingPh}
-                    value={state.botCoaching ?? ""}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      setState((s) => ({ ...s, botCoaching: value }));
-                    }}
-                    onBlur={() => void persist(state, "silent")}
-                  />
-                </label>
-                <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botCoachingHint}</p>
-              </div>
-
-              {/*
-                The answers the system does not otherwise hold.
-                Every one of these questions reached a receptionist every single time, or reached
-                the model with no data and came back as general dentistry in the clinic's voice.
-                Empty stays safe — the bot says a person will follow up rather than guessing.
-              */}
-              <div hidden={tab !== "answers"} className="space-y-3">
-                <p className="text-[11px] font-black uppercase tracking-widest text-ink-body">{txt.factsTitle}</p>
-                <p className="text-xs text-ink-body leading-relaxed">{txt.factsHint}</p>
-                <div className="grid gap-3">
-                  {(
-                    [
-                      { key: "whyUs" as const, label: txt.factWhyUs, ph: txt.factWhyUsPh },
-                      { key: "consultation" as const, label: txt.factConsultation, ph: txt.factConsultationPh },
-                      { key: "dentists" as const, label: txt.factDentists, ph: txt.factDentistsPh },
-                      { key: "walkIn" as const, label: txt.factWalkIn, ph: txt.factWalkInPh },
-                      { key: "durations" as const, label: txt.factDurations, ph: txt.factDurationsPh },
-                      { key: "sessions" as const, label: txt.factSessions, ph: txt.factSessionsPh },
-                      { key: "installments" as const, label: txt.factInstallments, ph: txt.factInstallmentsPh },
-                      { key: "offers" as const, label: txt.factOffers, ph: txt.factOffersPh },
-                      { key: "offersUntil" as const, label: txt.factOffersUntil, ph: txt.factOffersUntilPh },
-                      { key: "insurance" as const, label: txt.factInsurance, ph: txt.factInsurancePh },
-                      { key: "notOffered" as const, label: txt.factNotOffered, ph: txt.factNotOfferedPh },
-                      { key: "aftercare" as const, label: txt.factAftercare, ph: txt.factAftercarePh },
-                      { key: "parking" as const, label: txt.factParking, ph: txt.factParkingPh },
-                      { key: "mapsUrl" as const, label: txt.factMaps, ph: txt.factMapsPh },
-                    ]
-                  ).map(({ key, label, ph }) => (
-                    <label key={key} className="block space-y-1">
-                      <span className="text-xs font-bold text-ink">{label}</span>
-                      {key === "offersUntil" ? (
-                        <input
-                          type="date"
-                          className="block rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-accent-soft focus:ring-1 focus:ring-accent-soft/30"
-                          value={state.botFacts?.offersUntil ?? ""}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            setState((s) => ({ ...s, botFacts: { ...(s.botFacts ?? {}), offersUntil: value } }));
-                          }}
-                          onBlur={() => void persist(state, "silent")}
-                        />
-                      ) : (
-                      <textarea
-                        rows={key === "mapsUrl" ? 1 : 2}
-                        dir="auto"
-                        className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-muted focus:border-accent-soft focus:ring-1 focus:ring-accent-soft/30 resize-y"
-                        placeholder={ph}
-                        value={state.botFacts?.[key] ?? ""}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          setState((s) => ({ ...s, botFacts: { ...(s.botFacts ?? {}), [key]: value } }));
-                        }}
-                        // Saved on blur rather than per keystroke: these are sentences, and a
-                        // write per character is a write per character.
-                        onBlur={() => void persist(state, "silent")}
-                      />
-                      )}
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              {/* The clinic's own trigger→reply scripts. Free, verbatim, and matched before every built-in answer. */}
-              <div hidden={tab !== "answers"}>
-                <BotScriptsEditor
-                  scripts={state.botScripts ?? []}
-                  onChange={(botScripts) => {
-                    setState((s) => {
-                      const next = { ...s, botScripts };
-                      void persist(next, "silent");
-                      return next;
-                    });
-                  }}
-                />
-              </div>
-              <div hidden={tab !== "answers"}><BotMediaLibrary /></div>
-              <div hidden={tab !== "answers"}><BotMedicineList /></div>
-              <div hidden={tab !== "playground"}><BotPlayground /></div>
-            </>
+              <AutoReplySteps steps={autoReplySteps} open={openAutoReplyStep} onOpen={setOpenStep} />
+            </div>
           )}
+          <InterviewDialog
+            open={interviewOpen}
+            onClose={() => setInterviewOpen(false)}
+            clinicId={clinicId ?? ""}
+            facts={state.botFacts}
+            brief={state.botBrief}
+            onApply={(result) => {
+              setState((s) => {
+                const next = { ...s, ...result };
+                void persist(next, "silent");
+                return next;
+              });
+            }}
+            isAr={language === "ar"}
+          />
         </div>
-
       </div>
         {/* Owner alerts */}
         <section hidden={tab !== "alerts"} className="rounded-2xl xl:rounded-3xl bg-surface border border-line shadow-sm ring-1 ring-line p-5 xl:p-6 flex flex-col gap-5">
