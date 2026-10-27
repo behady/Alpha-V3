@@ -146,6 +146,11 @@ export interface WhatsAppSettingsDocument {
   botHumanClaimMinutes?: number;
   /** The owner's standing instructions to the bot, in their own words. Sent verbatim. */
   botCoaching?: string;
+  /**
+   * The owner's structured preferences for the AI (focus, tone, prices, never-say, handoff).
+   * Only ever makes the AI stricter. Written without empty or default keys — see lib/bot/brief.
+   */
+  botBrief?: BotBrief;
   /** The name the assistant introduces itself with, once ("معاك سارة من ألفا"). Empty: no name. */
   botPersonaName?: string;
   /**
@@ -221,6 +226,20 @@ export interface BotScript {
   reply: string;
   /** Absent means on. */
   enabled?: boolean;
+}
+
+/** The AI brief the owner fills in under Auto-reply. Absent field means the default. */
+export interface BotBrief {
+  /** What the clinic most wants to sell or talk about. */
+  focus?: string;
+  /** Voice only. Absent means friendly. */
+  tone?: "friendly" | "formal" | "short";
+  /** Absent means ranges. "consult" forbids quoting a price at all. */
+  prices?: "ranges" | "consult";
+  /** Topics the AI must not discuss. */
+  neverSay?: string;
+  /** Situations that always go to a person. */
+  handoffWhen?: string;
 }
 
 export interface BotFacts {
