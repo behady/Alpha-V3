@@ -1,42 +1,113 @@
 "use client";
 
-// Clinic Detail Drawer Panel (With Manual Pricing & Financials)
-import React, { useState } from "react";
+// The clinic control drawer: everything the platform owner changes about one clinic.
+import React, { useEffect, useState } from "react";
+import { Check, Copy, ExternalLink, Save, X } from "lucide-react";
 import { Clinic, SubscriptionTier } from "@/types/saas";
-import { X, Building2, Save, Users, ShieldAlert, KeyRound, CalendarDays, DollarSign, CreditCard } from "lucide-react";
-import { TIER_LIMITS, getAiCreditLimit, hasFeature } from "@/lib/subscriptions";
+import { TIER_LIMITS, hasFeature } from "@/lib/subscriptions";
 import { FEATURE_CATALOG, FEATURE_GROUPS, featureInfo, type FeatureKey } from "@/lib/featureCatalog";
+import { useUI } from "@/context/UIContext";
+import { TIERS, balanceOwed, extendedExpiry, monthlyValue, toDate, type ConsoleClinic } from "./clinicMath";
+import { useSuperAdminText, type SAKey } from "./i18n";
 
 interface ClinicDetailPanelProps {
-  clinic: Clinic | null;
+  clinic: ConsoleClinic | null;
   users: any[];
   onClose: () => void;
   onUpdateClinic: (clinicId: string, updates: Partial<Clinic>) => Promise<void>;
   onDeleteClinic: (clinicId: string, clinicName: string) => void;
+  onPlanChange: (clinic: ConsoleClinic, tier: SubscriptionTier) => Promise<void>;
 }
 
-export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDeleteClinic }: ClinicDetailPanelProps) {
+const TIER_KEY: Record<SubscriptionTier, SAKey> = { "Free Trial": "tierFree", Basic: "tierBasic", Pro: "tierPro", Premium: "tierPremium" };
+const STATUSES: { value: Clinic["status"]; label: SAKey }[] = [
+  { value: "Active", label: "stActive" },
+  { value: "Suspended", label: "stSuspended" },
+  { value: "Expired", label: "stExpired" },
+];
+
+function inputDate(val: unknown): string {
+  const d = toDate(val);
+  if (!d) return "";
+  return `${d.getFullYear().toString().padStart(4, "0")}-${(d.getMonth() + 1).toString().padStart(2, "0")}-${d.getDate().toString().padStart(2, "0")}`;
+}
+
+/**
+ * A number field that writes once, when it loses focus, instead of on every keystroke. Callers key
+ * it on the saved value, so a change saved elsewhere replaces the draft.
+ */
+function NumberField({ label, value, onCommit }: { label: string; value: number | undefined; onCommit: (n: number) => void }) {
+  const [draft, setDraft] = useState(value === undefined ? "" : String(value));
+  return (
+    <label className="flex flex-col gap-1.5 text-xs text-ink-muted min-w-0">
+      {label}
+      <input
+        type="number"
+        min="0"
+        inputMode="decimal"
+        value={draft}
+        placeholder="0"
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          const n = parseFloat(draft);
+          const next = isNaN(n) ? 0 : n;
+          if (next !== (value ?? 0)) onCommit(next);
+        }}
+        className="min-h-[40px] w-full rounded-xl border border-line-strong bg-surface px-3 text-sm font-figure text-ink outline-none focus:border-ink"
+      />
+    </label>
+  );
+}
+
+const sectionTitle = "font-display text-xs font-bold uppercase tracking-[0.08em] text-ink-muted";
+const chipBtn = "min-h-[36px] px-3 rounded-lg border border-line-strong bg-surface text-[13px] font-semibold text-ink hover:bg-surface-subtle";
+
+export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDeleteClinic, onPlanChange }: ClinicDetailPanelProps) {
+  const { t, num, money, date, isAr } = useSuperAdminText();
+  const { prompt, showToast } = useUI();
   const [adminNotes, setAdminNotes] = useState(clinic?.adminNotes || "");
   const [isSaving, setIsSaving] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-  React.useEffect(() => {
+  useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === "Escape") onClose();
     };
-    window.addEventListener('keydown', handleEsc);
-    return () => window.removeEventListener('keydown', handleEsc);
+    window.addEventListener("keydown", handleEsc);
+    return () => window.removeEventListener("keydown", handleEsc);
   }, [onClose]);
 
   if (!clinic) return null;
 
-  const staff = users.filter(u => u.clinicRoles && u.clinicRoles[clinic.id]);
+  const staff = users.filter((u) => u.clinicRoles && u.clinicRoles[clinic.id]);
+  const f = clinic.features || {};
+  const start = toDate(clinic.createdAt);
+  const end = toDate(clinic.expiresAt);
+  const span = start && end ? Math.max(1, end.getTime() - start.getTime()) : 0;
+  const remainingMs = (clinic.daysRemaining ?? 0) * 86_400_000;
+  const elapsedPct = span ? Math.min(100, Math.max(0, ((span - remainingMs) / span) * 100)) : 0;
+  const price = Number(clinic.customPrice) || 0;
+  const paid = Number(clinic.amountPaid) || 0;
+  const owed = balanceOwed(clinic);
+  const aiLeft = Math.max(0, clinic.aiLimit - clinic.aiUsed);
+  const aiPct = clinic.aiLimit > 0 ? Math.min(100, (clinic.aiUsed / clinic.aiLimit) * 100) : 0;
+  const addonsOn = FEATURE_CATALOG.filter((x) => hasFeature(clinic, x.key)).length;
 
   // Flips what the clinic EFFECTIVELY has, not the raw override: a Premium clinic with no
   // override shows "on" from its tier, and the first click has to switch it off, not on again.
   const handleToggleFeature = async (feature: FeatureKey) => {
-    const currentFeatures = clinic.features || {};
-    const updatedFeatures = { ...currentFeatures, [feature]: !hasFeature(clinic, feature) };
-    await onUpdateClinic(clinic.id, { features: updatedFeatures });
+    await onUpdateClinic(clinic.id, { features: { ...f, [feature]: !hasFeature(clinic, feature) } });
+  };
+
+  const extend = (days: number) => onUpdateClinic(clinic.id, { expiresAt: extendedExpiry(clinic, days) });
+
+  const recordPayment = async () => {
+    const typed = await prompt(t("recordPaymentQ", { name: clinic.name }), { title: t("recordPayment"), placeholder: "0", confirmLabel: t("recordPayment"), required: true });
+    if (typed === null) return;
+    const amount = parseFloat(typed.replace(/[^\d.]/g, ""));
+    if (!amount || amount <= 0) return;
+    await onUpdateClinic(clinic.id, { amountPaid: paid + amount });
+    showToast(t("paymentAdded"), "success");
   };
 
   const handleSaveNotes = async () => {
@@ -46,377 +117,315 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
   };
 
   return (
-    <div className="fixed inset-y-0 right-0 w-full max-w-md bg-surface shadow-2xl z-50 flex flex-col border-l border-line animate-in slide-in-from-right-8 duration-300">
-      {/* Header */}
-      <div className="p-6 border-b border-slate-100 flex justify-between items-start bg-slate-50/50">
-        <div className="flex gap-4 items-center">
-          <div className="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xl shrink-0">
-            {clinic.name.charAt(0).toUpperCase()}
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-ink">{clinic.name}</h2>
-            <div className="flex items-center gap-2 mt-1 text-xs text-ink-muted font-mono">
-              ID: {clinic.id}
-              <button 
-                onClick={() => navigator.clipboard.writeText(clinic.id)}
-                className="text-indigo-600 hover:underline"
-              >
-                Copy
-              </button>
-            </div>
-          </div>
-        </div>
-        <button onClick={onClose} className="p-2 text-slate-400 hover:text-ink-body hover:bg-surface-muted rounded-full transition-colors">
-          <X size={20} />
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-6 space-y-8">
-        
-        {/* Subscription & Tier */}
-        <section className="space-y-4">
-          <h3 className="text-sm font-black text-ink uppercase tracking-wider flex items-center gap-2">
-            <KeyRound size={16} className="text-indigo-500" /> Subscription Control
-          </h3>
-          <div className="bg-surface-subtle rounded-2xl p-4 border border-slate-200/60 space-y-4">
-            <div>
-              <label className="text-xs font-bold text-ink-muted block mb-1">Tier</label>
-              <select
-                value={clinic.subscriptionTier}
-                onChange={(e) => {
-                  const newTier = e.target.value as SubscriptionTier;
-                  // A tier change resets the add-on switches to the new plan's preset but keeps
-                  // the numbers (credits, seats, bonus): those were sold separately and used to
-                  // vanish here, which silently took back what a clinic had paid for.
-                  const f = clinic.features || {};
-                  onUpdateClinic(clinic.id, {
-                    subscriptionTier: newTier,
-                    features: {
-                      ...TIER_LIMITS[newTier].features,
-                      ...(typeof f.aiMonthlyCredits === "number" ? { aiMonthlyCredits: f.aiMonthlyCredits } : {}),
-                      ...(typeof f.extraAiCredits === "number" ? { extraAiCredits: f.extraAiCredits } : {}),
-                      ...(typeof f.maxStaff === "number" ? { maxStaff: f.maxStaff } : {}),
-                      ...(typeof f.marketingMonthlyCredits === "number" ? { marketingMonthlyCredits: f.marketingMonthlyCredits } : {}),
-                    },
-                  });
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="clinic-drawer-title"
+      className="fixed inset-y-0 end-0 w-full max-w-[520px] bg-surface shadow-2xl z-50 flex flex-col border-s border-line animate-in fade-in duration-200"
+    >
+      <header className="bg-ink-slab text-white px-6 py-5 flex flex-col gap-4">
+        <div className="flex items-start gap-3">
+          <div className="flex-1 min-w-0 flex flex-col gap-1">
+            <span className="text-xs text-white/60 flex items-center gap-2">
+              <span className="font-mono" dir="ltr">{clinic.id}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard.writeText(clinic.id);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
                 }}
-                className="w-full bg-surface border border-line text-slate-700 text-sm font-bold rounded-xl px-3 py-2 outline-none focus:border-indigo-500"
+                className="inline-flex items-center gap-1 text-white/80 hover:text-white"
               >
-                <option value="Free Trial">Free Trial</option>
-                <option value="Basic">Basic</option>
-                <option value="Pro">Pro</option>
-                <option value="Premium">Premium</option>
-              </select>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs font-bold text-ink-muted block mb-1">Started At</label>
-                <input 
-                  type="date"
-                  min="2020-01-01"
-                  value={(() => {
-                    const val = clinic.createdAt;
-                    if (!val) return '';
-                    try {
-                      let d = new Date();
-                      if (val.toDate) d = val.toDate();
-                      else if (val.seconds) d = new Date(val.seconds * 1000);
-                      else d = new Date(val);
-                      if (isNaN(d.getTime())) return '';
-                      return `${d.getFullYear().toString().padStart(4, '0')}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
-                    } catch { return ''; }
-                  })()}
-                  onChange={(e) => {
-                    const date = new Date(e.target.value);
-                    if (!isNaN(date.getTime())) onUpdateClinic(clinic.id, { createdAt: date });
-                  }}
-                  className="w-full bg-surface border border-line text-slate-700 text-sm font-bold rounded-xl px-3 py-2 outline-none focus:border-indigo-500"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-ink-muted block mb-1">Expires At</label>
-                <input 
-                  type="date"
-                  min="2020-01-01"
-                  value={(() => {
-                    const val = clinic.expiresAt;
-                    if (!val) return '';
-                    try {
-                      let d = new Date();
-                      if (val.toDate) d = val.toDate();
-                      else if (val.seconds) d = new Date(val.seconds * 1000);
-                      else d = new Date(val);
-                      if (isNaN(d.getTime())) return '';
-                      return `${d.getFullYear().toString().padStart(4, '0')}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
-                    } catch { return ''; }
-                  })()}
-                  onChange={(e) => {
-                    const date = new Date(e.target.value);
-                    if (!isNaN(date.getTime())) onUpdateClinic(clinic.id, { expiresAt: date });
-                  }}
-                  className="w-full bg-surface border border-line text-slate-700 text-sm font-bold rounded-xl px-3 py-2 outline-none focus:border-indigo-500"
-                />
-              </div>
-            </div>
+                {copied ? <Check size={12} aria-hidden /> : <Copy size={12} aria-hidden />} {copied ? t("copied") : t("copyId")}
+              </button>
+            </span>
+            <h2 id="clinic-drawer-title" className="font-display text-2xl font-bold leading-tight truncate" dir="auto">{clinic.name}</h2>
+            <span className="text-[13px] text-white/60 truncate">
+              {clinic.ownerEmail ? <span dir="ltr">{clinic.ownerEmail}</span> : t("noOwner")}
+              {start && <> · {t("joined", { d: date(start) })}</>}
+            </span>
           </div>
-        </section>
+          <button type="button" onClick={onClose} aria-label={t("close")} className="w-11 h-11 rounded-xl border border-white/15 flex items-center justify-center hover:bg-white/10 shrink-0">
+            <X size={18} aria-hidden />
+          </button>
+        </div>
+        <a
+          href={`/?clinic=${clinic.id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="min-h-[44px] rounded-xl bg-accent text-ink-on-accent font-bold text-sm inline-flex items-center justify-center gap-2 hover:bg-accent-strong"
+        >
+          <ExternalLink size={16} aria-hidden /> {t("enterClinic")}
+        </a>
+      </header>
 
-        {/* Pricing & Financial Setup */}
-        <section className="space-y-4">
-          <h3 className="text-sm font-black text-ink uppercase tracking-wider flex items-center gap-2">
-            <DollarSign size={16} className="text-emerald-500" /> Pricing & Financials
-          </h3>
-          <div className="bg-emerald-50/40 rounded-2xl p-4 border border-emerald-200/60 space-y-4">
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Billing Cycle</label>
-                <select
-                  value={clinic.billingCycle || 'Monthly'}
-                  onChange={(e) => {
-                    onUpdateClinic(clinic.id, { 
-                      billingCycle: e.target.value as 'Monthly' | 'Yearly' | '2-Yearly' 
-                    });
-                  }}
-                  className="w-full bg-surface border border-line text-slate-700 text-xs font-bold rounded-xl px-2.5 py-2 outline-none focus:border-emerald-500 shadow-sm"
-                >
-                  <option value="Monthly">Monthly</option>
-                  <option value="Yearly">Yearly (1 Yr)</option>
-                  <option value="2-Yearly">2-Yearly (2 Yrs)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Agreed Price ($)</label>
-                <input
-                  type="number"
-                  min="0"
-                  placeholder="0"
-                  value={clinic.customPrice ?? ''}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    onUpdateClinic(clinic.id, { customPrice: isNaN(val) ? 0 : val });
-                  }}
-                  className="w-full bg-surface border border-line text-slate-700 text-xs font-bold rounded-xl px-2.5 py-2 outline-none focus:border-emerald-500 shadow-sm"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Amount Paid ($)</label>
-                <input
-                  type="number"
-                  min="0"
-                  placeholder="0"
-                  value={clinic.amountPaid ?? ''}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value);
-                    onUpdateClinic(clinic.id, { amountPaid: isNaN(val) ? 0 : val });
-                  }}
-                  className="w-full bg-surface border border-line text-slate-700 text-xs font-bold rounded-xl px-2.5 py-2 outline-none focus:border-emerald-500 shadow-sm"
-                />
-              </div>
-            </div>
-
-            {/* Live Calculation Summary */}
-            {(() => {
-              const cycle = clinic.billingCycle || 'Monthly';
-              const price = clinic.customPrice || 0;
-              const paid = clinic.amountPaid || 0;
-              const monthlyMrr = cycle === '2-Yearly' ? price / 24 : cycle === 'Yearly' ? price / 12 : price;
-              const balance = price - paid;
-
+      <div className="flex-1 overflow-y-auto px-6 py-6 flex flex-col gap-7">
+        {/* Status */}
+        <section className="flex flex-col gap-3">
+          <h3 className={sectionTitle}>{t("status")}</h3>
+          <div role="group" aria-label={t("status")} className="grid grid-cols-3 gap-1.5 p-1 bg-surface-muted rounded-xl">
+            {STATUSES.map((s) => {
+              const on = clinic.status === s.value;
               return (
-                <div className="p-3.5 bg-surface border border-emerald-100 rounded-xl flex items-center justify-between text-xs shadow-sm">
-                  <div>
-                    <span className="text-ink-muted font-semibold block">Calculated Monthly MRR:</span>
-                    <strong className="text-emerald-700 font-black text-sm">${Math.round(monthlyMrr * 100) / 100} / mo</strong>
-                    <span className="text-slate-400 text-[10px] block">({cycle})</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-ink-muted font-semibold block">Payment Status:</span>
-                    {balance <= 0 ? (
-                      <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 font-bold rounded-lg inline-block text-xs">
-                        Fully Paid (${paid})
-                      </span>
-                    ) : (
-                      <span className="px-2.5 py-1 bg-amber-100 text-amber-900 font-bold rounded-lg inline-block text-xs">
-                        ${balance} Unpaid
-                      </span>
-                    )}
-                  </div>
-                </div>
+                <button
+                  key={s.value}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => !on && onUpdateClinic(clinic.id, { status: s.value })}
+                  className={`min-h-[40px] rounded-lg text-[13px] font-semibold ${on ? (s.value === "Active" ? "bg-ok text-white" : s.value === "Suspended" ? "bg-ink-slab text-white" : "bg-danger text-white") : "text-ink-body hover:bg-surface"}`}
+                >
+                  {t(s.label)}
+                </button>
               );
-            })()}
+            })}
           </div>
         </section>
 
-        {/* Feature Toggles */}
-        <section className="space-y-4">
-          <h3 className="text-sm font-black text-ink uppercase tracking-wider flex items-center gap-2">
-            <Building2 size={16} className="text-emerald-500" /> Feature Overrides
-          </h3>
-          <p className="text-[11px] text-ink-muted font-semibold -mt-2">
-            Every add-on the platform sells. A switch shows what the clinic actually has — its own
-            override, or the tier default when nothing was set. Grey means the add-on it depends on is off.
-          </p>
-          <div className="space-y-4">
-            {FEATURE_GROUPS.map((group) => (
-              <div key={group.id} className="space-y-2">
-                <p className="text-[10px] font-black uppercase tracking-widest text-ink-faint px-1">{group.labelEn}</p>
-                {FEATURE_CATALOG.filter((f) => f.group === group.id).map((f) => {
-                  const on = hasFeature(clinic, f.key);
-                  const parentOff = !!f.requires && !hasFeature(clinic, f.requires);
-                  const overridden = typeof clinic.features?.[f.key] === "boolean";
+        {/* Subscription */}
+        <section className="flex flex-col gap-3">
+          <h3 className={sectionTitle}>{t("subscription")}</h3>
+          <div role="group" aria-label={t("plan")} className="grid grid-cols-4 gap-1.5 p-1 bg-surface-muted rounded-xl">
+            {TIERS.map((x) => {
+              const on = clinic.subscriptionTier === x;
+              return (
+                <button
+                  key={x}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => !on && onPlanChange(clinic, x)}
+                  className={`min-h-[40px] rounded-lg text-[13px] font-semibold ${on ? "bg-ink-slab text-white" : "text-ink-body hover:bg-surface"}`}
+                >
+                  {t(TIER_KEY[x])}
+                </button>
+              );
+            })}
+          </div>
+          <div className="border border-line rounded-2xl p-4 flex flex-col gap-3">
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1.5 text-xs text-ink-muted">
+                {t("started")}
+                <input
+                  type="date"
+                  min="2020-01-01"
+                  value={inputDate(clinic.createdAt)}
+                  onChange={(e) => { const d = new Date(e.target.value); if (!isNaN(d.getTime())) onUpdateClinic(clinic.id, { createdAt: d }); }}
+                  className="min-h-[40px] rounded-xl border border-line-strong bg-surface px-3 text-sm text-ink outline-none focus:border-ink"
+                />
+              </label>
+              <label className="flex flex-col gap-1.5 text-xs text-ink-muted">
+                {t("ends")}
+                <input
+                  type="date"
+                  min="2020-01-01"
+                  value={inputDate(clinic.expiresAt)}
+                  onChange={(e) => { const d = new Date(e.target.value); if (!isNaN(d.getTime())) onUpdateClinic(clinic.id, { expiresAt: d }); }}
+                  className="min-h-[40px] rounded-xl border border-line-strong bg-surface px-3 text-sm text-ink outline-none focus:border-ink"
+                />
+              </label>
+            </div>
+            {span > 0 && (
+              <div className="h-2 rounded-full bg-surface-muted overflow-hidden" aria-hidden>
+                <div className={`h-full ${(clinic.daysRemaining ?? 99) <= 7 ? "bg-danger" : "bg-ink-slab"}`} style={{ width: `${elapsedPct}%` }} />
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[13px] text-ink-muted me-1">{t("extend")}</span>
+              <button type="button" className={chipBtn} onClick={() => extend(7)}>{t("plus7")}</button>
+              <button type="button" className={chipBtn} onClick={() => extend(14)}>{t("plus14")}</button>
+              <button type="button" className={chipBtn} onClick={() => extend(30)}>{t("plus1m")}</button>
+              <button type="button" className={chipBtn} onClick={() => extend(365)}>{t("plus1y")}</button>
+            </div>
+          </div>
+        </section>
+
+        {/* Billing */}
+        <section className="flex flex-col gap-3">
+          <div className="flex items-baseline">
+            <h3 className={`${sectionTitle} flex-1`}>{t("billing")}</h3>
+            <button type="button" onClick={recordPayment} className="text-[13px] font-semibold text-ink underline underline-offset-4">{t("recordPayment")}</button>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <label className="flex flex-col gap-1.5 text-xs text-ink-muted min-w-0">
+              {t("cycle")}
+              <select
+                value={clinic.billingCycle || "Monthly"}
+                onChange={(e) => onUpdateClinic(clinic.id, { billingCycle: e.target.value as "Monthly" | "Yearly" | "2-Yearly" })}
+                className="min-h-[40px] w-full rounded-xl border border-line-strong bg-surface px-2 text-sm text-ink outline-none focus:border-ink"
+              >
+                <option value="Monthly">{t("monthly")}</option>
+                <option value="Yearly">{t("yearly")}</option>
+                <option value="2-Yearly">{t("twoYearly")}</option>
+              </select>
+            </label>
+            <NumberField key={`p${clinic.customPrice}`} label={t("agreedPrice")} value={clinic.customPrice} onCommit={(n) => onUpdateClinic(clinic.id, { customPrice: n })} />
+            <NumberField key={`a${clinic.amountPaid}`} label={t("paid")} value={clinic.amountPaid} onCommit={(n) => onUpdateClinic(clinic.id, { amountPaid: n })} />
+          </div>
+          <div className="rounded-2xl bg-surface-subtle border border-line px-4 py-3 flex items-center justify-between gap-3">
+            <span className="text-[13px] text-ink-muted">{t("perMonth", { n: money(monthlyValue(clinic)) })}</span>
+            {price > 0 && (
+              <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${owed > 0 ? "bg-warn-tint text-warn" : "bg-ok-tint text-ok"}`}>
+                {owed > 0 ? t("owed", { n: money(owed) }) : t("fullyPaid")}
+              </span>
+            )}
+          </div>
+        </section>
+
+        {/* AI credits */}
+        <section className="flex flex-col gap-3">
+          <h3 className={sectionTitle}>{t("aiCredits")}</h3>
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="font-figure text-4xl font-semibold leading-none text-ink">{num(aiLeft)}</span>
+            <span className="text-sm text-ink-muted">{t("aiLeft", { n: num(clinic.aiLimit) })} · {t("aiUsedOf", { used: num(clinic.aiUsed) })}</span>
+          </div>
+          <div className="h-2 rounded-full bg-surface-muted overflow-hidden" aria-hidden>
+            <div className={`h-full ${aiPct >= 90 ? "bg-danger" : "bg-ink-slab"}`} style={{ width: `${aiPct}%` }} />
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[13px] text-ink-muted me-1">{t("topUp")}</span>
+            {[250, 500, 1000].map((n) => (
+              <button
+                key={n}
+                type="button"
+                className={chipBtn}
+                onClick={() => onUpdateClinic(clinic.id, { features: { ...f, extraAiCredits: (f.extraAiCredits || 0) + n } })}
+              >
+                +{num(n)}
+              </button>
+            ))}
+            {(f.extraAiCredits || 0) > 0 && (
+              <button type="button" className="min-h-[36px] px-2 text-[13px] text-ink-muted underline underline-offset-4" onClick={() => onUpdateClinic(clinic.id, { features: { ...f, extraAiCredits: 0 } })}>
+                {t("resetBonus")}
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-3 items-end">
+            <NumberField
+              key={`b${f.aiMonthlyCredits}`}
+              label={t("baseCredits")}
+              value={f.aiMonthlyCredits ?? (TIER_LIMITS[clinic.subscriptionTier || "Free Trial"]?.aiMonthlyCredits || 0)}
+              onCommit={(n) => onUpdateClinic(clinic.id, { features: { ...f, aiMonthlyCredits: n } })}
+            />
+            <span className="text-xs text-ink-muted pb-2.5">
+              {t("bonus", { n: num(f.extraAiCredits || 0) })} · {t("creditsNote")}
+            </span>
+          </div>
+        </section>
+
+        {/* Add-ons */}
+        <section className="flex flex-col gap-3">
+          <div className="flex items-baseline">
+            <h3 className={`${sectionTitle} flex-1`}>{t("addons")}</h3>
+            <span className="text-[13px] text-ink-muted">{t("addonsOn", { n: num(addonsOn), total: num(FEATURE_CATALOG.length) })}</span>
+          </div>
+          {FEATURE_GROUPS.map((group) => (
+            <div key={group.id} className="flex flex-col gap-1.5">
+              <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-faint px-1">{isAr ? group.labelAr : group.labelEn}</p>
+              <div className="border border-line rounded-2xl divide-y divide-line">
+                {FEATURE_CATALOG.filter((x) => x.group === group.id).map((x) => {
+                  const on = hasFeature(clinic, x.key);
+                  const parentOff = !!x.requires && !hasFeature(clinic, x.requires);
+                  const overridden = typeof f[x.key] === "boolean";
                   return (
-                    <div key={f.key} className={`flex items-center justify-between gap-3 p-3 bg-surface border border-line rounded-xl ${parentOff ? "opacity-60" : ""}`}>
-                      <div className="min-w-0">
+                    <div key={x.key} className={`flex items-center gap-3 px-4 py-3 ${parentOff ? "opacity-60" : ""}`}>
+                      <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-sm text-slate-700">{f.labelEn}</span>
+                          <span className="font-semibold text-sm text-ink">{isAr ? x.labelAr : x.labelEn}</span>
                           {!overridden && (
-                            <span className="text-[9px] font-black uppercase tracking-wider text-ink-faint border border-line rounded px-1">tier</span>
+                            <span className="text-[10px] font-bold uppercase tracking-wide text-ink-faint border border-line rounded px-1">{t("fromTier")}</span>
                           )}
                         </div>
-                        <p className="text-[11px] text-ink-muted leading-snug">
-                          {f.descEn}
-                          {parentOff && <span className="text-warn font-bold"> — needs {featureInfo(f.requires!).labelEn}</span>}
+                        <p className="text-xs text-ink-muted leading-snug">
+                          {isAr ? x.descAr : x.descEn}
+                          {parentOff && (
+                            <span className="text-warn font-semibold"> — {t("needs", { x: isAr ? featureInfo(x.requires!).labelAr : featureInfo(x.requires!).labelEn })}</span>
+                          )}
                         </p>
                       </div>
                       <button
                         type="button"
-                        title={on ? "Switch off" : "Switch on"}
-                        onClick={() => handleToggleFeature(f.key)}
-                        className={`shrink-0 w-11 h-6 rounded-full transition-colors relative ${on ? 'bg-emerald-500' : 'bg-slate-200'}`}
+                        role="switch"
+                        aria-checked={on}
+                        aria-label={`${isAr ? x.labelAr : x.labelEn}: ${on ? t("switchOff") : t("switchOn")}`}
+                        onClick={() => handleToggleFeature(x.key)}
+                        className={`shrink-0 w-11 h-6 rounded-full relative transition-colors ${on ? "bg-ink-slab" : "bg-line-strong"}`}
                       >
-                        <div className={`w-5 h-5 bg-surface rounded-full absolute top-0.5 shadow transition-transform ${on ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                        <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-surface shadow transition-all ${on ? "start-[22px]" : "start-0.5"}`} />
                       </button>
                     </div>
                   );
                 })}
               </div>
-            ))}
-
-            <div className="p-3.5 bg-surface border border-line rounded-xl space-y-3">
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Base Monthly AI Credits</label>
-                <input
-                  type="number"
-                  value={clinic.features?.aiMonthlyCredits ?? (TIER_LIMITS[clinic.subscriptionTier || 'Free Trial']?.aiMonthlyCredits || 0)}
-                  onChange={(e) => {
-                    const val = Number(e.target.value);
-                    onUpdateClinic(clinic.id, {
-                      features: { ...(clinic.features || {}), aiMonthlyCredits: isNaN(val) ? 0 : val }
-                    });
-                  }}
-                  className="w-full bg-surface-subtle border border-line text-slate-800 text-xs font-bold rounded-lg px-3 py-2 outline-none focus:border-indigo-500"
-                  placeholder="1000"
-                />
-              </div>
-
-              <div>
-                <div className="flex justify-between items-center mb-1.5">
-                  <label className="text-xs font-bold text-slate-700">Add Extra Credits</label>
-                  <span className="text-xs font-black text-emerald-600">
-                    + {clinic.features?.extraAiCredits || 0} bonus
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  {[100, 500, 1000].map((addAmount) => (
-                    <button
-                      key={addAmount}
-                      type="button"
-                      onClick={() => {
-                        const currentExtra = clinic.features?.extraAiCredits || 0;
-                        onUpdateClinic(clinic.id, {
-                          features: { ...(clinic.features || {}), extraAiCredits: currentExtra + addAmount }
-                        });
-                      }}
-                      className="flex-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/60 rounded-lg py-1.5 text-[11px] font-black transition-all active:scale-95"
-                    >
-                      +{addAmount}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onUpdateClinic(clinic.id, {
-                        features: { ...(clinic.features || {}), extraAiCredits: 0 }
-                      });
-                    }}
-                    className="px-2.5 bg-surface-muted hover:bg-slate-200 text-ink-body rounded-lg py-1.5 text-[11px] font-black transition-all active:scale-95"
-                  >
-                    Reset
-                  </button>
-                </div>
-              </div>
-
-              <p className="text-[10px] text-slate-400 font-semibold pt-1 border-t border-slate-100">
-                1 Text = 1 credit, 1 X-ray = 3 credits. Total allowance: <strong className="text-slate-800 font-bold">{getAiCreditLimit(clinic)} credits</strong>.
-              </p>
             </div>
-          </div>
+          ))}
         </section>
 
-        {/* Staff Overview */}
-        <section className="space-y-4">
-          <h3 className="text-sm font-black text-ink uppercase tracking-wider flex items-center gap-2">
-            <Users size={16} className="text-blue-500" /> Staff Members ({staff.length})
-          </h3>
-          <div className="bg-surface border border-line rounded-2xl overflow-hidden divide-y divide-slate-100">
+        {/* Staff */}
+        <section className="flex flex-col gap-3">
+          <h3 className={sectionTitle}>{t("staff")} · <span className="font-figure">{num(staff.length)}</span></h3>
+          <div className="border border-line rounded-2xl divide-y divide-line">
             {staff.length === 0 ? (
-              <div className="p-4 text-center text-sm text-ink-muted font-medium">No staff found</div>
+              <p className="p-4 text-sm text-ink-muted text-center">{t("noStaff")}</p>
             ) : (
-              staff.map(member => (
-                <div key={member.id} className="p-3 flex justify-between items-center">
-                  <div>
-                    <div className="font-bold text-slate-800 text-sm">{member.name || 'No Name'}</div>
-                    <div className="text-xs text-ink-muted">{member.email}</div>
+              staff.map((member) => (
+                <div key={member.id} className="px-4 py-3 flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-sm text-ink truncate" dir="auto">{member.name || "—"}</div>
+                    <div className="text-xs text-ink-muted truncate" dir="ltr">{member.email}</div>
                   </div>
-                  <span className="px-2 py-1 bg-surface-muted text-ink-body rounded-md text-xs font-bold">
-                    {member.clinicRoles[clinic.id]}
-                  </span>
+                  <span className="px-2 py-1 bg-surface-muted text-ink-body rounded-md text-xs font-semibold">{member.clinicRoles[clinic.id]}</span>
                 </div>
               ))
             )}
           </div>
         </section>
 
-        {/* Admin Notes */}
-        <section className="space-y-4">
-          <h3 className="text-sm font-black text-ink uppercase tracking-wider flex items-center gap-2">
-            <CalendarDays size={16} className="text-amber-500" /> Admin Notes
-          </h3>
-          <div className="space-y-2">
-            <textarea
-              value={adminNotes}
-              onChange={(e) => setAdminNotes(e.target.value)}
-              placeholder="Internal notes about this clinic..."
-              className="w-full h-32 bg-surface border border-line text-slate-700 text-sm rounded-xl p-3 outline-none focus:border-amber-500 resize-none"
-            />
-            <button 
-              onClick={handleSaveNotes}
-              disabled={isSaving || adminNotes === (clinic.adminNotes || "")}
-              className="w-full bg-surface-muted hover:bg-slate-200 text-slate-700 disabled:opacity-50 font-bold py-2 rounded-xl text-sm flex items-center justify-center gap-2 transition-colors"
-            >
-              <Save size={16} /> {isSaving ? "Saving..." : "Save Notes"}
-            </button>
-          </div>
-        </section>
-
-        {/* Danger Zone */}
-        <section className="pt-6 border-t border-rose-100 space-y-4">
-          <h3 className="text-sm font-black text-rose-600 uppercase tracking-wider flex items-center gap-2">
-            <ShieldAlert size={16} /> Danger Zone
-          </h3>
-          <button 
-            onClick={() => {
-              onClose();
-              onDeleteClinic(clinic.id, clinic.name);
-            }}
-            className="w-full bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white font-bold py-3 rounded-xl text-sm transition-colors border border-rose-200 hover:border-rose-600"
+        {/* Notes */}
+        <section className="flex flex-col gap-2">
+          <label htmlFor="admin-notes" className={sectionTitle}>{t("notes")}</label>
+          <textarea
+            id="admin-notes"
+            value={adminNotes}
+            onChange={(e) => setAdminNotes(e.target.value)}
+            placeholder={t("notesPh")}
+            dir="auto"
+            className="w-full h-28 rounded-2xl border border-line-strong bg-surface p-3 text-sm text-ink outline-none focus:border-ink resize-none"
+          />
+          <button
+            type="button"
+            onClick={handleSaveNotes}
+            disabled={isSaving || adminNotes === (clinic.adminNotes || "")}
+            className="self-start min-h-[40px] px-4 rounded-xl bg-ink-slab text-white text-sm font-semibold inline-flex items-center gap-2 disabled:opacity-40"
           >
-            Delete Clinic Record
+            <Save size={15} aria-hidden /> {isSaving ? t("saving") : t("saveNotes")}
           </button>
         </section>
 
+        {/* Careful */}
+        <section className="rounded-2xl border border-danger/30 p-4 flex flex-col gap-3">
+          <h3 className="font-display text-xs font-bold uppercase tracking-[0.08em] text-danger">{t("careful")}</h3>
+          <div className="flex flex-wrap gap-2">
+            {clinic.status === "Suspended" ? (
+              <button type="button" onClick={() => onUpdateClinic(clinic.id, { status: "Active" })} className="min-h-[40px] px-4 rounded-xl border border-line-strong bg-surface text-sm font-semibold text-ink hover:bg-surface-subtle">
+                {t("activateClinic")}
+              </button>
+            ) : (
+              <button type="button" onClick={() => onUpdateClinic(clinic.id, { status: "Suspended" })} className="min-h-[40px] px-4 rounded-xl border border-line-strong bg-surface text-sm font-semibold text-ink hover:bg-surface-subtle">
+                {t("suspendClinic")}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onDeleteClinic(clinic.id, clinic.name);
+              }}
+              className="min-h-[40px] px-4 rounded-xl bg-danger text-white text-sm font-semibold hover:opacity-90"
+            >
+              {t("deleteClinic")}
+            </button>
+          </div>
+        </section>
       </div>
     </div>
   );

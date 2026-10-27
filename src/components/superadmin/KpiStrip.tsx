@@ -1,122 +1,56 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { Clinic } from "@/types/saas";
-import { Building2, CheckCircle2, PauseCircle, Clock, DollarSign, Wallet } from "lucide-react";
+import React from "react";
+import { balanceOwed, isTrial, monthlyValue, type ConsoleClinic } from "./clinicMath";
+import { useSuperAdminText } from "./i18n";
 
-interface KpiStripProps {
-  clinics: Clinic[];
-}
+/**
+ * The platform's totals on one dark band. Every figure carries a line under it saying what it
+ * means for today — "$933 still owed", "1 ends within 7 days" — so the band reads as a status, not
+ * a scoreboard.
+ */
+export function KpiStrip({ clinics }: { clinics: ConsoleClinic[] }) {
+  const { t, num, money } = useSuperAdminText();
 
-export function KpiStrip({ clinics }: KpiStripProps) {
-  const [mounted, setMounted] = useState(false);
+  const active = clinics.filter((c) => c.status === "Active");
+  const paying = active.filter((c) => monthlyValue(c) > 0);
+  const mrr = active.reduce((sum, c) => sum + monthlyValue(c), 0);
+  const collected = clinics.reduce((sum, c) => sum + (Number(c.amountPaid) || 0), 0);
+  const owed = active.reduce((sum, c) => sum + balanceOwed(c), 0);
+  const suspended = clinics.filter((c) => c.status === "Suspended").length;
+  const trials = clinics.filter((c) => isTrial(c) && c.status !== "Suspended");
+  const trialsSoon = trials.filter((c) => c.daysRemaining !== undefined && c.daysRemaining >= 0 && c.daysRemaining <= 7).length;
+  const aiUsed = clinics.reduce((sum, c) => sum + c.aiUsed, 0);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  const totalClinics = clinics.length;
-  const activeClinics = clinics.filter((c) => c.status === "Active").length;
-  const suspendedClinics = clinics.filter((c) => c.status === "Suspended").length;
-  const expiredOrTrialClinics = clinics.filter(
-    (c) => c.status === "Expired" || c.subscriptionTier === "Free Trial"
-  ).length;
-
-  const mrr = clinics
-    .filter((c) => c.status === "Active")
-    .reduce((total, clinic) => {
-      if (clinic.customPrice !== undefined && clinic.customPrice !== null) {
-        const cycle = clinic.billingCycle || 'Monthly';
-        const price = Number(clinic.customPrice) || 0;
-        if (cycle === '2-Yearly') return total + (price / 24);
-        if (cycle === 'Yearly') return total + (price / 12);
-        return total + price;
-      }
-      if (clinic.subscriptionTier === "Basic") return total + 50;
-      if (clinic.subscriptionTier === "Pro") return total + 150;
-      if (clinic.subscriptionTier === "Premium") return total + 300;
-      return total;
-    }, 0);
-
-  const totalCollected = clinics.reduce((sum, c) => sum + (Number(c.amountPaid) || 0), 0);
-
-  const kpis = [
+  const cells: { label: string; value: React.ReactNode; sub: string; flag?: boolean }[] = [
+    { label: t("kpiMrr"), value: money(mrr), sub: t("kpiMrrSub", { n: num(paying.length) }) },
+    { label: t("kpiCollected"), value: money(collected), sub: owed > 0 ? t("kpiOwed", { n: money(owed) }) : t("kpiNothingOwed"), flag: owed > 0 },
     {
-      label: "Total Clinics",
-      value: totalClinics,
-      icon: Building2,
-      color: "text-blue-600",
-      bg: "bg-blue-50",
-      gradient: "from-blue-500 to-blue-600",
+      label: t("kpiActive"),
+      value: (
+        <>
+          {num(active.length)}
+          <span className="text-2xl text-white/50"> / {num(clinics.length)}</span>
+        </>
+      ),
+      sub: t("kpiSuspended", { n: num(suspended) }),
     },
-    {
-      label: "Active",
-      value: activeClinics,
-      icon: CheckCircle2,
-      color: "text-emerald-600",
-      bg: "bg-emerald-50",
-      gradient: "from-emerald-400 to-emerald-500",
-    },
-    {
-      label: "Suspended",
-      value: suspendedClinics,
-      icon: PauseCircle,
-      color: "text-amber-600",
-      bg: "bg-amber-50",
-      gradient: "from-amber-400 to-amber-500",
-    },
-    {
-      label: "Expired / Trial",
-      value: expiredOrTrialClinics,
-      icon: Clock,
-      color: "text-rose-600",
-      bg: "bg-rose-50",
-      gradient: "from-rose-400 to-rose-500",
-    },
-    {
-      label: "Est. MRR",
-      value: `$${Math.round(mrr).toLocaleString()}`,
-      icon: DollarSign,
-      color: "text-indigo-600",
-      bg: "bg-indigo-50",
-      gradient: "from-indigo-500 to-indigo-600",
-    },
-    {
-      label: "Total Collected",
-      value: `$${Math.round(totalCollected).toLocaleString()}`,
-      icon: Wallet,
-      color: "text-teal-600",
-      bg: "bg-teal-50",
-      gradient: "from-teal-500 to-teal-600",
-    },
+    { label: t("kpiTrials"), value: num(trials.length), sub: t("kpiTrialsSoon", { n: num(trialsSoon) }), flag: trialsSoon > 0 },
+    { label: t("kpiAi"), value: num(aiUsed), sub: t("kpiAiSub") },
   ];
 
-  if (!mounted) return null;
-
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
-      {kpis.map((kpi, idx) => (
-        <div
-          key={idx}
-          className="bg-white rounded-2xl p-4 border border-slate-200/60 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow"
-        >
-          <div className="flex justify-between items-start mb-3">
-            <div
-              className={`w-9 h-9 rounded-xl flex items-center justify-center bg-gradient-to-br ${kpi.gradient} text-white shadow-sm`}
-            >
-              <kpi.icon size={18} strokeWidth={2.5} />
-            </div>
-          </div>
-          <div>
-            <div className="text-2xl font-black text-ink tracking-tight">
-              {kpi.value}
-            </div>
-            <div className="text-xs font-bold text-ink-muted mt-1 truncate">
-              {kpi.label}
-            </div>
-          </div>
+    <section aria-label={t("clinicsTitle")} className="bg-ink-slab text-white rounded-3xl px-6 py-6 md:px-8 md:py-7 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-x-6 gap-y-6">
+      {cells.map((c) => (
+        <div key={c.label} className="flex flex-col gap-1.5 min-w-0">
+          <span className="text-xs text-white/65">{c.label}</span>
+          <span className="font-figure text-[2.25rem] md:text-[2.5rem] leading-none font-semibold">{c.value}</span>
+          <span className="flex items-center gap-1.5 text-xs text-white/65">
+            {c.flag && <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" aria-hidden />}
+            {c.sub}
+          </span>
         </div>
       ))}
-    </div>
+    </section>
   );
 }

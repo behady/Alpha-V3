@@ -1,18 +1,25 @@
 "use client";
 
-// Super Admin Platform Control Center (Updated with Manual Pricing)
-import React, { useCallback, useEffect, useState } from "react";
+// Super Admin Platform Control Center
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { auth, db } from "@/lib/firebase";
-import { query, getDocs, updateDoc, doc, onSnapshot, collection } from "firebase/firestore";
+import { query, getDoc, getDocs, updateDoc, doc, onSnapshot, collection } from "firebase/firestore";
 import { typedNameMatches } from "@/lib/clinicTrash";
 import { useRouter } from "next/navigation";
 import { Clinic, SubscriptionTier } from "@/types/saas";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
-import { ShieldCheck, Search, Loader2, Check, X, Building2, BarChart3, Users, MoreVertical, RefreshCcw, Trash2, ExternalLink, Megaphone, HardDriveDownload, SlidersHorizontal, ShoppingBag, Compass } from "lucide-react";
+import { getAiCreditLimit } from "@/lib/subscriptions";
+import { cairo } from "@/lib/fonts/arabic";
+import { Loader2, RefreshCcw, Trash2 } from "lucide-react";
 import { useUI } from "@/context/UIContext";
 import { KpiStrip } from "@/components/superadmin/KpiStrip";
 import { ClinicDetailPanel } from "@/components/superadmin/ClinicDetailPanel";
+import { AttentionList } from "@/components/superadmin/AttentionList";
+import { ClinicsTable, type BulkAction } from "@/components/superadmin/ClinicsTable";
+import { SuperAdminNav, type SuperAdminTab } from "@/components/superadmin/SuperAdminNav";
+import { daysUntil, extendedExpiry, tierChangeUpdate, type ConsoleClinic } from "@/components/superadmin/clinicMath";
+import { useSuperAdminText, type SAKey } from "@/components/superadmin/i18n";
 import { AnalyticsTab } from "@/components/superadmin/AnalyticsTab";
 import { UsersTab } from "@/components/superadmin/UsersTab";
 import { MetaTab } from "@/components/superadmin/MetaTab";
@@ -22,14 +29,6 @@ import { PlatformTab } from "@/components/superadmin/PlatformTab";
 import { CostsTab } from "@/components/superadmin/CostsTab";
 import SupplyStoreTab from "@/components/superadmin/SupplyStoreTab";
 import { TourTab } from "@/components/superadmin/TourTab";
-
-// Tabs
-type Tab = 'clinics' | 'analytics' | 'costs' | 'users' | 'meta' | 'migrate' | 'misplaced' | 'platform' | 'supply' | 'tour';
-
-interface RichClinic extends Clinic {
-  ownerEmail?: string;
-  daysRemaining?: number;
-}
 
 /** One row of the trash, as /api/admin/clinic-trash lists it. */
 interface TrashedClinic {
@@ -42,12 +41,19 @@ interface TrashedClinic {
   members: number | null;
 }
 
+const TAB_TITLE: Record<SuperAdminTab, SAKey> = {
+  clinics: "navClinics", users: "navUsers", costs: "navCosts", analytics: "navAnalytics", meta: "navMeta",
+  supply: "navSupply", platform: "navPlatform", migrate: "navMigrate", misplaced: "navAudit", tour: "navTour",
+};
+
 export default function SuperAdminDashboard() {
   const { user, loading } = useAuth();
   const router = useRouter();
   const { showToast, confirm, prompt } = useUI();
+  const { t, num, date, isAr } = useSuperAdminText();
 
-  const [clinics, setClinics] = useState<RichClinic[]>([]);
+  const [clinics, setClinics] = useState<(Clinic & { ownerEmail?: string })[]>([]);
+  const [aiUsage, setAiUsage] = useState<Record<string, number>>({});
   const [trash, setTrash] = useState<TrashedClinic[]>([]);
 
   /** Everything the trash does goes through the server; the browser never touches deleted_clinics. */
@@ -75,8 +81,7 @@ export default function SuperAdminDashboard() {
     }
   }, []);
   const [loadingClinics, setLoadingClinics] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [activeTab, setActiveTab] = useState<Tab>('clinics');
+  const [activeTab, setActiveTab] = useState<SuperAdminTab>("clinics");
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [selectedClinicId, setSelectedClinicId] = useState<string | null>(null);
 
@@ -87,30 +92,24 @@ export default function SuperAdminDashboard() {
         router.push("/");
         return;
       }
-      document.title = "Super Admin Hub — Alpha Dental SaaS";
+      document.title = "Super Admin — Alpha Dental";
       void loadTrash();
     }
   }, [user, loading, router, loadTrash]);
 
   useEffect(() => {
     if (loading || !user?.isSuperAdmin) return;
-    
+
     setLoadingClinics(true);
     const q = query(getClinicCollection("clinics"));
-    
+
     const unsubscribe = onSnapshot(q, async (snapshot) => {
-      const fetched: RichClinic[] = [];
+      const fetched: (Clinic & { ownerEmail?: string })[] = [];
       const ownerIds = new Set<string>();
-      
+
       snapshot.forEach((docSnap) => {
         const data = docSnap.data() as Clinic;
-        let daysRemaining = undefined;
-        if (data.expiresAt) {
-          const expDate = data.expiresAt.toDate ? data.expiresAt.toDate() : new Date(data.expiresAt);
-          const diffTime = expDate.getTime() - new Date().getTime();
-          daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        }
-        fetched.push({ ...data, id: docSnap.id, daysRemaining });
+        fetched.push({ ...data, id: docSnap.id });
         if (data.ownerId) ownerIds.add(data.ownerId);
       });
 
@@ -122,21 +121,17 @@ export default function SuperAdminDashboard() {
         usersSnap.forEach((userDoc) => {
           const uData = { id: userDoc.id, ...userDoc.data() } as any;
           usersData.push(uData);
-          if (ownerIds.has(userDoc.id)) {
-            ownerEmails[userDoc.id] = uData.email || 'No email';
-          }
+          if (ownerIds.has(userDoc.id) && uData.email) ownerEmails[userDoc.id] = uData.email;
         });
-        
+
         setAllUsers(usersData);
-        fetched.forEach(c => {
-          if (c.ownerId && ownerEmails[c.ownerId]) {
-            c.ownerEmail = ownerEmails[c.ownerId];
-          }
+        fetched.forEach((c) => {
+          if (c.ownerId && ownerEmails[c.ownerId]) c.ownerEmail = ownerEmails[c.ownerId];
         });
       } catch (e) {
         console.error("Error fetching owners", e);
       }
-      
+
       setClinics(fetched);
       setLoadingClinics(false);
     }, (error) => {
@@ -144,35 +139,82 @@ export default function SuperAdminDashboard() {
       showToast("Failed to listen to clinics.", "error");
       setLoadingClinics(false);
     });
-    
+
     return () => unsubscribe();
   }, [user, loading]);
 
-  const handleUpdateTier = async (clinicId: string, newTier: SubscriptionTier) => {
-    try {
-      await updateDoc(getClinicDoc("clinics", clinicId), { subscriptionTier: newTier });
-      showToast(`Updated tier to ${newTier}`, "success");
-    } catch (err) {
-      showToast("Error updating tier", "error");
-    }
-  };
+  // This month's AI spend per clinic: one small doc each (clinics/{id}/ai_usage/{YYYY-MM}). Read
+  // once per set of clinics rather than listened to — the console is not a live meter.
+  const clinicIdsKey = clinics.map((c) => c.id).sort().join(",");
+  useEffect(() => {
+    if (!clinicIdsKey) return;
+    const monthKey = new Date().toISOString().slice(0, 7);
+    let cancelled = false;
+    void Promise.all(
+      clinicIdsKey.split(",").map(async (id) => {
+        try {
+          const snap = await getDoc(doc(db, "clinics", id, "ai_usage", monthKey));
+          return [id, snap.exists() ? Number(snap.data()?.creditsUsed) || 0 : 0] as const;
+        } catch {
+          return [id, 0] as const;
+        }
+      })
+    ).then((pairs) => {
+      if (!cancelled) setAiUsage(Object.fromEntries(pairs));
+    });
+    return () => { cancelled = true; };
+  }, [clinicIdsKey]);
 
-  const handleUpdateStatus = async (clinicId: string, newStatus: 'Active' | 'Suspended' | 'Expired') => {
-    try {
-      await updateDoc(getClinicDoc("clinics", clinicId), { status: newStatus });
-      showToast(`Updated status to ${newStatus}`, "success");
-    } catch (err) {
-      showToast("Error updating status", "error");
-    }
-  };
+  const consoleClinics: ConsoleClinic[] = useMemo(() => {
+    const staffCount: Record<string, number> = {};
+    for (const u of allUsers) for (const id of Object.keys(u.clinicRoles || {})) staffCount[id] = (staffCount[id] || 0) + 1;
+    return clinics.map((c) => ({
+      ...c,
+      daysRemaining: daysUntil(c.expiresAt),
+      staffCount: staffCount[c.id] || 0,
+      aiUsed: aiUsage[c.id] || 0,
+      aiLimit: getAiCreditLimit(c),
+    }));
+  }, [clinics, allUsers, aiUsage]);
 
   const handleUpdateClinic = async (clinicId: string, updates: Partial<Clinic>) => {
     try {
       await updateDoc(getClinicDoc("clinics", clinicId), updates);
-      showToast("Clinic updated successfully", "success");
+      showToast(t("updated"), "success");
     } catch (err) {
-      showToast("Error updating clinic", "error");
+      showToast(t("updateFailed"), "error");
     }
+  };
+
+  const tierName = (tier: SubscriptionTier) =>
+    t(({ "Free Trial": "tierFree", Basic: "tierBasic", Pro: "tierPro", Premium: "tierPremium" } as const)[tier]);
+
+  const handlePlanChange = async (clinic: ConsoleClinic, tier: SubscriptionTier) => {
+    if (!(await confirm(t("planChangeQ", { name: clinic.name, plan: tierName(tier) }), { title: t("subscription"), confirmLabel: tierName(tier) }))) return;
+    await handleUpdateClinic(clinic.id, tierChangeUpdate(clinic, tier));
+  };
+
+  const handleBulk = async (ids: string[], action: BulkAction) => {
+    const targets = consoleClinics.filter((c) => ids.includes(c.id));
+    if (!targets.length) return;
+    if (action.kind === "status" && action.status === "Suspended") {
+      if (!(await confirm(t("bulkSuspendQ", { n: num(targets.length) }), { title: t("bulkSuspend"), confirmLabel: t("bulkSuspend") }))) return;
+    }
+    if (action.kind === "plan") {
+      if (!(await confirm(t("bulkPlanQ", { n: num(targets.length), plan: tierName(action.tier) }), { title: t("subscription"), confirmLabel: tierName(action.tier) }))) return;
+    }
+    const results = await Promise.allSettled(
+      targets.map((c) => {
+        const updates: Partial<Clinic> =
+          action.kind === "extend" ? { expiresAt: extendedExpiry(c, action.days) }
+          : action.kind === "plan" ? tierChangeUpdate(c, action.tier)
+          : { status: action.status };
+        return updateDoc(getClinicDoc("clinics", c.id), updates);
+      })
+    );
+    const failed = results.filter((r) => r.status === "rejected").length;
+    if (failed) showToast(t("bulkFailed", { n: num(failed) }), "error");
+    else showToast(t("bulkDone", { n: num(targets.length) }), "success");
   };
 
   /**
@@ -236,303 +278,109 @@ export default function SuperAdminDashboard() {
     }
   };
 
-  const filteredClinics = clinics.filter(c => 
-    c.name?.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    c.id.includes(searchQuery) ||
-    c.ownerEmail?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // The console's own face: Open Sans and Montserrat for Latin, Cairo for every Arabic letter —
+  // in English too, since clinic names are often Arabic. In Arabic, Cairo leads.
+  const fontCls = `${cairo.variable} superadmin-ui ${isAr ? "arabic-ui" : ""}`;
 
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center bg-surface-page"><Loader2 className="animate-spin text-ink-muted" size={32} /></div>;
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-800">
-      {/* Header */}
-      <div className="sticky top-0 z-40 bg-slate-900 text-white shadow-md">
-        <div className="max-w-7xl mx-auto px-4 md:px-8 py-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-indigo-500/20 text-indigo-400 rounded-2xl flex items-center justify-center shrink-0">
-              <ShieldCheck size={24} />
-            </div>
-            <div>
-              <h1 className="text-xl font-black tracking-tight">Super Admin Hub</h1>
-              <p className="text-xs font-semibold text-slate-400 mt-1">Platform Control Center</p>
-            </div>
-          </div>
-          <div className="flex bg-slate-800 p-1 rounded-xl">
-            <button onClick={() => setActiveTab('clinics')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'clinics' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
-              <Building2 size={16} /> Clinics
-            </button>
-            <button onClick={() => setActiveTab('analytics')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'analytics' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
-              <BarChart3 size={16} /> Analytics
-            </button>
-            <button onClick={() => setActiveTab('costs')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'costs' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
-              <BarChart3 size={16} /> Costs</button>
-            <button onClick={() => setActiveTab('users')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'users' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
-              <Users size={16} /> Users
-            </button>
-            <button onClick={() => setActiveTab('meta')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'meta' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
-              <Megaphone size={16} /> Meta Leads
-            </button>
-            <button onClick={() => setActiveTab('migrate')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'migrate' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
-              <HardDriveDownload size={16} /> Migrate
-            </button>
-            <button onClick={() => setActiveTab('misplaced')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'misplaced' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
-              <Search size={16} /> Audit
-            </button>
-            <button onClick={() => setActiveTab('platform')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'platform' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
-              <SlidersHorizontal size={16} /> Platform
-            </button>
-            <button onClick={() => setActiveTab('costs')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'costs' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
-              <SlidersHorizontal size={16} /> AI costs
-            </button>
-            <button onClick={() => setActiveTab('supply')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'supply' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
-              <ShoppingBag size={16} /> Supply store
-            </button>
-            <button onClick={() => setActiveTab('tour')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'tour' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
-              <Compass size={16} /> Tour
-            </button>
-          </div>
-        </div>
-      </div>
+    <div className={`min-h-[100dvh] bg-surface-page text-ink lg:flex ${fontCls}`}>
+      <SuperAdminNav
+        active={activeTab}
+        onPick={setActiveTab}
+        counts={{ clinics: clinics.length, users: allUsers.length }}
+        email={user?.email}
+      />
 
-      <div className="max-w-7xl mx-auto p-4 md:p-8 space-y-6">
-        {activeTab === 'clinics' && (
+      <main className="flex-1 min-w-0 px-4 py-6 md:px-8 lg:px-10 lg:py-8 flex flex-col gap-6">
+        <header className="flex flex-col gap-1">
+          <span className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-muted">{t("eyebrow")}</span>
+          <h1 className="font-display text-3xl md:text-4xl font-bold tracking-tight text-ink">{t(TAB_TITLE[activeTab])}</h1>
+        </header>
+
+        {activeTab === "clinics" && (
           <>
-            <KpiStrip clinics={clinics} />
-
-            {/* Toolbar */}
-            <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-surface p-4 rounded-2xl border border-slate-200/60 shadow-sm">
-              <div className="w-full md:w-96 relative">
-                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                 <input 
-                   type="search" 
-                   placeholder="Search by name, ID, or owner email..." 
-                   value={searchQuery}
-                   onChange={(e) => setSearchQuery(e.target.value)}
-                   className="w-full bg-surface-subtle border border-line rounded-xl py-2.5 pl-11 pr-4 text-sm font-bold text-slate-800 outline-none focus:border-indigo-500 transition-all"
-                 />
-              </div>
-              <button onClick={() => window.location.reload()} className="flex items-center gap-2 px-4 py-2 bg-surface-muted text-ink-body hover:bg-slate-200 rounded-xl font-bold text-sm transition-colors">
-                <RefreshCcw size={16} /> Refresh
-              </button>
-            </div>
-
-            {/* Clinics List */}
-            <div className="bg-surface rounded-[2rem] border border-slate-200/60 shadow-sm overflow-hidden">
-              {loadingClinics ? (
-                <div className="p-12 flex justify-center"><Loader2 className="animate-spin text-slate-400" size={32} /></div>
-              ) : filteredClinics.length === 0 ? (
-                <div className="p-16 text-center">
-                  <div className="w-20 h-20 bg-surface-muted text-slate-300 rounded-3xl flex items-center justify-center mx-auto mb-4">
-                    <Search size={32} />
-                  </div>
-                  <h3 className="text-lg font-bold text-slate-700">No clinics found</h3>
-                  <p className="text-ink-muted text-sm mt-1">Try adjusting your search query.</p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-start border-collapse">
-                    <thead>
-                      <tr className="bg-surface-subtle border-b border-slate-100 text-xs font-black text-slate-400 uppercase tracking-widest">
-                        <th className="px-6 py-4">Clinic Info</th>
-                        <th className="px-6 py-4">Owner</th>
-                        <th className="px-6 py-4">Status & Tier</th>
-                        <th className="px-6 py-4">Expiry</th>
-                        <th className="px-6 py-4 text-end">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {filteredClinics.map((clinic) => (
-                        <tr key={clinic.id} className="hover:bg-slate-50/50 transition-colors group">
-                          <td className="px-6 py-4">
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center font-bold text-indigo-600 shrink-0">
-                                {clinic.name?.charAt(0).toUpperCase()}
-                              </div>
-                              <div>
-                                <p className="font-bold text-ink">{clinic.name}</p>
-                                <p className="text-xs font-mono text-slate-400 mt-0.5" title={clinic.id}>{clinic.id.slice(0, 8)}...</p>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <p className="text-sm font-semibold text-slate-700">{clinic.ownerEmail || 'Unknown'}</p>
-                            {clinic.createdAt && (
-                              <p className="text-xs text-slate-400 mt-0.5">Joined: {new Date(clinic.createdAt.toDate ? clinic.createdAt.toDate() : clinic.createdAt).toLocaleDateString()}</p>
-                            )}
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex flex-col gap-2 items-start">
-                              <select
-                                value={clinic.status}
-                                onChange={(e) => handleUpdateStatus(clinic.id, e.target.value as any)}
-                                className={`text-xs font-bold px-2.5 py-1 rounded-lg outline-none cursor-pointer border ${
-                                  clinic.status === 'Active' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
-                                  clinic.status === 'Suspended' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                                  'bg-rose-50 text-rose-700 border-rose-200'
-                                }`}
-                              >
-                                <option value="Active">Active</option>
-                                <option value="Suspended">Suspended</option>
-                                <option value="Expired">Expired</option>
-                              </select>
-                              <select
-                                value={clinic.subscriptionTier}
-                                onChange={(e) => handleUpdateTier(clinic.id, e.target.value as SubscriptionTier)}
-                                className="bg-surface-muted text-ink-body text-xs font-bold rounded-lg px-2.5 py-1 outline-none cursor-pointer border border-transparent hover:border-line-strong"
-                              >
-                                <option value="Free Trial">Free Trial</option>
-                                <option value="Basic">Basic</option>
-                                <option value="Pro">Pro</option>
-                                <option value="Premium">Premium</option>
-                              </select>
-                              {clinic.customPrice !== undefined && clinic.customPrice > 0 && (
-                                <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded">
-                                  ${clinic.customPrice} ({clinic.billingCycle || 'Monthly'})
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            {clinic.daysRemaining !== undefined ? (
-                              <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${
-                                clinic.daysRemaining < 0 ? 'bg-rose-100 text-rose-700' :
-                                clinic.daysRemaining <= 7 ? 'bg-amber-100 text-amber-700' :
-                                'bg-surface-muted text-ink-body'
-                              }`}>
-                                {clinic.daysRemaining < 0 
-                                  ? `Expired ${Math.abs(clinic.daysRemaining)}d ago` 
-                                  : `${clinic.daysRemaining} days left`}
-                              </span>
-                            ) : (
-                              <span className="text-xs text-slate-400">Not set</span>
-                            )}
-                          </td>
-                          <td className="px-6 py-4 text-end">
-                            <div className="flex justify-end gap-2">
-                              <a
-                                href={`/?clinic=${clinic.id}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center justify-center bg-emerald-50 text-emerald-600 hover:bg-emerald-100 w-8 h-8 rounded-lg transition-colors"
-                                title="Open Clinic in New Tab"
-                              >
-                                <ExternalLink size={16} />
-                              </a>
-                              <button
-                                onClick={() => setSelectedClinicId(clinic.id)}
-                                className="inline-flex items-center justify-center bg-indigo-50 text-indigo-600 hover:bg-indigo-100 w-8 h-8 rounded-lg transition-colors"
-                                title="View Details"
-                              >
-                                <MoreVertical size={16} />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteClinic(clinic.id, clinic.name)}
-                                className="inline-flex items-center justify-center bg-rose-50 text-rose-600 hover:bg-rose-100 w-8 h-8 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                                title="Delete Clinic"
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
+            <KpiStrip clinics={consoleClinics} />
+            <AttentionList
+              clinics={consoleClinics}
+              onOpen={setSelectedClinicId}
+              onExtend={(c, days) => handleUpdateClinic(c.id, { expiresAt: extendedExpiry(c, days) })}
+              onAddCredits={(c, n) => handleUpdateClinic(c.id, { features: { ...(c.features || {}), extraAiCredits: (c.features?.extraAiCredits || 0) + n } })}
+            />
+            <ClinicsTable clinics={consoleClinics} loading={loadingClinics} onOpen={setSelectedClinicId} onBulk={handleBulk} />
 
             {/* Recently deleted — the header copies the delete route keeps. Restore puts one back. */}
             {trash.length > 0 && (
-              <div className="bg-surface rounded-[2rem] border border-rose-200/60 shadow-sm overflow-hidden">
-                <div className="px-6 py-4 border-b border-rose-100 flex items-center gap-2">
-                  <Trash2 size={16} className="text-rose-500" />
-                  <h2 className="text-sm font-black text-slate-700 uppercase tracking-widest">Recently deleted</h2>
-                  <span className="text-xs text-ink-muted font-medium ms-2">
-                    Their patients and records are untouched, and their staff have no access until you restore. Restore brings the clinic back exactly as it was, staff included.
-                  </span>
+              <section className="bg-surface rounded-3xl border border-danger/25 overflow-hidden">
+                <div className="px-5 py-4 border-b border-line flex flex-col gap-1">
+                  <h2 className="font-display text-base font-bold text-ink flex items-center gap-2">
+                    <Trash2 size={16} className="text-danger" aria-hidden /> {t("trashTitle")}
+                  </h2>
+                  <p className="text-[13px] text-ink-muted">{t("trashSub")}</p>
                 </div>
-                <ul className="divide-y divide-slate-100">
+                <ul className="divide-y divide-line">
                   {trash.map((item) => (
-                    <li key={item.id} className="px-6 py-3 flex flex-col md:flex-row md:items-center gap-2 md:gap-6">
+                    <li key={item.id} className="px-5 py-3 flex flex-col md:flex-row md:items-center gap-2 md:gap-6">
                       <div className="flex-1 min-w-0">
-                        <p className="font-bold text-slate-800 truncate">{item.name}</p>
-                        <p className="text-xs text-ink-muted font-mono truncate">{item.id}</p>
+                        <p className="font-semibold text-ink truncate" dir="auto">{item.name}</p>
+                        <p className="text-xs text-ink-muted font-mono truncate" dir="ltr">{item.id}</p>
                       </div>
                       <div className="text-xs text-ink-muted">
                         {item.subscriptionTier ? <span className="me-3">{item.subscriptionTier}</span> : null}
-                        {item.deletedAt ? <span>Deleted {new Date(item.deletedAt).toLocaleString()}</span> : null}
-                        {item.deletedByEmail ? <span> by {item.deletedByEmail}</span> : null}
+                        {item.deletedAt ? <span>{t("trashDeleted", { d: date(new Date(item.deletedAt)) })}</span> : null}
+                        {item.deletedByEmail ? <span> {t("trashBy", { e: item.deletedByEmail })}</span> : null}
                         {item.members === null ? (
                           // Deleted before the trash took staff access with the clinic: its members
                           // can still sign into it. Restore and delete again to let them go.
-                          <span className="block text-amber-700 font-semibold mt-1">
-                            Staff still have access. Restore, then delete again, to remove it.
-                          </span>
+                          <span className="block text-warn font-semibold mt-1">{t("trashStaffStill")}</span>
                         ) : item.members > 0 ? (
-                          <span className="ms-3">{item.members} staff waiting</span>
+                          <span className="ms-3">{t("trashWaiting", { n: num(item.members) })}</span>
                         ) : null}
                       </div>
                       <button
                         onClick={() => handleRestoreClinic(item.id, item.name)}
-                        className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-xl font-bold text-sm transition-colors"
+                        className="inline-flex items-center gap-2 min-h-[40px] px-4 rounded-xl border border-line-strong bg-surface text-ink hover:bg-surface-subtle font-semibold text-sm"
                       >
-                        <RefreshCcw size={14} /> Restore
+                        <RefreshCcw size={14} aria-hidden /> {t("restore")}
                       </button>
                     </li>
                   ))}
                 </ul>
-              </div>
+              </section>
             )}
           </>
         )}
 
-        {activeTab === 'tour' && (
-          <div className="mt-4">
-            {/* Where Sara's tour loses people, across every clinic. */}
-            <TourTab />
-          </div>
-        )}
-        {activeTab === 'costs' && (
-          <div className="mt-4">
-            {/* Supplier invoices per clinic. Superadmin only — a clinic sees credits, never money. */}
-            <CostsTab />
-          </div>
-        )}
-        {activeTab === 'analytics' && (
-          <AnalyticsTab clinics={clinics} />
-        )}
+        {/* Where Sara's tour loses people, across every clinic. */}
+        {activeTab === "tour" && <TourTab />}
+        {/* Supplier invoices per clinic. Superadmin only — a clinic sees credits, never money. */}
+        {activeTab === "costs" && <CostsTab />}
+        {activeTab === "analytics" && <AnalyticsTab clinics={clinics} />}
+        {activeTab === "users" && <UsersTab users={allUsers} onToggleSuperAdmin={handleToggleSuperAdmin} />}
+        {activeTab === "meta" && <MetaTab />}
+        {activeTab === "supply" && <SupplyStoreTab />}
+        {activeTab === "migrate" && <MigrateTab clinics={clinics} />}
+        {activeTab === "misplaced" && <MisplacedRecordsTab />}
+        {activeTab === "platform" && <PlatformTab />}
+      </main>
 
-        {activeTab === 'users' && (
-          <UsersTab users={allUsers} onToggleSuperAdmin={handleToggleSuperAdmin} />
-        )}
-
-        {activeTab === 'meta' && <MetaTab />}
-
-        {activeTab === 'supply' && <SupplyStoreTab />}
-
-        {activeTab === 'migrate' && <MigrateTab clinics={clinics} />}
-        {activeTab === 'misplaced' && <MisplacedRecordsTab />}
-        {activeTab === 'platform' && <PlatformTab />}
-
-      </div>
-      
-      {/* Clinic Detail Panel overlay */}
       {selectedClinicId && (
         <>
-          <div 
-            className="fixed inset-0 bg-slate-900/20 backdrop-blur-sm z-40 animate-in fade-in duration-200"
+          <div
+            className="fixed inset-0 bg-ink-slab/30 backdrop-blur-sm z-40 animate-in fade-in duration-200"
             onClick={() => setSelectedClinicId(null)}
           />
-          <ClinicDetailPanel 
-            clinic={clinics.find(c => c.id === selectedClinicId) || null}
+          <ClinicDetailPanel
+            key={selectedClinicId}
+            clinic={consoleClinics.find((c) => c.id === selectedClinicId) || null}
             users={allUsers}
             onClose={() => setSelectedClinicId(null)}
             onUpdateClinic={handleUpdateClinic}
             onDeleteClinic={handleDeleteClinic}
+            onPlanChange={handlePlanChange}
           />
         </>
       )}

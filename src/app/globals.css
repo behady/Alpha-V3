@@ -322,6 +322,17 @@ body {
   }
 }
 
+/* The super admin console lives outside the dashboard layout, so it sets its own faces. Clinic
+   names there are often Arabic even when the console is in English: Cairo sits second in the stack
+   so those letters take it instead of Segoe UI. In Arabic, `.arabic-ui` below puts Cairo first. */
+.superadmin-ui {
+  font-family: var(--font-body), var(--font-arabic), "Segoe UI", Tahoma, sans-serif;
+}
+.superadmin-ui .font-figure,
+.superadmin-ui .font-display {
+  font-family: var(--font-figures), var(--font-arabic), "Montserrat", "Segoe UI", Tahoma, sans-serif;
+}
+
 /* The booking popup is portalled to <body>, outside the dashboard wrapper that sets the Arabic
    face, so in Arabic it sets its own (the `--font-arabic` variable comes with it). Arabic letters
    take Cairo; Latin words and digits keep the app's faces, which carry no Arabic glyphs anyway. */
