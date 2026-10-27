@@ -193,18 +193,22 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
           data-tour={section.tourAnchor ?? `settings-${section.id}`}
           aria-current={isActive ? "page" : undefined}
           title={hint(section)}
-          className={`group flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-start transition-colors ${
-            isActive
-              ? "bg-ink-slab text-white"
-              : "text-ink-body hover:bg-surface-muted hover:text-ink"
+          className={`group flex w-full items-start gap-3 rounded-xl px-2 py-1.5 text-start transition-colors ${
+            isActive ? "bg-ink-slab text-white" : "text-ink hover:bg-surface-muted"
           }`}
         >
-          <Icon
-            size={17}
-            className={`mt-0.5 shrink-0 ${isActive ? "text-white" : "text-ink-muted group-hover:text-ink"}`}
-          />
-          <span className="min-w-0 flex-1">
-            <span className={`block text-[14px] leading-5 ${isActive ? "font-semibold" : "font-medium"}`}>
+          {/* The icon sits on its own tile: white at rest (the list lies on the grey page), the
+              brand gold on the open section — the one place colour appears in the list, so it marks
+              where you are. */}
+          <span
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] transition-colors ${
+              isActive ? "bg-accent text-ink-on-accent" : "bg-surface text-ink ring-1 ring-inset ring-line"
+            }`}
+          >
+            <Icon size={17} />
+          </span>
+          <span className="min-w-0 flex-1 pt-1.5">
+            <span className="block text-[14.5px] font-semibold leading-5">
               {label(section)}
             </span>
             {/* The hint answers "what is this?" before the click. It always shows in a search
@@ -253,17 +257,17 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
               type="button"
               onClick={() => void go(SETUP_ROUTE)}
               data-tour="settings-quick-setup"
-              className="mb-4 flex w-full items-center gap-3 rounded-2xl bg-ink-slab px-4 py-3.5 text-start text-white transition-colors hover:bg-ink"
+              className="mb-4 flex w-full items-center gap-3 rounded-2xl bg-ink-slab px-[18px] py-4 text-start text-white transition-colors hover:bg-ink"
             >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent text-ink">
-                <Wand2 size={17} />
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent text-ink-on-accent">
+                <Wand2 size={18} />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-[14px] font-semibold leading-5">
+                <span className="block text-[15.5px] font-bold leading-6">
                   {ar ? "إعداد سريع للعيادة" : "Quick clinic setup"}
                 </span>
-                <span className="mt-0.5 block text-[12.5px] leading-snug text-white/65">
-                  {ar ? "البيانات، المواعيد، الأسعار، الحجز أونلاين، الفريق، التأمين، وواتساب — خطوة بخطوة" : "Details, hours, prices, online booking, team, insurance and WhatsApp — step by step"}
+                <span className="mt-0.5 block text-[12.5px] font-medium leading-relaxed text-white/70">
+                  {ar ? "البيانات، المواعيد، الأسعار، الفريق، التأمين وواتساب — خطوة بخطوة" : "Details, hours, prices, team, insurance and WhatsApp — step by step"}
                 </span>
               </span>
             </button>
@@ -316,7 +320,7 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
                     {/* The tour waits on this anchor before lighting a section in the group. */}
                     <h2
                       data-tour={`settings-group-${group}`}
-                      className="mb-1 px-3 text-[11px] font-bold uppercase tracking-[0.12em] text-ink-muted"
+                      className="mb-1 flex items-center gap-2 px-2 text-[11.5px] font-bold uppercase tracking-[0.1em] text-ink after:h-px after:flex-1 after:bg-line"
                     >
                       {SETTINGS_GROUP_LABELS[group][ar ? "ar" : "en"]}
                     </h2>

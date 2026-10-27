@@ -336,6 +336,13 @@ body {
   font-family: var(--font-figures), var(--font-arabic), "Montserrat", "Segoe UI", Tahoma, sans-serif;
 }
 
+/* Eight pages put `font-sans` on their wrapper. Tailwind's sans stack has no Arabic face, so in
+   Arabic it undid the dashboard's Cairo and Windows drew the letters in Segoe UI. In a
+   right-to-left page `font-sans` means the app's Arabic face instead. */
+[dir="rtl"] .font-sans {
+  font-family: var(--font-arabic, "Cairo"), var(--font-body), "Segoe UI", Tahoma, sans-serif;
+}
+
 @media print {
   @page {
     size: A5 portrait;
