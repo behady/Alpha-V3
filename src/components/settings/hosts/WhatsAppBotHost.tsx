@@ -2,7 +2,7 @@
 
 import WhatsAppSettings from "@/components/settings/WhatsAppSettings";
 
-/** WhatsApp → Bot (was Settings → Bot): who answers patients, the scripted bot's switches, ready answers, playground. */
+/** WhatsApp → Auto-reply (was Settings → Bot): pick who answers patients, then that mode's steps. */
 export default function WhatsAppBotHost() {
   return <WhatsAppSettings section="bot" />;
 }

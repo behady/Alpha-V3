@@ -2,7 +2,7 @@
 
 import WhatsAppSettingsTab from "@/components/whatsapp/WhatsAppSettingsTab";
 
-/** WhatsApp → Bot: who answers patients, the ready answers and scripts, and the test chat. */
+/** WhatsApp → Auto-reply: pick who answers patients (bot, AI, both), then that mode's steps. */
 export default function WhatsAppBotPage() {
   return <WhatsAppSettingsTab sectionId="whatsapp_bot" />;
 }

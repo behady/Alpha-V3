@@ -30,6 +30,8 @@ const nextConfig: NextConfig = {
       { source: "/ai/attendance", destination: "/ai?tab=noshows", permanent: false },
       // The team page left the time clock. The query (?staff=) is carried across by Next.
       { source: "/attendance/team", destination: "/team", permanent: false },
+      // The WhatsApp page's AI tab joined the Bot tab as one "Auto-reply" tab; old links open on its AI step.
+      { source: "/chats/ai", destination: "/chats/bot?step=ai", permanent: false },
     ];
   },
 };

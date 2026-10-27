@@ -1094,7 +1094,8 @@ for (const file of sourceFiles(join(REPO, "src", "components", "settings"))) {
 // and the tour and the assistant send people there.
 for (const section of SETTINGS_SECTIONS) {
   if (!section.movedTo) continue;
-  const page = join(REPO, "src", "app", "(dashboard)", ...section.movedTo.split("/").filter(Boolean), "page.tsx");
+  // `movedTo` may carry a query (?step=ai); the page is found by the path alone.
+  const page = join(REPO, "src", "app", "(dashboard)", ...section.movedTo.split("?")[0].split("/").filter(Boolean), "page.tsx");
   ok(existsSync(page), `${section.id} moved to ${section.movedTo}, but there is no page at ${page}`);
   ok(
     resolveNavigablePath(section.movedTo) === section.movedTo,

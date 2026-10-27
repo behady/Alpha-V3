@@ -22,6 +22,7 @@
 
 import type { Localized, TourStop } from "@/lib/grandTour";
 import { SETTINGS_SECTIONS } from "@/config/settingsRegistry";
+import { movedTabKey } from "@/lib/movedTab";
 
 /** Facts the runner can ask the provider about, for `if` actions. */
 export type TourCheck =
@@ -203,12 +204,14 @@ export function navPlanFor(stop: TourStop, resolvedRoute?: string | null, target
   if (stop.settingsId) {
     const section = SETTINGS_SECTIONS.find((s) => s.id === stop.settingsId);
     if (!section) return [];
-    // Moved out of Settings (the WhatsApp page's Bot and AI tabs): open WhatsApp, click the tab.
+    // Moved out of Settings (the WhatsApp page's tabs, e.g. Auto-reply): open WhatsApp, click the tab.
+    // The tab is named by the path alone — "?step=ai" only says which step to open on.
     if (section.movedTo) {
+      const tab = `whatsapp-tab-${movedTabKey(section.movedTo)}`;
       return [
         { kind: "click", anchor: "nav-chats", optional: true },
-        { kind: "wait", anchor: `whatsapp-tab-${section.movedTo.split("/").pop()}` },
-        { kind: "click", anchor: `whatsapp-tab-${section.movedTo.split("/").pop()}` },
+        { kind: "wait", anchor: tab },
+        { kind: "click", anchor: tab },
       ];
     }
     return [

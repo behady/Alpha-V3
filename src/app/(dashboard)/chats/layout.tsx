@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bot, BrainCircuit, Lock, Megaphone, MessageCircle, MessageSquareWarning, Settings, Users, type LucideIcon } from "lucide-react";
+import { Bot, Lock, Megaphone, MessageCircle, MessageSquareWarning, Settings, Users, type LucideIcon } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
@@ -66,8 +66,7 @@ function WhatsAppHub({ children }: { children: React.ReactNode }) {
     { key: "leads", href: "/chats/leads", icon: Users, en: "Leads", ar: "العملاء المحتملين", feature: "leads", allowed: can("access.patients") },
     // Admins only: it reads the whole patient list and messages all of it.
     { key: "broadcast", href: "/chats/broadcast", icon: Megaphone, en: "Message all", ar: "رسالة للكل", feature: "whatsappIntegration", allowed: isAdmin },
-    { key: "bot", href: "/chats/bot", icon: Bot, en: "Bot", ar: "البوت", feature: "whatsappBot", allowed: canViewSection(section("whatsapp_bot"), viewer).allowed },
-    { key: "ai", href: "/chats/ai", icon: BrainCircuit, en: "AI", ar: "الذكاء الاصطناعي", feature: "aiChat", allowed: canViewSection(section("whatsapp_ai"), viewer).allowed },
+    { key: "bot", href: "/chats/bot", icon: Bot, en: "Auto-reply", ar: "الرد الآلي", feature: "whatsappBot", allowed: canViewSection(section("whatsapp_bot"), viewer).allowed },
     // Not an add-on of its own, and empty without a bot to miss anything — so hidden rather than
     // locked when there is none; the Bot tab's lock already says what to buy.
     { key: "misses", href: "/chats/misses", icon: MessageSquareWarning, en: "Bot misses", ar: "اللي فات البوت", allowed: can("access.patients") && isAnyUnlocked(clinic, ["whatsappBot", "aiChat"]) },

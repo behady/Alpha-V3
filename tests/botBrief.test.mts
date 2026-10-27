@@ -21,6 +21,7 @@ import {
   mergeDraft,
   BOT_FACT_KEYS,
 } from "../src/lib/bot/brief";
+import { movedTabKey } from "../src/lib/movedTab";
 
 function test(name: string, fn: () => void) {
   fn();
@@ -109,4 +110,9 @@ test("mergeDraft writes only ticked non-empty fields", () => {
       assert.ok(Object.values(part).every((v) => v !== undefined && v !== ""));
     }
   }
+});
+
+test("tour anchor ignores the query string", () => {
+  assert.equal(movedTabKey("/chats/bot?step=ai"), "bot");
+  assert.equal(movedTabKey("/chats/settings"), "settings");
 });
