@@ -6,7 +6,7 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
 import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
 import { logAiCreditUsage, createUsageMeter } from "@/lib/aiCreditLog";
-import { BOT_FACT_KEYS, sanitizeDraft } from "@/lib/bot/brief";
+import { BOT_FACT_KEYS, isEmptyDraft, sanitizeDraft } from "@/lib/bot/brief";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,7 +39,7 @@ const schema = {
       properties: {
         focus: str,
         tone: { type: SchemaType.STRING, enum: ["friendly", "formal", "short"] },
-        prices: { type: SchemaType.STRING, enum: ["list", "consult"] },
+        prices: { type: SchemaType.STRING, enum: ["ranges", "consult"] },
         neverSay: str,
         handoffWhen: str,
       },
@@ -170,14 +170,17 @@ export async function POST(req: Request) {
 
     const draft = sanitizeDraft(raw);
 
-    await chargeCredits?.();
-    await logAiCreditUsage({
-      clinicId,
-      feature: "bot_brief_draft",
-      credits: REQUIRED_CREDITS,
-      userId: authz.uid,
-      usage: meter.snapshot(),
-    });
+    // Nothing usable came back: the owner got nothing, so they pay nothing.
+    if (!isEmptyDraft(draft)) {
+      await chargeCredits?.();
+      await logAiCreditUsage({
+        clinicId,
+        feature: "bot_brief_draft",
+        credits: REQUIRED_CREDITS,
+        userId: authz.uid,
+        usage: meter.snapshot(),
+      });
+    }
 
     return NextResponse.json({ ok: true, draft });
   } catch (e) {

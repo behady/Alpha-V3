@@ -106,6 +106,7 @@ export default function AiCreditsSettings() {
     whatsapp_photo: { label: ar ? "قراءة صورة على الواتساب" : "WhatsApp photo reading", icon: ScanLine },
     whatsapp_voice: { label: ar ? "تفريغ رسالة صوتية" : "WhatsApp voice note", icon: MessageCircle },
     lead_grade: { label: ar ? "تقييم العملاء المحتملين" : "Lead grading", icon: Sparkles },
+    bot_brief_draft: { label: ar ? "احكيلنا عن عيادتك" : "Interview me", icon: Sparkles },
     lead_flow_draft: { label: ar ? "مسودة ردود العملاء المحتملين" : "Lead reply draft", icon: Sparkles },
     "tour-free": { label: ar ? "الجولة التعريفية (مجانًا)" : "Guided tour (free)", icon: Sparkles },
   };

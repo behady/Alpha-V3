@@ -272,5 +272,5 @@ export function stopRouteMatches(stop: TourStop, pathname: string, resolvedRoute
     if (!resolvedRoute) return false;
     return pathname === resolvedRoute.split("?")[0];
   }
-  return pathname === stop.route;
+  return pathname === stop.route.split("?")[0];
 }

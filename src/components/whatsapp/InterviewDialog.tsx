@@ -105,6 +105,8 @@ export default function InterviewDialog({
 
   // Closing keeps the typed text (the owner may reopen to try again) and drops everything else.
   const close = useCallback(() => {
+    // A paid request is in flight: closing now would orphan a charge the owner never sees.
+    if (busy) return;
     requestId.current += 1;
     setPhase("write");
     setBusy(false);
@@ -113,7 +115,7 @@ export default function InterviewDialog({
     setRows([]);
     setTicked(new Set());
     onClose();
-  }, [onClose]);
+  }, [busy, onClose]);
 
   // Escape closes, like the page's other dialogs.
   useEffect(() => {
@@ -207,7 +209,7 @@ export default function InterviewDialog({
             </h2>
             <p className="mt-0.5 text-xs font-medium leading-relaxed text-ink-muted">{phase === "write" ? t.hint : t.reviewHint}</p>
           </div>
-          <button type="button" onClick={close} aria-label={t.close} className="rounded-full p-2 text-ink-muted hover:bg-surface-subtle">
+          <button type="button" onClick={close} disabled={busy} aria-label={t.close} className="rounded-full p-2 text-ink-muted hover:bg-surface-subtle disabled:cursor-not-allowed disabled:opacity-40">
             <X size={18} />
           </button>
         </div>
@@ -268,7 +270,8 @@ export default function InterviewDialog({
               <button
                 type="button"
                 onClick={close}
-                className="rounded-xl border border-line-strong px-4 py-2.5 text-sm font-bold text-ink-body hover:border-ink hover:text-ink"
+                disabled={busy}
+                className="rounded-xl border border-line-strong px-4 py-2.5 text-sm font-bold text-ink-body hover:border-ink hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {t.cancel}
               </button>

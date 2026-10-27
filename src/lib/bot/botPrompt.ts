@@ -1,6 +1,6 @@
 import type { BotBrief, BotFacts } from "@/types/whatsapp";
 import { adPromptLines, type AdReferral } from "./adReferral";
-import { briefLines } from "./brief";
+import { briefLines, serviceNamesOnly } from "./brief";
 
 /**
  * The WhatsApp assistant's system prompt, as a pure function of what the caller knows.
@@ -355,6 +355,11 @@ export function fixedPromptLayers(mode: "assisted" | "sales", clinical: boolean,
 /* 5. العيادة والمريض — everything that varies.                                                 */
 /* ------------------------------------------------------------------------------------------ */
 
+function consultServiceLines(priceLines: string): string {
+  const names = serviceNamesOnly(priceLines);
+  return names ? `\nقائمة الخدمات اللي بنقدمها (السعر بيتحدد بعد الكشف):\n${names}` : "";
+}
+
 export function clinicAndPatientLayer(input: BotPromptInput): string[] {
   const sales = input.mode === "sales";
   const { clinicName, hoursText, addressText, clinicPhone, priceLines, facts, patient, patientName } = input;
@@ -386,10 +391,11 @@ export function clinicAndPatientLayer(input: BotPromptInput): string[] {
     hoursText?.trim() ? `مواعيد العمل:\n${hoursText.trim()}` : "مواعيد العمل: غير متوفرة هنا (حوّل لو اتسألت).",
     addressText?.trim() ? `العنوان: ${addressText.trim()}` : "",
     clinicPhone?.trim() ? `تليفون العيادة: ${clinicPhone.trim()}` : "",
-    // "No prices on WhatsApp": neither the list nor the "unavailable, hand off" fallback, which
-    // would contradict the brief's own line telling the model to offer a checkup instead.
+    // "No prices on WhatsApp": the service names only (so "do you do implants?" is answered, not
+    // handed off), never the prices, and never the "unavailable, hand off" fallback, which would
+    // contradict the brief's own line telling the model to offer a checkup instead.
     input.brief?.prices === "consult"
-      ? ""
+      ? consultServiceLines(priceLines)
       : priceLines
         ? `\nقائمة الخدمات والأسعار:\n${priceLines}`
         : "\nقائمة الأسعار: غير متوفرة (حوّل أي سؤال سعر).",

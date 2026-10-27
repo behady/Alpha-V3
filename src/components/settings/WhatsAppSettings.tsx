@@ -1518,7 +1518,7 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
         brief={state.botBrief ?? {}}
         onChange={(botBrief) => setState((s) => ({ ...s, botBrief }))}
         onCommit={persistLatest}
-        showBotPriceNote={autoReplyMode === "both"}
+        showBotPriceNote={aiMode}
         isAr={language === "ar"}
       />
       {/* "Anything else": the free coaching box, unchanged, as the brief's sixth card. */}

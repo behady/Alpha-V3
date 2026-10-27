@@ -296,7 +296,7 @@ export default function BotMissesPanel() {
           className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-surface border border-line text-xs font-black uppercase tracking-wide text-ink-body hover:bg-surface-subtle transition-colors"
         >
           <Settings2 size={14} />
-          {isAr ? "ردود البوت الجاهزة" : "Bot ready answers"}
+          {isAr ? "الرد الآلي" : "Auto-reply"}
         </Link>
       </div>
 

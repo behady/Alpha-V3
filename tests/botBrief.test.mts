@@ -17,6 +17,8 @@ import {
   factsFilled,
   stepsForMode,
   sanitizeDraft,
+  isEmptyDraft,
+  serviceNamesOnly,
   draftRows,
   mergeDraft,
   BOT_FACT_KEYS,
@@ -110,6 +112,21 @@ test("mergeDraft writes only ticked non-empty fields", () => {
       assert.ok(Object.values(part).every((v) => v !== undefined && v !== ""));
     }
   }
+});
+
+test("isEmptyDraft: nothing usable means nothing to charge for", () => {
+  assert.equal(isEmptyDraft(sanitizeDraft("junk")), true);
+  assert.equal(isEmptyDraft(sanitizeDraft({ facts: { evil: "x", parking: "" }, brief: { hack: 1 } })), true);
+  assert.equal(isEmptyDraft(sanitizeDraft({ facts: { offers: "10%" }, brief: {} })), false);
+  assert.equal(isEmptyDraft(sanitizeDraft({ facts: {}, brief: { tone: "short" } })), false);
+});
+
+test("serviceNamesOnly keeps the names and drops every price figure", () => {
+  const out = serviceNamesOnly("تقويم: يبدأ من 15,000 ج.م\nتبييض: يبدأ من 3,500 ج.م");
+  assert.equal(out, "تقويم\nتبييض");
+  assert.ok(!/\d/.test(out), "no digits");
+  assert.equal(serviceNamesOnly(out), out, "idempotent on bare names");
+  assert.equal(serviceNamesOnly(""), "");
 });
 
 test("tour anchor ignores the query string", () => {

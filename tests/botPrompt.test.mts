@@ -191,3 +191,11 @@ run("consult drops price lines and the handoff fallback", () => {
   assert.ok(!p.includes("قائمة الأسعار: غير متوفرة"), "no 'list unavailable' fallback either");
   assert.ok(p.includes("مش بتقول أسعار"), "the consult rule is there");
 });
+
+run("consult keeps the service names, without prices", () => {
+  const p = buildBotPrompt({ ...base, priceLines: "تقويم: يبدأ من 15,000 ج.م\nتبييض: يبدأ من 3,500 ج.م", brief: { prices: "consult" } });
+  assert.ok(p.includes("تقويم") && p.includes("تبييض"), "service names are listed");
+  assert.ok(p.includes("قائمة الخدمات اللي بنقدمها"), "under the consult heading");
+  assert.ok(!p.includes("15,000") && !p.includes("3,500"), "no price figures");
+  assert.ok(!p.includes("قائمة الخدمات والأسعار"), "not the priced heading");
+});

@@ -7,7 +7,7 @@ import type { AdReferral } from "./adReferral";
 import { getAiCreditLimit, hasFeature } from "@/lib/subscriptions";
 import type { Clinic } from "@/types/saas";
 import type { BotBrief, BotFacts } from "@/types/whatsapp";
-import { briefLines } from "./brief";
+import { briefLines, serviceNamesOnly } from "./brief";
 import { dossierLines, type PatientDossier } from "./patientDossier";
 import { strayDrugNames } from "./drugGuard";
 import { clinicAndPatientLayer, factLines, fixedPromptLayers, promptVersion, type AiPatientContext } from "./botPrompt";
@@ -273,8 +273,9 @@ export async function answerWithAi(args: {
     hoursText,
     addressText,
     clinicPhone,
-    // "No prices on WhatsApp" keeps the list out of the prompt entirely (and out of the number guard).
-    priceLines: args.brief?.prices === "consult" ? "" : priceLines,
+    // "No prices on WhatsApp" keeps the prices out of the prompt (and out of the number guard) but
+    // still tells the model which services the clinic offers.
+    priceLines: args.brief?.prices === "consult" ? serviceNamesOnly(priceLines) : priceLines,
     brief: args.brief,
     facts,
     patient: args.patient,
@@ -414,7 +415,8 @@ export async function answerWithAi(args: {
     // The clinic's own phone and address are in the prompt and belong in the reply; leaving them
     // out meant a correct answer to "where are you?" was thrown away as an invented figure.
     for (const src of [
-      promptInput.priceLines,
+      // Service names may carry digits ("2D"); on consult they must not open the door to a price.
+      args.brief?.prices === "consult" ? "" : promptInput.priceLines,
       factLines(facts),
       briefLines(args.brief),
       coaching || "",

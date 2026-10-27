@@ -123,6 +123,24 @@ export function sanitizeDraft(raw: unknown): BriefDraft {
   return { facts, brief: cleanBrief(r.brief) };
 }
 
+/** True when the interview found nothing worth saving — no facts and no brief fields. */
+export function isEmptyDraft(d: BriefDraft): boolean {
+  return Object.keys(d.facts).length === 0 && Object.keys(d.brief).length === 0;
+}
+
+/**
+ * The service names from "name: يبدأ من 1,200 ج.م" lines, one per line, with the price part gone.
+ * Used when the clinic wants no prices on WhatsApp: the model still knows what the clinic offers.
+ * Idempotent — a line that is already a bare name comes back unchanged.
+ */
+export function serviceNamesOnly(priceLines: string): string {
+  return (priceLines || "")
+    .split("\n")
+    .map((l) => l.replace(/\s*:\s*يبدأ من.*$/, "").trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
 /** One proposed change. `key` is `facts.<k>` or `brief.<k>`; `old` is set when it would replace text. */
 export type DraftRow = { key: string; value: string; old?: string };
 
