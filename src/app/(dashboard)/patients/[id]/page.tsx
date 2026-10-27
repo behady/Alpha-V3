@@ -1100,7 +1100,7 @@ export default function PatientProfile() {
                 )}
                 {!chair && (
                   <p className="text-[13px] font-semibold text-ink-muted">
-                    {language === 'ar' ? 'الرصيد' : 'Balance'}{' '}
+                    {language === 'ar' ? 'المستحق' : 'Balance'}{' '}
                     <span className={`font-figure font-bold ${balance > 0 ? "text-rose-700" : "text-ink"}`}>
                       <bdi dir="ltr">{balance > 0 ? balance.toLocaleString() : '0'}</bdi> {language === 'ar' ? 'ج.م' : 'EGP'}
                     </span>
@@ -1242,7 +1242,7 @@ export default function PatientProfile() {
                 )}
                 {field(ar ? 'العنوان' : 'Address', patient.address ? <span className="block truncate">{patient.address}</span> : addButton)}
                 {!chair && field(
-                  ar ? 'الرصيد' : 'Balance',
+                  ar ? 'المستحق' : 'Balance',
                   <span className={`font-figure ${balance > 0 ? "text-rose-700" : ""}`}>
                     <bdi dir="ltr">{balance > 0 ? balance.toLocaleString() : '0'}</bdi> {ar ? 'ج.م' : 'EGP'}
                   </span>,
