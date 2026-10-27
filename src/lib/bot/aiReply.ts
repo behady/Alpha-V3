@@ -6,7 +6,8 @@ import { createUsageMeter, logAiCreditUsage } from "@/lib/aiCreditLog";
 import type { AdReferral } from "./adReferral";
 import { getAiCreditLimit, hasFeature } from "@/lib/subscriptions";
 import type { Clinic } from "@/types/saas";
-import type { BotFacts } from "@/types/whatsapp";
+import type { BotBrief, BotFacts } from "@/types/whatsapp";
+import { briefLines } from "./brief";
 import { dossierLines, type PatientDossier } from "./patientDossier";
 import { strayDrugNames } from "./drugGuard";
 import { clinicAndPatientLayer, factLines, fixedPromptLayers, promptVersion, type AiPatientContext } from "./botPrompt";
@@ -162,6 +163,8 @@ export async function answerWithAi(args: {
   patient?: AiPatientContext;
   /** The owner's standing instructions, verbatim. */
   coaching?: string;
+  /** The owner's structured preferences from the Auto-reply tab. */
+  brief?: BotBrief;
   /** The name the model signs in with, once, at the start of a conversation. */
   personaName?: string;
   /** The next free appointment slots the model may offer, key → how to say it. */
@@ -270,7 +273,9 @@ export async function answerWithAi(args: {
     hoursText,
     addressText,
     clinicPhone,
-    priceLines,
+    // "No prices on WhatsApp" keeps the list out of the prompt entirely (and out of the number guard).
+    priceLines: args.brief?.prices === "consult" ? "" : priceLines,
+    brief: args.brief,
     facts,
     patient: args.patient,
     patientName,
@@ -409,8 +414,9 @@ export async function answerWithAi(args: {
     // The clinic's own phone and address are in the prompt and belong in the reply; leaving them
     // out meant a correct answer to "where are you?" was thrown away as an invented figure.
     for (const src of [
-      priceLines,
+      promptInput.priceLines,
       factLines(facts),
+      briefLines(args.brief),
       coaching || "",
       playbook || "",
       hoursText || "",

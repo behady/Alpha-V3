@@ -1,5 +1,6 @@
-import type { BotFacts } from "@/types/whatsapp";
+import type { BotBrief, BotFacts } from "@/types/whatsapp";
 import { adPromptLines, type AdReferral } from "./adReferral";
+import { briefLines } from "./brief";
 
 /**
  * The WhatsApp assistant's system prompt, as a pure function of what the caller knows.
@@ -69,6 +70,8 @@ export interface BotPromptInput {
   personaName?: string;
   /** The owner's standing instructions, verbatim. */
   coaching?: string;
+  /** The owner's structured preferences (Auto-reply tab). Only ever makes the model stricter or changes its voice. */
+  brief?: BotBrief;
   /** Answers staff gave that the owner approved for reuse — already filtered to non-empty pairs. */
   knowledge: Array<{ q: string; a: string }>;
   /** What has worked with this clinic's patients, distilled weekly (or edited by the owner). */
@@ -383,12 +386,19 @@ export function clinicAndPatientLayer(input: BotPromptInput): string[] {
     hoursText?.trim() ? `مواعيد العمل:\n${hoursText.trim()}` : "مواعيد العمل: غير متوفرة هنا (حوّل لو اتسألت).",
     addressText?.trim() ? `العنوان: ${addressText.trim()}` : "",
     clinicPhone?.trim() ? `تليفون العيادة: ${clinicPhone.trim()}` : "",
-    priceLines ? `\nقائمة الخدمات والأسعار:\n${priceLines}` : "\nقائمة الأسعار: غير متوفرة (حوّل أي سؤال سعر).",
+    // "No prices on WhatsApp": neither the list nor the "unavailable, hand off" fallback, which
+    // would contradict the brief's own line telling the model to offer a checkup instead.
+    input.brief?.prices === "consult"
+      ? ""
+      : priceLines
+        ? `\nقائمة الخدمات والأسعار:\n${priceLines}`
+        : "\nقائمة الأسعار: غير متوفرة (حوّل أي سؤال سعر).",
     factLines(facts),
     ...patientLines,
     input.personaName?.trim()
       ? `\nاسمك ${input.personaName.trim()}. عرّف بنفسك مرة واحدة بس في أول رد في المحادثة (مثلاً: \"معاك ${input.personaName.trim()} من ${clinicName}\")، وبعدها اتكلم عادي من غير ما تعيد اسمك.`
       : "",
+    briefLines(input.brief),
     coaching ? `\nتعليمات صاحب العيادة (التزم بيها حرفياً):\n${coaching.slice(0, 2000)}` : "",
     knowledge.length
       ? `\nإجابات اعتمدها فريق العيادة لأسئلة اتسألت قبل كده (استخدمها لما السؤال يشبهها):\n${knowledge.map((k) => `س: ${k.q.trim().slice(0, 200)}\nج: ${k.a.trim().slice(0, 400)}`).join("\n")}`

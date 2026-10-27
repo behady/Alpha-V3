@@ -24,7 +24,8 @@ import { resolveWhatsappDeliveryMode, sendPatientWhatsAppRich } from "@/lib/what
 import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { loadMetaWhatsappConfig, sendMetaWhatsappMedia } from "@/lib/metaWhatsapp";
 import type { MetaInteractive } from "@/lib/metaWhatsapp";
-import type { BotFacts, BotMedicine, BotScript } from "@/types/whatsapp";
+import type { BotBrief, BotFacts, BotMedicine, BotScript } from "@/types/whatsapp";
+import { cleanBrief } from "./brief";
 import { cleanScripts } from "./scripts";
 import { arabicClock, arabicDayLabel, arabicTimeLabel } from "@/lib/arabicDateTime";
 import { normalizeReplyText } from "@/lib/patientMessaging";
@@ -106,6 +107,8 @@ interface BotSettings {
   aiMaxReplies: number;
   /** The owner's coaching notes for the model. */
   coaching: string;
+  /** The owner's structured preferences (Auto-reply tab); empty means today's prompt. */
+  brief: BotBrief;
   /** The name the model introduces itself with, once. */
   personaName: string;
   /** Human pacing and bubble splitting. */
@@ -139,6 +142,7 @@ async function loadBotSettings(clinicId: string): Promise<BotSettings> {
     aiMaxReplies:
       typeof d.botAiMaxReplies === "number" && d.botAiMaxReplies >= 0 ? Math.floor(d.botAiMaxReplies) : d.botMode === "ai_first" ? 0 : 3,
     coaching: typeof d.botCoaching === "string" ? d.botCoaching : "",
+    brief: cleanBrief(d.botBrief),
     personaName: typeof d.botPersonaName === "string" ? d.botPersonaName.trim() : "",
     humanTouch: d.botHumanTouch !== false,
   };
@@ -1298,6 +1302,7 @@ ${urgentCallLine(ctx.clinicPhone)}`;
         thread: salesContext?.thread,
         patient: salesContext?.patient,
         coaching: settings.coaching,
+        brief: settings.brief,
         personaName: settings.personaName,
         knowledge: salesContext?.knowledge,
         playbook: salesContext?.playbook,

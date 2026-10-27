@@ -167,3 +167,27 @@ run("the dynamic sections render exactly as before", () => {
     assert.ok(p.includes(must), `missing: ${must}`);
   }
 });
+
+run("a default brief leaves the prompt unchanged", () => {
+  const plain = buildBotPrompt(base);
+  assert.equal(buildBotPrompt({ ...base, brief: {} }), plain);
+  assert.equal(buildBotPrompt({ ...base, brief: { tone: "friendly", prices: "ranges" } as never }), plain);
+});
+
+run("the brief lands in layer 5 only", () => {
+  const fixed = fixedPromptLayers(base.mode, base.clinical, base.canBook);
+  const withBrief = fixedPromptLayers(base.mode, base.clinical, base.canBook);
+  assert.deepEqual(withBrief, fixed, "layers 1-4 do not take a brief");
+  const p = buildBotPrompt({ ...base, brief: { focus: "زراعة" } });
+  const line = "ركّز في كلامك على: زراعة";
+  assert.ok(p.includes(line), "focus line present");
+  assert.ok(p.indexOf(line) > p.indexOf("معلومات العيادة:"), "after the clinic-information header");
+  assert.ok(p.startsWith(buildBotPrompt(base).split("معلومات العيادة:")[0]), "everything above layer 5 is byte-identical");
+});
+
+run("consult drops price lines and the handoff fallback", () => {
+  const p = buildBotPrompt({ ...base, priceLines: "تقويم: يبدأ من 15,000", brief: { prices: "consult" } });
+  assert.ok(!p.includes("15,000"), "no price in the prompt");
+  assert.ok(!p.includes("قائمة الأسعار: غير متوفرة"), "no 'list unavailable' fallback either");
+  assert.ok(p.includes("مش بتقول أسعار"), "the consult rule is there");
+});
