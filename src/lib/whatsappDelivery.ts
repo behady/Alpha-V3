@@ -197,6 +197,8 @@ export async function deliverWhatsAppMessage(args: {
           // The chat screen decides from this whether free text can deliver — a conversation the
           // clinic opened has no inbound message to have learned it from.
           channel,
+          patientId: args.queue?.patientId,
+          patientName: args.queue?.patientName,
         }).catch(() => {})
       : Promise.resolve();
 

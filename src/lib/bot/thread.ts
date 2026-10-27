@@ -1,6 +1,7 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { conversationKey } from "./conversation";
+import { knownPatientPatch } from "./threadPatientLink";
 
 /**
  * The full WhatsApp thread with one number, both directions, every voice.
@@ -45,6 +46,9 @@ export interface ThreadMessageInput {
   /** For a file the clinic sent: where the bubble renders it from, and what it is. */
   mediaUrl?: string;
   mime?: string;
+  /** For a message the clinic sent: the patient it was addressed to, so the chat is named from line one. */
+  patientId?: string;
+  patientName?: string;
 }
 
 /** Keep the list preview short; the thread has the rest. */
@@ -122,6 +126,12 @@ export async function recordThreadMessage(
   // scan the bot uses, which is too heavy to pay on every message.
   if (m.direction === "in" && !key.startsWith("lid_")) {
     await attachPatientIfMissing(clinicId, key, address).catch(() => {});
+  }
+  // A confirmation or reminder opens the chat before the patient ever writes, and its sender
+  // already knows who it is for — without this the chat showed a bare number until they replied.
+  const known = m.direction === "out" ? knownPatientPatch(m.patientId, m.patientName) : null;
+  if (known) {
+    await attachKnownPatientIfMissing(clinicId, key, known).catch(() => {});
   }
 
   // The line's id, so a background step (media download) can find it again.
@@ -201,4 +211,16 @@ async function attachPatientIfMissing(clinicId: string, key: string, address: st
   const p = hit.docs[0];
   const name = String(p.data()?.name || "").trim();
   await parent.set({ patientId: p.id, ...(name ? { patientName: name } : {}) }, { merge: true });
+}
+
+/** Never re-points a chat someone already linked: a shared family number keeps the patient it has. */
+async function attachKnownPatientIfMissing(
+  clinicId: string,
+  key: string,
+  known: { patientId: string; patientName?: string }
+): Promise<void> {
+  const parent = adminClinicDoc(clinicId, "whatsapp_conversations", key);
+  const snap = await parent.get();
+  if (typeof snap.data()?.patientId === "string" && snap.data()?.patientId) return;
+  await parent.set(known, { merge: true });
 }
