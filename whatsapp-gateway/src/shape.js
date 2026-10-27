@@ -214,6 +214,91 @@ export function messageAd(message) {
   return out.headline || out.body || out.sourceId || out.sourceUrl || out.ctwaClid ? out : null;
 }
 
+/**
+ * WhatsApp's timestamp, in seconds, whatever wrapper it came in.
+ *
+ * Live messages carry a plain number; history arrives decoded from protobuf, where a 64-bit field
+ * is a Long object (`{ low, high }`) that `Number()` turns into NaN.
+ */
+export function tsSeconds(v) {
+  if (v == null) return 0;
+  if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+  if (typeof v === "object") {
+    if (typeof v.toNumber === "function") return Number(v.toNumber()) || 0;
+    if (typeof v.low === "number") return (v.high || 0) * 4294967296 + (v.low >>> 0);
+  }
+  return Number(v) || 0;
+}
+
+/** One-to-one chats only: groups, broadcasts, channels and statuses are not patients. */
+export function isPersonChat(jid) {
+  const s = String(jid || "");
+  return /@(s\.whatsapp\.net|lid)$/i.test(s.replace(/:\d+@/, "@"));
+}
+
+/**
+ * The old messages worth handing the web app, out of a history batch WhatsApp sent.
+ *
+ * When a phone is linked, WhatsApp copies the recent chats onto the new device — the same thing
+ * WhatsApp Web shows after a scan. Without this the gateway threw that copy away, and the chat
+ * screen started empty however many years the clinic had been talking to its patients.
+ *
+ * Only words and media from one-to-one chats, only the last `sinceDays`, and at most `perChat`
+ * of the newest per chat — a busy clinic's phone can hold tens of thousands of messages, and
+ * every one kept is a database write. Oldest first, so a thread fills in the order it was said.
+ */
+export function pickHistoryMessages(messages, { nowSec = Math.floor(Date.now() / 1000), sinceDays = 180, perChat = 200 } = {}) {
+  const since = nowSec - sinceDays * 86400;
+  const byChat = new Map();
+  for (const msg of messages || []) {
+    const key = msg?.key || {};
+    const jid = String(key.remoteJid || "");
+    if (!key.id || !isPersonChat(jid)) continue;
+    if (!msg.message || isSilentMessage(msg.message)) continue;
+    const ts = tsSeconds(msg.messageTimestamp);
+    if (!ts || ts < since) continue;
+    const text = messageText(msg.message);
+    const media = messageMedia(msg.message);
+    if (!text && !media) continue;
+    const chat = toChatId(jid);
+    if (!byChat.has(chat)) byChat.set(chat, []);
+    byChat.get(chat).push({ msg, ts, text, media });
+  }
+  const out = [];
+  for (const list of byChat.values()) {
+    list.sort((a, b) => a.ts - b.ts);
+    out.push(...list.slice(-perChat));
+  }
+  return out.sort((a, b) => a.ts - b.ts);
+}
+
+/**
+ * One old (or offline-queued) message, in the same field names a live message event uses.
+ *
+ * `from` is the other person — the phone when we know it, else the chat id — in BOTH directions,
+ * because what the web app needs is which thread the line belongs to, not who pressed send.
+ */
+export function historyItem({ msg, ts, text, media }, phoneJid) {
+  const key = msg.key || {};
+  const chat = toChatId(key.remoteJid);
+  const item = {
+    id: key.id,
+    from: phoneJid ? toChatId(phoneJid) : chat,
+    chatId: chat,
+    fromMe: Boolean(key.fromMe),
+    body: text || "",
+    type: media ? (media.type === "ptt" ? "audio" : media.type) : "chat",
+    timestamp: ts,
+  };
+  if (!key.fromMe && msg.pushName) item.notifyName = String(msg.pushName).slice(0, 80);
+  return item;
+}
+
+/** A batch of old messages for the web app to file into its threads — never to answer. */
+export function buildHistoryEvent({ instanceId, items, source }) {
+  return { event: "messages.history", session: instanceId, instanceId, payload: { source, messages: items } };
+}
+
 export function buildAckEvent({ instanceId, key, status }) {
   const mapped = ackFromStatus(status);
   if (!mapped) return null;

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
-import { conversationKey, markConversationOptedOut } from "@/lib/bot/conversation";
+import { conversationKey, markConversationOptedOut, markHumanActive } from "@/lib/bot/conversation";
 import { isOptOutReply } from "@/lib/patientMessaging";
 import { patientSendablePhone } from "@/lib/patientPhone";
 import { findPatientByLid, learnPatientLid, lidChatFromEvent } from "@/lib/whatsappLid";
@@ -21,6 +21,8 @@ import { reportServerError } from "@/lib/server/reportError";
 import { readStoredAd, type AdReferral } from "@/lib/bot/adReferral";
 import { gradeLeadByPhone } from "@/lib/leads/gradeLeadServer";
 import { claimMediaTurn } from "@/lib/bot/burstGuard";
+import { fileHistoryIntoThreads } from "@/lib/bot/threadHistory";
+import { readHistoryItems, type HistoryItem } from "@/lib/bot/threadHistoryPlan";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -177,6 +179,28 @@ function isFromMe(body: unknown): boolean {
 }
 
 /**
+ * A message the clinic typed on its own phone, as our gateway posts it — or null for anything else.
+ *
+ * Only our gateway's payloads qualify (`_data.chatId` is its mark): other gateways echo the
+ * system's own sends here too, and filing those would double every message the system sent.
+ */
+function phoneSentItem(body: Record<string, any>): HistoryItem | null {
+  const p = obj(body.payload);
+  if (!p || !obj(p._data)?.chatId) return null;
+  const [item] = readHistoryItems([
+    {
+      id: p.id,
+      from: p.from,
+      fromMe: true,
+      body: typeof p.body === "string" ? p.body : "",
+      type: p.type === "ptt" ? "audio" : p.type,
+      timestamp: p.timestamp,
+    },
+  ]);
+  return item || null;
+}
+
+/**
  * Write down what arrived when it could not be read.
  *
  * `console.warn` goes to a log that is awkward to reach, which is why the first failure took a
@@ -215,6 +239,17 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => null);
 
     /*
+     * Old messages from our own gateway: the chats WhatsApp copies onto a newly linked phone, and
+     * messages that piled up while it was reconnecting. Filed onto the threads, never answered —
+     * a patient's message from last month must not get a reply today.
+     */
+    if (obj(body)?.event === "messages.history") {
+      const items = readHistoryItems(obj(obj(body)?.payload)?.messages);
+      const filed = await fileHistoryIntoThreads(clinicId, items);
+      return NextResponse.json({ ok: true, history: filed.written, chats: filed.addresses.length });
+    }
+
+    /*
      * A delivery report, before anything else.
      *
      * It has to come first because an ack carries `fromMe: true` and would otherwise be swallowed
@@ -242,6 +277,18 @@ export async function POST(request: NextRequest) {
        */
       const b = obj(body);
       if (b) {
+        // Typed on the clinic's phone, not sent by the system: our gateway only forwards those
+        // (its own sends it recognises and drops), and marks its payloads with `_data.chatId`.
+        // Onto the thread as a person's message, and the bot steps aside as it does when a
+        // receptionist replies from the chat screen.
+        const phoneSent = phoneSentItem(b);
+        if (phoneSent) {
+          const filed = await fileHistoryIntoThreads(clinicId, [phoneSent]).catch((e) => {
+            console.warn("[whatsapp-inbound] phone-sent write failed:", e);
+            return { written: 0, addresses: [] as string[] };
+          });
+          for (const address of filed.addresses) await markHumanActive(clinicId, address).catch(() => {});
+        }
         for (const m of candidateMessages(b)) {
           const lid = lidChatFromEvent(m);
           const echoText = firstString(
@@ -260,6 +307,8 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ ok: true, ignored: "outgoing", lid: learned.reason });
           }
         }
+        // Filed above, and a phone chat has no lid to learn: nothing left to diagnose.
+        if (phoneSent) return NextResponse.json({ ok: true, ignored: "outgoing", phoneSent: true });
         // An outgoing event we could not read a chat/body from — record a fingerprint of its
         // shape (keys only at each level), which is enough to extend the parser without ever
         // storing the clinic's own message content wholesale.
@@ -350,11 +399,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, staffLine: true });
     }
 
+    const inboundId = parsedBody ? firstString(...candidateMessages(parsedBody).map((m) => (typeof m.id === "string" ? m.id : ""))) : "";
     const lineId = await recordThreadMessage(clinicId, chatId, {
       direction: "in",
       author: "patient",
       text: reply.text,
       media: media?.kind,
+      // The id an old-chats copy will carry for this same message later, so it is not filed twice.
+      messageId: inboundId || undefined,
       channel: "wapilot",
     }).catch((e) => {
       console.warn("[whatsapp-inbound] thread write failed:", e);

@@ -14,12 +14,16 @@ import { classify, dailyProactiveCap, daysBetween, inSendWindow, nextWindowOpen,
 import { PersistedQueue } from "./queue.js";
 import {
   buildAckEvent,
+  buildHistoryEvent,
   buildMessageEvent,
   digitsOf,
+  historyItem,
   isSilentMessage,
+  isPersonChat,
   messageAd,
   messageMedia,
   messageText,
+  pickHistoryMessages,
   randomGap,
   toWaJid,
 } from "./shape.js";
@@ -77,6 +81,9 @@ export class Instance {
     this.draining = false;
     this.drainTimer = null;
     this.lastSendAt = 0;
+    // Ids of what this gateway itself just sent. WhatsApp echoes our own sends back as "append"
+    // messages; anything fromMe that is NOT in here was typed on the clinic's phone.
+    this.ownIds = new Set();
 
     // What this number knows about the people it talks to: when each chat last wrote in (decides
     // reply vs proactive) and whom it has ever messaged (decides whether a number needs the
@@ -202,6 +209,7 @@ export class Instance {
       sock.ev.on("connection.update", (u) => this.#onConnection(u));
       sock.ev.on("messages.upsert", (u) => this.#onUpsert(u).catch((e) => this.log.error({ err: e?.message }, "upsert handler failed")));
       sock.ev.on("messages.update", (updates) => this.#onUpdates(updates).catch(() => {}));
+      sock.ev.on("messaging-history.set", (h) => this.#onHistory(h).catch((e) => this.log.error({ err: e?.message }, "history handler failed")));
     } catch (e) {
       this.lastError = e?.message || String(e);
       this.log.error({ err: this.lastError }, "socket build failed");
@@ -317,9 +325,15 @@ export class Instance {
   /* ───────────────────────── inbound ───────────────────────── */
 
   async #onUpsert({ messages, type }) {
-    // "notify" is a message that just happened. "append" is history being filled in — old chats
-    // replayed on connect, which must not be answered as if the patient wrote them now.
-    if (type !== "notify") return;
+    // "notify" is a message that just happened. "append" is the rest: our own sends echoed back,
+    // and messages that piled up while the socket was down (typed on the phone, or a patient
+    // writing during a reconnect). Those must not be answered as if they were said just now —
+    // but they must not vanish either, so they are filed as history: on the thread, unanswered.
+    if (type !== "notify") {
+      const mine = (messages || []).filter((m) => !(m?.key?.fromMe && this.ownIds.has(m.key.id)));
+      await this.#forwardHistory(mine, "offline");
+      return;
+    }
     for (const msg of messages || []) {
       try {
         await this.#handleMessage(msg);
@@ -374,6 +388,42 @@ export class Instance {
       ad: key.fromMe ? null : messageAd(msg.message),
     });
     await this.#postWebhook(event);
+  }
+
+  /**
+   * The copy of recent chats WhatsApp hands a newly linked device, onto the web app's threads.
+   *
+   * Arrives in several batches right after a scan (and on demand later). Nothing here is
+   * answered or counted as a reply — the 24-hour reply memory stays what live messages set.
+   */
+  async #onHistory({ messages, syncType }) {
+    await this.#forwardHistory(messages, `sync_${syncType ?? "unknown"}`);
+  }
+
+  async #forwardHistory(messages, source) {
+    const picked = pickHistoryMessages((messages || []).filter((m) => isPersonChat(m?.key?.remoteJid)), {
+      sinceDays: config.historyDays,
+      perChat: config.historyPerChat,
+    });
+    if (!picked.length) return;
+    const items = [];
+    for (const p of picked) {
+      const key = p.msg.key || {};
+      let phoneJid = key.remoteJidAlt || key.senderPn || null;
+      if (!phoneJid && /@lid$/i.test(String(key.remoteJid || ""))) phoneJid = await this.resolveLid(key.remoteJid);
+      items.push(historyItem(p, phoneJid));
+    }
+    // Small posts: each is one function call on the web side, and sixty messages across a few
+    // dozen chats finish well inside the gateway's 15-second wait for an answer.
+    for (let i = 0; i < items.length; i += 60) {
+      await this.#postWebhook(buildHistoryEvent({ instanceId: this.id, items: items.slice(i, i + 60), source }));
+    }
+    this.log.info({ source, count: items.length }, "history forwarded");
+  }
+
+  #rememberOwn(id) {
+    this.ownIds.add(id);
+    if (this.ownIds.size > 500) this.ownIds.delete(this.ownIds.values().next().value);
   }
 
   async #onUpdates(updates) {
@@ -609,6 +659,7 @@ export class Instance {
       } catch {
         /* cosmetic */
       }
+      this.#rememberOwn(item.id);
       await sock.sendMessage(item.jid, { text: item.text }, { messageId: item.id });
       sock.sendPresenceUpdate("paused", item.jid).catch(() => {});
       return;
@@ -621,6 +672,7 @@ export class Instance {
       } catch {
         throw Object.assign(new Error("queued file is gone"), { permanent: true });
       }
+      this.#rememberOwn(item.id);
       await sock.sendMessage(item.jid, { document: buffer, mimetype: item.mimetype, fileName: item.fileName, caption: item.caption || undefined }, { messageId: item.id });
       await rm(item.file, { force: true }).catch(() => {});
       return;

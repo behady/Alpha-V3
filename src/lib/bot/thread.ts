@@ -200,7 +200,8 @@ export async function updateThreadStatus(
   await doc.ref.set(patch, { merge: true });
 }
 
-async function attachPatientIfMissing(clinicId: string, key: string, address: string): Promise<void> {
+/** Names a chat after the patient with this number, unless it already has one. */
+export async function attachPatientIfMissing(clinicId: string, key: string, address: string): Promise<void> {
   const parent = adminClinicDoc(clinicId, "whatsapp_conversations", key);
   const snap = await parent.get();
   if (snap.exists && typeof snap.data()?.patientId === "string" && snap.data()?.patientId) return;

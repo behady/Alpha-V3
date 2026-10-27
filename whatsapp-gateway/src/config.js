@@ -78,5 +78,9 @@ export const config = {
   mediaTtlMs: Number(process.env.MEDIA_TTL_HOURS || 48) * 3600 * 1000,
   maxMediaBytes: 16 * 1024 * 1024,
 
+  /** Old chats copied in after a scan: how far back, and how many of the newest per chat. */
+  historyDays: Number(process.env.HISTORY_DAYS || 180),
+  historyPerChat: Number(process.env.HISTORY_PER_CHAT || 200),
+
   logLevel: process.env.LOG_LEVEL || "info",
 };
