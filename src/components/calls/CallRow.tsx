@@ -24,7 +24,7 @@ const RESCHEDULE_CHIPS: { id: "tomorrow" | "3days" | "week"; ar: string; en: str
 
 const INPUT = "w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink outline-none focus:border-ink";
 const PILL =
-  "inline-flex h-10 items-center justify-center gap-1.5 rounded-full border border-line bg-surface px-4 text-sm font-bold text-ink transition-colors hover:border-ink-muted hover:bg-surface-subtle";
+  "inline-flex h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-surface px-3 text-sm font-bold text-ink transition-colors hover:border-ink-muted hover:bg-surface-subtle md:px-4";
 const ICON =
   "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-ink-muted transition-colors hover:border-ink-muted hover:text-ink";
 const YELLOW = "bg-accent text-ink-on-accent";
@@ -62,6 +62,33 @@ export default function CallRow({
   const orphan = reminder.deliveryError === "nobody";
   const day = callDayParts(reminder.date, todayYmd, isAr);
 
+  // Call, edit, delete: small round icons. On a phone they sit beside the name so the three main
+  // actions get one even row; from md up they close the action row.
+  const icons = (
+    <>
+      {reminder.patientPhone && (
+        <a href={`tel:${reminder.patientPhone}`} aria-label={isAr ? `كلّم ${reminder.patientName}` : `Call ${reminder.patientName}`} className={ICON}>
+          <Phone size={16} />
+        </a>
+      )}
+      {onEdit && (
+        <button type="button" onClick={() => onEdit(reminder)} aria-label={isAr ? "عدّل التذكير" : "Edit reminder"} className={ICON}>
+          <Pencil size={15} />
+        </button>
+      )}
+      {onDelete && (
+        <button
+          type="button"
+          onClick={() => onDelete(reminder)}
+          aria-label={isAr ? "امسح التذكير" : "Delete reminder"}
+          className={`${ICON} hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700`}
+        >
+          <Trash2 size={15} />
+        </button>
+      )}
+    </>
+  );
+
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     if (busy) return;
     setBusy(true);
@@ -92,15 +119,18 @@ export default function CallRow({
           </div>
 
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <Link href={`/patients/${encodeURIComponent(reminder.patientId)}`} className="text-[15px] font-bold text-ink hover:underline">
-                {reminder.patientName}
-              </Link>
-              {late > 0 && (
-                <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-bold text-rose-700">
-                  {isAr ? `متأخرة ${late === 1 ? "يوم" : late === 2 ? "يومين" : `${late} أيام`}` : `${late} day${late === 1 ? "" : "s"} late`}
-                </span>
-              )}
+            <div className="flex items-start gap-2">
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+                <Link href={`/patients/${encodeURIComponent(reminder.patientId)}`} className="text-[15px] font-bold text-ink hover:underline">
+                  {reminder.patientName}
+                </Link>
+                {late > 0 && (
+                  <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-bold text-rose-700">
+                    {isAr ? `متأخرة ${late === 1 ? "يوم" : late === 2 ? "يومين" : `${late} أيام`}` : `${late} day${late === 1 ? "" : "s"} late`}
+                  </span>
+                )}
+              </div>
+              {mode === "idle" && <div className="flex shrink-0 gap-1.5 md:hidden">{icons}</div>}
             </div>
             <p className="mt-0.5 text-sm font-semibold text-ink-body">{reminder.reason}</p>
             {reminder.previousNote && (
@@ -116,36 +146,17 @@ export default function CallRow({
         </div>
 
         {mode === "idle" && (
-          <div className="flex flex-wrap items-center justify-center gap-2 md:shrink-0 md:justify-end">
-            {reminder.patientPhone && (
-              <a href={`tel:${reminder.patientPhone}`} aria-label={isAr ? `كلّم ${reminder.patientName}` : `Call ${reminder.patientName}`} className={ICON}>
-                <Phone size={16} />
-              </a>
-            )}
-            <button type="button" onClick={() => setMode("done")} className={`inline-flex h-10 items-center justify-center gap-1.5 rounded-full px-5 text-sm font-bold transition-[filter] hover:brightness-95 ${YELLOW}`}>
+          <div className="grid w-full grid-cols-3 items-center justify-center gap-2 md:flex md:w-auto md:shrink-0 md:justify-end">
+            <button type="button" onClick={() => setMode("done")} className={`inline-flex h-10 items-center justify-center gap-1.5 rounded-full px-3 text-sm font-bold transition-[filter] hover:brightness-95 md:px-5 ${YELLOW}`}>
               <Check size={15} /> {isAr ? "تم" : "Done"}
             </button>
             <button type="button" onClick={() => setMode("again")} className={PILL}>
-              <RotateCcw size={14} /> {isAr ? "كلّمه تاني" : "Call again"}
+              <RotateCcw size={14} className="max-md:hidden" /> {isAr ? "كلّمه تاني" : "Call again"}
             </button>
             <button type="button" onClick={() => onBook(reminder)} className={PILL}>
-              <CalendarPlus size={14} /> {isAr ? "احجز" : "Book"}
+              <CalendarPlus size={14} className="max-md:hidden" /> {isAr ? "احجز" : "Book"}
             </button>
-            {onEdit && (
-              <button type="button" onClick={() => onEdit(reminder)} aria-label={isAr ? "عدّل التذكير" : "Edit reminder"} className={ICON}>
-                <Pencil size={15} />
-              </button>
-            )}
-            {onDelete && (
-              <button
-                type="button"
-                onClick={() => onDelete(reminder)}
-                aria-label={isAr ? "امسح التذكير" : "Delete reminder"}
-                className={`${ICON} hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700`}
-              >
-                <Trash2 size={15} />
-              </button>
-            )}
+            <div className="hidden gap-2 md:flex">{icons}</div>
           </div>
         )}
       </div>

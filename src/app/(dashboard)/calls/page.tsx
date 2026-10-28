@@ -143,7 +143,7 @@ function CallsPageInner() {
     <div className="mx-auto w-full max-w-4xl space-y-4 px-4 pb-24 pt-2" dir={isAr ? "rtl" : "ltr"}>
       <PageHeader compact title={isAr ? "المكالمات" : "Calls"} />
 
-      <div className="flex gap-1 overflow-x-auto rounded-2xl border border-line bg-surface p-1" role="tablist">
+      <div className="grid grid-cols-4 gap-1 rounded-2xl border border-line bg-surface p-1 md:flex" role="tablist">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -151,7 +151,7 @@ function CallsPageInner() {
             role="tab"
             aria-selected={tab === t.id}
             onClick={() => setTab(t.id)}
-            className={`shrink-0 rounded-xl px-4 py-2 text-sm font-bold transition-colors ${tab === t.id ? "bg-ink text-white" : "text-ink-muted hover:text-ink"}`}
+            className={`whitespace-nowrap rounded-xl px-1.5 py-2 text-sm font-bold transition-colors md:shrink-0 md:px-4 ${tab === t.id ? "bg-ink text-white" : "text-ink-muted hover:text-ink"}`}
           >
             {isAr ? t.ar : t.en}
             {t.id !== "done" && counts[t.id] > 0 && <span className="ms-1.5 font-figure">{counts[t.id]}</span>}
