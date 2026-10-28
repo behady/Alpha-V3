@@ -43,6 +43,8 @@ jobs:
         run: npm run --silent test:features
       - name: AI x-ray report shape
         run: npm run --silent test:xray
+      - name: AI receipt scan (cleanup, categories, own-folder files)
+        run: npm run --silent test:receipt-scan
       - name: AI orthodontics (ceph geometry, reports, review, lessons)
         run: npm run --silent test:ortho
       - name: Ledger arithmetic

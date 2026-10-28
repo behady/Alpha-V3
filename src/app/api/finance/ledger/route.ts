@@ -58,6 +58,7 @@ import { insurerRows, type LedgerLite } from "@/lib/insurerLedger";
 import { PRIVATE_PAYER_ID } from "@/lib/payers";
 import { LOCATIONS_DOC, parseClinicBranches } from "@/lib/clinicLocations";
 import { logActivityServer } from "@/lib/server/systemLog";
+import { isDownloadUrlFor, isOwnReceiptPath, RECEIPT_CATEGORY_IDS, RECEIPT_MAX_LINES } from "@/lib/receiptScan";
 import { assertBranchAllowed, assertRowBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
 import {
   RECEIPT_SETTINGS_DOC,
@@ -685,6 +686,88 @@ async function createEntry(args: { clinicId: string; actor: Actor; body: Record<
 
   void afterLedgerCreate(clinicId, row, actor);
   return NextResponse.json({ ok: true, id: ref.id });
+}
+
+// ---------------------------------------------------------------------------------------------
+// create-receipt-entries — one scanned receipt, saved as one expense row per category
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The review sheet's "Save all". Every row is built by `buildManualEntryRow`, exactly like a typed
+ * expense, and then carries three extra fields: `receiptGroupId` (the rows from one receipt),
+ * `receiptPath` and `receiptImageUrl` (the photo). Nothing that reads the ledger needs them.
+ *
+ * All rows or none: one bad line refuses the receipt, so a half-saved bill never sits in the books.
+ * `create-entry` is deliberately left as it was; this is a separate door.
+ */
+async function createReceiptEntries(args: { clinicId: string; actor: Actor; body: Record<string, unknown> }) {
+  const { clinicId, actor, body } = args;
+  const receiptId = typeof body.receiptId === "string" ? body.receiptId.trim() : "";
+  const receiptPath = typeof body.receiptPath === "string" ? body.receiptPath.trim() : "";
+  const receiptImageUrl = typeof body.receiptImageUrl === "string" ? body.receiptImageUrl.trim() : "";
+  if (!isOwnReceiptPath(receiptPath, clinicId, receiptId)) return bad("That receipt is not in this clinic's receipts folder.");
+  if (!isDownloadUrlFor(receiptImageUrl, receiptPath)) return bad("The receipt photo link does not match the uploaded file.");
+
+  const lines = Array.isArray(body.lines) ? body.lines : [];
+  if (lines.length === 0) return bad("A receipt needs at least one line.");
+  if (lines.length > RECEIPT_MAX_LINES) return bad(`A receipt can have at most ${RECEIPT_MAX_LINES} lines.`);
+
+  const branch = await assertBranchAllowed({
+    clinicId, uid: actor.uid, role: actor.role, branchId: body.branchId,
+    fallback: (branches) => automaticBranch(clinicId, branches, {}),
+  });
+  if (!branch.ok) return branch.response;
+
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(String(body.date || "")) ? String(body.date) : todayKey();
+  const method = typeof body.method === "string" ? body.method : null;
+  const rows: Record<string, unknown>[] = [];
+  try {
+    for (const raw of lines) {
+      const line = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+      const category = typeof line.category === "string" ? line.category : "";
+      if (!RECEIPT_CATEGORY_IDS.includes(category)) throw new Error("Pick a category for every line.");
+      const row = buildManualEntryRow({
+        type: "expense",
+        amount: Number(line.amount),
+        description: String(line.description || "").trim().slice(0, 200),
+        category,
+        date,
+        method,
+        isRecurring: false,
+        actor: { uid: actor.uid, name: actor.name },
+      });
+      if (branch.branchId) row.branchId = branch.branchId;
+      rows.push({ ...row, receiptGroupId: receiptId, receiptPath, receiptImageUrl });
+    }
+  } catch (e) {
+    return bad(e instanceof Error ? e.message : "Could not save that receipt.");
+  }
+
+  const batch = adminDb().batch();
+  const written = rows.map((row) => {
+    const ref = adminClinicCollection(clinicId, "ledger").doc();
+    batch.set(ref, { ...row, createdAt: FieldValue.serverTimestamp() });
+    return { id: ref.id, row };
+  });
+  await batch.commit();
+
+  await recordLedgerAuditBatch(
+    written.map((w) => ({
+      clinicId, action: "create" as const, collection: "ledger" as const, documentId: w.id, after: w.row, actor, via: "finance/ledger:create-receipt-entries",
+    })),
+  );
+  const total = money(rows.reduce((s, r) => s + Number(r.amount || 0), 0));
+  void logActivityServer({
+    clinicId,
+    user: actor,
+    action: "Finance Entry Created",
+    details: `Receipt scan: ${written.length} expense${written.length === 1 ? "" : "s"}, ${total} EGP`,
+    severity: "LOW",
+    module: "finance",
+  });
+  for (const w of written) void afterLedgerCreate(clinicId, w.row, actor);
+
+  return NextResponse.json({ ok: true, ids: written.map((w) => w.id), total });
 }
 
 /**
@@ -1375,6 +1458,7 @@ async function deleteRow(args: { clinicId: string; actor: Actor; body: Record<st
 const PERMISSION_BY_ACTION: Record<string, string> = {
   "create-payment": "finance.add",
   "create-entry": "finance.add",
+  "create-receipt-entries": "finance.add",
   "insurer-collect": "finance.add",
   update: "finance.edit",
   "set-commission": "finance.edit",
@@ -1419,6 +1503,8 @@ export async function POST(request: Request) {
         return await createPayment({ clinicId, actor, body });
       case "create-entry":
         return await createEntry({ clinicId, actor, body });
+      case "create-receipt-entries":
+        return await createReceiptEntries({ clinicId, actor, body });
       case "insurer-collect":
         return await insurerCollect({ clinicId, actor, body });
       case "update":

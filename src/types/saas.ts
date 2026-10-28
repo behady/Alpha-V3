@@ -36,6 +36,7 @@ export interface Clinic {
     /** AI reading of x-rays into a structured report. Needs aiChat (it spends AI credits). */
     aiXray?: boolean;
     aiOrtho?: boolean;
+    aiReceipts?: boolean;
     aiMonthlyCredits?: number;
     extraAiCredits?: number;
     maxStaff?: number;

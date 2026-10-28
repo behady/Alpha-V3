@@ -117,6 +117,15 @@ export const FEATURE_CATALOG: FeatureInfo[] = [
     requires: "aiChat",
   },
   {
+    key: "aiReceipts",
+    group: "ai",
+    labelEn: "AI Receipt Scan",
+    labelAr: "قراءة فواتير المصروفات بالذكاء الاصطناعي",
+    descEn: "Photograph a supplier invoice or a bill and the expenses are filled in, split by category, for the desk to check and save.",
+    descAr: "صوّر فاتورة المورد أو الكهرباء والمصروفات تتكتب لوحدها مقسّمة حسب النوع، والاستقبال يراجعها ويحفظها.",
+    requires: "aiChat",
+  },
+  {
     key: "aiOrtho",
     group: "ai",
     labelEn: "AI Orthodontics",

@@ -35,6 +35,12 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
      */
     aiOrtho: boolean;
     /**
+     * AI reading of expense receipts into ledger lines the desk confirms. False on every tier on
+     * purpose: switched on per clinic from the superadmin panel, so live clinics see nothing new
+     * until someone decides they should.
+     */
+    aiReceipts: boolean;
+    /**
      * Marketing add-on, level 1 (Text & Strategy). False on every tier on purpose: it is sold as
      * a separate add-on, switched on per clinic via the feature overrides in the superadmin panel.
      */
@@ -95,6 +101,7 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       aiVoice: true,
       aiXray: true,
       aiOrtho: true,
+      aiReceipts: false,
       marketingText: true,
       marketingDesign: true,
       whatsappBot: true,
@@ -122,6 +129,7 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       aiVoice: false,
       aiXray: false,
       aiOrtho: false,
+      aiReceipts: false,
       marketingText: false,
       marketingDesign: false,
       whatsappBot: false,
@@ -150,6 +158,7 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       aiVoice: false,
       aiXray: true,
       aiOrtho: true,
+      aiReceipts: false,
       marketingText: false,
       marketingDesign: false,
       whatsappBot: false,
@@ -178,6 +187,7 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       aiVoice: true,
       aiXray: true,
       aiOrtho: true,
+      aiReceipts: false,
       marketingText: false,
       marketingDesign: false,
       whatsappBot: true,

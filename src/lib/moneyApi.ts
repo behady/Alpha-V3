@@ -18,6 +18,7 @@ import { auth } from "@/lib/firebase";
 import { CLINIC_INACTIVE_CODE } from "@/lib/clinicStatus";
 import { OVER_ALLOCATION_CODE } from "@/lib/paymentAllocation";
 import { currentClinicId } from "@/lib/db-utils";
+import type { ReceiptScan } from "@/lib/receiptScan";
 import { currentBranchId, withBranch } from "@/lib/branchScope";
 
 export class MoneyApiError extends Error {
@@ -176,6 +177,27 @@ export type CreateEntryArgs = {
 /** Clinic income or overhead — money that belongs to no patient. */
 export function createLedgerEntry(args: CreateEntryArgs): Promise<{ id: string }> {
   return post("/api/finance/ledger", { action: "create-entry", ...args });
+}
+
+/** Ask the AI to read an uploaded receipt. Writes no money; the answer fills the review sheet. */
+export function scanReceipt(args: { receiptId: string; path: string; language: "ar" | "en" }): Promise<{ scan: ReceiptScan; credits: number }> {
+  return post("/api/ai/receipt-scan", args);
+}
+
+export type CreateReceiptEntriesArgs = {
+  receiptId: string;
+  receiptPath: string;
+  receiptImageUrl: string;
+  date: string;
+  method?: string;
+  lines: Array<{ category: string; description: string; amount: number }>;
+  /** Which branch the money belongs to. Only pass a real id; omitted, the on-screen branch rides along. */
+  branchId?: string;
+};
+
+/** A checked receipt, saved as one expense per category in a single all-or-nothing write. */
+export function createReceiptEntries(args: CreateReceiptEntriesArgs): Promise<{ ids: string[]; total: number }> {
+  return post("/api/finance/ledger", { action: "create-receipt-entries", ...args });
 }
 
 /**

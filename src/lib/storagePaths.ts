@@ -170,6 +170,20 @@ export function insuranceDocPath(clinicId: string | null | undefined, docId: str
 }
 
 /**
+ * A scanned expense receipt (photo or PDF). One folder per receipt so the server can check a path
+ * names this clinic and this receipt before reading it (lib/receiptScan isOwnReceiptPath). The tail
+ * of the name is kept, like insuranceDocPath: the extension is the half worth keeping.
+ */
+export function expenseReceiptPath(clinicId: string | null | undefined, receiptId: string, filename: string): string {
+  const safe = (filename || "receipt")
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .replace(/\.{2,}/g, ".")
+    .slice(-80)
+    .replace(/^[.]+/, "") || "receipt";
+  return `clinics/${requireClinic(clinicId)}/expense_receipts/${requireSegment(receiptId, "receipt id")}/${safe}`;
+}
+
+/**
  * A staff member's own profile picture.
  *
  * Deliberately NOT under a clinic: one person can work at several, the picture is theirs rather

@@ -2,7 +2,7 @@
 
 import { localYmd } from "@/lib/clinicDate";
 import { useState, useEffect, useMemo, useRef } from "react";
-import { TrendingUp, TrendingDown, DollarSign, PieChart, Download, Plus, Edit2, Trash2, Loader2, X, Save, CalendarDays, CalendarClock, Users, ChevronLeft, ChevronRight, SlidersHorizontal, ChevronDown, ChevronUp, Wallet, FileText, FileSpreadsheet } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, PieChart, Download, Plus, Edit2, Trash2, Loader2, X, Save, CalendarDays, CalendarClock, Users, ChevronLeft, ChevronRight, SlidersHorizontal, ChevronDown, ChevronUp, Wallet, FileText, FileSpreadsheet, ScanLine } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, addDoc, query, orderBy, serverTimestamp, deleteDoc, doc, updateDoc, where, getDoc, getDocs, onSnapshot, documentId } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
@@ -39,6 +39,10 @@ import { MoneyApiError, collectFromInsurer, createLedgerEntry, deleteLedgerRow, 
 import { CLAIMS_COLLECTION, lineStatusOf, parseClaim, type InsuranceClaim } from "@/lib/insurance/claims";
 import { categoryLabel, EXPENSE_CATEGORY_LIST, INCOME_CATEGORY_LIST } from "@/lib/expenseCategories";
 import { countsForPayroll } from "@/lib/staffInsurance";
+import { useClinic } from "@/context/ClinicContext";
+import { isUnlocked } from "@/lib/featureCatalog";
+import ReceiptScanDialog from "@/components/finance/ReceiptScanDialog";
+import ReceiptPhotoLink from "@/components/finance/ReceiptPhotoLink";
 
 const ITEMS_PER_PAGE = 15;
 
@@ -64,6 +68,8 @@ interface Transaction {
   payerName?: string | null;
   doctorId?: string | null;
   receiptNumber?: string | null;
+  /** The photo of the supplier receipt an expense was scanned from (Finance → Scan receipt). */
+  receiptImageUrl?: string | null;
   /** Who took the money: `receivedBy` on a payment, `addedBy` on a manual entry (folded together on load). */
   receivedBy?: string;
 }
@@ -238,6 +244,9 @@ export default function FinancePage() {
   const [isLoading, setIsLoading] = useState(true);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isScanOpen, setIsScanOpen] = useState(false);
+  const { clinic } = useClinic();
+  const canScanReceipts = isUnlocked(clinic, "aiReceipts");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportTarget, setExportTarget] = useState<'download' | null>(null);
@@ -1396,6 +1405,18 @@ export default function FinancePage() {
                   <span className="hidden sm:inline">{language === "ar" ? "إدخال يدوي" : "Manual entry"}</span>
                 </button>
               </Protect>
+              {canScanReceipts && (
+                <Protect permission="finance.add">
+                  <button
+                    type="button"
+                    onClick={() => setIsScanOpen(true)}
+                    className="max-lg:flex-auto max-lg:justify-center max-lg:min-h-11 max-lg:px-3 inline-flex items-center gap-2 bg-white text-ink border border-slate-200 hover:border-slate-300 px-4 py-2.5 rounded-xl font-bold text-xs uppercase shadow-sm active:scale-[0.98] transition-all"
+                  >
+                    <ScanLine size={18} />
+                    {language === "ar" ? "قراءة فاتورة" : "Scan receipt"}
+                  </button>
+                </Protect>
+              )}
               <button
                 type="button"
                 onClick={() => setIsFiltersExpanded(!isFiltersExpanded)}
@@ -1620,6 +1641,7 @@ export default function FinancePage() {
                                         {language === "ar" ? "تلقائي" : "Auto"}
                                       </span>
                                     ) : null}
+                                    <ReceiptPhotoLink url={tx.receiptImageUrl} ar={language === "ar"} />
                                   </p>
                                   <p className="text-[11px] font-semibold text-slate-400 uppercase mt-1">
                                     {categoryLabel(tx.category, language === "ar") || tx.method || "—"}
@@ -1769,7 +1791,7 @@ export default function FinancePage() {
                               {isExpense ? <TrendingDown size={16} /> : <TrendingUp size={16} />}
                             </div>
                             <div className="min-w-0">
-                              <h4 className="font-bold text-ink text-sm leading-snug line-clamp-2" title={rowTitle(tx)}>{rowTitle(tx)}</h4>
+                              <h4 className="font-bold text-ink text-sm leading-snug line-clamp-2" title={rowTitle(tx)}>{rowTitle(tx)}<ReceiptPhotoLink url={tx.receiptImageUrl} ar={language === "ar"} /></h4>
                               {tx.patientId ? (
                                 <button
                                   onClick={() => router.push(`/patients/${tx.patientId}?tab=finance&tx=${tx.id}`)}
@@ -1999,6 +2021,9 @@ export default function FinancePage() {
         )}
 
         {/* MODAL FOR MANUAL ENTRIES */}
+        {isScanOpen && (
+          <ReceiptScanDialog language={language} onClose={() => setIsScanOpen(false)} requireBranchForMoney={requireBranchForMoney} />
+        )}
         {isModalOpen && (
             <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4 animate-in fade-in">
               <div className="bg-white w-full max-w-sm max-h-[92dvh] overflow-y-auto rounded-[1.5rem] shadow-2xl border border-slate-100">
