@@ -290,4 +290,10 @@ eq(src("src/app/(dashboard)/patients/[id]/page.tsx").includes("<PatientCallsPane
   }
 }
 
+{
+  const page = src("src/app/(dashboard)/calls/page.tsx");
+  eq(page.includes('"invisible"'), false, "no invisible filler pushing the filters onto extra lines");
+  eq(page.includes('{tab === "done" && ('), true, "the From date shows only on the Done tab");
+}
+
 console.log(`call reminders: ${checks} checks passed`);

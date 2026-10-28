@@ -159,9 +159,10 @@ function CallsPageInner() {
         ))}
       </div>
 
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={isAr ? "دوّر باسم المريض" : "Search patient"} className={`${FIELD} col-span-2 md:col-span-1`} />
-        <select value={who} onChange={(e) => setWho(e.target.value)} className={FIELD}>
+      {/* Phone: search on its own line, then the person and the date side by side. */}
+      <div className="grid grid-cols-2 gap-2 md:flex md:items-center">
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={isAr ? "دوّر باسم المريض" : "Search patient"} className={`${FIELD} col-span-2 min-w-0 md:flex-1`} />
+        <select value={who} onChange={(e) => setWho(e.target.value)} className={`${FIELD} min-w-0 md:w-52`}>
           <option value="">{isAr ? "الكل" : "Everyone"}</option>
           {people.map(([uid, name]) => (
             <option key={uid} value={`person:${uid}`}>{name}</option>
@@ -170,11 +171,14 @@ function CallsPageInner() {
             <option key={role} value={`role:${role}`}>{recipientLabel({ kind: "role", role }, isAr)}</option>
           ))}
         </select>
-        <label className={`flex items-center gap-1.5 text-xs font-bold text-ink-muted ${tab === "done" ? "" : "invisible"}`}>
-          {isAr ? "من" : "From"}
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={`${FIELD} min-w-0 flex-1`} />
-        </label>
-        <label className="flex items-center gap-1.5 text-xs font-bold text-ink-muted">
+        {/* "From" only bounds the Done tab, so it only shows there. */}
+        {tab === "done" && (
+          <label className="flex min-w-0 items-center gap-1.5 text-xs font-bold text-ink-muted">
+            {isAr ? "من" : "From"}
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={`${FIELD} min-w-0 flex-1`} />
+          </label>
+        )}
+        <label className={`flex min-w-0 items-center gap-1.5 text-xs font-bold text-ink-muted ${tab === "done" ? "col-span-2 md:col-span-1" : ""}`}>
           {isAr ? "لحد" : "To"}
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={`${FIELD} min-w-0 flex-1`} />
         </label>
