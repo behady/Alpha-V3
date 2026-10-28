@@ -668,7 +668,7 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
   assert.equal(s.cases[0].lines[0].text, "كشف");
   assert.equal(s.cases[1].lines[1].text, "SOME DESCRIPTION", "no wording: the paper's description, trimmed");
   assert.deepEqual([s.cases[1].lines[2].requested, s.cases[1].lines[2].approved], [2700, 500]);
-  assert.deepEqual(s.cases[1].lines[3], { text: "اشعه عاديه", count: 0, requested: 60, approved: 0 }, "a rejected line is still printed");
+  assert.deepEqual(s.cases[1].lines[3], { text: "اشعه عاديه", count: 1, requested: 60, approved: 0 }, "a rejected line is still printed");
   assert.equal(s.cases[1].subtotal, 60 + 80 + 500);
   assert.equal(s.cases[0].subtotal, 1260);
   assert.equal(s.total, s.cases[0].subtotal + s.cases[1].subtotal);
@@ -678,6 +678,16 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
     "the sheet prints the approval's Arabic name, not the patient file's",
   );
   assert.equal(s.cases[0].lines[0].count, 1);
+  // the count is the submitted units, as on the clinic's sheet: MetLife approves an exam with 0 units and two
+  // fillings with 1 (D6928665, DENT INN 2026-10-28), yet the sheet must read 1 and 2 so count x price = requested
+  const paper = mk(6, "2026-02-10", "treated", [
+    lineFixture({ code: "D0120", unitsRequested: 1, grossPerUnit: 60, grossTotal: 60, unitsApproved: 0, approvedAmount: 54 }),
+    lineFixture({ code: "D2650", unitsRequested: 2, grossPerUnit: 600, grossTotal: 1200, unitsApproved: 1, approvedAmount: 1080 }),
+  ]);
+  assert.deepEqual(
+    buildMetlifeStatement({ claims: [paper], ...args }).cases[0].lines.map((l) => [l.count, l.requested, l.approved]),
+    [[1, 60, 54], [2, 1200, 1080]],
+  );
   // the Arabic name corrected on the approval after saving is what prints (DENT INN, 2026-10-12: حالد -> خالد);
   // an approval with no Arabic name falls back to the patient file's name
   const fixed = { ...A, patientName: "فريده حالد", metlife: { ...A.metlife, paperPatientNameAr: "فريده خالد" } };
