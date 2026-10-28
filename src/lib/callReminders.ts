@@ -242,6 +242,15 @@ export function callDayLabel(date: string, time: string | null, todayYmd: string
   return time ? `${day} · ${time}` : day;
 }
 
+/** The pieces of a call's date block: "النهارده" / "بكرة" / weekday above, the day number, the month. */
+export function callDayParts(date: string, todayYmd: string, isAr: boolean): { top: string; day: number; month: string } {
+  const [y, m, d] = date.split("-").map(Number);
+  const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  const top =
+    date === todayYmd ? (isAr ? "النهارده" : "Today") : date === addDays(todayYmd, 1) ? (isAr ? "بكرة" : "Tomorrow") : isAr ? AR_WEEKDAYS[weekday] : EN_WEEKDAYS[weekday];
+  return { top, day: d, month: isAr ? AR_MONTHS[m - 1] : EN_MONTHS[m - 1] };
+}
+
 export function reminderWhatsappText(
   r: Pick<CallReminder, "patientName" | "patientPhone" | "reason" | "createdBy" | "createdAtMs">,
   link: string,

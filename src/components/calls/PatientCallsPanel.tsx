@@ -52,7 +52,7 @@ export default function PatientCallsPanel({ patientId }: { patientId: string }) 
           <PhoneCall size={15} aria-hidden="true" /> {isAr ? "المكالمات" : "Calls"}
         </h3>
         {next && (
-          <span className="rounded-full bg-accent px-2.5 py-0.5 text-xs font-bold text-[var(--accent-ink)]">
+          <span className="rounded-full bg-accent px-2.5 py-0.5 text-xs font-bold text-ink-on-accent">
             {isAr ? `مكالمة ${dayText(next)}` : `Call: ${dayText(next)}`}
           </span>
         )}

@@ -48,7 +48,7 @@ export default function CallsTodayCard() {
       <div className="flex items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-base font-black text-ink">
           <PhoneCall size={17} aria-hidden="true" /> {isAr ? "مكالمات النهارده" : "Today's calls"}
-          <span className="rounded-full bg-accent px-2 py-0.5 font-figure text-xs text-[var(--accent-ink)]">{due.length}</span>
+          <span className="rounded-full bg-accent px-2 py-0.5 font-figure text-xs text-ink-on-accent">{due.length}</span>
         </h2>
         <Link href="/calls" className="inline-flex items-center gap-1 text-sm font-bold text-ink-muted hover:text-ink">
           {isAr ? "كل المكالمات" : "All calls"} <ArrowUpRight size={13} />
