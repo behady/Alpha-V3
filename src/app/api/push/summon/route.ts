@@ -63,7 +63,9 @@ export async function POST(request: Request) {
         notification: {
           title,
           body: notificationBody,
-          icon: "/logo.png",
+          // /logo.png never existed, so Android showed Chrome's bell. Same pair as notificationDelivery.
+          icon: "/icons/icon-192.png",
+          badge: "/icons/badge-96.png",
           requireInteraction: true,
         },
         fcmOptions: { link: "/" },

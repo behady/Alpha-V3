@@ -29,6 +29,19 @@ const {
 
 const TIMEZONE = process.env.CLINIC_TIMEZONE || "Africa/Cairo";
 
+/**
+ * Browser and home-screen-app pushes only (native app tokens ignore this block).
+ *
+ * Without `badge` Chrome on Android draws its own bell in the status bar, and without
+ * `Urgency: high` a sleeping Android phone may hold the alert back until it wakes. The badge is
+ * a white silhouette because Android paints it from the alpha channel alone.
+ * Mirrored in src/lib/notificationDelivery.ts.
+ */
+const WEB_PUSH = {
+  headers: { Urgency: "high" },
+  notification: { icon: "/icons/icon-192.png", badge: "/icons/badge-96.png" },
+};
+
 /** The clinic's own hour, for quiet hours. */
 function clinicHourNow(now = new Date()) {
   try {
@@ -194,7 +207,7 @@ async function sendClinicPush(db, clinicId, notification, options = {}) {
     const tokens = [...tokenOwner.keys()];
     if (tokens.length === 0) return;
 
-    const message = { tokens, notification };
+    const message = { tokens, notification, webpush: WEB_PUSH };
     // Data rides on the notification: Android delivers it as intent extras on tap, which is what
     // lets the app open the right screen.
     const dataEntries = Object.entries({

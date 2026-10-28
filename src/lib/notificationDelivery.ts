@@ -29,6 +29,19 @@ import { resolveStaffGateway, sendStaffDocument, sendStaffWhatsApp } from "@/lib
 /** The clinic's own day, for quiet hours. Same default as the Cloud Functions package. */
 const TIMEZONE = process.env.CLINIC_TIMEZONE || "Africa/Cairo";
 
+/**
+ * Browser and home-screen-app pushes only (native app tokens ignore this block).
+ *
+ * Without `badge` Chrome on Android draws its own bell in the status bar, and without
+ * `Urgency: high` a sleeping Android phone may hold the alert back until it wakes. The badge is
+ * a white silhouette because Android paints it from the alpha channel alone.
+ * Mirrored in functions/clinicPush.js.
+ */
+const WEB_PUSH = {
+  headers: { Urgency: "high" },
+  notification: { icon: "/icons/icon-192.png", badge: "/icons/badge-96.png" },
+};
+
 export function clinicHourNow(now: Date = new Date()): number {
   try {
     const hour = new Intl.DateTimeFormat("en-GB", {
@@ -405,6 +418,7 @@ export async function deliverClinicNotification(
       notification,
       ...(dataEntries.length > 0 ? { data: Object.fromEntries(dataEntries) } : {}),
       ...(channel ? { android: { notification: { channelId: channel } } } : {}),
+      webpush: WEB_PUSH,
     });
 
     const removals = new Map<FirebaseFirestore.DocumentReference, string[]>();
