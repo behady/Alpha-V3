@@ -134,6 +134,10 @@ assert.deepEqual(bad((y) => (y.lines[3].patientShare = 10)), ["patient_share_tot
 const expired = ids(checkNextcare(x, { today: "2026-08-05" }), "soft");
 assert.ok(expired.includes("expired"), "past the valid-until date: warned, not blocked");
 assert.ok(!ids(checkNextcare(x, ctx), "soft").includes("expired"));
+const oldYear = clone(x);
+oldYear.header.approvalDate = "2020-07-04";
+assert.ok(ids(checkNextcare(oldYear, ctx), "soft").includes("approval_date_old"), "a year misread as 2020 is questioned, not blocked");
+assert.ok(!ids(checkNextcare(x, ctx), "soft").includes("approval_date_old"));
 const oddTooth = clone(x);
 oddTooth.lines[2].teeth = ["44", "99"];
 assert.ok(ids(checkNextcare(oddTooth, ctx), "soft").includes("teeth"), "a tooth that does not exist is flagged");

@@ -494,7 +494,8 @@ const CHECK_TEXT: Record<string, Text> = {
   approval_number: { en: "Approval number must look like C0013224779/1", ar: "رقم الموافقة لازم يكون زي C0013224779/1" },
   approval_date: { en: "Approval date could not be read", ar: "تاريخ الموافقة مش مقروء" },
   approval_date_future: { en: "Approval date is in the future", ar: "تاريخ الموافقة في المستقبل" },
-  card: { en: "Card number is missing", ar: "رقم البطاقة ناقص" },
+  approval_date_old: { en: "Approval date is {date}, more than six months ago: check the year", ar: "تاريخ الموافقة {date}، من أكتر من 6 شهور: راجع السنة" },
+  card:{ en: "Card number is missing", ar: "رقم البطاقة ناقص" },
   card_format: { en: "Card number does not look like 3C40-FD1B-02E6-412C", ar: "رقم البطاقة مش شبه 3C40-FD1B-02E6-412C" },
   no_lines: { en: "No service lines were read", ar: "مفيش بنود خدمة اتقرأت" },
   approved_total_missing: { en: "Type the insurer's total from the paper", ar: "اكتب إجمالي حصة التأمين من الورقة" },
@@ -540,10 +541,16 @@ function label(field: string): Text {
   return FIELD_LABEL[field] ?? { en: field, ar: field };
 }
 
-function nextDay(iso: string): string {
+function shiftDays(iso: string, days: number): string {
   const [y, m, d] = iso.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
+
+function nextDay(iso: string): string {
+  return shiftDays(iso, 1);
+}
+
+const OLD_PAPER_DAYS = 183;
 
 const TOLERANCE = 0.01;
 const LOW_CONFIDENCE = 0.7;
@@ -582,6 +589,8 @@ export function checkNextcare(x: MetlifeExtraction, ctx: NextcareCheckContext): 
   // Soft.
   if (h.certificateNumber && !CARD_RE.test(h.certificateNumber)) checks.push(make("soft", "card_format", "certificateNumber", "card_format"));
   if (today && h.validUntil && h.validUntil < today) checks.push(make("soft", "expired", "validUntil", "expired", { date: h.validUntil }));
+  // An approval is issued at the visit, so an old date is usually a misread year and would drop the claim off the sheet.
+  if (today && h.approvalDate && h.approvalDate < shiftDays(today, -OLD_PAPER_DAYS)) checks.push(make("soft", "approval_date_old", "approvalDate", "approval_date_old", { date: h.approvalDate }));
   if (h.terminationDate && h.approvalDate && h.terminationDate < h.approvalDate) {
     checks.push(make("soft", "policy_ended", "terminationDate", "policy_ended", { date: h.terminationDate }));
   }

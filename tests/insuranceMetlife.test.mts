@@ -235,6 +235,12 @@ hard(x, (h) => (h.approvalDate = "2026-10-09"), "approval_date_future"); // toda
   const dayAfter = clone(x);
   dayAfter.header.approvalDate = "2026-10-05";
   only(checkMetlife(dayAfter, ctx), "approval_date_future", "hard");
+  // 2026 read as 2020 (DENT INN D6984719): questioned, not blocked, so a real backlog can still be saved
+  const misread = clone(x);
+  misread.header.approvalDate = "2020-10-03";
+  const checks = checkMetlife(misread, ctx);
+  assert.equal(only(checks, "approval_date_old", "soft").field, "approvalDate");
+  assert.equal(hasHardFailure(checks), false);
 }
 hardLines(x, (l) => (l[0].grossTotal = 61), "line_gross"); // 1 x 60 is not 61
 assert.equal(hardLines(x, (l) => (l[3].grossTotal = 301), "line_gross").field, "lines[3].grossTotal");

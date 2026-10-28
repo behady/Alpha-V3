@@ -204,7 +204,7 @@ export function buildMetlifePrompt(): string {
     "",
     "Return the header fields and the service table as JSON in the schema you were given.",
     "- approvalNumber: the Pre-Approval ID, the letter D followed by seven digits. This is the most important field on the page: read it digit by digit, twice. On a faint scan 6 and 0, 8 and 3, 1 and 7 are easily confused; if any digit is not crisp, lower its confidence well below 0.7.",
-    "- approvalDate and terminationDate: dates are printed dd/mm/yyyy. Copy them as printed. A termination date of 9999-12-31 means there is no end.",
+    "- approvalDate and terminationDate: dates are printed dd/mm/yyyy. Copy them as printed, reading the year digit by digit: 6 and 0 are easily confused on a faint scan, and the approval date is this year's. A termination date of 9999-12-31 means there is no end.",
     "- policyNumber: the Policy Number line as printed, number then employer, for example \"6481234567 - EXAMPLE TRAVEL EGYPT\".",
     "- providerCode: the Provider line as printed, for example \"DNC0001 - DR. EXAMPLE - DENTAL\".",
     "- certificateNumber and dependentCode: as printed. paperPatientName: the patient's name as printed, in capitals.",
@@ -369,11 +369,18 @@ function sum(lines: MetlifeLine[], pick: (l: MetlifeLine) => number): number {
   return round2(lines.reduce((t, l) => t + pick(l), 0));
 }
 
+/** An ISO date moved by a number of days, as ISO. */
+function shiftDays(iso: string, days: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
 /** The day after an ISO date, as ISO. */
 function nextDay(iso: string): string {
-  const [y, m, d] = iso.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+  return shiftDays(iso, 1);
 }
+
+const OLD_PAPER_DAYS = 183;
 
 /** Names of header fields in both languages, for the messages. */
 const FIELD_LABEL: Record<string, Text> = {
@@ -407,6 +414,7 @@ const CHECK_TEXT: Record<string, Text> = {
   approval_number: { en: "Approval number must be D followed by 7 digits", ar: "رقم الموافقة لازم يكون D و7 أرقام" },
   approval_date: { en: "Approval date could not be read", ar: "تاريخ الموافقة مش مقروء" },
   approval_date_future: { en: "Approval date is in the future", ar: "تاريخ الموافقة في المستقبل" },
+  approval_date_old: { en: "Approval date is {date}, more than six months ago: check the year", ar: "تاريخ الموافقة {date}، من أكتر من 6 شهور: راجع السنة" },
   certificate: { en: "Certificate number is missing", ar: "رقم الشهادة ناقص" },
   dependent: { en: "Dependent code is missing", ar: "كود التابع ناقص" },
   no_lines: { en: "No service lines were read", ar: "مفيش بنود خدمة اتقرأت" },
@@ -507,6 +515,11 @@ export function checkMetlife(x: MetlifeExtraction, ctx: MetlifeCheckContext): Ch
   }
 
   // Soft: worth a look, never blocks.
+  // An approval is issued at the visit, so an old date is usually a misread year (2026 read as 2020, DENT INN
+  // D6984719): the claim then sits outside every statement range and silently drops off the sheet.
+  if (today && h.approvalDate && h.approvalDate < shiftDays(today, -OLD_PAPER_DAYS)) {
+    checks.push(make("soft", "approval_date_old", "approvalDate", "approval_date_old", { date: h.approvalDate }));
+  }
   if (h.statusText !== "AUTO APPROVED" && h.statusText !== "APPROVED") {
     checks.push(make("soft", "status", "statusText", "status", { status: h.statusText || EMPTY_WORD }));
   }
