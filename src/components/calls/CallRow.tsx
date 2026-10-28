@@ -26,7 +26,7 @@ const INPUT = "w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm
 const PILL =
   "inline-flex h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-surface px-3 text-sm font-bold text-ink transition-colors hover:border-ink-muted hover:bg-surface-subtle md:px-4";
 const ICON =
-  "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-ink-muted transition-colors hover:border-ink-muted hover:text-ink";
+  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full md:h-10 md:w-10 border border-line bg-surface text-ink-muted transition-colors hover:border-ink-muted hover:text-ink";
 const YELLOW = "bg-accent text-ink-on-accent";
 
 export default function CallRow({
@@ -130,7 +130,7 @@ export default function CallRow({
                   </span>
                 )}
               </div>
-              {mode === "idle" && <div className="flex shrink-0 gap-1.5 md:hidden">{icons}</div>}
+              {mode === "idle" && <div className="flex shrink-0 gap-1 md:hidden">{icons}</div>}
             </div>
             <p className="mt-0.5 text-sm font-semibold text-ink-body">{reminder.reason}</p>
             {reminder.previousNote && (

@@ -151,10 +151,10 @@ function CallsPageInner() {
             role="tab"
             aria-selected={tab === t.id}
             onClick={() => setTab(t.id)}
-            className={`whitespace-nowrap rounded-xl px-1.5 py-2 text-sm font-bold transition-colors md:shrink-0 md:px-4 ${tab === t.id ? "bg-ink text-white" : "text-ink-muted hover:text-ink"}`}
+            className={`whitespace-nowrap rounded-xl px-1 py-2 text-[13px] font-bold transition-colors md:shrink-0 md:px-4 md:text-sm ${tab === t.id ? "bg-ink text-white" : "text-ink-muted hover:text-ink"}`}
           >
             {isAr ? t.ar : t.en}
-            {t.id !== "done" && counts[t.id] > 0 && <span className="ms-1.5 font-figure">{counts[t.id]}</span>}
+            {t.id !== "done" && counts[t.id] > 0 && <span className="ms-1 font-figure text-[11px] opacity-80 md:ms-1.5 md:text-sm md:opacity-100">{counts[t.id]}</span>}
           </button>
         ))}
       </div>
