@@ -4,7 +4,7 @@ import Link from "next/link";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MessageCircle, Save, Loader2, Send, Plug, CheckCircle2, AlertCircle, Lock, QrCode, Unplug, RefreshCw, MessageSquareText } from "lucide-react";
-import { deleteField, doc, onSnapshot, setDoc } from "firebase/firestore";
+import { deleteField, doc, onSnapshot, setDoc, type DocumentReference } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import BotPlayground from "./BotPlayground";
 import BotMediaLibrary from "./BotMediaLibrary";
@@ -223,6 +223,22 @@ function briefForWrite(b: BotBrief): Record<string, unknown> {
   return clean;
 }
 
+/**
+ * The document as Firestore will take it. A number box emptied back to its default holds
+ * `undefined`, which the browser SDK refuses outright — the whole save failed and the screen
+ * snapped back to the old number — so an emptied value is written as a delete instead.
+ */
+function settingsForWrite(next: WhatsAppSettingsDocument): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(next)) out[k] = v === undefined ? deleteField() : v;
+  if (next.botBrief) out.botBrief = briefForWrite(next.botBrief);
+  out.updatedAt = new Date().toISOString();
+  return out;
+}
+
+/** How long typing has to pause before a text box saves itself without being clicked out of. */
+const TYPING_SAVE_MS = 1200;
+
 /** The jobs this page does, in the order someone new to it needs them. */
 const WHATSAPP_TABS = ["connection", "autoreply", "messages", "wording", "alerts"] as const;
 type WhatsAppTab = (typeof WHATSAPP_TABS)[number];
@@ -326,6 +342,12 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
   }, []);
   /** The last state the server confirmed, to restore when a write is refused. */
   const serverState = useRef<WhatsAppSettingsDocument | null>(null);
+  /** The exact object last saved or received; the screen's state differs from it only while typing. */
+  const lastSaved = useRef<WhatsAppSettingsDocument | null>(null);
+  const latestState = useRef<WhatsAppSettingsDocument | null>(null);
+  const settingsDocRef = useRef<DocumentReference | null>(null);
+  /** `persist` from the latest render, for the typing timer to call. */
+  const persistRef = useRef<(next: WhatsAppSettingsDocument, toastMode: "silent") => Promise<void>>(async () => {});
   const [state, setState] = useState<WhatsAppSettingsDocument>({
     isPatientAutomationEnabled: false,
     isLeadAutoReplyEnabled: false,
@@ -1177,13 +1199,64 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
   );
 
   useEffect(() => {
-    const unsub = onSnapshot(getClinicDoc(WHATSAPP_SETTINGS_DOC_REF.collection, WHATSAPP_SETTINGS_DOC_REF.docId), (snap) => {
+    // Pinned at mount: the page remounts on a clinic switch, and a save still in flight from the
+    // old clinic must land in the old clinic's document, not whichever one is selected by then.
+    const ref = getClinicDoc(WHATSAPP_SETTINGS_DOC_REF.collection, WHATSAPP_SETTINGS_DOC_REF.docId);
+    settingsDocRef.current = ref;
+    const unsub = onSnapshot(ref, (snap) => {
       const next = normalizeFromFirestore(snap.exists() ? (snap.data() as Record<string, unknown>) : undefined);
-      serverState.current = next;
-      setState(next);
+      if (!snap.metadata.hasPendingWrites) serverState.current = next;
+      // Anything typed since the last save stays on screen. Replacing the whole state used to
+      // wipe it whenever a save's echo arrived mid-word — how a word typed straight after
+      // clicking a choice vanished. Every other field takes the document, so writes from
+      // elsewhere (the medicine list below, another admin) still show up.
+      const typed = latestState.current;
+      const saved = lastSaved.current;
+      let shown = next;
+      if (typed && saved && typed !== saved) {
+        const keep: Record<string, unknown> = { ...next };
+        for (const k of Object.keys(typed) as Array<keyof WhatsAppSettingsDocument>) {
+          if (typed[k] !== saved[k]) keep[k] = typed[k];
+        }
+        shown = keep as unknown as WhatsAppSettingsDocument;
+      }
+      lastSaved.current = next;
+      setState(shown);
       setHasLoaded(true);
     });
     return () => unsub();
+  }, []);
+
+  /*
+   * Text boxes save when typing pauses, not only when clicked out of: leaving the page, or
+   * reloading it, straight after typing used to drop the last edit. `lastSaved` is the exact
+   * object last written or received, so a change that already went through `persist` (every
+   * switch and choice does) schedules nothing; only typing does.
+   */
+  useEffect(() => {
+    latestState.current = state;
+    if (!hasLoaded || state === lastSaved.current) return;
+    const timer = setTimeout(() => {
+      // Clicking out of the box during the pause already saved this exact state.
+      if (state !== lastSaved.current) void persistRef.current(state, "silent");
+    }, TYPING_SAVE_MS);
+    return () => clearTimeout(timer);
+  }, [state, hasLoaded]);
+
+  // Whatever is still waiting on that pause is written on the way out — closing the tab, or
+  // moving to another page of the app. A plain write: no toast or log for a screen already gone.
+  useEffect(() => {
+    const flush = () => {
+      const pending = latestState.current;
+      if (!settingsDocRef.current || !lastSaved.current || !pending || pending === lastSaved.current) return;
+      lastSaved.current = pending;
+      void setDoc(settingsDocRef.current, settingsForWrite(pending), { merge: true }).catch((e) => console.error(e));
+    };
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      flush();
+    };
   }, []);
 
   useEffect(() => {
@@ -1210,6 +1283,7 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
   useDirtyFlag("whatsapp", templateDirty || connectionDirty);
 
   const persist = async (next: WhatsAppSettingsDocument, toastMode: "default" | "template" | "silent" | "none" = "default") => {
+    lastSaved.current = next;
     setSaving(true);
     try {
       // Must be the same doc the listener above reads (settings/whatsapp). This wrote to
@@ -1217,12 +1291,8 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
       // routes — so every template and owner-alert toggle saved here was silently discarded,
       // and the assistant's trigger_whatsapp_appointment tool always loaded an empty config.
       await setDoc(
-        getClinicDoc(WHATSAPP_SETTINGS_DOC_REF.collection, WHATSAPP_SETTINGS_DOC_REF.docId),
-        {
-          ...next,
-          ...(next.botBrief ? { botBrief: briefForWrite(next.botBrief) } : {}),
-          updatedAt: new Date().toISOString(),
-        },
+        settingsDocRef.current ?? getClinicDoc(WHATSAPP_SETTINGS_DOC_REF.collection, WHATSAPP_SETTINGS_DOC_REF.docId),
+        settingsForWrite(next),
         { merge: true }
       );
       await logActivity(
@@ -1238,13 +1308,20 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
       console.error(e);
       // Put the screen back to what is actually stored. Leaving the optimistic
       // value up is what made a refused change look like a saved one.
-      if (serverState.current) setState(serverState.current);
+      if (serverState.current) {
+        lastSaved.current = serverState.current;
+        setState(serverState.current);
+      }
       setSaveError(txt.saveRefused);
       showToast(txt.failed, "error");
     } finally {
       setSaving(false);
     }
   };
+
+  useEffect(() => {
+    persistRef.current = persist;
+  });
 
   const handleSaveTemplate = () => {
     const trimmed = draftMessage.trim();
