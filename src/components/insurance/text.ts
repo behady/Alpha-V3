@@ -65,8 +65,8 @@ export const TEXT = {
   saveChanges: { en: "Save changes", ar: "احفظ التعديل" },
   editedToast: { en: "Approval updated", ar: "الموافقة اتعدّلت" },
   editHint: {
-    en: "Saving replaces this approval's treatments in the patient's file with the edited services. If payments are recorded on them, delete those first.",
-    ar: "الحفظ بيبدّل علاجات الموافقة دي في ملف المريض بالخدمات بعد التعديل. لو فيه مدفوعات مسجلة عليها، امسحها الأول.",
+    en: "Changing the services replaces this approval's treatments in the patient's file with the edited ones. If payments are recorded on them, delete those first. The date alone can always be corrected.",
+    ar: "تعديل الخدمات بيبدّل علاجات الموافقة دي في ملف المريض بالخدمات بعد التعديل. لو فيه مدفوعات مسجلة عليها، امسحها الأول. التاريخ لوحده يتصلّح في أي وقت.",
   },
   lockedOnEdit: { en: "Fixed once saved", ar: "ثابت بعد الحفظ" },
   typedTitle: { en: "Type the approval", ar: "اكتب الموافقة" },

@@ -156,8 +156,10 @@ export async function saveClaim(body: SaveBody): Promise<SaveOutcome> {
 export type ClaimPatch = {
   status?: ClaimStatus;
   treatedDate?: string | null;
+  /** A misread approval date put right; treatment rows dated by it move with it. */
+  approvalDate?: string;
   patientId?: string;
-  /** An edit of the paper: every service line, and the header fields (approval number and date stay). */
+  /** An edit of the paper: every service line, and the header fields (the approval number stays). */
   lines?: MetlifeLine[];
   metlife?: Partial<MetlifeHeader>;
   /** Line index -> staff id to assign, or null to clear. The server stamps the rate and share. */

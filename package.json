@@ -116,6 +116,7 @@
     "test:staged-once": "npx tsx tests/stagedProcedureOnce.test.mts",
     "test:note-photos-route": "npx tsx tests/notePhotosRoute.test.mts",
     "test:approval-teeth-route": "npx tsx tests/approvalTeethRoute.test.mts",
+    "test:approval-date-route": "npx tsx tests/approvalDateRoute.test.mts",
     "test:branch-money-routes": "npx tsx tests/branchMoneyRoutes.test.mts",
     "_comment_test_clinicstatus": "Does the server agree with firestore.rules about whether a clinic may still be written to? The rules gate browser writes; the Admin SDK routes bypass rules entirely, so the same decision has to exist in code or an expired clinic keeps taking payments through a route that never asked.",
     "test:clinicstatus": "npx tsx tests/clinicStatus.test.mjs",

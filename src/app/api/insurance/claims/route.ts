@@ -65,7 +65,7 @@ const PERMISSION = "patients.edit";
 const MAX_LINES = 100;
 const MAX_NAME = 200;
 const MAX_WORDING = 200;
-const PATCH_KEYS = new Set(["status", "treatedDate", "patientId", "lines", "metlife", "dentists", "lineStatus", "collectShare", "insurerPaid"]);
+const PATCH_KEYS = new Set(["status", "treatedDate", "approvalDate", "patientId", "lines", "metlife", "dentists", "lineStatus", "collectShare", "insurerPaid"]);
 const LINE_KEY = /^\d{1,3}$/;
 const LINE_STATUS_ERROR = 'A service state must be "Completed", "Planned" or "Ongoing".';
 /** How the insurer's own payment is filed: its own method and category, so cash reports never mistake it for cash. */
@@ -553,7 +553,7 @@ export async function POST(req: Request) {
 /**
  * Edits a saved claim.
  *
- * PATCH { clinicId, claimId, patch: { status?, treatedDate?, patientId?, lines?, metlife?, dentists?, lineStatus?, collectShare?, insurerPaid? } }
+ * PATCH { clinicId, claimId, patch: { status?, treatedDate?, approvalDate?, patientId?, lines?, metlife?, dentists?, lineStatus?, collectShare?, insurerPaid? } }
  *   → 200 { ok: true } (plus `payments` or `shareCollected` when money was recorded)
  *
  * Only those keys; anything else is a 400, so a typo never silently does nothing.
@@ -570,6 +570,9 @@ export async function POST(req: Request) {
  *   against it.
  * - A treated date that moves while the rows stay re-dates those rows (charges and notes; never
  *   the payments) in the same transaction, so Finance agrees with the statement and payroll.
+ * - `approvalDate`: corrects a misread date (2026 read as 2020 left DENT INN's D6984719 off every
+ *   statement). Never after tomorrow, as at save. The rows dated by it (no treated date) move with
+ *   it, as above; rows dated by a treated date stay where they are.
  * - `patientId`: re-snapshots the patient's name (404 when the patient does not exist) and writes
  *   `insurance.{payerId}` on that patient when missing or different, as a save does. A `metlife` edit
  *   is never pushed to the patient: the patient's own editor owns that.
@@ -608,6 +611,14 @@ export async function PATCH(req: Request) {
     if ("treatedDate" in patch) {
       if (patch.treatedDate !== null && !isIsoDate(patch.treatedDate)) return fail(400, "treatedDate must be a yyyy-mm-dd date or null.");
       treatedDate = patch.treatedDate;
+    }
+    let approvalDate: string | undefined;
+    if ("approvalDate" in patch) {
+      if (!isIsoDate(patch.approvalDate)) return fail(400, "approvalDate must be a yyyy-mm-dd date.");
+      const tomorrow = new Date(`${ymdInTimeZone(clinicTimeZone())}T00:00:00Z`);
+      tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+      if (patch.approvalDate > tomorrow.toISOString().slice(0, 10)) return fail(400, "The approval date cannot be in the future.");
+      approvalDate = patch.approvalDate;
     }
     let newPatientId = "";
     if ("patientId" in patch) {
@@ -743,7 +754,7 @@ export async function PATCH(req: Request) {
       | { kind: "no_rows" }
       | { kind: "nothing_left" }
       | { kind: "checks"; checks: Check[] }
-      | { kind: "ok"; created: Charge[]; removed: Charge[]; payments: Charge[] | null; what: "share" | "insurer"; collected: Collected | null; rebuilt: boolean; restamp: Array<string | null>; redated: Array<{ id: string; from: unknown }>; rowDate: string };
+      | { kind: "ok"; created: Charge[]; removed: Charge[]; payments: Charge[] | null; what: "share" | "insurer"; collected: Collected | null; rebuilt: boolean; restamp: Array<string | null>; redated: Array<{ id: string; from: unknown }>; rowDate: string; approvalMoved: { from: string; to: string } | null };
     const result = await adminDb().runTransaction(async (tx): Promise<PatchOutcome> => {
       // --- reads: every one of them before the first write --------------------------------------
       const claimSnap = await tx.get(claimRef);
@@ -767,11 +778,13 @@ export async function PATCH(req: Request) {
       // The claim moved between the branch decision above and this read: it would now write rows
       // nobody chose a branch for. Ask the caller to retry rather than write them unstamped.
       if (!writesMoney && (rowsAction === "write" || rebuild)) return { kind: "state_changed" };
+      // The approval's date after this edit: everything below that falls back on it reads this one.
+      const approvalAfter = approvalDate ?? claim.approvalDate;
       const treated = treatedDateAfter({
         status,
         treatedDate,
         current: claim.treatedDate,
-        approvalDate: claim.approvalDate,
+        approvalDate: approvalAfter,
         today: ymdInTimeZone(clinicTimeZone()),
       });
       // The rows are dated the treated day, else the approval's own (as insuranceTreatmentRows
@@ -779,7 +792,7 @@ export async function PATCH(req: Request) {
       // statement and payroll already read the claim's date, and Finance and the payer report
       // read the rows'. A July approval treated in October is October's work in all four.
       const rowDateBefore = claim.treatedDate ?? claim.approvalDate;
-      const rowDateAfter = treated === undefined ? rowDateBefore : treated ?? claim.approvalDate;
+      const rowDateAfter = (treated === undefined ? claim.treatedDate : treated) ?? approvalAfter;
       const redate = hasRows && rowsAction === "none" && !rebuild && rowDateAfter !== rowDateBefore;
 
       const patientRef = newPatientId ? adminClinicDoc(clinicId, "patients", newPatientId) : null;
@@ -843,6 +856,7 @@ export async function PATCH(req: Request) {
       const update: Record<string, unknown> = {};
       if (status !== undefined) update.status = status;
       if (treated !== undefined) update.treatedDate = treated;
+      if (approvalAfter !== claim.approvalDate) update.approvalDate = approvalAfter;
 
       let patientName = claim.patientName;
       if (patientSnap) {
@@ -854,7 +868,7 @@ export async function PATCH(req: Request) {
       let metlife = claim.metlife;
       let lines = claim.lines;
       if (reshape) {
-        const merged = claimExtraction(claim, { lines: rawLines, metlife: rawMetlife });
+        const merged = claimExtraction({ ...claim, approvalDate: approvalAfter }, { lines: rawLines, metlife: rawMetlife });
         const payer = findPayer(parsePayers(payersSnap?.data()), claim.payerId);
         const checks = checkApproval(claim.insurer, merged, {
           today: ymdInTimeZone(clinicTimeZone()),
@@ -1008,7 +1022,7 @@ export async function PATCH(req: Request) {
           claim: {
             payerId: claim.payerId,
             approvalNumber: claim.approvalNumber,
-            approvalDate: claim.approvalDate,
+            approvalDate: approvalAfter,
             treatedDate: treated ?? claim.treatedDate,
             patientId: patientSnap ? newPatientId : claim.patientId,
             patientName,
@@ -1128,7 +1142,7 @@ export async function PATCH(req: Request) {
         updatedAt: FieldValue.serverTimestamp(),
         updatedBy: authz.uid,
       });
-      return { kind: "ok", created, removed, payments, what: collectShare ? "share" : "insurer", collected, rebuilt: rebuild, restamp, redated, rowDate: rowDateAfter };
+      return { kind: "ok", created, removed, payments, what: collectShare ? "share" : "insurer", collected, rebuilt: rebuild, restamp, redated, rowDate: rowDateAfter, approvalMoved: approvalAfter !== claim.approvalDate ? { from: claim.approvalDate, to: approvalAfter } : null };
     });
 
     if (result.kind === "no_claim") return fail(404, "That claim was not found.");
@@ -1169,9 +1183,11 @@ export async function PATCH(req: Request) {
       await Promise.all(
         result.redated.map((r) =>
           recordMoneyChange({
-            entry: { clinicId, action: "update", collection: "ledger", documentId: r.id, before: { date: r.from }, after: { date: result.rowDate }, actor, via: "insurance/claims:treated-date" },
+            entry: { clinicId, action: "update", collection: "ledger", documentId: r.id, before: { date: r.from }, after: { date: result.rowDate }, actor, via: result.approvalMoved ? "insurance/claims:approval-date" : "insurance/claims:treated-date" },
             action: "Procedure Moved",
-            details: `Approval ${claimId} treated ${result.rowDate}: its charge moved from ${String(r.from)}`,
+            details: result.approvalMoved
+              ? `Approval ${claimId} date corrected ${result.approvalMoved.from} -> ${result.approvalMoved.to}: its charge moved from ${String(r.from)}`
+              : `Approval ${claimId} treated ${result.rowDate}: its charge moved from ${String(r.from)}`,
           }).catch((err) => reportServerError("Insurance re-date audit failed:", err)),
         ),
       );

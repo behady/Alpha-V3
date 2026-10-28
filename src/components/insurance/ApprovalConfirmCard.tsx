@@ -369,11 +369,21 @@ Is it the same number?`
           if (m.status) statePick[Number(idx)] = m.status;
         }
         // The header as typed, less what the claim keeps fixed (its number, date and the paper's name).
-        const { approvalNumber: _n, approvalDate: _d, paperPatientName: _p, confidence: _c, ...metlife } = x.header;
-        void _n; void _d; void _p; void _c;
+        const headerFields = (h: MetlifeExtraction["header"]) => {
+          const { approvalNumber: _n, approvalDate: _d, paperPatientName: _p, confidence: _c, ...rest } = h;
+          void _n; void _d; void _p; void _c;
+          return rest;
+        };
+        const metlife = headerFields(x.header);
+        // The paper is sent only when it changed: sending it rewrites the treatment rows, which is
+        // refused once money sits on them, so a date-only fix would fail for no reason.
+        const paperChanged =
+          JSON.stringify(x.lines) !== JSON.stringify(result.extraction.lines) ||
+          JSON.stringify(metlife) !== JSON.stringify(headerFields(result.extraction.header));
+        const dateChanged = !!x.header.approvalDate && x.header.approvalDate !== editing.approvalDate;
         const error = await patchClaim(clinicId, editing.id, {
-          lines: x.lines,
-          metlife,
+          ...(paperChanged ? { lines: x.lines, metlife } : {}),
+          ...(dateChanged ? { approvalDate: x.header.approvalDate! } : {}),
           ...(picker.mode === "existing" && picker.patientId !== editing.patientId ? { patientId: picker.patientId } : {}),
           dentists: dentistsPick,
           ...(Object.keys(statePick).length ? { lineStatus: statePick } : {}),
@@ -491,7 +501,7 @@ Is it the same number?`
           <Group title={t("sectionApproval")}>
             <TextInput label={t("approvalNumber")} value={x.header.approvalNumber} flag={flag("approvalNumber")} onChange={(v) => setText("approvalNumber", v)} ltr hint={editing ? t("lockedOnEdit") : t("axaApprovalNumberHint")} readOnly={!!editing} />
             <TextInput label={t("axaClaimNumber")} value={x.header.claimNumber ?? ""} flag={null} onChange={(v) => setText("claimNumber", v)} ltr />
-            <DateInput label={t("axaServiceDate")} value={x.header.approvalDate} flag={flag("approvalDate")} onChange={(v) => setDate("approvalDate", v)} readOnly={!!editing} />
+            <DateInput label={t("axaServiceDate")} value={x.header.approvalDate} flag={flag("approvalDate")} onChange={(v) => setDate("approvalDate", v)} />
             <TextInput label={t("axaStatus")} value={x.header.statusText} flag={flag("statusText")} onChange={(v) => setText("statusText", v)} ltr />
           </Group>
 
@@ -521,7 +531,7 @@ Is it the same number?`
             <>
           <Group title={t("sectionApproval")}>
             <TextInput label={t("approvalNumber")} value={x.header.approvalNumber} flag={flag("approvalNumber")} onChange={(v) => setText("approvalNumber", v)} ltr hint={editing ? t("lockedOnEdit") : t("ncApprovalNumberHint")} readOnly={!!editing} />
-            <DateInput label={t("approvalDate")} value={x.header.approvalDate} flag={flag("approvalDate")} onChange={(v) => setDate("approvalDate", v)} readOnly={!!editing} />
+            <DateInput label={t("approvalDate")} value={x.header.approvalDate} flag={flag("approvalDate")} onChange={(v) => setDate("approvalDate", v)} />
             <DateInput label={t("ncValidUntil")} value={x.header.validUntil ?? null} flag={flag("validUntil")} onChange={(v) => setDate("validUntil", v)} />
             <TextInput label={t("ncInsurerName")} value={x.header.insurerName ?? ""} flag={null} onChange={(v) => setText("insurerName", v)} ltr />
           </Group>
@@ -553,7 +563,7 @@ Is it the same number?`
             <>
           <Group title={t("sectionApproval")}>
             <TextInput label={t("approvalNumber")} value={x.header.approvalNumber} flag={flag("approvalNumber")} onChange={(v) => setText("approvalNumber", v)} ltr hint={editing ? t("lockedOnEdit") : t("approvalNumberHint")} readOnly={!!editing} />
-            <DateInput label={t("approvalDate")} value={x.header.approvalDate} flag={flag("approvalDate")} onChange={(v) => setDate("approvalDate", v)} readOnly={!!editing} />
+            <DateInput label={t("approvalDate")} value={x.header.approvalDate} flag={flag("approvalDate")} onChange={(v) => setDate("approvalDate", v)} />
             <TextInput label={t("statusText")} value={x.header.statusText} flag={flag("statusText")} onChange={(v) => setText("statusText", v)} ltr />
           </Group>
 
