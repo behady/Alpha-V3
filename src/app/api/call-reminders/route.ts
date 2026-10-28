@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
-import { createReminder, deleteReminder, markBooked, markDone, reschedule, type Actor, type Outcome } from "@/lib/callRemindersServer";
+import { createReminder, deleteReminder, editReminder, markBooked, markDone, reschedule, type Actor, type Outcome } from "@/lib/callRemindersServer";
 import type { ReminderInput } from "@/lib/callReminders";
 
 /**
- * Call reminders: create, done, call again, book, delete. The only writer of `call_reminders`;
+ * Call reminders: create, edit, done, call again, book, delete. The only writer of `call_reminders`;
  * the decisions live in lib/callRemindersServer.ts and lib/callReminders.ts.
  */
 export const runtime = "nodejs";
@@ -38,6 +38,15 @@ export async function POST(request: Request) {
       return answer(await reschedule(clinicId, actor, id, String(body.date || ""), typeof body.time === "string" && body.time ? body.time : null, body.note as string | undefined));
     case "book":
       return answer(await markBooked(clinicId, actor, id, String(body.appointmentId || ""), String(body.appointmentDate || "")));
+    case "edit":
+      return answer(
+        await editReminder(clinicId, actor, id, {
+          date: String(body.date || ""),
+          time: typeof body.time === "string" && body.time ? body.time : null,
+          reason: String(body.reason ?? ""),
+          recipient: body.recipient as ReminderInput["recipient"],
+        }),
+      );
     case "delete":
       return answer(await deleteReminder(clinicId, actor, id));
     default:

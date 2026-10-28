@@ -8,6 +8,7 @@ import PermissionGuard from "@/components/PermissionGuard";
 import PageHeader from "@/components/dashboard/PageHeader";
 import CallRow from "@/components/calls/CallRow";
 import CallBookingHost from "@/components/calls/CallBookingHost";
+import CallReminderDialog from "@/components/calls/CallReminderDialog";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
@@ -37,8 +38,8 @@ import { callReminderErrorText, deleteCallReminder } from "@/lib/callRemindersAp
 type Tab = "today" | "late" | "upcoming" | "done";
 const TABS: { id: Tab; ar: string; en: string }[] = [
   { id: "today", ar: "النهارده", en: "Today" },
-  { id: "late", ar: "متأخرة", en: "Late" },
   { id: "upcoming", ar: "الجاية", en: "Upcoming" },
+  { id: "late", ar: "متأخرة", en: "Late" },
   { id: "done", ar: "اتعملت", en: "Done" },
 ];
 const STATUS_WORDS: Record<CallReminder["status"], [string, string]> = {
@@ -69,6 +70,7 @@ function CallsPageInner() {
   const [to, setTo] = useState("");
   const [handled, setHandled] = useState<CallReminder[]>([]);
   const [booking, setBooking] = useState<CallReminder | null>(null);
+  const [editing, setEditing] = useState<CallReminder | null>(null);
   const highlightId = params.get("id") || "";
 
   // Handled calls since the chosen day: one range on handledAt, the rest filtered here.
@@ -215,6 +217,7 @@ function CallsPageInner() {
                 todayYmd={today}
                 onBook={setBooking}
                 onDelete={isAdmin || r.createdBy.uid === meUid ? (x) => void remove(x) : undefined}
+                onEdit={isAdmin || r.createdBy.uid === meUid ? setEditing : undefined}
                 highlighted={r.id === highlightId}
               />
             ))}
@@ -223,6 +226,15 @@ function CallsPageInner() {
       </section>
 
       <CallBookingHost reminder={booking} onClose={() => setBooking(null)} />
+      {editing && (
+        <CallReminderDialog
+          isOpen={true}
+          onClose={() => setEditing(null)}
+          patient={{ id: editing.patientId, name: editing.patientName }}
+          source={editing.source}
+          editing={editing}
+        />
+      )}
     </div>
   );
 }

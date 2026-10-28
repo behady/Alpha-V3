@@ -247,4 +247,29 @@ eq(src("src/app/(dashboard)/patients/[id]/page.tsx").includes("<PatientCallsPane
   eq(/role="dialog"[\s\S]{0,300}max-h-\[90dvh\] overflow-y-auto/.test(src("src/components/calls/CallReminderDialog.tsx")), true, "on a short phone the window scrolls, so Save is always reachable");
 }
 
+/* --- the day on every call ------------------------------------------------------------------- */
+
+{
+  const { callDayLabel } = await import("../src/lib/callReminders");
+  eq(callDayLabel("2026-10-28", "21:14", "2026-10-28", true), "النهارده · 21:14", "today, with its time");
+  eq(callDayLabel("2026-10-29", "04:52", "2026-10-28", true), "بكرة · 04:52", "tomorrow, with its time");
+  eq(callDayLabel("2026-10-30", "21:14", "2026-10-28", true), "الجمعة 30 أكتوبر · 21:14", "another day: weekday, day and month");
+  eq(callDayLabel("2026-10-30", null, "2026-10-28", true), "الجمعة 30 أكتوبر", "no time: the day alone");
+  eq(callDayLabel("2026-10-26", null, "2026-10-28", true), "الاتنين 26 أكتوبر", "a past day reads the same way");
+  eq(callDayLabel("2026-10-28", null, "2026-10-28", false), "Today", "English: today");
+  eq(callDayLabel("2026-10-29", "09:30", "2026-10-28", false), "Tomorrow · 09:30", "English: tomorrow");
+  eq(callDayLabel("2026-10-30", null, "2026-10-28", false), "Fri 30 Oct", "English: another day");
+
+  const row = src("src/components/calls/CallRow.tsx");
+  eq(row.includes("callDayLabel("), true, "every call row shows its day");
+  eq(/onEdit\s*&&/.test(row), true, "an open call offers editing to whoever may edit it");
+
+  const page = src("src/app/(dashboard)/calls/page.tsx");
+  const order = ["\"today\"", "\"upcoming\"", "\"late\"", "\"done\""].map((t) => page.indexOf(`{ id: ${t},`));
+  eq(order.every((i, n) => i > -1 && (n === 0 || i > order[n - 1])), true, "tabs read Today, Upcoming, Late, Done");
+
+  const dialog = src("src/components/calls/CallReminderDialog.tsx");
+  eq(dialog.includes("editCallReminder("), true, "the reminder window saves an edit through the route");
+}
+
 console.log(`call reminders: ${checks} checks passed`);

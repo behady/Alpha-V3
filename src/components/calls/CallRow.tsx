@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { CalendarPlus, Check, Loader2, Phone, RotateCcw, Trash2 } from "lucide-react";
+import { CalendarPlus, Check, Loader2, Pencil, Phone, RotateCcw, Trash2 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
-import { daysLate, quickDate, recipientLabel, type CallReminder } from "@/lib/callReminders";
+import { callDayLabel, daysLate, quickDate, recipientLabel, type CallReminder } from "@/lib/callReminders";
 import { callReminderErrorText, markCallDone, rescheduleCall } from "@/lib/callRemindersApi";
 
 /**
@@ -27,6 +27,7 @@ export default function CallRow({
   todayYmd,
   onBook,
   onDelete,
+  onEdit,
   highlighted = false,
 }: {
   reminder: CallReminder;
@@ -35,6 +36,8 @@ export default function CallRow({
   onBook: (r: CallReminder) => void;
   /** Offered only to whoever may delete it (its creator, or an Owner/Admin). */
   onDelete?: (r: CallReminder) => void;
+  /** Offered to the same people as delete: its creator, or an Owner/Admin. */
+  onEdit?: (r: CallReminder) => void;
   highlighted?: boolean;
 }) {
   const { language } = useLanguage();
@@ -86,7 +89,7 @@ export default function CallRow({
             <Link href={`/patients/${encodeURIComponent(reminder.patientId)}`} className="font-bold text-ink hover:underline">
               {reminder.patientName}
             </Link>
-            {reminder.time && <span className="font-figure text-xs font-bold text-ink-muted">{reminder.time}</span>}
+            <span className="font-figure text-xs font-bold text-ink-muted">{callDayLabel(reminder.date, reminder.time, todayYmd, isAr)}</span>
             {late > 0 && (
               <span className="rounded-full bg-rose-50 px-2 py-0.5 text-xs font-bold text-rose-700">
                 {isAr ? `متأخرة منذ ${late === 1 ? "يوم" : late === 2 ? "يومين" : `${late} أيام`}` : `${late} day${late === 1 ? "" : "s"} late`}
@@ -117,6 +120,16 @@ export default function CallRow({
           <button type="button" onClick={() => onBook(reminder)} className="inline-flex h-9 items-center gap-1.5 rounded-full border border-line bg-surface px-3.5 text-sm font-bold text-ink">
             <CalendarPlus size={14} /> {isAr ? "احجز" : "Book"}
           </button>
+          {onEdit && (
+            <button
+              type="button"
+              onClick={() => onEdit(reminder)}
+              aria-label={isAr ? "عدّل التذكير" : "Edit reminder"}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full text-ink-muted hover:bg-surface-subtle hover:text-ink"
+            >
+              <Pencil size={14} />
+            </button>
+          )}
           {onDelete && (
             <button
               type="button"
