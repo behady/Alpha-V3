@@ -1,0 +1,9 @@
+/* The two Cairo files as one stack: Arabic letters first, Latin letters and digits after. */
+.variable {
+  --font-arabic: var(--font-cairo-arabic), var(--font-cairo-latin);
+}
+
+.face {
+  --font-arabic: var(--font-cairo-arabic), var(--font-cairo-latin);
+  font-family: var(--font-arabic);
+}

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Montserrat, Open_Sans } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import { UIProvider } from "@/context/UIContext";
 import { LanguageProvider } from "@/context/LanguageContext";
@@ -8,9 +8,17 @@ import { THEME_BOOT_SCRIPT } from "@/lib/theme/bootScript";
 import { AuthProvider } from "@/context/AuthContext"; 
 import { ClinicProvider } from "@/context/ClinicContext";
 
+/*
+ * Every face is a file committed under src/fonts, never next/font/google: that one fetches from
+ * Google during the build, and a slow fetch failed two production deploys on 2026-10-28.
+ * The files are Google's own latin subsets (via fontsource), variable, with the weight range
+ * clamped to what the old Google call loaded so text renders exactly as before.
+ */
+
 /** The brand kit's secondary face: everything that is read as prose. */
-const body = Open_Sans({
-  subsets: ["latin"],
+const body = localFont({
+  src: "../fonts/open-sans-latin-wght.woff2",
+  weight: "300 800",
   variable: "--font-body",
   display: "swap",
 });
@@ -23,9 +31,9 @@ const body = Open_Sans({
  * serif until the brand kit arrived naming Montserrat and Open Sans; the distinction is now
  * carried by weight and width rather than by a third typeface the brand does not have.
  */
-const figures = Montserrat({
-  subsets: ["latin"],
-  weight: ["500", "600", "700"],
+const figures = localFont({
+  src: "../fonts/montserrat-latin-wght.woff2",
+  weight: "500 700",
   variable: "--font-figures",
   display: "swap",
 });

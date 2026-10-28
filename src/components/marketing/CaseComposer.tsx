@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { toPng } from "html-to-image";
 import { X, Download, Loader2, Smartphone, Square } from "lucide-react";
-import { Great_Vibes } from "next/font/google";
+import localFont from "next/font/local";
 import { auth } from "@/lib/firebase";
 import type { MarketingCase } from "@/components/marketing/CasesTab";
 
@@ -18,7 +18,8 @@ import type { MarketingCase } from "@/components/marketing/CasesTab";
  * the export canvas never touches a cross-origin image and always rasterizes cleanly.
  */
 
-const script = Great_Vibes({ subsets: ["latin"], weight: "400" });
+// A local file, not next/font/google — see src/app/layout.tsx.
+const script = localFont({ src: "../../fonts/great-vibes-latin-400.woff2", weight: "400" });
 
 type Format = "square" | "story";
 const FORMATS: Record<Format, { w: number; h: number }> = {
