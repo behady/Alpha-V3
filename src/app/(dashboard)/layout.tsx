@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useState, useEffect, useCallback, useRef } from "react";
-import { Plus_Jakarta_Sans } from "next/font/google";
+import localFont from "next/font/local";
 import { cairo } from "@/lib/fonts/arabic";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -62,7 +62,8 @@ const NAV_FEATURES: Record<string, FeatureKey | FeatureKey[]> = {
   marketing: "marketingText",
 };
 
-const plusJakartaSans = Plus_Jakarta_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
+// A local file, not next/font/google — see the note in src/app/layout.tsx.
+const plusJakartaSans = localFont({ src: "../../fonts/plus-jakarta-sans-latin-wght.woff2", weight: "400 800" });
 
 /**
  * Sits between the two providers so the welcome guide can know whether a lesson is on screen.

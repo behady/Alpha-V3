@@ -81,7 +81,9 @@ export function buildMetlifeStatement(args: {
     const lines = c.lines.map((l): MetlifeStatementLine => {
       const worded = (wording[l.code] ?? "").trim();
       if (!worded) missing.add(l.code);
-      return { text: worded || l.description.trim(), count: l.unitsApproved, requested: l.grossTotal, approved: l.approvedAmount };
+      // The count is the SUBMITTED units: on the clinic's own sheet count x tariff price = requested on all 169
+      // lines. MetLife's approved units are no use here — it prints 0 for an approved exam and 1 for 2 fillings.
+      return { text: worded || l.description.trim(), count: l.unitsRequested, requested: l.grossTotal, approved: l.approvedAmount };
     });
     cases.push({
       serial: cases.length + 1,

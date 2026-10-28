@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { toPng } from "html-to-image";
 import { X, Download, Loader2, Smartphone, Square, ImageOff } from "lucide-react";
-import { Cairo, Plus_Jakarta_Sans } from "next/font/google";
+import localFont from "next/font/local";
 import { MARKETING_THEMES, type BrandKit, type MarketingLanguage } from "@/types/marketing";
 
 /**
@@ -20,8 +20,13 @@ import { MARKETING_THEMES, type BrandKit, type MarketingLanguage } from "@/types
  * with html-to-image; the visible preview is the same artboard scaled down with a transform.
  */
 
-const cairo = Cairo({ subsets: ["arabic"], weight: ["400", "600", "700", "900"] });
-const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"], weight: ["400", "600", "700", "800"] });
+// Local files, not next/font/google (see src/app/layout.tsx); Cairo is stacked Arabic-then-Latin
+// as in src/lib/fonts/arabic.ts. Its own declaration keeps the 400–900 range this studio has always
+// drawn with; the names differ from that module's because the generated family is named after them.
+const studioCairoArabic = localFont({ src: "../../fonts/cairo-arabic-wght.woff2", weight: "400 900", adjustFontFallback: false });
+const studioCairoLatin = localFont({ src: "../../fonts/cairo-latin-wght.woff2", weight: "400 900" });
+const cairoFamily = `${studioCairoArabic.style.fontFamily}, ${studioCairoLatin.style.fontFamily}`;
+const jakarta = localFont({ src: "../../fonts/plus-jakarta-sans-latin-wght.woff2", weight: "400 800" });
 
 export type DesignInput = {
   language: MarketingLanguage;
@@ -90,7 +95,7 @@ export default function DesignStudio({
   useEffect(() => setPortalTarget(document.body), []);
 
   const rtl = item.language === "ar";
-  const fontClass = rtl ? cairo.className : jakarta.className;
+  const fontClass = rtl ? undefined : jakarta.className;
 
   const download = async () => {
     if (!exportRef.current) return;
@@ -164,6 +169,7 @@ export default function DesignStudio({
         dir={rtl ? "rtl" : "ltr"}
         className={fontClass}
         style={{
+          fontFamily: rtl ? cairoFamily : undefined,
           width: w,
           height: h,
           background: ground,
