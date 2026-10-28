@@ -2,15 +2,18 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { CalendarPlus, Check, Loader2, Phone, RotateCcw, Trash2 } from "lucide-react";
+import { CalendarPlus, Check, Loader2, Pencil, Phone, RotateCcw, Trash2 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
-import { daysLate, quickDate, recipientLabel, type CallReminder } from "@/lib/callReminders";
+import { callDayParts, daysLate, quickDate, recipientLabel, type CallReminder } from "@/lib/callReminders";
 import { callReminderErrorText, markCallDone, rescheduleCall } from "@/lib/callRemindersApi";
 
 /**
  * One call to make, with what can be done about it: done (with a note), call again on another
  * day, or book. Used by the dashboard card and the Calls page.
+ *
+ * Monochrome on purpose: the date block leads, the actions are quiet outlines, and "Done" is the
+ * one yellow thing on the row. Late calls are the only other colour.
  */
 
 const RESCHEDULE_CHIPS: { id: "tomorrow" | "3days" | "week"; ar: string; en: string }[] = [
@@ -20,6 +23,11 @@ const RESCHEDULE_CHIPS: { id: "tomorrow" | "3days" | "week"; ar: string; en: str
 ];
 
 const INPUT = "w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink outline-none focus:border-ink";
+const PILL =
+  "inline-flex h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-surface px-3 text-sm font-bold text-ink transition-colors hover:border-ink-muted hover:bg-surface-subtle md:px-4";
+const ICON =
+  "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-ink-muted transition-colors hover:border-ink-muted hover:text-ink";
+const YELLOW = "bg-accent text-ink-on-accent";
 
 export default function CallRow({
   reminder,
@@ -27,6 +35,7 @@ export default function CallRow({
   todayYmd,
   onBook,
   onDelete,
+  onEdit,
   highlighted = false,
 }: {
   reminder: CallReminder;
@@ -35,6 +44,8 @@ export default function CallRow({
   onBook: (r: CallReminder) => void;
   /** Offered only to whoever may delete it (its creator, or an Owner/Admin). */
   onDelete?: (r: CallReminder) => void;
+  /** Offered to the same people as delete: its creator, or an Owner/Admin. */
+  onEdit?: (r: CallReminder) => void;
   highlighted?: boolean;
 }) {
   const { language } = useLanguage();
@@ -49,6 +60,34 @@ export default function CallRow({
   const r = reminder.recipient;
   const mine = r.kind === "person" && r.uid === meUid;
   const orphan = reminder.deliveryError === "nobody";
+  const day = callDayParts(reminder.date, todayYmd, isAr);
+
+  // Call, edit, delete: small round icons. On a phone they sit beside the name so the three main
+  // actions get one even row; from md up they close the action row.
+  const icons = (
+    <>
+      {reminder.patientPhone && (
+        <a href={`tel:${reminder.patientPhone}`} aria-label={isAr ? `كلّم ${reminder.patientName}` : `Call ${reminder.patientName}`} className={ICON}>
+          <Phone size={16} />
+        </a>
+      )}
+      {onEdit && (
+        <button type="button" onClick={() => onEdit(reminder)} aria-label={isAr ? "عدّل التذكير" : "Edit reminder"} className={ICON}>
+          <Pencil size={15} />
+        </button>
+      )}
+      {onDelete && (
+        <button
+          type="button"
+          onClick={() => onDelete(reminder)}
+          aria-label={isAr ? "امسح التذكير" : "Delete reminder"}
+          className={`${ICON} hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700`}
+        >
+          <Trash2 size={15} />
+        </button>
+      )}
+    </>
+  );
 
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     if (busy) return;
@@ -66,72 +105,64 @@ export default function CallRow({
   };
 
   return (
-    <li id={`call-${reminder.id}`} className={`py-3 ${highlighted ? "rounded-xl bg-accent/15 px-2" : ""}`}>
-      <div className="flex items-start gap-3">
-        {reminder.patientPhone ? (
-          <a
-            href={`tel:${reminder.patientPhone}`}
-            aria-label={isAr ? `كلّم ${reminder.patientName}` : `Call ${reminder.patientName}`}
-            className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-ink text-white"
+    <li id={`call-${reminder.id}`} className={`py-4 ${highlighted ? "rounded-2xl bg-accent/15 px-3" : ""}`}>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-5">
+        <div className="flex min-w-0 flex-1 items-center gap-4">
+          {/* The date block: when, before who. */}
+          <div
+            className={`flex w-[68px] shrink-0 flex-col items-center rounded-2xl border px-1 py-2 text-center ${late > 0 ? "border-rose-200 bg-rose-50/60" : "border-line bg-surface-subtle"}`}
           >
-            <Phone size={16} />
-          </a>
-        ) : (
-          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-surface-subtle text-ink-faint" aria-hidden="true">
-            <Phone size={16} />
-          </span>
-        )}
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <Link href={`/patients/${encodeURIComponent(reminder.patientId)}`} className="font-bold text-ink hover:underline">
-              {reminder.patientName}
-            </Link>
-            {reminder.time && <span className="font-figure text-xs font-bold text-ink-muted">{reminder.time}</span>}
-            {late > 0 && (
-              <span className="rounded-full bg-rose-50 px-2 py-0.5 text-xs font-bold text-rose-700">
-                {isAr ? `متأخرة منذ ${late === 1 ? "يوم" : late === 2 ? "يومين" : `${late} أيام`}` : `${late} day${late === 1 ? "" : "s"} late`}
-              </span>
-            )}
+            <span className={`max-w-full truncate text-[11px] font-bold ${late > 0 ? "text-rose-700" : "text-ink-muted"}`}>{day.top}</span>
+            <span className="font-figure text-2xl font-semibold leading-none text-ink">{day.day}</span>
+            <span className="text-[11px] font-semibold text-ink-muted">{day.month}</span>
+            {reminder.time && <span className="mt-1 font-figure text-xs font-bold text-ink">{reminder.time}</span>}
           </div>
-          <p className="text-sm font-semibold text-ink-body">{reminder.reason}</p>
-          {reminder.previousNote && (
-            <p className="text-xs font-semibold text-ink-muted">
-              {isAr ? "المرة اللي فاتت:" : "Last time:"} {reminder.previousNote}
+
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start gap-2">
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+                <Link href={`/patients/${encodeURIComponent(reminder.patientId)}`} className="text-[15px] font-bold text-ink hover:underline">
+                  {reminder.patientName}
+                </Link>
+                {late > 0 && (
+                  <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-bold text-rose-700">
+                    {isAr ? `متأخرة ${late === 1 ? "يوم" : late === 2 ? "يومين" : `${late} أيام`}` : `${late} day${late === 1 ? "" : "s"} late`}
+                  </span>
+                )}
+              </div>
+              {mode === "idle" && <div className="flex shrink-0 gap-1.5 md:hidden">{icons}</div>}
+            </div>
+            <p className="mt-0.5 text-sm font-semibold text-ink-body">{reminder.reason}</p>
+            {reminder.previousNote && (
+              <p className="mt-0.5 text-xs font-semibold text-ink-muted">
+                {isAr ? "المرة اللي فاتت:" : "Last time:"} {reminder.previousNote}
+              </p>
+            )}
+            <p className="mt-1 flex items-center gap-1.5 text-xs font-bold text-ink-muted">
+              {orphan ? (isAr ? "مالهاش حد" : "Nobody assigned") : recipientLabel(r, isAr)}
+              {mine && <span className={`rounded-full px-1.5 py-px ${YELLOW}`}>{isAr ? "ليك" : "yours"}</span>}
             </p>
-          )}
-          <p className="text-xs font-bold text-ink-muted">
-            {orphan ? (isAr ? "مالهاش حد" : "Nobody assigned") : recipientLabel(r, isAr)}
-            {mine && <span className="ms-1.5 rounded-full bg-accent px-1.5 py-px text-[var(--accent-ink)]">{isAr ? "ليك" : "yours"}</span>}
-          </p>
+          </div>
         </div>
+
+        {mode === "idle" && (
+          <div className="grid w-full grid-cols-3 items-center justify-center gap-2 md:flex md:w-auto md:shrink-0 md:justify-end">
+            <button type="button" onClick={() => setMode("done")} className={`inline-flex h-10 items-center justify-center gap-1.5 rounded-full px-3 text-sm font-bold transition-[filter] hover:brightness-95 md:px-5 ${YELLOW}`}>
+              <Check size={15} /> {isAr ? "تم" : "Done"}
+            </button>
+            <button type="button" onClick={() => setMode("again")} className={PILL}>
+              <RotateCcw size={14} className="max-md:hidden" /> {isAr ? "كلّمه تاني" : "Call again"}
+            </button>
+            <button type="button" onClick={() => onBook(reminder)} className={PILL}>
+              <CalendarPlus size={14} className="max-md:hidden" /> {isAr ? "احجز" : "Book"}
+            </button>
+            <div className="hidden gap-2 md:flex">{icons}</div>
+          </div>
+        )}
       </div>
 
-      {mode === "idle" && (
-        <div className="mt-2 flex flex-wrap gap-2 ps-[52px]">
-          <button type="button" onClick={() => setMode("done")} className="inline-flex h-9 items-center gap-1.5 rounded-full bg-ink px-3.5 text-sm font-bold text-white">
-            <Check size={14} /> {isAr ? "تم" : "Done"}
-          </button>
-          <button type="button" onClick={() => setMode("again")} className="inline-flex h-9 items-center gap-1.5 rounded-full border border-line bg-surface px-3.5 text-sm font-bold text-ink">
-            <RotateCcw size={14} /> {isAr ? "كلّمه تاني" : "Call again"}
-          </button>
-          <button type="button" onClick={() => onBook(reminder)} className="inline-flex h-9 items-center gap-1.5 rounded-full border border-line bg-surface px-3.5 text-sm font-bold text-ink">
-            <CalendarPlus size={14} /> {isAr ? "احجز" : "Book"}
-          </button>
-          {onDelete && (
-            <button
-              type="button"
-              onClick={() => onDelete(reminder)}
-              aria-label={isAr ? "امسح التذكير" : "Delete reminder"}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full text-ink-muted hover:bg-rose-50 hover:text-rose-700"
-            >
-              <Trash2 size={14} />
-            </button>
-          )}
-        </div>
-      )}
-
       {mode !== "idle" && (
-        <div className="mt-2 space-y-2 ps-[52px]">
+        <div className="mx-auto mt-3 max-w-xl space-y-2 rounded-2xl border border-line bg-surface-subtle p-3 md:ms-[84px] md:me-0">
           <input
             value={note}
             onChange={(e) => setNote(e.target.value)}
@@ -147,7 +178,7 @@ export default function CallRow({
                     key={c.id}
                     type="button"
                     onClick={() => setDate(value)}
-                    className={`rounded-full border px-3 py-1 text-xs font-bold ${date === value ? "border-ink bg-ink text-white" : "border-line bg-surface text-ink"}`}
+                    className={`rounded-full border px-3 py-1 text-xs font-bold ${date === value ? `border-transparent ${YELLOW}` : "border-line bg-surface text-ink"}`}
                   >
                     {isAr ? c.ar : c.en}
                   </button>
@@ -156,7 +187,7 @@ export default function CallRow({
               <input type="date" value={date} min={todayYmd} onChange={(e) => setDate(e.target.value)} className="rounded-lg border border-line bg-surface px-2 py-1 text-xs font-bold text-ink" />
             </div>
           )}
-          <div className="flex gap-2">
+          <div className="flex justify-center gap-2 md:justify-start">
             <button
               type="button"
               disabled={busy}
@@ -165,12 +196,12 @@ export default function CallRow({
                   ? void run(() => markCallDone(reminder.id, note.trim() || undefined), isAr ? "المكالمة اتقفلت" : "Call closed")
                   : void run(() => rescheduleCall(reminder.id, date, reminder.time, note.trim() || undefined), isAr ? "اتحدد يوم تاني" : "Set for another day")
               }
-              className="inline-flex h-9 items-center gap-1.5 rounded-full bg-ink px-4 text-sm font-bold text-white disabled:opacity-50"
+              className={`inline-flex h-9 items-center gap-1.5 rounded-full px-5 text-sm font-bold disabled:opacity-50 ${YELLOW}`}
             >
               {busy && <Loader2 size={14} className="animate-spin" />}
               {isAr ? "احفظ" : "Save"}
             </button>
-            <button type="button" onClick={() => setMode("idle")} className="h-9 rounded-full px-3 text-sm font-bold text-ink-muted">
+            <button type="button" onClick={() => setMode("idle")} className="h-9 rounded-full px-3 text-sm font-bold text-ink-muted hover:text-ink">
               {isAr ? "إلغاء" : "Cancel"}
             </button>
           </div>

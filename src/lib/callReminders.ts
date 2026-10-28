@@ -222,6 +222,35 @@ export function arabicDayMonth(ms: number, timeZone: string = CLINIC_TZ): string
   return `${day} ${AR_MONTHS[month - 1]}`;
 }
 
+const AR_WEEKDAYS = ["الأحد", "الاتنين", "التلات", "الأربع", "الخميس", "الجمعة", "السبت"];
+const EN_WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const EN_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * When a call is due, as a row shows it: "النهارده · 21:14", "بكرة · 04:52", or
+ * "الخميس 30 أكتوبر · 21:14". The day alone when no time was chosen.
+ */
+export function callDayLabel(date: string, time: string | null, todayYmd: string, isAr: boolean): string {
+  let day: string;
+  if (date === todayYmd) day = isAr ? "النهارده" : "Today";
+  else if (date === addDays(todayYmd, 1)) day = isAr ? "بكرة" : "Tomorrow";
+  else {
+    const [y, m, d] = date.split("-").map(Number);
+    const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    day = isAr ? `${AR_WEEKDAYS[weekday]} ${d} ${AR_MONTHS[m - 1]}` : `${EN_WEEKDAYS[weekday]} ${d} ${EN_MONTHS[m - 1]}`;
+  }
+  return time ? `${day} · ${time}` : day;
+}
+
+/** The pieces of a call's date block: "النهارده" / "بكرة" / weekday above, the day number, the month. */
+export function callDayParts(date: string, todayYmd: string, isAr: boolean): { top: string; day: number; month: string } {
+  const [y, m, d] = date.split("-").map(Number);
+  const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  const top =
+    date === todayYmd ? (isAr ? "النهارده" : "Today") : date === addDays(todayYmd, 1) ? (isAr ? "بكرة" : "Tomorrow") : isAr ? AR_WEEKDAYS[weekday] : EN_WEEKDAYS[weekday];
+  return { top, day: d, month: isAr ? AR_MONTHS[m - 1] : EN_MONTHS[m - 1] };
+}
+
 export function reminderWhatsappText(
   r: Pick<CallReminder, "patientName" | "patientPhone" | "reason" | "createdBy" | "createdAtMs">,
   link: string,

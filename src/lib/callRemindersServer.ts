@@ -153,6 +153,49 @@ export function markBooked(clinicId: string, actor: Actor, id: string, appointme
   });
 }
 
+/**
+ * Change an open call's day, time, reason or person — the creator, or an Owner/Admin, as for a
+ * delete. It is armed again for its new time, even if the old one already went out; a handled
+ * call is history and stays as it was.
+ */
+export async function editReminder(
+  clinicId: string,
+  actor: Actor,
+  id: string,
+  fields: { date: string; time: string | null; reason: string; recipient: ReminderInput["recipient"] },
+): Promise<Outcome> {
+  const ref = reminders(clinicId).doc(String(id || "x"));
+  const current = (await ref.get()).data();
+  if (!current) return fail(404, "not-found");
+  if (String(current.createdBy?.uid || "") !== actor.uid && !isFullAccessRole(actor.role)) return fail(403, "forbidden");
+  const checked = validateReminderInput(
+    { patientId: current.patientId, date: fields.date, time: fields.time ?? null, reason: fields.reason, recipient: fields.recipient, source: current.source },
+    todayYmd(),
+  );
+  if (!checked.ok) return fail(400, checked.error);
+  const v = checked.value;
+  const fireAt = Timestamp.fromDate(computeFireAt(v.date, v.time, await morningHour(clinicId)));
+
+  return adminDb().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return fail(404, "not-found");
+    if (snap.data()?.status !== "open") return fail(409, "already-handled");
+    tx.update(ref, {
+      date: v.date,
+      time: v.time,
+      reason: v.reason,
+      recipient: v.recipient.kind === "person" ? { kind: "person", uid: v.recipient.uid, name: String(v.recipient.name || "") } : { kind: "role", role: v.recipient.role },
+      fireAt,
+      pendingFireAt: fireAt,
+      notifiedAt: FieldValue.delete(),
+      deliveryError: FieldValue.delete(),
+      editedBy: { uid: actor.uid, name: actor.name },
+      editedAt: FieldValue.serverTimestamp(),
+    });
+    return { ok: true as const };
+  });
+}
+
 /** The creator, or an Owner/Admin. */
 export async function deleteReminder(clinicId: string, actor: Actor, id: string): Promise<Outcome> {
   const ref = reminders(clinicId).doc(String(id || "x"));

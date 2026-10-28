@@ -3,13 +3,18 @@ import assert from "node:assert/strict";
 import {
   ackFromStatus,
   buildAckEvent,
+  buildHistoryEvent,
   buildMessageEvent,
+  historyItem,
+  isPersonChat,
   isSilentMessage,
   messageMedia,
   messageText,
+  pickHistoryMessages,
   randomGap,
   toChatId,
   toWaJid,
+  tsSeconds,
 } from "../src/shape.js";
 
 test("chat ids: every spelling the web app uses reaches the same jid", () => {
@@ -151,4 +156,69 @@ test("ads: the ad a chat started from rides on the first message, under the web 
   const ev = buildMessageEvent({ instanceId: "i", key: { id: "k", remoteJid: "201012345678@s.whatsapp.net" }, text: "hi", ad: { headline: "x" } });
   assert.deepEqual(ev.payload._data.ad, { headline: "x" });
   assert.equal(buildMessageEvent({ instanceId: "i", key: { id: "k", remoteJid: "201012345678@s.whatsapp.net" }, text: "hi" }).payload._data.ad, undefined);
+});
+
+test("history timestamps: plain numbers and protobuf Longs both read as seconds", () => {
+  assert.equal(tsSeconds(1793000000), 1793000000);
+  assert.equal(tsSeconds({ low: 1793000000, high: 0, unsigned: true }), 1793000000);
+  assert.equal(tsSeconds({ toNumber: () => 1793000001 }), 1793000001);
+  assert.equal(tsSeconds("1793000002"), 1793000002);
+  assert.equal(tsSeconds(undefined), 0);
+});
+
+test("history: only person chats", () => {
+  assert.equal(isPersonChat("201012345678@s.whatsapp.net"), true);
+  assert.equal(isPersonChat("201012345678:3@s.whatsapp.net"), true);
+  assert.equal(isPersonChat("172357054414966@lid"), true);
+  assert.equal(isPersonChat("1234-5678@g.us"), false);
+  assert.equal(isPersonChat("status@broadcast"), false);
+  assert.equal(isPersonChat("123@newsletter"), false);
+});
+
+test("history: picks words and media from recent person chats, newest N per chat, oldest first", () => {
+  const now = 1793000000;
+  const m = (id, jid, ts, message, fromMe = false) => ({ key: { id, remoteJid: jid, fromMe }, messageTimestamp: ts, message });
+  const picked = pickHistoryMessages(
+    [
+      m("a3", "201011111111@s.whatsapp.net", now - 10, { conversation: "third" }),
+      m("a1", "201011111111@s.whatsapp.net", now - 30, { conversation: "first" }),
+      m("a2", "201011111111@s.whatsapp.net", now - 20, { conversation: "second" }, true),
+      m("old", "201011111111@s.whatsapp.net", now - 400 * 86400, { conversation: "too old" }),
+      m("grp", "1234-5678@g.us", now - 5, { conversation: "group chatter" }),
+      m("rx", "201022222222@s.whatsapp.net", now - 5, { reactionMessage: { text: "👍" } }),
+      m("vn", "201022222222@s.whatsapp.net", now - 4, { audioMessage: { ptt: true, mimetype: "audio/ogg" } }),
+      m("noid", "201022222222@s.whatsapp.net", now - 3, null),
+    ],
+    { nowSec: now, sinceDays: 180, perChat: 2 }
+  );
+  assert.deepEqual(
+    picked.map((p) => p.msg.key.id),
+    ["a2", "a3", "vn"]
+  );
+});
+
+test("history item: thread is the other person in both directions; voice notes are audio", () => {
+  const sent = historyItem(
+    { msg: { key: { id: "X1", remoteJid: "172357054414966@lid", fromMe: true } }, ts: 1793000000, text: "see you at 5", media: null },
+    "201012345678@s.whatsapp.net"
+  );
+  assert.deepEqual(sent, {
+    id: "X1",
+    from: "201012345678@c.us",
+    chatId: "172357054414966@lid",
+    fromMe: true,
+    body: "see you at 5",
+    type: "chat",
+    timestamp: 1793000000,
+  });
+  const voice = historyItem(
+    { msg: { key: { id: "X2", remoteJid: "201012345678@s.whatsapp.net" }, pushName: "Sara" }, ts: 1793000001, text: "", media: { type: "ptt" } },
+    null
+  );
+  assert.equal(voice.from, "201012345678@c.us");
+  assert.equal(voice.type, "audio");
+  assert.equal(voice.notifyName, "Sara");
+  const ev = buildHistoryEvent({ instanceId: "clinic_x", items: [voice], source: "sync_1" });
+  assert.equal(ev.event, "messages.history");
+  assert.equal(ev.payload.messages.length, 1);
 });

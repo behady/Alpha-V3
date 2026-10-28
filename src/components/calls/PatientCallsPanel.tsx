@@ -5,7 +5,8 @@ import { onSnapshot, query, where } from "firebase/firestore";
 import { PhoneCall } from "lucide-react";
 import { getClinicCollection } from "@/lib/db-utils";
 import { useLanguage } from "@/context/LanguageContext";
-import { CALL_REMINDERS_COLLECTION, arabicDayMonth, recipientLabel, reminderFromDoc, type CallReminder } from "@/lib/callReminders";
+import { CALL_REMINDERS_COLLECTION, callDayLabel, recipientLabel, reminderFromDoc, type CallReminder } from "@/lib/callReminders";
+import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 
 /**
  * A patient's planned and past calls, in their file: the next person to ring them sees what was
@@ -41,8 +42,8 @@ export default function PatientCallsPanel({ patientId }: { patientId: string }) 
 
   if (sorted.length === 0) return null;
   const next = sorted[0].status === "open" ? sorted[0] : null;
-  const dayText = (r: CallReminder) =>
-    isAr ? arabicDayMonth(r.fireAtMs) : new Date(r.fireAtMs).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Africa/Cairo" });
+  const today = ymdInTimeZone(clinicTimeZone(), new Date());
+  const dayText = (r: CallReminder) => callDayLabel(r.date, r.time, today, isAr);
 
   return (
     <section className="mt-4 rounded-2xl border border-line bg-surface p-4" aria-label={isAr ? "المكالمات" : "Calls"}>
@@ -51,8 +52,8 @@ export default function PatientCallsPanel({ patientId }: { patientId: string }) 
           <PhoneCall size={15} aria-hidden="true" /> {isAr ? "المكالمات" : "Calls"}
         </h3>
         {next && (
-          <span className="rounded-full bg-accent px-2.5 py-0.5 text-xs font-bold text-[var(--accent-ink)]">
-            {isAr ? `مكالمة يوم ${dayText(next)}` : `Call on ${dayText(next)}`}
+          <span className="rounded-full bg-accent px-2.5 py-0.5 text-xs font-bold text-ink-on-accent">
+            {isAr ? `مكالمة ${dayText(next)}` : `Call: ${dayText(next)}`}
           </span>
         )}
       </div>

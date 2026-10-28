@@ -9,8 +9,8 @@ import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
-import { REASON_MAX, REMINDER_ROLES, quickDate, recipientLabel, type ReminderRecipient, type ReminderRole, type ReminderSource } from "@/lib/callReminders";
-import { callReminderErrorText, createCallReminder } from "@/lib/callRemindersApi";
+import { REASON_MAX, REMINDER_ROLES, quickDate, recipientLabel, type CallReminder, type ReminderRecipient, type ReminderRole, type ReminderSource } from "@/lib/callReminders";
+import { callReminderErrorText, createCallReminder, editCallReminder } from "@/lib/callRemindersApi";
 
 /**
  * "Call this patient on Thursday": the one window for setting a call, opened from the patient
@@ -37,6 +37,7 @@ export default function CallReminderDialog({
   source,
   sourceNoteId,
   initialReason = "",
+  editing = null,
   onSaved,
 }: {
   isOpen: boolean;
@@ -45,6 +46,8 @@ export default function CallReminderDialog({
   source: ReminderSource;
   sourceNoteId?: string;
   initialReason?: string;
+  /** An open call being changed: the window opens filled in with it and saves an edit. */
+  editing?: CallReminder | null;
   onSaved?: (id: string) => void;
 }) {
   const { user } = useAuth();
@@ -61,13 +64,20 @@ export default function CallReminderDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  // A fresh form every time the window opens.
+  // A fresh form every time the window opens — or the call being edited, as it stands.
   useEffect(() => {
     if (!isOpen) return;
-    setDate(quickDate(today, "tomorrow"));
-    setTime("");
-    setReason(initialReason);
-    setTo(user?.uid ? `person:${user.uid}` : "role:Receptionist");
+    if (editing) {
+      setDate(editing.date < today ? today : editing.date);
+      setTime(editing.time || "");
+      setReason(editing.reason);
+      setTo(editing.recipient.kind === "person" ? `person:${editing.recipient.uid}` : `role:${editing.recipient.role}`);
+    } else {
+      setDate(quickDate(today, "tomorrow"));
+      setTime("");
+      setReason(initialReason);
+      setTo(user?.uid ? `person:${user.uid}` : "role:Receptionist");
+    }
     setError("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
@@ -90,8 +100,11 @@ export default function CallReminderDialog({
   const people = useMemo(() => {
     const list = [...staff];
     if (user?.uid && !list.some((s) => s.uid === user.uid)) list.unshift({ uid: user.uid, name: user.name || (isAr ? "أنا" : "Me") });
+    // The person an edited call is for stays choosable even if they left the staff list.
+    const r = editing?.recipient;
+    if (r?.kind === "person" && !list.some((s) => s.uid === r.uid)) list.push({ uid: r.uid, name: r.name });
     return list;
-  }, [staff, user?.uid, user?.name, isAr]);
+  }, [staff, user?.uid, user?.name, isAr, editing]);
 
   if (!isOpen) return null;
 
@@ -107,6 +120,13 @@ export default function CallReminderDialog({
     setSaving(true);
     setError("");
     try {
+      if (editing) {
+        await editCallReminder(editing.id, { date, time: time || null, reason, recipient: recipient() });
+        showToast(isAr ? "التذكير اتعدّل" : "Reminder updated", "success");
+        onSaved?.(editing.id);
+        onClose();
+        return;
+      }
       const id = await createCallReminder({
         patientId: patient.id,
         date,
@@ -142,7 +162,7 @@ export default function CallReminderDialog({
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 id="call-reminder-title" className="flex items-center gap-2 text-lg font-black text-ink">
-              <PhoneCall size={18} aria-hidden="true" /> {isAr ? "تذكير بمكالمة" : "Call reminder"}
+              <PhoneCall size={18} aria-hidden="true" /> {editing ? (isAr ? "تعديل التذكير" : "Edit reminder") : isAr ? "تذكير بمكالمة" : "Call reminder"}
             </h2>
             <p className="truncate text-sm font-semibold text-ink-muted">{patient.name}</p>
           </div>
@@ -214,7 +234,7 @@ export default function CallReminderDialog({
           className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-ink text-[15px] font-bold text-white transition-opacity disabled:opacity-50"
         >
           {saving && <Loader2 size={16} className="animate-spin" />}
-          {isAr ? "احفظ التذكير" : "Save reminder"}
+          {editing ? (isAr ? "احفظ التعديل" : "Save changes") : isAr ? "احفظ التذكير" : "Save reminder"}
         </button>
       </div>
     </div>,

@@ -63,6 +63,13 @@ export async function markCallBooked(id: string, appointmentId: string, appointm
   await post({ action: "book", id, appointmentId, appointmentDate });
 }
 
+export async function editCallReminder(
+  id: string,
+  fields: { date: string; time: string | null; reason: string; recipient: ReminderInput["recipient"] },
+): Promise<void> {
+  await post({ action: "edit", id, ...fields });
+}
+
 export async function deleteCallReminder(id: string): Promise<void> {
   await post({ action: "delete", id });
 }

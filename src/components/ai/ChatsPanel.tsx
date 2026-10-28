@@ -1826,7 +1826,7 @@ function Bubble({
         ? "🤖 البوت"
         : "🤖 Bot"
       : line.author === "staff"
-        ? line.name || (isAr ? "الفريق" : "Team")
+        ? line.name || (line.kind === "from_phone" ? (isAr ? "📱 من موبايل العيادة" : "📱 Clinic phone") : isAr ? "الفريق" : "Team")
         : line.author === "system"
           ? kindLabel(line.kind || "", isAr)
           : "";

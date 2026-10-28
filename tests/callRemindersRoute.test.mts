@@ -197,6 +197,39 @@ let firstId = "";
   check("an admin can", byAdmin.status === 200 && !(await read(other)), byAdmin.json);
 }
 
+/* --- edit ------------------------------------------------------------------------------------ */
+{
+  const id = (await post(DESK, { action: "create", ...input })).json.id;
+  // Pretend it already went out, so the edit has to arm it again.
+  await col("call_reminders").doc(id).update({ notifiedAt: new Date(), pendingFireAt: null, deliveryError: "muted" });
+  const later = quickDate(today, "3days");
+  const edited = await post(DESK, {
+    action: "edit",
+    id,
+    date: later,
+    time: "11:30",
+    reason: ["  سعر", "الزرعة "].join("\n"),
+    recipient: { kind: "person", uid: DESK2, name: "منى" },
+  });
+  const d = (await read(id)) || {};
+  check("edit answers ok", edited.status === 200, edited.json);
+  check("edit: new day, time, reason and person", d.date === later && d.time === "11:30" && d.reason === "سعر الزرعة" && d.recipient?.uid === DESK2, d);
+  check("edit: fires at the new time and is pending again", d.fireAt?.toMillis() === computeFireAt(later, "11:30", 9).getTime() && d.pendingFireAt?.toMillis() === d.fireAt?.toMillis(), d);
+  check("edit: the old send and its error are cleared", d.notifiedAt === undefined && d.deliveryError === undefined, d);
+  check("edit: still open, creator unchanged, editor recorded", d.status === "open" && d.createdBy?.uid === DESK && d.editedBy?.uid === DESK, d);
+
+  const other = await post(DESK2, { action: "edit", id, date: later, time: null, reason: "x", recipient: input.recipient });
+  check("edit: another receptionist cannot", other.status === 403, other.json);
+  const admin = await post(ADMIN, { action: "edit", id, date: later, time: null, reason: "مراجعة", recipient: input.recipient });
+  check("edit: an admin can", admin.status === 200 && (await read(id))?.reason === "مراجعة", admin.json);
+  const past = await post(DESK, { action: "edit", id, date: "2020-01-01", time: null, reason: "x", recipient: input.recipient });
+  check("edit: a past day is refused", past.status === 400 && past.json.error === "date", past.json);
+
+  await post(DESK, { action: "done", id });
+  const closed = await post(DESK, { action: "edit", id, date: later, time: null, reason: "x", recipient: input.recipient });
+  check("edit: a handled call cannot be edited", closed.status === 409 && closed.json.error === "already-handled", closed.json);
+}
+
 /* --- nonsense ----------------------------------------------------------------------------------- */
 {
   const { status, json } = await post(DESK, { action: "explode" });
