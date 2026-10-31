@@ -128,6 +128,12 @@ export interface WhatsAppSettingsDocument {
    */
   botMode?: "assisted" | "ai_first";
   /**
+   * Which model answers when the AI replies. "standard" (default) is today's brain. "pro" is the
+   * more capable one; it only takes effect when the clinic has the whatsappPro add-on and runs
+   * AI-first, otherwise the standard brain answers.
+   */
+  botAiBrain?: "standard" | "pro";
+  /**
    * What the bot does with a symptom ("my tooth hurts", "my gum is swollen").
    *
    * "handoff" (default): a person is told and the bot steps back — the cautious setting.

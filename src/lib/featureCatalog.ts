@@ -126,6 +126,15 @@ export const FEATURE_CATALOG: FeatureInfo[] = [
     requires: "aiChat",
   },
   {
+    key: "whatsappPro",
+    group: "ai",
+    labelEn: "WhatsApp Pro AI",
+    labelAr: "الرد الذكي المتقدم على واتساب",
+    descEn: "A more capable AI answers your WhatsApp patients: it reads each conversation in full, quotes only prices from your price list and hands anything sensitive to a person.",
+    descAr: "ذكاء اصطناعي أقوى يرد على مرضاك في واتساب: يقرأ المحادثة كاملة، ولا يذكر إلا الأسعار الموجودة في قائمة أسعارك، ويحوّل أي شيء حساس لموظف.",
+    requires: "aiChat",
+  },
+  {
     key: "aiOrtho",
     group: "ai",
     labelEn: "AI Orthodontics",
