@@ -28,6 +28,8 @@ import {
   statusFor,
   summarise,
   workTypeFor,
+  workTypeLabel,
+  resolveWorkType,
   formatPalmer,
   wantsLabReadyAlert,
   parseToothInput,
@@ -36,8 +38,10 @@ import {
   RETENTION_OPTIONS,
 } from "../src/lib/labCases.ts";
 import {
+  findLabByName,
   labPriceFor,
   labPricedCount,
+  labsWithCaseLabs,
   parseDentalLabs,
   parseLabPaper,
   serializeDentalLabs,
@@ -181,9 +185,40 @@ assert.equal(workTypeFor("full_denture").gumShade, true);
 assert.equal(workTypeFor("zirconia").tryInByDefault, false);
 assert.equal(workTypeFor("zirconia").gumShade, false);
 
-// An unknown id (an older record, a hand-edited document) must not crash a board that renders it.
-assert.equal(workTypeFor("nonsense_type").id, "zirconia");
+// Work the clinic typed itself is stored as its own name and gets the plain shape: units and a
+// shade, nothing that belongs to one kind of work. Blank still reads as zirconia.
+assert.equal(workTypeFor("Veneer").implant, false);
+assert.equal(workTypeFor("Veneer").guide, false);
+assert.equal(workTypeFor("Veneer").units, true);
+assert.equal(workTypeFor("Veneer").cervicalShade, false);
 assert.equal(workTypeFor(undefined).id, "zirconia");
+assert.equal(workTypeLabel("Veneer", "ar"), "Veneer");
+
+// A catalogue name typed in either language stores the catalogue id, so its fields, the lab's
+// price for it and the printout still recognise it. Anything else is kept as typed.
+assert.equal(resolveWorkType("Zirconia"), "zirconia");
+assert.equal(resolveWorkType("  e.max "), "emax");
+assert.equal(resolveWorkType("زيركون"), "zirconia");
+assert.equal(resolveWorkType("Full denture"), "full_denture");
+assert.equal(resolveWorkType("Veneer"), "Veneer");
+assert.equal(resolveWorkType("   "), "");
+
+// A typed lab name finds a known lab whatever its case and spacing; labs that live only on cases
+// join the list once each, and never shadow the lab list's own entry.
+assert.equal(findLabByName([{ id: "a", name: "Cairo  Lab" }], " cairo lab")?.id, "a");
+assert.equal(findLabByName([{ id: "a", name: "Cairo Lab" }], "Giza Lab"), null);
+assert.deepEqual(
+  labsWithCaseLabs(
+    [{ id: "a", name: "Cairo Lab" }],
+    [
+      { labId: "a", labName: "Old name" },
+      { labId: "b", labName: "Giza Lab" },
+      { labId: "b", labName: "Giza Lab" },
+      { labId: "", labName: "No id" },
+    ]
+  ).map((l) => `${l.id}:${l.name}`),
+  ["a:Cairo Lab", "b:Giza Lab"]
+);
 
 // --- Palmer notation ------------------------------------------------------------------------------
 //

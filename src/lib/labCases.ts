@@ -158,9 +158,50 @@ export const LAB_WORK_TYPES: LabWorkType[] = [
 
 const WORK_TYPE_BY_ID = new Map(LAB_WORK_TYPES.map((w) => [w.id, w]));
 
-/** Never returns undefined: an unknown id (an older record, a hand-edited document) reads as zirconia's shape. */
+/**
+ * The shape of work the clinic named itself ("Veneer", "Study model").
+ *
+ * The catalogue above is a set of suggestions, not a fence: the clinic types whatever the lab
+ * actually makes, and the typed name is stored as the work type. Such work gets the plain fields
+ * any piece of lab work can use — a unit count and a shade, both optional — and nothing that only
+ * makes sense for one kind of work, like an implant platform.
+ */
+const CUSTOM_WORK_TYPE: LabWorkType = {
+  id: "" as LabWorkTypeId,
+  en: "",
+  ar: "",
+  bodyShade: true,
+  cervicalShade: false,
+  gumShade: false,
+  implant: false,
+  guide: false,
+  units: true,
+  digitalByDefault: false,
+  tryInByDefault: false,
+};
+
+/** Never returns undefined: blank reads as zirconia's shape, a name the clinic typed as the plain custom shape. */
 export function workTypeFor(id: string | null | undefined): LabWorkType {
-  return WORK_TYPE_BY_ID.get(String(id || "") as LabWorkTypeId) || LAB_WORK_TYPES[0];
+  const key = String(id || "").trim();
+  if (!key) return LAB_WORK_TYPES[0];
+  return WORK_TYPE_BY_ID.get(key as LabWorkTypeId) || CUSTOM_WORK_TYPE;
+}
+
+/**
+ * What gets stored for what somebody typed in the work box.
+ *
+ * Typing a catalogue name in either language ("Zirconia", "زيركون") stores that entry's id, so the
+ * shade and implant fields, the lab's price for it and the printed order all still recognise it.
+ * Anything else is stored as typed — `workTypeLabel` shows an unknown id as itself.
+ */
+export function resolveWorkType(text: string): string {
+  const typed = String(text || "").trim();
+  if (!typed) return "";
+  const lower = typed.toLowerCase();
+  const known = LAB_WORK_TYPES.find(
+    (w) => w.id === lower || w.en.toLowerCase() === lower || w.ar === typed
+  );
+  return known ? known.id : typed;
 }
 
 export function workTypeLabel(id: string | null | undefined, language: "en" | "ar"): string {
@@ -362,7 +403,8 @@ export type LabCase = {
   labId: string;
   labName: string;
 
-  workType: LabWorkTypeId;
+  /** A catalogue id, or the clinic's own name for the work when it is not in the catalogue. */
+  workType: LabWorkTypeId | (string & {});
   /** Free text the technician reads first, e.g. "2 x full crown, 15 and 14". */
   workDescription?: string;
   units?: number;
@@ -904,7 +946,7 @@ export function toLabCase(id: string, data: Record<string, unknown>): LabCase {
     ledgerId: str(data.ledgerId) || undefined,
     labId: str(data.labId),
     labName: str(data.labName),
-    workType: (str(data.workType) || "zirconia") as LabWorkTypeId,
+    workType: str(data.workType) || "zirconia",
     workDescription: str(data.workDescription) || undefined,
     units: data.units == null ? undefined : num(data.units),
     teeth,

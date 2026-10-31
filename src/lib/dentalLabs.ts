@@ -199,6 +199,36 @@ export function findLab(labs: DentalLab[], id: string | null | undefined): Denta
   return labs.find((l) => l.id === id) || null;
 }
 
+/** The lab with this name, ignoring case and stray spaces — how a typed name finds a known lab. */
+export function findLabByName(labs: DentalLab[], name: string | null | undefined): DentalLab | null {
+  const key = String(name || "").trim().replace(/\s+/g, " ").toLowerCase();
+  if (!key) return null;
+  return labs.find((l) => l.name.trim().replace(/\s+/g, " ").toLowerCase() === key) || null;
+}
+
+/**
+ * The directory, plus every lab the clinic's cases name that the directory does not.
+ *
+ * A lab is typed straight into the order, and only an Admin can write `settings/labs` — so a lab a
+ * receptionist typed lives on its cases alone. Reading those back keeps it in the filter, the
+ * money view and the next order's suggestions, instead of a lab that exists only on paper.
+ */
+export function labsWithCaseLabs(
+  labs: DentalLab[],
+  cases: { labId?: string; labName?: string }[]
+): DentalLab[] {
+  const out = [...labs];
+  const seen = new Set(labs.map((l) => l.id));
+  for (const c of cases) {
+    const id = String(c.labId || "").trim();
+    const name = String(c.labName || "").trim();
+    if (!id || !name || seen.has(id)) continue;
+    seen.add(id);
+    out.push({ id, name });
+  }
+  return out;
+}
+
 /**
  * The number the order goes to.
  *

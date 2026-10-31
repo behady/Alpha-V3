@@ -22,6 +22,14 @@ import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { localYmd } from "@/lib/clinicDate";
 import { LAB_PAYMENTS_COLLECTION } from "@/lib/labAccounts";
 import {
+  LABS_SETTINGS_DOC,
+  findLabByName,
+  makeLabId,
+  parseDentalLabs,
+  serializeDentalLabs,
+  type DentalLab,
+} from "@/lib/dentalLabs";
+import {
   DEFAULT_BRANCH_CODE,
   LAB_CASES_COLLECTION,
   LAB_COUNTERS_COLLECTION,
@@ -90,6 +98,32 @@ export async function mintLabCaseNumber(branchCode: string): Promise<number> {
       txn.set(ref, { [key]: next }, { merge: true });
     }
     return next;
+  });
+}
+
+/**
+ * Add a lab typed into an order to the clinic's lab list, and return it.
+ *
+ * Read-and-append inside a transaction, because the list is one array in one document: writing
+ * back a copy read a minute earlier would wipe a lab somebody else added in between. A name that
+ * is already on the list returns that lab rather than adding it twice. Admin-only, like the rest
+ * of `settings` — the order form only calls it for an Admin.
+ */
+export async function addLabToDirectory(name: string): Promise<DentalLab> {
+  const clean = name.trim().replace(/\s+/g, " ");
+  const ref = getClinicDoc("settings", LABS_SETTINGS_DOC);
+  return runTransaction(db, async (txn) => {
+    const snap = await txn.get(ref);
+    const labs = parseDentalLabs(snap.exists() ? snap.data() : null);
+    const existing = findLabByName(labs, clean);
+    if (existing) return existing;
+    const lab: DentalLab = { id: makeLabId(), name: clean };
+    txn.set(
+      ref,
+      { labs: serializeDentalLabs([...labs, lab]), updatedAt: nowIso() },
+      { merge: true }
+    );
+    return lab;
   });
 }
 
