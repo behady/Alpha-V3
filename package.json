@@ -43,6 +43,7 @@
     "test:ortho": "npx tsx tests/orthoAi.test.mts",
     "test:brief": "npx tsx tests/botBrief.test.mts",
     "test:pro-brain": "npx tsx tests/botProBrain.test.mts",
+    "test:pro-checks": "npx tsx tests/botProChecks.test.mts",
     "test:pro-person": "npx tsx tests/botProPerson.test.mts",
     "test:brief-route": "npx tsx tests/briefDraftRoute.test.mts",
     "test:scripts": "npx tsx tests/botScripts.test.mts",
