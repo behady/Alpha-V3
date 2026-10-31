@@ -46,6 +46,7 @@
     "test:pro-checks": "npx tsx tests/botProChecks.test.mts",
     "test:pro-person": "npx tsx tests/botProPerson.test.mts",
     "test:pro-tools": "npx tsx tests/botProTools.test.mts",
+    "test:pro-prompt": "npx tsx tests/botProPrompt.test.mts",
     "test:brief-route": "npx tsx tests/briefDraftRoute.test.mts",
     "test:scripts": "npx tsx tests/botScripts.test.mts",
     "test:signup": "npx tsx tests/onboardingSignup.test.mts",
