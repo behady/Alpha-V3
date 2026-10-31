@@ -6,7 +6,7 @@
  * Run: npm run test:pro-person
  */
 import assert from "node:assert/strict";
-import { familyOnNumber, phoneKeysOf, splitAppointments, type ProAppointment } from "../src/lib/botPro/person";
+import { familyOnNumber, phoneKeysOf, splitAppointments, writerOf, type ProAppointment } from "../src/lib/botPro/person";
 import { phoneMatchKey } from "../src/lib/patientPhone";
 
 function test(name: string, fn: () => void) {
@@ -151,4 +151,13 @@ test("past holds real visits only, filtered before the 10-row cap", () => {
   for (let i = 1; i <= 12; i++) rows.push(appt({ id: `x${i}`, patientId: "m", date: `2026-09-${String(i).padStart(2, "0")}`, status: i % 2 ? "Cancelled" : "No Show" }));
   const { past } = splitAppointments(rows, { ids: ["m"], phoneKeys: [] }, TODAY);
   assert.deepEqual(past.map((a) => a.id), ["v3", "v2", "v1"]);
+});
+
+test("writer is known only when linked or alone on the number", () => {
+  const two = [{ id: "a", name: "Mona" }, { id: "b", name: "Omar" }];
+  assert.deepEqual(writerOf(two, "b"), { patientId: "b", writerKnown: true });
+  assert.deepEqual(writerOf(two), { patientId: "a", writerKnown: false });
+  assert.deepEqual(writerOf([{ id: "a", name: "Mona" }]), { patientId: "a", writerKnown: true });
+  assert.deepEqual(writerOf([]), { patientId: null, writerKnown: false });
+  assert.deepEqual(writerOf([], "z"), { patientId: "z", writerKnown: true });
 });

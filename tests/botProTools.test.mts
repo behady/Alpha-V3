@@ -30,7 +30,7 @@ function makeEnv(over: Partial<ToolEnv> = {}): ToolEnv {
     },
     freeTimes: async () => ["09:00 AM", "10:00 AM", "11:00 AM", "01:00 PM", "03:00 PM", "05:00 PM", "06:00 PM", "07:00 PM"],
     dayLabel: (d, t, doc) => `${d} ${t}${doc ? ` ${doc}` : ""}`,
-    person: { patientId: "p1", family: [{ id: "p1", name: "Mona" }, { id: "p2", name: "Omar" }], upcoming: [], past: [], degraded: false },
+    person: { patientId: "p1", family: [{ id: "p1", name: "Mona" }, { id: "p2", name: "Omar" }], upcoming: [], past: [], degraded: false, writerKnown: true },
     patientFile: async (id) => `file of ${id}`,
     prices: [{ name: "تقويم معدني", price: 15000 }],
     shown: new Map(),
@@ -127,7 +127,7 @@ await test("get_patient_file refuses an id that is not on the number", async () 
 });
 
 await test("get_patient_file allows person.patientId even when family is empty (lid chats)", async () => {
-  const env = makeEnv({ person: { patientId: "px", family: [], upcoming: [], past: [], degraded: false } });
+  const env = makeEnv({ person: { patientId: "px", family: [], upcoming: [], past: [], degraded: false, writerKnown: true } });
   assert.deepEqual(await runTool("get_patient_file", { patientId: "px" }, env), { file: "file of px" });
 });
 

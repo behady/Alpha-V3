@@ -52,6 +52,12 @@ export interface ProPerson {
   past: ProAppointment[];
   /** True when any patient or appointment read failed: empty lists then mean "unknown", not "none". */
   degraded: boolean;
+  /**
+   * True when we know which person on the number is writing: the conversation is linked to a
+   * patient, or exactly one patient is on the number. On a shared number with no link, patientId is
+   * only the first match and must not be treated as the writer.
+   */
+  writerKnown: boolean;
 }
 
 /** The match key of every phone field on a patient file, deduped, empties dropped. */
@@ -97,6 +103,17 @@ export function familyOnNumber(
     add(linkedPatientId, known ? nameOf(known.data) : "");
   }
   return out;
+}
+
+/** Who is writing: the linked patient, else the first on the number; known only when unambiguous. */
+export function writerOf(
+  family: Array<{ id: string; name: string }>,
+  conversationPatientId?: string
+): { patientId: string | null; writerKnown: boolean } {
+  return {
+    patientId: conversationPatientId || family[0]?.id || null,
+    writerKnown: !!conversationPatientId || family.length === 1,
+  };
 }
 
 /** "05:00 PM" or "17:00" as minutes since midnight, so 10:00 AM sorts before 05:00 PM. */
@@ -266,5 +283,5 @@ export async function loadProPerson(args: {
   }
 
   const { upcoming, past } = splitAppointments([...rows.values()], { ids, phoneKeys }, todayKey);
-  return { patientId: conversationPatientId || family[0]?.id || null, family, upcoming, past, degraded: health.degraded };
+  return { ...writerOf(family, conversationPatientId), family, upcoming, past, degraded: health.degraded };
 }
