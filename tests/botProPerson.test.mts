@@ -124,3 +124,31 @@ test("same-day times sort by the clock, not by the text (10:00 AM before 05:00 P
   const { upcoming } = splitAppointments(rows, { ids: ["m"], phoneKeys: [] }, TODAY);
   assert.deepEqual(upcoming.map((a) => a.id), ["am", "pm"]);
 });
+
+test("rescheduled rows are neither upcoming nor past (the new booking is the real one)", () => {
+  const rows = [
+    appt({ id: "old", patientId: "m", date: "2026-11-03", status: "Rescheduled" }),
+    appt({ id: "new", patientId: "m", date: "2026-11-10", status: "Scheduled" }),
+    appt({ id: "oldpast", patientId: "m", date: "2026-10-01", status: "Rescheduled" }),
+  ];
+  const { upcoming, past } = splitAppointments(rows, { ids: ["m"], phoneKeys: [] }, TODAY);
+  assert.deepEqual(upcoming.map((a) => a.id), ["new"]);
+  assert.deepEqual(past, []);
+});
+
+test("status matching tolerates case and spelling (Canceled, no-show, NOSHOW, cancelled)", () => {
+  const rows = ["Canceled", "no-show", "NOSHOW", "cancelled", "No Show", "RESCHEDULED"].map((status, i) =>
+    appt({ id: `s${i}`, patientId: "m", status })
+  );
+  rows.push(appt({ id: "keep", patientId: "m", status: "Confirmed" }));
+  const { upcoming } = splitAppointments(rows, { ids: ["m"], phoneKeys: [] }, TODAY);
+  assert.deepEqual(upcoming.map((a) => a.id), ["keep"]);
+});
+
+test("past holds real visits only, filtered before the 10-row cap", () => {
+  const rows: Array<ProAppointment & { patientPhone?: string }> = [];
+  for (let i = 1; i <= 3; i++) rows.push(appt({ id: `v${i}`, patientId: "m", date: `2026-08-0${i}`, status: "Completed" }));
+  for (let i = 1; i <= 12; i++) rows.push(appt({ id: `x${i}`, patientId: "m", date: `2026-09-${String(i).padStart(2, "0")}`, status: i % 2 ? "Cancelled" : "No Show" }));
+  const { past } = splitAppointments(rows, { ids: ["m"], phoneKeys: [] }, TODAY);
+  assert.deepEqual(past.map((a) => a.id), ["v3", "v2", "v1"]);
+});

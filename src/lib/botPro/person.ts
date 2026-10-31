@@ -50,6 +50,8 @@ export interface ProPerson {
   family: Array<{ id: string; name: string }>;
   upcoming: ProAppointment[];
   past: ProAppointment[];
+  /** True when any patient or appointment read failed: empty lists then mean "unknown", not "none". */
+  degraded: boolean;
 }
 
 /** The match key of every phone field on a patient file, deduped, empties dropped. */
@@ -107,6 +109,17 @@ function minutesOf(time: string): number {
 }
 
 /**
+ * Is this row a visit that is (or was) really going to happen? Cancelled, no-show and rescheduled
+ * rows are not: a reschedule leaves the original marked "Rescheduled" and books a new document, so
+ * counting it would show the patient the same visit twice. Tolerant of case and spelling
+ * (Canceled, no-show, noshow), like the older `/cancel|no.?show/i` checks.
+ */
+function isRealVisit(status: string): boolean {
+  const s = normalizeAppointmentStatus(status);
+  return !/cancel|no[\s_-]?show|reschedul/i.test(s);
+}
+
+/**
  * From every appointment row fetched, the ones that belong to these people (by patient id or by the
  * phone written on the row), split into what is still ahead and what is behind.
  * Upcoming skips cancelled and no-show rows: telling someone a cancelled visit is still on is
@@ -135,15 +148,12 @@ export function splitAppointments(
     a.date === b.date ? minutesOf(a.time) - minutesOf(b.time) : a.date.localeCompare(b.date);
 
   const upcoming = mine
-    .filter((a) => {
-      if (a.date < todayKey) return false;
-      const s = normalizeAppointmentStatus(a.status);
-      return s !== "Cancelled" && s !== "No Show";
-    })
+    .filter((a) => a.date >= todayKey && isRealVisit(a.status))
     .sort(byTime);
 
+  // Real visits only, filtered BEFORE the cap so a run of cancellations cannot push them out.
   const past = mine
-    .filter((a) => a.date < todayKey)
+    .filter((a) => a.date < todayKey && isRealVisit(a.status))
     .sort((a, b) => byTime(b, a))
     .slice(0, 10);
 
@@ -152,29 +162,37 @@ export function splitAppointments(
 
 type Doc = { id: string; data: Record<string, unknown> };
 
-async function safely<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
+/** Set when any read failed, so a gap in the data is never mistaken for "nothing booked". */
+interface Health {
+  degraded: boolean;
+}
+
+async function safely<T>(health: Health, fn: () => Promise<T>, fallback: T): Promise<T> {
   try {
     return await fn();
-  } catch {
+  } catch (err) {
+    health.degraded = true;
+    console.warn("[botPro] person read failed:", err instanceof Error ? err.message : String(err));
     return fallback;
   }
 }
 
 /** Patients on this number: the direct `phone` hit first, then a capped scan for every other shape. */
-async function patientsOnNumber(clinicId: string, phone: string, senderKey: string): Promise<Doc[]> {
+async function patientsOnNumber(health: Health, clinicId: string, phone: string, senderKey: string): Promise<Doc[]> {
   if (senderKey.length < MIN_KEY) return [];
   const found = new Map<string, Doc>();
 
   const digits = phone.replace(/\D/g, "");
   if (digits) {
     const direct = await safely(
+      health,
       () => adminClinicCollection(clinicId, "patients").where("phone", "==", `+${digits}`).limit(20).get(),
       null
     );
     for (const d of direct?.docs ?? []) found.set(d.id, { id: d.id, data: (d.data() || {}) as Record<string, unknown> });
   }
 
-  const scan = await safely(() => adminClinicCollection(clinicId, "patients").limit(3000).get(), null);
+  const scan = await safely(health, () => adminClinicCollection(clinicId, "patients").limit(3000).get(), null);
   for (const d of scan?.docs ?? []) {
     const data = (d.data() || {}) as Record<string, unknown>;
     if (phoneKeysOf(data).includes(senderKey)) found.set(d.id, { id: d.id, data });
@@ -208,12 +226,13 @@ export async function loadProPerson(args: {
   const { clinicId, phone = "", conversationPatientId, todayKey } = args;
   const senderKey = phoneMatchKey(phone);
 
-  const patients = await patientsOnNumber(clinicId, phone, senderKey);
+  const health: Health = { degraded: false };
+  const patients = await patientsOnNumber(health, clinicId, phone, senderKey);
 
   // The linked patient is the only identity behind a hidden number; fetch their file for the name
   // and their own phones when the scan did not already return it.
   if (conversationPatientId && !patients.some((p) => p.id === conversationPatientId)) {
-    const snap = await safely(() => adminClinicDoc(clinicId, "patients", conversationPatientId).get(), null);
+    const snap = await safely(health, () => adminClinicDoc(clinicId, "patients", conversationPatientId).get(), null);
     if (snap?.exists) patients.push({ id: snap.id, data: (snap.data() || {}) as Record<string, unknown> });
   }
 
@@ -232,7 +251,7 @@ export async function loadProPerson(args: {
   // Firestore `in` takes at most 10 values.
   for (let i = 0; i < ids.length; i += 10) {
     const chunk = ids.slice(i, i + 10);
-    const snap = await safely(() => appts.where("patientId", "in", chunk).get(), null);
+    const snap = await safely(health, () => appts.where("patientId", "in", chunk).get(), null);
     for (const d of snap?.docs ?? []) rows.set(d.id, appointmentFrom(d.id, (d.data() || {}) as Record<string, unknown>));
   }
 
@@ -242,10 +261,10 @@ export async function loadProPerson(args: {
     const variants = [
       ...new Set([`+${digits}`, digits, `0${senderKey}`, senderKey, `+20${senderKey}`, `20${senderKey}`]),
     ].filter((v) => v.replace(/\D/g, "").length >= MIN_KEY);
-    const snap = await safely(() => appts.where("patientPhone", "in", variants).get(), null);
+    const snap = await safely(health, () => appts.where("patientPhone", "in", variants).get(), null);
     for (const d of snap?.docs ?? []) rows.set(d.id, appointmentFrom(d.id, (d.data() || {}) as Record<string, unknown>));
   }
 
   const { upcoming, past } = splitAppointments([...rows.values()], { ids, phoneKeys }, todayKey);
-  return { patientId: conversationPatientId || family[0]?.id || null, family, upcoming, past };
+  return { patientId: conversationPatientId || family[0]?.id || null, family, upcoming, past, degraded: health.degraded };
 }
