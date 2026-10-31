@@ -156,11 +156,19 @@ test("rulebook points a pick of an earlier offer at the previous-slots block", (
   assert.ok(r.includes("لو اللي اختاره مش واحد منهم، دوّر بـ find_slots"));
 });
 
-test("reschedule: no own search, ask which when several", () => {
-  const r = proRulebook({ clinical: false, canBook: true });
-  const line = lineWith(r, "action reschedule — مش حجز جديد");
-  assert.ok(line.includes("متدوّرش ومتعرضش مواعيد بنفسك هنا إلا لو طلب منك"));
-  assert.ok(line.includes("لو عنده أكتر من ميعاد جاي، اسأله أنهي واحد"));
+test("reschedule stays system-driven: action reschedule, ask which in text, never a new search or booking", () => {
+  for (const v of VARIANTS) {
+    const r = proRulebook(v);
+    const line = lineWith(r, "action reschedule — مش حجز جديد");
+    assert.ok(line.includes("لو عنده ميعاد واحد جاي، اختار action reschedule"));
+    assert.ok(line.includes("لو عنده أكتر من ميعاد، اسأله أنهي واحد في رد عادي"));
+    assert.ok(line.includes("في تغيير الميعاد ممنوع find_slots و book_slot خالص"));
+    assert.ok(!r.includes("إلا لو طلب منك"));
+  }
+  // The short-reply pick (and the earlier-offers block it names) is for new bookings only.
+  const pick = lineWith(proRulebook({ clinical: false, canBook: true }), "رد قصير بعد ما عرضت مواعيد");
+  assert.ok(pick.startsWith("- حجز جديد (مش تغيير ميعاد)"), pick);
+  assert.ok(pick.includes(PREVIOUS_SLOTS_HEADING));
 });
 
 test("unknown writer on a shared number: ask whose booking it is", () => {
@@ -188,17 +196,38 @@ test("clinical on: dentist script; clinical off: every medical question is hande
   assert.ok(n.includes("أي سؤال طبي (ألم، ورم، دواء، تشخيص، هل ده طبيعي): اختار handoff_medical."));
 });
 
-test("restored old rules: difference questions, child/pregnant medicine ban, stranger booking, one concrete step", () => {
+test("restored old rules: difference questions, stranger booking, one concrete step", () => {
   const r = proRulebook({ clinical: false, canBook: true });
   assert.ok(r.includes(sourceLine("- \\\"إيه الفرق بين ...؟\\\"")), "difference line verbatim");
-  assert.ok(r.includes(sourceLine("- ممنوع تدي دوا أو جرعة لطفل")), "medicine ban verbatim");
-  // Dentist mode states the same ban in the red-flag line, higher up.
-  assert.ok(proRulebook({ clinical: true, canBook: true }).includes("لو اللي بيسأل عن دوا أو مسكّن حامل أو مرضعة أو طفل"));
   assert.ok(r.includes("handoff_other بس لو السؤال كله معندكش عنه أي معلومة"));
   assert.ok(r.includes("لو المريض غريب (مش معروف)، open_booking"));
   assert.ok(r.includes("اعرض خطوة واحدة محددة"));
   assert.ok(r.includes("أو في الملف اللي رجّعته get_patient_file"), "drug names from the returned file");
   assert.ok(r.includes("قريب مريض (لو مش على الرقم ده)"));
+});
+
+test("child/pregnant/nursing/chronic medicine ban in every variant, above the dentist script", () => {
+  const ban = sourceLine("- ممنوع تدي دوا أو جرعة لطفل");
+  for (const v of VARIANTS) {
+    const r = proRulebook(v);
+    assert.ok(r.includes(ban), `ban in ${JSON.stringify(v)}`);
+    assert.ok(r.indexOf(ban) < r.indexOf("أدواتك"), "it sits in الثوابت");
+  }
+  const c = proRulebook({ clinical: true, canBook: true });
+  assert.ok(c.indexOf(ban) < c.indexOf("وضع الدكتور شغال"), "the dentist script cannot outrank it");
+});
+
+test("price red line: no estimating, rounding or calculating", () => {
+  for (const v of VARIANTS) assert.ok(proRulebook(v).includes("بالرقم زي ما هو — ممنوع تقدّر أو تقرّب أو تحسب"));
+});
+
+test("complaint step offers another dentist only when booking is on", () => {
+  assert.ok(proRulebook({ clinical: false, canBook: true }).includes("هحجزلك مع دكتور تاني"));
+  for (const clinical of [false, true]) {
+    const r = proRulebook({ clinical, canBook: false });
+    assert.ok(!r.includes("هحجزلك مع دكتور تاني"));
+    assert.ok(r.includes("اعرض خطوة واحدة محددة (\"هبلغ الاستقبال دلوقتي\")"));
+  }
 });
 
 test("rulebook stays under 2,500 words", () => {
@@ -235,6 +264,10 @@ test("new number + phone-only reception booking: shown as the writer's appointme
   const line = lineWith(t, arabicDayLabel("2026-11-05"));
   assert.ok(line.includes("اللي بيكتب"), line);
   assert.ok(!t.includes("مفيش أي ميعاد جاي"));
+  // A booking on the number contradicts "new number" and "not linked to any file".
+  assert.ok(!t.includes("رقم جديد، مش مسجل عندنا"));
+  assert.ok(!t.includes("الرقم ده مش مربوط بأي ملف عندنا"));
+  assert.ok(t.includes("بس في حجز على الرقم ده"));
 });
 
 test("phone-only booking with one person on the number is that person's", () => {
