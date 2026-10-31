@@ -220,3 +220,86 @@ test("the honest answer is allowed only because the patient asked", () => {
   assert.deepEqual(rules({ question: "انت بوت ولا انسان؟", reply }), []);
   assert.deepEqual(rules({ question: "عايز أحجز", reply }), ["volunteers_ai"]);
 });
+
+// ---- fix round 1 -----------------------------------------------------------------------------
+
+const bookingQ = (reply: string) => (/[؀-ۿ]/.test(reply) ? "عايز أحجز" : "I want to book");
+
+test("percent: the Arabic sign (U+066A) and Persian digits are checked", () => {
+  assert.deepEqual(strayNumbers("خصم ٢٠٪", new Set()), ["20"]);
+  assert.deepEqual(strayNumbers("خصم ۲۰ ٪", new Set()), ["20"]);
+  assert.deepEqual(strayNumbers("خصم ٢٠٪", new Set(["20"])), []);
+  assert.deepEqual(rules({ reply: "خصم ٢٠٪ النهارده" }), ["price"]);
+});
+
+test("percent: written in words is checked", () => {
+  for (const r of ["خصم 20 بالمية", "خصم 20 في المية", "خصم 20 في المائة", "خصم 20 بالمائة", "خصم ٢٠ بالميه"]) {
+    assert.deepEqual(strayNumbers(r, new Set()), ["20"], r);
+  }
+  assert.deepEqual(strayNumbers("خصم 20 بالمية", new Set(["20"])), []);
+});
+
+test("dates are not figures", () => {
+  for (const r of ["ميعادك 12/11/2026", "ميعادك 2026-11-12", "ميعادك ١٢/١١/٢٠٢٦", "ميعادك 12/11", "ميعادك 12-11-26", "ميعادك 12.11.2026"]) {
+    assert.deepEqual(strayNumbers(r, new Set()), [], r);
+  }
+});
+
+test("a phone written with spaces or dashes is one token checked against the allowed list", () => {
+  const a = allowedNumbers(["تليفون العيادة 01001234567"]);
+  for (const r of ["كلمنا على 0100 123 4567", "كلمنا على 0100-123-4567", "كلمنا على 010 0123 4567", "كلمنا على +20 100 123 4567", "كلمنا على +201001234567"]) {
+    assert.deepEqual(strayNumbers(r, a), [], r);
+  }
+  assert.deepEqual(strayNumbers("كلمنا على 0100 999 9999", a), ["01009999999"]);
+  assert.deepEqual(strayNumbers("كلمنا على 0100-999-9999", a), ["01009999999"]);
+});
+
+test("a phone the clinic wrote with separators is allowed in any spelling", () => {
+  const a = allowedNumbers(["تليفون العيادة 0100 123 4567"]);
+  assert.deepEqual(strayNumbers("كلمنا على 01001234567", a), []);
+  assert.deepEqual(strayNumbers("كلمنا على 0100-123-4567", a), []);
+});
+
+test("a spaced price is not mistaken for a phone", () => {
+  assert.ok(strayNumbers("بتبدأ من 15 000 جنيه", new Set()).every((n) => n.length < 6));
+  assert.deepEqual(strayNumbers("عندنا 3 فروع و 12 دكتور", new Set()), []);
+});
+
+test("clocks: allowed entries may carry extra text", () => {
+  for (const entry of ["7:30 م", "07:30:00", "الخميس 7:30 م", "٠٧:٣٠ مساءً"]) {
+    assert.deepEqual(strayClocks("الساعة 7:30", new Set([entry])), [], entry);
+  }
+  assert.deepEqual(strayClocks("الساعة 7:30 أو 9:00", new Set(["الخميس 7:30 م"])), ["9:00"]);
+});
+
+test("asksIfBot: more English wordings", () => {
+  const yes = [
+    "are you real?", "Are you real", "is there a real person there?", "is there a real person", "Can I talk to a real person?",
+    "can I speak to a human", "can i talk with a real human?", "is this automated?", "انت chatbot؟", "انت chatbot",
+  ];
+  for (const q of yes) assert.equal(asksIfBot(q), true, q);
+  assert.equal(asksIfBot("is there parking nearby?"), false);
+  assert.equal(asksIfBot("can I talk to the dentist?"), false);
+});
+
+test("volunteers_ai is about the assistant itself, not the clinic's services", () => {
+  const services = [
+    "we use AI in our x-ray reading", "الاشعة بتتقرا بالذكاء الاصطناعي", "هنا بنستخدم الذكاء الاصطناعي في قراءة الأشعة",
+    "our scanner uses artificial intelligence to plan the implant",
+  ];
+  for (const r of services) assert.deepEqual(rules({ question: bookingQ(r), reply: r }), [], r);
+});
+
+test("volunteers_ai: self-reference in any wording is caught", () => {
+  const selfy = [
+    "أنا بوت العيادة", "انا مساعد آلي", "معاك المساعد الآلي للعيادة", "I'm an AI assistant", "I am a bot",
+    "this is an automated reply", "رد آلي", "هنا المساعد الآلي", "this is an AI assistant for the clinic",
+  ];
+  for (const r of selfy) assert.deepEqual(rules({ question: bookingQ(r), reply: r }), ["volunteers_ai"], r);
+});
+
+test("volunteers_ai: a direct question lets the honest self-reference through", () => {
+  for (const r of ["انا مساعد آلي", "I'm an AI assistant", "رد آلي من العيادة"]) {
+    assert.deepEqual(rules({ question: /[؀-ۿ]/.test(r) ? "انت بوت؟" : "are you a bot?", reply: r }), [], r);
+  }
+});
