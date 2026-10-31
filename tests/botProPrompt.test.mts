@@ -215,6 +215,9 @@ test("child/pregnant/nursing/chronic medicine ban in every variant, above the de
   }
   const c = proRulebook({ clinical: true, canBook: true });
   assert.ok(c.indexOf(ban) < c.indexOf("وضع الدكتور شغال"), "the dentist script cannot outrank it");
+  const redFlags = lineWith(c, "علامات الخطر → handoff_medical");
+  assert.ok(redFlags.includes("وغير اللي في ممنوعات الأدوية"), "متحوّلوش never covers the medicine ban");
+  assert.ok(redFlags.indexOf("ممنوعات الأدوية") < redFlags.indexOf("متحوّلوش"));
 });
 
 test("price red line: no estimating, rounding or calculating", () => {
