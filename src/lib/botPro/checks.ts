@@ -52,8 +52,18 @@ function phrase(pattern: string): RegExp {
  * space or dash, so a price such as "1 000" never matches.
  */
 const PHONE = /(?<![\d+])(?:\+\s?20[\s-]?|0)\d(?:[\s-]?\d){8,10}(?!\d)/g;
-/** Dates: yyyy-mm-dd, yyyy/mm/dd, d/m/yyyy, d-m-yy, d.m.yyyy, d/m. None of them is a figure. */
-const DATE = /(?<!\d)(?:\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}|\d{1,2}\/\d{1,2})(?!\d)/g;
+/**
+ * Unit words that make the figure before them a price or a percentage (also used by MONEYISH).
+ * A unit must end where the word ends, so "3 الفريق" is not "3 ألف".
+ */
+const UNIT_WORDS =
+  "ج\\.?م|جنيهات|جنيه|جنيها|جنية|الف|ألف|آلاف|الاف|egp|le|pounds?|percent|(?:ب|في\\s+)ال(?:مي|مائ|مئ|ماي)[هة]";
+const UNIT_AFTER = `\\s*(?:%|٪|(?:${UNIT_WORDS})(?![\\p{L}\\p{N}]))`;
+/**
+ * Full dates: yyyy-mm-dd, yyyy/mm/dd, d/m/yyyy, d-m-yy, d.m.yyyy. They are not figures, unless a
+ * unit follows ("10-20-30 جنيه"). A bare d/m is NOT skipped: "12/15 ألف" is an invented price range.
+ */
+const DATE = new RegExp(`(?<!\\d)(?:\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}|\\d{1,2}[-/.]\\d{1,2}[-/.]\\d{2,4})(?!\\d)(?!${UNIT_AFTER})`, "giu");
 
 /** The forms a phone token can take: its digits, and with a +20 prefix turned back into a leading 0. */
 function phoneForms(raw: string): string[] {
@@ -82,8 +92,7 @@ const CLOCK = /(?<!\d)(\d{1,2}):(\d{2})(?!\d)/g;
  * word must end where the word ends, so "3 الفريق" is not "3 ألف" and "2 جمعة" is not "2 جم".
  * Percent is % or ٪ or words (بالمية، في المية، بالمائة، في المائة).
  */
-const MONEYISH =
-  /(\d[\d,]*)\s*(%|٪|(?:ج\.?م|جنيهات|جنيه|جنيها|جنية|الف|ألف|آلاف|الاف|egp|le|pounds?|percent|(?:ب|في\s+)ال(?:مي|مائ|مئ|ماي)[هة])(?![\p{L}\p{N}]))?/giu;
+const MONEYISH = new RegExp(`(\\d[\\d,]*)\\s*(%|٪|(?:${UNIT_WORDS})(?![\\p{L}\\p{N}]))?`, "giu");
 
 /**
  * Figures in the reply that the clinic never supplied. Clock times (the clock check's business)

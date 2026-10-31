@@ -303,3 +303,21 @@ test("volunteers_ai: a direct question lets the honest self-reference through", 
     assert.deepEqual(rules({ question: /[؀-ۿ]/.test(r) ? "انت بوت؟" : "are you a bot?", reply: r }), [], r);
   }
 });
+
+// ---- fix round 2 -----------------------------------------------------------------------------
+
+test("slash ranges in front of a unit are invented prices, not dates", () => {
+  for (const r of ["12/15 ألف", "من 20/30 ألف جنيه", "الخصم 10/20%", "50/60 جنيه"]) {
+    assert.ok(strayNumbers(r, new Set()).length > 0, r);
+  }
+  assert.deepEqual(strayNumbers("12/15 ألف", new Set()), ["15"]);
+  assert.deepEqual(strayNumbers("الخصم 10/20%", new Set()), ["20"]);
+  assert.deepEqual(rules({ reply: "من 20/30 ألف جنيه" }), ["price"]);
+});
+
+test("real dates and a bare d/m still pass; a dotted date before a unit does not", () => {
+  assert.deepEqual(strayNumbers("12/11/2026", new Set()), []);
+  assert.deepEqual(strayNumbers("12/11", new Set()), []);
+  assert.deepEqual(strayNumbers("2026-11-12", new Set()), []);
+  assert.ok(strayNumbers("10-20-30 جنيه", new Set()).length > 0);
+});
