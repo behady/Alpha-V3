@@ -48,6 +48,7 @@ export default function BotPlayground({ proUnlocked = false }: { proUnlocked?: b
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [tryPro, setTryPro] = useState(false);
+  const [useDraft, setUseDraft] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
 
@@ -62,7 +63,7 @@ export default function BotPlayground({ proUnlocked = false }: { proUnlocked?: b
     const res = await fetch("/api/admin/bot-playground", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
-      body: JSON.stringify({ clinicId: currentClinicId(), ...(proUnlocked && tryPro ? { brain: "pro" } : {}), ...payload }),
+      body: JSON.stringify({ clinicId: currentClinicId(), ...(proUnlocked && tryPro ? { brain: "pro" } : {}), ...(proUnlocked && tryPro && useDraft ? { proLayer: "draft" } : {}), ...payload }),
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok || json.ok === false) throw new Error(json.error || `HTTP ${res.status}`);
@@ -126,6 +127,12 @@ export default function BotPlayground({ proUnlocked = false }: { proUnlocked?: b
           <label className="inline-flex items-center gap-2 text-xs font-bold text-ink-body cursor-pointer">
             <input type="checkbox" checked={tryPro} onChange={(e) => setTryPro(e.target.checked)} disabled={busy} />
             {isAr ? "جرّب الرد المتقدم (Pro)" : "Try Pro"}
+          </label>
+        )}
+        {proUnlocked && tryPro && (
+          <label className="inline-flex items-center gap-2 text-xs font-bold text-ink-body cursor-pointer">
+            <input type="checkbox" checked={useDraft} onChange={(e) => setUseDraft(e.target.checked)} disabled={busy} />
+            {isAr ? "جرّب القواعد الجديدة (المسودة)" : "Use the draft layer"}
           </label>
         )}
         <button

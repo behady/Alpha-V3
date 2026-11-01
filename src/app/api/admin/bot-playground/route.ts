@@ -29,7 +29,7 @@ function fakePhone(uid: string): string {
 }
 
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => ({}))) as { clinicId?: string; text?: string; reset?: boolean; brain?: "pro" };
+  const body = (await request.json().catch(() => ({}))) as { clinicId?: string; text?: string; reset?: boolean; brain?: "pro"; proLayer?: "draft" };
   // Authorised against the clinic it will act on, not whichever one the account defaults to.
   const authz = await requireStaffUser(request, typeof body.clinicId === "string" ? body.clinicId : undefined);
   if (!authz.ok) return authz.response;
@@ -52,7 +52,7 @@ export async function POST(request: Request) {
     await recordThreadMessage(clinicId, chatId, { direction: "in", author: "patient", text, channel: "meta" }).catch(() => {});
     // "Try it with Pro": only for a clinic the whatsappPro add-on is unlocked for.
     const tryPro = body.brain === "pro" && (await clinicHasFeature(clinicId, "whatsappPro").catch(() => false));
-    const out = await respondToPatientMessage({ clinicId, chatId, phone: fakePhone(authz.uid), text, dryRun: true, ...(tryPro ? { brainOverride: "pro" as const } : {}) });
+    const out = await respondToPatientMessage({ clinicId, chatId, phone: fakePhone(authz.uid), text, dryRun: true, ...(tryPro ? { brainOverride: "pro" as const } : {}), ...(tryPro && body.proLayer === "draft" ? { proLayer: "draft" as const } : {}) });
     return NextResponse.json({ ok: true, ...playgroundOutcome(out, tryPro) });
   } catch (e) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : "failed" }, { status: 500 });

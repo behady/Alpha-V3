@@ -19,6 +19,8 @@ import type { answerWithAi, AiThreadLine } from "@/lib/bot/aiReply";
 import { conversationKey } from "@/lib/bot/conversation";
 import { dossierLines, loadPatientDossier } from "@/lib/bot/patientDossier";
 import { loadProPerson, type ProPerson } from "./person";
+import { sanitizeLayer, type ClinicLayer } from "./layer";
+import { layerRef, onboardingStateRef, readState } from "./onboarding/store";
 import type { ToolEnv } from "./tools";
 
 /** Placeholder until the pilot measures what a Pro turn really costs (spec §12). */
@@ -37,6 +39,8 @@ export type ProArgs = Parameters<typeof answerWithAi>[0] & {
   branchId?: string | null;
   /** The caller's already-loaded clinic profile (schedule, doctors). Loaded here when absent. */
   profile?: PublicClinicProfile;
+  /** "draft": answer with the owner's unsaved draft layer. Only the admin test chat sets it. */
+  proLayer?: "draft";
 };
 
 export interface ProContext {
@@ -58,6 +62,8 @@ export interface ProContext {
   freeTimes: ToolEnv["freeTimes"];
   dayLabel: ToolEnv["dayLabel"];
   patientFile: ToolEnv["patientFile"];
+  /** What the owner taught Pro (the live version, or the draft in the test chat); null when nothing. */
+  layer: ClinicLayer | null;
 }
 
 export interface ProSink {
@@ -121,18 +127,56 @@ async function threadOf(clinicId: string, chatId: string): Promise<AiThreadLine[
     .filter((l) => l.text.trim() && !l.text.startsWith("["));
 }
 
+/** Where the layer is read from; the production reader is below, tests inject their own. */
+export interface LayerReader {
+  state(): Promise<unknown>;
+  version(id: string): Promise<unknown>;
+}
+
+const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+
+/**
+ * The layer for one turn: the live version's, or the draft's. Any failure, a missing doc or
+ * nothing live gives null, and a null layer leaves the reply exactly as it was without one.
+ */
+export async function loadClinicLayerWith(read: LayerReader, which: "live" | "draft"): Promise<ClinicLayer | null> {
+  try {
+    const raw = await read.state();
+    if (!isObj(raw)) return null;
+    const state = readState(raw);
+    if (which === "draft") return state.draft;
+    if (!state.liveVersion) return null;
+    const version = await read.version(state.liveVersion);
+    if (!isObj(version) || !isObj(version.layer)) return null;
+    return sanitizeLayer(version.layer).layer;
+  } catch {
+    return null;
+  }
+}
+
+export function loadClinicLayer(clinicId: string, which: "live" | "draft"): Promise<ClinicLayer | null> {
+  return loadClinicLayerWith(
+    {
+      state: async () => (await onboardingStateRef(clinicId).get()).data(),
+      version: async (id) => (await layerRef(clinicId, id).get()).data(),
+    },
+    which
+  );
+}
+
 export async function loadProContext(args: ProArgs): Promise<ProContext> {
   const { clinicId } = args;
   const todayKey = clinicNow().dateKey;
   const loadPerson = () =>
     loadProPerson({ clinicId, chatId: args.chatId, phone: args.phone, conversationPatientId: args.conversationPatientId, todayKey });
 
-  const [blocked, person, thread, prices, profile] = await Promise.all([
+  const [blocked, person, thread, prices, profile, layer] = await Promise.all([
     gateOf(clinicId),
     loadPerson(),
     threadOf(clinicId, args.chatId),
     priceList(clinicId),
     args.profile ? Promise.resolve(args.profile) : loadPublicClinicProfile(clinicId, { requireEnabled: false, loadDoctors: true }).catch(() => null),
+    loadClinicLayer(clinicId, args.proLayer === "draft" ? "draft" : "live"),
   ]);
   const schedule = profile?.schedule;
   const branchId = args.branchId ?? null;
@@ -159,6 +203,7 @@ export async function loadProContext(args: ProArgs): Promise<ProContext> {
         : Promise.resolve([]),
     dayLabel: slotLabel,
     patientFile: async (id) => dossierLines(await loadPatientDossier(clinicId, id)),
+    layer,
   };
 }
 

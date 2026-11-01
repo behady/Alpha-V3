@@ -12,6 +12,7 @@ import { answerWithPro, PRO_CREDITS_PER_REPLY, realDoctor, type ProArgs, type Pr
 import type { ProContext, ProSink } from "../src/lib/botPro/proContext";
 import type { ProAppointment, ProPerson } from "../src/lib/botPro/person";
 import { arabicDayLabel, arabicTimeLabel } from "../src/lib/arabicDateTime";
+import { EMPTY_LAYER } from "../src/lib/botPro/layer";
 
 async function test(name: string, fn: () => Promise<void> | void) {
   await fn();
@@ -59,6 +60,7 @@ function makeContext(over: Partial<ProContext> = {}, spy: Spy = { freeTimesDocto
     },
     dayLabel: label,
     patientFile: async (id) => `file of ${id}: الباقي 300 ج.م`,
+    layer: null,
     ...over,
   };
 }
@@ -525,4 +527,30 @@ await test("a time the clinic wrote in its own facts may be repeated", async () 
   );
   assert.equal(r.kind, "answer");
   assert.equal(model.calls.length, 1);
+});
+
+await test("the clinic layer is in the prompt and its never-say is enforced", async () => {
+  const layer = { ...EMPTY_LAYER, neverSay: ["ارخص عيادة"], rules: ["اقفل بعرض كشف"] };
+  const model = fakeModel([reply({ action: "answer", reply: "احنا ارخص عيادة" }), reply({ action: "answer", reply: "أهلاً بحضرتك" })]);
+  const r = await answerWithPro(args({ question: "اهلا" }), { model, context: makeContext({ layer }), sink: fakeSink() });
+  assert.match(model.systems[0], /اقفل بعرض كشف/);
+  assert.equal(model.calls.length, 2);
+  assert.match(lastText(model.calls[1]), /ارخص عيادة/);
+  assert.match(lastText(model.calls[1]), /rejected/);
+  assert.equal(r.kind, "answer");
+  if (r.kind === "answer") assert.equal(r.text, "أهلاً بحضرتك");
+});
+
+await test("no layer (null) changes nothing", async () => {
+  const model = fakeModel([reply({ action: "answer", reply: "احنا ارخص عيادة" })]);
+  const r = await answerWithPro(args({ question: "اهلا" }), { model, context: makeContext({ layer: null }), sink: fakeSink() });
+  assert.equal(model.calls.length, 1);
+  assert.equal(r.kind, "answer");
+  assert.ok(!model.systems[0].includes("CLINIC LAYER"));
+  // An empty layer is the same as none: the prompt is byte-identical.
+  const model2 = fakeModel([reply({ action: "answer", reply: "اهلا" })]);
+  await answerWithPro(args({ question: "اهلا" }), { model: model2, context: makeContext({ layer: { ...EMPTY_LAYER } }), sink: fakeSink() });
+  const model3 = fakeModel([reply({ action: "answer", reply: "اهلا" })]);
+  await answerWithPro(args({ question: "اهلا" }), { model: model3, context: makeContext({ layer: null }), sink: fakeSink() });
+  assert.equal(model2.systems[0], model3.systems[0]);
 });

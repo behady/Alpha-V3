@@ -535,6 +535,8 @@ export async function respondToPatientMessage(args: {
   welcome?: boolean;
   /** The playground's "try the Pro brain" switch. Ignored unless dryRun; the route checks the add-on. */
   brainOverride?: AiBrain;
+  /** The playground's "use the draft layer" switch. Honoured only with dryRun; a live reply never sees a draft. */
+  proLayer?: "draft";
 }): Promise<BotOutcome> {
   const { clinicId, chatId, text } = args;
   const now = args.now ?? Date.now();
@@ -1337,7 +1339,7 @@ ${urgentCallLine(ctx.clinicPhone)}`;
       const brain: AiBrain = (args.dryRun && args.brainOverride) || settings.aiBrain;
       const brainReply = await pickReply(
         brain === "pro" && sales ? "pro" : "standard",
-        () => answerWithPro({ ...aiArgs, chatId, phone, conversationPatientId: conversation.patientId, previousSlotKeys: conversation.pendingSlots, branchId, profile }),
+        () => answerWithPro({ ...aiArgs, chatId, phone, conversationPatientId: conversation.patientId, previousSlotKeys: conversation.pendingSlots, branchId, profile, ...(args.dryRun && args.proLayer ? { proLayer: args.proLayer } : {}) }),
         () => answerWithAi(aiArgs)
       );
       const ai = brainReply.ai;

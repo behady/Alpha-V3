@@ -26,7 +26,7 @@ import { factLines, type BotPromptInput } from "@/lib/bot/botPrompt";
 import { dossierLines } from "@/lib/bot/patientDossier";
 import { allowedNumbers, checkReply, type Violation } from "./checks";
 import type { ProAppointment } from "./person";
-import { proRulebook, proTurnLayer } from "./proPrompt";
+import { proClinicLayer, proRulebook, proTurnLayer } from "./proPrompt";
 import { firestoreProSink, loadProContext, PRO_CREDITS_PER_REPLY, PRO_THREAD_LINES, type ProArgs, type ProContext, type ProSink } from "./proContext";
 import { normalizeForMatch, PRO_TOOL_DECLARATIONS, runTool, type ToolEnv } from "./tools";
 
@@ -179,6 +179,8 @@ function violationNote(vs: Violation[], question: string): string {
           : "المريض كتب بالإنجليزي أو فرانكو وردك جه بالعربي. أعد نفس الرد بنفس لغة رسالته.";
       case "claims_human":
         return "ممنوع تقول إنك إنسان أو تنكر إنك مساعد آلي. لو المريض سأل، قول الحقيقة ببساطة.";
+      case "never_say":
+        return `العيادة طلبت متتقالش العبارات دي: ${v.detail}. أعد نفس الرد من غيرها.`;
       default:
         return "متقولش إنك بوت أو ذكاء اصطناعي من نفسك — المريض مسألش. أعد الرد من غير الكلام ده.";
     }
@@ -255,7 +257,9 @@ async function runTurn(
     medicineScreened: args.medicineScreened,
     media: args.media,
   };
-  const system = `${proRulebook({ clinical: input.clinical, canBook })}\n${proTurnLayer(input, person, { todayKey: ctx.todayKey, previousSlots })}`;
+  // The clinic layer sits between the fixed rulebook and the turn; empty, it adds no line at all.
+  const clinicLayer = proClinicLayer(ctx.layer);
+  const system = `${proRulebook({ clinical: input.clinical, canBook })}\n${clinicLayer ? `${clinicLayer}\n` : ""}${proTurnLayer(input, person, { todayKey: ctx.todayKey, previousSlots })}`;
   const contents: unknown[] = threadContents(ctx.thread, question);
 
   // Every source a figure, a time or a medicine name may come from. Tool results join as they arrive.
@@ -309,6 +313,7 @@ async function runTurn(
         question,
       ]),
       drugsAllowed: [question, ...(args.dossier?.prescriptions || []).flatMap((p) => p.items), ...toolOutputs].join(" \n "),
+      neverSay: ctx.layer?.neverSay ?? [],
     });
 
   const firstIds = new Set(ctx.person.upcoming.map((a) => a.id));
