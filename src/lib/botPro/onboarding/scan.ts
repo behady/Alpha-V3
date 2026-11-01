@@ -54,7 +54,7 @@ export const SUMMARY_SCHEMA = {
 
 // ---- coercion of the model's JSON ---------------------------------------------------------------
 
-const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+export const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 
 /** Strings only, trimmed, no empties or duplicates, each cut to `chars`, at most `max` of them. */
 function strs(v: unknown, max: number, chars = LINE_CHARS): string[] {

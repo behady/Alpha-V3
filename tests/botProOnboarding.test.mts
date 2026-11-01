@@ -8,6 +8,7 @@
 import assert from "node:assert/strict";
 import { EMPTY_LAYER } from "../src/lib/botPro/layer";
 import type { JsonModel } from "../src/lib/botPro/onboarding/jsonModel";
+import { OWNER_CHAT_SCHEMA, OWNER_DAILY_CAP, OWNER_TEXT_MAX, ownerChatTurn, RED_LINES } from "../src/lib/botPro/onboarding/ownerChat";
 import { openingMessage, scanStep, startScan, SUMMARY_SCHEMA } from "../src/lib/botPro/onboarding/scan";
 import { EMPTY_STATE, readState, toMs, type OnboardingStore } from "../src/lib/botPro/onboarding/store";
 import { bookedAfter, maskPhones, transcriptOf, type ChunkFindings, type RawConversation } from "../src/lib/botPro/onboarding/transcript";
@@ -436,4 +437,164 @@ test("readState treats startedAt/finishedAt/error of 0 and empty as unset", () =
   assert.equal(s.scan.startedAt, undefined);
   assert.equal(s.scan.finishedAt, undefined);
   assert.equal(s.scan.error, undefined);
+});
+
+// ---- the owner chat turn --------------------------------------------------------------------------
+
+/** A store whose scan is already done, with a draft and an opening message in the chat. */
+async function doneStore(extra: Record<string, unknown> = {}) {
+  const f = fakeStore([]);
+  await f.store.patchState({
+    scan: { status: "done", chatsRead: 5 },
+    learned: ["العيادة بتقفل الجمعة"],
+    questions: ["بتشتغلوا تأمين؟"],
+    draft: { rules: ["رحّب بالمريض باسمه"], handoffWhen: [], neverSay: [], promptSection: "" },
+    ...extra,
+  });
+  f.chat.push({ role: "ai", text: "قريت 5 محادثة قديمة." });
+  return f;
+}
+
+function chatModel(make: (prompt: string) => unknown, failWith?: Error) {
+  const calls: Call[] = [];
+  const model: JsonModel = {
+    async generate(prompt, schema) {
+      calls.push({ prompt, schema });
+      if (failWith) throw failWith;
+      return { json: make(prompt), usage: { inTok: 200, outTok: 20 } };
+    },
+  };
+  return { model, calls };
+}
+const IN = { todayKey: "2026-11-01", priceNames: ["كشف", "حشو"] };
+
+await atest("owner chat happy path: reply saved, draft replaced, two new chat rows, counters", async () => {
+  const f = await doneStore();
+  const m = chatModel(() => ({ reply: "تمام، ضفتها.", layer: { rules: ["رحّب بالمريض باسمه", "اسأل عن الشكوى الأول"], handoffWhen: ["لو المريض زعلان"], neverSay: [], promptSection: "عيادة ودودة." } }));
+  const before = f.chat.length;
+  const r = await ownerChatTurn(f.store, m.model, { ...IN, text: "  ضيف إننا نسأل عن الشكوى الأول  " });
+  assert.equal(r.ok, true);
+  if (!r.ok) return;
+  assert.equal(r.reply, "تمام، ضفتها.");
+  assert.deepEqual(r.dropped, []);
+  assert.deepEqual(r.draft.rules, ["رحّب بالمريض باسمه", "اسأل عن الشكوى الأول"]);
+  assert.equal(f.chat.length, before + 2);
+  assert.deepEqual(f.chat.slice(-2), [{ role: "owner", text: "ضيف إننا نسأل عن الشكوى الأول" }, { role: "ai", text: "تمام، ضفتها." }]);
+  const s = await f.store.getState();
+  assert.deepEqual(s.draft, r.draft);
+  assert.equal(s.chatCount, 1);
+  assert.equal(s.chatDay, "2026-11-01");
+  assert.deepEqual(s.usage, { calls: 1, inTok: 200, outTok: 20 });
+  assert.equal(m.calls[0].schema, OWNER_CHAT_SCHEMA);
+});
+
+await atest("owner chat prompt: red lines locked, data not orders, price names, history, owner text, 1-2 questions", async () => {
+  const f = await doneStore();
+  const m = chatModel(() => ({ reply: "تمام", layer: {} }));
+  await ownerChatTurn(f.store, m.model, { ...IN, text: "الاستقبال بيقفل 9 بالليل" });
+  const p = m.calls[0].prompt;
+  assert.equal(RED_LINES.length, 4);
+  for (const line of RED_LINES) assert.ok(p.includes(line), line);
+  assert.ok(RED_LINES[0].startsWith("No invented prices. A price may only come from the clinic's price list in the system."));
+  assert.ok(p.includes("مقفولة والمالك ما يقدرش يغيّرها"));
+  assert.ok(p.includes("تأكيد المالك هو اللي بيعتمد"));
+  assert.ok(p.includes("سؤال أو اتنين"));
+  assert.ok(p.includes("الطبقة كاملة"));
+  assert.ok(p.includes("لهجة مصرية"));
+  assert.ok(p.includes("- كشف") && p.includes("- حشو"));
+  assert.ok(p.includes("العيادة بتقفل الجمعة") && p.includes("بتشتغلوا تأمين؟"));
+  assert.ok(p.includes("رحّب بالمريض باسمه"));
+  assert.ok(p.includes("قريت 5 محادثة قديمة."));
+  assert.equal(p.split("الاستقبال بيقفل 9 بالليل").length - 1, 1, "owner text appears once");
+});
+
+await atest("owner chat sends only the last 30 turns", async () => {
+  const f = await doneStore();
+  for (let i = 0; i < 40; i++) f.chat.push({ role: i % 2 ? "ai" : "owner", text: `سطر-${i}-x` });
+  const m = chatModel(() => ({ reply: "تمام", layer: {} }));
+  await ownerChatTurn(f.store, m.model, { ...IN, text: "هاي" });
+  const p = m.calls[0].prompt;
+  assert.ok(!p.includes("سطر-9-x") && p.includes("سطر-10-x") && p.includes("سطر-39-x"));
+});
+
+await atest("owner chat: a price and a medicine the model copies into the rules are dropped, with the note", async () => {
+  const f = await doneStore();
+  const m = chatModel(() => ({ reply: "تمام.", layer: { rules: ["رحّب بالمريض باسمه", "الكشف بـ 300", "قولهم ياخدوا اوجمنتين"], handoffWhen: [], neverSay: [], promptSection: "" } }));
+  const r = await ownerChatTurn(f.store, m.model, { ...IN, text: "الكشف بـ 300 وقولهم ياخدوا اوجمنتين" });
+  assert.equal(r.ok, true);
+  if (!r.ok) return;
+  assert.deepEqual(r.draft.rules, ["رحّب بالمريض باسمه"]);
+  assert.deepEqual(r.dropped.map((d) => d.why).sort(), ["medicine", "price"]);
+  assert.ok(r.reply.startsWith("تمام."));
+  assert.ok(r.reply.endsWith("الأسعار مكانها قائمة الأسعار، والأدوية مش من شغل الرد التلقائي."), r.reply);
+  assert.ok(r.reply.includes("\n\nشلت من القواعد: "));
+  assert.ok(r.reply.includes("الكشف بـ 300") && r.reply.includes("قولهم ياخدوا اوجمنتين"));
+  assert.equal(f.chat[f.chat.length - 1].text, r.reply);
+  assert.deepEqual((await f.store.getState()).draft.rules, ["رحّب بالمريض باسمه"]);
+});
+
+await atest("owner chat cap: the 61st message on a day is refused, the next day is fine", async () => {
+  const f = await doneStore({ chatDay: "2026-11-01", chatCount: OWNER_DAILY_CAP - 1 });
+  const m = chatModel(() => ({ reply: "تمام", layer: {} }));
+  const last = await ownerChatTurn(f.store, m.model, { ...IN, text: "الستين" });
+  assert.equal(last.ok, true);
+  assert.equal((await f.store.getState()).chatCount, OWNER_DAILY_CAP);
+  const chatLen = f.chat.length;
+  const over = await ownerChatTurn(f.store, m.model, { ...IN, text: "الحادية والستين" });
+  assert.deepEqual(over, { ok: false, error: "cap" });
+  assert.equal(f.chat.length, chatLen, "a refused call saves nothing");
+  assert.equal(m.calls.length, 1);
+  const next = await ownerChatTurn(f.store, m.model, { ...IN, todayKey: "2026-11-02", text: "يوم جديد" });
+  assert.equal(next.ok, true);
+  const s = await f.store.getState();
+  assert.equal(s.chatDay, "2026-11-02");
+  assert.equal(s.chatCount, 1);
+});
+
+await atest("owner chat: empty, too long, and scan not done", async () => {
+  const f = await doneStore();
+  const m = chatModel(() => ({ reply: "تمام", layer: {} }));
+  assert.deepEqual(await ownerChatTurn(f.store, m.model, { ...IN, text: "   " }), { ok: false, error: "empty" });
+  assert.deepEqual(await ownerChatTurn(f.store, m.model, { ...IN, text: "ا".repeat(OWNER_TEXT_MAX + 1) }), { ok: false, error: "too_long" });
+  assert.equal((await ownerChatTurn(f.store, m.model, { ...IN, text: "ا".repeat(OWNER_TEXT_MAX) })).ok, true);
+  for (const status of ["running", "summarizing", "idle", "failed"]) {
+    const g = await doneStore({ scan: { status } });
+    assert.deepEqual(await ownerChatTurn(g.store, m.model, { ...IN, text: "هاي" }), { ok: false, error: "not_ready" }, status);
+    assert.equal(g.chat.length, 1);
+  }
+  const fresh = fakeStore([]);
+  assert.deepEqual(await ownerChatTurn(fresh.store, m.model, { ...IN, text: "هاي" }), { ok: false, error: "not_ready" });
+});
+
+await atest("owner chat: a model failure keeps the owner turn but costs no count, draft or usage", async () => {
+  const f = await doneStore({ chatDay: "2026-11-01", chatCount: 3 });
+  const m = chatModel(() => ({}), new Error("model down"));
+  await assert.rejects(ownerChatTurn(f.store, m.model, { ...IN, text: "كلمة" }), /model down/);
+  assert.deepEqual(f.chat.slice(-1), [{ role: "owner", text: "كلمة" }]);
+  const s = await f.store.getState();
+  assert.equal(s.chatCount, 3);
+  assert.deepEqual(s.usage, { calls: 0, inTok: 0, outTok: 0 });
+  assert.deepEqual(s.draft.rules, ["رحّب بالمريض باسمه"]);
+});
+
+await atest("owner chat: a reply that is not a non-empty string is a model failure", async () => {
+  for (const bad of [{ layer: {} }, { reply: "", layer: {} }, { reply: "   ", layer: {} }, { reply: 5, layer: {} }, "junk", null, [1]]) {
+    const f = await doneStore();
+    const m = chatModel(() => bad);
+    await assert.rejects(ownerChatTurn(f.store, m.model, { ...IN, text: "هاي" }), /no reply/, JSON.stringify(bad));
+    assert.equal((await f.store.getState()).chatCount, 0);
+    assert.equal(f.chat[f.chat.length - 1].role, "owner");
+  }
+});
+
+await atest("owner chat: a reply without a layer object keeps the draft; a junk layer goes through the sanitiser", async () => {
+  const f = await doneStore();
+  const r = await ownerChatTurn(f.store, chatModel(() => ({ reply: "ماشي" })).model, { ...IN, text: "هاي" });
+  assert.equal(r.ok && r.draft.rules[0], "رحّب بالمريض باسمه");
+  assert.deepEqual((await f.store.getState()).draft.rules, ["رحّب بالمريض باسمه"]);
+
+  const g = await doneStore();
+  const r2 = await ownerChatTurn(g.store, chatModel(() => ({ reply: "ماشي", layer: { rules: [1, null, "قاعدة سليمة"], neverSay: "x" } })).model, { ...IN, text: "هاي" });
+  assert.equal(r2.ok, true);
+  assert.deepEqual((await g.store.getState()).draft.rules, ["قاعدة سليمة"]);
 });
