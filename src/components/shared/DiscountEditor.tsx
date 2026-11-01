@@ -59,6 +59,13 @@ type Props = {
   onChange: (next: DiscountState) => void;
   currency?: string;
   disabled?: boolean;
+  /**
+   * Which half to draw. "list" is who pays and the price list (chosen before the treatment, since
+   * the list prefills its price); "discount" is the discount, its reason and the before/after line
+   * (chosen after the price). Only the "list" half (or "all") settles the payer, the list and the
+   * list's blanket discount, so a screen showing both halves runs that once.
+   */
+  part?: "all" | "list" | "discount";
 };
 
 export default function DiscountEditor({
@@ -72,7 +79,9 @@ export default function DiscountEditor({
   onChange,
   currency,
   disabled = false,
+  part = "all",
 }: Props) {
+  const settles = part !== "discount";
   const { language } = useLanguage();
   const ar = language === "ar";
   const money = currency || (ar ? "ج.م" : "EGP");
@@ -93,7 +102,7 @@ export default function DiscountEditor({
   // and save it that way. A retired payer stays as recorded and is shown as such.
   const editorPayer = useMemo(() => findPayer(payers, value.payerId) ?? payerForPriceList(payers, value.priceListId), [payers, value.payerId, value.priceListId]);
   useEffect(() => {
-    if (activePayers.length === 0 || value.payerId) return;
+    if (!settles || activePayers.length === 0 || value.payerId) return;
     onChange({ ...value, payerId: PRIVATE_PAYER_ID });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activePayers, value.payerId]);
@@ -115,7 +124,7 @@ export default function DiscountEditor({
    * price is read from are the same list.
    */
   useEffect(() => {
-    if (activeLists.length === 0) return;
+    if (!settles || activeLists.length === 0) return;
     if (activeLists.some((l) => l.id === value.priceListId)) return;
     onChange({ ...value, priceListId: resolveActiveListId(activeLists, value.priceListId, null, branchId) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -128,7 +137,7 @@ export default function DiscountEditor({
    * having it overwritten by switching lists to check a price would be its own small betrayal.
    */
   useEffect(() => {
-    if (!selectedList) return;
+    if (!settles || !selectedList) return;
     const blanket = selectedList.generalDiscountPercent;
     if (blanket > 0 && value.mode === "none" && value.value === "") {
       onChange({ ...value, mode: "percent", value: blanket });
@@ -178,7 +187,7 @@ export default function DiscountEditor({
   return (
     <div className="space-y-3">
       {/* Who pays, chosen outright. Any service can be billed to any payer; the price box is the price. */}
-      {activePayers.length > 1 && (
+      {part !== "discount" && activePayers.length > 1 && (
         <div>
           <label className="mb-1 block text-[11px] font-black uppercase tracking-widest text-accent">
             <Info size={11} className="mr-1 inline" />
@@ -202,7 +211,7 @@ export default function DiscountEditor({
       {/* Always shown, even with one list. Which prices a treatment was charged at is part of
           the record, and a clinic with a single list still benefits from seeing it named rather
           than having to remember that "no list shown" meant the standard one. */}
-      {activeLists.length > 0 && (
+      {part !== "discount" && activeLists.length > 0 && (
         <div>
           <label className="mb-1 block text-[11px] font-black uppercase tracking-widest text-accent">
             <Tag size={11} className="mr-1 inline" />
@@ -242,6 +251,7 @@ export default function DiscountEditor({
         </div>
       )}
 
+      {part !== "list" && (
       <div>
         <label className="mb-1 block text-[11px] font-black uppercase tracking-widest text-accent">
           <Percent size={11} className="mr-1 inline" />
@@ -289,8 +299,9 @@ export default function DiscountEditor({
           <p className="mt-1 text-[11px] font-bold text-rose-600">{txt.overCeiling(percent.toFixed(1))}</p>
         )}
       </div>
+      )}
 
-      {applied.discountAmount > 0 && (
+      {part !== "list" && applied.discountAmount > 0 && (
         <div>
           <label className="mb-1 block text-[11px] font-black uppercase tracking-widest text-accent">
             {txt.reason}
@@ -315,7 +326,7 @@ export default function DiscountEditor({
       )}
 
       {/* The whole point: what came off is visible, not folded into a smaller number. */}
-      {applied.discountAmount > 0 && (
+      {part !== "list" && applied.discountAmount > 0 && (
         <div className="flex items-center justify-between gap-2 rounded-xl bg-primary-50/70 px-3 py-2.5 text-sm">
           <span className="font-medium text-ink-muted line-through tabular-nums">
             {applied.listPrice.toLocaleString()}

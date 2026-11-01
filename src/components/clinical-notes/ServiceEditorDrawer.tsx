@@ -328,7 +328,7 @@ export const TeethChartSelector = memo(function TeethChartSelector({
               compactMode={true}
               dense
               narrow={narrow}
-              fit={phoneFit}
+              pickSlots={phoneFit}
               isPrimary={primary}
               selectedTeeth={selectedNumbers}
               onToggleTooth={(id) => (markingMissing ? void toggleMissing(id.toString()) : onToggle(id.toString()))}
@@ -474,8 +474,6 @@ export default function ServiceEditorDrawer({
   const dentistNew = dentistMode && !initialNote;
 
   const [discount, setDiscount] = useState<DiscountState>(EMPTY_DISCOUNT);
-  /** Phones: the price list and discount block folds behind one button until it is wanted. */
-  const [pricingOpen, setPricingOpen] = useState(false);
   const activeLists = useMemo(() => listsForBranch(priceLists, branchId).filter((l) => l.active), [priceLists, branchId]);
 
   /**
@@ -868,9 +866,7 @@ export default function ServiceEditorDrawer({
         ? `${previewUnits} ${language === "ar" ? (previewUnits === 1 ? "فك" : "فكين") : previewUnits === 1 ? "arch" : "arches"}`
         : `${previewUnits} ${language === "ar" ? "سن" : previewUnits === 1 ? "tooth" : "teeth"}`;
 
-  const billingStrip = (
-    <div className="rounded-xl border border-line bg-surface-subtle px-3 py-2.5">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+  const chargingLine = (
         <p className="text-xs font-bold text-ink-body">
           {previewMode === "flat" ? (
             <>
@@ -889,6 +885,12 @@ export default function ServiceEditorDrawer({
             </>
           )}
         </p>
+  );
+
+  const billingStrip = (
+    <div className="rounded-xl border border-line bg-surface-subtle px-3 py-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        {chargingLine}
 
         <label className="flex items-center gap-2 shrink-0">
           <span className="text-[11px] font-bold text-ink-muted">
@@ -916,14 +918,27 @@ export default function ServiceEditorDrawer({
     </div>
   );
 
-  /** The billing rule alone, for phones, where it sits beside the price box. */
+  /** What the phone's Save bar shows: the line total after any discount the desk entered. */
+  const footerDiscountValue = discount.value === "" ? 0 : Number(discount.value);
+  const footerApplied = applyDiscount(previewTotal, discount.mode, footerDiscountValue);
+  const footerDiscounted = !dentistNew && footerApplied.discountAmount > 0;
+  const footerNet = footerDiscounted ? footerApplied.net : previewTotal;
+
+  // --- Individual controls, so the two layouts below share one set of inputs ---
+  const inputClass =
+    "w-full bg-surface border border-line-strong rounded-xl px-4 py-2.5 text-[15px] font-bold text-ink outline-none focus:border-ink max-md:px-3 max-md:py-2";
+  const labelClass = "block text-[13px] font-bold text-ink-muted mb-1";
+  /** Inputs and selects alike are 44px: a date box and a select beside it used to differ. */
+  const fieldClass = `${inputClass} h-11 py-0 leading-normal`;
+
+  /** The billing rule alone, to sit beside the price box in the pop-up. */
   const billingModeField = (
     <div>
       <label className="block text-[13px] font-bold text-ink-muted mb-1">{language === "ar" ? "طريقة الحساب" : "Billing"}</label>
       <select
         value={previewMode}
         onChange={(e) => setPricingModeOverride(e.target.value as PricingMode)}
-        className="w-full bg-surface border border-line-strong rounded-xl px-3 py-2 text-[15px] font-bold text-ink outline-none focus:border-ink"
+        className={fieldClass}
       >
         <option value="per_tooth">{modeLabels.per_tooth}</option>
         <option value="flat">{modeLabels.flat}</option>
@@ -937,33 +952,10 @@ export default function ServiceEditorDrawer({
     </div>
   );
 
-  /** What the phone's Save bar shows: the line total after any discount the desk entered. */
-  const footerDiscountValue = discount.value === "" ? 0 : Number(discount.value);
-  const footerApplied = applyDiscount(previewTotal, discount.mode, footerDiscountValue);
-  const footerDiscounted = !dentistNew && footerApplied.discountAmount > 0;
-  const footerNet = footerDiscounted ? footerApplied.net : previewTotal;
-  const pricingListName = (() => {
-    const list = activeLists.find((l) => l.id === discount.priceListId);
-    return list ? (isAr && list.nameAr ? list.nameAr : list.name) : "";
-  })();
-  const discountSummary =
-    discount.mode === "none" || discount.value === ""
-      ? (isAr ? "بدون" : "None")
-      : discount.mode === "percent"
-        ? `${discount.value}%`
-        : `${Number(discount.value).toLocaleString()} ${isAr ? "ج.م" : "EGP"}`;
-  /** A discount on the line keeps the block open, so its reason and ceiling are never hidden. */
-  const pricingShown = pricingOpen || discount.mode !== "none";
-
-  // --- Individual controls, so the two layouts below share one set of inputs ---
-  const inputClass =
-    "w-full bg-surface border border-line-strong rounded-xl px-4 py-2.5 text-[15px] font-bold text-ink outline-none focus:border-ink max-md:px-3 max-md:py-2";
-  const labelClass = "block text-[13px] font-bold text-ink-muted mb-1";
-
   const dateField = (
     <div>
       <label className={labelClass}>{txt.date}</label>
-      <input type="date" value={date} onChange={e => setDate(e.target.value)} required className={inputClass} />
+      <input type="date" value={date} onChange={e => setDate(e.target.value)} required className={fieldClass} />
     </div>
   );
 
@@ -1002,7 +994,7 @@ export default function ServiceEditorDrawer({
   const doctorField = (
     <div>
       <label className={labelClass}>{txt.selectDoctor}</label>
-      <select value={selectedDoctorId} onChange={e => setSelectedDoctorId(e.target.value)} className={inputClass}>
+      <select value={selectedDoctorId} onChange={e => setSelectedDoctorId(e.target.value)} className={fieldClass}>
         {/* No dentist is a real answer here, not an empty field: the clinic did the work. It is
             charged the same way and earns nobody a commission. */}
         <option value="">{generalDoctorLabel(language)}</option>
@@ -1018,7 +1010,7 @@ export default function ServiceEditorDrawer({
       <label className={labelClass}>{txt.cost}</label>
       <input
         type="number" min="0" step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} placeholder="0"
-        className={inputClass}
+        className={fieldClass}
       />
       {needsTypedPrice && (
         <p className="mt-1 text-[11px] font-semibold text-amber-700">{txt.needsPrice}</p>
@@ -1038,7 +1030,7 @@ export default function ServiceEditorDrawer({
         <select
           value={activeLists.some((l) => l.id === discount.priceListId) ? discount.priceListId : ""}
           onChange={(e) => setDiscount((d) => ({ ...d, priceListId: e.target.value }))}
-          className={inputClass}
+          className={fieldClass}
         >
           {activeLists.map((list) => {
             const owner = payerForPriceList(payers, list.id);
@@ -1051,7 +1043,7 @@ export default function ServiceEditorDrawer({
           })}
         </select>
       ) : (
-        <p className={inputClass}>{isAr && activeLists[0].nameAr ? activeLists[0].nameAr : activeLists[0].name}</p>
+        <p className={`${fieldClass} flex items-center`}>{isAr && activeLists[0].nameAr ? activeLists[0].nameAr : activeLists[0].name}</p>
       )}
     </div>
   ) : null;
@@ -1065,7 +1057,7 @@ export default function ServiceEditorDrawer({
             type="text"
             value={procedure}
             onChange={(e) => setProcedure(e.target.value)}
-            className={`flex-1 ${inputClass}`}
+            className={`flex-1 ${fieldClass}`}
           />
           <button
             type="button"
@@ -1194,8 +1186,9 @@ export default function ServiceEditorDrawer({
     </div>
   ) : null;
 
-  const discountField = (
+  const discountField = (part: "all" | "list" | "discount") => (
     <DiscountEditor
+      part={part}
       listTotal={previewTotal}
       priceLists={priceLists}
       branchId={branchId}
@@ -1278,7 +1271,7 @@ export default function ServiceEditorDrawer({
             <div>
               {/* Empty label so this lines up with the fields beside it. */}
               <span className={labelClass} aria-hidden="true">&nbsp;</span>
-              {discountField}
+              {discountField("all")}
               {ledgerField}
             </div>
           )}
@@ -1429,63 +1422,29 @@ export default function ServiceEditorDrawer({
             {!dentistMode && <div className="min-w-0 max-md:order-2 md:order-3 md:col-span-2">{doctorField}</div>}
           </div>
 
+          {/*
+            The price list before the treatment: picking a treatment prefills its price FROM the
+            list, so choosing the list afterwards had it in the wrong order (owner, 2026-11-01).
+            Who pays travels with the list. The discount comes after the price it reduces.
+          */}
+          {dentistMode ? dentistListField : discountField("list")}
+
           <div className="space-y-2">
             {procedureField}
-            {!dentistMode && extraProceduresField(3)}
+            {/* Gone from the form; kept only while editing a record that already holds extra
+                treatments, so they stay visible and can still be removed. */}
+            {!dentistMode && multiProceduresText.trim().length > 0 && extraProceduresField(2)}
           </div>
 
-          {/* Phones: the billing rule sits beside the price; the total itself is in the Save bar. */}
-          {dentistMode ? (
-            <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-md:grid-cols-2 max-md:gap-2.5">
-                {dentistListField}
-                {costField}
-              </div>
-              <div className="md:hidden">{billingModeField}</div>
-            </>
-          ) : (
-            <div className="max-md:grid max-md:grid-cols-2 max-md:gap-2.5">
-              {costField}
-              <div className="md:hidden">{billingModeField}</div>
-            </div>
-          )}
+          <div className="grid grid-cols-2 items-end gap-2.5 md:gap-4">
+            {costField}
+            {billingModeField}
+          </div>
 
-          {/*
-            The price list, in the drawer as well as in the compact editor.
+          {!dentistMode && discountField("discount")}
 
-            It was only ever rendered in the inline form, which the tooth chart uses — so the
-            drawer that opens from the patient's file and from the appointment panel, which is
-            where the front desk actually records treatments, had no way to choose a list at all.
-            Every treatment recorded there silently took the clinic's default.
-
-            That was survivable while a list was only a discount sheet. It stopped being
-            survivable when the list became the insurer: an insurance case recorded from the desk
-            was charged at clinic prices and counted as private revenue, and the screen gave
-            nobody a way to say otherwise.
-          */}
-          {!dentistMode && (
-            <div>
-              <button
-                type="button"
-                onClick={() => setPricingOpen((v) => !v)}
-                aria-expanded={pricingShown}
-                className="flex w-full items-center gap-2 rounded-xl border border-line bg-surface-subtle px-3 py-2 text-start md:hidden"
-              >
-                <span className="min-w-0 truncate rounded-full bg-surface px-2.5 py-1 text-[11px] font-bold text-ink-body">
-                  {isAr ? "قائمة الأسعار" : "Price list"} · <span className="text-ink">{pricingListName || "—"}</span>
-                </span>
-                <span className="min-w-0 truncate rounded-full bg-surface px-2.5 py-1 text-[11px] font-bold text-ink-body">
-                  {isAr ? "الخصم" : "Discount"} · <span className="text-ink">{discountSummary}</span>
-                </span>
-                <ChevronDown size={16} className={`ms-auto shrink-0 text-ink-muted transition-transform ${pricingShown ? "rotate-180" : ""}`} aria-hidden="true" />
-              </button>
-              {/* Kept mounted while folded: the editor is what settles the list and its blanket
-                  discount, so folding must only hide it. */}
-              <div className={pricingShown ? "max-md:mt-2.5" : "max-md:hidden"}>{discountField}</div>
-            </div>
-          )}
-
-          <div className="max-md:hidden">{billingStrip}</div>
+          {/* Phones carry this total in the Save bar. */}
+          <div className="rounded-xl border border-line bg-surface-subtle px-3 py-2.5 max-md:hidden">{chargingLine}</div>
 
           {noteField(4)}
 

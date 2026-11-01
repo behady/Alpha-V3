@@ -99,12 +99,12 @@ interface TeethChartProps {
    */
   narrow?: boolean;
   /**
-   * On a phone, fit all sixteen teeth across instead of scrolling. Only the procedure pop-up asks:
-   * there the dentist is picking teeth, and dragging the row to reach 28 was the complaint
-   * (owner, 2026-11-01). Each tooth gets an equal slot (~19px at 390px); a picked tooth lights
-   * its whole slot, number included, rather than a ring that runs over the neighbours.
+   * The procedure pop-up's picker: a picked tooth lights its whole slot, number included, instead
+   * of the ring that ran over the neighbouring numbers; the row scrolls with a thin visible bar.
+   * Teeth keep their full size: fitting all sixteen on a phone made them too small to tap
+   * (owner, 2026-11-01).
    */
-  fit?: boolean;
+  pickSlots?: boolean;
 }
 
 export type { ToothData };
@@ -126,7 +126,7 @@ export default function TeethChart({
   treatments = {},
   dense = false,
   narrow = false,
-  fit = false,
+  pickSlots = false,
 }: TeethChartProps) {
   const { language, isRTL } = useLanguage();
   const { clinicId } = useClinic();
@@ -189,8 +189,6 @@ export default function TeethChart({
    * that — a phone — and it scrolls, because 19px teeth are not a chart.
    */
   const tight = narrow || (avail > 0 && avail < (isPrimary ? 460 : 760));
-  /** Narrower than even the small tooth needs, and the caller asked for the row to fit. */
-  const fitRow = fit && avail > 0 && avail < (isPrimary ? 380 : 570);
 
   /**
    * Centre again once the chart knows how wide it is. The centring above runs before the first
@@ -444,7 +442,7 @@ export default function TeethChart({
           : "text-slate-400 group-hover:text-ink-body";
     const wordChip = selectionMode ? (
       <span
-        className={`block h-[14px] rounded-[5px] border font-black leading-[12px] whitespace-nowrap ${fitRow ? "max-w-full overflow-hidden px-px text-[7px]" : "px-1 text-[9px]"} ${
+        className={`block h-[14px] rounded-[5px] border px-1 text-[9px] font-black leading-[12px] whitespace-nowrap ${
           wordUnder
             ? wordState === "implant"
               ? "border-[#B5E3DA] bg-[#E6F6F3] text-[#0F766E]"
@@ -473,10 +471,8 @@ export default function TeethChart({
       <div
         key={`${id}-${viewType}`}
         data-tooth={id}
-        className={`group relative flex flex-col items-center justify-center ${
-          fitRow
-            ? `rounded-md px-px py-0.5 ${isPicked ? "bg-accent/40 ring-1 ring-ink-slab" : ""}`
-            : compactMode ? "mx-0.5" : "m-0.5 sm:m-1"
+        className={`group relative flex flex-col items-center justify-center ${compactMode ? "mx-0.5" : "m-0.5 sm:m-1"} ${
+          pickSlots ? `rounded-md px-0.5 py-0.5 ${isPicked ? "bg-accent/40 ring-1 ring-ink-slab" : ""}` : ""
         } cursor-pointer ${
           selectionMode ? "cursor-pointer" : readOnly ? "cursor-default" : "cursor-pointer"
         }`}
@@ -502,7 +498,7 @@ export default function TeethChart({
 
         {/* Lower tooth: the number sits above it, toward the midline. */}
         {!isUpper && viewType === "buccal" && !perioMode && (
-           <div className={`${fitRow ? "text-[9px] leading-none tracking-tighter" : "text-[10px] sm:text-xs tracking-tight"} font-bold tabular-nums transition-colors ${numberClass} ${dense ? "mt-0.5" : "mt-2"}`}>
+           <div className={`text-[10px] sm:text-xs font-bold tabular-nums tracking-tight transition-colors ${numberClass} ${dense ? "mt-0.5" : "mt-2"}`}>
              {id}
            </div>
         )}
@@ -510,9 +506,7 @@ export default function TeethChart({
 
         <div
           className={`transition-all duration-200 ${
-            fitRow
-              ? "aspect-[28/38] w-full"
-              : tight
+            tight
               // A narrow container is not a wide screen — hold the small tooth here whatever the
               // monitor says, so all sixteen still fit the card instead of being clipped by it.
               ? isPrimary ? "w-[26px] h-[34px]" : "w-[28px] h-[38px]"
@@ -522,7 +516,7 @@ export default function TeethChart({
               // each breakpoint: ~48px×16 inside a ~950px card at lg, ~58px×16 at xl and up.
               : `w-[30px] h-[40px] sm:w-[30px] sm:h-[40px] md:w-[42px] md:h-[52px] ${wide ? "lg:w-[48px] lg:h-[60px] xl:w-[58px] xl:h-[72px]" : ""}`
           } ${
-            fitRow
+            pickSlots
               ? ""
               : selectionMode && selectedTeeth.includes(id)
               /*
@@ -588,7 +582,7 @@ export default function TeethChart({
 
         {/* Upper tooth: the number sits below it, toward the midline. */}
         {isUpper && viewType === "buccal" && !perioMode && (
-           <div className={`${fitRow ? "text-[9px] leading-none tracking-tighter" : "text-[10px] sm:text-xs tracking-tight"} font-bold tabular-nums transition-colors ${numberClass} ${dense ? "mb-0.5" : "mb-2"}`}>
+           <div className={`text-[10px] sm:text-xs font-bold tabular-nums tracking-tight transition-colors ${numberClass} ${dense ? "mb-0.5" : "mb-2"}`}>
              {id}
            </div>
         )}
@@ -597,10 +591,7 @@ export default function TeethChart({
         {/* Tooltip */}
         {isHover && tooltipLines.length > 0 && (
           <div
-            className={`absolute z-30 ${isUpper ? "top-full mt-2" : "bottom-full mb-2"} ${
-              // Fitted, the end teeth sit on the card's edge: open the tip inward, not centred.
-              fitRow ? ([2, 3, 6, 7].includes(Math.floor(id / 10)) ? "right-0" : "left-0") : "left-1/2 -translate-x-1/2"
-            } px-2.5 py-1.5 rounded-lg bg-slate-900 text-white text-[11px] font-semibold whitespace-nowrap shadow-lg pointer-events-none animate-in fade-in duration-100`}
+            className={`absolute z-30 ${isUpper ? "top-full mt-2" : "bottom-full mb-2"} left-1/2 -translate-x-1/2 px-2.5 py-1.5 rounded-lg bg-slate-900 text-white text-[11px] font-semibold whitespace-nowrap shadow-lg pointer-events-none animate-in fade-in duration-100`}
           >
             <div className="text-[10px] opacity-70 mb-0.5">FDI {id}</div>
             {tooltipLines.slice(0, 3).map((l, i) => (
@@ -630,7 +621,11 @@ export default function TeethChart({
             <div className="pointer-events-none absolute inset-y-0 right-0 w-8 lg:w-6 bg-gradient-to-l from-white to-transparent z-20 rounded-r-3xl" />
           </>
         )}
-      <div ref={scrollRef} className="w-full overflow-x-auto no-scrollbar" dir="ltr">
+      <div
+        ref={scrollRef}
+        className={`w-full overflow-x-auto ${pickSlots ? "overscroll-x-contain pb-1 [scrollbar-color:#cbd5e1_transparent] [scrollbar-width:thin]" : "no-scrollbar"}`}
+        dir="ltr"
+      >
         {/*
           The floor under the chart, and the reason it is a ladder rather than one number.
 
@@ -648,9 +643,7 @@ export default function TeethChart({
         */}
         <div
           className={`w-full ${wide ? "max-w-none" : "max-w-5xl"} mx-auto ${
-            fitRow
-              ? ""
-              : tight
+            tight
               ? isPrimary ? "min-w-[380px]" : "min-w-[570px]"
               : isPrimary
                 ? "min-w-[440px] md:min-w-[460px]"
@@ -660,12 +653,12 @@ export default function TeethChart({
           {/* Which side is which, in the picker: the chart is drawn as the dentist faces the
               patient, so the patient's right is on the viewer's left. */}
           {dense && selectionMode && (
-            <div className={`flex items-center justify-between pb-1.5 font-bold text-ink ${fitRow ? "gap-1 px-0.5 text-[10px]" : "px-2 text-[11px]"}`}>
-              <span className={`rounded-full border border-line-strong bg-surface py-0.5 ${fitRow ? "px-2" : "px-2.5"}`}>
+            <div className="flex items-center justify-between px-2 pb-1.5 text-[11px] font-bold text-ink">
+              <span className="rounded-full border border-line-strong bg-surface px-2.5 py-0.5">
                 {language === "ar" ? "يمين المريض" : "Patient's right"} <span className="font-figure text-ink-muted">R</span>
               </span>
               <span className="text-ink-muted">{language === "ar" ? "الفك العلوي" : "Upper jaw"}</span>
-              <span className={`rounded-full border border-line-strong bg-surface py-0.5 ${fitRow ? "px-2" : "px-2.5"}`}>
+              <span className="rounded-full border border-line-strong bg-surface px-2.5 py-0.5">
                 <span className="font-figure text-ink-muted">L</span> {language === "ar" ? "شمال المريض" : "Patient's left"}
               </span>
             </div>
@@ -682,7 +675,7 @@ export default function TeethChart({
           </div>
 
           {/* Chart canvas (Grid Layout) */}
-          <div className={`rounded-3xl border border-slate-100 bg-surface shadow-sm ${fitRow ? "px-0.5" : "px-2"} ${dense ? "md:px-3 py-3" : "md:px-6 py-6 md:py-8"} flex flex-col items-center justify-center overflow-hidden`}>
+          <div className={`rounded-3xl border border-slate-100 bg-surface shadow-sm px-2 ${dense ? "md:px-3 py-3" : "md:px-6 py-6 md:py-8"} flex flex-col items-center justify-center overflow-hidden`}>
             <div className={`flex flex-col ${dense ? "gap-3" : "gap-6 md:gap-8"} w-full ${wide ? "max-w-none" : "max-w-3xl"} items-center relative`}>
                
                {/* Global cross dividers for the entire grid */}
@@ -693,10 +686,10 @@ export default function TeethChart({
                  {perioMode && (
                    <PerioOverlay arch={[...(isPrimary ? ChildQ1 : Q1), ...(isPrimary ? ChildQ2 : Q2)]} data={data} isUpper={true} containerRef={upperRowRef} />
                  )}
-                 <div className={`flex flex-row w-full justify-center gap-0.5 md:gap-1 md:px-2 ${fitRow ? "px-0" : "px-1"}`}>
+                 <div className="flex flex-row w-full justify-center gap-0.5 md:gap-1 px-1 md:px-2">
                    <div className="flex justify-end gap-0 w-full">
                      { (isPrimary ? ChildQ1 : Q1).map((id, index) => (
-                        <div key={`u-buc-${id}`} className={fitRow ? "min-w-0 flex-1" : "shrink-0"} style={{ transform: `translateY(${(isPrimary ? 5 - index : 8 - index) * 3}px)` }}>
+                        <div key={`u-buc-${id}`} className="shrink-0" style={{ transform: `translateY(${(isPrimary ? 5 - index : 8 - index) * 3}px)` }}>
                           {renderTooth(id, "buccal")}
                         </div>
                      )) }
@@ -704,7 +697,7 @@ export default function TeethChart({
                    <div className="w-1 md:w-2 shrink-0" />
                    <div className="flex justify-start gap-0 w-full">
                      { (isPrimary ? ChildQ2 : Q2).map((id, index) => (
-                        <div key={`u-buc-${id}`} className={fitRow ? "min-w-0 flex-1" : "shrink-0"} style={{ transform: `translateY(${(index + 1) * 3}px)` }}>
+                        <div key={`u-buc-${id}`} className="shrink-0" style={{ transform: `translateY(${(index + 1) * 3}px)` }}>
                           {renderTooth(id, "buccal")}
                         </div>
                      )) }
@@ -752,10 +745,10 @@ export default function TeethChart({
                  {perioMode && (
                    <PerioOverlay arch={[...(isPrimary ? ChildQ4 : Q4), ...(isPrimary ? ChildQ3 : Q3)]} data={data} isUpper={false} containerRef={lowerRowRef} />
                  )}
-                 <div className={`flex flex-row w-full justify-center gap-0.5 md:gap-1 md:px-2 ${fitRow ? "px-0" : "px-1"}`}>
+                 <div className="flex flex-row w-full justify-center gap-0.5 md:gap-1 px-1 md:px-2">
                    <div className="flex justify-end gap-0 w-full">
                      { (isPrimary ? ChildQ4 : Q4).map((id, index) => (
-                        <div key={`l-buc-${id}`} className={fitRow ? "min-w-0 flex-1" : "shrink-0"} style={{ transform: `translateY(-${(isPrimary ? 5 - index : 8 - index) * 3}px)` }}>
+                        <div key={`l-buc-${id}`} className="shrink-0" style={{ transform: `translateY(-${(isPrimary ? 5 - index : 8 - index) * 3}px)` }}>
                           {renderTooth(id, "buccal")}
                         </div>
                      )) }
@@ -763,7 +756,7 @@ export default function TeethChart({
                    <div className="w-1 md:w-2 shrink-0" />
                    <div className="flex justify-start gap-0 w-full">
                      { (isPrimary ? ChildQ3 : Q3).map((id, index) => (
-                        <div key={`l-buc-${id}`} className={fitRow ? "min-w-0 flex-1" : "shrink-0"} style={{ transform: `translateY(-${(index + 1) * 3}px)` }}>
+                        <div key={`l-buc-${id}`} className="shrink-0" style={{ transform: `translateY(-${(index + 1) * 3}px)` }}>
                           {renderTooth(id, "buccal")}
                         </div>
                      )) }
