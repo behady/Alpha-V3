@@ -214,7 +214,15 @@ function fakeStore(keys: string[], opts: { conv?: (key: string) => RawConversati
     async listVersions() {
       return [];
     },
-    async saveVersion() {},
+    async allocateVersion() {
+      return 1;
+    },
+    async saveVersion() {
+      return true;
+    },
+    async makeLiveIf() {
+      return true;
+    },
   };
   return { store, chat, findings, log, setLock: (n: number) => (lockUntil = n) };
 }
@@ -524,9 +532,10 @@ await atest("owner chat: a price and a medicine the model copies into the rules 
   assert.equal(r.ok, true);
   if (!r.ok) return;
   assert.deepEqual(r.draft.rules, ["رحّب بالمريض باسمه"]);
-  assert.deepEqual(r.dropped.map((d) => d.why).sort(), ["medicine", "price"]);
+  // "الكشف بـ 300" has no currency word: kept out as a bare number, with the reword advice.
+  assert.deepEqual(r.dropped.map((d) => d.why).sort(), ["medicine", "number"]);
   assert.ok(r.reply.startsWith("تمام."));
-  assert.ok(r.reply.endsWith("الأسعار مكانها قائمة الأسعار، والأدوية مش من شغل الرد التلقائي."), r.reply);
+  assert.ok(r.reply.endsWith("الأرقام زي المواعيد والأعداد مش بتتحفظ في القواعد — اكتبها من غير الرقم، والأدوية مش من شغل الرد التلقائي."), r.reply);
   assert.ok(r.reply.includes("\n\nشلت من القواعد: "));
   assert.ok(r.reply.includes("الكشف بـ 300") && r.reply.includes("قولهم ياخدوا اوجمنتين"));
   assert.equal(f.chat[f.chat.length - 1].text, r.reply);
@@ -598,3 +607,57 @@ await atest("owner chat: a reply without a layer object keeps the draft; a junk 
   assert.equal(r2.ok, true);
   assert.deepEqual((await g.store.getState()).draft.rules, ["قاعدة سليمة"]);
 });
+
+await atest("owner chat: an empty layer object {} keeps the whole draft, and nothing is kept as previous", async () => {
+  const f = await doneStore({ draft: { rules: ["رحّب بالمريض باسمه"], handoffWhen: ["لو اشتكى"], neverSay: ["ارخص عيادة"], promptSection: "عيادة ودودة." } });
+  const before = (await f.store.getState()).draft;
+  const r = await ownerChatTurn(f.store, chatModel(() => ({ reply: "ماشي", layer: {} })).model, { ...IN, text: "هاي" });
+  assert.equal(r.ok, true);
+  const s = await f.store.getState();
+  assert.deepEqual(s.draft, before);
+  assert.equal(s.previousDraft, null, "an unchanged draft leaves nothing to undo");
+});
+
+await atest("owner chat: an emptied list keeps the old one; a field with content replaces; previousDraft is stored", async () => {
+  const f = await doneStore({ draft: { rules: ["رحّب بالمريض باسمه"], handoffWhen: ["لو اشتكى"], neverSay: [], promptSection: "عيادة ودودة." } });
+  const before = (await f.store.getState()).draft;
+  const r = await ownerChatTurn(
+    f.store,
+    chatModel(() => ({ reply: "ضفتها", layer: { rules: [], handoffWhen: [], neverSay: ["ارخص عيادة"], promptSection: "" } })).model,
+    { ...IN, text: "متقولش ارخص عيادة" },
+  );
+  assert.equal(r.ok, true);
+  const s = await f.store.getState();
+  assert.deepEqual(s.draft.rules, ["رحّب بالمريض باسمه"], "emptied rules keep the old rules");
+  assert.deepEqual(s.draft.handoffWhen, ["لو اشتكى"]);
+  assert.equal(s.draft.promptSection, "عيادة ودودة.", "an emptied section keeps the old one");
+  assert.deepEqual(s.draft.neverSay, ["ارخص عيادة"], "the new phrase is in");
+  assert.deepEqual(s.previousDraft, before, "the draft before the change is one undo away");
+  if (r.ok) assert.deepEqual(r.draft, s.draft);
+});
+
+await atest("owner chat: rules whose lines were all dropped keep the old rules", async () => {
+  const f = await doneStore();
+  await ownerChatTurn(f.store, chatModel(() => ({ reply: "ماشي", layer: { rules: ["الكشف بـ 300 جنيه"] } })).model, { ...IN, text: "الكشف ب 300" });
+  assert.deepEqual((await f.store.getState()).draft.rules, ["رحّب بالمريض باسمه"]);
+});
+
+test("readState: previousDraft is sanitised, junk is null", () => {
+  assert.equal(readState({}).previousDraft, null);
+  assert.equal(readState({ previousDraft: "junk" }).previousDraft, null);
+  const p = readState({ previousDraft: { rules: ["قاعدة", "الكشف بـ 300 جنيه"], neverSay: "x" } }).previousDraft;
+  assert.deepEqual(p, { rules: ["قاعدة"], handoffWhen: [], neverSay: [], promptSection: "" });
+});
+
+await atest("a rescan that replaces a non-empty draft keeps the old one as previousDraft", async () => {
+  const f = fakeStore(keysOf(0));
+  const old = { rules: ["قاعدة المالك"], handoffWhen: [], neverSay: [], promptSection: "" };
+  await f.store.patchState({ draft: old });
+  const m = fakeModel({ summary: { learned: [], questions: [], layer: {} } });
+  await startScan(f.store, NOW);
+  await scanStep(f.store, m.model, NOW);
+  const s = await f.store.getState();
+  assert.equal(s.scan.status, "done");
+  assert.deepEqual(s.previousDraft, old);
+});
+

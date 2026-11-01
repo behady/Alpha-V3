@@ -11,6 +11,8 @@ export type PublicOnboardingState = {
   learned: string[];
   questions: string[];
   draft: OnboardingState["draft"];
+  /** Whether "Undo last change" has something to go back to (the old draft itself stays on the server). */
+  hasPreviousDraft: boolean;
   liveVersion: string | null;
 };
 
@@ -26,6 +28,7 @@ export function publicOnboardingState(s: OnboardingState): PublicOnboardingState
     learned: s.learned,
     questions: s.questions,
     draft: s.draft,
+    hasPreviousDraft: s.previousDraft !== null,
     liveVersion: s.liveVersion,
   };
 }

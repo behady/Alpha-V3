@@ -11,7 +11,6 @@
  * being an AI — unless the patient asked directly, in which case the honest answer is required.
  */
 import { strayDrugNames } from "@/lib/bot/drugGuard";
-import { normalizeForMatch } from "./tools";
 
 /* ------------------------------------------------------------------------------------------- */
 /* Text helpers                                                                                 */
@@ -142,15 +141,37 @@ export function moneyFigures(text: string): string[] {
 }
 
 /**
- * The never-say phrases found in a reply, compared in folded Arabic spelling (alef forms, ى/ي,
- * ة/ه, no tashkeel, no leading "ال") so a variant spelling cannot slip past.
+ * The spelling never-say phrases and replies are compared in, one function for both sides: Latin
+ * lowercased; أ/إ/آ/ٱ → ا, ى → ي, ة → ه; no tashkeel or tatweel; spaces collapsed. A word's
+ * leading article (ال, or وال/بال/فال/كال/لل) is dropped ONLY when three or more letters are left,
+ * so "ألم", "الو" and "آلي" keep their letters instead of shrinking to one that is in every reply.
+ * Not normalizeForMatch: that one strips any leading "ال" and other callers depend on it.
+ */
+export function normalizeNeverSay(s: string): string {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/[ً-ٰٟـ]/g, "")
+    .replace(/[أإآٱ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/(?<![\p{L}\p{N}])(?:[وبفك]?ال|لل)(\p{L}+)/gu, (whole: string, rest: string) => (rest.length >= 3 ? rest : whole));
+}
+
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * The never-say phrases found in a reply, in normalizeNeverSay spelling. A phrase must start where
+ * a word starts (after at most one attached و/ب/ف/ل/ك), so "آلي" is not found inside "التالي" and
+ * "ألم" is not found inside "العالم"; it may run into a suffix ("ألمك").
  */
 export function neverSayHits(reply: string, phrases: string[]): string[] {
-  const text = normalizeForMatch(reply);
+  const text = normalizeNeverSay(reply);
   if (!text) return [];
   return phrases.filter((p) => {
-    const n = normalizeForMatch(p);
-    return n.length > 0 && text.includes(n);
+    const n = normalizeNeverSay(p);
+    return n.length > 0 && new RegExp(`(?<![\\p{L}\\p{N}])[وبفلك]?${escapeRe(n)}`, "u").test(text);
   });
 }
 

@@ -372,7 +372,8 @@ export function proTurnLayer(input: BotPromptInput, person: ProPerson, extra: Pr
 }
 
 /**
- * The clinic layer block: what the owner taught Pro, appended after the rulebook and turn layer.
+ * The clinic layer block: what the owner taught Pro, placed between the fixed rulebook and the turn
+ * layer (answerWithPro builds rulebook, then this block, then the turn layer).
  * Empty (null or nothing taught) gives "": the prompt is then exactly what it was without it.
  * The first line says it cannot override the rules; the red lines are code in checks.ts anyway.
  */

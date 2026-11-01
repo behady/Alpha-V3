@@ -11,6 +11,9 @@ export interface JsonModel {
   generate(prompt: string, schema: object): Promise<{ json: unknown; usage: { inTok: number; outTok: number } }>;
 }
 
+/** One scan or chat call may take this long; a hung call fails instead of eating the route's maxDuration. */
+export const JSON_MODEL_TIMEOUT_MS = 90_000;
+
 const count = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
 
 export function geminiProJson(apiKey: string, modelName: string): JsonModel {
@@ -24,7 +27,7 @@ export function geminiProJson(apiKey: string, modelName: string): JsonModel {
           responseSchema: schema as unknown as ResponseSchema,
           temperature: 0.3,
         },
-      });
+      }, { timeout: JSON_MODEL_TIMEOUT_MS });
       const result = await model.generateContent(prompt);
       const json: unknown = JSON.parse(result.response.text());
       const usage = result.response.usageMetadata;

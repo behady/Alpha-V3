@@ -69,6 +69,12 @@ await test("the model is the Pro one, from GEMINI_PRO_MODEL", () => {
   assert.ok(code(ROUTES.publish).includes('process.env.GEMINI_PRO_MODEL || "gemini-pro-latest"'), "publish: model name");
 });
 
+await test("the scan/chat model call has a 90 s request timeout", () => {
+  const c = code("src/lib/botPro/onboarding/jsonModel.ts");
+  assert.match(c, /JSON_MODEL_TIMEOUT_MS = 90_000/);
+  assert.match(c, /\}, \{ timeout: JSON_MODEL_TIMEOUT_MS \}\)/, "passed as getGenerativeModel's request options");
+});
+
 await test("maxDuration: scan 120, chat 60, publish 300", () => {
   assert.match(code(ROUTES.scan), /export const maxDuration = 120;/);
   assert.match(code(ROUTES.chat), /export const maxDuration = 60;/);
@@ -118,7 +124,7 @@ await test("chat: owner turn with the clinic's price names; a model failure is a
 await test("publish: lock, empty refusal, replay, version only on a pass, rollback and off", () => {
   const c = code(ROUTES.publish);
   assert.match(c, /tryLock\(\s*PUBLISH_LOCK_MS/, "publish takes the scan lock");
-  assert.match(c, /const PUBLISH_LOCK_MS = 290_000;/);
+  assert.match(c, /const PUBLISH_LOCK_MS = 310_000;/, "the lock outlives maxDuration 300");
   assert.match(c, /finally\s*\{[\s\S]*?unlock\(\)/, "always unlocks");
   assert.ok(c.includes("isEmptyLayer("), "refuses an empty draft");
   assert.match(c, /error:\s*"empty"/);
@@ -131,10 +137,37 @@ await test("publish: lock, empty refusal, replay, version only on a pass, rollba
   assert.match(c, /`v\$\{[^}]*\}`/, "version id is v{n}");
   assert.ok(c.includes("saveVersion("));
   assert.ok(c.indexOf("test.passed") < c.indexOf("saveVersion("), "saved only after the pass check");
-  assert.ok(c.includes("nextVersion:"), "nextVersion moves on");
-  assert.ok(c.includes("liveVersion:"), "liveVersion is set");
+  // The number is taken in a transaction right before the save, never read at the start.
+  assert.ok(c.includes("allocateVersion()"), "nextVersion is allocated by the store");
+  assert.ok(c.indexOf("test.passed") < c.indexOf("allocateVersion()") && c.indexOf("allocateVersion()") < c.indexOf("saveVersion("), "allocated after the pass, before the save");
+  assert.ok(!c.includes("state.nextVersion"), "the start-of-run nextVersion is never used");
+  assert.match(c, /if \(!created\) return NextResponse\.json\(\{ ok: false, published: false, error: "busy" \}, \{ status: 409 \}\)/, "a create conflict is a 409 busy");
+  assert.ok(c.includes("makeLiveIf(state.liveVersion, versionId)"), "live only if it did not move during the run");
+  assert.match(c, /published: true, madeLive/, "the response says whether it went live");
+  assert.ok(c.includes("deadlineMs: REPLAY_DEADLINE_MS"), "the replay has a deadline");
   assert.ok(c.includes("makeLive"), "rollback / off");
   assert.ok((c.match(/logActivityServer\(/g) || []).length >= 2, "publish and rollback are logged");
+});
+
+await test("store: versions are created, never overwritten; nextVersion and liveVersion move in transactions", () => {
+  const c = code("src/lib/botPro/onboarding/store.ts");
+  const save = c.slice(c.indexOf("async saveVersion("), c.indexOf("async makeLiveIf("));
+  assert.ok(save.includes(".create("), "saveVersion uses create()");
+  assert.ok(!save.includes(".set("), "saveVersion never set()s");
+  assert.ok(save.includes("isAlreadyExists(e)") && save.includes("return false"), "an existing id is reported, not thrown");
+  const alloc = c.slice(c.indexOf("async allocateVersion("), c.indexOf("async saveVersion("));
+  assert.ok(alloc.includes("runTransaction(") && alloc.includes("nextVersion: n + 1"), "allocateVersion is a transaction");
+  const live = c.slice(c.indexOf("async makeLiveIf("));
+  assert.ok(live.includes("runTransaction(") && live.includes("!== expected"), "makeLiveIf compares in a transaction");
+});
+
+await test("PUT: undo swaps draft and previousDraft; a save keeps the replaced draft", () => {
+  const c = code(ROUTES.state);
+  assert.match(c, /body\.undo === true/, "PUT accepts { undo: true }");
+  assert.ok(c.includes("patchState({ draft: state.previousDraft, previousDraft: state.draft })"), "undo swaps the two");
+  assert.match(c, /error: "nothing_to_undo" \}, \{ status: 409 \}/, "nothing to undo is a 409");
+  assert.ok(c.indexOf("body.undo === true") < c.indexOf("draft is required."), "undo needs no draft in the body");
+  assert.ok(c.includes("previousDraft: state.draft } : {})"), "a changed save keeps the old draft");
 });
 
 await test("pro-battery builds its context through the shared loader (one copy)", () => {
@@ -161,8 +194,11 @@ await test("publicOnboardingState: never queue or lockUntil; the listed fields o
     learned: ["l1"],
     questions: ["q1"],
     draft: STATE.draft,
+    hasPreviousDraft: false,
     liveVersion: "v2",
   });
+  assert.equal(publicOnboardingState({ ...STATE, previousDraft: STATE.draft }).hasPreviousDraft, true);
+  assert.equal(JSON.stringify(publicOnboardingState({ ...STATE, previousDraft: STATE.draft })).includes("previousDraft\":{"), false, "the old draft itself stays on the server");
   assert.equal(JSON.stringify(out).includes("queue"), false);
   const clean = publicOnboardingState({ ...STATE, scan: { ...STATE.scan, error: undefined } });
   assert.equal("error" in clean.scan, false);
@@ -238,6 +274,21 @@ await test("the screen: a scan running with no loop gets a Continue button, fail
   assert.ok(c.includes("confirm(t.unsavedClose)") && c.includes("فيه تعديلات مش متحفظة"), "closing with unsaved edits asks first");
   assert.ok(c.includes("جرّب الرد المتقدم (Pro)") && c.includes("جرّب القواعد الجديدة (المسودة)"), "the Arabic hint names the real toggles");
   assert.match(c, /setPending\(message\)/, "the owner's message shows while Pro answers");
+});
+
+await test("the screen: undo, the full result card, and no state after close on publish", () => {
+  const c = code("src/components/whatsapp/ProSetup.tsx");
+  assert.ok(c.includes("undo: true") && c.includes('"Undo last change"') && c.includes("رجّع آخر تعديل"), "Undo last change, both languages, PUTs undo");
+  assert.match(c, /data\.state\.hasPreviousDraft &&/, "the undo button shows only when there is something to undo");
+  for (const k of ["t.turnsLbl", "t.unavailableLbl", "t.handoffsLbl", "t.offLbl"]) assert.ok(c.includes(k), `card shows ${k}`);
+  assert.ok(c.includes("replayShortfalls(") && c.includes("t.whyFailed"), "a failed run names the failed condition");
+  assert.ok(c.includes("b.rules.map(ruleName)"), "each break names its rules");
+  assert.ok(c.includes("s.timedOut") && c.includes("The test took too long"), "a timed-out run says so");
+  assert.ok(c.includes("t.passedNotLive(") && c.includes("madeLive"), "published but not made live is said");
+  assert.ok(c.includes("numbers like times and counts aren't kept in the rules"), "the number reason has its copy");
+  const pub = c.slice(c.indexOf("const publish = async"), c.indexOf("const undo = async"));
+  const afterAwait = pub.slice(pub.indexOf("await call("));
+  assert.ok(afterAwait.indexOf("abortedRef.current") >= 0 && afterAwait.indexOf("abortedRef.current") < afterAwait.indexOf("setTest("), "publish checks abortedRef before any state update");
 });
 
 console.log("all pro onboarding route tests passed");

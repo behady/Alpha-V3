@@ -36,6 +36,8 @@ export type OnboardingState = {
   learned: string[];
   questions: string[];
   draft: ClinicLayer;
+  /** The draft as it was before the last change (owner chat, a save or a rescan): one step of undo. */
+  previousDraft: ClinicLayer | null;
   liveVersion: string | null;
   nextVersion: number;
   chatDay: string;
@@ -57,6 +59,7 @@ export const EMPTY_STATE: OnboardingState = {
   learned: [],
   questions: [],
   draft: { ...EMPTY_LAYER },
+  previousDraft: null,
   liveVersion: null,
   nextVersion: 1,
   chatDay: "",
@@ -91,6 +94,7 @@ export function readState(raw: unknown): OnboardingState {
     learned: strings(r.learned),
     questions: strings(r.questions),
     draft: sanitizeLayer(r.draft).layer,
+    previousDraft: isObj(r.previousDraft) ? sanitizeLayer(r.previousDraft).layer : null,
     liveVersion: typeof r.liveVersion === "string" && r.liveVersion ? r.liveVersion : null,
     nextVersion: typeof r.nextVersion === "number" && Number.isInteger(r.nextVersion) && r.nextVersion >= 1 ? r.nextVersion : EMPTY_STATE.nextVersion,
     chatDay: typeof r.chatDay === "string" ? r.chatDay : "",
@@ -148,7 +152,18 @@ export interface OnboardingStore {
   /** Oldest first. `at` (ms) is filled by the Firestore store; test fakes may leave it out. */
   recentChat(max: number): Promise<Array<{ role: "ai" | "owner"; text: string; at?: number }>>;
   listVersions(): Promise<LayerVersion[]>;
-  saveVersion(v: LayerVersion): Promise<void>;
+  /** Take the next version number: read nextVersion and move it on, in one transaction. */
+  allocateVersion(): Promise<number>;
+  /** Create the version doc; false (nothing written) when a doc with that id already exists. */
+  saveVersion(v: LayerVersion): Promise<boolean>;
+  /** Set liveVersion to `id` only if it still is `expected`, in one transaction; false when it moved. */
+  makeLiveIf(expected: string | null, id: string): Promise<boolean>;
+}
+
+/** Firestore's "a document with that id already exists" (gRPC ALREADY_EXISTS), from create(). */
+export function isAlreadyExists(e: unknown): boolean {
+  const code = (e as { code?: unknown } | null)?.code;
+  return code === 6 || code === "already-exists" || code === "ALREADY_EXISTS";
 }
 
 const isPlain = (v: unknown): v is Record<string, unknown> => {
@@ -333,10 +348,35 @@ export function firestoreOnboardingStore(clinicId: string): OnboardingStore {
       });
     },
 
+    async allocateVersion() {
+      return adminDb().runTransaction(async (tx) => {
+        const snap = await tx.get(stateRef);
+        const n = readState(snap.exists ? snap.data() : undefined).nextVersion;
+        tx.set(stateRef, { nextVersion: n + 1 }, { merge: true });
+        return n;
+      });
+    },
+
     async saveVersion(v) {
-      await layerRef(clinicId, v.id).set(
-        clean({ version: v.version, layer: v.layer, createdAt: v.createdAt, createdBy: v.createdBy, test: v.test }) as Record<string, unknown>,
-      );
+      try {
+        // create(), not set(): a version id is never overwritten, whatever raced to it.
+        await layerRef(clinicId, v.id).create(
+          clean({ version: v.version, layer: v.layer, createdAt: v.createdAt, createdBy: v.createdBy, test: v.test }) as Record<string, unknown>,
+        );
+        return true;
+      } catch (e) {
+        if (isAlreadyExists(e)) return false;
+        throw e;
+      }
+    },
+
+    async makeLiveIf(expected, id) {
+      return adminDb().runTransaction(async (tx) => {
+        const snap = await tx.get(stateRef);
+        if (readState(snap.exists ? snap.data() : undefined).liveVersion !== expected) return false;
+        tx.set(stateRef, { liveVersion: id }, { merge: true });
+        return true;
+      });
     },
   };
 }

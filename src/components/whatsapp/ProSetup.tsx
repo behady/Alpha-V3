@@ -7,6 +7,7 @@ import { auth } from "@/lib/firebase";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import type { ClinicLayer, DroppedLine, ReplaySummary } from "@/lib/botPro/layer";
+import { replayLimit, replayShortfalls } from "@/lib/botPro/replayVerdict";
 
 const API = "/api/whatsapp/pro-onboarding";
 const OWNER_TEXT_MAX = 2000;
@@ -15,7 +16,7 @@ const BUSY_WAIT_MS = 3000;
 const STEP_RETRIES = 2;
 
 type ScanState = { status: "idle" | "running" | "summarizing" | "done" | "failed"; total: number; done: number; chatsRead: number; error?: string };
-type PublicState = { scan: ScanState; learned: string[]; questions: string[]; draft: ClinicLayer; liveVersion: string | null };
+type PublicState = { scan: ScanState; learned: string[]; questions: string[]; draft: ClinicLayer; hasPreviousDraft?: boolean; liveVersion: string | null };
 type ChatRow = { role: "ai" | "owner"; text: string; at: number };
 type VersionRow = { id: string; version: number; createdAt: number; createdBy: string; passed: boolean; breaks: number };
 type Loaded = { state: PublicState; chat: ChatRow[]; versions: VersionRow[] };
@@ -69,7 +70,8 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
   const [chatNote, setChatNote] = useState("");
   const [publishing, setPublishing] = useState(false);
   const [publishNote, setPublishNote] = useState("");
-  const [test, setTest] = useState<{ published: boolean; summary: ReplaySummary } | null>(null);
+  const [test, setTest] = useState<{ published: boolean; madeLive: boolean; versionId: string; summary: ReplaySummary } | null>(null);
+  const [undoing, setUndoing] = useState(false);
   const [switching, setSwitching] = useState(false);
   // Whether a step loop is running right now, and why the last one gave up: a scan that is
   // running with no loop active needs the Continue button.
@@ -130,13 +132,39 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
     dropNote: isAr ? "الأسطر دي ما اتحفظتش:" : "These lines were not kept:",
     price: isAr ? "الأسعار مكانها قايمة الأسعار" : "prices belong in the price list",
     medicine: isAr ? "الأدوية مش جزء من الرد الآلي" : "medicines aren't part of auto-reply",
+    number: isAr ? "الأرقام زي المواعيد والأعداد مش بتتحفظ في القواعد — اكتبها من غير الرقم" : "numbers like times and counts aren't kept in the rules — reword without the number",
+    undo: isAr ? "رجّع آخر تعديل" : "Undo last change",
+    undone: isAr ? "رجعت المسودة زي ما كانت قبل آخر تعديل." : "The draft is back to how it was before the last change.",
+    nothingToUndo: isAr ? "مفيش تعديل نرجّعه." : "There is no change to undo.",
+    undoHint: isAr ? "احفظ أو الغِ تعديلاتك الأول." : "Save your edits first.",
     saved: isAr ? "اتحفظت المسودة" : "Draft saved",
     saveFailed: isAr ? "المسودة ما اتحفظتش. جرّب تاني." : "Could not save the draft. Try again.",
     publish: isAr ? "انشر" : "Publish",
     publishing: isAr ? "بنجرّب... حوالي ٢–٣ دقايق" : "Testing ~2–3 minutes",
     publishHint: isAr ? "الاختبار بيشتغل على المسودة المحفوظة. احفظ الأول." : "The test runs on the saved draft. Save first.",
     passed: isAr ? "عدّى الاختبار واتنشر." : "Passed and published.",
+    passedNotLive: (id: string) =>
+      isAr
+        ? `عدّى الاختبار واتحفظ كنسخة ${id}، بس مش شغّالة: النسخة الشغّالة اتغيّرت وانت بتجرّب، فسبناها زي ما اخترتها. تقدر تشغّلها من النسخ تحت.`
+        : `Passed and saved as ${id}, but not made live: the live version was changed while the test ran, so it was left as you set it. You can make it live from Versions below.`,
     failedTest: isAr ? "ما عدّاش الاختبار، فمتنشرش." : "Did not pass, so nothing was published.",
+    whyFailed: isAr ? "ليه ما عدّاش:" : "Why it did not pass:",
+    turnsLbl: isAr ? "رسايل اتجرّبت" : "Turns tested",
+    unavailableLbl: isAr ? "Pro ما ردّش" : "Pro could not answer",
+    handoffsLbl: isAr ? "اتحوّلت للفريق من غير داعي" : "Handed to the team unexpectedly",
+    offLbl: isAr ? "تصرّف غير المتوقع" : "Off expectation",
+    noTurns: isAr ? "مفيش ولا محادثة اتجرّبت." : "No conversation was tested.",
+    breaksWhy: (n: number) => (isAr ? `${n.toLocaleString("ar-EG")} ردود كسرت قاعدة من القواعد المقفولة.` : `${n} replies broke a locked rule.`),
+    unavailableWhy: (n: number, of: number, max: number) =>
+      isAr
+        ? `Pro ما قدرش يرد في ${n.toLocaleString("ar-EG")} من ${of.toLocaleString("ar-EG")} رسالة (المسموح ${max.toLocaleString("ar-EG")}).`
+        : `Pro could not answer ${n} of ${of} turns (at most ${max} allowed).`,
+    handoffsWhy: (n: number, of: number, max: number) =>
+      isAr
+        ? `Pro حوّل ${n.toLocaleString("ar-EG")} من ${of.toLocaleString("ar-EG")} رسالة للفريق وكان المفروض يرد (المسموح ${max.toLocaleString("ar-EG")}). غالباً قاعدة أو عبارة ممنوعة بتوقف ردود عادية.`
+        : `Pro handed ${n} of ${of} turns to the team where it should have answered (at most ${max} allowed). A rule or never-say phrase is probably stopping normal replies.`,
+    timedOut: isAr ? "الاختبار أخد وقت أطول من اللازم، فالرسايل اللي ما لحقش يجرّبها اتحسبت إن Pro ما ردّش عليها." : "The test took too long; the turns it did not reach count as ones Pro could not answer.",
+    rulesLbl: isAr ? "القاعدة" : "Rule",
     breaksTitle: isAr ? "الردود اللي فيها مشكلة" : "Replies that broke a rule",
     asked: isAr ? "السؤال" : "Question",
     replied: isAr ? "رد Pro" : "Pro replied",
@@ -162,7 +190,21 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
     tryHint: isAr ? "جرّب المسودة الأول في شات التجربة: شغّل «جرّب الرد المتقدم (Pro)» و«جرّب القواعد الجديدة (المسودة)»." : "Try the draft first in the test chat: turn on Try Pro and Use the draft layer.",
   };
 
-  const reasonOf = (why: DroppedLine["why"]) => (why === "price" ? t.price : t.medicine);
+  const reasonOf = (why: DroppedLine["why"]) => (why === "price" ? t.price : why === "number" ? t.number : t.medicine);
+  /** A checkReply rule id in words; an id this screen does not know is shown as it is. */
+  const ruleName = (rule: string): string => {
+    const names: Record<string, [string, string]> = {
+      price: ["سعر مش من قايمة الأسعار", "a price not from the price list"],
+      clock: ["ميعاد مش من المواعيد الفاضية", "a time that is not a free slot"],
+      drug: ["اسم دوا", "a medicine name"],
+      never_say: ["عبارة ممنوعة", "a never-say phrase"],
+      claims_human: ["قال إنه إنسان", "claimed to be human"],
+      volunteers_ai: ["قال إنه AI من غير ما يتسأل", "brought up being an AI unasked"],
+      script: ["لغة غلط", "the wrong language"],
+    };
+    const n = names[rule];
+    return n ? (isAr ? n[0] : n[1]) : rule;
+  };
 
   /** What a refused or failed call says, in words (the status alone is not enough: busy is a 200). */
   const errorText = (status: number, body: Api): string => {
@@ -172,6 +214,7 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
     if (body.error === "busy") return t.busy;
     if (body.error === "empty") return t.emptyLayer;
     if (body.error === "test_failed_to_run") return t.testBroke;
+    if (body.error === "nothing_to_undo") return t.nothingToUndo;
     return t.generic;
   };
 
@@ -375,7 +418,7 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
       }
       const layer = body.draft as ClinicLayer;
       applyBoxes(layer);
-      setData((d) => (d ? { ...d, state: { ...d.state, draft: layer } } : d));
+      setData((d) => (d ? { ...d, state: { ...d.state, draft: layer, hasPreviousDraft: body.hasPreviousDraft === true || d.state.hasPreviousDraft === true } } : d));
       setDropped(Array.isArray(body.dropped) ? (body.dropped as DroppedLine[]) : []);
       showToast(t.saved, "success");
     } catch {
@@ -429,18 +472,49 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
     setTest(null);
     try {
       const { status, body } = await call(`${API}/publish`, { method: "POST", body: { clinicId } });
+      // Closed while the test ran: nothing lands on a screen that is gone; a published result
+      // still gets its toast, since it changed what patients see.
+      if (abortedRef.current) {
+        if (body.ok && body.published === true) showToast(t.passed, "success");
+        return;
+      }
       if (body.ok) {
         const summary = body.test as ReplaySummary;
-        setTest({ published: body.published === true, summary });
-        if (body.published === true) showToast(t.passed, "success");
+        const madeLive = body.madeLive !== false;
+        const versionId = typeof body.versionId === "string" ? body.versionId : "";
+        setTest({ published: body.published === true, madeLive, versionId, summary });
+        if (body.published === true) showToast(madeLive ? t.passed : t.passedNotLive(versionId), "success");
       } else {
         setPublishNote(errorText(status, body));
       }
     } catch {
-      setPublishNote(t.generic);
+      if (!abortedRef.current) setPublishNote(t.generic);
     } finally {
       setPublishing(false);
       if (!abortedRef.current) void refresh();
+    }
+  };
+
+  /** One step back: the server swaps the draft with the one it replaced. */
+  const undo = async () => {
+    if (undoing || dirty) return;
+    setUndoing(true);
+    try {
+      const { status, body } = await call(API, { method: "PUT", body: { clinicId, undo: true } });
+      if (abortedRef.current) return;
+      if (!body.ok || !body.draft) {
+        showToast(errorText(status, body), "error");
+        return;
+      }
+      const layer = body.draft as ClinicLayer;
+      applyBoxes(layer);
+      setData((d) => (d ? { ...d, state: { ...d.state, draft: layer, hasPreviousDraft: body.hasPreviousDraft === true } } : d));
+      setDropped([]);
+      showToast(t.undone, "success");
+    } catch {
+      if (!abortedRef.current) showToast(t.generic, "error");
+    } finally {
+      setUndoing(false);
     }
   };
 
@@ -636,28 +710,70 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
                     {publishing && <Loader2 size={14} className="animate-spin" />}
                     {publishing ? t.publishing : t.publish}
                   </button>
+                  {data.state.hasPreviousDraft && (
+                    <button type="button" className={secondary} disabled={undoing || dirty || publishing} title={dirty ? t.undoHint : undefined} onClick={() => void undo()}>
+                      {undoing && <Loader2 size={14} className="animate-spin" />}
+                      {t.undo}
+                    </button>
+                  )}
                 </div>
                 {dirty && <p className="text-xs text-ink-muted">{t.unsaved} {t.publishHint}</p>}
                 {publishNote && <p className={notice}>{publishNote}</p>}
 
-                {test && (
+                {test && (() => {
+                  const s = test.summary;
+                  const limit = replayLimit(s.turns);
+                  const short = test.published ? [] : replayShortfalls(s);
+                  const stats: Array<[string, number]> = [
+                    [t.turnsLbl, s.turns],
+                    [t.unavailableLbl, s.unavailable],
+                    [t.handoffsLbl, s.unexpectedHandoffs ?? 0],
+                    [t.offLbl, s.actionMisses],
+                  ];
+                  return (
                   <div className="space-y-2 rounded-xl border border-line bg-surface p-3">
-                    <p className="text-sm font-black text-ink">{test.published ? t.passed : t.failedTest}</p>
-                    {test.summary.breaks.length > 0 && (
+                    <p className="text-sm font-black text-ink">{test.published ? (test.madeLive ? t.passed : t.passedNotLive(test.versionId)) : t.failedTest}</p>
+                    <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs sm:grid-cols-4">
+                      {stats.map(([label, n]) => (
+                        <div key={label} className="min-w-0">
+                          <dt className="truncate text-ink-muted">{label}</dt>
+                          <dd className="font-figure font-black text-ink">{isAr ? n.toLocaleString("ar-EG") : n}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                    {s.timedOut && <p className={notice}>{t.timedOut}</p>}
+                    {short.length > 0 && (
+                      <div className="space-y-0.5 text-xs">
+                        <p className="font-bold text-ink">{t.whyFailed}</p>
+                        <ul className="list-inside list-disc space-y-0.5 text-ink-body">
+                          {short.map((k) => (
+                            <li key={k}>
+                              {k === "no_turns" ? t.noTurns
+                                : k === "breaks" ? t.breaksWhy(s.breaks.length)
+                                : k === "unavailable" ? t.unavailableWhy(s.unavailable, s.turns, limit)
+                                : t.handoffsWhy(s.unexpectedHandoffs ?? 0, s.turns, limit)}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {s.breaks.length > 0 && (
                       <>
                         <p className="text-xs font-bold text-ink">{t.breaksTitle}</p>
                         <ul className="space-y-2">
-                          {test.summary.breaks.map((b, i) => (
+                          {s.breaks.map((b, i) => (
                             <li key={`${b.caseId}-${i}`} className="space-y-0.5 rounded-lg bg-surface-subtle px-3 py-2 text-xs">
                               <p dir="auto" className="text-ink-muted">{t.asked}: <span className="text-ink">{b.q}</span></p>
                               <p dir="auto" className="text-ink-muted">{t.replied}: <span className="text-ink">{b.reply}</span></p>
+                              <p className="text-ink-muted">{t.rulesLbl}: <span className="font-bold text-ink">{b.rules.map(ruleName).join(isAr ? "، " : ", ")}</span></p>
                             </li>
                           ))}
                         </ul>
                       </>
                     )}
                   </div>
-                )}
+                  );
+                })()}
 
                 <div className="space-y-2 border-t border-line pt-3">
                   <div className="flex items-center justify-between gap-2">

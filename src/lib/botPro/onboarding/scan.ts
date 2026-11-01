@@ -14,7 +14,7 @@
  * Run: npm run test:pro-onboarding
  */
 import { SchemaType } from "@google/generative-ai";
-import { EMPTY_LAYER, sanitizeLayer, type ClinicLayer } from "../layer";
+import { EMPTY_LAYER, isEmptyLayer, sanitizeLayer, type ClinicLayer } from "../layer";
 import type { JsonModel } from "./jsonModel";
 import type { OnboardingState, OnboardingStore } from "./store";
 import { bookedAfter, transcriptOf, type ChunkFindings } from "./transcript";
@@ -230,7 +230,9 @@ async function summarise(store: OnboardingStore, model: JsonModel, state: Onboar
   const usage = { calls: state.usage.calls + 1, inTok: state.usage.inTok + res.usage.inTok, outTok: state.usage.outTok + res.usage.outTok };
 
   const next: OnboardingState = { ...state, learned, questions, draft, usage, scan: { ...state.scan, status: "done", finishedAt: now } };
-  await store.patchState({ learned, questions, draft, usage, scan: { status: "done", finishedAt: now } });
+  // A rescan replaces the draft: what the owner had before stays one undo away.
+  const keepOld = !isEmptyLayer(state.draft) && JSON.stringify(state.draft) !== JSON.stringify(draft);
+  await store.patchState({ learned, questions, draft, ...(keepOld ? { previousDraft: state.draft } : {}), usage, scan: { status: "done", finishedAt: now } });
   await store.addChat("ai", openingMessage(next));
 }
 

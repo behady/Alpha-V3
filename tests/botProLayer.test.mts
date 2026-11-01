@@ -8,6 +8,8 @@
 import assert from "node:assert/strict";
 import { checkReply } from "../src/lib/botPro/checks";
 import { EMPTY_LAYER, isEmptyLayer, neverSayHits, sanitizeLayer } from "../src/lib/botPro/layer";
+import { normalizeNeverSay } from "../src/lib/botPro/checks";
+import { normalizeForMatch } from "../src/lib/botPro/tools";
 import { proClinicLayer } from "../src/lib/botPro/proPrompt";
 
 function test(name: string, fn: () => void) {
@@ -52,18 +54,25 @@ test("proClinicLayer: empty is nothing, full says it cannot override", () => {
   assert.match(block, /اقفل البيع بعرض كشف/);
   assert.ok(!block.includes("Hand the chat to the team when:"), "empty sections are left out");
 });
-test("sanitizeLayer drops prices written without a currency word", () => {
-  for (const line of ["الكشف بـ 300", "الكشف 300", "الحشو ب 500", "السعر ٣٠٠", "الكشف بـ 300 ج"]) {
+test("sanitizeLayer drops prices written without a currency word, as bare numbers", () => {
+  for (const line of ["الكشف بـ 300", "الكشف 300", "الحشو ب 500", "السعر ٣٠٠"]) {
     const { layer, dropped } = sanitizeLayer({ rules: [line], promptSection: line + "." });
     assert.deepEqual(layer.rules, [], line);
     assert.equal(layer.promptSection, "", line);
-    assert.deepEqual(dropped.map((d) => d.why), ["price", "price"], line);
+    // No unit: the bare-number rule caught it, so the owner is asked to reword without the number.
+    assert.deepEqual(dropped.map((d) => d.why), ["number", "number"], line);
   }
 });
-test("a price plus a medicine reports the price", () => {
+test("a number with a currency or percent is a price; one without is a number", () => {
+  assert.deepEqual(sanitizeLayer({ rules: ["الكشف بـ 300 جنيه"] }).dropped.map((d) => d.why), ["price"]);
+  assert.deepEqual(sanitizeLayer({ rules: ["الخصم 20%"] }).dropped.map((d) => d.why), ["price"]);
+  assert.deepEqual(sanitizeLayer({ rules: ["رد على 50 رسالة"] }).dropped.map((d) => d.why), ["number"]);
+});
+test("a price or number plus a medicine reports the number first", () => {
   const { layer, dropped } = sanitizeLayer({ rules: ["الكشف بـ 300 وقولهم ياخدوا اوجمنتين"] });
   assert.deepEqual(layer.rules, []);
-  assert.deepEqual(dropped.map((d) => d.why), ["price"]);
+  assert.deepEqual(dropped.map((d) => d.why), ["number"]);
+  assert.deepEqual(sanitizeLayer({ rules: ["الكشف بـ 300 جنيه وقولهم ياخدوا اوجمنتين"] }).dropped.map((d) => d.why), ["price"]);
 });
 test("durations, counts, clocks and phones are not prices", () => {
   const { layer, dropped } = sanitizeLayer({ rules: ["رد خلال 15 دقيقة", "المتابعة بعد 14 يوم", "ابعت 3 مواعيد", "الواتس 01001234567", "الفتح 10:30"] });
@@ -74,4 +83,35 @@ test("a decimal in the prompt section does not split the sentence", () => {
   const { layer, dropped } = sanitizeLayer({ promptSection: "احنا عيادة عائلية. الخصم 20.5%" });
   assert.equal(layer.promptSection, "احنا عيادة عائلية.");
   assert.deepEqual(dropped, [{ text: "الخصم 20.5%", why: "price" }]);
+});
+test("never-say: a leading ال is only dropped when three letters are left", () => {
+  // "ألم" used to fold to "م" and hit almost every reply.
+  assert.deepEqual(neverSayHits("أهلاً بحضرتك، نقدر نساعدك", ["ألم"]), []);
+  assert.deepEqual(neverSayHits("عندك ألم؟", ["ألم"]), ["ألم"]);
+  assert.deepEqual(neverSayHits("ألمك شديد؟", ["ألم"]), ["ألم"], "a suffix still matches");
+  assert.deepEqual(neverSayHits("العالم كله", ["ألم"]), [], "not inside another word");
+  assert.deepEqual(neverSayHits("يعني تمام", ["آلي"]), []);
+  assert.deepEqual(neverSayHits("الدكتور التالي", ["آلي"]), []);
+  assert.deepEqual(neverSayHits("الو، مين معايا؟", ["الو"]), ["الو"]);
+  assert.deepEqual(neverSayHits("الوقت مناسب لحضرتك", ["الو"]), []);
+  assert.deepEqual(neverSayHits("والوقت مناسب", ["الو"]), []);
+  assert.deepEqual(neverSayHits("انا المساعد الآلي", ["مساعد آلي"]), ["مساعد آلي"]);
+  assert.deepEqual(neverSayHits("انا المساعد الآلي", ["المساعد الآلي"]), ["المساعد الآلي"]);
+  assert.deepEqual(neverSayHits("ده بالمساعد الآلي", ["مساعد آلي"]), ["مساعد آلي"], "بال is an article too");
+});
+test("never-say spelling: one normaliser for both sides", () => {
+  assert.equal(normalizeNeverSay("  المُساعِد   الآلـــي "), "مساعد الي");
+  assert.equal(normalizeNeverSay("ألم"), "الم");
+  assert.equal(normalizeNeverSay("الو"), "الو");
+  assert.equal(normalizeNeverSay("للمساعد"), "مساعد");
+  assert.equal(normalizeNeverSay("مدرسة مستشفى"), "مدرسه مستشفي");
+  assert.equal(normalizeNeverSay("BOT"), "bot");
+});
+test("normalizeForMatch is unchanged (other callers depend on it)", () => {
+  assert.equal(normalizeForMatch("ألم"), "م");
+  assert.equal(normalizeForMatch("الكشف"), "كشف");
+});
+test("sanitizeLayer refuses never-say phrases that fold to under phraseMin", () => {
+  const { layer } = sanitizeLayer({ neverSay: ["ألم", "ـــاب", "اَبْ", "مساعد آلي"] });
+  assert.deepEqual(layer.neverSay, ["ألم", "مساعد آلي"]);
 });

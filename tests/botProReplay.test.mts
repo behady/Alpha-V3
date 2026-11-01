@@ -5,7 +5,8 @@
  * Run: npm run test:pro-replay
  */
 import assert from "node:assert/strict";
-import { runReplay, builtinReplayCases, savedReplayCases, actionOf, type ReplayCase } from "../src/lib/botPro/replay";
+import { runReplay, builtinReplayCases, savedReplayCases, actionOf, SAVED_TURNS_MAX, REPLAY_DEADLINE_MS, type ReplayCase } from "../src/lib/botPro/replay";
+import { replayShortfalls } from "../src/lib/botPro/replayVerdict";
 import { CONVERSATIONS } from "../src/lib/botPro/replayCases";
 import type { ProArgs, ProContext } from "../src/lib/botPro/proContext";
 import type { ProModel, ProReplyResult } from "../src/lib/botPro/answerWithPro";
@@ -68,12 +69,44 @@ await test("a harmless model passes; turns are the sum of all turns", async () =
   assert.equal(s.actionMisses, 1);
 });
 
-await test("a model that breaks the never-say list is caught by Pro's own check: handoff, no break, not unavailable", async () => {
+await test("a never-say phrase in every reply: Pro's own check hands off, no break, but the hand-offs fail the run", async () => {
   const layer: ClinicLayer = { ...EMPTY_LAYER, neverSay: ["ارخص عيادة"] };
   const s = await runReplay({ cases: CASES, layer, baseArgs, context: context(), model: () => sayModel("احنا ارخص عيادة") });
   assert.deepEqual(s.breaks, []);
   assert.equal(s.unavailable, 0);
+  // The clinical case expected a medical hand-off, so it is not unexpected; the other three are.
+  assert.equal(s.unexpectedHandoffs, 3);
+  assert.equal(s.passed, false);
+  assert.deepEqual(replayShortfalls(s), ["handoffs"]);
+});
+
+await test("a never-say phrase that folds into every reply (the old ال bug) would hand off everything: passed false", async () => {
+  // A layer whose never-say stops normal replies: every turn becomes a guard hand-off with no text.
+  const layer: ClinicLayer = { ...EMPTY_LAYER, neverSay: ["أهلاً بحضرتك"] };
+  const s = await runReplay({ cases: CASES, layer, baseArgs, context: context(), model: () => sayModel("أهلاً بحضرتك") });
+  assert.equal(s.unexpectedHandoffs, 3);
+  assert.equal(s.passed, false);
+});
+
+await test("unexpected hand-offs up to a quarter of the turns are tolerated; expected ones never count", async () => {
+  const eight: ReplayCase[] = Array.from({ length: 8 }, (_, i) => ({ id: `h${i}`, clinical: false, known: false, turns: [{ q: "سؤال", expect: i === 0 ? ["handoff_other"] : ["answer"] }] }));
+  let n = 0;
+  const two = async (): Promise<ProReplyResult> => (n++ < 3 ? { kind: "handoff", topic: "other" } : { kind: "answer", text: "أهلاً بحضرتك" });
+  // turns 1-3 hand off: the first expected it, so 2 unexpected of 8 (limit 2): passes
+  const s = await runReplay({ cases: eight, layer: EMPTY_LAYER, baseArgs, context: context(), model: () => sayModel("x"), answer: two, concurrency: 1 });
+  assert.equal(s.unexpectedHandoffs, 2);
   assert.equal(s.passed, true);
+  n = 0;
+  const three = async (): Promise<ProReplyResult> => (n++ < 4 ? { kind: "handoff", topic: "other" } : { kind: "answer", text: "أهلاً بحضرتك" });
+  const s2 = await runReplay({ cases: eight, layer: EMPTY_LAYER, baseArgs, context: context(), model: () => sayModel("x"), answer: three, concurrency: 1 });
+  assert.equal(s2.unexpectedHandoffs, 3);
+  assert.equal(s2.passed, false);
+});
+
+await test("replayShortfalls reads old summaries without unexpectedHandoffs", () => {
+  assert.deepEqual(replayShortfalls({ turns: 4, unavailable: 0, breaks: [] }), []);
+  assert.deepEqual(replayShortfalls({ turns: 0, unavailable: 0, breaks: [] }), ["no_turns"]);
+  assert.deepEqual(replayShortfalls({ turns: 4, unavailable: 2, unexpectedHandoffs: 2, breaks: [{}] }), ["breaks", "unavailable", "handoffs"]);
 });
 
 await test("the independent re-check catches a delivered never-say phrase", async () => {
@@ -216,4 +249,62 @@ await test("an empty case list never passes", async () => {
 await test("saved case ids are not truncated", () => {
   const long = "abcdefghijklmnopqrstuvwxyz0123456789";
   assert.equal(savedReplayCases([{ id: long, turns: [{ q: "س", kind: "" }] }])[0].id, long);
+});
+
+await test("a saved chat is cut to its first SAVED_TURNS_MAX turns; the reviewer's expect only when its last turn is in", () => {
+  const long = Array.from({ length: 20 }, (_, i) => ({ q: `سؤال ${i + 1}`, kind: "ai_answer" }));
+  const [c] = savedReplayCases([{ id: "long", turns: long, expect: ["book_slot"] }]);
+  assert.equal(SAVED_TURNS_MAX, 6);
+  assert.equal(c.turns.length, 6);
+  assert.equal(c.turns[0].q, "سؤال 1");
+  assert.equal(c.turns[5].q, "سؤال 6");
+  assert.deepEqual(c.turns[5].expect, ["answer"], "turn 20's expect is not pinned on turn 6");
+  const [short] = savedReplayCases([{ id: "short", turns: long.slice(0, 6), expect: ["book_slot"] }]);
+  assert.deepEqual(short.turns[5].expect, ["book_slot"]);
+});
+
+await test("the deadline: turns not reached count unavailable, timedOut is set, the counts decide (injected clock)", async () => {
+  assert.equal(REPLAY_DEADLINE_MS, 240_000);
+  let clock = 0;
+  let calls = 0;
+  const answer = async (): Promise<ProReplyResult> => {
+    calls += 1;
+    clock += 100_000; // every answer "takes" 100 s on the fake clock
+    return { kind: "answer", text: "أهلاً بحضرتك" };
+  };
+  const s = await runReplay({ cases: CASES, layer: EMPTY_LAYER, baseArgs, context: context(), model: () => sayModel("x"), answer, concurrency: 1, now: () => clock });
+  // starts at 0: turn 1 (->100 s), turn 2 (->200 s), turn 3 (->300 s), then the deadline has passed
+  assert.equal(calls, 3);
+  assert.equal(s.turns, TOTAL_TURNS);
+  assert.equal(s.unavailable, 1);
+  assert.equal(s.timedOut, true);
+  assert.equal(s.ms, 300_000);
+  // 1 of 4 unavailable is within the limit: a timeout alone is not a failure, the counts decide
+  assert.equal(s.passed, true);
+
+  clock = 0;
+  calls = 0;
+  const s2 = await runReplay({ cases: CASES, layer: EMPTY_LAYER, baseArgs, context: context(), model: () => sayModel("x"), answer, concurrency: 1, now: () => clock, deadlineMs: 50_000 });
+  assert.equal(calls, 1);
+  assert.equal(s2.unavailable, 3);
+  assert.equal(s2.timedOut, true);
+  assert.equal(s2.passed, false);
+});
+
+await test("a run inside its deadline has no timedOut key", async () => {
+  const s = await runReplay({ cases: CASES, layer: EMPTY_LAYER, baseArgs, context: context(), model: () => sayModel("أهلاً بحضرتك") });
+  assert.equal("timedOut" in s, false);
+  assert.equal(s.unexpectedHandoffs, 0);
+});
+
+await test("a turn still waiting at the deadline is given up, not waited for", async () => {
+  const slow = async (): Promise<ProReplyResult> => {
+    await new Promise((r) => setTimeout(r, 2_000));
+    return { kind: "answer", text: "متأخر" };
+  };
+  const t0 = Date.now();
+  const s = await runReplay({ cases: [CASES[0]], layer: EMPTY_LAYER, baseArgs, context: context(), model: () => sayModel("x"), answer: slow, deadlineMs: 30 });
+  assert.ok(Date.now() - t0 < 1_500, "returned at the deadline, not after the slow answer");
+  assert.equal(s.unavailable, 1);
+  assert.equal(s.timedOut, true);
 });

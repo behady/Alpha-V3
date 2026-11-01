@@ -11,12 +11,15 @@
  *
  * The model's JSON is untrusted: `reply` must be a non-empty string, the layer goes through
  * sanitizeLayer (no price, no medicine). A reply that carries no layer object at all leaves the
- * draft as it was (a bad shape must not wipe the owner's work).
+ * draft as it was, and so does any single field the model hands back empty where the draft had
+ * something (a bad shape or a forgetful model must not wipe the owner's work; clearing a field
+ * is done by hand in the layer pane). When the draft does change, the old one is kept as
+ * previousDraft, so the screen can undo the last change.
  *
  * Run: npm run test:pro-onboarding
  */
 import { SchemaType } from "@google/generative-ai";
-import { sanitizeLayer, type ClinicLayer } from "../layer";
+import { sanitizeLayer, type ClinicLayer, type DroppedLine } from "../layer";
 import type { JsonModel } from "./jsonModel";
 import { isObj, LAYER_SCHEMA } from "./scan";
 import type { OnboardingStore } from "./store";
@@ -34,7 +37,7 @@ export const OWNER_CHAT_SCHEMA = {
 };
 
 export type OwnerChatResult =
-  | { ok: true; reply: string; draft: ClinicLayer; dropped: Array<{ text: string; why: "price" | "medicine" }> }
+  | { ok: true; reply: string; draft: ClinicLayer; dropped: DroppedLine[] }
   | { ok: false; error: "empty" | "too_long" | "cap" | "not_ready" };
 
 /** Spec §3, word for word. Locked in code (checks.ts, the rulebook, the booking rules). */
@@ -96,6 +99,32 @@ function chatPrompt(a: {
   ].join("\n");
 }
 
+/** What the owner is told about the lines that were kept out, one clause per reason present. */
+const DROP_REASONS: Record<DroppedLine["why"], string> = {
+  price: "الأسعار مكانها قائمة الأسعار",
+  number: "الأرقام زي المواعيد والأعداد مش بتتحفظ في القواعد — اكتبها من غير الرقم",
+  medicine: "الأدوية مش من شغل الرد التلقائي",
+};
+
+export function droppedNote(dropped: DroppedLine[]): string {
+  const reasons = (["price", "number", "medicine"] as const).filter((why) => dropped.some((d) => d.why === why));
+  return `شلت من القواعد: ${dropped.map((d) => d.text).join("، ")}. ${reasons.map((why) => DROP_REASONS[why]).join("، و")}.`;
+}
+
+/** The model's layer, field by field: an empty field where the draft had something keeps the draft's. */
+export function keepFilled(next: ClinicLayer, old: ClinicLayer): ClinicLayer {
+  const list = (n: string[], o: string[]) => (n.length || !o.length ? n : o);
+  return {
+    rules: list(next.rules, old.rules),
+    handoffWhen: list(next.handoffWhen, old.handoffWhen),
+    neverSay: list(next.neverSay, old.neverSay),
+    promptSection: next.promptSection.trim() || !old.promptSection.trim() ? next.promptSection : old.promptSection,
+  };
+}
+
+const sameLayer = (a: ClinicLayer, b: ClinicLayer): boolean =>
+  JSON.stringify([a.rules, a.handoffWhen, a.neverSay, a.promptSection]) === JSON.stringify([b.rules, b.handoffWhen, b.neverSay, b.promptSection]);
+
 export async function ownerChatTurn(
   store: OnboardingStore,
   model: JsonModel,
@@ -123,14 +152,16 @@ export async function ownerChatTurn(
   const modelReply = typeof j.reply === "string" ? j.reply.trim() : "";
   if (!modelReply) throw new Error("Pro returned no reply");
 
-  const { layer, dropped } = isObj(j.layer) ? sanitizeLayer(j.layer) : { layer: state.draft, dropped: [] };
-  const reply = dropped.length
-    ? `${modelReply}\n\nشلت من القواعد: ${dropped.map((d) => d.text).join("، ")}. الأسعار مكانها قائمة الأسعار، والأدوية مش من شغل الرد التلقائي.`
-    : modelReply;
+  const fresh = isObj(j.layer) ? sanitizeLayer(j.layer) : { layer: state.draft, dropped: [] as DroppedLine[] };
+  const layer = keepFilled(fresh.layer, state.draft);
+  const dropped = fresh.dropped;
+  const reply = dropped.length ? `${modelReply}\n\n${droppedNote(dropped)}` : modelReply;
+  const changed = !sameLayer(layer, state.draft);
 
   await store.addChat("ai", reply);
   await store.patchState({
     draft: layer,
+    ...(changed ? { previousDraft: state.draft } : {}),
     chatDay: input.todayKey,
     chatCount: count + 1,
     usage: { calls: state.usage.calls + 1, inTok: state.usage.inTok + res.usage.inTok, outTok: state.usage.outTok + res.usage.outTok },

@@ -6,7 +6,7 @@ import { reportServerError } from "@/lib/server/reportError";
 import { logActivityServer } from "@/lib/server/systemLog";
 import { geminiProModel } from "@/lib/botPro/answerWithPro";
 import { isEmptyLayer, type ReplaySummary } from "@/lib/botPro/layer";
-import { builtinReplayCases, runReplay, savedReplayCases } from "@/lib/botPro/replay";
+import { builtinReplayCases, REPLAY_DEADLINE_MS, runReplay, savedReplayCases } from "@/lib/botPro/replay";
 import { loadReplayContext } from "@/lib/botPro/replayContext";
 import { firestoreOnboardingStore } from "@/lib/botPro/onboarding/store";
 
@@ -18,14 +18,19 @@ export const maxDuration = 300;
  * Pro AI onboarding: put the draft layer live, or change which version is live.
  *
  *   POST { clinicId }
- *     Replays the built-in conversations and up to 10 of the clinic's saved real chats through
- *     Pro with the DRAFT layer, in the clinic's own world (its price list, facts, brief, hours).
- *     Nothing is sent or charged. Only when the test passes is the draft saved as version
- *     v{nextVersion}, made live, and nextVersion moved on. A failed test stores nothing.
- *       -> { ok: true, published: true, versionId, test }
+ *     Replays the built-in conversations and up to 10 of the clinic's saved real chats (their first
+ *     6 turns each) through Pro with the DRAFT layer, in the clinic's own world (its price list,
+ *     facts, brief, hours). Nothing is sent or charged. The replay stops starting turns after
+ *     240 s (the rest count unavailable, test.timedOut). Only when the test passes is a version
+ *     number taken (a transaction on the state doc) and the draft created as v{n}; it is made live
+ *     only if liveVersion is still what it was when the run started (the owner may have switched
+ *     versions meanwhile, and that choice wins). A failed test stores nothing.
+ *       -> { ok: true, published: true, madeLive: true, versionId, test }
+ *       -> { ok: true, published: true, madeLive: false, versionId, test }         saved, live left as the owner set it
  *       -> { ok: true, published: false, test }                                    test failed
  *       -> { ok: false, published: false, error: "empty" }            (409)        nothing to publish
- *       -> { ok: false, published: false, error: "busy" }             (409)        a scan step or another publish holds the lock
+ *       -> { ok: false, published: false, error: "busy" }             (409)        a scan step or another publish holds the lock,
+ *                                                                                  or the version id was taken meanwhile
  *       -> { ok: false, published: false, error: "test_failed_to_run" }  (500)     the replay itself broke
  *
  *   POST { clinicId, makeLive: "v3" }   switch back to a saved version that passed its test
@@ -38,8 +43,8 @@ export const maxDuration = 300;
  */
 
 const NOT_ON = "Pro AI is not switched on for this clinic.";
-/** Long enough for the whole replay inside maxDuration; the lock is released in `finally` anyway. */
-const PUBLISH_LOCK_MS = 290_000;
+/** Longer than maxDuration, so a run that is killed at 300 s still holds the lock to its end; `finally` releases it. */
+const PUBLISH_LOCK_MS = 310_000;
 /** Saved cases read to find up to 10 usable ones (some have no patient line). */
 const SAVED_READ = 40;
 
@@ -109,6 +114,7 @@ export async function POST(request: Request) {
         baseArgs: world.baseArgs,
         context: world.context,
         model: () => geminiProModel(apiKey, modelName),
+        deadlineMs: REPLAY_DEADLINE_MS,
       });
     } catch (e) {
       reportServerError("pro-onboarding publish test failed to run", e, { clinicId });
@@ -120,26 +126,29 @@ export async function POST(request: Request) {
         clinicId,
         user,
         action: "Pro AI: publish refused by the test",
-        details: `${test.breaks.length} break(s), ${test.unavailable} unavailable of ${test.turns} turns`,
+        details: `${test.breaks.length} break(s), ${test.unavailable} unavailable, ${test.unexpectedHandoffs ?? 0} unexpected hand-off(s) of ${test.turns} turns${test.timedOut ? ", timed out" : ""}`,
         severity: "LOW",
         module: "settings",
       });
       return NextResponse.json({ ok: true, published: false, test });
     }
 
-    const version = state.nextVersion;
+    // The number is taken now, in a transaction, not read at the start: nothing can hand it out twice.
+    const version = await store.allocateVersion();
     const versionId = `v${version}`;
-    await store.saveVersion({ id: versionId, version, layer: draft, createdAt: Date.now(), createdBy: authz.name || authz.uid, test });
-    await store.patchState({ liveVersion: versionId, nextVersion: version + 1 });
+    const created = await store.saveVersion({ id: versionId, version, layer: draft, createdAt: Date.now(), createdBy: authz.name || authz.uid, test });
+    if (!created) return NextResponse.json({ ok: false, published: false, error: "busy" }, { status: 409 });
+    // A version the owner switched to (or switched off) while the test ran is their choice: keep it.
+    const madeLive = await store.makeLiveIf(state.liveVersion, versionId);
     await logActivityServer({
       clinicId,
       user,
-      action: `Pro AI: layer ${versionId} published`,
-      details: `test passed: ${test.turns} turns, ${test.unavailable} unavailable, ${test.actionMisses} off-expectation`,
+      action: `Pro AI: layer ${versionId} published${madeLive ? "" : " (not made live: the live version changed during the test)"}`,
+      details: `test passed: ${test.turns} turns, ${test.unavailable} unavailable, ${test.unexpectedHandoffs ?? 0} unexpected hand-off(s), ${test.actionMisses} off-expectation`,
       severity: "MEDIUM",
       module: "settings",
     });
-    return NextResponse.json({ ok: true, published: true, versionId, test });
+    return NextResponse.json({ ok: true, published: true, madeLive, versionId, test });
   } catch (e) {
     reportServerError("pro-onboarding publish failed", e, { clinicId });
     return NextResponse.json({ ok: false, published: false, error: "Could not publish." }, { status: 500 });

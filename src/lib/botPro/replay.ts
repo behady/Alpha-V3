@@ -4,8 +4,10 @@
  * sent and nothing is charged or recorded (the sink is a no-op, charge:false, record:false).
  * Every delivered text is checked once more, independently, against the red lines (checkReply,
  * with the owner's never-say list). A single break refuses the publish; replies the brain could
- * not give at all ("unavailable") are tolerated up to a quarter of the turns, and conversations
- * where the action was not the expected one are only reported.
+ * not give at all ("unavailable") and hand-offs where the conversation expected none are each
+ * tolerated up to a quarter of the turns (replayVerdict.ts); other actions that were not the
+ * expected one are only reported. The run has a deadline: turns it does not reach in time count
+ * as unavailable and the summary says timedOut.
  *
  * This file also owns the known-patient / stranger set-ups and the "what did the reply amount
  * to" helpers that scripts/pro-battery.mts shares, so there is one copy.
@@ -22,6 +24,12 @@ import type { ProAppointment, ProPerson } from "./person";
 import type { ClinicLayer, ReplaySummary } from "./layer";
 import type { ProArgs, ProContext, ProSink } from "./proContext";
 import { CONVERSATIONS } from "./replayCases";
+import { replayShortfalls } from "./replayVerdict";
+
+/** A saved chat is replayed up to this many turns (its first ones), so a long chat cannot eat the run. */
+export const SAVED_TURNS_MAX = 6;
+/** The whole replay stops starting turns after this long; the publish route has 300 s in all. */
+export const REPLAY_DEADLINE_MS = 240_000;
 
 export type ReplayCase = {
   id: string;
@@ -68,14 +76,20 @@ export function builtinReplayCases(): ReplayCase[] {
   }));
 }
 
-/** The clinic's saved real chats (`bot_test_cases` docs, newest first), as strangers. */
+/**
+ * The clinic's saved real chats (`bot_test_cases` docs, newest first), as strangers, each cut to
+ * its first SAVED_TURNS_MAX turns. The reviewer's `expect` belongs to the chat's last turn, so it
+ * is used only when that turn is still in.
+ */
 export function savedReplayCases(raw: Array<Record<string, unknown>>, max = 10): ReplayCase[] {
   const out: ReplayCase[] = [];
   raw.forEach((c, n) => {
     if (out.length >= max) return;
     const rows = Array.isArray(c.turns) ? (c.turns as Array<Record<string, unknown>>) : [];
-    const turns = rows.filter((t) => typeof t?.q === "string" && t.q.trim());
-    if (!turns.length) return;
+    const all = rows.filter((t) => typeof t?.q === "string" && t.q.trim());
+    if (!all.length) return;
+    const turns = all.slice(0, SAVED_TURNS_MAX);
+    const lastKept = turns.length === all.length;
     const expectOverride = Array.isArray(c.expect) ? (c.expect as unknown[]).filter((x): x is string => typeof x === "string") : [];
     const id = typeof c.id === "string" && c.id ? c.id : `saved-${n + 1}`;
     out.push({
@@ -84,7 +98,7 @@ export function savedReplayCases(raw: Array<Record<string, unknown>>, max = 10):
       known: false,
       turns: turns.map((t, i) => ({
         q: String(t.q).trim(),
-        expect: i === turns.length - 1 && expectOverride.length ? expectOverride : expectFromKind(String(t.kind ?? "")),
+        expect: lastKept && i === turns.length - 1 && expectOverride.length ? expectOverride : expectFromKind(String(t.kind ?? "")),
       })),
     });
   });
@@ -100,15 +114,38 @@ type CaseResult = {
   turns: number;
   unavailable: number;
   actionMisses: number;
+  unexpectedHandoffs: number;
   breaks: ReplaySummary["breaks"];
 };
 
+/** The run's clock, shared by every case: `timedOut` is set by whichever case meets the deadline. */
+type Clock = { now: () => number; deadline: number; timedOut: boolean };
+
+const isHandoffExpected = (expect: string[]): boolean => expect.some((e) => e.startsWith("handoff_"));
+
+/** One answer, or "late" when the deadline comes first (the call is left to finish on its own). */
+async function answerBefore(clock: Clock, call: () => Promise<ProReplyResult>): Promise<ProReplyResult | "late"> {
+  const left = clock.deadline - clock.now();
+  if (left <= 0) return "late";
+  const p = Promise.resolve().then(call);
+  p.catch(() => {}); // a call that fails after the deadline won is nobody's error
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<"late">((resolve) => {
+    timer = setTimeout(() => resolve("late"), left);
+  });
+  try {
+    return await Promise.race([p, late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function runCase(
   c: ReplayCase,
-  input: { layer: ClinicLayer; baseArgs: ProArgs; context: ProContext; model: () => ProModel; answer: typeof answerWithPro }
+  input: { layer: ClinicLayer; baseArgs: ProArgs; context: ProContext; model: () => ProModel; answer: typeof answerWithPro; clock: Clock }
 ): Promise<CaseResult> {
-  const { layer, baseArgs, context, model, answer } = input;
-  const res: CaseResult = { turns: 0, unavailable: 0, actionMisses: 0, breaks: [] };
+  const { layer, baseArgs, context, model, answer, clock } = input;
+  const res: CaseResult = { turns: 0, unavailable: 0, actionMisses: 0, unexpectedHandoffs: 0, breaks: [] };
   const thread: AiThreadLine[] = [];
   const who = c.known
     ? proKnownPerson(context.todayKey, context.doctors[0] || "")
@@ -118,17 +155,31 @@ async function runCase(
 
   for (const t of c.turns) {
     res.turns += 1;
+    if (clock.timedOut || clock.deadline - clock.now() <= 0) {
+      // Not reached in time: counted as a reply Pro could not give, never as a pass.
+      clock.timedOut = true;
+      res.unavailable += 1;
+      continue;
+    }
     const args: ProArgs = { ...baseArgs, question: t.q, clinical: c.clinical, patient: who.patient, thread: [...thread] };
     const ctx: ProContext = { ...open, person: who.person, reloadPerson: async () => who.person, thread: [...thread], layer };
     let result: ProReplyResult;
     try {
-      result = await answer(args, { model: model(), context: ctx, sink: NOOP_SINK, charge: false, record: false });
+      const got = await answerBefore(clock, () => answer(args, { model: model(), context: ctx, sink: NOOP_SINK, charge: false, record: false }));
+      if (got === "late") {
+        clock.timedOut = true;
+        res.unavailable += 1;
+        continue;
+      }
+      result = got;
     } catch {
       result = { kind: "unavailable", reason: "replay_error" };
     }
 
     if (result.kind === "unavailable") res.unavailable += 1;
     if (!t.expect.includes(actionOf(result))) res.actionMisses += 1;
+    // A layer that makes Pro hand everything to the team breaks nothing, but answers nobody.
+    if (result.kind === "handoff" && !isHandoffExpected(t.expect)) res.unexpectedHandoffs += 1;
 
     const text = replyTextOf(result);
     if (text) {
@@ -191,15 +242,21 @@ export async function runReplay(input: {
   model: () => ProModel;
   concurrency?: number;
   answer?: typeof answerWithPro;
+  /** No new turn starts after this long, and a turn still waiting then is given up (default 240 s). */
+  deadlineMs?: number;
+  /** The clock (tests inject one; default Date.now). */
+  now?: () => number;
 }): Promise<ReplaySummary> {
-  const t0 = Date.now();
+  const now = input.now ?? Date.now;
+  const t0 = now();
+  const clock: Clock = { now, deadline: t0 + (input.deadlineMs ?? REPLAY_DEADLINE_MS), timedOut: false };
   const answer = input.answer ?? answerWithPro;
   const results: CaseResult[] = new Array(input.cases.length);
   let next = 0;
   const worker = async () => {
     while (next < input.cases.length) {
       const i = next++;
-      results[i] = await runCase(input.cases[i], { layer: input.layer, baseArgs: input.baseArgs, context: input.context, model: input.model, answer });
+      results[i] = await runCase(input.cases[i], { layer: input.layer, baseArgs: input.baseArgs, context: input.context, model: input.model, answer, clock });
     }
   };
   const width = Math.max(1, Math.min(input.concurrency ?? 6, input.cases.length || 1));
@@ -208,13 +265,16 @@ export async function runReplay(input: {
   const turns = results.reduce((n, r) => n + r.turns, 0);
   const unavailable = results.reduce((n, r) => n + r.unavailable, 0);
   const actionMisses = results.reduce((n, r) => n + r.actionMisses, 0);
+  const unexpectedHandoffs = results.reduce((n, r) => n + r.unexpectedHandoffs, 0);
   const breaks = results.flatMap((r) => r.breaks);
   return {
-    passed: turns > 0 && breaks.length === 0 && unavailable <= Math.floor(turns * 0.25),
+    passed: replayShortfalls({ turns, unavailable, unexpectedHandoffs, breaks }).length === 0,
     turns,
     unavailable,
     actionMisses,
+    unexpectedHandoffs,
     breaks,
-    ms: Date.now() - t0,
+    ms: now() - t0,
+    ...(clock.timedOut ? { timedOut: true } : {}),
   };
 }
