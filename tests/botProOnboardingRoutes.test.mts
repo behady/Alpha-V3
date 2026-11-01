@@ -183,4 +183,49 @@ await test("versionRows: passed and break count, tolerant of a missing test", ()
   ]);
 });
 
+await test("the screen: Teach Pro your clinic opens only inside the proInPlan branch", () => {
+  const SETTINGS = "src/components/settings/WhatsAppSettings.tsx";
+  const c = code(SETTINGS);
+  assert.match(c, /import ProSetup from "@\/components\/whatsapp\/ProSetup"/, "WhatsAppSettings imports ProSetup");
+  assert.equal(c.split("<ProSetup").length - 1, 1, "ProSetup is mounted exactly once");
+  const branch = c.indexOf('autoReplyMode === "ai" && proInPlan');
+  assert.ok(branch > 0, "the proInPlan branch exists");
+  const mount = c.indexOf("<ProSetup");
+  assert.ok(mount > branch, "ProSetup comes after the proInPlan check");
+  // Nothing between the check and the mount closes the branch: the mount sits inside the same block.
+  assert.ok(c.indexOf("<AutoReplySteps") > mount, "ProSetup sits above the steps, in the picker block that proInPlan guards");
+  assert.ok(c.slice(branch, mount).split("proInPlan").length === 2, "no second proInPlan check between the branch and the mount");
+  assert.ok(c.includes("Teach Pro your clinic") && source(SETTINGS).includes("علّم Pro عيادتك") , "the button label in both languages");
+  assert.match(c, /<ProSetup[\s\S]*?clinicId=\{clinicId \?\? ""\}/, "ProSetup receives the clinic id");
+});
+
+await test("the screen: ProSetup posts to all four routes with clinicId and the ID token", () => {
+  const P = "src/components/whatsapp/ProSetup.tsx";
+  assert.ok(existsSync(new URL(`../${P}`, import.meta.url)), "ProSetup.tsx exists");
+  const c = code(P);
+  assert.match(c, /export default function ProSetup\(/, "default export ProSetup");
+  assert.ok(c.includes('const API = "/api/whatsapp/pro-onboarding"'), "one base path, the routes' folder");
+  for (const sub of ["scan", "chat", "publish"]) assert.ok(c.includes("${API}/" + sub), `calls the ${sub} route`);
+  assert.ok(c.includes("${API}?clinicId="), "reads the state route");
+  assert.match(c, /method:\s*"PUT"/, "saves the draft with PUT");
+  assert.ok(c.includes("clinicId"), "sends clinicId");
+  assert.ok(c.includes("getIdToken()") && c.includes("Authorization"), "sends the Firebase ID token");
+  assert.match(c, /makeLive/, "can switch the live version");
+  assert.match(c, /makeLive\(null\)/, "can switch the clinic layer off");
+  assert.match(c, /body\.ok\b/, "reads body.ok, not only res.ok");
+  assert.ok(!/text-accent/.test(c.replace(/hover:text-accent-ink/g, "")), "accent is a fill, never text");
+});
+
+await test("the screen: the step loop stops when the dialog closes", () => {
+  const c = code("src/components/whatsapp/ProSetup.tsx");
+  assert.match(c, /abortedRef/, "an aborted ref exists");
+  assert.match(c, /abortedRef\.current\s*=\s*true/, "closing or unmounting sets it");
+  const loop = c.slice(c.indexOf("while ("));
+  assert.ok(c.includes("while ("), "there is a loop");
+  assert.match(loop.slice(0, 1200), /abortedRef\.current/, "the loop checks the ref");
+  assert.match(c, /busy/, "a busy answer is handled");
+  assert.match(c, /3000|3_000/, "waits 3 seconds on busy");
+  assert.match(c, /loopRunning/, "a guard keeps two loops from running");
+});
+
 console.log("all pro onboarding route tests passed");

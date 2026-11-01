@@ -20,6 +20,7 @@ import BotScriptsEditor from "@/components/settings/BotScriptsEditor";
 import AutoReplySteps, { type AutoReplyStepRow } from "@/components/whatsapp/AutoReplySteps";
 import BotBriefEditor from "@/components/whatsapp/BotBriefEditor";
 import InterviewDialog from "@/components/whatsapp/InterviewDialog";
+import ProSetup from "@/components/whatsapp/ProSetup";
 import { briefFilled, cleanBrief, factsFilled, stepsForMode, type AutoReplyStep } from "@/lib/bot/brief";
 import { chosenAnswerMode } from "@/lib/setupWizard";
 import AutoReplySwitch from "@/components/ai/AutoReplySwitch";
@@ -340,6 +341,7 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
    */
   const [openStep, setOpenStep] = useState<AutoReplyStep | null | undefined>(undefined);
   const [interviewOpen, setInterviewOpen] = useState(false);
+  const [proSetupOpen, setProSetupOpen] = useState(false);
   // Old links to the AI tab arrive as ?step=ai and land on the AI's brief. Read once after mount,
   // not through useSearchParams, so the page needs no Suspense boundary.
   useEffect(() => {
@@ -2818,6 +2820,14 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
                   );
                 })}
               </div>
+              <button
+                type="button"
+                onClick={() => setProSetupOpen(true)}
+                className="inline-flex items-center gap-2 rounded-xl border border-line-strong px-4 py-2.5 text-xs font-bold text-ink-body hover:border-ink hover:text-ink"
+              >
+                {language === "ar" ? "علّم Pro عيادتك" : "Teach Pro your clinic"}
+              </button>
+              <ProSetup open={proSetupOpen} onClose={() => setProSetupOpen(false)} clinicId={clinicId ?? ""} />
             </div>
           )}
 
