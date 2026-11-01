@@ -6,11 +6,17 @@
  *   CLINIC_ID=<id> npx tsx scripts/pro-battery.mts --dry    scripted fake model, no key, no spend
  *
  *   ENV_FILE=../.env.local   read secrets from another checkout's env file
- *   ONLY=<id-prefix>,...     replay just these saved cases (document id prefixes)
- *   LIMIT=10                 replay at most N saved cases
+ *   SAVED_ONLY=1             skip the built-in conversation set; replay saved cases only
+ *   ONLY=<id-prefix>,...     replay just these cases (built-in ids, or saved document id prefixes)
+ *   LIMIT=10                 replay at most N cases
  *   FIXTURE=file.json        replay cases from a local JSON array of SavedTestCase (plus an `id`)
  *                            instead of the clinic's bot_test_cases; the clinic data is still read
  *   DRY_REPLY="..."          (--dry only) the fixed reply the fake model sends
+ *
+ * By default the built-in conversation set (scripts/lib/battery-conversations.mts, the same one
+ * probe-model-battery.mts uses) is replayed first, then the clinic's saved cases. Built-in
+ * conversations that assume a known patient get a synthetic in-memory patient with one upcoming
+ * appointment; the rest, and every saved case, are strangers.
  *
  * Nothing leaves the machine and nothing is written:
  *   - Firestore is only READ (price list, schedule, doctors, free slots, saved cases, approved
@@ -24,21 +30,24 @@
  * the battery must never spend the standard key, and a missing key would otherwise "pass" by
  * falling back. --dry is the only way to run without a Pro key.
  *
- * Exit code: 0 clean, 1 if any reply crossed a red line, 2 on refusal or a setup failure.
+ * Exit code: 0 clean; 1 a reply crossed a red line; 2 refusal or setup failure; 3 nothing was
+ * tested, or (real run) at least one reply was `unavailable` so the result proves nothing.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { adminDb } from "../src/lib/firebaseAdmin";
-import { arabicClock } from "../src/lib/arabicDateTime";
+import { arabicClock, arabicDayLabel, arabicTimeLabel } from "../src/lib/arabicDateTime";
 import { briefLines, cleanBrief } from "../src/lib/bot/brief";
 import { factLines } from "../src/lib/bot/botPrompt";
 import { expectFromKind, type SavedTestCase } from "../src/lib/bot/testCases";
 import { allowedNumbers, checkReply } from "../src/lib/botPro/checks";
 import { answerWithPro, geminiProModel, type ProModel, type ProReplyResult } from "../src/lib/botPro/answerWithPro";
 import { loadProContext, type ProArgs, type ProContext, type ProSink } from "../src/lib/botPro/proContext";
-import type { ProPerson } from "../src/lib/botPro/person";
+import type { ProAppointment, ProPerson } from "../src/lib/botPro/person";
 import type { AiThreadLine } from "../src/lib/bot/aiReply";
+import type { AiPatientContext } from "../src/lib/bot/botPrompt";
+import { CONVERSATIONS } from "./lib/battery-conversations.mts";
 
 const DRY = process.argv.includes("--dry");
 const ARABIC_DAYS = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
@@ -63,6 +72,16 @@ function refuse(message: string): never {
 
 /** A person nobody knows: no file, no appointments, and not a guess about who is writing. */
 const STRANGER: ProPerson = { patientId: null, family: [], upcoming: [], past: [], degraded: false, writerKnown: false };
+
+/** A patient with one appointment a few days out, absolute date, for conversations that assume a known patient. */
+function knownPerson(todayKey: string, doctor: string): { person: ProPerson; patient: AiPatientContext } {
+  const d = new Date(`${todayKey}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 4);
+  const appt: ProAppointment = { id: "battery-appt", patientId: "battery-patient", patientName: "منى", date: d.toISOString().slice(0, 10), time: "06:00 PM", doctor, status: "Scheduled", service: "تنظيف" };
+  const person: ProPerson = { patientId: "battery-patient", family: [{ id: "battery-patient", name: "منى" }], upcoming: [appt], past: [], degraded: false, writerKnown: true };
+  const label = `${arabicDayLabel(appt.date)} الساعة ${arabicTimeLabel(appt.time)}${doctor ? ` مع ${doctor}` : ""}`;
+  return { person, patient: { known: true, name: "منى", gender: "female", upcomingAppointment: label } };
+}
 
 const isArabicText = (s: string) => /[؀-ۿ]/.test(s);
 
@@ -140,34 +159,53 @@ async function main() {
   if (!clinicDoc.exists) refuse(`No clinic ${clinicId} in Firestore.`);
   const clinicName = String(clinicDoc.data()?.name || "Alpha Dental Clinic");
 
-  // Saved real conversations (read-only).
+  // The cases to replay: built-in set first (unless SAVED_ONLY), then saved real chats (read-only).
+  type Case = { id: string; clinical: boolean; known: boolean; note: string; builtin: boolean; turns: Array<{ q: string; a: string; expect: string[] }> };
+  const cases: Case[] = [];
+  if (!process.env.SAVED_ONLY && !process.env.FIXTURE) {
+    for (const c of CONVERSATIONS) {
+      cases.push({ id: `builtin:${c.id}`, clinical: c.clinical, known: c.patient?.known !== false, note: "", builtin: true, turns: c.turns.map((t) => ({ q: t.q, a: "", expect: t.expect })) });
+    }
+  }
   type CaseDoc = { id: string; data(): unknown };
-  let all: CaseDoc[];
+  let saved: CaseDoc[];
   if (process.env.FIXTURE) {
     const fixture = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), process.env.FIXTURE), "utf8")) as Array<SavedTestCase & { id?: string }>;
-    all = fixture.map((c, i) => ({ id: c.id || `fixture-${i + 1}`, data: () => c }));
+    saved = fixture.map((c, i) => ({ id: c.id || `fixture-${i + 1}`, data: () => c }));
   } else {
-    all = (await clinicRef.collection("bot_test_cases").orderBy("atMs", "desc").limit(200).get()).docs;
+    saved = (await clinicRef.collection("bot_test_cases").orderBy("atMs", "desc").limit(200).get()).docs;
   }
-  const only = (process.env.ONLY || "").split(",").map((s) => s.trim()).filter(Boolean);
-  let docs = all.filter((d) => !only.length || only.some((p) => d.id.startsWith(p)));
+  for (const d of saved) {
+    const c = d.data() as SavedTestCase;
+    const turns = (c.turns || []).filter((t) => (t?.q || "").trim());
+    if (!turns.length) continue;
+    cases.push({
+      id: d.id.slice(0, 18),
+      clinical: c.clinical === true,
+      known: false,
+      note: c.note || "",
+      builtin: false,
+      turns: turns.map((t, i) => ({ q: (t.q || "").trim(), a: t.a || "", expect: i === turns.length - 1 && c.expect?.length ? c.expect : expectFromKind(t.kind) })),
+    });
+  }
+  const only = (process.env.ONLY || "").split(",").map((x) => x.trim()).filter(Boolean);
+  let plan = cases.filter((c) => !only.length || only.some((p) => c.id.startsWith(p) || c.id.startsWith(`builtin:${p}`)));
   const limit = Number(process.env.LIMIT) || 0;
-  if (limit > 0) docs = docs.slice(0, limit);
+  if (limit > 0) plan = plan.slice(0, limit);
 
   // The clinic's real prices, schedule, doctors and calendar through the production loader (reads
-  // only). Its thread/person/gate parts are replaced per turn below.
-  const baseArgs: ProArgs = { clinicId, clinicName, question: "", history: [], mode: "sales", chatId: "pro-battery-replay", canBook: true };
+  // only). The profile is read once and handed over; the loader's own thread/person/gate reads
+  // are cheap and their results are replaced per turn below.
+  const { loadPublicClinicProfile } = await import("../src/lib/publicBooking");
+  const profile = await loadPublicClinicProfile(clinicId, { requireEnabled: false, loadDoctors: true }).catch(() => null);
+  const baseArgs: ProArgs = { clinicId, clinicName, question: "", history: [], mode: "sales", chatId: "pro-battery-replay", canBook: true, ...(profile ? { profile } : {}) };
   const real = await loadProContext(baseArgs);
-  const profileSchedule = await (async () => {
-    // Hours, address and phone as the production caller shows them (respond.ts), read-only.
-    const { loadPublicClinicProfile } = await import("../src/lib/publicBooking");
-    return loadPublicClinicProfile(clinicId, { requireEnabled: false, loadDoctors: true }).catch(() => null);
-  })();
+  const profileSchedule = profile;
   let hoursText = "";
   if (profileSchedule?.schedule?.isConfigured) {
-    const s = profileSchedule.schedule;
-    const lines = [`من ${arabicClock(s.startHour, s.startMinute)} إلى ${arabicClock(s.endHour, s.endMinute)}`];
-    const off = s.offDays.map((d: string) => ARABIC_DAYS[DAY_KEYS.indexOf(d)]).filter(Boolean);
+    const sc = profileSchedule.schedule;
+    const lines = [`من ${arabicClock(sc.startHour, sc.startMinute)} إلى ${arabicClock(sc.endHour, sc.endMinute)}`];
+    const off = sc.offDays.map((d: string) => ARABIC_DAYS[DAY_KEYS.indexOf(d)]).filter(Boolean);
     if (off.length) lines.push(`الإجازة: ${off.join(" و")}`);
     hoursText = lines.join("\n");
   }
@@ -187,29 +225,28 @@ async function main() {
 
   console.log(`clinic: ${clinicName} (${clinicId})`);
   console.log(`mode: ${DRY ? "DRY (scripted fake model, no key, no spend)" : `REAL model ${modelName} on the Pro key`}`);
-  console.log(`prices read: ${real.prices.length}   doctors: ${real.doctors.length}   saved cases: ${docs.length} of ${all.length}${process.env.FIXTURE ? " (from FIXTURE)" : ""}\n`);
-  if (!docs.length) {
-    console.log("No saved test cases for this clinic. Save some from the Chats page (Save as test case), then re-run.");
-    return 0;
+  console.log(`prices read: ${real.prices.length}   doctors: ${real.doctors.length}   cases: ${plan.length} (${plan.filter((c) => c.builtin).length} built-in, ${plan.filter((c) => !c.builtin).length} saved${process.env.FIXTURE ? ", from FIXTURE" : ""})\n`);
+  if (!plan.length) {
+    console.error("NOTHING TESTED: 0 cases to replay. Save some from the Chats page (Save as test case), or drop SAVED_ONLY / ONLY / LIMIT, then re-run.");
+    return 3;
   }
 
-  type Row = { id: string; q: string; expect: string[]; action: string; actionOk: boolean; breaks: string[]; ms: number; rounds: number; tools: string[]; modelMs: number; inTok: number; outTok: number };
+  type Row = { id: string; turn: number; q: string; expect: string[]; action: string; actionOk: boolean; breaks: string[]; ms: number; rounds: number; tools: string[]; modelMs: number; inTok: number; outTok: number };
   const rows: Row[] = [];
   const latencies: number[] = [];
   const usageTotal: Usage = { calls: 0, inTok: 0, outTok: 0, thoughtTok: 0, cachedTok: 0, seen: false };
   let replies = 0;
 
-  for (const d of docs) {
-    const c = d.data() as SavedTestCase;
-    const turns = (c.turns || []).filter((t) => t.q.trim());
-    if (!turns.length) continue;
-    const caseId = d.id.slice(0, 18);
-    console.log(`=== case ${caseId}${c.clinical ? " (dentist mode)" : ""}${c.note ? `  — ${c.note}` : ""}`);
+  for (const c of plan) {
+    const turns = c.turns;
+    const caseId = c.id;
+    console.log(`=== case ${caseId}${c.clinical ? " (dentist mode)" : ""}${c.known ? " (known patient)" : ""}${c.note ? `  — ${c.note}` : ""}`);
     const thread: AiThreadLine[] = [];
+    const who = c.known ? knownPerson(real.todayKey, real.doctors[0] || "") : { person: STRANGER, patient: { known: false, gender: "unknown" } as AiPatientContext };
 
     for (let i = 0; i < turns.length; i++) {
       const t = turns[i];
-      const expect = i === turns.length - 1 && c.expect?.length ? c.expect : expectFromKind(t.kind);
+      const expect = t.expect;
       const debugRows: Array<Record<string, unknown>> = [];
       const sink: ProSink = {
         async charge() {
@@ -220,13 +257,14 @@ async function main() {
         },
       };
       const { blocked: _gate, ...open } = real; // the plan/credit gate is not what is under test
-      const context: ProContext = { ...open, person: STRANGER, reloadPerson: async () => STRANGER, thread: [...thread] };
+      const context: ProContext = { ...open, person: who.person, reloadPerson: async () => who.person, thread: [...thread] };
       const usage: Usage = { calls: 0, inTok: 0, outTok: 0, thoughtTok: 0, cachedTok: 0, seen: false };
       const model = metered(DRY ? dryModel(t.q) : geminiProModel(proKey, modelName), usage);
       const args: ProArgs = {
         ...baseArgs,
         question: t.q,
-        clinical: c.clinical === true,
+        clinical: c.clinical,
+        patient: who.patient,
         hoursText,
         addressText,
         clinicPhone,
@@ -274,8 +312,8 @@ async function main() {
       const tools = Array.isArray(dbg.toolsCalled) ? (dbg.toolsCalled as string[]) : [];
       const modelMs = Number(dbg.modelMs) || 0;
       const actionOk = expect.includes(action);
-      rows.push({ id: caseId, q: t.q, expect, action, actionOk, breaks, ms, rounds, tools, modelMs, inTok: usage.inTok, outTok: usage.outTok });
-      latencies.push(ms);
+      rows.push({ id: caseId, turn: i + 1, q: t.q, expect, action, actionOk, breaks, ms, rounds, tools, modelMs, inTok: usage.inTok, outTok: usage.outTok });
+      if (result.kind !== "unavailable") latencies.push(ms);
       replies += 1;
       usageTotal.calls += usage.calls;
       usageTotal.inTok += usage.inTok;
@@ -296,8 +334,10 @@ async function main() {
       console.log("");
 
       // The thread the next turn sees: what actually happened in the saved chat.
+      // Saved chats continue with what the bot actually said; built-in ones with the Pro brain's own words.
       thread.push({ author: "patient", text: t.q });
-      if (t.a?.trim()) thread.push({ author: "bot", text: t.a });
+      const said = c.builtin ? text : t.a;
+      if (said?.trim()) thread.push({ author: "bot", text: said });
     }
   }
 
@@ -311,15 +351,34 @@ async function main() {
   console.log(`pass rate (action)   ${matched}/${replies}  ${replies ? Math.round((matched / replies) * 100) : 0}%`);
   console.log(`unavailable          ${unavailable}`);
   console.log(`RED-LINE BREAKS      ${broken.length}${broken.length ? `   <-- ${broken.map((r) => `${r.id}: ${r.breaks.join(" ; ")}`).join(" | ")}` : ""}`);
-  console.log(`latency median / p90 ${percentile(sorted, 50)} ms / ${percentile(sorted, 90)} ms`);
+  console.log(`latency median / p90 ${percentile(sorted, 50)} ms / ${percentile(sorted, 90)} ms   (unavailable replies excluded)`);
   if (usageTotal.seen && replies) {
     console.log(`tokens per reply     in ${Math.round(usageTotal.inTok / replies)}   out ${Math.round(usageTotal.outTok / replies)}   thought ${Math.round(usageTotal.thoughtTok / replies)}   cached in ${Math.round(usageTotal.cachedTok / replies)}   model calls ${(usageTotal.calls / replies).toFixed(1)}`);
   }
-  return broken.length ? 1 : 0;
+  const off = rows.filter((r) => !r.actionOk);
+  if (off.length) {
+    console.log(`\nOFF-EXPECTATION (${off.length}):`);
+    for (const r of off) console.log(`  ${r.id} turn ${r.turn}: expected ${r.expect.join("|")}, got ${r.action}   "${r.q.replace(/\s+/g, " ").slice(0, 60)}"`);
+  }
+  if (broken.length) {
+    console.log("\nRESULT: RED-LINE BREAK  (exit 1)");
+    return 1;
+  }
+  if (!DRY && unavailable > 0) {
+    console.log(`\nRESULT: ${unavailable} reply(ies) UNAVAILABLE on a real run: the brain fell back, so this run proves nothing for those turns (exit 3)`);
+    return 3;
+  }
+  console.log("\nRESULT: no red-line breaks");
+  return 0;
 }
 
 main()
-  .then((code) => process.exit(code))
+  .then((code) => {
+    // Let stdout flush and in-flight sockets close before exiting: process.exit() with a request
+    // still pending aborts node on Windows (libuv assertion) and loses the exit code.
+    process.exitCode = code;
+    setTimeout(() => process.exit(code), 250).unref();
+  })
   .catch((e) => {
     console.error(e);
     process.exit(2);
