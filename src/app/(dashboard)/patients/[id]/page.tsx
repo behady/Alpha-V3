@@ -1044,17 +1044,11 @@ export default function PatientProfile() {
       <PageHeader
         eyebrow={language === "ar" ? "المرضى" : "Patients"}
         title={patient.name}
-        subtitle={[
-          `${displayAge} ${t('yearSymbol') || 'Y'}`,
-          patient.gender,
-          String((patient as { fileId?: unknown }).fileId || "").trim() && `#${String((patient as { fileId?: unknown }).fileId).trim()}`,
-        ].filter(Boolean).join(" · ")}
+        subtitle={`${displayAge} ${t('yearSymbol') || 'Y'} · ${patient.gender || ""}`}
         backHref="/patients"
       />
 
-      {/* Below `lg` the bottom dock and the floating buttons sit over the page, so the page
-          ends well below them and the last treatment card can scroll clear. */}
-      <div className="min-h-full p-4 md:p-8 animate-in fade-in max-lg:pb-36 lg:pb-0">
+      <div className="min-h-full p-4 md:p-8 animate-in fade-in lg:pb-0">
         
         {/*
           * The patient, and nothing else: who they are and how to reach them, the clinic's file
@@ -1071,9 +1065,9 @@ export default function PatientProfile() {
           * it is a safety cue, and everything else behind "More details".
           */}
         <section className="max-w-[1600px] mx-auto mb-4 rounded-3xl border border-line bg-surface px-5 py-4 max-md:px-4 max-md:py-3">
-          <div className="flex flex-wrap items-center justify-between gap-3 max-md:flex-nowrap max-md:gap-2">
-            <div className="flex min-w-0 items-center gap-3 max-md:flex-1 max-md:gap-2.5">
-              <div className="group relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-line bg-surface-subtle max-md:h-10 max-md:w-10">
+          <div className="flex flex-wrap items-center justify-between gap-3 max-md:flex-nowrap">
+            <div className="flex min-w-0 items-center gap-3 max-md:flex-1">
+              <div className="group relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-line bg-surface-subtle max-md:h-11 max-md:w-11">
                 <img
                   src={patient.imageUrl || (patient.gender === "Female" ? "https://cdn-icons-png.flaticon.com/512/4140/4140047.png" : "https://cdn-icons-png.flaticon.com/512/4140/4140048.png")}
                   alt={patient.name}
@@ -1090,13 +1084,12 @@ export default function PatientProfile() {
                   {displayAge} {t('yearSymbol') || 'Y'}{patient.gender ? ` · ${patient.gender}` : ""}
                 </p>
               </div>
-              {/* Phones: how to reach them, in the name's place. The balance has its own strip
-                  below, so the number gets this whole column and is never cut short. */}
+              {/* Phones: how to reach them and what they owe, in the name's place. */}
               <div className="min-w-0 md:hidden">
                 {patient.phone ? (
                   // The invisible ::before widens the tap target to ~41px without moving the text.
-                  <button onClick={() => openWhatsApp(patient.phone)} className="relative max-lg:before:absolute max-lg:before:-inset-x-1 max-lg:before:-inset-y-2.5 max-lg:before:content-[''] inline-flex max-w-full items-center gap-1 text-[13px] font-bold text-ink hover:text-emerald-700">
-                    <MessageCircle size={13} className="shrink-0 text-emerald-600" /><bdi dir="ltr" className="min-w-0 truncate font-figure tracking-tighter">{patient.phone}</bdi>
+                  <button onClick={() => openWhatsApp(patient.phone)} className="relative max-lg:before:absolute max-lg:before:-inset-x-1 max-lg:before:-inset-y-2.5 max-lg:before:content-[''] inline-flex max-w-full items-center gap-1.5 text-[14px] font-bold text-ink hover:text-emerald-700">
+                    <MessageCircle size={14} className="shrink-0 text-emerald-600" /> <bdi dir="ltr" className="truncate font-figure">{patient.phone}</bdi>
                   </button>
                 ) : (
                   <Protect permission="patients.edit" fallback={<span className="text-sm font-semibold text-ink-faint">—</span>}>
@@ -1105,14 +1098,22 @@ export default function PatientProfile() {
                     </button>
                   </Protect>
                 )}
+                {!chair && (
+                  <p className="text-[13px] font-semibold text-ink-muted">
+                    {language === 'ar' ? 'المستحق' : 'Balance'}{' '}
+                    <span className={`font-figure font-bold ${balance > 0 ? "text-rose-700" : "text-ink"}`}>
+                      <bdi dir="ltr">{balance > 0 ? balance.toLocaleString() : '0'}</bdi> {language === 'ar' ? 'ج.م' : 'EGP'}
+                    </span>
+                  </p>
+                )}
               </div>
             </div>
-            <div className="flex items-center gap-2 max-md:shrink-0 max-md:gap-1">
+            <div className="flex items-center gap-2 max-md:shrink-0">
               <button
                 type="button"
                 onClick={() => setCallReminderOpen(true)}
                 aria-label={language === 'ar' ? 'تذكير بمكالمة' : 'Call reminder'}
-                className="inline-flex h-10 items-center gap-2 rounded-xl border border-line bg-surface px-4 text-sm font-bold text-ink transition-colors hover:bg-surface-subtle max-md:h-8 max-md:w-8 max-md:justify-center max-md:px-0"
+                className="inline-flex h-10 items-center gap-2 rounded-xl border border-line bg-surface px-4 text-sm font-bold text-ink transition-colors hover:bg-surface-subtle max-md:w-10 max-md:justify-center max-md:px-0"
               >
                 <PhoneForwarded size={15} /> <span className="max-md:sr-only">{language === 'ar' ? 'تذكير بمكالمة' : 'Call reminder'}</span>
               </button>
@@ -1121,7 +1122,7 @@ export default function PatientProfile() {
                   data-tour="patient-edit"
                   onClick={() => setIsEditModalOpen(true)}
                   aria-label={language === 'ar' ? 'تعديل البيانات' : 'Edit details'}
-                  className="inline-flex h-10 items-center gap-2 rounded-xl bg-ink-slab px-4 text-sm font-bold text-white transition-colors hover:bg-ink max-md:h-8 max-md:w-8 max-md:justify-center max-md:px-0"
+                  className="inline-flex h-10 items-center gap-2 rounded-xl bg-ink-slab px-4 text-sm font-bold text-white transition-colors hover:bg-ink max-md:w-10 max-md:justify-center max-md:px-0"
                 >
                   <Edit2 size={15} /> <span className="max-md:sr-only">{language === 'ar' ? 'تعديل البيانات' : 'Edit details'}</span>
                 </button>
@@ -1133,7 +1134,7 @@ export default function PatientProfile() {
                   data-tour="patient-more"
                   aria-label={language === 'ar' ? 'إجراءات أكتر' : 'More actions'}
                   aria-expanded={moreOpen}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-line bg-surface text-ink-body transition-colors hover:bg-surface-subtle max-md:h-8 max-md:w-8"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-line bg-surface text-ink-body transition-colors hover:bg-surface-subtle"
                 >
                   <MoreHorizontal size={18} />
                 </button>
@@ -1165,6 +1166,8 @@ export default function PatientProfile() {
               </div>
             </div>
           </div>
+
+          <PatientCallsPanel patientId={id} />
 
           {(() => {
             const ar = language === 'ar';
@@ -1198,20 +1201,9 @@ export default function PatientProfile() {
             ].filter(Boolean).join(" · ");
             return (
               <>
-              {/* Phones: what they owe gets its own strip, then the medical line, which stays in
-                  view whatever is folded — recorded allergies in red, or the amber "ask before
-                  prescribing" when nobody has asked yet. */}
-              <div className="mt-3 space-y-2 md:hidden">
-                {!chair && (
-                  <div className={`flex items-center justify-between gap-3 rounded-xl px-3 py-2 ${balance > 0 ? "bg-rose-50" : "bg-surface-subtle"}`}>
-                    <span className={`text-[13px] font-bold ${balance > 0 ? "text-rose-700" : "text-ink-muted"}`}>
-                      {ar ? 'المستحق' : 'Balance'}
-                    </span>
-                    <span className={`whitespace-nowrap font-figure text-base font-bold ${balance > 0 ? "text-rose-700" : "text-ink"}`}>
-                      <bdi dir="ltr">{balance > 0 ? balance.toLocaleString() : '0'}</bdi> {ar ? 'ج.م' : 'EGP'}
-                    </span>
-                  </div>
-                )}
+              {/* Phones: the medical line stays in view whatever is folded — recorded allergies
+                  in red, or the amber "ask before prescribing" when nobody has asked yet. */}
+              <div className="mt-3 md:hidden">
                 {hasMedical ? (
                   <p className="flex items-start gap-1.5 rounded-xl bg-rose-50 px-3 py-2 text-[13px] font-bold leading-snug text-rose-700">
                     <AlertCircle size={14} className="mt-0.5 shrink-0" />
@@ -1224,20 +1216,18 @@ export default function PatientProfile() {
                     {addButton}
                   </div>
                 )}
+                <button
+                  type="button"
+                  onClick={() => setDetailsOpen((v) => !v)}
+                  aria-expanded={detailsOpen}
+                  className="mt-2 flex w-full items-center gap-2 rounded-xl border border-line px-3 py-2 text-start text-[13px] font-bold text-ink-body hover:bg-surface-subtle"
+                >
+                  <span className="shrink-0">{ar ? 'تفاصيل أكتر' : 'More details'}</span>
+                  {detailsPreview && <span className="min-w-0 flex-1 truncate font-semibold text-ink-muted" dir="auto">{detailsPreview}</span>}
+                  <ChevronDown size={16} className={`ms-auto shrink-0 transition-transform ${detailsOpen ? "rotate-180" : ""}`} />
+                </button>
               </div>
-              <PatientCallsPanel patientId={id} />
-              {/* Phones: the fold is the card's own bottom edge, not a box of its own. */}
-              <button
-                type="button"
-                onClick={() => setDetailsOpen((v) => !v)}
-                aria-expanded={detailsOpen}
-                className={`-mx-4 mt-3 flex w-[calc(100%+2rem)] items-center gap-2 border-t border-line px-4 py-2.5 text-start text-[13px] font-bold text-ink-body hover:bg-surface-subtle md:hidden ${detailsOpen ? "" : "-mb-3 rounded-b-3xl"}`}
-              >
-                <span className="shrink-0">{ar ? 'تفاصيل أكتر' : 'More details'}</span>
-                {detailsPreview && <span className="min-w-0 flex-1 truncate font-semibold text-ink-muted" dir="auto">{detailsPreview}</span>}
-                <ChevronDown size={16} className={`ms-auto shrink-0 transition-transform ${detailsOpen ? "rotate-180" : ""}`} />
-              </button>
-              <dl className={`mt-3 flex-wrap gap-x-8 gap-y-3 border-t border-line pt-3 md:flex max-md:mt-0 ${detailsOpen ? "flex" : "hidden"}`}>
+              <dl className={`mt-3 flex-wrap gap-x-8 gap-y-3 border-t border-line pt-3 md:flex ${detailsOpen ? "flex" : "hidden"}`}>
                 {field(ar ? 'رقم الملف' : 'File number', fileNumber ? <bdi dir="ltr" className="font-figure">{fileNumber}</bdi> : <span className="text-ink-faint">—</span>)}
                 {field(ar ? 'كود ملف الأشعة' : 'X-ray file code', <XrayCodeField patientId={id} value={(patient as { xrayCode?: string }).xrayCode} />)}
                 {field(
@@ -1308,8 +1298,7 @@ export default function PatientProfile() {
               */}
             <div className="relative mb-8 border-b border-line max-lg:sticky max-lg:top-0 max-lg:z-20 max-lg:-mx-4 max-lg:mb-6 max-lg:bg-surface max-lg:px-4 max-lg:pt-2 md:max-lg:-mx-6 md:max-lg:px-6">
             {/* The open tab is a black slab with the brand yellow on it — the one place yellow type reads. */}
-            {/* Phones: tighter pills, so three tabs show at once instead of one and a half. */}
-            <nav ref={setTabStrip} onScroll={measureTabEdges} className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-3 max-md:gap-1">
+            <nav ref={setTabStrip} onScroll={measureTabEdges} className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-3">
               {tabs.filter(tb => tb.show).map(tb => {
                 const Icon = tb.icon;
                 const active = activeTab === tb.id;
@@ -1319,11 +1308,11 @@ export default function PatientProfile() {
                     data-tour={`patient-tab-${tb.id}`}
                     aria-current={active ? "page" : undefined}
                     onClick={() => selectTab(tb.id)}
-                    className={`flex shrink-0 items-center gap-2 px-5 py-2.5 rounded-full text-xs font-bold transition-all whitespace-nowrap md:text-[15px] max-md:px-3.5 max-md:py-2 ${
+                    className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-[15px] font-bold transition-all whitespace-nowrap max-md:px-4 ${
                       active ? 'bg-ink-slab text-[#FACC15] shadow-sm' : 'text-ink-body hover:bg-surface-subtle'
                     }`}
                   >
-                    <Icon size={16} className={`max-md:hidden ${active ? 'text-[#FACC15]' : 'text-slate-400'}`} />
+                    <Icon size={16} className={active ? 'text-[#FACC15]' : 'text-slate-400'} />
                     {tb.label}
                   </button>
                 );
