@@ -24,6 +24,8 @@ interface Msg {
   text: string;
   reason?: string;
   chips?: Chip[];
+  /** Which brain wrote this reply; only present when the server reports it. */
+  brain?: "pro" | "standard";
 }
 
 type Structure = {
@@ -39,12 +41,13 @@ function chipsOf(s?: Structure | null): Chip[] {
   return rows.map((r) => ({ id: r.id, title: r.title }));
 }
 
-export default function BotPlayground() {
+export default function BotPlayground({ proUnlocked = false }: { proUnlocked?: boolean }) {
   const { language } = useLanguage();
   const isAr = language === "ar";
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [tryPro, setTryPro] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
 
@@ -59,11 +62,11 @@ export default function BotPlayground() {
     const res = await fetch("/api/admin/bot-playground", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
-      body: JSON.stringify({ clinicId: currentClinicId(), ...payload }),
+      body: JSON.stringify({ clinicId: currentClinicId(), ...(proUnlocked && tryPro ? { brain: "pro" } : {}), ...payload }),
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok || json.ok === false) throw new Error(json.error || `HTTP ${res.status}`);
-    return json as { status: string; text?: string; reason?: string; structure?: Structure };
+    return json as { status: string; text?: string; reason?: string; structure?: Structure; brain?: "pro" | "standard" };
   };
 
   // A tapped chip sends its id (what WhatsApp would send) but shows its label (what the patient saw).
@@ -77,7 +80,7 @@ export default function BotPlayground() {
     try {
       const out = await call({ text: line });
       if (out.status === "replied" && out.text) {
-        setMsgs((m) => [...m, { role: "bot", text: out.text!, reason: out.reason, chips: chipsOf(out.structure) }]);
+        setMsgs((m) => [...m, { role: "bot", text: out.text!, reason: out.reason, chips: chipsOf(out.structure), ...(out.brain ? { brain: out.brain } : {}) }]);
       } else {
         setMsgs((m) => [
           ...m,
@@ -119,6 +122,12 @@ export default function BotPlayground() {
               : "Type as a patient would. Same bot, same settings, same credits — nothing reaches a patient. Edit the coaching above and try again."}
           </p>
         </div>
+        {proUnlocked && (
+          <label className="inline-flex items-center gap-2 text-xs font-bold text-ink-body cursor-pointer">
+            <input type="checkbox" checked={tryPro} onChange={(e) => setTryPro(e.target.checked)} disabled={busy} />
+            {isAr ? "جرّب الرد المتقدم (Pro)" : "Try Pro"}
+          </label>
+        )}
         <button
           type="button"
           onClick={() => void reset()}
@@ -161,6 +170,11 @@ export default function BotPlayground() {
                     </button>
                   ))}
                 </div>
+              )}
+              {m.brain && (
+                <p className="text-[10px] font-bold text-ink-muted">
+                  {m.brain === "pro" ? (isAr ? "متقدم" : "Pro") : isAr ? "عادي" : "Standard"}
+                </p>
               )}
               {m.reason && <p className="text-[10px] text-slate-400 font-mono">{m.reason}</p>}
             </div>

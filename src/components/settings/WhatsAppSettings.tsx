@@ -185,6 +185,8 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
     botAutoConfirmBookings: data?.botAutoConfirmBookings === true,
     botAiEnabled: data?.botAiEnabled === true,
     botMode: data?.botMode === "ai_first" ? "ai_first" : "assisted",
+    // Same rule as deliveryMode: spread conditionally so "standard" / absent never becomes undefined.
+    ...(data?.botAiBrain === "pro" ? { botAiBrain: "pro" as const } : {}),
     botClinicalMode: data?.botClinicalMode === "dentist" ? "dentist" : "handoff",
     ...(typeof data?.botAiMaxReplies === "number" ? { botAiMaxReplies: data.botAiMaxReplies } : {}),
     botCoaching: typeof data?.botCoaching === "string" ? data.botCoaching : "",
@@ -315,6 +317,8 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
   // (bot/aiReply.ts) refuses AI without it — this only stops the screen offering a mode that
   // would silently fall back to the script.
   const aiInPlan = isUnlocked(clinic, "aiChat");
+  // The Pro reply brain is its own add-on, switched on per clinic by the platform.
+  const proInPlan = isUnlocked(clinic, "whatsappPro");
 
   const [hasLoaded, setHasLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -662,6 +666,14 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
         language === "ar"
           ? "البوت بيرد على اللي يعرفه ببلاش، والذكاء الاصطناعي بياخد الباقي بس، لحد عدد ردود محدد في كل محادثة."
           : "The bot answers what it can for free; the AI handles only the rest, up to a per-chat limit.",
+      brainTitle: language === "ar" ? "مين بيكتب الرد" : "Which AI writes the replies",
+      brainStandard: language === "ar" ? "عادي" : "Standard",
+      brainStandardHint: language === "ar" ? "الرد الحالي" : "Current replies",
+      brainPro: language === "ar" ? "متقدم (Pro)" : "Pro",
+      brainProHint:
+        language === "ar"
+          ? "الرد الذكي المتقدم — بيدوّر في الجدول كله ويقرا ملف المريض. بيستهلك رصيد أكتر لكل رد."
+          : "Pro — searches the whole calendar and reads the patient file. Uses more credits per reply.",
       answerModeAi: language === "ar" ? "الذكاء الاصطناعي بس" : "AI only",
       answerModeAiHint:
         language === "ar"
@@ -1800,7 +1812,7 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
     replies: { title: txt.stepReplies, badge: txt.stepReplyCount(replyCount), content: repliesStep },
     brief: { title: txt.stepBrief, badge: txt.stepFilled(briefCount.filled, briefCount.total), content: briefStep },
     behaviour: { title: txt.stepBehaviour, content: behaviourStep },
-    test: { title: txt.stepTest, content: <BotPlayground /> },
+    test: { title: txt.stepTest, content: <BotPlayground proUnlocked={proInPlan} /> },
   };
   const autoReplySteps: AutoReplyStepRow[] = modeSteps.map((s) => ({ ...s, ...stepView[s.id] }));
 
@@ -2763,6 +2775,43 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
               );
             })}
           </div>
+
+          {autoReplyMode === "ai" && proInPlan && (
+            <div className="space-y-2 pt-3">
+              <p className="text-sm font-bold text-ink leading-relaxed">{txt.brainTitle}</p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {(
+                  [
+                    { id: "standard" as const, label: txt.brainStandard, hint: txt.brainStandardHint },
+                    { id: "pro" as const, label: txt.brainPro, hint: txt.brainProHint },
+                  ]
+                ).map((opt) => {
+                  const active = (state.botAiBrain === "pro" ? "pro" : "standard") === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => {
+                        setState((s) => {
+                          // "standard" is written explicitly rather than deleting the field, so no undefined reaches Firestore.
+                          const next = { ...s, botAiBrain: opt.id };
+                          void persist(next, "silent");
+                          return next;
+                        });
+                      }}
+                      className={`text-start rounded-xl border px-4 py-3 transition-colors ${
+                        active ? "border-accent bg-accent/5 ring-1 ring-accent" : "border-line bg-surface-subtle hover:bg-surface-muted"
+                      }`}
+                    >
+                      <span className="block text-sm font-black text-ink">{opt.label}</span>
+                      <span className="mt-1 block text-xs leading-relaxed text-ink-muted">{opt.hint}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {autoReplyMode === "off" ? (
             <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.answerModeOffHint}</p>
