@@ -566,7 +566,9 @@ export async function respondToPatientMessage(args: {
   }
 
   const settings = await loadBotSettings(clinicId);
-  if (!settings.enabled) return skip("bot_disabled");
+  // The test chat (dryRun) still answers with auto-reply off: that is how an owner sets up and
+  // rehearses a mode before letting it talk to patients. A rehearsal sends nothing to anyone.
+  if (!settings.enabled && !args.dryRun) return skip("bot_disabled");
   // The receptionist is an add-on on top of automatic messages. The clinic's own toggle above
   // says whether they WANT it; this says whether they have PAID for it. Checked here, at the
   // one door every inbound message passes, so a switched-off clinic's bot stays silent whatever
