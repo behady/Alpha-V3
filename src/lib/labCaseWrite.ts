@@ -16,7 +16,7 @@
  *     `MAD-0142`.
  */
 
-import { runTransaction, addDoc, updateDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
+import { runTransaction, addDoc, updateDoc, deleteDoc, deleteField, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { localYmd } from "@/lib/clinicDate";
@@ -166,6 +166,29 @@ export async function recordLabPayment(input: {
     createdAtServer: serverTimestamp(),
   });
   return ref.id;
+}
+
+/**
+ * Correct a lab payment — the wrong amount, date or method. Same `lab_payments`-only rule as
+ * recording one. The lab itself is not editable here: a payment to the wrong lab is deleted and
+ * recorded again, so neither lab's history shows a payment that silently moved.
+ */
+export async function updateLabPayment(
+  id: string,
+  input: { amount: number; date: string; method: string; reference?: string }
+): Promise<void> {
+  const amount = Number(input.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("A lab payment needs an amount greater than zero.");
+  }
+  await updateDoc(getClinicDoc(LAB_PAYMENTS_COLLECTION, id), {
+    amount: Math.round(amount * 100) / 100,
+    date: input.date || today(),
+    method: input.method || "cash",
+    // An emptied box removes the reference rather than storing "".
+    reference: input.reference ? input.reference : deleteField(),
+    updatedAt: nowIso(),
+  });
 }
 
 /** Remove a lab payment — a mistyped amount, a duplicate entry. */

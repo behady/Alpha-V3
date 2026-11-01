@@ -13,6 +13,7 @@ import {
   Banknote,
   ChevronDown,
   Loader2,
+  Pencil,
   Printer,
   RotateCcw,
   Trash2,
@@ -32,7 +33,7 @@ import {
   labAccountsTotal,
   type LabPayment,
 } from "@/lib/labAccounts";
-import { deleteLabPayment, recordLabPayment } from "@/lib/labCaseWrite";
+import { deleteLabPayment, recordLabPayment, updateLabPayment } from "@/lib/labCaseWrite";
 import { loadLabOrderClinic, printLabStatement } from "@/lib/labOrderPrint";
 
 const INPUT =
@@ -64,12 +65,15 @@ export default function LabAccountsPanel({
   const [method, setMethod] = useState("cash");
   const [reference, setReference] = useState("");
   const [busy, setBusy] = useState("");
+  /** The payment the form is correcting; empty when it records a new one. */
+  const [editingId, setEditingId] = useState("");
 
   const accounts = useMemo(() => labAccounts(labs, cases, payments), [labs, cases, payments]);
   const totals = useMemo(() => labAccountsTotal(accounts, cases), [accounts, cases]);
 
   const resetForm = () => {
     setPayingLab("");
+    setEditingId("");
     setAmount("");
     setReference("");
     setDate(localYmd());
@@ -84,6 +88,12 @@ export default function LabAccountsPanel({
     }
     setBusy(lab.id);
     try {
+      if (editingId) {
+        await updateLabPayment(editingId, { amount: value, date, method, reference: reference.trim() });
+        showToast(isAr ? "اتعدلت الدفعة" : "Payment updated", "success");
+        resetForm();
+        return;
+      }
       await recordLabPayment({
         labId: lab.id,
         labName: lab.name,
@@ -104,6 +114,15 @@ export default function LabAccountsPanel({
     } finally {
       setBusy("");
     }
+  };
+
+  const startEdit = (payment: LabPayment) => {
+    setEditingId(payment.id);
+    setPayingLab(payment.labId);
+    setAmount(String(payment.amount));
+    setDate(payment.date || localYmd());
+    setMethod(payment.method || "cash");
+    setReference(payment.reference || "");
   };
 
   const removePayment = async (payment: LabPayment) => {
@@ -246,7 +265,11 @@ export default function LabAccountsPanel({
                   <Protect permission="finance.add">
                     <button
                       onClick={() => {
-                        setPayingLab(payingLab === account.labId ? "" : account.labId);
+                        setEditingId("");
+                        setReference("");
+                        setDate(localYmd());
+                        setMethod("cash");
+                        setPayingLab(payingLab === account.labId && !editingId ? "" : account.labId);
                         setOpenLab(account.labId);
                         // Offered, not imposed: a clinic usually settles the whole balance, and
                         // typing it again from the number directly above is pure friction.
@@ -262,6 +285,11 @@ export default function LabAccountsPanel({
 
               {payingLab === account.labId && (
                 <div className="border-t border-slate-100 bg-slate-50/60 p-4 grid grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+                  {editingId && (
+                    <p className="col-span-2 lg:col-span-5 text-[11px] font-black uppercase tracking-wider text-sky-600">
+                      {isAr ? "تعديل دفعة" : "Editing a payment"}
+                    </p>
+                  )}
                   <div>
                     <label className="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">
                       {isAr ? "المبلغ" : "Amount"}
@@ -354,6 +382,16 @@ export default function LabAccountsPanel({
                           <span className="text-sm font-black text-emerald-600 tabular-nums shrink-0">
                             {money(p.amount)}
                           </span>
+                          <Protect permission="finance.edit">
+                            <button
+                              onClick={() => startEdit(p)}
+                              disabled={busy === p.id}
+                              className={`p-1.5 rounded-lg transition-colors shrink-0 ${editingId === p.id ? "text-sky-600 bg-sky-50" : "text-slate-300 hover:text-sky-600 hover:bg-sky-50"}`}
+                              aria-label={isAr ? "تعديل" : "Edit"}
+                            >
+                              <Pencil size={13} />
+                            </button>
+                          </Protect>
                           <Protect permission="finance.delete">
                             <button
                               onClick={() => void removePayment(p)}
