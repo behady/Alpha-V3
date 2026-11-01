@@ -267,18 +267,7 @@ async function runTurn(
   // patient's file); the patient's message and the thread may only be repeated as plain numbers,
   // so "سمعت إنها بـ 2000" can never become "أيوه بـ 2000 جنيه".
   const [y, m, d] = ctx.todayKey.split("-").map(Number);
-  const moneySources = [
-    consult ? "" : ctx.priceLines,
-    factLines(args.facts),
-    briefLines(args.brief),
-    coaching || "",
-    playbook || "",
-    ...knowledge.map((k) => k.a),
-    dossierText,
-    // The clinic's own address and phone: "12 ألف مسكن" is a district, not a price.
-    args.addressText || "",
-    args.clinicPhone || "",
-  ];
+  const moneySources = proMoneySources(args, ctx.priceLines, dossierText);
   const plainSources = [
     args.hoursText || "",
     args.addressText || "",
@@ -409,6 +398,29 @@ async function runTurn(
     return mapAnswer(r, args, shown, canBook, dropBooking);
   }
   return { kind: "unavailable", reason: "no_reply_tool" };
+}
+
+/**
+ * The clinic's own words a price may come from: the price list, facts, brief, coaching, playbook,
+ * approved answers, the patient's file, address and phone. Never the patient's message, the thread,
+ * dates or the owner's layer. The turn and the publish test (replay.ts) both build `allowedMoney`
+ * from this one list.
+ */
+export function proMoneySources(args: ProArgs, priceLines: string, dossierText = ""): string[] {
+  const consult = args.brief?.prices === "consult";
+  const knowledge = (args.knowledge || []).filter((k) => k.q?.trim() && k.a?.trim()).slice(0, 40);
+  return [
+    consult ? "" : priceLines,
+    factLines(args.facts),
+    briefLines(args.brief),
+    args.coaching?.trim() || "",
+    args.playbook?.trim() || "",
+    ...knowledge.map((k) => k.a),
+    dossierText,
+    // The clinic's own address and phone: "12 ألف مسكن" is a district, not a price.
+    args.addressText || "",
+    args.clinicPhone || "",
+  ];
 }
 
 /** The standard brain's mapping (aiReply.ts), with the slot id read from what this turn showed. */

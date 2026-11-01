@@ -17,7 +17,7 @@ import type { AiPatientContext } from "@/lib/bot/botPrompt";
 import type { AiThreadLine } from "@/lib/bot/aiReply";
 import { expectFromKind } from "@/lib/bot/testCases";
 import { allowedNumbers, checkReply } from "./checks";
-import { answerWithPro, type ProModel, type ProReplyResult } from "./answerWithPro";
+import { answerWithPro, proMoneySources, type ProModel, type ProReplyResult } from "./answerWithPro";
 import type { ProAppointment, ProPerson } from "./person";
 import type { ClinicLayer, ReplaySummary } from "./layer";
 import type { ProArgs, ProContext, ProSink } from "./proContext";
@@ -79,7 +79,7 @@ export function savedReplayCases(raw: Array<Record<string, unknown>>, max = 10):
     const expectOverride = Array.isArray(c.expect) ? (c.expect as unknown[]).filter((x): x is string => typeof x === "string") : [];
     const id = typeof c.id === "string" && c.id ? c.id : `saved-${n + 1}`;
     out.push({
-      id: id.slice(0, 18),
+      id,
       clinical: c.clinical === true,
       known: false,
       turns: turns.map((t, i) => ({
@@ -113,7 +113,8 @@ async function runCase(
   const who = c.known
     ? proKnownPerson(context.todayKey, context.doctors[0] || "")
     : { person: PRO_STRANGER, patient: { known: false, gender: "unknown" } as AiPatientContext };
-  const { blocked: _gate, ...open } = context; // the plan/credit gate is not what is under test
+  const open: ProContext = { ...context }; // the plan/credit gate is not what is under test
+  delete open.blocked;
 
   for (const t of c.turns) {
     res.turns += 1;
@@ -140,6 +141,9 @@ async function runCase(
       const rules = checkReply({
         question: t.q,
         reply: text,
+        // A price may come only from the clinic's own words (the same list Pro's own check uses);
+        // the question, the thread, dates and the owner's layer text never count as a price source.
+        allowedMoney: allowedNumbers(proMoneySources(baseArgs, context.priceLines)),
         allowed: allowedNumbers([
           context.priceLines,
           factLines(baseArgs.facts),
@@ -206,7 +210,7 @@ export async function runReplay(input: {
   const actionMisses = results.reduce((n, r) => n + r.actionMisses, 0);
   const breaks = results.flatMap((r) => r.breaks);
   return {
-    passed: breaks.length === 0 && unavailable <= Math.floor(turns * 0.25),
+    passed: turns > 0 && breaks.length === 0 && unavailable <= Math.floor(turns * 0.25),
     turns,
     unavailable,
     actionMisses,

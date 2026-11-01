@@ -177,3 +177,43 @@ await test("actionOf names the action the way the expectations do", () => {
   assert.equal(actionOf({ kind: "answer", text: "x", bookSlot: "k" }), "book_slot");
   assert.equal(actionOf({ kind: "answer", text: "x" }), "answer");
 });
+
+const one: ReplayCase[] = [{ id: "p", clinical: false, known: false, turns: [{ q: "الكشف ب 200؟", expect: ["answer"] }] }];
+const deliver = (text: string) => async (): Promise<ProReplyResult> => ({ kind: "answer", text });
+
+await test("a price built from a number in the layer's own rule is still a price break", async () => {
+  const layer: ClinicLayer = { ...EMPTY_LAYER, rules: ["جلسة التقويم بتاخد 30 دقيقة"] };
+  const s = await runReplay({ cases: one, layer, baseArgs, context: context(), model: () => sayModel("x"), answer: deliver("التقويم ب 30 ألف جنيه") });
+  assert.equal(s.passed, false);
+  assert.equal(s.breaks.length, 1);
+  assert.ok(s.breaks[0].rules.includes("price"));
+});
+
+await test("a price the patient typed (not in the price list) cannot be said back as a price", async () => {
+  const s = await runReplay({ cases: one, layer: EMPTY_LAYER, baseArgs, context: context(), model: () => sayModel("x"), answer: deliver("ايوه الكشف 200 جنيه") });
+  assert.equal(s.passed, false);
+  assert.ok(s.breaks[0].rules.includes("price"));
+});
+
+await test("today's date digits are not a price source", async () => {
+  const s = await runReplay({ cases: one, layer: EMPTY_LAYER, baseArgs, context: context(), model: () => sayModel("x"), answer: deliver("الكشف ب 2026 جنيه") });
+  assert.equal(s.passed, false);
+  assert.ok(s.breaks[0].rules.includes("price"));
+});
+
+await test("a price that is in the price list passes", async () => {
+  const s = await runReplay({ cases: one, layer: EMPTY_LAYER, baseArgs, context: context(), model: () => sayModel("x"), answer: deliver("التنضيف يبدأ من 500 جنيه") });
+  assert.deepEqual(s.breaks, []);
+  assert.equal(s.passed, true);
+});
+
+await test("an empty case list never passes", async () => {
+  const s = await runReplay({ cases: [], layer: EMPTY_LAYER, baseArgs, context: context(), model: () => sayModel("x") });
+  assert.equal(s.turns, 0);
+  assert.equal(s.passed, false);
+});
+
+await test("saved case ids are not truncated", () => {
+  const long = "abcdefghijklmnopqrstuvwxyz0123456789";
+  assert.equal(savedReplayCases([{ id: long, turns: [{ q: "س", kind: "" }] }])[0].id, long);
+});
