@@ -82,8 +82,8 @@ export function readState(raw: unknown): OnboardingState {
     done: num(s.done, 0),
     chatsRead: num(s.chatsRead, 0),
     lockUntil: num(s.lockUntil, 0),
-    ...(typeof s.startedAt === "number" && Number.isFinite(s.startedAt) ? { startedAt: s.startedAt } : {}),
-    ...(typeof s.finishedAt === "number" && Number.isFinite(s.finishedAt) ? { finishedAt: s.finishedAt } : {}),
+    ...(typeof s.startedAt === "number" && Number.isFinite(s.startedAt) && s.startedAt > 0 ? { startedAt: s.startedAt } : {}),
+    ...(typeof s.finishedAt === "number" && Number.isFinite(s.finishedAt) && s.finishedAt > 0 ? { finishedAt: s.finishedAt } : {}),
     ...(typeof s.error === "string" && s.error ? { error: s.error } : {}),
   };
   return {
@@ -142,6 +142,8 @@ export interface OnboardingStore {
   loadConversation(key: string): Promise<RawConversation | null>;
   saveFindings(n: number, f: ChunkFindings): Promise<void>;
   allFindings(): Promise<ChunkFindings[]>;
+  /** Delete every findings doc (a new scan starts from nothing). */
+  clearFindings(): Promise<void>;
   addChat(role: "ai" | "owner", text: string): Promise<void>;
   recentChat(max: number): Promise<Array<{ role: "ai" | "owner"; text: string }>>;
   listVersions(): Promise<LayerVersion[]>;
@@ -289,6 +291,18 @@ export function firestoreOnboardingStore(clinicId: string): OnboardingStore {
           booked: num(x.booked, 0),
         };
       });
+    },
+
+    async clearFindings() {
+      const col = findingsCol(clinicId);
+      for (;;) {
+        const snap = await col.limit(400).get();
+        if (snap.empty) return;
+        const batch = adminDb().batch();
+        for (const d of snap.docs) batch.delete(d.ref);
+        await batch.commit();
+        if (snap.size < 400) return;
+      }
     },
 
     async addChat(role, text) {
