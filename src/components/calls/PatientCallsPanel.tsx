@@ -81,8 +81,9 @@ export default function PatientCallsPanel({ patientId }: { patientId: string }) 
                 {isAr ? STATUS_WORDS[r.status][1] : STATUS_WORDS[r.status][0]}
               </span>
             </div>
-            {/* <bdi> keeps a mixed Arabic/English reason in its own order while the line still
-                aligns with the rest of the card; tap a clamped reason to read all of it. */}
+            {/* dir="auto" reads the direction from the first letter: an Arabic-first reason runs
+                right to left from the card's right edge, an English-first one left to right from
+                the left. Tap a clamped reason to read all of it. */}
             <button
               type="button"
               onClick={() => setOpenNotes((prev) => {
@@ -91,9 +92,10 @@ export default function PatientCallsPanel({ patientId }: { patientId: string }) 
                 return next;
               })}
               aria-expanded={noteOpen}
+              dir="auto"
               className={`w-full break-words text-start text-sm font-medium text-ink ${noteOpen ? "" : "line-clamp-2"}`}
             >
-              <bdi>{r.reason}</bdi>
+              {r.reason}
             </button>
             <p className="truncate text-xs font-semibold text-ink-muted">
               {isAr ? "بواسطة" : "By"} {recipientLabel(r.recipient, isAr)}

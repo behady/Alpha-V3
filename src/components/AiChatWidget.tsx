@@ -613,17 +613,16 @@ export default function AiChatWidget() {
           bottom 80px of the screen; bottom-5 sat entirely behind it, which is why the
           assistant never appeared on phones or tablets.
 
-          Below lg it is a 44px orb docked on the bar's end edge (bottom 72px: it overlaps the bar
-          by 8px and stands 36px above it) rather than a 56px orb floating 96–152px up, where it
-          sat on list rows' call buttons and the calendar's Today button. Docked, it belongs to the
-          bar, so it stacks with the bar (z-[81], one above it): whatever covers the bar covers it
-          too. The WhatsApp page keeps the old spot — its composer lives right above the bar. */}
+          Below lg it is a 44px orb at bottom 96px: 16px clear of the bar's top edge (80px). It used
+          to dock 8px over the bar's end, which read as the two colliding (owner, 2026-11-01). It
+          stacks one above the bar (z-[81]) so whatever covers the bar covers it too. The WhatsApp
+          page uses the same height, above its composer. */}
       {lifted && (
         <Suspense fallback={null}>
           <ChatOpenProbe onChange={setChatOpen} />
         </Suspense>
       )}
-      <div className={`fixed ${lifted ? "bottom-24 lg:bottom-28" : "bottom-[4.5rem] lg:bottom-5"} ${launcherCornerClass} z-[81] lg:z-50 transition-all duration-300 ${hideLauncherOnPhone ? "max-lg:hidden" : ""}`}>
+      <div className={`fixed ${lifted ? "bottom-24 lg:bottom-28" : "bottom-24 lg:bottom-5"} ${launcherCornerClass} z-[81] lg:z-50 transition-all duration-300 ${hideLauncherOnPhone ? "max-lg:hidden" : ""}`}>
         <button
           onClick={() => setIsOpen((prev) => !prev)}
           title={alphaName}
