@@ -41,7 +41,7 @@ import {
 } from "./conversation";
 import type { BotConversation } from "./conversation";
 import { answerWithAi, type AiPatientContext, type AiThreadLine, AI_DEFAULT_ACK } from "./aiReply";
-import { aiBrainOf, pickReply, type AiBrain } from "@/lib/botPro/brain";
+import { aiBrainOf, dryRunBrainTag, pickReply, type AiBrain } from "@/lib/botPro/brain";
 import { answerWithPro } from "@/lib/botPro/answerWithPro";
 import { isLatinMessage, localizeOutbound } from "./localize";
 import { loadPatientDossier, type PatientDossier } from "./patientDossier";
@@ -74,7 +74,7 @@ import { normalizeAppointmentStatus } from "@/lib/appointmentStages";
  */
 
 export type BotOutcome =
-  | { status: "replied"; text: string; handoff: boolean; reason: string; structure?: MetaInteractive }
+  | { status: "replied"; text: string; handoff: boolean; reason: string; structure?: MetaInteractive; brain?: AiBrain }
   | { status: "handoff_only"; reason: string }
   | { status: "skipped"; reason: string };
 
@@ -871,6 +871,8 @@ export async function respondToPatientMessage(args: {
   let medicineScreened = false;
   /** The slot keys this reply names in its own sentence, so the next turn can answer "the first". */
   let spokenSlotKeys: string[] = [];
+  /** Which brain wrote the AI reply this turn; reported to the test chat only. */
+  let brainUsed: AiBrain | undefined;
   /** Attach them to whatever this turn was already storing, without disturbing the rest. */
   const withSpokenSlots = (p: PendingOptions | undefined): PendingOptions | undefined =>
     spokenSlotKeys.length ? { ...(p ?? {}), slots: spokenSlotKeys } : p;
@@ -1337,6 +1339,7 @@ ${urgentCallLine(ctx.clinicPhone)}`;
         () => answerWithAi(aiArgs)
       );
       const ai = brainReply.ai;
+      brainUsed = brainReply.brainUsed;
       // What Pro offered is what "the first one" and the spoken clocks below resolve against.
       if (brainReply.slotsShown) slotOffer = brainReply.slotsShown;
       /*
@@ -2144,7 +2147,7 @@ ${askWho}` : askWho;
       { state: nextState, replied: true, reason, patientId: patient?.id, patientName: ctx.patientName, pending: withSpokenSlots(pending), aiExchange, medicineScreened },
       now
     );
-    return { status: "replied", text: body, handoff, reason, structure };
+    return { status: "replied", text: body, handoff, reason, structure, ...dryRunBrainTag(args.dryRun, brainUsed) };
   }
 
   if (!args.dryRun) await adminClinicCollection(clinicId, "whatsapp_logs").add({
@@ -2202,7 +2205,7 @@ ${askWho}` : askWho;
     void adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(chatId)).set(outcomeUpdate, { merge: true }).catch(() => {});
   }
 
-  return { status: "replied", text: body, handoff, reason, structure };
+  return { status: "replied", text: body, handoff, reason, structure, ...dryRunBrainTag(args.dryRun, brainUsed) };
 }
 
 /** Where the patient is in the booking lists, for the model — or nothing when they are not. */

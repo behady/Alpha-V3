@@ -47,3 +47,8 @@ export async function pickReply(
   }
   return { ai: await standard(), brainUsed: "standard" };
 }
+
+/** The test chat says which brain answered; a live reply carries nothing new (and never undefined). */
+export function dryRunBrainTag(dryRun: boolean | undefined, brainUsed: AiBrain | undefined): { brain?: AiBrain } {
+  return dryRun === true && brainUsed ? { brain: brainUsed } : {};
+}

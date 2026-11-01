@@ -8,7 +8,8 @@ import { clinicHasFeature } from "@/lib/clinicFeatures";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// A Pro turn may run its full 25 s and then fall back to the standard brain's own 25 s.
+export const maxDuration = 120;
 
 /**
  * Talk to your own bot without a phone.

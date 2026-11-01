@@ -7,7 +7,7 @@
  * Run: npm run test:pro-wiring
  */
 import assert from "node:assert/strict";
-import { pickReply } from "../src/lib/botPro/brain";
+import { dryRunBrainTag, pickReply } from "../src/lib/botPro/brain";
 import type { AiReplyResult } from "../src/lib/bot/aiReply";
 import type { ProReplyResult } from "../src/lib/botPro/answerWithPro";
 
@@ -90,4 +90,15 @@ await test("Pro with no slots shown leaves slotsShown empty-handed", async () =>
   const out = await pickReply("pro", pro, async () => STANDARD);
   assert.equal(out.brainUsed, "pro");
   assert.deepEqual(out.slotsShown, []);
+});
+
+await test("the test chat is told which brain answered; a live reply is not", async () => {
+  assert.deepEqual(dryRunBrainTag(true, "pro"), { brain: "pro" });
+  assert.deepEqual(dryRunBrainTag(true, "standard"), { brain: "standard" });
+  // The AI branch never ran: nothing, not an undefined field.
+  assert.deepEqual(dryRunBrainTag(true, undefined), {});
+  assert.equal("brain" in dryRunBrainTag(true, undefined), false);
+  // A live turn carries nothing new.
+  assert.deepEqual(dryRunBrainTag(false, "pro"), {});
+  assert.deepEqual(dryRunBrainTag(undefined, "pro"), {});
 });
