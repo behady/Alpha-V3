@@ -186,8 +186,8 @@ function violationNote(vs: Violation[], question: string): string {
   return `(ملاحظة من النظام: الرد ده متبعتش. ${lines.join(" ")} ابعت الرد الصح بـ reply.)`;
 }
 
-const bookedNote = (upcoming: ProAppointment[]) =>
-  `(ملاحظة من النظام: الحجز ده متعملش. في ميعاد جاي محجوز بالفعل على الرقم ده: ${upcoming.map(apptLabel).join("، ")}. لو المريض عايز ميعاد زيادة فعلاً (مش تغيير)، ابعت book_slot تاني ومعاه extraAppointment: true. لو عايز يغيّر ميعاده اختار reschedule. وإلا فكّره بميعاده.)`;
+const bookedNote = (upcoming: ProAppointment[], action: string) =>
+  `(ملاحظة من النظام: الحجز ده متعملش. في ميعاد جاي محجوز بالفعل على الرقم ده: ${upcoming.map(apptLabel).join("، ")}. لو المريض عايز ميعاد زيادة فعلاً (مش تغيير)، ابعت ${action} تاني ومعاه extraAppointment: true. لو عايز يغيّر ميعاده اختار reschedule. وإلا فكّره بميعاده.)`;
 
 const newBookingNote = (added: ProAppointment[]) =>
   `(ملاحظة من النظام: لسه حالاً اتسجل ميعاد جديد على الرقم ده: ${added.map(apptLabel).join("، ")}. راجع ردك على الأساس ده: متحجزش ولا تفتح الحجز تاني إلا لو المريض عايز ميعاد زيادة فعلاً (extraAppointment: true).)`;
@@ -259,21 +259,26 @@ async function runTurn(
   const contents: unknown[] = threadContents(ctx.thread, question);
 
   // Every source a figure, a time or a medicine name may come from. Tool results join as they arrive.
+  // A price may come only from the clinic's own words (moneySources, plus get_price and the
+  // patient's file); the patient's message and the thread may only be repeated as plain numbers,
+  // so "سمعت إنها بـ 2000" can never become "أيوه بـ 2000 جنيه".
   const [y, m, d] = ctx.todayKey.split("-").map(Number);
-  const fixedSources = [
+  const moneySources = [
     consult ? "" : ctx.priceLines,
     factLines(args.facts),
     briefLines(args.brief),
     coaching || "",
     playbook || "",
+    ...knowledge.map((k) => k.a),
+    dossierText,
+  ];
+  const plainSources = [
     args.hoursText || "",
     args.addressText || "",
     args.clinicPhone || "",
     args.memory || "",
     question,
     ...ctx.thread.map((l) => l.text),
-    ...knowledge.map((k) => k.a),
-    dossierText,
     `${ctx.todayKey} ${d}/${m} ${y}`,
   ];
   const toolOutputs: string[] = [];
@@ -283,9 +288,9 @@ async function runTurn(
     checkReply({
       question,
       reply,
+      allowedMoney: allowedNumbers([...moneySources, ...toolOutputs]),
       allowed: allowedNumbers([
-        ...fixedSources,
-        ...toolOutputs,
+        ...plainSources,
         ...labels(),
         ...appts().flatMap((a) => [a.date, arabicDayLabel(a.date), a.time, arabicTimeLabel(a.time)]),
       ]),
@@ -363,11 +368,13 @@ async function runTurn(
     }
 
     // Any upcoming visit on the number, whoever's it is. A degraded read is not "none" but is not
-    // "booked" either: the booking writer re-checks the slot itself.
-    if (r.action === "book_slot" && canBook && person.upcoming.length > 0 && !person.degraded && !r.extraAppointment) {
+    // "booked" either: the booking writer re-checks the slot itself. Opening the booking menu is
+    // the same new booking, so it follows the same rule; once dropped, the text is still sent.
+    const booking = r.action === "book_slot" || r.action === "open_booking";
+    if (booking && canBook && person.upcoming.length > 0 && !person.degraded && !r.extraAppointment) {
       if (!warnedBooked && round < MAX_ROUNDS) {
         warnedBooked = true;
-        respond({ rejected: true, note: bookedNote(person.upcoming) });
+        respond({ rejected: true, note: bookedNote(person.upcoming, r.action) });
         continue;
       }
       dropBooking = true;

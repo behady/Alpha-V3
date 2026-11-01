@@ -13,7 +13,7 @@
  *                            instead of the clinic's bot_test_cases; the clinic data is still read
  *   DRY_REPLY="..."          (--dry only) the fixed reply the fake model sends
  *
- * By default the built-in conversation set (scripts/lib/battery-conversations.mts, the same one
+ * By default the built-in conversation set (scripts/lib/battery-conversations.ts, the same one
  * probe-model-battery.mts uses) is replayed first, then the clinic's saved cases. Built-in
  * conversations that assume a known patient get a synthetic in-memory patient with one upcoming
  * appointment; the rest, and every saved case, are strangers.
@@ -47,7 +47,7 @@ import { loadProContext, type ProArgs, type ProContext, type ProSink } from "../
 import type { ProAppointment, ProPerson } from "../src/lib/botPro/person";
 import type { AiThreadLine } from "../src/lib/bot/aiReply";
 import type { AiPatientContext } from "../src/lib/bot/botPrompt";
-import { CONVERSATIONS } from "./lib/battery-conversations.mts";
+import { CONVERSATIONS } from "./lib/battery-conversations";
 
 const DRY = process.argv.includes("--dry");
 const ARABIC_DAYS = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];

@@ -62,7 +62,7 @@ test("bringing up being a bot unprompted is caught", () => {
 
 test("an English question answered in Arabic is caught", () => {
   assert.deepEqual(
-    rules({ question: "What are your opening hours?", reply: "بنفتح من الساعة ١٠ الصبح لحد ٨ بالليل" }),
+    rules({ question: "What are your opening hours?", reply: "بنفتح من الساعة ١٠ الصبح لحد ٨ بالليل", clocks: ["من 10:00 ص إلى 8:00 م"] }),
     ["script"],
   );
 });
@@ -320,4 +320,73 @@ test("real dates and a bare d/m still pass; a dotted date before a unit does not
   assert.deepEqual(strayNumbers("12/11", new Set()), []);
   assert.deepEqual(strayNumbers("2026-11-12", new Set()), []);
   assert.ok(strayNumbers("10-20-30 جنيه", new Set()).length > 0);
+});
+
+// ---- bare hours (a clock written without minutes) ---------------------------------------------
+
+test("a bare hour next to a time word is a clock: caught unless it is an allowed entry's hour", () => {
+  assert.deepEqual(rules({ reply: "تعالى بكرة الساعة 7", clocks: ["الخميس 5:00 م"] }), ["clock"]);
+  assert.deepEqual(rules({ reply: "تعالى بكرة الساعة 7", clocks: ["7:00 م"] }), []);
+  assert.deepEqual(rules({ reply: "تعالى بكرة الساعة ٧", clocks: ["الخميس 5:00 م"] }), ["clock"]);
+});
+
+test("bare hours: every time word, either side, Arabic-Indic digits folded", () => {
+  const none = new Set<string>();
+  for (const reply of ["الساعة 7", "عالساعة 7", "7 الصبح", "الصبح 7", "7 الصباح", "الضهر 2", "2 العصر", "7 المغرب", "9 بالليل", "7 مساءً", "10 صباحاً", "7 م", "7م", "10 ص", "7 pm", "7PM", "8 am", "٧ م"]) {
+    assert.equal(strayClocks(reply, none).length, 1, reply);
+  }
+});
+
+test("bare hours: counts, prices, dates and H:MM labels are not bare clocks", () => {
+  const none = new Set<string>();
+  for (const reply of ["3 جلسات", "2 زرعات", "محتاج 4 مرات", "عندنا 3 دكاترة", "الكشف 300 جنيه", "5 مع دكتور أحمد", "الساعة 15"]) {
+    assert.deepEqual(strayClocks(reply, none), [], reply);
+  }
+  // A label's own d/m before الساعة is not "11 o'clock", and its H:MM is checked as a clock.
+  assert.deepEqual(strayClocks("الخميس 5/11 الساعة 5:00 م", new Set(["الخميس 5/11 الساعة 5:00 م"])), []);
+  assert.deepEqual(strayClocks("الخميس 5/11 الساعة 5 م", new Set(["الخميس 5/11 الساعة 5:00 م"])), []);
+});
+
+test("bare hours: a 24-hour entry allows its 12-hour hour; a bare hour in an entry is allowed too", () => {
+  assert.deepEqual(strayClocks("الساعة 5 م", new Set(["17:00"])), []);
+  assert.deepEqual(strayClocks("ممكن الساعة 7 م", new Set(["ينفع الساعة 7 بالليل؟"])), []);
+  assert.deepEqual(strayClocks("الساعة 7 م", new Set(["17:00"])), ["7"]);
+});
+
+// ---- money from the clinic only (allowedMoney) --------------------------------------------------
+
+const moneyRules = (args: { question: string; reply: string; money: string[]; plain: string[] }) =>
+  checkReply({
+    question: args.question,
+    reply: args.reply,
+    allowed: allowedNumbers(args.plain),
+    allowedMoney: allowedNumbers(args.money),
+    clocks: new Set(),
+    drugsAllowed: "",
+  }).map((v) => v.rule);
+
+test("a price the patient typed is not a price the clinic gave", () => {
+  const q = "سمعت ان الزراعة عندكم ب 2000 صح؟";
+  assert.deepEqual(moneyRules({ question: q, reply: "أيوه الزراعة ب 2000 جنيه", money: ["زراعة 9000"], plain: [q] }), ["price"]);
+  // The clinic's own figure passes; the patient's figure said back as a plain number passes.
+  assert.deepEqual(moneyRules({ question: q, reply: "الزراعة عندنا تبدأ من 9000 جنيه", money: ["زراعة 9000"], plain: [q] }), []);
+  assert.deepEqual(moneyRules({ question: q, reply: "مش 2000، الزراعة تبدأ من 9000 جنيه", money: ["زراعة 9000"], plain: [q] }), []);
+});
+
+test("allowedMoney: a plain number of 50+ may come from either set, a percentage only from the clinic", () => {
+  assert.deepEqual(strayNumbers("رقم الشقة 120", allowedNumbers(["شارع 120"]), allowedNumbers([])), []);
+  assert.deepEqual(strayNumbers("رقم الشقة 120", allowedNumbers([]), allowedNumbers(["120"])), []);
+  assert.deepEqual(strayNumbers("خصم 20%", allowedNumbers(["خصم 20%"]), allowedNumbers([])), ["20"]);
+  assert.deepEqual(strayNumbers("خصم 20%", allowedNumbers([]), allowedNumbers(["خصم 20%"])), []);
+  // The old single-set call is unchanged.
+  assert.deepEqual(strayNumbers("خصم 20%", allowedNumbers(["خصم 20%"])), []);
+});
+
+test("unit gaps: k, ك, جنيهين, dollars and a currency before the figure are money", () => {
+  for (const reply of ["الزراعة ب 5k", "الزراعة ب 5K", "الزراعة ب ٥ك", "ب 20 دولار", "ب 20$", "ب $20", "EGP 20", "LE 20", "ج.م 20", "ب 3 جنيهين"]) {
+    assert.deepEqual(rules({ reply }), ["price"], reply);
+  }
+  assert.deepEqual(rules({ reply: "الزراعة ب 5k", allowed: ["زراعة 5k"] }), []);
+  // A word that merely starts with k or ك is not a unit.
+  assert.deepEqual(rules({ reply: "عندنا 3 كراسي و 2 kids rooms" }), []);
 });

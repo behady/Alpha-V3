@@ -6,7 +6,7 @@
  * Run: npm run test:pro-brain
  */
 import assert from "node:assert/strict";
-import { aiBrainOf } from "../src/lib/botPro/brain";
+import { aiBrainOf, playgroundOutcome } from "../src/lib/botPro/brain";
 import { TIER_LIMITS } from "../src/lib/subscriptions";
 
 function test(name: string, fn: () => void) {
@@ -24,4 +24,14 @@ test("pro only when chosen, unlocked and AI-first", () => {
 
 test("whatsappPro is off on every tier", () => {
   for (const tier of Object.values(TIER_LIMITS)) assert.equal(tier.features.whatsappPro, false);
+});
+
+test("test chat: the brain tag is shown only when the request asked for Pro and got it", () => {
+  const replied = { status: "replied" as const, text: "أهلاً", handoff: false, reason: "ai", brain: "standard" as const };
+  assert.deepEqual(playgroundOutcome(replied, false), { status: "replied", text: "أهلاً", handoff: false, reason: "ai" });
+  assert.ok(!("brain" in playgroundOutcome(replied, false)));
+  assert.deepEqual(playgroundOutcome(replied, true), replied);
+  assert.deepEqual(playgroundOutcome({ ...replied, brain: "pro" as const }, true).brain, "pro");
+  // An outcome with no tag is passed through untouched.
+  assert.deepEqual(playgroundOutcome({ status: "skipped" }, false), { status: "skipped" });
 });

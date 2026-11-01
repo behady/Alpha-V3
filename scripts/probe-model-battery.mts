@@ -137,7 +137,7 @@ const isArabic = (s: string) => /[؀-ۿ]/.test(s);
 /** Same script as the question? Arabic ↔ Arabic; Latin (English or Franco) ↔ Latin. */
 const sameScript = (q: string, reply: string) => !reply || isArabic(q) === isArabic(reply);
 
-import { CONVERSATIONS, KNOWN_PATIENT, STRANGER, type Conv } from "./lib/battery-conversations.mts";
+import { CONVERSATIONS, KNOWN_PATIENT, STRANGER, type Conv } from "./lib/battery-conversations";
 
 async function main() {
   loadEnv();

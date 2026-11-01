@@ -104,6 +104,7 @@ export default function AiCreditsSettings() {
     insurance_read: { label: ar ? "قراءة موافقة التأمين" : "Insurance approval reading", icon: ScanLine },
     whatsapp_bot: { label: ar ? "بوت الواتساب" : "WhatsApp bot reply", icon: MessageCircle },
     whatsapp_sales: { label: ar ? "بوت الواتساب (مبيعات)" : "WhatsApp bot (sales)", icon: MessageCircle },
+    whatsapp_pro: { label: ar ? "ردود واتساب المتقدمة" : "WhatsApp Pro replies", icon: MessageCircle },
     whatsapp_photo: { label: ar ? "قراءة صورة على الواتساب" : "WhatsApp photo reading", icon: ScanLine },
     whatsapp_voice: { label: ar ? "تفريغ رسالة صوتية" : "WhatsApp voice note", icon: MessageCircle },
     lead_grade: { label: ar ? "تقييم العملاء المحتملين" : "Lead grading", icon: Sparkles },

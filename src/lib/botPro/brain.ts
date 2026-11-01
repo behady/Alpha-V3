@@ -52,3 +52,14 @@ export async function pickReply(
 export function dryRunBrainTag(dryRun: boolean | undefined, brainUsed: AiBrain | undefined): { brain?: AiBrain } {
   return dryRun === true && brainUsed ? { brain: brainUsed } : {};
 }
+
+/**
+ * The test chat's outcome as the screen gets it: the brain tag only when the request asked for
+ * Pro and the clinic has it, so a clinic that never tried Pro does not see "Standard" on every reply.
+ */
+export function playgroundOutcome<T extends object>(out: T, triedPro: boolean): T {
+  if (triedPro || !("brain" in out)) return out;
+  const { brain: _brain, ...rest } = out as T & { brain?: AiBrain };
+  void _brain;
+  return rest as T;
+}

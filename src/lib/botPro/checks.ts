@@ -57,7 +57,9 @@ const PHONE = /(?<![\d+])(?:\+\s?20[\s-]?|0)\d(?:[\s-]?\d){8,10}(?!\d)/g;
  * A unit must end where the word ends, so "3 الفريق" is not "3 ألف".
  */
 const UNIT_WORDS =
-  "ج\\.?م|جنيهات|جنيه|جنيها|جنية|الف|ألف|آلاف|الاف|egp|le|pounds?|percent|(?:ب|في\\s+)ال(?:مي|مائ|مئ|ماي)[هة]";
+  "ج\\.?م|جنيهين|جنيهات|جنيه|جنيها|جنية|الف|ألف|آلاف|الاف|k|ك|دولارات|دولار|\\$|usd|egp|le|pounds?|percent|(?:ب|في\\s+)ال(?:مي|مائ|مئ|ماي)[هة]";
+/** A currency written BEFORE the figure ("EGP 20", "LE 20", "ج.م 20", "$20"). */
+const UNIT_BEFORE = "egp|le|l\\.e\\.?|ج\\.?م|usd|\\$|دولار";
 const UNIT_AFTER = `\\s*(?:%|٪|(?:${UNIT_WORDS})(?![\\p{L}\\p{N}]))`;
 /**
  * Full dates: yyyy-mm-dd, yyyy/mm/dd, d/m/yyyy, d-m-yy, d.m.yyyy. They are not figures, unless a
@@ -92,39 +94,88 @@ const CLOCK = /(?<!\d)(\d{1,2}):(\d{2})(?!\d)/g;
  * word must end where the word ends, so "3 الفريق" is not "3 ألف" and "2 جمعة" is not "2 جم".
  * Percent is % or ٪ or words (بالمية، في المية، بالمائة، في المائة).
  */
-const MONEYISH = new RegExp(`(\\d[\\d,]*)\\s*(%|٪|(?:${UNIT_WORDS})(?![\\p{L}\\p{N}]))?`, "giu");
+const MONEYISH = new RegExp(
+  `(?:(?<![\\p{L}\\p{N}])(${UNIT_BEFORE})\\s*)?(\\d[\\d,]*)\\s*(%|٪|(?:${UNIT_WORDS})(?![\\p{L}\\p{N}]))?`,
+  "giu"
+);
 
 /**
  * Figures in the reply that the clinic never supplied. Clock times (the clock check's business)
  * and dates are skipped; a phone written with spaces or dashes is one token, checked whole.
+ *
+ * With `allowedMoney` (the clinic's own sources: price list, facts, brief, get_price...), a
+ * money-like figure (a unit, a %, "thousand", a currency before it) must come from that set: a
+ * price the patient typed ("سمعت إنها بـ 2000") may be said back as a plain number, never as a
+ * price. Without it, the one set serves both, as before.
  */
-export function strayNumbers(reply: string, allowed: Set<string>): string[] {
+export function strayNumbers(reply: string, allowed: Set<string>, allowedMoney?: Set<string>): string[] {
   const out: string[] = [];
+  const anywhere = (n: string) => allowed.has(n) || Boolean(allowedMoney?.has(n));
   let norm = foldDigits(reply).replace(PHONE, (raw) => {
-    if (!phoneForms(raw).some((f) => allowed.has(f))) out.push(raw.replace(/\D/g, ""));
+    if (!phoneForms(raw).some(anywhere)) out.push(raw.replace(/\D/g, ""));
     return " ";
   });
   norm = norm.replace(DATE, " ").replace(CLOCK, " ");
   for (const m of norm.matchAll(MONEYISH)) {
-    const n = m[1].replace(/,/g, "");
-    if (allowed.has(n)) continue;
-    if (Boolean(m[2]) || Number(n) >= 50) out.push(n);
+    const n = m[2].replace(/,/g, "");
+    const money = Boolean(m[1]) || Boolean(m[3]);
+    if (money ? (allowedMoney ?? allowed).has(n) : anywhere(n)) continue;
+    if (money || Number(n) >= 50) out.push(n);
   }
   return out;
 }
 
 const clockKey = (h: string, mm: string): string => `${Number(h)}:${mm}`;
 
-/** Every H:MM / HH:MM in the reply that is not among the times the calendar offered ("07:30" = "7:30"). */
+/*
+ * A clock written without minutes: an hour 1-12 next to a time word, in normalise()'d form.
+ * "الساعة 7", "7 الصبح", "الضهر 2", "7م", "7 pm". The single letters (م / ص / am / pm) only count
+ * after the hour, where people write them; before it "5:00 م 3 جلسات" would read as 3 o'clock.
+ * A number in a date ("6/11 الساعة") or a decimal is not an hour. "3 جلسات" has no time word.
+ */
+const TIME_WORD = "(?:[عبوف]?الساعه|الصبح|الصباح|الضهر|الظهر|العصر|المغرب|بالليل|بليل|مساء|مساءا|صباحا)";
+const HOUR = "(1[0-2]|0?[1-9])";
+const HOUR_BEFORE = new RegExp(
+  `(?<![\\p{L}\\p{N}/:]|\\d[.,])${HOUR}\\s*(?:${TIME_WORD}|م|ص|am|pm|a\\.m\\.?|p\\.m\\.?)(?![\\p{L}\\p{N}])`,
+  "gu"
+);
+const HOUR_AFTER = new RegExp(`(?<![\\p{L}\\p{N}])${TIME_WORD}\\s*${HOUR}(?![\\p{N}/:]|[.,]\\d)`, "gu");
+
+/** The bare hours in a text ("الساعة 7" → 7), H:MM clocks and full dates taken out first. */
+function bareHours(text: string): number[] {
+  const t = normalise(text).replace(DATE, " ").replace(CLOCK, " ");
+  // Keyed by where the hour sits, so "الساعة 7 م" (a time word on both sides) is one hour.
+  const at = new Map<number, number>();
+  for (const m of t.matchAll(HOUR_BEFORE)) at.set(m.index ?? 0, Number(m[1]));
+  for (const m of t.matchAll(HOUR_AFTER)) at.set((m.index ?? 0) + m[0].length - m[1].length, Number(m[1]));
+  return [...at.values()];
+}
+
+/** An hour said in either clock: 17 is also 5, 0 is also 12. */
+const hourForms = (h: number): number[] => (h > 12 ? [h, h - 12] : h === 0 ? [0, 12] : [h]);
+
+/**
+ * Every clock time in the reply that is not among the times the calendar offered: each H:MM
+ * ("07:30" = "7:30"), and each bare hour ("الساعة 7"), which passes when it is the hour of an
+ * allowed entry.
+ */
 export function strayClocks(reply: string, allowedClocks: Set<string>): string[] {
   // An allowed entry may carry extra text ("7:30 م", "07:30:00", "الخميس 5:00 م"): take every H:MM in it.
   const allowed = new Set<string>();
-  for (const c of allowedClocks) for (const m of foldDigits(c).matchAll(CLOCK)) allowed.add(clockKey(m[1], m[2]));
+  const allowedHours = new Set<number>();
+  for (const c of allowedClocks) {
+    for (const m of foldDigits(c).matchAll(CLOCK)) {
+      allowed.add(clockKey(m[1], m[2]));
+      for (const h of hourForms(Number(m[1]))) allowedHours.add(h);
+    }
+    for (const h of bareHours(c)) allowedHours.add(h);
+  }
   const out: string[] = [];
   for (const m of foldDigits(reply).matchAll(CLOCK)) {
     const key = clockKey(m[1], m[2]);
     if (!allowed.has(key)) out.push(key);
   }
+  for (const h of bareHours(reply)) if (!allowedHours.has(h)) out.push(String(h));
   return out;
 }
 
@@ -259,13 +310,15 @@ export function checkReply(args: {
   question: string;
   reply: string;
   allowed: Set<string>;
+  /** The clinic's own figures; when given, a price or percentage must come from here (see strayNumbers). */
+  allowedMoney?: Set<string>;
   clocks: Set<string>;
   drugsAllowed: string;
 }): Violation[] {
-  const { question, reply, allowed, clocks, drugsAllowed } = args;
+  const { question, reply, allowed, allowedMoney, clocks, drugsAllowed } = args;
   const out: Violation[] = [];
 
-  const prices = strayNumbers(reply, allowed);
+  const prices = strayNumbers(reply, allowed, allowedMoney);
   if (prices.length) out.push({ rule: "price", detail: prices.join(", ") });
 
   const times = strayClocks(reply, clocks);

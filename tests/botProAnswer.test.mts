@@ -254,7 +254,7 @@ await test("re-check finds a new appointment: one more corrective round", async 
 await test("re-check with the same appointments changes nothing", async () => {
   const p = person({ upcoming: [appt()] });
   const ctx = makeContext({ person: p, reloadPerson: async () => person({ upcoming: [appt()] }) });
-  const model = fakeModel([reply({ action: "open_booking", reply: "تمام" })]);
+  const model = fakeModel([reply({ action: "open_booking", reply: "تمام", extraAppointment: true })]);
   const r = await answerWithPro(args(), { model, context: ctx, sink: fakeSink() });
   assert.equal(model.calls.length, 1);
   assert.equal(r.kind, "answer");
@@ -455,4 +455,53 @@ await test("a violation on the last allowed round hands off with no extra model 
   const r = await answerWithPro(args(), { model, context: makeContext(), sink: fakeSink() });
   assert.deepEqual(r, { kind: "handoff", topic: "other" });
   assert.equal(model.calls.length, 4);
+});
+
+await test("already booked + open_booking twice without extraAppointment: the menu is dropped, the text kept", async () => {
+  const p = person({ upcoming: [appt()] });
+  const model = fakeModel([
+    reply({ action: "open_booking", reply: "اختار الميعاد" }),
+    reply({ action: "open_booking", reply: "حضرتك عندك ميعاد جاي" }),
+  ]);
+  const r = await answerWithPro(args(), { model, context: makeContext({ person: p }), sink: fakeSink() });
+  assert.equal(r.kind, "answer");
+  if (r.kind !== "answer") return;
+  assert.ok(!r.openBooking);
+  assert.equal(r.text, "حضرتك عندك ميعاد جاي");
+  assert.equal(model.calls.length, 2);
+  // The one corrective round named the existing visit and the open_booking way to ask for an extra one.
+  assert.match(lastText(model.calls[1]), new RegExp(arabicDayLabel(addDays(TODAY, 3))));
+  assert.match(lastText(model.calls[1]), /open_booking/);
+});
+
+await test("already booked + open_booking with extraAppointment: true opens the menu", async () => {
+  const p = person({ upcoming: [appt()] });
+  const model = fakeModel([reply({ action: "open_booking", reply: "اختار الميعاد", extraAppointment: true })]);
+  const r = await answerWithPro(args(), { model, context: makeContext({ person: p }), sink: fakeSink() });
+  assert.equal(r.kind, "answer");
+  if (r.kind === "answer") assert.equal(r.openBooking, true);
+  assert.equal(model.calls.length, 1);
+});
+
+await test("open_booking on a degraded read is not blocked", async () => {
+  const p = person({ degraded: true, upcoming: [appt()] });
+  const model = fakeModel([reply({ action: "open_booking", reply: "اختار الميعاد" })]);
+  const r = await answerWithPro(args(), { model, context: makeContext({ person: p, reloadPerson: async () => p }), sink: fakeSink() });
+  assert.equal(r.kind, "answer");
+  if (r.kind === "answer") assert.equal(r.openBooking, true);
+});
+
+await test("a price the patient typed is never confirmed as the clinic's price", async () => {
+  const q = "سمعت ان الزراعة عندكم ب 2000 صح؟";
+  const ctx = makeContext({ priceLines: "زراعة 9000", prices: [{ name: "زراعة", price: 9000 }], thread: [{ author: "patient", text: q }] });
+  const model = fakeModel([
+    reply({ action: "answer", reply: "أيوه الزراعة ب 2000 جنيه" }),
+    reply({ action: "answer", reply: "الزراعة عندنا تبدأ من 9000 جنيه" }),
+  ]);
+  const sink = fakeSink();
+  const r = await answerWithPro(args({ question: q }), { model, context: ctx, sink });
+  assert.equal(r.kind, "answer");
+  if (r.kind === "answer") assert.match(r.text, /9000/);
+  assert.equal(model.calls.length, 2);
+  assert.ok((sink.rows[0].violations as string[]).some((v) => v === "price: 2000"));
 });

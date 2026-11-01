@@ -240,6 +240,16 @@ test("rulebook stays under 2,500 words", () => {
   }
 });
 
+test("offered times are said as their label: the example is day + date + H:MM, and the rule says so", () => {
+  const r = proRulebook({ clinical: false, canBook: true });
+  assert.ok(r.includes("عندي الخميس 5/11 الساعة 5:00 م أو السبت 7/11 الساعة 7:00 م"), "label-form example");
+  assert.ok(!r.includes("عندي بكره الساعة 5 أو بعد بكره 7"), "the bare-hour example is gone");
+  assert.ok(lineWith(r, "أي ميعاد بتعرضه قوله زي الـ label بالظبط").includes("الساعة بالدقايق"));
+  // No example time in any variant lacks its minutes, so the clock check never fights the prompt.
+  for (const v of VARIANTS) assert.ok(!/الساعة \d+(?![\d:/])/.test(proRulebook(v)), `no bare-hour example in ${JSON.stringify(v)}`);
+  for (const clinical of [false, true]) assert.ok(!proRulebook({ clinical, canBook: false }).includes("قوله زي الـ label"));
+});
+
 /* ------------------------------------------------------------------------------------------- */
 /* Turn layer                                                                                   */
 /* ------------------------------------------------------------------------------------------- */
