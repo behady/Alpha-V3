@@ -8,7 +8,7 @@
  * Run: npm run test:pro-answer
  */
 import assert from "node:assert/strict";
-import { answerWithPro, PRO_CREDITS_PER_REPLY, type ProArgs, type ProModel } from "../src/lib/botPro/answerWithPro";
+import { answerWithPro, PRO_CREDITS_PER_REPLY, realDoctor, type ProArgs, type ProModel } from "../src/lib/botPro/answerWithPro";
 import type { ProContext, ProSink } from "../src/lib/botPro/proContext";
 import type { ProAppointment, ProPerson } from "../src/lib/botPro/person";
 import { arabicDayLabel, arabicTimeLabel } from "../src/lib/arabicDateTime";
@@ -395,4 +395,64 @@ await test("medicine and media ids must be ones the clinic gave", async () => {
   if (r.kind !== "answer") assert.fail("expected an answer");
   assert.equal(r.medicineId, undefined);
   assert.equal(r.sendMedia, undefined);
+});
+
+/* Fix round 1 ------------------------------------------------------------------------------- */
+
+await test("wrong script after the corrective round is sent anyway, and charged once", async () => {
+  const model = fakeModel([
+    reply({ action: "answer", reply: "أهلاً بحضرتك، التنضيف متاح عندنا" }),
+    reply({ action: "answer", reply: "أهلاً بحضرتك، التنضيف متاح عندنا برضه" }),
+  ]);
+  const sink = fakeSink();
+  const r = await answerWithPro(args({ question: "hello, do you do cleaning?" }), { model, context: makeContext(), sink });
+  assert.equal(model.calls.length, 2);
+  assert.equal(r.kind, "answer");
+  if (r.kind === "answer") assert.match(r.text, /برضه/);
+  assert.deepEqual(sink.charges, [PRO_CREDITS_PER_REPLY]);
+});
+
+await test("a hand-off text failing only the script rule keeps its text", async () => {
+  const model = fakeModel([reply({ action: "handoff_staff", reply: "هخلي حد من الفريق يكلم حضرتك حالاً" })]);
+  const r = await answerWithPro(args({ question: "can I talk to someone please" }), { model, context: makeContext(), sink: fakeSink() });
+  assert.deepEqual(r, { kind: "handoff", topic: "staff", text: "هخلي حد من الفريق يكلم حضرتك حالاً" });
+});
+
+await test("deadline already passed: the model is never called", async () => {
+  let n = 0;
+  const now = () => (n++ === 0 ? 0 : 30_000);
+  const model = fakeModel([reply({ action: "answer", reply: "تمام" })]);
+  const r = await answerWithPro(args(), { model, context: makeContext(), sink: fakeSink(), now });
+  assert.deepEqual(r, { kind: "unavailable", reason: "ai_timeout" });
+  assert.equal(model.calls.length, 0);
+});
+
+await test("doctor: exactly one whole-word match, else any doctor", () => {
+  const doctors = ["Mohamed Ehab", "Mohamed Saad", "Alia Hassan"];
+  assert.equal(realDoctor("mohamed", doctors), "");
+  assert.equal(realDoctor("Ali", doctors), "");
+  assert.equal(realDoctor("Dr. Mohamed Saad", doctors), "Mohamed Saad");
+  assert.equal(realDoctor("alia", doctors), "Alia Hassan");
+  assert.equal(realDoctor("dr mohamed ehab elsayed", doctors), "Mohamed Ehab");
+  assert.equal(realDoctor("", doctors), "");
+});
+
+await test("a time the patient wrote may be said back", async () => {
+  const model = fakeModel([reply({ action: "answer", reply: "للأسف 7:30 مش متاح، تحب نشوف ميعاد تاني؟" })]);
+  const r = await answerWithPro(args({ question: "ينفع الساعة 7:30؟" }), { model, context: makeContext(), sink: fakeSink() });
+  assert.equal(r.kind, "answer");
+  assert.equal(model.calls.length, 1);
+});
+
+await test("a violation on the last allowed round hands off with no extra model call", async () => {
+  const model = fakeModel([
+    call("find_slots", { from: TODAY }),
+    call("find_slots", { from: TODAY }),
+    call("find_slots", { from: TODAY }),
+    reply({ action: "answer", reply: "التنضيف بـ 9000 جنيه" }),
+    reply({ action: "answer", reply: "تمام" }),
+  ]);
+  const r = await answerWithPro(args(), { model, context: makeContext(), sink: fakeSink() });
+  assert.deepEqual(r, { kind: "handoff", topic: "other" });
+  assert.equal(model.calls.length, 4);
 });

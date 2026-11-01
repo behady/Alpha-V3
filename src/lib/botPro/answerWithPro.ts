@@ -115,16 +115,20 @@ function readReply(a: Record<string, unknown>): Reply {
 
 const TITLE = /^(?:dr\.?|doctor|د\.?|دكتور[ةه]?)\s*/i;
 
-/** The clinic's dentist the model meant, or "" (any doctor) — never a name the model made up. */
+/**
+ * The clinic's dentist the model meant, or "" (any doctor) — never a name the model made up.
+ * Whole words, either direction, and only when exactly one dentist fits: "Mohamed" at a clinic
+ * with two is nobody in particular, and "Ali" is not "Alia".
+ */
 export function realDoctor(wanted: unknown, doctors: string[]): string {
   const w = normalizeForMatch(String(wanted ?? "").trim().replace(TITLE, ""));
   if (!w) return "";
-  return (
-    doctors.find((d) => {
-      const n = normalizeForMatch(d.trim().replace(TITLE, ""));
-      return !!n && ((w.length >= 3 && n.includes(w)) || w.includes(n));
-    }) ?? ""
-  );
+  const words = (hay: string, needle: string) => ` ${hay} `.includes(` ${needle} `);
+  const matches = doctors.filter((d) => {
+    const n = normalizeForMatch(d.trim().replace(TITLE, ""));
+    return !!n && (words(n, w) || words(w, n));
+  });
+  return matches.length === 1 ? matches[0] : "";
 }
 
 /** The last turn's offer as s1..sn, past days dropped, labels re-rendered as absolute dates. */
@@ -195,7 +199,7 @@ async function runTurn(
   args: ProArgs,
   ctx: ProContext,
   model: ProModel,
-  timed: <T>(p: Promise<T>) => Promise<T>,
+  timed: <T>(start: () => Promise<T>) => Promise<T>,
   meter: AiUsageMeter,
   trace: Trace
 ): Promise<ProReplyResult> {
@@ -289,6 +293,8 @@ async function runTurn(
         ...labels(),
         ...[...ctx.person.upcoming, ...person.upcoming].flatMap((a) => [a.time, arabicTimeLabel(a.time)]),
         args.hoursText || "",
+        // The patient's own times may be said back: "7:30 مش متاح" is not an invented time.
+        question,
       ]),
       drugsAllowed: [question, ...(args.dossier?.prescriptions || []).flatMap((p) => p.items), ...toolOutputs].join(" \n "),
     });
@@ -301,7 +307,7 @@ async function runTurn(
 
   for (let round = 1; round <= MAX_ROUNDS; round++) {
     const t0 = Date.now();
-    const res = await timed(model.send(contents, system));
+    const res = await timed(() => model.send(contents, system));
     trace.modelMs += Date.now() - t0;
     trace.rounds = round;
     meter.add(res.usage ?? {});
@@ -325,7 +331,7 @@ async function runTurn(
           return { error: "tool_failed" };
         }
       };
-      const out = await timed(safe());
+      const out = await timed(safe);
       if (fc.name === "get_price" || fc.name === "get_patient_file") toolOutputs.push(JSON.stringify(out));
       respond(out);
       continue;
@@ -336,10 +342,12 @@ async function runTurn(
     trace.raw = r.reply.slice(0, 1000);
     const violations = check(r.reply);
     trace.violations.push(...violations.map((v) => `${v.rule}: ${v.detail}`));
+    // The wrong script earns one nudge, never a hand-off: a wrong-language answer beats no answer.
+    const blocking = violations.filter((v) => v.rule !== "script");
 
     if (!SPOKEN.has(r.action)) {
       // A hand-off's words are optional; ones that cross a red line are simply not sent.
-      const text = violations.length ? "" : r.reply.slice(0, 700);
+      const text = blocking.length ? "" : r.reply.slice(0, 700);
       const topic =
         r.action === "handoff_medical" ? "medical" : r.action === "handoff_complaint" ? "complaint" : r.action === "handoff_staff" ? "staff" : "other";
       return { kind: "handoff", topic, ...(text ? { text } : {}) };
@@ -351,7 +359,7 @@ async function runTurn(
         respond({ rejected: true, note: violationNote(violations, question) });
         continue;
       }
-      return { kind: "handoff", topic: violations.some((v) => v.rule === "drug") ? "medical" : "other" };
+      if (blocking.length) return { kind: "handoff", topic: blocking.some((v) => v.rule === "drug") ? "medical" : "other" };
     }
 
     // Any upcoming visit on the number, whoever's it is. A degraded read is not "none" but is not
@@ -367,7 +375,7 @@ async function runTurn(
 
     if (!rechecked && !dropBooking && canBook && (r.action === "book_slot" || r.action === "open_booking")) {
       rechecked = true;
-      const fresh = await timed(ctx.reloadPerson());
+      const fresh = await timed(() => ctx.reloadPerson());
       const added = fresh.degraded ? [] : fresh.upcoming.filter((a) => !firstIds.has(a.id));
       if (added.length) {
         person = fresh;
@@ -424,9 +432,13 @@ export async function answerWithPro(
   const sink = deps.sink ?? firestoreProSink(args.clinicId, args.question);
 
   const timers: Array<ReturnType<typeof setTimeout>> = [];
-  const timed = <T>(p: Promise<T>): Promise<T> => {
+  // A thunk, so nothing (above all a paid model call) starts once the deadline has passed; a call
+  // that loses the race may still reject later, and that must never be an unhandled rejection.
+  const timed = <T>(start: () => Promise<T>): Promise<T> => {
     const left = deadlineAt - now();
     if (left <= 0) return Promise.reject(new Error("ai_timeout"));
+    const p = start();
+    p.catch(() => {});
     return Promise.race([p, new Promise<never>((_, reject) => timers.push(setTimeout(() => reject(new Error("ai_timeout")), left)))]);
   };
 
@@ -435,7 +447,7 @@ export async function answerWithPro(
   let result: ProReplyResult;
   let failed = "";
   try {
-    const ctx = deps.context ?? (await timed(loadProContext(args)));
+    const ctx = deps.context ?? (await timed(() => loadProContext(args)));
     if (ctx.blocked) return { kind: "unavailable", reason: ctx.blocked };
     result = await runTurn(args, ctx, model, timed, meter, trace);
   } catch (e) {
