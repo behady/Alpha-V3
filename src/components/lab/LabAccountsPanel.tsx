@@ -3,9 +3,8 @@
 /**
  * What the clinic owes each lab.
  *
- * A debt list, not a second set of books. The lab fee already came off profit when the treatment
- * was saved, so nothing on this screen touches the ledger — paying a lab settles a cost that was
- * recorded months ago rather than creating a new one. `labAccounts.ts` carries the reasoning.
+ * A debt list. Paying a lab also puts a Lab expense in Finance, less whatever the linked treatments
+ * already booked as lab fees — `saveLabPaymentWithExpense` in `labCaseWrite.ts` carries the rule.
  */
 
 import { useMemo, useState } from "react";
@@ -37,7 +36,7 @@ import {
   type LabPayment,
   type LabPaymentCase,
 } from "@/lib/labAccounts";
-import { deleteLabPayment, recordLabPayment, updateLabPayment } from "@/lib/labCaseWrite";
+import { deleteLabPaymentWithExpense, saveLabPaymentWithExpense } from "@/lib/labCaseWrite";
 import { loadLabOrderClinic, printLabStatement } from "@/lib/labOrderPrint";
 
 const INPUT =
@@ -132,19 +131,9 @@ export default function LabAccountsPanel({
     }
     setBusy(lab.id);
     try {
-      if (editingId) {
-        await updateLabPayment(editingId, {
-          amount: value,
-          date,
-          method,
-          reference: reference.trim(),
-          cases: caseSnapshot(),
-        });
-        showToast(isAr ? "اتعدلت الدفعة" : "Payment updated", "success");
-        resetForm();
-        return;
-      }
-      await recordLabPayment({
+      const existing = editingId ? payments.find((p) => p.id === editingId) || null : null;
+      const { expenseAmount } = await saveLabPaymentWithExpense({
+        existing,
         labId: lab.id,
         labName: lab.name,
         amount: value,
@@ -153,11 +142,22 @@ export default function LabAccountsPanel({
         reference: reference.trim(),
         createdBy: currentUserName,
         cases: caseSnapshot(),
+        linkedLedgerIds: cases
+          .filter((c) => forCases.includes(c.id) && c.ledgerId)
+          .map((c) => c.ledgerId as string),
+        language,
       });
-      showToast(
-        isAr ? `اتسجل دفع ${money(value)} لـ ${lab.name}` : `Paid ${money(value)} to ${lab.name}`,
-        "success"
-      );
+      const done = existing
+        ? isAr ? "اتعدلت الدفعة" : "Payment updated"
+        : isAr ? `اتسجل دفع ${money(value)} لـ ${lab.name}` : `Paid ${money(value)} to ${lab.name}`;
+      // Say where the money went, and why when it is less than the payment.
+      const finance =
+        expenseAmount <= 0
+          ? isAr ? "تكلفة المعمل محسوبة خلاص من العلاج" : "lab fee already counted on the treatment"
+          : expenseAmount < value
+            ? isAr ? `${money(expenseAmount)} مصروف في الحسابات (الباقي محسوب من العلاج)` : `${money(expenseAmount)} added to Finance expenses (the rest was already counted on the treatment)`
+            : isAr ? "اتضافت للمصاريف في الحسابات" : "added to Finance expenses";
+      showToast(`${done} — ${finance}`, "success");
       resetForm();
     } catch (err) {
       console.error("Lab payment failed", err);
@@ -187,7 +187,7 @@ export default function LabAccountsPanel({
     if (!ok) return;
     setBusy(payment.id);
     try {
-      await deleteLabPayment(payment.id);
+      await deleteLabPaymentWithExpense(payment);
       showToast(isAr ? "اتحذفت الدفعة" : "Payment deleted", "info");
     } catch {
       showToast(isAr ? "فشل الحذف" : "Could not delete it", "error");
@@ -430,8 +430,8 @@ export default function LabAccountsPanel({
                   </div>
                   <p className="col-span-2 lg:col-span-5 text-[11px] font-semibold text-slate-500 leading-relaxed">
                     {isAr
-                      ? "ده بيسدد حساب المعمل بس. تكلفة المعمل اتحسبت خلاص وقت تسجيل العلاج، فالدفعة دي مش مصروف جديد ومش هتظهر تاني في تقارير الأرباح."
-                      : "This settles the lab's account only. The lab cost was already booked when the treatment was saved, so this payment is not a new expense and will not appear again in your profit reports."}
+                      ? "الدفعة دي بتتسجل كمصروف «معمل» في الحسابات. لو اخترت حالة معمولة من علاج متسجل عليه تكلفة معمل، الجزء ده مش هيتحسب تاني."
+                      : "This payment is also saved as a Lab expense in Finance. If you tick a case that came from a treatment with a lab fee already on it, that part is not counted twice."}
                   </p>
                 </div>
               )}

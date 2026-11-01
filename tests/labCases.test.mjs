@@ -84,6 +84,7 @@ import {
   isBillable,
   labAccountFor,
   labAccountsTotal,
+  labPaymentExpenseAmount,
   paidCaseIds,
   parseLabPaymentCases,
 } from "../src/lib/labAccounts.ts";
@@ -799,6 +800,12 @@ assert.equal(sameDay.lines[1].patient, "Ahmed");
 assert.equal(sameDay.lines[1].work, "Payment · cash");
 
 assert.deepEqual(paidCaseIds([{ id: "p", labId: "L1", amount: 1, date: "", method: "", cases: [{ id: "c1", code: "", patient: "" }] }]), new Set(["c1"]));
+// A lab payment's Finance expense: the whole amount, less what linked treatments already booked.
+assert.equal(labPaymentExpenseAmount(2000, []), 2000, "a standalone order is a new cost");
+assert.equal(labPaymentExpenseAmount(2000, [600]), 1400, "the booked lab fee is not counted twice");
+assert.equal(labPaymentExpenseAmount(500, [600]), 0, "never a negative expense");
+assert.equal(labPaymentExpenseAmount(2000, [0, NaN]), 2000, "an empty booked fee subtracts nothing");
+
 assert.deepEqual(parseLabPaymentCases([{ id: "c1", code: "A", patient: "B" }, { code: "no id" }, null]), [{ id: "c1", code: "A", patient: "B" }]);
 
 // The printed sheet carries the figures and says out loud what is missing from them.

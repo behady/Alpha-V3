@@ -172,6 +172,8 @@ function LabTrackingPage() {
               createdAt: p.createdAt ? String(p.createdAt) : undefined,
               createdBy: p.createdBy ? String(p.createdBy) : undefined,
               cases: parseLabPaymentCases(p.cases),
+              expenseLedgerId: p.expenseLedgerId ? String(p.expenseLedgerId) : undefined,
+              expenseAmount: Number(p.expenseAmount) || 0,
             };
           })
         );

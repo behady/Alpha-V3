@@ -3,16 +3,16 @@
  *
  * This is a DEBT LIST, not a second profit report, and the distinction is the whole design.
  *
- * The lab fee is already booked as a cost the moment a treatment is saved: `computeProcedurePricing`
- * subtracts it before the dentist's commission, so it has already come off the clinic's profit. A
- * payment to the lab weeks later is therefore NOT a new expense — it settles a debt that was
- * recorded at treatment time. Posting it to the ledger as well would charge every lab case against
- * profit twice, and the error would be invisible: the reports would simply be wrong by the size of
- * the lab bill, every month, with nothing obviously broken.
+ * A lab fee on a treatment is booked as a cost the moment the treatment is saved:
+ * `computeProcedurePricing` subtracts it before the dentist's commission. But many orders are
+ * raised straight from the Lab page with no treatment behind them, and their cost reached Finance
+ * nowhere — the owner paid a lab and Finance never showed it.
  *
- * So lab payments live in their own collection and never touch `ledger`. The finance screens are
- * untouched by this file. The only place the two worlds meet is `set-lab-fee` on the ledger route,
- * which corrects the ESTIMATE that was booked to what the lab actually charged.
+ * So since November 2026 a payment also lands in Finance as a Lab expense, MINUS whatever the
+ * linked treatments already booked (`labPaymentExpenseAmount`). Without that subtraction every
+ * treatment-linked case would be charged against profit twice, invisibly. Lab payments still live
+ * in their own collection; the expense row is written through the money API and its id kept on
+ * the payment. `set-lab-fee` on the ledger route still corrects a booked ESTIMATE.
  *
  * Firebase-free on purpose, like `labCases.ts` — the arithmetic behind "you owe them 4,200" has to
  * be checkable without a database.
@@ -41,7 +41,25 @@ export type LabPayment = {
    * case is edited or deleted. Optional: a lump sum against the whole account names none.
    */
   cases?: LabPaymentCase[];
+  /** The Lab expense this payment put in Finance, so editing or deleting it keeps the two in step. */
+  expenseLedgerId?: string;
+  /** How much of the payment went to Finance as an expense (less than the payment when part was already booked). */
+  expenseAmount?: number;
 };
+
+/**
+ * How much of a lab payment is a NEW expense in Finance.
+ *
+ * A case raised from a treatment already booked its lab fee there when the treatment was saved,
+ * and Finance subtracts it as "Lab fees". Paying for that case must not subtract it a second time,
+ * so whatever those treatments booked comes off the payment first. Everything else — standalone
+ * orders, lump sums, the part of a payment above the booked estimate — is a real cost Finance
+ * has not seen yet.
+ */
+export function labPaymentExpenseAmount(amount: number, bookedLabFees: number[]): number {
+  const booked = bookedLabFees.reduce((s, n) => s + (Number(n) > 0 ? Number(n) : 0), 0);
+  return money(Math.max(0, (Number(amount) || 0) - booked));
+}
 
 export type LabPaymentCase = {
   id: string;
