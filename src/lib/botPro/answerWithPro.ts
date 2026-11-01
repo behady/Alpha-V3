@@ -271,6 +271,9 @@ async function runTurn(
     playbook || "",
     ...knowledge.map((k) => k.a),
     dossierText,
+    // The clinic's own address and phone: "12 ألف مسكن" is a district, not a price.
+    args.addressText || "",
+    args.clinicPhone || "",
   ];
   const plainSources = [
     args.hoursText || "",
@@ -298,6 +301,10 @@ async function runTurn(
         ...labels(),
         ...[...ctx.person.upcoming, ...person.upcoming].flatMap((a) => [a.time, arabicTimeLabel(a.time)]),
         args.hoursText || "",
+        // Times the clinic wrote itself ("الدكتور موجود الساعة 4") may be repeated.
+        factLines(args.facts),
+        briefLines(args.brief),
+        coaching || "",
         // The patient's own times may be said back: "7:30 مش متاح" is not an invented time.
         question,
       ]),
