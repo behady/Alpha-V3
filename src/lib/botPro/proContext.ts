@@ -113,6 +113,11 @@ async function priceList(clinicId: string): Promise<Array<{ name: string; price:
   }
 }
 
+/** The price list's service names only (the same read as the price list itself), for the owner chat. */
+export async function priceNames(clinicId: string): Promise<string[]> {
+  return (await priceList(clinicId)).map((p) => p.name);
+}
+
 async function threadOf(clinicId: string, chatId: string): Promise<AiThreadLine[]> {
   const snap = await adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(chatId))
     .collection("messages")

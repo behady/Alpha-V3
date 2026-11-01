@@ -145,7 +145,8 @@ export interface OnboardingStore {
   /** Delete every findings doc (a new scan starts from nothing). */
   clearFindings(): Promise<void>;
   addChat(role: "ai" | "owner", text: string): Promise<void>;
-  recentChat(max: number): Promise<Array<{ role: "ai" | "owner"; text: string }>>;
+  /** Oldest first. `at` (ms) is filled by the Firestore store; test fakes may leave it out. */
+  recentChat(max: number): Promise<Array<{ role: "ai" | "owner"; text: string; at?: number }>>;
   listVersions(): Promise<LayerVersion[]>;
   saveVersion(v: LayerVersion): Promise<void>;
 }
@@ -313,7 +314,7 @@ export function firestoreOnboardingStore(clinicId: string): OnboardingStore {
       const snap = await chatCol(clinicId).orderBy("at", "desc").limit(max).get();
       return snap.docs
         .map((d) => d.data() || {})
-        .map((x) => ({ role: (x.role === "owner" ? "owner" : "ai") as "ai" | "owner", text: String(x.text ?? "") }))
+        .map((x) => ({ role: (x.role === "owner" ? "owner" : "ai") as "ai" | "owner", text: String(x.text ?? ""), at: num(x.at, 0) }))
         .reverse();
     },
 

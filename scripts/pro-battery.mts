@@ -37,21 +37,19 @@
 import fs from "node:fs";
 import path from "node:path";
 import { adminDb } from "../src/lib/firebaseAdmin";
-import { arabicClock } from "../src/lib/arabicDateTime";
-import { briefLines, cleanBrief } from "../src/lib/bot/brief";
+import { briefLines } from "../src/lib/bot/brief";
 import { factLines } from "../src/lib/bot/botPrompt";
 import { expectFromKind, type SavedTestCase } from "../src/lib/bot/testCases";
 import { allowedNumbers, checkReply } from "../src/lib/botPro/checks";
 import { answerWithPro, geminiProModel, type ProModel } from "../src/lib/botPro/answerWithPro";
-import { loadProContext, type ProArgs, type ProContext, type ProSink } from "../src/lib/botPro/proContext";
+import type { ProArgs, ProContext, ProSink } from "../src/lib/botPro/proContext";
+import { loadReplayContext } from "../src/lib/botPro/replayContext";
 import type { AiThreadLine } from "../src/lib/bot/aiReply";
 import type { AiPatientContext } from "../src/lib/bot/botPrompt";
 import { CONVERSATIONS } from "./lib/battery-conversations";
 import { PRO_STRANGER, proKnownPerson, actionOf, replyTextOf } from "../src/lib/botPro/replay";
 
 const DRY = process.argv.includes("--dry");
-const ARABIC_DAYS = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
-const DAY_KEYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 
 function loadEnv() {
   const f = path.resolve(process.cwd(), process.env.ENV_FILE || ".env.local");
@@ -126,11 +124,20 @@ async function main() {
   }
   const modelName = process.env.GEMINI_PRO_MODEL || "gemini-pro-latest";
 
-  const db = adminDb();
-  const clinicRef = db.collection("clinics").doc(clinicId);
-  const clinicDoc = await clinicRef.get();
-  if (!clinicDoc.exists) refuse(`No clinic ${clinicId} in Firestore.`);
-  const clinicName = String(clinicDoc.data()?.name || "Alpha Dental Clinic");
+  // The clinic's real prices, schedule, doctors, calendar, facts, brief and approved answers, through
+  // the same loader the publish test uses (reads only). The loader's own thread/person/gate reads
+  // are cheap and their results are replaced per turn below.
+  const world = await loadReplayContext(clinicId, { chatId: "pro-battery-replay" });
+  if (!world) refuse(`No clinic ${clinicId} in Firestore.`);
+  const { clinicName, baseArgs, context: real } = world;
+  const hoursText = baseArgs.hoursText || "";
+  const addressText = baseArgs.addressText || "";
+  const clinicPhone = baseArgs.clinicPhone || "";
+  const facts = baseArgs.facts;
+  const brief = baseArgs.brief;
+  const coaching = baseArgs.coaching || "";
+  const knowledge = baseArgs.knowledge || [];
+  const clinicRef = adminDb().collection("clinics").doc(clinicId);
 
   // The cases to replay: built-in set first (unless SAVED_ONLY), then saved real chats (read-only).
   type Case = { id: string; clinical: boolean; known: boolean; note: string; builtin: boolean; turns: Array<{ q: string; a: string; expect: string[] }> };
@@ -165,36 +172,6 @@ async function main() {
   let plan = cases.filter((c) => !only.length || only.some((p) => c.id.startsWith(p) || c.id.startsWith(`builtin:${p}`)));
   const limit = Number(process.env.LIMIT) || 0;
   if (limit > 0) plan = plan.slice(0, limit);
-
-  // The clinic's real prices, schedule, doctors and calendar through the production loader (reads
-  // only). The profile is read once and handed over; the loader's own thread/person/gate reads
-  // are cheap and their results are replaced per turn below.
-  const { loadPublicClinicProfile } = await import("../src/lib/publicBooking");
-  const profile = await loadPublicClinicProfile(clinicId, { requireEnabled: false, loadDoctors: true }).catch(() => null);
-  const baseArgs: ProArgs = { clinicId, clinicName, question: "", history: [], mode: "sales", chatId: "pro-battery-replay", canBook: true, ...(profile ? { profile } : {}) };
-  const real = await loadProContext(baseArgs);
-  const profileSchedule = profile;
-  let hoursText = "";
-  if (profileSchedule?.schedule?.isConfigured) {
-    const sc = profileSchedule.schedule;
-    const lines = [`من ${arabicClock(sc.startHour, sc.startMinute)} إلى ${arabicClock(sc.endHour, sc.endMinute)}`];
-    const off = sc.offDays.map((d: string) => ARABIC_DAYS[DAY_KEYS.indexOf(d)]).filter(Boolean);
-    if (off.length) lines.push(`الإجازة: ${off.join(" و")}`);
-    hoursText = lines.join("\n");
-  }
-  const addressText = profileSchedule?.address || "";
-  const clinicPhone = profileSchedule?.phone || "";
-
-  const wa = (await clinicRef.collection("settings").doc("whatsapp").get()).data() || {};
-  const facts = (wa.botFacts && typeof wa.botFacts === "object" ? wa.botFacts : {}) as ProArgs["facts"];
-  const brief = cleanBrief(wa.botBrief);
-  const coaching = typeof wa.botCoaching === "string" ? wa.botCoaching : "";
-  const personaName = typeof wa.botPersonaName === "string" ? wa.botPersonaName.trim() : "";
-  const knowledgeSnap = await clinicRef.collection("bot_knowledge").where("status", "==", "approved").limit(40).get().catch(() => null);
-  const knowledge = (knowledgeSnap?.docs ?? []).map((d) => {
-    const k = d.data() || {};
-    return { q: String(k.question || ""), a: String(k.answer || "") };
-  });
 
   console.log(`clinic: ${clinicName} (${clinicId})`);
   console.log(`mode: ${DRY ? "DRY (scripted fake model, no key, no spend)" : `REAL model ${modelName} on the Pro key`}`);
@@ -234,18 +211,10 @@ async function main() {
       const usage: Usage = { calls: 0, inTok: 0, outTok: 0, thoughtTok: 0, cachedTok: 0, seen: false };
       const model = metered(DRY ? dryModel(t.q) : geminiProModel(proKey, modelName), usage);
       const args: ProArgs = {
-        ...baseArgs,
+        ...baseArgs, // facts, brief, coaching, hours, address, phone, persona, approved answers
         question: t.q,
         clinical: c.clinical,
         patient: who.patient,
-        hoursText,
-        addressText,
-        clinicPhone,
-        facts,
-        brief,
-        coaching,
-        personaName,
-        knowledge,
         thread: [...thread],
       };
 
