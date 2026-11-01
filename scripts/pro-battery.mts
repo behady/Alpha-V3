@@ -37,17 +37,17 @@
 import fs from "node:fs";
 import path from "node:path";
 import { adminDb } from "../src/lib/firebaseAdmin";
-import { arabicClock, arabicDayLabel, arabicTimeLabel } from "../src/lib/arabicDateTime";
+import { arabicClock } from "../src/lib/arabicDateTime";
 import { briefLines, cleanBrief } from "../src/lib/bot/brief";
 import { factLines } from "../src/lib/bot/botPrompt";
 import { expectFromKind, type SavedTestCase } from "../src/lib/bot/testCases";
 import { allowedNumbers, checkReply } from "../src/lib/botPro/checks";
-import { answerWithPro, geminiProModel, type ProModel, type ProReplyResult } from "../src/lib/botPro/answerWithPro";
+import { answerWithPro, geminiProModel, type ProModel } from "../src/lib/botPro/answerWithPro";
 import { loadProContext, type ProArgs, type ProContext, type ProSink } from "../src/lib/botPro/proContext";
-import type { ProAppointment, ProPerson } from "../src/lib/botPro/person";
 import type { AiThreadLine } from "../src/lib/bot/aiReply";
 import type { AiPatientContext } from "../src/lib/bot/botPrompt";
 import { CONVERSATIONS } from "./lib/battery-conversations";
+import { PRO_STRANGER, proKnownPerson, actionOf, replyTextOf } from "../src/lib/botPro/replay";
 
 const DRY = process.argv.includes("--dry");
 const ARABIC_DAYS = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
@@ -68,19 +68,6 @@ function loadEnv() {
 function refuse(message: string): never {
   console.error(`REFUSED: ${message}`);
   process.exit(2);
-}
-
-/** A person nobody knows: no file, no appointments, and not a guess about who is writing. */
-const STRANGER: ProPerson = { patientId: null, family: [], upcoming: [], past: [], degraded: false, writerKnown: false };
-
-/** A patient with one appointment a few days out, absolute date, for conversations that assume a known patient. */
-function knownPerson(todayKey: string, doctor: string): { person: ProPerson; patient: AiPatientContext } {
-  const d = new Date(`${todayKey}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + 4);
-  const appt: ProAppointment = { id: "battery-appt", patientId: "battery-patient", patientName: "منى", date: d.toISOString().slice(0, 10), time: "06:00 PM", doctor, status: "Scheduled", service: "تنظيف" };
-  const person: ProPerson = { patientId: "battery-patient", family: [{ id: "battery-patient", name: "منى" }], upcoming: [appt], past: [], degraded: false, writerKnown: true };
-  const label = `${arabicDayLabel(appt.date)} الساعة ${arabicTimeLabel(appt.time)}${doctor ? ` مع ${doctor}` : ""}`;
-  return { person, patient: { known: true, name: "منى", gender: "female", upcomingAppointment: label } };
 }
 
 const isArabicText = (s: string) => /[؀-ۿ]/.test(s);
@@ -120,20 +107,6 @@ function metered(inner: ProModel, usage: Usage): ProModel {
     },
   };
 }
-
-/** The action the reply amounted to, in the vocabulary expectFromKind uses. */
-function actionOf(r: ProReplyResult): string {
-  if (r.kind === "unavailable") return "unavailable";
-  if (r.kind === "handoff") return r.topic === "medical" ? "handoff_medical" : `handoff_${r.topic}`;
-  if (r.bookSlot) return "book_slot";
-  if (r.reschedule) return "reschedule";
-  if (r.appointmentChange) return r.appointmentChange;
-  if (r.medicineId) return "suggest_medicine";
-  if (r.openBooking) return "open_booking";
-  return "answer";
-}
-
-const replyTextOf = (r: ProReplyResult): string => (r.kind === "answer" ? r.text : r.kind === "handoff" ? r.text || "" : "");
 
 function percentile(sorted: number[], p: number): number {
   if (!sorted.length) return 0;
@@ -242,7 +215,7 @@ async function main() {
     const caseId = c.id;
     console.log(`=== case ${caseId}${c.clinical ? " (dentist mode)" : ""}${c.known ? " (known patient)" : ""}${c.note ? `  — ${c.note}` : ""}`);
     const thread: AiThreadLine[] = [];
-    const who = c.known ? knownPerson(real.todayKey, real.doctors[0] || "") : { person: STRANGER, patient: { known: false, gender: "unknown" } as AiPatientContext };
+    const who = c.known ? proKnownPerson(real.todayKey, real.doctors[0] || "") : { person: PRO_STRANGER, patient: { known: false, gender: "unknown" } as AiPatientContext };
 
     for (let i = 0; i < turns.length; i++) {
       const t = turns[i];
