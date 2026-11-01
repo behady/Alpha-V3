@@ -41,6 +41,8 @@ import {
 } from "./conversation";
 import type { BotConversation } from "./conversation";
 import { answerWithAi, type AiPatientContext, type AiThreadLine, AI_DEFAULT_ACK } from "./aiReply";
+import { aiBrainOf, pickReply, type AiBrain } from "@/lib/botPro/brain";
+import { answerWithPro } from "@/lib/botPro/answerWithPro";
 import { isLatinMessage, localizeOutbound } from "./localize";
 import { loadPatientDossier, type PatientDossier } from "./patientDossier";
 import { resolveSpokenPick } from "./spokenPick";
@@ -113,6 +115,8 @@ interface BotSettings {
   personaName: string;
   /** Human pacing and bubble splitting. */
   humanTouch: boolean;
+  /** Which brain writes AI-first replies; "standard" unless the clinic chose Pro and has the add-on. */
+  aiBrain: AiBrain;
 }
 
 async function loadBotSettings(clinicId: string): Promise<BotSettings> {
@@ -145,6 +149,8 @@ async function loadBotSettings(clinicId: string): Promise<BotSettings> {
     brief: cleanBrief(d.botBrief),
     personaName: typeof d.botPersonaName === "string" ? d.botPersonaName.trim() : "",
     humanTouch: d.botHumanTouch !== false,
+    // The add-on is read only for a clinic that chose Pro: every other clinic reads what it did before.
+    aiBrain: d.botAiBrain === "pro" ? aiBrainOf(d, await clinicHasFeature(clinicId, "whatsappPro").catch(() => false)) : "standard",
   };
 }
 
@@ -527,6 +533,8 @@ export async function respondToPatientMessage(args: {
    * when the clinic switched the welcome message on. The bot greets and names the ad.
    */
   welcome?: boolean;
+  /** The playground's "try the Pro brain" switch. Ignored unless dryRun; the route checks the add-on. */
+  brainOverride?: AiBrain;
 }): Promise<BotOutcome> {
   const { clinicId, chatId, text } = args;
   const now = args.now ?? Date.now();
@@ -1284,11 +1292,11 @@ ${urgentCallLine(ctx.clinicPhone)}`;
        */
       const sales = settings.aiFirst;
       const salesContext = sales ? await loadSalesContext(clinicId, chatId, patient, ctx) : null;
-      const slotOffer = sales && profile?.schedule.isConfigured && (ctx.canOfferBooking || ctx.canRegister) ? await nextSlots(clinicId, profile, branchId, conversation.pendingDoctor ?? "", rescheduleId || null, readTimePreference(act.question, clinicDayBoundsMinutes(profile.schedule))) : [];
+      let slotOffer = sales && profile?.schedule.isConfigured && (ctx.canOfferBooking || ctx.canRegister) ? await nextSlots(clinicId, profile, branchId, conversation.pendingDoctor ?? "", rescheduleId || null, readTimePreference(act.question, clinicDayBoundsMinutes(profile.schedule))) : [];
       heardIntroBefore = (salesContext?.thread || []).some(
         (line) => line.author === "bot" && Boolean(settings.personaName) && line.text.includes(settings.personaName)
       );
-      const ai = await answerWithAi({
+      const aiArgs: Parameters<typeof answerWithAi>[0] = {
         clinicId,
         clinicName,
         question: act.question,
@@ -1319,7 +1327,18 @@ ${urgentCallLine(ctx.clinicPhone)}`;
         sessionGapMinutes: salesContext?.gapMinutes,
         photo: args.media === "image" && args.mediaNote ? args.mediaNote : undefined,
         ad: ctx.ad,
-      });
+      };
+      // Pro answers sales-mode turns only, for a clinic that chose it and has the add-on (or the
+      // playground trying it); any Pro failure is answered by answerWithAi with exactly these args.
+      const brain: AiBrain = (args.dryRun && args.brainOverride) || settings.aiBrain;
+      const brainReply = await pickReply(
+        brain === "pro" && sales ? "pro" : "standard",
+        () => answerWithPro({ ...aiArgs, chatId, phone, conversationPatientId: conversation.patientId, previousSlotKeys: conversation.pendingSlots, branchId, profile }),
+        () => answerWithAi(aiArgs)
+      );
+      const ai = brainReply.ai;
+      // What Pro offered is what "the first one" and the spoken clocks below resolve against.
+      if (brainReply.slotsShown) slotOffer = brainReply.slotsShown;
       /*
        * A pick the model turned into "let's open the booking" instead of "book this one".
        *
