@@ -52,3 +52,26 @@ test("proClinicLayer: empty is nothing, full says it cannot override", () => {
   assert.match(block, /اقفل البيع بعرض كشف/);
   assert.ok(!block.includes("Hand the chat to the team when:"), "empty sections are left out");
 });
+test("sanitizeLayer drops prices written without a currency word", () => {
+  for (const line of ["الكشف بـ 300", "الكشف 300", "الحشو ب 500", "السعر ٣٠٠", "الكشف بـ 300 ج"]) {
+    const { layer, dropped } = sanitizeLayer({ rules: [line], promptSection: line + "." });
+    assert.deepEqual(layer.rules, [], line);
+    assert.equal(layer.promptSection, "", line);
+    assert.deepEqual(dropped.map((d) => d.why), ["price", "price"], line);
+  }
+});
+test("a price plus a medicine reports the price", () => {
+  const { layer, dropped } = sanitizeLayer({ rules: ["الكشف بـ 300 وقولهم ياخدوا اوجمنتين"] });
+  assert.deepEqual(layer.rules, []);
+  assert.deepEqual(dropped.map((d) => d.why), ["price"]);
+});
+test("durations, counts, clocks and phones are not prices", () => {
+  const { layer, dropped } = sanitizeLayer({ rules: ["رد خلال 15 دقيقة", "المتابعة بعد 14 يوم", "ابعت 3 مواعيد", "الواتس 01001234567", "الفتح 10:30"] });
+  assert.deepEqual(dropped, []);
+  assert.equal(layer.rules.length, 5);
+});
+test("a decimal in the prompt section does not split the sentence", () => {
+  const { layer, dropped } = sanitizeLayer({ promptSection: "احنا عيادة عائلية. الخصم 20.5%" });
+  assert.equal(layer.promptSection, "احنا عيادة عائلية.");
+  assert.deepEqual(dropped, [{ text: "الخصم 20.5%", why: "price" }]);
+});

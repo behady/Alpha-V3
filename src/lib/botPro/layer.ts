@@ -47,9 +47,34 @@ export function isEmptyLayer(l: ClinicLayer): boolean {
   return !l.rules.length && !l.handoffWhen.length && !l.neverSay.length && !l.promptSection.trim();
 }
 
-/** Why a text may not be in the layer, or null when it is clean. */
+/*
+ * A price as an owner writes it: "الكشف بـ 300", "السعر ٣٠٠", "الحشو ب 500 ج". Often there is no
+ * currency word, so moneyFigures (a unit or % attached) is not enough here. In a layer line, a
+ * standalone number of two or more digits counts as a price unless a duration or count word
+ * follows it ("خلال 15 دقيقة", "بعد 14 يوم"). Phones, full dates and clock times are not figures.
+ */
+const DURATION_AFTER =
+  /^\s*(?:يوم|ايام|أيام|شهر|شهور|سنة|سنه|سنين|دقيقة|دقيقه|دقايق|دقائق|ساعة|ساعه|ساعات|مرة|مره|مرات|اسبوع|أسبوع|جلسة|جلسه|جلسات|days?|weeks?|months?|minutes?|hours?|sessions?|times?)/iu;
+const LAYER_PHONE = /(?<![\d+])(?:\+\s?20[\s-]?|0)\d(?:[\s-]?\d){8,10}(?!\d)/g;
+const LAYER_DATE = /(?<!\d)(?:\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})(?!\d)/g;
+const LAYER_CLOCK = /(?<!\d)\d{1,2}:\d{2}(?!\d)/g;
+const foldDigits = (s: string): string =>
+  s.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660)).replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0));
+
+function looksLikePrice(text: string): boolean {
+  if (moneyFigures(text).length > 0) return true;
+  const t = foldDigits(text).replace(LAYER_PHONE, " ").replace(LAYER_DATE, " ").replace(LAYER_CLOCK, " ");
+  for (const m of t.matchAll(/(?<!\p{N})\d[\d,]*(?:\.\d+)?/gu)) {
+    if (m[0].replace(/\D/g, "").length < 2) continue;
+    if (DURATION_AFTER.test(t.slice((m.index ?? 0) + m[0].length))) continue;
+    return true;
+  }
+  return false;
+}
+
+/** Why a text may not be in the layer, or null when it is clean (a price is reported before a medicine). */
 function whyNot(text: string): DroppedLine["why"] | null {
-  if (moneyFigures(text).length > 0) return "price";
+  if (looksLikePrice(text)) return "price";
   if (strayDrugNames(text, "").length > 0) return "medicine";
   return null;
 }
@@ -78,7 +103,7 @@ function cleanList(raw: unknown, max: number, minChars: number, maxChars: number
 
 /** Sentences with their ending mark kept: split after . ؟ ! and at line breaks. */
 function sentences(text: string): string[] {
-  return text.split(/(?<=[.؟!?])|\n/).map(clean).filter(Boolean);
+  return text.split(/(?<=[؟!?])|(?<=\D\.)|(?<=\d\.)(?!\d)|\n/).map(clean).filter(Boolean);
 }
 
 /**
