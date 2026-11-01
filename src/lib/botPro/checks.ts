@@ -139,7 +139,13 @@ const HOUR_BEFORE = new RegExp(
   `(?<![\\p{L}\\p{N}/:]|\\d[.,])${HOUR}\\s*(?:${TIME_WORD}|م|ص|am|pm|a\\.m\\.?|p\\.m\\.?)(?![\\p{L}\\p{N}])`,
   "gu"
 );
-const HOUR_AFTER = new RegExp(`(?<![\\p{L}\\p{N}])${TIME_WORD}\\s*${HOUR}(?![\\p{N}/:]|[.,]\\d)`, "gu");
+// "على مدار الساعة 7 أيام" is "around the clock, 7 days": not a time. مدار/طول before the time
+// word, or a count after the hour ("الساعة 7 أيام", "الساعة 2 ساعات"), means it is not an hour.
+const COUNT_NOUN = "(?:ايام|يوم|ساعات|ساعه|اسابيع|اسبوع|شهور|شهر|سنين|سنه|جلسات|جلسه|دقايق|دقائق|دقيقه|مرات|مره)";
+const HOUR_AFTER = new RegExp(
+  `(?<![\\p{L}\\p{N}])(?<!(?:مدار|طول)\\s*)${TIME_WORD}\\s*${HOUR}(?![\\p{N}/:]|[.,]\\d|\\s*${COUNT_NOUN}(?!\\p{L}))`,
+  "gu"
+);
 
 /** The bare hours in a text ("الساعة 7" → 7), H:MM clocks and full dates taken out first. */
 function bareHours(text: string): number[] {

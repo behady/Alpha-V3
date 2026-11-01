@@ -293,6 +293,16 @@ export function answerModeOf(doc: Record<string, unknown> | undefined): AnswerMo
 }
 
 /**
+ * Who answers once auto-reply is on, read apart from the on/off switch (`botEnabled`). The owner
+ * picks "AI only", sets it up and rehearses it in the test chat while patients still get no
+ * automatic reply; the switch on the Chats page is the only thing that lets it talk to them.
+ */
+export function chosenAnswerMode(doc: Record<string, unknown> | undefined): Exclude<AnswerMode, "off"> {
+  if (doc?.botMode === "ai_first") return "ai";
+  return doc?.botAiEnabled === true ? "both" : "bot";
+}
+
+/**
  * The best choice the plan allows. AI modes fall back to the scripted bot rather than to nothing,
  * because a clinic that asked for "AI" still asked for an answer; the bot itself falls back to
  * "off" — nobody, which is what the clinic has without it.

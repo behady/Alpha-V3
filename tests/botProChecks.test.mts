@@ -390,3 +390,12 @@ test("unit gaps: k, ك, جنيهين, dollars and a currency before the figure a
   // A word that merely starts with k or ك is not a unit.
   assert.deepEqual(rules({ reply: "عندنا 3 كراسي و 2 kids rooms" }), []);
 });
+
+test("bare hours: 'around the clock, 7 days' and an hour followed by a count are not times", () => {
+  for (const reply of ["شغالين على مدار الساعة 7 أيام في الأسبوع", "طول الساعه 7 ايام", "الجلسة بتاخد الساعة 2 ساعات"]) {
+    assert.deepEqual(rules({ reply, clocks: ["الخميس 5/11 الساعة 5:00 م"] }), [], reply);
+  }
+  // A real bare time is still caught.
+  assert.deepEqual(rules({ reply: "تعالى بكرة الساعة 7", clocks: ["الخميس 5:00 م"] }), ["clock"]);
+  assert.deepEqual(rules({ reply: "الساعة 7 بالليل", clocks: ["الخميس 5:00 م"] }), ["clock"]);
+});

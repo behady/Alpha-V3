@@ -20,6 +20,7 @@ import {
   WEEK_DAYS,
   answerModeOf,
   answersFromSettings,
+  chosenAnswerMode,
   bookingAnswersFrom,
   bookingDocFrom,
   clampAnswerMode,
@@ -148,6 +149,12 @@ assert.equal(answerModeOf({ botEnabled: true }), "bot");
 assert.equal(answerModeOf({ botEnabled: true, botAiEnabled: true }), "both");
 assert.equal(answerModeOf({ botEnabled: true, botMode: "ai_first", botAiEnabled: true }), "ai");
 assert.equal(answerModeOf({ botEnabled: false, botMode: "ai_first" }), "off", "off wins over a stale mode");
+
+// The mode the owner chose survives the on/off switch, so AI-only can be set up and rehearsed while off.
+assert.equal(chosenAnswerMode(undefined), "bot");
+assert.equal(chosenAnswerMode({ botEnabled: false, botMode: "ai_first", botAiEnabled: true }), "ai");
+assert.equal(chosenAnswerMode({ botEnabled: false, botAiEnabled: true }), "both");
+assert.equal(chosenAnswerMode({ botEnabled: true, botMode: "assisted" }), "bot");
 
 assert.equal(clampAnswerMode("ai", { ...ALL, ai: false }), "bot", "no AI add-on: AI falls back to the bot, not to silence");
 assert.equal(clampAnswerMode("both", { ...ALL, ai: false }), "bot");

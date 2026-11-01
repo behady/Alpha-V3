@@ -505,3 +505,24 @@ await test("a price the patient typed is never confirmed as the clinic's price",
   assert.equal(model.calls.length, 2);
   assert.ok((sink.rows[0].violations as string[]).some((v) => v === "price: 2000"));
 });
+
+await test("the clinic's own address may carry a figure before ألف (a district, not a price)", async () => {
+  const model = fakeModel([reply({ action: "answer", reply: "العنوان: شارع 9 عمارة 12 ألف مسكن" })]);
+  const r = await answerWithPro(args({ question: "العنوان فين؟", addressText: "شارع 9 عمارة 12 ألف مسكن" }), {
+    model,
+    context: makeContext(),
+    sink: fakeSink(),
+  });
+  assert.equal(r.kind, "answer");
+  assert.equal(model.calls.length, 1);
+});
+
+await test("a time the clinic wrote in its own facts may be repeated", async () => {
+  const model = fakeModel([reply({ action: "answer", reply: "الدكتور موجود الساعة 4 العصر" })]);
+  const r = await answerWithPro(
+    args({ question: "الدكتور بيجي امتى؟", coaching: "الدكتور موجود الساعة 4 العصر كل يوم" }),
+    { model, context: makeContext(), sink: fakeSink() }
+  );
+  assert.equal(r.kind, "answer");
+  assert.equal(model.calls.length, 1);
+});
