@@ -28,6 +28,12 @@ import type { LabCaseSeed } from "@/lib/labCases";
 import { getDoc } from "firebase/firestore";
 import CallReminderDialog from "@/components/calls/CallReminderDialog";
 
+/** "سن 13" for one tooth, "أسنان 21,22" for more — never "سنة", which reads as a year. */
+function toothWordFor(tooth: string, ar: boolean): string {
+  const many = tooth.split(/[,،\s]+/).filter(Boolean).length > 1;
+  return ar ? (many ? "أسنان" : "سن") : many ? "teeth" : "tooth";
+}
+
 export default function ClinicalNotesContainer({
   patientId,
   teethData,
@@ -335,7 +341,7 @@ export default function ClinicalNotesContainer({
       patient={{ id: patientId, name: patientName }}
       source="treatment"
       sourceNoteId={callNote.id}
-      initialReason={`${language === "ar" ? "متابعة" : "Follow-up"}: ${callNote.procedure || ""}${callNote.tooth && callNote.tooth !== "Gen" ? ` — ${language === "ar" ? "سنة" : "tooth"} ${callNote.tooth}` : ""}`}
+      initialReason={`${language === "ar" ? "متابعة" : "Follow-up"}: ${callNote.procedure || ""}${callNote.tooth && callNote.tooth !== "Gen" ? ` — ${toothWordFor(callNote.tooth, language === "ar")} ${callNote.tooth}` : ""}`}
     />
   ) : null;
 

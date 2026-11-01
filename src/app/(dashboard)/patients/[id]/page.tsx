@@ -1046,8 +1046,9 @@ export default function PatientProfile() {
         title={patient.name}
         subtitle={[
           `${displayAge} ${t('yearSymbol') || 'Y'}`,
-          patient.gender,
-          String((patient as { fileId?: unknown }).fileId || "").trim() && `#${String((patient as { fileId?: unknown }).fileId).trim()}`,
+          language === "ar" ? ({ Male: "ذكر", Female: "أنثى" } as Record<string, string>)[patient.gender] ?? patient.gender : patient.gender,
+          // Isolated (U+2068…U+2069) so the "#" stays in front of the number in Arabic.
+          String((patient as { fileId?: unknown }).fileId || "").trim() && `\u2068#${String((patient as { fileId?: unknown }).fileId).trim()}\u2069`,
         ].filter(Boolean).join(" · ")}
         backHref="/patients"
       />
@@ -1087,7 +1088,7 @@ export default function PatientProfile() {
               <div className="min-w-0 max-md:hidden">
                 <h1 className="truncate text-xl font-black text-ink">{patient.name}</h1>
                 <p className="text-[13px] font-semibold text-ink-muted">
-                  {displayAge} {t('yearSymbol') || 'Y'}{patient.gender ? ` · ${patient.gender}` : ""}
+                  {displayAge} {t('yearSymbol') || 'Y'}{patient.gender ? ` · ${language === "ar" ? ({ Male: "ذكر", Female: "أنثى" } as Record<string, string>)[patient.gender] ?? patient.gender : patient.gender}` : ""}
                 </p>
               </div>
               {/* Phones: how to reach them, in the name's place. The balance has its own strip
@@ -1193,7 +1194,7 @@ export default function PatientProfile() {
               .join(" · ");
             const xrayCode = String((patient as { xrayCode?: string }).xrayCode || "").trim();
             const detailsPreview = [
-              fileNumber && `${ar ? 'ملف' : 'File'} ${fileNumber}`,
+              fileNumber && `${ar ? 'لملف' : 'File'} ${fileNumber}`,
               xrayCode && `${ar ? 'أشعة' : 'X-ray'} ${xrayCode}`,
             ].filter(Boolean).join(" · ");
             return (

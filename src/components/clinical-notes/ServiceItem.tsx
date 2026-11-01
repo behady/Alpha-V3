@@ -46,6 +46,13 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
   /** The insurer this note is charged to; nothing for the clinic's own work or for older notes. */
   const insurer = note.payerId && note.payerId !== PRIVATE_PAYER_ID && note.payerName ? note.payerName : null;
   const doctorName = formatDoctorName(note.doctor, language);
+  // "د." stays on the reading side of an English name: the name is isolated, so the dot cannot
+  // drift to the far end of the run.
+  const doctorLabel = doctorName.startsWith("د. ") ? <>د. <bdi>{doctorName.slice(3)}</bdi></> : doctorName;
+  // One tooth is "سن", two or more "أسنان" — never "سنة", which reads as a year.
+  const toothCount = String(note.tooth || "").split(/[,،\s]+/).filter(Boolean).length;
+  const toothWord = language === "ar" ? (toothCount > 1 ? "أسنان" : "سن") : toothCount > 1 ? "Teeth" : "Tooth";
+  const toothLabel = <>{toothWord} <bdi dir="ltr">{note.tooth}</bdi></>;
 
   const txt = {
     edit: language === "ar" ? "تعديل" : "Edit",
@@ -214,7 +221,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
         </span>
         {note.tooth && note.tooth !== "Gen" && (
           <span className="rounded-md border border-line bg-surface-subtle px-2 py-0.5 text-[11px] font-bold text-ink">
-            <bdi dir="ltr">{isAr ? `سن ${note.tooth}` : `Tooth ${note.tooth}`}</bdi>
+            {toothLabel}
           </span>
         )}
         {note.isContinued && (
@@ -237,7 +244,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
       <NotePhotoStrip note={note} canEdit={!locked} />
 
       <div className="flex items-center justify-between gap-2">
-        <p className="min-w-0 truncate text-xs font-medium text-ink-muted">{doctorName}</p>
+        <p className="min-w-0 truncate text-xs font-medium text-ink-muted">{doctorLabel}</p>
         {!locked && (
           <div className="flex shrink-0 items-center gap-1.5">
             {!note.isContinued && (
@@ -296,7 +303,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
           </span>
           {note.tooth && note.tooth !== "Gen" && (
             <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-surface-subtle text-ink border border-line">
-              <bdi dir="ltr">{language === 'ar' ? `سن ${note.tooth}` : `Tooth ${note.tooth}`}</bdi>
+              {toothLabel}
             </span>
           )}
           {note.isContinued && (
@@ -322,7 +329,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
         {(note.doctor || (!hideMoney && Number(note.cost) > 0)) && (
           <div className="flex items-center justify-center gap-3 flex-wrap">
             {note.doctor && (
-              <p className="text-sm font-bold text-ink-muted">{doctorName}</p>
+              <p className="text-sm font-bold text-ink-muted">{doctorLabel}</p>
             )}
             {!hideMoney && Number(note.cost) > 0 && (
               <p className="text-sm font-black text-ink bg-surface-muted px-2.5 py-1 rounded-md font-figure">

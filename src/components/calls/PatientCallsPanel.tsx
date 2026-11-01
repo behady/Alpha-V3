@@ -53,7 +53,22 @@ export default function PatientCallsPanel({ patientId }: { patientId: string }) 
   if (sorted.length === 0) return null;
   const next = sorted[0].status === "open" ? sorted[0] : null;
   const today = ymdInTimeZone(clinicTimeZone(), new Date());
-  const dayText = (r: CallReminder) => callDayLabel(r.date, r.time, today, isAr);
+  // 9:14 م rather than 21:14 — the clock the desk reads.
+  const clock = (time: string) => {
+    const [h, m] = time.split(":").map(Number);
+    if (Number.isNaN(h) || Number.isNaN(m)) return time;
+    const pm = h >= 12;
+    return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${isAr ? (pm ? "م" : "ص") : pm ? "PM" : "AM"}`;
+  };
+  const dayText = (r: CallReminder) => callDayLabel(r.date, r.time ? clock(r.time) : null, today, isAr);
+  // Each piece of "متابعة: Root Canal — Anterior — أسنان 22,21" is isolated, so the colon and the
+  // dashes stay between the pieces they separate whichever language each piece is in.
+  // Older reasons were written "سنة 22,21", which reads as a year; shown as سن / أسنان instead.
+  const toothWord = (part: string) =>
+    part.replace(/^سنة(\s+)([\d,،\s]+)$/, (_, gap: string, teeth: string) =>
+      `${teeth.split(/[,،\s]+/).filter(Boolean).length > 1 ? "أسنان" : "سن"}${gap}${teeth}`);
+  const isolated = (text: string) =>
+    text.split(/(:\s|\s—\s)/).map((part, i) => (i % 2 ? part : <bdi key={i}>{toothWord(part)}</bdi>));
 
   return (
     <section className="mt-4 rounded-2xl border border-line bg-surface p-4 max-md:mt-2.5 max-md:p-3" aria-label={isAr ? "المكالمات" : "Calls"}>
@@ -63,7 +78,7 @@ export default function PatientCallsPanel({ patientId }: { patientId: string }) 
         </h3>
         {next && (
           <span className="rounded-full bg-accent px-2.5 py-0.5 text-xs font-bold text-ink-on-accent">
-            {isAr ? `مكالمة ${dayText(next)}` : `Call: ${dayText(next)}`}
+            {isAr ? `القادمة: ${callDayLabel(next.date, null, today, true)}` : `Next: ${callDayLabel(next.date, null, today, false)}`}
           </span>
         )}
       </div>
@@ -92,10 +107,10 @@ export default function PatientCallsPanel({ patientId }: { patientId: string }) 
                 return next;
               })}
               aria-expanded={noteOpen}
-              dir="auto"
+              dir={isAr ? "rtl" : "auto"}
               className={`w-full break-words text-start text-sm font-medium text-ink ${noteOpen ? "" : "line-clamp-2"}`}
             >
-              {r.reason}
+              {isolated(r.reason)}
             </button>
             <p className="truncate text-xs font-semibold text-ink-muted">
               {isAr ? "بواسطة" : "By"} {recipientLabel(r.recipient, isAr)}

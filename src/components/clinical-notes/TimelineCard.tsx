@@ -112,7 +112,7 @@ export default function TimelineCard({
     if (!raw) return "";
     const d = new Date(`${raw}T00:00:00`);
     if (Number.isNaN(d.getTime())) return "";
-    return d.toLocaleDateString(isAr ? "ar-EG" : "en-US", { day: "numeric", month: "short", year: "numeric" });
+    return d.toLocaleDateString(isAr ? "ar-EG-u-nu-latn" : "en-US", { day: "numeric", month: "short", year: "numeric" });
   };
 
   /**
@@ -127,7 +127,7 @@ export default function TimelineCard({
     const createdAtDate = note.createdAt && typeof note.createdAt.toDate === "function" ? note.createdAt.toDate() : null;
 
     if (!displayDate && createdAtDate) {
-      displayDate = createdAtDate.toLocaleDateString(isAr ? "ar-EG" : "en-US", {
+      displayDate = createdAtDate.toLocaleDateString(isAr ? "ar-EG-u-nu-latn" : "en-US", {
         day: "numeric",
         month: "short",
         year: "numeric",
@@ -138,7 +138,7 @@ export default function TimelineCard({
     // today's entry-time with a backdated date would suggest the treatment happened at that time.
     const displayTime =
       createdAtDate && createdAtDate.toISOString().slice(0, 10) === note.date
-        ? createdAtDate.toLocaleTimeString(isAr ? "ar-EG" : "en-US", { hour: "2-digit", minute: "2-digit" })
+        ? createdAtDate.toLocaleTimeString(isAr ? "ar-EG-u-nu-latn" : "en-US", { hour: "2-digit", minute: "2-digit" })
         : "";
 
     return { displayDate, displayTime };
