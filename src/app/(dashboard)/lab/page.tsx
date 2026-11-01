@@ -151,6 +151,35 @@ function LabTrackingPage() {
     return () => unsub();
   }, []);
 
+  // What has been paid to each lab. Without this the Money view saved a payment and then showed
+  // "Paid 0" forever, because nothing ever read the payments back.
+  useEffect(() => {
+    const unsub = onSnapshot(
+      getClinicCollection(LAB_PAYMENTS_COLLECTION),
+      (snap) => {
+        setPayments(
+          snap.docs.map((d) => {
+            const p = d.data() as Record<string, unknown>;
+            return {
+              id: d.id,
+              labId: String(p.labId || ""),
+              labName: String(p.labName || ""),
+              amount: Number(p.amount) || 0,
+              date: String(p.date || ""),
+              method: String(p.method || "cash"),
+              reference: p.reference ? String(p.reference) : undefined,
+              note: p.note ? String(p.note) : undefined,
+              createdAt: p.createdAt ? String(p.createdAt) : undefined,
+              createdBy: p.createdBy ? String(p.createdBy) : undefined,
+            };
+          })
+        );
+      },
+      (err) => console.error("Lab payments subscription failed", err)
+    );
+    return () => unsub();
+  }, []);
+
   useEffect(() => {
     getDoc(getClinicDoc("settings", LABS_SETTINGS_DOC))
       .then((snap) => {
