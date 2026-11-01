@@ -84,6 +84,8 @@ import {
   isBillable,
   labAccountFor,
   labAccountsTotal,
+  paidCaseIds,
+  parseLabPaymentCases,
 } from "../src/lib/labAccounts.ts";
 import { parseClinicBranches } from "../src/lib/clinicLocations.ts";
 import { buildLabOrderMessage } from "../src/lib/labMessages.ts";
@@ -781,6 +783,23 @@ assert.equal(stmt.lines.length, 3);
 assert.deepEqual(stmt.lines.map((l) => l.balance), [600, 100, 850]);
 assert.equal(stmt.closing, 850);
 assert.equal(stmt.closing, 1350 - 500, "closing balance is delivered minus paid");
+
+// Paid on the day of delivery: the work prints before the money, so the balance never dips
+// below zero, and the payment names the case and patient it was for (first name only).
+const sameDay = buildStatement(
+  "L1",
+  [{ id: "1", labId: "L1", status: "back", agreedPrice: 600, code: "MAD-0009", receivedAt: "2026-08-05", patientFirstName: "Ahmed", workType: "zirconia", teeth: [] }],
+  [{ id: "p1", labId: "L1", amount: 600, date: "2026-08-05", method: "cash", cases: [{ id: "1", code: "MAD-0009", patient: "Ahmed Samir", patientFirst: "Ahmed" }] }],
+  () => "work",
+  (p) => `Payment · ${p.method}`
+);
+assert.deepEqual(sameDay.lines.map((l) => l.balance), [600, 0]);
+assert.equal(sameDay.lines[1].code, "MAD-0009");
+assert.equal(sameDay.lines[1].patient, "Ahmed");
+assert.equal(sameDay.lines[1].work, "Payment · cash");
+
+assert.deepEqual(paidCaseIds([{ id: "p", labId: "L1", amount: 1, date: "", method: "", cases: [{ id: "c1", code: "", patient: "" }] }]), new Set(["c1"]));
+assert.deepEqual(parseLabPaymentCases([{ id: "c1", code: "A", patient: "B" }, { code: "no id" }, null]), [{ id: "c1", code: "A", patient: "B" }]);
 
 // The printed sheet carries the figures and says out loud what is missing from them.
 const sheet = buildLabStatementSrcDoc({

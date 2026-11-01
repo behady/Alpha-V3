@@ -65,7 +65,7 @@ import {
   type LabOrderPaper,
 } from "@/lib/labCases";
 import { advanceLabCase, createRemake } from "@/lib/labCaseWrite";
-import { LAB_PAYMENTS_COLLECTION, type LabPayment } from "@/lib/labAccounts";
+import { LAB_PAYMENTS_COLLECTION, parseLabPaymentCases, type LabPayment } from "@/lib/labAccounts";
 import { loadLabOrderClinic, printLabOrder } from "@/lib/labOrderPrint";
 import { notifyLabCaseReady } from "@/lib/labNotify";
 import { buildLabOrderMessage } from "@/lib/labMessages";
@@ -171,6 +171,7 @@ function LabTrackingPage() {
               note: p.note ? String(p.note) : undefined,
               createdAt: p.createdAt ? String(p.createdAt) : undefined,
               createdBy: p.createdBy ? String(p.createdBy) : undefined,
+              cases: parseLabPaymentCases(p.cases),
             };
           })
         );

@@ -24,14 +24,18 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { localYmd } from "@/lib/clinicDate";
 import type { DentalLab } from "@/lib/dentalLabs";
-import { workTypeLabel, type LabCase } from "@/lib/labCases";
+import { statusFor, statusLabel, workTypeLabel, type LabCase } from "@/lib/labCases";
 import {
   LAB_PAYMENT_METHODS,
   buildStatement,
   isBillable,
+  isCommitted,
   labAccounts,
   labAccountsTotal,
+  labPaymentMethodLabel,
+  paidCaseIds,
   type LabPayment,
+  type LabPaymentCase,
 } from "@/lib/labAccounts";
 import { deleteLabPayment, recordLabPayment, updateLabPayment } from "@/lib/labCaseWrite";
 import { loadLabOrderClinic, printLabStatement } from "@/lib/labOrderPrint";
@@ -67,13 +71,53 @@ export default function LabAccountsPanel({
   const [busy, setBusy] = useState("");
   /** The payment the form is correcting; empty when it records a new one. */
   const [editingId, setEditingId] = useState("");
+  /** The cases the payment in the form is for. */
+  const [forCases, setForCases] = useState<string[]>([]);
 
   const accounts = useMemo(() => labAccounts(labs, cases, payments), [labs, cases, payments]);
   const totals = useMemo(() => labAccountsTotal(accounts, cases), [accounts, cases]);
+  /** Paid-for marks, not counting the payment being edited — it is being decided again. */
+  const paidIds = useMemo(
+    () => paidCaseIds(payments.filter((p) => p.id !== editingId)),
+    [payments, editingId]
+  );
+
+  /** The lab's cases worth paying for: back, fitted, or still out. */
+  const payableCases = (labId: string) =>
+    cases.filter((c) => c.labId === labId && (isBillable(c) || isCommitted(c)));
+
+  const toggleCase = (labCase: LabCase) => {
+    const next = forCases.includes(labCase.id)
+      ? forCases.filter((id) => id !== labCase.id)
+      : [...forCases, labCase.id];
+    setForCases(next);
+    // Ticking cases fills the amount with what they cost; an unpriced case leaves it to be typed.
+    const sum = cases.filter((c) => next.includes(c.id)).reduce((s, c) => s + (Number(c.agreedPrice) || 0), 0);
+    if (sum > 0) setAmount(String(Math.round(sum)));
+  };
+
+  /** Snapshot of the ticked cases; one since deleted keeps what the payment already said. */
+  const caseSnapshot = (): LabPaymentCase[] => {
+    const previous = payments.find((p) => p.id === editingId)?.cases || [];
+    return forCases
+      .map((id) => {
+        const c = cases.find((x) => x.id === id);
+        if (!c) return previous.find((x) => x.id === id) || null;
+        const patientFirst = c.patientFirstName || "";
+        return {
+          id: c.id,
+          code: c.code || "",
+          patient: c.patientName || c.patientFirstName || "",
+          ...(patientFirst ? { patientFirst } : {}),
+        };
+      })
+      .filter(Boolean) as LabPaymentCase[];
+  };
 
   const resetForm = () => {
     setPayingLab("");
     setEditingId("");
+    setForCases([]);
     setAmount("");
     setReference("");
     setDate(localYmd());
@@ -89,7 +133,13 @@ export default function LabAccountsPanel({
     setBusy(lab.id);
     try {
       if (editingId) {
-        await updateLabPayment(editingId, { amount: value, date, method, reference: reference.trim() });
+        await updateLabPayment(editingId, {
+          amount: value,
+          date,
+          method,
+          reference: reference.trim(),
+          cases: caseSnapshot(),
+        });
         showToast(isAr ? "اتعدلت الدفعة" : "Payment updated", "success");
         resetForm();
         return;
@@ -102,6 +152,7 @@ export default function LabAccountsPanel({
         method,
         reference: reference.trim(),
         createdBy: currentUserName,
+        cases: caseSnapshot(),
       });
       showToast(
         isAr ? `اتسجل دفع ${money(value)} لـ ${lab.name}` : `Paid ${money(value)} to ${lab.name}`,
@@ -123,6 +174,7 @@ export default function LabAccountsPanel({
     setDate(payment.date || localYmd());
     setMethod(payment.method || "cash");
     setReference(payment.reference || "");
+    setForCases((payment.cases || []).map((c) => c.id));
   };
 
   const removePayment = async (payment: LabPayment) => {
@@ -149,8 +201,15 @@ export default function LabAccountsPanel({
     try {
       const account = accounts.find((a) => a.labId === lab.id);
       if (!account) return;
-      const { lines, closing } = buildStatement(lab.id, cases, payments, (c) =>
-        [workTypeLabel(c.workType, language), c.workDescription].filter(Boolean).join(" · ")
+      const { lines, closing } = buildStatement(
+        lab.id,
+        cases,
+        payments,
+        (c) => [workTypeLabel(c.workType, language), c.workDescription].filter(Boolean).join(" · "),
+        (p) =>
+          [isAr ? "دفعة" : "Payment", labPaymentMethodLabel(p.method, language), p.reference, p.note]
+            .filter(Boolean)
+            .join(" · ")
       );
       const clinic = await loadLabOrderClinic("");
       await printLabStatement({
@@ -266,6 +325,7 @@ export default function LabAccountsPanel({
                     <button
                       onClick={() => {
                         setEditingId("");
+                        setForCases([]);
                         setReference("");
                         setDate(localYmd());
                         setMethod("cash");
@@ -289,6 +349,38 @@ export default function LabAccountsPanel({
                     <p className="col-span-2 lg:col-span-5 text-[11px] font-black uppercase tracking-wider text-sky-600">
                       {isAr ? "تعديل دفعة" : "Editing a payment"}
                     </p>
+                  )}
+                  {payableCases(account.labId).length > 0 && (
+                    <div className="col-span-2 lg:col-span-5">
+                      <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">
+                        {isAr ? "الدفعة دي عن (اختياري)" : "This payment is for (optional)"}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {payableCases(account.labId).map((c) => {
+                          const on = forCases.includes(c.id);
+                          return (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() => toggleCase(c)}
+                              className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition-colors text-start ${
+                                on
+                                  ? "bg-slate-900 text-white border-slate-900"
+                                  : "bg-white text-slate-700 border-slate-200 hover:border-slate-400"
+                              }`}
+                            >
+                              <span dir="ltr">{c.code}</span> · {c.patientName || c.patientFirstName || "—"} ·{" "}
+                              {Number(c.agreedPrice) > 0 ? money(Number(c.agreedPrice)) : isAr ? "بدون سعر" : "no price"}
+                              {paidIds.has(c.id) && (
+                                <span className={`ms-1.5 text-[10px] font-black ${on ? "text-emerald-300" : "text-emerald-600"}`}>
+                                  {isAr ? "مدفوعة" : "paid"}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   )}
                   <div>
                     <label className="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">
@@ -359,6 +451,49 @@ export default function LabAccountsPanel({
                     ))}
                   </div>
 
+                  {payableCases(account.labId).length > 0 && (
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1.5">
+                        {isAr ? "الحالات" : "Cases"}
+                      </p>
+                      <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
+                        {payableCases(account.labId).map((c) => (
+                          <div key={c.id} className="flex items-center gap-3 px-3 py-2.5">
+                            <span className="text-xs font-black text-slate-700 tabular-nums shrink-0" dir="ltr">
+                              {c.code}
+                            </span>
+                            <span className="flex-1 min-w-0">
+                              <span className="block text-xs font-bold text-slate-700 truncate">
+                                {c.patientName || c.patientFirstName || "—"}
+                              </span>
+                              <span className="block text-[11px] font-semibold text-slate-400 truncate">
+                                {[workTypeLabel(c.workType, language), c.workDescription].filter(Boolean).join(" · ")}
+                              </span>
+                            </span>
+                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full shrink-0 ${statusFor(c.status).pill}`}>
+                              {statusLabel(c.status, language)}
+                            </span>
+                            {paidIds.has(c.id) && (
+                              <span className="text-[10px] font-black px-2 py-0.5 rounded-full shrink-0 bg-emerald-50 text-emerald-700">
+                                {isAr ? "مدفوعة" : "Paid"}
+                              </span>
+                            )}
+                            <span className="text-sm font-black text-slate-800 tabular-nums shrink-0">
+                              {Number(c.agreedPrice) > 0 ? money(Number(c.agreedPrice)) : (
+                                <span className="text-[11px] font-bold text-amber-600">{isAr ? "بدون سعر" : "No price"}</span>
+                              )}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {labPayments.length > 0 && (
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 -mb-1.5">
+                      {isAr ? "الدفعات" : "Payments"}
+                    </p>
+                  )}
                   {labPayments.length === 0 ? (
                     <p className="text-xs font-semibold text-slate-400 py-2">
                       {isAr ? "مفيش دفعات مسجلة للمعمل ده." : "No payments recorded to this lab yet."}
@@ -370,14 +505,18 @@ export default function LabAccountsPanel({
                           <span className="text-xs font-bold text-slate-400 tabular-nums shrink-0" dir="ltr">
                             {p.date}
                           </span>
-                          <span className="flex-1 min-w-0 text-xs font-semibold text-slate-500 truncate">
-                            {[
-                              LAB_PAYMENT_METHODS.find((m) => m.id === p.method)?.[isAr ? "ar" : "en"] || p.method,
-                              p.reference,
-                              p.createdBy,
-                            ]
-                              .filter(Boolean)
-                              .join(" · ")}
+                          <span className="flex-1 min-w-0">
+                            <span className="block text-xs font-semibold text-slate-500 truncate">
+                              {[labPaymentMethodLabel(p.method, language), p.reference, p.createdBy]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </span>
+                            {(p.cases || []).length > 0 && (
+                              <span className="block text-[11px] font-bold text-slate-700 truncate">
+                                {isAr ? "عن: " : "For: "}
+                                {(p.cases || []).map((c) => `${c.code} ${c.patient}`.trim()).join(" · ")}
+                              </span>
+                            )}
                           </span>
                           <span className="text-sm font-black text-emerald-600 tabular-nums shrink-0">
                             {money(p.amount)}

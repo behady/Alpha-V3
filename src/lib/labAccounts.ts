@@ -36,7 +36,52 @@ export type LabPayment = {
   note?: string;
   createdAt?: string;
   createdBy?: string;
+  /**
+   * The cases this payment settles, snapshotted so the payment still says who it was for after a
+   * case is edited or deleted. Optional: a lump sum against the whole account names none.
+   */
+  cases?: LabPaymentCase[];
 };
+
+export type LabPaymentCase = {
+  id: string;
+  code: string;
+  /** Full name, for the clinic's own screens. */
+  patient: string;
+  /** First name only, for anything that goes to the lab. */
+  patientFirst?: string;
+};
+
+/** Reads the `cases` snapshot off a stored payment, dropping anything malformed. */
+export function parseLabPaymentCases(raw: unknown): LabPaymentCase[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((c) => {
+      const r = (c && typeof c === "object" ? c : {}) as Record<string, unknown>;
+      const id = String(r.id || "").trim();
+      if (!id) return null;
+      const patientFirst = String(r.patientFirst || "").trim();
+      return {
+        id,
+        code: String(r.code || "").trim(),
+        patient: String(r.patient || "").trim(),
+        ...(patientFirst ? { patientFirst } : {}),
+      };
+    })
+    .filter(Boolean) as LabPaymentCase[];
+}
+
+/** Ids of every case some payment names — how the board marks a case as paid for. */
+export function paidCaseIds(payments: LabPayment[]): Set<string> {
+  const out = new Set<string>();
+  for (const p of payments) for (const c of p.cases || []) out.add(c.id);
+  return out;
+}
+
+export function labPaymentMethodLabel(id: string, language: "en" | "ar"): string {
+  const m = LAB_PAYMENT_METHODS.find((x) => x.id === id);
+  return m ? (language === "ar" ? m.ar : m.en) : id;
+}
 
 export const LAB_PAYMENT_METHODS = [
   { id: "cash", en: "Cash", ar: "كاش" },
@@ -220,7 +265,8 @@ export function buildStatement(
   labId: string,
   cases: LabCase[],
   payments: LabPayment[],
-  workLabel: (c: LabCase) => string
+  workLabel: (c: LabCase) => string,
+  paymentLabel: (p: LabPayment) => string = (p) => [p.method, p.reference, p.note].filter(Boolean).join(" · ")
 ): { lines: Array<StatementLine & { balance: number }>; closing: number } {
   const rows: StatementLine[] = [];
 
@@ -238,17 +284,26 @@ export function buildStatement(
 
   for (const p of payments) {
     if (p.labId !== labId) continue;
+    const named = p.cases || [];
     rows.push({
       date: p.date,
-      code: "",
-      patient: "",
-      work: [p.method, p.reference, p.note].filter(Boolean).join(" · "),
+      code: named.map((c) => c.code).filter(Boolean).join(", "),
+      // First names only: this sheet goes to the lab.
+      patient: [...new Set(named.map((c) => c.patientFirst || c.patient).filter(Boolean))].join(", "),
+      work: paymentLabel(p),
       charge: 0,
       payment: Number(p.amount) || 0,
     });
   }
 
-  rows.sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.code.localeCompare(b.code));
+  // On the same day the work comes before the money paid for it. Otherwise a payment handed over
+  // with the delivery prints first and the running balance dips below zero for one line.
+  rows.sort(
+    (a, b) =>
+      String(a.date).localeCompare(String(b.date)) ||
+      Number(a.payment > 0) - Number(b.payment > 0) ||
+      a.code.localeCompare(b.code)
+  );
 
   let balance = 0;
   const lines = rows.map((r) => {

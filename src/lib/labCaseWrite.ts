@@ -20,7 +20,7 @@ import { runTransaction, addDoc, updateDoc, deleteDoc, deleteField, serverTimest
 import { db } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { localYmd } from "@/lib/clinicDate";
-import { LAB_PAYMENTS_COLLECTION } from "@/lib/labAccounts";
+import { LAB_PAYMENTS_COLLECTION, type LabPaymentCase } from "@/lib/labAccounts";
 import {
   LABS_SETTINGS_DOC,
   findLabByName,
@@ -144,6 +144,7 @@ export async function recordLabPayment(input: {
   reference?: string;
   note?: string;
   createdBy?: string;
+  cases?: LabPaymentCase[];
 }): Promise<string> {
   const amount = Number(input.amount);
   if (!Number.isFinite(amount) || amount <= 0) {
@@ -160,6 +161,7 @@ export async function recordLabPayment(input: {
       note: input.note,
       createdBy: input.createdBy,
     }),
+    ...(input.cases?.length ? { cases: input.cases } : {}),
     amount: Math.round(amount * 100) / 100,
     date: input.date || today(),
     createdAt: nowIso(),
@@ -175,7 +177,7 @@ export async function recordLabPayment(input: {
  */
 export async function updateLabPayment(
   id: string,
-  input: { amount: number; date: string; method: string; reference?: string }
+  input: { amount: number; date: string; method: string; reference?: string; cases?: LabPaymentCase[] }
 ): Promise<void> {
   const amount = Number(input.amount);
   if (!Number.isFinite(amount) || amount <= 0) {
@@ -187,6 +189,7 @@ export async function updateLabPayment(
     method: input.method || "cash",
     // An emptied box removes the reference rather than storing "".
     reference: input.reference ? input.reference : deleteField(),
+    cases: input.cases?.length ? input.cases : deleteField(),
     updatedAt: nowIso(),
   });
 }

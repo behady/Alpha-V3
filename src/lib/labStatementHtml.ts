@@ -61,19 +61,28 @@ export type LabStatementPayload = {
 export function buildLabStatementSrcDoc(p: LabStatementPayload): string {
   const isAr = p.language === "ar";
   const bi = (en: string, ar: string) => (isAr ? `${ar} · ${en}` : `${en} · ${ar}`);
+  // Money columns sit at the far end of the line in either direction.
+  const END = isAr ? "left" : "right";
+  const START = isAr ? "right" : "left";
+  // A minus sign inside Arabic text drifts to the wrong side of the number; isolate it as LTR.
+  const signed = (n: number) => `<span dir="ltr">${n < 0 ? "−" : ""}${money(Math.abs(n))}</span>`;
+  const cell = "padding:5px 6px;border-bottom:1px solid #F0F2EE;font-size:8.5pt;vertical-align:top;";
 
   const rows = p.lines
-    .map(
-      (l) => `<tr>
-      <td style="padding:5px 6px;border-bottom:1px solid #F0F2EE;font-size:8.5pt;white-space:nowrap;">${esc(fmtDate(l.date, p.language))}</td>
-      <td style="padding:5px 6px;border-bottom:1px solid #F0F2EE;font-size:8.5pt;font-weight:600;white-space:nowrap;" dir="ltr">${esc(l.code || "—")}</td>
-      <td style="padding:5px 6px;border-bottom:1px solid #F0F2EE;font-size:8.5pt;">${esc(l.patient)}</td>
-      <td style="padding:5px 6px;border-bottom:1px solid #F0F2EE;font-size:8.5pt;color:${MUTED};">${esc(l.work)}</td>
-      <td style="padding:5px 6px;border-bottom:1px solid #F0F2EE;font-size:8.5pt;text-align:right;white-space:nowrap;">${l.charge ? money(l.charge) : ""}</td>
-      <td style="padding:5px 6px;border-bottom:1px solid #F0F2EE;font-size:8.5pt;text-align:right;white-space:nowrap;color:#2F6B4F;">${l.payment ? `(${money(l.payment)})` : ""}</td>
-      <td style="padding:5px 6px;border-bottom:1px solid #F0F2EE;font-size:8.5pt;text-align:right;font-weight:700;white-space:nowrap;">${money(l.balance)}</td>
-    </tr>`
-    )
+    .map((l) => {
+      const isPayment = l.payment > 0;
+      return `<tr${isPayment ? ` style="background:#F4F8F5;"` : ""}>
+      <td style="${cell}white-space:nowrap;">${esc(fmtDate(l.date, p.language))}</td>
+      <td style="${cell}font-weight:600;" dir="ltr">${esc(l.code || "—")}</td>
+      <td style="${cell}">${esc(l.patient || "—")}</td>
+      <td style="${cell}color:${isPayment ? "#2F6B4F" : MUTED};${isPayment ? "font-weight:600;" : ""}">${esc(l.work)}</td>
+      <td style="${cell}text-align:${END};white-space:nowrap;">${
+        isPayment ? "" : l.charge ? signed(l.charge) : `<span style="color:#9A6B10;">${esc(isAr ? "بدون سعر" : "no price")}</span>`
+      }</td>
+      <td style="${cell}text-align:${END};white-space:nowrap;color:#2F6B4F;font-weight:600;">${isPayment ? signed(l.payment) : ""}</td>
+      <td style="${cell}text-align:${END};font-weight:700;white-space:nowrap;">${signed(l.balance)}</td>
+    </tr>`;
+    })
     .join("");
 
   const empty = `<tr><td colspan="7" style="padding:24px;text-align:center;color:${MUTED};font-size:9pt;">${esc(
@@ -108,7 +117,7 @@ export function buildLabStatementSrcDoc(p: LabStatementPayload): string {
         <div style="font-size:14pt;font-weight:800;line-height:1.1;">${esc(p.clinicName || "—")}</div>
         <div style="font-size:7pt;letter-spacing:0.08em;text-transform:uppercase;color:${MUTED};margin-top:3px;">${esc(p.clinicPhone)}</div>
       </td>
-      <td style="vertical-align:top;text-align:right;">
+      <td style="vertical-align:top;text-align:${END};">
         <div style="font-size:11pt;font-weight:800;">${esc(bi("Lab statement", "كشف حساب معمل"))}</div>
         <div style="font-size:12pt;font-weight:700;margin-top:2px;">${esc(p.account.labName)}</div>
         <div style="font-size:7.5pt;color:${MUTED};margin-top:3px;">${period}</div>
@@ -148,7 +157,7 @@ export function buildLabStatementSrcDoc(p: LabStatementPayload): string {
           bi("Balance", "الرصيد"),
         ]
           .map(
-            (h, i) => `<th style="padding:5px 6px;border-bottom:1px solid ${INK};font-size:6.5pt;letter-spacing:0.09em;text-transform:uppercase;color:${MUTED};font-weight:400;text-align:${i >= 4 ? "right" : "left"};white-space:nowrap;">${esc(h)}</th>`
+            (h, i) => `<th style="padding:5px 6px;border-bottom:1px solid ${INK};font-size:6.5pt;letter-spacing:0.09em;text-transform:uppercase;color:${MUTED};font-weight:400;text-align:${i >= 4 ? END : START};white-space:nowrap;">${esc(h)}</th>`
           )
           .join("")}
       </tr>
@@ -158,8 +167,10 @@ export function buildLabStatementSrcDoc(p: LabStatementPayload): string {
 
   <table style="margin-top:10px;border-top:2px solid ${INK};">
     <tr>
-      <td style="padding:8px 6px;font-size:10pt;font-weight:800;">${esc(bi("Balance owed", "الرصيد المستحق"))}</td>
-      <td style="padding:8px 6px;font-size:14pt;font-weight:800;text-align:right;">${money(p.closing)} EGP</td>
+      <td style="padding:8px 6px;font-size:10pt;font-weight:800;">${esc(
+        p.closing < 0 ? bi("Paid ahead (lab owes the clinic)", "مدفوع مقدّم (للعيادة عند المعمل)") : bi("Balance owed", "الرصيد المستحق")
+      )}</td>
+      <td style="padding:8px 6px;font-size:14pt;font-weight:800;text-align:${END};">${signed(Math.abs(p.closing))} EGP</td>
     </tr>
   </table>
 
