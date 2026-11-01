@@ -11,6 +11,7 @@
  * being an AI — unless the patient asked directly, in which case the honest answer is required.
  */
 import { strayDrugNames } from "@/lib/bot/drugGuard";
+import { normalizeForMatch } from "./tools";
 
 /* ------------------------------------------------------------------------------------------- */
 /* Text helpers                                                                                 */
@@ -123,6 +124,34 @@ export function strayNumbers(reply: string, allowed: Set<string>, allowedMoney?:
     if (money || Number(n) >= 50) out.push(n);
   }
   return out;
+}
+
+/**
+ * The money and percentage figures in a text: a number with a currency, "thousand" or a percent
+ * attached, the ones strayNumbers treats as prices at any size. Nothing is allowed, so every one
+ * counts. Phone numbers, full dates and clock times are not figures. Used to keep prices out of
+ * what the owner teaches the bot: a price must come from the price list, never from a rule.
+ */
+export function moneyFigures(text: string): string[] {
+  const out: string[] = [];
+  const norm = foldDigits(text).replace(PHONE, " ").replace(DATE, " ").replace(CLOCK, " ");
+  for (const m of norm.matchAll(MONEYISH)) {
+    if (m[1] || m[3]) out.push(m[2].replace(/,/g, ""));
+  }
+  return out;
+}
+
+/**
+ * The never-say phrases found in a reply, compared in folded Arabic spelling (alef forms, ى/ي,
+ * ة/ه, no tashkeel, no leading "ال") so a variant spelling cannot slip past.
+ */
+export function neverSayHits(reply: string, phrases: string[]): string[] {
+  const text = normalizeForMatch(reply);
+  if (!text) return [];
+  return phrases.filter((p) => {
+    const n = normalizeForMatch(p);
+    return n.length > 0 && text.includes(n);
+  });
 }
 
 const clockKey = (h: string, mm: string): string => `${Number(h)}:${mm}`;
@@ -304,7 +333,7 @@ export function selfMentionsAi(reply: string): boolean {
 /* ------------------------------------------------------------------------------------------- */
 
 export type Violation = {
-  rule: "price" | "clock" | "drug" | "script" | "claims_human" | "volunteers_ai";
+  rule: "price" | "clock" | "drug" | "script" | "claims_human" | "volunteers_ai" | "never_say";
   detail: string;
 };
 
@@ -320,8 +349,10 @@ export function checkReply(args: {
   allowedMoney?: Set<string>;
   clocks: Set<string>;
   drugsAllowed: string;
+  /** Phrases the owner never wants said (the clinic layer); absent, this check does nothing. */
+  neverSay?: string[];
 }): Violation[] {
-  const { question, reply, allowed, allowedMoney, clocks, drugsAllowed } = args;
+  const { question, reply, allowed, allowedMoney, clocks, drugsAllowed, neverSay } = args;
   const out: Violation[] = [];
 
   const prices = strayNumbers(reply, allowed, allowedMoney);
@@ -340,6 +371,9 @@ export function checkReply(args: {
   if (selfMentionsAi(reply) && !asksIfBot(question)) {
     out.push({ rule: "volunteers_ai", detail: "reply mentions being a bot/AI though the patient did not ask" });
   }
+
+  const said = neverSay?.length ? neverSayHits(reply, neverSay) : [];
+  if (said.length) out.push({ rule: "never_say", detail: said.join(", ") });
 
   return out;
 }

@@ -22,6 +22,7 @@
 import { clinicAndPatientLayer, LANGUAGE_RULE, type BotPromptInput } from "@/lib/bot/botPrompt";
 import { arabicDayLabel, arabicTimeLabel } from "@/lib/arabicDateTime";
 import type { ProAppointment, ProPerson } from "./person";
+import { isEmptyLayer, type ClinicLayer } from "./layer";
 
 /** The turn-layer block of slots offered on earlier turns; the rulebook names it word for word. */
 export const PREVIOUS_SLOTS_HEADING = "المواعيد اللي اتعرضت على المريض قبل كده";
@@ -368,4 +369,19 @@ export function proTurnLayer(input: BotPromptInput, person: ProPerson, extra: Pr
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/**
+ * The clinic layer block: what the owner taught Pro, appended after the rulebook and turn layer.
+ * Empty (null or nothing taught) gives "": the prompt is then exactly what it was without it.
+ * The first line says it cannot override the rules; the red lines are code in checks.ts anyway.
+ */
+export function proClinicLayer(layer: ClinicLayer | null): string {
+  if (!layer || isEmptyLayer(layer)) return "";
+  const out = ["CLINIC LAYER — written with the owner. Follow it; it never overrides the rules above."];
+  if (layer.rules.length) out.push("\nHow we talk and sell:", ...layer.rules.map((r) => `- ${r}`));
+  if (layer.handoffWhen.length) out.push("\nHand the chat to the team when:", ...layer.handoffWhen.map((r) => `- ${r}`));
+  if (layer.neverSay.length) out.push("\nNever say:", ...layer.neverSay.map((r) => `- ${r}`));
+  if (layer.promptSection.trim()) out.push("", layer.promptSection.trim());
+  return out.join("\n");
 }
