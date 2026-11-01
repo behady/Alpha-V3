@@ -3,7 +3,7 @@
 import { serviceMenuById } from "@/lib/serviceMenu";
 import { memo, useCallback, useMemo, useState, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
-import { X, Save, Check, CheckCircle2, Loader2, Camera, Edit2 } from "lucide-react";
+import { X, Save, Check, CheckCircle2, Loader2, Camera, Edit2, ChevronDown } from "lucide-react";
 import { auth, db } from "@/lib/firebase";
 import { collection, addDoc, doc, updateDoc, serverTimestamp, getDocs, query, where, deleteDoc, getDoc } from "firebase/firestore";
 import { getStorage, ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
@@ -31,7 +31,7 @@ import {
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import type { LabCaseSeed } from "@/lib/labCases";
 import DiscountEditor, { EMPTY_DISCOUNT, discountPayload, type DiscountState } from "@/components/shared/DiscountEditor";
-import { isDiscountMode, resolveListPrice, type DiscountMode } from "@/lib/discountMath";
+import { applyDiscount, isDiscountMode, resolveListPrice, type DiscountMode } from "@/lib/discountMath";
 import { listsForBranch, resolveActiveListId } from "@/lib/priceLists";
 import { PRIVATE_PAYER_ID, payerForPriceList } from "@/lib/payers";
 import { serviceDisplayName, serviceMatchesName } from "@/lib/serviceName";
@@ -112,6 +112,7 @@ export const TeethChartSelector = memo(function TeethChartSelector({
   isAr,
   narrow,
   patientId,
+  phoneFit = false,
 }: {
   selected: string[];
   onToggle: (toothCode: string) => void;
@@ -127,6 +128,8 @@ export const TeethChartSelector = memo(function TeethChartSelector({
    * diagnosis chart and in the booking popup alike. Without it the chart is read-only history.
    */
   patientId?: string;
+  /** Phones: all sixteen teeth across, and a fold for the chart. The procedure pop-up only. */
+  phoneFit?: boolean;
 }) {
     const { confirm, showToast } = useUI();
     // Convert string array to number array for TeethChart
@@ -134,6 +137,8 @@ export const TeethChartSelector = memo(function TeethChartSelector({
 
     /** Marking mode: taps flag teeth as missing instead of picking them for the treatment. */
     const [markingMissing, setMarkingMissing] = useState(false);
+    /** Phones only: fold the chart away once the teeth are picked, to reach the form sooner. */
+    const [chartFolded, setChartFolded] = useState(false);
 
     /**
      * Adult or Child chart. Starts on whatever the picked teeth already are, and follows them when
@@ -243,11 +248,13 @@ export const TeethChartSelector = memo(function TeethChartSelector({
 
     return (
       <div className="w-full p-3 bg-surface border border-line rounded-2xl min-w-0 max-md:p-2.5">
+        {/* Phones: the title, the count and the fold on one row; Adult/Child and marking on the
+            next. From md up the original single row: title, then everything at the end. */}
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[15px] font-black text-ink">
+          <p className="text-[15px] font-black text-ink max-md:order-1">
             {isAr ? "اختار الأسنان" : "Pick the teeth"}
           </p>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className={`flex flex-wrap items-center gap-2 max-md:order-3 max-md:w-full max-md:justify-between md:ms-auto ${chartFolded ? "max-md:hidden" : ""}`}>
             <DentitionSwitch primary={primary} onChange={setPrimary} isAr={isAr} />
             {patientId && (
               <button
@@ -263,16 +270,39 @@ export const TeethChartSelector = memo(function TeethChartSelector({
                 <X size={13} strokeWidth={3} className={markingMissing ? "text-white" : "text-rose-600"} />
                 {markingMissing
                   ? isAr ? "خلاص، رجّعني للاختيار" : "Done marking"
-                  : isAr ? "علّم الأسنان المخلوعة" : "Mark extracted teeth"}
+                  : isAr ? "علّم الأسنان المخلوعة" : <>Mark extracted<span className={phoneFit ? "max-md:hidden" : ""}> teeth</span></>}
               </button>
             )}
+          </div>
+          <div className="flex items-center gap-1.5 max-md:order-2">
             <span className={`rounded-full px-3 py-1 text-[12px] font-black tabular-nums ${selected.length > 0 ? "bg-accent text-ink-on-accent" : "bg-surface-muted text-ink-muted"}`}>
               <span className="font-figure">{selected.length}</span> {isAr ? "مختارين" : "selected"}
             </span>
+            <button
+              type="button"
+              onClick={() => setChartFolded((v) => !v)}
+              aria-expanded={!chartFolded}
+              aria-label={chartFolded ? (isAr ? "افتح الرسمة" : "Expand chart") : (isAr ? "اقفل الرسمة" : "Collapse chart")}
+              className={`inline-flex h-8 w-8 items-center justify-center rounded-full border border-line bg-surface text-ink-body hover:bg-surface-subtle md:hidden ${phoneFit ? "" : "hidden"}`}
+            >
+              <ChevronDown size={16} className={`transition-transform ${chartFolded ? "" : "rotate-180"}`} aria-hidden="true" />
+            </button>
           </div>
         </div>
+        {chartFolded && selected.length > 0 && (
+          <p className="text-[13px] font-bold text-ink-body md:hidden">
+            {isAr ? "الأسنان" : "Teeth"} <bdi dir="ltr" className="font-figure text-ink">{selected.join(", ")}</bdi>
+          </p>
+        )}
+        <div className={chartFolded ? "max-md:hidden" : ""}>
         {markingMissing && (
-          <p className="mb-2 rounded-xl bg-rose-50 px-3 py-2 text-[13px] font-bold leading-relaxed text-rose-700">
+          <p className="mb-2 flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[11px] font-bold text-rose-700 md:hidden">
+            <X size={12} strokeWidth={3} className="shrink-0" aria-hidden="true" />
+            {isAr ? "وضع الخلع: اضغط على الأسنان المش موجودة" : "Extraction mode: tap the missing teeth"}
+          </p>
+        )}
+        {markingMissing && (
+          <p className="mb-2 rounded-xl bg-rose-50 px-3 py-2 text-[13px] font-bold leading-relaxed text-rose-700 max-md:hidden">
             {isAr
               ? "اضغط على كل سن مش موجود في فم المريض. بيتحفظ في مخطط المريض فورًا وبيظهر بعلامة ✕ هنا وفي ملف المريض وفي نافذة الحجز. مكان السن المخلوع بيفضل تقدر تختاره لزرعة أو كوبري أو طقم."
               : "Tap every tooth that is not in the patient's mouth. It is saved to the patient's chart at once and shows with an ✕ here, in the patient file and in the booking popup. The gap can still be picked for an implant, a bridge or a denture."}
@@ -298,6 +328,7 @@ export const TeethChartSelector = memo(function TeethChartSelector({
               compactMode={true}
               dense
               narrow={narrow}
+              fit={phoneFit}
               isPrimary={primary}
               selectedTeeth={selectedNumbers}
               onToggleTooth={(id) => (markingMissing ? void toggleMissing(id.toString()) : onToggle(id.toString()))}
@@ -349,11 +380,13 @@ export const TeethChartSelector = memo(function TeethChartSelector({
             {onSelected.join("  ·  ")}
           </p>
         )}
-        <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-bold text-ink-muted">
-          <span><span className="me-1.5 inline-block h-3 w-3 rounded-full bg-accent align-[-2px] ring-2 ring-ink-slab" />{isAr ? "السن المختار" : "picked tooth"}</span>
-          <span><span className="me-1.5 inline-block rounded border border-emerald-200 bg-emerald-50 px-1 text-[9px] text-emerald-800">حشو</span>{isAr ? "الكلمة تحت السن = إجراء متسجّل عليه" : "word under a tooth = work recorded on it"}</span>
-          <span><span className="me-1.5 inline-block font-black text-rose-600">✕</span>{isAr ? "سن مخلوع — ينفع تختاره لزرعة أو كوبري" : "extracted — can still take an implant or a bridge"}</span>
+        {/* Phones: one short row under a hairline; the full sentences from md up. */}
+        <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-bold text-ink-muted max-md:mt-1.5 max-md:gap-x-3 max-md:border-t max-md:border-line max-md:pt-1.5 max-md:text-[10px]">
+          <span><span className="me-1.5 inline-block h-3 w-3 rounded-full bg-accent align-[-2px] ring-2 ring-ink-slab max-md:h-2.5 max-md:w-2.5 max-md:ring-1" /><span className="md:hidden">{isAr ? "مختار" : "picked"}</span><span className="max-md:hidden">{isAr ? "السن المختار" : "picked tooth"}</span></span>
+          <span><span className="me-1.5 inline-block rounded border border-emerald-200 bg-emerald-50 px-1 text-[9px] text-emerald-800">حشو</span><span className="md:hidden">{isAr ? "إجراء متسجّل" : "work recorded"}</span><span className="max-md:hidden">{isAr ? "الكلمة تحت السن = إجراء متسجّل عليه" : "word under a tooth = work recorded on it"}</span></span>
+          <span><span className="me-1.5 inline-block font-black text-rose-600">✕</span><span className="md:hidden">{isAr ? "مخلوع" : "extracted"}</span><span className="max-md:hidden">{isAr ? "سن مخلوع — ينفع تختاره لزرعة أو كوبري" : "extracted — can still take an implant or a bridge"}</span></span>
         </p>
+        </div>
       </div>
     );
   });
@@ -441,6 +474,8 @@ export default function ServiceEditorDrawer({
   const dentistNew = dentistMode && !initialNote;
 
   const [discount, setDiscount] = useState<DiscountState>(EMPTY_DISCOUNT);
+  /** Phones: the price list and discount block folds behind one button until it is wanted. */
+  const [pricingOpen, setPricingOpen] = useState(false);
   const activeLists = useMemo(() => listsForBranch(priceLists, branchId).filter((l) => l.active), [priceLists, branchId]);
 
   /**
@@ -881,9 +916,48 @@ export default function ServiceEditorDrawer({
     </div>
   );
 
+  /** The billing rule alone, for phones, where it sits beside the price box. */
+  const billingModeField = (
+    <div>
+      <label className="block text-[13px] font-bold text-ink-muted mb-1">{language === "ar" ? "طريقة الحساب" : "Billing"}</label>
+      <select
+        value={previewMode}
+        onChange={(e) => setPricingModeOverride(e.target.value as PricingMode)}
+        className="w-full bg-surface border border-line-strong rounded-xl px-3 py-2 text-[15px] font-bold text-ink outline-none focus:border-ink"
+      >
+        <option value="per_tooth">{modeLabels.per_tooth}</option>
+        <option value="flat">{modeLabels.flat}</option>
+        <option value="per_arch">{modeLabels.per_arch}</option>
+      </select>
+      {pricingRuleUnset && (
+        <p className="mt-1 text-[11px] font-semibold text-amber-700">
+          {language === "ar" ? "الخدمة دي مالهاش طريقة حساب — بنحسب لكل سن." : "No billing rule set — using per tooth."}
+        </p>
+      )}
+    </div>
+  );
+
+  /** What the phone's Save bar shows: the line total after any discount the desk entered. */
+  const footerDiscountValue = discount.value === "" ? 0 : Number(discount.value);
+  const footerApplied = applyDiscount(previewTotal, discount.mode, footerDiscountValue);
+  const footerDiscounted = !dentistNew && footerApplied.discountAmount > 0;
+  const footerNet = footerDiscounted ? footerApplied.net : previewTotal;
+  const pricingListName = (() => {
+    const list = activeLists.find((l) => l.id === discount.priceListId);
+    return list ? (isAr && list.nameAr ? list.nameAr : list.name) : "";
+  })();
+  const discountSummary =
+    discount.mode === "none" || discount.value === ""
+      ? (isAr ? "بدون" : "None")
+      : discount.mode === "percent"
+        ? `${discount.value}%`
+        : `${Number(discount.value).toLocaleString()} ${isAr ? "ج.م" : "EGP"}`;
+  /** A discount on the line keeps the block open, so its reason and ceiling are never hidden. */
+  const pricingShown = pricingOpen || discount.mode !== "none";
+
   // --- Individual controls, so the two layouts below share one set of inputs ---
   const inputClass =
-    "w-full bg-surface border border-line-strong rounded-xl px-4 py-2.5 text-[15px] font-bold text-ink outline-none focus:border-ink";
+    "w-full bg-surface border border-line-strong rounded-xl px-4 py-2.5 text-[15px] font-bold text-ink outline-none focus:border-ink max-md:px-3 max-md:py-2";
   const labelClass = "block text-[13px] font-bold text-ink-muted mb-1";
 
   const dateField = (
@@ -912,7 +986,7 @@ export default function ServiceEditorDrawer({
               role="radio"
               aria-checked={on}
               onClick={() => setProcedureStatus(o.value)}
-              className={`flex h-[46px] items-center justify-center gap-1.5 rounded-xl border px-2 text-[15px] font-bold transition-colors ${
+              className={`flex h-[46px] items-center justify-center gap-1.5 rounded-xl border px-2 text-[15px] font-bold transition-colors max-md:h-9 max-md:text-xs ${
                 on ? "border-ink-slab bg-ink-slab text-white" : "border-line-strong bg-surface text-ink hover:border-ink"
               }`}
             >
@@ -1039,7 +1113,7 @@ export default function ServiceEditorDrawer({
       value={multiProceduresText} onChange={(e) => setMultiProceduresText(e.target.value)}
       rows={rows}
       placeholder={isAr ? "علاجات تانية في نفس الزيارة (كل واحد في سطر)" : "Additional procedures (one per line)"}
-      className={`${inputClass} resize-y`}
+      className={`${inputClass} resize-y max-md:h-[4.25rem]`}
     />
   );
 
@@ -1049,7 +1123,7 @@ export default function ServiceEditorDrawer({
       <textarea
         value={noteText} onChange={e => setNoteText(e.target.value)} placeholder={isAr ? "أي حاجة الدكتور الجاي محتاج يعرفها" : "Clinical details..."}
         rows={rows}
-        className={`${inputClass} resize-y`}
+        className={`${inputClass} resize-y max-md:h-[4.25rem]`}
       />
     </div>
   );
@@ -1149,7 +1223,7 @@ export default function ServiceEditorDrawer({
       type="submit" data-tour="clinical-save"
       form="service-form"
       disabled={isSaving || needsTypedPrice}
-      className={`w-full flex justify-center items-center gap-2 bg-accent hover:bg-accent-strong text-ink-on-accent font-black rounded-2xl shadow-sm transition-all disabled:opacity-70 ${compact ? "py-2.5 text-sm" : "py-4 text-lg"}`}
+      className={`w-full flex justify-center items-center gap-2 bg-accent hover:bg-accent-strong text-ink-on-accent font-black rounded-2xl shadow-sm transition-all disabled:opacity-70 ${compact ? "py-2.5 text-sm" : "py-4 text-lg max-md:rounded-xl max-md:py-3 max-md:text-base"}`}
     >
       {isSaving ? (
         <>
@@ -1259,7 +1333,7 @@ export default function ServiceEditorDrawer({
       /* Portalled to <body>, outside the dashboard wrapper that sets the direction and the Arabic
          face — so the window sets both itself, or Arabic reads left-to-right in the system font. */
       dir={isAr ? "rtl" : "ltr"}
-      className={`${cairo.variable} ${isAr ? "arabic-ui" : ""} w-full bg-surface flex flex-col ${!inline ? (clinicalEditorMode === 'modal' ? 'h-full max-h-[90dvh] rounded-[2rem] shadow-2xl overflow-hidden' : 'h-full min-h-0 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.2)] rounded-t-3xl rounded-b-none lg:rounded-3xl border border-line overflow-hidden') : 'rounded-2xl border border-line mt-4'}`}
+      className={`${cairo.variable} ${isAr ? "arabic-ui" : ""} w-full bg-surface flex flex-col ${!inline ? (clinicalEditorMode === 'modal' ? 'h-full max-h-[90dvh] rounded-[2rem] shadow-2xl overflow-hidden max-md:max-h-[92dvh] max-md:rounded-2xl' : 'h-full min-h-0 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.2)] rounded-t-3xl rounded-b-none lg:rounded-3xl border border-line overflow-hidden') : 'rounded-2xl border border-line mt-4'}`}
     >
       {branchPicker}
       {!inline && (
@@ -1328,12 +1402,13 @@ export default function ServiceEditorDrawer({
               isAr={isAr}
               narrow={clinicalEditorMode !== 'modal'}
               patientId={patientId}
+              phoneFit
             />
           </div>
         )}
 
-        <div className={`md:flex-1 md:min-h-0 md:overflow-y-auto custom-scrollbar ${!inline ? 'p-6' : 'p-4 md:max-h-[500px]'}`}>
-        <form id="service-form" onSubmit={handleSave} className="space-y-6">
+        <div className={`md:flex-1 md:min-h-0 md:overflow-y-auto custom-scrollbar ${!inline ? 'p-6 max-md:p-3.5' : 'p-4 md:max-h-[500px]'}`}>
+        <form id="service-form" onSubmit={handleSave} className="space-y-6 max-md:space-y-4">
           {approval ? (
             <>
               {dentistMode ? approvalSummaryBare : approvalSummary}
@@ -1346,24 +1421,34 @@ export default function ServiceEditorDrawer({
           ) : (
           <>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {dateField}
-            {statusField}
+          {/* Phones: Date and Doctor side by side, Status under them. From md up: Date and Status,
+              then the Doctor across the width — the order it always had. */}
+          <div className="grid grid-cols-2 gap-2.5 md:gap-4">
+            <div className={`order-1 ${dentistMode ? "max-md:col-span-2" : ""}`}>{dateField}</div>
+            <div className="col-span-2 max-md:order-3 md:order-2 md:col-span-1">{statusField}</div>
+            {!dentistMode && <div className="min-w-0 max-md:order-2 md:order-3 md:col-span-2">{doctorField}</div>}
           </div>
-
-          {!dentistMode && doctorField}
 
           <div className="space-y-2">
             {procedureField}
             {!dentistMode && extraProceduresField(3)}
           </div>
 
+          {/* Phones: the billing rule sits beside the price; the total itself is in the Save bar. */}
           {dentistMode ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {dentistListField}
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-md:grid-cols-2 max-md:gap-2.5">
+                {dentistListField}
+                {costField}
+              </div>
+              <div className="md:hidden">{billingModeField}</div>
+            </>
+          ) : (
+            <div className="max-md:grid max-md:grid-cols-2 max-md:gap-2.5">
               {costField}
+              <div className="md:hidden">{billingModeField}</div>
             </div>
-          ) : costField}
+          )}
 
           {/*
             The price list, in the drawer as well as in the compact editor.
@@ -1378,9 +1463,29 @@ export default function ServiceEditorDrawer({
             was charged at clinic prices and counted as private revenue, and the screen gave
             nobody a way to say otherwise.
           */}
-          {!dentistMode && discountField}
+          {!dentistMode && (
+            <div>
+              <button
+                type="button"
+                onClick={() => setPricingOpen((v) => !v)}
+                aria-expanded={pricingShown}
+                className="flex w-full items-center gap-2 rounded-xl border border-line bg-surface-subtle px-3 py-2 text-start md:hidden"
+              >
+                <span className="min-w-0 truncate rounded-full bg-surface px-2.5 py-1 text-[11px] font-bold text-ink-body">
+                  {isAr ? "قائمة الأسعار" : "Price list"} · <span className="text-ink">{pricingListName || "—"}</span>
+                </span>
+                <span className="min-w-0 truncate rounded-full bg-surface px-2.5 py-1 text-[11px] font-bold text-ink-body">
+                  {isAr ? "الخصم" : "Discount"} · <span className="text-ink">{discountSummary}</span>
+                </span>
+                <ChevronDown size={16} className={`ms-auto shrink-0 text-ink-muted transition-transform ${pricingShown ? "rotate-180" : ""}`} aria-hidden="true" />
+              </button>
+              {/* Kept mounted while folded: the editor is what settles the list and its blanket
+                  discount, so folding must only hide it. */}
+              <div className={pricingShown ? "max-md:mt-2.5" : "max-md:hidden"}>{discountField}</div>
+            </div>
+          )}
 
-          {billingStrip}
+          <div className="max-md:hidden">{billingStrip}</div>
 
           {noteField(4)}
 
@@ -1396,8 +1501,20 @@ export default function ServiceEditorDrawer({
           bottom nav, but this window is portalled above that nav (z-100 and up against its z-80),
           so it only ever showed as an empty band. The safe-area inset still keeps the button off
           an iPhone's home indicator. */}
-      <div className={`px-6 py-4 border-t border-line bg-surface shrink-0 ${!inline ? 'pb-[max(1rem,env(safe-area-inset-bottom))] lg:pb-4' : ''}`}>
-        {saveButton}
+      <div className={`px-6 py-4 border-t border-line bg-surface shrink-0 max-md:flex max-md:items-center max-md:gap-3 max-md:px-4 max-md:py-2.5 ${!inline ? 'pb-[max(1rem,env(safe-area-inset-bottom))] lg:pb-4 max-md:pb-[max(0.625rem,env(safe-area-inset-bottom))]' : ''}`}>
+        {/* Phones: what will be charged, beside the button that charges it. */}
+        {!approval && (
+          <div className="min-w-0 shrink-0 md:hidden">
+            <p className="font-figure text-base font-extrabold leading-tight text-ink">
+              {footerNet.toLocaleString()} <span className="text-xs font-bold">{isAr ? "ج.م" : "EGP"}</span>
+            </p>
+            <p className="truncate text-[11px] font-semibold text-ink-muted">
+              {previewMode === "flat" ? unitsLabel : `${previewUnitCost.toLocaleString()} × ${unitsLabel}`}
+              {footerDiscounted ? (isAr ? " − خصم" : " − discount") : ""}
+            </p>
+          </div>
+        )}
+        <div className="max-md:min-w-0 max-md:flex-1">{saveButton}</div>
       </div>
     </div>
   );
