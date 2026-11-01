@@ -1070,7 +1070,7 @@ export default function PatientProfile() {
           * name and age are in the black band directly above), the medical line as a chip because
           * it is a safety cue, and everything else behind "More details".
           */}
-        <section className="max-w-[1600px] mx-auto mb-4 rounded-3xl border border-line bg-surface px-5 py-4 max-md:px-4 max-md:py-3">
+        <section className="max-w-[1600px] mx-auto mb-4 rounded-3xl border border-line bg-surface px-5 py-4 max-md:p-3.5">
           <div className="flex flex-wrap items-center justify-between gap-3 max-md:flex-nowrap max-md:gap-2">
             <div className="flex min-w-0 items-center gap-3 max-md:flex-1 max-md:gap-2.5">
               <div className="group relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-line bg-surface-subtle max-md:h-10 max-md:w-10">
@@ -1095,7 +1095,7 @@ export default function PatientProfile() {
               <div className="min-w-0 md:hidden">
                 {patient.phone ? (
                   // The invisible ::before widens the tap target to ~41px without moving the text.
-                  <button onClick={() => openWhatsApp(patient.phone)} className="relative max-lg:before:absolute max-lg:before:-inset-x-1 max-lg:before:-inset-y-2.5 max-lg:before:content-[''] inline-flex max-w-full items-center gap-1 text-[13px] font-bold text-ink hover:text-emerald-700">
+                  <button onClick={() => openWhatsApp(patient.phone)} className="relative max-lg:before:absolute max-lg:before:-inset-x-1 max-lg:before:-inset-y-2.5 max-lg:before:content-[''] inline-flex max-w-full items-center gap-1 text-xs font-bold text-ink hover:text-emerald-700">
                     <MessageCircle size={13} className="shrink-0 text-emerald-600" /><bdi dir="ltr" className="min-w-0 truncate font-figure tracking-tighter">{patient.phone}</bdi>
                   </button>
                 ) : (
@@ -1112,7 +1112,7 @@ export default function PatientProfile() {
                 type="button"
                 onClick={() => setCallReminderOpen(true)}
                 aria-label={language === 'ar' ? 'تذكير بمكالمة' : 'Call reminder'}
-                className="inline-flex h-10 items-center gap-2 rounded-xl border border-line bg-surface px-4 text-sm font-bold text-ink transition-colors hover:bg-surface-subtle max-md:h-8 max-md:w-8 max-md:justify-center max-md:px-0"
+                className="inline-flex h-10 items-center gap-2 rounded-xl border border-line bg-surface px-4 text-sm font-bold text-ink transition-colors hover:bg-surface-subtle max-md:h-9 max-md:w-9 max-md:justify-center max-md:px-0"
               >
                 <PhoneForwarded size={15} /> <span className="max-md:sr-only">{language === 'ar' ? 'تذكير بمكالمة' : 'Call reminder'}</span>
               </button>
@@ -1121,7 +1121,7 @@ export default function PatientProfile() {
                   data-tour="patient-edit"
                   onClick={() => setIsEditModalOpen(true)}
                   aria-label={language === 'ar' ? 'تعديل البيانات' : 'Edit details'}
-                  className="inline-flex h-10 items-center gap-2 rounded-xl bg-ink-slab px-4 text-sm font-bold text-white transition-colors hover:bg-ink max-md:h-8 max-md:w-8 max-md:justify-center max-md:px-0"
+                  className="inline-flex h-10 items-center gap-2 rounded-xl bg-ink-slab px-4 text-sm font-bold text-white transition-colors hover:bg-ink max-md:h-9 max-md:w-9 max-md:justify-center max-md:border max-md:border-line max-md:bg-surface max-md:px-0 max-md:text-ink max-md:hover:bg-surface-subtle"
                 >
                   <Edit2 size={15} /> <span className="max-md:sr-only">{language === 'ar' ? 'تعديل البيانات' : 'Edit details'}</span>
                 </button>
@@ -1133,7 +1133,7 @@ export default function PatientProfile() {
                   data-tour="patient-more"
                   aria-label={language === 'ar' ? 'إجراءات أكتر' : 'More actions'}
                   aria-expanded={moreOpen}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-line bg-surface text-ink-body transition-colors hover:bg-surface-subtle max-md:h-8 max-md:w-8"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-line bg-surface text-ink-body transition-colors hover:bg-surface-subtle max-md:h-9 max-md:w-9"
                 >
                   <MoreHorizontal size={18} />
                 </button>
@@ -1201,19 +1201,21 @@ export default function PatientProfile() {
               {/* Phones: what they owe gets its own strip, then the medical line, which stays in
                   view whatever is folded — recorded allergies in red, or the amber "ask before
                   prescribing" when nobody has asked yet. */}
-              <div className="mt-3 space-y-2 md:hidden">
+              <div className="mt-2.5 space-y-2.5 md:hidden">
                 {!chair && (
-                  <div className={`flex items-center justify-between gap-3 rounded-xl px-3 py-2 ${balance > 0 ? "bg-rose-50" : "bg-surface-subtle"}`}>
-                    <span className={`text-[13px] font-bold ${balance > 0 ? "text-rose-700" : "text-ink-muted"}`}>
+                  // Money owed is warm amber on cream, so pink stays reserved for the medical line
+                  // below it. Not bg-amber-50: the palette maps that to the same pink as rose-50.
+                  <div className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2 ${balance > 0 ? "border-amber-200/80 bg-surface-accent" : "border-emerald-100 bg-emerald-50/60"}`}>
+                    <span className={`text-xs font-semibold uppercase tracking-wider ${balance > 0 ? "text-amber-700" : "text-emerald-700"}`}>
                       {ar ? 'المستحق' : 'Balance'}
                     </span>
-                    <span className={`whitespace-nowrap font-figure text-base font-bold ${balance > 0 ? "text-rose-700" : "text-ink"}`}>
+                    <span className={`whitespace-nowrap font-figure text-sm font-bold ${balance > 0 ? "text-amber-900" : "text-emerald-800"}`}>
                       <bdi dir="ltr">{balance > 0 ? balance.toLocaleString() : '0'}</bdi> {ar ? 'ج.م' : 'EGP'}
                     </span>
                   </div>
                 )}
                 {hasMedical ? (
-                  <p className="flex items-start gap-1.5 rounded-xl bg-rose-50 px-3 py-2 text-[13px] font-bold leading-snug text-rose-700">
+                  <p className="flex items-start gap-1.5 rounded-xl border border-rose-200/80 bg-rose-50 px-3 py-2 text-[13px] font-medium leading-snug text-rose-700">
                     <AlertCircle size={14} className="mt-0.5 shrink-0" />
                     <span>{medicalText}</span>
                   </p>
@@ -1231,7 +1233,7 @@ export default function PatientProfile() {
                 type="button"
                 onClick={() => setDetailsOpen((v) => !v)}
                 aria-expanded={detailsOpen}
-                className={`-mx-4 mt-3 flex w-[calc(100%+2rem)] items-center gap-2 border-t border-line px-4 py-2.5 text-start text-[13px] font-bold text-ink-body hover:bg-surface-subtle md:hidden ${detailsOpen ? "" : "-mb-3 rounded-b-3xl"}`}
+                className={`-mx-3.5 mt-2.5 flex w-[calc(100%+1.75rem)] items-center gap-2 border-t border-line px-3.5 py-2.5 text-start text-[13px] font-bold text-ink-body hover:bg-surface-subtle md:hidden ${detailsOpen ? "" : "-mb-3.5 rounded-b-3xl"}`}
               >
                 <span className="shrink-0">{ar ? 'تفاصيل أكتر' : 'More details'}</span>
                 {detailsPreview && <span className="min-w-0 flex-1 truncate font-semibold text-ink-muted" dir="auto">{detailsPreview}</span>}
