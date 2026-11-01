@@ -11,6 +11,8 @@ import type { ClinicLayer, DroppedLine, ReplaySummary } from "@/lib/botPro/layer
 const API = "/api/whatsapp/pro-onboarding";
 const OWNER_TEXT_MAX = 2000;
 const BUSY_WAIT_MS = 3000;
+/** A failed step is tried again this many times before the screen offers Continue. */
+const STEP_RETRIES = 2;
 
 type ScanState = { status: "idle" | "running" | "summarizing" | "done" | "failed"; total: number; done: number; chatsRead: number; error?: string };
 type PublicState = { scan: ScanState; learned: string[]; questions: string[]; draft: ClinicLayer; liveVersion: string | null };
@@ -52,7 +54,7 @@ async function call(url: string, init: { method: "GET" | "POST" | "PUT"; body?: 
  */
 export default function ProSetup({ open, onClose, clinicId }: { open: boolean; onClose: () => void; clinicId: string }) {
   const { language } = useLanguage();
-  const { showToast } = useUI();
+  const { showToast, confirm } = useUI();
   const isAr = language === "ar";
 
   const [data, setData] = useState<Loaded | null>(null);
@@ -69,6 +71,12 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
   const [publishNote, setPublishNote] = useState("");
   const [test, setTest] = useState<{ published: boolean; summary: ReplaySummary } | null>(null);
   const [switching, setSwitching] = useState(false);
+  // Whether a step loop is running right now, and why the last one gave up: a scan that is
+  // running with no loop active needs the Continue button.
+  const [loopActive, setLoopActive] = useState(false);
+  const [stepError, setStepError] = useState("");
+  // The owner's message, shown while Pro's reply is on its way.
+  const [pending, setPending] = useState<string | null>(null);
 
   // The step loop and the late replies stop here: set on close and on unmount, checked every turn.
   const abortedRef = useRef(true);
@@ -91,6 +99,9 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
     p1: isAr ? "١. قراءة محادثاتك القديمة" : "1. Reading your old chats",
     p2: isAr ? "٢. اتكلم مع Pro" : "2. Chat with Pro",
     p3: isAr ? "٣. طبقة عيادتك" : "3. Your clinic layer",
+    cont: isAr ? "كمّل" : "Continue",
+    stalled: isAr ? "القراءة وقفت في النص." : "Reading paused partway.",
+    unsavedClose: isAr ? "فيه تعديلات مش متحفظة. تقفل برضه؟" : "You have unsaved changes. Close anyway?",
     start: isAr ? "ابدأ" : "Start",
     startAgain: isAr ? "ابدأ من جديد" : "Start again",
     idle: isAr ? "Pro هيقرا آخر محادثات عيادتك ويتعلم منها طريقتكم." : "Pro will read your latest chats and learn how your clinic talks.",
@@ -148,7 +159,7 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
     passedLbl: isAr ? "عدّت الاختبار" : "Passed",
     breaksLbl: (n: number) => (isAr ? `${n.toLocaleString("ar-EG")} مشاكل` : `${n} breaks`),
     by: isAr ? "بواسطة" : "by",
-    tryHint: isAr ? "جرّب المسودة الأول في شات التجربة: شغّل «جرّب Pro» و«استخدم المسودة»." : "Try the draft first in the test chat: turn on Try Pro and Use the draft layer.",
+    tryHint: isAr ? "جرّب المسودة الأول في شات التجربة: شغّل «جرّب الرد المتقدم (Pro)» و«جرّب القواعد الجديدة (المسودة)»." : "Try the draft first in the test chat: turn on Try Pro and Use the draft layer.",
   };
 
   const reasonOf = (why: DroppedLine["why"]) => (why === "price" ? t.price : t.medicine);
@@ -211,31 +222,54 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
 
   const setScan = (scan: ScanState) => setData((d) => (d ? { ...d, state: { ...d.state, scan } } : d));
 
-  /** Reads one batch per call until the scan leaves running/summarizing, a failure, or the dialog closes. */
+  /**
+   * Reads one batch per call until the scan leaves running/summarizing, a step keeps failing, or
+   * the dialog closes. A failed step is tried again twice (after the same 3 s wait as busy);
+   * after that the loop gives up and the screen offers Continue.
+   */
   const runLoop = useCallback(async () => {
     if (loopRunning.current) return;
     loopRunning.current = true;
+    setLoopActive(true);
+    setStepError("");
+    let fails = 0;
+    const wait = () => new Promise((r) => setTimeout(r, BUSY_WAIT_MS));
     try {
       while (!abortedRef.current) {
-        const { status, body } = await call(`${API}/scan`, { method: "POST", body: { clinicId, action: "step" } });
+        let reply: { status: number; body: Api } | null = null;
+        try {
+          reply = await call(`${API}/scan`, { method: "POST", body: { clinicId, action: "step" } });
+        } catch {
+          reply = null;
+        }
         if (abortedRef.current) break;
-        if (!body.ok || !body.state) {
-          showToast(errorText(status, body), "error");
+        if (!reply || !reply.body.ok || !reply.body.state) {
+          // 401/403/503 will not fix themselves; anything else (500, 502, a dropped token) may.
+          const hopeless = reply !== null && (reply.status === 401 || reply.status === 403 || reply.status === 503);
+          if (!hopeless && fails < STEP_RETRIES) {
+            fails += 1;
+            await wait();
+            continue;
+          }
+          const msg = reply ? errorText(reply.status, reply.body) : t.generic;
+          setStepError(msg);
+          showToast(msg, "error");
           break;
         }
+        fails = 0;
+        const { body } = reply;
         const scan = (body.state as PublicState).scan ?? (body.state as unknown as ScanState);
         setScan(scan);
         if (body.busy) {
           // Another step holds the lock: wait, then ask again.
-          await new Promise((r) => setTimeout(r, BUSY_WAIT_MS));
+          await wait();
           continue;
         }
         if (scan.status !== "running" && scan.status !== "summarizing") break;
       }
-    } catch {
-      if (!abortedRef.current) showToast(t.generic, "error");
     } finally {
       loopRunning.current = false;
+      setLoopActive(false);
       if (!abortedRef.current) void refresh();
     }
     // The copy and the toast are stable enough for a loop that only reads clinicId.
@@ -250,7 +284,16 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
       return;
     }
     abortedRef.current = false;
+    // Nothing from the last time may flash: the old scan state, draft and notes are cleared first.
+    // While loading, "a loop may be about to start" keeps Continue from flashing too.
+    setData(null);
+    setLoadFailed(false);
+    setStepError("");
+    setPending(null);
+    setText("");
+    setLoopActive(true);
     setDirty(false);
+    setStale(false);
     setTest(null);
     setPublishNote("");
     setDropped([]);
@@ -258,6 +301,7 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
     void refresh().then((loaded) => {
       const s = loaded?.state.scan.status;
       if (loaded && (s === "running" || s === "summarizing")) void runLoop();
+      else setLoopActive(loopRunning.current);
     });
     return () => {
       abortedRef.current = true;
@@ -266,16 +310,24 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
 
   useEffect(() => {
     chatEnd.current?.scrollIntoView({ block: "end" });
-  }, [data?.chat.length, sending]);
+  }, [data?.chat.length, sending, pending]);
+
+  // Unsaved box edits are asked about before the screen goes away.
+  const requestClose = useCallback(async () => {
+    if (dirty && !(await confirm(t.unsavedClose))) return;
+    onClose();
+    // t is rebuilt each render from the language; only its copy is read here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirty, confirm, onClose, isAr]);
 
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") void requestClose();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open, requestClose]);
 
   if (!open) return null;
 
@@ -342,6 +394,7 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
     }
     setSending(true);
     setChatNote("");
+    setPending(message);
     try {
       const { status, body } = await call(`${API}/chat`, { method: "POST", body: { clinicId, text: message } });
       if (abortedRef.current) return;
@@ -363,6 +416,8 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
     } catch {
       if (!abortedRef.current) setChatNote(t.modelDown);
     } finally {
+      // The real row is in the list by now (or the send failed and the text is still in the box).
+      setPending(null);
       setSending(false);
     }
   };
@@ -425,7 +480,7 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
             <h2 id="pro-setup-title" className="text-lg font-black text-ink">{t.title}</h2>
             <p className="mt-0.5 text-xs font-medium leading-relaxed text-ink-muted">{t.sub}</p>
           </div>
-          <button type="button" onClick={onClose} aria-label={t.close} className="rounded-full p-2 text-ink-muted hover:bg-surface-subtle">
+          <button type="button" onClick={() => void requestClose()} aria-label={t.close} className="rounded-full p-2 text-ink-muted hover:bg-surface-subtle">
             <X size={18} />
           </button>
         </div>
@@ -468,10 +523,19 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
                       <span className="font-figure tabular-nums" dir="ltr">{scanDone ? scan.total : scan.done} / {scan.total}</span>
                       <span>{t.chatsRead(scan.chatsRead)}</span>
                     </div>
-                    <p className="flex items-center gap-2 text-xs leading-relaxed text-ink-muted">
-                      {going && <Loader2 size={12} className="animate-spin" />}
-                      {going ? t.reading : t.scanDone}
-                    </p>
+                    {going && !loopActive ? (
+                      <>
+                        <p className={notice}>{t.stalled}{stepError ? ` ${stepError}` : ""}</p>
+                        <button type="button" className={`${primary} self-start`} onClick={() => void runLoop()}>
+                          {t.cont}
+                        </button>
+                      </>
+                    ) : (
+                      <p className="flex items-center gap-2 text-xs leading-relaxed text-ink-muted">
+                        {going && <Loader2 size={12} className="animate-spin" />}
+                        {going ? t.reading : t.scanDone}
+                      </p>
+                    )}
                   </div>
                 )}
               </section>
@@ -493,6 +557,11 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
                       </p>
                     </div>
                   ))}
+                  {pending && (
+                    <div className="flex justify-end">
+                      <p dir="auto" className="max-w-[90%] whitespace-pre-wrap break-words rounded-2xl bg-ink-slab px-3 py-2 text-sm leading-relaxed text-white opacity-70">{pending}</p>
+                    </div>
+                  )}
                   {sending && <p className="flex items-center gap-2 text-xs text-ink-muted"><Loader2 size={12} className="animate-spin" />{t.proThinking}</p>}
                   <div ref={chatEnd} />
                 </div>

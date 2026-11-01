@@ -228,4 +228,16 @@ await test("the screen: the step loop stops when the dialog closes", () => {
   assert.match(c, /loopRunning/, "a guard keeps two loops from running");
 });
 
+await test("the screen: a scan running with no loop gets a Continue button, failed steps retry twice", () => {
+  const c = code("src/components/whatsapp/ProSetup.tsx");
+  assert.match(c, /going && !loopActive/, "running without an active loop is its own state");
+  assert.ok(c.includes("t.cont") && c.includes("كمّل") && c.includes('"Continue"'), "Continue button, both languages");
+  assert.match(c, /onClick=\{\(\) => void runLoop\(\)\}/, "Continue calls runLoop");
+  assert.match(c, /STEP_RETRIES = 2/, "a failed step is retried twice");
+  assert.match(c, /setStepError\(/, "the last error is kept for the screen");
+  assert.ok(c.includes("confirm(t.unsavedClose)") && c.includes("فيه تعديلات مش متحفظة"), "closing with unsaved edits asks first");
+  assert.ok(c.includes("جرّب الرد المتقدم (Pro)") && c.includes("جرّب القواعد الجديدة (المسودة)"), "the Arabic hint names the real toggles");
+  assert.match(c, /setPending\(message\)/, "the owner's message shows while Pro answers");
+});
+
 console.log("all pro onboarding route tests passed");
