@@ -49,6 +49,7 @@
     "test:pro-prompt": "npx tsx tests/botProPrompt.test.mts",
     "test:pro-answer": "npx tsx tests/botProAnswer.test.mts",
     "test:pro-wiring": "npx tsx tests/botProWiring.test.mts",
+    "battery:pro": "npx tsx scripts/pro-battery.mts",
     "test:brief-route": "npx tsx tests/briefDraftRoute.test.mts",
     "test:scripts": "npx tsx tests/botScripts.test.mts",
     "test:signup": "npx tsx tests/onboardingSignup.test.mts",
