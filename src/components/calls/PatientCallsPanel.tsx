@@ -20,6 +20,14 @@ const STATUS_WORDS: Record<CallReminder["status"], [string, string]> = {
   booked: ["Booked", "اتحجز"],
 };
 
+// Yellow for the call still waiting (the one thing to act on); the rest stay quiet.
+const STATUS_PILL: Record<CallReminder["status"], string> = {
+  open: "bg-accent text-ink-on-accent",
+  done: "bg-emerald-50 text-emerald-700",
+  rescheduled: "bg-amber-50 text-amber-800",
+  booked: "bg-surface-subtle text-ink-body",
+};
+
 export default function PatientCallsPanel({ patientId }: { patientId: string }) {
   const { language } = useLanguage();
   const isAr = language === "ar";
@@ -59,14 +67,21 @@ export default function PatientCallsPanel({ patientId }: { patientId: string }) 
       </div>
       <ul className="divide-y divide-line">
         {sorted.map((r) => (
-          <li key={r.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 py-2 text-sm">
-            <span className="font-figure font-bold text-ink">{dayText(r)}</span>
-            <span className="min-w-0 flex-1 font-semibold text-ink-body">{r.reason}</span>
-            <span className="text-xs font-bold text-ink-muted">
-              {recipientLabel(r.recipient, isAr)} · {isAr ? STATUS_WORDS[r.status][1] : STATUS_WORDS[r.status][0]}
-            </span>
+          // Stacked, not side by side: on a phone the date and the name used to fall off the edge
+          // and a mixed Arabic/English reason was squeezed into a sliver.
+          <li key={r.id} className="flex w-full min-w-0 flex-col gap-1.5 overflow-hidden py-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="min-w-0 truncate font-figure text-xs font-semibold text-ink-body">{dayText(r)}</span>
+              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${STATUS_PILL[r.status]}`}>
+                {isAr ? STATUS_WORDS[r.status][1] : STATUS_WORDS[r.status][0]}
+              </span>
+            </div>
+            <p dir="auto" className="w-full break-words text-sm font-medium text-ink">{r.reason}</p>
+            <p className="truncate text-xs font-semibold text-ink-muted">
+              {isAr ? "بواسطة" : "By"} {recipientLabel(r.recipient, isAr)}
+            </p>
             {(r.note || r.handledBy) && (
-              <p className="w-full text-xs font-semibold text-ink-muted">
+              <p dir="auto" className="w-full break-words text-xs font-semibold text-ink-muted">
                 {r.handledBy?.name ? `${r.handledBy.name}: ` : ""}
                 {r.note || ""}
               </p>

@@ -6,6 +6,7 @@ import InsurerBadge from "@/components/shared/InsurerBadge";
 import { PRIVATE_PAYER_ID } from "@/lib/payers";
 import { NotePhotoButton, NotePhotoStrip } from "./NotePhotos";
 import { STATUS_OPTIONS } from "@/components/chair/ChairNoteCard";
+import { formatDoctorName } from "@/lib/generalDentist";
 
 interface Props {
   note: Note;
@@ -28,9 +29,11 @@ interface Props {
   hideMoney?: boolean;
   /** Chair mode: another dentist's (or the clinic's) treatment — shown, never editable here. */
   locked?: boolean;
+  /** The time of day it was done, when known. The timeline prints the date once per day above. */
+  time?: string;
 }
 
-export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue, onCallReminder, compact = false, reorder, hideMoney = false, locked = false }: Props) {
+export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue, onCallReminder, compact = false, reorder, hideMoney = false, locked = false, time }: Props) {
   const { language } = useLanguage();
   const isAr = language === "ar";
   /** Stored status ids are English; the pill shows the app's own word for them. */
@@ -42,6 +45,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
     : `EGP ${Number(note.cost).toLocaleString()}`;
   /** The insurer this note is charged to; nothing for the clinic's own work or for older notes. */
   const insurer = note.payerId && note.payerId !== PRIVATE_PAYER_ID && note.payerName ? note.payerName : null;
+  const doctorName = formatDoctorName(note.doctor, language);
 
   const txt = {
     edit: language === "ar" ? "تعديل" : "Edit",
@@ -176,14 +180,105 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
     );
   }
 
+  const phoneIcon =
+    "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted transition-colors hover:border-ink-muted hover:text-ink disabled:opacity-60";
+
+  /*
+   * Phones (below `md`): one dense, start-aligned card. Name and price on the first line, the
+   * tags and the time on the second, the dentist and four small icon buttons on the third. The
+   * four big pastel buttons that used to sit under every card added a whole row of height and
+   * put Delete right under a scrolling thumb; here it is the last, quietest icon, set apart from
+   * the others, and it still asks before anything is removed.
+   */
+  const phoneCard = (
+    <div className={`flex flex-col gap-2 rounded-xl border p-3 transition-all md:hidden ${getContainerStyles(note.status)}`}>
+      <div className="flex items-start justify-between gap-2">
+        {reorderControls}
+        <p dir="auto" className="min-w-0 flex-1 break-words text-start text-base font-bold leading-snug text-ink">{note.procedure}</p>
+        {!hideMoney && Number(note.cost) > 0 && (
+          <span className="shrink-0 rounded-lg bg-surface-muted px-2.5 py-1 font-figure text-sm font-semibold text-ink">
+            <bdi dir={isAr ? "rtl" : "ltr"}>{costText}</bdi>
+          </span>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className={`flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-bold ${getStatusColor(note.status)}`}>
+          {note.status === "Ongoing" && (
+            <span className="relative flex h-2 w-2 shrink-0">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75"></span>
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-500"></span>
+            </span>
+          )}
+          {statusText}
+        </span>
+        {note.tooth && note.tooth !== "Gen" && (
+          <span className="rounded-md border border-line bg-surface-subtle px-2 py-0.5 text-[11px] font-bold text-ink">
+            <bdi dir="ltr">{isAr ? `سن ${note.tooth}` : `Tooth ${note.tooth}`}</bdi>
+          </span>
+        )}
+        {note.isContinued && (
+          <span className="flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-bold text-blue-700">
+            <RefreshCcw size={10} /> {isAr ? "متابعة" : "Follow Up"}
+          </span>
+        )}
+        {insurer && (
+          <span className="flex items-center gap-1 rounded-md border border-line bg-surface-subtle px-2 py-0.5 text-[11px] font-bold text-ink">
+            <InsurerBadge name={insurer} size={12} /> {insurer}
+          </span>
+        )}
+        {time && <span className="font-figure text-[11px] font-bold text-ink-muted">{time}</span>}
+      </div>
+
+      {note.note && (
+        <p dir="auto" className="line-clamp-2 break-words text-sm font-semibold text-ink-body">{note.note}</p>
+      )}
+
+      <NotePhotoStrip note={note} canEdit={!locked} />
+
+      <div className="flex items-center justify-between gap-2">
+        <p className="min-w-0 truncate text-xs font-medium text-ink-muted">{doctorName}</p>
+        {!locked && (
+          <div className="flex shrink-0 items-center gap-1.5">
+            {!note.isContinued && (
+              <Protect permission="clinical.edit">
+                <button type="button" onClick={() => onEdit(note)} title={txt.edit} aria-label={txt.edit} className={phoneIcon}>
+                  <Edit2 size={14} />
+                </button>
+              </Protect>
+            )}
+            <NotePhotoButton note={note} size={14} className={phoneIcon} />
+            {onCallReminder && (
+              <button type="button" onClick={() => onCallReminder(note)} title={txt.callReminder} aria-label={txt.callReminder} className={phoneIcon}>
+                <PhoneForwarded size={14} />
+              </button>
+            )}
+            <Protect permission="clinical.delete">
+              <button
+                type="button"
+                onClick={() => onDelete(note)}
+                title={txt.delete}
+                aria-label={txt.delete}
+                className={`${phoneIcon} ms-1.5 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700`}
+              >
+                <Trash2 size={14} />
+              </button>
+            </Protect>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
   /*
    * The owner's layout: the treatment's name is the one thing a dentist scans the file for, so
    * it sits big and centred with its tags under it; the edit and delete buttons stack at the
-   * edge, edit on top.
+   * edge, edit on top. From `md` up only; phones get the card above.
    */
   return (
-    /* Phones (below `md`): content full width, buttons in a row underneath instead of a column eating the side. */
-    <div className={`flex items-center justify-between gap-3 p-4 border rounded-xl transition-all group relative max-md:flex-col max-md:items-stretch max-md:gap-2.5 max-md:p-3 ${getContainerStyles(note.status)}`}>
+    <>
+    {phoneCard}
+    <div className={`flex items-center justify-between gap-3 p-4 border rounded-xl transition-all group relative max-md:hidden ${getContainerStyles(note.status)}`}>
       {reorderControls}
       <div className="flex flex-col items-center gap-2 min-w-0 flex-1 text-center">
         <p className="font-black text-ink text-xl leading-tight max-md:text-lg">{note.procedure}</p>
@@ -227,7 +322,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
         {(note.doctor || (!hideMoney && Number(note.cost) > 0)) && (
           <div className="flex items-center justify-center gap-3 flex-wrap">
             {note.doctor && (
-              <p className="text-sm font-bold text-ink-muted">{isAr ? "د." : "Dr."} {note.doctor}</p>
+              <p className="text-sm font-bold text-ink-muted">{doctorName}</p>
             )}
             {!hideMoney && Number(note.cost) > 0 && (
               <p className="text-sm font-black text-ink bg-surface-muted px-2.5 py-1 rounded-md font-figure">
@@ -239,7 +334,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
       </div>
 
       {/* Edit above delete, at the edge of the card. Locked (another dentist's, in chair mode): nothing to press. */}
-      <div className={`flex flex-col items-center gap-1.5 shrink-0 max-md:flex-row max-md:justify-center max-md:gap-2 max-md:border-t max-md:border-line max-md:pt-2.5 max-md:empty:hidden ${locked ? "hidden" : ""}`}>
+      <div className={`flex flex-col items-center gap-1.5 shrink-0 ${locked ? "hidden" : ""}`}>
         {!note.isContinued && (
           <Protect permission="clinical.edit">
             <button
@@ -278,5 +373,6 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
         </Protect>
       </div>
     </div>
+    </>
   );
 }

@@ -5,6 +5,7 @@ import { Plus, Clock, CalendarDays, Inbox, ArrowDownWideNarrow, ArrowUpNarrowWid
 import Protect from "@/components/Protect";
 import { Note, RelatedAppointment } from "./types";
 import ServiceItem from "./ServiceItem";
+import { formatDoctorName } from "@/lib/generalDentist";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import {
@@ -148,6 +149,7 @@ export default function TimelineCard({
     return (
       <ServiceItem
         note={note}
+        time={displayDates(note).displayTime}
         onEdit={onEditService}
         onDelete={onDeleteService}
         onMove={onMoveService}
@@ -242,7 +244,7 @@ export default function TimelineCard({
                   )}
                   {(group.appointment?.doctorName || group.appointment?.doctor) && (
                     <span className="text-[11px] font-bold text-slate-400 truncate">
-                      Dr. {group.appointment.doctorName || group.appointment.doctor}
+                      {formatDoctorName(group.appointment.doctorName || group.appointment.doctor, language)}
                     </span>
                   )}
                   <span className="ms-auto text-[11px] font-black text-slate-400 shrink-0">{group.notes.length}</span>
@@ -271,9 +273,11 @@ export default function TimelineCard({
             {/* The continuous vertical line */}
             {!compact && <div className="absolute top-2 bottom-2 left-6 md:left-[120px] w-px bg-slate-200 max-md:hidden" />}
 
-            <div className={compact ? "space-y-2" : "space-y-6"}>
-              {orderedNotes.map((note) => {
+            <div className={compact ? "space-y-2" : "space-y-6 max-md:space-y-0"}>
+              {orderedNotes.map((note, i) => {
                 const { displayDate, displayTime } = displayDates(note);
+                // Same-day treatments sit under one date: it prints on the first of the run only.
+                const firstOfDay = i === 0 || displayDates(orderedNotes[i - 1]).displayDate !== displayDate;
 
                 if (compact) {
                   return (
@@ -286,8 +290,8 @@ export default function TimelineCard({
                       onDragEnd={() => setDragId(null)}
                       className={`flex items-center gap-3 max-md:flex-col max-md:items-stretch max-md:gap-1 ${dragId === note.id ? "opacity-40" : ""}`}
                     >
-                      <span className="w-[86px] shrink-0 text-[11px] font-bold text-ink-muted text-end max-md:w-auto max-md:text-start">
-                        {displayDate}
+                      <span className={`w-[86px] shrink-0 text-[11px] font-bold text-ink-muted text-end max-md:w-auto max-md:text-start ${firstOfDay ? "" : "max-md:hidden"}`}>
+                        {firstOfDay ? displayDate : ""}
                       </span>
                       <div className="flex-1 min-w-0">{renderService(note)}</div>
                     </div>
@@ -302,14 +306,15 @@ export default function TimelineCard({
                     onDragOver={(e) => manual && e.preventDefault()}
                     onDrop={() => handleDrop(note.id)}
                     onDragEnd={() => setDragId(null)}
-                    className={`relative flex flex-col md:flex-row gap-4 md:gap-8 group max-md:gap-1.5 ${
-                      dragId === note.id ? "opacity-40" : ""
-                    }`}
+                    className={`relative flex flex-col md:flex-row gap-4 md:gap-8 group max-md:gap-2 ${
+                      i === 0 ? "" : firstOfDay ? "max-md:pt-5" : "max-md:pt-2"
+                    } ${dragId === note.id ? "opacity-40" : ""}`}
                   >
-                    {/* Timestamp Section (Left) */}
-                    <div className="md:w-[100px] shrink-0 pt-2 pl-12 md:pl-0 md:text-right flex flex-col max-md:flex-row max-md:items-baseline max-md:gap-2 max-md:pl-0 max-md:pt-0">
-                      <span className="text-[15px] font-black text-ink">{displayDate}</span>
-                      {displayTime && <span className="text-xs font-bold text-ink-muted">{displayTime}</span>}
+                    {/* Timestamp Section (Left). On a phone the date is a section header printed
+                        once per day and the time moves into the card. */}
+                    <div className={`md:w-[100px] shrink-0 pt-2 pl-12 md:pl-0 md:text-right flex flex-col max-md:pl-0 max-md:pt-0 ${firstOfDay ? "" : "max-md:hidden"}`}>
+                      <span className={`text-[15px] font-black text-ink max-md:border-b max-md:border-line max-md:pb-1.5 max-md:text-sm ${firstOfDay ? "" : "md:invisible"}`}>{displayDate}</span>
+                      {displayTime && <span className="text-xs font-bold text-ink-muted max-md:hidden">{displayTime}</span>}
                     </div>
 
                     {/* Timeline Node (Center Dot) */}

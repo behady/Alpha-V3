@@ -22,7 +22,7 @@ import { Note } from "./types";
  * clinical detail at a tenth of that), uploaded into the note's own folder, and only then attached
  * through the API — Firestore lets no client write a clinical note directly.
  */
-export function NotePhotoButton({ note, size = 16 }: { note: Note; size?: number }) {
+export function NotePhotoButton({ note, size = 16, className }: { note: Note; size?: number; /** Replaces the button's own look, for a row of matching icon buttons. */ className?: string }) {
   const { language } = useLanguage();
   const { showToast } = useUI();
   const ar = language === "ar";
@@ -83,7 +83,7 @@ export function NotePhotoButton({ note, size = 16 }: { note: Note; size?: number
         disabled={uploading}
         title={label}
         aria-label={label}
-        className={`${size >= 16 ? "p-2.5 max-md:p-3 shadow-sm" : "p-1.5"} rounded-lg text-sky-700 bg-sky-50 hover:bg-sky-100 transition-colors border border-sky-100 disabled:opacity-60`}
+        className={className ?? `${size >= 16 ? "p-2.5 max-md:p-3 shadow-sm" : "p-1.5"} rounded-lg text-sky-700 bg-sky-50 hover:bg-sky-100 transition-colors border border-sky-100 disabled:opacity-60`}
       >
         {uploading ? <Loader2 size={size} className="animate-spin" /> : <Camera size={size} />}
       </button>
