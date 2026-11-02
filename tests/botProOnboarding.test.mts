@@ -875,6 +875,47 @@ await atest("new: an owner save that lands while the summary is being written is
   assert.deepEqual(r.state.previousDraft, saved, "Undo goes back to what the owner just saved");
 });
 
+test("mergeLayers: an unpunctuated old promptSection gets a full stop before the new sentence", () => {
+  const m = mergeLayers({ ...EMPTY_LAYER, promptSection: "عيادة ودودة" }, { ...EMPTY_LAYER, promptSection: "بنحب نطمّن المريض." });
+  assert.equal(m.promptSection, "عيادة ودودة. بنحب نطمّن المريض.");
+  const e = mergeLayers({ ...EMPTY_LAYER, promptSection: "Warm clinic" }, { ...EMPTY_LAYER, promptSection: "" });
+  assert.equal(e.promptSection, "Warm clinic", "nothing appended: the old text is left exactly as it was");
+});
+
+await atest("new: a learned line repeated in another spelling shows once in the opening message", async () => {
+  const f = await readBefore([["n1", NOW - 1000]]);
+  const m = fakeModel({ summary: { learned: ["المرضى بيسألوا عن التقسيط", "المرضى بيسالوا عن التقسيط"], questions: [], layer: {} } });
+  await startScan(f.store, NOW, "new");
+  await scanStep(f.store, m.model, NOW);
+  const r = await scanStep(f.store, m.model, NOW);
+  assert.deepEqual(r.state.learned, ["العيادة بتقفل الجمعة", "المرضى بيسألوا عن التقسيط"]);
+  assert.equal(f.chat[f.chat.length - 1].text, "قريت 1 محادثة جديدة.\n\nاتعلمت كمان:\n• المرضى بيسألوا عن التقسيط");
+});
+
+await atest("a failed opening chat row leaves the reading retryable: cutoff, draft and learned untouched", async () => {
+  const f = await readBefore([["n1", NOW - 1000]]);
+  const m = fakeModel({ summary: { learned: ["جديد"], questions: [], layer: { rules: ["اعرض أقرب ميعاد"] } } });
+  await startScan(f.store, NOW, "new");
+  await scanStep(f.store, m.model, NOW);
+  f.store.addChat = async () => {
+    throw new Error("chat write down");
+  };
+  const r = await scanStep(f.store, m.model, NOW);
+  assert.equal(r.state.scan.status, "failed");
+  assert.equal(r.state.scan.mode, "new", "Start again retries the same mode");
+  assert.equal(r.state.lastScanAt, LAST);
+  assert.deepEqual(r.state.draft, OWNER_DRAFT);
+  assert.deepEqual(r.state.learned, ["العيادة بتقفل الجمعة"]);
+
+  // the zero-new-chats path: the cutoff does not move either
+  const g = await readBefore([["o1", LAST - 1]]);
+  g.store.addChat = async () => {
+    throw new Error("chat write down");
+  };
+  await assert.rejects(startScan(g.store, NOW, "new"), /chat write down/);
+  assert.equal((await g.store.getState()).lastScanAt, LAST);
+});
+
 test("openingMessage, new mode: leaves out empty sections", () => {
   const s = readState({ scan: { status: "done", chatsRead: 3, mode: "new" }, learned: ["قديم"], questions: [] });
   assert.equal(openingMessage(s, []), "قريت 3 محادثة جديدة.");

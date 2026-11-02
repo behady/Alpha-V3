@@ -198,7 +198,8 @@ export function mergeLayers(old: ClinicLayer, add: ClinicLayer): ClinicLayer {
   for (const sentence of splitSentences(a.promptSection)) {
     const f = fold(sentence);
     if (!f || have.has(f)) continue;
-    const next = prompt ? `${prompt} ${sentence}` : sentence;
+    // An old text with no closing mark gets one, or the sanitiser would read old + new as one sentence.
+    const next = prompt ? `${/[.!?؟]$/.test(prompt) ? prompt : `${prompt}.`} ${sentence}` : sentence;
     if (next.length > L.promptChars) break;
     prompt = next;
     have.add(f);
@@ -240,8 +241,9 @@ export async function startScan(store: OnboardingStore, now: number, mode: ScanM
   // patchState cannot delete keys: overwrite what a failed run left behind (readState reads "" / 0 as "unset")
   const scan = { queue: keys, total: keys.length, done: 0, chatsRead: 0, startedAt: now, finishedAt: 0, error: "", mode: kind };
   if (kind === "new" && !keys.length) {
-    await store.patchState({ scan: { ...scan, status: "done", finishedAt: now }, lastScanAt: now });
+    // The chat row before the state: a failed write leaves the cutoff where it was.
     await store.addChat("ai", NO_NEW_CHATS);
+    await store.patchState({ scan: { ...scan, status: "done", finishedAt: now }, lastScanAt: now });
     return store.getState();
   }
   await store.patchState({
@@ -326,8 +328,9 @@ async function summarise(store: OnboardingStore, model: JsonModel, state: Onboar
   const lastScanAt = state.scan.startedAt ?? now;
   if (grow && chatsRead <= 0) {
     // New chats were queued but none had a usable back-and-forth: nothing to learn, no model call.
-    await store.patchState({ scan: { status: "done", finishedAt: now }, lastScanAt });
+    // The chat row before the state, as below.
     await store.addChat("ai", NO_NEW_CHATS);
+    await store.patchState({ scan: { status: "done", finishedAt: now }, lastScanAt });
     return;
   }
   const merged = mergeFindings(await store.allFindings());
@@ -338,7 +341,8 @@ async function summarise(store: OnboardingStore, model: JsonModel, state: Onboar
   // With nothing read there is nothing to have learned: whatever the model wrote is invention.
   const found = chatsRead > 0 ? strs(j.learned, LEARNED_MAX) : [];
   const known = new Set(state.learned.map(fold));
-  const added = grow ? found.filter((l) => !known.has(fold(l))) : found;
+  // Deduped within itself too: the model may repeat a line in another spelling.
+  const added = grow ? growLearned([], found).filter((l) => !known.has(fold(l))) : found;
   const learned = grow ? growLearned(state.learned, added) : found;
   const questions = strs(j.questions, QUESTIONS_MAX);
   const fresh: ClinicLayer = chatsRead > 0 ? sanitizeLayer(j.layer).layer : { ...EMPTY_LAYER };
@@ -351,8 +355,10 @@ async function summarise(store: OnboardingStore, model: JsonModel, state: Onboar
   const next: OnboardingState = { ...state, learned, questions, draft, usage, lastScanAt, scan: { ...state.scan, status: "done", finishedAt: now } };
   // Whatever changed the draft, what the owner had before stays one undo away.
   const keepOld = !isEmptyLayer(current) && JSON.stringify(current) !== JSON.stringify(draft);
-  await store.patchState({ learned, questions, draft, ...(keepOld ? { previousDraft: current } : {}), usage, lastScanAt, scan: { status: "done", finishedAt: now } });
+  // The chat row first: if it cannot be written the reading fails with nothing changed, and Start
+  // again retries it (the draft not yet grown, the cutoff not yet moved).
   await store.addChat("ai", openingMessage(next, added));
+  await store.patchState({ learned, questions, draft, ...(keepOld ? { previousDraft: current } : {}), usage, lastScanAt, scan: { status: "done", finishedAt: now } });
 }
 
 /**
