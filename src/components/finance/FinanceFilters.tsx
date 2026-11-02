@@ -46,14 +46,11 @@ export default function FinanceFilters({
   value,
   onChange,
   options,
-  kindAllLabel,
   hide = [],
 }: {
   value: FinanceFilter;
   onChange: (next: FinanceFilter) => void;
   options: FinanceFilterOptions;
-  /** What "every kind" is called on this screen (the Clinic tab shows its summary there). */
-  kindAllLabel?: { en: string; ar: string };
   hide?: (keyof FinanceFilter)[];
 }) {
   const { language } = useLanguage();
@@ -66,7 +63,7 @@ export default function FinanceFilters({
   const set = <K extends keyof FinanceFilter>(k: K, v: FinanceFilter[K]) => onChange({ ...value, [k]: v });
 
   const kindLabel = (k: FinanceFilter["kind"]) => {
-    if (k === "all") return kindAllLabel ? (ar ? kindAllLabel.ar : kindAllLabel.en) : ar ? "الكل" : "All";
+    if (k === "all") return ar ? "الكل" : "All";
     if (k === "in") return ar ? "إيرادات" : "Income";
     if (k === "payment") return ar ? "مدفوعات" : "Payments";
     if (k === "income") return ar ? "إيرادات أخرى" : "Other income";
