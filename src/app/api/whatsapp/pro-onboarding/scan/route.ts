@@ -15,7 +15,10 @@ export const maxDuration = 120;
 /**
  * Pro AI onboarding: read the clinic's old chats, one step per call.
  *
- *   POST { clinicId, action: "start" }   queue the newest chats (refused while a scan is going)
+ *   POST { clinicId, action: "start", mode? }   queue the chats to read (refused while a scan is
+ *                                        going). mode "new": only the chats since the last reading,
+ *                                        grown into the draft; anything else is "full" (read all
+ *                                        again, replace the draft). The first reading is always full.
  *   POST { clinicId, action: "step" }    read one batch, or write the summary when all are read
  *
  * The screen calls "step" again until the status is done or failed. Both answer
@@ -27,11 +30,12 @@ export const maxDuration = 120;
 const NOT_ON = "Pro AI is not switched on for this clinic.";
 
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => ({}))) as { clinicId?: unknown; action?: unknown };
+  const body = (await request.json().catch(() => ({}))) as { clinicId?: unknown; action?: unknown; mode?: unknown };
   const clinicId = typeof body.clinicId === "string" ? body.clinicId.trim() : "";
   if (!clinicId) return NextResponse.json({ ok: false, error: "clinicId is required." }, { status: 400 });
   const action = body.action === "start" || body.action === "step" ? body.action : null;
   if (!action) return NextResponse.json({ ok: false, error: 'action must be "start" or "step".' }, { status: 400 });
+  const mode = body.mode === "new" ? "new" : "full";
 
   const authz = await requireAdminUser(request, clinicId);
   if (!authz.ok) return authz.response;
@@ -54,7 +58,7 @@ export async function POST(request: Request) {
         const current = await store.getState();
         // A scan that is going is continued with "step", never restarted under itself.
         const going = current.scan.status === "running" || current.scan.status === "summarizing";
-        if (!going) started = await startScan(store, now);
+        if (!going) started = await startScan(store, now, mode);
       } finally {
         await store.unlock();
       }
@@ -65,7 +69,7 @@ export async function POST(request: Request) {
         clinicId,
         user: { uid: authz.uid, name: authz.name, role: authz.role },
         action: "Pro AI: old-chat scan started",
-        details: `${started.scan.total} chats queued`,
+        details: `${started.scan.total} chats queued, mode ${started.scan.mode}`,
         severity: "LOW",
         module: "settings",
       });

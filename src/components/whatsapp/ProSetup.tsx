@@ -15,8 +15,9 @@ const BUSY_WAIT_MS = 3000;
 /** A failed step is tried again this many times before the screen offers Continue. */
 const STEP_RETRIES = 2;
 
-type ScanState = { status: "idle" | "running" | "summarizing" | "done" | "failed"; total: number; done: number; chatsRead: number; error?: string };
-type PublicState = { scan: ScanState; learned: string[]; questions: string[]; draft: ClinicLayer; hasPreviousDraft?: boolean; liveVersion: string | null };
+type ScanMode = "new" | "full";
+type ScanState = { status: "idle" | "running" | "summarizing" | "done" | "failed"; total: number; done: number; chatsRead: number; mode?: ScanMode; error?: string };
+type PublicState = { scan: ScanState; lastScanAt?: number; learned: string[]; questions: string[]; draft: ClinicLayer; hasPreviousDraft?: boolean; liveVersion: string | null };
 type ChatRow = { role: "ai" | "owner"; text: string; at: number };
 type VersionRow = { id: string; version: number; createdAt: number; createdBy: string; passed: boolean; breaks: number };
 type Loaded = { state: PublicState; chat: ChatRow[]; versions: VersionRow[] };
@@ -106,6 +107,12 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
     unsavedClose: isAr ? "فيه تعديلات مش متحفظة. تقفل برضه؟" : "You have unsaved changes. Close anyway?",
     start: isAr ? "ابدأ" : "Start",
     startAgain: isAr ? "ابدأ من جديد" : "Start again",
+    readNew: isAr ? "اقرا المحادثات الجديدة" : "Read new chats",
+    readAll: isAr ? "اقرا كل حاجة من الأول" : "Read everything again",
+    fullConfirm: isAr
+      ? "ده هيقرا كل المحادثات من الأول ويكتب مسودة قواعد جديدة. المسودة الحالية تقدر ترجعها بزرار التراجع."
+      : "This reads all chats again and writes a new rules draft. Your current draft can be brought back with Undo.",
+    lastRead: isAr ? "آخر قراءة:" : "Last read:",
     idle: isAr ? "Pro هيقرا آخر محادثات عيادتك ويتعلم منها طريقتكم." : "Pro will read your latest chats and learn how your clinic talks.",
     reading: isAr ? "بيقرا... سيب الشاشة مفتوحة." : "Reading... keep this screen open.",
     chatsRead: (n: number) => (isAr ? `${n.toLocaleString("ar-EG")} محادثة اتقرت` : `${n} chats read`),
@@ -379,12 +386,14 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
   const scanDone = scan?.status === "done";
   const pct = scan && scan.total > 0 ? Math.min(100, Math.round((scan.done / scan.total) * 100)) : 0;
   const liveVersion = data?.state.liveVersion ?? null;
+  const lastScanAt = data?.state.lastScanAt ?? 0;
 
-  const startScan = async () => {
+  /** "new" reads only the chats since the last reading and grows the draft; "full" reads all again. */
+  const startScan = async (mode: ScanMode) => {
     if (starting || going) return;
     setStarting(true);
     try {
-      const { status, body } = await call(`${API}/scan`, { method: "POST", body: { clinicId, action: "start" } });
+      const { status, body } = await call(`${API}/scan`, { method: "POST", body: { clinicId, action: "start", mode } });
       if (abortedRef.current) return;
       if (!body.ok || !body.state) {
         showToast(errorText(status, body), "error");
@@ -394,11 +403,20 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
       setScan(next);
       if (body.busy) showToast(t.busy, "error");
       if (next.status === "running" || next.status === "summarizing") void runLoop();
+      // No new chats: done at once, and Pro said so in the chat.
+      else if (!body.busy && next.status === "done") void refresh();
     } catch {
       if (!abortedRef.current) showToast(t.generic, "error");
     } finally {
       setStarting(false);
     }
+  };
+
+  /** Reading everything again replaces the draft, so it asks first (Undo brings the old one back). */
+  const readAll = async () => {
+    if (starting || going) return;
+    if (!(await confirm(t.fullConfirm))) return;
+    await startScan("full");
   };
 
   const edit = (key: keyof Boxes, value: string) => {
@@ -544,6 +562,7 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
   const field = "w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-muted focus:border-accent-soft focus:ring-1 focus:ring-accent-soft/30 resize-y";
   const primary = "inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-xs font-black text-ink-on-accent hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-50";
   const secondary = "inline-flex items-center justify-center gap-2 rounded-xl border border-line-strong px-3 py-2 text-xs font-bold text-ink-body hover:border-ink hover:text-ink disabled:cursor-not-allowed disabled:opacity-50";
+  const secondarySmall = "inline-flex items-center justify-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-[11px] font-bold text-ink-muted hover:border-ink hover:text-ink disabled:cursor-not-allowed disabled:opacity-50";
   const notice = "rounded-xl border border-warn/25 bg-warn-tint px-3 py-2 text-xs font-bold leading-relaxed text-warn";
 
   return createPortal(
@@ -582,7 +601,12 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
                     {scan.status === "failed" && (
                       <p className={notice}>{t.scanFailed}{scan.error ? ` ${scan.error}` : ""}</p>
                     )}
-                    <button type="button" className={`${primary} self-start`} disabled={starting} onClick={() => void startScan()}>
+                    <button
+                      type="button"
+                      className={`${primary} self-start`}
+                      disabled={starting}
+                      onClick={() => void (scan.status === "failed" ? startScan(scan.mode === "new" ? "new" : "full") : startScan("full"))}
+                    >
                       {starting && <Loader2 size={14} className="animate-spin" />}
                       {scan.status === "failed" ? t.startAgain : t.start}
                     </button>
@@ -609,6 +633,24 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
                         {going && <Loader2 size={12} className="animate-spin" />}
                         {going ? t.reading : t.scanDone}
                       </p>
+                    )}
+                    {scanDone && (
+                      <div className="space-y-2 border-t border-line pt-3">
+                        {lastScanAt > 0 && (
+                          <p className="text-xs text-ink-muted">
+                            {t.lastRead} <span dir="ltr">{fmtDate(lastScanAt)}</span>
+                          </p>
+                        )}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button type="button" className={primary} disabled={starting || loopActive} onClick={() => void startScan("new")}>
+                            {starting && <Loader2 size={14} className="animate-spin" />}
+                            {t.readNew}
+                          </button>
+                          <button type="button" className={secondarySmall} disabled={starting || loopActive} onClick={() => void readAll()}>
+                            {t.readAll}
+                          </button>
+                        </div>
+                      </div>
                     )}
                   </div>
                 )}

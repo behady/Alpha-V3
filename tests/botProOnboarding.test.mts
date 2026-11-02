@@ -6,10 +6,10 @@
  * Run: npm run test:pro-onboarding
  */
 import assert from "node:assert/strict";
-import { EMPTY_LAYER } from "../src/lib/botPro/layer";
+import { EMPTY_LAYER, LAYER_LIMITS, type ClinicLayer } from "../src/lib/botPro/layer";
 import type { JsonModel } from "../src/lib/botPro/onboarding/jsonModel";
 import { OWNER_CHAT_SCHEMA, OWNER_DAILY_CAP, OWNER_TEXT_MAX, ownerChatTurn, RED_LINES } from "../src/lib/botPro/onboarding/ownerChat";
-import { openingMessage, scanStep, startScan, SUMMARY_SCHEMA } from "../src/lib/botPro/onboarding/scan";
+import { growLearned, LEARNED_KEEP, mergeLayers, openingMessage, scanStep, startScan, SUMMARY_SCHEMA } from "../src/lib/botPro/onboarding/scan";
 import { EMPTY_STATE, readState, toMs, type OnboardingStore } from "../src/lib/botPro/onboarding/store";
 import { bookedAfter, maskPhones, transcriptOf, type ChunkFindings, type RawConversation } from "../src/lib/botPro/onboarding/transcript";
 
@@ -158,13 +158,18 @@ function deepMerge(into: Record<string, unknown>, from: Record<string, unknown>)
   }
 }
 
-/** In-memory OnboardingStore with Firestore's merge semantics: nested objects merge, arrays replace, undefined is dropped. */
-function fakeStore(keys: string[], opts: { conv?: (key: string) => RawConversation | null } = {}) {
+/**
+ * In-memory OnboardingStore with Firestore's merge semantics: nested objects merge, arrays replace,
+ * undefined is dropped. A key is a plain id (lastAt T0, an old chat) or [id, lastAt]; list them
+ * newest first, as the Firestore query orders them.
+ */
+function fakeStore(keys: Array<string | [string, number]>, opts: { conv?: (key: string) => RawConversation | null } = {}) {
   const raw: Record<string, unknown> = {};
   let lockUntil = 0;
   const findings = new Map<number, ChunkFindings>();
   const chat: Array<{ role: "ai" | "owner"; text: string }> = [];
-  const log = { saves: [] as number[], loads: 0, clears: 0 };
+  const log = { saves: [] as number[], loads: 0, clears: 0, since: [] as number[] };
+  const entries = keys.map((k) => (typeof k === "string" ? { key: k, lastAt: T0 } : { key: k[0], lastAt: k[1] }));
   const store: OnboardingStore = {
     async getState() {
       return readState(JSON.parse(JSON.stringify({ ...raw, scan: { ...(raw.scan as object), lockUntil } })));
@@ -187,8 +192,9 @@ function fakeStore(keys: string[], opts: { conv?: (key: string) => RawConversati
     async unlock() {
       lockUntil = 0;
     },
-    async recentConversationKeys(max) {
-      return keys.slice(0, max);
+    async recentConversationKeys(max, sinceMs = 0) {
+      log.since.push(sinceMs);
+      return entries.filter((e) => e.lastAt > sinceMs).slice(0, max).map((e) => e.key);
     },
     async loadConversation(key) {
       log.loads += 1;
@@ -659,5 +665,219 @@ await atest("a rescan that replaces a non-empty draft keeps the old one as previ
   const s = await f.store.getState();
   assert.equal(s.scan.status, "done");
   assert.deepEqual(s.previousDraft, old);
+});
+
+// ---- a second reading grows what Pro learned ("new"), or starts over on request ("full") ----------
+
+const OWNER_DRAFT: ClinicLayer = {
+  rules: ["رحّب بالمريض باسمه", "اسأل عن الشكوى الأول"],
+  handoffWhen: ["لو المريض زعلان"],
+  neverSay: ["ارخص عيادة"],
+  promptSection: "عيادة ودودة.",
+};
+const LAST = NOW - DAY;
+
+/** A clinic whose first reading finished at LAST, with rules the owner agreed in the chat since. */
+async function readBefore(keys: Array<string | [string, number]>) {
+  const f = fakeStore(keys);
+  await f.store.patchState({
+    scan: { status: "done", total: 5, done: 5, chatsRead: 5, startedAt: LAST, finishedAt: LAST, mode: "full" },
+    lastScanAt: LAST,
+    learned: ["العيادة بتقفل الجمعة"],
+    questions: ["بتشتغلوا تأمين؟"],
+    draft: OWNER_DRAFT,
+  });
+  return f;
+}
+
+await atest("new: queues only chats newer than lastScanAt; learned and questions are not reset at start", async () => {
+  const f = await readBefore([["n2", NOW - 500], ["n1", NOW - 1000], ["o1", LAST - 1], "o2"]);
+  const s = await startScan(f.store, NOW, "new");
+  assert.deepEqual(f.log.since, [LAST], "asked only for chats after the cutoff");
+  assert.deepEqual(s.scan.queue, ["n2", "n1"]);
+  assert.equal(s.scan.total, 2);
+  assert.equal(s.scan.status, "running");
+  assert.equal(s.scan.mode, "new");
+  assert.equal(s.scan.startedAt, NOW);
+  assert.deepEqual(s.learned, ["العيادة بتقفل الجمعة"]);
+  assert.deepEqual(s.questions, ["بتشتغلوا تأمين؟"]);
+  assert.deepEqual(s.draft, OWNER_DRAFT);
+  assert.equal(s.lastScanAt, LAST, "the cutoff moves only when the reading finishes");
+  assert.equal(f.log.clears, 1, "findings are per reading");
+});
+
+await atest("new with zero new chats: no model call, done, the no-new chat row, lastScanAt advanced", async () => {
+  const f = await readBefore([["o1", LAST - 1], "o2"]);
+  const m = fakeModel();
+  const s = await startScan(f.store, NOW, "new");
+  assert.equal(s.scan.status, "done");
+  assert.equal(s.scan.mode, "new");
+  assert.equal(s.lastScanAt, NOW);
+  assert.equal(s.scan.finishedAt, NOW);
+  assert.deepEqual(f.chat, [{ role: "ai", text: "مفيش محادثات جديدة من آخر قراءة." }]);
+  const r = await scanStep(f.store, m.model, NOW);
+  assert.equal(m.calls.length, 0, "no model call at all");
+  assert.equal(r.state.scan.status, "done");
+  assert.deepEqual(r.state.draft, OWNER_DRAFT);
+  assert.deepEqual(r.state.learned, ["العيادة بتقفل الجمعة"]);
+  assert.equal(r.state.previousDraft, null);
+  assert.equal(f.chat.length, 1);
+});
+
+await atest("new summary: a model layer without the old rules still ends with every old line, plus the new, no duplicates", async () => {
+  const f = await readBefore([["n2", NOW - 500], ["n1", NOW - 1000]]);
+  const m = fakeModel({
+    summary: {
+      learned: ["العيادة بتقفل الجمعة", "المرضى بيسألوا عن التقسيط"],
+      questions: ["بتعملوا تقسيط؟"],
+      layer: { rules: ["اسأل عن الشكوى الأول", "اعرض أقرب ميعاد"], handoffWhen: [], neverSay: ["أرخص عيادة", "مش عارف"], promptSection: "بنحب نطمّن المريض. عيادة ودودة." },
+    },
+  });
+  await startScan(f.store, NOW, "new");
+  await scanStep(f.store, m.model, NOW);
+  const r = await scanStep(f.store, m.model, NOW + 9000);
+  assert.equal(r.state.scan.status, "done");
+  assert.deepEqual(r.state.draft, {
+    rules: ["رحّب بالمريض باسمه", "اسأل عن الشكوى الأول", "اعرض أقرب ميعاد"],
+    handoffWhen: ["لو المريض زعلان"],
+    neverSay: ["ارخص عيادة", "مش عارف"],
+    promptSection: "عيادة ودودة. بنحب نطمّن المريض.",
+  });
+  assert.deepEqual(r.state.learned, ["العيادة بتقفل الجمعة", "المرضى بيسألوا عن التقسيط"]);
+  assert.deepEqual(r.state.questions, ["بتعملوا تقسيط؟"], "the new questions only");
+  assert.deepEqual(r.state.previousDraft, OWNER_DRAFT, "Undo still goes back");
+  assert.equal(r.state.lastScanAt, NOW, "the cutoff is when this reading started");
+  const p = m.calls[m.calls.length - 1].prompt;
+  assert.ok(p.includes("رحّب بالمريض باسمه") && p.includes("لو المريض زعلان") && p.includes("ارخص عيادة"), "the current draft is in the prompt");
+  assert.ok(p.includes("العيادة بتقفل الجمعة"), "the current learned list is in the prompt");
+  assert.ok(p.includes("اتفق عليها صاحب العيادة") && p.includes("ضيف بس الجديد") && p.includes("ما تكررش"), "told to keep, add, not repeat");
+  assert.equal(f.chat[f.chat.length - 1].text, "قريت 2 محادثة جديدة.\n\nاتعلمت كمان:\n• المرضى بيسألوا عن التقسيط\n\nعندي كام سؤال:\n1. بتعملوا تقسيط؟");
+});
+
+test("mergeLayers: old lines kept over the cap, new dropped; promptSection grows under the cap only; a price is dropped", () => {
+  const full = Array.from({ length: LAYER_LIMITS.rules }, (_, i) => `rule ${"x".repeat(i + 1)}`);
+  const a = mergeLayers({ ...EMPTY_LAYER, rules: full }, { ...EMPTY_LAYER, rules: ["a brand new rule"] });
+  assert.deepEqual(a.rules, full, "every old rule stays, the new one does not fit");
+
+  const b = mergeLayers(
+    { rules: ["Greet by name"], handoffWhen: ["angry patient"], neverSay: ["cheapest clinic"], promptSection: "Warm clinic." },
+    { rules: ["الكشف بـ 300 جنيه", "  greet BY name ", "Offer the nearest slot"], handoffWhen: ["Angry patient", "asks for the doctor"], neverSay: ["Cheapest  clinic"], promptSection: "Warm clinic. We calm people down." },
+  );
+  assert.deepEqual(b.rules, ["Greet by name", "Offer the nearest slot"], "price dropped, case/space duplicate dropped");
+  assert.deepEqual(b.handoffWhen, ["angry patient", "asks for the doctor"]);
+  assert.deepEqual(b.neverSay, ["cheapest clinic"]);
+  assert.equal(b.promptSection, "Warm clinic. We calm people down.");
+
+  const long = `${"x".repeat(LAYER_LIMITS.promptChars - 10)}.`;
+  const c = mergeLayers({ ...EMPTY_LAYER, promptSection: long }, { ...EMPTY_LAYER, promptSection: "This sentence will not fit." });
+  assert.equal(c.promptSection, long, "old text kept, nothing past the cap");
+  const d = mergeLayers({ ...EMPTY_LAYER, promptSection: "Old." }, { ...EMPTY_LAYER, promptSection: "The visit costs 300 EGP. New one." });
+  assert.equal(d.promptSection, "Old. New one.", "a price sentence in add is dropped");
+});
+
+test("growLearned: dedupes, keeps 40, drops the oldest", () => {
+  assert.equal(LEARNED_KEEP, 40);
+  assert.deepEqual(growLearned(["a", "b"], ["b", " B ", "c", "c"]), ["a", "b", "c"]);
+  const old = Array.from({ length: 40 }, (_, i) => `l${i}`);
+  const g = growLearned(old, ["n1", "n2"]);
+  assert.equal(g.length, 40);
+  assert.equal(g[0], "l2");
+  assert.deepEqual(g.slice(-2), ["n1", "n2"]);
+});
+
+await atest("full: still replaces the draft, resets learned/questions, saves previousDraft, moves lastScanAt", async () => {
+  const f = await readBefore([["n1", NOW - 1000], ["o1", LAST - 1]]);
+  const m = fakeModel({ summary: { learned: ["جديد"], questions: [], layer: { rules: ["قاعدة جديدة"] } } });
+  const s0 = await startScan(f.store, NOW, "full");
+  assert.equal(s0.scan.mode, "full");
+  assert.deepEqual(f.log.since, [0], "every chat, not only the new ones");
+  assert.deepEqual(s0.scan.queue, ["n1", "o1"]);
+  assert.deepEqual(s0.learned, []);
+  assert.deepEqual(s0.questions, []);
+  await scanStep(f.store, m.model, NOW);
+  const r = await scanStep(f.store, m.model, NOW);
+  assert.deepEqual(r.state.draft, { rules: ["قاعدة جديدة"], handoffWhen: [], neverSay: [], promptSection: "" });
+  assert.deepEqual(r.state.previousDraft, OWNER_DRAFT);
+  assert.deepEqual(r.state.learned, ["جديد"]);
+  assert.equal(r.state.lastScanAt, NOW);
+  assert.equal(f.chat[f.chat.length - 1].text, "قريت 2 محادثة قديمة.\n\nاللي اتعلمته:\n• جديد");
+});
+
+await atest("the first reading asked as new is a full one", async () => {
+  const f = fakeStore(["c0", "c1"]);
+  const m = fakeModel({ summary: { learned: ["x"], questions: [], layer: { rules: ["رحّب بالمريض"] } } });
+  const s0 = await startScan(f.store, NOW, "new");
+  assert.equal(s0.scan.mode, "full");
+  assert.deepEqual(f.log.since, [0]);
+  assert.deepEqual(s0.scan.queue, ["c0", "c1"]);
+  await scanStep(f.store, m.model, NOW);
+  const r = await scanStep(f.store, m.model, NOW);
+  assert.deepEqual(r.state.draft.rules, ["رحّب بالمريض"]);
+  assert.equal(r.state.lastScanAt, NOW);
+});
+
+await atest("a failed reading does not move lastScanAt, and keeps its mode for the retry", async () => {
+  const f = await readBefore([["n1", NOW - 1000]]);
+  await startScan(f.store, NOW, "new");
+  const r = await scanStep(f.store, fakeModel({ failOn: 1 }).model, NOW);
+  assert.equal(r.state.scan.status, "failed");
+  assert.equal(r.state.scan.mode, "new");
+  assert.equal(r.state.lastScanAt, LAST);
+  assert.deepEqual(r.state.draft, OWNER_DRAFT);
+  // and a failed summary does not move it either
+  const g = await readBefore([["n1", NOW - 1000]]);
+  await startScan(g.store, NOW, "new");
+  const r2 = await scanStep(g.store, fakeModel().model, NOW);
+  assert.equal(r2.state.scan.status, "summarizing");
+  const r3 = await scanStep(g.store, fakeModel({ failOn: 1 }).model, NOW);
+  assert.equal(r3.state.scan.status, "failed");
+  assert.equal(r3.state.lastScanAt, LAST);
+});
+
+test("readState: lastScanAt and scan.mode are tolerant", () => {
+  assert.equal(readState({}).lastScanAt, 0);
+  assert.equal(readState({ lastScanAt: "x" }).lastScanAt, 0);
+  assert.equal(readState({ lastScanAt: -4 }).lastScanAt, 0);
+  assert.equal(readState({ lastScanAt: 77 }).lastScanAt, 77);
+  assert.equal(readState({}).scan.mode, "full");
+  assert.equal(readState({ scan: { mode: "bogus" } }).scan.mode, "full");
+  assert.equal(readState({ scan: { mode: "new" } }).scan.mode, "new");
+  // A reading that finished before lastScanAt existed is still a reading: its start is the cutoff.
+  assert.equal(readState({ scan: { status: "done", startedAt: 50 } }).lastScanAt, 50);
+  assert.equal(readState({ scan: { status: "failed", startedAt: 50 } }).lastScanAt, 0);
+});
+
+await atest("a reading finished before lastScanAt existed: new reads after its start, and the cutoff survives a failure", async () => {
+  const f = fakeStore([["n1", NOW - 1000], ["o1", LAST - 1]]);
+  await f.store.patchState({ scan: { status: "done", chatsRead: 5, startedAt: LAST, finishedAt: LAST }, draft: OWNER_DRAFT });
+  const s = await startScan(f.store, NOW, "new");
+  assert.equal(s.scan.mode, "new");
+  assert.deepEqual(s.scan.queue, ["n1"]);
+  const r = await scanStep(f.store, fakeModel({ failOn: 1 }).model, NOW);
+  assert.equal(r.state.scan.status, "failed");
+  assert.equal(r.state.lastScanAt, LAST, "the old reading's start is kept as the cutoff");
+});
+
+await atest("new: an owner save that lands while the summary is being written is grown, not lost", async () => {
+  const f = await readBefore([["n1", NOW - 1000]]);
+  const saved: ClinicLayer = { ...OWNER_DRAFT, rules: [...OWNER_DRAFT.rules, "قاعدة اتحفظت دلوقتي"] };
+  const model: JsonModel = {
+    async generate(_prompt, schema) {
+      if (schema !== SUMMARY_SCHEMA) return { json: { faq: ["سؤال"] }, usage: { inTok: 1, outTok: 1 } };
+      await f.store.patchState({ draft: saved, previousDraft: OWNER_DRAFT }); // the owner's PUT, mid-call
+      return { json: { learned: [], questions: [], layer: { rules: ["اعرض أقرب ميعاد"] } }, usage: { inTok: 1, outTok: 1 } };
+    },
+  };
+  await startScan(f.store, NOW, "new");
+  await scanStep(f.store, model, NOW);
+  const r = await scanStep(f.store, model, NOW);
+  assert.deepEqual(r.state.draft.rules, [...saved.rules, "اعرض أقرب ميعاد"]);
+  assert.deepEqual(r.state.previousDraft, saved, "Undo goes back to what the owner just saved");
+});
+
+test("openingMessage, new mode: leaves out empty sections", () => {
+  const s = readState({ scan: { status: "done", chatsRead: 3, mode: "new" }, learned: ["قديم"], questions: [] });
+  assert.equal(openingMessage(s, []), "قريت 3 محادثة جديدة.");
+  assert.equal(openingMessage(s, ["جديد"]), "قريت 3 محادثة جديدة.\n\nاتعلمت كمان:\n• جديد");
 });
 

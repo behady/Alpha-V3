@@ -180,7 +180,8 @@ await test("pro-battery builds its context through the shared loader (one copy)"
 
 const STATE: OnboardingState = {
   ...EMPTY_STATE,
-  scan: { status: "running", queue: ["a", "b"], total: 10, done: 4, chatsRead: 3, lockUntil: 99, startedAt: 5, error: "boom" },
+  scan: { status: "running", queue: ["a", "b"], total: 10, done: 4, chatsRead: 3, lockUntil: 99, startedAt: 5, error: "boom", mode: "new" },
+  lastScanAt: 4,
   learned: ["l1"],
   questions: ["q1"],
   liveVersion: "v2",
@@ -190,7 +191,8 @@ const STATE: OnboardingState = {
 await test("publicOnboardingState: never queue or lockUntil; the listed fields only", () => {
   const out = publicOnboardingState(STATE);
   assert.deepEqual(out, {
-    scan: { status: "running", total: 10, done: 4, chatsRead: 3, error: "boom" },
+    scan: { status: "running", total: 10, done: 4, chatsRead: 3, mode: "new", error: "boom" },
+    lastScanAt: 4,
     learned: ["l1"],
     questions: ["q1"],
     draft: STATE.draft,
@@ -289,6 +291,33 @@ await test("the screen: undo, the full result card, and no state after close on 
   const pub = c.slice(c.indexOf("const publish = async"), c.indexOf("const undo = async"));
   const afterAwait = pub.slice(pub.indexOf("await call("));
   assert.ok(afterAwait.indexOf("abortedRef.current") >= 0 && afterAwait.indexOf("abortedRef.current") < afterAwait.indexOf("setTest("), "publish checks abortedRef before any state update");
+});
+
+await test("scan start forwards the reading mode and logs it", () => {
+  const c = code(ROUTES.scan);
+  assert.match(c, /body\.mode === "new" \? "new" : "full"/, "anything but \"new\" is a full reading");
+  assert.ok(c.includes("startScan(store, now, mode)"), "the mode goes to startScan");
+  assert.match(c, /details:\s*`[^`]*\$\{started\.scan\.mode\}/, "the scan-start log names the mode");
+});
+
+await test("the screen: Read new chats, Read everything again (confirmed), Start again keeps the mode", () => {
+  const P = "src/components/whatsapp/ProSetup.tsx";
+  const c = code(P);
+  const raw = source(P);
+  assert.ok(c.includes('"Read new chats"') && raw.includes("اقرا المحادثات الجديدة"), "Read new chats, both languages");
+  assert.ok(c.includes('"Read everything again"') && raw.includes("اقرا كل حاجة من الأول"), "Read everything again, both languages");
+  assert.ok(c.includes("This reads all chats again and writes a new rules draft. Your current draft can be brought back with Undo."), "EN confirm copy");
+  assert.ok(raw.includes("ده هيقرا كل المحادثات من الأول ويكتب مسودة قواعد جديدة. المسودة الحالية تقدر ترجعها بزرار التراجع."), "AR confirm copy");
+  assert.ok(c.includes("confirm(t.fullConfirm)"), "the full reading is confirmed first");
+  assert.ok(c.includes("Last read:") && raw.includes("آخر قراءة:"), "the last-read line, both languages");
+  assert.ok(c.includes("lastScanAt"), "reads lastScanAt from the state");
+  assert.match(c, /action: "start", mode/, "start sends the mode");
+  assert.ok(c.includes('startScan("new")'), "the primary button reads the new chats");
+  assert.ok(c.includes('readAll()') && /const readAll = async[\s\S]*?startScan\("full"\)/.test(c), "the secondary button reads everything, after the confirm");
+  assert.ok(c.includes('startScan(scan.mode === "new" ? "new" : "full")'), "Start again retries the mode that failed");
+  const readAll = c.slice(c.indexOf("const readAll = async"));
+  const at = readAll.indexOf("confirm(t.fullConfirm)");
+  assert.ok(at > 0 && at < readAll.indexOf('startScan("full")'), "the confirm comes before the full start");
 });
 
 console.log("all pro onboarding route tests passed");

@@ -7,6 +7,11 @@
  *   scanStep   running:     read SCAN_CHUNK chats, save one findings doc
  *              summarizing: merge the findings, write learned/questions/draft, open the chat -> done
  *
+ * Two kinds of reading. "full" reads the newest SCAN_MAX_CHATS and replaces the draft (the old one
+ * is one undo away). "new" reads only the chats since the last finished reading (lastScanAt) and
+ * GROWS what is there: the owner's agreed lines are merged in code (mergeLayers, growLearned), never
+ * left to the model. No new chats means no model call. The first reading is always "full".
+ *
  * The model's JSON is untrusted: every list is coerced to capped strings, the layer goes through
  * sanitizeLayer (no price, no medicine), a bad shape reads as empty. A thrown model call or store
  * error sets status "failed" (startScan recovers); the lock is always released.
@@ -14,9 +19,10 @@
  * Run: npm run test:pro-onboarding
  */
 import { SchemaType } from "@google/generative-ai";
-import { EMPTY_LAYER, isEmptyLayer, sanitizeLayer, type ClinicLayer } from "../layer";
+import { normalizeNeverSay } from "../checks";
+import { EMPTY_LAYER, isEmptyLayer, LAYER_LIMITS, sanitizeLayer, type ClinicLayer } from "../layer";
 import type { JsonModel } from "./jsonModel";
-import type { OnboardingState, OnboardingStore } from "./store";
+import type { OnboardingState, OnboardingStore, ScanMode } from "./store";
 import { bookedAfter, transcriptOf, type ChunkFindings } from "./transcript";
 
 export const SCAN_MAX_CHATS = 400;
@@ -26,6 +32,9 @@ export const STEP_LOCK_MS = 110_000;
 const LIST_MAX = 15;
 const LINE_CHARS = 300;
 const LEARNED_MAX = 15;
+/** What Pro learned over all readings: a "new" reading adds to it, the oldest lines go first. */
+export const LEARNED_KEEP = 40;
+export const NO_NEW_CHATS = "مفيش محادثات جديدة من آخر قراءة.";
 const QUESTIONS_MAX = 8;
 const MERGED_JSON_CHARS = 30_000;
 
@@ -127,26 +136,119 @@ function summaryPrompt(mergedJson: string, chatsRead: number): string {
   ].join("\n");
 }
 
+function growPrompt(mergedJson: string, chatsRead: number, draft: ClinicLayer, learned: string[]): string {
+  const list = (title: string, xs: string[]) => [title, ...(xs.length ? xs.map((x) => `- ${x}`) : ["(فاضية)"])].join("\n");
+  return [
+    "أنت مساعد بيكمّل «طبقة العيادة»: تعليمات الأسلوب اللي بوت واتساب العيادة بيمشي بيها، بعد ما قريت محادثات جديدة جت من آخر قراءة.",
+    SAFETY,
+    "دي الطبقة الحالية واللي اتعلمته قبل كده. السطور دي اتفق عليها صاحب العيادة: سيبها زي ما هي، وضيف بس الجديد اللي طلع من المحادثات الجديدة، وما تكررش حاجة موجودة.",
+    list("القواعد الحالية (rules):", draft.rules),
+    list("حالات التحويل الحالية (handoffWhen):", draft.handoffWhen),
+    list("العبارات الممنوعة الحالية (neverSay):", draft.neverSay),
+    `الفقرة الحالية (promptSection): ${draft.promptSection || "(فاضية)"}`,
+    list("اللي اتعلمته قبل كده:", learned),
+    "",
+    `الملخصات التالية (JSON) طلعت من قراءة ${chatsRead} محادثة جديدة. لخّصها في:`,
+    "- learned: الحاجات الجديدة اللي اتعلمتها بس (حتى 15 سطر).",
+    "- questions: أسئلة قصيرة للمالك عن اللي مش واضح أو متضارب في الجديد (حتى 8 أسئلة).",
+    "- layer.rules / layer.handoffWhen / layer.neverSay: السطور الجديدة بس.",
+    "- layer.promptSection: جمل جديدة بس عن شخصية العيادة، لو فيه.",
+    "الطبقة مجرد أسلوب: ما تكتبش فيها أسعار ولا أسماء أدوية، وما تغيّرش قواعد الحجز أو الأمان.",
+    "",
+    mergedJson,
+  ].join("\n");
+}
+
+// ---- growing, in code -------------------------------------------------------------------------
+
+/** One spelling for "is this line already there": the never-say normaliser (case, hamza, ال, spaces). */
+const fold = (s: string): string => normalizeNeverSay(s.replace(/\s+/g, " ").trim());
+
+/** Old lines first, then the new ones that are not already there, while under `max`. Old lines are never dropped. */
+function growList(old: string[], add: string[], max: number): string[] {
+  const out = [...old];
+  const seen = new Set(old.map(fold));
+  for (const line of add) {
+    const f = fold(line);
+    if (!f || seen.has(f)) continue;
+    if (out.length >= max) break;
+    out.push(line);
+    seen.add(f);
+  }
+  return out;
+}
+
+const splitSentences = (text: string): string[] =>
+  text
+    .split(/(?<=[.!?؟])\s+|\n/)
+    .map((x) => x.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
+/**
+ * The owner's layer grown by what a "new" reading found. Each list keeps every old line and adds
+ * the new lines that are not already there, while under LAYER_LIMITS; promptSection keeps the old
+ * text and appends new sentences while it stays under promptChars. Prices and medicines in `add`
+ * never get in: both sides go through sanitizeLayer.
+ */
+export function mergeLayers(old: ClinicLayer, add: ClinicLayer): ClinicLayer {
+  const a = sanitizeLayer(add).layer;
+  const L = LAYER_LIMITS;
+  let prompt = old.promptSection.trim();
+  const have = new Set(splitSentences(prompt).map(fold));
+  for (const sentence of splitSentences(a.promptSection)) {
+    const f = fold(sentence);
+    if (!f || have.has(f)) continue;
+    const next = prompt ? `${prompt} ${sentence}` : sentence;
+    if (next.length > L.promptChars) break;
+    prompt = next;
+    have.add(f);
+  }
+  return sanitizeLayer({
+    rules: growList(old.rules, a.rules, L.rules),
+    handoffWhen: growList(old.handoffWhen, a.handoffWhen, L.handoffWhen),
+    neverSay: growList(old.neverSay, a.neverSay, L.neverSay),
+    promptSection: prompt,
+  }).layer;
+}
+
+/** Old learned lines then the new, without duplicates; at most LEARNED_KEEP, the oldest dropped first. */
+export function growLearned(old: string[], add: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of [...old, ...add]) {
+    const line = raw.replace(/\s+/g, " ").trim();
+    const f = fold(line);
+    if (!f || seen.has(f)) continue;
+    seen.add(f);
+    out.push(line);
+  }
+  return out.slice(-LEARNED_KEEP);
+}
+
 // ---- steps ------------------------------------------------------------------------------------
 
-/** Queue the newest chats and clear the last scan's findings. A restart after `failed` starts clean. */
-export async function startScan(store: OnboardingStore, now: number): Promise<OnboardingState> {
-  const keys = await store.recentConversationKeys(SCAN_MAX_CHATS);
+/**
+ * Queue the chats to read and clear the last reading's findings. A restart after `failed` starts
+ * clean. "new" queues only the chats since lastScanAt and keeps learned/questions; with none it is
+ * done at once (no model call). The first reading is "full" whatever was asked.
+ */
+export async function startScan(store: OnboardingStore, now: number, mode: ScanMode = "full"): Promise<OnboardingState> {
+  const before = await store.getState();
+  const kind: ScanMode = mode === "new" && before.lastScanAt > 0 ? "new" : "full";
+  const keys = await store.recentConversationKeys(SCAN_MAX_CHATS, kind === "new" ? before.lastScanAt : 0);
   await store.clearFindings();
+  // patchState cannot delete keys: overwrite what a failed run left behind (readState reads "" / 0 as "unset")
+  const scan = { queue: keys, total: keys.length, done: 0, chatsRead: 0, startedAt: now, finishedAt: 0, error: "", mode: kind };
+  if (kind === "new" && !keys.length) {
+    await store.patchState({ scan: { ...scan, status: "done", finishedAt: now }, lastScanAt: now });
+    await store.addChat("ai", NO_NEW_CHATS);
+    return store.getState();
+  }
   await store.patchState({
-    scan: {
-      status: keys.length ? "running" : "summarizing",
-      queue: keys,
-      total: keys.length,
-      done: 0,
-      chatsRead: 0,
-      startedAt: now,
-      // patchState cannot delete keys: overwrite what a failed run left behind (readState reads "" / 0 as "unset")
-      finishedAt: 0,
-      error: "",
-    },
-    learned: [],
-    questions: [],
+    scan: { ...scan, status: keys.length ? "running" : "summarizing" },
+    // Written as read: a cutoff that came from an old done reading must outlive this one failing.
+    lastScanAt: before.lastScanAt,
+    ...(kind === "full" ? { learned: [], questions: [] } : {}),
   });
   return store.getState();
 }
@@ -219,21 +321,38 @@ async function readChunk(store: OnboardingStore, model: JsonModel, state: Onboar
 
 async function summarise(store: OnboardingStore, model: JsonModel, state: OnboardingState, now: number): Promise<void> {
   const chatsRead = state.scan.chatsRead;
+  const grow = state.scan.mode === "new";
+  // The cutoff for the next "new" reading: chats that arrived while this one ran are read next time.
+  const lastScanAt = state.scan.startedAt ?? now;
+  if (grow && chatsRead <= 0) {
+    // New chats were queued but none had a usable back-and-forth: nothing to learn, no model call.
+    await store.patchState({ scan: { status: "done", finishedAt: now }, lastScanAt });
+    await store.addChat("ai", NO_NEW_CHATS);
+    return;
+  }
   const merged = mergeFindings(await store.allFindings());
-  const res = await model.generate(summaryPrompt(merged, chatsRead), SUMMARY_SCHEMA);
+  const prompt = grow ? growPrompt(merged, chatsRead, state.draft, state.learned) : summaryPrompt(merged, chatsRead);
+  const res = await model.generate(prompt, SUMMARY_SCHEMA);
   const j = isObj(res.json) ? res.json : {};
 
   // With nothing read there is nothing to have learned: whatever the model wrote is invention.
-  const learned = chatsRead > 0 ? strs(j.learned, LEARNED_MAX) : [];
+  const found = chatsRead > 0 ? strs(j.learned, LEARNED_MAX) : [];
+  const known = new Set(state.learned.map(fold));
+  const added = grow ? found.filter((l) => !known.has(fold(l))) : found;
+  const learned = grow ? growLearned(state.learned, added) : found;
   const questions = strs(j.questions, QUESTIONS_MAX);
-  const draft: ClinicLayer = chatsRead > 0 ? sanitizeLayer(j.layer).layer : { ...EMPTY_LAYER };
+  const fresh: ClinicLayer = chatsRead > 0 ? sanitizeLayer(j.layer).layer : { ...EMPTY_LAYER };
+  // The draft as it is now: the owner may have saved an edit while the model was writing.
+  const current = grow ? (await store.getState()).draft : state.draft;
+  // "new" grows the owner's draft in code; "full" replaces it.
+  const draft: ClinicLayer = grow ? mergeLayers(current, fresh) : fresh;
   const usage = { calls: state.usage.calls + 1, inTok: state.usage.inTok + res.usage.inTok, outTok: state.usage.outTok + res.usage.outTok };
 
-  const next: OnboardingState = { ...state, learned, questions, draft, usage, scan: { ...state.scan, status: "done", finishedAt: now } };
-  // A rescan replaces the draft: what the owner had before stays one undo away.
-  const keepOld = !isEmptyLayer(state.draft) && JSON.stringify(state.draft) !== JSON.stringify(draft);
-  await store.patchState({ learned, questions, draft, ...(keepOld ? { previousDraft: state.draft } : {}), usage, scan: { status: "done", finishedAt: now } });
-  await store.addChat("ai", openingMessage(next));
+  const next: OnboardingState = { ...state, learned, questions, draft, usage, lastScanAt, scan: { ...state.scan, status: "done", finishedAt: now } };
+  // Whatever changed the draft, what the owner had before stays one undo away.
+  const keepOld = !isEmptyLayer(current) && JSON.stringify(current) !== JSON.stringify(draft);
+  await store.patchState({ learned, questions, draft, ...(keepOld ? { previousDraft: current } : {}), usage, lastScanAt, scan: { status: "done", finishedAt: now } });
+  await store.addChat("ai", openingMessage(next, added));
 }
 
 /**
@@ -262,8 +381,18 @@ export async function scanStep(
   return { state: await store.getState() };
 }
 
-/** The first thing the owner sees: what Pro read and learned, then its questions. Egyptian Arabic. */
-export function openingMessage(s: OnboardingState): string {
+/**
+ * The first thing the owner sees: what Pro read and learned, then its questions. Egyptian Arabic.
+ * After a "new" reading `added` is only what this reading added (default: everything learned).
+ */
+export function openingMessage(s: OnboardingState, added: string[] = s.learned): string {
+  if (s.scan.mode === "new") {
+    if (s.scan.chatsRead <= 0) return NO_NEW_CHATS;
+    const parts = [`قريت ${s.scan.chatsRead} محادثة جديدة.`];
+    if (added.length) parts.push(["اتعلمت كمان:", ...added.map((l) => `• ${l}`)].join("\n"));
+    if (s.questions.length) parts.push(["عندي كام سؤال:", ...s.questions.map((q, i) => `${i + 1}. ${q}`)].join("\n"));
+    return parts.join("\n\n");
+  }
   if (s.scan.chatsRead <= 0) {
     return "مفيش محادثات قديمة أقرا منها. احكيلي عن العيادة: بتركزوا على إيه، وإزاي بتحبوا نرد على المرضى؟";
   }

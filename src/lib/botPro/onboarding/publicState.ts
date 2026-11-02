@@ -7,7 +7,9 @@
 import type { LayerVersion, OnboardingState } from "./store";
 
 export type PublicOnboardingState = {
-  scan: { status: OnboardingState["scan"]["status"]; total: number; done: number; chatsRead: number; error?: string };
+  scan: { status: OnboardingState["scan"]["status"]; total: number; done: number; chatsRead: number; mode: OnboardingState["scan"]["mode"]; error?: string };
+  /** When the last finished reading started (ms), 0 = never: the screen's "Last read" date. */
+  lastScanAt: number;
   learned: string[];
   questions: string[];
   draft: OnboardingState["draft"];
@@ -23,8 +25,10 @@ export function publicOnboardingState(s: OnboardingState): PublicOnboardingState
       total: s.scan.total,
       done: s.scan.done,
       chatsRead: s.scan.chatsRead,
+      mode: s.scan.mode,
       ...(s.scan.error ? { error: s.scan.error } : {}),
     },
+    lastScanAt: s.lastScanAt,
     learned: s.learned,
     questions: s.questions,
     draft: s.draft,

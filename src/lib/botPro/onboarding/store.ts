@@ -20,6 +20,8 @@ import { EMPTY_LAYER, sanitizeLayer, type ClinicLayer, type ReplaySummary } from
 import type { ChunkFindings, RawConversation } from "./transcript";
 
 export type ScanStatus = "idle" | "running" | "summarizing" | "done" | "failed";
+/** "new": only the chats since the last reading, grown into what Pro already learned. "full": all over again. */
+export type ScanMode = "new" | "full";
 
 export type OnboardingState = {
   scan: {
@@ -32,7 +34,10 @@ export type OnboardingState = {
     startedAt?: number;
     finishedAt?: number;
     error?: string;
+    mode: ScanMode;
   };
+  /** When the last finished reading started (ms): the cutoff a "new" reading reads from. 0 = never. */
+  lastScanAt: number;
   learned: string[];
   questions: string[];
   draft: ClinicLayer;
@@ -55,7 +60,8 @@ export type LayerVersion = {
 };
 
 export const EMPTY_STATE: OnboardingState = {
-  scan: { status: "idle", queue: [], total: 0, done: 0, chatsRead: 0, lockUntil: 0 },
+  scan: { status: "idle", queue: [], total: 0, done: 0, chatsRead: 0, lockUntil: 0, mode: "full" },
+  lastScanAt: 0,
   learned: [],
   questions: [],
   draft: { ...EMPTY_LAYER },
@@ -88,9 +94,13 @@ export function readState(raw: unknown): OnboardingState {
     ...(typeof s.startedAt === "number" && Number.isFinite(s.startedAt) && s.startedAt > 0 ? { startedAt: s.startedAt } : {}),
     ...(typeof s.finishedAt === "number" && Number.isFinite(s.finishedAt) && s.finishedAt > 0 ? { finishedAt: s.finishedAt } : {}),
     ...(typeof s.error === "string" && s.error ? { error: s.error } : {}),
+    mode: s.mode === "new" ? "new" : "full",
   };
+  // A reading finished before lastScanAt was kept is still a reading: its start is the cutoff.
+  const lastScanAt = num(r.lastScanAt, 0) || (scan.status === "done" ? (scan.startedAt ?? 0) : 0);
   return {
     scan,
+    lastScanAt,
     learned: strings(r.learned),
     questions: strings(r.questions),
     draft: sanitizeLayer(r.draft).layer,
@@ -141,8 +151,11 @@ export interface OnboardingStore {
   /** Take the scan lock for `ms` if nobody holds it at `now`. One transaction, so two callers cannot both win. */
   tryLock(ms: number, now: number): Promise<boolean>;
   unlock(): Promise<void>;
-  /** Newest first by lastAt, without rehearsal (play_) threads and without chats with the clinic's own staff. */
-  recentConversationKeys(max: number): Promise<string[]>;
+  /**
+   * Newest first by lastAt, without rehearsal (play_) threads and without chats with the clinic's
+   * own staff; only chats with lastAt after `sinceMs` (0 = all).
+   */
+  recentConversationKeys(max: number, sinceMs?: number): Promise<string[]>;
   loadConversation(key: string): Promise<RawConversation | null>;
   saveFindings(n: number, f: ChunkFindings): Promise<void>;
   allFindings(): Promise<ChunkFindings[]>;
@@ -237,7 +250,7 @@ export function firestoreOnboardingStore(clinicId: string): OnboardingStore {
       await stateRef.set({ scan: { lockUntil: 0 } }, { merge: true });
     },
 
-    async recentConversationKeys(max) {
+    async recentConversationKeys(max, sinceMs = 0) {
       const keys: string[] = [];
       const convs = adminClinicCollection(clinicId, "whatsapp_conversations");
       let cursor: QueryDocumentSnapshot | null = null;
@@ -248,6 +261,8 @@ export function firestoreOnboardingStore(clinicId: string): OnboardingStore {
         const snap = await q.get();
         if (snap.empty) break;
         for (const d of snap.docs) {
+          // Newest first: the first chat at or before the cutoff ends the list, no more pages.
+          if (sinceMs > 0 && (toMs(d.data().lastAt) ?? 0) <= sinceMs) return keys;
           if (d.id.startsWith("play_") || d.data().staffLine === true) continue;
           keys.push(d.id);
           if (keys.length >= max) break;
