@@ -52,15 +52,3 @@ export function doctorCardLabel(name: string | null | undefined, language?: stri
   if (!trimmed) return generalDoctorLabel(language);
   return `Dr. ${trimmed.split(" ")[1] || trimmed}`;
 }
-
-/**
- * A dentist's full name with exactly one title in front. Staff records are often saved as
- * "Dr. Hana", so adding our own "Dr." printed "Dr. Dr. Hana". Any leading Dr / Dr. / د. is
- * dropped first, then the app's own title goes on. Empty in, empty out.
- */
-export function formatDoctorName(name: string | null | undefined, language?: string | null): string {
-  // The title must end in a dot or a space, so a name that merely starts with "Dr" (Drew) keeps it.
-  const bare = String(name || "").replace(/^\s*((?:dr|د)(?:\.\s*|\s+))+/i, "").trim();
-  if (!bare) return "";
-  return `${language === "ar" ? "د." : "Dr."} ${bare}`;
-}
