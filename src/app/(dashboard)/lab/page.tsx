@@ -65,11 +65,11 @@ import {
   type LabOrderPaper,
 } from "@/lib/labCases";
 import { advanceLabCase, createRemake } from "@/lib/labCaseWrite";
-import { LAB_PAYMENTS_COLLECTION, type LabPayment } from "@/lib/labAccounts";
+import { LAB_PAYMENTS_COLLECTION, parseLabPaymentCases, type LabPayment } from "@/lib/labAccounts";
 import { loadLabOrderClinic, printLabOrder } from "@/lib/labOrderPrint";
 import { notifyLabCaseReady } from "@/lib/labNotify";
 import { buildLabOrderMessage } from "@/lib/labMessages";
-import { labMessagingNumber, findLab } from "@/lib/dentalLabs";
+import { labMessagingNumber, findLab, labsWithCaseLabs } from "@/lib/dentalLabs";
 import { openWhatsAppWithText } from "@/lib/whatsappManual";
 import FeatureGate from "@/components/FeatureGate";
 
@@ -111,7 +111,10 @@ function LabTrackingPage() {
   const isAr = language === "ar";
 
   const [cases, setCases] = useState<LabCase[]>([]);
-  const [labs, setLabs] = useState<DentalLab[]>([]);
+  const [directoryLabs, setLabs] = useState<DentalLab[]>([]);
+  // A lab typed into an order by someone who cannot write the lab list lives on its cases alone,
+  // and still belongs in the filter, the money view and the WhatsApp lookup.
+  const labs = useMemo(() => labsWithCaseLabs(directoryLabs, cases), [directoryLabs, cases]);
   const [paper, setPaper] = useState<LabOrderPaper>(DEFAULT_LAB_PAPER);
   const [loading, setLoading] = useState(true);
 
@@ -144,6 +147,38 @@ function LabTrackingPage() {
         console.error("Lab cases subscription failed", err);
         setLoading(false);
       }
+    );
+    return () => unsub();
+  }, []);
+
+  // What has been paid to each lab. Without this the Money view saved a payment and then showed
+  // "Paid 0" forever, because nothing ever read the payments back.
+  useEffect(() => {
+    const unsub = onSnapshot(
+      getClinicCollection(LAB_PAYMENTS_COLLECTION),
+      (snap) => {
+        setPayments(
+          snap.docs.map((d) => {
+            const p = d.data() as Record<string, unknown>;
+            return {
+              id: d.id,
+              labId: String(p.labId || ""),
+              labName: String(p.labName || ""),
+              amount: Number(p.amount) || 0,
+              date: String(p.date || ""),
+              method: String(p.method || "cash"),
+              reference: p.reference ? String(p.reference) : undefined,
+              note: p.note ? String(p.note) : undefined,
+              createdAt: p.createdAt ? String(p.createdAt) : undefined,
+              createdBy: p.createdBy ? String(p.createdBy) : undefined,
+              cases: parseLabPaymentCases(p.cases),
+              expenseLedgerId: p.expenseLedgerId ? String(p.expenseLedgerId) : undefined,
+              expenseAmount: Number(p.expenseAmount) || 0,
+            };
+          })
+        );
+      },
+      (err) => console.error("Lab payments subscription failed", err)
     );
     return () => unsub();
   }, []);

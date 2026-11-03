@@ -16,11 +16,26 @@
  *     `MAD-0142`.
  */
 
-import { runTransaction, addDoc, updateDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
+import { runTransaction, addDoc, getDoc, updateDoc, deleteDoc, deleteField, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { localYmd } from "@/lib/clinicDate";
-import { LAB_PAYMENTS_COLLECTION } from "@/lib/labAccounts";
+import {
+  LAB_PAYMENTS_COLLECTION,
+  labPaymentExpenseAmount,
+  labPaymentMethodLabel,
+  type LabPayment,
+  type LabPaymentCase,
+} from "@/lib/labAccounts";
+import { MoneyApiError, createLedgerEntry, deleteLedgerRow, updateLedgerRow } from "@/lib/moneyApi";
+import {
+  LABS_SETTINGS_DOC,
+  findLabByName,
+  makeLabId,
+  parseDentalLabs,
+  serializeDentalLabs,
+  type DentalLab,
+} from "@/lib/dentalLabs";
 import {
   DEFAULT_BRANCH_CODE,
   LAB_CASES_COLLECTION,
@@ -94,12 +109,37 @@ export async function mintLabCaseNumber(branchCode: string): Promise<number> {
 }
 
 /**
- * Record a payment to a lab.
+ * Add a lab typed into an order to the clinic's lab list, and return it.
  *
- * Writes to `lab_payments` and NOTHING else. It must never post to `ledger`: the lab fee was
- * already booked as a cost when the treatment was saved, so a second entry here would charge the
- * same lab work against profit twice — invisibly, because both entries look perfectly reasonable
- * on their own. This settles a debt recorded months ago; it does not create one.
+ * Read-and-append inside a transaction, because the list is one array in one document: writing
+ * back a copy read a minute earlier would wipe a lab somebody else added in between. A name that
+ * is already on the list returns that lab rather than adding it twice. Admin-only, like the rest
+ * of `settings` — the order form only calls it for an Admin.
+ */
+export async function addLabToDirectory(name: string): Promise<DentalLab> {
+  const clean = name.trim().replace(/\s+/g, " ");
+  const ref = getClinicDoc("settings", LABS_SETTINGS_DOC);
+  return runTransaction(db, async (txn) => {
+    const snap = await txn.get(ref);
+    const labs = parseDentalLabs(snap.exists() ? snap.data() : null);
+    const existing = findLabByName(labs, clean);
+    if (existing) return existing;
+    const lab: DentalLab = { id: makeLabId(), name: clean };
+    txn.set(
+      ref,
+      { labs: serializeDentalLabs([...labs, lab]), updatedAt: nowIso() },
+      { merge: true }
+    );
+    return lab;
+  });
+}
+
+/**
+ * Record a payment to a lab: the `lab_payments` row only.
+ *
+ * The screen goes through `saveLabPaymentWithExpense`, which also puts the payment in Finance as a
+ * Lab expense — less whatever the linked treatments already booked as lab fees, so the same lab
+ * work is never charged against profit twice.
  */
 export async function recordLabPayment(input: {
   labId: string;
@@ -110,6 +150,9 @@ export async function recordLabPayment(input: {
   reference?: string;
   note?: string;
   createdBy?: string;
+  cases?: LabPaymentCase[];
+  expenseLedgerId?: string;
+  expenseAmount?: number;
 }): Promise<string> {
   const amount = Number(input.amount);
   if (!Number.isFinite(amount) || amount <= 0) {
@@ -126,12 +169,158 @@ export async function recordLabPayment(input: {
       note: input.note,
       createdBy: input.createdBy,
     }),
+    ...(input.cases?.length ? { cases: input.cases } : {}),
+    ...(input.expenseLedgerId ? { expenseLedgerId: input.expenseLedgerId, expenseAmount: input.expenseAmount || 0 } : {}),
     amount: Math.round(amount * 100) / 100,
     date: input.date || today(),
     createdAt: nowIso(),
     createdAtServer: serverTimestamp(),
   });
   return ref.id;
+}
+
+/**
+ * Correct a lab payment — the wrong amount, date or method. Same `lab_payments`-only rule as
+ * recording one. The lab itself is not editable here: a payment to the wrong lab is deleted and
+ * recorded again, so neither lab's history shows a payment that silently moved.
+ */
+export async function updateLabPayment(
+  id: string,
+  input: {
+    amount: number;
+    date: string;
+    method: string;
+    reference?: string;
+    cases?: LabPaymentCase[];
+    expenseLedgerId?: string;
+    expenseAmount?: number;
+  }
+): Promise<void> {
+  const amount = Number(input.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("A lab payment needs an amount greater than zero.");
+  }
+  await updateDoc(getClinicDoc(LAB_PAYMENTS_COLLECTION, id), {
+    amount: Math.round(amount * 100) / 100,
+    date: input.date || today(),
+    method: input.method || "cash",
+    // An emptied box removes the reference rather than storing "".
+    reference: input.reference ? input.reference : deleteField(),
+    cases: input.cases?.length ? input.cases : deleteField(),
+    expenseLedgerId: input.expenseLedgerId ? input.expenseLedgerId : deleteField(),
+    expenseAmount: input.expenseLedgerId ? input.expenseAmount || 0 : deleteField(),
+    updatedAt: nowIso(),
+  });
+}
+
+/** What the treatments behind these cases already booked as lab fees in Finance. */
+async function bookedLabFees(ledgerIds: string[]): Promise<number[]> {
+  return Promise.all(
+    ledgerIds.map(async (id) => {
+      try {
+        const snap = await getDoc(getClinicDoc("ledger", id));
+        return snap.exists() ? Number(snap.data().labFee) || 0 : 0;
+      } catch {
+        return 0;
+      }
+    })
+  );
+}
+
+function isGone(err: unknown): boolean {
+  return err instanceof MoneyApiError && err.status === 404;
+}
+
+/**
+ * Save a lab payment AND the Lab expense it puts in Finance.
+ *
+ * The clinic pays the lab, so the money shows in Finance as an expense under "Lab". Only the part
+ * Finance has not already counted: a case raised from a treatment booked its lab fee when the
+ * treatment was saved, and that much comes off (see `labPaymentExpenseAmount`).
+ *
+ * The expense goes through the money API like every other ledger write; the payment keeps its id
+ * so an edit or a delete moves both. A payment saved before this existed has no expense, and
+ * gains one the first time it is edited.
+ */
+export async function saveLabPaymentWithExpense(input: {
+  existing?: LabPayment | null;
+  labId: string;
+  labName: string;
+  amount: number;
+  date: string;
+  method: string;
+  reference?: string;
+  createdBy?: string;
+  cases: LabPaymentCase[];
+  /** The treatment rows behind the ticked cases, if any. */
+  linkedLedgerIds: string[];
+  language: "en" | "ar";
+}): Promise<{ expenseAmount: number }> {
+  const isAr = input.language === "ar";
+  const expenseAmount = labPaymentExpenseAmount(input.amount, await bookedLabFees(input.linkedLedgerIds));
+  const forWhom = input.cases.map((c) => `${c.code} ${c.patient}`.trim()).join("، ");
+  const description = [isAr ? `دفعة معمل — ${input.labName}` : `Lab payment — ${input.labName}`, forWhom]
+    .filter(Boolean)
+    .join(" · ");
+  const method = labPaymentMethodLabel(input.method, "en");
+  const date = input.date || today();
+
+  let expenseId = input.existing?.expenseLedgerId || "";
+  let created = "";
+  if (expenseAmount > 0) {
+    if (expenseId) {
+      try {
+        await updateLedgerRow(expenseId, { amount: expenseAmount, date, method, description });
+      } catch (err) {
+        // Deleted from Finance by hand: put it back rather than leave the payment uncounted.
+        if (!isGone(err)) throw err;
+        expenseId = "";
+      }
+    }
+    if (!expenseId) {
+      expenseId = (await createLedgerEntry({ type: "expense", category: "Lab", amount: expenseAmount, description, date, method })).id;
+      created = expenseId;
+    }
+  } else if (expenseId) {
+    try {
+      await deleteLedgerRow(expenseId);
+    } catch (err) {
+      if (!isGone(err)) throw err;
+    }
+    expenseId = "";
+  }
+
+  const fields = {
+    amount: input.amount,
+    date,
+    method: input.method,
+    reference: input.reference,
+    cases: input.cases,
+    expenseLedgerId: expenseId || undefined,
+    expenseAmount: expenseId ? expenseAmount : undefined,
+  };
+  try {
+    if (input.existing) await updateLabPayment(input.existing.id, fields);
+    else await recordLabPayment({ ...fields, labId: input.labId, labName: input.labName, createdBy: input.createdBy });
+  } catch (err) {
+    // The payment did not save: take back the expense this call just made, so Finance never
+    // shows a lab cost with no payment behind it.
+    if (created) await deleteLedgerRow(created).catch(() => {});
+    throw err;
+  }
+  return { expenseAmount };
+}
+
+/** Delete a lab payment and the Lab expense it put in Finance. */
+export async function deleteLabPaymentWithExpense(payment: LabPayment): Promise<void> {
+  if (payment.expenseLedgerId) {
+    try {
+      await deleteLedgerRow(payment.expenseLedgerId);
+    } catch (err) {
+      if (!isGone(err)) throw err;
+    }
+  }
+  await deleteLabPayment(payment.id);
 }
 
 /** Remove a lab payment — a mistyped amount, a duplicate entry. */

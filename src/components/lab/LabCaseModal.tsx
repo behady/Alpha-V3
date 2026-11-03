@@ -11,7 +11,8 @@ import { MoneyApiError, setProcedureLabFee } from "@/lib/moneyApi";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { localYmd } from "@/lib/clinicDate";
 import { matchesTokenizedSubstring, patientMatchesSearch } from "@/lib/flexibleSearch";
-import { findLab, labPriceFor, type DentalLab } from "@/lib/dentalLabs";
+import { useClinic } from "@/context/ClinicContext";
+import { findLabByName, labPriceFor, labsWithCaseLabs, makeLabId, type DentalLab } from "@/lib/dentalLabs";
 import {
   LAB_CASES_COLLECTION,
   ABUTMENT_OPTIONS,
@@ -25,12 +26,13 @@ import {
   hasPrimaryTeeth,
   parseToothInput,
   addDays,
+  resolveWorkType,
   workTypeFor,
+  workTypeLabel,
   type LabCase,
   type LabCaseSeed,
-  type LabWorkTypeId,
 } from "@/lib/labCases";
-import { createLabCase, deleteLabCase, updateLabCase } from "@/lib/labCaseWrite";
+import { addLabToDirectory, createLabCase, deleteLabCase, updateLabCase } from "@/lib/labCaseWrite";
 import type { ClinicBranch } from "@/lib/clinicLocations";
 import { branchCodeFor } from "@/lib/labCases";
 
@@ -76,6 +78,7 @@ export default function LabCaseModal({
 }: Props) {
   const { language } = useLanguage();
   const { showToast, confirm } = useUI();
+  const { isAdmin } = useClinic();
   const isAr = language === "ar";
   const isEdit = Boolean(existing);
 
@@ -83,9 +86,17 @@ export default function LabCaseModal({
   const [deleting, setDeleting] = useState(false);
 
   // --- form state ---------------------------------------------------------
-  const [labId, setLabId] = useState("");
+  /**
+   * The lab and the work are both TYPED, with suggestions, rather than picked from a list.
+   *
+   * A pick-list made the form a dead end for a clinic that had not filled Settings in first, and
+   * for every piece of work the catalogue did not happen to name. A typed lab that is new is added
+   * to the lab list on save; typed work that is not in the catalogue is stored as its own name.
+   */
+  const [labText, setLabText] = useState("");
   const [branchId, setBranchId] = useState("");
-  const [workType, setWorkType] = useState<LabWorkTypeId>("zirconia");
+  const [workText, setWorkText] = useState("");
+  const workType = resolveWorkType(workText);
   const [workDescription, setWorkDescription] = useState("");
   const [units, setUnits] = useState("");
   const [teethText, setTeethText] = useState("");
@@ -124,18 +135,20 @@ export default function LabCaseModal({
   const wt = workTypeFor(workType);
 
   /**
-   * Implant systems this clinic has actually used, read back from past cases.
+   * What this clinic has actually typed before, read back from its recent cases: the labs it sends
+   * to, the work it names that the catalogue does not, and its implant systems.
    *
-   * The user pushed back on configuring a list of brands up front, and they were right to: an
-   * implant crown needs the system named or the technician cannot pick a matching abutment, but
-   * that is a fact the clinic already demonstrates every time it raises one. So the field learns.
+   * The user pushed back on configuring lists up front, and they were right to: each of these is a
+   * fact the clinic already demonstrates every time it raises an order. So the fields learn.
    *
    * Loaded here rather than passed in, because this modal opens from two places — the lab board
-   * and the prompt after a treatment is saved — and a datalist owned by one of them silently does
-   * nothing in the other. Read only once an implant work type is actually picked, so the ninety
-   * percent of orders that are crowns and dentures never pay for it.
+   * and the prompt after a treatment is saved — and suggestions owned by one of them silently do
+   * nothing in the other. A lab only an assistant has typed is on its cases and nowhere else (the
+   * lab list is Admin-only to write), so this is also how the next order finds that lab again.
    */
-  const [implantSuggestions, setImplantSuggestions] = useState<string[]>([]);
+  const [pastCases, setPastCases] = useState<
+    { labId: string; labName: string; workType: string; implantSystem: string }[]
+  >([]);
   /**
    * A ref, not state.
    *
@@ -143,30 +156,53 @@ export default function LabCaseModal({
    * fired the previous cleanup, flipped `cancelled` to true, and threw away the reply to the fetch
    * that was still in flight. The suggestions could never arrive.
    */
-  const implantsLoaded = useRef(false);
+  const pastLoaded = useRef(false);
 
   useEffect(() => {
-    if (!open || !wt.implant || implantsLoaded.current) return;
+    if (!open || pastLoaded.current) return;
     let cancelled = false;
-    implantsLoaded.current = true;
+    pastLoaded.current = true;
     getDocs(query(getClinicCollection(LAB_CASES_COLLECTION), orderBy("codeNumber", "desc"), limit(300)))
       .then((snap) => {
         if (cancelled) return;
-        const seen = new Set<string>();
-        for (const d of snap.docs) {
-          const v = String((d.data() as Record<string, unknown>).implantSystem || "").trim();
-          if (v) seen.add(v);
-        }
-        setImplantSuggestions([...seen].sort());
+        setPastCases(
+          snap.docs.map((d) => {
+            const data = d.data() as Record<string, unknown>;
+            return {
+              labId: String(data.labId || "").trim(),
+              labName: String(data.labName || "").trim(),
+              workType: String(data.workType || "").trim(),
+              implantSystem: String(data.implantSystem || "").trim(),
+            };
+          })
+        );
       })
       .catch(() => {
-        // Suggestions are a convenience. The field is free text either way, so a failed read
+        // Suggestions are a convenience. Every field is free text either way, so a failed read
         // costs nothing a person cannot type.
       });
     return () => {
       cancelled = true;
     };
-  }, [open, wt.implant]);
+  }, [open]);
+
+  const implantSuggestions = useMemo(
+    () => [...new Set(pastCases.map((c) => c.implantSystem).filter(Boolean))].sort(),
+    [pastCases]
+  );
+
+  /** Every lab this form can match a typed name against: the lab list, then the labs on past cases. */
+  const knownLabs = useMemo(() => {
+    const fromCases = existing ? [...pastCases, { labId: existing.labId, labName: existing.labName }] : pastCases;
+    return labsWithCaseLabs(labs, fromCases);
+  }, [labs, pastCases, existing]);
+
+  /** The catalogue in the reader's language, then the clinic's own names for work. */
+  const workSuggestions = useMemo(() => {
+    const catalogue = LAB_WORK_TYPES.map((w) => (isAr ? w.ar : w.en));
+    const own = pastCases.map((c) => c.workType).filter((t) => t && !LAB_WORK_TYPES.some((w) => w.id === t));
+    return [...new Set([...catalogue, ...own])];
+  }, [pastCases, isAr]);
 
   /**
    * Load patients and staff once the modal is first opened, not on mount.
@@ -233,9 +269,9 @@ export default function LabCaseModal({
     seededFor.current = key;
 
     const src = existing;
-    setLabId(src?.labId || (labs.length === 1 ? labs[0].id : ""));
+    setLabText(src?.labName || (labs.length === 1 ? labs[0].name : ""));
     setBranchId(src?.branchId || seed?.branchId || defaultBranchId || "");
-    setWorkType((src?.workType as LabWorkTypeId) || "zirconia");
+    setWorkText(src?.workType ? workTypeLabel(src.workType, language) : "");
     setWorkDescription(src?.workDescription || seed?.workDescription || "");
     setUnits(src?.units != null ? String(src.units) : seed?.units != null ? String(seed.units) : "");
     const seededTeeth = src?.teeth?.length ? src.teeth : seed?.teeth || [];
@@ -275,7 +311,7 @@ export default function LabCaseModal({
     setPatientQuery("");
     setDoctorId(src?.doctorId || seed?.doctorId || "");
     setDoctorName(src?.doctorName || seed?.doctorName || "");
-  }, [open, existing, seed, defaultBranchId, labs]);
+  }, [open, existing, seed, defaultBranchId, labs, language]);
 
   /**
    * Picking a work type re-applies that type's defaults — but only when raising a new case.
@@ -297,9 +333,11 @@ export default function LabCaseModal({
    * directory that finished loading after the form appeared — the very case this covers.
    */
   useEffect(() => {
-    if (!open || labId || labs.length !== 1) return;
-    setLabId(labs[0].id);
-  }, [open, labId, labs]);
+    if (!open || isEdit || labText || labs.length !== 1) return;
+    setLabText(labs[0].name);
+    // labText is left out on purpose: with it, clearing the box to type another lab refilled it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, isEdit, labs]);
 
   /**
    * What this treatment was actually charged for its lab work.
@@ -367,7 +405,8 @@ export default function LabCaseModal({
     }
   };
 
-  const selectedLab = findLab(labs, labId);
+  /** The known lab the typed name matches, or null while it names a new one. */
+  const selectedLab = useMemo(() => findLabByName(knownLabs, labText), [knownLabs, labText]);
 
   /** The lab's usual turnaround fills the due date in — the reason it is worth recording. */
   /**
@@ -437,19 +476,46 @@ export default function LabCaseModal({
   const branchIndex = branch ? branches.indexOf(branch) : 0;
   const previewCode = `${branchCodeFor(branch, branchIndex)}-####`;
 
-  const canSave = Boolean(labId) && !saving;
+  const canSave = Boolean(labText.trim()) && Boolean(workType) && !saving;
+
+  /**
+   * The lab this order goes to, adding it to the lab list when the name is new.
+   *
+   * Only an Admin can write the lab list. For anyone else — or if that write fails — the new lab
+   * still gets an id and lives on the case, and `labsWithCaseLabs` finds it from there.
+   */
+  const resolveLab = async (): Promise<{ id: string; name: string }> => {
+    const name = labText.trim().replace(/\s+/g, " ");
+    if (selectedLab) return selectedLab;
+    // An edit that kept the case's own lab, renamed in the lab list since, is still that lab.
+    if (existing?.labId && name.toLowerCase() === existing.labName.trim().toLowerCase()) {
+      return { id: existing.labId, name: existing.labName };
+    }
+    if (isAdmin) {
+      try {
+        return await addLabToDirectory(name);
+      } catch (err) {
+        console.error("Adding the lab to the lab list failed", err);
+      }
+    }
+    return { id: makeLabId(), name };
+  };
 
   const handleSave = async () => {
-    if (!labId) {
-      showToast(isAr ? "اختار المعمل الأول" : "Pick a lab first", "error");
+    if (!labText.trim()) {
+      showToast(isAr ? "اكتب اسم المعمل" : "Type the lab's name", "error");
+      return;
+    }
+    if (!workType) {
+      showToast(isAr ? "اكتب نوع الشغل" : "Type the kind of work", "error");
       return;
     }
     setSaving(true);
     try {
-      const lab = findLab(labs, labId);
+      const lab = await resolveLab();
       const common = {
-        labId,
-        labName: lab?.name || "",
+        labId: lab.id,
+        labName: lab.name,
         workType,
         workDescription: workDescription.trim(),
         // Zero rather than undefined when the box is empty or the work type has no unit count.
@@ -594,30 +660,29 @@ export default function LabCaseModal({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-5 sm:px-7 py-5 space-y-5 custom-scrollbar">
-          {labs.length === 0 && (
-            <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
-              <Info size={16} className="text-amber-600 shrink-0 mt-0.5" />
-              <p className="text-xs font-bold text-amber-800 leading-relaxed">
-                {isAr
-                  ? "مفيش معامل مسجلة. روح الإعدادات ← المعامل وضيف معمل الأول."
-                  : "No labs are set up yet. Go to Settings → Dental Labs and add one first."}
-              </p>
-            </div>
-          )}
-
           {/* Lab + branch */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className={LABEL}>{isAr ? "المعمل" : "Lab"} *</label>
-              <select data-tour="lab-case-lab" value={labId} onChange={(e) => setLabId(e.target.value)} className={INPUT}>
-                <option value="">{isAr ? "اختار معمل…" : "Choose a lab…"}</option>
-                {labs.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.name}
-                    {l.turnaroundDays ? ` (${l.turnaroundDays}${isAr ? " يوم" : "d"})` : ""}
-                  </option>
+              <input
+                data-tour="lab-case-lab"
+                value={labText}
+                onChange={(e) => setLabText(e.target.value)}
+                list="lab-case-labs"
+                placeholder={isAr ? "اكتب اسم المعمل" : "Type the lab's name"}
+                className={INPUT}
+              />
+              <datalist id="lab-case-labs">
+                {knownLabs.map((l) => (
+                  <option key={l.id} value={l.name} />
                 ))}
-              </select>
+              </datalist>
+              {labText.trim() && !selectedLab && labText.trim().toLowerCase() !== (existing?.labName || "").trim().toLowerCase() && (
+                <p className="flex items-center gap-1 text-[10px] font-semibold text-sky-600 mt-1 leading-relaxed">
+                  <Info size={11} className="shrink-0" />
+                  {isAr ? "معمل جديد — هيتحفظ للمرات الجاية" : "New lab — it will be saved for next time"}
+                </p>
+              )}
             </div>
             <div>
               <label className={LABEL}>{isAr ? "الفرع" : "Branch"}</label>
@@ -732,17 +797,18 @@ export default function LabCaseModal({
             </div>
             <div>
               <label className={LABEL}>{isAr ? "نوع الشغل" : "Work type"} *</label>
-              <select
-                value={workType}
-                onChange={(e) => setWorkType(e.target.value as LabWorkTypeId)}
+              <input
+                value={workText}
+                onChange={(e) => setWorkText(e.target.value)}
+                list="lab-case-work"
+                placeholder={isAr ? "مثال: زيركون، فينير، طقم" : "e.g. Zirconia, Veneer, Denture"}
                 className={INPUT}
-              >
-                {LAB_WORK_TYPES.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {isAr ? w.ar : w.en}
-                  </option>
+              />
+              <datalist id="lab-case-work">
+                {workSuggestions.map((w) => (
+                  <option key={w} value={w} />
                 ))}
-              </select>
+              </datalist>
             </div>
           </div>
 

@@ -3,16 +3,16 @@
  *
  * This is a DEBT LIST, not a second profit report, and the distinction is the whole design.
  *
- * The lab fee is already booked as a cost the moment a treatment is saved: `computeProcedurePricing`
- * subtracts it before the dentist's commission, so it has already come off the clinic's profit. A
- * payment to the lab weeks later is therefore NOT a new expense — it settles a debt that was
- * recorded at treatment time. Posting it to the ledger as well would charge every lab case against
- * profit twice, and the error would be invisible: the reports would simply be wrong by the size of
- * the lab bill, every month, with nothing obviously broken.
+ * A lab fee on a treatment is booked as a cost the moment the treatment is saved:
+ * `computeProcedurePricing` subtracts it before the dentist's commission. But many orders are
+ * raised straight from the Lab page with no treatment behind them, and their cost reached Finance
+ * nowhere — the owner paid a lab and Finance never showed it.
  *
- * So lab payments live in their own collection and never touch `ledger`. The finance screens are
- * untouched by this file. The only place the two worlds meet is `set-lab-fee` on the ledger route,
- * which corrects the ESTIMATE that was booked to what the lab actually charged.
+ * So since November 2026 a payment also lands in Finance as a Lab expense, MINUS whatever the
+ * linked treatments already booked (`labPaymentExpenseAmount`). Without that subtraction every
+ * treatment-linked case would be charged against profit twice, invisibly. Lab payments still live
+ * in their own collection; the expense row is written through the money API and its id kept on
+ * the payment. `set-lab-fee` on the ledger route still corrects a booked ESTIMATE.
  *
  * Firebase-free on purpose, like `labCases.ts` — the arithmetic behind "you owe them 4,200" has to
  * be checkable without a database.
@@ -36,7 +36,70 @@ export type LabPayment = {
   note?: string;
   createdAt?: string;
   createdBy?: string;
+  /**
+   * The cases this payment settles, snapshotted so the payment still says who it was for after a
+   * case is edited or deleted. Optional: a lump sum against the whole account names none.
+   */
+  cases?: LabPaymentCase[];
+  /** The Lab expense this payment put in Finance, so editing or deleting it keeps the two in step. */
+  expenseLedgerId?: string;
+  /** How much of the payment went to Finance as an expense (less than the payment when part was already booked). */
+  expenseAmount?: number;
 };
+
+/**
+ * How much of a lab payment is a NEW expense in Finance.
+ *
+ * A case raised from a treatment already booked its lab fee there when the treatment was saved,
+ * and Finance subtracts it as "Lab fees". Paying for that case must not subtract it a second time,
+ * so whatever those treatments booked comes off the payment first. Everything else — standalone
+ * orders, lump sums, the part of a payment above the booked estimate — is a real cost Finance
+ * has not seen yet.
+ */
+export function labPaymentExpenseAmount(amount: number, bookedLabFees: number[]): number {
+  const booked = bookedLabFees.reduce((s, n) => s + (Number(n) > 0 ? Number(n) : 0), 0);
+  return money(Math.max(0, (Number(amount) || 0) - booked));
+}
+
+export type LabPaymentCase = {
+  id: string;
+  code: string;
+  /** Full name, for the clinic's own screens. */
+  patient: string;
+  /** First name only, for anything that goes to the lab. */
+  patientFirst?: string;
+};
+
+/** Reads the `cases` snapshot off a stored payment, dropping anything malformed. */
+export function parseLabPaymentCases(raw: unknown): LabPaymentCase[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((c) => {
+      const r = (c && typeof c === "object" ? c : {}) as Record<string, unknown>;
+      const id = String(r.id || "").trim();
+      if (!id) return null;
+      const patientFirst = String(r.patientFirst || "").trim();
+      return {
+        id,
+        code: String(r.code || "").trim(),
+        patient: String(r.patient || "").trim(),
+        ...(patientFirst ? { patientFirst } : {}),
+      };
+    })
+    .filter(Boolean) as LabPaymentCase[];
+}
+
+/** Ids of every case some payment names — how the board marks a case as paid for. */
+export function paidCaseIds(payments: LabPayment[]): Set<string> {
+  const out = new Set<string>();
+  for (const p of payments) for (const c of p.cases || []) out.add(c.id);
+  return out;
+}
+
+export function labPaymentMethodLabel(id: string, language: "en" | "ar"): string {
+  const m = LAB_PAYMENT_METHODS.find((x) => x.id === id);
+  return m ? (language === "ar" ? m.ar : m.en) : id;
+}
 
 export const LAB_PAYMENT_METHODS = [
   { id: "cash", en: "Cash", ar: "كاش" },
@@ -220,7 +283,8 @@ export function buildStatement(
   labId: string,
   cases: LabCase[],
   payments: LabPayment[],
-  workLabel: (c: LabCase) => string
+  workLabel: (c: LabCase) => string,
+  paymentLabel: (p: LabPayment) => string = (p) => [p.method, p.reference, p.note].filter(Boolean).join(" · ")
 ): { lines: Array<StatementLine & { balance: number }>; closing: number } {
   const rows: StatementLine[] = [];
 
@@ -238,17 +302,26 @@ export function buildStatement(
 
   for (const p of payments) {
     if (p.labId !== labId) continue;
+    const named = p.cases || [];
     rows.push({
       date: p.date,
-      code: "",
-      patient: "",
-      work: [p.method, p.reference, p.note].filter(Boolean).join(" · "),
+      code: named.map((c) => c.code).filter(Boolean).join(", "),
+      // First names only: this sheet goes to the lab.
+      patient: [...new Set(named.map((c) => c.patientFirst || c.patient).filter(Boolean))].join(", "),
+      work: paymentLabel(p),
       charge: 0,
       payment: Number(p.amount) || 0,
     });
   }
 
-  rows.sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.code.localeCompare(b.code));
+  // On the same day the work comes before the money paid for it. Otherwise a payment handed over
+  // with the delivery prints first and the running balance dips below zero for one line.
+  rows.sort(
+    (a, b) =>
+      String(a.date).localeCompare(String(b.date)) ||
+      Number(a.payment > 0) - Number(b.payment > 0) ||
+      a.code.localeCompare(b.code)
+  );
 
   let balance = 0;
   const lines = rows.map((r) => {

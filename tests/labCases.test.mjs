@@ -28,6 +28,8 @@ import {
   statusFor,
   summarise,
   workTypeFor,
+  workTypeLabel,
+  resolveWorkType,
   formatPalmer,
   wantsLabReadyAlert,
   parseToothInput,
@@ -36,8 +38,10 @@ import {
   RETENTION_OPTIONS,
 } from "../src/lib/labCases.ts";
 import {
+  findLabByName,
   labPriceFor,
   labPricedCount,
+  labsWithCaseLabs,
   parseDentalLabs,
   parseLabPaper,
   serializeDentalLabs,
@@ -80,6 +84,9 @@ import {
   isBillable,
   labAccountFor,
   labAccountsTotal,
+  labPaymentExpenseAmount,
+  paidCaseIds,
+  parseLabPaymentCases,
 } from "../src/lib/labAccounts.ts";
 import { parseClinicBranches } from "../src/lib/clinicLocations.ts";
 import { buildLabOrderMessage } from "../src/lib/labMessages.ts";
@@ -181,9 +188,40 @@ assert.equal(workTypeFor("full_denture").gumShade, true);
 assert.equal(workTypeFor("zirconia").tryInByDefault, false);
 assert.equal(workTypeFor("zirconia").gumShade, false);
 
-// An unknown id (an older record, a hand-edited document) must not crash a board that renders it.
-assert.equal(workTypeFor("nonsense_type").id, "zirconia");
+// Work the clinic typed itself is stored as its own name and gets the plain shape: units and a
+// shade, nothing that belongs to one kind of work. Blank still reads as zirconia.
+assert.equal(workTypeFor("Veneer").implant, false);
+assert.equal(workTypeFor("Veneer").guide, false);
+assert.equal(workTypeFor("Veneer").units, true);
+assert.equal(workTypeFor("Veneer").cervicalShade, false);
 assert.equal(workTypeFor(undefined).id, "zirconia");
+assert.equal(workTypeLabel("Veneer", "ar"), "Veneer");
+
+// A catalogue name typed in either language stores the catalogue id, so its fields, the lab's
+// price for it and the printout still recognise it. Anything else is kept as typed.
+assert.equal(resolveWorkType("Zirconia"), "zirconia");
+assert.equal(resolveWorkType("  e.max "), "emax");
+assert.equal(resolveWorkType("زيركون"), "zirconia");
+assert.equal(resolveWorkType("Full denture"), "full_denture");
+assert.equal(resolveWorkType("Veneer"), "Veneer");
+assert.equal(resolveWorkType("   "), "");
+
+// A typed lab name finds a known lab whatever its case and spacing; labs that live only on cases
+// join the list once each, and never shadow the lab list's own entry.
+assert.equal(findLabByName([{ id: "a", name: "Cairo  Lab" }], " cairo lab")?.id, "a");
+assert.equal(findLabByName([{ id: "a", name: "Cairo Lab" }], "Giza Lab"), null);
+assert.deepEqual(
+  labsWithCaseLabs(
+    [{ id: "a", name: "Cairo Lab" }],
+    [
+      { labId: "a", labName: "Old name" },
+      { labId: "b", labName: "Giza Lab" },
+      { labId: "b", labName: "Giza Lab" },
+      { labId: "", labName: "No id" },
+    ]
+  ).map((l) => `${l.id}:${l.name}`),
+  ["a:Cairo Lab", "b:Giza Lab"]
+);
 
 // --- Palmer notation ------------------------------------------------------------------------------
 //
@@ -746,6 +784,29 @@ assert.equal(stmt.lines.length, 3);
 assert.deepEqual(stmt.lines.map((l) => l.balance), [600, 100, 850]);
 assert.equal(stmt.closing, 850);
 assert.equal(stmt.closing, 1350 - 500, "closing balance is delivered minus paid");
+
+// Paid on the day of delivery: the work prints before the money, so the balance never dips
+// below zero, and the payment names the case and patient it was for (first name only).
+const sameDay = buildStatement(
+  "L1",
+  [{ id: "1", labId: "L1", status: "back", agreedPrice: 600, code: "MAD-0009", receivedAt: "2026-08-05", patientFirstName: "Ahmed", workType: "zirconia", teeth: [] }],
+  [{ id: "p1", labId: "L1", amount: 600, date: "2026-08-05", method: "cash", cases: [{ id: "1", code: "MAD-0009", patient: "Ahmed Samir", patientFirst: "Ahmed" }] }],
+  () => "work",
+  (p) => `Payment · ${p.method}`
+);
+assert.deepEqual(sameDay.lines.map((l) => l.balance), [600, 0]);
+assert.equal(sameDay.lines[1].code, "MAD-0009");
+assert.equal(sameDay.lines[1].patient, "Ahmed");
+assert.equal(sameDay.lines[1].work, "Payment · cash");
+
+assert.deepEqual(paidCaseIds([{ id: "p", labId: "L1", amount: 1, date: "", method: "", cases: [{ id: "c1", code: "", patient: "" }] }]), new Set(["c1"]));
+// A lab payment's Finance expense: the whole amount, less what linked treatments already booked.
+assert.equal(labPaymentExpenseAmount(2000, []), 2000, "a standalone order is a new cost");
+assert.equal(labPaymentExpenseAmount(2000, [600]), 1400, "the booked lab fee is not counted twice");
+assert.equal(labPaymentExpenseAmount(500, [600]), 0, "never a negative expense");
+assert.equal(labPaymentExpenseAmount(2000, [0, NaN]), 2000, "an empty booked fee subtracts nothing");
+
+assert.deepEqual(parseLabPaymentCases([{ id: "c1", code: "A", patient: "B" }, { code: "no id" }, null]), [{ id: "c1", code: "A", patient: "B" }]);
 
 // The printed sheet carries the figures and says out loud what is missing from them.
 const sheet = buildLabStatementSrcDoc({
