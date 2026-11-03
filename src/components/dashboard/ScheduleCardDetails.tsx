@@ -186,7 +186,8 @@ export default function ScheduleCardDetails({
       {order.filter((k) => plan.show.has(k as never)).map(line)}
 
       {plan.noteLines > 0 && note && (
-        <span className={`${chip} !items-start !font-semibold`}>
+        // The whole note on hover, for when it is longer than the lines the card could give it.
+        <span className={`${chip} !items-start !font-semibold cursor-help`} title={note}>
           <StickyNote size={12} className="mt-[3px] shrink-0" />
           {/* line-clamp by style so the number of lines follows the card's height exactly. */}
           <span

@@ -86,7 +86,13 @@ function eq<T>(actual: T, expected: T, message: string) {
   );
   const tight = planDetails(CARD_BASE_PX + CARD_LINE_PX, detailOrder(true, all), true);
   eq([...tight.show], ["alert"], "with only one line, the medical alert wins over everything");
-  eq(tight.noteLines, 0, "and the note waits");
+  eq(tight.noteLines, 1, "and the note still gets its one line beside it");
+  eq(planDetails(120, detailOrder(true, { timing: true }), true).noteLines, 1, "the smallest card shows the note too");
+  eq(
+    [...planDetails(CARD_BASE_PX + CARD_LINE_PX, detailOrder(true, { timing: true }), true).show],
+    ["timing"],
+    "a one-hour card keeps 'Arrived · done' as well as the note"
+  );
 }
 
 // --- 2b. Medical alerts --------------------------------------------------------------------------
