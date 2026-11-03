@@ -307,6 +307,11 @@ export function detailOrder(arrived: boolean, present: Partial<Record<DetailKey,
  * Takes them in the order given, one line each, while there is room; the note gets whatever is left,
  * up to four lines. A detail with nothing to say is simply not in the list, so its line goes to the
  * next one.
+ *
+ * The note always gets at least one line, even when the details have used every line there is: it is
+ * what the desk wrote about this visit, and a one-hour card that spent its line on "Arrived · done"
+ * used to hide it completely. The base height is generous enough to hold that one line on the
+ * smallest card; a longer note is cut short there and read in full on hover.
  */
 export function planDetails(heightPx: number, order: readonly DetailKey[], hasNote: boolean): DetailPlan {
   let left = detailLines(heightPx);
@@ -316,5 +321,5 @@ export function planDetails(heightPx: number, order: readonly DetailKey[], hasNo
     show.add(key);
     left -= 1;
   }
-  return { show, noteLines: hasNote && left > 0 ? Math.min(left, 4) : 0 };
+  return { show, noteLines: hasNote ? Math.min(Math.max(left, 1), 4) : 0 };
 }
