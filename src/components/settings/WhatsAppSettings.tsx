@@ -197,6 +197,9 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
     botPersonaName: typeof data?.botPersonaName === "string" ? data.botPersonaName : "",
     botHumanTouch: data?.botHumanTouch !== false,
     botQuietNudge: data?.botQuietNudge !== false,
+    // Both default off (absent = off), the way the bot reads them.
+    botHideDoctorNames: data?.botHideDoctorNames === true,
+    botClosedNote: data?.botClosedNote === true,
     ...(typeof data?.botHumanClaimMinutes === "number" ? { botHumanClaimMinutes: data.botHumanClaimMinutes } : {}),
     // Same rule as deliveryMode below: spread conditionally so an absent map stays absent. A key
     // holding `undefined` is rejected by Firestore on the next write, which reads on screen as a
@@ -773,6 +776,11 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
           ? "مثال: د. محمد إيهاب — أخصائي زراعة وتركيبات، 10 سنين خبرة، هادي مع اللي بيخافوا من الدكتور. د. يحيى جمال — أخصائي تقويم…"
           : "e.g. Dr. Mohamed Ehab — implants and crowns, 10 years, calm with anxious patients. Dr. Yahia Gamal — orthodontics…",
       botQuietNudge: language === "ar" ? "لو المريض سكت في نص الكلام، البوت يسأله بعد 20 دقيقة «لسه معاك؟» مرة واحدة" : "If a patient goes quiet mid-chat, ask once after 20 minutes: \"still there?\"",
+      botHideDoctorNames:
+        language === "ar"
+          ? "متقولش أسماء الدكاترة: مفيش أسماء في كروت الحجز ولا القوائم ولا ردود الذكاء الاصطناعي، والمريض بياخد أقرب كرسي فاضي"
+          : "Don't mention dentists' names: no names in booking cards, lists or AI replies; patients get the first free chair",
+      botClosedNote: language === "ar" ? "لو العيادة مقفولة، ضيف ميعاد الفتح الجاي تحت رد التحويل" : "When the clinic is shut, add the next opening time under a hand-off reply",
       factConsultation: language === "ar" ? "الكشف (البوت بيختم بيه عرض الحجز)" : "Consultation terms (used in the booking invitation)",
       factConsultationPh:
         language === "ar" ? "مثال: الكشف مجاني / الكشف 200 ج.م وبيتخصم من العلاج" : "e.g. Consultation is free / 200 EGP, deducted from treatment",
@@ -1779,6 +1787,40 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
                 const on = e.target.checked;
                 setState((s) => {
                   const next = { ...s, botQuietNudge: on };
+                  void persist(next, "silent");
+                  return next;
+                });
+              }}
+            />
+          </label>
+
+          <label className="flex items-center justify-between gap-4 cursor-pointer">
+            <span className="text-xs font-bold text-ink leading-relaxed">{txt.botHideDoctorNames}</span>
+            <input
+              type="checkbox"
+              className="h-5 w-5 rounded border-line-strong text-ink-muted focus:ring-accent-soft/30 shrink-0"
+              checked={state.botHideDoctorNames === true}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setState((s) => {
+                  const next = { ...s, botHideDoctorNames: on };
+                  void persist(next, "silent");
+                  return next;
+                });
+              }}
+            />
+          </label>
+
+          <label className="flex items-center justify-between gap-4 cursor-pointer">
+            <span className="text-xs font-bold text-ink leading-relaxed">{txt.botClosedNote}</span>
+            <input
+              type="checkbox"
+              className="h-5 w-5 rounded border-line-strong text-ink-muted focus:ring-accent-soft/30 shrink-0"
+              checked={state.botClosedNote === true}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setState((s) => {
+                  const next = { ...s, botClosedNote: on };
                   void persist(next, "silent");
                   return next;
                 });

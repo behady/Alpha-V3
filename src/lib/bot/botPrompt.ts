@@ -59,7 +59,11 @@ export interface BotPromptInput {
   canBook?: boolean;
   hoursText?: string;
   addressText?: string;
+  /** "• name: address — ت: phone" per branch, for a clinic with two or more; empty = none. */
+  branchesText?: string;
   clinicPhone?: string;
+  /** The owner's "don't mention dentists' names" switch (settings/whatsapp botHideDoctorNames). */
+  hideDoctorNames?: boolean;
   /** "name: يبدأ من 1,200 ج.م" per line, already rendered from the clinic's service list. */
   priceLines: string;
   facts?: BotFacts;
@@ -267,6 +271,21 @@ const PEOPLE_RULES = [
   "- أي طلب بيخص ملف حد تاني (حسابه، حجزه، روشتته، بياناته): متأكدش إن الحجز أو الحساب ده موجود أصلاً، ومتوعدش إنه هيتلغي أو هيتعدل أو هيتبعت. قول إن ده بيتأكد من الاستقبال واختار handoff_other.",
 ];
 
+/**
+ * The owner's "don't mention dentists' names" switch (botHideDoctorNames). An owner wrote it in
+ * coaching and the bot still named the dentist, because two fixed rules above told it to. With
+ * the switch on, the usual-dentist rule is dropped and the answer-from-"الأطباء" rule is replaced
+ * by this line in the same place; with it off, the fixed layers are exactly what they were.
+ */
+export const HIDE_DOCTOR_NAMES_RULE =
+  "- ممنوع تذكر اسم أي دكتور أو طبيب في ردودك: قول \"الدكتور\" أو \"الدكتور المختص\" وخلاص، حتى لو المريض سأل.";
+const USUAL_DENTIST_RULE_PREFIX = "- لو المريض بيتعالج عادةً عند دكتور معيّن";
+const NAMED_DENTIST_RULE_PREFIX = "- أي سؤال عن طبيب معيّن بالاسم";
+
+/** A clinic with two or more branches: offer them instead of handing a "too far" patient over. */
+export const BRANCHES_RULE =
+  "- لو المريض قال إن المكان بعيد أو سأل عن فرع تاني: اعرض عليه الفروع من القائمة (الاسم والعنوان) واسأله أنهي أقرب له — متحوّلش للاستقبال عشان سؤال عن فرع.";
+
 const COMPLAINT_RULES = [
   "الشكاوى والغضب:",
   "- شكوى عن العيادة أو الخدمة أو موظف أو علاج أو فلوس (تجربة سيئة، معاملة، تأخير): اختار handoff_complaint — ولازم تكتب في reply اعتذار حقيقي قصير بأسلوبك، وسؤال واحد يخليه يحكي، وإنك بلّغت الإدارة. متسيبش reply فاضي في الحالة دي. أما لو المريض متضايق منك انت أو من الرد نفسه (زي: انت غبي؟ مش فاهم؟ بتلف وتدور؟): ده مش شكوى — اعتذر بخفة من غير دفاع، واسأله يقولك بالظبط محتاج إيه، ومتحوّلش.",
@@ -314,8 +333,8 @@ const ASSISTED_VOICE = [
  * answer is a guess from commit dates. FNV-1a over the joined text; eight hex characters is
  * enough to tell two prompts apart and short enough to read in a list.
  */
-export function promptVersion(mode: "assisted" | "sales", clinical: boolean, canBook?: boolean): string {
-  const text = fixedPromptLayers(mode, clinical, canBook).filter(Boolean).join("\n");
+export function promptVersion(mode: "assisted" | "sales", clinical: boolean, canBook?: boolean, hideDoctorNames?: boolean): string {
+  const text = fixedPromptLayers(mode, clinical, canBook, hideDoctorNames).filter(Boolean).join("\n");
   let h = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) {
     h ^= text.charCodeAt(i);
@@ -324,8 +343,9 @@ export function promptVersion(mode: "assisted" | "sales", clinical: boolean, can
   return h.toString(16).padStart(8, "0");
 }
 
-export function fixedPromptLayers(mode: "assisted" | "sales", clinical: boolean, canBook?: boolean): string[] {
+export function fixedPromptLayers(mode: "assisted" | "sales", clinical: boolean, canBook?: boolean, hideDoctorNames?: boolean): string[] {
   const sales = mode === "sales";
+  const hide = hideDoctorNames === true;
   return [
     PRECEDENCE,
     "",
@@ -335,7 +355,7 @@ export function fixedPromptLayers(mode: "assisted" | "sales", clinical: boolean,
     ...(clinical ? ["", ...DENTIST_JOB] : []),
     ...(sales && canBook === false ? [NO_BOOKING_LINE] : []),
     "",
-    ...BOOKING_RULES,
+    ...(hide ? BOOKING_RULES.filter((l) => !l.startsWith(USUAL_DENTIST_RULE_PREFIX)) : BOOKING_RULES),
     "",
     ...PRICE_RULES,
     "",
@@ -343,7 +363,7 @@ export function fixedPromptLayers(mode: "assisted" | "sales", clinical: boolean,
     "",
     ...MONEY_RULES,
     "",
-    ...PEOPLE_RULES,
+    ...(hide ? PEOPLE_RULES.map((l) => (l.startsWith(NAMED_DENTIST_RULE_PREFIX) ? HIDE_DOCTOR_NAMES_RULE : l)) : PEOPLE_RULES),
     "",
     ...COMPLAINT_RULES,
     "",
@@ -390,6 +410,8 @@ export function clinicAndPatientLayer(input: BotPromptInput): string[] {
     `اسم العيادة: ${clinicName}`,
     hoursText?.trim() ? `مواعيد العمل:\n${hoursText.trim()}` : "مواعيد العمل: غير متوفرة هنا (حوّل لو اتسألت).",
     addressText?.trim() ? `العنوان: ${addressText.trim()}` : "",
+    // Spread, not "": without branches the returned array is element-for-element what it was.
+    ...(input.branchesText?.trim() ? [`الفروع:\n${input.branchesText.trim()}\n${BRANCHES_RULE}`] : []),
     clinicPhone?.trim() ? `تليفون العيادة: ${clinicPhone.trim()}` : "",
     // "No prices on WhatsApp": the service names only (so "do you do implants?" is answered, not
     // handed off), never the prices, and never the "unavailable, hand off" fallback, which would
@@ -399,7 +421,8 @@ export function clinicAndPatientLayer(input: BotPromptInput): string[] {
       : priceLines
         ? `\nقائمة الخدمات والأسعار:\n${priceLines}`
         : "\nقائمة الأسعار: غير متوفرة (حوّل أي سؤال سعر).",
-    factLines(facts),
+    // Hidden names: the clinic's own "الأطباء" notes name every dentist, so they stay out.
+    factLines(input.hideDoctorNames && facts ? { ...facts, dentists: undefined } : facts),
     ...patientLines,
     input.personaName?.trim()
       ? `\nاسمك ${input.personaName.trim()}. عرّف بنفسك مرة واحدة بس في أول رد في المحادثة (مثلاً: \"معاك ${input.personaName.trim()} من ${clinicName}\")، وبعدها اتكلم عادي من غير ما تعيد اسمك.`
@@ -451,5 +474,5 @@ export function clinicAndPatientLayer(input: BotPromptInput): string[] {
 
 /** The system prompt for one WhatsApp turn. Deterministic: same input, same string. */
 export function buildBotPrompt(input: BotPromptInput): string {
-  return [...fixedPromptLayers(input.mode, input.clinical, input.canBook), ...clinicAndPatientLayer(input)].filter(Boolean).join("\n");
+  return [...fixedPromptLayers(input.mode, input.clinical, input.canBook, input.hideDoctorNames), ...clinicAndPatientLayer(input)].filter(Boolean).join("\n");
 }

@@ -167,6 +167,14 @@ export interface WhatsAppSettingsDocument {
   /** One free in-window "still there?" 20 minutes after a patient goes quiet mid-chat. Default on. */
   botQuietNudge?: boolean;
   /**
+   * No dentist names anywhere the bot writes: booking/cancel cards, slot labels, the AI's replies
+   * (both brains), and no "who would you like to book with?" question — the patient gets the first
+   * free chair. Staff notifications still name the dentist. Default off.
+   */
+  botHideDoctorNames?: boolean;
+  /** Add "the clinic is closed — we open at…" under a hand-off reply while the clinic is shut. Default off. */
+  botClosedNote?: boolean;
+  /**
    * May the assistant cancel an appointment itself? Default on.
    *
    * Forwarding a cancellation left the slot on the calendar and the desk chasing a message; a

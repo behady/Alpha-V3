@@ -161,7 +161,8 @@ function threadContents(thread: AiThreadLine[], question: string): Content[] {
   return out;
 }
 
-const apptLabel = (a: ProAppointment) => `${arabicDayLabel(a.date)} الساعة ${arabicTimeLabel(a.time)}${a.doctor?.trim() ? ` مع ${a.doctor.trim()}` : ""}`;
+const apptLabel = (a: ProAppointment, hideDoctor = false) =>
+  `${arabicDayLabel(a.date)} الساعة ${arabicTimeLabel(a.time)}${!hideDoctor && a.doctor?.trim() ? ` مع ${a.doctor.trim()}` : ""}`;
 
 function violationNote(vs: Violation[], question: string): string {
   const arabicQuestion = (question.match(/[؀-ۿ]/g) || []).length >= (question.match(/[A-Za-z]/g) || []).length;
@@ -188,11 +189,11 @@ function violationNote(vs: Violation[], question: string): string {
   return `(ملاحظة من النظام: الرد ده متبعتش. ${lines.join(" ")} ابعت الرد الصح بـ reply.)`;
 }
 
-const bookedNote = (upcoming: ProAppointment[], action: string) =>
-  `(ملاحظة من النظام: الحجز ده متعملش. في ميعاد جاي محجوز بالفعل على الرقم ده: ${upcoming.map(apptLabel).join("، ")}. لو المريض عايز ميعاد زيادة فعلاً (مش تغيير)، ابعت ${action} تاني ومعاه extraAppointment: true. لو عايز يغيّر ميعاده اختار reschedule. وإلا فكّره بميعاده.)`;
+const bookedNote = (upcoming: ProAppointment[], action: string, hideDoctor = false) =>
+  `(ملاحظة من النظام: الحجز ده متعملش. في ميعاد جاي محجوز بالفعل على الرقم ده: ${upcoming.map((a) => apptLabel(a, hideDoctor)).join("، ")}. لو المريض عايز ميعاد زيادة فعلاً (مش تغيير)، ابعت ${action} تاني ومعاه extraAppointment: true. لو عايز يغيّر ميعاده اختار reschedule. وإلا فكّره بميعاده.)`;
 
-const newBookingNote = (added: ProAppointment[]) =>
-  `(ملاحظة من النظام: لسه حالاً اتسجل ميعاد جديد على الرقم ده: ${added.map(apptLabel).join("، ")}. راجع ردك على الأساس ده: متحجزش ولا تفتح الحجز تاني إلا لو المريض عايز ميعاد زيادة فعلاً (extraAppointment: true).)`;
+const newBookingNote = (added: ProAppointment[], hideDoctor = false) =>
+  `(ملاحظة من النظام: لسه حالاً اتسجل ميعاد جديد على الرقم ده: ${added.map((a) => apptLabel(a, hideDoctor)).join("، ")}. راجع ردك على الأساس ده: متحجزش ولا تفتح الحجز تاني إلا لو المريض عايز ميعاد زيادة فعلاً (extraAppointment: true).)`;
 
 type Trace = { rounds: number; toolsCalled: string[]; violations: string[]; modelMs: number; action: string; raw: string; degraded: boolean };
 
@@ -211,13 +212,17 @@ async function runTurn(
   let person = ctx.person;
   trace.degraded = person.degraded;
 
+  // The owner's "don't mention dentists' names" switch: every slot is labelled without the dentist,
+  // while its key still carries the chair the booking will be written with.
+  const hideDoctors = args.hideDoctorNames === true;
+  const dayLabel: ToolEnv["dayLabel"] = hideDoctors ? (day, time) => ctx.dayLabel(day, time, "") : ctx.dayLabel;
   const shown: ToolEnv["shown"] = new Map();
-  const previousSlots = seedPrevious(args.previousSlotKeys, ctx, shown);
+  const previousSlots = seedPrevious(args.previousSlotKeys, { ...ctx, dayLabel }, shown);
   const env: ToolEnv = {
     todayKey: ctx.todayKey,
     openDays: ctx.openDays,
     freeTimes: ctx.freeTimes,
-    dayLabel: ctx.dayLabel,
+    dayLabel,
     person,
     patientFile: ctx.patientFile,
     prices: consult ? [] : ctx.prices,
@@ -238,6 +243,9 @@ async function runTurn(
     hoursText: args.hoursText,
     addressText: args.addressText,
     clinicPhone: args.clinicPhone,
+    // Owner switches; absent (not undefined) when off, so the input is Plan 1's.
+    ...(args.branchesText?.trim() ? { branchesText: args.branchesText } : {}),
+    ...(hideDoctors ? { hideDoctorNames: true } : {}),
     // "No prices on WhatsApp": the names stay, the figures leave the prompt and the number guard.
     priceLines: consult ? serviceNamesOnly(ctx.priceLines) : ctx.priceLines,
     brief: args.brief,
@@ -259,7 +267,7 @@ async function runTurn(
   };
   // The clinic layer sits between the fixed rulebook and the turn; empty, it adds no line at all.
   const clinicLayer = proClinicLayer(ctx.layer);
-  const system = `${proRulebook({ clinical: input.clinical, canBook })}\n${clinicLayer ? `${clinicLayer}\n` : ""}${proTurnLayer(input, person, { todayKey: ctx.todayKey, previousSlots })}`;
+  const system = `${proRulebook({ clinical: input.clinical, canBook, ...(hideDoctors ? { hideDoctorNames: true } : {}) })}\n${clinicLayer ? `${clinicLayer}\n` : ""}${proTurnLayer(input, person, { todayKey: ctx.todayKey, previousSlots })}`;
   const contents: unknown[] = threadContents(ctx.thread, question);
 
   // Every source a figure, a time or a medicine name may come from. Tool results join as they arrive.
@@ -271,6 +279,7 @@ async function runTurn(
   const plainSources = [
     args.hoursText || "",
     args.addressText || "",
+    ...(args.branchesText ? [args.branchesText] : []),
     args.clinicPhone || "",
     args.memory || "",
     question,
@@ -375,7 +384,7 @@ async function runTurn(
     if (booking && canBook && person.upcoming.length > 0 && !person.degraded && !r.extraAppointment) {
       if (!warnedBooked && round < MAX_ROUNDS) {
         warnedBooked = true;
-        respond({ rejected: true, note: bookedNote(person.upcoming, r.action) });
+        respond({ rejected: true, note: bookedNote(person.upcoming, r.action, hideDoctors) });
         continue;
       }
       dropBooking = true;
@@ -390,7 +399,7 @@ async function runTurn(
         env.person = fresh;
         // No round left to tell the model: the standard brain, reading the calendar afresh, answers.
         if (round >= MAX_ROUNDS) return { kind: "unavailable", reason: "recheck_no_round" };
-        respond({ rejected: true, note: newBookingNote(added) });
+        respond({ rejected: true, note: newBookingNote(added, hideDoctors) });
         continue;
       }
     }
@@ -419,6 +428,8 @@ export function proMoneySources(args: ProArgs, priceLines: string, dossierText =
     dossierText,
     // The clinic's own address and phone: "12 ألف مسكن" is a district, not a price.
     args.addressText || "",
+    // Each branch's address and phone, likewise (one line per branch); absent, the list is unchanged.
+    ...(args.branchesText ? [args.branchesText] : []),
     args.clinicPhone || "",
   ];
 }

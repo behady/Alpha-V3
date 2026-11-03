@@ -152,7 +152,11 @@ export async function answerWithAi(args: {
   patientName?: string;
   hoursText?: string;
   addressText?: string;
+  /** The clinic's branches, one per line, when it has two or more (respond.ts branchesTextOf). */
+  branchesText?: string;
   clinicPhone?: string;
+  /** The owner's "don't mention dentists' names" switch. */
+  hideDoctorNames?: boolean;
   facts?: BotFacts;
   /** Prior AI exchanges in this conversation, oldest first — the assisted mode's memory. */
   history: Array<{ q: string; a: string }>;
@@ -273,6 +277,9 @@ export async function answerWithAi(args: {
     hoursText,
     addressText,
     clinicPhone,
+    // Owner switches; absent (not undefined) when off, so the prompt input is what it always was.
+    ...(args.branchesText?.trim() ? { branchesText: args.branchesText } : {}),
+    ...(args.hideDoctorNames === true ? { hideDoctorNames: true } : {}),
     // "No prices on WhatsApp" keeps the prices out of the prompt (and out of the number guard) but
     // still tells the model which services the clinic offers.
     priceLines: args.brief?.prices === "consult" ? serviceNamesOnly(priceLines) : priceLines,
@@ -307,7 +314,7 @@ export async function answerWithAi(args: {
    * Joined back together when there is no cache, so the model reads exactly the same prompt
    * either way.
    */
-  const sharedSystem = fixedPromptLayers(promptInput.mode, promptInput.clinical, promptInput.canBook)
+  const sharedSystem = fixedPromptLayers(promptInput.mode, promptInput.clinical, promptInput.canBook, args.hideDoctorNames === true)
     .filter(Boolean)
     .join("\n");
   const turnText = clinicAndPatientLayer(promptInput).filter(Boolean).join("\n");
@@ -423,6 +430,8 @@ export async function answerWithAi(args: {
       playbook || "",
       hoursText || "",
       addressText || "",
+      // Each branch's address and phone are the clinic's own, like the main ones.
+      ...(args.branchesText ? [args.branchesText] : []),
       clinicPhone || "",
       args.memory || "",
       (args.slots || []).map((s) => s.label).join(" "),
@@ -539,7 +548,7 @@ export async function answerWithAi(args: {
         raw: raw.slice(0, 1000),
         mode: sales ? "sales" : "assisted",
         model: MODEL,
-        promptVersion: promptVersion(promptInput.mode, promptInput.clinical, promptInput.canBook),
+        promptVersion: promptVersion(promptInput.mode, promptInput.clinical, promptInput.canBook, args.hideDoctorNames === true),
         action: String(parsed?.action || ""),
         langRetries,
         photo: Boolean(args.photo),

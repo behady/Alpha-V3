@@ -401,3 +401,49 @@ test("turn layer is deterministic", () => {
   const p = person({ upcoming: [appt()] });
   assert.equal(proTurnLayer(baseInput(), p, TODAY), proTurnLayer(baseInput(), p, TODAY));
 });
+
+/* ------------------------------------------------------------------------------------------- */
+/* Owner switches: dentist names hidden, branches shown. Off = Plan-1 bytes.                    */
+/* ------------------------------------------------------------------------------------------- */
+
+const HIDE_RULE = '- ممنوع تذكر اسم أي دكتور أو طبيب في ردودك: قول "الدكتور" أو "الدكتور المختص" وخلاص، حتى لو المريض سأل.';
+const BRANCH_RULE = "- لو المريض قال إن المكان بعيد أو سأل عن فرع تاني: اعرض عليه الفروع من القائمة (الاسم والعنوان) واسأله أنهي أقرب له — متحوّلش للاستقبال عشان سؤال عن فرع.";
+
+const named = person({
+  upcoming: [appt({ doctor: "Mahmoud amgad", service: "تنضيف" })],
+  past: [appt({ id: "a0", date: "2026-10-01", doctor: "Sara Ali", status: "Completed" })],
+});
+const withDentists = () => baseInput({ addressText: "5 شارع 9", facts: { dentists: "د. محمد سمير — زراعة" } });
+
+test("turn layer and rulebook are unchanged when neither new input is set", () => {
+  const plain = proTurnLayer(withDentists(), named, TODAY);
+  assert.equal(proTurnLayer({ ...withDentists(), hideDoctorNames: false, branchesText: "" }, named, TODAY), plain);
+  assert.ok(!plain.includes(HIDE_RULE) && !plain.includes("الفروع:"));
+  assert.ok(plain.includes(" مع Mahmoud amgad") && plain.includes(" مع Sara Ali") && plain.includes("د. محمد سمير"));
+  for (const v of VARIANTS) assert.equal(proRulebook({ ...v, hideDoctorNames: false }), proRulebook(v));
+});
+
+test("hidden names: the rule line, and no dentist named anywhere in the turn layer", () => {
+  const t = proTurnLayer({ ...withDentists(), hideDoctorNames: true }, named, { ...TODAY, previousSlots: [{ id: "s1", label: "الخميس 5/11 الساعة 5:00 م" }] });
+  assert.equal(t.split("\n").filter((l) => l === HIDE_RULE).length, 1);
+  for (const name of ["Mahmoud amgad", "Sara Ali", "محمد سمير"]) assert.ok(!t.includes(name), `no ${name}`);
+  assert.ok(!t.includes("- الأطباء:"));
+  // The appointment itself is still there: day, time and service, just no dentist.
+  assert.ok(t.includes(`${arabicDayLabel("2026-11-05")} الساعة ${arabicTimeLabel("05:00 PM")} — تنضيف`));
+});
+
+test("hidden names: the rulebook drops the two lines that tell Pro to name a dentist", () => {
+  for (const v of VARIANTS) {
+    const r = proRulebook({ ...v, hideDoctorNames: true });
+    assert.ok(!r.includes("دوّر على مواعيد الدكتور ده الأول واذكر اسمه"));
+    assert.ok(!r.includes('جاوب من خانة "الأطباء"'));
+    assert.equal(proRulebook({ ...v, hideDoctorNames: true }), r, "still a pure function");
+  }
+  assert.ok(proRulebook({ clinical: false, canBook: true }).includes('جاوب من خانة "الأطباء"'));
+});
+
+test("branches: the الفروع block next to the address, with the far-away rule", () => {
+  const branchesText = "• المعادي: شارع 9 — ت: 01001234567\n• مدينة نصر: 12 عباس العقاد";
+  const t = proTurnLayer({ ...withDentists(), branchesText }, named, TODAY);
+  assert.ok(t.includes(`العنوان: 5 شارع 9\nالفروع:\n${branchesText}\n${BRANCH_RULE}`));
+});

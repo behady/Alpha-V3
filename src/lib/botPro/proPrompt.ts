@@ -19,7 +19,7 @@
  *
  * Run: npm run test:pro-prompt
  */
-import { clinicAndPatientLayer, LANGUAGE_RULE, type BotPromptInput } from "@/lib/bot/botPrompt";
+import { clinicAndPatientLayer, HIDE_DOCTOR_NAMES_RULE, LANGUAGE_RULE, type BotPromptInput } from "@/lib/bot/botPrompt";
 import { arabicDayLabel, arabicTimeLabel } from "@/lib/arabicDateTime";
 import type { ProAppointment, ProPerson } from "./person";
 import { isEmptyLayer, type ClinicLayer } from "./layer";
@@ -178,6 +178,10 @@ const MONEY_RULES = [
   "- مفيش بيانات حساب، أو الرقم مش زي ما متوقع، أو بيعترض على مبلغ، أو عايز فاتورة أو استرداد: متجادلش ومتحسبش حاجة (ولا خصم ولا تقسيط) — handoff_other والاستقبال يراجع معاه.",
 ];
 
+/** The two rulebook lines that tell Pro to name a dentist; dropped while names are hidden. */
+const USUAL_DENTIST_PREFIX = "- لو بيتعالج عادةً عند دكتور معيّن";
+const NAMED_DENTIST_PREFIX = "- سؤال عن طبيب بالاسم";
+
 const PEOPLE_RULES = [
   "الناس والهويات:",
   "- سؤال عن طبيب بالاسم: جاوب من خانة \"الأطباء\" لو مكتوبة تحت (تخصصه، خبرته، أسلوبه) ورشّح المناسب. لو مش مكتوبة، أو السؤال عن حاجة مش فيها (رأيك الشخصي، مواعيده الخاصة، مين أشطر): handoff_staff.",
@@ -213,9 +217,12 @@ const VOICE = [
  * The fixed part of the Pro system prompt. Pure: same switches, same bytes — no clinic, patient,
  * date or clock in here, so Gemini's implicit prefix cache can hold it.
  */
-export function proRulebook(args: { clinical: boolean; canBook: boolean }): string {
+export function proRulebook(args: { clinical: boolean; canBook: boolean; hideDoctorNames?: boolean }): string {
   const clinical = args.clinical === true;
   const canBook = args.canBook === true;
+  // The owner's "don't mention dentists' names" switch: the two rules that tell Pro to name one
+  // leave; the rule that forbids it is in the turn layer. Off, the bytes are Plan 1's.
+  const named = (l: string) => args.hideDoctorNames === true && (l.startsWith(USUAL_DENTIST_PREFIX) || l.startsWith(NAMED_DENTIST_PREFIX));
   return [
     PRECEDENCE,
     "",
@@ -226,7 +233,7 @@ export function proRulebook(args: { clinical: boolean; canBook: boolean }): stri
     ...salesJob(canBook),
     ...(clinical ? ["", ...dentistJob(canBook)] : []),
     "",
-    ...bookingRules(canBook),
+    ...bookingRules(canBook).filter((l) => !named(l)),
     "",
     ...PRICE_RULES,
     "",
@@ -234,7 +241,7 @@ export function proRulebook(args: { clinical: boolean; canBook: boolean }): stri
     "",
     ...MONEY_RULES,
     "",
-    ...PEOPLE_RULES,
+    ...PEOPLE_RULES.filter((l) => !named(l)),
     "",
     ...complaintRules(canBook),
     "",
@@ -252,7 +259,8 @@ const LEGACY_NEW_NUMBER = "- رقم جديد، مش مسجل عندنا.";
 
 const PAST_SHOWN = 5;
 
-function doctorPart(doctor: string): string {
+function doctorPart(doctor: string, hide = false): string {
+  if (hide) return "";
   const d = String(doctor || "").trim();
   return d && d.toLowerCase() !== "any" ? ` مع ${d}` : "";
 }
@@ -274,18 +282,18 @@ function whoFor(a: ProAppointment, person: ProPerson): string {
   return name || "حد على الرقم ده (مش معروف مين)";
 }
 
-function upcomingLine(a: ProAppointment, person: ProPerson): string {
+function upcomingLine(a: ProAppointment, person: ProPerson, hideDoctor = false): string {
   const service = a.service?.trim() ? ` — ${a.service.trim()}` : "";
-  return `- ${whoFor(a, person)}: ${arabicDayLabel(a.date)} الساعة ${arabicTimeLabel(a.time)}${doctorPart(a.doctor)}${service}`;
+  return `- ${whoFor(a, person)}: ${arabicDayLabel(a.date)} الساعة ${arabicTimeLabel(a.time)}${doctorPart(a.doctor, hideDoctor)}${service}`;
 }
 
-function pastLine(a: ProAppointment, person: ProPerson): string {
+function pastLine(a: ProAppointment, person: ProPerson, hideDoctor = false): string {
   const service = a.service?.trim() ? ` (${a.service.trim()})` : "";
   const status = a.status?.trim() ? ` — الحالة: ${a.status.trim()}` : "";
-  return `- ${whoFor(a, person)}: ${arabicDayLabel(a.date)}${doctorPart(a.doctor)}${service}${status}`;
+  return `- ${whoFor(a, person)}: ${arabicDayLabel(a.date)}${doctorPart(a.doctor, hideDoctor)}${service}${status}`;
 }
 
-function personLines(person: ProPerson, extra: ProTurnExtra, canBook: boolean): string[] {
+function personLines(person: ProPerson, extra: ProTurnExtra, canBook: boolean, hideDoctor = false): string[] {
   const out: string[] = [];
   const today = extra.todayKey.trim();
   out.push(`\nالنهارده ${arabicDayLabel(today)} (${today}) — استخدم التاريخ ده لما تحسب from و to في find_slots.`);
@@ -311,7 +319,7 @@ function personLines(person: ProPerson, extra: ProTurnExtra, canBook: boolean): 
 
   out.push("\nالمواعيد الجاية على الرقم ده (من الجدول نفسه، حتى اللي الاستقبال حجزها بالتليفون):");
   if (person.upcoming.length) {
-    for (const a of person.upcoming) out.push(upcomingLine(a, person));
+    for (const a of person.upcoming) out.push(upcomingLine(a, person, hideDoctor));
   } else if (!person.degraded) {
     out.push("- مفيش أي ميعاد جاي لحد على الرقم ده.");
   }
@@ -330,7 +338,7 @@ function personLines(person: ProPerson, extra: ProTurnExtra, canBook: boolean): 
   const past = person.past.slice(0, PAST_SHOWN);
   if (past.length) {
     out.push(`\nآخر ${past.length} زيارات على الرقم ده (من الجدول، بحالة كل واحدة):`);
-    for (const a of past) out.push(pastLine(a, person));
+    for (const a of past) out.push(pastLine(a, person, hideDoctor));
   }
   return out;
 }
@@ -362,9 +370,13 @@ export function proTurnLayer(input: BotPromptInput, person: ProPerson, extra: Pr
   }).filter((line) => line !== LEGACY_NO_APPOINTMENT && !((person.degraded || person.upcoming.length > 0) && line === LEGACY_NEW_NUMBER));
 
   const memory = input.memory?.trim();
+  const hide = input.hideDoctorNames === true;
   return [
     ...base,
-    ...personLines(person, extra, input.canBook !== false),
+    // The owner's switch, said once before the people and appointments it applies to.
+    hide ? `
+${HIDE_DOCTOR_NAMES_RULE}` : "",
+    ...personLines(person, extra, input.canBook !== false, hide),
     memory ? `\nذاكرة من محادثات سابقة مع المريض ده (ابدأ من مكان ما وقفتوا، ومتعيدش اللي هو عارفه):\n${memory.slice(0, 900)}` : "",
   ]
     .filter(Boolean)

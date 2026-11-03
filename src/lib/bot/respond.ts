@@ -45,6 +45,7 @@ import { aiBrainOf, dryRunBrainTag, pickReply, type AiBrain } from "@/lib/botPro
 import { answerWithPro } from "@/lib/botPro/answerWithPro";
 import { isLatinMessage, localizeOutbound } from "./localize";
 import { loadPatientDossier, type PatientDossier } from "./patientDossier";
+import { appointmentLine, branchesTextOf, stripDoctorNames } from "./ownerRules";
 import { resolveSpokenPick } from "./spokenPick";
 import { DEFAULT_SCREENING, readScreeningAnswer } from "./medicineScreen";
 import { stripRepeatIntro } from "./repeatIntro";
@@ -115,6 +116,10 @@ interface BotSettings {
   personaName: string;
   /** Human pacing and bubble splitting. */
   humanTouch: boolean;
+  /** No dentist names in cards, lists, slot labels or AI replies; no dentist question. Default off. */
+  hideDoctorNames: boolean;
+  /** Add "closed now, we open at…" under a hand-off while the clinic is shut. Default off. */
+  closedNote: boolean;
   /** Which brain writes AI-first replies; "standard" unless the clinic chose Pro and has the add-on. */
   aiBrain: AiBrain;
 }
@@ -149,6 +154,10 @@ async function loadBotSettings(clinicId: string): Promise<BotSettings> {
     brief: cleanBrief(d.botBrief),
     personaName: typeof d.botPersonaName === "string" ? d.botPersonaName.trim() : "",
     humanTouch: d.botHumanTouch !== false,
+    // Owners' switches. Both off unless an admin turns them on: the closed note was asked to stop
+    // by the platform owner, so a clinic that wants it back opts in.
+    hideDoctorNames: d.botHideDoctorNames === true,
+    closedNote: d.botClosedNote === true,
     // The add-on is read only for a clinic that chose Pro: every other clinic reads what it did before.
     aiBrain: d.botAiBrain === "pro" ? aiBrainOf(d, await clinicHasFeature(clinicId, "whatsappPro").catch(() => false)) : "standard",
   };
@@ -331,12 +340,7 @@ async function findNextAppointment(
   return upcoming[0] ?? null;
 }
 
-/** How an appointment reads in a chat message. */
-function appointmentLine(a: { date: string; time: string; doctor: string }): string {
-  const parts = [`📅 ${arabicDayLabel(a.date)}`, `⏰ ${arabicTimeLabel(a.time)}`];
-  if (a.doctor && a.doctor.toLowerCase() !== "any") parts.push(`👨‍⚕️ ${a.doctor}`);
-  return parts.join("\n");
-}
+// appointmentLine (how an appointment reads in a chat message) lives in ./ownerRules, where it is tested.
 
 /**
  * Is the clinic open at this exact moment, in Cairo?
@@ -748,6 +752,8 @@ export async function respondToPatientMessage(args: {
   ctx.offersExpired = Boolean(settings.facts.offers?.trim()) && !offersActive;
 
   let profile: PublicClinicProfile | null = null;
+  // Two or more branches, one line each, for both brains; "" for everyone else (prompt unchanged).
+  let branchesText = "";
   try {
     // requireEnabled false: the assistant has its own opt-in and only answers people who wrote
     // first — tying it to the public-page switch would silently disable booking for every clinic
@@ -759,6 +765,9 @@ export async function respondToPatientMessage(args: {
     // did not include. The data has been sitting in clinic_info the whole time.
     ctx.addressText = profile.address;
     ctx.clinicPhone = profile.phone;
+    // "مكان بعيد عني" was answered with a promise of "the other branch's details" and nothing
+    // else: neither brain had ever been told the clinic has one.
+    branchesText = branchesTextOf(profile.branches);
   } catch {
     // No clinic_info at all. The menu offers the receptionist instead of inventing anything.
   }
@@ -768,7 +777,8 @@ export async function respondToPatientMessage(args: {
   // booking page does for strangers — a lid sender with no phone can register nothing.
   ctx.canOfferBooking = Boolean(profile?.schedule.isConfigured && patient);
   ctx.canRegister = Boolean(profile?.schedule.isConfigured && !patient && phone);
-  ctx.doctorCount = profile?.doctors.length ?? 0;
+  // Hidden names: the engine never opens the dentist question; booking goes to days (any chair).
+  ctx.doctorCount = settings.hideDoctorNames ? 0 : profile?.doctors.length ?? 0;
   if (patient && typeof patient.data.name === "string") ctx.patientName = patient.data.name;
   ctx.gender = guessGender(ctx.patientName);
   ctx.dayWord = parseDayWord(text, clinicNow().dateKey) || undefined;
@@ -897,6 +907,12 @@ export async function respondToPatientMessage(args: {
     const v = voiceFor(ctx.gender ?? "unknown");
 
     const listDoctors = () => {
+      // Names hidden by the owner: no dentist question at all — days for any chair, exactly the
+      // "أي دكتور 👌" pick (the appointment is written with doctor ""). Every caller lands here.
+      if (settings.hideDoctorNames) {
+        listDays("");
+        return;
+      }
       // The stored list carries "" last, meaning "any chair" — the same convention the ids use.
       const doctors = [...profile!.doctors, ""];
       const label = (d: string) => (d ? d : ANY_DOCTOR);
@@ -925,7 +941,7 @@ export async function respondToPatientMessage(args: {
         reason = "no_open_days";
         return;
       }
-      const heading = doctorName ? `📅 اختار اليوم اللي يناسبك مع ${doctorName}:` : "📅 اختار اليوم اللي يناسبك:";
+      const heading = doctorName && !settings.hideDoctorNames ? `📅 اختار اليوم اللي يناسبك مع ${doctorName}:` : "📅 اختار اليوم اللي يناسبك:";
       replyText = renderDayList(days);
       structure = {
         body: heading,
@@ -982,7 +998,7 @@ export async function respondToPatientMessage(args: {
           "✅ (تجربة) الحجز كان هيتسجل كده:",
           `📅 ${arabicDayLabel(dateKey)}`,
           `⏰ ${arabicTimeLabel(time)}`,
-          ...(doctorName ? [`👨‍⚕️ ${doctorName}`] : []),
+          ...(doctorName && !settings.hideDoctorNames ? [`👨‍⚕️ ${doctorName}`] : []),
           ...(treatment ? [`🦷 ${treatment}`] : []),
         ].join("\n");
         nextState = "awaiting_choice";
@@ -996,7 +1012,7 @@ export async function respondToPatientMessage(args: {
             "✅ تم تعديل ميعادك:",
             `📅 ${arabicDayLabel(dateKey)}`,
             `⏰ ${arabicTimeLabel(time)}`,
-            ...(doctorName ? [`👨‍⚕️ ${doctorName}`] : []),
+            ...(doctorName && !settings.hideDoctorNames ? [`👨‍⚕️ ${doctorName}`] : []),
             "",
             `${v.waitingForYou} 🦷`,
           ].join("\n");
@@ -1038,7 +1054,7 @@ export async function respondToPatientMessage(args: {
             settings.autoConfirm ? "✅ تم تأكيد حجزك:" : "✅ تم تسجيل طلب حجزك:",
             `📅 ${arabicDayLabel(dateKey)}`,
             `⏰ ${arabicTimeLabel(time)}`,
-            ...(doctorName ? [`👨‍⚕️ ${doctorName}`] : []),
+            ...(doctorName && !settings.hideDoctorNames ? [`👨‍⚕️ ${doctorName}`] : []),
             ...(treatment ? [`🦷 ${treatment}`] : []),
             "",
             settings.autoConfirm
@@ -1094,7 +1110,7 @@ export async function respondToPatientMessage(args: {
       const doctorName = appt.doctor && appt.doctor.toLowerCase() !== "any" ? appt.doctor : "";
       listDays(doctorName);
       if (nextState === "booking_day") {
-        const intro = ["تمام، هنعدّل ميعادك ده 🔁", "", appointmentLine(appt), ""].join("\n");
+        const intro = ["تمام، هنعدّل ميعادك ده 🔁", "", appointmentLine(appt, settings.hideDoctorNames), ""].join("\n");
         replyText = intro + "\n" + replyText;
         if (structure) structure = { ...structure, body: `${intro}\n${structure.body}` };
         reason = "reschedule_days";
@@ -1139,7 +1155,7 @@ export async function respondToPatientMessage(args: {
         replyText = [
           "تمام، ألغيت الميعاد ✅",
           "",
-          appointmentLine(appt),
+          appointmentLine(appt, settings.hideDoctorNames),
           "",
           `${v.youWant} نحجزلك ميعاد تاني في وقت يناسبك؟`,
         ].join("\n");
@@ -1157,7 +1173,7 @@ export async function respondToPatientMessage(args: {
 
       const label = kind === "cancel" ? "إلغاء" : kind === "reschedule" ? "تعديل" : "تأخير";
       replyText = appt
-        ? [`وصلتنا رسالتك بخصوص ${label} الميعاد 👍`, "", appointmentLine(appt), "", "الاستقبال هيتواصل معاك حالاً يأكدلك."].join("\n")
+        ? [`وصلتنا رسالتك بخصوص ${label} الميعاد 👍`, "", appointmentLine(appt, settings.hideDoctorNames), "", "الاستقبال هيتواصل معاك حالاً يأكدلك."].join("\n")
         : `وصلتنا رسالتك بخصوص ${label} الميعاد 👍 الاستقبال هيتواصل معاك حالاً.`;
       reason = `appointment_${kind}`;
       // The desk hears about it now. A running-late message has a shelf life measured in minutes,
@@ -1235,7 +1251,7 @@ ${urgentCallLine(ctx.clinicPhone)}`;
         } else {
           reason = "ack";
         }
-        replyText = [`تمام، ${v.waitingForYou} 🦷`, "", appointmentLine(appt)].join("\n");
+        replyText = [`تمام، ${v.waitingForYou} 🦷`, "", appointmentLine(appt, settings.hideDoctorNames)].join("\n");
       } else {
         const need = ctx.gender === "female" ? "محتاجة" : "محتاج";
         replyText = `تمام 🙏 لو حضرتك ${need} أي حاجة تانية إحنا هنا.`;
@@ -1244,7 +1260,7 @@ ${urgentCallLine(ctx.clinicPhone)}`;
     } else if (act.type === "my_appointment") {
       const appt = patient ? await findNextAppointment(clinicId, patient.id) : null;
       if (appt) {
-        replyText = [`ميعادك الجاي 👇`, "", appointmentLine(appt), "", "لو حابب تعدله أو تلغيه ابعتلنا وهنظبطهولك."].join("\n");
+        replyText = [`ميعادك الجاي 👇`, "", appointmentLine(appt, settings.hideDoctorNames), "", "لو حابب تعدله أو تلغيه ابعتلنا وهنظبطهولك."].join("\n");
         structure = { body: replyText, buttons: menuButtons(Boolean(ctx.canOfferBooking)) };
         reason = "appointment_told";
       } else {
@@ -1297,8 +1313,8 @@ ${urgentCallLine(ctx.clinicPhone)}`;
        * cheap call it always made.
        */
       const sales = settings.aiFirst;
-      const salesContext = sales ? await loadSalesContext(clinicId, chatId, patient, ctx) : null;
-      let slotOffer = sales && profile?.schedule.isConfigured && (ctx.canOfferBooking || ctx.canRegister) ? await nextSlots(clinicId, profile, branchId, conversation.pendingDoctor ?? "", rescheduleId || null, readTimePreference(act.question, clinicDayBoundsMinutes(profile.schedule))) : [];
+      const salesContext = sales ? await loadSalesContext(clinicId, chatId, patient, ctx, settings.hideDoctorNames) : null;
+      let slotOffer = sales && profile?.schedule.isConfigured && (ctx.canOfferBooking || ctx.canRegister) ? await nextSlots(clinicId, profile, branchId, conversation.pendingDoctor ?? "", rescheduleId || null, readTimePreference(act.question, clinicDayBoundsMinutes(profile.schedule)), settings.hideDoctorNames) : [];
       heardIntroBefore = (salesContext?.thread || []).some(
         (line) => line.author === "bot" && Boolean(settings.personaName) && line.text.includes(settings.personaName)
       );
@@ -1309,7 +1325,9 @@ ${urgentCallLine(ctx.clinicPhone)}`;
         patientName: ctx.patientName,
         hoursText: ctx.hoursText,
         addressText: ctx.addressText,
+        branchesText,
         clinicPhone: ctx.clinicPhone,
+        hideDoctorNames: settings.hideDoctorNames,
         facts: ctx.facts,
         history: conversation.aiHistory ?? [],
         mode: sales ? "sales" : "assisted",
@@ -1931,9 +1949,27 @@ ${askWho}` : askWho;
     structure = localized.structure;
   }
 
+  /*
+   * Names hidden by the owner — the backstop behind the prompt rule. The cards and lists already
+   * leave the dentist out; this catches a model (either brain) that names one anyway, or an old
+   * line in the thread it repeated. The name becomes "الدكتور"; nobody is handed off over it.
+   */
+  if (settings.hideDoctorNames && profile?.doctors.length && replyText.trim()) {
+    const cleaned = stripDoctorNames(replyText, profile.doctors);
+    if (cleaned.stripped) {
+      replyText = cleaned.text;
+      if (structure) structure = { ...structure, body: stripDoctorNames(structure.body, profile.doctors).text };
+      if (aiExchange) aiExchange = { ...aiExchange, a: stripDoctorNames(aiExchange.a, profile.doctors).text };
+      void adminClinicCollection(clinicId, "ai_debug")
+        .add({ kind: "doctor_name_stripped", doctorNameStripped: true, reason, brain: brainUsed ?? "none", createdAt: FieldValue.serverTimestamp() })
+        .catch(() => {});
+    }
+  }
+
   // A promise of a person, made while the clinic is shut, says when the person will actually be
   // there. "في أقرب وقت" at 1am on a Thursday and on the Friday it is closed were the same words.
-  if (handoff && profile && replyText.trim() && !reason.startsWith("appointment_") && !reason.startsWith("ai_cancel") && !reason.startsWith("ai_late")) {
+  // Off unless the clinic switched it on (botClosedNote): owners asked for it to stop.
+  if (settings.closedNote && handoff && profile && replyText.trim() && !reason.startsWith("appointment_") && !reason.startsWith("ai_cancel") && !reason.startsWith("ai_late")) {
     const st = openRightNow(profile.schedule);
     if (!st.open) replyText = `${replyText}\n\n${latinPatient ? closedNoteEn(profile.schedule) : closedNote(profile.schedule)}`;
   }
@@ -2246,7 +2282,9 @@ export async function nextSlots(
   branchId: string | null,
   doctorName: string,
   ignoreAppointmentId?: string | null,
-  askedFor?: TimePreference
+  askedFor?: TimePreference,
+  /** The owner's "don't mention dentists' names": the label leaves the dentist out, the key keeps it. */
+  hideDoctor = false
 ): Promise<Array<{ key: string; label: string }>> {
   const out: Array<{ key: string; label: string }> = [];
   try {
@@ -2272,7 +2310,7 @@ export async function nextSlots(
           const time = minutesToTimeKey(minutes);
           const key = `${dateKey}|${time}|${doctorName}`;
           if (out.some((s) => s.key === key)) continue;
-          out.push({ key, label: `${arabicDayLabel(dateKey)} الساعة ${arabicTimeLabel(time)}${doctorName ? ` مع ${doctorName}` : ""}` });
+          out.push({ key, label: `${arabicDayLabel(dateKey)} الساعة ${arabicTimeLabel(time)}${doctorName && !hideDoctor ? ` مع ${doctorName}` : ""}` });
         }
         if (out.length >= 6) break;
       }
@@ -2298,7 +2336,9 @@ async function loadSalesContext(
   clinicId: string,
   chatId: string,
   patient: { id: string; data: Record<string, unknown> } | null,
-  ctx: BotContext
+  ctx: BotContext,
+  /** The owner's "don't mention dentists' names": no dentist on the upcoming line or in the file. */
+  hideDoctor = false
 ): Promise<{
   thread: AiThreadLine[];
   patient: AiPatientContext;
@@ -2351,7 +2391,9 @@ async function loadSalesContext(
   const lastVisit = typeof patient?.data.lastVisit === "string" ? patient.data.lastVisit : undefined;
   // Their own file: what was done, what is owed, what the dentist prescribed. Only ever for a
   // number the clinic has already identified — a stranger has no record to read.
-  const dossier = patient ? await loadPatientDossier(clinicId, patient.id).catch(() => undefined) : undefined;
+  const file = patient ? await loadPatientDossier(clinicId, patient.id).catch(() => undefined) : undefined;
+  // Prompt-only (never written anywhere), so an undefined field here reaches no Firestore write.
+  const dossier = hideDoctor && file ? { ...file, usualDoctor: undefined } : file;
 
   return {
     thread,
@@ -2364,7 +2406,7 @@ async function loadSalesContext(
       known: Boolean(patient),
       name: ctx.patientName,
       gender: ctx.gender,
-      upcomingAppointment: upcoming ? appointmentLine(upcoming).replace(/\n/g, " ") : undefined,
+      upcomingAppointment: upcoming ? appointmentLine(upcoming, hideDoctor).replace(/\n/g, " ") : undefined,
       lastVisit,
     },
   };

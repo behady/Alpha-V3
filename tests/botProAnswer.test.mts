@@ -554,3 +554,54 @@ await test("no layer (null) changes nothing", async () => {
   await answerWithPro(args({ question: "اهلا" }), { model: model3, context: makeContext({ layer: null }), sink: fakeSink() });
   assert.equal(model2.systems[0], model3.systems[0]);
 });
+
+/* Owner switches: branches and hidden dentist names. */
+
+const BRANCHES = "• المعادي: شارع 9 — ت: 01001234567\n• التجمع: عمارة 12 ألف مسكن — ت: 01112223334";
+
+await test("a branch's phone and address in the reply are the clinic's own numbers, not stray ones", async () => {
+  const text = "أقرب فرع ليك التجمع: عمارة 12 ألف مسكن، وتليفونه 01112223334";
+  // Without the branch list the same reply is caught (the guard is real)...
+  const bare = fakeModel([reply({ action: "answer", reply: text }), reply({ action: "answer", reply: "أقرب فرع ليك التجمع" })]);
+  const sinkBare = fakeSink();
+  await answerWithPro(args({ question: "المكان بعيد عني" }), { model: bare, context: makeContext(), sink: sinkBare });
+  assert.equal(bare.calls.length, 2, "corrected once without the branches");
+  // ...and with it the reply goes out as written, first time.
+  const model = fakeModel([reply({ action: "answer", reply: text })]);
+  const r = await answerWithPro(args({ question: "المكان بعيد عني", branchesText: BRANCHES }), { model, context: makeContext(), sink: fakeSink() });
+  assert.equal(model.calls.length, 1);
+  assert.equal(r.kind, "answer");
+  if (r.kind === "answer") assert.equal(r.text, text);
+  assert.ok(model.systems[0].includes(`الفروع:\n${BRANCHES}`));
+});
+
+await test("no branches and names not hidden: the system prompt is byte-identical", async () => {
+  const a = fakeModel([reply({ action: "answer", reply: "اهلا" })]);
+  await answerWithPro(args({ question: "اهلا" }), { model: a, context: makeContext(), sink: fakeSink() });
+  const b = fakeModel([reply({ action: "answer", reply: "اهلا" })]);
+  await answerWithPro(args({ question: "اهلا", hideDoctorNames: false, branchesText: "" }), { model: b, context: makeContext(), sink: fakeSink() });
+  assert.equal(a.systems[0], b.systems[0]);
+});
+
+await test("hidden names: slots Pro finds or carries over are offered with no dentist in them", async () => {
+  const p = person({ upcoming: [], past: [appt({ id: "a0", date: addDays(TODAY, -30), doctor: "Sara Ali", status: "Completed" })] });
+  const model = fakeModel([
+    call("find_slots", { from: TODAY, to: addDays(TODAY, 1), doctor: "Mohamed Ehab" }),
+    reply({ action: "answer", reply: "عندي بكره الساعة 5:00 م" }),
+  ]);
+  const r = await answerWithPro(
+    args({ hideDoctorNames: true, previousSlotKeys: [slotKey(addDays(TODAY, 1), "05:00 PM", "Sara Ali")], facts: { dentists: "د. Mohamed Ehab — زراعة" } }),
+    { model, context: makeContext({ person: p }), sink: fakeSink() }
+  );
+  for (const name of ["Mohamed Ehab", "Sara Ali"]) {
+    assert.ok(!model.systems[0].includes(name), `no ${name} in the prompt`);
+    assert.ok(!JSON.stringify((model.calls[1] as unknown[]).at(-1)).includes(name), `no ${name} in the tool result`);
+  }
+  assert.ok(r.kind === "answer" && (r.slotsShown ?? []).length > 0);
+  if (r.kind === "answer") {
+    for (const s of r.slotsShown ?? []) assert.ok(!s.label.includes("مع "), s.label);
+    // The chair is still chosen internally: the key keeps the dentist the booking will use.
+    assert.ok((r.slotsShown ?? []).some((s) => s.key.endsWith("|Mohamed Ehab")));
+  }
+  assert.ok(model.systems[0].includes('- ممنوع تذكر اسم أي دكتور أو طبيب في ردودك'));
+});

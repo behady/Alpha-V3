@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildBotPrompt, fixedPromptLayers, LANGUAGE_RULE, type BotPromptInput } from "../src/lib/bot/botPrompt";
+import { buildBotPrompt, fixedPromptLayers, LANGUAGE_RULE, promptVersion, type BotPromptInput } from "../src/lib/bot/botPrompt";
 
 /**
  * The WhatsApp prompt's SHAPE, pinned.
@@ -198,4 +198,51 @@ run("consult keeps the service names, without prices", () => {
   assert.ok(p.includes("قائمة الخدمات اللي بنقدمها"), "under the consult heading");
   assert.ok(!p.includes("15,000") && !p.includes("3,500"), "no price figures");
   assert.ok(!p.includes("قائمة الخدمات والأسعار"), "not the priced heading");
+});
+
+/* Owner switches (bot-owner-rules): dentist names hidden, branches shown. Off = today's prompt. */
+
+const HIDE_RULE = '- ممنوع تذكر اسم أي دكتور أو طبيب في ردودك: قول "الدكتور" أو "الدكتور المختص" وخلاص، حتى لو المريض سأل.';
+const BRANCH_RULE = "- لو المريض قال إن المكان بعيد أو سأل عن فرع تاني: اعرض عليه الفروع من القائمة (الاسم والعنوان) واسأله أنهي أقرب له — متحوّلش للاستقبال عشان سؤال عن فرع.";
+const USUAL_DENTIST = "- لو المريض بيتعالج عادةً عند دكتور معيّن (مكتوب في ملفه)، اعرض عليه المواعيد بتاعته الأول واذكر اسمه.";
+const FROM_DENTISTS = 'جاوب من خانة "الأطباء"';
+
+run("the prompt is unchanged when neither new input is set", () => {
+  for (const v of [base, { ...base, clinical: true }, { ...base, mode: "assisted" as const }, { ...base, canBook: false }]) {
+    const plain = buildBotPrompt(v);
+    assert.equal(buildBotPrompt({ ...v, hideDoctorNames: false, branchesText: "" }), plain);
+    assert.equal(buildBotPrompt({ ...v, hideDoctorNames: undefined, branchesText: "   " }), plain);
+    assert.deepEqual(fixedPromptLayers(v.mode, v.clinical, v.canBook, false), fixedPromptLayers(v.mode, v.clinical, v.canBook));
+    assert.equal(promptVersion(v.mode, v.clinical, v.canBook, false), promptVersion(v.mode, v.clinical, v.canBook));
+    assert.ok(!plain.includes(HIDE_RULE) && !plain.includes("الفروع:") && !plain.includes(BRANCH_RULE));
+    assert.ok(plain.includes("- الأطباء: د. محمد سمير"), "the dentists section is still there");
+    assert.ok(plain.includes(USUAL_DENTIST) && plain.includes(FROM_DENTISTS));
+  }
+});
+
+run("hidden names: the rule is there, the dentists section and the usual-dentist rule are gone", () => {
+  const p = buildBotPrompt({ ...base, hideDoctorNames: true });
+  assert.equal(p.split("\n").filter((l) => l === HIDE_RULE).length, 1, "said once");
+  assert.ok(!p.includes("- الأطباء:"), "no الأطباء section");
+  assert.ok(!p.includes("د. محمد سمير"), "no dentist name from the facts");
+  assert.ok(!p.includes(USUAL_DENTIST), "no usual-dentist rule");
+  assert.ok(!p.includes(FROM_DENTISTS), "no answer-from-the-dentists rule");
+  // The rule sits in the fixed layers with the other people rules, so it outranks layer 5.
+  assert.ok(fixedPromptLayers("sales", false, true, true).includes(HIDE_RULE));
+  assert.ok(p.indexOf(HIDE_RULE) < p.indexOf("معلومات العيادة:"));
+  assert.notEqual(promptVersion("sales", false, true, true), promptVersion("sales", false, true));
+  // The other facts are untouched.
+  assert.ok(buildBotPrompt({ ...base, facts: { parking: "قدام العيادة" }, hideDoctorNames: true }).includes("- الباركن: قدام العيادة"));
+});
+
+run("branches: a الفروع block right after the address, and the far-away rule", () => {
+  const branchesText = "• المعادي: شارع 9 — ت: 01001234567\n• مدينة نصر: 12 عباس العقاد";
+  const p = buildBotPrompt({ ...base, branchesText });
+  assert.ok(p.includes(`العنوان: ${base.addressText}\nالفروع:\n${branchesText}\n`), "right after the address line");
+  assert.ok(p.includes(BRANCH_RULE));
+  assert.ok(p.indexOf(BRANCH_RULE) > p.indexOf("الفروع:"));
+  // A clinic with branches but no single address still gets the block.
+  assert.ok(buildBotPrompt({ ...base, addressText: undefined, branchesText }).includes(`الفروع:\n${branchesText}`));
+  // Layers 1-4 do not change for a branch list.
+  assert.ok(p.startsWith(fixedPromptLayers("sales", false, true).filter(Boolean).join("\n")));
 });

@@ -207,7 +207,11 @@ export async function loadProContext(args: ProArgs): Promise<ProContext> {
         ? computeAvailableSlots({ clinicId, dateKey, doctorName: doctor || null, branchId, profile, ignoreAppointmentId: null })
         : Promise.resolve([]),
     dayLabel: slotLabel,
-    patientFile: async (id) => dossierLines(await loadPatientDossier(clinicId, id)),
+    patientFile: async (id) => {
+      const file = await loadPatientDossier(clinicId, id);
+      // The owner's "don't mention dentists' names" switch: the usual dentist stays out of the file.
+      return dossierLines(args.hideDoctorNames === true && file ? { ...file, usualDoctor: undefined } : file);
+    },
     layer,
   };
 }

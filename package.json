@@ -53,6 +53,7 @@
     "test:pro-onboarding": "npx tsx tests/botProOnboarding.test.mts",
     "test:pro-replay": "npx tsx tests/botProReplay.test.mts",
     "test:pro-onboarding-routes": "npx tsx tests/botProOnboardingRoutes.test.mts",
+    "test:bot-owner-rules": "npx tsx tests/botOwnerRules.test.mts",
     "battery:pro": "npx tsx scripts/pro-battery.mts",
     "test:brief-route": "npx tsx tests/briefDraftRoute.test.mts",
     "test:scripts": "npx tsx tests/botScripts.test.mts",
