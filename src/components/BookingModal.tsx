@@ -85,6 +85,7 @@ import { PRIVATE_PAYER_ID, payerForPriceList } from "@/lib/payers";
 import { serviceMenuById } from "@/lib/serviceMenu";
 import { serviceDisplayName } from "@/lib/serviceName";
 import InsurerBadge from "@/components/shared/InsurerBadge";
+import XrayCodeField from "@/components/patients/XrayCodeField";
 
 interface AppointmentData {
   patientId: string;
@@ -1119,7 +1120,17 @@ export default function BookingModal({
   useEffect(() => {
     if (quickPay && isOpen) setWideTab(headerPatientId ? "payment" : "appointment");
   }, [quickPay, isOpen, headerPatientId]);
-  const [patientCard, setPatientCard] = useState<{ id: string; fileId: string; phone: string } | null>(null);
+  const [patientCard, setPatientCard] = useState<{ id: string; fileId: string; phone: string; xrayCode: string | null } | null>(null);
+  /** The header's x-ray code: the patient was read once, so a save is written back here to show. */
+  const xrayField =
+    patientCard && patientCard.id === headerPatientId && patientCard.xrayCode !== null && !isNewPatient ? (
+      <XrayCodeField
+        patientId={headerPatientId}
+        value={patientCard.xrayCode}
+        variant="band"
+        onSaved={(code) => setPatientCard((c) => (c && c.id === headerPatientId ? { ...c, xrayCode: code } : c))}
+      />
+    ) : null;
   useEffect(() => {
     if (!wideLayout || !headerPatientId) return;
     let live = true;
@@ -1127,9 +1138,10 @@ export default function BookingModal({
       .then((snap) => {
         if (!live) return;
         const d = snap.exists() ? snap.data() : {};
-        setPatientCard({ id: headerPatientId, fileId: String(d.fileId || ""), phone: String(d.phone || "") });
+        setPatientCard({ id: headerPatientId, fileId: String(d.fileId || ""), phone: String(d.phone || ""), xrayCode: String(d.xrayCode || "") });
       })
-      .catch(() => live && setPatientCard({ id: headerPatientId, fileId: "", phone: "" }));
+      // xrayCode null = not read, so the header offers no "add" that could overwrite a code it never saw.
+      .catch(() => live && setPatientCard({ id: headerPatientId, fileId: "", phone: "", xrayCode: null }));
     return () => {
       live = false;
     };
@@ -2143,6 +2155,8 @@ servicesList.length > 0 && (
                 <X size={18} />
               </button>
             </div>
+            {/* Its own row: the name above may be a button, and a button cannot hold another. */}
+            {xrayField && <div className="-mt-1 px-4 pb-3 ps-[68px]">{xrayField}</div>}
             <div className="relative">
             <div
               ref={setPhoneTabStrip}
@@ -2216,6 +2230,7 @@ servicesList.length > 0 && (
                   <b className="font-figure font-semibold text-white">{card?.phone || `${newPatientCountryCode} ${newPatientPhone}`}</b>
                 </p>
               )}
+              {xrayField && <div>{xrayField}</div>}
               {!patientName && !editAppointment && (
                 <p className="text-sm text-white/70">{isAr ? "اختار المريض تحت" : "Pick the patient below"}</p>
               )}

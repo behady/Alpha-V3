@@ -73,6 +73,7 @@ import {
   type PatientHistory, type VisitMoney,
 } from "@/lib/scheduleCard";
 import ScheduleCardDetails, { AlertBadge, ChairProgress } from "@/components/dashboard/ScheduleCardDetails";
+import XrayCodeField from "@/components/patients/XrayCodeField";
 import UserClockWidget from "@/components/dashboard/UserClockWidget";
 import { currentClinicId, getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { syncClaimLineFromAppointment } from "@/lib/insurance/appointmentSync";
@@ -618,6 +619,8 @@ export default function DesktopDashboard() {
         phone: d.data().phone,
         allergies: d.data().allergies,
         medicalHistory: d.data().medicalHistory,
+        // The x-ray machine's name for the patient, shown and edited on each card.
+        xrayCode: d.data().xrayCode,
       })))
     );
     const unsubDoctors = onSnapshot(getClinicCollection("staff"), (snap) => {
@@ -1840,6 +1843,20 @@ export default function DesktopDashboard() {
                                                                         {phone && (
                                                                             <span className="font-figure text-[13px] text-ink-body font-semibold truncate mt-0.5" dir="ltr">
                                                                                 {phone}
+                                                                            </span>
+                                                                        )}
+                                                                        {/* The scan's name on the x-ray PC, read and written from the card.
+                                                                            Its clicks and drags stay here, so editing it neither opens the
+                                                                            visit nor picks the card up. */}
+                                                                        {apt.patientId && apt.patientId !== "NEW_PATIENT" && (
+                                                                            <span
+                                                                                className="mt-0.5"
+                                                                                draggable
+                                                                                onDragStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                                                                onClick={(e) => e.stopPropagation()}
+                                                                                onDoubleClick={(e) => e.stopPropagation()}
+                                                                            >
+                                                                                <XrayCodeField patientId={String(apt.patientId)} value={patient?.xrayCode} variant="card" />
                                                                             </span>
                                                                         )}
                                                                     </div>
