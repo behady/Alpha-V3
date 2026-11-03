@@ -225,3 +225,44 @@ async function attachKnownPatientIfMissing(
   if (typeof snap.data()?.patientId === "string" && snap.data()?.patientId) return;
   await parent.set(known, { merge: true });
 }
+
+/** What the bot knows about the message it is answering, to tell a NEW message from a copy of this one. */
+export type CurrentInbound = { text: string; messageId?: string };
+
+/**
+ * Is this thread line a patient message newer than the one being answered?
+ *
+ * The gateway re-delivers a slow webhook (same messageId, a later `at`) and the copy is written to
+ * the thread before the dedupe drops it, so "newer" is by id and text, not by time alone. Pure, so
+ * the rule is unit-tested; patientWroteAfter does the read.
+ */
+export function isNewerPatientLine(line: Record<string, unknown>, current: CurrentInbound, sinceMs: number): boolean {
+  if (line.direction !== "in" || line.author !== "patient") return false;
+  if (!(Number(line.at) > sinceMs)) return false;
+  if (current.messageId && line.messageId === current.messageId) return false;
+  const text = String(line.text ?? "").replace(/\s+/g, " ").trim();
+  return text !== current.text.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Did the patient write again after this turn began?
+ *
+ * Several messages in quick succession each start their own turn, and with a slow model the
+ * turns overlap: three questions in twenty seconds once got three overlapping answers, two of them
+ * repeating the hours and the address. The latest turn sees the whole thread and answers all of
+ * it, so an answer composed for an older message can be dropped unsent. Never throws: a read
+ * failure means "nothing newer", and the answer goes out as before.
+ */
+export async function patientWroteAfter(clinicId: string, address: string, sinceMs: number, current: CurrentInbound): Promise<boolean> {
+  try {
+    const snap = await adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(address))
+      .collection("messages")
+      .where("at", ">", sinceMs)
+      .orderBy("at", "asc")
+      .limit(8)
+      .get();
+    return snap.docs.some((d) => isNewerPatientLine(d.data() || {}, current, sinceMs));
+  } catch {
+    return false;
+  }
+}

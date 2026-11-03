@@ -521,6 +521,7 @@ export async function POST(request: NextRequest) {
             clinicId,
             chatId: msg.from,
             phone: msg.from,
+            messageId: msg.messageId || undefined,
             text,
             media,
             ad: msg.ad,

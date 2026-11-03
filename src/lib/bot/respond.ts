@@ -52,7 +52,7 @@ import { stripRepeatIntro } from "./repeatIntro";
 import { feminizeAddress } from "./voiceFix";
 import { SALES_CLOSE_REASONS, LEAD_INTEREST_REASONS, activeOffers, closingLine, offerForService } from "./sales";
 import { markBotLeadBooked, snoozeBotLead, upsertBotLead } from "./botLeads";
-import { recordThreadMessage } from "./thread";
+import { patientWroteAfter, recordThreadMessage } from "./thread";
 import { adSubjectText, adSystemLine, readStoredAd, type AdReferral } from "./adReferral";
 import { clinicalReplyText,
   urgentCallLine, decideBotReply, type BotContext } from "./engine";
@@ -505,6 +505,8 @@ export async function respondToPatientMessage(args: {
   chatId: string;
   /** The sender's phone when the payload revealed one; empty behind a lid. */
   phone?: string;
+  /** WhatsApp's id of this message, when the channel gave one: tells a newer message from a redelivered copy. */
+  messageId?: string;
   text: string;
   /**
    * Set when the message carried a photo, voice note, video or document.
@@ -2151,6 +2153,12 @@ ${askWho}` : askWho;
   let firstSentAt = Date.now();
   let firstSent = false;
   try {
+    // Several messages in quick succession: the patient wrote again while this answer was being
+    // composed, so the newer turn — which sees the whole thread — answers everything, and this
+    // one is dropped unsent. Only a plain model answer: a booking, a card or a hand-off still goes.
+    if (!args.dryRun && reason === "ai_answer" && (await patientWroteAfter(clinicId, chatId, now, { text, messageId: args.messageId }))) {
+      return skip("superseded");
+    }
     // Two invocations composing the same answer at the same moment (two quick messages from the
     // patient, each answered): exactly one of them gets to send it. See lib/bot/replyClaims.
     if (!args.dryRun && !(await claimOnce(clinicId, claimKey("out", conversationKey(replyTo), body), 90_000))) {

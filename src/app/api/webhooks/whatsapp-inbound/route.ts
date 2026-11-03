@@ -534,6 +534,7 @@ export async function POST(request: NextRequest) {
       clinicId,
       chatId,
       phone,
+      messageId: inboundId || undefined,
       text,
       media: mediaKind,
       mediaNote,
