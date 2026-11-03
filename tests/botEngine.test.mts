@@ -335,3 +335,16 @@ assert.equal(decideBotReply({ state: "awaiting_choice", text: "عايز الغي
 assert.equal(decideBotReply({ state: "awaiting_choice", text: "عايز الغي الميعاد", ctx: aiCtx }).reason, "cancel_request", "outside sales mode it stays deterministic");
 
 console.log("✓ sales mode: booking opens only from the model, a button, or a digit");
+
+// A hidden number (a lid sender who has not typed it): booking asks for the number, no hand-off.
+// Everything else about such a sender is a stranger's conversation, unchanged.
+const hiddenCtx: BotContext = { clinicName: "Alpha Dental", phoneHidden: true };
+for (const text of ["1", "عايز احجز"]) {
+  const d = decideBotReply({ state: "awaiting_choice", text, ctx: hiddenCtx });
+  assert.equal(d.handoff, false, `${text}: no hand-off`);
+  assert.equal(d.reason, "ask_phone");
+  assert.ok(d.reply.includes("رقم موبايلك"), "asks for the number");
+  assert.equal(d.next, "awaiting_choice");
+}
+assert.equal(decideBotReply({ state: "awaiting_choice", text: "2", ctx: hiddenCtx }).reason, "hours", "hours still answered");
+console.log("✓ hidden number: booking asks for the number instead of handing off");

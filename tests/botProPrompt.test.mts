@@ -12,6 +12,7 @@
  * Run: npm run test:pro-prompt
  */
 import assert from "node:assert/strict";
+import { PHONE_HIDDEN_LINE } from "../src/lib/bot/botPrompt";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -454,4 +455,16 @@ test("the hide rule's line break is written as \\n, not a raw line ending inside
   const t = proTurnLayer({ ...withDentists(), hideDoctorNames: true }, named, TODAY);
   assert.ok(t.includes(`\n\n${HIDE_RULE}\n`) || t.includes(`\n${HIDE_RULE}\n`));
   assert.ok(!t.includes("\r"));
+});
+
+// ---- hidden number (a lid sender) ---------------------------------------------------------------
+
+test("hidden number: the rulebook asks for the number only while booking is closed", () => {
+  const closed = proRulebook({ clinical: false, canBook: false, phoneHidden: true });
+  assert.ok(closed.includes(PHONE_HIDDEN_LINE));
+  assert.equal(closed.split("\n").filter((l) => l === PHONE_HIDDEN_LINE).length, 1);
+  assert.ok(!proRulebook({ clinical: false, canBook: true, phoneHidden: true }).includes(PHONE_HIDDEN_LINE), "open booking: no ask");
+  for (const canBook of [true, false]) {
+    assert.equal(proRulebook({ clinical: true, canBook, phoneHidden: false }), proRulebook({ clinical: true, canBook }), "false = today's bytes");
+  }
 });

@@ -154,6 +154,8 @@ export interface BotConversation {
   memory?: string;
   /** The patient last wrote in Latin script, so the fixed lines and the buttons go out in English. */
   lastLatin?: boolean;
+  /** A lid (hidden-number) sender typed their phone; nobody was on file for it, so it lives here. */
+  claimedPhone?: string;
   /**
    * Why the previous turn answered the way it did.
    *
@@ -348,6 +350,7 @@ export async function loadConversation(
     memory: typeof d.memory === "string" ? d.memory : undefined,
     // Survives expiry with the memory: the language somebody speaks does not lapse in an hour.
     lastLatin: d.lastLatin === true,
+    claimedPhone: typeof d.claimedPhone === "string" && d.claimedPhone ? d.claimedPhone : undefined,
     lastReason: typeof d.lastReason === "string" ? d.lastReason : undefined,
     aiReplies: !expired ? Number(d.aiReplies) || 0 : 0,
     aiHistory:

@@ -895,7 +895,8 @@ function Thread({
     : !!chat.lastInboundAt && Date.now() - chat.lastInboundAt > REPLY_WINDOW_MS;
   // Meta drops out-of-window text silently; the unofficial gateway does not. Block only where it
   // would silently fail — a disabled box the receptionist can see beats a "sent" that never lands.
-  const blocked = !chat.isPlayground && (isLid || (windowClosed && officialChannel) || chat.optedOut === true);
+  // The gateway delivers to a lid; only the official channel has no address for it.
+  const blocked = !chat.isPlayground && ((isLid && officialChannel) || (windowClosed && officialChannel) || chat.optedOut === true);
   const humanHold = chat.botPaused === true || (chat.humanActiveAtMs || 0) > Date.now() - claimMs;
   const handling = !chat.isPlayground && (chat.botPaused === true || chat.needsHuman === true || humanHold);
 

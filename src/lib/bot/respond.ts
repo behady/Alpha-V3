@@ -623,6 +623,7 @@ export async function respondToPatientMessage(args: {
    * claimant's chat. The claimant learns nothing and receives nothing. The binding source is
    * recorded so staff can always see which mappings were self-declared.
    */
+  let claimedNow = "";
   if (isLidChat && !phone && !patient) {
     const claimed = normalizeToE164AssumingCountry(text);
     if (claimed) {
@@ -635,23 +636,25 @@ export async function respondToPatientMessage(args: {
         });
         patient = claimedPatient;
         phone = patientSendablePhone(claimedPatient.data);
+      } else {
+        // Nobody on file for that number: a NEW patient behind a lid. The number is kept on the
+        // thread (claimedPhone) and, from the next line on, this chat has a phone — booking can
+        // ask their name and create the record exactly as it does for a visible number. Replies
+        // keep going to the lid thread, which is the chat the patient is actually looking at.
+        claimedNow = claimed;
+        await adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(chatId)).set({ claimedPhone: claimed, claimedPhoneAt: now }, { merge: true });
       }
     }
   }
 
   /*
-   * Where the reply must go. Sending to a lid is verified NOT to deliver — Wapilot's worker fails
-   * it with a 422 after accepting it — so a lid sender the system cannot map to a phone cannot be
-   * answered at all yet. Pretending otherwise would advance the conversation and burn the reply
-   * budget on messages nobody receives, so the honest outcome is a handoff: the message lands in
-   * front of a person, and the very next message the clinic sends this patient (a confirmation, a
-   * receipt) teaches the mapping and unlocks the bot for them.
+   * Where the reply must go. A lid is a valid reply address on the gateway (lib/whatsapp.ts:
+   * verified live 2026-08-29), so a sender the system cannot name is still answered — as a
+   * stranger with no record: questions, prices, the address. Booking needs a phone (canRegister),
+   * and the engine and both brains ask for it instead (phoneHidden). Until Nov 2026 such chats
+   * were handed to a person without a word; at Asnany that was 17% of all chats.
    */
   const replyTo = phone || chatId;
-  if (isLidChat && !phone) {
-    await markHandoff(clinicId, conversationKey(chatId), "lid_unidentified");
-    return skip("lid_unidentified");
-  }
 
   // A patient who asked to be left alone asked to be left alone. This is checked before the
   // engine, so no branch of it can ever talk to someone who opted out.
@@ -681,6 +684,13 @@ export async function respondToPatientMessage(args: {
   }
 
   const conversation = await loadConversation(clinicId, chatId, now, { humanClaimMs: settings.humanClaimMs });
+  // A lid sender who gave their number, now or on an earlier turn: identity from the number,
+  // replies still to the lid thread.
+  const claimedPhone = claimedNow || (isLidChat && !phone ? conversation.claimedPhone || "" : "");
+  if (claimedPhone && !phone) {
+    phone = claimedPhone;
+    if (!patient) patient = await findPatient(clinicId, phone);
+  }
 
   // An ad tap opens a chat; this is the moment the person behind it actually said something.
   // Once per number — the ads report separates "clicked" from "wrote" on it.
@@ -777,6 +787,8 @@ export async function respondToPatientMessage(args: {
   // booking page does for strangers — a lid sender with no phone can register nothing.
   ctx.canOfferBooking = Boolean(profile?.schedule.isConfigured && patient);
   ctx.canRegister = Boolean(profile?.schedule.isConfigured && !patient && phone);
+  // WhatsApp hid the number and nobody has typed it yet: booking asks for it instead of a hand-off.
+  ctx.phoneHidden = isLidChat && !phone;
   // Hidden names: the engine never opens the dentist question; booking goes to days (any chair).
   ctx.doctorCount = settings.hideDoctorNames ? 0 : profile?.doctors.length ?? 0;
   if (patient && typeof patient.data.name === "string") ctx.patientName = patient.data.name;
@@ -1328,6 +1340,7 @@ ${urgentCallLine(ctx.clinicPhone)}`;
         branchesText,
         clinicPhone: ctx.clinicPhone,
         hideDoctorNames: settings.hideDoctorNames,
+        phoneHidden: ctx.phoneHidden === true,
         facts: ctx.facts,
         history: conversation.aiHistory ?? [],
         mode: sales ? "sales" : "assisted",
@@ -1725,6 +1738,9 @@ ${askWho}` : askWho;
             ...(act.forRelative && patient
               ? { notes: `Created via WhatsApp assistant — booked by ${ctx.patientName || phone}`, bookedBy: patient.id }
               : { notes: "Created via WhatsApp assistant" }),
+            // Behind a lid the number was typed by the patient; binding the lid to the record
+            // makes their next message resolve to it without the number again.
+            ...(isLidChat ? { whatsappLid: chatId, whatsappLidLearnedAt: FieldValue.serverTimestamp(), whatsappLidSource: "self_claimed" } : {}),
             source: "whatsapp_bot",
           });
       patient = { id: created?.id ?? "dry_run", data: { name: act.name, phone } };

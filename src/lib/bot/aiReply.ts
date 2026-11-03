@@ -159,6 +159,8 @@ export async function answerWithAi(args: {
   clinicPhone?: string;
   /** The owner's "don't mention dentists' names" switch. */
   hideDoctorNames?: boolean;
+  /** WhatsApp hid the sender's number (a lid) and they have not typed it yet. */
+  phoneHidden?: boolean;
   facts?: BotFacts;
   /** Prior AI exchanges in this conversation, oldest first — the assisted mode's memory. */
   history: Array<{ q: string; a: string }>;
@@ -282,6 +284,7 @@ export async function answerWithAi(args: {
     // Owner switches; absent (not undefined) when off, so the prompt input is what it always was.
     ...(args.branchesText?.trim() ? { branchesText: args.branchesText } : {}),
     ...(args.hideDoctorNames === true ? { hideDoctorNames: true } : {}),
+    ...(args.phoneHidden === true ? { phoneHidden: true } : {}),
     // "No prices on WhatsApp" keeps the prices out of the prompt (and out of the number guard) but
     // still tells the model which services the clinic offers.
     priceLines: args.brief?.prices === "consult" ? serviceNamesOnly(priceLines) : priceLines,
@@ -316,7 +319,7 @@ export async function answerWithAi(args: {
    * Joined back together when there is no cache, so the model reads exactly the same prompt
    * either way.
    */
-  const sharedSystem = fixedPromptLayers(promptInput.mode, promptInput.clinical, promptInput.canBook, args.hideDoctorNames === true)
+  const sharedSystem = fixedPromptLayers(promptInput.mode, promptInput.clinical, promptInput.canBook, args.hideDoctorNames === true, args.phoneHidden === true)
     .filter(Boolean)
     .join("\n");
   const turnText = clinicAndPatientLayer(promptInput).filter(Boolean).join("\n");
@@ -551,7 +554,7 @@ export async function answerWithAi(args: {
         raw: raw.slice(0, 1000),
         mode: sales ? "sales" : "assisted",
         model: MODEL,
-        promptVersion: promptVersion(promptInput.mode, promptInput.clinical, promptInput.canBook, args.hideDoctorNames === true),
+        promptVersion: promptVersion(promptInput.mode, promptInput.clinical, promptInput.canBook, args.hideDoctorNames === true, args.phoneHidden === true),
         action: String(parsed?.action || ""),
         langRetries,
         photo: Boolean(args.photo),

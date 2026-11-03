@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildBotPrompt, fixedPromptLayers, LANGUAGE_RULE, promptVersion, type BotPromptInput } from "../src/lib/bot/botPrompt";
+import { buildBotPrompt, fixedPromptLayers, LANGUAGE_RULE, PHONE_HIDDEN_LINE, promptVersion, type BotPromptInput } from "../src/lib/bot/botPrompt";
 
 /**
  * The WhatsApp prompt's SHAPE, pinned.
@@ -245,4 +245,24 @@ run("branches: a الفروع block right after the address, and the far-away ru
   assert.ok(buildBotPrompt({ ...base, addressText: undefined, branchesText }).includes(`الفروع:\n${branchesText}`));
   // Layers 1-4 do not change for a branch list.
   assert.ok(p.startsWith(fixedPromptLayers("sales", false, true).filter(Boolean).join("\n")));
+});
+
+// ---- hidden number (a lid sender) ---------------------------------------------------------------
+
+run("hidden number: the ask-for-the-number line replaces the no-booking line, and only then", () => {
+  const closed = { ...base, canBook: false };
+  const p = buildBotPrompt({ ...closed, phoneHidden: true });
+  assert.ok(p.includes(PHONE_HIDDEN_LINE), "asks for the number");
+  assert.ok(!p.includes("الحجز مش متاح للرقم ده دلوقتي"), "the plain no-booking line is gone");
+  assert.equal(p.split("\n").filter((l) => l === PHONE_HIDDEN_LINE).length, 1, "said once");
+  assert.notEqual(promptVersion("sales", false, false, false, true), promptVersion("sales", false, false));
+  // Not when booking is open (a lid sender who typed their number), not in assisted mode.
+  assert.ok(!buildBotPrompt({ ...base, canBook: true, phoneHidden: true }).includes(PHONE_HIDDEN_LINE));
+  assert.ok(!buildBotPrompt({ ...closed, mode: "assisted", phoneHidden: true }).includes(PHONE_HIDDEN_LINE));
+  // Absent or false: byte-identical to today.
+  for (const v of [base, closed, { ...closed, clinical: true }]) {
+    assert.equal(buildBotPrompt({ ...v, phoneHidden: false }), buildBotPrompt(v));
+    assert.deepEqual(fixedPromptLayers(v.mode, v.clinical, v.canBook, undefined, false), fixedPromptLayers(v.mode, v.clinical, v.canBook));
+    assert.equal(promptVersion(v.mode, v.clinical, v.canBook, undefined, false), promptVersion(v.mode, v.clinical, v.canBook));
+  }
 });

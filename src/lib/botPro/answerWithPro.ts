@@ -268,7 +268,7 @@ async function runTurn(
   };
   // The clinic layer sits between the fixed rulebook and the turn; empty, it adds no line at all.
   const clinicLayer = proClinicLayer(ctx.layer);
-  const system = `${proRulebook({ clinical: input.clinical, canBook, ...(hideDoctors ? { hideDoctorNames: true } : {}) })}\n${clinicLayer ? `${clinicLayer}\n` : ""}${proTurnLayer(input, person, { todayKey: ctx.todayKey, previousSlots })}`;
+  const system = `${proRulebook({ clinical: input.clinical, canBook, ...(hideDoctors ? { hideDoctorNames: true } : {}), ...(args.phoneHidden === true ? { phoneHidden: true } : {}) })}\n${clinicLayer ? `${clinicLayer}\n` : ""}${proTurnLayer(input, person, { todayKey: ctx.todayKey, previousSlots })}`;
   const contents: unknown[] = threadContents(ctx.thread, question);
 
   // Every source a figure, a time or a medicine name may come from. Tool results join as they arrive.

@@ -183,6 +183,11 @@ export interface BotContext {
    * asks their name first and creates the record, exactly as the public booking page does.
    */
   canRegister?: boolean;
+  /**
+   * WhatsApp hid the sender's number (a lid) and they have not typed it yet. Booking asks for the
+   * number instead of handing off; everything else is answered as for any stranger.
+   */
+  phoneHidden?: boolean;
   /** How many dentists the clinic has. Two or more and booking starts by choosing one. */
   doctorCount?: number;
   /**
@@ -281,6 +286,8 @@ function hoursAndAddress(ctx: BotContext): string {
 }
 
 const HANDOFF_REPLY = "تمام، حد من الاستقبال هيتواصل مع حضرتك في أقرب وقت 🙏";
+/** A lid sender who wants to book: the number first, because WhatsApp did not pass it on. */
+const ASK_PHONE_REPLY = "عشان نحجزلك ميعاد، ابعتلنا رقم موبايلك الأول 📱 (واتساب مش بيظهرلنا رقم حضرتك).";
 
 /**
  * The reply to a message that needs a clinician.
@@ -356,6 +363,7 @@ function startBooking(ctx: BotContext): BotDecision {
     const sendUs = v.send === "ابعتي" ? "تبعتيلنا" : "تبعتلنا";
     return { reply: `${v.welcome} 🙏 عشان نسجل الحجز، ياريت حضرتك ${sendUs} الاسم الكامل.`, next: "booking_name", handoff: false, reason: "ask_name" };
   }
+  if (ctx.phoneHidden) return { reply: ASK_PHONE_REPLY, next: "awaiting_choice", handoff: false, reason: "ask_phone" };
   // No configured schedule, or an unidentifiable sender: the honest answer is a person — never a
   // promise that a slot is held, which is the one lie a clinic cannot afford.
   return { reply: HANDOFF_REPLY, next: "handed_off", handoff: true, reason: "booking_request" };
@@ -586,6 +594,7 @@ export function decideBotReply(args: {
           if (ctx.canRegister) {
             return { reply: "أهلاً بيك 🌟 عشان نسجل حجزك، ابعتلنا اسمك الكامل من فضلك.", next: "booking_name", handoff: false, reason: "ask_name" };
           }
+          if (ctx.phoneHidden) return { reply: ASK_PHONE_REPLY, next: "awaiting_choice", handoff: false, reason: "ask_phone" };
           return { reply: HANDOFF_REPLY, next: "handed_off", handoff: true, reason: "booking_request" };
         }
         if (tap.choice === "2") {

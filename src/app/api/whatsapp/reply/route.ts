@@ -110,7 +110,9 @@ export async function POST(request: Request) {
     media?: { url?: string; mime?: string; kind?: string; filename?: string };
   };
 
-  const phone = normalizeToE164AssumingCountry(String(body.phone || ""));
+  // A hidden-number chat (`…@lid`) has no phone to normalise; the gateway delivers to the id itself.
+  const rawTo = String(body.phone || "").trim();
+  const phone = /^\d{6,20}@lid$/i.test(rawTo) ? rawTo.toLowerCase() : normalizeToE164AssumingCountry(rawTo);
   if (!phone) return NextResponse.json({ ok: false, error: "A valid phone number is required" }, { status: 400 });
 
   const patientId = typeof body.patientId === "string" ? body.patientId.trim() : "";

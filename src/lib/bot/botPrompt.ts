@@ -64,6 +64,8 @@ export interface BotPromptInput {
   clinicPhone?: string;
   /** The owner's "don't mention dentists' names" switch (settings/whatsapp botHideDoctorNames). */
   hideDoctorNames?: boolean;
+  /** WhatsApp hid the sender's number (a lid): booking is closed until they type it, so ask for it. */
+  phoneHidden?: boolean;
   /** "name: يبدأ من 1,200 ج.م" per line, already rendered from the clinic's service list. */
   priceLines: string;
   facts?: BotFacts;
@@ -215,6 +217,9 @@ const DENTIST_JOB = [
 ];
 
 const NO_BOOKING_LINE = "- الحجز مش متاح للرقم ده دلوقتي: متختارش open_booking، ولو المريض عايز يحجز اختار handoff_other.";
+/** The lid case: the number is the missing piece, and the patient is the one who has it. */
+export const PHONE_HIDDEN_LINE =
+  "- واتساب مش مظهرلنا رقم المريض ده، فالحجز مش هيتم غير لما يبعت رقم موبايله: لو عايز يحجز، اطلب منه يكتب رقم الموبايل الأول — متختارش open_booking ولا handoff_other عشان الحجز قبل ما يبعته. أول ما يبعته النظام هيكمل الحجز معاه.";
 
 /* ------------------------------------------------------------------------------------------ */
 /* 3. طريقة الشغل — how to act, by topic. Within a topic, what you MAY do comes before what   */
@@ -333,8 +338,8 @@ const ASSISTED_VOICE = [
  * answer is a guess from commit dates. FNV-1a over the joined text; eight hex characters is
  * enough to tell two prompts apart and short enough to read in a list.
  */
-export function promptVersion(mode: "assisted" | "sales", clinical: boolean, canBook?: boolean, hideDoctorNames?: boolean): string {
-  const text = fixedPromptLayers(mode, clinical, canBook, hideDoctorNames).filter(Boolean).join("\n");
+export function promptVersion(mode: "assisted" | "sales", clinical: boolean, canBook?: boolean, hideDoctorNames?: boolean, phoneHidden?: boolean): string {
+  const text = fixedPromptLayers(mode, clinical, canBook, hideDoctorNames, phoneHidden).filter(Boolean).join("\n");
   let h = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) {
     h ^= text.charCodeAt(i);
@@ -343,7 +348,7 @@ export function promptVersion(mode: "assisted" | "sales", clinical: boolean, can
   return h.toString(16).padStart(8, "0");
 }
 
-export function fixedPromptLayers(mode: "assisted" | "sales", clinical: boolean, canBook?: boolean, hideDoctorNames?: boolean): string[] {
+export function fixedPromptLayers(mode: "assisted" | "sales", clinical: boolean, canBook?: boolean, hideDoctorNames?: boolean, phoneHidden?: boolean): string[] {
   const sales = mode === "sales";
   const hide = hideDoctorNames === true;
   return [
@@ -353,7 +358,7 @@ export function fixedPromptLayers(mode: "assisted" | "sales", clinical: boolean,
     "",
     ...(sales ? SALES_JOB : ASSISTED_JOB),
     ...(clinical ? ["", ...DENTIST_JOB] : []),
-    ...(sales && canBook === false ? [NO_BOOKING_LINE] : []),
+    ...(sales && canBook === false ? [phoneHidden === true ? PHONE_HIDDEN_LINE : NO_BOOKING_LINE] : []),
     "",
     ...(hide ? BOOKING_RULES.filter((l) => !l.startsWith(USUAL_DENTIST_RULE_PREFIX)) : BOOKING_RULES),
     "",
@@ -474,5 +479,5 @@ export function clinicAndPatientLayer(input: BotPromptInput): string[] {
 
 /** The system prompt for one WhatsApp turn. Deterministic: same input, same string. */
 export function buildBotPrompt(input: BotPromptInput): string {
-  return [...fixedPromptLayers(input.mode, input.clinical, input.canBook, input.hideDoctorNames), ...clinicAndPatientLayer(input)].filter(Boolean).join("\n");
+  return [...fixedPromptLayers(input.mode, input.clinical, input.canBook, input.hideDoctorNames, input.phoneHidden), ...clinicAndPatientLayer(input)].filter(Boolean).join("\n");
 }

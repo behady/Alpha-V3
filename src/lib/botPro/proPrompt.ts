@@ -19,7 +19,7 @@
  *
  * Run: npm run test:pro-prompt
  */
-import { clinicAndPatientLayer, HIDE_DOCTOR_NAMES_RULE, LANGUAGE_RULE, type BotPromptInput } from "@/lib/bot/botPrompt";
+import { clinicAndPatientLayer, HIDE_DOCTOR_NAMES_RULE, LANGUAGE_RULE, PHONE_HIDDEN_LINE, type BotPromptInput } from "@/lib/bot/botPrompt";
 import { arabicDayLabel, arabicTimeLabel } from "@/lib/arabicDateTime";
 import type { ProAppointment, ProPerson } from "./person";
 import { isEmptyLayer, type ClinicLayer } from "./layer";
@@ -217,9 +217,11 @@ const VOICE = [
  * The fixed part of the Pro system prompt. Pure: same switches, same bytes — no clinic, patient,
  * date or clock in here, so Gemini's implicit prefix cache can hold it.
  */
-export function proRulebook(args: { clinical: boolean; canBook: boolean; hideDoctorNames?: boolean }): string {
+export function proRulebook(args: { clinical: boolean; canBook: boolean; hideDoctorNames?: boolean; phoneHidden?: boolean }): string {
   const clinical = args.clinical === true;
   const canBook = args.canBook === true;
+  // A lid sender: booking is closed only until they type their number, so the model asks for it.
+  const phoneHidden = !canBook && args.phoneHidden === true;
   // The owner's "don't mention dentists' names" switch: the two rules that tell Pro to name one
   // leave; the rule that forbids it is in the turn layer. Off, the bytes are Plan 1's.
   const named = (l: string) => args.hideDoctorNames === true && (l.startsWith(USUAL_DENTIST_PREFIX) || l.startsWith(NAMED_DENTIST_PREFIX));
@@ -229,6 +231,7 @@ export function proRulebook(args: { clinical: boolean; canBook: boolean; hideDoc
     ...nonNegotiables(clinical, canBook),
     "",
     ...toolRules(canBook),
+    ...(phoneHidden ? [PHONE_HIDDEN_LINE] : []),
     "",
     ...salesJob(canBook),
     ...(clinical ? ["", ...dentistJob(canBook)] : []),
