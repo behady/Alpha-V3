@@ -27,7 +27,8 @@ import { readHistoryItems, type HistoryItem } from "@/lib/bot/threadHistoryPlan"
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 // Room for the after() grading call (a short wait plus one model read) once the response is out.
-export const maxDuration = 60;
+// Pro AI: a Pro turn may run its full 25 s and then fall back to the standard brain's own 25 s.
+export const maxDuration = 120;
 
 /**
  * Inbound WhatsApp replies from the gateway, for the one purpose of honouring "STOP".

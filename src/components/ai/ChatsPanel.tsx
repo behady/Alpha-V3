@@ -39,6 +39,7 @@ import {
   Zap,
 } from "lucide-react";
 import QuickReplies from "./QuickReplies";
+import AutoReplySwitch from "./AutoReplySwitch";
 import ChatInfoPanel, { tagLabel, tagTone } from "./ChatInfoPanel";
 import { deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, setDoc, startAfter, updateDoc, where } from "firebase/firestore";
 import { testCaseId, turnsFromLines } from "@/lib/bot/testCases";
@@ -435,6 +436,7 @@ export default function ChatsPanel({
           <h2 className="text-[22px] font-black text-ink dark:text-slate-100">
             {isAr ? "المحادثات" : "Chats"}
           </h2>
+          <AutoReplySwitch className="ms-3" />
           <AlertControls isAr={isAr} showToast={showToast} />
           <button
             onClick={() => setPickerOpen((v) => !v)}

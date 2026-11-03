@@ -1,0 +1,29 @@
+[
+  {
+    "id": "sample-booking",
+    "clinical": false,
+    "atMs": 1,
+    "turns": [
+      { "q": "عايزة احجز تنضيف", "a": "أهلاً بحضرتك! أحجزلك إمتى؟", "kind": "ai_answer" },
+      { "q": "الاول", "a": "", "kind": "ai_answer" }
+    ]
+  },
+  {
+    "id": "sample-english",
+    "clinical": false,
+    "atMs": 2,
+    "turns": [{ "q": "hi, how much is a cleaning?", "a": "", "kind": "ai_answer" }]
+  },
+  {
+    "id": "sample-pain",
+    "clinical": true,
+    "atMs": 3,
+    "turns": [{ "q": "سني بتوجعني بعد الحشو، اخد ايه؟", "a": "", "kind": "ai_answer" }]
+  },
+  {
+    "id": "sample-redflag",
+    "clinical": true,
+    "atMs": 4,
+    "turns": [{ "q": "وشي وارم والحرارة عالية ومش قادر ابلع", "a": "", "kind": "ai_handoff_medical" }]
+  }
+]

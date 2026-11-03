@@ -20,8 +20,10 @@ import BotScriptsEditor from "@/components/settings/BotScriptsEditor";
 import AutoReplySteps, { type AutoReplyStepRow } from "@/components/whatsapp/AutoReplySteps";
 import BotBriefEditor from "@/components/whatsapp/BotBriefEditor";
 import InterviewDialog from "@/components/whatsapp/InterviewDialog";
+import ProSetup from "@/components/whatsapp/ProSetup";
 import { briefFilled, cleanBrief, factsFilled, stepsForMode, type AutoReplyStep } from "@/lib/bot/brief";
-import { answerModeOf } from "@/lib/setupWizard";
+import { chosenAnswerMode } from "@/lib/setupWizard";
+import AutoReplySwitch from "@/components/ai/AutoReplySwitch";
 import { logActivity } from "@/lib/logger";
 import { useDirtyFlag } from "@/context/UnsavedChangesContext";
 import type {
@@ -185,6 +187,8 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
     botAutoConfirmBookings: data?.botAutoConfirmBookings === true,
     botAiEnabled: data?.botAiEnabled === true,
     botMode: data?.botMode === "ai_first" ? "ai_first" : "assisted",
+    // Same rule as deliveryMode: spread conditionally so "standard" / absent never becomes undefined.
+    ...(data?.botAiBrain === "pro" ? { botAiBrain: "pro" as const } : {}),
     botClinicalMode: data?.botClinicalMode === "dentist" ? "dentist" : "handoff",
     ...(typeof data?.botAiMaxReplies === "number" ? { botAiMaxReplies: data.botAiMaxReplies } : {}),
     botCoaching: typeof data?.botCoaching === "string" ? data.botCoaching : "",
@@ -315,6 +319,8 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
   // (bot/aiReply.ts) refuses AI without it — this only stops the screen offering a mode that
   // would silently fall back to the script.
   const aiInPlan = isUnlocked(clinic, "aiChat");
+  // The Pro reply brain is its own add-on, switched on per clinic by the platform.
+  const proInPlan = isUnlocked(clinic, "whatsappPro");
 
   const [hasLoaded, setHasLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -335,6 +341,7 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
    */
   const [openStep, setOpenStep] = useState<AutoReplyStep | null | undefined>(undefined);
   const [interviewOpen, setInterviewOpen] = useState(false);
+  const [proSetupOpen, setProSetupOpen] = useState(false);
   // Old links to the AI tab arrive as ?step=ai and land on the AI's brief. Read once after mount,
   // not through useSearchParams, so the page needs no Suspense boundary.
   useEffect(() => {
@@ -493,9 +500,10 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
       tabHint_messages: language === "ar" ? "الرسايل اللي العيادة بتبعتها لوحدها: تأكيدات، تذكيرات، متابعة بعد الزيارة، واسترجاع الغايبين." : "Messages the clinic sends by itself: confirmations, reminders, after-visit follow-ups, winning back the absent.",
       tabHint_wording: language === "ar" ? "نص كل رسالة تلقائية، بالعربي أو بلغتين." : "The text of each automatic message, Arabic or bilingual.",
       tabHint_alerts: language === "ar" ? "إيه اللي يوصلك انت على واتساب لما حاجة تحصل في النظام." : "What reaches you on WhatsApp when something happens in the system.",
-      answerModeOff: language === "ar" ? "محدش" : "Off",
-      answerModeOffCard: language === "ar" ? "محدش بيرد تلقائي، والفريق بيرد بنفسه." : "Nobody answers; staff reply by hand.",
-      answerModeOffHint: language === "ar" ? "الرسايل تتجمع في المحادثات والفريق يرد بنفسه." : "Messages collect in Chats and the team answers by hand.",
+      autoReplyOffNote:
+        language === "ar"
+          ? "محدش بيرد تلقائي على المرضى دلوقتي — الفريق بيرد بنفسه. تقدر تختار وتظبط وتجرّب في محادثة الاختبار براحتك."
+          : "Patients get no automatic replies right now — staff reply by hand. You can still choose, set up and rehearse in the test chat.",
       stepClinic: language === "ar" ? "عن عيادتك" : "About your clinic",
       stepReplies: language === "ar" ? "الردود الجاهزة" : "Fixed replies",
       stepBrief: language === "ar" ? "الذكاء الاصطناعي يتكلم إزاي" : "How the AI should talk",
@@ -662,6 +670,14 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
         language === "ar"
           ? "البوت بيرد على اللي يعرفه ببلاش، والذكاء الاصطناعي بياخد الباقي بس، لحد عدد ردود محدد في كل محادثة."
           : "The bot answers what it can for free; the AI handles only the rest, up to a per-chat limit.",
+      brainTitle: language === "ar" ? "مين بيكتب الرد" : "Which AI writes the replies",
+      brainStandard: language === "ar" ? "عادي" : "Standard",
+      brainStandardHint: language === "ar" ? "الرد الحالي" : "Current replies",
+      brainPro: language === "ar" ? "متقدم (Pro)" : "Pro",
+      brainProHint:
+        language === "ar"
+          ? "الرد الذكي المتقدم — بيدوّر في الجدول كله ويقرا ملف المريض. بيستهلك رصيد أكتر لكل رد."
+          : "Pro — searches the whole calendar and reads the patient file. Uses more credits per reply.",
       answerModeAi: language === "ar" ? "الذكاء الاصطناعي بس" : "AI only",
       answerModeAiHint:
         language === "ar"
@@ -1458,7 +1474,9 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
    * Ready answers, AI and Try it tabs showed, moved into the step it belongs to; the state, the
    * listener and the save are the same ones the rest of the page uses.
    */
-  const autoReplyMode = answerModeOf(state as unknown as Record<string, unknown>);
+  // Who answers is read apart from on/off, so the chosen mode's steps stay editable while it is off.
+  const autoReplyMode = chosenAnswerMode(state as unknown as Record<string, unknown>);
+  const autoReplyOn = state.botEnabled === true;
   const aiMode = autoReplyMode === "ai" || autoReplyMode === "both";
   const modeSteps = stepsForMode(autoReplyMode);
   // A step the current mode does not have (the brief, after switching to Bot only) falls back to
@@ -1800,7 +1818,7 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
     replies: { title: txt.stepReplies, badge: txt.stepReplyCount(replyCount), content: repliesStep },
     brief: { title: txt.stepBrief, badge: txt.stepFilled(briefCount.filled, briefCount.total), content: briefStep },
     behaviour: { title: txt.stepBehaviour, content: behaviourStep },
-    test: { title: txt.stepTest, content: <BotPlayground /> },
+    test: { title: txt.stepTest, content: <BotPlayground proUnlocked={proInPlan} /> },
   };
   const autoReplySteps: AutoReplyStepRow[] = modeSteps.map((s) => ({ ...s, ...stepView[s.id] }));
 
@@ -2717,20 +2735,24 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
             </div>
           )}
           {/*
-            One decision instead of an on/off box plus a three-way chooser two screens apart:
-            who picks up when a patient writes. Stored as the same three fields the server
-            already reads (botEnabled + botMode + botAiEnabled), so nothing behind it changes.
+            On/off and who answers are two decisions. The switch (also on the Chats page) is the
+            only thing that lets replies reach patients; the cards below pick who answers once it
+            is on, and write only botMode + botAiEnabled — so an owner can choose "AI only", set it
+            up and rehearse it in the test chat with patients still getting nothing automatic.
             Choices the clinic has not bought stay visible and locked, with the reason.
           */}
+          <div className="flex flex-wrap items-center gap-3">
+            <AutoReplySwitch />
+            {!autoReplyOn && <p className="text-xs leading-relaxed text-ink-muted">{txt.autoReplyOffNote}</p>}
+          </div>
           <p className="text-sm font-bold text-ink leading-relaxed">{txt.answerMode}</p>
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-2 sm:grid-cols-3">
             {(
               [
-                { id: "off", label: txt.answerModeOff, hint: txt.answerModeOffCard, enabled: false, mode: "assisted" as const, ai: false, needsBot: false, needsAi: false },
-                { id: "bot", label: txt.answerModeBot, hint: txt.answerModeBotHint, enabled: true, mode: "assisted" as const, ai: false, needsBot: !botInPlan, needsAi: false },
+                { id: "bot", label: txt.answerModeBot, hint: txt.answerModeBotHint, mode: "assisted" as const, ai: false, needsBot: !botInPlan, needsAi: false },
                 // The AI answers through the bot engine, so "AI only" still needs the bot add-on.
-                { id: "ai", label: txt.answerModeAi, hint: txt.answerModeAiHint, enabled: true, mode: "ai_first" as const, ai: true, needsBot: !botInPlan, needsAi: !aiInPlan },
-                { id: "both", label: txt.answerModeBoth, hint: txt.answerModeBothHint, enabled: true, mode: "assisted" as const, ai: true, needsBot: !botInPlan, needsAi: !aiInPlan },
+                { id: "ai", label: txt.answerModeAi, hint: txt.answerModeAiHint, mode: "ai_first" as const, ai: true, needsBot: !botInPlan, needsAi: !aiInPlan },
+                { id: "both", label: txt.answerModeBoth, hint: txt.answerModeBothHint, mode: "assisted" as const, ai: true, needsBot: !botInPlan, needsAi: !aiInPlan },
               ]
             ).map((opt) => {
               const active = autoReplyMode === opt.id;
@@ -2743,7 +2765,7 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
                   disabled={locked}
                   onClick={() => {
                     setState((s) => {
-                      const next = { ...s, botEnabled: opt.enabled, botMode: opt.mode, botAiEnabled: opt.ai };
+                      const next = { ...s, botMode: opt.mode, botAiEnabled: opt.ai };
                       void persist(next, "silent");
                       return next;
                     });
@@ -2764,18 +2786,60 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
             })}
           </div>
 
-          {autoReplyMode === "off" ? (
-            <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.answerModeOffHint}</p>
-          ) : (
-            <div className="space-y-4 pt-3">
-              {(state.deliveryMode ?? (canSendAutomatically ? "auto" : "manual")) !== "auto" && (
-                <p className="text-xs font-bold text-warn bg-warn-tint border border-warn/25 rounded-lg px-3 py-2 leading-relaxed">
-                  {txt.botNeedsGateway}
-                </p>
-              )}
-              <AutoReplySteps steps={autoReplySteps} open={openAutoReplyStep} onOpen={setOpenStep} />
+          {autoReplyMode === "ai" && proInPlan && (
+            <div className="space-y-2 pt-3">
+              <p className="text-sm font-bold text-ink leading-relaxed">{txt.brainTitle}</p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {(
+                  [
+                    { id: "standard" as const, label: txt.brainStandard, hint: txt.brainStandardHint },
+                    { id: "pro" as const, label: txt.brainPro, hint: txt.brainProHint },
+                  ]
+                ).map((opt) => {
+                  const active = (state.botAiBrain === "pro" ? "pro" : "standard") === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => {
+                        setState((s) => {
+                          // "standard" is written explicitly rather than deleting the field, so no undefined reaches Firestore.
+                          const next = { ...s, botAiBrain: opt.id };
+                          void persist(next, "silent");
+                          return next;
+                        });
+                      }}
+                      className={`text-start rounded-xl border px-4 py-3 transition-colors ${
+                        active ? "border-accent bg-accent/5 ring-1 ring-accent" : "border-line bg-surface-subtle hover:bg-surface-muted"
+                      }`}
+                    >
+                      <span className="block text-sm font-black text-ink">{opt.label}</span>
+                      <span className="mt-1 block text-xs leading-relaxed text-ink-muted">{opt.hint}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={() => setProSetupOpen(true)}
+                className="inline-flex items-center gap-2 rounded-xl border border-line-strong px-4 py-2.5 text-xs font-bold text-ink-body hover:border-ink hover:text-ink"
+              >
+                {language === "ar" ? "علّم Pro عيادتك" : "Teach Pro your clinic"}
+              </button>
+              <ProSetup open={proSetupOpen} onClose={() => setProSetupOpen(false)} clinicId={clinicId ?? ""} />
             </div>
           )}
+
+          {/* The steps stay open with auto-reply off: setting up and rehearsing happens before it talks to anyone. */}
+          <div className="space-y-4 pt-3">
+            {autoReplyOn && (state.deliveryMode ?? (canSendAutomatically ? "auto" : "manual")) !== "auto" && (
+              <p className="text-xs font-bold text-warn bg-warn-tint border border-warn/25 rounded-lg px-3 py-2 leading-relaxed">
+                {txt.botNeedsGateway}
+              </p>
+            )}
+            <AutoReplySteps steps={autoReplySteps} open={openAutoReplyStep} onOpen={setOpenStep} />
+          </div>
           <InterviewDialog
             open={interviewOpen}
             onClose={() => setInterviewOpen(false)}

@@ -41,6 +41,8 @@ import {
 } from "./conversation";
 import type { BotConversation } from "./conversation";
 import { answerWithAi, type AiPatientContext, type AiThreadLine, AI_DEFAULT_ACK } from "./aiReply";
+import { aiBrainOf, dryRunBrainTag, pickReply, type AiBrain } from "@/lib/botPro/brain";
+import { answerWithPro } from "@/lib/botPro/answerWithPro";
 import { isLatinMessage, localizeOutbound } from "./localize";
 import { loadPatientDossier, type PatientDossier } from "./patientDossier";
 import { resolveSpokenPick } from "./spokenPick";
@@ -72,7 +74,7 @@ import { normalizeAppointmentStatus } from "@/lib/appointmentStages";
  */
 
 export type BotOutcome =
-  | { status: "replied"; text: string; handoff: boolean; reason: string; structure?: MetaInteractive }
+  | { status: "replied"; text: string; handoff: boolean; reason: string; structure?: MetaInteractive; brain?: AiBrain }
   | { status: "handoff_only"; reason: string }
   | { status: "skipped"; reason: string };
 
@@ -113,6 +115,8 @@ interface BotSettings {
   personaName: string;
   /** Human pacing and bubble splitting. */
   humanTouch: boolean;
+  /** Which brain writes AI-first replies; "standard" unless the clinic chose Pro and has the add-on. */
+  aiBrain: AiBrain;
 }
 
 async function loadBotSettings(clinicId: string): Promise<BotSettings> {
@@ -145,6 +149,8 @@ async function loadBotSettings(clinicId: string): Promise<BotSettings> {
     brief: cleanBrief(d.botBrief),
     personaName: typeof d.botPersonaName === "string" ? d.botPersonaName.trim() : "",
     humanTouch: d.botHumanTouch !== false,
+    // The add-on is read only for a clinic that chose Pro: every other clinic reads what it did before.
+    aiBrain: d.botAiBrain === "pro" ? aiBrainOf(d, await clinicHasFeature(clinicId, "whatsappPro").catch(() => false)) : "standard",
   };
 }
 
@@ -527,6 +533,10 @@ export async function respondToPatientMessage(args: {
    * when the clinic switched the welcome message on. The bot greets and names the ad.
    */
   welcome?: boolean;
+  /** The playground's "try the Pro brain" switch. Ignored unless dryRun; the route checks the add-on. */
+  brainOverride?: AiBrain;
+  /** The playground's "use the draft layer" switch. Honoured only with dryRun; a live reply never sees a draft. */
+  proLayer?: "draft";
 }): Promise<BotOutcome> {
   const { clinicId, chatId, text } = args;
   const now = args.now ?? Date.now();
@@ -558,7 +568,9 @@ export async function respondToPatientMessage(args: {
   }
 
   const settings = await loadBotSettings(clinicId);
-  if (!settings.enabled) return skip("bot_disabled");
+  // The test chat (dryRun) still answers with auto-reply off: that is how an owner sets up and
+  // rehearses a mode before letting it talk to patients. A rehearsal sends nothing to anyone.
+  if (!settings.enabled && !args.dryRun) return skip("bot_disabled");
   // The receptionist is an add-on on top of automatic messages. The clinic's own toggle above
   // says whether they WANT it; this says whether they have PAID for it. Checked here, at the
   // one door every inbound message passes, so a switched-off clinic's bot stays silent whatever
@@ -863,6 +875,8 @@ export async function respondToPatientMessage(args: {
   let medicineScreened = false;
   /** The slot keys this reply names in its own sentence, so the next turn can answer "the first". */
   let spokenSlotKeys: string[] = [];
+  /** Which brain wrote the AI reply this turn; reported to the test chat only. */
+  let brainUsed: AiBrain | undefined;
   /** Attach them to whatever this turn was already storing, without disturbing the rest. */
   const withSpokenSlots = (p: PendingOptions | undefined): PendingOptions | undefined =>
     spokenSlotKeys.length ? { ...(p ?? {}), slots: spokenSlotKeys } : p;
@@ -1284,11 +1298,11 @@ ${urgentCallLine(ctx.clinicPhone)}`;
        */
       const sales = settings.aiFirst;
       const salesContext = sales ? await loadSalesContext(clinicId, chatId, patient, ctx) : null;
-      const slotOffer = sales && profile?.schedule.isConfigured && (ctx.canOfferBooking || ctx.canRegister) ? await nextSlots(clinicId, profile, branchId, conversation.pendingDoctor ?? "", rescheduleId || null, readTimePreference(act.question, clinicDayBoundsMinutes(profile.schedule))) : [];
+      let slotOffer = sales && profile?.schedule.isConfigured && (ctx.canOfferBooking || ctx.canRegister) ? await nextSlots(clinicId, profile, branchId, conversation.pendingDoctor ?? "", rescheduleId || null, readTimePreference(act.question, clinicDayBoundsMinutes(profile.schedule))) : [];
       heardIntroBefore = (salesContext?.thread || []).some(
         (line) => line.author === "bot" && Boolean(settings.personaName) && line.text.includes(settings.personaName)
       );
-      const ai = await answerWithAi({
+      const aiArgs: Parameters<typeof answerWithAi>[0] = {
         clinicId,
         clinicName,
         question: act.question,
@@ -1319,7 +1333,19 @@ ${urgentCallLine(ctx.clinicPhone)}`;
         sessionGapMinutes: salesContext?.gapMinutes,
         photo: args.media === "image" && args.mediaNote ? args.mediaNote : undefined,
         ad: ctx.ad,
-      });
+      };
+      // Pro answers sales-mode turns only, for a clinic that chose it and has the add-on (or the
+      // playground trying it); any Pro failure is answered by answerWithAi with exactly these args.
+      const brain: AiBrain = (args.dryRun && args.brainOverride) || settings.aiBrain;
+      const brainReply = await pickReply(
+        brain === "pro" && sales ? "pro" : "standard",
+        () => answerWithPro({ ...aiArgs, chatId, phone, conversationPatientId: conversation.patientId, previousSlotKeys: conversation.pendingSlots, branchId, profile, ...(args.dryRun && args.proLayer ? { proLayer: args.proLayer } : {}) }),
+        () => answerWithAi(aiArgs)
+      );
+      const ai = brainReply.ai;
+      brainUsed = brainReply.brainUsed;
+      // What Pro offered is what "the first one" and the spoken clocks below resolve against.
+      if (brainReply.slotsShown) slotOffer = brainReply.slotsShown;
       /*
        * A pick the model turned into "let's open the booking" instead of "book this one".
        *
@@ -2125,7 +2151,7 @@ ${askWho}` : askWho;
       { state: nextState, replied: true, reason, patientId: patient?.id, patientName: ctx.patientName, pending: withSpokenSlots(pending), aiExchange, medicineScreened },
       now
     );
-    return { status: "replied", text: body, handoff, reason, structure };
+    return { status: "replied", text: body, handoff, reason, structure, ...dryRunBrainTag(args.dryRun, brainUsed) };
   }
 
   if (!args.dryRun) await adminClinicCollection(clinicId, "whatsapp_logs").add({
@@ -2183,7 +2209,7 @@ ${askWho}` : askWho;
     void adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(chatId)).set(outcomeUpdate, { merge: true }).catch(() => {});
   }
 
-  return { status: "replied", text: body, handoff, reason, structure };
+  return { status: "replied", text: body, handoff, reason, structure, ...dryRunBrainTag(args.dryRun, brainUsed) };
 }
 
 /** Where the patient is in the booking lists, for the model — or nothing when they are not. */
