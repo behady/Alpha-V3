@@ -605,3 +605,18 @@ await test("hidden names: slots Pro finds or carries over are offered with no de
   }
   assert.ok(model.systems[0].includes('- ممنوع تذكر اسم أي دكتور أو طبيب في ردودك'));
 });
+
+await test("a branch phone written with spaces does not let its pieces through as prices", async () => {
+  const spaced = "• المعادي: شارع 9 — ت: +20 100 123 4567";
+  // "100" is only a piece of the phone: as a price it is still invented.
+  const priced = fakeModel([reply({ action: "answer", reply: "الكشف بـ 100 جنيه" }), reply({ action: "answer", reply: "الاستقبال هيأكدلك سعر الكشف" })]);
+  const sink = fakeSink();
+  await answerWithPro(args({ question: "الكشف بكام؟", branchesText: spaced }), { model: priced, context: makeContext(), sink });
+  assert.equal(priced.calls.length, 2, "corrected once");
+  assert.ok((sink.rows[0].violations as string[]).some((v) => v.includes("100")));
+  // The phone itself, as one number, is the clinic's own.
+  const phone = fakeModel([reply({ action: "answer", reply: "تليفون فرع المعادي +201001234567" })]);
+  const r = await answerWithPro(args({ question: "رقم فرع المعادي؟", branchesText: spaced }), { model: phone, context: makeContext(), sink: fakeSink() });
+  assert.equal(phone.calls.length, 1);
+  assert.equal(r.kind, "answer");
+});

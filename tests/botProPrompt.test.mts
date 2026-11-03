@@ -447,3 +447,11 @@ test("branches: the الفروع block next to the address, with the far-away ru
   const t = proTurnLayer({ ...withDentists(), branchesText }, named, TODAY);
   assert.ok(t.includes(`العنوان: 5 شارع 9\nالفروع:\n${branchesText}\n${BRANCH_RULE}`));
 });
+
+test("the hide rule's line break is written as \\n, not a raw line ending inside the template", () => {
+  const proSource = readFileSync(join(here, "../src/lib/botPro/proPrompt.ts"), "utf8");
+  assert.ok(proSource.includes("hide ? `\\n${HIDE_DOCTOR_NAMES_RULE}` : \"\""));
+  const t = proTurnLayer({ ...withDentists(), hideDoctorNames: true }, named, TODAY);
+  assert.ok(t.includes(`\n\n${HIDE_RULE}\n`) || t.includes(`\n${HIDE_RULE}\n`));
+  assert.ok(!t.includes("\r"));
+});

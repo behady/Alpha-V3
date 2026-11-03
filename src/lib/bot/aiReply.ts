@@ -9,6 +9,7 @@ import type { Clinic } from "@/types/saas";
 import type { BotBrief, BotFacts } from "@/types/whatsapp";
 import { briefLines, serviceNamesOnly } from "./brief";
 import { dossierLines, type PatientDossier } from "./patientDossier";
+import { branchNumbersOf } from "./ownerRules";
 import { strayDrugNames } from "./drugGuard";
 import { clinicAndPatientLayer, factLines, fixedPromptLayers, promptVersion, type AiPatientContext } from "./botPrompt";
 import { getRulebookCache } from "./rulebookCache";
@@ -430,8 +431,9 @@ export async function answerWithAi(args: {
       playbook || "",
       hoursText || "",
       addressText || "",
-      // Each branch's address and phone are the clinic's own, like the main ones.
-      ...(args.branchesText ? [args.branchesText] : []),
+      // Each branch's address and phone are the clinic's own, like the main ones. Phones as one
+      // digit string: "+20 100 123 4567" must not allow 100 on its own.
+      ...(args.branchesText ? [branchNumbersOf(args.branchesText)] : []),
       clinicPhone || "",
       args.memory || "",
       (args.slots || []).map((s) => s.label).join(" "),

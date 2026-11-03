@@ -11,7 +11,7 @@
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { appointmentLine, branchesTextOf, stripDoctorNames } from "../src/lib/bot/ownerRules";
+import { appointmentLine, branchNumbersOf, branchesTextOf, stripDoctorNames } from "../src/lib/bot/ownerRules";
 import { arabicDayLabel, arabicTimeLabel } from "../src/lib/arabicDateTime";
 
 function test(name: string, fn: () => void) {
@@ -145,9 +145,82 @@ test("both brains get the switch and the branches", () => {
   assert.ok(respond.includes("branchesText = branchesTextOf(profile.branches);"));
 });
 
-test("the name backstop runs only while hidden, and logs to ai_debug", () => {
-  assert.match(respond, /if \(settings\.hideDoctorNames && profile\?\.doctors\.length && replyText\.trim\(\)\) \{/);
+test("the name backstop runs only while hidden, on the model's own words, and logs to ai_debug", () => {
+  const gate = /if \(settings\.hideDoctorNames && profile\?\.doctors\.length && \(ai\.kind === "answer" \|\| ai\.kind === "handoff"\) && ai\.text\) \{/;
+  assert.match(respond, gate);
+  // Between the model's answer and anything built from it — never over the deterministic cards.
+  const at = respond.search(gate);
+  assert.ok(at > respond.indexOf("const ai = brainReply.ai;") && at < respond.indexOf("brainUsed = brainReply.brainUsed;"));
+  assert.ok(!respond.includes("stripDoctorNames(replyText"), "the delivered reply as a whole is never rewritten");
   assert.ok(respond.includes("doctorNameStripped: true"));
+  // The clinic's own name, address, branches and the patient's name are protected.
+  for (const piece of ["clinicName", "ctx.addressText", "profile.branches", "patientName: ctx.patientName"]) {
+    assert.ok(respond.slice(at, at + 900).includes(piece), piece);
+  }
+});
+
+test("a stale dentist-list pick while names are hidden goes to days for any chair", () => {
+  const at = respond.indexOf('act.type === "list_days_doctor_index"');
+  assert.match(respond.slice(at, at + 800), /if \(settings\.hideDoctorNames\) listDays\(""\);\s*(?:\/\/.*\s*)*else if \(picked === undefined\) listDoctors\(\);/);
+});
+
+/* ---------------------------------------------------------------- review probes ------------ */
+
+test("the patient's own name in a greeting is kept, whoever the dentist is", () => {
+  const greet = "أهلاً يا أحمد، ميعادك بكره الساعة 5";
+  assert.deepEqual(stripDoctorNames(greet, ["د. أحمد"], { patientName: "أحمد حسن" }), { text: greet, stripped: false });
+  // A titled stored name never matches the bare word, patient or not.
+  assert.deepEqual(stripDoctorNames(greet, ["د. أحمد"]), { text: greet, stripped: false });
+  assert.deepEqual(stripDoctorNames("Hi Ahmed!", ["Dr. Ahmed"], { patientName: "Ahmed" }), { text: "Hi Ahmed!", stripped: false });
+  // A bare single-word stored name counts only when it is not the patient's name.
+  assert.equal(stripDoctorNames("Hi Ahmed!", ["Ahmed"], { patientName: "Ahmed Ali" }).stripped, false);
+  assert.equal(stripDoctorNames("Ahmed will see you", ["Ahmed"], { patientName: "Mona" }).text, "the doctor will see you");
+  // A full name equal to the patient's own is the patient, unless a title says otherwise.
+  assert.equal(stripDoctorNames("أهلاً يا محمد علي", ["محمد علي"], { patientName: "محمد علي" }).stripped, false);
+  assert.equal(stripDoctorNames("هتكشف مع د. محمد علي", ["محمد علي"], { patientName: "محمد علي" }).text, "هتكشف مع الدكتور");
+  // With the title in the text the dentist is still caught.
+  assert.equal(stripDoctorNames("ميعادك مع د. أحمد", ["د. أحمد"], { patientName: "أحمد حسن" }).text, "ميعادك مع الدكتور");
+});
+
+test("the clinic's address, branch addresses and name are kept", () => {
+  const address = "شارع محمد علي، المعادي";
+  const r = stripDoctorNames(`📍 احنا في ${address}، وهتكشف مع محمد علي`, ["محمد علي"], { protect: [address] });
+  assert.equal(r.text, `📍 احنا في ${address}، وهتكشف مع الدكتور`);
+  assert.equal(r.stripped, true);
+  const clinic = "عيادة د. أحمد سمير";
+  const welcome = `أهلاً بيك في ${clinic} 🦷`;
+  assert.deepEqual(stripDoctorNames(welcome, ["د. أحمد سمير"], { protect: [clinic] }), { text: welcome, stripped: false });
+  assert.equal(stripDoctorNames("فرع شارع محمد علي", ["محمد علي"], { protect: ["", "شارع محمد علي"] }).stripped, false);
+});
+
+test("\"الدكتور محمد سمير\" is still stripped, with the clinic name protected beside it", () => {
+  const r = stripDoctorNames("في عيادة د. أحمد سمير هيكشف عليك الدكتور محمد سمير", ["د. محمد سمير", "د. أحمد سمير"], { protect: ["عيادة د. أحمد سمير"] });
+  assert.equal(r.text, "في عيادة د. أحمد سمير هيكشف عليك الدكتور");
+  assert.equal(r.stripped, true);
+});
+
+test("ل before the title, and a doubled الدكتور, come out as one word", () => {
+  assert.equal(stripDoctorNames("هبعت للدكتور محمد سمير", ["د. محمد سمير"]).text, "هبعت للدكتور");
+  assert.equal(stripDoctorNames("هيكشف عليك الدكتور د. محمد سمير", ["محمد سمير"]).text, "هيكشف عليك الدكتور");
+  assert.equal(stripDoctorNames("with the doctor Dr. Sara Ali", ["Sara Ali"]).text, "with the doctor");
+});
+
+test("harakat on or after a name do not leave it half-stripped", () => {
+  assert.equal(stripDoctorNames("مع محمدٌ سمير بكره", ["محمد سمير"]).text, "مع الدكتور بكره");
+  assert.equal(stripDoctorNames("مع مُحَمَّد سمير", ["محمد سمير"]).text, "مع الدكتور");
+  assert.equal(stripDoctorNames("مع محمد سمير", ["مُحمد سمير"]).text, "مع الدكتور");
+});
+
+test("branch phones join the allowed numbers as one digit string, never as their pieces", () => {
+  const text = ["• المعادي: عمارة 12 — ت: +20 100 123 4567", "• التجمع: شارع 90"].join("\n");
+  assert.equal(branchNumbersOf(text), ["• المعادي: عمارة 12 — ت: 201001234567", "• التجمع: شارع 90"].join("\n"));
+  assert.equal(branchNumbersOf(""), "");
+  // Both brains' number guards read the collapsed form, never the raw branch text.
+  const aiReply = readFileSync(new URL("../src/lib/bot/aiReply.ts", import.meta.url), "utf8");
+  const pro = readFileSync(new URL("../src/lib/botPro/answerWithPro.ts", import.meta.url), "utf8");
+  assert.ok(aiReply.includes("...(args.branchesText ? [branchNumbersOf(args.branchesText)] : []),"));
+  assert.equal((pro.match(/\.\.\.\(args\.branchesText \? \[branchNumbersOf\(args\.branchesText\)\] : \[\]\),/g) || []).length, 2);
+  assert.ok(!/\[args\.branchesText\]/.test(aiReply + pro));
 });
 
 /* ---------------------------------------------------------------- settings UI -------------- */

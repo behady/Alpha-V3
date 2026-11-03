@@ -374,8 +374,7 @@ export function proTurnLayer(input: BotPromptInput, person: ProPerson, extra: Pr
   return [
     ...base,
     // The owner's switch, said once before the people and appointments it applies to.
-    hide ? `
-${HIDE_DOCTOR_NAMES_RULE}` : "",
+    hide ? `\n${HIDE_DOCTOR_NAMES_RULE}` : "",
     ...personLines(person, extra, input.canBook !== false, hide),
     memory ? `\nذاكرة من محادثات سابقة مع المريض ده (ابدأ من مكان ما وقفتوا، ومتعيدش اللي هو عارفه):\n${memory.slice(0, 900)}` : "",
   ]

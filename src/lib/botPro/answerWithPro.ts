@@ -24,6 +24,7 @@ import { AI_DEFAULT_ACK, type AiReplyResult, type AiThreadLine } from "@/lib/bot
 import { briefLines, serviceNamesOnly } from "@/lib/bot/brief";
 import { factLines, type BotPromptInput } from "@/lib/bot/botPrompt";
 import { dossierLines } from "@/lib/bot/patientDossier";
+import { branchNumbersOf } from "@/lib/bot/ownerRules";
 import { allowedNumbers, checkReply, type Violation } from "./checks";
 import type { ProAppointment } from "./person";
 import { proClinicLayer, proRulebook, proTurnLayer } from "./proPrompt";
@@ -279,7 +280,7 @@ async function runTurn(
   const plainSources = [
     args.hoursText || "",
     args.addressText || "",
-    ...(args.branchesText ? [args.branchesText] : []),
+    ...(args.branchesText ? [branchNumbersOf(args.branchesText)] : []),
     args.clinicPhone || "",
     args.memory || "",
     question,
@@ -429,7 +430,7 @@ export function proMoneySources(args: ProArgs, priceLines: string, dossierText =
     // The clinic's own address and phone: "12 ألف مسكن" is a district, not a price.
     args.addressText || "",
     // Each branch's address and phone, likewise (one line per branch); absent, the list is unchanged.
-    ...(args.branchesText ? [args.branchesText] : []),
+    ...(args.branchesText ? [branchNumbersOf(args.branchesText)] : []),
     args.clinicPhone || "",
   ];
 }

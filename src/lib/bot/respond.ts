@@ -1361,6 +1361,25 @@ ${urgentCallLine(ctx.clinicPhone)}`;
         () => answerWithAi(aiArgs)
       );
       const ai = brainReply.ai;
+      /*
+       * Names hidden by the owner — the backstop behind the prompt rule, on the model's own words
+       * only (either brain), before anything is built from them. The clinic's cards already leave
+       * the dentist out and are never rewritten: a dentist called "محمد علي" must not turn the
+       * clinic's "شارع محمد علي" into "شارع الدكتور". The clinic's name, address and branches and
+       * the patient's own name are protected inside the model's text too. No handoff over it.
+       */
+      if (settings.hideDoctorNames && profile?.doctors.length && (ai.kind === "answer" || ai.kind === "handoff") && ai.text) {
+        const cleaned = stripDoctorNames(ai.text, profile.doctors, {
+          protect: [clinicName, ctx.addressText || "", ...profile.branches.flatMap((b) => [b.name, b.address || ""])],
+          patientName: ctx.patientName,
+        });
+        if (cleaned.stripped) {
+          ai.text = cleaned.text;
+          void adminClinicCollection(clinicId, "ai_debug")
+            .add({ kind: "doctor_name_stripped", doctorNameStripped: true, brain: brainReply.brainUsed, createdAt: FieldValue.serverTimestamp() })
+            .catch(() => {});
+        }
+      }
       brainUsed = brainReply.brainUsed;
       // What Pro offered is what "the first one" and the spoken clocks below resolve against.
       if (brainReply.slotsShown) slotOffer = brainReply.slotsShown;
@@ -1677,8 +1696,10 @@ ${askWho}` : askWho;
     } else if (act.type === "list_days_doctor_index") {
       const doctors = conversation.pendingDoctors ?? [];
       const picked = doctors[act.index - 1];
+      // Names hidden since that list was sent: a stale pick books any chair, like a fresh one.
+      if (settings.hideDoctorNames) listDays("");
       // Out of range or the list is gone: offering the dentists again beats guessing a chair.
-      if (picked === undefined) listDoctors();
+      else if (picked === undefined) listDoctors();
       // "بكره" was said before the dentist question: now that the chair is known, straight to
       // that day's times rather than a list of days that starts with it.
       else if (conversation.pendingDayWord && conversation.pendingDayWord >= clinicNow().dateKey) await listTimes(conversation.pendingDayWord, picked);
@@ -1947,23 +1968,6 @@ ${askWho}` : askWho;
     const localized = localizeOutbound(replyText, structure);
     replyText = localized.text;
     structure = localized.structure;
-  }
-
-  /*
-   * Names hidden by the owner — the backstop behind the prompt rule. The cards and lists already
-   * leave the dentist out; this catches a model (either brain) that names one anyway, or an old
-   * line in the thread it repeated. The name becomes "الدكتور"; nobody is handed off over it.
-   */
-  if (settings.hideDoctorNames && profile?.doctors.length && replyText.trim()) {
-    const cleaned = stripDoctorNames(replyText, profile.doctors);
-    if (cleaned.stripped) {
-      replyText = cleaned.text;
-      if (structure) structure = { ...structure, body: stripDoctorNames(structure.body, profile.doctors).text };
-      if (aiExchange) aiExchange = { ...aiExchange, a: stripDoctorNames(aiExchange.a, profile.doctors).text };
-      void adminClinicCollection(clinicId, "ai_debug")
-        .add({ kind: "doctor_name_stripped", doctorNameStripped: true, reason, brain: brainUsed ?? "none", createdAt: FieldValue.serverTimestamp() })
-        .catch(() => {});
-    }
   }
 
   // A promise of a person, made while the clinic is shut, says when the person will actually be
