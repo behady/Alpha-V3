@@ -11,6 +11,7 @@
  * being an AI — unless the patient asked directly, in which case the honest answer is required.
  */
 import { strayDrugNames } from "@/lib/bot/drugGuard";
+import { isCannedAdGreeting } from "@/lib/bot/adGreeting";
 
 /* ------------------------------------------------------------------------------------------- */
 /* Text helpers                                                                                 */
@@ -247,6 +248,7 @@ const latinLetters = (s: string) => (s.match(/[A-Za-z]/g) || []).length;
  * reply too short to tell is never "wrong".
  */
 export function wrongScript(question: string, reply: string): boolean {
+  if (isCannedAdGreeting(question)) return false; // Meta pre-filled it; it is not the patient's language
   const qArabic = arabicLetters(question);
   const qLatin = latinLetters(question);
   if (!(qArabic >= 3 || qLatin >= 3) || !reply.trim()) return false;

@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI, SchemaType, type ModelParams } from "@google/generative-ai";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection } from "@/lib/adminClinicDb";
+import { isCannedAdGreeting } from "@/lib/bot/adGreeting";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { createUsageMeter, logAiCreditUsage } from "@/lib/aiCreditLog";
 import type { AdReferral } from "./adReferral";
@@ -484,7 +485,7 @@ export async function answerWithAi(args: {
     const isLatin = (s: string) => (s.match(/[A-Za-z]/g) || []).length;
     const qArabic = isArabic(question);
     const qLatin = isLatin(question);
-    const questionHasScript = qArabic >= 3 || qLatin >= 3;
+    const questionHasScript = (qArabic >= 3 || qLatin >= 3) && !isCannedAdGreeting(question); // Meta's ad opener is not the patient's language
     const wrongScript = (reply: string) => {
       if (!questionHasScript || !reply.trim()) return false;
       const rArabic = isArabic(reply);

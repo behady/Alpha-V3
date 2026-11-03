@@ -15,6 +15,8 @@ import {
   strayNumbers,
   wrongScript,
 } from "../src/lib/botPro/checks";
+import { isCannedAdGreeting } from "../src/lib/bot/adGreeting";
+import { isLatinMessage } from "../src/lib/bot/localize";
 
 function test(name: string, fn: () => void) {
   fn();
@@ -145,6 +147,15 @@ test("wrongScript follows the patient's script", () => {
   assert.equal(wrongScript("بكام الكشف", "The checkup costs three hundred pounds here"), true);
   assert.equal(wrongScript("بكام الكشف", "الكشف ٣٠٠ جنيه"), false);
   assert.equal(wrongScript("How much?", "It is 300 EGP for a checkup"), false);
+});
+
+test("wrongScript ignores Meta's pre-filled ad opener", () => {
+  assert.equal(wrongScript("Hello! Can I get more info on this?", "أهلًا وسهلا بحضرتك، تبييض الأسنان بالليزر خلال جلسة واحدة"), false);
+  assert.equal(wrongScript("Hi, I'm interested in this", "أهلًا وسهلا بحضرتك، تبييض الأسنان بالليزر خلال جلسة واحدة"), false);
+  assert.equal(wrongScript("Hello! Do you do whitening?", "أهلًا وسهلا بحضرتك، تبييض الأسنان بالليزر خلال جلسة واحدة"), true);
+  assert.equal(isLatinMessage("Hello! Can I get more info on this?"), false);
+  assert.equal(isLatinMessage("Hello! Do you do whitening?"), true);
+  assert.equal(isCannedAdGreeting("مرحبًا! هل يمكنني الحصول على مزيد من المعلومات حول هذا؟"), false);
 });
 
 test("wrongScript stays quiet on a too-short question or reply", () => {

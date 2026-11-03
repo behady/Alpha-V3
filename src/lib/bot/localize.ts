@@ -1,4 +1,5 @@
 import type { MetaInteractive } from "@/lib/metaWhatsapp";
+import { isCannedAdGreeting } from "./adGreeting";
 
 /**
  * The assistant's own fixed sentences, in the patient's script.
@@ -120,6 +121,7 @@ const LABELS: Array<[string, string]> = [
 export function isLatinMessage(raw: string): boolean {
   const t = String(raw || "").trim();
   if (!t) return false;
+  if (isCannedAdGreeting(t)) return false; // Meta typed it, not the patient
   if (/^(m[123]|back_menu|back_days)$/i.test(t)) return false;
   if (/^(dr\||d\d{4}-\d{2}-\d{2}|t\d{4}-\d{2}-\d{2})/i.test(t)) return false;
   if (/^[\d\s٠-٩۰-۹.,]+$/.test(t)) return false;

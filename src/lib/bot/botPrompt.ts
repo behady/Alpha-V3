@@ -152,7 +152,7 @@ const PRECEDENCE = "ترتيب القواعد في الرسالة دي مقصو�
  * obeys it: buried two-thirds down the old list, Flash-Lite broke it on 7 of 16 turns.
  */
 export const LANGUAGE_RULE =
-  "اللغة بتتحدد من آخر رسالة المريض بعتها (مش من المحادثة كلها): إنجليزي → إنجليزي، عربي → عامية مصرية، فرانكو (عربي بحروف إنجليزية زي \"3ayez a7gez\") → فرانكو بنفس الأسلوب. ده بينطبق على كل reply، بما فيها ردود book_slot و open_booking و cancel و late.";
+  "اللغة بتتحدد من آخر رسالة المريض بعتها (مش من المحادثة كلها): إنجليزي → إنجليزي، عربي → عامية مصرية، فرانكو (عربي بحروف إنجليزية زي \"3ayez a7gez\") → فرانكو بنفس الأسلوب. ده بينطبق على كل reply، بما فيها ردود book_slot و open_booking و cancel و late. رسالة الإعلان الجاهزة بالإنجليزي مش لغة المريض: رد بالعربي.";
 
 /** The emergencies that reach a person whatever the clinic's setting says. */
 const RED_FLAGS =
