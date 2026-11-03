@@ -44,6 +44,7 @@ import { answerWithAi, type AiPatientContext, type AiThreadLine, AI_DEFAULT_ACK 
 import { aiBrainOf, dryRunBrainTag, pickReply, type AiBrain } from "@/lib/botPro/brain";
 import { answerWithPro } from "@/lib/botPro/answerWithPro";
 import { isLatinMessage, localizeOutbound } from "./localize";
+import { joinBubbles, splitBubbles } from "./bubbles";
 import { loadPatientDossier, type PatientDossier } from "./patientDossier";
 import { appointmentLine, branchesTextOf, stripDoctorNames } from "./ownerRules";
 import { resolveSpokenPick } from "./spokenPick";
@@ -2110,6 +2111,28 @@ ${askWho}` : askWho;
   let body = replyText;
 
   /*
+   * Several messages from one reply.
+   *
+   * The model marks a break with a line of `---` when the clinic's coaching asks for separate
+   * messages (Asnany: the greeting and offer, then the address and map link, then the booking
+   * question) — see lib/bot/bubbles. The parts go out one by one below. A reply that carries
+   * buttons or a list, or a playground turn, can only be one message: the breaks become blank lines.
+   */
+  let extraBubbles: string[] = [];
+  {
+    const parts = splitBubbles(body);
+    if (parts.length > 1) {
+      if (!structure && !args.dryRun) {
+        body = parts[0];
+        extraBubbles = parts.slice(1);
+      } else {
+        body = parts.join("\n\n");
+        if (structure) structure = { ...structure, body: joinBubbles(structure.body) };
+      }
+    }
+  }
+
+  /*
    * Human pacing.
    *
    * A reply that lands 400ms after the question is the loudest tell there is. With the human
@@ -2122,7 +2145,7 @@ ${askWho}` : askWho;
   // splits like one. Other media turns are the fixed one-liners and stay as they are.
   const pace = settings.humanTouch && !args.dryRun && (!args.media || photoToModel);
   let secondBubble = "";
-  if (pace && !structure && body.length > 180) {
+  if (pace && !structure && !extraBubbles.length && body.length > 180) {
     const cut = body.indexOf("\n\n", Math.min(80, body.length));
     if (cut > 40 && body.length - cut > 40) {
       secondBubble = body.slice(cut + 2).trim();
@@ -2131,7 +2154,7 @@ ${askWho}` : askWho;
   }
   // A photo answer is always the reading, then the question — two bubbles whatever their length.
   // The owner: "divide the message". A short question after a blank line is exactly the split.
-  if (pace && !structure && !secondBubble && photoToModel) {
+  if (pace && !structure && !secondBubble && !extraBubbles.length && photoToModel) {
     const cut = body.indexOf("\n\n");
     if (cut > 0 && body.slice(cut + 2).trim()) {
       secondBubble = body.slice(cut + 2).trim();
@@ -2167,10 +2190,12 @@ ${askWho}` : askWho;
     if (!args.dryRun) waMessageId = await sendPatientWhatsAppRich(clinicId, replyTo, body, structure);
     firstSentAt = Date.now();
     firstSent = true;
-    if (secondBubble) {
-      await new Promise((r) => setTimeout(r, Math.min(7000, 1500 + secondBubble.length * 30)));
-      await sendPatientWhatsAppRich(clinicId, replyTo, secondBubble, undefined);
-      await recordThreadMessage(clinicId, replyTo, { direction: "out", author: "bot", text: secondBubble, kind: reason }, Date.now()).catch(() => {});
+    // The rest of the reply, one message at a time — the model's own breaks, or the long-answer
+    // split above. Each waits about as long as typing it would.
+    for (const bubble of extraBubbles.length ? extraBubbles : secondBubble ? [secondBubble] : []) {
+      await new Promise((r) => setTimeout(r, Math.min(7000, 1500 + bubble.length * 30)));
+      await sendPatientWhatsAppRich(clinicId, replyTo, bubble, undefined);
+      await recordThreadMessage(clinicId, replyTo, { direction: "out", author: "bot", text: bubble, kind: reason }, Date.now()).catch(() => {});
     }
     if (trailerBubble && !args.dryRun) {
       await new Promise((r) => setTimeout(r, pace ? 2500 : 0));
