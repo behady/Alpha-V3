@@ -323,7 +323,7 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
   // would silently fall back to the script.
   const aiInPlan = isUnlocked(clinic, "aiChat");
   // The Pro reply brain is its own add-on, switched on per clinic by the platform.
-  const proInPlan = isUnlocked(clinic, "whatsappPro");
+  const proInPlan = botInPlan;
 
   const [hasLoaded, setHasLoaded] = useState(false);
   const [saving, setSaving] = useState(false);

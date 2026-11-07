@@ -11,7 +11,6 @@ import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { logAiCreditUsage, type AiTokenUsage } from "@/lib/aiCreditLog";
 import { arabicDayLabel, arabicTimeLabel } from "@/lib/arabicDateTime";
-import { isUnlocked } from "@/lib/featureCatalog";
 import { clinicNow, computeAvailableSlots, isClinicClosedOn, loadPublicClinicProfile, type PublicClinicProfile } from "@/lib/publicBooking";
 import { getAiCreditLimit, hasFeature } from "@/lib/subscriptions";
 import type { Clinic } from "@/types/saas";
@@ -91,7 +90,6 @@ async function gateOf(clinicId: string): Promise<string | undefined> {
   const snap = await db.collection("clinics").doc(clinicId).get();
   if (!snap.exists) return "no_clinic";
   const clinic = { id: snap.id, ...snap.data() } as Clinic;
-  if (!isUnlocked(clinic, "whatsappPro")) return "plan_pro";
   if (!hasFeature(clinic, "aiChat")) return "plan";
   const monthKey = new Date().toISOString().slice(0, 7);
   const usage = await db.collection("clinics").doc(clinicId).collection("ai_usage").doc(monthKey).get();

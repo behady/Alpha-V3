@@ -1,5 +1,5 @@
 /**
- * The four Pro AI onboarding routes: admin-only, behind the whatsappPro add-on, on the Pro key
+ * The four Pro AI onboarding routes: admin-only, behind the whatsappBot add-on, on the Pro key
  * only, never charging credits. Source assertions (like botProWiring) plus the pure helpers that
  * shape what the screen sees.
  *
@@ -34,11 +34,11 @@ await test("all four route files exist", () => {
   for (const p of Object.values(ROUTES)) assert.ok(existsSync(new URL(`../${p}`, import.meta.url)), `${p} exists`);
 });
 
-await test("every route is admin-only, behind whatsappPro, nodejs and never cached", () => {
+await test("every route is admin-only, behind whatsappBot, nodejs and never cached", () => {
   for (const p of Object.values(ROUTES)) {
     const c = code(p);
     assert.ok(c.includes("requireAdminUser("), `${p}: requireAdminUser`);
-    assert.match(c, /clinicHasFeature\(\s*clinicId\s*,\s*"whatsappPro"\s*\)/, `${p}: clinicHasFeature(clinicId, "whatsappPro")`);
+    assert.match(c, /clinicHasFeature\(\s*clinicId\s*,\s*"whatsappBot"\s*\)/, `${p}: clinicHasFeature(clinicId, "whatsappBot")`);
     assert.ok(c.includes("Pro AI is not switched on for this clinic."), `${p}: the 403 message`);
     assert.match(c, /export const runtime = "nodejs"/, `${p}: nodejs runtime`);
     assert.match(c, /export const dynamic = "force-dynamic"/, `${p}: force-dynamic`);

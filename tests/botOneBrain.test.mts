@@ -52,9 +52,22 @@ test("the clinic's fixed replies survive as knowledge for the brain", () => {
   assert.ok(!respond.includes("matchScript("), "and never matched by code");
 });
 
-test("a brain reply costs one credit and the Pro add-on gate is gone from the brain", () => {
+test("a brain reply costs one credit and the Pro add-on is gone everywhere", () => {
   const ctx = read("src/lib/botPro/proContext.ts");
   assert.ok(ctx.includes("export const PRO_CREDITS_PER_REPLY = 1;"));
+  assert.ok(!ctx.includes("plan_pro"), "no Pro plan verdict");
+  for (const f of ["src/lib/featureCatalog.ts", "src/lib/subscriptions.ts", "src/types/saas.ts", "src/components/settings/WhatsAppSettings.tsx", "src/app/api/whatsapp/pro-onboarding/route.ts"]) {
+    assert.ok(!read(f).includes("whatsappPro"), `${f} no longer knows the Pro add-on`);
+  }
+});
+
+test("the nightly bot jobs run for every clinic with auto-reply on", () => {
+  const coach = read("src/app/api/automation/bot-coach/route.ts");
+  const memory = read("src/app/api/automation/bot-memory/route.ts");
+  for (const src of [coach, memory]) {
+    assert.ok(src.includes('settings.botEnabled !== true'), "gated on the auto-reply switch");
+    assert.ok(!src.includes("botMode") && !src.includes("botAiEnabled"), "and on nothing the menu bot stored");
+  }
 });
 
 test("the playground rehearses the one brain", () => {

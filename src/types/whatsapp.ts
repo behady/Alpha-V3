@@ -115,23 +115,14 @@ export interface WhatsAppSettingsDocument {
    */
   botAutoConfirmBookings?: boolean;
   /**
-   * Let the model answer free-text questions the buttons could not. Runs ONLY after every free
-   * path failed (menu, digits, taps), at most three answers per conversation, one credit each
-   * from the clinic's monthly AI pool. Prices are quoted as ranges with "reception confirms";
-   * complaints, named-staff questions and anything medical hand to a person.
+   * Retired 2026-11-07 with the menu bot and the old brain: the AI receptionist answers every
+   * clinic whose auto-reply is on. Still stored on existing documents, no longer read by the
+   * server or written by the UI. Kept here so old documents parse.
    */
   botAiEnabled?: boolean;
-  /**
-   * "ai_first": the model leads every conversation like a salesperson and decides when to open
-   * the booking; the fixed routes keep only safety (pain, complaints, opt-out) and the calendar.
-   * "assisted" (default): buttons and keyword answers first, the model last.
-   */
+  /** Retired 2026-11-07 (see botAiEnabled). "ai_first" was the salesperson mode; it is the only mode now. */
   botMode?: "assisted" | "ai_first";
-  /**
-   * Which model answers when the AI replies. "standard" (default) is today's brain. "pro" is the
-   * more capable one; it only takes effect when the clinic has the whatsappPro add-on and runs
-   * AI-first, otherwise the standard brain answers.
-   */
+  /** Retired 2026-11-07 (see botAiEnabled). The Pro brain is the one brain. */
   botAiBrain?: "standard" | "pro";
   /**
    * What the bot does with a symptom ("my tooth hurts", "my gum is swollen").
