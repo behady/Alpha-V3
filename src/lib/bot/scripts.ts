@@ -1,5 +1,4 @@
 import type { BotScript } from "@/types/whatsapp";
-import { normalize } from "./quickAnswers";
 
 /**
  * The clinic's fixed replies, as stored. The feature that matched them against messages was
@@ -17,21 +16,6 @@ export function cleanScripts(scripts: readonly BotScript[] | undefined): BotScri
     if (title) clean.title = title;
     if (s.enabled === false) clean.enabled = false;
     out.push(clean);
-  }
-  return out;
-}
-
-/** "تقويم, تقويم اسنان، braces" → ["تقويم", "تقويم اسنان", "braces"]. Commas of either script or new lines. */
-export function parseTriggers(raw: string): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const piece of raw.split(/[,،\n]+/)) {
-    const t = piece.trim();
-    if (!t) continue;
-    const key = normalize(t);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    out.push(t);
   }
   return out;
 }

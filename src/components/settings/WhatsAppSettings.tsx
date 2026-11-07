@@ -16,13 +16,11 @@ import { useClinic } from "@/context/ClinicContext";
 import { useUI } from "@/context/UIContext";
 import { currentClinicId } from "@/lib/db-utils";
 import { isAnyUnlocked, isUnlocked, SUPPORT_WHATSAPP } from "@/lib/featureCatalog";
-import BotScriptsEditor from "@/components/settings/BotScriptsEditor";
 import AutoReplySteps, { type AutoReplyStepRow } from "@/components/whatsapp/AutoReplySteps";
 import BotBriefEditor from "@/components/whatsapp/BotBriefEditor";
 import InterviewDialog from "@/components/whatsapp/InterviewDialog";
 import ProSetup from "@/components/whatsapp/ProSetup";
-import { briefFilled, cleanBrief, factsFilled, stepsForMode, type AutoReplyStep } from "@/lib/bot/brief";
-import { chosenAnswerMode } from "@/lib/setupWizard";
+import { autoReplySteps as assistantSteps, briefFilled, cleanBrief, factsFilled, type AutoReplyStep } from "@/lib/bot/brief";
 import AutoReplySwitch from "@/components/ai/AutoReplySwitch";
 import { logActivity } from "@/lib/logger";
 import { useDirtyFlag } from "@/context/UnsavedChangesContext";
@@ -1483,10 +1481,11 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
    * listener and the save are the same ones the rest of the page uses.
    */
   // Who answers is read apart from on/off, so the chosen mode's steps stay editable while it is off.
-  const autoReplyMode = chosenAnswerMode(state as unknown as Record<string, unknown>);
+  // One assistant since 2026-11-07: there is no mode to choose, only the switch above.
+  const autoReplyMode = "ai";
   const autoReplyOn = state.botEnabled === true;
   const aiMode = autoReplyMode === "ai" || autoReplyMode === "both";
-  const modeSteps = stepsForMode(autoReplyMode);
+  const modeSteps = assistantSteps();
   // A step the current mode does not have (the brief, after switching to Bot only) falls back to
   // the mode's first step rather than leaving the list with nothing open.
   const openAutoReplyStep =
@@ -1592,27 +1591,6 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
     </div>
   );
 
-  const repliesStep = (
-    <div className="space-y-6">
-      {modeSteps.find((s) => s.id === "replies")?.optional && (
-        <p className="text-xs font-bold text-ink-muted">{txt.repliesOptional}</p>
-      )}
-      {/* The clinic's own trigger→reply scripts. Free, verbatim, and matched before every built-in answer. */}
-      <BotScriptsEditor
-        scripts={state.botScripts ?? []}
-        onChange={(botScripts) => {
-          setState((s) => {
-            const next = { ...s, botScripts };
-            void persist(next, "silent");
-            return next;
-          });
-        }}
-      />
-      <BotMediaLibrary />
-      <BotMedicineList />
-    </div>
-  );
-
   const briefStep = (
     <div className="space-y-3">
       {aiLockNotice}
@@ -1647,6 +1625,9 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
 
   const behaviourStep = (
     <div className="space-y-3">
+      {/* The files and the authorised medicines the assistant may send; they used to sit under Fixed replies. */}
+      <BotMediaLibrary />
+      <BotMedicineList />
       <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botLimits}</p>
       <label className="flex items-center justify-between gap-4 cursor-pointer pt-1">
         <span className="text-sm font-bold text-ink leading-relaxed">{txt.botStrangers}</span>
@@ -1854,10 +1835,8 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
 
   const factsCount = factsFilled(state.botFacts);
   const briefCount = briefFilled(state.botBrief, state.botCoaching);
-  const replyCount = (state.botScripts ?? []).filter((s) => s.enabled !== false).length;
   const stepView: Record<AutoReplyStep, Omit<AutoReplyStepRow, "id" | "optional">> = {
     clinic: { title: txt.stepClinic, badge: txt.stepFilled(factsCount.filled, factsCount.total), content: clinicStep },
-    replies: { title: txt.stepReplies, badge: txt.stepReplyCount(replyCount), content: repliesStep },
     brief: { title: txt.stepBrief, badge: txt.stepFilled(briefCount.filled, briefCount.total), content: briefStep },
     behaviour: { title: txt.stepBehaviour, content: behaviourStep },
     test: { title: txt.stepTest, content: <BotPlayground /> },

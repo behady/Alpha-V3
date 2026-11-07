@@ -53,7 +53,6 @@ export default function WhatsAppQuestionsStep({ onDone, onSkip }: { onDone: () =
     () => ({
       messages: isUnlocked(clinic, "whatsappIntegration"),
       bot: isUnlocked(clinic, "whatsappBot"),
-      ai: isUnlocked(clinic, "aiChat"),
     }),
     [clinic]
   );
@@ -220,23 +219,11 @@ export default function WhatsAppQuestionsStep({ onDone, onSkip }: { onDone: () =
 
   const MODE_OPTIONS: Array<{ id: AnswerMode; label: string; hint: string; locked: boolean; rec?: boolean }> = [
     {
-      id: "bot",
-      label: ar ? "البوت" : "The bot",
-      hint: ar ? "بيرد على الأسئلة المعروفة وبيحجز مواعيد. مجاني." : "Answers the common questions and books appointments. Free.",
+      id: "ai",
+      label: ar ? "الذكاء الاصطناعي يرد" : "The AI answers",
+      hint: ar ? "بيتكلم زي موظف استقبال ويقود المحادثة للحجز. بيستهلك رصيد." : "Talks like a receptionist and leads the chat to a booking. Uses AI credits.",
       locked: !allowed.bot,
       rec: true,
-    },
-    {
-      id: "both",
-      label: ar ? "البوت + الذكاء الاصطناعي" : "Bot + AI",
-      hint: ar ? "البوت الأول، والذكاء الاصطناعي يرد على اللي البوت مايعرفوش. بيستهلك رصيد." : "The bot first; AI answers what the bot can't. Uses AI credits.",
-      locked: !allowed.bot || !allowed.ai,
-    },
-    {
-      id: "ai",
-      label: ar ? "الذكاء الاصطناعي" : "AI",
-      hint: ar ? "بيتكلم زي موظف استقبال ويقود المحادثة للحجز. بيستهلك رصيد." : "Talks like a receptionist and leads the chat to a booking. Uses AI credits.",
-      locked: !allowed.bot || !allowed.ai,
     },
     {
       id: "off",
@@ -547,8 +534,6 @@ function Summary({ a, allowed, reviewUrl, ar }: { a: WhatsAppAnswers; allowed: W
   }
   const modeText: Record<AnswerMode, string> = {
     off: ar ? "محدش بيرد أوتوماتيك — الفريق بيرد من «المحادثات»" : "Nobody answers automatically — the team replies from Chats",
-    bot: ar ? "البوت بيرد على المرضى" : "The bot answers patients",
-    both: ar ? "البوت + الذكاء الاصطناعي بيردوا على المرضى" : "The bot + AI answer patients",
     ai: ar ? "الذكاء الاصطناعي بيرد على المرضى" : "AI answers patients",
   };
   if (allowed.bot) {

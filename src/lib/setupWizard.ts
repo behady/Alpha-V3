@@ -256,10 +256,11 @@ export function bookingDocFrom(a: BookingAnswers): Record<string, unknown> {
 /* ---------- WhatsApp: the questions, and what each answer writes ------------------------------ */
 
 /**
- * Who picks up when a patient writes — the same four choices as Settings → WhatsApp Bot, stored as
- * the same three fields (botEnabled + botMode + botAiEnabled) the server reads.
+ * Who picks up when a patient writes: the AI receptionist ("ai") or nobody ("off"). One switch,
+ * stored as `botEnabled`, the field the server reads. The menu bot and its modes were retired on
+ * 2026-11-07; the old `botMode` / `botAiEnabled` fields are neither read nor written any more.
  */
-export type AnswerMode = "off" | "bot" | "both" | "ai";
+export type AnswerMode = "off" | "ai";
 
 /**
  * The bot facts the wizard asks for: the six questions patients ask most that every clinic can
@@ -284,33 +285,15 @@ export type WhatsAppAnswers = {
 };
 
 /** What this clinic's plan allows, so an answer can never switch on something it has not bought. */
-export type WhatsAppAllowance = { messages: boolean; bot: boolean; ai: boolean };
+export type WhatsAppAllowance = { messages: boolean; bot: boolean };
 
 export function answerModeOf(doc: Record<string, unknown> | undefined): AnswerMode {
-  if (doc?.botEnabled !== true) return "off";
-  if (doc.botMode === "ai_first") return "ai";
-  return doc.botAiEnabled === true ? "both" : "bot";
+  return doc?.botEnabled === true ? "ai" : "off";
 }
 
-/**
- * Who answers once auto-reply is on, read apart from the on/off switch (`botEnabled`). The owner
- * picks "AI only", sets it up and rehearses it in the test chat while patients still get no
- * automatic reply; the switch on the Chats page is the only thing that lets it talk to them.
- */
-export function chosenAnswerMode(doc: Record<string, unknown> | undefined): Exclude<AnswerMode, "off"> {
-  if (doc?.botMode === "ai_first") return "ai";
-  return doc?.botAiEnabled === true ? "both" : "bot";
-}
-
-/**
- * The best choice the plan allows. AI modes fall back to the scripted bot rather than to nothing,
- * because a clinic that asked for "AI" still asked for an answer; the bot itself falls back to
- * "off" — nobody, which is what the clinic has without it.
- */
+/** The best choice the plan allows: without the bot add-on nobody answers, whatever was chosen. */
 export function clampAnswerMode(mode: AnswerMode, allowed: WhatsAppAllowance): AnswerMode {
-  if (mode === "off") return "off";
   if (!allowed.bot) return "off";
-  if ((mode === "both" || mode === "ai") && !allowed.ai) return "bot";
   return mode;
 }
 
@@ -319,8 +302,8 @@ export function clampAnswerMode(mode: AnswerMode, allowed: WhatsAppAllowance): A
  * shows the clinic's real settings and "Save" changes nothing that was not touched.
  *
  * A clinic that never opened the WhatsApp screens gets the recommended starting point instead:
- * messages on, the scripted bot answering its own patients, bookings reviewed by the desk. Every
- * one of those is the cautious setting of its pair.
+ * messages on, the AI receptionist answering its own patients, bookings reviewed by the desk.
+ * Every one of those is the cautious setting of its pair.
  */
 export function answersFromSettings(raw: Record<string, unknown> | undefined): WhatsAppAnswers {
   const facts = (raw?.botFacts && typeof raw.botFacts === "object" ? raw.botFacts : {}) as Record<string, unknown>;
@@ -330,7 +313,7 @@ export function answersFromSettings(raw: Record<string, unknown> | undefined): W
     autoMessages: fresh ? true : raw.isPatientAutomationEnabled === true,
     recall: raw?.isRecallEnabled === true,
     reviews: raw?.isReviewRequestEnabled === true,
-    answerMode: fresh ? "bot" : answerModeOf(raw),
+    answerMode: fresh ? "ai" : answerModeOf(raw),
     answerStrangers: raw?.botAnswerStrangers === true,
     autoConfirm: raw?.botAutoConfirmBookings === true,
     personaName: str(raw?.botPersonaName),
@@ -368,11 +351,7 @@ export function whatsappDocFromAnswers(a: WhatsAppAnswers, allowed: WhatsAppAllo
     out.isReviewRequestEnabled = a.autoMessages && a.reviews;
   }
   const mode = clampAnswerMode(a.answerMode, allowed);
-  if (allowed.bot) {
-    out.botEnabled = mode !== "off";
-    out.botMode = mode === "ai" ? "ai_first" : "assisted";
-    out.botAiEnabled = mode === "both" || mode === "ai";
-  }
+  if (allowed.bot) out.botEnabled = mode !== "off";
   if (mode !== "off") {
     out.botAnswerStrangers = a.answerStrangers;
     out.botAutoConfirmBookings = a.autoConfirm;
