@@ -76,7 +76,7 @@ const SENTENCES: Array<[string, string]> = [
   ["وصلتنا الصورة 📷 حد من العيادة هيشوفها ويرد عليك حالاً.", "Got your photo 📷 someone from the clinic will look at it and reply to you shortly."],
   ["لو الموضوع طارئ كلمنا على طول.", "If it's an emergency, please call us straight away."],
   // --- courtesies -----------------------------------------------------------------------------
-  // What stands in for a reply the model chose not to write (aiReply.AI_DEFAULT_ACK). It is the
+  // What stands in for a reply the model chose not to write (aiTypes.AI_DEFAULT_ACK). It is the
   // one line the assistant sends that was never written in anybody's language.
   ["تمام 👍", "Got it 👍"],
   ["مالقيتش ليك ميعاد محجوز حالياً 🙏", "I couldn't find an upcoming appointment for you 🙏"],

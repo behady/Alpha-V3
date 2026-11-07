@@ -15,7 +15,7 @@ import { isUnlocked } from "@/lib/featureCatalog";
 import { clinicNow, computeAvailableSlots, isClinicClosedOn, loadPublicClinicProfile, type PublicClinicProfile } from "@/lib/publicBooking";
 import { getAiCreditLimit, hasFeature } from "@/lib/subscriptions";
 import type { Clinic } from "@/types/saas";
-import type { answerWithAi, AiThreadLine } from "@/lib/bot/aiReply";
+import type { AiArgs, AiThreadLine } from "@/lib/bot/aiTypes";
 import { conversationKey } from "@/lib/bot/conversation";
 import { dossierLines, loadPatientDossier } from "@/lib/bot/patientDossier";
 import { loadProPerson, type ProPerson } from "./person";
@@ -29,7 +29,7 @@ export const PRO_CREDITS_PER_REPLY = 3;
 /** How much of the thread the Pro brain reads: more than the standard brain's 16. */
 export const PRO_THREAD_LINES = 40;
 
-export type ProArgs = Parameters<typeof answerWithAi>[0] & {
+export type ProArgs = AiArgs & {
   chatId: string;
   phone?: string;
   conversationPatientId?: string;

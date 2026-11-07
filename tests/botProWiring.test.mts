@@ -8,7 +8,7 @@
  */
 import assert from "node:assert/strict";
 import { dryRunBrainTag, pickReply } from "../src/lib/botPro/brain";
-import type { AiReplyResult } from "../src/lib/bot/aiReply";
+import type { AiReplyResult } from "../src/lib/bot/aiTypes";
 import type { ProReplyResult } from "../src/lib/botPro/answerWithPro";
 import { loadClinicLayerWith, type LayerReader } from "../src/lib/botPro/proContext";
 import { readFileSync } from "node:fs";
