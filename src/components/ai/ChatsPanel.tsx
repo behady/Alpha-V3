@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -1568,6 +1568,31 @@ function Thread({
  * per-browser preference, kept in localStorage — a front desk and a treatment room want
  * different things.
  */
+const URL_RE = /https?:\/\/[^\s<>"']+/g;
+
+/**
+ * Plain text with its web links clickable. A location shared from the clinic's phone arrives as
+ * words with a maps link, and a receptionist reading the chat here should be able to open it.
+ */
+function linkify(text: string): ReactNode {
+  const parts: ReactNode[] = [];
+  let last = 0;
+  for (const m of text.matchAll(URL_RE)) {
+    const i = m.index ?? 0;
+    const url = m[0].replace(/[.,;:!?)\]]+$/, "");
+    if (i > last) parts.push(text.slice(last, i));
+    parts.push(
+      <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="underline break-all" dir="ltr">
+        {url}
+      </a>
+    );
+    last = i + url.length;
+  }
+  if (last === 0) return text;
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
+}
+
 function AlertControls({ isAr, showToast }: { isAr: boolean; showToast: (m: string, k: "success" | "error") => void }) {
   const [sound, setSound] = useState(true);
   const [perm, setPerm] = useState<NotificationPermission | "unsupported">("default");
@@ -1865,7 +1890,7 @@ function Bubble({
         */}
         {!placeholderOnly ? (
           <p className="text-[14.5px] whitespace-pre-wrap break-words leading-[1.35] flow-root" dir="auto">
-            {line.text}
+            {linkify(line.text)}
             <span className="float-end ms-2 mt-1.5 inline-flex items-center gap-1 text-[11px] leading-none text-ink-muted dark:text-slate-400">
               {bubbleTime(line.at, isAr)}
               {mine && <Ticks status={line.status} />}

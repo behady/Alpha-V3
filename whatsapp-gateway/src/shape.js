@@ -62,11 +62,47 @@ export function unwrapContent(message) {
   return m;
 }
 
-/** The words in a message, from whichever field WhatsApp put them in. Empty for a bare voice note. */
+/**
+ * A shared location as words: its name and address when WhatsApp sent them, and a maps link.
+ *
+ * Receptionists answer "where are you?" from the phone with a pin. A pin has no text and no
+ * file, so until this it was dropped on the floor and the chat screen showed the question with
+ * no answer under it. A patient's pin ("I am here, how far?") reaches the bot the same way.
+ */
+function locationText(loc, caption) {
+  const lat = Number(loc?.degreesLatitude);
+  const lng = Number(loc?.degreesLongitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return "";
+  const label = [loc.name, loc.address, caption].map((x) => String(x || "").trim()).filter(Boolean).join(" — ");
+  return `📍 ${label ? `${label}\n` : ""}https://maps.google.com/?q=${lat},${lng}`;
+}
+
+/** A shared contact card as words: the name and the numbers on it. */
+function contactText(c) {
+  const name = String(c?.displayName || "").trim();
+  const tels = [...String(c?.vcard || "").matchAll(/^TEL[^:\r\n]*:([^\r\n]+)/gim)].map((t) => t[1].trim()).filter(Boolean);
+  const parts = [name, ...tels.filter((t) => t !== name)];
+  return parts.length ? `👤 ${parts.join(" · ")}` : "";
+}
+
+/** A poll as words: the question and its options. */
+function pollText(p) {
+  const name = String(p?.name || "").trim();
+  const options = (p?.options || []).map((o) => String(o?.optionName || "").trim()).filter(Boolean);
+  if (!name && !options.length) return "";
+  return `📊 ${[name, ...options.map((o) => `▫️ ${o}`)].filter(Boolean).join("\n")}`;
+}
+
+/**
+ * The words in a message, from whichever field WhatsApp put them in. Empty for a bare voice note.
+ *
+ * A location, a contact card and a poll carry no text field, so they are spelled out here:
+ * anything with neither words nor a file is dropped by the caller, and those three were.
+ */
 export function messageText(message) {
   const m = unwrapContent(message);
   if (!m) return "";
-  return String(
+  const plain = String(
     m.conversation ||
       m.extendedTextMessage?.text ||
       m.imageMessage?.caption ||
@@ -78,6 +114,14 @@ export function messageText(message) {
       m.interactiveResponseMessage?.body?.text ||
       ""
   ).trim();
+  if (plain) return plain;
+  if (m.locationMessage) return locationText(m.locationMessage);
+  if (m.liveLocationMessage) return locationText(m.liveLocationMessage, m.liveLocationMessage.caption);
+  if (m.contactMessage) return contactText(m.contactMessage);
+  if (m.contactsArrayMessage) return (m.contactsArrayMessage.contacts || []).map(contactText).filter(Boolean).join("\n");
+  const poll = m.pollCreationMessage || m.pollCreationMessageV2 || m.pollCreationMessageV3;
+  if (poll) return pollText(poll);
+  return "";
 }
 
 /**

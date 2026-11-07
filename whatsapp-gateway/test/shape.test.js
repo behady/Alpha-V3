@@ -222,3 +222,21 @@ test("history item: thread is the other person in both directions; voice notes a
   assert.equal(ev.event, "messages.history");
   assert.equal(ev.payload.messages.length, 1);
 });
+
+test("text: a location pin, a contact card and a poll are spelled out instead of vanishing", () => {
+  const pin = messageText({ locationMessage: { degreesLatitude: 30.0444, degreesLongitude: 31.2357, name: "Asnany", address: "12 Nile St" } });
+  assert.equal(pin, "📍 Asnany — 12 Nile St\nhttps://maps.google.com/?q=30.0444,31.2357");
+  assert.equal(messageText({ locationMessage: { degreesLatitude: 30.0444, degreesLongitude: 31.2357 } }), "📍 https://maps.google.com/?q=30.0444,31.2357");
+  assert.equal(messageText({ liveLocationMessage: { degreesLatitude: 30.1, degreesLongitude: 31.2, caption: "on my way" } }), "📍 on my way\nhttps://maps.google.com/?q=30.1,31.2");
+  assert.equal(messageText({ locationMessage: { name: "no coordinates" } }), "", "a pin without coordinates is still nothing");
+  const card = messageText({ contactMessage: { displayName: "Dr Ahmed", vcard: "BEGIN:VCARD\nVERSION:3.0\nFN:Dr Ahmed\nTEL;type=CELL;waid=201012345678:+20 101 234 5678\nEND:VCARD" } });
+  assert.equal(card, "👤 Dr Ahmed · +20 101 234 5678");
+  assert.equal(
+    messageText({ contactsArrayMessage: { contacts: [{ displayName: "A", vcard: "TEL:+201" }, { displayName: "B", vcard: "" }] } }),
+    "👤 A · +201\n👤 B"
+  );
+  assert.equal(messageText({ pollCreationMessageV3: { name: "Which day?", options: [{ optionName: "Sat" }, { optionName: "Sun" }] } }), "📊 Which day?\n▫️ Sat\n▫️ Sun");
+  // Words still win over the fallbacks, and a pin inside a disappearing-message envelope is read.
+  assert.equal(messageText({ ephemeralMessage: { message: { locationMessage: { degreesLatitude: 1, degreesLongitude: 2 } } } }), "📍 https://maps.google.com/?q=1,2");
+  assert.equal(isSilentMessage({ locationMessage: { degreesLatitude: 1, degreesLongitude: 2 } }), false);
+});
