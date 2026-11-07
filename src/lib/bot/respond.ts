@@ -495,6 +495,12 @@ async function findPatient(
   return null;
 }
 
+/**
+ * Reasons whose reply shows the numbered menu (buttons attached below) or ends with "send *3*
+ * to change it", so the next bare digit is a menu key even in salesperson mode.
+ */
+const MENU_ON_SCREEN_REASONS = new Set(["greeted", "reprompt", "back_to_menu", "hours", "booked"]);
+
 export async function respondToPatientMessage(args: {
   clinicId: string;
   /**
@@ -816,6 +822,8 @@ export async function respondToPatientMessage(args: {
   }
   ctx.aiAvailable = settings.aiEnabled && (settings.aiMaxReplies === 0 || (conversation.aiReplies ?? 0) < settings.aiMaxReplies);
   ctx.aiFirst = settings.aiFirst;
+  // The replies that put a numbered menu on the screen, or end with "send *3* to change it".
+  ctx.menuShown = MENU_ON_SCREEN_REASONS.has(String(conversation.lastReason || ""));
   // Remembered so a tapped button, a bare digit or an emoji keeps the language the patient chose.
   const latinNow = isLatinMessage(text);
   // Only asked when it matters: sales mode and a one-word acknowledgement on the table.
@@ -1695,6 +1703,15 @@ ${askWho}` : askWho;
           nextState = conversation.state;
           pending = pendingFrom(conversation);
           reason = "ai_unavailable";
+        } else if (sales) {
+          // Twice in a row (a quota or an outage, not a blip): a person takes it. Never the menu
+          // re-prompt — in salesperson mode there are no buttons, and "pick from the buttons
+          // below" was the first thing patients saw the morning the model's quota ran out.
+          replyText = "وصلتني رسالتك 🙏 حد من الاستقبال هيرد على حضرتك في أقرب وقت.";
+          structure = undefined;
+          nextState = "handed_off";
+          handoff = true;
+          reason = "gave_up";
         } else if (conversation.state === "awaiting_choice" || conversation.state === "new") {
           replyText = `معلش، مفهمتش قصد حضرتك 🙏 ${v.choose} من الأزرار تحت أو ${v.send} رقم الاختيار.`;
           structure = { body: replyText, buttons: menuButtons(Boolean(ctx.canOfferBooking)) };

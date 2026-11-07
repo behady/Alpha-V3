@@ -330,7 +330,7 @@ console.log("✓ questions mid-form: answered, never registered as a name or rea
 const salesCtx: BotContext = { ...aiCtx, aiFirst: true };
 assert.equal(decideBotReply({ state: "awaiting_choice", text: "عايز احجز", ctx: salesCtx }).action?.type, "ai", "typed booking words go to the model in sales mode");
 assert.equal(decideBotReply({ state: "awaiting_choice", text: "m1", ctx: salesCtx }).action?.type, "list_days", "the book button still opens the lists");
-assert.equal(decideBotReply({ state: "awaiting_choice", text: "1", ctx: salesCtx }).action?.type, "list_days", "and so does its digit");
+assert.equal(decideBotReply({ state: "awaiting_choice", text: "1", ctx: { ...salesCtx, menuShown: true } }).action?.type, "list_days", "and so does its digit, while the menu is on the screen");
 assert.equal(decideBotReply({ state: "awaiting_choice", text: "عايز الغي الميعاد", ctx: salesCtx }).action?.type, "ai", "cancelling is the model's too in sales mode — its cancel action still tells the desk, in the patient's language");
 assert.equal(decideBotReply({ state: "awaiting_choice", text: "عايز الغي الميعاد", ctx: aiCtx }).reason, "cancel_request", "outside sales mode it stays deterministic");
 
@@ -348,3 +348,26 @@ for (const text of ["1", "عايز احجز"]) {
 }
 assert.equal(decideBotReply({ state: "awaiting_choice", text: "2", ctx: hiddenCtx }).reason, "hours", "hours still answered");
 console.log("✓ hidden number: booking asks for the number instead of handing off");
+
+// ================================================================================================
+// A bare digit in salesperson mode. The model asked "3:00 or 6:00?" and the patient wrote "٣": that
+// is three o'clock, not menu key 3 ("talk to a person"). The menu keys still work while a menu is
+// actually on the screen, and in the classic bot nothing changes.
+// ================================================================================================
+{
+  const noMenu: BotContext = { ...ctx, aiAvailable: true, aiFirst: true, menuShown: false };
+  for (const t of ["3", "٣", "1", "2 "]) {
+    const d = decideBotReply({ state: "awaiting_choice", text: t, ctx: noMenu });
+    assert.equal(d.reason, "ai", `"${t}" with no menu on the screen goes to the model`);
+    assert.equal(d.handoff, false);
+    assert.deepEqual(d.action, { type: "ai", question: t });
+  }
+  const menu: BotContext = { ...noMenu, menuShown: true };
+  assert.equal(decideBotReply({ state: "awaiting_choice", text: "٣", ctx: menu }).reason, "asked_for_human", "menu on the screen: 3 still asks for a person");
+  assert.equal(decideBotReply({ state: "awaiting_choice", text: "2", ctx: menu }).reason, "hours");
+  // Classic bot (no salesperson mode): the digits are menu keys as always.
+  assert.equal(decideBotReply({ state: "awaiting_choice", text: "3", ctx: { ...ctx, aiAvailable: true } }).reason, "asked_for_human");
+  // Salesperson mode but the model is out of budget: the menu keys are the only door left.
+  assert.equal(decideBotReply({ state: "awaiting_choice", text: "3", ctx: { ...noMenu, aiAvailable: false } }).reason, "asked_for_human");
+  console.log("✓ salesperson mode: a bare digit answers the model's question unless a menu is on the screen");
+}

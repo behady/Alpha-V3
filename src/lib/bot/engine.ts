@@ -200,6 +200,12 @@ export interface BotContext {
    * safety, the calendar actions, and the two one-word courtesies that confirm an appointment.
    */
   aiFirst?: boolean;
+  /**
+   * The bot's previous message carried the numbered menu (or said "send 3 to change it"), so a
+   * bare digit now is a menu key. Without it, in salesperson mode a digit answers whatever the
+   * model last asked: "3:00 or 6:00?" → "٣" is three o'clock, not "talk to a person".
+   */
+  menuShown?: boolean;
   /** Settings → WhatsApp: what a symptom gets — a person (default) or the AI as a dentist first. */
   clinicalMode?: "handoff" | "dentist";
   /**
@@ -792,6 +798,12 @@ export function decideBotReply(args: {
   }
 
   const choice = menuChoice(text);
+
+  // Salesperson mode with no menu on the screen: the digit is an answer to the model's own
+  // question (a time it offered, "one session?" → "1"), so the model reads it with the thread.
+  if (choice && ctx.aiFirst && ctx.aiAvailable && !ctx.menuShown) {
+    return { reply: "", action: { type: "ai", question: text }, next: state, handoff: false, reason: "ai" };
+  }
 
   if (choice === "1") return startBooking(ctx);
   if (choice === "2") {
