@@ -423,17 +423,20 @@ export default function ChatsPanel({
 
   return (
     <div
-      className={`rounded-2xl border border-line dark:border-slate-800 shadow-xl overflow-hidden grid md:grid-cols-[360px_1fr] transition-colors bg-surface-subtle dark:bg-slate-900 ${
-        selected && infoOpen ? "lg:grid-cols-[340px_1fr_300px]" : ""
+      // `minmax(0,1fr)`, not `1fr`: a grid track never shrinks below its content's min width, and the
+      // header buttons and filter chips do not wrap — on a phone the panel grew wider than the screen
+      // and the send button sat off the right edge.
+      className={`rounded-2xl border border-line dark:border-slate-800 shadow-xl overflow-hidden grid grid-cols-[minmax(0,1fr)] md:grid-cols-[360px_minmax(0,1fr)] transition-colors bg-surface-subtle dark:bg-slate-900 ${
+        selected && infoOpen ? "lg:grid-cols-[340px_minmax(0,1fr)_300px]" : ""
       } ${heightClass}`}
       dir={isRTL ? "rtl" : "ltr"}
     >
       {/* The list. On a phone it is the whole panel until a chat is opened. */}
       <aside
-        className={`bg-surface dark:bg-slate-900 flex-col min-h-0 border-line dark:border-slate-800 md:border-e transition-colors ${selected ? "hidden md:flex" : "flex"}`}
+        className={`bg-surface dark:bg-slate-900 flex-col min-h-0 min-w-0 border-line dark:border-slate-800 md:border-e transition-colors ${selected ? "hidden md:flex" : "flex"}`}
       >
-        <div className="px-4 pt-4 pb-2 flex items-center bg-surface-subtle dark:bg-slate-900">
-          <h2 className="text-[22px] font-black text-ink dark:text-slate-100">
+        <div className="px-4 pt-4 pb-2 flex items-center min-w-0 bg-surface-subtle dark:bg-slate-900">
+          <h2 className="text-[22px] font-black text-ink dark:text-slate-100 truncate">
             {isAr ? "المحادثات" : "Chats"}
           </h2>
           <AutoReplySwitch className="ms-3" />
@@ -464,7 +467,7 @@ export default function ChatsPanel({
               className="w-full rounded-lg border-0 ps-10 pe-3 py-2 text-sm focus:outline-none focus:ring-0 bg-surface-subtle dark:bg-slate-800 text-ink dark:text-slate-100"
             />
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
             {(
               [
                 ["all", isAr ? "الكل" : "All", 0],
@@ -479,7 +482,7 @@ export default function ChatsPanel({
                 <button
                   key={key}
                   onClick={() => setFilter(key)}
-                  className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-bold transition-colors"
+                  className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 text-[12px] font-bold transition-colors"
                   style={
                     active
                       ? { background: "#e7fce3", color: WA.greenDark }
@@ -622,7 +625,7 @@ export default function ChatsPanel({
       </aside>
 
       {/* The thread. */}
-      <section className={`min-h-0 flex-col ${selected ? "flex" : "hidden md:flex"}`}>
+      <section className={`min-h-0 min-w-0 flex-col ${selected ? "flex" : "hidden md:flex"}`}>
         {selected ? (
           <Thread
             key={selected.id}
@@ -1102,7 +1105,7 @@ function Thread({
 
   return (
     <>
-      <header className="px-3 py-2 flex items-center gap-3 border-b border-line bg-surface-subtle dark:bg-slate-900">
+      <header className="px-3 py-2 flex items-center gap-2 sm:gap-3 min-w-0 border-b border-line bg-surface-subtle dark:bg-slate-900">
         <button onClick={onBack} className="md:hidden p-1.5 rounded-lg hover:bg-black/5 text-ink-muted dark:text-slate-400">
           <ArrowLeft size={18} className="rtl:rotate-180" />
         </button>

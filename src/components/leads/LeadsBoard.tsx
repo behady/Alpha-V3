@@ -29,6 +29,7 @@ import {
 import { SourceIcon } from "@/components/SourceIcon";
 import { LEAD_GRADES, effectiveGrade, gradeEmoji, gradeLabel, gradeRank, gradeStyles, type LeadGrade } from "@/lib/leads/leadGrade";
 import FeatureGate from "@/components/FeatureGate";
+import LeadGradingSwitch from "@/components/leads/LeadGradingSwitch";
 
 /**
  * The Leads inbox — the CRM's front door.
@@ -459,6 +460,8 @@ function LeadsPage({ whatsappOnly = false }: { whatsappOnly?: boolean }) {
               : isAr ? "كل اللي سألوا ولسه محجزوش" : "Everyone who asked but hasn't booked yet"
           }
         >
+          {/* The AI grader's switch sits beside the leads it grades, not only in Settings. */}
+          {isAdmin && <LeadGradingSwitch />}
           <button data-tour="leads-add" onClick={openAdd} className={headerButtonPrimary}>
             <Plus size={18} strokeWidth={3} /> {isAr ? "إضافة" : "Add lead"}
           </button>
