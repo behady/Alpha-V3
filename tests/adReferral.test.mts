@@ -4,7 +4,6 @@
 import assert from "node:assert/strict";
 import { adGreetingLine, adLabel, adPromptLines, adSubjectText, adSystemLine, parseBaileysAdReply, parseMetaReferral, readStoredAd } from "../src/lib/bot/adReferral";
 import { decideBotReply, type BotContext } from "../src/lib/bot/engine";
-import { buildBotPrompt } from "../src/lib/bot/botPrompt";
 import { adStats } from "../src/lib/reports/adStats";
 
 // ================================================================================================
@@ -99,13 +98,6 @@ const two = [...scripts, { id: "s2", triggers: ["تقويم"], reply: "التق�
 assert.equal(decideBotReply({ state: "new", text: "عايز اعرف عن التقويم", ctx: { ...withAd, scripts: two } }).reply, "التقويم من 8000");
 // Safety still outranks the ad: a symptom from an ad click goes to a person.
 assert.equal(decideBotReply({ state: "new", text: "وشي وارم", ctx: { ...withAd, scripts } }).reason, "clinical");
-
-// ================================================================================================
-// The model is told.
-// ================================================================================================
-const prompt = buildBotPrompt({ clinicName: "Alpha", mode: "sales", clinical: false, priceLines: "", knowledge: [], dossierText: "", offeredSlots: [], ad: meta! });
-assert.ok(prompt.includes("جاي من إعلان") && prompt.includes("«تبييض الأسنان بخصم 30%»"));
-assert.ok(!buildBotPrompt({ clinicName: "Alpha", mode: "sales", clinical: false, priceLines: "", knowledge: [], dossierText: "", offeredSlots: [] }).includes("جاي من إعلان"));
 
 // ================================================================================================
 // The report: chats, typed, booked, attended, paid — per ad, joined on the patient.

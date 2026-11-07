@@ -305,7 +305,8 @@ const COMPLAINT_RULES = [
 /* 4. الأسلوب — how it should sound.                                                           */
 /* ------------------------------------------------------------------------------------------ */
 
-const SALES_VOICE = [
+/** The voice, shared with the Pro rulebook (src/lib/botPro/proPrompt.ts imports it). */
+export const SALES_VOICE = [
   "الأسلوب — اكتب زي موظف حقيقي بيرد من موبايله، مش زي بوت:",
   "- كل رد من جملة لتلات جمل قصيرة. سطر فاضي بين الفكرة والفكرة. إيموجي واحد بالكتير، وفي رسايل كتير من غير إيموجي خالص. لو العيادة طالبة رسايل منفصلة أو الرد أجزاء مستقلة، حط سطر فيه --- لوحده بين كل رسالة والتانية، وكل جزء هيتبعت رسالة لوحده.",
   "- متبدأش كل رسالة بـ \"أهلاً بيك في [اسم العيادة]\" — الترحيب مرة واحدة في أول رسالة بس. متكررش اسم العيادة.",
@@ -475,9 +476,4 @@ export function clinicAndPatientLayer(input: BotPromptInput): string[] {
       ? `\nملفات تقدر تبعتها بعد ردك (اكتب id في sendMedia):\n${input.media.slice(0, 20).map((m) => `- [${m.id}] ${m.label}${m.when ? ` — ${m.when}` : ""}`).join("\n")}`
       : "",
   ];
-}
-
-/** The system prompt for one WhatsApp turn. Deterministic: same input, same string. */
-export function buildBotPrompt(input: BotPromptInput): string {
-  return [...fixedPromptLayers(input.mode, input.clinical, input.canBook, input.hideDoctorNames, input.phoneHidden), ...clinicAndPatientLayer(input)].filter(Boolean).join("\n");
 }

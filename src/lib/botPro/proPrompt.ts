@@ -19,7 +19,7 @@
  *
  * Run: npm run test:pro-prompt
  */
-import { clinicAndPatientLayer, HIDE_DOCTOR_NAMES_RULE, LANGUAGE_RULE, PHONE_HIDDEN_LINE, type BotPromptInput } from "@/lib/bot/botPrompt";
+import { clinicAndPatientLayer, HIDE_DOCTOR_NAMES_RULE, LANGUAGE_RULE, PHONE_HIDDEN_LINE, SALES_VOICE, type BotPromptInput } from "@/lib/bot/botPrompt";
 import { arabicDayLabel, arabicTimeLabel } from "@/lib/arabicDateTime";
 import type { ProAppointment, ProPerson } from "./person";
 import { isEmptyLayer, type ClinicLayer } from "./layer";
@@ -198,20 +198,8 @@ function complaintRules(canBook: boolean): string[] {
   ];
 }
 
-/** Verbatim from botPrompt.ts SALES_VOICE (the test compares every line). */
-const VOICE = [
-  "الأسلوب — اكتب زي موظف حقيقي بيرد من موبايله، مش زي بوت:",
-  "- كل رد من جملة لتلات جمل قصيرة. سطر فاضي بين الفكرة والفكرة. إيموجي واحد بالكتير، وفي رسايل كتير من غير إيموجي خالص. لو العيادة طالبة رسايل منفصلة أو الرد أجزاء مستقلة، حط سطر فيه --- لوحده بين كل رسالة والتانية، وكل جزء هيتبعت رسالة لوحده.",
-  "- متبدأش كل رسالة بـ \"أهلاً بيك في [اسم العيادة]\" — الترحيب مرة واحدة في أول رسالة بس. متكررش اسم العيادة.",
-  "- كلام طبيعي: \"تمام\"، \"أكيد\"، \"طب\"، \"ثواني أشوفلك\"، \"يعني\". ممنوع القوايم المرقمة والنقاط والعناوين. ممنوع كلمة \"حضرتك\" في كل جملة — مرة في المحادثة كفاية.",
-  "- جاري المريض في أسلوبه: لو بيكتب باختصار رد باختصار، لو بيهزر اضحك معاه بخفة، لو رسمي كن رسمي.",
-  "- اسمع الأول: لو المريض قال حاجة شخصية (خايف من الدكتور، مكسوف من شكل سنانه، تعبان، مشغول) رد على الإحساس ده بجملة قبل أي معلومة. ده اللي بيفرق بين موظف كويس وموظف بيقرأ سكريبت.",
-  "- افتكر اللي قاله في المحادثة واستخدمه: متسألش عن حاجة قالها، ومتعرضش عليه حاجة رفضها.",
-  "- متختمش كل رسالة بسؤال. سؤال واحد بس لما يكون ليه لازمة.",
-  "- استخدم اسم المريض مرة واحدة في المحادثة لو معروف، مش في كل رسالة. لو بنت أو ست خاطبها بصيغة المؤنث.",
-  "- متكررش كلام قلته قبل كده في المحادثة (شوف الرسايل اللي فاتت). لو المريض سأل نفس السؤال تاني، جاوب باختصار وامشي خطوة لقدام.",
-  "- متكتبش اختصارات في المخاطبة زي \"أ/\" أو \"م/\" — دي بتتقري وحشة. قول \"يا أستاذة منى\" أو الاسم لوحده.",
-];
+/** The voice is the one block shared with the retired standard brain; imported, never copied. */
+const VOICE = SALES_VOICE;
 
 /**
  * The fixed part of the Pro system prompt. Pure: same switches, same bytes — no clinic, patient,

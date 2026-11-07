@@ -109,7 +109,6 @@
     "test:intro": "npx tsx tests/repeatIntro.test.mts",
     "test:voice": "npx tsx tests/voiceFix.test.mts",
     "test:medscreen": "npx tsx tests/medicineScreen.test.mts",
-    "test:prompt": "npx tsx tests/botPrompt.test.mts",
     "test:slots": "npx tsx tests/slotPreference.test.mts",
     "test:wacost": "npx tsx tests/whatsappCost.test.mts",
     "test:margin": "npx tsx tests/platformCost.test.mts",
