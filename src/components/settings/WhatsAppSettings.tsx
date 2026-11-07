@@ -183,7 +183,6 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
     botEnabled: data?.botEnabled === true,
     botAnswerStrangers: data?.botAnswerStrangers === true,
     botAutoConfirmBookings: data?.botAutoConfirmBookings === true,
-    botAiEnabled: data?.botAiEnabled === true,
     // Same rule as deliveryMode: spread conditionally so "standard" / absent never becomes undefined.
     botClinicalMode: data?.botClinicalMode === "dentist" ? "dentist" : "handoff",
     botCoaching: typeof data?.botCoaching === "string" ? data.botCoaching : "",
@@ -1721,12 +1720,11 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
           </label>
 
           {/* Symptoms: a person, or the AI as a dentist first. Needs the AI on to mean anything. */}
-          <label className={`flex items-center justify-between gap-4 pt-1 ${state.botAiEnabled ? "cursor-pointer" : "opacity-50"}`}>
+          <label className="flex items-center justify-between gap-4 pt-1 cursor-pointer">
             <span className="text-sm font-bold text-ink leading-relaxed">{txt.botDentist}</span>
             <input
               type="checkbox"
               className="h-5 w-5 rounded border-line-strong text-ink-muted focus:ring-accent-soft/30 shrink-0"
-              disabled={!state.botAiEnabled}
               checked={state.botClinicalMode === "dentist"}
               onChange={(e) => {
                 const on = e.target.checked;

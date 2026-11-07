@@ -47,6 +47,23 @@ test("the failure ladder: credits → alert; first miss → resend; second → a
   assert.ok(!respond.includes('reason = "reprompt";'), "no re-prompt rung");
 });
 
+test("a plain brain answer mid-reschedule keeps the move; a fresh slot offer never inherits one", () => {
+  // Both plain-answer branches (the sentence that already names times, and the ordinary answer)
+  // carry the appointment being moved forward, so "the first one" next turn moves it instead of
+  // adding a second booking.
+  assert.equal((respond.match(/pending = keepMove\(/g) || []).length, 2, "both plain-answer branches keep the move");
+  const keep = respond.indexOf("const keepMove = (p: PendingOptions | undefined): PendingOptions | undefined =>");
+  assert.ok(keep > 0, "keepMove exists");
+  assert.ok(respond.slice(keep, keep + 500).includes("reschedule: conversation.pendingReschedule"));
+  // A spoken offer carries the move only when it IS the move (startReschedule, or a slot taken
+  // mid-move); a fresh booking opened by the brain, or a registration, drops a stale id.
+  const offer = respond.indexOf("const offerSlots = async (");
+  const block = respond.slice(offer, respond.indexOf("    };", offer));
+  assert.ok(block.includes('const moving = o.reason === "reschedule_days" || (o.reason === "slot_taken" && Boolean(rescheduleId));'), "offerSlots knows when it is the move");
+  assert.ok(block.includes("reschedule: moving ? rescheduleId : undefined"), "and stores the id only then");
+  assert.ok(block.includes("moving ? rescheduleId : null"), "and ignores the moved appointment's own slot only then");
+});
+
 test("the clinic's fixed replies survive as knowledge for the brain", () => {
   assert.ok(respond.includes("scriptsKnowledge"), "the scripts are folded into knowledge");
   assert.ok(!respond.includes("matchScript("), "and never matched by code");

@@ -121,7 +121,7 @@ test("the closed note is appended only when the clinic switched it on", () => {
 test("no dentist is named in a spoken slot offer while names are hidden (every offer goes through offerSlots)", () => {
   const at = respond.indexOf("const offerSlots = async (");
   assert.ok(at > 0);
-  const head = respond.slice(at, at + 600);
+  const head = respond.slice(at, at + 1400);
   assert.match(head, /const doctorName = settings\.hideDoctorNames \? "" : \(o\.doctorName \?\? conversation\.pendingDoctor \?\? ""\);/);
   assert.ok(head.includes("settings.hideDoctorNames);"), "nextSlots is told to leave the dentist out of the label");
 });
@@ -227,7 +227,7 @@ test("branch phones join the allowed numbers as one digit string, never as their
 const ui = readFileSync(new URL("../src/components/settings/WhatsAppSettings.tsx", import.meta.url), "utf8");
 
 test("the settings screen shows one assistant: no mode cards, no brain picker, no fixed replies, no reply cap", () => {
-  for (const gone of ["botAiBrain", "BotScriptsEditor", "botAiMaxReplies", "answerModeBot", "brainPro", "chosenAnswerMode", "whatsappPro", "botMode"]) {
+  for (const gone of ["botAiBrain", "BotScriptsEditor", "botAiMaxReplies", "answerModeBot", "brainPro", "chosenAnswerMode", "whatsappPro", "botMode", "botAiEnabled"]) {
     assert.ok(!ui.includes(gone), `${gone} is gone from the settings screen`);
   }
   assert.ok(ui.includes("Teach the assistant your clinic"), "the learned layer is every clinic's to teach");

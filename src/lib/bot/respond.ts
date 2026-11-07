@@ -828,6 +828,18 @@ export async function respondToPatientMessage(args: {
   /** Attach them to whatever this turn was already storing, without disturbing the rest. */
   const withSpokenSlots = (p: PendingOptions | undefined): PendingOptions | undefined =>
     spokenSlotKeys.length ? { ...(p ?? {}), slots: spokenSlotKeys } : p;
+  /**
+   * A plain answer in the middle of a move keeps the move.
+   *
+   * The appointment being rescheduled rides on the conversation; a side question ("is Tuesday
+   * with the same dentist?") answered in prose must not drop it, or the patient's next "the
+   * first one" adds a second booking instead of moving the first. The dentist and the service
+   * the move was about ride along for the same reason.
+   */
+  const keepMove = (p: PendingOptions | undefined): PendingOptions | undefined =>
+    conversation.pendingReschedule
+      ? { ...(p ?? {}), reschedule: conversation.pendingReschedule, doctor: p?.doctor ?? conversation.pendingDoctor, treatment: p?.treatment ?? conversation.pendingTreatment }
+      : p;
   let aiExchange: { q: string; a: string } | undefined;
   let aiInterest = "";
   let aiMedia: { id: string; label: string; url: string; kind: "image" | "document" } | null = null;
@@ -855,7 +867,12 @@ export async function respondToPatientMessage(args: {
      */
     const offerSlots = async (intro: string, o: { doctorName?: string; dateKey?: string; reason: string }) => {
       const doctorName = settings.hideDoctorNames ? "" : (o.doctorName ?? conversation.pendingDoctor ?? "");
-      let slots = await nextSlots(clinicId, profile!, branchId, doctorName, rescheduleId || null, readTimePreference(text, clinicDayBoundsMinutes(profile!.schedule)), settings.hideDoctorNames);
+      // The move's id rides only when this offer IS the move (a reschedule, or its slot taken under
+      // the patient's feet). A fresh booking the brain opens, or a registration, drops a stale one:
+      // a patient who asked to move Tuesday, changed their mind and booked a cleaning must not have
+      // the cleaning written on top of Tuesday.
+      const moving = o.reason === "reschedule_days" || (o.reason === "slot_taken" && Boolean(rescheduleId));
+      let slots = await nextSlots(clinicId, profile!, branchId, doctorName, moving ? rescheduleId : null, readTimePreference(text, clinicDayBoundsMinutes(profile!.schedule)), settings.hideDoctorNames);
       if (o.dateKey) {
         const sameDay = slots.filter((sl) => sl.key.startsWith(`${o.dateKey}|`));
         if (sameDay.length) slots = sameDay;
@@ -874,7 +891,7 @@ export async function respondToPatientMessage(args: {
       replyText = lines.join("\n");
       nextState = "awaiting_choice";
       spokenSlotKeys = slots.map((sl) => sl.key);
-      pending = { slots: spokenSlotKeys, doctor: doctorName, treatment, reschedule: rescheduleId || undefined };
+      pending = { slots: spokenSlotKeys, doctor: doctorName, treatment, reschedule: moving ? rescheduleId : undefined };
       reason = o.reason;
     };
 
@@ -1409,7 +1426,7 @@ ${askWho}` : askWho;
           structure = undefined;
           reason = "ai_answer";
           nextState = conversation.state.startsWith("booking_") ? conversation.state : "awaiting_choice";
-          pending = pendingFrom(conversation);
+          pending = keepMove(pendingFrom(conversation));
         } else if (ctx.canOfferBooking) {
           await offerSlots(intro, { reason: "ai_booking" });
         } else {
@@ -1442,6 +1459,7 @@ ${askWho}` : askWho;
             reschedule: conversation.pendingReschedule,
           };
         }
+        pending = keepMove(pending);
       } else if (ai.kind === "handoff") {
         // The model recognised a person's job — a complaint, a named dentist, something medical,
         // or a question it has no facts for. Same promise as every other handoff: the patient is
