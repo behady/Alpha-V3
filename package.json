@@ -57,6 +57,7 @@
     "test:bot-superseded": "npx tsx tests/botSuperseded.test.mts",
     "test:bot-bubbles": "npx tsx tests/botBubbles.test.mts",
     "test:bot-one-brain": "npx tsx tests/botOneBrain.test.mts",
+    "test:bot-retired-inputs": "npx tsx tests/botRetiredInputs.test.mts",
     "battery:pro": "npx tsx scripts/pro-battery.mts",
     "test:brief-route": "npx tsx tests/briefDraftRoute.test.mts",
     "test:signup": "npx tsx tests/onboardingSignup.test.mts",

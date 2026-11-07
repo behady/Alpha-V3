@@ -221,19 +221,18 @@ await test("versionRows: passed and break count, tolerant of a missing test", ()
   ]);
 });
 
-await test("the screen: Teach Pro your clinic opens only inside the proInPlan branch", () => {
+await test("the screen: Teach the assistant your clinic is offered to every clinic with the bot in its plan", () => {
   const SETTINGS = "src/components/settings/WhatsAppSettings.tsx";
   const c = code(SETTINGS);
   assert.match(c, /import ProSetup from "@\/components\/whatsapp\/ProSetup"/, "WhatsAppSettings imports ProSetup");
   assert.equal(c.split("<ProSetup").length - 1, 1, "ProSetup is mounted exactly once");
-  const branch = c.indexOf('autoReplyMode === "ai" && proInPlan');
-  assert.ok(branch > 0, "the proInPlan branch exists");
+  const branch = c.indexOf("{botInPlan && (");
+  assert.ok(branch > 0, "the bot-in-plan branch exists");
   const mount = c.indexOf("<ProSetup");
-  assert.ok(mount > branch, "ProSetup comes after the proInPlan check");
-  // Nothing between the check and the mount closes the branch: the mount sits inside the same block.
-  assert.ok(c.indexOf("<AutoReplySteps") > mount, "ProSetup sits above the steps, in the picker block that proInPlan guards");
-  assert.ok(c.slice(branch, mount).split("proInPlan").length === 2, "no second proInPlan check between the branch and the mount");
-  assert.ok(c.includes("Teach Pro your clinic") && source(SETTINGS).includes("علّم Pro عيادتك") , "the button label in both languages");
+  assert.ok(mount > branch, "ProSetup comes after the plan check");
+  assert.ok(c.indexOf("<AutoReplySteps") > mount, "ProSetup sits above the steps");
+  assert.ok(!c.includes("proInPlan") && !c.includes("whatsappPro"), "no Pro add-on gate remains: the brain is every clinic's");
+  assert.ok(c.includes("Teach the assistant your clinic") && source(SETTINGS).includes("علّم المساعد عيادتك"), "the button label in both languages");
   assert.match(c, /<ProSetup[\s\S]*?clinicId=\{clinicId \?\? ""\}/, "ProSetup receives the clinic id");
 });
 
