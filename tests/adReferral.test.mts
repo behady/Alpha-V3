@@ -3,7 +3,7 @@
 // Run with tsx.
 import assert from "node:assert/strict";
 import { adGreetingLine, adLabel, adPromptLines, adSubjectText, adSystemLine, parseBaileysAdReply, parseMetaReferral, readStoredAd } from "../src/lib/bot/adReferral";
-import { decideBotReply, type BotContext } from "../src/lib/bot/engine";
+import { decide, type BotContext } from "../src/lib/bot/decide";
 import { adStats } from "../src/lib/reports/adStats";
 
 // ================================================================================================
@@ -64,40 +64,23 @@ assert.equal(adSubjectText(meta), "تبييض الأسنان بخصم 30% احج
 assert.equal(adSubjectText(null), "");
 
 // ================================================================================================
-// The engine: the welcome event greets by the ad; the ad matches the clinic's scripts.
+// The decider: the welcome event greets by the ad, for free; anything typed is the brain's.
 // ================================================================================================
-const base: BotContext = { clinicName: "Alpha Dental", hoursText: "السبت: 10:00 - 22:00", canOfferBooking: true };
+const base: BotContext = { clinicName: "Alpha Dental", aiAvailable: true };
 const withAd: BotContext = { ...base, ad: meta!, adOfferLine: "خصم 30% على التبييض" };
 
-const welcome = decideBotReply({ state: "new", text: "", ctx: { ...withAd, welcome: true } });
+const welcome = decide({ state: "new", text: "", ctx: { ...withAd, welcome: true } });
 assert.equal(welcome.reason, "ad_welcome");
 assert.equal(welcome.next, "awaiting_choice");
 assert.ok(welcome.reply.includes("Alpha Dental") && welcome.reply.includes("تبييض الأسنان بخصم 30%") && welcome.reply.includes("خصم 30% على التبييض"), welcome.reply);
-assert.ok(welcome.reply.includes("*1*"), "and still offers the menu");
+assert.ok(!welcome.reply.includes("*1*"), "no menu under the welcome");
 
 // Without the welcome flag an empty message is still silence — nothing changed for ordinary turns.
-assert.equal(decideBotReply({ state: "new", text: "", ctx: withAd }).reason, "empty_message");
-// And a welcome event mid-booking does not reset the list the patient is answering.
-assert.equal(decideBotReply({ state: "booking_time", text: "", ctx: { ...withAd, welcome: true } }).reason, "empty_message");
-
-// A plain greeting from an ad click is greeted by the ad; without the ad, the ordinary greeting.
-const hi = decideBotReply({ state: "new", text: "السلام عليكم", ctx: withAd });
-assert.equal(hi.reason, "greeted");
-assert.ok(hi.reply.includes("تبييض الأسنان بخصم 30%"));
-assert.ok(!decideBotReply({ state: "new", text: "السلام عليكم", ctx: base }).reply.includes("تبييض"));
-
-// The clinic wrote a script for whitening: the ad's headline reaches it even when the person only said "hi".
-const scripts = [{ id: "s1", triggers: ["تبييض"], reply: "عرض التبييض 1500 بدل 2000 لحد آخر الشهر، تحب أحجزلك؟", enabled: true }];
-const scripted = decideBotReply({ state: "new", text: "مرحبا", ctx: { ...withAd, scripts } });
-assert.equal(scripted.reason, "ad_script");
-assert.equal(scripted.reply, scripts[0].reply);
-// Only on the first turn: later messages are matched on their own words.
-assert.notEqual(decideBotReply({ state: "awaiting_choice", text: "مرحبا", ctx: { ...withAd, scripts } }).reason, "ad_script");
-// And the typed words still win over the ad when they match a script themselves.
-const two = [...scripts, { id: "s2", triggers: ["تقويم"], reply: "التقويم من 8000", enabled: true }];
-assert.equal(decideBotReply({ state: "new", text: "عايز اعرف عن التقويم", ctx: { ...withAd, scripts: two } }).reply, "التقويم من 8000");
+assert.equal(decide({ state: "new", text: "", ctx: withAd }).reason, "empty_message");
+// A greeting from an ad click is the brain's turn; the ad reaches it through the prompt (adPromptLines).
+assert.equal(decide({ state: "new", text: "السلام عليكم", ctx: withAd }).action?.type, "ai");
 // Safety still outranks the ad: a symptom from an ad click goes to a person.
-assert.equal(decideBotReply({ state: "new", text: "وشي وارم", ctx: { ...withAd, scripts } }).reason, "clinical");
+assert.equal(decide({ state: "new", text: "وشي وارم", ctx: withAd }).reason, "clinical");
 
 // ================================================================================================
 // The report: chats, typed, booked, attended, paid — per ad, joined on the patient.

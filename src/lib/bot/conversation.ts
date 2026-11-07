@@ -1,7 +1,7 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicDoc } from "@/lib/adminClinicDb";
 import { phoneMatchKey } from "@/lib/patientPhone";
-import type { BotState } from "./engine";
+import type { BotState } from "./decide";
 import { readStoredAd, type AdReferral } from "./adReferral";
 import { MAX_REPLIES_PER_MINUTE, REPLY_BURST_MS, repliesInLastMinute } from "./burstGuard";
 
