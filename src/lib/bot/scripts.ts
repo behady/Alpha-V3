@@ -1,4 +1,5 @@
 import type { BotScript } from "@/types/whatsapp";
+import { normalize } from "./quickAnswers";
 
 /**
  * The clinic's fixed replies, as stored. The feature that matched them against messages was
