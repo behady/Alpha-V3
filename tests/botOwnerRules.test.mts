@@ -226,6 +226,13 @@ test("branch phones join the allowed numbers as one digit string, never as their
 
 const ui = readFileSync(new URL("../src/components/settings/WhatsAppSettings.tsx", import.meta.url), "utf8");
 
+test("the settings screen shows one assistant: no mode cards, no brain picker, no fixed replies, no reply cap", () => {
+  for (const gone of ["botAiBrain", "BotScriptsEditor", "botAiMaxReplies", "answerModeBot", "brainPro", "chosenAnswerMode", "whatsappPro", "botMode"]) {
+    assert.ok(!ui.includes(gone), `${gone} is gone from the settings screen`);
+  }
+  assert.ok(ui.includes("Teach the assistant your clinic"), "the learned layer is every clinic's to teach");
+});
+
 test("the settings screen reads, shows and writes both switches", () => {
   assert.ok(ui.includes("botHideDoctorNames: data?.botHideDoctorNames === true,"));
   assert.ok(ui.includes("botClosedNote: data?.botClosedNote === true,"));

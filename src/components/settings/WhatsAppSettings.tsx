@@ -184,11 +184,8 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
     botAnswerStrangers: data?.botAnswerStrangers === true,
     botAutoConfirmBookings: data?.botAutoConfirmBookings === true,
     botAiEnabled: data?.botAiEnabled === true,
-    botMode: data?.botMode === "ai_first" ? "ai_first" : "assisted",
     // Same rule as deliveryMode: spread conditionally so "standard" / absent never becomes undefined.
-    ...(data?.botAiBrain === "pro" ? { botAiBrain: "pro" as const } : {}),
     botClinicalMode: data?.botClinicalMode === "dentist" ? "dentist" : "handoff",
-    ...(typeof data?.botAiMaxReplies === "number" ? { botAiMaxReplies: data.botAiMaxReplies } : {}),
     botCoaching: typeof data?.botCoaching === "string" ? data.botCoaching : "",
     // Same rule as botFacts: an empty brief stays absent rather than becoming `{}` or `undefined`.
     ...(Object.keys(botBrief).length ? { botBrief } : {}),
@@ -321,7 +318,6 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
   // would silently fall back to the script.
   const aiInPlan = isUnlocked(clinic, "aiChat");
   // The Pro reply brain is its own add-on, switched on per clinic by the platform.
-  const proInPlan = botInPlan;
 
   const [hasLoaded, setHasLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -506,7 +502,6 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
           ? "محدش بيرد تلقائي على المرضى دلوقتي — الفريق بيرد بنفسه. تقدر تختار وتظبط وتجرّب في محادثة الاختبار براحتك."
           : "Patients get no automatic replies right now — staff reply by hand. You can still choose, set up and rehearse in the test chat.",
       stepClinic: language === "ar" ? "عن عيادتك" : "About your clinic",
-      stepReplies: language === "ar" ? "الردود الجاهزة" : "Fixed replies",
       stepBrief: language === "ar" ? "الذكاء الاصطناعي يتكلم إزاي" : "How the AI should talk",
       stepBehaviour: language === "ar" ? "التصرف والحدود" : "Behaviour and limits",
       stepTest: language === "ar" ? "جرّبه" : "Test it",
@@ -514,29 +509,12 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
         language === "ar"
           ? `${filled.toLocaleString("ar-EG")} من ${total.toLocaleString("ar-EG")}`
           : `${filled} of ${total} filled`,
-      stepReplyCount: (n: number) =>
-        n === 0
-          ? language === "ar" ? "مفيش ردود" : "No replies"
-          : language === "ar"
-          ? n === 1
-            ? "رد واحد"
-            : n === 2
-              ? "ردين"
-              : n >= 3 && n <= 10
-                ? `${n.toLocaleString("ar-EG")} ردود`
-                : `${n.toLocaleString("ar-EG")} رد`
-          : `${n} ${n === 1 ? "reply" : "replies"}`,
-      repliesOptional:
-        language === "ar"
-          ? "اختياري — الردود دي بتشتغل قبل الذكاء الاصطناعي"
-          : "optional — these fire before the AI",
       interviewMe: language === "ar" ? "احكيلنا عن عيادتك" : "Interview me",
       interviewMeHint:
         language === "ar"
           ? "اوصف العيادة مرة واحدة بكلامك، والذكاء الاصطناعي يجهّز الخانات دي وانت تراجعها. ١ كريدت."
           : "Describe the clinic once in your own words; the AI drafts these boxes for you to review. 1 credit.",
       briefAnythingElse: language === "ar" ? "أي حاجة تانية" : "Anything else",
-      needsBotAddon: language === "ar" ? "يحتاج إضافة البوت." : "Needs the Scripted Bot add-on.",
       needsAiAddon: language === "ar" ? "يحتاج إضافة المساعد الذكي." : "Needs the AI Assistant add-on.",
       groupAppointments: language === "ar" ? "المواعيد" : "Appointments",
       groupAfterVisit: language === "ar" ? "بعد الزيارة" : "After the visit",
@@ -660,42 +638,12 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
         language === "ar"
           ? "مقفولة: الحجز بيوصل «غير مؤكد» والاستقبال بيراجعه — البوت مش هيملى الأجندة لوحده. مفتوحة: الحجز بيتأكد فوراً لحظة ما المريض يختار الميعاد."
           : "Off: bookings arrive Unconfirmed and the desk reviews them — the bot cannot fill the calendar alone. On: the booking is final the moment the patient picks a time.",
-      answerMode: language === "ar" ? "مين اللي بيرد على المرضى؟" : "Who answers patients?",
-      answerModeBot: language === "ar" ? "البوت بس" : "Bot only",
-      answerModeBotHint:
-        language === "ar"
-          ? "ببلاش. ردود جاهزة وقوايم وأزرار حجز. أي سؤال مش معروف بيروح لموظف."
-          : "Free. Fixed answers, menus, booking buttons. Unknown questions go to staff.",
-      answerModeBoth: language === "ar" ? "البوت + الذكاء الاصطناعي" : "Bot + AI",
-      answerModeBothHint:
-        language === "ar"
-          ? "البوت بيرد على اللي يعرفه ببلاش، والذكاء الاصطناعي بياخد الباقي بس، لحد عدد ردود محدد في كل محادثة."
-          : "The bot answers what it can for free; the AI handles only the rest, up to a per-chat limit.",
-      brainTitle: language === "ar" ? "مين بيكتب الرد" : "Which AI writes the replies",
-      brainStandard: language === "ar" ? "عادي" : "Standard",
-      brainStandardHint: language === "ar" ? "الرد الحالي" : "Current replies",
-      brainPro: language === "ar" ? "متقدم (Pro)" : "Pro",
-      brainProHint:
-        language === "ar"
-          ? "الرد الذكي المتقدم — بيدوّر في الجدول كله ويقرا ملف المريض. بيستهلك رصيد أكتر لكل رد."
-          : "Pro — searches the whole calendar and reads the patient file. Uses more credits per reply.",
-      answerModeAi: language === "ar" ? "الذكاء الاصطناعي بس" : "AI only",
-      answerModeAiHint:
-        language === "ar"
-          ? "الذكاء الاصطناعي بيقود كل محادثة زي موظف مبيعات. الحجز والإلغاء وتأكيد «تمام» بيفضلوا على أزرار النظام. بيخصم كريدت."
-          : "The AI leads every chat like a salesperson. Bookings, cancelling and \"تمام\" confirmations still run on the system's buttons. Costs credits.",
       aiSettingsTitle: language === "ar" ? "إعدادات الذكاء الاصطناعي" : "AI settings",
       botSales: language === "ar" ? "الذكاء الاصطناعي يقود المحادثة (وضع البائع)" : "AI leads the conversation (salesperson mode)",
       botSalesHint:
         language === "ar"
           ? "البوت بيكلم المريض زي موظف مبيعات شاطر: بيجاوب، بيسأل سؤال يفهم احتياجه، بيعرض القيمة، بيرد على «غالي» و«هفكر»، وبيفتح الحجز لما يحس إن المريض جاهز. الأزرار والكلمات الجاهزة بتفضل بس للأمان (الألم، الشكاوى، إيقاف الرسائل) وللأجندة. كل رد بياخد ١ كريدت."
           : "The bot talks like a good salesperson: answers, asks one question to understand the need, presents value, handles \"expensive\" and \"I'll think about it\", and opens the booking when the patient is ready. Fixed routes remain only for safety (pain, complaints, opt-out) and the calendar. Each reply costs 1 credit.",
-      botAiCap: language === "ar" ? "أقصى عدد ردود ذكية في المحادثة الواحدة" : "Max AI replies per conversation",
-      botAiCapUnlimited: language === "ar" ? "بدون حد" : "Unlimited",
-      botAiCapHint:
-        language === "ar"
-          ? "بعد الحد، البوت بيحوّل لموظف. فاضية = ٣ في الوضع العادي، وبدون حد في وضع البائع."
-          : "Past the cap the bot hands to a person. Empty = 3 in normal mode, unlimited in salesperson mode.",
       botPersona: language === "ar" ? "اسم البوت (بيعرّف بنفسه بيه مرة واحدة)" : "Bot name (introduces itself once)",
       botPersonaPh: language === "ar" ? "مثال: سارة" : "e.g. Sara",
       botHumanTouch: language === "ar" ? "لمسة إنسانية: ينتظر شوية قبل الرد، ويقسّم الرد الطويل على رسالتين، ومن غير أزرار تحت كل رسالة" : "Human touch: pauses before replying, splits long answers into two bubbles, no buttons under every message",
@@ -1481,10 +1429,8 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
    * listener and the save are the same ones the rest of the page uses.
    */
   // Who answers is read apart from on/off, so the chosen mode's steps stay editable while it is off.
-  // One assistant since 2026-11-07: there is no mode to choose, only the switch above.
-  const autoReplyMode = "ai";
+  // One assistant since 2026-11-07: there is no mode to choose, only the switch.
   const autoReplyOn = state.botEnabled === true;
-  const aiMode = autoReplyMode === "ai" || autoReplyMode === "both";
   const modeSteps = assistantSteps();
   // A step the current mode does not have (the brief, after switching to Bot only) falls back to
   // the mode's first step rather than leaving the list with nothing open.
@@ -1503,7 +1449,7 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
     });
 
   const interviewButton =
-    aiMode && aiInPlan ? (
+    aiInPlan ? (
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-surface-subtle px-4 py-3">
         <button
           type="button"
@@ -1599,7 +1545,7 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
         brief={state.botBrief ?? {}}
         onChange={(botBrief) => setState((s) => ({ ...s, botBrief }))}
         onCommit={persistLatest}
-        showBotPriceNote={aiMode}
+        showBotPriceNote
         isAr={language === "ar"}
       />
       {/* "Anything else": the free coaching box, unchanged, as the brief's sixth card. */}
@@ -1685,8 +1631,7 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
       </div>
       <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botClaimHint}</p>
 
-      {/* The AI's own settings: name, cap, pacing, symptoms. Meaningless without it, so AI modes only. */}
-      {aiMode && (
+      {/* The assistant's own settings: name, pacing, symptoms. */}
         <div className="space-y-3 border-t border-line pt-4">
           <p className="text-[11px] font-black uppercase tracking-widest text-ink-body">{txt.aiSettingsTitle}</p>
           {aiLockNotice}
@@ -1706,40 +1651,6 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
             />
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 pt-1">
-            <span className="text-xs font-bold text-ink">{txt.botAiCap}</span>
-            <input
-              type="number"
-              min={1}
-              max={200}
-              disabled={state.botAiMaxReplies === 0}
-              className="w-24 rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-ink disabled:opacity-40"
-              value={state.botAiMaxReplies === 0 || state.botAiMaxReplies === undefined ? "" : state.botAiMaxReplies}
-              placeholder={state.botMode === "ai_first" ? "∞" : "3"}
-              onChange={(e) => {
-                const n = Math.max(1, Math.min(200, Number(e.target.value) || 0));
-                setState((s) => ({ ...s, botAiMaxReplies: e.target.value === "" ? undefined : n }));
-              }}
-              onBlur={() => void persist(state, "silent")}
-            />
-            <label className="flex items-center gap-2 text-xs font-bold text-ink cursor-pointer">
-              <input
-                type="checkbox"
-                className="h-4 w-4 rounded border-line-strong"
-                checked={state.botAiMaxReplies === 0 || (state.botAiMaxReplies === undefined && state.botMode === "ai_first")}
-                onChange={(e) => {
-                  const unlimited = e.target.checked;
-                  setState((s) => {
-                    const next = { ...s, botAiMaxReplies: unlimited ? 0 : 12 };
-                    void persist(next, "silent");
-                    return next;
-                  });
-                }}
-              />
-              {txt.botAiCapUnlimited}
-            </label>
-          </div>
-          <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botAiCapHint}</p>
 
           <label className="flex items-center justify-between gap-4 cursor-pointer">
             <span className="text-xs font-bold text-ink leading-relaxed">{txt.botHumanTouch}</span>
@@ -1829,7 +1740,6 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
           </label>
           <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botDentistHint}</p>
         </div>
-      )}
     </div>
   );
 
@@ -2749,104 +2659,29 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
               <Lock size={14} className="mt-0.5 shrink-0" />
               <span>
                 {language === "ar"
-                  ? "البوت إضافة مدفوعة غير مفعّلة في اشتراكك — كلّم فريق ألفا على "
-                  : "The scripted bot is an add-on not in your subscription — contact the Alpha team on "}
+                  ? "المساعد إضافة مدفوعة غير مفعّلة في اشتراكك — كلّم فريق ألفا على "
+                  : "The AI receptionist is an add-on not in your subscription — contact the Alpha team on "}
                 <a dir="ltr" className="underline" href={`https://wa.me/${SUPPORT_WHATSAPP.replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer">{SUPPORT_WHATSAPP}</a>
               </span>
             </div>
           )}
           {/*
-            On/off and who answers are two decisions. The switch (also on the Chats page) is the
-            only thing that lets replies reach patients; the cards below pick who answers once it
-            is on, and write only botMode + botAiEnabled — so an owner can choose "AI only", set it
-            up and rehearse it in the test chat with patients still getting nothing automatic.
-            Choices the clinic has not bought stay visible and locked, with the reason.
+            The switch (also on the Chats page) is the only thing that lets replies reach
+            patients. Everything below it can be set up and rehearsed in the test chat while it is
+            off. There is one assistant since 2026-11-07: the menu bot and the brain choice are gone.
           */}
           <div className="flex flex-wrap items-center gap-3">
             <AutoReplySwitch />
             {!autoReplyOn && <p className="text-xs leading-relaxed text-ink-muted">{txt.autoReplyOffNote}</p>}
           </div>
-          <p className="text-sm font-bold text-ink leading-relaxed">{txt.answerMode}</p>
-          <div className="grid gap-2 sm:grid-cols-3">
-            {(
-              [
-                { id: "bot", label: txt.answerModeBot, hint: txt.answerModeBotHint, mode: "assisted" as const, ai: false, needsBot: !botInPlan, needsAi: false },
-                // The AI answers through the bot engine, so "AI only" still needs the bot add-on.
-                { id: "ai", label: txt.answerModeAi, hint: txt.answerModeAiHint, mode: "ai_first" as const, ai: true, needsBot: !botInPlan, needsAi: !aiInPlan },
-                { id: "both", label: txt.answerModeBoth, hint: txt.answerModeBothHint, mode: "assisted" as const, ai: true, needsBot: !botInPlan, needsAi: !aiInPlan },
-              ]
-            ).map((opt) => {
-              const active = autoReplyMode === opt.id;
-              const locked = opt.needsBot || opt.needsAi;
-              return (
-                <button
-                  key={opt.id}
-                  type="button"
-                  aria-pressed={active}
-                  disabled={locked}
-                  onClick={() => {
-                    setState((s) => {
-                      const next = { ...s, botMode: opt.mode, botAiEnabled: opt.ai };
-                      void persist(next, "silent");
-                      return next;
-                    });
-                  }}
-                  className={`text-start rounded-xl border px-4 py-3 transition-colors ${
-                    active ? "border-accent bg-accent/5 ring-1 ring-accent" : "border-line bg-surface-subtle hover:bg-surface-muted"
-                  } ${locked ? "opacity-50 cursor-not-allowed" : ""}`}
-                >
-                  <span className="flex items-center gap-1.5 text-sm font-black text-ink">
-                    {opt.label}
-                    {locked && <Lock size={12} className="shrink-0 text-ink-muted" />}
-                  </span>
-                  <span className="mt-1 block text-xs leading-relaxed text-ink-muted">
-                    {opt.needsBot ? txt.needsBotAddon : opt.needsAi ? txt.needsAiAddon : opt.hint}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {autoReplyMode === "ai" && proInPlan && (
+          {botInPlan && (
             <div className="space-y-2 pt-3">
-              <p className="text-sm font-bold text-ink leading-relaxed">{txt.brainTitle}</p>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {(
-                  [
-                    { id: "standard" as const, label: txt.brainStandard, hint: txt.brainStandardHint },
-                    { id: "pro" as const, label: txt.brainPro, hint: txt.brainProHint },
-                  ]
-                ).map((opt) => {
-                  const active = (state.botAiBrain === "pro" ? "pro" : "standard") === opt.id;
-                  return (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      aria-pressed={active}
-                      onClick={() => {
-                        setState((s) => {
-                          // "standard" is written explicitly rather than deleting the field, so no undefined reaches Firestore.
-                          const next = { ...s, botAiBrain: opt.id };
-                          void persist(next, "silent");
-                          return next;
-                        });
-                      }}
-                      className={`text-start rounded-xl border px-4 py-3 transition-colors ${
-                        active ? "border-accent bg-accent/5 ring-1 ring-accent" : "border-line bg-surface-subtle hover:bg-surface-muted"
-                      }`}
-                    >
-                      <span className="block text-sm font-black text-ink">{opt.label}</span>
-                      <span className="mt-1 block text-xs leading-relaxed text-ink-muted">{opt.hint}</span>
-                    </button>
-                  );
-                })}
-              </div>
               <button
                 type="button"
                 onClick={() => setProSetupOpen(true)}
                 className="inline-flex items-center gap-2 rounded-xl border border-line-strong px-4 py-2.5 text-xs font-bold text-ink-body hover:border-ink hover:text-ink"
               >
-                {language === "ar" ? "علّم Pro عيادتك" : "Teach Pro your clinic"}
+                {language === "ar" ? "علّم المساعد عيادتك" : "Teach the assistant your clinic"}
               </button>
               <ProSetup open={proSetupOpen} onClose={() => setProSetupOpen(false)} clinicId={clinicId ?? ""} />
             </div>
