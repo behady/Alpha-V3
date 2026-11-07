@@ -1860,7 +1860,7 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
     replies: { title: txt.stepReplies, badge: txt.stepReplyCount(replyCount), content: repliesStep },
     brief: { title: txt.stepBrief, badge: txt.stepFilled(briefCount.filled, briefCount.total), content: briefStep },
     behaviour: { title: txt.stepBehaviour, content: behaviourStep },
-    test: { title: txt.stepTest, content: <BotPlayground proUnlocked={proInPlan} /> },
+    test: { title: txt.stepTest, content: <BotPlayground /> },
   };
   const autoReplySteps: AutoReplyStepRow[] = modeSteps.map((s) => ({ ...s, ...stepView[s.id] }));
 

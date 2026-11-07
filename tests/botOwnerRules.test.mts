@@ -118,13 +118,12 @@ test("the closed note is appended only when the clinic switched it on", () => {
   assert.ok(respond.includes("closedNoteEn(profile.schedule) : closedNote(profile.schedule)"));
 });
 
-test("the dentist question is skipped while names are hidden (every caller goes through listDoctors)", () => {
-  const at = respond.indexOf("const listDoctors = () => {");
+test("no dentist is named in a spoken slot offer while names are hidden (every offer goes through offerSlots)", () => {
+  const at = respond.indexOf("const offerSlots = async (");
   assert.ok(at > 0);
-  const head = respond.slice(at, at + 400);
-  assert.match(head, /if \(settings\.hideDoctorNames\) \{\s*listDays\(""\);\s*return;\s*\}/);
-  // The engine's own "dentists first" door is closed the same way.
-  assert.match(respond, /ctx\.doctorCount = settings\.hideDoctorNames \? 0 : profile\?\.doctors\.length \?\? 0;/);
+  const head = respond.slice(at, at + 600);
+  assert.match(head, /const doctorName = settings\.hideDoctorNames \? "" : \(o\.doctorName \?\? conversation\.pendingDoctor \?\? ""\);/);
+  assert.ok(head.includes("settings.hideDoctorNames);"), "nextSlots is told to leave the dentist out of the label");
 });
 
 test("cards, slot labels and the day heading drop the dentist only when hidden", () => {
@@ -150,7 +149,7 @@ test("the name backstop runs only while hidden, on the model's own words, and lo
   assert.match(respond, gate);
   // Between the model's answer and anything built from it — never over the deterministic cards.
   const at = respond.search(gate);
-  assert.ok(at > respond.indexOf("const ai = brainReply.ai;") && at < respond.indexOf("brainUsed = brainReply.brainUsed;"));
+  assert.ok(at > respond.indexOf("const ai: AiReplyResult = proReply;") && at < respond.indexOf('if (proReply.kind === "answer" && proReply.slotsShown) slotOffer = proReply.slotsShown;'));
   assert.ok(!respond.includes("stripDoctorNames(replyText"), "the delivered reply as a whole is never rewritten");
   assert.ok(respond.includes("doctorNameStripped: true"));
   // The clinic's own name, address, branches and the patient's name are protected.
@@ -159,9 +158,11 @@ test("the name backstop runs only while hidden, on the model's own words, and lo
   }
 });
 
-test("a stale dentist-list pick while names are hidden goes to days for any chair", () => {
-  const at = respond.indexOf('act.type === "list_days_doctor_index"');
-  assert.match(respond.slice(at, at + 800), /if \(settings\.hideDoctorNames\) listDays\(""\);\s*(?:\/\/.*\s*)*else if \(picked === undefined\) listDoctors\(\);/);
+test("a booking written while names are hidden still carries the dentist the brain chose; the card leaves it out", () => {
+  // The dentist lists are gone with the menu bot; the brain's own slot keys carry the dentist, and
+  // every card that prints one is gated on the switch.
+  assert.ok(!respond.includes("list_days_doctor_index"), "no dentist list step remains");
+  assert.ok((respond.match(/doctorName && !settings\.hideDoctorNames \? \[`👨‍⚕️ \$\{doctorName\}`\] : \[\]/g) || []).length >= 2, "every booking card gates the dentist line");
 });
 
 /* ---------------------------------------------------------------- review probes ------------ */
@@ -215,12 +216,10 @@ test("branch phones join the allowed numbers as one digit string, never as their
   const text = ["• المعادي: عمارة 12 — ت: +20 100 123 4567", "• التجمع: شارع 90"].join("\n");
   assert.equal(branchNumbersOf(text), ["• المعادي: عمارة 12 — ت: 201001234567", "• التجمع: شارع 90"].join("\n"));
   assert.equal(branchNumbersOf(""), "");
-  // Both brains' number guards read the collapsed form, never the raw branch text.
-  const aiReply = readFileSync(new URL("../src/lib/bot/aiReply.ts", import.meta.url), "utf8");
+  // The brain's number guard reads the collapsed form, never the raw branch text.
   const pro = readFileSync(new URL("../src/lib/botPro/answerWithPro.ts", import.meta.url), "utf8");
-  assert.ok(aiReply.includes("...(args.branchesText ? [branchNumbersOf(args.branchesText)] : []),"));
   assert.equal((pro.match(/\.\.\.\(args\.branchesText \? \[branchNumbersOf\(args\.branchesText\)\] : \[\]\),/g) || []).length, 2);
-  assert.ok(!/\[args\.branchesText\]/.test(aiReply + pro));
+  assert.ok(!/\[args\.branchesText\]/.test(pro));
 });
 
 /* ---------------------------------------------------------------- settings UI -------------- */

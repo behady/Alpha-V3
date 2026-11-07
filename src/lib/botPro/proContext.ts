@@ -23,8 +23,12 @@ import { sanitizeLayer, type ClinicLayer } from "./layer";
 import { layerRef, onboardingStateRef, readState } from "./onboarding/store";
 import type { ToolEnv } from "./tools";
 
-/** Placeholder until the pilot measures what a Pro turn really costs (spec §12). */
-export const PRO_CREDITS_PER_REPLY = 3;
+/**
+ * One credit per reply — the retired standard brain's price, so no clinic's bill changed on the day
+ * it became the only brain (owner, 2026-11-07). The token log measures the real cost; the price is
+ * reviewed after a month.
+ */
+export const PRO_CREDITS_PER_REPLY = 1;
 
 /** How much of the thread the Pro brain reads: more than the standard brain's 16. */
 export const PRO_THREAD_LINES = 40;

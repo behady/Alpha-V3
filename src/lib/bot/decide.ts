@@ -93,6 +93,23 @@ export interface BotContext {
   clinicalMode?: "handoff" | "dentist";
   /** A staff member wrote to this patient recently or paused the bot. */
   staffActive?: boolean;
+  /* ---- Carried for the caller (respond.ts) beside the decision; the decider never reads them. ---- */
+  /** Opening hours, already formatted for reading. Empty when the clinic has not set any. */
+  hoursText?: string;
+  /** Where the clinic is. Empty when unset. */
+  addressText?: string;
+  /** The clinic wrote an offer and its end date has passed: `facts.offers` is blank on purpose. */
+  offersExpired?: boolean;
+  /** A service the patient named in this message, matched against the clinic's own list. */
+  serviceMatch?: string;
+  /** This message asks to book for somebody else. */
+  relative?: boolean;
+  /** Whether real booking can be offered: schedule configured AND the sender is a known patient. */
+  canOfferBooking?: boolean;
+  /** Schedule configured, real phone in hand, but nobody on file for it — a NEW patient. */
+  canRegister?: boolean;
+  /** WhatsApp hid the sender's number (a lid) and they have not typed it yet. */
+  phoneHidden?: boolean;
 }
 
 export interface BotDecision {
