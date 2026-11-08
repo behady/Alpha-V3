@@ -7,7 +7,9 @@
  * not give at all ("unavailable") and hand-offs where the conversation expected none are each
  * tolerated up to a quarter of the turns (replayVerdict.ts); other actions that were not the
  * expected one are only reported. The run has a deadline: turns it does not reach in time count
- * as unavailable and the summary says timedOut.
+ * as unavailable and the summary says timedOut. Every unavailable turn is counted by why
+ * (unavailableKind), and a failure that may pass on its own (a rate limit, Google unreachable, a
+ * slow turn) is tried once more after a short pause, while the deadline leaves room.
  *
  * This file also owns the known-patient / stranger set-ups and the "what did the reply amount
  * to" helpers that scripts/pro-battery.mts shares, so there is one copy.
@@ -24,12 +26,16 @@ import type { ProAppointment, ProPerson } from "./person";
 import type { ClinicLayer, ReplaySummary } from "./layer";
 import type { ProArgs, ProContext, ProSink } from "./proContext";
 import { CONVERSATIONS } from "./replayCases";
-import { replayShortfalls } from "./replayVerdict";
+import { RETRY_KINDS, replayShortfalls, unavailableKind, type UnavailableKind } from "./replayVerdict";
 
 /** A saved chat is replayed up to this many turns (its first ones), so a long chat cannot eat the run. */
 export const SAVED_TURNS_MAX = 6;
 /** The whole replay stops starting turns after this long; the publish route has 300 s in all. */
 export const REPLAY_DEADLINE_MS = 240_000;
+/** The pause before a turn's second try. */
+export const REPLAY_RETRY_WAIT_MS = 4_000;
+/** Cases in flight at once. Six at once was the burst the Pro model refused on a flaky evening (20 of 43 turns). */
+export const REPLAY_CONCURRENCY = 4;
 
 export type ReplayCase = {
   id: string;
@@ -116,7 +122,17 @@ type CaseResult = {
   actionMisses: number;
   unexpectedHandoffs: number;
   breaks: ReplaySummary["breaks"];
+  reasons: Partial<Record<UnavailableKind, number>>;
+  sample?: string;
+  retries: number;
 };
+
+function noteUnavailable(res: CaseResult, reason: string) {
+  res.unavailable += 1;
+  const k = unavailableKind(reason);
+  res.reasons[k] = (res.reasons[k] ?? 0) + 1;
+  if (!res.sample && k !== "deadline") res.sample = String(reason).slice(0, 160);
+}
 
 /** The run's clock, shared by every case: `timedOut` is set by whichever case meets the deadline. */
 type Clock = { now: () => number; deadline: number; timedOut: boolean };
@@ -142,10 +158,10 @@ async function answerBefore(clock: Clock, call: () => Promise<ProReplyResult>): 
 
 async function runCase(
   c: ReplayCase,
-  input: { layer: ClinicLayer; baseArgs: ProArgs; context: ProContext; model: () => ProModel; answer: typeof answerWithPro; clock: Clock }
+  input: { layer: ClinicLayer; baseArgs: ProArgs; context: ProContext; model: () => ProModel; answer: typeof answerWithPro; clock: Clock; wait: (ms: number) => Promise<void> }
 ): Promise<CaseResult> {
-  const { layer, baseArgs, context, model, answer, clock } = input;
-  const res: CaseResult = { turns: 0, unavailable: 0, actionMisses: 0, unexpectedHandoffs: 0, breaks: [] };
+  const { layer, baseArgs, context, model, answer, clock, wait } = input;
+  const res: CaseResult = { turns: 0, unavailable: 0, actionMisses: 0, unexpectedHandoffs: 0, breaks: [], reasons: {}, retries: 0 };
   const thread: AiThreadLine[] = [];
   const who = c.known
     ? proKnownPerson(context.todayKey, context.doctors[0] || "")
@@ -158,25 +174,32 @@ async function runCase(
     if (clock.timedOut || clock.deadline - clock.now() <= 0) {
       // Not reached in time: counted as a reply Pro could not give, never as a pass.
       clock.timedOut = true;
-      res.unavailable += 1;
+      noteUnavailable(res, "deadline");
       continue;
     }
     const args: ProArgs = { ...baseArgs, question: t.q, clinical: c.clinical, patient: who.patient, thread: [...thread] };
     const ctx: ProContext = { ...open, person: who.person, reloadPerson: async () => who.person, thread: [...thread], layer };
+    const ask = (): Promise<ProReplyResult> => answer(args, { model: model(), context: ctx, sink: NOOP_SINK, charge: false, record: false });
     let result: ProReplyResult;
     try {
-      const got = await answerBefore(clock, () => answer(args, { model: model(), context: ctx, sink: NOOP_SINK, charge: false, record: false }));
+      let got = await answerBefore(clock, ask);
+      // One more try for a failure that may pass on its own, when the deadline leaves room for it.
+      if (got !== "late" && got.kind === "unavailable" && RETRY_KINDS.has(unavailableKind(got.reason)) && clock.deadline - clock.now() > REPLAY_RETRY_WAIT_MS * 2) {
+        res.retries += 1;
+        await wait(REPLAY_RETRY_WAIT_MS);
+        got = await answerBefore(clock, ask);
+      }
       if (got === "late") {
         clock.timedOut = true;
-        res.unavailable += 1;
+        noteUnavailable(res, "deadline");
         continue;
       }
       result = got;
-    } catch {
-      result = { kind: "unavailable", reason: "replay_error" };
+    } catch (e) {
+      result = { kind: "unavailable", reason: e instanceof Error ? e.message || "replay_error" : "replay_error" };
     }
 
-    if (result.kind === "unavailable") res.unavailable += 1;
+    if (result.kind === "unavailable") noteUnavailable(res, result.reason);
     if (!t.expect.includes(actionOf(result))) res.actionMisses += 1;
     // A layer that makes Pro hand everything to the team breaks nothing, but answers nobody.
     if (result.kind === "handoff" && !isHandoffExpected(t.expect)) res.unexpectedHandoffs += 1;
@@ -246,20 +269,23 @@ export async function runReplay(input: {
   deadlineMs?: number;
   /** The clock (tests inject one; default Date.now). */
   now?: () => number;
+  /** The pause before a second try (tests inject a no-op; default a real timer). */
+  wait?: (ms: number) => Promise<void>;
 }): Promise<ReplaySummary> {
   const now = input.now ?? Date.now;
   const t0 = now();
   const clock: Clock = { now, deadline: t0 + (input.deadlineMs ?? REPLAY_DEADLINE_MS), timedOut: false };
   const answer = input.answer ?? answerWithPro;
+  const wait = input.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const results: CaseResult[] = new Array(input.cases.length);
   let next = 0;
   const worker = async () => {
     while (next < input.cases.length) {
       const i = next++;
-      results[i] = await runCase(input.cases[i], { layer: input.layer, baseArgs: input.baseArgs, context: input.context, model: input.model, answer, clock });
+      results[i] = await runCase(input.cases[i], { layer: input.layer, baseArgs: input.baseArgs, context: input.context, model: input.model, answer, clock, wait });
     }
   };
-  const width = Math.max(1, Math.min(input.concurrency ?? 6, input.cases.length || 1));
+  const width = Math.max(1, Math.min(input.concurrency ?? REPLAY_CONCURRENCY, input.cases.length || 1));
   await Promise.all(Array.from({ length: width }, worker));
 
   const turns = results.reduce((n, r) => n + r.turns, 0);
@@ -267,6 +293,14 @@ export async function runReplay(input: {
   const actionMisses = results.reduce((n, r) => n + r.actionMisses, 0);
   const unexpectedHandoffs = results.reduce((n, r) => n + r.unexpectedHandoffs, 0);
   const breaks = results.flatMap((r) => r.breaks);
+  const unavailableReasons: Partial<Record<UnavailableKind, number>> = {};
+  let unavailableSample = "";
+  let retries = 0;
+  for (const r of results) {
+    retries += r.retries;
+    for (const [k, n] of Object.entries(r.reasons) as Array<[UnavailableKind, number]>) unavailableReasons[k] = (unavailableReasons[k] ?? 0) + n;
+    if (!unavailableSample && r.sample) unavailableSample = r.sample;
+  }
   return {
     passed: replayShortfalls({ turns, unavailable, unexpectedHandoffs, breaks }).length === 0,
     turns,
@@ -275,6 +309,9 @@ export async function runReplay(input: {
     unexpectedHandoffs,
     breaks,
     ms: now() - t0,
+    retries,
+    ...(unavailable > 0 ? { unavailableReasons } : {}),
+    ...(unavailableSample ? { unavailableSample } : {}),
     ...(clock.timedOut ? { timedOut: true } : {}),
   };
 }

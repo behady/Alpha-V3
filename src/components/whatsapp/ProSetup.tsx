@@ -171,6 +171,18 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
         ? `Pro حوّل ${n.toLocaleString("ar-EG")} من ${of.toLocaleString("ar-EG")} رسالة للفريق وكان المفروض يرد (المسموح ${max.toLocaleString("ar-EG")}). غالباً قاعدة أو عبارة ممنوعة بتوقف ردود عادية.`
         : `Pro handed ${n} of ${of} turns to the team where it should have answered (at most ${max} allowed). A rule or never-say phrase is probably stopping normal replies.`,
     timedOut: isAr ? "الاختبار أخد وقت أطول من اللازم، فالرسايل اللي ما لحقش يجرّبها اتحسبت إن Pro ما ردّش عليها." : "The test took too long; the turns it did not reach count as ones Pro could not answer.",
+    reasonsWhy: isAr ? "ليه Pro ما ردّش:" : "Why Pro could not answer:",
+    reasonLbl: (k: string): string =>
+      (
+        ({
+          rate_limit: isAr ? "Google رفض: طلبات كتير في وقت قصير (حد الاستخدام). استنى دقيقة وجرّب تاني." : "Google refused: too many requests in a short time (usage limit). Wait a minute and try again.",
+          unreachable: isAr ? "Google ما كانش بيرد (مشكلة عندهم أو في الشبكة). جرّب تاني بعد شوية." : "Google could not be reached (a problem on their side or the network). Try again in a moment.",
+          timeout: isAr ? "الرد اتأخر أكتر من اللازم." : "The reply took too long.",
+          deadline: isAr ? "الاختبار خلص وقته قبل ما يوصل لها." : "The test ran out of time before reaching them.",
+          no_api_key: isAr ? "مفيش مفتاح للموديل متظبط." : "No model key is set.",
+          other: isAr ? "سبب تاني." : "Another reason.",
+        }) as Record<string, string>
+      )[k] ?? k,
     rulesLbl: isAr ? "القاعدة" : "Rule",
     breaksTitle: isAr ? "الردود اللي فيها مشكلة" : "Replies that broke a rule",
     asked: isAr ? "السؤال" : "Question",
@@ -796,6 +808,21 @@ export default function ProSetup({ open, onClose, clinicId }: { open: boolean; o
                                 : t.handoffsWhy(s.unexpectedHandoffs ?? 0, s.turns, limit)}
                             </li>
                           ))}
+                        </ul>
+                      </div>
+                    )}
+                    {s.unavailableReasons && Object.keys(s.unavailableReasons).length > 0 && (
+                      <div className="space-y-0.5 text-xs">
+                        <p className="font-bold text-ink">{t.reasonsWhy}</p>
+                        <ul className="list-inside list-disc space-y-0.5 text-ink-body">
+                          {Object.entries(s.unavailableReasons)
+                            .filter(([, n]) => (n ?? 0) > 0)
+                            .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))
+                            .map(([k, n]) => (
+                              <li key={k}>
+                                <span className="font-figure font-black text-ink">{isAr ? (n ?? 0).toLocaleString("ar-EG") : n}</span> · {t.reasonLbl(k)}
+                              </li>
+                            ))}
                         </ul>
                       </div>
                     )}

@@ -48,6 +48,14 @@ const PUBLISH_LOCK_MS = 310_000;
 /** Saved cases read to find up to 10 usable ones (some have no patient line). */
 const SAVED_READ = 40;
 
+/** " — why: rate_limit 12, unreachable 8 (first: …)" for the log, or nothing when every turn was answered. */
+function unavailableNote(test: ReplaySummary): string {
+  const reasons = Object.entries(test.unavailableReasons ?? {}).filter(([, n]) => (n ?? 0) > 0);
+  if (!reasons.length) return "";
+  const sample = test.unavailableSample ? ` (first: ${test.unavailableSample.slice(0, 120)})` : "";
+  return ` — why: ${reasons.map(([k, n]) => `${k} ${n}`).join(", ")}${sample}${test.retries ? `, ${test.retries} retried` : ""}`;
+}
+
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as { clinicId?: unknown; makeLive?: unknown };
   const clinicId = typeof body.clinicId === "string" ? body.clinicId.trim() : "";
@@ -126,7 +134,7 @@ export async function POST(request: Request) {
         clinicId,
         user,
         action: "Pro AI: publish refused by the test",
-        details: `${test.breaks.length} break(s), ${test.unavailable} unavailable, ${test.unexpectedHandoffs ?? 0} unexpected hand-off(s) of ${test.turns} turns${test.timedOut ? ", timed out" : ""}`,
+        details: `${test.breaks.length} break(s), ${test.unavailable} unavailable, ${test.unexpectedHandoffs ?? 0} unexpected hand-off(s) of ${test.turns} turns${test.timedOut ? ", timed out" : ""}${unavailableNote(test)}`,
         severity: "LOW",
         module: "settings",
       });

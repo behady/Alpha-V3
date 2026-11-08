@@ -5,8 +5,8 @@
  * Run: npm run test:pro-replay
  */
 import assert from "node:assert/strict";
-import { runReplay, builtinReplayCases, savedReplayCases, actionOf, SAVED_TURNS_MAX, REPLAY_DEADLINE_MS, type ReplayCase } from "../src/lib/botPro/replay";
-import { replayShortfalls } from "../src/lib/botPro/replayVerdict";
+import { runReplay, builtinReplayCases, savedReplayCases, actionOf, SAVED_TURNS_MAX, REPLAY_DEADLINE_MS, REPLAY_CONCURRENCY, type ReplayCase } from "../src/lib/botPro/replay";
+import { replayShortfalls, unavailableKind } from "../src/lib/botPro/replayVerdict";
 import { CONVERSATIONS } from "../src/lib/botPro/replayCases";
 import type { ProArgs, ProContext } from "../src/lib/botPro/proContext";
 import type { ProModel, ProReplyResult } from "../src/lib/botPro/answerWithPro";
@@ -158,7 +158,8 @@ await test("each turn gets its own question, the carried thread, the layer, a no
   assert.equal(seen[0].record, false);
 });
 
-await test("cases run up to `concurrency` at a time (default 6)", async () => {
+await test("cases run up to `concurrency` at a time (default 4)", async () => {
+  assert.equal(REPLAY_CONCURRENCY, 4);
   const many: ReplayCase[] = Array.from({ length: 20 }, (_, i) => ({ id: `m${i}`, clinical: false, known: false, turns: [{ q: "سؤال", expect: ["answer"] }] }));
   let live = 0;
   let peak = 0;
@@ -172,7 +173,7 @@ await test("cases run up to `concurrency` at a time (default 6)", async () => {
   const base = { cases: many, layer: EMPTY_LAYER, baseArgs, context: context(), model: () => sayModel("x"), answer };
   const s = await runReplay(base);
   assert.equal(s.turns, 20);
-  assert.equal(peak, 6);
+  assert.equal(peak, 4);
   peak = 0;
   await runReplay({ ...base, concurrency: 2 });
   assert.equal(peak, 2);
@@ -307,4 +308,88 @@ await test("a turn still waiting at the deadline is given up, not waited for", a
   assert.ok(Date.now() - t0 < 1_500, "returned at the deadline, not after the slow answer");
   assert.equal(s.unavailable, 1);
   assert.equal(s.timedOut, true);
+});
+
+// ================================================================================================
+// Why Pro could not answer: the owner's screen said "Pro could not answer 20 of 43" and nothing
+// else. Now every unavailable turn is counted by kind, and a failure that may pass on its own
+// (rate limit, Google unreachable, a slow turn) is tried once more before it counts.
+// ================================================================================================
+await test("unavailableKind names a raw failure", () => {
+  assert.equal(unavailableKind("[GoogleGenerativeAI Error]: Error fetching from https://generativelanguage.googleapis.com/"), "unreachable");
+  assert.equal(unavailableKind("[503 Service Unavailable] The model is overloaded"), "unreachable");
+  assert.equal(unavailableKind("[429 Too Many Requests] You exceeded your current quota"), "rate_limit");
+  assert.equal(unavailableKind("RESOURCE_EXHAUSTED"), "rate_limit");
+  assert.equal(unavailableKind("ai_timeout"), "timeout");
+  assert.equal(unavailableKind("deadline"), "deadline");
+  assert.equal(unavailableKind("no_api_key"), "no_api_key");
+  assert.equal(unavailableKind("no_reply_tool"), "other");
+  assert.equal(unavailableKind("model down"), "other");
+  assert.equal(unavailableKind(""), "other");
+});
+
+await test("unavailable turns are counted by why, and a passing failure gets one more try", async () => {
+  const byQ: Record<string, string> = {
+    "س١": "[429 Too Many Requests] quota",
+    "س٢": "[GoogleGenerativeAI Error]: Error fetching from https://generativelanguage.googleapis.com/",
+    "س٣": "ai_timeout",
+    "س٤": "no_api_key",
+    "س٥": "no_reply_tool",
+  };
+  const cases: ReplayCase[] = Object.keys(byQ).map((q) => ({ id: q, clinical: false, known: false, turns: [{ q, expect: ["answer"] }] }));
+  const calls: string[] = [];
+  const waits: number[] = [];
+  const answer = async (args: ProArgs): Promise<ProReplyResult> => {
+    calls.push(args.question);
+    return { kind: "unavailable", reason: byQ[args.question] };
+  };
+  const s = await runReplay({ cases, layer: EMPTY_LAYER, baseArgs, context: context(), model: () => sayModel("x"), answer, wait: async (ms) => { waits.push(ms); } });
+  assert.equal(s.turns, 5);
+  assert.equal(s.unavailable, 5);
+  assert.deepEqual(s.unavailableReasons, { rate_limit: 1, unreachable: 1, timeout: 1, no_api_key: 1, other: 1 });
+  assert.equal(s.retries, 3, "rate limit, unreachable and timeout are tried again; a missing key and the brain's own codes are not");
+  assert.deepEqual(waits, [4_000, 4_000, 4_000]);
+  for (const q of ["س١", "س٢", "س٣"]) assert.equal(calls.filter((c) => c === q).length, 2, `${q} asked twice`);
+  for (const q of ["س٤", "س٥"]) assert.equal(calls.filter((c) => c === q).length, 1, `${q} asked once`);
+  assert.ok(s.unavailableSample && s.unavailableSample.length <= 160, "the first raw reason is kept for the log");
+  assert.equal(s.passed, false);
+
+  // A failure that passes on the second try is not unavailable at all.
+  let first = true;
+  const flaky = async (): Promise<ProReplyResult> => {
+    if (first) {
+      first = false;
+      return { kind: "unavailable", reason: "[503 Service Unavailable] overloaded" };
+    }
+    return { kind: "answer", text: "أهلاً بحضرتك" };
+  };
+  const s2 = await runReplay({ cases: [cases[0]], layer: EMPTY_LAYER, baseArgs, context: context(), model: () => sayModel("x"), answer: flaky, wait: async () => {} });
+  assert.equal(s2.unavailable, 0);
+  assert.equal(s2.retries, 1);
+  assert.equal(s2.unavailableReasons, undefined);
+  assert.equal(s2.unavailableSample, undefined);
+  assert.equal(s2.passed, true);
+
+  // No second try when the deadline is near: the turn counts as it failed, and the wait is skipped.
+  let clock = 0;
+  const waits3: number[] = [];
+  const slow = async (): Promise<ProReplyResult> => {
+    clock += 236_000; // the first answer leaves 4 s, less than two pauses
+    return { kind: "unavailable", reason: "[429 Too Many Requests]" };
+  };
+  const s3 = await runReplay({ cases: [cases[0]], layer: EMPTY_LAYER, baseArgs, context: context(), model: () => sayModel("x"), answer: slow, now: () => clock, wait: async (ms) => { waits3.push(ms); } });
+  assert.equal(s3.retries, 0);
+  assert.deepEqual(waits3, []);
+  assert.deepEqual(s3.unavailableReasons, { rate_limit: 1 });
+
+  // Turns the deadline cut off are "deadline", kept apart from the model's own failures.
+  clock = 0;
+  const ok = async (): Promise<ProReplyResult> => {
+    clock += 100_000;
+    return { kind: "answer", text: "أهلاً بحضرتك" };
+  };
+  const s4 = await runReplay({ cases: CASES, layer: EMPTY_LAYER, baseArgs, context: context(), model: () => sayModel("x"), answer: ok, concurrency: 1, now: () => clock, deadlineMs: 50_000, wait: async () => {} });
+  assert.deepEqual(s4.unavailableReasons, { deadline: 3 });
+  assert.equal(s4.unavailableSample, undefined, "a deadline is not a model failure, so no sample");
+  assert.equal(s4.retries, 0);
 });

@@ -11,6 +11,7 @@
  *
  * Run: npm run test:pro-layer
  */
+import type { UnavailableKind } from "./replayVerdict";
 import { strayDrugNames } from "@/lib/bot/drugGuard";
 import { moneyFigures, neverSayHits, normalizeNeverSay } from "./checks";
 
@@ -46,6 +47,12 @@ export type ReplaySummary = {
   ms: number;
   /** The run hit its deadline; the turns it never reached are counted unavailable. */
   timedOut?: boolean;
+  /** Why Pro could not answer, counted by kind (replayVerdict.unavailableKind). Set when unavailable > 0. */
+  unavailableReasons?: Partial<Record<UnavailableKind, number>>;
+  /** The first raw failure message of the run, for the activity log. Never shown to patients. */
+  unavailableSample?: string;
+  /** Turns tried a second time after a failure that may pass on its own (rate limit, unreachable, timeout). */
+  retries?: number;
 };
 
 /**

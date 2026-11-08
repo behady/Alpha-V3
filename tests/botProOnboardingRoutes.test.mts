@@ -283,6 +283,8 @@ await test("the screen: undo, the full result card, and no state after close on 
   assert.ok(c.includes("undo: true") && c.includes('"Undo last change"') && c.includes("رجّع آخر تعديل"), "Undo last change, both languages, PUTs undo");
   assert.match(c, /data\.state\.hasPreviousDraft &&/, "the undo button shows only when there is something to undo");
   for (const k of ["t.turnsLbl", "t.unavailableLbl", "t.handoffsLbl", "t.offLbl"]) assert.ok(c.includes(k), `card shows ${k}`);
+  assert.ok(c.includes("s.unavailableReasons") && c.includes("t.reasonLbl(k)"), "the card names why Pro could not answer, by kind");
+  for (const k of ["rate_limit:", "unreachable:", "timeout:", "deadline:", "no_api_key:", "other:"]) assert.ok(c.includes(k), `a label for ${k}`);
   assert.ok(c.includes("replayShortfalls(") && c.includes("t.whyFailed"), "a failed run names the failed condition");
   assert.ok(c.includes("b.rules.map(ruleName)"), "each break names its rules");
   assert.ok(c.includes("s.timedOut") && c.includes("The test took too long"), "a timed-out run says so");
