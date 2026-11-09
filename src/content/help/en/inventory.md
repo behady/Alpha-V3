@@ -1,63 +1,63 @@
 ---
-title: Inventory and reordering
-summary: What's in the cupboard, what it's worth, and what needs reordering before you run out.
+title: Stock, the cupboard way
+summary: Every item has one home with a code. Count once a week, scan deliveries, and the usage reports fill themselves.
 section: operations
 order: 2
 roles: Admin, Assistant
 plan: Pro
 ---
 
-> Inventory isn't on the free trial. If **Inventory** isn't in your menu, that's why.
+> Stock isn't on the free trial. If **Inventory** isn't in your menu, that's why.
 
-## Where to find it
+## The idea in one line
 
-**Inventory** in the sidebar.
+The cupboard is the system; the app only mirrors it. Every item lives in **one drawer**, every drawer has a **code** and a **label**, and only three things are ever typed: a delivery arrived, the weekly count, and an expensive item used on a patient. Everything else, including how much you used and when you will run out, is arithmetic.
 
-![The inventory screen](/help/en/inventory.png)
+## Setup (once, about 20 minutes)
 
-## The figures at the top
+**Inventory → Setup.**
 
-| | What it is |
+1. **How many chairs.** Sterilisation and a Store are always added.
+2. **The standard map.** Each chair gets cabinet A (anaesthesia, fillings, root canal, burs) and cabinet B (gloves, impressions, suction). Codes are assigned for you: `C1-A2` is Chair 1, cabinet A, second drawer.
+3. **Tap what the clinic uses** from the picture catalogue. Items land in the drawer of their kind, in every chair room and in the Store.
+4. **Print the labels** and stick one on each drawer.
+
+No prices, no brands, no expiry dates. Brands arrive with the first delivery.
+
+## The cupboard
+
+Rooms, cabinets and drawers, with a small photo of each drawer and how many days until something in it runs out. Yellow means under two weeks.
+
+Open a drawer to see what lives in it, each item with its brands underneath. **Photograph the drawer** open once; that picture is what a new assistant matches. Add an item from the catalogue or your own, add a brand by hand, or print this drawer's label.
+
+## The weekly count (the assistant, every Thursday)
+
+**Inventory → Weekly count.** The drawers come one at a time in code order, each with its photo. Last week's numbers are already filled in, so you only touch what moved. **Same as last week** skips a drawer. At the end you see a review of what changed and what that means was used, then **Save count**.
+
+Count in the unit you would order: boxes, syringes, packs. Not single carpules.
+
+Pointing the phone at a drawer's label opens the count at that drawer.
+
+## A delivery
+
+**Inventory → Delivery.** Pick the supplier, photograph the invoice, and **scan the barcode** on each box. A box the clinic has bought before is recognised; one the platform knows arrives with its photo and name; an unknown one asks for a photo and which item it is, once, for every clinic after you. Set the quantity and price, choose the drawer, and **Receive**. Stock goes up and a **Supplies** expense appears in Finance automatically.
+
+## Implants, grafts and membranes
+
+These are not counted in boxes. Open the item in its drawer and press **Used on a patient**, with the lot number from the box. Stock drops by one and the lot is on record. The **Variance** report shows anything that left the drawer without a patient.
+
+## Reports
+
+| | What it answers |
 |---|---|
-| **Total Value** | Estimated worth of everything on the shelf |
-| **Total Items** | How many items match your current filters |
-| **Low Stock** | How many have dropped below their reorder threshold |
-| **Purchased / Consumed** | Quantity and value moved in the selected period |
+| **Usage** | What was used, by item or by room, in quantity and EGP, week by week |
+| **Days left** | Every item sorted by how soon it runs out at the current pace |
+| **Shopping list** | What to order, grouped by supplier, with a WhatsApp message ready |
+| **Purchases** | Every delivery, by supplier |
+| **Variance** | Tracked items gone from the drawer versus recorded on a patient |
+| **Traceability** | Which lot went into which patient |
 
-**Low Stock is the one to look at.** It's the number that stops you discovering you're out of composite halfway through a filling.
-
-## Adding an item
-
-Press **Add Item**. Each item takes:
-
-- **Name**
-- **Category** and optional sub-category
-- **Stock** — how many you have now
-- **Reorder threshold** — the level at which it starts warning you
-- **Cost per unit**
-- **Unit** — syringe, box, carpule, pack, whatever you actually count in
-
-### The reorder threshold is required, and it must be above zero
-
-The form will not let you save without one. That's deliberate: an item with a threshold of zero can never trigger a low-stock warning, and a silent zero is impossible to tell apart from a deliberate one.
-
-Set it to however many you need to still have when you place an order — enough to cover the days between ordering and delivery, not your last one.
-
-## Filtering
-
-**All / Low / OK** across the top, plus category and sub-category filters and a reset.
-
-**Low** is the shopping list. Open it before you phone your supplier and you've written the order.
-
-## Adjusting stock
-
-Quantities can be adjusted directly as you use things or take a delivery. The purchased and consumed figures follow, which is what makes the period comparison meaningful.
-
-Inventory is only as good as the habit behind it. Counted at the start and then never adjusted, it drifts into fiction within a month — and a low-stock warning nobody trusts is worse than none.
-
-## Exporting
-
-**CSV** downloads the list as it's currently filtered — for a stock take, or to send to a supplier.
+Usage needs two counts. The first sets the starting point; from the second Thursday on, everything fills in by itself.
 
 ## What's next
 
