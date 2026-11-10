@@ -8,7 +8,10 @@
  * saves; the claim appears in the list below. At the end of the month the Excel button builds the
  * insurer's own statement from those claims, and "Mark all as sent" records that it went.
  *
- * Only payers with a document format appear here (MetLife this round). Nothing on this page writes
+ * Payers with a document format (MetLife, NextCare, AXA) get the approval workflow. A company with no
+ * approval paper (GASCO) gets a tab too, for whoever can see Finance: it is Finance's own company tab
+ * (`InsurerTab`, the same component, reads and writes), so both pages always show the same account.
+ * Apart from that tab, nothing on this page writes
  * to Firestore: reads are live listeners, every change goes through /api/insurance/* or the recycle
  * bin route. Unsaved readings live in this page's state; a refresh loses the card but not the file,
  * which comes back under "Uploaded, not saved" and is read again on a click.
@@ -22,8 +25,13 @@ import { ArrowUpRight, FileClock, Loader2, ShieldCheck } from "lucide-react";
 import FeatureGate from "@/components/FeatureGate";
 import PermissionGuard from "@/components/PermissionGuard";
 import PageHeader from "@/components/dashboard/PageHeader";
+import InsurerTab from "@/components/finance/InsurerTab";
+import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useClinic } from "@/context/ClinicContext";
+import { useActiveBranch } from "@/lib/useActiveBranch";
+import { collectFromInsurer } from "@/lib/moneyApi";
+import type { LedgerLite } from "@/lib/insurerLedger";
 import { useUI } from "@/context/UIContext";
 import { db, storage } from "@/lib/firebase";
 import { isInsurerFormat, parsePayers, PRIVATE_PAYER_ID, type InsurerFormat, type Payer } from "@/lib/payers";
@@ -39,10 +47,13 @@ import ClaimsTable from "@/components/insurance/ClaimsTable";
 import ClaimsExportBar from "@/components/insurance/ClaimsExportBar";
 import { useClaims } from "@/components/insurance/useClaims";
 import type { LinkedAppointmentLite } from "@/lib/insurance/appointments";
-import { cairoToday, InsuranceCallError, monthRange, patchClaim, readDocument, type ClaimPatch, type OpenDoc } from "@/components/insurance/api";
+import { cairoToday, InsuranceCallError, monthRange, patchClaim, readDocument, recordInsurerPayment, type ClaimPatch, type OpenDoc } from "@/components/insurance/api";
 import { tr } from "@/components/insurance/text";
 
 const MAX_PATIENTS = 5000;
+
+/** A company tab reads its own account; this page has no period rows to lend it (one stable empty list). */
+const NO_ROWS: readonly LedgerLite[] = [];
 
 type UnsavedDoc = { id: string; path: string; contentType: string; uploadedAt: number };
 
@@ -61,8 +72,12 @@ function InsurancePage() {
   const { language, isRTL } = useLanguage();
   const isAr = language === "ar";
   const t = useMemo(() => tr(isAr), [isAr]);
-  const { clinicId } = useClinic();
+  const { clinicId, isAdmin } = useClinic();
+  const { user } = useAuth();
   const { showToast } = useUI();
+  const { scopeBranchId } = useActiveBranch();
+  /** The company tabs are Finance's own; someone who cannot open Finance does not get them here either. */
+  const canSeeFinance = isAdmin || !!user?.permissions?.includes("access.finance");
 
   // --- the insurers this page can read for ------------------------------------------------------
   const [payers, setPayers] = useState<{ clinicId: string; list: Payer[] } | null>(null);
@@ -81,6 +96,11 @@ function InsurancePage() {
   const insurers = useMemo(
     () => (payersReady ? payers!.list.filter((p) => p.active && p.id !== PRIVATE_PAYER_ID && isInsurerFormat(p.format)) : []),
     [payers, payersReady],
+  );
+  /** Companies with no approval paper (GASCO): billed straight from the treatments, as on Finance. */
+  const contractPayers = useMemo(
+    () => (payersReady && canSeeFinance ? payers!.list.filter((p) => p.active && p.id !== PRIVATE_PAYER_ID && !p.format) : []),
+    [payers, payersReady, canSeeFinance],
   );
   const [range, setRange] = useState(() => monthRange(cairoToday()));
   /**
@@ -115,6 +135,9 @@ function InsurancePage() {
   const payerId = insurers.some((p) => p.id === pickedPayer) ? pickedPayer : (busiest?.id ?? insurers[0]?.id ?? "");
   const payer = insurers.find((p) => p.id === payerId) ?? null;
   const payerFormat: InsurerFormat = isInsurerFormat(payer?.format) ? payer.format : "metlife";
+  /** A company tab picked (or the only kind there is); the approval workflow steps aside for it. */
+  const contractPayer = contractPayers.find((p) => p.id === pickedPayer) ?? (insurers.length === 0 ? (contractPayers[0] ?? null) : null);
+  const payerLabel = (p: Payer) => (isAr ? p.nameAr || p.name : p.name);
 
   // --- the clinic's sheet wording, over the defaults ---------------------------------------------
   const [storedWording, setStoredWording] = useState<Record<string, string>>({});
@@ -270,7 +293,8 @@ function InsurancePage() {
       showToast(t("claimNotFound"), "error");
       return;
     }
-    if (claim.payerId !== payerId && insurers.some((p) => p.id === claim.payerId)) setPickedPayer(claim.payerId);
+    // Also leaves a company tab, where the claim would not be on screen.
+    if ((claim.payerId !== payerId || contractPayer) && insurers.some((p) => p.id === claim.payerId)) setPickedPayer(claim.payerId);
     if (claim.approvalDate && (claim.approvalDate < range.from || claim.approvalDate > range.to)) setRange(monthRange(claim.approvalDate));
     setHighlightId(claim.id);
     // The table row on wide screens, the card on phones — whichever one is shown.
@@ -354,7 +378,7 @@ function InsurancePage() {
           <div className="flex justify-center py-16">
             <Loader2 className="animate-spin text-ink-muted" size={22} />
           </div>
-        ) : insurers.length === 0 ? (
+        ) : insurers.length === 0 && contractPayers.length === 0 ? (
           <div className="flex flex-col items-start gap-4 rounded-3xl border border-line bg-surface p-6 sm:flex-row sm:items-center">
             <div className="grid size-12 shrink-0 place-items-center rounded-2xl bg-ink-slab text-white">
               <ShieldCheck size={22} />
@@ -374,7 +398,7 @@ function InsurancePage() {
               <span className="text-[10.5px] font-black uppercase tracking-wider text-ink-muted">{t("insurer")}</span>
               <div className="flex flex-wrap gap-2" role="tablist" aria-label={t("insurer")}>
                 {insurers.map((p) => {
-                  const on = p.id === payerId;
+                  const on = !contractPayer && p.id === payerId;
                   const n = counts[p.id] ?? 0;
                   return (
                     <button
@@ -387,16 +411,74 @@ function InsurancePage() {
                         on ? "border-ink-slab bg-ink-slab text-white" : "border-line bg-surface text-ink hover:border-ink"
                       }`}
                     >
-                      {isAr ? p.nameAr || p.name : p.name}
+                      {payerLabel(p)}
                       <span className={`rounded-full px-2 py-0.5 font-figure text-xs ${on ? "bg-white/15 text-white" : n > 0 ? "bg-accent text-ink" : "bg-surface-muted text-ink-muted"}`}>
                         {n}
                       </span>
                     </button>
                   );
                 })}
+                {/* Companies with no approval paper: Finance's company tab, here as well. No count —
+                    they have no approvals to count. */}
+                {contractPayers.map((p) => {
+                  const on = contractPayer?.id === p.id;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={on}
+                      onClick={() => setPickedPayer(p.id)}
+                      className={`inline-flex h-11 items-center gap-2 rounded-xl border px-4 text-sm font-bold transition-colors ${
+                        on ? "border-ink-slab bg-ink-slab text-white" : "border-line bg-surface text-ink hover:border-ink"
+                      }`}
+                    >
+                      {payerLabel(p)}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
+            {contractPayer ? (
+              <>
+                {/* The period the Excel report covers; the list itself is the company's whole account, as on Finance. */}
+                <section className="grid gap-4 rounded-3xl border border-line bg-surface p-5 sm:grid-cols-[11rem_11rem]">
+                  <label className="block">
+                    <span className="mb-1 block text-[10.5px] font-black uppercase tracking-wider text-ink-muted">{t("from")}</span>
+                    <input
+                      type="date"
+                      value={range.from}
+                      onChange={(e) => e.target.value && setRange({ from: e.target.value, to: range.to })}
+                      className="w-full rounded-xl border border-line bg-surface-subtle px-3 py-2 text-sm font-bold text-ink outline-none transition-colors focus:border-ink focus:bg-surface"
+                      dir="ltr"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-[10.5px] font-black uppercase tracking-wider text-ink-muted">{t("to")}</span>
+                    <input
+                      type="date"
+                      value={range.to}
+                      onChange={(e) => e.target.value && setRange({ from: range.from, to: e.target.value })}
+                      className="w-full rounded-xl border border-line bg-surface-subtle px-3 py-2 text-sm font-bold text-ink outline-none transition-colors focus:border-ink focus:bg-surface"
+                      dir="ltr"
+                    />
+                  </label>
+                </section>
+                <InsurerTab
+                  key={contractPayer.id}
+                  payerId={contractPayer.id}
+                  payerName={payerLabel(contractPayer)}
+                  rows={NO_ROWS}
+                  scopeBranchId={scopeBranchId}
+                  isLoading={false}
+                  collect={(id, chargeIds) => collectFromInsurer({ payerId: id, chargeIds, clinicId })}
+                  collectClaim={(claimId, branchId) => recordInsurerPayment(clinicId || "", claimId, branchId || undefined)}
+                  statementPeriod={range.from && range.to && range.from <= range.to ? { start: range.from, end: range.to } : undefined}
+                />
+              </>
+            ) : (
+            <>
             <ApprovalDropZone payer={payer} onRead={onRead} />
 
             {/* --- uploaded, not saved ------------------------------------------------------- */}
@@ -521,6 +603,8 @@ function InsurancePage() {
               {claimsFailed && <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-[13px] font-bold text-rose-800">{t("claimsFailed")}</p>}
               <ClaimsTable claims={claims} loading={claimsLoading} onPatch={onPatch} onDelete={onDelete} onEdit={(c) => void openEdit(c)} highlightId={highlightId} payerName={payer?.name} appointments={claimAppointments} />
             </section>
+            </>
+            )}
           </>
         )}
       </div>
