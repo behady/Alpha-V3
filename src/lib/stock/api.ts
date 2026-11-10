@@ -46,6 +46,11 @@ export const stockApi = {
   snapshot: () => post<WithSnapshot>("snapshot").then((r) => r.snapshot),
   setup: (chairs: number, itemKeys: string[]) => post<WithSnapshot & { createdDrawers: number }>("setup", { chairs, itemKeys }),
   saveDrawer: (drawer: Record<string, unknown>) => post<WithSnapshot>("save-drawer", drawer).then((r) => r.snapshot),
+  addCabinet: (args: { roomCode: string; roomName?: string; cabinetLetter?: string; where?: string; drawers: number; shelves: number }) =>
+    post<WithSnapshot & { cabinetLetter: string }>("add-cabinet", args).then((r) => r.snapshot),
+  renameDrawer: (id: string, patch: Record<string, unknown>) => post<WithSnapshot>("rename-drawer", { id, ...patch }).then((r) => r.snapshot),
+  renameRoom: (roomCode: string, name: string) => post<WithSnapshot>("rename-room", { roomCode, name }).then((r) => r.snapshot),
+  deleteDrawer: (id: string) => post<WithSnapshot>("delete-drawer", { id }).then((r) => r.snapshot),
   setPhoto: (kind: "drawer" | "item" | "variant", id: string, photoUrl: string) => post<WithSnapshot>("set-photo", { kind, id, photoUrl }).then((r) => r.snapshot),
   addItem: (args: Record<string, unknown>) => post<WithSnapshot & { itemId: string }>("add-item", args),
   updateItem: (id: string, patch: Record<string, unknown>) => post<WithSnapshot>("update-item", { id, ...patch }).then((r) => r.snapshot),

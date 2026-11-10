@@ -15,7 +15,7 @@ export async function printDrawerLabels(snap: StockSnapshot, drawers: StockDrawe
       const names = uniqueItemNames(snap.lines.filter((l) => l.drawerId === d.id), itemsById);
       return `
         <div class="label">
-          <div class="code"><small>${esc(d.roomCode)}</small>${esc(d.cabinetLetter)}${d.number}</div>
+          <div class="code"><small>${esc(d.roomCode)}</small>${esc(d.code.slice(d.code.indexOf("-") + 1))}</div>
           <div class="mid">
             <b>${esc(d.nameEn)}</b>
             <span class="ar">${esc(d.nameAr)}</span>

@@ -146,7 +146,7 @@ export function SetupView({ ctx }: { ctx: StockCtx }) {
               );
             })}
           </div>
-          <div className="sticky bottom-4 mt-2 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-ink-slab p-3 text-white shadow-lg">
+          <div className="sticky bottom-24 z-10 mt-2 flex flex-wrap lg:bottom-4 items-center justify-between gap-3 rounded-2xl bg-ink-slab p-3 text-white shadow-lg">
             <div className="text-sm">
               <b className="font-display text-xl">{picked.size}</b> <span className="text-white/70">{t("items", "صنف")}</span>
               {existingKeys.size ? <span className="ms-2 text-white/70">· {newCount} {t("new", "جديد")}</span> : null}

@@ -16,7 +16,7 @@ import { CupboardView } from "./CupboardView";
 import { CountView } from "./CountView";
 import { DeliveryView } from "./DeliveryView";
 import { ReportsView } from "./ReportsView";
-import { SetupView } from "./SetupView";
+import { LayoutView } from "./LayoutView";
 
 type Tab = "cupboard" | "count" | "delivery" | "reports" | "setup";
 const TABS: Tab[] = ["cupboard", "count", "delivery", "reports", "setup"];
@@ -97,7 +97,7 @@ export default function StockPage() {
     count: t("Weekly count", "العدّ الأسبوعي"),
     delivery: t("Delivery", "توريد"),
     reports: t("Reports", "التقارير"),
-    setup: t("Setup", "الإعداد"),
+    setup: t("Rooms", "الغرف"),
   };
 
   return (
@@ -131,9 +131,9 @@ export default function StockPage() {
             <Loader2 className="animate-spin" />
           </div>
         ) : tab === "setup" ? (
-          <SetupView ctx={ctx} />
+          <LayoutView ctx={ctx} />
         ) : !hasCupboard ? (
-          <SetupView ctx={ctx} />
+          <LayoutView ctx={ctx} />
         ) : tab === "count" ? (
           <CountView ctx={ctx} startDrawerCode={params.get("drawer")} />
         ) : tab === "delivery" ? (

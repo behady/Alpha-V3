@@ -75,6 +75,7 @@ function drawerOf(id: string, d: FirebaseFirestore.DocumentData): StockDrawer {
     roomAr: str(d.roomAr),
     cabinetLetter: str(d.cabinetLetter, "A"),
     cabinetWhere: str(d.cabinetWhere),
+    kind: kindOf(d.kind),
     number: num(d.number, 1),
     nameEn: str(d.nameEn),
     nameAr: str(d.nameAr),
@@ -185,14 +186,28 @@ function withoutId<T extends { id: string }>(record: T): Omit<T, "id"> {
 }
 
 /** Room code ordering: chairs first, then sterilisation, then the store. */
+const kindOf = (v: unknown): "drawer" | "shelf" => (v === "shelf" ? "shelf" : "drawer");
+
+/** `C1-A3` for a drawer, `C1-AS1` for a shelf: room, cabinet letter, then the number. */
+function codeFor(roomCode: string, letter: string, kind: "drawer" | "shelf", number: number): string {
+  return `${roomCode}-${letter}${kind === "shelf" ? "S" : ""}${number}`;
+}
+
+function cleanRoomCode(v: unknown): string {
+  return str(v).toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4);
+}
+
 function roomOrder(roomCode: string): number {
   if (roomCode === "ST") return 900;
   if (roomCode === "SR") return 950;
-  const n = Number(roomCode.replace(/\D/g, ""));
-  return Number.isFinite(n) ? n * 10 : 500;
+  // A code with no number in it (a clinic's own "LAB") sits after the numbered rooms, not before
+  // them: Number("") is 0, which would have put it first.
+  const digits = roomCode.replace(/\D/g, "");
+  return digits ? Number(digits) * 10 : 500;
 }
-function drawerOrder(roomCode: string, letter: string, number: number): number {
-  return roomOrder(roomCode) * 1000 + (letter.charCodeAt(0) - 64) * 100 + number;
+/** Walking order: room, cabinet, drawers top to bottom, then that cabinet's shelves. */
+function drawerOrder(roomCode: string, letter: string, number: number, kind: "drawer" | "shelf" = "drawer"): number {
+  return roomOrder(roomCode) * 1000 + (letter.charCodeAt(0) - 64) * 100 + (kind === "shelf" ? 70 : 0) + Math.min(number, 69);
 }
 
 /**
@@ -231,6 +246,7 @@ async function setup(args: { clinicId: string; actor: Actor; body: Body }) {
       roomAr,
       cabinetLetter: sd.cabinet,
       cabinetWhere: sd.where.en,
+      kind: "drawer",
       number: sd.number,
       nameEn: sd.nameEn,
       nameAr: sd.nameAr,
@@ -315,11 +331,12 @@ async function setup(args: { clinicId: string; actor: Actor; body: Body }) {
 async function saveDrawer(args: { clinicId: string; body: Body }) {
   const { clinicId, body } = args;
   const id = str(body.id);
-  const roomCode = str(body.roomCode).toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3);
+  const roomCode = cleanRoomCode(body.roomCode);
   const letter = str(body.cabinetLetter, "A").toUpperCase().slice(0, 1) || "A";
   const number = Math.max(1, Math.round(num(body.number, 1)));
+  const kind = kindOf(body.kind);
   if (!roomCode) return bad("A drawer needs a room code, like C1 or SR.");
-  const code = `${roomCode}-${letter}${number}`;
+  const code = codeFor(roomCode, letter, kind, number);
   const clash = await adminClinicCollection(clinicId, "stock_drawers").where("code", "==", code).limit(1).get();
   if (!clash.empty && clash.docs[0].id !== id) return bad(`There is already a drawer ${code}.`);
   const patch: Body = {
@@ -329,16 +346,133 @@ async function saveDrawer(args: { clinicId: string; body: Body }) {
     roomAr: str(body.roomAr) || str(body.roomEn) || roomCode,
     cabinetLetter: letter,
     cabinetWhere: str(body.cabinetWhere),
+    kind,
     number,
     nameEn: str(body.nameEn) || code,
     nameAr: str(body.nameAr) || str(body.nameEn) || code,
     tracked: body.tracked === true,
-    order: drawerOrder(roomCode, letter, number),
+    order: drawerOrder(roomCode, letter, number, kind),
     updatedAt: FieldValue.serverTimestamp(),
   };
   if (typeof body.photoUrl === "string") patch.photoUrl = body.photoUrl || null;
   if (id) await adminClinicDoc(clinicId, "stock_drawers", id).set(patch, { merge: true });
   else await adminClinicCollection(clinicId, "stock_drawers").add({ ...patch, photoUrl: patch.photoUrl ?? null, createdAt: FieldValue.serverTimestamp() });
+  return NextResponse.json({ ok: true, snapshot: await readSnapshot(clinicId) });
+}
+
+/**
+ * The clinic describes its own furniture: a cabinet in a room, with so many drawers and so many
+ * shelves. Nothing is assumed about what goes where.
+ *
+ * Naming a cabinet that already exists adds to it, numbering on from the last drawer (or shelf)
+ * it has, so "one more drawer" is the same call as "a new cabinet of twenty".
+ */
+async function addCabinet(args: { clinicId: string; body: Body }) {
+  const { clinicId, body } = args;
+  const roomCode = cleanRoomCode(body.roomCode);
+  if (!roomCode) return bad("A room needs a short code, like R1.");
+  const nDrawers = Math.min(60, Math.max(0, Math.round(num(body.drawers))));
+  const nShelves = Math.min(20, Math.max(0, Math.round(num(body.shelves))));
+  if (nDrawers + nShelves < 1) return bad("Say how many drawers or shelves it has.");
+
+  const coll = adminClinicCollection(clinicId, "stock_drawers");
+  const inRoom = (await coll.where("roomCode", "==", roomCode).get()).docs.map((d) => drawerOf(d.id, d.data()));
+  let letter = str(body.cabinetLetter).toUpperCase().slice(0, 1);
+  if (!/^[A-Z]$/.test(letter)) {
+    const used = new Set(inRoom.map((d) => d.cabinetLetter));
+    letter = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").find((l) => !used.has(l)) || "";
+    if (!letter) return bad("That room already has 26 cabinets.");
+  }
+  const inCabinet = inRoom.filter((d) => d.cabinetLetter === letter);
+  const roomName = str(body.roomName) || roomCode;
+  const roomEn = inRoom[0]?.roomEn || roomName;
+  const roomAr = inRoom[0]?.roomAr || roomName;
+  const where = str(body.where) || inCabinet[0]?.cabinetWhere || "";
+  const lastOf = (kind: "drawer" | "shelf") => Math.max(0, ...inCabinet.filter((d) => d.kind === kind).map((d) => d.number));
+
+  const batch = adminDb().batch();
+  const make = (kind: "drawer" | "shelf", count: number) => {
+    const from = lastOf(kind);
+    if (from + count > (kind === "drawer" ? 60 : 20)) throw new Error(kind === "drawer" ? "A cabinet holds at most 60 drawers." : "A cabinet holds at most 20 shelves.");
+    for (let k = 1; k <= count; k++) {
+      const number = from + k;
+      batch.set(coll.doc(), {
+        code: codeFor(roomCode, letter, kind, number),
+        roomCode,
+        roomEn,
+        roomAr,
+        cabinetLetter: letter,
+        cabinetWhere: where,
+        kind,
+        number,
+        nameEn: kind === "shelf" ? `Shelf ${number}` : `Drawer ${number}`,
+        nameAr: kind === "shelf" ? `\u0631\u0641 ${number}` : `\u062f\u0631\u062c ${number}`,
+        photoUrl: null,
+        tracked: false,
+        order: drawerOrder(roomCode, letter, number, kind),
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    }
+  };
+  try {
+    make("drawer", nDrawers);
+    make("shelf", nShelves);
+  } catch (e) {
+    return bad(e instanceof Error ? e.message : "Too many.");
+  }
+  await batch.commit();
+  return NextResponse.json({ ok: true, cabinetLetter: letter, snapshot: await readSnapshot(clinicId) });
+}
+
+/** Name a drawer or shelf. One name fills both languages unless both are given. */
+async function renameDrawer(args: { clinicId: string; body: Body }) {
+  const { clinicId, body } = args;
+  const id = str(body.id);
+  if (!id) return bad("Which drawer?");
+  const ref = adminClinicDoc(clinicId, "stock_drawers", id);
+  if (!(await ref.get()).exists) return bad("That drawer no longer exists.", 404);
+  const patch: Body = { updatedAt: FieldValue.serverTimestamp() };
+  const one = str(body.name);
+  if (one) {
+    patch.nameEn = one;
+    patch.nameAr = one;
+  }
+  if (str(body.nameEn)) patch.nameEn = str(body.nameEn);
+  if (str(body.nameAr)) patch.nameAr = str(body.nameAr);
+  if (typeof body.cabinetWhere === "string") patch.cabinetWhere = body.cabinetWhere.trim();
+  if (typeof body.tracked === "boolean") patch.tracked = body.tracked;
+  await ref.set(patch, { merge: true });
+  return NextResponse.json({ ok: true, snapshot: await readSnapshot(clinicId) });
+}
+
+/** A room's name, on every drawer in it. The short code stays: it is printed on the labels. */
+async function renameRoom(args: { clinicId: string; body: Body }) {
+  const { clinicId, body } = args;
+  const roomCode = cleanRoomCode(body.roomCode);
+  const name = str(body.name);
+  if (!roomCode || !name) return bad("Which room, and what is it called?");
+  const docs = await adminClinicCollection(clinicId, "stock_drawers").where("roomCode", "==", roomCode).get();
+  const batch = adminDb().batch();
+  docs.forEach((d) => batch.set(d.ref, { roomEn: name, roomAr: name, updatedAt: FieldValue.serverTimestamp() }, { merge: true }));
+  await batch.commit();
+  return NextResponse.json({ ok: true, snapshot: await readSnapshot(clinicId) });
+}
+
+/**
+ * Remove a drawer or shelf. Only an empty one: anything still on it has to be moved or deleted
+ * first, by name, so stock never disappears with the furniture. Its empty rows go with it.
+ */
+async function deleteDrawer(args: { clinicId: string; body: Body }) {
+  const { clinicId, body } = args;
+  const id = str(body.id);
+  if (!id) return bad("Which drawer?");
+  const lines = await adminClinicCollection(clinicId, "stock_lines").where("drawerId", "==", id).get();
+  const holding = lines.docs.filter((d) => num(d.data().qty) > 0).length;
+  if (holding > 0) return bad(`This one still holds ${holding} item${holding === 1 ? "" : "s"} with stock. Move or delete them first.`, 409);
+  const batch = adminDb().batch();
+  lines.forEach((d) => batch.delete(d.ref));
+  batch.delete(adminClinicDoc(clinicId, "stock_drawers", id));
+  await batch.commit();
   return NextResponse.json({ ok: true, snapshot: await readSnapshot(clinicId) });
 }
 
@@ -773,6 +907,10 @@ const PERMISSION: Record<string, string> = {
   "lookup-barcode": "access.inventory",
   setup: "inventory.add",
   "save-drawer": "inventory.add",
+  "add-cabinet": "inventory.add",
+  "rename-drawer": "inventory.add",
+  "rename-room": "inventory.add",
+  "delete-drawer": "inventory.add",
   "add-item": "inventory.add",
   "update-item": "inventory.add",
   "add-variant": "inventory.add",
@@ -807,6 +945,14 @@ export async function POST(request: Request) {
         return await setup({ clinicId, actor, body });
       case "save-drawer":
         return await saveDrawer({ clinicId, body });
+      case "add-cabinet":
+        return await addCabinet({ clinicId, body });
+      case "rename-drawer":
+        return await renameDrawer({ clinicId, body });
+      case "rename-room":
+        return await renameRoom({ clinicId, body });
+      case "delete-drawer":
+        return await deleteDrawer({ clinicId, body });
       case "set-photo":
         return await setPhoto({ clinicId, body });
       case "add-item":

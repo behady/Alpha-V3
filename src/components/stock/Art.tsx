@@ -175,7 +175,7 @@ export function StockPicture({
 }) {
   if (photoUrl) {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={photoUrl} alt={alt} className={`h-full w-full object-cover ${className}`} loading="lazy" />;
+    return <img src={photoUrl} alt={alt} className={`h-full w-full object-cover ${className}`} decoding="async" />;
   }
   return <ProductArt shape={shape} color={brandColor(colorSeed || brand || "")} brand={brand} product={product} spec={spec} className={`h-full w-full ${className}`} />;
 }

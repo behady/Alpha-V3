@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, Check, Pencil, Plus, Printer, Search, Trash2, UserRound } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, ArrowRight, Camera, Check, Loader2, Pencil, Plus, Printer, Search, Trash2, UserRound } from "lucide-react";
 import { getDocs, limit, orderBy, query } from "firebase/firestore";
 import { getClinicCollection } from "@/lib/db-utils";
 import { patientMatchesSearch } from "@/lib/flexibleSearch";
@@ -12,7 +12,7 @@ import type { StockDrawer, StockItem, StockLine, StockVariant } from "@/lib/stoc
 import { StockPicture } from "./Art";
 import { printDrawerLabels } from "./labels";
 import { EditLineSheet } from "./EditLineSheet";
-import { Btn, Card, CodeBadge, Eyebrow, Field, LinePicture, Ltr, PhotoButton, PhotoTile, Pill, Reveal, Stepper, fmtDate, inputCls, linesOfDrawer, useBusy, variantLabel, type StockCtx } from "./shared";
+import { Btn, Card, CodeBadge, Eyebrow, Field, LinePicture, Ltr, PhotoButton, PhotoTile, Pill, Reveal, Stepper, fmtDate, inputCls, linesOfDrawer, shortCode, useBusy, variantLabel, type StockCtx } from "./shared";
 
 /** The map of rooms, cabinets and drawers — or one drawer, when `drawerCode` is set. */
 export function CupboardView({ ctx, drawerCode }: { ctx: StockCtx; drawerCode: string | null }) {
@@ -33,7 +33,6 @@ function drawerDays(ctx: StockCtx, drawerId: string): number | null {
 function CupboardMap({ ctx }: { ctx: StockCtx }) {
   const { snap, t, ar, toast } = ctx;
   const { busy, run } = useBusy();
-  const [adding, setAdding] = useState(false);
   const rooms = useMemo(() => {
     const map = new Map<string, { code: string; en: string; ar: string; cabinets: Map<string, { letter: string; where: string; drawers: StockDrawer[] }> }>();
     for (const d of snap.drawers) {
@@ -95,17 +94,16 @@ function CupboardMap({ ctx }: { ctx: StockCtx }) {
                   <span className="font-semibold text-ink-muted">{c.where}</span>
                 </div>
                 {c.drawers
-                  .sort((a, b) => a.number - b.number)
+                  .sort((a, b) => a.order - b.order)
                   .map((d) => {
                     const lines = linesOfDrawer(snap, d.id);
                     const days = d.tracked ? null : drawerDays(ctx, d.id);
                     const lowHere = days != null && days < 14;
                     return (
-                      <button key={d.id} type="button" onClick={() => ctx.go({ tab: "cupboard", drawer: d.code })} className="grid w-full grid-cols-[40px_60px_1fr_auto] items-center gap-2.5 border-t border-line bg-surface px-3 py-2 text-start hover:bg-surface-subtle">
-                        <span className="font-display text-[13px] font-black text-ink">{d.cabinetLetter}{d.number}</span>
-                        <span className="h-10 w-[60px] overflow-hidden rounded-md border border-line bg-surface-subtle">
-                          <DrawerThumb ctx={ctx} drawer={d} />
-                        </span>
+                      <div key={d.id} className="grid grid-cols-[44px_64px_1fr] items-center gap-2.5 border-t border-line bg-surface px-3 py-2">
+                        <span className="font-display text-[13px] font-black text-ink"><Ltr>{shortCode(d)}</Ltr></span>
+                        <DrawerPhoto ctx={ctx} drawer={d} />
+                        <button type="button" onClick={() => ctx.go({ tab: "cupboard", drawer: d.code })} className="grid min-w-0 grid-cols-[1fr_auto] items-center gap-2.5 rounded-lg py-1 text-start hover:bg-surface-subtle">
                         <span className="min-w-0">
                           <b className="block truncate text-[13.5px] font-semibold text-ink">{ar ? d.nameAr : d.nameEn}</b>
                           <span className="block text-[11.5px] text-ink-muted">{ar ? d.nameEn : d.nameAr}</span>
@@ -116,6 +114,7 @@ function CupboardMap({ ctx }: { ctx: StockCtx }) {
                           {d.tracked ? <Pill>{t("per patient", "لكل مريض")}</Pill> : lowHere ? <Pill yellow>{daysLabel(days, ar)}</Pill> : <span>{daysLabel(days, ar)}</span>}
                         </span>
                       </button>
+                      </div>
                     );
                   })}
               </div>
@@ -125,13 +124,9 @@ function CupboardMap({ ctx }: { ctx: StockCtx }) {
       ))}
 
       {ctx.canStructure ? (
-        adding ? (
-          <AddDrawerForm ctx={ctx} onDone={() => setAdding(false)} />
-        ) : (
-          <Btn onClick={() => setAdding(true)} className="justify-self-start">
-            <Plus size={15} /> {t("Add a drawer or shelf", "ضيف درج أو رف")}
-          </Btn>
-        )
+        <Btn onClick={() => ctx.go({ tab: "setup", drawer: null })} className="justify-self-start">
+          <Pencil size={14} /> {t("Edit rooms, cabinets and drawers", "عدّل الغرف والدواليب والأدراج")}
+        </Btn>
       ) : null}
     </div>
   );
@@ -155,7 +150,7 @@ function Tile({ label, value, sub, yellow = false }: { label: string; value: str
 export function DrawerThumb({ ctx, drawer, large = false }: { ctx: StockCtx; drawer: StockDrawer; large?: boolean }) {
   if (drawer.photoUrl) {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={drawer.photoUrl} alt={drawer.nameEn} className="h-full w-full object-cover" loading="lazy" />;
+    return <img src={drawer.photoUrl} alt={drawer.nameEn} className="h-full w-full object-cover" decoding="async" />;
   }
   const lines = linesOfDrawer(ctx.snap, drawer.id).slice(0, large ? 8 : 4);
   return (
@@ -169,39 +164,53 @@ export function DrawerThumb({ ctx, drawer, large = false }: { ctx: StockCtx; dra
   );
 }
 
-function AddDrawerForm({ ctx, onDone }: { ctx: StockCtx; onDone: () => void }) {
-  const { t, toast, snap } = ctx;
-  const { busy, run } = useBusy();
-  const rooms = [...new Map(snap.drawers.map((d) => [d.roomCode, d])).values()];
-  const [roomCode, setRoomCode] = useState(rooms[0]?.roomCode || "C1");
-  const [roomEn, setRoomEn] = useState(rooms[0]?.roomEn || "Chair 1");
-  const [letter, setLetter] = useState("A");
-  const [number, setNumber] = useState(1);
-  const [nameEn, setNameEn] = useState("");
-  const [nameAr, setNameAr] = useState("");
-  const [tracked, setTracked] = useState(false);
+/**
+ * The drawer's own photograph in the list, and the button that takes it.
+ *
+ * It used to fall back to tiny drawings of the items inside, which read as "this is the photo"
+ * and hid the fact that none had been taken. Now it is either the real photo or an obvious
+ * camera, and tapping it on a phone opens the camera for that drawer.
+ */
+function DrawerPhoto({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
+  const { t, toast } = ctx;
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const take = async (file: File) => {
+    setBusy(true);
+    try {
+      const url = await uploadStockPhoto("drawer", drawer.id, file);
+      ctx.setSnap(await stockApi.setPhoto("drawer", drawer.id, url));
+      toast(t("Drawer photo saved.", "اتحفظت صورة الدرج."));
+    } catch (e) {
+      toast(e instanceof Error ? e.message : t("Could not save the photo.", "تعذر حفظ الصورة."), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const picture = drawer.photoUrl ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={drawer.photoUrl} alt={drawer.nameEn} className="h-full w-full object-cover" decoding="async" />
+  ) : (
+    <span className="grid h-full w-full place-items-center text-ink-muted">{busy ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}</span>
+  );
+  const box = `block h-11 w-16 overflow-hidden rounded-md border bg-surface-subtle ${drawer.photoUrl ? "border-line" : "border-dashed border-line"}`;
+  if (!ctx.canEdit) return <span className={box}>{picture}</span>;
   return (
-    <Card className="grid gap-3 p-4">
-      <Eyebrow>{t("New drawer or shelf", "درج أو رف جديد")}</Eyebrow>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Field label={t("Room code", "كود الغرفة")}>
-          <input list="stock-rooms" value={roomCode} onChange={(e) => { setRoomCode(e.target.value.toUpperCase()); const r = rooms.find((x) => x.roomCode === e.target.value.toUpperCase()); if (r) setRoomEn(r.roomEn); }} className={inputCls} placeholder="C1" />
-          <datalist id="stock-rooms">{rooms.map((r) => <option key={r.roomCode} value={r.roomCode}>{r.roomEn}</option>)}</datalist>
-        </Field>
-        <Field label={t("Room name", "اسم الغرفة")}><input value={roomEn} onChange={(e) => setRoomEn(e.target.value)} className={inputCls} /></Field>
-        <div className="grid grid-cols-2 gap-2">
-          <Field label={t("Cabinet", "الدولاب")}><input value={letter} onChange={(e) => setLetter(e.target.value.toUpperCase().slice(0, 1))} className={inputCls} /></Field>
-          <Field label={t("Drawer no.", "رقم الدرج")}><input type="number" min={1} value={number} onChange={(e) => setNumber(Math.max(1, Number(e.target.value) || 1))} className={inputCls} /></Field>
-        </div>
-        <Field label={t("Name (English)", "الاسم بالإنجليزي")}><input value={nameEn} onChange={(e) => setNameEn(e.target.value)} className={inputCls} /></Field>
-        <Field label={t("Name (Arabic)", "الاسم بالعربي")}><input value={nameAr} onChange={(e) => setNameAr(e.target.value)} className={inputCls} dir="rtl" /></Field>
-        <label className="flex items-center gap-2 self-end pb-2 text-[13px] text-ink-body"><input type="checkbox" checked={tracked} onChange={(e) => setTracked(e.target.checked)} /> {t("Items used per patient (implants, grafts)", "أصناف بتتستخدم لكل مريض (زرعات)")}</label>
-      </div>
-      <div className="flex gap-2">
-        <Btn kind="dark" busy={busy} disabled={!nameEn.trim()} onClick={() => run(async () => { ctx.setSnap(await stockApi.saveDrawer({ roomCode, roomEn, roomAr: roomEn, cabinetLetter: letter, number, nameEn, nameAr, tracked })); onDone(); toast(t("Drawer added.", "اتضاف الدرج.")); }, (m) => toast(m, "error"))}>{t("Add", "ضيف")}</Btn>
-        <Btn onClick={onDone}>{t("Cancel", "إلغاء")}</Btn>
-      </div>
-    </Card>
+    <button type="button" onClick={() => input.current?.click()} disabled={busy} className={box} aria-label={`${drawer.photoUrl ? t("Retake the photo of", "صوّر تاني") : t("Photograph", "صوّر")} ${drawer.code}`} title={drawer.photoUrl ? t("Tap to retake the drawer photo", "دوس تصوّر الدرج تاني") : t("Tap to photograph this drawer", "دوس تصوّر الدرج ده")}>
+      {picture}
+      <input
+        ref={input}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) void take(f);
+          e.currentTarget.value = "";
+        }}
+      />
+    </button>
   );
 }
 
@@ -435,7 +444,7 @@ function EditDrawerForm({ ctx, drawer, onDone }: { ctx: StockCtx; drawer: StockD
       </div>
       <label className="flex items-center gap-2 text-[13px] text-ink-body"><input type="checkbox" checked={tracked} onChange={(e) => setTracked(e.target.checked)} /> {t("Items used per patient", "أصناف بتتستخدم لكل مريض")}</label>
       <div className="flex gap-2">
-        <Btn kind="dark" busy={busy} onClick={() => run(async () => { ctx.setSnap(await stockApi.saveDrawer({ id: drawer.id, roomCode: drawer.roomCode, roomEn: drawer.roomEn, roomAr: drawer.roomAr, cabinetLetter: drawer.cabinetLetter, cabinetWhere: where, number: drawer.number, nameEn, nameAr, tracked })); onDone(); toast(t("Saved.", "اتحفظ.")); }, (m) => toast(m, "error"))}>{t("Save", "حفظ")}</Btn>
+        <Btn kind="dark" busy={busy} onClick={() => run(async () => { ctx.setSnap(await stockApi.renameDrawer(drawer.id, { nameEn, nameAr, cabinetWhere: where, tracked })); onDone(); toast(t("Saved.", "اتحفظ.")); }, (m) => toast(m, "error"))}>{t("Save", "حفظ")}</Btn>
         <Btn onClick={onDone}>{t("Cancel", "إلغاء")}</Btn>
       </div>
     </Card>

@@ -30,6 +30,12 @@ export function variantLabel(v: StockVariant | undefined, item: StockItem | unde
   return [v.brand, v.product, v.spec].filter(Boolean).join(" · ");
 }
 
+/** The part of a code that is printed big on the drawer itself: `A3`, or `AS1` for a shelf. */
+export function shortCode(d: { code: string }): string {
+  const i = d.code.indexOf("-");
+  return i >= 0 ? d.code.slice(i + 1) : d.code;
+}
+
 export function linesOfDrawer(snap: StockSnapshot, drawerId: string): StockLine[] {
   return snap.lines.filter((l) => l.drawerId === drawerId);
 }

@@ -21,6 +21,8 @@ export interface StockDrawer {
   roomAr: string;
   cabinetLetter: string;
   cabinetWhere: string;
+  /** A drawer or an open shelf. Shelves are numbered on their own: `C1-AS1`. */
+  kind: "drawer" | "shelf";
   number: number;
   nameEn: string;
   nameAr: string;
