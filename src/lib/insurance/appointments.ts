@@ -163,12 +163,16 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
  *   (lib/insurance/billingMonth.ts). The approval's own treated date is not touched — moving it
  *   from the first visit is what used to lock the whole approval to that visit's month.
  *   A day somebody already typed for the service is kept. A visit dated before the approval (a
- *   misread paper) dates nothing. A service that was already done keeps its day, so saving an old
- *   visit again never moves an old approval's month.
+ *   misread paper) or after `today` (tomorrow's visit marked done by mistake) dates nothing: the
+ *   claims route refuses such a day, and that refusal would stop the service being marked done at
+ *   all. A service that was already done keeps its day, so saving an old visit again never moves
+ *   an old approval's month.
  */
 export function lineSyncPatch(
   claim: Pick<InsuranceClaim, "id" | "lines" | "lineStatus" | "dentists" | "status" | "approvalDate"> & { lineDates?: InsuranceClaim["lineDates"] },
   appt: LinkedAppointmentLite,
+  /** Today on the clinic clock (`yyyy-mm-dd`); without it a future visit date is not screened. */
+  today?: string,
 ): LineSyncPatch | null {
   if (claim.status === "cancelled") return null;
   if (!VISIT_DONE_STATUSES.has(String(appt.status ?? ""))) return null;
@@ -179,7 +183,7 @@ export function lineSyncPatch(
   if (lines.length === 0) return null;
   const doctorId = typeof appt.doctorId === "string" ? appt.doctorId.trim() : "";
   const visitDate = typeof appt.date === "string" && ISO_DATE.test(appt.date) ? appt.date : "";
-  const canDate = Boolean(visitDate) && visitDate >= claim.approvalDate;
+  const canDate = Boolean(visitDate) && visitDate >= claim.approvalDate && (!today || visitDate <= today);
   const lineStatus: Record<number, LineStatus> = {};
   const dentists: Record<number, string | null> = {};
   const lineDates: Record<number, string> = {};

@@ -114,4 +114,10 @@ assert.deepEqual(
   "a sent approval is synced the same way; the route decides what a sent approval may change",
 );
 
+// A visit dated after today (tomorrow's visit marked done by mistake) cannot date the service: the
+// claims route refuses a future day, and that refusal would stop the whole sync — the service
+// would not even be marked done. Without a day, the route stamps today.
+assert.deepEqual(lineSyncPatch(dated, novVisit, "2026-11-04"), { lineStatus: { 2: "Completed" } }, "a visit dated after today dates nothing");
+assert.deepEqual(lineSyncPatch(dated, novVisit, "2026-11-05"), { lineStatus: { 2: "Completed" }, lineDates: { 2: "2026-11-05" } }, "a visit dated today does");
+
 console.log("claim links: all checks passed");

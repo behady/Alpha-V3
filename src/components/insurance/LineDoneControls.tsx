@@ -19,7 +19,7 @@
  * another month — and its own bilingual message is what a refusal shows.
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2, RotateCcw, Trash2 } from "lucide-react";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
@@ -35,7 +35,82 @@ function isWorked(claim: Pick<InsuranceClaim, "status">): boolean {
   return claim.status === "treated" || claim.status === "sent";
 }
 
-export { isLineRemoved };
+/** How long the date field waits after the last keystroke before it saves. */
+const SAVE_AFTER_MS = 800;
+
+/**
+ * The date field itself. Typing a date by keyboard passes through other valid dates on the way
+ * (the year 2026 is 0002, 0020 and 0202 first), so nothing is saved per keystroke: the field
+ * keeps a draft, and saves it once typing has stopped — or at once when the field is left — and
+ * only when it is a real day between the approval date and today. Anything else is shown in red
+ * and never sent. The parent remounts this (`key`) when the stored day changes, so the draft
+ * always starts from what is saved.
+ */
+function DoneDateField({
+  stored,
+  min,
+  max,
+  disabled,
+  busy,
+  label,
+  hint,
+  onCommit,
+}: {
+  stored: string;
+  min: string;
+  max: string;
+  disabled: boolean;
+  busy: boolean;
+  label: string;
+  hint: string;
+  /** Resolves false when the save was refused, so the field goes back to the stored day. */
+  onCommit: (day: string) => Promise<boolean>;
+}) {
+  const [draft, setDraft] = useState(stored);
+  const saving = useRef(false);
+  const valid = draft !== "" && (!min || draft >= min) && draft <= max;
+  const dirty = draft !== stored;
+
+  const commit = async (day: string) => {
+    if (saving.current) return;
+    saving.current = true;
+    try {
+      if (!(await onCommit(day))) setDraft(stored);
+    } finally {
+      saving.current = false;
+    }
+  };
+
+  useEffect(() => {
+    if (!dirty || !valid) return;
+    const timer = setTimeout(() => void commit(draft), SAVE_AFTER_MS);
+    return () => clearTimeout(timer);
+    // `commit` is recreated every render; the draft is what this waits on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft, dirty, valid]);
+
+  return (
+    <input
+      type="date"
+      dir="ltr"
+      value={draft}
+      min={min || undefined}
+      max={max}
+      disabled={disabled || busy}
+      aria-label={label}
+      aria-invalid={dirty && !valid}
+      title={hint}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        if (dirty && valid) void commit(draft);
+        else if (dirty) setDraft(stored);
+      }}
+      className={`h-9 rounded-lg border bg-surface px-2 font-figure text-[13px] font-semibold tabular-nums text-ink outline-none disabled:opacity-60 ${
+        dirty && !valid ? "border-rose-400 focus:border-rose-500" : "border-line-strong focus:border-ink"
+      }`}
+    />
+  );
+}
 
 export default function LineDoneControls({
   claim,
@@ -104,28 +179,24 @@ export default function LineDoneControls({
 
   if (done) {
     if (!isWorked(claim)) return null;
-    const value = lineDateOf(claim, line);
+    const stored = lineDateOf(claim, line);
     return (
       <label className="inline-flex items-center gap-2">
         {showLabel && <span className="text-[11px] font-bold text-ink-muted">{t("colDoneOn")}</span>}
-        <input
-          type="date"
-          dir="ltr"
-          value={value}
-          min={claim.approvalDate || undefined}
+        <DoneDateField
+          key={stored}
+          stored={stored}
+          min={claim.approvalDate}
           max={cairoToday()}
-          disabled={disabled || busy}
-          aria-label={`${t("colDoneOn")} — ${service}`}
-          title={t("colDoneOnHint")}
-          onChange={(e) => {
-            const next = e.target.value;
-            // Emptied: back to the approval's own treated day. Unchanged: nothing to save.
-            if (next === value) return;
-            void (async () => {
-              if ((await save({ lineDates: { [line]: next || null } })) !== null) showToast(t("updated"), "success");
-            })();
+          disabled={disabled}
+          busy={busy}
+          label={`${t("colDoneOn")} — ${service}`}
+          hint={t("colDoneOnHint")}
+          onCommit={async (day) => {
+            const saved = (await save({ lineDates: { [line]: day } })) !== null;
+            if (saved) showToast(t("updated"), "success");
+            return saved;
           }}
-          className="h-9 rounded-lg border border-line-strong bg-surface px-2 font-figure text-[13px] font-semibold tabular-nums text-ink outline-none focus:border-ink disabled:opacity-60"
         />
         {busy && <Loader2 size={13} className="animate-spin text-ink-faint" />}
       </label>

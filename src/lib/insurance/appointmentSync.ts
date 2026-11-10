@@ -16,7 +16,7 @@
 
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { patchClaim, InsuranceCallError } from "@/components/insurance/api";
+import { cairoToday, patchClaim, InsuranceCallError } from "@/components/insurance/api";
 import { CLAIMS_COLLECTION, parseClaim } from "./claims";
 import { lineSyncPatch, parseClaimLinks, VISIT_DONE_STATUSES, type LinkedAppointmentLite } from "./appointments";
 
@@ -34,7 +34,7 @@ export async function syncClaimLineFromAppointment(clinicId: string | null | und
       if (!snap.exists()) continue;
       const claim = parseClaim(snap.id, snap.data());
       if (!claim) continue;
-      const patch = lineSyncPatch(claim, appt);
+      const patch = lineSyncPatch(claim, appt, cairoToday());
       if (!patch) continue;
       const error = await patchClaim(clinicId, claim.id, patch);
       if (error) {
