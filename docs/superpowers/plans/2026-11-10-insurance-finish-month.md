@@ -120,7 +120,7 @@ Rules inside the PATCH transaction:
   - `lineDates` before approval date → 400; a date after today → 400; `"5/11/2026"` → 400; nothing changed after each
   - `PATCH {status:"approved"}` → `finishedDate === null`, `workMonths` deep-equals `[]`
   - rebuild with 2 lines on a claim that had `lineDates {2:…}` and no money → `lineDates` has no key 2
-  - an old claim seeded with none of the new fields, patched `{lineStatus:{0:"Completed"}}` (already Completed by default) → gains `finishedDate` = its `treatedDate` and no `lineDates[0]`... except the auto-date rule: assert `lineDates[0]` is NOT set when the line was already Completed before the patch (only a real change to Completed stamps today)
+  - an old claim seeded with none of the new fields, patched `{lineStatus:{0:"Completed"}}` (already Completed by default) → gains `finishedDate` = its `treatedDate`, and `lineDates[0]` stays unset (only a real change into Completed stamps today)
 - [ ] **Step 2: Run** — start the cached emulator jar (`~/.jdks/jdk21/bin/java.exe -jar ~/.cache/firebase/emulators/cloud-firestore-emulator-v1.19.8.jar --host 127.0.0.1 --port 8085`, background), then `FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 npx tsx tests/insuranceLineDatesRoute.test.mts` → FAIL ("Unknown field: lineDates").
 - [ ] **Step 3: Implement** the rules above. In POST, add `...billingFields(claim)` to the created doc.
 - [ ] **Step 4: Run** the new test, `test:approval-date-route` and `test:approval-teeth-route` → all PASS.
