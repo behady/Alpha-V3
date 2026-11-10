@@ -30,11 +30,14 @@ import {
   type StandardDrawer,
 } from "@/lib/stock/catalog";
 import { lineKey, todayKey } from "@/lib/stock/math";
+import { deriveEvents } from "@/lib/stock/history";
 import type {
   LibraryProduct,
   StockCount,
   StockDelivery,
   StockDrawer,
+  StockEvent,
+  StockEventDraft,
   StockItem,
   StockLine,
   StockShape,
@@ -900,10 +903,95 @@ async function recordPatientUse(args: { clinicId: string; actor: Actor; body: Bo
   return NextResponse.json({ ok: true, snapshot: await readSnapshot(clinicId) });
 }
 
+// --- history ---------------------------------------------------------------------------------
+
+/**
+ * Write what just happened to the clinic's stock history, under the person who did it and the
+ * server's own clock. A failure here is reported and swallowed: the action itself has already
+ * been saved, and telling the person "nothing was changed" would be a lie.
+ */
+async function recordEvents(clinicId: string, actor: Actor, drafts: StockEventDraft[]): Promise<void> {
+  if (!drafts.length) return;
+  const now = Date.now();
+  const date = todayKey();
+  const coll = adminClinicCollection(clinicId, "stock_events");
+  for (let start = 0; start < drafts.length; start += 400) {
+    const batch = adminDb().batch();
+    drafts.slice(start, start + 400).forEach((draft, k) => {
+      const doc: Body = { atMs: now, seq: start + k, at: FieldValue.serverTimestamp(), date, byUid: actor.uid, byName: actor.name, byRole: actor.role };
+      // Firestore refuses `undefined`; an absent field is simply left out.
+      for (const [key, value] of Object.entries(draft)) if (value !== undefined) doc[key] = value;
+      batch.set(coll.doc(), doc);
+    });
+    await batch.commit();
+  }
+}
+
+function eventOf(id: string, d: FirebaseFirestore.DocumentData): StockEvent {
+  const opt = (k: string) => (typeof d[k] === "string" && d[k] ? (d[k] as string) : undefined);
+  const optN = (k: string) => (typeof d[k] === "number" && Number.isFinite(d[k]) ? (d[k] as number) : undefined);
+  return {
+    id,
+    atMs: num(d.atMs),
+    date: str(d.date),
+    byUid: typeof d.byUid === "string" ? d.byUid : null,
+    byName: str(d.byName),
+    byRole: str(d.byRole),
+    type: str(d.type) as StockEvent["type"],
+    itemId: typeof d.itemId === "string" ? d.itemId : null,
+    variantId: typeof d.variantId === "string" ? d.variantId : null,
+    drawerId: typeof d.drawerId === "string" ? d.drawerId : null,
+    itemEn: opt("itemEn"),
+    itemAr: opt("itemAr"),
+    brand: opt("brand"),
+    unit: opt("unit"),
+    drawerCode: opt("drawerCode"),
+    drawerName: opt("drawerName"),
+    toDrawerCode: opt("toDrawerCode"),
+    qtyBefore: optN("qtyBefore"),
+    qtyAfter: optN("qtyAfter"),
+    qty: optN("qty"),
+    price: optN("price"),
+    supplier: opt("supplier"),
+    patientName: opt("patientName"),
+    lot: opt("lot"),
+    changes: Array.isArray(d.changes) ? (d.changes as Body[]).map((c) => ({ field: str(c.field), from: str(c.from), to: str(c.to) })) : undefined,
+    n1: optN("n1"),
+    n2: optN("n2"),
+    text: opt("text"),
+  };
+}
+
+/** The newest history first, a page at a time. `beforeMs` continues from the last line shown. */
+async function readHistory(args: { clinicId: string; body: Body }) {
+  const { clinicId, body } = args;
+  const limit = Math.min(500, Math.max(20, Math.round(num(body.limit, 200))));
+  let q = adminClinicCollection(clinicId, "stock_events").orderBy("atMs", "desc");
+  const beforeMs = num(body.beforeMs);
+  if (beforeMs > 0) q = q.where("atMs", "<", beforeMs);
+  const snap = await q.limit(limit).get();
+  const docs = [...snap.docs];
+  // One action writes all its lines at the same millisecond. If the page ended inside such a
+  // group, fetch the rest of it, or the next page (which asks for "older than this") would skip them.
+  if (snap.size === limit) {
+    const lastMs = num(snap.docs[snap.docs.length - 1].data().atMs);
+    const have = new Set(docs.map((d) => d.id));
+    const rest = await adminClinicCollection(clinicId, "stock_events").where("atMs", "==", lastMs).get();
+    rest.forEach((d) => {
+      if (!have.has(d.id)) docs.push(d);
+    });
+  }
+  const events = docs.map((d) => ({ e: eventOf(d.id, d.data()), seq: num(d.data().seq) }));
+  // Within one action (one millisecond) keep the order the action produced.
+  events.sort((a, b) => b.e.atMs - a.e.atMs || a.seq - b.seq);
+  return NextResponse.json({ ok: true, events: events.map((x) => x.e), more: snap.size === limit });
+}
+
 // --- dispatcher ------------------------------------------------------------------------------
 
 const PERMISSION: Record<string, string> = {
   snapshot: "access.inventory",
+  history: "access.inventory",
   "lookup-barcode": "access.inventory",
   setup: "inventory.add",
   "save-drawer": "inventory.add",
@@ -932,54 +1020,71 @@ export async function POST(request: Request) {
     const permission = PERMISSION[action];
     if (!permission) return bad(`Unknown action "${action}".`);
     const requested = str(body.clinicId) || undefined;
-    const readOnly = action === "snapshot" || action === "lookup-barcode";
+    const readOnly = action === "snapshot" || action === "lookup-barcode" || action === "history";
     const staff = await requireStaffPermission(request, requested, permission, { allowInactive: readOnly });
     if (!staff.ok) return staff.response;
     const clinicId = await resolveUserClinicId(staff.uid, requested ?? null);
     const actor: Actor = { uid: staff.uid, name: staff.name, role: staff.role };
 
-    switch (action) {
-      case "snapshot":
-        return NextResponse.json({ ok: true, snapshot: await readSnapshot(clinicId) });
-      case "setup":
-        return await setup({ clinicId, actor, body });
-      case "save-drawer":
-        return await saveDrawer({ clinicId, body });
-      case "add-cabinet":
-        return await addCabinet({ clinicId, body });
-      case "rename-drawer":
-        return await renameDrawer({ clinicId, body });
-      case "rename-room":
-        return await renameRoom({ clinicId, body });
-      case "delete-drawer":
-        return await deleteDrawer({ clinicId, body });
-      case "set-photo":
-        return await setPhoto({ clinicId, body });
-      case "add-item":
-        return await addItem({ clinicId, body });
-      case "update-item":
-        return await updateItem({ clinicId, body });
-      case "add-variant":
-        return await addVariant({ clinicId, body });
-      case "add-line":
-        return await addLine({ clinicId, body });
-      case "remove-line":
-        return await removeLine({ clinicId, actor, body });
-      case "update-variant":
-        return await updateVariant({ clinicId, body });
-      case "move-line":
-        return await moveLine({ clinicId, body });
-      case "save-count":
-        return await saveCount({ clinicId, actor, body });
-      case "lookup-barcode":
-        return await lookupBarcode({ clinicId, body });
-      case "receive-delivery":
-        return await receiveDelivery({ clinicId, actor, body });
-      case "use-on-patient":
-        return await recordPatientUse({ clinicId, actor, body });
-      default:
-        return bad(`Unknown action "${action}".`);
+    const run = async (): Promise<NextResponse> => {
+      switch (action) {
+        case "snapshot":
+          return NextResponse.json({ ok: true, snapshot: await readSnapshot(clinicId) });
+        case "history":
+          return await readHistory({ clinicId, body });
+        case "setup":
+          return await setup({ clinicId, actor, body });
+        case "save-drawer":
+          return await saveDrawer({ clinicId, body });
+        case "add-cabinet":
+          return await addCabinet({ clinicId, body });
+        case "rename-drawer":
+          return await renameDrawer({ clinicId, body });
+        case "rename-room":
+          return await renameRoom({ clinicId, body });
+        case "delete-drawer":
+          return await deleteDrawer({ clinicId, body });
+        case "set-photo":
+          return await setPhoto({ clinicId, body });
+        case "add-item":
+          return await addItem({ clinicId, body });
+        case "update-item":
+          return await updateItem({ clinicId, body });
+        case "add-variant":
+          return await addVariant({ clinicId, body });
+        case "add-line":
+          return await addLine({ clinicId, body });
+        case "remove-line":
+          return await removeLine({ clinicId, actor, body });
+        case "update-variant":
+          return await updateVariant({ clinicId, body });
+        case "move-line":
+          return await moveLine({ clinicId, body });
+        case "save-count":
+          return await saveCount({ clinicId, actor, body });
+        case "lookup-barcode":
+          return await lookupBarcode({ clinicId, body });
+        case "receive-delivery":
+          return await receiveDelivery({ clinicId, actor, body });
+        case "use-on-patient":
+          return await recordPatientUse({ clinicId, actor, body });
+        default:
+          return bad(`Unknown action "${action}".`);
+      }
+    };
+
+    // The history is worked out from what changed: the cupboard before, the cupboard after.
+    const before = readOnly ? null : await readSnapshot(clinicId);
+    const response = await run();
+    if (before && response.ok) {
+      try {
+        const result = (await response.clone().json()) as Body;
+        if (result.snapshot) await recordEvents(clinicId, actor, deriveEvents(action, body, before, result.snapshot as StockSnapshot, result));
+      } catch (e) {
+        reportServerError("stock history failed", e, { action });
+      }
     }
+    return response;
   } catch (e) {
     const message = e instanceof Error ? e.message : "";
     if (message && /none left|not in that drawer|no longer exists/i.test(message)) return bad(message, 409);

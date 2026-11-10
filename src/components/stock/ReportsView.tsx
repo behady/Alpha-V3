@@ -4,9 +4,10 @@ import { useMemo, useState } from "react";
 import { MessageCircle } from "lucide-react";
 import { unitLabel } from "@/lib/stock/catalog";
 import { addDays, daysLabel, lastPrice, paceByItem, shoppingList, sortCounts, usageByItem, variance } from "@/lib/stock/math";
+import { HistoryView } from "./HistoryView";
 import { Btn, Card, Eyebrow, LinePicture, Pill, fmtDate, fmtMoney, inputCls, variantLabel, type StockCtx } from "./shared";
 
-type Tab = "usage" | "days" | "shop" | "buy" | "var" | "trace";
+type Tab = "usage" | "history" | "days" | "shop" | "buy" | "var" | "trace";
 
 /** Everything here is arithmetic on three logs: deliveries, counts, items used on patients. */
 export function ReportsView({ ctx }: { ctx: StockCtx }) {
@@ -21,6 +22,7 @@ export function ReportsView({ ctx }: { ctx: StockCtx }) {
   const shop = useMemo(() => shoppingList({ pace, variants: snap.variants, lines: snap.lines, deliveries: snap.deliveries }), [pace, snap]);
   const tabs: Array<[Tab, string]> = [
     ["usage", t("Usage", "الاستهلاك")],
+    ["history", t("History", "السجل")],
     ["days", t("Days left", "الأيام الباقية")],
     ["shop", t("Shopping list", "قائمة الشراء")],
     ["buy", t("Purchases", "المشتريات")],
@@ -43,7 +45,9 @@ export function ReportsView({ ctx }: { ctx: StockCtx }) {
         ))}
       </div>
 
-      {counts.length < 2 && tab !== "buy" && tab !== "trace" ? (
+      {tab === "history" ? <HistoryView ctx={ctx} /> : null}
+
+      {counts.length < 2 && tab !== "buy" && tab !== "trace" && tab !== "history" ? (
         <Card className="p-4 text-sm text-ink-body">
           {t("Usage needs two counts. The first count sets the starting point; from the second Thursday on, every report here fills in by itself.", "الاستهلاك محتاج عدّتين. أول عدّ بيحدد نقطة البداية؛ من الخميس التاني وكل التقارير هنا هتتملي لوحدها.")}
         </Card>

@@ -4,7 +4,7 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { auth, storage } from "@/lib/firebase";
 import { currentClinicId } from "@/lib/db-utils";
 import { stockPhotoPath } from "@/lib/storagePaths";
-import type { LibraryProduct, StockSnapshot, StockVariant } from "./types";
+import type { LibraryProduct, StockEvent, StockSnapshot, StockVariant } from "./types";
 
 /**
  * The browser side of /api/stock. Every call carries the clinic on screen, because the route's
@@ -44,6 +44,7 @@ type WithSnapshot = { snapshot: StockSnapshot };
 
 export const stockApi = {
   snapshot: () => post<WithSnapshot>("snapshot").then((r) => r.snapshot),
+  history: (beforeMs?: number) => post<{ events: StockEvent[]; more: boolean }>("history", beforeMs ? { beforeMs } : {}),
   setup: (chairs: number, itemKeys: string[]) => post<WithSnapshot & { createdDrawers: number }>("setup", { chairs, itemKeys }),
   saveDrawer: (drawer: Record<string, unknown>) => post<WithSnapshot>("save-drawer", drawer).then((r) => r.snapshot),
   addCabinet: (args: { roomCode: string; roomName?: string; cabinetLetter?: string; where?: string; drawers: number; shelves: number }) =>

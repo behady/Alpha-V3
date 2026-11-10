@@ -264,6 +264,27 @@ r = await post({ action: "add-cabinet", roomCode: "R3", roomName: "Room 3", draw
 check("the assistant may not change the layout", r.status === 403);
 as = idToken(ADMIN);
 
+console.log("\n8. the history: who did what, and when");
+const t0 = Date.now();
+r = await post({ action: "history" });
+const hist = r.json.events as Json[];
+check("the history is readable and newest first", r.status === 200 && hist.length > 20 && hist.every((e, k) => k === 0 || hist[k - 1].atMs >= e.atMs), hist.length);
+check("every line names a person, a role and a time", hist.every((e) => e.byName && e.byRole && e.atMs > t0 - 600000 && e.atMs <= t0 + 1000 && /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(e.date)), hist.find((e) => !e.byName || !e.byRole));
+const byType = (type: string) => hist.filter((e) => e.type === type);
+check("the assistant's count is under the assistant's name, row by row", byType("count").some((e) => e.byName === "Desk" && e.byRole === "Assistant" && e.drawerCode === "C1-A1" && e.qtyBefore === 0 && e.qtyAfter === 3), byType("count").slice(-4));
+check("each saved count leaves a summary", byType("count-saved").length === 3 && byType("count-saved").some((e) => e.n2 === 4), byType("count-saved").map((e) => e.n2));
+check("the delivery lines carry quantity, price and supplier", byType("delivery").some((e) => e.qty === 4 && e.price === 620 && e.supplier === "DentaCarts" && e.brand === "Septodont Septanest 1:100,000" && e.text === "new-brand"), byType("delivery")[0]);
+check("the patient use carries the patient and the lot", byType("used").some((e) => e.patientName === "Mariam Hassan" && e.lot === "DSL-2409-17" && e.byName === "Desk"));
+check("the write-off says how much was on the row", byType("write-off").length === 1 && byType("write-off")[0].qty === 3 && byType("write-off")[0].drawerCode === "C1-A2" && byType("write-off")[0].byName === "Owner", byType("write-off")[0]);
+check("the move says from where to where", byType("moved").some((e) => e.drawerCode === "C1-A1" && e.toDrawerCode === "SR-A1" && e.qty === 2), byType("moved")[0]);
+check("edits list the fields that changed", byType("brand-edited").some((e) => (e.changes as Json[]).some((c) => c.field === "price" && c.to === "640")) && byType("item-edited").length === 1);
+check("the layout is in it too", byType("cabinet-added").some((e) => e.text === "R1-A" && e.n1 === 20 && e.n2 === 1) && byType("room-renamed").length === 1 && byType("drawer-deleted").some((e) => e.drawerCode === "R1-A5"), byType("cabinet-added").map((e) => e.text));
+check("refused actions leave no trace", !hist.some((e) => e.drawerCode === "R1-A3" && e.type === "drawer-deleted") && !hist.some((e) => e.text === "R3-A"));
+as = idToken(ASSISTANT);
+r = await post({ action: "history" });
+check("the assistant may read the history", r.status === 200 && r.json.events.length === hist.length);
+as = idToken(ADMIN);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 authServer.close();
 process.exit(failed ? 1 : 0);

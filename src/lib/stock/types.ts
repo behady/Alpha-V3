@@ -111,6 +111,50 @@ export interface StockUse {
   byName: string;
 }
 
+export type StockEventType =
+  | "count" | "count-saved" | "delivery" | "delivery-received" | "used" | "write-off" | "row-removed" | "moved"
+  | "item-added" | "brand-added" | "row-added" | "item-edited" | "brand-edited" | "photo"
+  | "cabinet-added" | "drawer-renamed" | "room-renamed" | "drawer-deleted" | "setup";
+
+/**
+ * One line of the stock history. Names are copied in as they were when it happened, so the line
+ * still reads correctly after the item, brand or drawer is renamed, moved or deleted.
+ */
+export interface StockEvent {
+  id: string;
+  /** Milliseconds since 1970, from the server's clock. */
+  atMs: number;
+  date: string;
+  byUid: string | null;
+  byName: string;
+  byRole: string;
+  type: StockEventType;
+  itemId?: string | null;
+  variantId?: string | null;
+  drawerId?: string | null;
+  itemEn?: string;
+  itemAr?: string;
+  brand?: string;
+  unit?: string;
+  drawerCode?: string;
+  drawerName?: string;
+  toDrawerCode?: string;
+  qtyBefore?: number;
+  qtyAfter?: number;
+  qty?: number;
+  price?: number;
+  supplier?: string;
+  patientName?: string;
+  lot?: string;
+  changes?: Array<{ field: string; from: string; to: string }>;
+  /** Two free numbers and a free word, whose meaning depends on the type (see describeEvent). */
+  n1?: number;
+  n2?: number;
+  text?: string;
+}
+
+export type StockEventDraft = Omit<StockEvent, "id" | "atMs" | "date" | "byUid" | "byName" | "byRole">;
+
 /** What the page loads in one call. */
 export interface StockSnapshot {
   drawers: StockDrawer[];
