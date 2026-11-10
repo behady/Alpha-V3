@@ -5,13 +5,15 @@
 // approval is finished on its LAST done date once nothing is left open, a deleted service stops
 // holding it open, and an approval saved before any of this reads exactly as it did.
 import assert from "node:assert/strict";
-import { parseClaim, type InsuranceClaim } from "../src/lib/insurance/claims";
+import { insuranceTreatmentRows, parseClaim, type InsuranceClaim } from "../src/lib/insurance/claims";
 import {
   billingFields,
   claimFinishedDate,
   claimWorkMonths,
   inSheetRange,
   isLineRemoved,
+  lineDatesAfterStates,
+  movesSentMonth,
   lineDateOf,
   monthsBetween,
   sheetDate,
@@ -132,5 +134,35 @@ assert.deepEqual(messy.removedLines, { 2: { at: "2026-11-10", by: "u1" } });
 assert.equal(messy.finishedDate, "2026-11-05");
 assert.deepEqual(messy.workMonths, ["2026-10", "2026-11"]);
 assert.equal(claim({ finishedDate: "junk" }).finishedDate, null);
+
+// --- 9. a state change dates the service --------------------------------------------------------------------
+const today = "2026-11-10";
+assert.deepEqual(lineDatesAfterStates(open, { 2: "Completed" }, today), { 0: "2026-10-20", 1: "2026-10-20", 2: today }, "marked done by hand: done today");
+assert.deepEqual(lineDatesAfterStates(split, { 2: "Planned" }, today), { 0: "2026-10-20", 1: "2026-10-20" }, "back to Planned: its day goes");
+assert.deepEqual(lineDatesAfterStates(split, { 1: "Ongoing" }, today), { 0: "2026-10-20", 2: "2026-11-05" }, "Ongoing has no day either");
+assert.deepEqual(lineDatesAfterStates(old, { 0: "Completed" }, today), {}, "already Completed (an old claim): nothing is stamped");
+assert.deepEqual(
+  lineDatesAfterStates({ ...open, lineDates: { ...open.lineDates, 2: "2026-11-04" } }, { 2: "Completed" }, today),
+  { 0: "2026-10-20", 1: "2026-10-20", 2: "2026-11-04" },
+  "a day already on the service is kept",
+);
+
+// --- 10. an approval already sent keeps its month --------------------------------------------------------
+const sent = claim({ status: "sent", lineDates: { 0: "2026-10-20", 1: "2026-10-20", 2: "2026-10-25" } });
+assert.equal(movesSentMonth(sent, { ...sent, lineDates: { ...sent.lineDates, 2: "2026-10-27" } }), false, "same month: allowed");
+assert.equal(movesSentMonth(sent, { ...sent, lineDates: { ...sent.lineDates, 2: "2026-11-03" } }), true, "another month: locked");
+assert.equal(movesSentMonth(sent, { ...sent, lineStatus: { 2: "Planned" } }), true, "reopening it: locked");
+assert.equal(movesSentMonth(sent, { ...sent, status: "treated", lineDates: { ...sent.lineDates, 2: "2026-11-03" } }), false, "marked not sent in the same edit: allowed");
+assert.equal(movesSentMonth({ ...sent, status: "treated" }, { ...sent, status: "treated", lineStatus: { 2: "Planned" } }), false, "never sent: nothing to protect");
+const sentOpen = claim({ status: "sent", lineStatus: { 2: "Planned" } });
+assert.equal(movesSentMonth(sentOpen, { ...sentOpen, lineStatus: {} }), false, "sent while still open: finishing it is allowed");
+
+// --- 11. the rows an approval writes into the patient's file --------------------------------------------
+// Each service's treatment row is dated the day THAT service was done, and a deleted service has none.
+const rowsOf = (c: InsuranceClaim) =>
+  insuranceTreatmentRows({ claimId: c.id, claim: c, payerName: "MetLife", wording: {}, actor: { uid: "u1", name: "Desk", role: "Admin" } }).map((r) => [r.lineIndex, r.charge.date, r.note.date]);
+assert.deepEqual(rowsOf(split), [[0, "2026-10-20", "2026-10-20"], [1, "2026-10-20", "2026-10-20"], [2, "2026-11-05", "2026-11-05"]]);
+assert.deepEqual(rowsOf(removed), [[0, "2026-10-20", "2026-10-20"], [1, "2026-10-20", "2026-10-20"]], "a deleted service writes no row");
+assert.deepEqual(rowsOf(old).map((r) => r[1]), ["2026-10-20", "2026-10-20", "2026-10-20"], "an old claim's rows are dated as before");
 
 console.log("insuranceBillingMonth: all checks passed");

@@ -504,6 +504,22 @@ export function parseRemovedLines(raw: unknown, lineCount: number): Record<numbe
   return out;
 }
 
+/** A service deleted from its approval: it prints nowhere, earns nothing, and no longer holds the approval open. */
+export function isLineRemoved(claim: { removedLines?: InsuranceClaim["removedLines"] }, lineIndex: number): boolean {
+  return Boolean(claim.removedLines?.[lineIndex]);
+}
+
+/**
+ * The day a service was done: its own day, else the approval's treated date, else the approval
+ * date — which is where every service of a claim saved before per-service dates has always sat.
+ */
+export function lineDateOf(
+  claim: Pick<InsuranceClaim, "treatedDate" | "approvalDate"> & { lineDates?: InsuranceClaim["lineDates"] },
+  lineIndex: number,
+): string {
+  return claim.lineDates?.[lineIndex] ?? claim.treatedDate ?? claim.approvalDate;
+}
+
 /** A line's state: what was stored for it, else `Completed` (every claim saved before states existed). */
 export function lineStatusOf(claim: Pick<InsuranceClaim, "lineStatus">, lineIndex: number): LineStatus {
   return claim.lineStatus?.[lineIndex] ?? "Completed";
@@ -608,7 +624,8 @@ export function lineCharge(line: Pick<MetlifeLine, "approvedAmount" | "patientSh
 
 export type TreatmentRowArgs = {
   claimId: string;
-  claim: Pick<InsuranceClaim, "payerId" | "approvalNumber" | "approvalDate" | "treatedDate" | "patientId" | "patientName" | "lines" | "dentists" | "lineStatus">;
+  claim: Pick<InsuranceClaim, "payerId" | "approvalNumber" | "approvalDate" | "treatedDate" | "patientId" | "patientName" | "lines" | "dentists" | "lineStatus"> &
+    Partial<Pick<InsuranceClaim, "lineDates" | "removedLines">>;
   payerName: string;
   /** The clinic's own name per code, else the paper's description prints. */
   wording: Record<string, string>;
@@ -638,6 +655,8 @@ export function insuranceTreatmentRows(args: TreatmentRowArgs): TreatmentRow[] {
   const { claim, claimId, payerName, wording, actor } = args;
   const out: TreatmentRow[] = [];
   claim.lines.forEach((line, i) => {
+    // A service deleted from the approval has no row in the patient's file.
+    if (isLineRemoved(claim, i)) return;
     const charge = lineCharge(line);
     if (charge <= 0) return;
     const name = wording[line.code]?.trim() || line.description.trim() || line.code;
@@ -672,8 +691,8 @@ export function insuranceTreatmentRows(args: TreatmentRowArgs): TreatmentRow[] {
       serviceId: null,
       serviceIds: [] as string[],
       serviceName: name,
-      // The day the work was done: the treated date, else the approval's own date.
-      date: claim.treatedDate ?? claim.approvalDate,
+      // The day THIS service was done: its own day, else the treated date, else the approval's.
+      date: lineDateOf(claim, i),
       claimId,
       approvalNumber: claim.approvalNumber,
       serviceCode: line.code,

@@ -13,22 +13,14 @@
  * Every date rule lives here. The claims route stores what `billingFields` returns on each write so
  * screens can query by it; nothing else decides a month.
  */
-import { lineStatusOf, type InsuranceClaim } from "./claims";
+import { isLineRemoved, lineDateOf, lineStatusOf, type InsuranceClaim, type LineStatus } from "./claims";
+
+export { isLineRemoved, lineDateOf };
 
 /** How the Insurance page picks the approvals of a date range. */
 export type SheetDateMode = "approval" | "finish";
 
 export type BillingClaim = Pick<InsuranceClaim, "status" | "lines" | "lineStatus" | "lineDates" | "removedLines" | "treatedDate" | "approvalDate">;
-
-/** A service deleted from its approval: it prints nowhere, earns nothing, and no longer holds the approval open. */
-export function isLineRemoved(c: Pick<InsuranceClaim, "removedLines">, i: number): boolean {
-  return Boolean(c.removedLines?.[i]);
-}
-
-/** The day a service was done: its own date, else the approval's treated date, else the approval date. */
-export function lineDateOf(c: BillingClaim, i: number): string {
-  return c.lineDates?.[i] ?? c.treatedDate ?? c.approvalDate;
-}
 
 /** Only work that was done is billed or paid: an approved claim's services have not happened yet. */
 const isWorked = (c: Pick<InsuranceClaim, "status">) => c.status === "treated" || c.status === "sent";
@@ -74,6 +66,38 @@ export function claimWorkMonths(c: BillingClaim): string[] {
 /** The derived fields the claims route stores on every write. */
 export function billingFields(c: BillingClaim): { finishedDate: string | null; workMonths: string[] } {
   return { finishedDate: claimFinishedDate(c), workMonths: claimWorkMonths(c) };
+}
+
+/**
+ * `lineDates` after some services change state. A service that BECOMES Completed was done today,
+ * unless it already carries a day; one that goes back to Planned or Ongoing loses its day. A
+ * service that was already Completed is left alone, so re-saving an old approval stamps nothing.
+ */
+export function lineDatesAfterStates(
+  c: Pick<InsuranceClaim, "lineStatus" | "lineDates">,
+  states: Record<number, LineStatus>,
+  today: string,
+): Record<number, string> {
+  const out: Record<number, string> = { ...(c.lineDates ?? {}) };
+  for (const [k, state] of Object.entries(states)) {
+    const i = Number(k);
+    if (state !== "Completed") delete out[i];
+    else if (lineStatusOf(c, i) !== "Completed" && !out[i]) out[i] = today;
+  }
+  return out;
+}
+
+/**
+ * Whether an edit would move an approval that was already sent to the company onto another
+ * month's sheet, or reopen it (the owner's rule: it cannot — mark it not sent first). An approval
+ * sent while a service was still open has no finish month yet, so finishing it is allowed.
+ */
+export function movesSentMonth(before: BillingClaim, after: BillingClaim): boolean {
+  if (before.status !== "sent" || after.status !== "sent") return false;
+  const was = claimFinishedDate(before);
+  if (was === null) return false;
+  const now = claimFinishedDate(after);
+  return now === null || now.slice(0, 7) !== was.slice(0, 7);
 }
 
 /** The date that places an approval in a range: its approval date, or the day it was finished. */

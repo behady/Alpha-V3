@@ -47,6 +47,8 @@ import { recordLedgerAudit, recordMoneyChange } from "@/lib/server/ledgerAudit";
 import { isApprovalRow } from "@/lib/ledgerInsurer";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { CLAIMS_COLLECTION, applyDentistPicks, dentistRowPatch, isLineStatus, parseClaim } from "@/lib/insurance/claims";
+import { billingFields, lineDateOf, lineDatesAfterStates, movesSentMonth } from "@/lib/insurance/billingMonth";
+import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import { isFdiTooth } from "@/lib/insurance/nextcare";
 import { MAX_NOTE_PHOTOS, acceptNotePhoto, parseNotePhotos } from "@/lib/notePhotos";
 import { assertBranchAllowed, assertRowBranchAllowed, automaticBranch } from "@/lib/server/branchAccess";
@@ -577,6 +579,7 @@ function withToothText(description: unknown, toothText: string): string | null {
 }
 const NOT_A_DENTIST_MESSAGE = "Only a dentist can be put on an insurance approval's service.";
 const LINE_STATUS_MESSAGE = "An insurance service is Completed, Planned or Ongoing.";
+const APPROVAL_SENT_MESSAGE = "This approval was already sent to the company. Mark it not sent on the Insurance page first. / دي اتبعتت للشركة. علّمها ماتبعتتش من صفحة التأمين الأول.";
 
 /**
  * An edit to a treatment an insurance approval wrote. Its price and payer come from the approval
@@ -585,6 +588,11 @@ const LINE_STATUS_MESSAGE = "An insurance service is Completed, Planned or Ongoi
  * a service done from the clinical tab the way he does private work — and state and dentist are
  * written to the approval in the same transaction, so the Insurance tab, the monthly sheet and
  * payroll see exactly what the clinical tab shows.
+ *
+ * A state change dates the service exactly as the claims route does (lib/insurance/billingMonth.ts):
+ * done today when it becomes Completed, no day once it is Planned or Ongoing again, its note and
+ * charge moved to that day, and the approval's finished month re-derived — refused when that would
+ * move an approval already sent to the company.
  */
 async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: Record<string, unknown>; noteId: string; before: Record<string, unknown> }) {
   const { clinicId, actor, body, noteId, before } = args;
@@ -603,7 +611,12 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
   const claimId = String(before.claimId || "");
   const claimRef = adminClinicDoc(clinicId, CLAIMS_COLLECTION, claimId);
   const noteRef = adminClinicDoc(clinicId, "clinical_notes", noteId);
-  type Outcome = { kind: "no_line" } | { kind: "no_staff" } | { kind: "not_dentist" } | { kind: "ok"; after: Record<string, unknown>; restamp: Array<string | null> };
+  type Outcome =
+    | { kind: "no_line" }
+    | { kind: "no_staff" }
+    | { kind: "not_dentist" }
+    | { kind: "sent_locked" }
+    | { kind: "ok"; after: Record<string, unknown>; restamp: Array<string | null>; moved: { ledgerId: string; from: unknown; to: string } | null };
   const outcome = await adminDb().runTransaction(async (tx): Promise<Outcome> => {
     const claimSnap = await tx.get(claimRef);
     // The company's own dentist rate lives on the payer; read before any write.
@@ -630,7 +643,7 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
       });
     }
     const ledgerRef = adminClinicDoc(clinicId, "ledger", entry[1].ledgerId);
-    const ledgerSnap = doctorId !== undefined || teeth !== undefined ? await tx.get(ledgerRef) : null;
+    const ledgerSnap = doctorId !== undefined || teeth !== undefined || status !== undefined ? await tx.get(ledgerRef) : null;
     // Read before any write: the receipts already taken for this service get its dentist too.
     const paidAgainst = doctorId !== undefined ? await readProcedurePayments(tx, clinicId, entry[1].ledgerId) : [];
 
@@ -639,9 +652,25 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
     const restamp: Array<string | null> = doctorId !== undefined ? [claim.dentists[i]?.staffId ?? null, doctorId || null, ...paidAgainst.map((p) => p.doctorId ?? null)] : [];
     const noteUpdate: Record<string, unknown> = { updatedByUid: actor.uid, updatedByName: actor.name, updatedAt: FieldValue.serverTimestamp() };
     if (noteChanged) noteUpdate.note = note;
+    let moved: { ledgerId: string; from: unknown; to: string } | null = null;
     if (status !== undefined) {
-      claimUpdate.lineStatus = { ...claim.lineStatus, [i]: status };
+      const lineStatus = { ...claim.lineStatus, [i]: status };
+      const lineDates = lineDatesAfterStates(claim, { [i]: status }, ymdInTimeZone(clinicTimeZone()));
+      const next = { ...claim, lineStatus, lineDates };
+      if (movesSentMonth(claim, next)) return { kind: "sent_locked" };
+      claimUpdate.lineStatus = lineStatus;
+      if (JSON.stringify(lineDates) !== JSON.stringify(claim.lineDates)) claimUpdate.lineDates = lineDates;
+      Object.assign(claimUpdate, billingFields(next));
       noteUpdate.status = status;
+      // The service's day moved with its state: its note and its charge move too (never its payments).
+      const to = lineDateOf(next, i);
+      if (to !== lineDateOf(claim, i)) {
+        noteUpdate.date = to;
+        if (ledgerSnap?.exists && ledgerSnap.get("date") !== to) {
+          tx.update(ledgerRef, { date: to, updatedAt: FieldValue.serverTimestamp() });
+          moved = { ledgerId: ledgerRef.id, from: ledgerSnap.get("date") ?? null, to };
+        }
+      }
     }
     if (doctorId !== undefined) {
       // The same stamping the Insurance tab does: rate and share fixed at assignment time, and the
@@ -681,14 +710,27 @@ async function updateApprovalNote(args: { clinicId: string; actor: Actor; body: 
     tx.update(noteRef, noteUpdate);
     const { updatedAt: _stamp, ...after } = noteUpdate;
     void _stamp;
-    return { kind: "ok", after, restamp };
+    return { kind: "ok", after, restamp, moved };
   });
 
   if (outcome.kind === "no_staff") return bad("That dentist is not on staff any more.");
   if (outcome.kind === "not_dentist") return bad(NOT_A_DENTIST_MESSAGE);
+  if (outcome.kind === "sent_locked") return bad(APPROVAL_SENT_MESSAGE, 409);
   // The approval no longer knows this row (deleted, or saved again): the row is frozen as before.
   if (outcome.kind === "no_line") return bad(APPROVAL_NOTE_MESSAGE, 409);
   await restampStaffSettlementsFor(clinicId, outcome.restamp);
+
+  if (outcome.moved) {
+    const m = outcome.moved;
+    await recordMoneyChange({
+      entry: {
+        clinicId, action: "update", collection: "ledger", documentId: m.ledgerId,
+        before: { date: m.from }, after: { date: m.to }, actor, via: "clinical/procedures:line-date",
+      },
+      action: "Procedure Moved",
+      details: `Approval ${claimId}: service done ${m.to}, its charge moved from ${String(m.from)}`,
+    });
+  }
 
   const what = [noteChanged ? "note" : "", status !== undefined ? `state ${String(status)}` : "", doctorId !== undefined ? "dentist" : "", teeth !== undefined ? `teeth ${teeth.join(",") || "none"}` : ""].filter(Boolean).join(", ");
   await recordMoneyChange({
