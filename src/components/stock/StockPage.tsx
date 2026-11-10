@@ -104,7 +104,8 @@ export default function StockPage() {
     <div className="min-h-full pb-24" dir={ar ? "rtl" : "ltr"}>
       <PageHeader title={t("Stock", "المخزون")} subtitle={t("Every item has one home, and the home has a code.", "كل صنف له مكان واحد، والمكان له كود.")} compact />
       <div className="mx-auto w-full max-w-[1200px] px-4 pt-4 md:px-6">
-        <nav className="mb-4 flex gap-1 overflow-x-auto rounded-2xl border border-line bg-surface p-1" aria-label={t("Stock sections", "أقسام المخزون")}>
+        {/* Every tab stays on screen on a phone: equal columns and the short label, never a sideways scroll. */}
+        <nav className="mb-4 flex gap-1 rounded-2xl border border-line bg-surface p-1" aria-label={t("Stock sections", "أقسام المخزون")}>
           {TABS.map((k) => {
             if (k === "setup" && !ctx?.canStructure) return null;
             const on = tab === k;
@@ -113,10 +114,11 @@ export default function StockPage() {
                 key={k}
                 type="button"
                 onClick={() => go({ tab: k, drawer: null, count: null })}
-                className={`relative shrink-0 rounded-xl px-3.5 py-2 font-display text-[13px] font-bold transition-colors ${on ? "bg-ink text-white" : "text-ink-body hover:bg-surface-subtle"}`}
+                className={`min-w-0 flex-1 whitespace-nowrap rounded-xl px-0 py-2 font-display text-[10.5px] font-bold tracking-tight transition-colors sm:flex-none sm:px-3.5 sm:text-[13px] sm:tracking-normal ${on ? "bg-ink-slab text-white" : "text-ink-body hover:bg-surface-subtle"}`}
                 aria-current={on ? "page" : undefined}
               >
-                {labels[k]}
+                <span className="sm:hidden">{k === "count" ? t("Count", "العدّ") : labels[k]}</span>
+                <span className="hidden sm:inline">{labels[k]}</span>
               </button>
             );
           })}

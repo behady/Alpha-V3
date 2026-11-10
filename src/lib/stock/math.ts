@@ -120,7 +120,7 @@ export function usageByItem(args: {
   return rows.sort((a, b) => b.cost - a.cost);
 }
 
-/** Pace over the last three intervals and days left at that pace. */
+/** Pace over the last four counts (per calendar week) and days left at that pace. */
 export function paceByItem(args: {
   items: StockItem[];
   lines: StockLine[];
@@ -136,9 +136,11 @@ export function paceByItem(args: {
     const lines = args.lines.filter((l) => l.itemId === item.id);
     const onHand = lines.reduce((a, l) => a + l.qty, 0);
     let total = 0;
-    const intervals = Math.max(0, window.length - 1);
     for (let k = 1; k < window.length; k++) for (const line of lines) total += lineUsage(window[k - 1], window[k], line, sortedDeliv);
-    const pace = intervals > 0 ? total / intervals : 0;
+    // Per week of calendar time, not per count: a clinic that counts twice in one week, or
+    // skips one, must not see its pace double or halve.
+    const days = window.length > 1 ? daysApart(window[0].date, window[window.length - 1].date) : 0;
+    const pace = days > 0 ? total / (days / 7) : 0;
     const daysLeft = pace > 0 ? onHand / (pace / 7) : null;
     rows.push({ itemId: item.id, onHand, pace, daysLeft });
   }
@@ -219,6 +221,10 @@ export function daysLabel(days: number | null, ar: boolean): string {
   if (days == null) return "—";
   if (days < 1) return ar ? "خلص" : "out";
   return ar ? `~${Math.round(days)} يوم` : `~${Math.round(days)} d`;
+}
+
+export function daysApart(a: string, b: string): number {
+  return Math.round((new Date(b + "T00:00:00").getTime() - new Date(a + "T00:00:00").getTime()) / 86400000);
 }
 
 export function addDays(iso: string, n: number): string {

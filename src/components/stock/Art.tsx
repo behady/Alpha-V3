@@ -14,8 +14,8 @@ export function ProductArt({
   shape,
   color = "#64748B",
   brand = "",
-  product = "",
-  spec = "",
+  product: productFull = "",
+  spec: specFull = "",
   className,
 }: {
   shape: StockShape;
@@ -25,6 +25,10 @@ export function ProductArt({
   spec?: string;
   className?: string;
 }) {
+  // The drawing is 160 units wide; a long name runs off the box, so it is cut to what fits.
+  const fit = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
+  const product = fit(productFull, 15);
+  const spec = fit(specFull, 14);
   const t = { fontFamily: "Montserrat, Cairo, sans-serif", fontWeight: 700 } as const;
   const dark = "#0F172A";
   const body = (() => {
@@ -155,6 +159,7 @@ export function StockPicture({
   brand,
   product,
   spec,
+  colorSeed,
   className = "",
   alt = "",
 }: {
@@ -163,6 +168,8 @@ export function StockPicture({
   brand?: string;
   product?: string;
   spec?: string;
+  /** What picks the drawing's colour: the brand, or the item's name while there is no brand. */
+  colorSeed?: string;
   className?: string;
   alt?: string;
 }) {
@@ -170,5 +177,5 @@ export function StockPicture({
     // eslint-disable-next-line @next/next/no-img-element
     return <img src={photoUrl} alt={alt} className={`h-full w-full object-cover ${className}`} loading="lazy" />;
   }
-  return <ProductArt shape={shape} color={brandColor(brand || "")} brand={brand} product={product} spec={spec} className={`h-full w-full ${className}`} />;
+  return <ProductArt shape={shape} color={brandColor(colorSeed || brand || "")} brand={brand} product={product} spec={spec} className={`h-full w-full ${className}`} />;
 }

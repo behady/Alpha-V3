@@ -11,7 +11,7 @@ import { reportServerError } from "@/lib/server/reportError";
  * Finance page uses, so the owner's expenses and the cupboard agree without a second entry.
  */
 import { NextResponse } from "next/server";
-import { FieldValue } from "firebase-admin/firestore";
+import { FieldPath, FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { adminClinicCollection, adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
 import { requireStaffPermission } from "@/lib/apiStaffAuth";
@@ -497,8 +497,26 @@ async function saveCount(args: { clinicId: string; actor: Actor; body: Body }) {
       batch.set(doc.ref, { lastCountedAt: date }, { merge: true });
     }
   });
-  const countRef = adminClinicCollection(clinicId, "stock_counts").doc();
-  batch.set(countRef, { date, byUid: actor.uid, byName: actor.name, snapshot, changed, lines: lines.size, createdAt: FieldValue.serverTimestamp() });
+  // One count per day. A second save on the same date (a drawer counted from its own page, a walk
+  // finished after lunch) updates that day's count instead of adding another, so the gap between
+  // two counts is always real calendar time.
+  const sameDay = await adminClinicCollection(clinicId, "stock_counts").where("date", "==", date).limit(1).get();
+  const countRef = sameDay.empty ? adminClinicCollection(clinicId, "stock_counts").doc() : sameDay.docs[0].ref;
+  const earlierChanges = sameDay.empty ? 0 : num(sameDay.docs[0].data().changed);
+  batch.set(
+    countRef,
+    {
+      date,
+      byUid: actor.uid,
+      byName: actor.name,
+      snapshot,
+      changed: earlierChanges + changed,
+      lines: lines.size,
+      updatedAt: FieldValue.serverTimestamp(),
+      ...(sameDay.empty ? { createdAt: FieldValue.serverTimestamp() } : {}),
+    },
+    { merge: true }
+  );
   await batch.commit();
   await logActivityServer({ clinicId, user: actor, action: "Stock Counted", details: `${lines.size} lines, ${changed} changed`, severity: "LOW" });
   return NextResponse.json({ ok: true, countId: countRef.id, changed, snapshot: await readSnapshot(clinicId) });
@@ -594,6 +612,15 @@ async function receiveDelivery(args: { clinicId: string; actor: Actor; body: Bod
       { merge: true }
     );
     finalLines.push({ variantId, drawerId, qty, price, itemId });
+  }
+
+  // A box received after that day's count is on the shelf at the end of the day, so the day's
+  // count has to say so — otherwise next week it looks like stock that appeared from nowhere.
+  const countThatDay = await adminClinicCollection(clinicId, "stock_counts").where("date", "==", date).limit(1).get();
+  if (!countThatDay.empty) {
+    for (const l of finalLines) {
+      batch.update(countThatDay.docs[0].ref, new FieldPath("snapshot", lineKey(l.variantId, l.drawerId)), FieldValue.increment(l.qty));
+    }
   }
 
   const total = finalLines.reduce((a, l) => a + l.qty * l.price, 0);

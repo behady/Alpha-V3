@@ -177,6 +177,15 @@ check("articaine: 9 on hand, pace 3/week → 21 days", artPace?.onHand === 9 && 
 const vr = variance({ lines: snap.lines, counts: snap.counts, deliveries: snap.deliveries, uses: snap.uses, trackedItemIds: new Set([impLine.itemId]) });
 check("variance: 3 gone, 1 on a patient, gap 2", vr[0]?.gone === 3 && vr[0]?.usedOnPatients === 1 && vr[0]?.gap === 2, vr);
 
+console.log("\n5b. one count per day, and a delivery after it");
+r = await post({ action: "save-count", date: "2026-11-12", values: { [line("C1-A1", "anes-art").id]: 2 } });
+snap = r.json.snapshot;
+check("a second save on the same day updates that day's count", r.status === 200 && snap.counts.length === 2 && snap.counts[1].snapshot[line("C1-A1", "anes-art").id] === 2, snap.counts?.length);
+const septLineId = (snap.lines as Json[]).find((l) => l.variantId === sept!.id)!.id;
+r = await post({ action: "receive-delivery", date: "2026-11-12", supplier: "DentaCarts", lines: [{ variantId: sept!.id, drawerId: storeA1.id, qty: 2, price: 620 }] });
+snap = r.json.snapshot;
+check("a delivery after that day's count raises the count's own number", r.status === 200 && snap.counts[1].snapshot[septLineId] === 5 && (snap.lines as Json[]).find((l) => l.id === septLineId)?.qty === 5, snap.counts?.[1]?.snapshot?.[septLineId]);
+
 console.log("\n6. doors");
 r = await post({ action: "setup", chairs: 2, itemKeys: ["bond"] });
 check("assistant may not change the structure", r.status === 403, r.status);

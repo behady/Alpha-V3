@@ -122,7 +122,7 @@ export function CountView({ ctx, startDrawerCode }: { ctx: StockCtx; startDrawer
         <div>
           <Eyebrow>{t("Weekly count", "العدّ الأسبوعي")} · {fmtDate(ctx.today, ar)} · {t("drawer", "درج")} {i + 1} {t("of", "من")} {drawers.length}</Eyebrow>
           <h2 className="mt-1 flex flex-wrap items-center gap-3 font-display text-2xl font-bold tracking-tight text-ink">
-            <CodeBadge code={`${d.cabinetLetter}${d.number}`} big />
+            <CodeBadge code={d.code} big />
             <span>{ar ? d.nameAr : d.nameEn}</span>
           </h2>
           <p className="mt-1 text-sm text-ink-body">
@@ -134,10 +134,13 @@ export function CountView({ ctx, startDrawerCode }: { ctx: StockCtx; startDrawer
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-        <div className="aspect-[16/10] overflow-hidden rounded-2xl border border-line bg-surface-subtle lg:aspect-auto lg:max-h-[320px]">
-          <DrawerThumb ctx={ctx} drawer={d} large />
-        </div>
+      {/* The drawer's real photo helps find the drawer; a drawn tray would only push the rows off a phone screen. */}
+      <div className={`grid gap-4 ${d.photoUrl ? "lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]" : ""}`}>
+        {d.photoUrl ? (
+          <div className="h-36 overflow-hidden rounded-2xl border border-line bg-surface-subtle lg:h-auto lg:max-h-[320px]">
+            <DrawerThumb ctx={ctx} drawer={d} large />
+          </div>
+        ) : null}
         <div className="grid content-start gap-2">
           {lines.map((l) => {
             const v = ctx.variants.get(l.variantId);
@@ -148,7 +151,7 @@ export function CountView({ ctx, startDrawerCode }: { ctx: StockCtx; startDrawer
               <div key={l.id} className={`grid grid-cols-[56px_1fr_auto] items-center gap-3 rounded-xl border p-2 ${chg ? "border-[#FACC15] bg-surface-subtle" : "border-line bg-surface"}`}>
                 <div className="h-11 w-14 overflow-hidden rounded-lg border border-line bg-surface-subtle"><LinePicture variant={v} item={item} /></div>
                 <div className="min-w-0">
-                  <b className="block truncate text-[13.5px] font-semibold text-ink">{v?.isGeneric ? (item ? (ar ? item.nameAr : item.nameEn) : "") : variantLabel(v, item, ar)}</b>
+                  <b className="block text-[13.5px] font-semibold leading-snug text-ink">{v?.isGeneric ? (item ? (ar ? item.nameAr : item.nameEn) : "") : variantLabel(v, item, ar)}</b>
                   <span className="block text-[11.5px] text-ink-muted">
                     {v?.isGeneric ? "" : `${item ? (ar ? item.nameAr : item.nameEn) : ""} · `}
                     {t("count in", "عدّ بالـ")} {unitLabel(item?.unit || "box", 2, ar)} · {t("last", "آخر")} <b className="font-display">{l.qty}</b>

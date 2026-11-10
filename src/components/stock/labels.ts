@@ -15,7 +15,7 @@ export async function printDrawerLabels(snap: StockSnapshot, drawers: StockDrawe
       const names = uniqueItemNames(snap.lines.filter((l) => l.drawerId === d.id), itemsById);
       return `
         <div class="label">
-          <div class="code">${esc(d.cabinetLetter)}${d.number}</div>
+          <div class="code"><small>${esc(d.roomCode)}</small>${esc(d.cabinetLetter)}${d.number}</div>
           <div class="mid">
             <b>${esc(d.nameEn)}</b>
             <span class="ar">${esc(d.nameAr)}</span>
@@ -32,6 +32,7 @@ export async function printDrawerLabels(snap: StockSnapshot, drawers: StockDrawe
     .sheet { display:grid; grid-template-columns: 1fr 1fr; gap: 8mm; }
     .label { border: 1px solid #C9CED6; border-radius: 10px; padding: 10px 12px; display:grid; grid-template-columns:auto 1fr auto; gap: 12px; align-items:center; break-inside: avoid; min-height: 34mm; }
     .code { font-family: "Montserrat", "Segoe UI", sans-serif; font-weight: 800; font-size: 34px; line-height:1; letter-spacing:-.03em; background:#FACC15; color:#1A1206; border-radius: 8px; padding: 6px 9px; }
+    .code small { display:block; font-size: 11px; letter-spacing:.12em; font-weight:800; margin-bottom:3px; opacity:.75; }
     .mid b { display:block; font-family:"Montserrat","Segoe UI",sans-serif; font-weight:700; font-size:14px; }
     .mid .ar { display:block; font-size:13px; color:#334155; direction:rtl; text-align:left; }
     .mid small { display:block; font-size:10.5px; color:#64748B; margin-top:3px; line-height:1.35; }

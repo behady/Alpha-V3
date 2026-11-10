@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, Plus, Printer, Search, UserRound } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Plus, Printer, Search, Trash2, UserRound } from "lucide-react";
 import { getDocs, limit, orderBy, query } from "firebase/firestore";
 import { getClinicCollection } from "@/lib/db-utils";
 import { patientMatchesSearch } from "@/lib/flexibleSearch";
@@ -11,7 +11,7 @@ import { daysLabel, matches } from "@/lib/stock/math";
 import type { StockDrawer, StockItem, StockLine, StockVariant } from "@/lib/stock/types";
 import { StockPicture } from "./Art";
 import { printDrawerLabels } from "./labels";
-import { Btn, Card, CodeBadge, Eyebrow, Field, LinePicture, PhotoButton, Pill, fmtDate, inputCls, linesOfDrawer, useBusy, variantLabel, type StockCtx } from "./shared";
+import { Btn, Card, CodeBadge, Eyebrow, Field, LinePicture, PhotoButton, PhotoTile, Pill, Reveal, Stepper, fmtDate, inputCls, linesOfDrawer, useBusy, variantLabel, type StockCtx } from "./shared";
 
 /** The map of rooms, cabinets and drawers — or one drawer, when `drawerCode` is set. */
 export function CupboardView({ ctx, drawerCode }: { ctx: StockCtx; drawerCode: string | null }) {
@@ -210,7 +210,42 @@ function DrawerDetail({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
   const { snap, t, ar, toast } = ctx;
   const { busy, run } = useBusy();
   const [mode, setMode] = useState<null | "item" | "brand" | "edit" | { use: StockLine }>(null);
+  // Quantities typed here but not saved yet. Saving them IS a count — of this drawer, today.
+  const [draft, setDraft] = useState<Record<string, number>>({});
+  const [photoBusy, setPhotoBusy] = useState<string | null>(null);
   const lines = linesOfDrawer(snap, drawer.id);
+  const changedCount = lines.filter((l) => draft[l.id] != null && draft[l.id] !== l.qty).length;
+
+  const saveDrawerCount = () =>
+    run(async () => {
+      const r = await stockApi.saveCount(ctx.today, draft);
+      ctx.setSnap(r.snapshot);
+      setDraft({});
+      toast(t("Saved. This drawer is counted for today.", "اتحفظ. الدرج ده اتعدّ النهارده."));
+    }, (m) => toast(m, "error"));
+
+  const setLinePhoto = async (line: StockLine, file: File) => {
+    const v = ctx.variants.get(line.variantId);
+    // A brand's box gets the photo; while there is no brand yet, the item itself does.
+    const kind = v && !v.isGeneric ? "variant" : "item";
+    const id = kind === "variant" ? line.variantId : line.itemId;
+    setPhotoBusy(line.id);
+    try {
+      const url = await uploadStockPhoto(kind, id, file);
+      ctx.setSnap(await stockApi.setPhoto(kind, id, url));
+      toast(t("Photo saved.", "اتحفظت الصورة."));
+    } catch (e) {
+      toast(e instanceof Error ? e.message : t("Could not save the photo.", "تعذر حفظ الصورة."), "error");
+    } finally {
+      setPhotoBusy(null);
+    }
+  };
+
+  const removeFromDrawer = (line: StockLine) =>
+    run(async () => {
+      ctx.setSnap(await stockApi.removeLine(line.id));
+      toast(t("Removed from this drawer.", "اتشال من الدرج."));
+    }, (m) => toast(m, "error"));
   const byItem = new Map<string, StockLine[]>();
   for (const l of lines) byItem.set(l.itemId, [...(byItem.get(l.itemId) || []), l]);
   const Back = ar ? ArrowRight : ArrowLeft;
@@ -230,7 +265,7 @@ function DrawerDetail({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
             <Back size={14} /> {t("Cupboard", "الدولاب")}
           </button>
           <h2 className="mt-1 flex flex-wrap items-center gap-3 font-display text-2xl font-bold tracking-tight text-ink">
-            <CodeBadge code={`${drawer.cabinetLetter}${drawer.number}`} big />
+            <CodeBadge code={drawer.code} big />
             <span>{ar ? drawer.nameAr : drawer.nameEn}</span>
             <span className="text-base font-semibold text-ink-muted">{ar ? drawer.nameEn : drawer.nameAr}</span>
           </h2>
@@ -250,17 +285,21 @@ function DrawerDetail({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
         </div>
       </div>
 
-      {mode === "edit" ? <EditDrawerForm ctx={ctx} drawer={drawer} onDone={() => setMode(null)} /> : null}
+      {mode === "edit" ? <Reveal><EditDrawerForm ctx={ctx} drawer={drawer} onDone={() => setMode(null)} /></Reveal> : null}
+      {mode === "item" ? <Reveal><AddItemHere ctx={ctx} drawer={drawer} onDone={() => setMode(null)} /></Reveal> : null}
+      {mode === "brand" ? <Reveal><AddBrandHere ctx={ctx} drawer={drawer} onDone={() => setMode(null)} /></Reveal> : null}
+      {mode && typeof mode === "object" && "use" in mode ? <Reveal><UseOnPatient ctx={ctx} drawer={drawer} line={mode.use} onDone={() => setMode(null)} /></Reveal> : null}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
         <div>
-          <div className="aspect-[16/10] overflow-hidden rounded-2xl border border-line bg-surface-subtle">
+          {/* A real photo is worth the space on a phone; the drawn tray is not, so it waits for a wide screen. */}
+          <div className={`aspect-[16/10] overflow-hidden rounded-2xl border border-line bg-surface-subtle ${drawer.photoUrl ? "" : "hidden lg:block"}`}>
             <DrawerThumb ctx={ctx} drawer={drawer} large />
           </div>
           <p className="mt-2 text-xs text-ink-muted">
             {drawer.photoUrl
               ? t("The drawer as it looks open. A new assistant matches the picture, not the words.", "الدرج وهو مفتوح. المساعد الجديد بيطابق الصورة مش الكلام.")
-              : t("No photo yet. Open the drawer and photograph it once; that picture is what new staff will match.", "لسه مفيش صورة. افتح الدرج وصوّره مرة؛ الصورة دي هي اللي الموظف الجديد هيطابقها.")}
+              : t("No photo yet. Open the drawer and photograph it once. Tap any item's picture to give it its own photo. Type how many you have and press Save count.", "لسه مفيش صورة. افتح الدرج وصوّره مرة. دوس على صورة أي صنف تحط له صورته. اكتب عندك كام ودوس احفظ العدّ.")}
           </p>
           {drawer.tracked ? (
             <div className="mt-3 border-s-[3px] border-[#FACC15] ps-3 text-[13px] text-ink-body">
@@ -293,14 +332,18 @@ function DrawerDetail({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
                   {ls.map((l) => {
                     const v = ctx.variants.get(l.variantId);
                     return (
-                      <div key={l.id} className="grid grid-cols-[64px_1fr_auto] items-center gap-3 rounded-xl border border-line bg-surface p-1.5">
-                        <div className="h-12 w-16 overflow-hidden rounded-lg border border-line bg-surface-subtle">
-                          <LinePicture variant={v} item={item} />
-                        </div>
+                      <div key={l.id} className={`grid grid-cols-[72px_1fr_auto] items-center gap-3 rounded-xl border p-1.5 ${draft[l.id] != null && draft[l.id] !== l.qty ? "border-[#FACC15] bg-surface-subtle" : "border-line bg-surface"}`}>
+                        {ctx.canEdit ? (
+                          <PhotoTile variant={v} item={item} busy={photoBusy === l.id} onFile={(f) => void setLinePhoto(l, f)} className="h-14 w-[72px]" />
+                        ) : (
+                          <div className="h-14 w-[72px] overflow-hidden rounded-lg border border-line bg-surface-subtle">
+                            <LinePicture variant={v} item={item} />
+                          </div>
+                        )}
                         <div className="min-w-0">
-                          <b className="block truncate text-[13px] font-semibold text-ink">{v?.isGeneric ? t("No brand yet", "لسه مفيش ماركة") : variantLabel(v, item, ar)}</b>
+                          <b className="block text-[13px] font-semibold leading-snug text-ink">{v?.isGeneric ? item?.per || (item ? (ar ? item.nameAr : item.nameEn) : "") : variantLabel(v, item, ar)}</b>
                           <span className="block text-[11.5px] text-ink-muted">
-                            {item?.per}
+                            {v?.isGeneric ? t("no brand yet", "من غير ماركة") : item?.per}
                             {v?.barcode ? ` · ${v.barcode}` : ""}
                             {v?.lastPrice ? ` · ${Math.round(v.lastPrice).toLocaleString()} EGP` : ""}
                             {v?.supplier ? ` · ${v.supplier}` : ""}
@@ -310,11 +353,23 @@ function DrawerDetail({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
                               <UserRound size={12} /> {t("Used on a patient", "اتستخدم لمريض")}
                             </button>
                           ) : null}
+                          {ctx.canStructure && l.qty === 0 && (draft[l.id] ?? 0) === 0 ? (
+                            <button type="button" onClick={() => void removeFromDrawer(l)} className="mt-1 inline-flex items-center gap-1 text-[11.5px] text-ink-muted hover:text-red-600">
+                              <Trash2 size={11} /> {t("Remove", "شيل")}
+                            </button>
+                          ) : null}
                         </div>
-                        <div className="text-end">
-                          <b className="block font-display text-xl font-black leading-none text-ink">{l.qty}</b>
-                          <span className="text-[11px] text-ink-muted">{unitLabel(item?.unit || "box", l.qty, ar)}</span>
-                        </div>
+                        {ctx.canEdit ? (
+                          <div className="grid justify-items-end gap-0.5">
+                            <Stepper value={draft[l.id] ?? l.qty} onChange={(n) => setDraft({ ...draft, [l.id]: n })} changed={draft[l.id] != null && draft[l.id] !== l.qty} />
+                            <span className="text-[11px] text-ink-muted">{unitLabel(item?.unit || "box", draft[l.id] ?? l.qty, ar)}</span>
+                          </div>
+                        ) : (
+                          <div className="text-end">
+                            <b className="block font-display text-xl font-black leading-none text-ink">{l.qty}</b>
+                            <span className="text-[11px] text-ink-muted">{unitLabel(item?.unit || "box", l.qty, ar)}</span>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -332,9 +387,21 @@ function DrawerDetail({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
         </Card>
       </div>
 
-      {mode === "item" ? <AddItemHere ctx={ctx} drawer={drawer} onDone={() => setMode(null)} /> : null}
-      {mode === "brand" ? <AddBrandHere ctx={ctx} drawer={drawer} onDone={() => setMode(null)} /> : null}
-      {mode && typeof mode === "object" && "use" in mode ? <UseOnPatient ctx={ctx} drawer={drawer} line={mode.use} onDone={() => setMode(null)} /> : null}
+      {changedCount > 0 ? (
+        <div className="sticky bottom-24 z-10 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-ink-slab p-3 text-white shadow-lg lg:bottom-4">
+          <span className="text-sm">
+            <b className="font-display text-lg">{changedCount}</b> {t("changed in this drawer", "اتغير في الدرج ده")}
+          </span>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setDraft({})} className="rounded-xl border border-white/20 px-3 py-2 font-display text-[13px] font-bold text-white/85">
+              {t("Undo", "تراجع")}
+            </button>
+            <Btn kind="yellow" busy={busy} onClick={saveDrawerCount}>
+              <Check size={15} /> {t("Save count", "احفظ العدّ")}
+            </Btn>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

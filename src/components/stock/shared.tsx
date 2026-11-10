@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Camera, Loader2, Minus, Plus } from "lucide-react";
 import type { StockDrawer, StockItem, StockLine, StockSnapshot, StockVariant } from "@/lib/stock/types";
 import type { PaceRow } from "@/lib/stock/math";
@@ -56,10 +56,47 @@ export function LinePicture({ variant, item, className = "" }: { variant?: Stock
       brand={variant?.isGeneric ? "" : variant?.brand}
       product={variant?.isGeneric ? item?.nameEn : variant?.product}
       spec={variant?.spec}
+      colorSeed={variant?.isGeneric || !variant ? item?.nameEn : variant.brand}
       className={className}
       alt={variantLabel(variant, item, false)}
     />
   );
+}
+
+/**
+ * A row's picture that is also its camera button: tap it, take or pick a photo, and that photo
+ * replaces the drawing. The small camera badge is what tells a person the picture can be changed.
+ */
+export function PhotoTile({ variant, item, onFile, busy, className = "" }: { variant?: StockVariant; item?: StockItem; onFile: (f: File) => void; busy?: boolean; className?: string }) {
+  const ref = useRef<HTMLInputElement>(null);
+  return (
+    <button type="button" onClick={() => ref.current?.click()} disabled={busy} className={`relative block overflow-hidden rounded-lg border border-line bg-surface-subtle ${className}`} aria-label="Change photo">
+      <LinePicture variant={variant} item={item} />
+      <span className="absolute bottom-0.5 end-0.5 grid h-5 w-5 place-items-center rounded-full bg-ink-slab/85 text-white">
+        {busy ? <Loader2 size={11} className="animate-spin" /> : <Camera size={11} />}
+      </span>
+      <input
+        ref={ref}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) onFile(f);
+          e.currentTarget.value = "";
+        }}
+      />
+    </button>
+  );
+}
+
+/** Scrolls its content into view once, when it appears — for a form opened by a button above it. */
+export function Reveal({ children }: { children: React.ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, []);
+  return <div ref={ref}>{children}</div>;
 }
 
 export function Stepper({ value, onChange, min = 0, changed = false, disabled = false }: { value: number; onChange: (n: number) => void; min?: number; changed?: boolean; disabled?: boolean }) {
@@ -76,7 +113,7 @@ export function Stepper({ value, onChange, min = 0, changed = false, disabled = 
         disabled={disabled}
         onChange={(e) => onChange(Math.max(min, Math.floor(Number(e.target.value) || 0)))}
         onFocus={(e) => e.currentTarget.select()}
-        className={`h-10 w-14 border-x border-line bg-transparent text-center font-display text-base font-bold outline-none ${changed ? "bg-[#FACC15] text-[#1A1206]" : "text-ink"}`}
+        className={`h-10 w-14 border-x border-line text-center font-display text-base font-bold outline-none ${changed ? "bg-[#FACC15] text-[#1A1206]" : "bg-transparent text-ink"}`}
       />
       <button type="button" disabled={disabled} onClick={() => onChange(value + 1)} className="grid h-10 w-10 place-items-center text-ink-body hover:bg-surface-subtle disabled:opacity-40" aria-label="plus">
         <Plus size={16} />

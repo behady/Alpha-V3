@@ -32,7 +32,7 @@ export function DeliveryView({ ctx }: { ctx: StockCtx }) {
   const [lines, setLines] = useState<Line[]>([]);
   const [scanning, setScanning] = useState(false);
   const [manualCode, setManualCode] = useState("");
-  const [pending, setPending] = useState<null | { barcode: string | null; library: LibraryProduct | null }>(null);
+  const [pending, setPending] = useState<null | { barcode: string | null; library: LibraryProduct | null; itemId?: string }>(null);
   const [addManual, setAddManual] = useState(false);
   const [done, setDone] = useState<null | { total: number }>(null);
 
@@ -120,7 +120,7 @@ export function DeliveryView({ ctx }: { ctx: StockCtx }) {
           </div>
           <div className="grid gap-3 rounded-2xl border border-dashed border-line bg-surface-subtle p-3">
             {scanning ? (
-              <Scanner onCode={(c) => { setScanning(false); void onCode(c); }} onClose={() => setScanning(false)} unsupported={t("This phone's browser cannot read barcodes live. Type the number under the barcode instead.", "متصفح الموبايل ده مش بيقرأ الباركود مباشرة. اكتب الرقم اللي تحت الباركود.")} />
+              <Scanner onCode={(c) => { setScanning(false); void onCode(c); }} onClose={() => setScanning(false)} unsupported={t("This browser cannot read barcodes with the camera. Type the number printed under the barcode instead.", "المتصفح ده مش بيقرأ الباركود بالكاميرا. اكتب الرقم المطبوع تحت الباركود.")} />
             ) : (
               <Btn kind="dark" onClick={() => setScanning(true)} className="justify-self-center"><ScanLine size={16} /> {t("Scan barcode", "امسح الباركود")}</Btn>
             )}
@@ -171,6 +171,7 @@ export function DeliveryView({ ctx }: { ctx: StockCtx }) {
               ctx={ctx}
               barcode={pending.barcode}
               library={pending.library}
+              initialItemId={pending.itemId}
               onCancel={() => setPending(null)}
               onAdd={(nv, drawerId, price) => {
                 setLines([...lines, { key: `${Date.now()}`, variantId: null, newVariant: nv, drawerId, qty: 1, price, tag: pending.library ? "library" : "new" }]);
@@ -183,7 +184,7 @@ export function DeliveryView({ ctx }: { ctx: StockCtx }) {
               ctx={ctx}
               onCancel={() => setAddManual(false)}
               onPick={(v, drawerId) => { setLines([...lines, { key: `${Date.now()}`, variantId: v.id, newVariant: null, drawerId, qty: 1, price: v.lastPrice || 0, tag: "manual" }]); setAddManual(false); }}
-              onNew={(itemId) => { setPending({ barcode: null, library: null }); setAddManual(false); void itemId; }}
+              onNew={(itemId) => { setPending({ barcode: null, library: null, itemId }); setAddManual(false); }}
             />
           ) : null}
 
@@ -261,11 +262,11 @@ function Scanner({ onCode, onClose, unsupported }: { onCode: (code: string) => v
 }
 
 /** Unknown or library barcode: the one-time naming. */
-function NewProductForm({ ctx, barcode, library, onCancel, onAdd }: { ctx: StockCtx; barcode: string | null; library: LibraryProduct | null; onCancel: () => void; onAdd: (nv: Line["newVariant"] & object, drawerId: string, price: number) => void }) {
+function NewProductForm({ ctx, barcode, library, initialItemId, onCancel, onAdd }: { ctx: StockCtx; barcode: string | null; library: LibraryProduct | null; initialItemId?: string; onCancel: () => void; onAdd: (nv: Line["newVariant"] & object, drawerId: string, price: number) => void }) {
   const { snap, t, ar, toast } = ctx;
   const { busy, run } = useBusy();
   const guessedItem = library?.catalogKey ? snap.items.find((i) => i.catalogKey === library.catalogKey) : undefined;
-  const [itemId, setItemId] = useState(guessedItem?.id || snap.items[0]?.id || "");
+  const [itemId, setItemId] = useState(initialItemId || guessedItem?.id || snap.items[0]?.id || "");
   const [brand, setBrand] = useState(library?.brand || "");
   const [product, setProduct] = useState(library?.product || "");
   const [spec, setSpec] = useState(library?.spec || "");
