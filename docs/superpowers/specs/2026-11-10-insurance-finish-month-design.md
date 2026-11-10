@@ -79,7 +79,8 @@ New PATCH key `removeLine: number` on `/api/insurance/claims`:
   lines, and a delete icon on lines that are not Completed. The approval header reads
   "Finished 5 Nov 2026" when finished, "Not finished" otherwise.
 - **Insurance page** (`ClaimsTable`): a "Finished" date column beside approval date / treated date;
-  the expanded approval shows the same per-line "Done on" + delete as the pop-up.
+  a "Services ▾" toggle on each row opens the same per-line "Done on" + delete as the pop-up. The
+  patient page's Insurance tab gets the same controls.
 - **Insurance page range**: `By approval date | By finish date` switch next to the date picker,
   remembered per browser. The list query and `ClaimsExportBar` both follow it. The three statement
   builders (`insuranceStatementMetlife`, `…Nextcare`, AXA) take the already-filtered claims instead
@@ -89,9 +90,9 @@ New PATCH key `removeLine: number` on `/api/insurance/claims`:
 ### Team page (dentist %)
 
 `insuranceWorkByStaff` counts each Completed, non-removed line on **its own** date
-(`lineDates[i]`, falling back to `treatedDate`, then `approvalDate`), and counts a claim's lines
-whatever the claim's status except `cancelled` — so 20/10's work is October's pay even while the
-approval is still open. The Team page loads claims with `workMonths array-contains-any` the
+(`lineDates[i]`, falling back to `treatedDate`, then `approvalDate`), on `treated`/`sent` claims as
+today — so 20/10's work is October's pay even while the approval is still open. (An `approved`
+claim's lines default to Completed, so counting it would pay for work never done.) The Team page loads claims with `workMonths array-contains-any` the
 period's months (plus the current by-date listeners for old claims). Payout recording,
 settlements and the staff settlement sync are untouched.
 
