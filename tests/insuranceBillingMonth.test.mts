@@ -12,6 +12,7 @@ import { buildMetlifeStatement } from "../src/lib/insuranceStatementMetlife";
 import { buildNextcareStatement } from "../src/lib/insuranceStatementNextcare";
 import {
   billingFields,
+  billingFieldsToStore,
   claimFinishedDate,
   claimWorkMonths,
   inSheetRange,
@@ -247,5 +248,13 @@ assert.deepEqual(
   { total: 2, done: 2, booked: 0 },
   "nor is a visit once booked for it counted",
 );
+
+// --- 16. the backfill: what an approval saved before all this must have stored ---------------------------
+assert.deepEqual(billingFieldsToStore(old), { finishedDate: "2026-10-20", workMonths: ["2026-10"] }, "an old treated approval: finished on its treated day");
+assert.deepEqual(billingFieldsToStore(claim({ status: "sent" })), { finishedDate: "2026-10-20", workMonths: ["2026-10"] }, "an old sent one stays in the month it was treated");
+assert.equal(billingFieldsToStore(claim({ finishedDate: "2026-10-20", workMonths: ["2026-10"] })), null, "already stored: nothing to write");
+assert.equal(billingFieldsToStore(approved), null, "not treated: nothing to store");
+assert.deepEqual(billingFieldsToStore(open), { finishedDate: null, workMonths: ["2026-10"] }, "still open: its work months, no finish day");
+assert.deepEqual(billingFieldsToStore(claim({ finishedDate: "2026-09-01", workMonths: ["2026-09"] })), { finishedDate: "2026-10-20", workMonths: ["2026-10"] }, "a stale stored value is corrected");
 
 console.log("insuranceBillingMonth: all checks passed");

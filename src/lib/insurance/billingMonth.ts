@@ -136,3 +136,15 @@ export function monthsBetween(from: string, to: string): string[] {
   }
   return out;
 }
+
+/**
+ * What a claim should have stored and does not: its `billingFields`, or null when the stored ones
+ * already say the same. Used by the one-off backfill for approvals saved before these fields
+ * existed (scripts/backfill-insurance-finish.mts): it writes nothing else, so every service keeps
+ * the day it always had (its approval's treated date) and no approval changes month.
+ */
+export function billingFieldsToStore(c: BillingClaim & Pick<InsuranceClaim, "finishedDate" | "workMonths">): { finishedDate: string | null; workMonths: string[] } | null {
+  const want = billingFields(c);
+  const same = want.finishedDate === (c.finishedDate ?? null) && JSON.stringify(want.workMonths) === JSON.stringify(c.workMonths ?? []);
+  return same ? null : want;
+}
