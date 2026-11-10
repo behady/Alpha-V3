@@ -118,6 +118,8 @@
     "test:conflicts": "npx tsx tests/appointmentConflicts.test.mjs",
     "test:bookingslots": "npx tsx tests/bookingSlots.test.mts",
     "test:claimlinks": "npx tsx tests/claimLinks.test.mts",
+    "_comment_test_insurance_billing_month": "Which month an insurance approval is billed in: each service has its own done date, the approval is finished on the last one once nothing is left open, a deleted service stops holding it open, and an approval saved before per-service dates reads exactly as it did.",
+    "test:insurance-billing-month": "npx tsx tests/insuranceBillingMonth.test.mts",
     "test:roomschedule": "npx tsx tests/roomSchedule.test.mts",
     "test:homeview": "npx tsx tests/homeView.test.mts",
     "test:stagedprocedures": "npx tsx tests/stagedProcedures.test.mts",

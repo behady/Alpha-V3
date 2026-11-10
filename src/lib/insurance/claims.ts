@@ -70,7 +70,29 @@ export type InsuranceClaim = {
   ledgerIds: Record<number, LineLedger>;
   /** Stamped when the insurer's payment was recorded against those rows; null until then. */
   insurerPaid: InsurerPaid | null;
+  /**
+   * The day each service was done (`yyyy-mm-dd`), keyed by the line's index. It decides the month
+   * the dentist's share lands in and, through the last one, the month the approval is billed in.
+   * A line with no entry reads as the approval's treated date (`lineDateOf`), so a claim saved
+   * before per-service dates existed reads exactly as it did.
+   */
+  lineDates: Record<number, string>;
+  /**
+   * Services deleted from the approval because the patient will not come back for them. The line
+   * stays in `lines` (the paper is a record) but prints nowhere, earns nothing and has no row.
+   */
+  removedLines: Record<number, RemovedLine>;
+  /**
+   * The day the approval's last service was done, once nothing on it is left open; null until then.
+   * Derived by the server on every write (`billingFields`) so a screen can query by it — never sent
+   * by a client.
+   */
+  finishedDate: string | null;
+  /** `yyyy-mm` of every month a service on this approval was done in. Server-derived, like `finishedDate`. */
+  workMonths: string[];
 };
+
+export type RemovedLine = { at: string; by: string };
 
 /** A service line's state, in the clinical editor's own words (the note's `status`). */
 export type LineStatus = "Completed" | "Planned" | "Ongoing";
@@ -250,6 +272,10 @@ export function claimFromExtraction(args: {
     shareCollected: null,
     ledgerIds: {},
     insurerPaid: null,
+    lineDates: {},
+    removedLines: {},
+    finishedDate: null,
+    workMonths: [],
   };
 }
 
@@ -303,6 +329,10 @@ export function parseClaim(id: string, raw: unknown): InsuranceClaim | null {
     shareCollected: parseShareCollected(r.shareCollected),
     ledgerIds: parseLineLedger(r.ledgerIds, x.lines.length),
     insurerPaid: parseInsurerPaid(r.insurerPaid),
+    lineDates: parseLineDates(r.lineDates, x.lines.length),
+    removedLines: parseRemovedLines(r.removedLines, x.lines.length),
+    finishedDate: isIsoDate(r.finishedDate) ? r.finishedDate : null,
+    workMonths: Array.isArray(r.workMonths) ? r.workMonths.filter((m): m is string => typeof m === "string" && /^\d{4}-\d{2}$/.test(m)) : [],
     ...(trimmed(r.branchId) ? { branchId: trimmed(r.branchId) } : {}),
   };
 }
@@ -446,6 +476,30 @@ export function parseLineStatus(raw: unknown, lineCount: number): Record<number,
     const i = Number(k);
     if (!Number.isInteger(i) || i < 0 || i >= lineCount || !isLineStatus(v)) continue;
     out[i] = v;
+  }
+  return out;
+}
+
+/** `lineDates` as stored: line index -> the day it was done; junk and out-of-range indices are dropped. */
+export function parseLineDates(raw: unknown, lineCount: number): Record<number, string> {
+  const out: Record<number, string> = {};
+  if (!isRecord(raw)) return out;
+  for (const [k, v] of Object.entries(raw)) {
+    const i = Number(k);
+    if (!Number.isInteger(i) || i < 0 || i >= lineCount || !isIsoDate(v)) continue;
+    out[i] = v;
+  }
+  return out;
+}
+
+/** `removedLines` as stored: line index -> who deleted it and when; junk and out-of-range indices are dropped. */
+export function parseRemovedLines(raw: unknown, lineCount: number): Record<number, RemovedLine> {
+  const out: Record<number, RemovedLine> = {};
+  if (!isRecord(raw)) return out;
+  for (const [k, v] of Object.entries(raw)) {
+    const i = Number(k);
+    if (!Number.isInteger(i) || i < 0 || i >= lineCount || !isRecord(v)) continue;
+    out[i] = { at: typeof v.at === "string" ? v.at : "", by: typeof v.by === "string" ? v.by : "" };
   }
   return out;
 }
