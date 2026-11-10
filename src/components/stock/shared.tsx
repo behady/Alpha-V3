@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { Camera, Loader2, Minus, Plus } from "lucide-react";
+import { Camera, Loader2, Minus, Plus, X } from "lucide-react";
 import type { StockDrawer, StockItem, StockLine, StockSnapshot, StockVariant } from "@/lib/stock/types";
 import type { PaceRow } from "@/lib/stock/math";
 import { StockPicture } from "./Art";
@@ -87,6 +87,41 @@ export function PhotoTile({ variant, item, onFile, busy, className = "" }: { var
         }}
       />
     </button>
+  );
+}
+
+/**
+ * Latin data inside an Arabic line: a pack size, a barcode, a price.
+ *
+ * In a right-to-left paragraph "50 pcs" is drawn as "pcs 50", because the number and the word
+ * are laid out as two separate runs. Isolating the piece and marking it left-to-right keeps it
+ * the way it is printed on the box.
+ */
+export function Ltr({ children }: { children: React.ReactNode }) {
+  return <bdi dir="ltr">{children}</bdi>;
+}
+
+/** A sheet over the page: from the bottom on a phone, a centred card on a wider screen. */
+export function Sheet({ title, onClose, children, dir }: { title: string; onClose: () => void; children: React.ReactNode; dir?: "rtl" | "ltr" }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div className="fixed inset-0 z-[300] flex items-end justify-center bg-black/45 sm:items-center sm:p-6" dir={dir} role="dialog" aria-modal="true" aria-label={title} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="grid max-h-[90vh] w-full max-w-[640px] gap-4 overflow-y-auto rounded-t-3xl bg-surface p-5 pb-8 shadow-2xl sm:rounded-3xl sm:pb-5">
+        <div className="flex items-center justify-between">
+          <h3 className="font-display text-lg font-bold text-ink">{title}</h3>
+          <button type="button" onClick={onClose} aria-label="Close" className="grid h-9 w-9 place-items-center rounded-full border border-line text-ink-muted hover:text-ink">
+            <X size={16} />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
   );
 }
 

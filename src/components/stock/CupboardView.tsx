@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, Check, Plus, Printer, Search, Trash2, UserRound } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Pencil, Plus, Printer, Search, Trash2, UserRound } from "lucide-react";
 import { getDocs, limit, orderBy, query } from "firebase/firestore";
 import { getClinicCollection } from "@/lib/db-utils";
 import { patientMatchesSearch } from "@/lib/flexibleSearch";
@@ -11,7 +11,8 @@ import { daysLabel, matches } from "@/lib/stock/math";
 import type { StockDrawer, StockItem, StockLine, StockVariant } from "@/lib/stock/types";
 import { StockPicture } from "./Art";
 import { printDrawerLabels } from "./labels";
-import { Btn, Card, CodeBadge, Eyebrow, Field, LinePicture, PhotoButton, PhotoTile, Pill, Reveal, Stepper, fmtDate, inputCls, linesOfDrawer, useBusy, variantLabel, type StockCtx } from "./shared";
+import { EditLineSheet } from "./EditLineSheet";
+import { Btn, Card, CodeBadge, Eyebrow, Field, LinePicture, Ltr, PhotoButton, PhotoTile, Pill, Reveal, Stepper, fmtDate, inputCls, linesOfDrawer, useBusy, variantLabel, type StockCtx } from "./shared";
 
 /** The map of rooms, cabinets and drawers — or one drawer, when `drawerCode` is set. */
 export function CupboardView({ ctx, drawerCode }: { ctx: StockCtx; drawerCode: string | null }) {
@@ -213,6 +214,7 @@ function DrawerDetail({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
   // Quantities typed here but not saved yet. Saving them IS a count — of this drawer, today.
   const [draft, setDraft] = useState<Record<string, number>>({});
   const [photoBusy, setPhotoBusy] = useState<string | null>(null);
+  const [editing, setEditing] = useState<null | { lineId: string; del: boolean }>(null);
   const lines = linesOfDrawer(snap, drawer.id);
   const changedCount = lines.filter((l) => draft[l.id] != null && draft[l.id] !== l.qty).length;
 
@@ -341,22 +343,29 @@ function DrawerDetail({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
                           </div>
                         )}
                         <div className="min-w-0">
-                          <b className="block text-[13px] font-semibold leading-snug text-ink">{v?.isGeneric ? item?.per || (item ? (ar ? item.nameAr : item.nameEn) : "") : variantLabel(v, item, ar)}</b>
+                          <b className="block text-[13px] font-semibold leading-snug text-ink">
+                            {v?.isGeneric ? (item?.per ? <Ltr>{item.per}</Ltr> : item ? (ar ? item.nameAr : item.nameEn) : "") : <Ltr>{variantLabel(v, item, ar)}</Ltr>}
+                          </b>
                           <span className="block text-[11.5px] text-ink-muted">
-                            {v?.isGeneric ? t("no brand yet", "من غير ماركة") : item?.per}
-                            {v?.barcode ? ` · ${v.barcode}` : ""}
-                            {v?.lastPrice ? ` · ${Math.round(v.lastPrice).toLocaleString()} EGP` : ""}
-                            {v?.supplier ? ` · ${v.supplier}` : ""}
+                            {v?.isGeneric ? t("no brand yet", "من غير ماركة") : item?.per ? <Ltr>{item.per}</Ltr> : null}
+                            {v?.barcode ? <> · <Ltr>{v.barcode}</Ltr></> : null}
+                            {v?.lastPrice ? <> · <Ltr>{Math.round(v.lastPrice).toLocaleString()} EGP</Ltr></> : null}
+                            {v?.supplier ? <> · <Ltr>{v.supplier}</Ltr></> : null}
                           </span>
                           {drawer.tracked && ctx.canEdit && l.qty > 0 ? (
                             <button type="button" onClick={() => setMode({ use: l })} className="mt-1 inline-flex items-center gap-1 text-[12px] font-bold text-ink underline">
                               <UserRound size={12} /> {t("Used on a patient", "اتستخدم لمريض")}
                             </button>
                           ) : null}
-                          {ctx.canStructure && l.qty === 0 && (draft[l.id] ?? 0) === 0 ? (
-                            <button type="button" onClick={() => void removeFromDrawer(l)} className="mt-1 inline-flex items-center gap-1 text-[11.5px] text-ink-muted hover:text-red-600">
-                              <Trash2 size={11} /> {t("Remove", "شيل")}
-                            </button>
+                          {ctx.canStructure ? (
+                            <span className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
+                              <button type="button" onClick={() => setEditing({ lineId: l.id, del: false })} className="inline-flex items-center gap-1 text-[12px] font-bold text-ink hover:underline">
+                                <Pencil size={12} /> {t("Edit", "تعديل")}
+                              </button>
+                              <button type="button" onClick={() => (l.qty > 0 ? setEditing({ lineId: l.id, del: true }) : void removeFromDrawer(l))} className="inline-flex items-center gap-1 text-[12px] font-bold text-red-700 hover:underline">
+                                <Trash2 size={12} /> {t("Delete", "مسح")}
+                              </button>
+                            </span>
                           ) : null}
                         </div>
                         {ctx.canEdit ? (
@@ -386,6 +395,10 @@ function DrawerDetail({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
           ) : null}
         </Card>
       </div>
+
+      {editing && lines.find((l) => l.id === editing.lineId) ? (
+        <EditLineSheet ctx={ctx} drawer={drawer} line={lines.find((l) => l.id === editing.lineId) as StockLine} startOnDelete={editing.del} onClose={() => setEditing(null)} />
+      ) : null}
 
       {changedCount > 0 ? (
         <div className="sticky bottom-24 z-10 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-ink-slab p-3 text-white shadow-lg lg:bottom-4">

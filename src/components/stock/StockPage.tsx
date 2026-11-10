@@ -73,7 +73,7 @@ export default function StockPage() {
   const perms = useMemo(() => user?.permissions ?? [], [user?.permissions]);
   const ctx = useMemo<StockCtx | null>(() => {
     if (!snap) return null;
-    const pace = new Map(paceByItem({ items: snap.items, lines: snap.lines, counts: snap.counts, deliveries: snap.deliveries }).map((p) => [p.itemId, p]));
+    const pace = new Map(paceByItem({ items: snap.items, variants: snap.variants, lines: snap.lines, counts: snap.counts, deliveries: snap.deliveries }).map((p) => [p.itemId, p]));
     return {
       snap,
       setSnap,

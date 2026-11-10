@@ -7,7 +7,7 @@ import { stockApi, uploadStockPhoto } from "@/lib/stock/api";
 import { normaliseBarcode } from "@/lib/stock/math";
 import type { LibraryProduct, StockVariant } from "@/lib/stock/types";
 import { StockPicture } from "./Art";
-import { Btn, Card, Eyebrow, Field, LinePicture, PhotoButton, Pill, Stepper, fmtMoney, inputCls, useBusy, variantLabel, type StockCtx } from "./shared";
+import { Btn, Card, Eyebrow, Field, LinePicture, Ltr, PhotoButton, Pill, Stepper, fmtMoney, inputCls, useBusy, variantLabel, type StockCtx } from "./shared";
 
 type Line = {
   key: string;
@@ -150,7 +150,7 @@ export function DeliveryView({ ctx }: { ctx: StockCtx }) {
                     {v ? variantLabel(v, item, ar) : [l.newVariant?.brand, l.newVariant?.product, l.newVariant?.spec].filter(Boolean).join(" · ")}{" "}
                     {l.tag === "library" ? <Pill>{t("new to clinic", "جديد على العيادة")}</Pill> : l.tag === "new" ? <Pill>{t("new product", "منتج جديد")}</Pill> : null}
                   </b>
-                  <span className="block text-[11.5px] text-ink-muted">{item ? (ar ? item.nameAr : item.nameEn) : ""} · {item?.per}</span>
+                  <span className="block text-[11.5px] text-ink-muted">{item ? (ar ? item.nameAr : item.nameEn) : ""}{item?.per ? <> · <Ltr>{item.per}</Ltr></> : null}</span>
                   <div className="mt-1.5 flex flex-wrap items-center gap-2">
                     <select value={l.drawerId} onChange={(e) => setLines(lines.map((x) => (x === l ? { ...x, drawerId: e.target.value } : x)))} className="rounded-lg border border-line bg-surface px-2 py-1 text-[12px]">
                       {snap.drawers.map((d) => <option key={d.id} value={d.id}>{d.code} · {ar ? d.nameAr : d.nameEn}</option>)}

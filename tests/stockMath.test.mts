@@ -2,7 +2,7 @@
 // three places that arithmetic can go wrong — a delivery on count day, a line that did not exist
 // at the earlier count, and a count that finds MORE than expected.
 import assert from "node:assert/strict";
-import { lineUsage, usageByItem, paceByItem, shoppingList, variance, matches, normaliseBarcode } from "../src/lib/stock/math";
+import { lineUsage, usageByItem, paceByItem, shoppingList, variance, matches, normaliseBarcode, variantUsage } from "../src/lib/stock/math";
 import type { StockCount, StockDelivery, StockItem, StockLine, StockVariant } from "../src/lib/stock/types";
 
 const item: StockItem = { id: "flow", nameEn: "Flowable", nameAr: "فلو", unit: "syringe", per: "2 g", shape: "syringe", tracked: false, catalogKey: "flow", photoUrl: null };
@@ -33,7 +33,7 @@ assert.equal(rows[0].used, 4);
 assert.equal(rows[0].cost, 2 * 600 + 2 * 500); // v1 at its lastPrice (never delivered), v2 at delivered 500
 
 // pace = average of last three intervals; days left from on hand
-const pace = paceByItem({ items: [item], lines: [l1, l2], counts, deliveries: [deliv("2026-11-02", "v2", 1, 500)] });
+const pace = paceByItem({ items: [item], variants: [v1, v2], lines: [l1, l2], counts, deliveries: [deliv("2026-11-02", "v2", 1, 500)] });
 assert.equal(pace[0].onHand, 3);
 assert.equal(pace[0].pace, 2); // (3 + 1) / 2 intervals
 assert.equal(Math.round(pace[0].daysLeft!), 11); // 3 / (2/7) = 10.5
@@ -47,7 +47,7 @@ assert.equal(shop[0].supplier, "Nile Dental");
 
 // tracked items that are not used by anyone → no pace, no shopping line
 const tracked: StockItem = { ...item, id: "imp", tracked: true };
-assert.equal(paceByItem({ items: [tracked], lines: [], counts, deliveries: [] }).length, 0);
+assert.equal(paceByItem({ items: [tracked], variants: [], lines: [], counts, deliveries: [] }).length, 0);
 
 // variance: start 6, delivered 4, now 5 → 5 gone; 4 on patients → gap 1
 const lineImp: StockLine = { id: "vi__d2", variantId: "vi", itemId: "imp", drawerId: "d2", qty: 5 };
@@ -75,5 +75,17 @@ assert.equal(normaliseBarcode("(01)04046719000036(17)251231(10)ABC"), "404671900
 assert.equal(normaliseBarcode("0110885403123456"), "10885403123456"); // a true 14-digit GTIN keeps all 14
 assert.equal(normaliseBarcode("0123456789012"), "0123456789012"); // a 13-digit code that merely starts with 01
 assert.equal(normaliseBarcode("https://example.com/p/1"), "https://example.com/p/1");
+
+// a box carried from the Store to the chair is not usage: the brand's total is what counts
+const store: StockLine = { id: "v1__store", variantId: "v1", itemId: "flow", drawerId: "store", qty: 3 };
+const moved = [count("2026-11-05", { v1__d1: 1, v1__store: 5 }), count("2026-11-12", { v1__d1: 2, v1__store: 3 })];
+assert.equal(variantUsage(moved[0], moved[1], "v1", []), 1); // 6 in the clinic, 5 now: one used, one moved
+assert.equal(usageByItem({ items: [item], variants: [v1], lines: [l1, store], counts: moved, deliveries: [], weeks: 4 })[0].used, 1);
+// a row deleted since the earlier count still counts for what it held then
+const afterDelete = [count("2026-11-05", { v1__d1: 2, v1__gone: 3 }), count("2026-11-12", { v1__d1: 2 })];
+assert.equal(variantUsage(afterDelete[0], afterDelete[1], "v1", []), 3);
+// and one moved to another drawer nets to nothing
+const afterMove = [count("2026-11-05", { v1__old: 4 }), count("2026-11-12", { v1__new: 4 })];
+assert.equal(variantUsage(afterMove[0], afterMove[1], "v1", []), 0);
 
 console.log("stockMath: all assertions passed");

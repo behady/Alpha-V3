@@ -457,15 +457,84 @@ async function addLine(args: { clinicId: string; body: Body }) {
 }
 
 /** A line can only leave a drawer empty: stock does not vanish by deleting its row. */
-async function removeLine(args: { clinicId: string; body: Body }) {
-  const { clinicId, body } = args;
+/**
+ * Take a row out of a drawer.
+ *
+ * An empty row simply goes. A row that still holds stock goes only when the person confirms it
+ * (`writeOff`), and that is written to the activity log with the quantity: what was on it will
+ * read as used at the next count, which is the truth about a box that was thrown away, and a
+ * manager can see who removed it and when.
+ */
+async function removeLine(args: { clinicId: string; actor: Actor; body: Body }) {
+  const { clinicId, actor, body } = args;
   const id = str(body.lineId);
   if (!id) return bad("Which line?");
   const ref = adminClinicDoc(clinicId, "stock_lines", id);
   const snap = await ref.get();
   if (!snap.exists) return NextResponse.json({ ok: true, snapshot: await readSnapshot(clinicId) });
-  if (num(snap.data()?.qty) > 0) return bad("Count this line down to zero first. Stock cannot be removed by deleting its row.");
+  const qty = Math.max(0, num(snap.data()?.qty));
+  if (qty > 0 && body.writeOff !== true) return bad("This row still has stock. Confirm the delete to write it off.", 409);
   await ref.delete();
+  if (qty > 0) {
+    const [variant, drawer] = await Promise.all([
+      adminClinicDoc(clinicId, "stock_variants", str(snap.data()?.variantId)).get(),
+      adminClinicDoc(clinicId, "stock_drawers", str(snap.data()?.drawerId)).get(),
+    ]);
+    const what = [str(variant.data()?.brand), str(variant.data()?.product), str(variant.data()?.spec)].filter(Boolean).join(" ");
+    await logActivityServer({ clinicId, user: actor, action: "Stock Written Off", details: `${qty} x ${what || "item"} removed from drawer ${str(drawer.data()?.code)}`, severity: "MEDIUM" });
+  }
+  return NextResponse.json({ ok: true, snapshot: await readSnapshot(clinicId) });
+}
+
+/** Correct a brand: its name, shade, barcode, supplier or price. Naming a brandless row makes it a brand. */
+async function updateVariant(args: { clinicId: string; body: Body }) {
+  const { clinicId, body } = args;
+  const id = str(body.id);
+  if (!id) return bad("Which brand?");
+  const ref = adminClinicDoc(clinicId, "stock_variants", id);
+  const snap = await ref.get();
+  if (!snap.exists) return bad("That brand no longer exists.", 404);
+  const patch: Body = { updatedAt: FieldValue.serverTimestamp() };
+  if (typeof body.brand === "string") {
+    const brand = body.brand.trim();
+    if (brand) {
+      patch.brand = brand;
+      patch.isGeneric = false;
+    } else if (snap.data()?.isGeneric !== true) return bad("A brand needs a name.");
+  }
+  if (typeof body.product === "string" && body.product.trim()) patch.product = body.product.trim();
+  if (typeof body.spec === "string") patch.spec = body.spec.trim();
+  if (typeof body.barcode === "string") patch.barcode = body.barcode.trim() || null;
+  if (typeof body.supplier === "string") patch.supplier = body.supplier.trim() || null;
+  if (body.lastPrice !== undefined) patch.lastPrice = num(body.lastPrice) > 0 ? num(body.lastPrice) : null;
+  await ref.set(patch, { merge: true });
+  return NextResponse.json({ ok: true, snapshot: await readSnapshot(clinicId) });
+}
+
+/**
+ * Carry a row to another drawer, with what is on it. If the brand already has a row there, the
+ * two become one. Nothing is used and nothing is delivered, and the usage arithmetic agrees: it
+ * adds a brand up across all its drawers, so a move cancels itself.
+ */
+async function moveLine(args: { clinicId: string; body: Body }) {
+  const { clinicId, body } = args;
+  const id = str(body.lineId);
+  const toDrawerId = str(body.toDrawerId);
+  if (!id || !toDrawerId) return bad("Which row, to which drawer?");
+  const drawer = await adminClinicDoc(clinicId, "stock_drawers", toDrawerId).get();
+  if (!drawer.exists) return bad("That drawer no longer exists.", 404);
+  const fromRef = adminClinicDoc(clinicId, "stock_lines", id);
+  await adminDb().runTransaction(async (tx) => {
+    const from = await tx.get(fromRef);
+    if (!from.exists) throw new Error("That row no longer exists.");
+    const variantId = str(from.data()?.variantId);
+    if (str(from.data()?.drawerId) === toDrawerId) return;
+    const toRef = adminClinicDoc(clinicId, "stock_lines", lineKey(variantId, toDrawerId));
+    const to = await tx.get(toRef);
+    const qty = Math.max(0, num(from.data()?.qty)) + (to.exists ? Math.max(0, num(to.data()?.qty)) : 0);
+    tx.set(toRef, { variantId, itemId: str(from.data()?.itemId), drawerId: toDrawerId, qty, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    tx.delete(fromRef);
+  });
   return NextResponse.json({ ok: true, snapshot: await readSnapshot(clinicId) });
 }
 
@@ -709,6 +778,8 @@ const PERMISSION: Record<string, string> = {
   "add-variant": "inventory.add",
   "add-line": "inventory.add",
   "remove-line": "inventory.add",
+  "update-variant": "inventory.add",
+  "move-line": "inventory.add",
   "set-photo": "inventory.edit",
   "save-count": "inventory.edit",
   "receive-delivery": "inventory.edit",
@@ -747,7 +818,11 @@ export async function POST(request: Request) {
       case "add-line":
         return await addLine({ clinicId, body });
       case "remove-line":
-        return await removeLine({ clinicId, body });
+        return await removeLine({ clinicId, actor, body });
+      case "update-variant":
+        return await updateVariant({ clinicId, body });
+      case "move-line":
+        return await moveLine({ clinicId, body });
       case "save-count":
         return await saveCount({ clinicId, actor, body });
       case "lookup-barcode":

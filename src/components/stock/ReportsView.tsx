@@ -17,7 +17,7 @@ export function ReportsView({ ctx }: { ctx: StockCtx }) {
   const [q, setQ] = useState("");
   const counts = useMemo(() => sortCounts(snap.counts), [snap.counts]);
   const usage = useMemo(() => usageByItem({ items: snap.items, variants: snap.variants, lines: snap.lines, counts: snap.counts, deliveries: snap.deliveries, weeks }), [snap, weeks]);
-  const pace = useMemo(() => paceByItem({ items: snap.items, lines: snap.lines, counts: snap.counts, deliveries: snap.deliveries }), [snap]);
+  const pace = useMemo(() => paceByItem({ items: snap.items, variants: snap.variants, lines: snap.lines, counts: snap.counts, deliveries: snap.deliveries }), [snap]);
   const shop = useMemo(() => shoppingList({ pace, variants: snap.variants, lines: snap.lines, deliveries: snap.deliveries }), [pace, snap]);
   const tabs: Array<[Tab, string]> = [
     ["usage", t("Usage", "الاستهلاك")],
@@ -269,7 +269,7 @@ function RoomUsage({ ctx, weeks }: { ctx: StockCtx; weeks: number }) {
           ))}
         </tbody>
       </table>
-      <p className="p-3 text-xs text-ink-muted">{t("The Store counts as a room. Material moved from the Store to a chair nets out, so the total is true even when boxes are transferred mid-week.", "المخزن بيتحسب غرفة. اللي اتنقل من المخزن للكرسي بيتصفّى، فالإجمالي صح حتى لو العلب اتنقلت وسط الأسبوع.")}</p>
+      <p className="p-3 text-xs text-ink-muted">{t("Shows where stock left from. A box carried from the Store to a chair shows under the Store here; the By item view counts it only once.", "بيوضح المخزون خرج منين. العلبة اللي اتنقلت من المخزن للكرسي بتظهر هنا تحت المخزن؛ عرض «بالصنف» بيحسبها مرة واحدة.")}</p>
     </Card>
   );
 }

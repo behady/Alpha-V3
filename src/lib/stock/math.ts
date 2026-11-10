@@ -70,6 +70,31 @@ export function lineUsage(prev: StockCount, next: StockCount, line: StockLine, d
   return Math.max(0, before + delivered - after);
 }
 
+/**
+ * Usage of one brand between two counts, across every drawer it sits in.
+ *
+ * This, not the per-drawer figure, is what the reports add up. A box carried from the Store to
+ * a chair lowers one drawer and raises another; counted drawer by drawer, the Store's drop would
+ * read as "used" and the chair's rise as nothing, and the clinic would appear to burn through a
+ * box it merely moved. Summed over the brand, the move cancels itself. For the same reason a row
+ * that was moved or deleted since the earlier count still contributes what it held then: the
+ * count's own record is read, not today's list of rows.
+ */
+export function variantUsage(prev: StockCount, next: StockCount, variantId: string, deliveries: StockDelivery[]): number {
+  const prefix = `${variantId}__`;
+  const total = (c: StockCount) => {
+    let n = 0;
+    for (const [key, v] of Object.entries(c.snapshot)) if (key.startsWith(prefix) && Number.isFinite(v)) n += v;
+    return n;
+  };
+  let delivered = 0;
+  for (const d of deliveries) {
+    if (d.date <= prev.date || d.date > next.date) continue;
+    for (const l of d.lines) if (l.variantId === variantId) delivered += l.qty;
+  }
+  return Math.max(0, total(prev) + delivered - total(next));
+}
+
 export function lastPrice(variant: StockVariant | undefined, deliveries: StockDelivery[]): number {
   if (!variant) return 0;
   for (let i = deliveries.length - 1; i >= 0; i--) {
@@ -101,16 +126,16 @@ export function usageByItem(args: {
   const rows: UsageRow[] = [];
   for (const item of args.items) {
     if (item.tracked) continue;
-    const lines = args.lines.filter((l) => l.itemId === item.id);
+    const variants = args.variants.filter((v) => v.itemId === item.id);
     const perWeek: number[] = [];
     let used = 0;
     let cost = 0;
     for (let k = 1; k < window.length; k++) {
       let u = 0;
-      for (const line of lines) {
-        const x = lineUsage(window[k - 1], window[k], line, sortedDeliv);
+      for (const v of variants) {
+        const x = variantUsage(window[k - 1], window[k], v.id, sortedDeliv);
         u += x;
-        cost += x * lastPrice(byVariant.get(line.variantId), sortedDeliv);
+        cost += x * lastPrice(byVariant.get(v.id), sortedDeliv);
       }
       perWeek.push(u);
       used += u;
@@ -123,6 +148,7 @@ export function usageByItem(args: {
 /** Pace over the last four counts (per calendar week) and days left at that pace. */
 export function paceByItem(args: {
   items: StockItem[];
+  variants: StockVariant[];
   lines: StockLine[];
   counts: StockCount[];
   deliveries: StockDelivery[];
@@ -135,8 +161,9 @@ export function paceByItem(args: {
     if (item.tracked) continue;
     const lines = args.lines.filter((l) => l.itemId === item.id);
     const onHand = lines.reduce((a, l) => a + l.qty, 0);
+    const variants = args.variants.filter((v) => v.itemId === item.id);
     let total = 0;
-    for (let k = 1; k < window.length; k++) for (const line of lines) total += lineUsage(window[k - 1], window[k], line, sortedDeliv);
+    for (let k = 1; k < window.length; k++) for (const v of variants) total += variantUsage(window[k - 1], window[k], v.id, sortedDeliv);
     // Per week of calendar time, not per count: a clinic that counts twice in one week, or
     // skips one, must not see its pace double or halve.
     const days = window.length > 1 ? daysApart(window[0].date, window[window.length - 1].date) : 0;

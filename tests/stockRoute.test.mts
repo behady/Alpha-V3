@@ -171,7 +171,7 @@ check("articaine used 3 boxes this week (2 generic + 1 Septodont)", artUsage?.us
 check("articaine cost uses the delivered price for the brand and 0 for the brandless", artUsage?.cost === 1 * 620, artUsage?.cost);
 const flowUsage = usage.find((u) => u.itemId === line("C1-A2", "flow").itemId);
 check("flow used 1 at 500", flowUsage?.used === 1 && flowUsage?.cost === 500, flowUsage);
-const pace = paceByItem({ items: snap.items, lines: snap.lines, counts: snap.counts, deliveries: snap.deliveries });
+const pace = paceByItem({ items: snap.items, variants: snap.variants, lines: snap.lines, counts: snap.counts, deliveries: snap.deliveries });
 const artPace = pace.find((p) => p.itemId === artItem.id);
 check("articaine: 9 on hand, pace 3/week → 21 days", artPace?.onHand === 9 && artPace?.pace === 3 && Math.round(artPace?.daysLeft ?? 0) === 21, artPace);
 const vr = variance({ lines: snap.lines, counts: snap.counts, deliveries: snap.deliveries, uses: snap.uses, trackedItemIds: new Set([impLine.itemId]) });
@@ -193,7 +193,35 @@ r = await post({ action: "remove-line", lineId: line("C1-A1", "anes-art").id });
 check("assistant may not remove lines", r.status === 403);
 as = idToken(ADMIN);
 r = await post({ action: "remove-line", lineId: line("C1-A1", "anes-art").id });
-check("a line with stock cannot be removed", r.status === 400 && /zero/.test(r.json.error), r.json);
+check("a row with stock is not deleted without a confirmation", r.status === 409 && /write it off/.test(r.json.error), r.json);
+
+// edit, move, write off
+r = await post({ action: "update-item", id: artItem.id, nameAr: "بنج أرتيكايين 4%", per: "50 carpules" });
+check("an item can be renamed", r.status === 200 && (r.json.snapshot.items as Json[]).find((i) => i.id === artItem.id)?.nameAr.endsWith("4%"));
+r = await post({ action: "update-variant", id: sept!.id, spec: "1:200,000", supplier: "Nile Dental", lastPrice: 640 });
+snap = r.json.snapshot;
+const sept2 = (snap.variants as Json[]).find((v) => v.id === sept!.id);
+check("a brand can be corrected", r.status === 200 && sept2?.spec === "1:200,000" && sept2?.supplier === "Nile Dental" && sept2?.lastPrice === 640 && sept2?.isGeneric === false, sept2);
+const genericArt = line("C1-A1", "anes-art");
+r = await post({ action: "update-variant", id: genericArt.variantId, brand: "Inibsa", product: "Artinibsa" });
+snap = r.json.snapshot;
+check("naming a brandless row makes it a brand", (snap.variants as Json[]).find((v) => v.id === genericArt.variantId)?.isGeneric === false);
+// The store holds two articaine rows by now (the brandless one and Septodont), so the target is
+// named by its id: "the first articaine row in the store" is whichever the database lists first.
+const targetId = `${genericArt.variantId}__${storeA1.id}`;
+const qtyOf = (id: string) => (snap.lines as Json[]).find((l) => l.id === id)?.qty ?? -1;
+const before = { chair: line("C1-A1", "anes-art").qty, store: qtyOf(targetId) };
+r = await post({ action: "move-line", lineId: line("C1-A1", "anes-art").id, toDrawerId: storeA1.id });
+snap = r.json.snapshot;
+check("moving a row merges it into the brand's row in the other drawer", r.status === 200 && line("C1-A1", "anes-art").id === "missing" && qtyOf(targetId) === before.chair + before.store, { before, after: qtyOf(targetId) });
+const usageAfterMove = usageByItem({ items: snap.items, variants: snap.variants, lines: snap.lines, counts: snap.counts, deliveries: snap.deliveries, weeks: 4 }).find((u) => u.itemId === artItem.id);
+check("a move changes nothing in the usage already computed", usageAfterMove?.used === 2, usageAfterMove);
+const flowLine = line("C1-A2", "flow");
+r = await post({ action: "remove-line", lineId: flowLine.id, writeOff: true });
+snap = r.json.snapshot;
+check("a confirmed delete removes a row that still had stock", r.status === 200 && line("C1-A2", "flow").id === "missing");
+const wo = await clinic.collection("system_logs").where("action", "==", "Stock Written Off").get();
+check("the write-off is on the activity log with its quantity", wo.size === 1 && /^3 x /.test(String(wo.docs[0].data().details)) && /C1-A2/.test(String(wo.docs[0].data().details)), wo.docs[0]?.data().details);
 r = await post({ action: "use-on-patient", variantId: impLine.variantId, drawerId: impLine.drawerId, patientName: "X", lot: "", date: "2026-11-12" });
 check("use works while stock remains", r.status === 200);
 for (let i = 0; i < 3; i++) await post({ action: "use-on-patient", variantId: impLine.variantId, drawerId: impLine.drawerId, patientName: "X", lot: "", date: "2026-11-12" });

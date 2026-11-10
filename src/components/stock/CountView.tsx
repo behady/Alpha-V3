@@ -6,7 +6,7 @@ import { unitLabel } from "@/lib/stock/catalog";
 import { stockApi } from "@/lib/stock/api";
 import { deliveredBetween } from "@/lib/stock/math";
 import { DrawerThumb } from "./CupboardView";
-import { Btn, Card, CodeBadge, Eyebrow, LinePicture, Stepper, fmtDate, linesOfDrawer, useBusy, variantLabel, type StockCtx } from "./shared";
+import { Btn, Card, CodeBadge, Eyebrow, LinePicture, Ltr, Stepper, fmtDate, linesOfDrawer, useBusy, variantLabel, type StockCtx } from "./shared";
 
 /**
  * The weekly walk. Drawers in code order, one screen each, last count pre-filled; the assistant
@@ -151,7 +151,7 @@ export function CountView({ ctx, startDrawerCode }: { ctx: StockCtx; startDrawer
               <div key={l.id} className={`grid grid-cols-[56px_1fr_auto] items-center gap-3 rounded-xl border p-2 ${chg ? "border-[#FACC15] bg-surface-subtle" : "border-line bg-surface"}`}>
                 <div className="h-11 w-14 overflow-hidden rounded-lg border border-line bg-surface-subtle"><LinePicture variant={v} item={item} /></div>
                 <div className="min-w-0">
-                  <b className="block text-[13.5px] font-semibold leading-snug text-ink">{v?.isGeneric ? (item ? (ar ? item.nameAr : item.nameEn) : "") : variantLabel(v, item, ar)}</b>
+                  <b className="block text-[13.5px] font-semibold leading-snug text-ink">{v?.isGeneric ? (item ? (ar ? item.nameAr : item.nameEn) : "") : <Ltr>{variantLabel(v, item, ar)}</Ltr>}</b>
                   <span className="block text-[11.5px] text-ink-muted">
                     {v?.isGeneric ? "" : `${item ? (ar ? item.nameAr : item.nameEn) : ""} · `}
                     {t("count in", "عدّ بالـ")} {unitLabel(item?.unit || "box", 2, ar)} · {t("last", "آخر")} <b className="font-display">{l.qty}</b>
