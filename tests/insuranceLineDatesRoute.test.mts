@@ -326,6 +326,106 @@ console.log("a new approval is saved");
   check("finished on the day it was treated", c2.finishedDate === TODAY && c2.treatedDate === TODAY, [c2.finishedDate, c2.treatedDate]);
 }
 
+console.log("a service the patient will not come back for is deleted");
+{
+  await seed("metlife_x1", { lineStatus: { 2: "Planned" } });
+  const mixed = await patch("metlife_x1", { removeLine: 2, lineStatus: { 1: "Planned" } });
+  check("a delete travels alone", mixed.status === 400, mixed.json);
+  const done = await patch("metlife_x1", { removeLine: 0 });
+  check("a service that was done cannot be deleted", done.status === 409 && done.json.reason === "line_done", done.json);
+  const none = await patch("metlife_x1", { removeLine: 7 });
+  check("a service that is not on the approval is a 400", none.status === 400, none.json);
+  check("nothing was deleted by the refusals", (await ledger.doc("metlife_x1-L2").get()).exists && (await ledger.doc("metlife_x1-L0").get()).exists);
+
+  const r = await patch("metlife_x1", { removeLine: 2 });
+  check("the planned service is deleted", r.status === 200 && r.json.creditKept === 0, r.json);
+  check("its charge and note left the patient's file", !(await ledger.doc("metlife_x1-L2").get()).exists && !(await notes.doc("metlife_x1-N2").get()).exists);
+  check("the other services' rows are untouched", same((await rowDates("metlife_x1")).slice(0, 2), [D20, D20]));
+  const c = await claimOf("metlife_x1");
+  check("the approval remembers who deleted it and when", c.removedLines[2]?.at === TODAY && c.removedLines[2]?.by === UID, c.removedLines);
+  check("it no longer links to a row", !(2 in c.ledgerIds) && Object.keys(c.ledgerIds).length === 2, c.ledgerIds);
+  check("the paper still lists the service", c.lines.length === 3);
+  check("the approval is finished on its last done day", c.finishedDate === "2026-10-20", c.finishedDate);
+  check("its totals leave the deleted service out", c.totals.approved === 460, c.totals);
+  const audit = await clinic.collection("ledger_audit").where("documentId", "==", "metlife_x1-L2").get();
+  check("the deletion is in the money audit", audit.docs.some((d) => d.data().action === "delete"), audit.size);
+  const twice = await patch("metlife_x1", { removeLine: 2 });
+  check("deleting it twice is refused", twice.status === 409, twice.json);
+}
+
+console.log("a deleted service is restored");
+{
+  const r = await patch("metlife_x1", { restoreLine: 2 });
+  check("accepted", r.status === 200, r.json);
+  const c = await claimOf("metlife_x1");
+  check("it is on the approval again", same(c.removedLines, {}), c.removedLines);
+  check("the approval is open again", c.finishedDate === null, c.finishedDate);
+  const link = c.ledgerIds[2];
+  const charge = link ? (await ledger.doc(link.ledgerId).get()).data() : undefined;
+  const note = link ? (await notes.doc(link.noteId).get()).data() : undefined;
+  check("its treatment row is back, as a Planned service on the treated day", charge?.date === "2026-10-20" && charge?.cost === 1500 && note?.status === "Planned" && note?.date === "2026-10-20", [charge, note]);
+  check("the other services kept their own rows", c.ledgerIds[0]?.ledgerId === "metlife_x1-L0" && c.ledgerIds[1]?.ledgerId === "metlife_x1-L1", c.ledgerIds);
+  const again = await patch("metlife_x1", { restoreLine: 2 });
+  check("restoring a service that is not deleted is refused", again.status === 409, again.json);
+}
+
+console.log("a service with the patient's money on it is deleted (the owner's rule: allowed, the money stays)");
+{
+  await seed("metlife_x2", { lineStatus: { 2: "Planned" } });
+  await ledger.doc("metlife_x2-L2").update({ paid: 50 });
+  await ledger.doc("metlife_x2-PAY").set({
+    patientId: "P1", type: "payment", procedureId: "metlife_x2-L2", claimId: "metlife_x2", paid: 50, amount: 50, cost: 0, date: "2026-10-21", method: "Cash",
+    category: "Insurance patient share", description: "Patient share - CROWN PORCELAIN", payerId: "metlife", payerName: "MetLife",
+    doctorId: "s1", doctorName: "Dr A", doctorCommissionPercentage: 10, doctorCommissionAmount: 5, clinicProfit: 45, receiptNumber: "R-7",
+  });
+  const r = await patch("metlife_x2", { removeLine: 2 });
+  check("the delete is accepted", r.status === 200, r.json);
+  check("and says how much stays with the patient", r.json.creditKept === 50, r.json);
+  check("the charge left the file", !(await ledger.doc("metlife_x2-L2").get()).exists);
+  const pay = (await ledger.doc("metlife_x2-PAY").get()).data() ?? {};
+  check("the payment is still there, to the piastre, on its own day", pay.paid === 50 && pay.amount === 50 && pay.date === "2026-10-21" && pay.method === "Cash" && pay.receiptNumber === "R-7", pay);
+  check("it settles no treatment now: money on the patient's account", pay.procedureId === null && !("claimId" in pay) && pay.category === "Advance Payment", pay);
+  check("and earns no dentist commission", pay.doctorId === null && pay.doctorCommissionPercentage === 0 && pay.doctorCommissionAmount === 0 && pay.clinicProfit === 50, pay);
+  const audit = await clinic.collection("ledger_audit").where("documentId", "==", "metlife_x2-PAY").get();
+  check("the payment's change is in the money audit", audit.size === 1, audit.size);
+}
+
+console.log("the insurer's own payment is not the patient's credit");
+{
+  await seed("metlife_x3", { lineStatus: { 2: "Planned" } });
+  await ledger.doc("metlife_x3-PAY").set({ patientId: "P1", type: "payment", procedureId: "metlife_x3-L2", claimId: "metlife_x3", paid: 1500, amount: 1500, date: "2026-10-21", method: "Insurance", category: "Insurance Payment" });
+  const before = await frozen("metlife_x3");
+  const r = await patch("metlife_x3", { removeLine: 2 });
+  check("deleting a service the insurer already paid is refused", r.status === 409 && r.json.reason === "insurer_paid_line", r.json);
+  check("and nothing changed", (await frozen("metlife_x3")) === before && (await ledger.doc("metlife_x3-PAY").get()).data()?.procedureId === "metlife_x3-L2");
+}
+
+console.log("deleted services and an approval already sent");
+{
+  await seed("metlife_x4", { status: "sent", lineStatus: { 1: "Planned" }, removedLines: { 1: { at: "2026-10-30", by: UID } }, ledgerIds: { 0: { ledgerId: "metlife_x4-L0", noteId: "metlife_x4-N0" }, 2: { ledgerId: "metlife_x4-L2", noteId: "metlife_x4-N2" } } });
+  const before = await frozen("metlife_x4");
+  const r = await patch("metlife_x4", { restoreLine: 1 });
+  check("restoring a service would reopen a sent approval: refused", r.status === 409 && r.json.reason === "sent_locked", r.json);
+  check("and nothing changed", (await frozen("metlife_x4")) === before);
+}
+
+console.log("a deleted service stays deleted when the approval is treated again");
+{
+  await seed("metlife_x5", { lineStatus: { 2: "Planned" } });
+  await patch("metlife_x5", { removeLine: 2 });
+  const off = await patch("metlife_x5", { status: "approved" });
+  check("marked not treated", off.status === 200, off.json);
+  const bare = await patch("metlife_x5", { restoreLine: 2 });
+  check("restoring on an approval with no rows is accepted", bare.status === 200 && same((await claimOf("metlife_x5")).ledgerIds, {}), bare.json);
+  await patch("metlife_x5", { removeLine: 2 });
+  check("and deleting there needs no rows either", (await claimOf("metlife_x5")).removedLines[2]?.by === UID);
+  const on = await patch("metlife_x5", { status: "treated" });
+  check("marked treated", on.status === 200, on.json);
+  const c = await claimOf("metlife_x5");
+  check("rows are written for the two services left, none for the deleted one", same(Object.keys(c.ledgerIds), ["0", "1"]), c.ledgerIds);
+  check("and it is finished today", c.finishedDate === TODAY, c.finishedDate);
+}
+
 authServer.close();
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

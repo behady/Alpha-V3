@@ -168,6 +168,10 @@ export type ClaimPatch = {
   lineStatus?: Record<number, LineStatus>;
   /** Line index -> the day that service was done (`yyyy-mm-dd`), or null to go back to the default. */
   lineDates?: Record<number, string | null>;
+  /** Delete one service the patient will not come back for (never a Completed one). Travels alone. */
+  removeLine?: number;
+  /** Put a deleted service back on the approval. Travels alone. */
+  restoreLine?: number;
   /** Take the patient's share as cash: the server posts the ledger row and stamps the claim in one transaction. */
   collectShare?: true;
   /** Record the insurer's payment against the treatment rows, and mark them settled. */

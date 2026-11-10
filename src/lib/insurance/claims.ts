@@ -309,6 +309,7 @@ export function parseClaim(id: string, raw: unknown): InsuranceClaim | null {
   if (!Array.isArray(r.lines) || !isRecord(r.metlife)) return null;
 
   const x = normalizeConfirmed({ header: r.metlife, lines: r.lines }, insurer);
+  const removedLines = parseRemovedLines(r.removedLines, x.lines.length);
   return {
     id,
     payerId,
@@ -322,7 +323,8 @@ export function parseClaim(id: string, raw: unknown): InsuranceClaim | null {
     paperPatientName: typeof r.paperPatientName === "string" ? r.paperPatientName : "",
     metlife: claimMetlifeFrom(x.header),
     lines: x.lines,
-    totals: claimTotals(x.lines),
+    // A deleted service is still on the paper (`lines`) but is no part of the approval's money.
+    totals: claimTotals(x.lines.filter((_, i) => !removedLines[i])),
     doc: parseDoc(r.doc),
     dentists: parseLineDentists(r.dentists, x.lines.length),
     lineStatus: parseLineStatus(r.lineStatus, x.lines.length),
@@ -330,7 +332,7 @@ export function parseClaim(id: string, raw: unknown): InsuranceClaim | null {
     ledgerIds: parseLineLedger(r.ledgerIds, x.lines.length),
     insurerPaid: parseInsurerPaid(r.insurerPaid),
     lineDates: parseLineDates(r.lineDates, x.lines.length),
-    removedLines: parseRemovedLines(r.removedLines, x.lines.length),
+    removedLines,
     finishedDate: isIsoDate(r.finishedDate) ? r.finishedDate : null,
     workMonths: Array.isArray(r.workMonths) ? r.workMonths.filter((m): m is string => typeof m === "string" && /^\d{4}-\d{2}$/.test(m)) : [],
     ...(trimmed(r.branchId) ? { branchId: trimmed(r.branchId) } : {}),

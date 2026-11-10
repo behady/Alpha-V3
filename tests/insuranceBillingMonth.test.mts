@@ -165,4 +165,8 @@ assert.deepEqual(rowsOf(split), [[0, "2026-10-20", "2026-10-20"], [1, "2026-10-2
 assert.deepEqual(rowsOf(removed), [[0, "2026-10-20", "2026-10-20"], [1, "2026-10-20", "2026-10-20"]], "a deleted service writes no row");
 assert.deepEqual(rowsOf(old).map((r) => r[1]), ["2026-10-20", "2026-10-20", "2026-10-20"], "an old claim's rows are dated as before");
 
+// --- 12. a deleted service is not part of the approval's money ---------------------------------------------
+assert.deepEqual(old.totals, { requested: 300, approved: 300, patientShare: 0 });
+assert.deepEqual(removed.totals, { requested: 200, approved: 200, patientShare: 0 }, "totals leave the deleted service out");
+
 console.log("insuranceBillingMonth: all checks passed");
