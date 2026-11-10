@@ -19,6 +19,7 @@
 - A claim with no `lineDates` entry for a line reads exactly as today: `lineDates[i] ?? treatedDate ?? approvalDate`. Old claims must not change month in pay or on any sheet.
 - Payroll still counts only `treated` / `sent` claims (`countsForPayroll` unchanged). *(Corrects the spec's "any status but cancelled": an `approved` claim's lines default to Completed, so that would pay for work never done.)*
 - Removed lines never print, never earn, never get a treatment row. A Completed line cannot be removed (set it back to Planned first).
+- Owner's answers 2026-11-11 (spec "Clinic owner's answers"): a paid line CAN be removed — its payments are kept, detached to on-account credit, commission zeroed (9-ب); the Insurance page defaults to "By approval date" (10-ب); a `sent` claim's finish month can never change — the server returns 409 `sent_locked` until the desk presses **Mark not sent** (11-ب).
 - No push, no Firestore index/rules deploy, no backfill `--apply` without the owner's explicit OK.
 - Each sheet's printed columns stay exactly as today (MetLife prints the approval date; NextCare/AXA print what they print now). Only which approvals appear changes.
 
@@ -89,7 +90,7 @@
   - a done visit on `2026-11-05` linked to line 2 of a claim treated `2026-10-20` → patch `lineDates` deep-equals `{2:"2026-11-05"}` and `"treatedDate" in patch === false`
   - same, but the claim already has `lineDates {2:"2026-11-04"}` (typed by hand) → no `lineDates` in the patch
   - a visit dated `2026-10-01` on a claim approved `2026-10-20` → no `lineDates` entry for that line (status still moves to Completed)
-  - a `sent` claim still gets the line date (the warning is the UI's job; the server decides nothing about sent here)
+  - a `sent` claim still gets the line date in the patch (the route's `sent_locked` check, Task 3, decides; if the route refuses, the visit sync logs and skips like any refused sync — the visit itself still saves)
 - [ ] **Step 2: Run** `npm run test:claimlinks`, expect FAIL.
 - [ ] **Step 3: Implement** — drop the `treatedDate` branch from `lineSyncPatch`; for each linked line add `lineDates[i] = visitDate` when the visit date is valid, `>= claim.approvalDate`, and `claim.lineDates[i]` is unset. Update the function's doc comment (the old "visit date becomes the approval's treatment date" paragraph is now wrong).
 - [ ] **Step 4: Run, expect PASS.**
@@ -112,6 +113,7 @@ Rules inside the PATCH transaction:
 - Any line whose `lineDateOf` changes and that has live rows → its charge and note get `date` = the new `lineDateOf` (never its payments), audited with `recordMoneyChange` `action: "Procedure Moved"`, `via: "insurance/claims:line-date"`. The existing whole-approval `redate` now only moves lines with no `lineDates` entry.
 - A `lines` edit (rebuild) drops `lineDates` / `removedLines` keys `>= lines.length` (same `onLines` filter as `lineStatus`).
 - Status `approved` / `cancelled` → `billingFields` gives `null` / `[]` naturally (keep that, test it).
+- **Sent lock (owner 11-ب):** when the stored claim is `sent` and the patch does not change `status`, compare `finishedDate` before vs after; if the month (`slice(0,7)`) differs, or it goes from a date to null → outcome `sent_locked`, 409 "This approval was already sent to the company. Mark it not sent first." A status patch `sent → treated` ("Mark not sent") is always allowed and touches no rows (`rowsActionForStatus` already returns `"none"`).
 
 - [ ] **Step 1: Failing emulator tests** (seed helper like `approvalDateRoute`, three lines, treated `2026-10-20`, rows dated `2026-10-20`; the test sets "today" by only using past dates):
   - `PATCH {lineDates:{2:"2026-11-05"}}` → 200; line 2 charge + note dated `2026-11-05`, lines 0–1 still `2026-10-20`; claim `finishedDate === "2026-11-05"`, `workMonths` deep-equals `["2026-10","2026-11"]`; one `ledger_audit` row for line 2's charge
@@ -121,6 +123,7 @@ Rules inside the PATCH transaction:
   - `PATCH {status:"approved"}` → `finishedDate === null`, `workMonths` deep-equals `[]`
   - rebuild with 2 lines on a claim that had `lineDates {2:…}` and no money → `lineDates` has no key 2
   - an old claim seeded with none of the new fields, patched `{lineStatus:{0:"Completed"}}` (already Completed by default) → gains `finishedDate` = its `treatedDate`, and `lineDates[0]` stays unset (only a real change into Completed stamps today)
+  - a `sent` claim finished `2026-10-25` (seed dates in the past): `{lineDates:{2:"2026-10-27"}}` → 200 (same month); `{lineDates:{2:"2026-11-03"}}` → 409 `sent_locked`, nothing changed; `{lineStatus:{2:"Planned"}}` (reopens it) → 409; `{status:"treated"}` → 200, rows untouched; then the month move → 200
 - [ ] **Step 2: Run** — start the cached emulator jar (`~/.jdks/jdk21/bin/java.exe -jar ~/.cache/firebase/emulators/cloud-firestore-emulator-v1.19.8.jar --host 127.0.0.1 --port 8085`, background), then `FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 npx tsx tests/insuranceLineDatesRoute.test.mts` → FAIL ("Unknown field: lineDates").
 - [ ] **Step 3: Implement** the rules above. In POST, add `...billingFields(claim)` to the created doc.
 - [ ] **Step 4: Run** the new test, `test:approval-date-route` and `test:approval-teeth-route` → all PASS.
@@ -134,14 +137,14 @@ Rules inside the PATCH transaction:
 - Test: `tests/insuranceLineDatesRoute.test.mts` (extend)
 
 **Interfaces:**
-- Produces: PATCH keys `removeLine: number` and `restoreLine: number`, each only alone in a patch (400 otherwise). Outcomes `line_done` (409, "Set this service back to Planned before deleting it."), `rows_paid` (409, existing message), `bad_line` (400).
+- Produces: PATCH keys `removeLine: number` and `restoreLine: number`, each only alone in a patch (400 otherwise). Outcomes `line_done` (409, "Set this service back to Planned before deleting it."), `sent_locked` (409, Task 3), `bad_line` (400). A remove response carries `creditKept: number` (EGP detached to on-account credit) so the UI can say so.
 
 Rules:
-- `removeLine i`: line exists, not already removed, not Completed. If it has rows and its charge has `paid > 0` → `rows_paid`. Delete its charge + note, drop `ledgerIds[i]`, drop `lineDates[i]`, set `removedLines[i] = { at: today, by: authz.uid }`. Audit `"Procedure Deleted"`, `via: "insurance/claims:line-removed"`. Restamp settlements for that line's dentist.
+- `removeLine i`: line exists, not already removed, not Completed. Read its payments with `readProcedurePayments(tx, clinicId, chargeId)` **before any write**. Each payment is kept: `procedureId: null` and its commission fields zeroed (match exactly what an on-account payment from `finance/ledger` POST without `procedureId` carries — read that path before implementing), audited with `recordLedgerAudit` `via: "insurance/claims:line-removed (payment kept as credit)"`. Then delete its charge + note, drop `ledgerIds[i]`, drop `lineDates[i]`, set `removedLines[i] = { at: today, by: authz.uid }`. Audit `"Procedure Deleted"`, `via: "insurance/claims:line-removed"`. Restamp settlements for that line's dentist and each detached payment's `doctorId`.
 - `restoreLine i`: removed → drop `removedLines[i]`; if the claim is `treated`/`sent`, write that one line's rows via `writeTreatmentRows(..., only: i)` (add an optional `only?: number` filter), merge into `ledgerIds`. Counts as `writesMoney` for the branch check.
 - Both recompute `billingFields`.
 
-- [ ] **Step 1: Failing tests:** remove a Planned line 2 (lines 0–1 Completed) → 200, its charge + note deleted, `finishedDate === "2026-10-20"`; remove a Completed line → 409 `line_done`; remove a Planned line whose charge has `paid: 50` → 409 and nothing deleted; `removeLine` together with `lineStatus` → 400; restore line 2 → new charge + note exist dated `2026-10-20`, `finishedDate === null` (line 2 Planned again); `status:"treated"` re-write on a claim with a removed line writes no row for it.
+- [ ] **Step 1: Failing tests:** remove a Planned line 2 (lines 0–1 Completed) → 200, its charge + note deleted, `finishedDate === "2026-10-20"`; remove a Completed line → 409 `line_done`; remove a Planned line whose charge has a 50 EGP payment → 200, charge + note deleted, the payment doc still exists with `procedureId == null`, zero commission, same `paid`/`amount`/`date`, response `creditKept === 50`; remove a line on a `sent` finished claim → 409 `sent_locked`; `removeLine` together with `lineStatus` → 400; restore line 2 → new charge + note exist dated `2026-10-20`, `finishedDate === null` (line 2 Planned again); `status:"treated"` re-write on a claim with a removed line writes no row for it.
 - [ ] **Step 2: Run, expect FAIL.**
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run all three route tests, expect PASS.**
@@ -190,16 +193,18 @@ Rules:
 - Modify: `src/components/insurance/text.ts` (strings below)
 - Modify: `firestore.indexes.json` (composite `payerId ASC, finishedDate ASC` on `insurance_claims`)
 
-Strings (en / ar): `dateModeApproval` "By approval date" / "بتاريخ الموافقة"; `dateModeFinish` "By finish date" / "بتاريخ الانتهاء"; `colFinished` "Finished" / "اتقفلت"; `notFinished` "Not finished" / "لسه مخلصتش". `sentWarning` becomes insurer-neutral: "This was already sent to the company — continue?" / "دي اتبعتت للشركة خلاص — تكمل؟".
+Strings (en / ar): `dateModeApproval` "By approval date" / "بتاريخ الموافقة"; `dateModeFinish` "By finish date" / "بتاريخ الانتهاء"; `colFinished` "Finished" / "اتقفلت"; `notFinished` "Not finished" / "لسه مخلصتش". `sentWarning` becomes insurer-neutral: "This was already sent to the company — continue?" / "دي اتبعتت للشركة خلاص — تكمل؟". New: `markNotSent` "Mark not sent" / "علّم ماتبعتتش", `shortNotSent` "Not sent" / "ماتبعتتش", `sentLocked` "Already sent to the company. Press Mark not sent first." / "دي اتبعتت للشركة. دوس علّم ماتبعتتش الأول.", `removeCreditKept` "{n} EGP paid on it stays on the patient's account as credit." / "{n} جنيه اتدفعوا عليها هيفضلوا رصيد للمريض.".
 
-- [ ] **Step 1:** Mode lives in `useState<SheetDateMode>` initialised from `localStorage["insurance.sheetDateMode"]` (try/catch, default `"finish"`), saved on change. A two-button segmented switch sits with the From/To pickers in `ClaimsExportBar`. The list, counts and sheet all follow it. `highlightId` jump (page.tsx:298) uses `sheetDate(claim, mode) ?? claim.approvalDate`.
+ClaimsTable: a `markNotSent` row action (`patch(c, {status:"treated"})`) shown when `c.status === "sent"`; the same button on `PatientInsuranceTab`'s sent approvals.
+
+- [ ] **Step 1:** Mode lives in `useState<SheetDateMode>` initialised from `localStorage["insurance.sheetDateMode"]` (try/catch, default `"approval"` — owner's answer 10-ب), saved on change. A two-button segmented switch sits with the From/To pickers in `ClaimsExportBar`. The list, counts and sheet all follow it. `highlightId` jump (page.tsx:298) uses `sheetDate(claim, mode) ?? claim.approvalDate`.
 - [ ] **Step 2:** `npm run typecheck && npm run lint` clean for touched files.
 - [ ] **Step 3:** Commit `Insurance page: choose the sheet by approval or finish date`.
 
 ### Task 8: "Done on" and Delete on every service, in both places
 
 **Files:**
-- Create: `src/components/insurance/LineDoneControls.tsx` — exports `LineDoneDate` (shows the date; tap → `<input type="date" min={approvalDate} max={today}>`; saves `{lineDates:{[i]: v}}`), `LineRemoveButton` (trash icon, confirm, `{removeLine: i}`), `LineRestoreButton` (`{restoreLine: i}`), and `useLineEdit(clinicId)` returning `(claim, patch) => Promise<boolean>` that asks `sentWarning` first when `claim.status === "sent"` and toasts errors (reuse the `InsuranceCallError` handling in `PatientInsuranceTab.setLineState`).
+- Create: `src/components/insurance/LineDoneControls.tsx` — exports `LineDoneDate` (shows the date; tap → `<input type="date" min={approvalDate} max={today}>`; saves `{lineDates:{[i]: v}}`), `LineRemoveButton` (trash icon, confirm, `{removeLine: i}`; on success with `creditKept > 0` toast `removeCreditKept`), `LineRestoreButton` (`{restoreLine: i}`), and `useLineEdit(clinicId)` returning `(claim, patch) => Promise<boolean>` that toasts errors (reuse the `InsuranceCallError` handling in `PatientInsuranceTab.setLineState`) and shows `sentLocked` for a 409 `sent_locked`.
 - Modify: `src/components/appointments/booking/InsuranceApprovals.tsx` — desktop table (from line 563): new column "Done on" / "اتعمل يوم" before the action column showing `LineDoneDate` on Completed lines; action column shows `LineRemoveButton` beside "Use for this visit" on open lines; removed lines render greyed + struck through with `LineRestoreButton` and no status select; mobile cards (≈ line 469) get the same. Header line 449: `· Finished {date}` / `· اتقفلت {date}` when `claimFinishedDate(c)` else `· Not finished`; `approvalFigures` skips removed lines.
 - Modify: `src/components/insurance/PatientInsuranceTab.tsx` — same three controls in its line table (line 531 block).
 - Modify: `src/components/insurance/ClaimsTable.tsx` — a "Services ▾" toggle per row expanding a compact line list (name, status text, `LineDoneDate`, remove/restore) so the Insurance page can do the same edits.

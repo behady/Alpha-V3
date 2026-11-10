@@ -28,8 +28,23 @@ locked to October. There is no way to move it except un-treating and re-treating
 6. Insurance page date range gets a switch: **By approval date / By finish date**. The Excel sheet
    is the same file for each insurer; only which approvals appear on it changes.
 7. The system already knows when an approval was sent (`status: "sent"`, `sentAt`, the Mark sent
-   button and the post-export "mark these sent"). Changing a date that moves a **sent** approval to
-   another month asks first, as editing a sent approval already does (`sentWarning`).
+   button and the post-export "mark these sent").
+
+### Clinic owner's answers (2026-11-11, Arabic questionnaire)
+
+1-أ 2-أ 3-أ 4-أ 5-أ 6-أ 7-أ 8-أ — as above (finish month, approval date unchanged, NextCare's date
+column unchanged, all insurers, % per service on its day, editable per-service date, delete button,
+delete also removes the treatment + charge from the patient's file). Three answers differ from the
+first draft and are now the design:
+
+- **9-ب — a paid service can still be deleted.** The payment is never erased (the cash is in the
+  drawer): it is detached from the deleted charge and stays on the patient's account as credit,
+  earning no dentist commission. The confirm dialog says how much stays as credit.
+- **10-ب — the Insurance page opens "By approval date"** (the switch is remembered per browser
+  after the first change).
+- **11-ب — a sent approval cannot be moved to another month.** The server refuses any change that
+  would change a `sent` approval's finish month (or reopen it). To fix one, the desk first presses
+  a new **Mark not sent** button (sent → treated; rows untouched), edits, then marks it sent again.
 
 ## Design
 
@@ -64,8 +79,9 @@ day it was done.
 ### Delete a service
 
 New PATCH key `removeLine: number` on `/api/insurance/claims`:
-- Deletes that line's note and charge in one transaction; **refused (409) when money is recorded
-  against the charge**, as `cancelled` is today.
+- Deletes that line's note and charge in one transaction. Payments recorded against the charge are
+  **kept**: their `procedureId` is cleared (they become on-account credit for the patient) and
+  their dentist commission is zeroed; each detached payment is audited. (Owner's answer 9-ب.)
 - Writes `removedLines[i]`, clears `lineDates[i]`, drops the line's dentist share from payroll,
   recomputes `finishedDate` / `workMonths`.
 - Confirm dialog in the UI. A **Restore** button on a deleted line re-writes its row (it reuses
@@ -82,7 +98,9 @@ New PATCH key `removeLine: number` on `/api/insurance/claims`:
   a "Services ▾" toggle on each row opens the same per-line "Done on" + delete as the pop-up. The
   patient page's Insurance tab gets the same controls.
 - **Insurance page range**: `By approval date | By finish date` switch next to the date picker,
-  remembered per browser. The list query and `ClaimsExportBar` both follow it. The three statement
+  default **By approval date**, remembered per browser.
+- **Mark not sent**: a row action on `sent` approvals (Insurance page and the patient's Insurance
+  tab) that sets status back to `treated`, so a sent approval can be corrected. The list query and `ClaimsExportBar` both follow it. The three statement
   builders (`insuranceStatementMetlife`, `…Nextcare`, AXA) take the already-filtered claims instead
   of each choosing their own date — today MetLife filters by approval date and NextCare by
   treated date, which is part of the confusion.
@@ -120,8 +138,9 @@ Firestore rule change for reading (the claim doc is already readable); the clien
   `lineSyncPatch` sets the line date and no longer moves `treatedDate`; payroll per line date across
   two months; statement filter by each date mode for all three insurers.
 - Route (Firestore emulator, as `test:approval-teeth-route`): set/edit a line date re-dates only that
-  line's note+charge; `removeLine` deletes the row, refused with money on it; restore; a sent
-  approval's date change still goes through (the warning is the UI's job).
+  line's note+charge; `removeLine` deletes the row and keeps its payment as on-account credit;
+  restore; a change that moves a sent approval's finish month → 409, and goes through after
+  Mark not sent.
 - Backfill script: dry-run on an emulator copy changes nothing; real run leaves every old claim's
   payroll month and sheet month as before.
 - Manual on the demo clinic: the 20/10 → 5/11 example end to end — October pay shows the first
