@@ -46,6 +46,8 @@ import ApprovalConfirmCard, { type PatientOption } from "@/components/insurance/
 import ClaimsTable from "@/components/insurance/ClaimsTable";
 import ClaimsExportBar from "@/components/insurance/ClaimsExportBar";
 import { useClaims } from "@/components/insurance/useClaims";
+import { useSheetDateMode } from "@/components/insurance/useSheetDateMode";
+import { claimFinishedDate } from "@/lib/insurance/billingMonth";
 import type { LinkedAppointmentLite } from "@/lib/insurance/appointments";
 import { cairoToday, InsuranceCallError, monthRange, patchClaim, readDocument, recordInsurerPayment, type ClaimPatch, type OpenDoc } from "@/components/insurance/api";
 import { tr } from "@/components/insurance/text";
@@ -56,13 +58,6 @@ const MAX_PATIENTS = 5000;
 const NO_ROWS: readonly LedgerLite[] = [];
 
 type UnsavedDoc = { id: string; path: string; contentType: string; uploadedAt: number };
-
-/** An ISO date moved by whole days (UTC arithmetic, so no clock change can shift it). */
-function shiftIsoDays(iso: string, days: number): string {
-  const [y, m, d] = iso.split("-").map(Number);
-  if (!y || !m || !d) return iso;
-  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
-}
 
 function fileNameOf(path: string): string {
   return path.split("/").pop() || path;
@@ -103,6 +98,10 @@ function InsurancePage() {
     [payers, payersReady, canSeeFinance],
   );
   const [range, setRange] = useState(() => monthRange(cairoToday()));
+  // Which date places an approval in the range: its approval date, or the day it was finished.
+  // The list, the counts beside each insurer and the monthly sheet all follow it.
+  const [dateMode, setDateMode] = useSheetDateMode();
+  const dateField = dateMode === "finish" ? "finishedDate" : "approvalDate";
   /**
    * How many approvals each insurer has in the range, from one query over every insurer.
    *
@@ -113,11 +112,11 @@ function InsurancePage() {
    * insurer that has approvals.
    */
   const [rangeCounts, setRangeCounts] = useState<{ key: string; byPayer: Record<string, number> }>({ key: "", byPayer: {} });
-  const countsKey = clinicId && range.from && range.to && range.from <= range.to ? `${clinicId}|${range.from}|${range.to}` : "";
+  const countsKey = clinicId && range.from && range.to && range.from <= range.to ? `${clinicId}|${dateField}|${range.from}|${range.to}` : "";
   useEffect(() => {
     if (!countsKey || !clinicId) return;
     return onSnapshot(
-      query(collection(db, "clinics", clinicId, CLAIMS_COLLECTION), where("approvalDate", ">=", range.from), where("approvalDate", "<=", range.to)),
+      query(collection(db, "clinics", clinicId, CLAIMS_COLLECTION), where(dateField, ">=", range.from), where(dateField, "<=", range.to)),
       (snap) => {
         const byPayer: Record<string, number> = {};
         snap.docs.forEach((d) => {
@@ -128,7 +127,7 @@ function InsurancePage() {
       },
       () => setRangeCounts({ key: countsKey, byPayer: {} }),
     );
-  }, [countsKey, clinicId, range.from, range.to]);
+  }, [countsKey, clinicId, range.from, range.to, dateField]);
   const counts = rangeCounts.key === countsKey ? rangeCounts.byPayer : {};
   const [pickedPayer, setPickedPayer] = useState("");
   const busiest = insurers.reduce<Payer | null>((best, p) => ((counts[p.id] ?? 0) > (best ? (counts[best.id] ?? 0) : 0) ? p : best), null);
@@ -167,11 +166,9 @@ function InsurancePage() {
 
   // --- range, header, claims ---------------------------------------------------------------------
   const [header, setHeaderLine] = useStatementHeader(clinicId);
-  const { claims, loading: claimsLoading, failed: claimsFailed } = useClaims(clinicId, payerId, range.from, range.to);
-  // NextCare (and AXA, which borrows its sheet) bills by treatment date: the sheet also needs approvals
-  // from up to two months earlier that were treated inside the range. Loaded for the sheet only;
-  // nothing is asked for a MetLife payer.
-  const { claims: nextcareBillable } = useClaims(clinicId, payerFormat !== "metlife" ? payerId : "", shiftIsoDays(range.from, -62), range.to);
+  // One list for the screen and the sheet: every insurer's sheet is built from exactly the approvals
+  // listed, picked by the date mode above (NextCare's used to pick by treated date on its own).
+  const { claims, loading: claimsLoading, failed: claimsFailed } = useClaims(clinicId, payerId, range.from, range.to, dateField);
 
   // --- the visits booked for approved services, for the progress line under each status ----------
   // One listener for the clinic: `claimId > ""` is every appointment that carries a link, and the
@@ -295,7 +292,11 @@ function InsurancePage() {
     }
     // Also leaves a company tab, where the claim would not be on screen.
     if ((claim.payerId !== payerId || contractPayer) && insurers.some((p) => p.id === claim.payerId)) setPickedPayer(claim.payerId);
-    if (claim.approvalDate && (claim.approvalDate < range.from || claim.approvalDate > range.to)) setRange(monthRange(claim.approvalDate));
+    // Shown by finish date, an approval that is not finished is on no list: go back to approval dates for it.
+    const finished = dateMode === "finish" ? claimFinishedDate(claim) : null;
+    if (dateMode === "finish" && !finished) setDateMode("approval");
+    const placedBy = finished ?? claim.approvalDate;
+    if (placedBy && (placedBy < range.from || placedBy > range.to)) setRange(monthRange(placedBy));
     setHighlightId(claim.id);
     // The table row on wide screens, the card on phones — whichever one is shown.
     const ids = [`claim-${claim.id}`, `claim-m-${claim.id}`];
@@ -583,7 +584,8 @@ function InsurancePage() {
             <ClaimsExportBar
               claims={claims}
               format={payerFormat}
-              statementClaims={payerFormat !== "metlife" ? nextcareBillable : undefined}
+              mode={dateMode}
+              setMode={setDateMode}
               payerId={payerId}
               payerName={payer?.name ?? ""}
               from={range.from}
@@ -598,7 +600,7 @@ function InsurancePage() {
             {/* --- the claims ---------------------------------------------------------------- */}
             <section className="space-y-3">
               <p className="text-[10.5px] font-black uppercase tracking-wider text-ink-muted">
-                {t("claimsTitle")} · {range.from} → {range.to}
+                {t("claimsTitle")} · {t(dateMode === "finish" ? "dateModeFinish" : "dateModeApproval")} · {range.from} → {range.to}
               </p>
               {claimsFailed && <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-[13px] font-bold text-rose-800">{t("claimsFailed")}</p>}
               <ClaimsTable claims={claims} loading={claimsLoading} onPatch={onPatch} onDelete={onDelete} onEdit={(c) => void openEdit(c)} highlightId={highlightId} payerName={payer?.name} appointments={claimAppointments} />

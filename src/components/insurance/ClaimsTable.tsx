@@ -3,8 +3,9 @@
 /**
  * The saved approvals of one insurer in the chosen range.
  *
- * Columns: approval number, patient, approval date, treated date, approved total, patient share,
- * status. Row actions: mark treated / not treated, mark sent, open the document, delete (to the
+ * Columns: approval number, patient, approval date, treated date, finished date (the day its last
+ * service was done — the month it is billed in), approved total, patient share, status. Row
+ * actions: mark treated / not treated, mark sent / not sent, open the document, delete (to the
  * recycle bin). The page owns the calls (`onPatch`, `onDelete`); this owns the questions: a claim
  * already sent to MetLife asks "continue?" before it is changed or deleted, and every delete asks
  * first anyway.
@@ -13,13 +14,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ref, getDownloadURL } from "firebase/storage";
-import { Banknote, CheckCircle2, FileText, Landmark, Loader2, Pencil, RotateCcw, Send, Trash2 } from "lucide-react";
+import { Banknote, CheckCircle2, FileText, Landmark, Loader2, Pencil, RotateCcw, Send, Trash2, Undo2 } from "lucide-react";
 import { storage } from "@/lib/firebase";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { useBranchForMoney } from "@/lib/useBranchForMoney";
 import { claimStatementName, type ClaimStatus, type InsuranceClaim } from "@/lib/insurance/claims";
 import { claimProgress, type LinkedAppointmentLite } from "@/lib/insurance/appointments";
+import { claimFinishedDate } from "@/lib/insurance/billingMonth";
 import type { ClaimPatch } from "./api";
 import { tr, type TextKey } from "./text";
 import { useOpenShares } from "./useOpenShares";
@@ -152,6 +154,9 @@ export default function ClaimsTable({
     { approved: 0, share: 0 },
   );
 
+  /** The day the approval was finished, "Not finished" while a service is still open, a dash before any work. */
+  const finishedText = (c: InsuranceClaim) => (c.status === "treated" || c.status === "sent" ? (claimFinishedDate(c) ?? t("notFinished")) : "—");
+
   /** What Collect would take; the claim's own figure while its rows load. */
   const shareDue = (c: InsuranceClaim) => openShare(c) ?? c.totals.patientShare;
 
@@ -176,6 +181,13 @@ export default function ClaimsTable({
         {c.status === "treated" && (
           <Action big={big} short={t("shortSent")} label={t("markSent")} disabled={busy} onClick={() => patch(c, { status: "sent" })}>
             <Send size={s} />
+          </Action>
+        )}
+        {/* A sent approval's month is locked; this is how the desk unlocks one to correct it. No
+            "already sent" question first: undoing that is the whole point of the button. */}
+        {c.status === "sent" && (
+          <Action big={big} short={t("shortNotSent")} label={t("markNotSent")} disabled={busy} onClick={() => void run(c, () => onPatch(c, { status: "treated" }))}>
+            <Undo2 size={s} />
           </Action>
         )}
         {(c.status === "treated" || c.status === "sent") && shareDue(c) > 0 && (
@@ -268,6 +280,11 @@ export default function ClaimsTable({
                   {t("colTreatedDate")}: {c.treatedDate}
                 </span>
               )}
+              {(c.status === "treated" || c.status === "sent") && (
+                <span className="tabular-nums">
+                  {t("colFinished")}: {finishedText(c)}
+                </span>
+              )}
             </div>
             {progress && <div className="mt-1 text-[11px] font-semibold tabular-nums text-ink-muted">{progress}</div>}
             <div className="mt-2 border-t border-line pt-2">{renderActions(c, true)}</div>
@@ -285,10 +302,10 @@ export default function ClaimsTable({
       </div>
     </div>
     <div className="hidden overflow-x-auto rounded-3xl border border-line bg-surface md:block">
-      <table className="w-full min-w-[60rem] border-collapse">
+      <table className="w-full min-w-[66rem] border-collapse">
         <thead>
           <tr className="border-b border-line bg-surface-subtle">
-            {(["colApproval", "colPatient", "colApprovalDate", "colTreatedDate", "colApproved", "colShare", "colStatus", "colActions"] as const).map((k) => (
+            {(["colApproval", "colPatient", "colApprovalDate", "colTreatedDate", "colFinished", "colApproved", "colShare", "colStatus", "colActions"] as const).map((k) => (
               <th
                 key={k}
                 className={`px-3 py-3 text-[10.5px] font-black uppercase tracking-wider text-ink-muted ${k === "colApproved" || k === "colShare" ? "text-end" : "text-start"}`}
@@ -316,6 +333,7 @@ export default function ClaimsTable({
                 </td>
                 <td className="px-3 py-2.5 text-[13px] font-bold tabular-nums text-ink-body">{c.approvalDate}</td>
                 <td className="px-3 py-2.5 text-[13px] font-bold tabular-nums text-ink-body">{c.treatedDate ?? "—"}</td>
+                <td className="px-3 py-2.5 text-[13px] font-bold tabular-nums text-ink-body">{finishedText(c)}</td>
                 <td className="px-3 py-2.5 text-end text-[13px] font-black tabular-nums text-ink">{money(c.totals.approved)}</td>
                 <td className="px-3 py-2.5 text-end text-[13px] font-bold tabular-nums text-ink-body">{money(c.totals.patientShare)}</td>
                 <td className="px-3 py-2.5">
@@ -338,7 +356,7 @@ export default function ClaimsTable({
             );
           })}
           <tr className="border-t border-line bg-surface-subtle">
-            <td colSpan={4} className="px-3 py-3 text-[12px] font-black uppercase tracking-wider text-ink">
+            <td colSpan={5} className="px-3 py-3 text-[12px] font-black uppercase tracking-wider text-ink">
               {t("totalRow")} · {claims.length}
             </td>
             <td className="px-3 py-3 text-end font-display text-[15px] font-black tabular-nums text-ink">{money(totals.approved)}</td>

@@ -185,6 +185,20 @@
           "order": "DESCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "insurance_claims",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "payerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "finishedDate",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": []
