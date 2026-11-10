@@ -1207,21 +1207,20 @@ assert.deepEqual(writeInsurance({ metlife: { policyNumber: " ", memberNumber: ""
     "a Planned line completes and takes the visit's dentist",
   );
   assert.deepEqual(lineSyncPatch(planned, { claimId: planned.id, claimLine: 1, status: "Checking Out", doctorId: "s1" })?.lineStatus, { 1: "Completed" }, "the dentist's own done counts too");
-  // the visit's date becomes the treatment date: the paper is saved as treated on its approval date,
-  // which is only a default until a visit says when the work was really done
+  // the visit's date becomes the day THAT SERVICE was done; the approval's own treated date is no
+  // longer moved by a visit (that locked the whole approval to the month of its first visit)
   const defaulted = { ...planned, treatedDate: planned.approvalDate };
   const visit = { claimId: planned.id, claimLine: 1, status: "Completed", doctorId: "s1", date: "2026-10-07" };
-  assert.deepEqual(lineSyncPatch(defaulted, visit), { lineStatus: { 1: "Completed" }, dentists: { 1: "s1" }, treatedDate: "2026-10-07" }, "approved in one month, treated in another: the visit's date");
-  assert.deepEqual(lineSyncPatch({ ...planned, treatedDate: null }, visit)?.treatedDate, "2026-10-07", "no date stored: the visit's date");
-  assert.deepEqual(
+  assert.deepEqual(lineSyncPatch(defaulted, visit), { lineStatus: { 1: "Completed" }, dentists: { 1: "s1" }, lineDates: { 1: "2026-10-07" } }, "approved in one month, done in another: the service takes the visit's date");
+  assert.equal("treatedDate" in (lineSyncPatch(defaulted, visit) ?? {}), false, "the approval's treated date is left alone");
+  assert.equal(
     lineSyncPatch({ ...defaulted, lineStatus: {}, dentists: { 1: { staffId: "s1", name: "Dr A", rate: 10, share: 10 } } }, visit),
-    { treatedDate: "2026-10-07" },
-    "a line already done by this dentist still moves the date: saving the visit again repairs an old approval",
+    null,
+    "a line already done by this dentist: saving the visit again changes nothing",
   );
-  assert.equal(lineSyncPatch({ ...planned, treatedDate: "2026-10-05" }, visit)?.treatedDate, undefined, "a date somebody chose is kept");
-  assert.equal(lineSyncPatch(defaulted, { ...visit, date: planned.approvalDate })?.treatedDate, undefined, "treated on the approval date: nothing to move");
-  assert.equal(lineSyncPatch({ ...defaulted, status: "sent" }, visit)?.treatedDate, undefined, "the sheet already went out: its date stands");
-  assert.equal(lineSyncPatch(defaulted, { ...visit, date: "7/10/2026" })?.treatedDate, undefined, "a date that is not yyyy-mm-dd is not written");
+  assert.equal(lineSyncPatch({ ...defaulted, lineDates: { 1: "2026-10-05" } }, visit)?.lineDates, undefined, "a date somebody chose is kept");
+  assert.deepEqual(lineSyncPatch({ ...defaulted, status: "sent" }, visit)?.lineDates, { 1: "2026-10-07" }, "a sent approval is synced the same way; the route decides what it may change");
+  assert.equal(lineSyncPatch(defaulted, { ...visit, date: "7/10/2026" })?.lineDates, undefined, "a date that is not yyyy-mm-dd is not written");
   assert.deepEqual(lineSyncPatch(planned, { claimId: planned.id, claimLine: 1, status: "Completed" }), { lineStatus: { 1: "Completed" } }, "a visit with no dentist leaves the line's dentist alone");
   assert.equal(lineSyncPatch(planned, { claimId: planned.id, claimLine: 1, status: "In Chair", doctorId: "s1" }), null, "nothing until the visit is done");
   assert.equal(lineSyncPatch(planned, { claimId: planned.id, claimLine: 1, status: "Cancelled", doctorId: "s1" }), null);

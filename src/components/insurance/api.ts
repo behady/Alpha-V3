@@ -166,6 +166,8 @@ export type ClaimPatch = {
   dentists?: Record<number, string | null>;
   /** Line index -> where that service stands; follows into the treatment row's note. */
   lineStatus?: Record<number, LineStatus>;
+  /** Line index -> the day that service was done (`yyyy-mm-dd`), or null to go back to the default. */
+  lineDates?: Record<number, string | null>;
   /** Take the patient's share as cash: the server posts the ledger row and stamps the claim in one transaction. */
   collectShare?: true;
   /** Record the insurer's payment against the treatment rows, and mark them settled. */

@@ -69,4 +69,49 @@ assert.equal(
   "a visit linked only to another approval changes nothing on this one",
 );
 
+// --- the visit dates the service it did, not the whole approval ---------------------------------
+// An approval issued on 20/10 with one service done that day and another on 5/11: each service
+// carries its own day. The approval's own treated date is no longer moved by a visit — that locked
+// the whole approval (sheet and every dentist's share) to the month of its FIRST visit.
+const dated = {
+  id: "c1",
+  status: "treated" as const,
+  approvalDate: "2026-10-20",
+  treatedDate: "2026-10-20",
+  lines: [{}, {}, {}] as never[],
+  lineStatus: { 2: "Planned" } as Record<number, "Planned" | "Ongoing" | "Completed">,
+  lineDates: {} as Record<number, string>,
+  dentists: {},
+};
+const novVisit = { claimLinks: [{ claimId: "c1", claimLine: 2 }], status: "Completed", date: "2026-11-05" };
+const novPatch = lineSyncPatch(dated, novVisit);
+assert.deepEqual(novPatch, { lineStatus: { 2: "Completed" }, lineDates: { 2: "2026-11-05" } }, "the service is done on the visit's day");
+assert.equal("treatedDate" in (novPatch ?? {}), false, "the approval's treated date is left alone");
+assert.deepEqual(
+  lineSyncPatch({ ...dated, lineDates: { 2: "2026-11-04" } }, novVisit),
+  { lineStatus: { 2: "Completed" } },
+  "a date somebody typed for the service is kept",
+);
+assert.deepEqual(
+  lineSyncPatch(dated, { ...novVisit, date: "2026-10-01" }),
+  { lineStatus: { 2: "Completed" } },
+  "a visit dated before the approval cannot date the service (it still completes it)",
+);
+assert.deepEqual(lineSyncPatch(dated, { ...novVisit, date: "5/11/2026" }), { lineStatus: { 2: "Completed" } }, "a malformed visit date dates nothing");
+assert.equal(
+  lineSyncPatch(dated, { claimLinks: [{ claimId: "c1", claimLine: 0 }], status: "Completed", date: "2026-11-05" }),
+  null,
+  "a service that was already done keeps its day: re-saving an old visit never moves an old approval's month",
+);
+assert.equal(
+  lineSyncPatch({ ...dated, lineStatus: { 2: "Ongoing" } }, novVisit),
+  null,
+  "an Ongoing service is not done yet, so it gets no day",
+);
+assert.deepEqual(
+  lineSyncPatch({ ...dated, status: "sent" as const }, novVisit),
+  { lineStatus: { 2: "Completed" }, lineDates: { 2: "2026-11-05" } },
+  "a sent approval is synced the same way; the route decides what a sent approval may change",
+);
+
 console.log("claim links: all checks passed");
