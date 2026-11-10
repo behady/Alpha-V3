@@ -6,6 +6,7 @@
 // holding it open, and an approval saved before any of this reads exactly as it did.
 import assert from "node:assert/strict";
 import { insuranceTreatmentRows, parseClaim, type InsuranceClaim } from "../src/lib/insurance/claims";
+import { insurancePendingShare, insuranceWorkByStaff, unassignedLines } from "../src/lib/staffInsurance";
 import {
   billingFields,
   claimFinishedDate,
@@ -168,5 +169,37 @@ assert.deepEqual(rowsOf(old).map((r) => r[1]), ["2026-10-20", "2026-10-20", "202
 // --- 12. a deleted service is not part of the approval's money ---------------------------------------------
 assert.deepEqual(old.totals, { requested: 300, approved: 300, patientShare: 0 });
 assert.deepEqual(removed.totals, { requested: 200, approved: 200, patientShare: 0 }, "totals leave the deleted service out");
+
+// --- 13. the dentist is paid for each service in the month THAT service was done -------------------------
+const drA = (share: number) => ({ staffId: "s1", name: "Dr A", rate: 10, share });
+const OCT = { start: "2026-10-01", end: "2026-10-31" };
+const NOV = { start: "2026-11-01", end: "2026-11-30" };
+const paidSplit = { ...split, dentists: { 0: drA(10), 2: drA(10) } };
+const entriesOf = (claims: InsuranceClaim[], period?: { start: string; end: string }) =>
+  (insuranceWorkByStaff(claims, {}, period).get("s1")?.entries ?? []).map((e) => [e.lineIndex, e.date]);
+assert.deepEqual(entriesOf([paidSplit], OCT), [[0, "2026-10-20"]], "the service done on 20/10 is October's pay");
+assert.deepEqual(entriesOf([paidSplit], NOV), [[2, "2026-11-05"]], "the one done on 5/11 is November's");
+assert.equal(insuranceWorkByStaff([paidSplit], {}, OCT).get("s1")?.total, 10);
+assert.deepEqual(entriesOf([paidSplit]), [[0, "2026-10-20"], [2, "2026-11-05"]], "no period: every done service, each on its own day");
+const paidOpen = { ...open, dentists: { 0: drA(10), 2: drA(10) } };
+assert.deepEqual(entriesOf([paidOpen], OCT), [[0, "2026-10-20"]], "an approval still open already pays the work that was done");
+assert.deepEqual(entriesOf([paidOpen], NOV), [], "a Planned service earns nothing yet");
+const paidGone = { ...paidSplit, removedLines: { 2: { at: "2026-11-10", by: "u1" } } };
+assert.deepEqual(entriesOf([paidGone], NOV), [], "a deleted service earns nothing");
+const paidOld = { ...old, dentists: { 0: drA(10), 2: drA(10) } };
+assert.deepEqual(entriesOf([paidOld], OCT), [[0, "2026-10-20"], [2, "2026-10-20"]], "an old claim pays in its treated month, as before");
+assert.deepEqual(entriesOf([paidOld], NOV), []);
+assert.deepEqual(entriesOf([{ ...paidSplit, status: "approved" as const }], OCT), [], "an approval nobody treated earns nothing");
+
+// services done with nobody on them yet
+assert.deepEqual(unassignedLines([paidSplit]), { count: 1, approved: 100 });
+assert.deepEqual(unassignedLines([{ ...paidSplit, removedLines: { 1: { at: "2026-11-10", by: "u1" } } }]), { count: 0, approved: 0 }, "a deleted service is nobody's unassigned work");
+
+// the dentists' share still unpaid on the work of a period (Finance)
+const partPaid = { ...split, dentists: { 0: { ...drA(10), paid: 4 }, 2: { ...drA(10), deducted: 1 } } };
+assert.equal(insurancePendingShare([partPaid], OCT), 6, "October: 10 earned, 4 paid");
+assert.equal(insurancePendingShare([partPaid], NOV), 9, "November: 10 earned, 1 deducted");
+assert.equal(insurancePendingShare([{ ...partPaid, removedLines: { 2: { at: "2026-11-10", by: "u1" } } }], NOV), 0);
+assert.equal(insurancePendingShare([{ ...partPaid, status: "approved" as const }], OCT), 0);
 
 console.log("insuranceBillingMonth: all checks passed");

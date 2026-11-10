@@ -48,6 +48,7 @@ import type { PunchRecord, StaffRecord } from "@/lib/automation/briefing/data";
 import { expectedScheduleFor, punchRecordFrom, staffRecordFrom, type Schedule } from "@/lib/hrClient";
 import { commissionByStaff, NO_COMMISSION, type StaffCommission } from "@/lib/staffCommission";
 import { insuranceWorkByStaff, NO_INSURANCE_WORK, type StaffInsuranceWork } from "@/lib/staffInsurance";
+import { monthsBetween } from "@/lib/insurance/billingMonth";
 import { CLAIMS_COLLECTION, parseClaim, type InsuranceClaim } from "@/lib/insurance/claims";
 import { useWording } from "@/components/insurance/useWording";
 import { presetOf, rangeFor, rangeText, getFirstDay, getToday, type DateRange, type RangePreset } from "@/lib/reportHelpers";
@@ -163,15 +164,21 @@ function TeamPage() {
     );
     // Insurance work is paid apart from private work: the claims register, not the ledger. A
     // clinic without the add-on simply has no claims, so the listeners cost it nothing.
-    // Work is paid in the period it was TREATED, and an approval is often treated weeks after it was
-    // issued, so claims are loaded by either date and merged; `insuranceWorkByStaff` then keeps the
-    // ones whose work date falls in the period.
+    // Each service is paid in the period IT was done, which can be a month after its approval was
+    // issued or first treated. `workMonths` on the claim names every month it has work in, so one
+    // listener finds them all; claims saved before that field existed are still found by either
+    // date, as before. All three are merged, and `insuranceWorkByStaff` keeps the services whose
+    // own day falls in the period.
     const byApproval = new Map<string, InsuranceClaim>();
     const byTreatment = new Map<string, InsuranceClaim>();
-    const publishClaims = () => setClaims([...new Map([...byApproval, ...byTreatment]).values()]);
-    const claimsListener = (field: "approvalDate" | "treatedDate", into: Map<string, InsuranceClaim>) =>
+    const byWorkMonth = new Map<string, InsuranceClaim>();
+    const publishClaims = () => setClaims([...new Map([...byApproval, ...byTreatment, ...byWorkMonth]).values()]);
+    const months = monthsBetween(range.start, range.end);
+    const claimsListener = (field: "approvalDate" | "treatedDate" | "workMonths", into: Map<string, InsuranceClaim>) =>
       onSnapshot(
-        query(getClinicCollection(CLAIMS_COLLECTION), where(field, ">=", range.start), where(field, "<=", range.end)),
+        field === "workMonths"
+          ? query(getClinicCollection(CLAIMS_COLLECTION), where("workMonths", "array-contains-any", months))
+          : query(getClinicCollection(CLAIMS_COLLECTION), where(field, ">=", range.start), where(field, "<=", range.end)),
         (snap) => {
           into.clear();
           for (const d of snap.docs) {
@@ -187,12 +194,15 @@ function TeamPage() {
       );
     const unsubClaimsByApproval = claimsListener("approvalDate", byApproval);
     const unsubClaimsByTreatment = claimsListener("treatedDate", byTreatment);
+    // `array-contains-any` takes at most 30 values: a longer period falls back on the two above.
+    const unsubClaimsByWorkMonth = months.length >= 1 && months.length <= 30 ? claimsListener("workMonths", byWorkMonth) : () => {};
     return () => {
       unsubStaff();
       unsubPunches();
       unsubLedger();
       unsubClaimsByApproval();
       unsubClaimsByTreatment();
+      unsubClaimsByWorkMonth();
     };
   }, [canAdmin, clinicId, range.start, range.end]);
   const wording = useWording(clinicId);
