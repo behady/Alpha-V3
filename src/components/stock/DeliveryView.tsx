@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Barcode, Check, ScanLine, Trash2 } from "lucide-react";
 import { CATALOG_BY_KEY, unitLabel } from "@/lib/stock/catalog";
 import { stockApi, uploadStockPhoto } from "@/lib/stock/api";
+import { normaliseBarcode } from "@/lib/stock/math";
 import type { LibraryProduct, StockVariant } from "@/lib/stock/types";
 import { StockPicture } from "./Art";
 import { Btn, Card, Eyebrow, Field, LinePicture, PhotoButton, Pill, Stepper, fmtMoney, inputCls, useBusy, variantLabel, type StockCtx } from "./shared";
@@ -48,7 +49,7 @@ export function DeliveryView({ ctx }: { ctx: StockCtx }) {
   };
 
   const onCode = async (code: string) => {
-    const barcode = code.replace(/\s+/g, "");
+    const barcode = normaliseBarcode(code);
     if (!barcode) return;
     await run(async () => {
       const r = await stockApi.lookupBarcode(barcode);
@@ -120,7 +121,7 @@ export function DeliveryView({ ctx }: { ctx: StockCtx }) {
           </div>
           <div className="grid gap-3 rounded-2xl border border-dashed border-line bg-surface-subtle p-3">
             {scanning ? (
-              <Scanner onCode={(c) => { setScanning(false); void onCode(c); }} onClose={() => setScanning(false)} unsupported={t("This browser cannot read barcodes with the camera. Type the number printed under the barcode instead.", "المتصفح ده مش بيقرأ الباركود بالكاميرا. اكتب الرقم المطبوع تحت الباركود.")} />
+              <Scanner onCode={(c) => { setScanning(false); void onCode(c); }} onClose={() => setScanning(false)} closeLabel={t("Close", "إغلاق")} noCamera={t("The camera could not be opened. Allow camera access for this site, or type the number printed under the barcode.", "الكاميرا مش بتفتح. اسمح للموقع بالكاميرا، أو اكتب الرقم المطبوع تحت الباركود.")} />
             ) : (
               <Btn kind="dark" onClick={() => setScanning(true)} className="justify-self-center"><ScanLine size={16} /> {t("Scan barcode", "امسح الباركود")}</Btn>
             )}
@@ -202,53 +203,95 @@ export function DeliveryView({ ctx }: { ctx: StockCtx }) {
   );
 }
 
-/** Live barcode reading with the camera, where the browser supports it. */
-function Scanner({ onCode, onClose, unsupported }: { onCode: (code: string) => void; onClose: () => void; unsupported: string }) {
+/**
+ * Live barcode reading with the camera, on every phone.
+ *
+ * Android Chrome reads barcodes natively (`BarcodeDetector`). iPhones and desktop browsers do
+ * not, so there the ZXing reader is loaded on demand and does the same job in JavaScript. Both
+ * read the 1D codes printed on boxes and the small square GS1 DataMatrix that dental and
+ * medical packaging often carries instead.
+ */
+function Scanner({ onCode, onClose, noCamera, closeLabel }: { onCode: (code: string) => void; onClose: () => void; noCamera: string; closeLabel: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  type Detector = { detect: (src: ImageBitmapSource) => Promise<Array<{ rawValue: string }>> };
-  type DetectorCtor = new (opts?: { formats?: string[] }) => Detector;
-  const Ctor = typeof window !== "undefined" ? (window as unknown as { BarcodeDetector?: DetectorCtor }).BarcodeDetector : undefined;
-  const [error, setError] = useState(Ctor ? "" : unsupported);
+  const [error, setError] = useState("");
+  // The parent passes a fresh function every render; the camera must not restart for that.
+  const onCodeRef = useRef(onCode);
   useEffect(() => {
+    onCodeRef.current = onCode;
+  });
+  useEffect(() => {
+    let stopped = false;
     let stream: MediaStream | null = null;
     let timer = 0;
-    let stopped = false;
-    if (!Ctor) return;
-    const detector = new Ctor({ formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "itf", "qr_code"] });
+    let zxing: { reset: () => void } | null = null;
+    const found = (code: string) => {
+      if (stopped || !code) return;
+      stopped = true;
+      onCodeRef.current(code);
+    };
+    type Detector = { detect: (src: ImageBitmapSource) => Promise<Array<{ rawValue: string }>> };
+    type DetectorCtor = new (opts?: { formats?: string[] }) => Detector;
+    const Native = (window as unknown as { BarcodeDetector?: DetectorCtor }).BarcodeDetector;
+
     (async () => {
+      const v = videoRef.current;
+      if (!v) return;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
-        if (stopped) return;
-        const v = videoRef.current;
-        if (!v) return;
-        v.srcObject = stream;
-        await v.play();
-        const tick = async () => {
-          if (stopped) return;
-          try {
-            const codes = await detector.detect(v);
-            const hit = codes.find((c) => c.rawValue);
-            if (hit) {
-              stopped = true;
-              onCode(hit.rawValue);
-              return;
-            }
-          } catch {
-            /* a frame that could not be read */
+        if (Native) {
+          const detector = new Native({ formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "itf", "data_matrix", "qr_code"] });
+          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+          if (stopped) {
+            stream.getTracks().forEach((tr) => tr.stop());
+            return;
           }
-          timer = window.setTimeout(tick, 250);
-        };
-        timer = window.setTimeout(tick, 400);
+          v.srcObject = stream;
+          await v.play();
+          const tick = async () => {
+            if (stopped) return;
+            try {
+              const codes = await detector.detect(v);
+              const hit = codes.find((c) => c.rawValue);
+              if (hit) return found(hit.rawValue);
+            } catch {
+              /* a frame that could not be read */
+            }
+            timer = window.setTimeout(tick, 250);
+          };
+          timer = window.setTimeout(tick, 400);
+        } else {
+          const zx = await import("@zxing/library");
+          if (stopped) return;
+          const hints = new Map<unknown, unknown>();
+          hints.set(zx.DecodeHintType.POSSIBLE_FORMATS, [
+            zx.BarcodeFormat.EAN_13,
+            zx.BarcodeFormat.EAN_8,
+            zx.BarcodeFormat.UPC_A,
+            zx.BarcodeFormat.UPC_E,
+            zx.BarcodeFormat.CODE_128,
+            zx.BarcodeFormat.CODE_39,
+            zx.BarcodeFormat.ITF,
+            zx.BarcodeFormat.DATA_MATRIX,
+            zx.BarcodeFormat.QR_CODE,
+          ]);
+          hints.set(zx.DecodeHintType.TRY_HARDER, true);
+          const reader = new zx.BrowserMultiFormatReader(hints as Map<never, unknown>, 200);
+          zxing = reader;
+          await reader.decodeFromConstraints({ video: { facingMode: "environment" }, audio: false }, v, (result) => {
+            if (result) found(result.getText());
+          });
+          if (stopped) reader.reset();
+        }
       } catch {
-        setError("Camera not available.");
+        if (!stopped) setError(noCamera);
       }
     })();
     return () => {
       stopped = true;
       window.clearTimeout(timer);
       stream?.getTracks().forEach((tr) => tr.stop());
+      zxing?.reset();
     };
-  }, [onCode, Ctor]);
+  }, [noCamera]);
   return (
     <div className="grid gap-2">
       <div className="relative mx-auto aspect-[4/3] w-full max-w-[320px] overflow-hidden rounded-xl bg-ink-slab">
@@ -256,7 +299,7 @@ function Scanner({ onCode, onClose, unsupported }: { onCode: (code: string) => v
         <div className="pointer-events-none absolute inset-[16%_12%] rounded-lg border-2 border-white/60" />
         {error ? <p className="absolute inset-x-3 bottom-3 rounded-lg bg-black/70 p-2 text-center text-[12px] text-white">{error}</p> : null}
       </div>
-      <Btn onClick={onClose} className="justify-self-center">{"Close"}</Btn>
+      <Btn onClick={onClose} className="justify-self-center">{closeLabel}</Btn>
     </div>
   );
 }

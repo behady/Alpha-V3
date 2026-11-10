@@ -255,3 +255,26 @@ export function matches(haystack: string[], q: string): boolean {
   const h = norm(haystack.join(" "));
   return n.split(/\s+/).every((t) => h.includes(t));
 }
+
+/**
+ * What the scanner read, reduced to the product's own number.
+ *
+ * A plain EAN/UPC comes through as its digits. The square GS1 DataMatrix on dental and medical
+ * boxes carries more than the product: "(01) product (17) expiry (10) lot", read as one run
+ * such as `010404671900003617251231 10ABC`. Looked up whole, it would be a different "barcode"
+ * for every batch and never match. So the product part (the 14 digits after `01`) is taken, and
+ * its padding zero dropped when the product is an ordinary 13-digit EAN, so that the square code
+ * and the striped one on the same box find the same product.
+ */
+export function normaliseBarcode(raw: string): string {
+  let s = (raw || "").trim();
+  s = s.replace(/^\][A-Za-z]\d/, ""); // symbology identifier some readers prepend, e.g. "]d2"
+  s = s.replace(/[\u001d\u001e\u0004]/g, ""); // GS1 separators
+  s = s.replace(/\s+/g, "");
+  const gs1 = /^\(?01\)?(\d{14})/.exec(s);
+  if (gs1 && s.replace(/[()]/g, "").length >= 16) {
+    const gtin = gs1[1];
+    return gtin.startsWith("0") ? gtin.slice(1) : gtin;
+  }
+  return s;
+}

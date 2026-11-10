@@ -2,7 +2,7 @@
 // three places that arithmetic can go wrong — a delivery on count day, a line that did not exist
 // at the earlier count, and a count that finds MORE than expected.
 import assert from "node:assert/strict";
-import { lineUsage, usageByItem, paceByItem, shoppingList, variance, matches } from "../src/lib/stock/math";
+import { lineUsage, usageByItem, paceByItem, shoppingList, variance, matches, normaliseBarcode } from "../src/lib/stock/math";
 import type { StockCount, StockDelivery, StockItem, StockLine, StockVariant } from "../src/lib/stock/types";
 
 const item: StockItem = { id: "flow", nameEn: "Flowable", nameAr: "فلو", unit: "syringe", per: "2 g", shape: "syringe", tracked: false, catalogKey: "flow", photoUrl: null };
@@ -66,5 +66,14 @@ assert.equal(vr[0].gap, 1);
 assert.ok(matches(["Articaine carpules", "بنج أرتيكايين"], "ارتيك"));
 assert.ok(matches(["Flowable composite", "فلو", "شرم فلو flow"], "شرم فلو"));
 assert.ok(!matches(["Gloves", "جلافز"], "بنج"));
+
+// barcodes: the striped code and the square GS1 code on one box must find the same product
+assert.equal(normaliseBarcode(" 4046719000036 "), "4046719000036");
+assert.equal(normaliseBarcode("010404671900003617251231" + "10ABC123"), "4046719000036");
+assert.equal(normaliseBarcode("]d2010404671900003617251231" + String.fromCharCode(29) + "10LOT9"), "4046719000036");
+assert.equal(normaliseBarcode("(01)04046719000036(17)251231(10)ABC"), "4046719000036");
+assert.equal(normaliseBarcode("0110885403123456"), "10885403123456"); // a true 14-digit GTIN keeps all 14
+assert.equal(normaliseBarcode("0123456789012"), "0123456789012"); // a 13-digit code that merely starts with 01
+assert.equal(normaliseBarcode("https://example.com/p/1"), "https://example.com/p/1");
 
 console.log("stockMath: all assertions passed");
