@@ -7,6 +7,8 @@
 import assert from "node:assert/strict";
 import { insuranceTreatmentRows, parseClaim, type InsuranceClaim } from "../src/lib/insurance/claims";
 import { insurancePendingShare, insuranceWorkByStaff, unassignedLines } from "../src/lib/staffInsurance";
+import { buildMetlifeStatement } from "../src/lib/insuranceStatementMetlife";
+import { buildNextcareStatement } from "../src/lib/insuranceStatementNextcare";
 import {
   billingFields,
   claimFinishedDate,
@@ -201,5 +203,39 @@ assert.equal(insurancePendingShare([partPaid], OCT), 6, "October: 10 earned, 4 p
 assert.equal(insurancePendingShare([partPaid], NOV), 9, "November: 10 earned, 1 deducted");
 assert.equal(insurancePendingShare([{ ...partPaid, removedLines: { 2: { at: "2026-11-10", by: "u1" } } }], NOV), 0);
 assert.equal(insurancePendingShare([{ ...partPaid, status: "approved" as const }], OCT), 0);
+
+// --- 14. the monthly sheets: same sheet, the date mode only picks who is on it ----------------------------
+const metSheet = (claims: InsuranceClaim[], p: { start: string; end: string }, mode?: "approval" | "finish") =>
+  buildMetlifeStatement({ claims, from: p.start, to: p.end, wording: {}, ...(mode ? { mode } : {}) });
+const nextSheet = (claims: InsuranceClaim[], p: { start: string; end: string }, mode?: "approval" | "finish") =>
+  buildNextcareStatement({ claims, payerId: "metlife", payerName: "Insurer", from: p.start, to: p.end, wording: {}, ...(mode ? { mode } : {}) });
+
+// MetLife
+assert.equal(metSheet([split], OCT).cases.length, 1, "no mode given: by approval date, as before");
+assert.equal(metSheet([split], OCT, "approval").cases.length, 1);
+assert.equal(metSheet([split], NOV, "approval").cases.length, 0);
+assert.equal(metSheet([split], NOV, "finish").cases.length, 1, "by finish date: on November's sheet");
+assert.equal(metSheet([split], OCT, "finish").cases.length, 0, "and not on October's");
+assert.equal(metSheet([split], NOV, "finish").cases[0].date, "2026-10-20", "the approval date printed never changes");
+assert.equal(metSheet([split], NOV, "finish").cases[0].lines.length, 3);
+assert.equal(metSheet([open], OCT, "finish").cases.length + metSheet([open], NOV, "finish").cases.length, 0, "not finished: on no sheet by finish date");
+assert.equal(metSheet([open], OCT, "finish").heldBack, 1, "and counted as held back");
+assert.equal(metSheet([removed], OCT, "finish").cases[0].lines.length, 2, "a deleted service is not printed");
+assert.equal(metSheet([removed], OCT, "finish").cases[0].subtotal, 200);
+assert.equal(metSheet([removed], OCT, "approval").cases[0].lines.length, 2, "in either mode");
+assert.equal(metSheet([allRemoved], OCT, "approval").cases.length, 0, "nothing left on it: no case");
+assert.equal(metSheet([old], OCT, "finish").cases.length, 1, "an old approval is finished on its treated day");
+
+// NextCare
+assert.equal(nextSheet([split], OCT).cases.length, 1, "no mode given: by treated date, as before");
+assert.equal(nextSheet([split], NOV).cases.length, 0);
+assert.equal(nextSheet([split], NOV, "finish").cases.length, 1, "by finish date: on November's sheet");
+assert.equal(nextSheet([split], OCT, "finish").cases.length, 0);
+assert.equal(nextSheet([split], OCT, "approval").cases.length, 1, "by approval date: on October's");
+assert.equal(nextSheet([split], NOV, "finish").cases[0].date, "2026-10-20", "its date column still prints the treated date");
+assert.equal(nextSheet([open], OCT, "finish").cases.length + nextSheet([open], NOV, "finish").cases.length, 0);
+assert.deepEqual(nextSheet([removed], OCT, "finish").cases[0].lines.map((l) => l.rowId), ["c1#0", "c1#1"], "a deleted service is not printed");
+assert.equal(nextSheet([removed], OCT).cases[0].lines.length, 2, "with or without a mode");
+assert.equal(nextSheet([{ ...split, status: "approved" as const }], OCT, "approval").cases.length, 0, "not treated: on no sheet");
 
 console.log("insuranceBillingMonth: all checks passed");

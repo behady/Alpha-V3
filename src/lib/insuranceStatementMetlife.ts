@@ -18,7 +18,8 @@
  *     no wording (on printed lines) come back in `missingWording` so the desk can fill them in.
  */
 
-import { claimStatementName, type InsuranceClaim } from "@/lib/insurance/claims";
+import { claimStatementName, isLineRemoved, type InsuranceClaim } from "@/lib/insurance/claims";
+import { claimFinishedDate, inSheetRange, type SheetDateMode } from "@/lib/insurance/billingMonth";
 
 export type MetlifeStatementLine = { text: string; count: number; requested: number; approved: number };
 
@@ -63,22 +64,35 @@ function byApproval(a: InsuranceClaim, b: InsuranceClaim): number {
   return a.approvalNumber < b.approvalNumber ? -1 : a.approvalNumber > b.approvalNumber ? 1 : 0;
 }
 
+/**
+ * `mode` picks WHICH approvals are on the sheet of `[from, to]`, never what is printed for them:
+ * `"approval"` (the default, as it always was) by the approval date, `"finish"` by the day the
+ * approval's last service was done (lib/insurance/billingMonth.ts) — an approval issued on 20/10
+ * and finished on 5/11 is then on November's sheet, still printing 20/10 as its date. A service
+ * deleted from its approval is never printed.
+ */
 export function buildMetlifeStatement(args: {
   claims: InsuranceClaim[];
   from: string;
   to: string;
   wording: Record<string, string>;
+  mode?: SheetDateMode;
 }): MetlifeStatement {
   const { from, to, wording } = args;
-  const inRange = args.claims.filter((c) => c.approvalDate >= from && c.approvalDate <= to);
-  const heldBack = inRange.filter((c) => c.status === "approved").length;
-  const listed = inRange.filter((c) => c.status === "treated" || c.status === "sent").sort(byApproval);
+  const mode: SheetDateMode = args.mode ?? "approval";
+  const listed = args.claims.filter((c) => inSheetRange(c, mode, from, to)).sort(byApproval);
+  // Left off the sheet: approved but not treated yet, or (by finish date) treated with a service still open.
+  const heldBack =
+    mode === "approval"
+      ? args.claims.filter((c) => c.status === "approved" && c.approvalDate >= from && c.approvalDate <= to).length
+      : args.claims.filter((c) => c.status === "approved" || ((c.status === "treated" || c.status === "sent") && claimFinishedDate(c) === null)).length;
 
   const missing = new Set<string>();
   const cases: MetlifeStatementCase[] = [];
   for (const c of listed) {
-    if (c.lines.length === 0) continue;
-    const lines = c.lines.map((l): MetlifeStatementLine => {
+    const live = c.lines.filter((_, i) => !isLineRemoved(c, i));
+    if (live.length === 0) continue;
+    const lines = live.map((l): MetlifeStatementLine => {
       const worded = (wording[l.code] ?? "").trim();
       if (!worded) missing.add(l.code);
       // The count is the SUBMITTED units: on the clinic's own sheet count x tariff price = requested on all 169
