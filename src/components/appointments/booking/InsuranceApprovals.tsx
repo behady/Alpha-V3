@@ -10,7 +10,9 @@ import { patchClaim, InsuranceCallError } from "@/components/insurance/api";
 import { useOpenShares } from "@/components/insurance/useOpenShares";
 import { useClinic } from "@/context/ClinicContext";
 import { useUI } from "@/context/UIContext";
-import { LINE_STATUSES, lineStatusOf, type InsuranceClaim, type LineStatus } from "@/lib/insurance/claims";
+import { LINE_STATUSES, isLineRemoved, lineStatusOf, type InsuranceClaim, type LineStatus } from "@/lib/insurance/claims";
+import { claimFinishedDate } from "@/lib/insurance/billingMonth";
+import LineDoneControls from "@/components/insurance/LineDoneControls";
 import type { ClaimLink } from "@/lib/insurance/appointments";
 import { formatDayLabel } from "./PatientTimeline";
 
@@ -49,6 +51,8 @@ export function approvalFigures(claims: readonly InsuranceClaim[]): { approved: 
   for (const c of claims) {
     if (c.status === "cancelled") continue;
     c.lines.forEach((line, i) => {
+      // A service deleted from the approval is neither credit to use nor work done.
+      if (isLineRemoved(c, i)) return;
       approved += Number(line.approvedAmount) || 0;
       if (lineStatusOf(c, i) === "Completed") done += Number(line.approvedAmount) || 0;
     });
@@ -176,7 +180,7 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
   /** Only this insurer's live approvals can be ticked; switching company tab leaves the others out. */
   const pickable = shown.filter((c) => c.status !== "cancelled");
   const pickedLines = pickable.flatMap((c) =>
-    c.lines.map((_, i) => ({ claim: c, line: i })).filter(({ line }) => picked.has(keyOf(c.id, line))),
+    c.lines.map((_, i) => ({ claim: c, line: i })).filter(({ line }) => !isLineRemoved(c, line) && picked.has(keyOf(c.id, line))),
   );
   const togglePick = (k: string) =>
     setPicked((prev) => {
@@ -191,7 +195,7 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
       keys.forEach((k) => (on ? next.add(k) : next.delete(k)));
       return next;
     });
-  const allKeys = pickable.flatMap((c) => c.lines.map((_, i) => keyOf(c.id, i)));
+  const allKeys = pickable.flatMap((c) => c.lines.map((_, i) => i).filter((i) => !isLineRemoved(c, i)).map((i) => keyOf(c.id, i)));
   const allPicked = allKeys.length > 0 && allKeys.every((k) => picked.has(k));
 
   /** One status for every ticked service: one save per approval, then the working ones join this visit. */
@@ -432,7 +436,8 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
         </div>
       )}
       {sorted.map((c) => {
-        const cardKeys = c.status === "cancelled" ? [] : c.lines.map((_, i) => keyOf(c.id, i));
+        const cardKeys = c.status === "cancelled" ? [] : c.lines.map((_, i) => i).filter((i) => !isLineRemoved(c, i)).map((i) => keyOf(c.id, i));
+        const finished = c.status === "treated" || c.status === "sent" ? claimFinishedDate(c) : null;
         const cardAll = cardKeys.length > 0 && cardKeys.every((k) => picked.has(k));
         const fig = approvalFigures([{ ...c, status: c.status === "cancelled" ? "approved" : c.status }]);
         return (
@@ -448,6 +453,18 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
               <span className="text-[13px] text-ink-body">
                 {isAr ? "اتعمل" : "Done"} <b className="font-figure text-ink">{money(fig.done)}</b> {isAr ? "من" : "of"}{" "}
                 <b className="font-figure text-ink">{money(fig.approved)}</b> · {formatDayLabel(c.approvalDate, isAr, false)} {c.approvalDate.slice(0, 4)}
+                {(c.status === "treated" || c.status === "sent") && (
+                  <>
+                    {" · "}
+                    {finished ? (
+                      <>
+                        {isAr ? "اتقفلت" : "Finished"} <bdi dir="ltr" className="font-figure text-ink">{finished}</bdi>
+                      </>
+                    ) : (
+                      <b className="text-ink">{isAr ? "لسه مخلصتش" : "Not finished"}</b>
+                    )}
+                  </>
+                )}
               </span>
             </div>
             {/* Phones: one card per approved service. The table needs 680px, so on a phone it
@@ -470,6 +487,19 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
                 const isLinked = linked(c.id, i);
                 const open = c.status !== "cancelled" && status !== "Completed";
                 const saving = busy === `${c.id}|${i}`;
+                const gone = isLineRemoved(c, i);
+                if (gone) {
+                  // Deleted from the approval: still listed (the paper names it), nothing to do but restore.
+                  return (
+                    <div key={i} className="flex flex-wrap items-center justify-between gap-2.5 border-b border-line px-4 py-3 last:border-b-0">
+                      <div className="min-w-0 flex-1 opacity-50">
+                        <span className="block font-figure text-[13px] text-ink-muted">{line.code}</span>
+                        <span className="block break-words text-ink line-through">{line.description}</span>
+                      </div>
+                      <LineDoneControls claim={c} line={i} />
+                    </div>
+                  );
+                }
                 return (
                   <div key={i} className={`flex flex-col gap-2.5 border-b border-line px-4 py-3 last:border-b-0 ${isLinked ? "bg-accent-tint" : ""}`}>
                     <div className="flex items-start gap-3">
@@ -537,6 +567,7 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
                           {isAr ? "للزيارة دي" : "Use for this visit"}
                         </button>
                       ) : null}
+                      <LineDoneControls claim={c} line={i} showLabel disabled={saving} />
                     </div>
                   </div>
                 );
@@ -560,7 +591,7 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
               </div>
             </div>
             <div className="custom-scrollbar overflow-x-auto max-md:hidden">
-              <table className="w-full min-w-[680px] border-collapse text-[15px]">
+              <table className="w-full min-w-[820px] border-collapse text-[15px]">
                 <thead>
                   <tr className="border-y border-line bg-surface-subtle text-[13px] font-semibold text-ink-body">
                     <th className="w-10 ps-5 py-2.5">
@@ -578,6 +609,7 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
                     <th className="px-4 py-2.5 text-end font-semibold">{isAr ? "الموافق عليه" : "Approved"}</th>
                     <th className="px-4 py-2.5 text-end font-semibold">{isAr ? "على المريض" : "Patient share"}</th>
                     <th className="px-4 py-2.5 text-start font-semibold">{isAr ? "الحالة" : "Status"}</th>
+                    <th className="px-4 py-2.5 text-start font-semibold">{isAr ? "اتعملت يوم" : "Done on"}</th>
                     <th className="px-5 py-2.5" />
                   </tr>
                 </thead>
@@ -587,6 +619,23 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
                     const isLinked = linked(c.id, i);
                     const open = c.status !== "cancelled" && status !== "Completed";
                     const saving = busy === `${c.id}|${i}`;
+                    if (isLineRemoved(c, i)) {
+                      // Deleted from the approval: still listed (the paper names it), nothing to do but restore.
+                      return (
+                        <tr key={i} className="border-b border-line last:border-b-0">
+                          <td className="w-10 ps-5 py-3" />
+                          <td className="px-5 py-3 opacity-50">
+                            <span className="block font-figure text-[13px] text-ink-muted">{line.code}</span>
+                            <span className="text-ink line-through">{line.description}</span>
+                          </td>
+                          <td className="px-4 py-3 text-end font-figure font-medium tabular-nums text-ink-faint line-through">{money(line.approvedAmount)}</td>
+                          <td className="px-4 py-3 text-end font-figure font-medium tabular-nums text-ink-faint line-through">{money(line.patientShare)}</td>
+                          <td colSpan={3} className="px-4 py-3">
+                            <LineDoneControls claim={c} line={i} />
+                          </td>
+                        </tr>
+                      );
+                    }
                     return (
                       <tr key={i} className={`border-b border-line last:border-b-0 ${isLinked ? "bg-accent-tint" : ""}`}>
                         <td className="w-10 ps-5 py-3">
@@ -625,6 +674,10 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
                             {saving && <Loader2 size={13} className="animate-spin text-ink-faint" />}
                           </span>
                         </td>
+                        {/* The day the service was done (editable), or a delete button while it is not done. */}
+                        <td className="px-4 py-3">
+                          <LineDoneControls claim={c} line={i} disabled={saving} />
+                        </td>
                         <td className="px-5 py-3 text-end">
                           {isLinked ? (
                             <span className="inline-flex items-center gap-2">
@@ -660,7 +713,7 @@ export default function InsuranceApprovals({ language, loaded, claims, claimLink
                     <td className="px-5 py-3 text-ink-body">{isAr ? "الإجمالي" : "Total"}</td>
                     <td className="px-4 py-3 text-end font-figure font-medium tabular-nums text-ink">{money(c.totals.approved)}</td>
                     <td className="px-4 py-3 text-end font-figure font-medium tabular-nums text-ink">{money(c.totals.patientShare)}</td>
-                    <td colSpan={2} className="px-4 py-3 text-[13px] font-semibold text-ink-body">
+                    <td colSpan={3} className="px-4 py-3 text-[13px] font-semibold text-ink-body">
                       {c.totals.patientShare > 0 &&
                         (openShare(c) === 0
                           ? isAr ? "حصة المريض اتدفعت" : "Patient share collected"

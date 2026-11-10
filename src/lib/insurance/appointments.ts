@@ -11,7 +11,7 @@
  * and the claims route (server).
  */
 
-import { lineStatusOf, type InsuranceClaim, type LineStatus } from "./claims";
+import { isLineRemoved, lineStatusOf, type InsuranceClaim, type LineStatus } from "./claims";
 
 export type ClaimLink = { claimId: string; claimLine: number };
 
@@ -115,11 +115,17 @@ export type ClaimProgress = { total: number; done: number; booked: number };
  * "2 of 3 done, 1 booked" for an approval: done counts the claim's own line states (the record of
  * truth), booked counts open lines with a visit on the calendar.
  */
-export function claimProgress(claim: Pick<InsuranceClaim, "id" | "lines" | "lineStatus" | "status">, appointments: readonly LinkedAppointmentLite[]): ClaimProgress {
-  const total = claim.lines.length;
+export function claimProgress(
+  claim: Pick<InsuranceClaim, "id" | "lines" | "lineStatus" | "status"> & { removedLines?: InsuranceClaim["removedLines"] },
+  appointments: readonly LinkedAppointmentLite[],
+): ClaimProgress {
+  let total = 0;
   let done = 0;
   let booked = 0;
   claim.lines.forEach((_, i) => {
+    // A service deleted from the approval is not waiting to be done.
+    if (isLineRemoved(claim, i)) return;
+    total += 1;
     if (lineStatusOf(claim, i) === "Completed") {
       done += 1;
       return;

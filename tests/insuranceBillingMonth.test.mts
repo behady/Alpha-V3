@@ -7,6 +7,7 @@
 import assert from "node:assert/strict";
 import { insuranceTreatmentRows, parseClaim, type InsuranceClaim } from "../src/lib/insurance/claims";
 import { insurancePendingShare, insuranceWorkByStaff, unassignedLines } from "../src/lib/staffInsurance";
+import { claimProgress } from "../src/lib/insurance/appointments";
 import { buildMetlifeStatement } from "../src/lib/insuranceStatementMetlife";
 import { buildNextcareStatement } from "../src/lib/insuranceStatementNextcare";
 import {
@@ -237,5 +238,14 @@ assert.equal(nextSheet([open], OCT, "finish").cases.length + nextSheet([open], N
 assert.deepEqual(nextSheet([removed], OCT, "finish").cases[0].lines.map((l) => l.rowId), ["c1#0", "c1#1"], "a deleted service is not printed");
 assert.equal(nextSheet([removed], OCT).cases[0].lines.length, 2, "with or without a mode");
 assert.equal(nextSheet([{ ...split, status: "approved" as const }], OCT, "approval").cases.length, 0, "not treated: on no sheet");
+
+// --- 15. "2 of 3 done" counts only the services still on the approval ------------------------------------
+assert.deepEqual(claimProgress(open, []), { total: 3, done: 2, booked: 0 });
+assert.deepEqual(claimProgress(removed, []), { total: 2, done: 2, booked: 0 }, "a deleted service is not waiting to be done");
+assert.deepEqual(
+  claimProgress(removed, [{ id: "a1", claimId: "c1", claimLine: 2, status: "Scheduled", date: "2026-11-20", time: "10:00 AM" }]),
+  { total: 2, done: 2, booked: 0 },
+  "nor is a visit once booked for it counted",
+);
 
 console.log("insuranceBillingMonth: all checks passed");

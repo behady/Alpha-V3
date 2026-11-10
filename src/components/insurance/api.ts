@@ -185,6 +185,17 @@ export async function patchClaim(clinicId: string, claimId: string, patch: Claim
   return typeof data.error === "string" && data.error ? data.error : `HTTP ${status}`;
 }
 
+/**
+ * One edit to a single service of an approval (its done date, deleting it, restoring it). Like
+ * `patchClaim`, plus what the server said about money: deleting a service the patient had paid on
+ * keeps that payment on their account, and `creditKept` is how much.
+ */
+export async function editClaimLine(clinicId: string, claimId: string, patch: ClaimPatch): Promise<{ error: string | null; creditKept: number }> {
+  const { status, data } = await call("PATCH", "/api/insurance/claims", { clinicId, claimId, patch });
+  if (status === 200 && data.ok === true) return { error: null, creditKept: typeof data.creditKept === "number" ? data.creditKept : 0 };
+  return { error: typeof data.error === "string" && data.error ? data.error : `HTTP ${status}`, creditKept: 0 };
+}
+
 /** A blank header, for "type it myself": every field empty, in the split shape the claims route keeps. */
 export function blankHeader(): MetlifeHeader {
   return {

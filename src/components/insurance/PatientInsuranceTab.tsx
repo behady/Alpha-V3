@@ -23,14 +23,16 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { collection, doc, getDocs, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import { ref, getDownloadURL } from "firebase/storage";
-import { CalendarPlus, FileText, Loader2, Banknote, CheckCircle2, RefreshCw, RotateCcw, Send } from "lucide-react";
+import { CalendarPlus, FileText, Loader2, Banknote, CheckCircle2, RefreshCw, RotateCcw, Send, Undo2 } from "lucide-react";
 import { db, storage } from "@/lib/firebase";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { useBranchForMoney } from "@/lib/useBranchForMoney";
 import { isAnyUnlocked } from "@/lib/featureCatalog";
-import { CLAIMS_COLLECTION, LINE_STATUSES, lineStatusOf, parseClaim, type ClaimStatus, type InsuranceClaim, type LineStatus } from "@/lib/insurance/claims";
+import { CLAIMS_COLLECTION, LINE_STATUSES, isLineRemoved, lineStatusOf, parseClaim, type ClaimStatus, type InsuranceClaim, type LineStatus } from "@/lib/insurance/claims";
+import { claimFinishedDate } from "@/lib/insurance/billingMonth";
+import LineDoneControls from "./LineDoneControls";
 import { bookLineUrl, claimProgress, lineBooking, type LinkedAppointmentLite } from "@/lib/insurance/appointments";
 import { readInsurance } from "@/lib/patientInsurance";
 import { useOpenShares } from "./useOpenShares";
@@ -159,6 +161,21 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
     setBusy(claim.id);
     try {
       const error = await patchClaim(clinicId, claim.id, { lineStatus: { [lineIndex]: state } });
+      if (error) showToast(error, "error");
+      else showToast(t("updated"), "success");
+    } catch (err) {
+      fail(err, "updateFailed");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /** Back from sent to treated, with no "already sent" question: undoing that is the whole point. */
+  const unsend = async (claim: InsuranceClaim) => {
+    if (!clinicId) return;
+    setBusy(claim.id);
+    try {
+      const error = await patchClaim(clinicId, claim.id, { status: "treated" });
       if (error) showToast(error, "error");
       else showToast(t("updated"), "success");
     } catch (err) {
@@ -342,7 +359,10 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
               // One service's controls, drawn as a table row on wide screens and as a card on phones.
               const lineCells = (line: InsuranceClaim["lines"][number], i: number) => {
                 const visit = lineBooking(appointments, c.id, i);
-                const open = c.status !== "cancelled" && lineStatusOf(c, i) !== "Completed";
+                // A service deleted from the approval is still listed (the paper names it) with nothing
+                // to pick on it: only the restore button.
+                const gone = isLineRemoved(c, i);
+                const open = c.status !== "cancelled" && !gone && lineStatusOf(c, i) !== "Completed";
                 const bookHref = bookLineUrl(patientId, { claimId: c.id, claimLine: i });
                 const dentist = (
                   <div className="flex items-center gap-2">
@@ -412,7 +432,14 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                       <CalendarPlus size={16} /> {t("book")}
                     </Link>
                   );
-                return { name: wording[line.code]?.trim() || line.description, dentist, state, visit: visitCell };
+                const name = wording[line.code]?.trim() || line.description;
+                // The day it was done (editable), a delete button while it is not done, or Restore once deleted.
+                const doneOn = <LineDoneControls claim={c} line={i} disabled={isBusy} />;
+                if (gone) {
+                  const dash = <span className="text-ink-faint">—</span>;
+                  return { name: <span className="text-ink-faint line-through">{name}</span>, dentist: dash, state: dash, visit: dash, doneOn, gone };
+                }
+                return { name, dentist, state, visit: visitCell, doneOn, gone };
               };
               return (
                 <article key={c.id} className="overflow-hidden rounded-xl border border-line bg-surface">
@@ -434,6 +461,18 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                         <p className="text-[12px] font-bold text-ink-muted">
                           {t("progress").replace("{done}", String(progress.done)).replace("{total}", String(progress.total)).replace("{booked}", String(progress.booked))}
                         </p>
+                        {/* The month it is billed in: the day its last service was done. */}
+                        {(c.status === "treated" || c.status === "sent") && (
+                          <p className="text-[12px] font-bold text-ink-muted">
+                            {claimFinishedDate(c) ? (
+                              <>
+                                {t("colFinished")} <bdi dir="ltr" className="font-figure text-ink">{claimFinishedDate(c)}</bdi>
+                              </>
+                            ) : (
+                              <span className="text-ink">{t("notFinished")}</span>
+                            )}
+                          </p>
+                        )}
                         {/* One status per approval, as on the insurer's sheet: the paper is treated or sent as a whole. */}
                         <span title={t("statusForApproval")} className={`mt-1 inline-block rounded-full border px-3 py-1 text-[13px] font-black ${status.pill}`}>
                           {t(status.key)}
@@ -455,6 +494,12 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                     {c.status === "treated" && (
                       <button type="button" onClick={() => setStatus(c, { status: "sent" })} disabled={isBusy} className={actionBtn}>
                         <Send size={15} /> {t("markSent")}
+                      </button>
+                    )}
+                    {/* A sent approval's month is locked; this unlocks it so it can be corrected. */}
+                    {c.status === "sent" && (
+                      <button type="button" onClick={() => unsend(c)} disabled={isBusy} className={actionBtn}>
+                        <Undo2 size={15} /> {t("markNotSent")}
                       </button>
                     )}
                     {c.status !== "cancelled" && Object.keys(c.ledgerIds).length > 0 &&
@@ -519,7 +564,10 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                               {cell.state}
                             </label>
                           </div>
-                          <div className="text-[14px] font-semibold text-ink-body">{cell.visit}</div>
+                          <div className="flex flex-wrap items-center justify-between gap-2 text-[14px] font-semibold text-ink-body">
+                            {cell.gone ? <span /> : <span>{cell.visit}</span>}
+                            <LineDoneControls claim={c} line={i} showLabel disabled={isBusy} />
+                          </div>
                         </div>
                       );
                     })}
@@ -527,7 +575,7 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
 
                   {/* The services on the paper, one row each. */}
                   <div className="hidden overflow-x-auto md:block">
-                    <table className="w-full min-w-[60rem] border-collapse text-[14px]">
+                    <table className="w-full min-w-[70rem] border-collapse text-[14px]">
                       <thead>
                         <tr className="border-b border-line text-[12px] font-bold text-ink-muted">
                           <th className="px-5 py-2.5 text-start">{t("colService")}</th>
@@ -536,6 +584,7 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                           <th className="px-3 py-2.5 text-end">{t("colApproved")}</th>
                           <th className="px-3 py-2.5 text-start">{t("colDentist")}</th>
                           <th className="px-3 py-2.5 text-start">{t("colState")}</th>
+                          <th className="px-3 py-2.5 text-start">{t("colDoneOn")}</th>
                           <th className="px-5 py-2.5 text-start">{t("colVisit")}</th>
                         </tr>
                       </thead>
@@ -550,6 +599,7 @@ export default function PatientInsuranceTab({ patientId, patient }: { patientId:
                               <td className="px-3 py-3 text-end font-figure text-[16px] font-extrabold tabular-nums text-ink">{money(line.approvedAmount)}</td>
                               <td className="px-3 py-2.5">{cell.dentist}</td>
                               <td className="px-3 py-2.5">{cell.state}</td>
+                              <td className="px-3 py-2.5">{cell.doneOn}</td>
                               {/* The calendar's view of this service: done, booked, or a Book button that opens
                                   the dashboard's booking popup on this patient with this service picked. */}
                               <td className="px-5 py-2.5 text-[14px] font-semibold text-ink-body">{cell.visit}</td>
