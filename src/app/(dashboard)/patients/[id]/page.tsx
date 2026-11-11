@@ -11,7 +11,7 @@ import {
   ChevronDown, MessageCircle, AlertCircle, Wallet, LayoutDashboard, Users, History, CreditCard,
   PhoneForwarded, CheckCircle2, UserX, Globe, MessageCircleOff, MessageSquare, MessageSquareOff, ScrollText,
   BellPlus, Star, Printer, Pill, Check, Calendar, Camera, UploadCloud, FilePlus, Eye, Download, StickyNote, ClipboardList, ShieldCheck, MoreHorizontal, Plus,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, FlaskConical
 } from "lucide-react";
 import { auth, db, storage } from "@/lib/firebase";
 import { doc, onSnapshot, updateDoc, deleteDoc, collection, query, where, limit, orderBy, addDoc, serverTimestamp } from "firebase/firestore";
@@ -31,6 +31,7 @@ import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import { PRIVATE_PAYER_ID } from "@/lib/payers";
 import { readInsurance, writeInsurance, type PatientInsuranceEntry } from "@/lib/patientInsurance";
 import PatientInsuranceTab from "@/components/insurance/PatientInsuranceTab";
+import PatientLabTab from "@/components/lab/PatientLabTab";
 import { isAnyUnlocked } from "@/lib/featureCatalog";
 import PermissionGuard from "@/components/PermissionGuard";
 import Protect from "@/components/Protect";
@@ -223,9 +224,11 @@ export default function PatientProfile() {
   const [isDeleting, setIsDeleting] = useState(false);
   const canViewClinical = isAdmin || user?.role === "Admin" || user?.role === "Dentist" || user?.permissions?.includes("access.clinical");
   const canViewOrtho = isAdmin || user?.role === "Admin" || user?.role === "Dentist" || user?.permissions?.includes("access.ortho");
+  /** The Lab tab opens for whoever may open the Lab page: the add-on is on and they hold access.lab. */
+  const canViewLab = !!clinic && isAnyUnlocked(clinic, "lab") && (isAdmin || !!user?.permissions?.includes("access.lab"));
 
   // Start empty so we don't flash the wrong tab during auth load
-  const [activeTab, setActiveTab] = useState<"overview" | "clinical" | "plan" | "finance" | "insurance" | "timeline" | "xrays" | "prescriptions" | "notes" | "">("");
+  const [activeTab, setActiveTab] = useState<"overview" | "clinical" | "plan" | "finance" | "insurance" | "lab" | "timeline" | "xrays" | "prescriptions" | "notes" | "">("");
   // A hidden tab stays hidden: the overview's "full ledger" button and a ?tab=finance link used
   // to land on it anyway. Adjusted during render, not in an effect.
   if (chair && (activeTab === "finance" || activeTab === "insurance")) setActiveTab(canViewClinical ? "clinical" : "overview");
@@ -289,6 +292,7 @@ export default function PatientProfile() {
     canViewClinical ? "clinical,plan" : "",
     chair ? "" : "finance",
     clinic && isAnyUnlocked(clinic, "insurance") && !chair ? "insurance" : "",
+    canViewLab ? "lab" : "",
   ].join("|");
   const lastCentredTab = useRef<string | null>(null);
   useEffect(() => {
@@ -373,7 +377,7 @@ export default function PatientProfile() {
               tabParam === "timeline" || tabParam === "xrays" || tabParam === "prescriptions" ||
               tabParam === "notes" || tabParam === "plan" ||
               // The Insurance tab locks itself when the add-on is off, and chair mode moves off it.
-              tabParam === "insurance"
+              tabParam === "insurance" || tabParam === "lab"
           ) {
               setActiveTab(tabParam);
           } else {
@@ -1023,12 +1027,14 @@ export default function PatientProfile() {
   ];
   const avatarGradient = avatarPalette[(patient.name || "").length % avatarPalette.length];
 
-  const tabs: Array<{ id: "clinical" | "overview" | "plan" | "finance" | "insurance" | "timeline" | "xrays" | "prescriptions" | "notes"; label: string; icon: any; show: boolean }> = [
+  const tabs: Array<{ id: "clinical" | "overview" | "plan" | "finance" | "insurance" | "lab" | "timeline" | "xrays" | "prescriptions" | "notes"; label: string; icon: any; show: boolean }> = [
     { id: "clinical", label: language === "ar" ? "السجل السريري" : "Clinical", icon: Activity, show: !!canViewClinical },
     { id: "plan", label: language === "ar" ? "خطة العلاج" : "Treatment Plan", icon: ClipboardList, show: !!canViewClinical },
     { id: "finance", label: language === "ar" ? "المالية" : "Finance", icon: Wallet, show: !chair },
     // Only a clinic with the insurance add-on has approvals to show; others never see the tab.
     { id: "insurance", label: language === "ar" ? "التأمين" : "Insurance", icon: ShieldCheck, show: !!clinic && isAnyUnlocked(clinic, "insurance") && !chair },
+    // Lab work follows the Lab page: the add-on must be on and the person must be allowed in there.
+    { id: "lab", label: language === "ar" ? "المعمل" : "Lab", icon: FlaskConical, show: canViewLab },
     { id: "timeline", label: language === "ar" ? "سجل الزيارات" : "Timeline", icon: History, show: true },
     { id: "overview", label: language === "ar" ? "نظرة عامة" : "Overview", icon: LayoutDashboard, show: true },
     { id: "xrays", label: language === "ar" ? "الأشعة والصور" : "X-Rays & Photos", icon: Camera, show: true },
@@ -1914,6 +1920,12 @@ export default function PatientProfile() {
           {activeTab === "finance" && (
             <div className="animate-in fade-in duration-300 mt-6">
                 <PatientFinance patientId={id} />
+            </div>
+          )}
+
+          {activeTab === "lab" && canViewLab && (
+            <div className="animate-in fade-in duration-300 mt-6">
+                <PatientLabTab patientId={id} patient={patient} hideMoney={chair} />
             </div>
           )}
 

@@ -635,6 +635,29 @@ export function summarise(cases: LabCase[], today: string) {
   return { overdue, dueThisWeek, waitingForPatient, atLab, total: cases.length };
 }
 
+/**
+ * One patient's cases, as their file shows them.
+ *
+ * The cases still moving come first — they are the reason somebody opened the tab — and each group
+ * runs newest first. The three counts answer the desk's question without reading the rows: is
+ * anything out, is anything late, is anything sitting here waiting for this patient.
+ */
+export function patientLabView<T extends Pick<LabCase, "status" | "dueDate" | "codeNumber">>(cases: T[], today: string) {
+  const rows = [...cases].sort((a, b) => {
+    const closed = Number(statusFor(a.status).closed) - Number(statusFor(b.status).closed);
+    return closed || (b.codeNumber || 0) - (a.codeNumber || 0);
+  });
+  let open = 0;
+  let waiting = 0;
+  let overdue = 0;
+  for (const c of cases) {
+    if (!statusFor(c.status).closed) open += 1;
+    if (c.status === "back") waiting += 1;
+    if (dueStateFor(c, today) === "overdue") overdue += 1;
+  }
+  return { rows, open, waiting, overdue };
+}
+
 
 /**
  * Whether the clinic asked to be told when a case comes back.

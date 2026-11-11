@@ -911,3 +911,30 @@ assert.equal(wantsLabReadyAlert({ inApp: { labReady: true } }), true);
 assert.equal(wantsLabReadyAlert({ inApp: { patientArrival: true } }), false);
 
 console.log("✓ lab phase 3: the lab's message keeps the patient's full name out of it, and the bell stays off until asked");
+
+// --- the patient file's Lab tab --------------------------------------------------------------------
+//
+// One patient's cases: the ones still moving come first (they are why somebody opened the tab),
+// newest first inside each group, and the counts above the list answer "is anything waiting for
+// this patient" without reading the rows.
+import { patientLabView } from "../src/lib/labCases.ts";
+{
+  const mk = (codeNumber, status, extra = {}) => ({ id: `c${codeNumber}`, code: `MAD-${codeNumber}`, codeNumber, status, teeth: [], needsTryIn: false, agreedPrice: 0, ...extra });
+  const view = patientLabView(
+    [
+      mk(10, "fitted"),
+      mk(11, "at_lab", { dueDate: "2026-11-01" }),
+      mk(12, "cancelled"),
+      mk(13, "back"),
+      mk(14, "at_lab", { dueDate: "2026-11-20" }),
+    ],
+    "2026-11-11"
+  );
+  assert.deepEqual(view.rows.map((c) => c.codeNumber), [14, 13, 11, 12, 10], "open first, newest first in each group");
+  assert.equal(view.open, 3);
+  assert.equal(view.waiting, 1, "back at the clinic and not fitted");
+  assert.equal(view.overdue, 1, "only a case still at the lab can be late");
+  const empty = patientLabView([], "2026-11-11");
+  assert.deepEqual(empty, { rows: [], open: 0, waiting: 0, overdue: 0 });
+}
+console.log("✓ patient file lab tab: open cases first, and the counts above them");
