@@ -4,8 +4,10 @@
  * The claims of one insurer whose approval date — or finish date — falls in [from, to], live.
  *
  * Reads `clinics/{clinicId}/insurance_claims` directly (clinic members may read it; only the
- * server writes it) with the `payerId + approvalDate` index, or `payerId + finishedDate` when the
- * page shows approvals by the day they were finished (the server stores that day on every write). Each document goes through
+ * server writes it) with the `payerId + approvalDate` index. By finish date (the day the server
+ * stores on every write) it asks for the clinic's approvals finished in the range and keeps this
+ * insurer's here: a month of one clinic's approvals is a small list, and it needs no new index —
+ * so the page cannot be broken by a deploy that has not built one yet. Each document goes through
  * `parseClaim`, so a malformed one is dropped rather than rendered half-empty. The clinic id is
  * passed in, never taken from the global pointer, so a clinic switch re-subscribes.
  *
@@ -39,18 +41,17 @@ export function useClaims(
 
   useEffect(() => {
     if (!key || !clinicId) return;
-    const q = query(
-      collection(db, "clinics", clinicId, CLAIMS_COLLECTION),
-      where("payerId", "==", payerId),
-      where(field, ">=", from),
-      where(field, "<=", to),
-    );
+    const claimsRef = collection(db, "clinics", clinicId, CLAIMS_COLLECTION);
+    const q =
+      field === "approvalDate"
+        ? query(claimsRef, where("payerId", "==", payerId), where("approvalDate", ">=", from), where("approvalDate", "<=", to))
+        : query(claimsRef, where("finishedDate", ">=", from), where("finishedDate", "<=", to));
     return onSnapshot(
       q,
       (s) => {
         const claims = s.docs
           .map((d) => parseClaim(d.id, d.data()))
-          .filter((c): c is InsuranceClaim => c !== null)
+          .filter((c): c is InsuranceClaim => c !== null && c.payerId === payerId)
           .sort(byNewest(field));
         setSnap({ key, claims, failed: false });
       },
