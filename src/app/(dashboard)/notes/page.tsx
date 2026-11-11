@@ -164,8 +164,8 @@ function NotesPageInner() {
       </div>
 
       {/* Phone: search on its own line, then person and type side by side, then the dates. */}
-      <div className="grid grid-cols-2 gap-2 md:flex md:items-center">
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={isAr ? "دوّر باسم المريض" : "Search patient"} className={`${FIELD} col-span-2 min-w-0 md:flex-1`} />
+      <div className="grid grid-cols-2 gap-2 md:flex md:flex-wrap md:items-center">
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={isAr ? "دوّر باسم المريض" : "Search patient"} className={`${FIELD} col-span-2 min-w-0 md:min-w-[14rem] md:flex-1`} />
         <select value={who} onChange={(e) => setWho(e.target.value)} className={`${FIELD} min-w-0 md:w-52`}>
           <option value="">{isAr ? "الكل" : "Everyone"}</option>
           {people.map(([uid, name]) => (
