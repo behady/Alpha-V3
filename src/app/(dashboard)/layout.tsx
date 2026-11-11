@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Users, Calendar, Wallet, Settings, Sparkles,
   FileBarChart, Menu, X, LogOut, Languages,
   Package, Clock, FlaskConical, ShieldCheck,
-  LifeBuoy, Inbox, Megaphone, Rocket, ShoppingBag, Lock, Activity, UserRound, PhoneCall
+  LifeBuoy, Inbox, Megaphone, Rocket, ShoppingBag, Lock, Activity, UserRound, StickyNote
 } from "lucide-react";
 import { isAnyUnlocked, type FeatureKey } from "@/lib/featureCatalog";
 
@@ -294,9 +294,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
      * the one page a receptionist opens all day — a patient writing is a patient at the desk.
      */
     { key: "chats", href: "/chats", icon: WhatsAppIcon, badge: unreadChats },
-    // Calls the desk promised to make (call reminders). On phones it sits in the menu sheet; the
-    // dashboard card is where the day's calls are worked.
-    { key: "calls", href: "/calls", icon: PhoneCall },
+    // Notes: calls the desk promised to make and other patient reminders (key stays `calls`).
+    // On phones it sits in the menu sheet; the dashboard card is where the day's notes are worked.
+    { key: "calls", href: "/notes", icon: StickyNote },
     { key: "marketing", href: "/marketing", icon: Megaphone },
     { key: "patients", href: "/patients", icon: Users },
     { key: "appointments", href: "/appointments", icon: Calendar },

@@ -1,4 +1,4 @@
-import { Edit2, ArrowRightLeft, Copy, Trash2, RefreshCcw, GripVertical, ChevronUp, ChevronDown, PhoneForwarded } from "lucide-react";
+import { Edit2, ArrowRightLeft, Copy, Trash2, RefreshCcw, GripVertical, ChevronUp, ChevronDown, BellPlus } from "lucide-react";
 import { Note } from "./types";
 import { useLanguage } from "@/context/LanguageContext";
 import Protect from "@/components/Protect";
@@ -48,7 +48,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
     move: language === "ar" ? "نقل إلى موعد آخر" : "Move to another appointment",
     continue: language === "ar" ? "استكمال في موعد آخر" : "Continue in another appointment",
     delete: language === "ar" ? "حذف" : "Delete",
-    callReminder: language === "ar" ? "تذكير بمكالمة" : "Call reminder",
+    callReminder: language === "ar" ? "ملاحظة متابعة" : "Follow-up note",
     dragHint: language === "ar" ? "اسحب لإعادة الترتيب" : "Drag to reorder",
     moveUp: language === "ar" ? "تحريك لأعلى" : "Move up",
     moveDown: language === "ar" ? "تحريك لأسفل" : "Move down",
@@ -148,7 +148,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
               aria-label={txt.callReminder}
               className="p-1.5 rounded-lg text-ink-body bg-surface-subtle hover:bg-surface-muted transition-colors border border-line"
             >
-              <PhoneForwarded size={13} />
+              <BellPlus size={13} />
             </button>
           )}
           {!note.isContinued && (
@@ -262,7 +262,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
             aria-label={txt.callReminder}
             className="p-2.5 max-md:p-3 rounded-lg text-ink-body bg-surface-subtle hover:bg-surface-muted transition-colors shadow-sm border border-line"
           >
-            <PhoneForwarded size={16} />
+            <BellPlus size={16} />
           </button>
         )}
 

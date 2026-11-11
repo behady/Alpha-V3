@@ -30,7 +30,7 @@ import {
   Trash2,
   CloudOff,
   Pencil,
-  PhoneForwarded,
+  BellPlus,
 } from "lucide-react";
 import CallReminderDialog from "@/components/calls/CallReminderDialog";
 import {
@@ -2140,10 +2140,10 @@ servicesList.length > 0 && (
                 <button
                   type="button"
                   onClick={() => setCallReminderOpen(true)}
-                  aria-label={isAr ? "تذكير بمكالمة" : "Call reminder"}
+                  aria-label={isAr ? "ملاحظة متابعة" : "Follow-up note"}
                   className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-white/20 text-white/80 transition-colors active:bg-white/10"
                 >
-                  <PhoneForwarded size={17} />
+                  <BellPlus size={17} />
                 </button>
               )}
               <button
@@ -2242,7 +2242,7 @@ servicesList.length > 0 && (
                     onClick={() => setCallReminderOpen(true)}
                     className="mt-1 inline-flex items-center gap-1.5 self-start rounded-full bg-white/10 px-3 py-1 text-sm font-bold text-white transition-colors hover:bg-white/20"
                   >
-                    <PhoneForwarded size={14} aria-hidden="true" /> {isAr ? "تذكير بمكالمة" : "Call reminder"}
+                    <BellPlus size={14} aria-hidden="true" /> {isAr ? "ملاحظة متابعة" : "Follow-up note"}
                   </button>
                 </>
               )}

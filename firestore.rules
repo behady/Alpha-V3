@@ -435,6 +435,25 @@ service cloud.firestore {
           && resource.data.get('email', '') == request.auth.token.email
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uid'])
           && request.resource.data.uid == request.auth.uid;
+
+        /**
+         * Registering your first attendance phone.
+         *
+         * The first clock-in writes the phone's id onto the person's own staff row, and every
+         * later punch is checked against it. With the row Admin-only that write was refused for
+         * everyone below Admin, so a new receptionist or dentist could never clock in at all —
+         * the screen said "could not save, check your internet" and no attendance row was made.
+         *
+         * Narrow on purpose: your own row, this one field, and only while no phone is registered.
+         * Swapping or clearing a registered phone stays an Admin decision (Attendance → Team →
+         * Settings → unlink), or the lock would stop meaning anything.
+         */
+        allow update: if isAuth() && hasClinicRole(clinicId) && isClinicActive(clinicId)
+          && resource.data.get('uid', '') == request.auth.uid
+          && resource.data.get('registeredDeviceId', null) == null
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['registeredDeviceId'])
+          && request.resource.data.registeredDeviceId is string
+          && request.resource.data.registeredDeviceId.size() > 0;
       }
 
       match /settings/{docId} {

@@ -130,6 +130,19 @@ async function main() {
       name: "Dr. Ahmed",
       commissionPercentage: 40,
     });
+    // The assistant's own row, linked to their login, with no attendance phone registered yet —
+    // exactly the state every newly added staff member is in before their first clock-in.
+    await setDoc(doc(db, "clinics/clinicA/staff/staffAssistant1"), {
+      name: "Assistant One",
+      uid: "assistant1",
+      commissionPercentage: 10,
+    });
+    // A colleague who has already registered a phone.
+    await setDoc(doc(db, "clinics/clinicA/staff/staffLimited1"), {
+      name: "Reception One",
+      uid: "limited1",
+      registeredDeviceId: "phone-limited",
+    });
     await setDoc(doc(db, "clinics/clinicA/settings/whatsapp"), {
       templates: [],
     });
@@ -486,6 +499,54 @@ async function main() {
   await check(
     "a non-Admin clinic member can still read staff records",
     getDoc(doc(assistant1, "clinics/clinicA/staff/staffDoc1")),
+    "allow"
+  );
+
+  // The first clock-in registers the phone in the person's hand as their attendance device. With
+  // staff rows Admin-only, that write was refused for everyone below Admin, and the punch failed
+  // with "could not save" before the attendance row was ever attempted.
+  console.log("clinics/{clinicId}/staff/{staffId} — attendance device");
+  await check(
+    "a member cannot register a phone on a colleague's row",
+    updateDoc(doc(assistant1, "clinics/clinicA/staff/staffDoc1"), { registeredDeviceId: "phone-a" }),
+    "deny"
+  );
+  await check(
+    "a member cannot smuggle another field in with the phone",
+    updateDoc(doc(assistant1, "clinics/clinicA/staff/staffAssistant1"), {
+      registeredDeviceId: "phone-a",
+      commissionPercentage: 99,
+    }),
+    "deny"
+  );
+  await check(
+    "a member cannot register an empty phone id",
+    updateDoc(doc(assistant1, "clinics/clinicA/staff/staffAssistant1"), { registeredDeviceId: "" }),
+    "deny"
+  );
+  await check(
+    "a member can register their first attendance phone on their own row",
+    updateDoc(doc(assistant1, "clinics/clinicA/staff/staffAssistant1"), { registeredDeviceId: "phone-a" }),
+    "allow"
+  );
+  await check(
+    "once a phone is registered the member cannot swap it for another",
+    updateDoc(doc(assistant1, "clinics/clinicA/staff/staffAssistant1"), { registeredDeviceId: "phone-b" }),
+    "deny"
+  );
+  await check(
+    "a member cannot unlink their own phone — that stays an Admin decision",
+    updateDoc(doc(limited1, "clinics/clinicA/staff/staffLimited1"), { registeredDeviceId: null }),
+    "deny"
+  );
+  await check(
+    "an Admin can unlink a member's phone",
+    updateDoc(doc(admin1, "clinics/clinicA/staff/staffLimited1"), { registeredDeviceId: null }),
+    "allow"
+  );
+  await check(
+    "after an Admin unlinks it, the member can register a new phone",
+    updateDoc(doc(limited1, "clinics/clinicA/staff/staffLimited1"), { registeredDeviceId: "phone-new" }),
     "allow"
   );
 

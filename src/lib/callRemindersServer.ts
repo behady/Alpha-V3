@@ -9,6 +9,7 @@ import { ALL_BRANCHES } from "@/lib/branchAccess";
 import {
   CALL_REMINDERS_COLLECTION,
   cleanReason,
+  normalizeKind,
   computeFireAt,
   validateReminderInput,
   type ReminderInput,
@@ -51,6 +52,7 @@ export async function createReminder(clinicId: string, actor: Actor, input: Remi
   const fireAt = Timestamp.fromDate(computeFireAt(v.date, v.time, await morningHour(clinicId)));
   const ref = reminders(clinicId).doc();
   const doc: Record<string, unknown> = {
+    kind: normalizeKind(v.kind),
     patientId: v.patientId,
     patientName: String(p.name || ""),
     patientPhone: String(p.phone || ""),
@@ -119,6 +121,8 @@ export async function reschedule(clinicId: string, actor: Actor, id: string, dat
   const nextRef = reminders(clinicId).doc();
   const result = await handle(clinicId, id, actor, { status: "rescheduled", nextId: nextRef.id, ...noteField(note) }, (tx, cur) => {
     const next: Record<string, unknown> = {
+      // "Again" keeps the note's type; an old note with none is a call.
+      kind: normalizeKind(cur.kind),
       patientId: cur.patientId,
       patientName: cur.patientName,
       patientPhone: cur.patientPhone,
@@ -162,7 +166,7 @@ export async function editReminder(
   clinicId: string,
   actor: Actor,
   id: string,
-  fields: { date: string; time: string | null; reason: string; recipient: ReminderInput["recipient"] },
+  fields: { date: string; time: string | null; reason: string; recipient: ReminderInput["recipient"]; kind?: unknown },
 ): Promise<Outcome> {
   const ref = reminders(clinicId).doc(String(id || "x"));
   const current = (await ref.get()).data();
@@ -181,6 +185,8 @@ export async function editReminder(
     if (!snap.exists) return fail(404, "not-found");
     if (snap.data()?.status !== "open") return fail(409, "already-handled");
     tx.update(ref, {
+      // Left out of the request, the type stays what it was.
+      ...(fields.kind === undefined ? {} : { kind: normalizeKind(fields.kind) }),
       date: v.date,
       time: v.time,
       reason: v.reason,

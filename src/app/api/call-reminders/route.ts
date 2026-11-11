@@ -45,6 +45,7 @@ export async function POST(request: Request) {
           time: typeof body.time === "string" && body.time ? body.time : null,
           reason: String(body.reason ?? ""),
           recipient: body.recipient as ReminderInput["recipient"],
+          ...(body.kind === undefined ? {} : { kind: body.kind }),
         }),
       );
     case "delete":
