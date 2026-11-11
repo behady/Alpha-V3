@@ -10,7 +10,7 @@ import {
   Activity, User, CalendarDays, Stethoscope, Trash2, 
   ChevronDown, MessageCircle, AlertCircle, Wallet, LayoutDashboard, Users, History, CreditCard,
   PhoneForwarded, CheckCircle2, UserX, Globe, MessageCircleOff, MessageSquare, MessageSquareOff, ScrollText,
-  Star, Printer, Pill, Check, Calendar, Camera, UploadCloud, FilePlus, Eye, Download, StickyNote, ClipboardList, ShieldCheck, MoreHorizontal, Plus,
+  BellPlus, Star, Printer, Pill, Check, Calendar, Camera, UploadCloud, FilePlus, Eye, Download, StickyNote, ClipboardList, ShieldCheck, MoreHorizontal, Plus,
   ChevronLeft, ChevronRight
 } from "lucide-react";
 import { auth, db, storage } from "@/lib/firebase";
@@ -1112,10 +1112,10 @@ export default function PatientProfile() {
               <button
                 type="button"
                 onClick={() => setCallReminderOpen(true)}
-                aria-label={language === 'ar' ? 'تذكير بمكالمة' : 'Call reminder'}
+                aria-label={language === 'ar' ? 'ملاحظة متابعة' : 'Follow-up note'}
                 className="inline-flex h-10 items-center gap-2 rounded-xl border border-line bg-surface px-4 text-sm font-bold text-ink transition-colors hover:bg-surface-subtle max-md:w-10 max-md:justify-center max-md:px-0"
               >
-                <PhoneForwarded size={15} /> <span className="max-md:sr-only">{language === 'ar' ? 'تذكير بمكالمة' : 'Call reminder'}</span>
+                <BellPlus size={15} /> <span className="max-md:sr-only">{language === 'ar' ? 'ملاحظة متابعة' : 'Follow-up note'}</span>
               </button>
               <Protect permission="patients.edit">
                 <button

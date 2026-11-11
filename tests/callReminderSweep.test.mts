@@ -104,9 +104,9 @@ const read = async (id: string) => (await col("call_reminders").doc(id).get()).d
   check("sends one reminder", sent === 1 && calls.length === 1, { sent, calls: calls.length });
   check("to the b1 receptionists and the one who works everywhere", JSON.stringify(calls[0]?.opts.uids) === JSON.stringify(["rec-a", "rec-c"]), calls[0]?.opts.uids);
   check("as the callReminderDue event", calls[0]?.opts.event === "callReminderDue");
-  check("opens the reminder on the Calls page", calls[0]?.opts.actionUrl === "/calls?id=r1");
+  check("opens the reminder on the Notes page", calls[0]?.opts.actionUrl === "/notes?id=r1");
   check("titled as a call reminder", calls[0]?.title === "📞 تذكير بمكالمة");
-  const expected = reminderWhatsappText(reminderFromDoc("r1", after), "https://alphadental.app/calls?id=r1");
+  const expected = reminderWhatsappText(reminderFromDoc("r1", after), "https://alphadental.app/notes?id=r1");
   check("with the reminder's WhatsApp text", calls[0]?.opts.whatsappText === expected, calls[0]?.opts.whatsappText);
   check("marked as sent", after.notifiedAt != null && after.pendingFireAt === undefined, after);
   check("reported to the sweep", out.includes("callReminderDue:r1"), out);

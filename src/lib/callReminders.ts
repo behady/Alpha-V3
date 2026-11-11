@@ -25,9 +25,18 @@ export type ReminderRecipient =
   | { kind: "person"; uid: string; name: string }
   | { kind: "role"; role: ReminderRole };
 
+/**
+ * What a note is for. Since 2026-11-11 the Calls page is the Notes page: a note is either a call
+ * to make or a plain reminder (send the x-ray, check the lab). A stored note without the field
+ * predates the split and is a call.
+ */
+export type ReminderKind = "call" | "reminder";
+export const normalizeKind = (v: unknown): ReminderKind => (v === "reminder" ? "reminder" : "call");
+
 /** The stored reminder, with its timestamps as epoch milliseconds. */
 export interface CallReminder {
   id: string;
+  kind: ReminderKind;
   patientId: string;
   patientName: string;
   patientPhone: string;
@@ -55,6 +64,8 @@ export interface CallReminder {
 }
 
 export interface ReminderInput {
+  /** Absent means a call. */
+  kind?: ReminderKind;
   patientId: string;
   date: string;
   time: string | null;
@@ -150,6 +161,43 @@ export function resolveRecipients(r: ReminderRecipient, branchId: string | null,
   const roleOf = (m: StaffForRecipients) => (m.role === "Owner" ? "Admin" : m.role);
   const atBranch = (m: StaffForRecipients) => !branchId || !m.branchIds || m.branchIds.length === 0 || m.branchIds.includes(branchId);
   return [...new Set(members.filter((m) => roleOf(m) === r.role && atBranch(m)).map((m) => m.uid))];
+}
+
+/** The person looking at the dashboard, as far as "is this note mine?" needs. */
+export interface NoteViewer {
+  uid: string;
+  /** The clinic role; the owner reads as Admin. */
+  role: string | null | undefined;
+  /** The branches on their staff row; none means they work everywhere. */
+  branchIds?: string[] | null;
+}
+
+/**
+ * A note is mine when it names me, or names my role at a branch I work in (or at no branch) —
+ * the same people `resolveRecipients` would have alerted.
+ */
+export function isMine(r: Pick<CallReminder, "recipient" | "branchId">, me: NoteViewer): boolean {
+  if (r.recipient.kind === "person") return !!me.uid && r.recipient.uid === me.uid;
+  const myRole = me.role === "Owner" ? "Admin" : me.role;
+  if (!myRole || r.recipient.role !== myRole) return false;
+  return !r.branchId || !me.branchIds || me.branchIds.length === 0 || me.branchIds.includes(r.branchId);
+}
+
+/** The dashboard card's switch: my notes, everyone's, or one person's (`person:<uid>`). */
+export type CardView = "mine" | "all" | `person:${string}`;
+
+export function filterForView<T extends Pick<CallReminder, "recipient" | "branchId">>(rows: T[], view: CardView, me: NoteViewer): T[] {
+  if (view === "all") return rows;
+  if (view === "mine") return rows.filter((r) => isMine(r, me));
+  const uid = view.slice("person:".length);
+  return rows.filter((r) => r.recipient.kind === "person" && r.recipient.uid === uid);
+}
+
+/** A remembered card view read back from storage; anything unrecognised is "mine". */
+export function parseCardView(v: unknown): CardView {
+  if (v === "all" || v === "mine") return v;
+  if (typeof v === "string" && v.startsWith("person:") && v.length > "person:".length) return v as CardView;
+  return "mine";
 }
 
 /* --- days -------------------------------------------------------------------------------------- */
@@ -251,12 +299,17 @@ export function callDayParts(date: string, todayYmd: string, isAr: boolean): { t
   return { top, day: d, month: isAr ? AR_MONTHS[m - 1] : EN_MONTHS[m - 1] };
 }
 
+/** The alert's headline: a call to make, or a plain reminder. */
+export function reminderTitle(kind: ReminderKind | undefined): string {
+  return normalizeKind(kind) === "reminder" ? "📝 تذكير" : "📞 تذكير بمكالمة";
+}
+
 export function reminderWhatsappText(
-  r: Pick<CallReminder, "patientName" | "patientPhone" | "reason" | "createdBy" | "createdAtMs">,
+  r: Pick<CallReminder, "patientName" | "patientPhone" | "reason" | "createdBy" | "createdAtMs"> & { kind?: ReminderKind },
   link: string,
 ): string {
   return [
-    "📞 تذكير بمكالمة",
+    reminderTitle(r.kind),
     `المريض: ${r.patientName}${r.patientPhone ? ` — ${r.patientPhone}` : ""}`,
     `السبب: ${r.reason}`,
     `من: ${r.createdBy.name} · يوم ${arabicDayMonth(r.createdAtMs)}`,
@@ -269,7 +322,7 @@ export function missedSummaryText(today: CallReminder[], olderCount: number, rol
   if (today.length === 0) return null;
   const who = (r: CallReminder) => (r.recipient.kind === "person" ? r.recipient.name : roleLabel(r.recipient.role));
   const lines = [
-    `⚠️ ${toArabicDigits(today.length)} مكالمات ما اتعملتش النهارده:`,
+    `⚠️ ${toArabicDigits(today.length)} ملاحظات ما اتعملتش النهارده:`,
     today.map((r) => `${r.patientName} (${who(r)})`).join(" · "),
   ];
   if (olderCount > 0) lines.push(`و${toArabicDigits(olderCount)} متأخرة من أيام قبل كده`);
@@ -297,6 +350,7 @@ const who = (v: unknown) => {
 export function reminderFromDoc(id: string, d: Record<string, unknown>): CallReminder {
   const r: CallReminder = {
     id,
+    kind: normalizeKind(d.kind),
     patientId: str(d.patientId),
     patientName: str(d.patientName),
     patientPhone: str(d.patientPhone),

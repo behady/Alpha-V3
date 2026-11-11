@@ -9,6 +9,7 @@ import {
   missedSummaryText,
   recipientLabel,
   reminderFromDoc,
+  reminderTitle,
   reminderWhatsappText,
   resolveRecipients,
   type StaffForRecipients,
@@ -93,13 +94,13 @@ export async function sendDueCallReminders(clinicId: string, now: Date, out: str
       // record, not a send to count.
       const result = await deliver(
         clinicId,
-        { title: "📞 تذكير بمكالمة", body: `${reminder.patientName} — ${reminder.reason}` },
+        { title: reminderTitle(reminder.kind), body: `${reminder.patientName} — ${reminder.reason}` },
         {
           event: "callReminderDue",
           uids,
-          actionUrl: `/calls?id=${doc.id}`,
+          actionUrl: `/notes?id=${doc.id}`,
           data: { screen: "calls" },
-          whatsappText: reminderWhatsappText(reminder, `${APP_URL}/calls?id=${doc.id}`),
+          whatsappText: reminderWhatsappText(reminder, `${APP_URL}/notes?id=${doc.id}`),
         },
       );
       if (!result.raised || result.reason === "nobody") {
@@ -153,8 +154,8 @@ export async function sendMissedCalls(
   const text = missedSummaryText(missed, older, (role) => recipientLabel({ kind: "role", role: role as "Receptionist" }, true));
   await deliver(
     clinicId,
-    { title: "⚠️ مكالمات ما اتعملتش", body: `${missed.length} مكالمات النهارده ما اتعملتش` },
-    { event: "callRemindersMissed", actionUrl: "/calls", data: { screen: "calls" }, whatsappText: text ?? undefined },
+    { title: "⚠️ ملاحظات ما اتعملتش", body: `${missed.length} ملاحظات النهارده ما اتعملتش` },
+    { event: "callRemindersMissed", actionUrl: "/notes", data: { screen: "calls" }, whatsappText: text ?? undefined },
   );
   out.push(`callRemindersMissed:${today}`);
   return true;

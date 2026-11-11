@@ -93,6 +93,7 @@ eq(quickDate("2026-10-31", "month"), "2026-11-30", "a month from the 31st lands 
 
 const base = (over: Partial<CallReminder>): CallReminder => ({
   id: "r",
+  kind: "call",
   patientId: "p1",
   patientName: "منى أحمد",
   patientPhone: "01012345678",
@@ -118,13 +119,13 @@ eq(daysLate(morning, "2026-10-22"), 0, "due today is not late");
 /* --- the texts ------------------------------------------------------------------------------ */
 
 eq(
-  reminderWhatsappText(base({}), "https://alphadental.app/calls?id=r1"),
+  reminderWhatsappText(base({}), "https://alphadental.app/notes?id=r1"),
   [
     "📞 تذكير بمكالمة",
     "المريض: منى أحمد — 01012345678",
     "السبب: سعر التركيبة، قالت هتفكر",
     "من: سارة · يوم 20 أكتوبر",
-    "افتح: https://alphadental.app/calls?id=r1",
+    "افتح: https://alphadental.app/notes?id=r1",
   ].join("\n"),
   "the reminder's WhatsApp text",
 );
@@ -140,12 +141,12 @@ eq(
     5,
     roleLabel,
   ),
-  ["⚠️ ٢ مكالمات ما اتعملتش النهارده:", "منى أحمد (سارة) · كريم علي (الاستقبال)", "و٥ متأخرة من أيام قبل كده"].join("\n"),
+  ["⚠️ ٢ ملاحظات ما اتعملتش النهارده:", "منى أحمد (سارة) · كريم علي (الاستقبال)", "و٥ متأخرة من أيام قبل كده"].join("\n"),
   "the evening list",
 );
 eq(
   missedSummaryText([base({ id: "1" })], 0, roleLabel),
-  ["⚠️ ١ مكالمات ما اتعملتش النهارده:", "منى أحمد (سارة)"].join("\n"),
+  ["⚠️ ١ ملاحظات ما اتعملتش النهارده:", "منى أحمد (سارة)"].join("\n"),
   "no older line when nothing older is open",
 );
 
@@ -174,6 +175,9 @@ const fromDoc = reminderFromDoc("r9", {
 eq(fromDoc.id, "r9", "id carried");
 eq(fromDoc.fireAtMs, Date.parse("2026-10-22T09:00:00Z"), "timestamps become epoch ms");
 eq(fromDoc.handledAtMs, undefined, "absent optional fields stay absent");
+eq(fromDoc.kind, "call", "a note stored before types existed reads as a call");
+eq(reminderFromDoc("r10", { kind: "reminder" }).kind, "reminder", "a reminder note reads as one");
+eq(reminderFromDoc("r11", { kind: "nonsense" }).kind, "call", "an unknown type reads as a call");
 
 /* --- where reminders are created (source checks) -------------------------------------------- */
 
@@ -221,12 +225,12 @@ eq(src("src/app/(dashboard)/patients/[id]/page.tsx").includes("<PatientCallsPane
   eq(callsTab(base({ status: "booked" }), now, "2026-10-22"), "done", "anything handled");
 
   const layout = src("src/app/(dashboard)/layout.tsx");
-  eq(layout.includes('href: "/calls"'), true, "the menu links the Calls page");
+  eq(layout.includes('href: "/notes"'), true, "the menu links the Notes page");
   // The top bar and the phone menu only show keys that sit in a group; a key in no group is dropped.
   const { SECTION_GROUPS, DIRECT_KEYS } = await import("../src/components/dashboard/navGroups");
   eq(DIRECT_KEYS.includes("calls") || SECTION_GROUPS.some((g) => g.keys.includes("calls")), true, "the Calls page sits in a menu group, so it actually shows");
   eq(/key === 'calls'\) return canAccessNavItem\('patients'/.test(layout), true, "whoever works the patient list sees it");
-  eq(src("src/app/(dashboard)/calls/page.tsx").includes("CallRow"), true, "the page lists calls with their actions");
+  eq(src("src/app/(dashboard)/notes/page.tsx").includes("CallRow"), true, "the page lists calls with their actions");
 }
 
 /* --- final review fixes ----------------------------------------------------------------------- */
@@ -264,7 +268,7 @@ eq(src("src/app/(dashboard)/patients/[id]/page.tsx").includes("<PatientCallsPane
   eq(row.includes("callDayLabel(") || row.includes("callDayParts("), true, "every call row shows its day");
   eq(/onEdit\s*&&/.test(row), true, "an open call offers editing to whoever may edit it");
 
-  const page = src("src/app/(dashboard)/calls/page.tsx");
+  const page = src("src/app/(dashboard)/notes/page.tsx");
   const order = ["\"today\"", "\"upcoming\"", "\"late\"", "\"done\""].map((t) => page.indexOf(`{ id: ${t},`));
   eq(order.every((i, n) => i > -1 && (n === 0 || i > order[n - 1])), true, "tabs read Today, Upcoming, Late, Done");
 
@@ -291,9 +295,58 @@ eq(src("src/app/(dashboard)/patients/[id]/page.tsx").includes("<PatientCallsPane
 }
 
 {
-  const page = src("src/app/(dashboard)/calls/page.tsx");
+  const page = src("src/app/(dashboard)/notes/page.tsx");
   eq(page.includes('"invisible"'), false, "no invisible filler pushing the filters onto extra lines");
   eq(page.includes('{tab === "done" && ('), true, "the From date shows only on the Done tab");
+}
+
+/* --- Notes (2026-11-11): types, the dashboard's whose-notes switch, the old address -------------- */
+
+{
+  const { isMine, filterForView, parseCardView, reminderTitle } = await import("../src/lib/callReminders");
+  const forSara = base({ id: "sara" });
+  const forReception = base({ id: "rec", recipient: { kind: "role", role: "Receptionist" } });
+  const forReceptionB2 = base({ id: "recB2", branchId: "b2", recipient: { kind: "role", role: "Receptionist" } });
+  const forAdmins = base({ id: "adm", recipient: { kind: "role", role: "Admin" } });
+  const forHany = base({ id: "hany", recipient: { kind: "person", uid: "u2", name: "هاني" } });
+  const all = [forSara, forReception, forReceptionB2, forAdmins, forHany];
+
+  const sara = { uid: "u1", role: "Receptionist", branchIds: ["b1"] };
+  eq(isMine(forSara, sara), true, "named for me: mine");
+  eq(isMine(forReception, sara), true, "for my role, no branch: mine");
+  eq(isMine(forReceptionB2, sara), false, "for my role at a branch I do not work in: not mine");
+  eq(isMine(forReceptionB2, { ...sara, branchIds: [] }), true, "no branch list means every branch");
+  eq(isMine(forHany, sara), false, "named for someone else: not mine");
+  eq(isMine(forAdmins, { uid: "o1", role: "Owner" }), true, "the owner counts as Admin");
+  eq(isMine(forReception, { uid: "", role: null }), false, "nobody signed in owns nothing");
+
+  eq(filterForView(all, "mine", sara).map((r) => r.id), ["sara", "rec"], "Mine");
+  eq(filterForView(all, "all", sara).length, 5, "All");
+  eq(filterForView(all, "person:u2", sara).map((r) => r.id), ["hany"], "one person's");
+
+  eq(parseCardView("all"), "all", "remembered All");
+  eq(parseCardView("person:u2"), "person:u2", "remembered person");
+  eq(parseCardView("person:"), "mine", "a broken memory falls back to Mine");
+  eq(parseCardView(null), "mine", "nothing remembered: Mine");
+
+  eq(reminderTitle("reminder"), "📝 تذكير", "a reminder's headline");
+  eq(reminderTitle(undefined), "📞 تذكير بمكالمة", "an old note's headline stays the call one");
+  eq(
+    reminderWhatsappText(base({ kind: "reminder" }), "https://alphadental.app/notes?id=r1").split("\n")[0],
+    "📝 تذكير",
+    "a reminder's WhatsApp text opens with the reminder headline",
+  );
+
+  const row = src("src/components/calls/CallRow.tsx");
+  eq(/isCall && reminder\.patientPhone/.test(row), true, "only a call row carries the phone button");
+  const dialog = src("src/components/calls/CallReminderDialog.tsx");
+  eq(dialog.includes('role="radiogroup"') && dialog.includes("kind,"), true, "the window picks a type and sends it");
+  const card = src("src/components/calls/CallsTodayCard.tsx");
+  eq(card.includes("filterForView(due, view, me)"), true, "the dashboard card filters by whose notes");
+  eq(card.includes('href="/notes"'), true, "the card links the Notes page");
+  const old = src("src/app/(dashboard)/calls/page.tsx");
+  eq(old.includes("redirect(") && old.includes("/notes?id="), true, "the old Calls address forwards, keeping the note id");
+  eq(src("src/lib/alerts/callReminderSweep.ts").includes("/calls"), false, "new alerts link the Notes page");
 }
 
 console.log(`call reminders: ${checks} checks passed`);
