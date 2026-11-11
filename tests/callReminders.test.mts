@@ -342,7 +342,8 @@ eq(src("src/app/(dashboard)/patients/[id]/page.tsx").includes("<PatientCallsPane
   const dialog = src("src/components/calls/CallReminderDialog.tsx");
   eq(dialog.includes('role="radiogroup"') && dialog.includes("kind,"), true, "the window picks a type and sends it");
   const card = src("src/components/calls/CallsTodayCard.tsx");
-  eq(card.includes("filterForView(due, view, me)"), true, "the dashboard card filters by whose notes");
+  eq(card.includes('filterForView(due, "mine", me)'), true, "the dashboard card shows only my own notes");
+  eq(/"all"|person:|localStorage/.test(card), false, "owner rule: no switch to a colleague's or everyone's notes on the dashboard");
   eq(card.includes('href="/notes"'), true, "the card links the Notes page");
   const old = src("src/app/(dashboard)/calls/page.tsx");
   eq(old.includes("redirect(") && old.includes("/notes?id="), true, "the old Calls address forwards, keeping the note id");

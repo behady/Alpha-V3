@@ -40,7 +40,7 @@ spec says still holds unless changed here.
 | `/calls` | redirects to `/notes`, keeping `?id=` so old WhatsApp links and bell items still land on the note |
 | Note window | Call / Reminder switch at the top; title "New note" / "Edit note"; reason placeholder follows the type |
 | Row | Call: phone icon, "Call again". Reminder: no phone icon, "Remind again", a small 📝 tag. Done and Book on both |
-| Dashboard card | title "Today's notes" / "ملاحظات النهارده"; Mine · All · person switch; link "All notes"; hidden when nobody has a note due; when others do but the chosen view is empty it shows "Nothing for you today" so the switch stays reachable |
+| Dashboard card | title "Today's notes" / "ملاحظات النهارده"; ONLY my notes (owner, 2026-11-11: nobody sees a colleague's notes on the dashboard — the All / person switch was removed); link "All notes"; hidden when I have nothing due |
 | Patient file panel | heading "Notes"; each line shows its type |
 | Buttons in patient file, booking pop-up, treatment card | "Add note" / "ملاحظة" |
 
