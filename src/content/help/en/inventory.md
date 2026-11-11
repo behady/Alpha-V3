@@ -51,6 +51,8 @@ These are not counted in boxes. Open the item in its drawer and press **Used on 
 | | What it answers |
 |---|---|
 | **Usage** | What was used, by item or by room, in quantity and EGP, week by week |
+| **Count by count** | Any count laid beside an earlier one: what was there, what came in or went out, what was counted, and so what was used. Every press of Save count is kept with its time, so two counts on the same day can be compared |
+| **History** | Who did what and when: every count, delivery, edit and delete, with the person and the time |
 | **Days left** | Every item sorted by how soon it runs out at the current pace |
 | **Shopping list** | What to order, grouped by supplier, with a WhatsApp message ready |
 | **Purchases** | Every delivery, by supplier |

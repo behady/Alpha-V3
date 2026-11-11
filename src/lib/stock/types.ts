@@ -82,6 +82,42 @@ export interface StockCount {
   changed: number;
 }
 
+/**
+ * One press of "Save count", kept on its own with its time. The daily `StockCount` above feeds
+ * the usage reports; this is what the count-by-count comparison reads.
+ */
+export interface StockCountSave {
+  id: string;
+  /** Milliseconds since 1970, from the server's clock. */
+  atMs: number;
+  date: string;
+  byName: string;
+  byRole: string;
+  /** The whole cupboard was walked. Otherwise `drawerCodes` says which drawers. */
+  whole: boolean;
+  drawerCodes: string[];
+  counted: number;
+  changed: number;
+  firstEver: boolean;
+}
+
+/** One brand in a comparison of two counts: `last + moved − used = counted`. */
+export interface CountCompareRow {
+  variantId: string;
+  drawerIds: string[];
+  /** Quantity at the earlier count; null when there is no earlier count to compare with. */
+  last: number | null;
+  /** Came in (deliveries) minus went out on record (patient use, deleted rows) in between. */
+  moved: number;
+  /** What should have been there if nothing had been used. */
+  expected: number;
+  counted: number;
+  /** Positive: used. Negative: more was found than expected. */
+  used: number;
+  /** This brand was part of the later count (not just carried along). */
+  inCount: boolean;
+}
+
 export interface StockDeliveryLine {
   variantId: string;
   drawerId: string;

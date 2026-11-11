@@ -67,7 +67,7 @@ export function CountView({ ctx, startDrawerCode }: { ctx: StockCtx; startDrawer
           </div>
           <div className="flex gap-2">
             <Btn onClick={() => setI(drawers.length - 1)}><Back size={14} /> {t("Back", "رجوع")}</Btn>
-            <Btn kind="yellow" busy={busy} onClick={() => run(async () => { const r = await stockApi.saveCount(ctx.today, values); ctx.setSnap(r.snapshot); setSaved({ changed: r.changed }); toast(t("Count saved.", "اتحفظ العدّ.")); }, (m) => toast(m, "error"))}>
+            <Btn kind="yellow" busy={busy} onClick={() => run(async () => { const r = await stockApi.saveCount(ctx.today, values, "all"); ctx.setSnap(r.snapshot); setSaved({ changed: r.changed }); toast(t("Count saved.", "اتحفظ العدّ.")); }, (m) => toast(m, "error"))}>
               <Check size={15} /> {t("Save count", "احفظ العدّ")}
             </Btn>
           </div>

@@ -31,9 +31,11 @@ import {
 } from "@/lib/stock/catalog";
 import { lineKey, todayKey } from "@/lib/stock/math";
 import { deriveEvents } from "@/lib/stock/history";
+import { buildCountSave, compareCounts, type CountStep } from "@/lib/stock/counts";
 import type {
   LibraryProduct,
   StockCount,
+  StockCountSave,
   StockDelivery,
   StockDrawer,
   StockEvent,
@@ -987,11 +989,116 @@ async function readHistory(args: { clinicId: string; body: Body }) {
   return NextResponse.json({ ok: true, events: events.map((x) => x.e), more: snap.size === limit });
 }
 
+// --- count by count --------------------------------------------------------------------------
+
+const COUNT_SAVES = "stock_count_saves";
+/** How many counts one comparison may span. Hourly counts for a fortnight fit; a year does not. */
+const MAX_COMPARE_STEPS = 400;
+
+/**
+ * Keep this press of "Save count" on its own, with its time and the cupboard before and after.
+ * Like the history, a failure here is reported and swallowed: the count itself is already saved.
+ */
+async function recordCountSave(clinicId: string, actor: Actor, body: Body, before: StockSnapshot, after: StockSnapshot): Promise<void> {
+  const record = buildCountSave(body, before, after);
+  if (!record) return;
+  await adminClinicCollection(clinicId, COUNT_SAVES).add({
+    ...record,
+    atMs: Date.now(),
+    at: FieldValue.serverTimestamp(),
+    date: isDate(body.date) ? body.date : todayKey(),
+    byUid: actor.uid,
+    byName: actor.name,
+    byRole: actor.role,
+  });
+}
+
+function countSaveOf(id: string, d: FirebaseFirestore.DocumentData): StockCountSave {
+  return {
+    id,
+    atMs: num(d.atMs),
+    date: str(d.date),
+    byName: str(d.byName),
+    byRole: str(d.byRole),
+    whole: d.whole === true,
+    drawerCodes: Array.isArray(d.drawerCodes) ? (d.drawerCodes as unknown[]).map((c) => str(c)).filter(Boolean) : [],
+    counted: num(d.counted),
+    changed: num(d.changed),
+    firstEver: d.firstEver === true,
+  };
+}
+
+function countStepOf(d: FirebaseFirestore.DocumentData): CountStep {
+  const map = (v: unknown): Record<string, number> | null => {
+    if (!v || typeof v !== "object") return null;
+    const out: Record<string, number> = {};
+    for (const [k, q] of Object.entries(v as Record<string, unknown>)) out[k] = num(q);
+    return out;
+  };
+  return {
+    before: map(d.before),
+    snapshot: map(d.snapshot) || {},
+    firstEver: d.firstEver === true,
+    whole: d.whole === true,
+    countedIds: Array.isArray(d.countedIds) ? (d.countedIds as unknown[]).map((c) => str(c)).filter(Boolean) : [],
+  };
+}
+
+/** The counts, newest first, without their quantities: just who, when and how much. */
+async function readCountSaves(args: { clinicId: string; body: Body }) {
+  const { clinicId, body } = args;
+  const limit = Math.min(300, Math.max(20, Math.round(num(body.limit, 120))));
+  let q = adminClinicCollection(clinicId, COUNT_SAVES).orderBy("atMs", "desc");
+  const beforeMs = num(body.beforeMs);
+  if (beforeMs > 0) q = q.where("atMs", "<", beforeMs);
+  const snap = await q.select("atMs", "date", "byName", "byRole", "whole", "drawerCodes", "counted", "changed", "firstEver").limit(limit).get();
+  return NextResponse.json({ ok: true, saves: snap.docs.map((d) => countSaveOf(d.id, d.data())), more: snap.size === limit });
+}
+
+/** One count against an earlier one: the one just before it, unless `fromId` names another. */
+async function compareCountSaves(args: { clinicId: string; body: Body }) {
+  const { clinicId, body } = args;
+  const coll = adminClinicCollection(clinicId, COUNT_SAVES);
+  const toId = str(body.toId);
+  const fromId = str(body.fromId);
+  if (!toId) return bad("Pick a count to look at.");
+  const toDoc = await coll.doc(toId).get();
+  if (!toDoc.exists) return bad("That count no longer exists.", 404);
+  const toMs = num(toDoc.data()?.atMs);
+
+  let fromDoc: FirebaseFirestore.DocumentSnapshot | null = null;
+  if (fromId) {
+    fromDoc = await coll.doc(fromId).get();
+    if (!fromDoc.exists) return bad("The count to compare with no longer exists.", 404);
+    if (num(fromDoc.data()?.atMs) >= toMs) return bad("Compare with an earlier count, not a later one.");
+  } else {
+    const prev = await coll.where("atMs", "<", toMs).orderBy("atMs", "desc").limit(1).get();
+    fromDoc = prev.empty ? null : prev.docs[0];
+  }
+
+  let steps: CountStep[] = [countStepOf(toDoc.data() || {})];
+  if (fromDoc) {
+    const between = await coll.where("atMs", ">", num(fromDoc.data()?.atMs)).where("atMs", "<=", toMs).orderBy("atMs", "asc").limit(MAX_COMPARE_STEPS + 1).get();
+    if (between.size > MAX_COMPARE_STEPS) return bad("Those two counts are too far apart to compare. Pick a closer one.");
+    // The count being looked at closes the chain, whatever else was saved in the same instant.
+    steps = [...between.docs.filter((d) => d.id !== toId).map((d) => countStepOf(d.data())), countStepOf(toDoc.data() || {})];
+  }
+  const rows = compareCounts(fromDoc ? countStepOf(fromDoc.data() || {}) : null, steps);
+  return NextResponse.json({
+    ok: true,
+    from: fromDoc ? countSaveOf(fromDoc.id, fromDoc.data() || {}) : null,
+    to: countSaveOf(toDoc.id, toDoc.data() || {}),
+    rows,
+  });
+}
+
 // --- dispatcher ------------------------------------------------------------------------------
 
 const PERMISSION: Record<string, string> = {
   snapshot: "access.inventory",
   history: "access.inventory",
+  counts: "access.inventory",
+  "count-compare": "access.inventory",
   "lookup-barcode": "access.inventory",
   setup: "inventory.add",
   "save-drawer": "inventory.add",
@@ -1020,7 +1127,7 @@ export async function POST(request: Request) {
     const permission = PERMISSION[action];
     if (!permission) return bad(`Unknown action "${action}".`);
     const requested = str(body.clinicId) || undefined;
-    const readOnly = action === "snapshot" || action === "lookup-barcode" || action === "history";
+    const readOnly = action === "snapshot" || action === "lookup-barcode" || action === "history" || action === "counts" || action === "count-compare";
     const staff = await requireStaffPermission(request, requested, permission, { allowInactive: readOnly });
     if (!staff.ok) return staff.response;
     const clinicId = await resolveUserClinicId(staff.uid, requested ?? null);
@@ -1032,6 +1139,10 @@ export async function POST(request: Request) {
           return NextResponse.json({ ok: true, snapshot: await readSnapshot(clinicId) });
         case "history":
           return await readHistory({ clinicId, body });
+        case "counts":
+          return await readCountSaves({ clinicId, body });
+        case "count-compare":
+          return await compareCountSaves({ clinicId, body });
         case "setup":
           return await setup({ clinicId, actor, body });
         case "save-drawer":
@@ -1077,11 +1188,19 @@ export async function POST(request: Request) {
     const before = readOnly ? null : await readSnapshot(clinicId);
     const response = await run();
     if (before && response.ok) {
+      let result: Body = {};
       try {
-        const result = (await response.clone().json()) as Body;
+        result = (await response.clone().json()) as Body;
         if (result.snapshot) await recordEvents(clinicId, actor, deriveEvents(action, body, before, result.snapshot as StockSnapshot, result));
       } catch (e) {
         reportServerError("stock history failed", e, { action });
+      }
+      if (action === "save-count" && result.snapshot) {
+        try {
+          await recordCountSave(clinicId, actor, body, before, result.snapshot as StockSnapshot);
+        } catch (e) {
+          reportServerError("stock count record failed", e, { action });
+        }
       }
     }
     return response;

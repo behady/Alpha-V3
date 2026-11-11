@@ -229,7 +229,7 @@ function DrawerDetail({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
 
   const saveDrawerCount = () =>
     run(async () => {
-      const r = await stockApi.saveCount(ctx.today, draft);
+      const r = await stockApi.saveCount(ctx.today, draft, drawer.id);
       ctx.setSnap(r.snapshot);
       setDraft({});
       toast(t("Saved. This drawer is counted for today.", "اتحفظ. الدرج ده اتعدّ النهارده."));

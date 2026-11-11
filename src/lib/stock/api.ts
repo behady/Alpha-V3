@@ -4,7 +4,7 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { auth, storage } from "@/lib/firebase";
 import { currentClinicId } from "@/lib/db-utils";
 import { stockPhotoPath } from "@/lib/storagePaths";
-import type { LibraryProduct, StockEvent, StockSnapshot, StockVariant } from "./types";
+import type { CountCompareRow, LibraryProduct, StockCountSave, StockEvent, StockSnapshot, StockVariant } from "./types";
 
 /**
  * The browser side of /api/stock. Every call carries the clinic on screen, because the route's
@@ -60,7 +60,11 @@ export const stockApi = {
   removeLine: (lineId: string, writeOff = false) => post<WithSnapshot>("remove-line", { lineId, writeOff }).then((r) => r.snapshot),
   updateVariant: (id: string, patch: Record<string, unknown>) => post<WithSnapshot>("update-variant", { id, ...patch }).then((r) => r.snapshot),
   moveLine: (lineId: string, toDrawerId: string) => post<WithSnapshot>("move-line", { lineId, toDrawerId }).then((r) => r.snapshot),
-  saveCount: (date: string, values: Record<string, number>) => post<WithSnapshot & { changed: number }>("save-count", { date, values }),
+  /** `scope` says what was counted: "all" for the whole walk, or the id of the one drawer. */
+  saveCount: (date: string, values: Record<string, number>, scope: string) => post<WithSnapshot & { changed: number }>("save-count", { date, values, scope }),
+  counts: (beforeMs?: number) => post<{ saves: StockCountSave[]; more: boolean }>("counts", beforeMs ? { beforeMs } : {}),
+  compareCounts: (toId: string, fromId?: string) =>
+    post<{ from: StockCountSave | null; to: StockCountSave; rows: CountCompareRow[] }>("count-compare", fromId ? { toId, fromId } : { toId }),
   lookupBarcode: (barcode: string) => post<{ variant: StockVariant | null; library: LibraryProduct | null }>("lookup-barcode", { barcode }),
   receiveDelivery: (args: Record<string, unknown>) => post<WithSnapshot & { total: number; ledgerId: string | null }>("receive-delivery", args),
   useOnPatient: (args: Record<string, unknown>) => post<WithSnapshot>("use-on-patient", args).then((r) => r.snapshot),
