@@ -938,3 +938,16 @@ import { patientLabView } from "../src/lib/labCases.ts";
   assert.deepEqual(empty, { rows: [], open: 0, waiting: 0, overdue: 0 });
 }
 console.log("✓ patient file lab tab: open cases first, and the counts above them");
+
+// --- a case raised from a treatment remembers the treatment ----------------------------------------
+//
+// The link is what stops a lab payment being counted twice: the treatment already booked its lab
+// fee, and paying the lab for that case only costs Finance whatever is above it. A case that
+// forgets where it came from is paid for in full a second time.
+import { treatmentLinkFromSeed } from "../src/lib/labCases.ts";
+assert.deepEqual(treatmentLinkFromSeed({ patientId: "p1", clinicalNoteId: "n1", ledgerId: "l1" }), { clinicalNoteId: "n1", ledgerId: "l1" });
+assert.deepEqual(treatmentLinkFromSeed({ patientId: "p1", clinicalNoteId: "n1" }), { clinicalNoteId: "n1" }, "a treatment that was not charged has no ledger row");
+assert.deepEqual(treatmentLinkFromSeed({ patientId: "p1" }), {}, "an order raised from the patient file has nothing to link");
+assert.deepEqual(treatmentLinkFromSeed(null), {});
+assert.deepEqual(treatmentLinkFromSeed(undefined), {});
+console.log("✓ lab order from a treatment: the case keeps the treatment's note and ledger ids");

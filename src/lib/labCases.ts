@@ -484,6 +484,20 @@ export type LabCaseSeed = {
   agreedPrice?: number;
 };
 
+/**
+ * The treatment a new case was raised from, as the case stores it.
+ *
+ * Only the ids that exist are returned (Firestore rejects an undefined field). These two ids are
+ * what lets a lab payment skip the fee the treatment already booked, and what lets the order form
+ * offer to correct that fee once the lab's real price is known.
+ */
+export function treatmentLinkFromSeed(seed: LabCaseSeed | null | undefined): { clinicalNoteId?: string; ledgerId?: string } {
+  return {
+    ...(seed?.clinicalNoteId ? { clinicalNoteId: seed.clinicalNoteId } : {}),
+    ...(seed?.ledgerId ? { ledgerId: seed.ledgerId } : {}),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Codes
 // ---------------------------------------------------------------------------

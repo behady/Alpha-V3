@@ -27,6 +27,7 @@ import {
   parseToothInput,
   addDays,
   resolveWorkType,
+  treatmentLinkFromSeed,
   workTypeFor,
   workTypeLabel,
   type LabCase,
@@ -568,6 +569,8 @@ export default function LabCaseModal({
       } else {
         const created = await createLabCase({
           ...common,
+          // The treatment this order was raised from. Without it the lab payment counts the fee twice.
+          ...treatmentLinkFromSeed(seed),
           branchId: branch?.id || "",
           branchName: branch?.name || "",
           branchCode: branchCodeFor(branch, branchIndex),
