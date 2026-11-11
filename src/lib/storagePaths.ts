@@ -194,6 +194,22 @@ export function staffProfilePath(uid: string): string {
   return `staff_profiles/${requireSegment(uid, "user id")}_${Date.now()}`;
 }
 
+/**
+ * A stock photo: a drawer as it looks open, an item, a brand's box, or a supplier's invoice.
+ *
+ * `kind` keeps the four apart in the bucket and `id` is the record the picture belongs to, so a
+ * drawer's photos can be listed or erased without touching the rest of the clinic's files.
+ */
+export function stockPhotoPath(
+  clinicId: string | null | undefined,
+  kind: "drawer" | "item" | "variant" | "invoice",
+  id: string,
+  ext: string
+): string {
+  const name = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${sanitizeExt(ext)}`;
+  return `clinics/${requireClinic(clinicId)}/stock/${kind}/${requireSegment(id, "record id")}/${name}`;
+}
+
 function sanitizeExt(ext: string): string {
   const e = (ext || "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 8).toLowerCase();
   return e || "bin";
