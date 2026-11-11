@@ -151,3 +151,25 @@ Firestore rule change for reading (the claim doc is already readable); the clien
 
 - Splitting one approval across two monthly sheets (owner chose "whole approval in the finish month").
 - Any change to the sheet layouts, the payout flow, or approvals with no paper (GASCO tab).
+
+## As built (2026-11-11) — where the code differs from the text above
+
+- **No new index.** "By finish date" lists the clinic's approvals finished in the range and keeps
+  the insurer in the browser, so nothing has to be deployed to Firestore.
+- **Paid service deleted:** only the PATIENT's payments are kept as on-account credit. A service
+  carrying the INSURER's own payment is refused (`insurer_paid_line`) until that payment is deleted.
+- **Sent lock** applies only to a sent approval that already has a finish date; one sent while a
+  service was still open may still be completed.
+- **Backfill** stores exactly what the rules derive (`billingFieldsToStore`); it does not force a
+  finish date onto a sent approval with an open service. The script is `.mts`, not `.mjs`.
+- **Two writers** set a service's state: the claims route and the clinical editor
+  (`api/clinical/procedures`). Both date the service through `billingMonth.ts`.
+- **Visit sync** dates a service only when that visit is what completes it, and never with a visit
+  dated before the approval or after today.
+- **Not treated** (back to approved / cancelled) clears the per-service dates.
+- **NextCare / AXA sheet** follows the page's date switch like MetLife's; its 62-day early load is
+  gone. With the default "By approval date" it picks by approval date (it used to pick by treated
+  date). Its printed date column is unchanged.
+- **Totals, "2 of 3 done" and the pop-up's credit strip** leave deleted services out.
+- **Finance page** "commissions pending" also counts each insurance service on its own day.
+- One control (`LineDoneControls`) renders the date, the delete button or Restore on all three screens.
