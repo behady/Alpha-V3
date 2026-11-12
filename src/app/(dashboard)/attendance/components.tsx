@@ -45,9 +45,12 @@ const DAY_KEYS: Record<string, string> = {
 // ==========================================
 export const PersonalWorksheet = ({ 
     activeSession, isDeviceBlocked, isDeviceMismatch, liveDuration, actionLoading, handlePunch, 
-    myCalculatedStats, personalLogs, myProfile, language, periodType
+    myCalculatedStats, personalLogs, myProfile, language, periodType, checks
 }: any) => {
   const { t, isRTL } = useLanguage();
+  // The clinic's two switches. Missing (an older caller) means both on, as before.
+  const locationOn = checks?.location !== false;
+  const deviceLockOn = checks?.device !== false;
   // The figures follow the period picked above the sheet, so the title has to as well — it used to
   // say "this month" whatever was chosen.
   const earningsTitle =
@@ -74,7 +77,11 @@ export const PersonalWorksheet = ({
                             {activeSession ? <Hourglass size={36} className="animate-pulse drop-shadow-sm"/> : <MapPin size={36}/>}
                         </div>
                         <h2 className="text-2xl font-black text-ink mb-2">{activeSession ? t("attShiftInProgress") : t("attReadyToWork")}</h2>
-                        <p className="text-[14px] font-semibold text-ink-muted mb-8 px-4">{activeSession ? t("attClockOutHint") : t("attClockInHint")}</p>
+                        <p className="text-[14px] font-semibold text-ink-muted mb-8 px-4">{locationOn
+                            ? (activeSession ? t("attClockOutHint") : t("attClockInHint"))
+                            : (activeSession
+                                ? (isRTL ? "سجّل انصراف وإنت ماشي." : "Clock out when you leave.")
+                                : (isRTL ? "دوس على الزرار عشان تسجل حضورك." : "Tap the button to clock in."))}</p>
 
                         {isDeviceMismatch && activeSession && (
                             <div className="mb-6 w-full flex items-start gap-3 text-left bg-gradient-to-r from-amber-50 to-orange-50/50 text-amber-800 p-4 rounded-2xl border border-amber-100 text-[13px] font-semibold leading-relaxed shadow-sm">
@@ -101,7 +108,7 @@ export const PersonalWorksheet = ({
                             </button>
                         )}
 
-                        {myProfile && !myProfile.registeredDeviceId && !activeSession && (
+                        {deviceLockOn && myProfile && !myProfile.registeredDeviceId && !activeSession && (
                             <div className="mt-5 flex items-start gap-3 text-left bg-gradient-to-r from-accent-tint to-accent-tint/50 text-accent-strong p-4 rounded-2xl border border-accent-soft text-[13px] font-semibold leading-relaxed shadow-sm">
                                 <ShieldAlert size={18} className="shrink-0 mt-0.5"/> {t("attDeviceWillRegister")}
                             </div>

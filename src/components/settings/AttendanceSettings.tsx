@@ -13,6 +13,7 @@ export default function AttendanceSettings({ clinicData, setClinicData, handleSa
 
 
   const txt = useSettingsText("attendance");
+  const locationOn = clinicData.attendanceRequireLocation !== false && clinicData.attendanceRequireLocation !== "false";
 
   const handleGetLocation = () => {
     if (!navigator.geolocation) { showToast("Geolocation is not supported", "error"); return; }
@@ -42,7 +43,39 @@ export default function AttendanceSettings({ clinicData, setClinicData, handleSa
           </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 rounded-2xl border border-line bg-surface-subtle p-6">
+      {/* The two clock-in checks. Each is on unless the clinic switches it off. */}
+      <div className="rounded-2xl border border-line bg-surface-subtle p-6 space-y-5">
+          <p className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.checksTitle}</p>
+          {([
+            ["attendanceRequireLocation", txt.requireLocation, txt.requireLocationHint],
+            ["attendanceRequireDevice", txt.requireDevice, txt.requireDeviceHint],
+          ] as const).map(([field, label, hint]) => {
+            const on = clinicData[field] !== false && clinicData[field] !== "false";
+            return (
+              <div key={field} className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="font-bold text-ink">{label}</p>
+                  <p className="text-sm font-medium text-ink-muted mt-1 leading-relaxed">{hint}</p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={on}
+                  aria-label={label}
+                  onClick={() => setClinicData((prev: any) => ({ ...prev, [field]: !on }))}
+                  className={`relative inline-flex h-[30px] w-[50px] shrink-0 items-center rounded-full transition-colors focus:outline-none ${on ? "bg-accent" : "bg-surface-muted"}`}
+                >
+                  <span className={`absolute top-[3px] h-6 w-6 rounded-full bg-white shadow transition-all ${on ? "start-[23px]" : "start-[3px]"}`} />
+                </button>
+              </div>
+            );
+          })}
+          {!locationOn && clinicData.attendanceRequireDevice === false && (
+            <p className="text-sm font-bold text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">{txt.bothOffWarning}</p>
+          )}
+      </div>
+
+      <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 rounded-2xl border border-line bg-surface-subtle p-6 transition-opacity ${locationOn ? "" : "opacity-50"}`}>
           <div className="space-y-2">
             <label className={`text-[11px] font-bold text-ink-muted uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.lat}</label>
             <input dir="ltr" value={clinicData.attendanceLat} onChange={e => setClinicData({...clinicData, attendanceLat: e.target.value})} placeholder="e.g. 30.0444" className="w-full px-5 py-4 bg-surface border border-line rounded-2xl focus:ring-2 focus:ring-accent transition-all outline-none font-bold text-ink"/>

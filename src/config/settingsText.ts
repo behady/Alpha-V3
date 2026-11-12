@@ -493,6 +493,21 @@ export const SETTINGS_TEXT = {
     lng: { en: "Longitude", ar: "خط الطول (Longitude)" },
     radius: { en: "Allowed Radius (Meters)", ar: "النطاق المسموح (بالمتر)" },
     saveGeofence: { en: "Save Geofence", ar: "حفظ النطاق الجغرافي" },
+    checksTitle: { en: "What staff need to clock in", ar: "المطلوب عشان الموظف يسجل حضور" },
+    requireLocation: { en: "Must be inside the clinic (GPS)", ar: "لازم يكون جوه العيادة (GPS)" },
+    requireLocationHint: {
+      en: "On: the phone's location is checked against the clinic location below. Off: staff can clock in and out from anywhere.",
+      ar: "شغّال: بنتأكد من موقع الموبايل إنه جوه العيادة. مقفول: الموظف يقدر يسجل حضور وانصراف من أي مكان.",
+    },
+    requireDevice: { en: "Lock each person to their own phone", ar: "كل موظف يسجل من موبايله بس" },
+    requireDeviceHint: {
+      en: "On: each person can only clock in from the first phone they used. Off: they can clock in from any phone or computer.",
+      ar: "شغّال: كل موظف يسجل حضور من أول موبايل استخدمه بس. مقفول: يقدر يسجل من أي موبايل أو كمبيوتر.",
+    },
+    bothOffWarning: {
+      en: "Both checks are off: anyone on the team can clock in from anywhere, on any device.",
+      ar: "الاتنين مقفولين: أي حد في الفريق يقدر يسجل حضور من أي مكان ومن أي جهاز.",
+    },
     autoCloseHours: { en: "Auto clock-out: hours after the shift ends", ar: "انصراف تلقائي: بعد كام ساعة من نهاية الشيفت" },
     autoCloseOff: { en: "Empty = off", ar: "فاضي = مقفول" },
     autoCloseHint: {
