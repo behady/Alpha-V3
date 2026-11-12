@@ -12,12 +12,12 @@ import type { StockDrawer, StockItem, StockLine, StockVariant } from "@/lib/stoc
 import { StockPicture } from "./Art";
 import { printDrawerLabels } from "./labels";
 import { EditLineSheet } from "./EditLineSheet";
-import { Btn, Card, CodeBadge, Eyebrow, Field, LinePicture, Ltr, PhotoButton, PhotoTile, Pill, Reveal, Stepper, fmtDate, inputCls, linesOfDrawer, shortCode, useBusy, variantLabel, type StockCtx } from "./shared";
+import { Btn, Card, CodeBadge, Eyebrow, Field, LinePicture, Ltr, NumberBox, PhotoButton, PhotoTile, Pill, Reveal, Stepper, fmtDate, inputCls, linesOfDrawer, shortCode, useBusy, useCountDraft, variantLabel, type StockCtx } from "./shared";
 
 /** The map of rooms, cabinets and drawers — or one drawer, when `drawerCode` is set. */
 export function CupboardView({ ctx, drawerCode }: { ctx: StockCtx; drawerCode: string | null }) {
   const drawer = drawerCode ? ctx.snap.drawers.find((d) => d.code === drawerCode) : null;
-  if (drawer) return <DrawerDetail ctx={ctx} drawer={drawer} />;
+  if (drawer) return <DrawerDetail key={drawer.id} ctx={ctx} drawer={drawer} />;
   return <CupboardMap ctx={ctx} />;
 }
 
@@ -220,18 +220,26 @@ function DrawerDetail({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
   const { snap, t, ar, toast } = ctx;
   const { busy, run } = useBusy();
   const [mode, setMode] = useState<null | "item" | "brand" | "edit" | { use: StockLine }>(null);
-  // Quantities typed here but not saved yet. Saving them IS a count — of this drawer, today.
-  const [draft, setDraft] = useState<Record<string, number>>({});
   const [photoBusy, setPhotoBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState<null | { lineId: string; del: boolean }>(null);
   const lines = linesOfDrawer(snap, drawer.id);
+  // Quantities typed here but not saved yet. Saving them IS a count — of this drawer, today.
+  // They are kept on the device, so leaving the page or a locked phone does not lose them.
+  const kept = useCountDraft(`drawer:${drawer.id}`, ctx.today, new Set(lines.map((l) => l.id)));
+  const draft = kept.values;
+  const typeQty = (line: StockLine, n: number) => {
+    const next = { ...draft };
+    if (n === line.qty) delete next[line.id];
+    else next[line.id] = n;
+    kept.set({ values: next, step: 0 });
+  };
   const changedCount = lines.filter((l) => draft[l.id] != null && draft[l.id] !== l.qty).length;
 
   const saveDrawerCount = () =>
     run(async () => {
       const r = await stockApi.saveCount(ctx.today, draft, drawer.id);
       ctx.setSnap(r.snapshot);
-      setDraft({});
+      kept.clear();
       toast(t("Saved. This drawer is counted for today.", "اتحفظ. الدرج ده اتعدّ النهارده."));
     }, (m) => toast(m, "error"));
 
@@ -252,11 +260,6 @@ function DrawerDetail({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
     }
   };
 
-  const removeFromDrawer = (line: StockLine) =>
-    run(async () => {
-      ctx.setSnap(await stockApi.removeLine(line.id));
-      toast(t("Removed from this drawer.", "اتشال من الدرج."));
-    }, (m) => toast(m, "error"));
   const byItem = new Map<string, StockLine[]>();
   for (const l of lines) byItem.set(l.itemId, [...(byItem.get(l.itemId) || []), l]);
   const Back = ar ? ArrowRight : ArrowLeft;
@@ -366,20 +369,10 @@ function DrawerDetail({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
                               <UserRound size={12} /> {t("Used on a patient", "اتستخدم لمريض")}
                             </button>
                           ) : null}
-                          {ctx.canStructure ? (
-                            <span className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
-                              <button type="button" onClick={() => setEditing({ lineId: l.id, del: false })} className="inline-flex items-center gap-1 text-[12px] font-bold text-ink hover:underline">
-                                <Pencil size={12} /> {t("Edit", "تعديل")}
-                              </button>
-                              <button type="button" onClick={() => (l.qty > 0 ? setEditing({ lineId: l.id, del: true }) : void removeFromDrawer(l))} className="inline-flex items-center gap-1 text-[12px] font-bold text-red-700 hover:underline">
-                                <Trash2 size={12} /> {t("Delete", "مسح")}
-                              </button>
-                            </span>
-                          ) : null}
                         </div>
                         {ctx.canEdit ? (
                           <div className="grid justify-items-end gap-0.5">
-                            <Stepper value={draft[l.id] ?? l.qty} onChange={(n) => setDraft({ ...draft, [l.id]: n })} changed={draft[l.id] != null && draft[l.id] !== l.qty} />
+                            <Stepper value={draft[l.id] ?? l.qty} onChange={(n) => typeQty(l, n)} changed={draft[l.id] != null && draft[l.id] !== l.qty} />
                             <span className="text-[11px] text-ink-muted">{unitLabel(item?.unit || "box", draft[l.id] ?? l.qty, ar)}</span>
                           </div>
                         ) : (
@@ -388,6 +381,17 @@ function DrawerDetail({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
                             <span className="text-[11px] text-ink-muted">{unitLabel(item?.unit || "box", l.qty, ar)}</span>
                           </div>
                         )}
+                        {/* Edit and Delete sit on their own line, at opposite ends: as two small words side by side a thumb hit the wrong one. Delete always asks first. */}
+                        {ctx.canStructure ? (
+                          <div className="col-span-full flex items-center justify-between gap-3 border-t border-line pt-1.5">
+                            <button type="button" onClick={() => setEditing({ lineId: l.id, del: false })} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-line bg-surface px-4 font-display text-[13px] font-bold text-ink hover:bg-surface-subtle">
+                              <Pencil size={14} /> {t("Edit", "تعديل")}
+                            </button>
+                            <button type="button" onClick={() => setEditing({ lineId: l.id, del: true })} className="inline-flex h-10 items-center gap-1.5 rounded-lg px-3 font-display text-[13px] font-bold text-red-700 hover:bg-red-50">
+                              <Trash2 size={14} /> {t("Delete", "مسح")}
+                            </button>
+                          </div>
+                        ) : null}
                       </div>
                     );
                   })}
@@ -413,9 +417,10 @@ function DrawerDetail({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
         <div className="sticky bottom-24 z-10 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-ink-slab p-3 text-white shadow-lg lg:bottom-4">
           <span className="text-sm">
             <b className="font-display text-lg">{changedCount}</b> {t("changed in this drawer", "اتغير في الدرج ده")}
+            {kept.restored ? <span className="block text-[12px] text-white/70">{t("Typed earlier and not saved yet.", "اتكتبوا قبل كده ولسه ما اتحفظوش.")}</span> : null}
           </span>
           <div className="flex gap-2">
-            <button type="button" onClick={() => setDraft({})} className="rounded-xl border border-white/20 px-3 py-2 font-display text-[13px] font-bold text-white/85">
+            <button type="button" onClick={kept.clear} className="rounded-xl border border-white/20 px-3 py-2 font-display text-[13px] font-bold text-white/85">
               {t("Undo", "تراجع")}
             </button>
             <Btn kind="yellow" busy={busy} onClick={saveDrawerCount}>
@@ -529,7 +534,7 @@ function AddItemHere({ ctx, drawer, onDone }: { ctx: StockCtx; drawer: StockDraw
             </select>
           </Field>
           <Field label={t("What one unit holds", "الوحدة فيها إيه")}><input value={per} onChange={(e) => setPer(e.target.value)} className={inputCls} placeholder="50 pcs" /></Field>
-          <Field label={t("How many now", "كام دلوقتي")}><input type="number" min={0} value={qty} onChange={(e) => setQty(Math.max(0, Number(e.target.value) || 0))} className={inputCls} /></Field>
+          <Field label={t("How many now", "كام دلوقتي")}><NumberBox value={qty} onChange={setQty} className={inputCls} /></Field>
           <div className="self-end"><PhotoButton label={photo ? t("Photo attached ✓", "الصورة اتضافت ✓") : t("Photo", "صورة")} onFile={setPhoto} /></div>
           <div className="flex gap-2 sm:col-span-2">
             <Btn kind="dark" busy={busy} disabled={!nameEn.trim()} onClick={addOwn}>{t("Add", "ضيف")}</Btn>
@@ -546,7 +551,9 @@ function AddBrandHere({ ctx, drawer, onDone }: { ctx: StockCtx; drawer: StockDra
   const { t, ar, toast, snap } = ctx;
   const { busy, run } = useBusy();
   const itemIds = [...new Set(linesOfDrawer(snap, drawer.id).map((l) => l.itemId))];
-  const [itemId, setItemId] = useState(itemIds[0] || "");
+  // With several items in the drawer nothing is picked for the person: a list that starts on its
+  // first line files the brand under whatever happens to be first.
+  const [itemId, setItemId] = useState(itemIds.length === 1 ? itemIds[0] : "");
   const [brand, setBrand] = useState("");
   const [product, setProduct] = useState("");
   const [spec, setSpec] = useState("");
@@ -559,6 +566,7 @@ function AddBrandHere({ ctx, drawer, onDone }: { ctx: StockCtx; drawer: StockDra
       <div className="grid gap-3 sm:grid-cols-3">
         <Field label={t("Of which item", "لأي صنف")}>
           <select value={itemId} onChange={(e) => setItemId(e.target.value)} className={inputCls}>
+            <option value="" disabled>{t("Choose the item…", "اختار الصنف…")}</option>
             {itemIds.map((id) => { const it = ctx.items.get(id); return <option key={id} value={id}>{it ? (ar ? it.nameAr : it.nameEn) : id}</option>; })}
           </select>
         </Field>
@@ -566,8 +574,14 @@ function AddBrandHere({ ctx, drawer, onDone }: { ctx: StockCtx; drawer: StockDra
         <Field label={t("Product", "المنتج")}><input value={product} onChange={(e) => setProduct(e.target.value)} className={inputCls} placeholder="Filtek Z350" /></Field>
         <Field label={t("Shade / size", "اللون / المقاس")}><input value={spec} onChange={(e) => setSpec(e.target.value)} className={inputCls} placeholder="A2" /></Field>
         <Field label={t("Barcode (optional)", "الباركود (اختياري)")}><input value={barcode} onChange={(e) => setBarcode(e.target.value)} className={inputCls} inputMode="numeric" /></Field>
-        <Field label={t("How many here now", "كام هنا دلوقتي")}><input type="number" min={0} value={qty} onChange={(e) => setQty(Math.max(0, Number(e.target.value) || 0))} className={inputCls} /></Field>
+        <Field label={t("How many here now", "كام هنا دلوقتي")}><NumberBox value={qty} onChange={setQty} className={inputCls} /></Field>
       </div>
+      {!itemId || !brand.trim() ? (
+        <p className="text-[12.5px] font-semibold text-ink-body">
+          {t("Still needed: ", "لسه ناقص: ")}
+          {[!itemId ? t("the item", "الصنف") : "", !brand.trim() ? t("the brand", "الماركة") : ""].filter(Boolean).join(t(", ", "، "))}
+        </p>
+      ) : null}
       <div className="flex flex-wrap gap-2">
         <PhotoButton label={photo ? t("Photo attached ✓", "الصورة اتضافت ✓") : t("Photo of the box", "صورة العلبة")} onFile={setPhoto} />
         <Btn kind="dark" busy={busy} disabled={!itemId || !brand.trim()} onClick={() => run(async () => {

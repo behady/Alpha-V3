@@ -5,9 +5,10 @@ import { Barcode, Check, ScanLine, Trash2 } from "lucide-react";
 import { CATALOG_BY_KEY, unitLabel } from "@/lib/stock/catalog";
 import { stockApi, uploadStockPhoto } from "@/lib/stock/api";
 import { normaliseBarcode } from "@/lib/stock/math";
+import { deliveryWarnings } from "@/lib/stock/input";
 import type { LibraryProduct, StockVariant } from "@/lib/stock/types";
 import { StockPicture } from "./Art";
-import { Btn, Card, Eyebrow, Field, LinePicture, Ltr, PhotoButton, Pill, Stepper, fmtMoney, inputCls, useBusy, variantLabel, type StockCtx } from "./shared";
+import { Btn, Card, Eyebrow, Field, LinePicture, Ltr, NumberBox, PhotoButton, Pill, Reveal, Stepper, fmtMoney, inputCls, useBusy, variantLabel, type StockCtx } from "./shared";
 
 type Line = {
   key: string;
@@ -23,6 +24,9 @@ type Line = {
  * A delivery. Scan a barcode: known to the clinic → a line; known to the platform → a line with
  * the photo and name already there; unknown → one form, once, for everyone. Receive posts the
  * Supplies expense and adds the quantities to the drawers.
+ *
+ * Receiving cannot be taken back, so it is two presses: the first reads the delivery back (how
+ * many, from whom, how much, and any line left without a price), the second does it.
  */
 export function DeliveryView({ ctx }: { ctx: StockCtx }) {
   const { snap, t, ar, toast } = ctx;
@@ -36,6 +40,7 @@ export function DeliveryView({ ctx }: { ctx: StockCtx }) {
   const [pending, setPending] = useState<null | { barcode: string | null; library: LibraryProduct | null; itemId?: string }>(null);
   const [addManual, setAddManual] = useState(false);
   const [done, setDone] = useState<null | { total: number }>(null);
+  const [confirming, setConfirming] = useState(false);
 
   if (!ctx.canEdit) return <Card className="p-6 text-sm text-ink-body">{t("Receiving a delivery needs the “edit inventory” permission.", "استلام التوريد محتاج صلاحية تعديل المخزون.")}</Card>;
 
@@ -78,12 +83,14 @@ export function DeliveryView({ ctx }: { ctx: StockCtx }) {
       });
       ctx.setSnap(r.snapshot);
       setDone({ total: r.total });
+      setConfirming(false);
       setLines([]);
       setInvoice(null);
       toast(t(`Received. Supplies expense of ${fmtMoney(r.total)} EGP posted to Finance.`, `اتستلم. مصروف مستلزمات ${fmtMoney(r.total)} جنيه اتسجل في المالية.`));
     }, (m) => toast(m, "error"));
 
-  const total = lines.reduce((a, l) => a + l.qty * l.price, 0);
+  const check = deliveryWarnings(lines, supplier);
+  const total = check.total;
 
   if (done) {
     return (
@@ -156,7 +163,7 @@ export function DeliveryView({ ctx }: { ctx: StockCtx }) {
                       {snap.drawers.map((d) => <option key={d.id} value={d.id}>{d.code} · {ar ? d.nameAr : d.nameEn}</option>)}
                     </select>
                     <label className="flex items-center gap-1 text-[12px] text-ink-muted">
-                      <input type="number" min={0} value={l.price} onChange={(e) => setLines(lines.map((x) => (x === l ? { ...x, price: Math.max(0, Number(e.target.value) || 0) } : x)))} className="w-24 rounded-lg border border-line bg-surface px-2 py-1 text-[12px] text-ink" />
+                      <NumberBox decimal blankZero placeholder="0" label={t("Price", "السعر")} value={l.price} onChange={(n) => setLines(lines.map((x) => (x === l ? { ...x, price: n } : x)))} className={`w-24 rounded-lg border bg-surface px-2 py-1 text-[12px] text-ink ${l.price > 0 ? "border-line" : "border-red-300"}`} />
                       EGP / {unitLabel(item?.unit || "box", 1, ar)}
                     </label>
                     <button type="button" onClick={() => setLines(lines.filter((x) => x !== l))} className="ms-auto text-ink-muted hover:text-red-600" aria-label={t("Remove", "شيل")}><Trash2 size={15} /></button>
@@ -193,10 +200,35 @@ export function DeliveryView({ ctx }: { ctx: StockCtx }) {
             <span className="text-sm text-ink-muted">{t("Total", "الإجمالي")} · {lines.length} {t("lines", "سطر")}</span>
             <b className="font-display text-xl font-black text-ink">{fmtMoney(total)} EGP</b>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-[12px] text-ink-muted">{t("Posts to Finance as", "بيتسجل في المالية كـ")} <b>{t("Supplies", "مستلزمات")}</b> · {supplier || "—"}</span>
-            <Btn kind="yellow" busy={busy} disabled={!lines.length} onClick={receive}><Check size={15} /> {t("Receive delivery", "استلام التوريد")}</Btn>
-          </div>
+          {confirming && lines.length ? (
+            <Reveal>
+              <div className="grid gap-2 rounded-2xl border border-[#FACC15] bg-surface-subtle p-3 text-[13.5px] text-ink-body">
+                <b className="font-display text-[15px] text-ink">{t("Receive this delivery?", "تستلم التوريد ده؟")}</b>
+                <p>
+                  {t(
+                    `${check.units} unit${check.units === 1 ? "" : "s"} on ${lines.length} line${lines.length === 1 ? "" : "s"} from ${supplier.trim() || "—"}. ${fmtMoney(check.total)} EGP will be posted to Finance as a Supplies expense.`,
+                    `${check.units} وحدة في ${lines.length} سطر من ${supplier.trim() || "—"}. هيتسجل ${fmtMoney(check.total)} جنيه مصروف مستلزمات في المالية.`
+                  )}
+                </p>
+                {check.noPrice ? (
+                  <p className="font-bold text-red-700">
+                    {t(`${check.noPrice} line${check.noPrice === 1 ? " has" : "s have"} no price and will be posted as 0.`, `${check.noPrice} سطر من غير سعر وهيتسجل بصفر.`)}
+                  </p>
+                ) : null}
+                {check.noSupplier ? <p className="font-bold text-red-700">{t("No supplier is written.", "اسم المورّد مش مكتوب.")}</p> : null}
+                <p className="text-[12px] text-ink-muted">{t("Check the numbers first: a received delivery cannot be undone from this page.", "راجع الأرقام الأول: التوريد بعد الاستلام مالوش تراجع من الصفحة دي.")}</p>
+                <div className="flex flex-wrap gap-2">
+                  <Btn kind="yellow" busy={busy} onClick={receive}><Check size={15} /> {t("Yes, receive", "أيوه، استلم")}</Btn>
+                  <Btn onClick={() => setConfirming(false)}>{t("Go back and fix", "ارجع أعدّل")}</Btn>
+                </div>
+              </div>
+            </Reveal>
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[12px] text-ink-muted">{t("Posts to Finance as", "بيتسجل في المالية كـ")} <b>{t("Supplies", "مستلزمات")}</b> · {supplier || "—"}</span>
+              <Btn kind="yellow" disabled={!lines.length} onClick={() => setConfirming(true)}><Check size={15} /> {t("Receive delivery", "استلام التوريد")}</Btn>
+            </div>
+          )}
         </Card>
       </div>
     </div>
@@ -309,14 +341,16 @@ function NewProductForm({ ctx, barcode, library, initialItemId, onCancel, onAdd 
   const { snap, t, ar, toast } = ctx;
   const { busy, run } = useBusy();
   const guessedItem = library?.catalogKey ? snap.items.find((i) => i.catalogKey === library.catalogKey) : undefined;
-  const [itemId, setItemId] = useState(initialItemId || guessedItem?.id || snap.items[0]?.id || "");
+  // Nothing is picked for the person unless there is a reason to: a list that starts on its
+  // first line filed new brands under whatever item happened to be first.
+  const [itemId, setItemId] = useState(initialItemId || guessedItem?.id || (snap.items.length === 1 ? snap.items[0].id : ""));
   const [brand, setBrand] = useState(library?.brand || "");
   const [product, setProduct] = useState(library?.product || "");
   const [spec, setSpec] = useState(library?.spec || "");
   const [price, setPrice] = useState(0);
   const [photoUrl, setPhotoUrl] = useState<string | null>(library?.photoUrl || null);
   const item = ctx.items.get(itemId);
-  const [drawerId, setDrawerId] = useState(() => snap.lines.find((l) => l.itemId === itemId)?.drawerId || snap.drawers[0]?.id || "");
+  const [drawerId, setDrawerId] = useState(() => snap.lines.find((l) => l.itemId === itemId)?.drawerId || (snap.drawers.length === 1 ? snap.drawers[0].id : ""));
   return (
     <div className="grid gap-3 rounded-2xl border border-[#FACC15] p-3">
       <Eyebrow>{barcode ? `${t("Barcode", "باركود")} ${barcode}` : t("New product", "منتج جديد")} · {library ? t("known on the platform", "معروف على المنصة") : t("tell the platform once", "عرّف المنصة مرة واحدة")}</Eyebrow>
@@ -330,18 +364,28 @@ function NewProductForm({ ctx, barcode, library, initialItemId, onCancel, onAdd 
         <div className="grid gap-2 sm:grid-cols-2">
           <Field label={t("Which item is it?", "ده أي صنف؟")}>
             <select value={itemId} onChange={(e) => { setItemId(e.target.value); const d = snap.lines.find((l) => l.itemId === e.target.value)?.drawerId; if (d) setDrawerId(d); }} className={inputCls}>
+              <option value="" disabled>{t("Choose the item…", "اختار الصنف…")}</option>
               {snap.items.map((i) => <option key={i.id} value={i.id}>{ar ? i.nameAr : i.nameEn} · {ar ? i.nameEn : i.nameAr}</option>)}
             </select>
           </Field>
           <Field label={t("Brand", "الماركة")}><input value={brand} onChange={(e) => setBrand(e.target.value)} className={inputCls} placeholder="3M" /></Field>
           <Field label={t("Product", "المنتج")}><input value={product} onChange={(e) => setProduct(e.target.value)} className={inputCls} placeholder={item ? CATALOG_BY_KEY[item.catalogKey || ""]?.en || item.nameEn : ""} /></Field>
           <Field label={t("Shade / size", "اللون / المقاس")}><input value={spec} onChange={(e) => setSpec(e.target.value)} className={inputCls} placeholder="A2" /></Field>
-          <Field label={`${t("Price per", "السعر لكل")} ${unitLabel(item?.unit || "box", 1, ar)} (EGP)`}><input type="number" min={0} value={price || ""} onChange={(e) => setPrice(Math.max(0, Number(e.target.value) || 0))} className={inputCls} /></Field>
+          <Field label={`${t("Price per", "السعر لكل")} ${unitLabel(item?.unit || "box", 1, ar)} (EGP)`}><NumberBox decimal blankZero value={price} onChange={setPrice} className={inputCls} /></Field>
           <Field label={t("Into drawer", "في درج")}>
-            <select value={drawerId} onChange={(e) => setDrawerId(e.target.value)} className={inputCls}>{snap.drawers.map((d) => <option key={d.id} value={d.id}>{d.code} · {ar ? d.nameAr : d.nameEn}</option>)}</select>
+            <select value={drawerId} onChange={(e) => setDrawerId(e.target.value)} className={inputCls}>
+              <option value="" disabled>{t("Choose the drawer…", "اختار الدرج…")}</option>
+              {snap.drawers.map((d) => <option key={d.id} value={d.id}>{d.code} · {ar ? d.nameAr : d.nameEn}</option>)}
+            </select>
           </Field>
         </div>
       </div>
+      {!itemId || !brand.trim() || !drawerId ? (
+        <p className="text-[12.5px] font-semibold text-ink-body">
+          {t("Still needed: ", "لسه ناقص: ")}
+          {[!itemId ? t("the item", "الصنف") : "", !brand.trim() ? t("the brand", "الماركة") : "", !drawerId ? t("the drawer", "الدرج") : ""].filter(Boolean).join(t(", ", "، "))}
+        </p>
+      ) : null}
       <div className="flex gap-2">
         <Btn kind="yellow" disabled={!itemId || !brand.trim() || !drawerId} onClick={() => onAdd({ itemId, brand: brand.trim(), product: product.trim(), spec: spec.trim(), barcode, photoUrl }, drawerId, price)}>{t("Add product", "ضيف المنتج")}</Btn>
         <Btn onClick={onCancel}>{t("Cancel", "إلغاء")}</Btn>
@@ -353,7 +397,7 @@ function NewProductForm({ ctx, barcode, library, initialItemId, onCancel, onAdd 
 /** A line for a brand the clinic already has, or a jump to the new-product form. */
 function ManualLine({ ctx, onCancel, onPick, onNew }: { ctx: StockCtx; onCancel: () => void; onPick: (v: StockVariant, drawerId: string) => void; onNew: (itemId: string) => void }) {
   const { snap, t, ar } = ctx;
-  const [itemId, setItemId] = useState(snap.items[0]?.id || "");
+  const [itemId, setItemId] = useState(snap.items.length === 1 ? snap.items[0].id : "");
   const variants = snap.variants.filter((v) => v.itemId === itemId && !v.isGeneric);
   const generic = snap.variants.find((v) => v.itemId === itemId && v.isGeneric);
   const drawerFor = (vid?: string) => snap.lines.find((l) => (vid ? l.variantId === vid : l.itemId === itemId))?.drawerId || snap.drawers[0]?.id || "";
@@ -361,12 +405,15 @@ function ManualLine({ ctx, onCancel, onPick, onNew }: { ctx: StockCtx; onCancel:
     <div className="grid gap-3 rounded-2xl border border-line p-3">
       <Eyebrow>{t("Add a line", "ضيف سطر")}</Eyebrow>
       <Field label={t("Item", "الصنف")}>
-        <select value={itemId} onChange={(e) => setItemId(e.target.value)} className={inputCls}>{snap.items.map((i) => <option key={i.id} value={i.id}>{ar ? i.nameAr : i.nameEn}</option>)}</select>
+        <select value={itemId} onChange={(e) => setItemId(e.target.value)} className={inputCls}>
+          <option value="" disabled>{t("Choose the item…", "اختار الصنف…")}</option>
+          {snap.items.map((i) => <option key={i.id} value={i.id}>{ar ? i.nameAr : i.nameEn}</option>)}
+        </select>
       </Field>
       <div className="flex flex-wrap gap-2">
         {variants.map((v) => <Btn key={v.id} onClick={() => onPick(v, drawerFor(v.id))}>{variantLabel(v, ctx.items.get(itemId), ar)}</Btn>)}
         {generic ? <Btn onClick={() => onPick(generic, drawerFor(generic.id))}>{t("No brand (generic)", "من غير ماركة")}</Btn> : null}
-        <Btn kind="dark" onClick={() => onNew(itemId)}>{t("New brand…", "ماركة جديدة…")}</Btn>
+        {itemId ? <Btn kind="dark" onClick={() => onNew(itemId)}>{t("New brand…", "ماركة جديدة…")}</Btn> : null}
         <Btn onClick={onCancel}>{t("Cancel", "إلغاء")}</Btn>
       </div>
     </div>

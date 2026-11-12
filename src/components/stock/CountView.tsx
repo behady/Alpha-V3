@@ -1,24 +1,43 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, Check } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, RotateCcw } from "lucide-react";
 import { unitLabel } from "@/lib/stock/catalog";
 import { stockApi } from "@/lib/stock/api";
 import { deliveredBetween } from "@/lib/stock/math";
 import { DrawerThumb } from "./CupboardView";
-import { Btn, Card, CodeBadge, Eyebrow, LinePicture, Ltr, Stepper, fmtDate, linesOfDrawer, useBusy, variantLabel, type StockCtx } from "./shared";
+import { Btn, Card, CodeBadge, Eyebrow, LinePicture, Ltr, Stepper, fmtDate, linesOfDrawer, useBusy, useCountDraft, variantLabel, type StockCtx } from "./shared";
 
 /**
  * The weekly walk. Drawers in code order, one screen each, last count pre-filled; the assistant
- * changes only what moved. The whole walk is saved as one count, so a drawer confirmed with
- * "same as last week" is recorded at exactly that.
+ * changes only what moved and presses Next. The whole walk is saved as one count, so a drawer
+ * passed without a change is recorded at exactly what it held.
+ *
+ * The walk is kept on the device as it goes (numbers and which drawer), so a locked phone, a
+ * wrong tab or a reload picks up where it stopped instead of starting over. There used to be a
+ * "same as last week" button beside Next; it threw away whatever had just been typed in that
+ * drawer, and Next already does the honest thing, so it is gone.
  */
 export function CountView({ ctx, startDrawerCode }: { ctx: StockCtx; startDrawerCode: string | null }) {
   const { snap, t, ar, toast } = ctx;
   const drawers = snap.drawers;
-  const startIdx = Math.max(0, drawers.findIndex((d) => d.code === startDrawerCode));
-  const [i, setI] = useState(startIdx);
-  const [values, setValues] = useState<Record<string, number>>({});
+  const kept = useCountDraft("walk", ctx.today, new Set(snap.lines.map((l) => l.id)));
+  const values = kept.values;
+  // A label's QR code opens the walk on that drawer; otherwise carry on from where it stopped.
+  const linked = startDrawerCode ? drawers.findIndex((d) => d.code === startDrawerCode) : -1;
+  const [jumped, setJumped] = useState(linked >= 0);
+  const i = Math.min(drawers.length, jumped && linked >= 0 ? linked : kept.step);
+  const setI = (n: number) => {
+    setJumped(false);
+    kept.set({ values, step: n });
+  };
+  const typeQty = (lineId: string, qty: number, n: number) => {
+    const next = { ...values };
+    if (n === qty) delete next[lineId];
+    else next[lineId] = n;
+    setJumped(false);
+    kept.set({ values: next, step: i });
+  };
   const [saved, setSaved] = useState<null | { changed: number }>(null);
   const { busy, run } = useBusy();
   const lastCount = snap.counts[snap.counts.length - 1];
@@ -67,7 +86,7 @@ export function CountView({ ctx, startDrawerCode }: { ctx: StockCtx; startDrawer
           </div>
           <div className="flex gap-2">
             <Btn onClick={() => setI(drawers.length - 1)}><Back size={14} /> {t("Back", "رجوع")}</Btn>
-            <Btn kind="yellow" busy={busy} onClick={() => run(async () => { const r = await stockApi.saveCount(ctx.today, values, "all"); ctx.setSnap(r.snapshot); setSaved({ changed: r.changed }); toast(t("Count saved.", "اتحفظ العدّ.")); }, (m) => toast(m, "error"))}>
+            <Btn kind="yellow" busy={busy} onClick={() => run(async () => { const r = await stockApi.saveCount(ctx.today, values, "all"); ctx.setSnap(r.snapshot); kept.clear(); setSaved({ changed: r.changed }); toast(t("Count saved.", "اتحفظ العدّ.")); }, (m) => toast(m, "error"))}>
               <Check size={15} /> {t("Save count", "احفظ العدّ")}
             </Btn>
           </div>
@@ -109,15 +128,21 @@ export function CountView({ ctx, startDrawerCode }: { ctx: StockCtx; startDrawer
 
   const d = drawers[i];
   const lines = linesOfDrawer(snap, d.id);
-  const sameAsLast = () => {
-    const next = { ...values };
-    for (const l of lines) delete next[l.id];
-    setValues(next);
-    setI(i + 1);
-  };
+  const typed = Object.keys(values).length;
 
   return (
     <div className="grid gap-4">
+      {kept.restored && (typed > 0 || i > 0) ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[#FACC15] bg-surface p-3 text-[13px] text-ink-body">
+          <span>
+            <b className="text-ink">{t("Carrying on from where you stopped.", "بنكمّل من حيث وقفت.")}</b>{" "}
+            {typed > 0 ? t(`${typed} number${typed === 1 ? "" : "s"} you typed ${typed === 1 ? "is" : "are"} still here.`, `${typed} رقم كتبتهم لسه موجودين.`) : null}
+          </span>
+          <button type="button" onClick={() => { setJumped(false); kept.clear(); }} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-line px-3 font-display text-[13px] font-bold text-ink hover:bg-surface-subtle">
+            <RotateCcw size={14} /> {t("Start over", "ابدأ من الأول")}
+          </button>
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Eyebrow>{t("Weekly count", "العدّ الأسبوعي")} · {fmtDate(ctx.today, ar)} · {t("drawer", "درج")} {i + 1} {t("of", "من")} {drawers.length}</Eyebrow>
@@ -126,7 +151,7 @@ export function CountView({ ctx, startDrawerCode }: { ctx: StockCtx; startDrawer
             <span>{ar ? d.nameAr : d.nameEn}</span>
           </h2>
           <p className="mt-1 text-sm text-ink-body">
-            {ar ? d.roomAr : d.roomEn}{d.cabinetWhere ? ` · ${d.cabinetWhere}` : ""}. {t("Last count is filled in. Change only what moved; count boxes, not pieces.", "آخر عدّ متكتب. غيّر اللي اتحرك بس؛ عدّ العلب مش القطع.")}
+            {ar ? d.roomAr : d.roomEn}{d.cabinetWhere ? ` · ${d.cabinetWhere}` : ""}. {t("Last count is filled in. Change only what moved, then press Next; count boxes, not pieces.", "آخر عدّ متكتب. غيّر اللي اتحرك بس ودوس التالي؛ عدّ العلب مش القطع.")}
           </p>
         </div>
         <div className="flex flex-wrap gap-1">
@@ -157,17 +182,14 @@ export function CountView({ ctx, startDrawerCode }: { ctx: StockCtx; startDrawer
                     {t("count in", "عدّ بالـ")} {unitLabel(item?.unit || "box", 2, ar)} · {t("last", "آخر")} <b className="font-display">{l.qty}</b>
                   </span>
                 </div>
-                <Stepper value={cur} onChange={(n) => setValues({ ...values, [l.id]: n })} changed={chg} />
+                <Stepper value={cur} onChange={(n) => typeQty(l.id, l.qty, n)} changed={chg} />
               </div>
             );
           })}
           {!lines.length ? <p className="text-sm text-ink-muted">{t("Nothing lives here yet.", "لسه مفيش حاجة هنا.")}</p> : null}
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
             <Btn onClick={() => setI(Math.max(0, i - 1))} disabled={i === 0}><Back size={14} /> {t("Previous", "السابق")}</Btn>
-            <div className="flex gap-2">
-              <Btn onClick={sameAsLast}>{t("Same as last week", "زي الأسبوع اللي فات")}</Btn>
-              <Btn kind="dark" onClick={() => setI(i + 1)}>{i === drawers.length - 1 ? t("Review", "مراجعة") : t("Next drawer", "الدرج التالي")} <Fwd size={14} /></Btn>
-            </div>
+            <Btn kind="dark" onClick={() => setI(i + 1)}>{i === drawers.length - 1 ? t("Review", "مراجعة") : t("Next drawer", "الدرج التالي")} <Fwd size={14} /></Btn>
           </div>
         </div>
       </div>

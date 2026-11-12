@@ -4,6 +4,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { Camera, Loader2, Minus, Plus, X } from "lucide-react";
 import type { StockDrawer, StockItem, StockLine, StockSnapshot, StockVariant } from "@/lib/stock/types";
 import type { PaceRow } from "@/lib/stock/math";
+import { currentClinicId } from "@/lib/db-utils";
+import { clearDraft, draftKey, localDraftStore, parseCount, readDraft, toAsciiDigits, writeDraft, type CountDraft } from "@/lib/stock/input";
 import { StockPicture } from "./Art";
 
 /** Everything a view needs, resolved once by the page. */
@@ -140,20 +142,63 @@ export function Reveal({ children }: { children: React.ReactNode }) {
   return <div ref={ref}>{children}</div>;
 }
 
-export function Stepper({ value, onChange, min = 0, changed = false, disabled = false }: { value: number; onChange: (n: number) => void; min?: number; changed?: boolean; disabled?: boolean }) {
+/**
+ * A box for a number that reads what was typed the way the person meant it.
+ *
+ * It is a text box with a number keypad, not the browser's number box: that one hands back an
+ * empty string for an Arabic "٥", which the page then saved as zero, and it changes its value
+ * when the mouse wheel passes over it. Here Arabic digits are digits, an emptied box changes
+ * nothing, and the wheel only scrolls the page. Enter moves to the next number on the screen.
+ */
+export function NumberBox({ value, onChange, min = 0, max, decimal = false, blankZero = false, disabled = false, className = "", id, placeholder, label }: { value: number; onChange: (n: number) => void; min?: number; max?: number; decimal?: boolean; blankZero?: boolean; disabled?: boolean; className?: string; id?: string; placeholder?: string; label?: string }) {
+  // null while the box is not being typed in: it then simply shows the value it was given.
+  const [text, setText] = useState<string | null>(null);
+  return (
+    <input
+      id={id}
+      type="text"
+      inputMode={decimal ? "decimal" : "numeric"}
+      autoComplete="off"
+      dir="ltr"
+      data-numbox=""
+      aria-label={label}
+      placeholder={placeholder}
+      disabled={disabled}
+      value={text ?? (blankZero && !value ? "" : String(value))}
+      onFocus={(e) => e.currentTarget.select()}
+      onChange={(e) => {
+        // Shown back in plain digits straight away, so the person sees the page understood them.
+        const raw = toAsciiDigits(e.target.value).replace(/٫/g, ".").replace(/٬/g, "");
+        setText(raw);
+        const n = parseCount(raw, { min, max, decimal });
+        if (n != null) onChange(n);
+      }}
+      onBlur={() => setText(null)}
+      onKeyDown={(e) => {
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        const all = [...document.querySelectorAll<HTMLInputElement>("input[data-numbox]:not(:disabled)")];
+        const next = all[all.indexOf(e.currentTarget) + 1];
+        if (next) next.focus();
+        else e.currentTarget.blur();
+      }}
+      className={className}
+    />
+  );
+}
+
+export function Stepper({ value, onChange, min = 0, changed = false, disabled = false, label }: { value: number; onChange: (n: number) => void; min?: number; changed?: boolean; disabled?: boolean; label?: string }) {
   return (
     <div className={`inline-flex items-center overflow-hidden rounded-xl border ${changed ? "border-[#FACC15]" : "border-line"} bg-surface`}>
       <button type="button" disabled={disabled} onClick={() => onChange(Math.max(min, value - 1))} className="grid h-10 w-10 place-items-center text-ink-body hover:bg-surface-subtle disabled:opacity-40" aria-label="minus">
         <Minus size={16} />
       </button>
-      <input
-        type="number"
-        inputMode="numeric"
-        min={min}
+      <NumberBox
         value={value}
+        onChange={onChange}
+        min={min}
         disabled={disabled}
-        onChange={(e) => onChange(Math.max(min, Math.floor(Number(e.target.value) || 0)))}
-        onFocus={(e) => e.currentTarget.select()}
+        label={label}
         className={`h-10 w-14 border-x border-line text-center font-display text-base font-bold outline-none ${changed ? "bg-[#FACC15] text-[#1A1206]" : "bg-transparent text-ink"}`}
       />
       <button type="button" disabled={disabled} onClick={() => onChange(value + 1)} className="grid h-10 w-10 place-items-center text-ink-body hover:bg-surface-subtle disabled:opacity-40" aria-label="plus">
@@ -161,6 +206,34 @@ export function Stepper({ value, onChange, min = 0, changed = false, disabled = 
       </button>
     </div>
   );
+}
+
+/**
+ * Numbers typed but not saved yet, kept on the device.
+ *
+ * A count is done standing at a cupboard with a phone: the screen locks, a call comes in, a
+ * thumb lands on another tab. The typed numbers used to live only in the page, so any of those
+ * threw the whole count away. They are now written to the device on every change and read back
+ * when the page opens again the same day; saving or pressing Undo clears them.
+ *
+ * `scope` is "walk" for the weekly count or "drawer:<id>" for one drawer; `validIds` are the
+ * rows that still exist, so a row deleted meanwhile does not come back as a ghost number.
+ */
+export function useCountDraft(scope: string, today: string, validIds: Set<string>) {
+  const [key] = useState(() => draftKey(currentClinicId() || "none", scope));
+  const [state, setState] = useState<CountDraft & { restored: boolean }>(() => {
+    const saved = typeof window === "undefined" ? null : readDraft(localDraftStore(), key, today, validIds);
+    return saved ? { ...saved, restored: true } : { values: {}, step: 0, restored: false };
+  });
+  const set = (next: CountDraft) => {
+    setState((s) => ({ ...next, restored: s.restored }));
+    writeDraft(localDraftStore(), key, today, next);
+  };
+  const clear = () => {
+    setState({ values: {}, step: 0, restored: false });
+    clearDraft(localDraftStore(), key);
+  };
+  return { values: state.values, step: state.step, restored: state.restored, set, clear };
 }
 
 export function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {

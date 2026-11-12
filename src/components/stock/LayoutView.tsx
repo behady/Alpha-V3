@@ -6,7 +6,7 @@ import { stockApi } from "@/lib/stock/api";
 import type { StockDrawer } from "@/lib/stock/types";
 import { printDrawerLabels } from "./labels";
 import { SetupView } from "./SetupView";
-import { Btn, Card, Eyebrow, Field, Ltr, Reveal, inputCls, linesOfDrawer, shortCode, useBusy, type StockCtx } from "./shared";
+import { Btn, Card, Eyebrow, Field, Ltr, NumberBox, Reveal, inputCls, linesOfDrawer, shortCode, useBusy, type StockCtx } from "./shared";
 
 /**
  * The clinic describes its own furniture, and nothing is assumed.
@@ -217,7 +217,7 @@ function CabinetBlock({ ctx, roomCode, letter, drawers }: { ctx: StockCtx; roomC
 function CountField({ id, label, value, onChange, max }: { id: string; label: string; value: number; onChange: (n: number) => void; max: number }) {
   return (
     <Field label={label}>
-      <input id={id} type="number" inputMode="numeric" min={0} max={max} value={value} onChange={(e) => onChange(Math.min(max, Math.max(0, Math.floor(Number(e.target.value) || 0))))} onFocus={(e) => e.currentTarget.select()} className={inputCls} dir="ltr" />
+      <NumberBox id={id} value={value} onChange={onChange} max={max} className={inputCls} />
     </Field>
   );
 }

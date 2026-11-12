@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ArrowRightLeft, Trash2 } from "lucide-react";
 import { UNIT_NAMES, unitLabel } from "@/lib/stock/catalog";
 import { stockApi } from "@/lib/stock/api";
+import { parseCount, toAsciiDigits } from "@/lib/stock/input";
 import type { StockDrawer, StockLine } from "@/lib/stock/types";
 import { Btn, Eyebrow, Field, LinePicture, Ltr, Reveal, Sheet, inputCls, useBusy, variantLabel, type StockCtx } from "./shared";
 
@@ -12,8 +13,9 @@ import { Btn, Eyebrow, Field, LinePicture, Ltr, Reveal, Sheet, inputCls, useBusy
  * called, what the brand is, which drawer it lives in, and whether it lives here at all.
  *
  * Renaming the item renames it in every drawer, because it is one item; the sheet says so.
- * Deleting a row that still holds stock asks first and says what it means: those units will
- * read as used at the next count.
+ * Deleting always asks first, and for a row that still holds stock it says what that means:
+ * those units will read as used at the next count. Moving starts with no drawer picked, so a
+ * stray tap on Move cannot send the row to whichever drawer happened to be first in the list.
  */
 export function EditLineSheet({ ctx, line, drawer, startOnDelete = false, onClose }: { ctx: StockCtx; line: StockLine; drawer: StockDrawer; startOnDelete?: boolean; onClose: () => void }) {
   const { snap, t, ar, toast } = ctx;
@@ -35,7 +37,8 @@ export function EditLineSheet({ ctx, line, drawer, startOnDelete = false, onClos
   const [price, setPrice] = useState(variant?.lastPrice ? String(variant.lastPrice) : "");
 
   const otherDrawers = snap.drawers.filter((d) => d.id !== drawer.id);
-  const [toDrawer, setToDrawer] = useState(otherDrawers[0]?.id || "");
+  const [toDrawer, setToDrawer] = useState(otherDrawers.length === 1 ? otherDrawers[0].id : "");
+  const priceNum = parseCount(price, { decimal: true }) ?? 0;
   const [confirmDelete, setConfirmDelete] = useState(startOnDelete);
 
   const itemChanged = !!item && (nameEn.trim() !== item.nameEn || nameAr.trim() !== item.nameAr || unit !== item.unit || per.trim() !== item.per);
@@ -46,7 +49,7 @@ export function EditLineSheet({ ctx, line, drawer, startOnDelete = false, onClos
       spec.trim() !== variant.spec ||
       barcode.trim() !== (variant.barcode || "") ||
       supplier.trim() !== (variant.supplier || "") ||
-      (Number(price) || 0) !== (variant.lastPrice || 0));
+      priceNum !== (variant.lastPrice || 0));
   const drawersUsingItem = new Set(snap.lines.filter((l) => l.itemId === line.itemId).map((l) => l.drawerId)).size;
 
   const save = () =>
@@ -56,7 +59,7 @@ export function EditLineSheet({ ctx, line, drawer, startOnDelete = false, onClos
       if (itemChanged && item) latest = await stockApi.updateItem(item.id, { nameEn: nameEn.trim() || nameAr.trim(), nameAr: nameAr.trim() || nameEn.trim(), unit, per: per.trim() });
       if (variantChanged && variant) {
         if (!generic && !brand.trim()) throw new Error(t("A brand needs a name.", "الماركة محتاجة اسم."));
-        latest = await stockApi.updateVariant(variant.id, { brand: brand.trim(), product: product.trim(), spec: spec.trim(), barcode: barcode.trim(), supplier: supplier.trim(), lastPrice: Number(price) || 0 });
+        latest = await stockApi.updateVariant(variant.id, { brand: brand.trim(), product: product.trim(), spec: spec.trim(), barcode: barcode.trim(), supplier: supplier.trim(), lastPrice: priceNum });
       }
       ctx.setSnap(latest);
       toast(t("Saved.", "اتحفظ."));
@@ -117,7 +120,7 @@ export function EditLineSheet({ ctx, line, drawer, startOnDelete = false, onClos
             <input id="stock-edit-supplier" list="stock-edit-suppliers" value={supplier} onChange={(e) => setSupplier(e.target.value)} className={inputCls} />
             <datalist id="stock-edit-suppliers">{snap.suppliers.map((s) => <option key={s} value={s} />)}</datalist>
           </Field>
-          <Field label={`${t("Price per", "السعر لكل")} ${unitLabel(unit, 1, ar)} (EGP)`}><input id="stock-edit-price" type="number" min={0} value={price} onChange={(e) => setPrice(e.target.value)} className={inputCls} dir="ltr" /></Field>
+          <Field label={`${t("Price per", "السعر لكل")} ${unitLabel(unit, 1, ar)} (EGP)`}><input id="stock-edit-price" type="text" inputMode="decimal" autoComplete="off" value={price} onChange={(e) => setPrice(toAsciiDigits(e.target.value))} className={inputCls} dir="ltr" /></Field>
         </div>
         {generic ? <p className="text-[12px] text-ink-muted">{t("Type a brand name to turn this row into that brand. Leave it empty to keep it without a brand.", "اكتب اسم الماركة عشان السطر ده يبقى الماركة دي. سيبه فاضي لو مش عايز ماركة.")}</p> : null}
       </section>
@@ -132,6 +135,7 @@ export function EditLineSheet({ ctx, line, drawer, startOnDelete = false, onClos
           <Eyebrow>{t("Move to another drawer", "انقل لدرج تاني")}</Eyebrow>
           <div className="flex flex-wrap gap-2">
             <select id="stock-edit-move" value={toDrawer} onChange={(e) => setToDrawer(e.target.value)} className={`${inputCls} min-w-0 flex-1`}>
+              <option value="" disabled>{t("Choose the drawer…", "اختار الدرج…")}</option>
               {otherDrawers.map((d) => <option key={d.id} value={d.id}>{d.code} · {ar ? d.nameAr : d.nameEn}</option>)}
             </select>
             <Btn busy={busy} disabled={!toDrawer} onClick={move}><ArrowRightLeft size={14} /> {t("Move", "انقل")}</Btn>
@@ -142,17 +146,19 @@ export function EditLineSheet({ ctx, line, drawer, startOnDelete = false, onClos
 
       <section className="grid gap-2 border-t border-line pt-4">
         {!confirmDelete ? (
-          <button type="button" onClick={() => (line.qty > 0 ? setConfirmDelete(true) : void remove())} disabled={busy} className="inline-flex items-center gap-2 justify-self-start rounded-xl border border-red-200 px-4 py-2.5 font-display text-[13px] font-bold text-red-700 hover:bg-red-50 disabled:opacity-40">
+          <button type="button" onClick={() => setConfirmDelete(true)} disabled={busy} className="inline-flex items-center gap-2 justify-self-start rounded-xl border border-red-200 px-4 py-2.5 font-display text-[13px] font-bold text-red-700 hover:bg-red-50 disabled:opacity-40">
             <Trash2 size={14} /> {t("Delete from this drawer", "امسح من الدرج ده")}
           </button>
         ) : (
           <Reveal>
           <div className="grid gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-[13px] text-red-900">
             <p>
-              {t(
-                `This row still has ${line.qty} ${unitLabel(item?.unit || "box", line.qty, false)}. Deleting it writes them off: they will count as used, and the delete is recorded under your name.`,
-                `السطر ده لسه عليه ${line.qty} ${unitLabel(item?.unit || "box", line.qty, true)}. لو مسحته هيتحسبوا مستهلكين، والمسح هيتسجل باسمك.`
-              )}
+              {line.qty > 0
+                ? t(
+                    `This row still has ${line.qty} ${unitLabel(item?.unit || "box", line.qty, false)}. Deleting it writes them off: they will count as used, and the delete is recorded under your name.`,
+                    `السطر ده لسه عليه ${line.qty} ${unitLabel(item?.unit || "box", line.qty, true)}. لو مسحته هيتحسبوا مستهلكين، والمسح هيتسجل باسمك.`
+                  )
+                : t("Delete this row from the drawer? There is nothing on it. The delete is recorded under your name.", "تمسح السطر ده من الدرج؟ مفيش عليه كمية. المسح هيتسجل باسمك.")}
             </p>
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={() => void remove()} disabled={busy} className="rounded-xl bg-red-700 px-4 py-2 font-display text-[13px] font-bold text-white disabled:opacity-40">{t("Yes, delete", "أيوه، امسح")}</button>
