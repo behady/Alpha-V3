@@ -9,6 +9,7 @@ import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { stockApi } from "@/lib/stock/api";
+import { friendlyStockError } from "@/lib/stock/errors";
 import { paceByItem, todayKey } from "@/lib/stock/math";
 import type { StockSnapshot } from "@/lib/stock/types";
 import type { StockCtx } from "./shared";
@@ -71,6 +72,12 @@ export default function StockPage() {
   );
 
   const perms = useMemo(() => user?.permissions ?? [], [user?.permissions]);
+  // Every error the stock screens show goes through here, so none of them reaches an Arabic
+  // reader as raw English or as the browser's "Failed to fetch".
+  const toast = useCallback(
+    (message: string, type?: "success" | "error" | "info") => showToast(type === "error" ? friendlyStockError(message, ar) : message, type),
+    [showToast, ar]
+  );
   const ctx = useMemo<StockCtx | null>(() => {
     if (!snap) return null;
     const pace = new Map(paceByItem({ items: snap.items, variants: snap.variants, lines: snap.lines, counts: snap.counts, deliveries: snap.deliveries }).map((p) => [p.itemId, p]));
@@ -83,13 +90,13 @@ export default function StockPage() {
       pace,
       ar,
       t: (en: string, arText: string) => (ar ? arText : en),
-      toast: showToast,
+      toast,
       canEdit: isAdmin || perms.includes("inventory.edit"),
       canStructure: isAdmin || perms.includes("inventory.add"),
       go,
       today: todayKey(),
     };
-  }, [snap, ar, showToast, isAdmin, perms, go]);
+  }, [snap, ar, toast, isAdmin, perms, go]);
 
   const t = (en: string, arText: string) => (ar ? arText : en);
   const labels: Record<Tab, string> = {
@@ -114,7 +121,7 @@ export default function StockPage() {
                 key={k}
                 type="button"
                 onClick={() => go({ tab: k, drawer: null, count: null })}
-                className={`min-w-0 flex-1 whitespace-nowrap rounded-xl px-0 py-2 font-display text-[10.5px] font-bold tracking-tight transition-colors sm:flex-none sm:px-3.5 sm:text-[13px] sm:tracking-normal ${on ? "bg-ink-slab text-white" : "text-ink-body hover:bg-surface-subtle"}`}
+                className={`min-w-0 flex-1 whitespace-nowrap rounded-xl px-0 py-2.5 font-display text-[13px] font-bold tracking-tight transition-colors sm:flex-none sm:px-3.5 sm:py-2 sm:tracking-normal ${on ? "bg-ink-slab text-white" : "text-ink-body hover:bg-surface-subtle"}`}
                 aria-current={on ? "page" : undefined}
               >
                 <span className="sm:hidden">{k === "count" ? t("Count", "العدّ") : labels[k]}</span>
@@ -125,7 +132,12 @@ export default function StockPage() {
         </nav>
 
         {error ? (
-          <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</div>
+          <div className="grid gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+            <span>{friendlyStockError(error, ar)}</span>
+            <button type="button" onClick={() => void load()} className="h-10 justify-self-start rounded-xl bg-red-700 px-4 font-display text-[13px] font-bold text-white">
+              {t("Try again", "جرّب تاني")}
+            </button>
+          </div>
         ) : !ctx ? (
           <div className="grid place-items-center py-24 text-ink-muted">
             <Loader2 className="animate-spin" />

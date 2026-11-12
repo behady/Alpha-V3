@@ -158,7 +158,7 @@ export function CountsCompareView({ ctx }: { ctx: StockCtx }) {
             >
               <b className="block font-display text-[13px] font-bold text-ink"><Ltr>{when(s.atMs)}</Ltr></b>
               <span className="block text-[12px] text-ink-body">{s.byName}{s.byRole ? ` · ${s.byRole}` : ""}</span>
-              <span className="block text-[11.5px] text-ink-muted"><Ltr>{scopeOf(s)}</Ltr> · {s.changed} {t("changed", "اتغير")}</span>
+              <span className="block text-[12.5px] text-ink-muted"><Ltr>{scopeOf(s)}</Ltr> · {s.changed} {t("changed", "اتغير")}</span>
             </button>
           ))}
           {loading ? <div className="grid place-items-center p-4 text-ink-muted"><Loader2 className="animate-spin" /></div> : null}
@@ -189,10 +189,10 @@ export function CountsCompareView({ ctx }: { ctx: StockCtx }) {
           <>
             {result.from ? (
               <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                <Card className="p-3.5"><Eyebrow>{t("Earlier count", "العدّ السابق")}</Eyebrow><div className="mt-1 font-display text-[15px] font-bold text-ink"><Ltr>{when(result.from.atMs)}</Ltr></div><div className="text-[11.5px] text-ink-muted">{result.from.byName} · <Ltr>{scopeOf(result.from)}</Ltr></div></Card>
+                <Card className="p-3.5"><Eyebrow>{t("Earlier count", "العدّ السابق")}</Eyebrow><div className="mt-1 font-display text-[15px] font-bold text-ink"><Ltr>{when(result.from.atMs)}</Ltr></div><div className="text-[12.5px] text-ink-muted">{result.from.byName} · <Ltr>{scopeOf(result.from)}</Ltr></div></Card>
                 <Card className="p-3.5"><Eyebrow>{t("Time between", "الوقت بينهم")}</Eyebrow><div className="mt-1 font-display text-[15px] font-bold text-ink">{gapLabel(result.from.atMs, result.to.atMs, ar)}</div></Card>
-                <Card className="p-3.5"><Eyebrow>{t("Rows that differ", "سطور مختلفة")}</Eyebrow><div className="mt-1 font-display text-2xl font-bold text-ink">{differing.length}</div><div className="text-[11.5px] text-ink-muted">{t("of", "من")} {named.length}</div></Card>
-                <Card className="p-3.5"><Eyebrow>{t("Used between them", "المستخدم بينهم")}</Eyebrow><div className="mt-1 font-display text-2xl font-bold text-ink">{fmtMoney(usedValue)} <small className="text-xs font-semibold text-ink-muted">EGP</small></div><div className="text-[11.5px] text-ink-muted">{t("at last purchase prices", "بآخر أسعار الشراء")}</div></Card>
+                <Card className="p-3.5"><Eyebrow>{t("Rows that differ", "سطور مختلفة")}</Eyebrow><div className="mt-1 font-display text-2xl font-bold text-ink">{differing.length}</div><div className="text-[12.5px] text-ink-muted">{t("of", "من")} {named.length}</div></Card>
+                <Card className="p-3.5"><Eyebrow>{t("Used between them", "المستخدم بينهم")}</Eyebrow><div className="mt-1 font-display text-2xl font-bold text-ink">{fmtMoney(usedValue)} <small className="text-xs font-semibold text-ink-muted">{t("EGP", "جنيه")}</small></div><div className="text-[12.5px] text-ink-muted">{t("at last purchase prices", "بآخر أسعار الشراء")}</div></Card>
               </div>
             ) : (
               <Card className="p-3.5 text-sm text-ink-body">
@@ -211,32 +211,32 @@ export function CountsCompareView({ ctx }: { ctx: StockCtx }) {
             </div>
 
             <Card className="overflow-x-auto">
-              <table className="w-full min-w-[540px] text-[13.5px]" id="stock-compare-table">
+              <table className="w-full text-[13.5px] sm:min-w-[540px]" id="stock-compare-table">
                 <thead>
-                  <tr className="font-display text-[11px] uppercase tracking-[0.08em] text-ink-muted">
-                    <th className="px-3.5 py-2.5 text-start">{t("Item", "الصنف")}</th>
-                    <th className="px-3.5 py-2.5 text-end">{t("Earlier count", "العدّ السابق")}</th>
-                    <th className="px-3.5 py-2.5 text-end">{t("In / out", "دخل / خرج")}</th>
-                    <th className="px-3.5 py-2.5 text-end">{t("This count", "العدّ ده")}</th>
-                    <th className="px-3.5 py-2.5 text-end">{t("Used", "المستخدم")}</th>
-                    <th className="px-3.5 py-2.5 text-end">EGP</th>
+                  <tr className="font-display text-[12px] uppercase tracking-[0.08em] text-ink-muted">
+                    <th className="px-2 py-2.5 sm:px-3.5 text-start">{t("Item", "الصنف")}</th>
+                    <th className="px-2 py-2.5 sm:px-3.5 text-end">{t("Earlier count", "العدّ السابق")}</th>
+                    <th className="px-2 py-2.5 sm:px-3.5 text-end hidden sm:table-cell">{t("In / out", "دخل / خرج")}</th>
+                    <th className="px-2 py-2.5 sm:px-3.5 text-end">{t("This count", "العدّ ده")}</th>
+                    <th className="px-2 py-2.5 sm:px-3.5 text-end">{t("Used", "المستخدم")}</th>
+                    <th className="px-2 py-2.5 sm:px-3.5 text-end hidden sm:table-cell">{t("EGP", "جنيه")}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {shown.map(({ r, item, name, brand, codes, cost }) => (
                     <tr key={r.variantId} className="border-t border-line">
-                      <td className="px-3.5 py-2">
+                      <td className="px-2 py-2 sm:px-3.5">
                         <b>{name}</b>
-                        {brand ? <><br /><span className="text-[11.5px] text-ink-muted"><Ltr>{brand}</Ltr></span></> : null}
-                        {codes.length ? <><br /><span className="font-display text-[11px] text-ink-muted"><Ltr>{codes.join(", ")}</Ltr></span></> : null}
+                        {brand ? <><br /><span className="text-[12.5px] text-ink-muted"><Ltr>{brand}</Ltr></span></> : null}
+                        {codes.length ? <><br /><span className="font-display text-[12px] text-ink-muted"><Ltr>{codes.join(", ")}</Ltr></span></> : null}
                       </td>
-                      <td className="px-3.5 py-2 text-end font-display">{r.last ?? "—"}</td>
-                      <td className={`px-3.5 py-2 text-end font-display ${r.moved ? "font-semibold text-ink" : "text-ink-muted"}`}><Ltr>{signed(r.moved)}</Ltr></td>
-                      <td className="px-3.5 py-2 text-end font-display font-semibold">{r.counted}</td>
-                      <td className="px-3.5 py-2 text-end font-display">
-                        {r.used > 0 ? <b className="text-ink">{r.used} <span className="text-[11px] font-normal text-ink-muted">{unitLabel(item?.unit || "box", r.used, ar)}</span></b> : r.used < 0 ? <span className="font-semibold text-emerald-700"><Ltr>+{-r.used}</Ltr> {t("extra", "زيادة")}</span> : <span className="text-ink-muted">0</span>}
+                      <td className="px-2 py-2 sm:px-3.5 text-end font-display">{r.last ?? "—"}{r.moved ? <span className="block text-[12px] text-ink-muted sm:hidden"><Ltr>{signed(r.moved)}</Ltr></span> : null}</td>
+                      <td className={`px-2 py-2 sm:px-3.5 text-end font-display hidden sm:table-cell ${r.moved ? "font-semibold text-ink" : "text-ink-muted"}`}><Ltr>{signed(r.moved)}</Ltr></td>
+                      <td className="px-2 py-2 sm:px-3.5 text-end font-display font-semibold">{r.counted}</td>
+                      <td className="px-2 py-2 sm:px-3.5 text-end font-display">
+                        {r.used > 0 ? <b className="text-ink">{r.used} <span className="text-[12px] font-normal text-ink-muted">{unitLabel(item?.unit || "box", r.used, ar)}</span></b> : r.used < 0 ? <span className="font-semibold text-emerald-700"><Ltr>+{-r.used}</Ltr> {t("extra", "زيادة")}</span> : <span className="text-ink-muted">0</span>}
                       </td>
-                      <td className="px-3.5 py-2 text-end font-display text-ink-muted">{cost ? fmtMoney(cost) : "—"}</td>
+                      <td className="px-2 py-2 sm:px-3.5 text-end font-display text-ink-muted hidden sm:table-cell">{cost ? fmtMoney(cost) : "—"}</td>
                     </tr>
                   ))}
                   {!shown.length ? (

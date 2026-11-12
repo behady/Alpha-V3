@@ -6,7 +6,7 @@ import { unitLabel } from "@/lib/stock/catalog";
 import { addDays, daysLabel, lastPrice, paceByItem, shoppingList, sortCounts, usageByItem, variance } from "@/lib/stock/math";
 import { CountsCompareView } from "./CountsCompareView";
 import { HistoryView } from "./HistoryView";
-import { Btn, Card, Eyebrow, LinePicture, Pill, fmtDate, fmtMoney, inputCls, variantLabel, type StockCtx } from "./shared";
+import { Btn, Card, Eyebrow, LinePicture, Ltr, Pill, fmtDate, fmtMoney, inputCls, variantLabel, type StockCtx } from "./shared";
 
 type Tab = "usage" | "counts" | "history" | "days" | "shop" | "buy" | "var" | "trace";
 
@@ -68,8 +68,8 @@ export function ReportsView({ ctx }: { ctx: StockCtx }) {
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <Card className="p-3.5"><Eyebrow>{t("Materials used", "مواد اتستخدمت")}</Eyebrow><div className="mt-1 font-display text-2xl font-bold text-ink">{fmtMoney(totalCost)} <small className="text-xs font-semibold text-ink-muted">EGP</small></div><div className="text-[11.5px] text-ink-muted">{windowCounts.length ? `${fmtDate(windowCounts[0].date, ar)} – ${fmtDate(windowCounts[windowCounts.length - 1].date, ar)}` : "—"}</div></Card>
-            <Card className="p-3.5"><Eyebrow>{t("Per week", "في الأسبوع")}</Eyebrow><div className="mt-1 font-display text-2xl font-bold text-ink">{fmtMoney(windowCounts.length > 1 ? totalCost / (windowCounts.length - 1) : 0)} <small className="text-xs font-semibold text-ink-muted">EGP</small></div><div className="text-[11.5px] text-ink-muted">{t("at last purchase prices", "بآخر أسعار الشراء")}</div></Card>
+            <Card className="p-3.5"><Eyebrow>{t("Materials used", "مواد اتستخدمت")}</Eyebrow><div className="mt-1 font-display text-2xl font-bold text-ink">{fmtMoney(totalCost)} <small className="text-xs font-semibold text-ink-muted">{t("EGP", "جنيه")}</small></div><div className="text-[12.5px] text-ink-muted">{windowCounts.length ? `${fmtDate(windowCounts[0].date, ar)} – ${fmtDate(windowCounts[windowCounts.length - 1].date, ar)}` : "—"}</div></Card>
+            <Card className="p-3.5"><Eyebrow>{t("Per week", "في الأسبوع")}</Eyebrow><div className="mt-1 font-display text-2xl font-bold text-ink">{fmtMoney(windowCounts.length > 1 ? totalCost / (windowCounts.length - 1) : 0)} <small className="text-xs font-semibold text-ink-muted">{t("EGP", "جنيه")}</small></div><div className="text-[12.5px] text-ink-muted">{t("at last purchase prices", "بآخر أسعار الشراء")}</div></Card>
             <Card className="col-span-2 p-3.5">
               <Eyebrow>{t("Week by week · EGP", "أسبوع بأسبوع · جنيه")}</Eyebrow>
               <WeekBars ctx={ctx} usage={usage} counts={windowCounts} />
@@ -78,18 +78,18 @@ export function ReportsView({ ctx }: { ctx: StockCtx }) {
           {by === "item" ? (
             <Card className="overflow-x-auto">
               <table className="w-full text-[13.5px]">
-                <thead><tr className="font-display text-[11px] uppercase tracking-[0.08em] text-ink-muted"><th className="px-3.5 py-2.5 text-start">{t("Item", "الصنف")}</th><th className="px-3.5 py-2.5 text-end">{t("Used", "المستخدم")}</th><th className="px-3.5 py-2.5 text-end">EGP</th><th className="px-3.5 py-2.5 text-start">{t("Share", "النسبة")}</th><th className="px-3.5 py-2.5 text-end">{t("Per week", "في الأسبوع")}</th></tr></thead>
+                <thead><tr className="font-display text-[12px] uppercase tracking-[0.08em] text-ink-muted"><th className="px-2 py-2.5 sm:px-3.5 text-start">{t("Item", "الصنف")}</th><th className="px-2 py-2.5 sm:px-3.5 text-end">{t("Used", "المستخدم")}</th><th className="px-2 py-2.5 sm:px-3.5 text-end">{t("EGP", "جنيه")}</th><th className="px-2 py-2.5 sm:px-3.5 text-start hidden sm:table-cell">{t("Share", "النسبة")}</th><th className="px-2 py-2.5 sm:px-3.5 text-end hidden sm:table-cell">{t("Per week", "في الأسبوع")}</th></tr></thead>
                 <tbody>
                   {usage.map((r) => {
                     const item = ctx.items.get(r.itemId);
                     const brands = [...new Set(snap.variants.filter((v) => v.itemId === r.itemId && !v.isGeneric).map((v) => v.brand))];
                     return (
                       <tr key={r.itemId} className="border-t border-line">
-                        <td className="px-3.5 py-2"><b>{item ? (ar ? item.nameAr : item.nameEn) : ""}</b> <span className="text-ink-muted">{item ? (ar ? item.nameEn : item.nameAr) : ""}</span>{brands.length ? <><br /><span className="text-[11.5px] text-ink-muted">{brands.join(", ")}</span></> : null}</td>
-                        <td className="px-3.5 py-2 text-end font-display font-semibold">{r.used} {unitLabel(item?.unit || "box", r.used, ar)}</td>
-                        <td className="px-3.5 py-2 text-end font-display font-semibold">{fmtMoney(r.cost)}</td>
-                        <td className="px-3.5 py-2"><Bar frac={totalCost ? r.cost / totalCost : 0} label={`${Math.round(totalCost ? (r.cost / totalCost) * 100 : 0)}%`} /></td>
-                        <td className="px-3.5 py-2 text-end font-display text-ink-muted">{r.perWeek.length ? (r.used / r.perWeek.length).toFixed(1) : "—"}</td>
+                        <td className="px-2 py-2 sm:px-3.5"><b>{item ? (ar ? item.nameAr : item.nameEn) : ""}</b> <span className="hidden text-ink-muted sm:inline">{item ? (ar ? item.nameEn : item.nameAr) : ""}</span>{brands.length ? <><br /><span className="text-[12.5px] text-ink-muted">{brands.join(", ")}</span></> : null}</td>
+                        <td className="px-2 py-2 sm:px-3.5 text-end font-display font-semibold">{r.used} {unitLabel(item?.unit || "box", r.used, ar)}</td>
+                        <td className="px-2 py-2 sm:px-3.5 text-end font-display font-semibold">{fmtMoney(r.cost)}</td>
+                        <td className="px-2 py-2 sm:px-3.5 hidden sm:table-cell"><Bar frac={totalCost ? r.cost / totalCost : 0} label={`${Math.round(totalCost ? (r.cost / totalCost) * 100 : 0)}%`} /></td>
+                        <td className="px-2 py-2 sm:px-3.5 text-end font-display text-ink-muted hidden sm:table-cell">{r.perWeek.length ? (r.used / r.perWeek.length).toFixed(1) : "—"}</td>
                       </tr>
                     );
                   })}
@@ -105,18 +105,18 @@ export function ReportsView({ ctx }: { ctx: StockCtx }) {
       {tab === "days" ? (
         <Card className="overflow-x-auto">
           <table className="w-full text-[13.5px]">
-            <thead><tr className="font-display text-[11px] uppercase tracking-[0.08em] text-ink-muted"><th className="px-3.5 py-2.5 text-start">{t("Item", "الصنف")}</th><th className="px-3.5 py-2.5 text-end">{t("On hand", "موجود")}</th><th className="px-3.5 py-2.5 text-end">{t("Pace / week", "المعدل / أسبوع")}</th><th className="px-3.5 py-2.5 text-start">{t("Days left", "الأيام الباقية")}</th><th className="px-3.5 py-2.5 text-start">{t("Runs out", "هيخلص")}</th></tr></thead>
+            <thead><tr className="font-display text-[12px] uppercase tracking-[0.08em] text-ink-muted"><th className="px-2 py-2.5 sm:px-3.5 text-start">{t("Item", "الصنف")}</th><th className="px-2 py-2.5 sm:px-3.5 text-end">{t("On hand", "موجود")}</th><th className="px-2 py-2.5 sm:px-3.5 text-end hidden sm:table-cell">{t("Pace / week", "المعدل / أسبوع")}</th><th className="px-2 py-2.5 sm:px-3.5 text-start">{t("Days left", "الأيام الباقية")}</th><th className="px-2 py-2.5 sm:px-3.5 text-start hidden sm:table-cell">{t("Runs out", "هيخلص")}</th></tr></thead>
             <tbody>
               {pace.map((p) => {
                 const item = ctx.items.get(p.itemId);
                 const low = p.daysLeft != null && p.daysLeft < 14;
                 return (
                   <tr key={p.itemId} className="border-t border-line">
-                    <td className="px-3.5 py-2"><b>{item ? (ar ? item.nameAr : item.nameEn) : ""}</b> <span className="text-ink-muted">{item ? (ar ? item.nameEn : item.nameAr) : ""}</span></td>
-                    <td className="px-3.5 py-2 text-end font-display font-semibold">{p.onHand} {unitLabel(item?.unit || "box", p.onHand, ar)}</td>
-                    <td className="px-3.5 py-2 text-end font-display">{p.pace.toFixed(1)}</td>
-                    <td className="px-3.5 py-2"><Bar frac={Math.min(1, (p.daysLeft ?? 60) / 60)} label={daysLabel(p.daysLeft, ar)} yellow={low} /></td>
-                    <td className="px-3.5 py-2 text-ink-muted">{p.daysLeft == null ? "—" : fmtDate(addDays(ctx.today, Math.round(p.daysLeft)), ar)}</td>
+                    <td className="px-2 py-2 sm:px-3.5"><b>{item ? (ar ? item.nameAr : item.nameEn) : ""}</b> <span className="hidden text-ink-muted sm:inline">{item ? (ar ? item.nameEn : item.nameAr) : ""}</span></td>
+                    <td className="px-2 py-2 sm:px-3.5 text-end font-display font-semibold">{p.onHand} {unitLabel(item?.unit || "box", p.onHand, ar)}</td>
+                    <td className="px-2 py-2 sm:px-3.5 text-end font-display hidden sm:table-cell">{p.pace.toFixed(1)}</td>
+                    <td className="px-2 py-2 sm:px-3.5"><Bar frac={Math.min(1, (p.daysLeft ?? 60) / 60)} label={daysLabel(p.daysLeft, ar)} yellow={low} /></td>
+                    <td className="px-2 py-2 sm:px-3.5 text-ink-muted hidden sm:table-cell">{p.daysLeft == null ? "—" : fmtDate(addDays(ctx.today, Math.round(p.daysLeft)), ar)}</td>
                   </tr>
                 );
               })}
@@ -132,19 +132,19 @@ export function ReportsView({ ctx }: { ctx: StockCtx }) {
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             {Object.entries(snap.deliveries.reduce<Record<string, number>>((acc, d) => { acc[d.supplier] = (acc[d.supplier] || 0) + d.total; return acc; }, {})).sort((a, b) => b[1] - a[1]).map(([s, tot]) => (
-              <Card key={s} className="p-3.5"><Eyebrow>{s}</Eyebrow><div className="mt-1 font-display text-xl font-bold text-ink">{fmtMoney(tot)} <small className="text-xs font-semibold text-ink-muted">EGP</small></div></Card>
+              <Card key={s} className="p-3.5"><Eyebrow>{s}</Eyebrow><div className="mt-1 font-display text-xl font-bold text-ink">{fmtMoney(tot)} <small className="text-xs font-semibold text-ink-muted">{t("EGP", "جنيه")}</small></div></Card>
             ))}
           </div>
           <Card className="overflow-x-auto">
             <table className="w-full text-[13.5px]">
-              <thead><tr className="font-display text-[11px] uppercase tracking-[0.08em] text-ink-muted"><th className="px-3.5 py-2.5 text-start">{t("Date", "التاريخ")}</th><th className="px-3.5 py-2.5 text-start">{t("Supplier", "المورّد")}</th><th className="px-3.5 py-2.5 text-start">{t("Lines", "السطور")}</th><th className="px-3.5 py-2.5 text-end">EGP</th></tr></thead>
+              <thead><tr className="font-display text-[12px] uppercase tracking-[0.08em] text-ink-muted"><th className="px-2 py-2.5 sm:px-3.5 text-start">{t("Date", "التاريخ")}</th><th className="px-2 py-2.5 sm:px-3.5 text-start">{t("Supplier", "المورّد")}</th><th className="px-2 py-2.5 sm:px-3.5 text-start">{t("Lines", "السطور")}</th><th className="px-2 py-2.5 sm:px-3.5 text-end">{t("EGP", "جنيه")}</th></tr></thead>
               <tbody>
                 {[...snap.deliveries].reverse().map((d) => (
                   <tr key={d.id} className="border-t border-line align-top">
-                    <td className="px-3.5 py-2 font-display">{fmtDate(d.date, ar)}</td>
-                    <td className="px-3.5 py-2"><b>{d.supplier}</b>{d.invoiceUrl ? <> · <a className="underline" href={d.invoiceUrl} target="_blank" rel="noreferrer">{t("invoice", "الفاتورة")}</a></> : null}<br /><span className="text-[11.5px] text-ink-muted">{d.byName}</span></td>
-                    <td className="px-3.5 py-2 text-[12.5px]">{d.lines.map((l, k) => <div key={k}>{l.qty}× {variantLabel(ctx.variants.get(l.variantId), ctx.items.get(ctx.variants.get(l.variantId)?.itemId || ""), ar)} → {ctx.drawers.get(l.drawerId)?.code}</div>)}</td>
-                    <td className="px-3.5 py-2 text-end font-display font-semibold">{fmtMoney(d.total)}</td>
+                    <td className="px-2 py-2 sm:px-3.5 font-display">{fmtDate(d.date, ar)}</td>
+                    <td className="px-2 py-2 sm:px-3.5"><b>{d.supplier}</b>{d.invoiceUrl ? <> · <a className="underline" href={d.invoiceUrl} target="_blank" rel="noreferrer">{t("invoice", "الفاتورة")}</a></> : null}<br /><span className="text-[12.5px] text-ink-muted">{d.byName}</span></td>
+                    <td className="px-2 py-2 sm:px-3.5 text-[12.5px]">{d.lines.map((l, k) => <div key={k}>{l.qty}× {variantLabel(ctx.variants.get(l.variantId), ctx.items.get(ctx.variants.get(l.variantId)?.itemId || ""), ar)} → {ctx.drawers.get(l.drawerId)?.code}</div>)}</td>
+                    <td className="px-2 py-2 sm:px-3.5 text-end font-display font-semibold">{fmtMoney(d.total)}</td>
                   </tr>
                 ))}
                 {!snap.deliveries.length ? <tr><td colSpan={4} className="px-3.5 py-4 text-ink-muted">{t("No deliveries yet.", "لسه مفيش توريدات.")}</td></tr> : null}
@@ -157,21 +157,21 @@ export function ReportsView({ ctx }: { ctx: StockCtx }) {
       {tab === "var" ? (
         <Card className="overflow-x-auto">
           <table className="w-full text-[13.5px]">
-            <thead><tr className="font-display text-[11px] uppercase tracking-[0.08em] text-ink-muted"><th className="px-3.5 py-2.5 text-start">{t("Tracked item", "صنف متتبع")}</th><th className="px-3.5 py-2.5 text-start">{t("Drawer", "الدرج")}</th><th className="px-3.5 py-2.5 text-end">{t("Start", "البداية")}</th><th className="px-3.5 py-2.5 text-end">{t("Delivered", "اتورّد")}</th><th className="px-3.5 py-2.5 text-end">{t("Gone", "خرج")}</th><th className="px-3.5 py-2.5 text-end">{t("On patients", "لمرضى")}</th><th className="px-3.5 py-2.5 text-end">{t("Gap", "الفرق")}</th><th className="px-3.5 py-2.5 text-end">EGP</th></tr></thead>
+            <thead><tr className="font-display text-[12px] uppercase tracking-[0.08em] text-ink-muted"><th className="px-2 py-2.5 sm:px-3.5 text-start">{t("Tracked item", "صنف متتبع")}</th><th className="px-2 py-2.5 sm:px-3.5 text-start hidden sm:table-cell">{t("Drawer", "الدرج")}</th><th className="px-2 py-2.5 sm:px-3.5 text-end hidden sm:table-cell">{t("Start", "البداية")}</th><th className="px-2 py-2.5 sm:px-3.5 text-end hidden sm:table-cell">{t("Delivered", "اتورّد")}</th><th className="px-2 py-2.5 sm:px-3.5 text-end">{t("Gone", "خرج")}</th><th className="px-2 py-2.5 sm:px-3.5 text-end">{t("On patients", "لمرضى")}</th><th className="px-2 py-2.5 sm:px-3.5 text-end">{t("Gap", "الفرق")}</th><th className="px-2 py-2.5 sm:px-3.5 text-end hidden sm:table-cell">{t("EGP", "جنيه")}</th></tr></thead>
             <tbody>
               {variance({ lines: snap.lines, counts: snap.counts, deliveries: snap.deliveries, uses: snap.uses, trackedItemIds: new Set(snap.items.filter((i) => i.tracked).map((i) => i.id)) }).map((r) => {
                 const v = ctx.variants.get(r.variantId);
                 const price = lastPrice(v, snap.deliveries);
                 return (
                   <tr key={r.variantId + r.drawerId} className="border-t border-line">
-                    <td className="px-3.5 py-2"><b>{variantLabel(v, ctx.items.get(v?.itemId || ""), ar)}</b></td>
-                    <td className="px-3.5 py-2 font-display">{ctx.drawers.get(r.drawerId)?.code}</td>
-                    <td className="px-3.5 py-2 text-end font-display">{r.start}</td>
-                    <td className="px-3.5 py-2 text-end font-display">{r.delivered || "—"}</td>
-                    <td className="px-3.5 py-2 text-end font-display">{r.gone}</td>
-                    <td className="px-3.5 py-2 text-end font-display">{r.usedOnPatients}</td>
-                    <td className={`px-3.5 py-2 text-end font-display font-bold ${r.gap > 0 ? "text-red-700" : "text-emerald-700"}`}>{r.gap > 0 ? `−${r.gap}` : r.gap < 0 ? `+${-r.gap}` : "0"}</td>
-                    <td className={`px-3.5 py-2 text-end font-display ${r.gap > 0 ? "font-bold text-red-700" : ""}`}>{r.gap > 0 && price ? fmtMoney(r.gap * price) : "—"}</td>
+                    <td className="px-2 py-2 sm:px-3.5"><b>{variantLabel(v, ctx.items.get(v?.itemId || ""), ar)}</b><span className="block font-display text-[12px] text-ink-muted sm:hidden"><Ltr>{ctx.drawers.get(r.drawerId)?.code}</Ltr></span></td>
+                    <td className="px-2 py-2 sm:px-3.5 font-display hidden sm:table-cell">{ctx.drawers.get(r.drawerId)?.code}</td>
+                    <td className="px-2 py-2 sm:px-3.5 text-end font-display hidden sm:table-cell">{r.start}</td>
+                    <td className="px-2 py-2 sm:px-3.5 text-end font-display hidden sm:table-cell">{r.delivered || "—"}</td>
+                    <td className="px-2 py-2 sm:px-3.5 text-end font-display">{r.gone}</td>
+                    <td className="px-2 py-2 sm:px-3.5 text-end font-display">{r.usedOnPatients}</td>
+                    <td className={`px-2 py-2 sm:px-3.5 text-end font-display font-bold ${r.gap > 0 ? "text-red-700" : "text-emerald-700"}`}>{r.gap > 0 ? `−${r.gap}` : r.gap < 0 ? `+${-r.gap}` : "0"}</td>
+                    <td className={`px-2 py-2 sm:px-3.5 text-end font-display hidden sm:table-cell ${r.gap > 0 ? "font-bold text-red-700" : ""}`}>{r.gap > 0 && price ? fmtMoney(r.gap * price) : "—"}</td>
                   </tr>
                 );
               })}
@@ -186,16 +186,16 @@ export function ReportsView({ ctx }: { ctx: StockCtx }) {
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("Patient name or lot number", "اسم المريض أو رقم التشغيلة")} className={`${inputCls} max-w-sm`} />
           <Card className="overflow-x-auto">
             <table className="w-full text-[13.5px]">
-              <thead><tr className="font-display text-[11px] uppercase tracking-[0.08em] text-ink-muted"><th className="px-3.5 py-2.5 text-start">{t("Date", "التاريخ")}</th><th className="px-3.5 py-2.5 text-start">{t("Patient", "المريض")}</th><th className="px-3.5 py-2.5 text-start">{t("Item", "الصنف")}</th><th className="px-3.5 py-2.5 text-start">{t("Lot", "التشغيلة")}</th><th className="px-3.5 py-2.5 text-start">{t("Drawer", "الدرج")}</th><th className="px-3.5 py-2.5 text-start">{t("By", "بواسطة")}</th></tr></thead>
+              <thead><tr className="font-display text-[12px] uppercase tracking-[0.08em] text-ink-muted"><th className="px-2 py-2.5 sm:px-3.5 text-start hidden sm:table-cell">{t("Date", "التاريخ")}</th><th className="px-2 py-2.5 sm:px-3.5 text-start">{t("Patient", "المريض")}</th><th className="px-2 py-2.5 sm:px-3.5 text-start">{t("Item", "الصنف")}</th><th className="px-2 py-2.5 sm:px-3.5 text-start hidden sm:table-cell">{t("Lot", "التشغيلة")}</th><th className="px-2 py-2.5 sm:px-3.5 text-start hidden sm:table-cell">{t("Drawer", "الدرج")}</th><th className="px-2 py-2.5 sm:px-3.5 text-start hidden sm:table-cell">{t("By", "بواسطة")}</th></tr></thead>
               <tbody>
                 {snap.uses.filter((u) => !q.trim() || `${u.patientName} ${u.lot} ${variantLabel(ctx.variants.get(u.variantId), undefined, false)}`.toLowerCase().includes(q.toLowerCase())).map((u) => (
                   <tr key={u.id} className="border-t border-line">
-                    <td className="px-3.5 py-2 font-display">{fmtDate(u.date, ar)}</td>
-                    <td className="px-3.5 py-2"><b>{u.patientName}</b></td>
-                    <td className="px-3.5 py-2">{variantLabel(ctx.variants.get(u.variantId), ctx.items.get(ctx.variants.get(u.variantId)?.itemId || ""), ar)}</td>
-                    <td className="px-3.5 py-2 font-display">{u.lot || "—"}</td>
-                    <td className="px-3.5 py-2 font-display">{ctx.drawers.get(u.drawerId)?.code}</td>
-                    <td className="px-3.5 py-2 text-ink-muted">{u.byName}</td>
+                    <td className="px-2 py-2 sm:px-3.5 font-display hidden sm:table-cell">{fmtDate(u.date, ar)}</td>
+                    <td className="px-2 py-2 sm:px-3.5"><b>{u.patientName}</b><span className="block text-[12px] text-ink-muted sm:hidden">{fmtDate(u.date, ar)} · {u.byName}</span></td>
+                    <td className="px-2 py-2 sm:px-3.5">{variantLabel(ctx.variants.get(u.variantId), ctx.items.get(ctx.variants.get(u.variantId)?.itemId || ""), ar)}<span className="block text-[12px] text-ink-muted sm:hidden">{u.lot ? <>{t("Lot", "التشغيلة")} <Ltr>{u.lot}</Ltr> · </> : null}<Ltr>{ctx.drawers.get(u.drawerId)?.code}</Ltr></span></td>
+                    <td className="px-2 py-2 sm:px-3.5 font-display hidden sm:table-cell">{u.lot || "—"}</td>
+                    <td className="px-2 py-2 sm:px-3.5 font-display hidden sm:table-cell">{ctx.drawers.get(u.drawerId)?.code}</td>
+                    <td className="px-2 py-2 sm:px-3.5 text-ink-muted hidden sm:table-cell">{u.byName}</td>
                   </tr>
                 ))}
                 {!snap.uses.length ? <tr><td colSpan={6} className="px-3.5 py-4 text-ink-muted">{t("Nothing recorded on a patient yet.", "لسه مفيش حاجة اتسجلت لمريض.")}</td></tr> : null}
@@ -210,9 +210,9 @@ export function ReportsView({ ctx }: { ctx: StockCtx }) {
 
 function Bar({ frac, label, yellow = false }: { frac: number; label: string; yellow?: boolean }) {
   return (
-    <div className="flex min-w-[120px] items-center gap-2">
-      <i className={`block h-2 rounded-full ${yellow ? "bg-[#FACC15]" : "bg-ink-body"}`} style={{ width: `${Math.max(2, Math.min(100, frac * 100)) * 1.4}px` }} />
-      <span className="whitespace-nowrap text-[12px] text-ink-muted">{label}</span>
+    <div className="flex items-center gap-2 sm:min-w-[120px]">
+      <i className={`hidden h-2 rounded-full sm:block ${yellow ? "bg-[#FACC15]" : "bg-ink-body"}`} style={{ width: `${Math.max(2, Math.min(100, frac * 100)) * 1.4}px` }} />
+      <span className={`whitespace-nowrap text-[12px] ${yellow ? "rounded-full bg-[#FACC15] px-2 font-display font-bold text-[#1A1206]" : "text-ink-muted"}`}>{label}</span>
     </div>
   );
 }
@@ -235,9 +235,9 @@ function WeekBars({ ctx, usage, counts }: { ctx: StockCtx; usage: ReturnType<typ
     <div className="mt-2 flex h-[84px] items-end gap-1.5">
       {totals.map((c, k) => (
         <div key={k} className="grid flex-1 content-end gap-1 text-center" title={`${fmtDate(counts[k + 1].date, ar)}: ${fmtMoney(c)} EGP`}>
-          <b className="font-display text-[11px] font-bold text-ink">{c >= 1000 ? `${(c / 1000).toFixed(1)}k` : fmtMoney(c)}</b>
+          <b className="font-display text-[12px] font-bold text-ink">{c >= 1000 ? `${(c / 1000).toFixed(1)}k` : fmtMoney(c)}</b>
           <i className={`block rounded-t ${k === totals.length - 1 ? "bg-[#FACC15]" : "bg-ink-body"}`} style={{ height: `${Math.max(2, (c / max) * 48)}px` }} />
-          <span className="whitespace-nowrap text-[10px] text-ink-muted">{fmtDate(counts[k + 1].date, ar)}</span>
+          <span className="whitespace-nowrap text-[11px] text-ink-muted">{fmtDate(counts[k + 1].date, ar)}</span>
         </div>
       ))}
     </div>
@@ -269,10 +269,10 @@ function RoomUsage({ ctx, weeks }: { ctx: StockCtx; weeks: number }) {
   return (
     <Card className="overflow-x-auto">
       <table className="w-full text-[13.5px]">
-        <thead><tr className="font-display text-[11px] uppercase tracking-[0.08em] text-ink-muted"><th className="px-3.5 py-2.5 text-start">{t("Room", "الغرفة")}</th><th className="px-3.5 py-2.5 text-end">EGP</th><th className="px-3.5 py-2.5 text-start">{t("Share", "النسبة")}</th></tr></thead>
+        <thead><tr className="font-display text-[12px] uppercase tracking-[0.08em] text-ink-muted"><th className="px-2 py-2.5 sm:px-3.5 text-start">{t("Room", "الغرفة")}</th><th className="px-2 py-2.5 sm:px-3.5 text-end">{t("EGP", "جنيه")}</th><th className="px-2 py-2.5 sm:px-3.5 text-start">{t("Share", "النسبة")}</th></tr></thead>
         <tbody>
           {rows.map(([code, r]) => (
-            <tr key={code} className="border-t border-line"><td className="px-3.5 py-2"><b>{code}</b> · {ar ? r.ar : r.en}</td><td className="px-3.5 py-2 text-end font-display font-semibold">{fmtMoney(r.cost)}</td><td className="px-3.5 py-2"><Bar frac={total ? r.cost / total : 0} label={`${Math.round(total ? (r.cost / total) * 100 : 0)}%`} /></td></tr>
+            <tr key={code} className="border-t border-line"><td className="px-2 py-2 sm:px-3.5"><b>{code}</b> · {ar ? r.ar : r.en}</td><td className="px-2 py-2 sm:px-3.5 text-end font-display font-semibold">{fmtMoney(r.cost)}</td><td className="px-2 py-2 sm:px-3.5"><Bar frac={total ? r.cost / total : 0} label={`${Math.round(total ? (r.cost / total) * 100 : 0)}%`} /></td></tr>
           ))}
         </tbody>
       </table>
@@ -296,7 +296,7 @@ function Shopping({ ctx, shop }: { ctx: StockCtx; shop: ReturnType<typeof shoppi
           <Card key={sup} className="grid gap-3 p-4">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h3 className="font-display text-[15px] font-bold text-ink">{sup}</h3>
-              <span className="text-[12px] text-ink-muted">{rows.length} {t("lines", "سطر")} · ~{fmtMoney(tot)} EGP</span>
+              <span className="text-[12px] text-ink-muted">{rows.length} {t("lines", "سطر")} · ~{fmtMoney(tot)} {t("EGP", "جنيه")}</span>
             </div>
             <div className="grid gap-1.5">
               {rows.map((r) => {
@@ -306,9 +306,9 @@ function Shopping({ ctx, shop }: { ctx: StockCtx; shop: ReturnType<typeof shoppi
                     <div className="h-11 w-14 overflow-hidden rounded-lg border border-line bg-surface-subtle"><LinePicture variant={r.variant || undefined} item={item} /></div>
                     <div className="min-w-0">
                       <b className="block truncate text-[13.5px] font-semibold text-ink">{item ? (ar ? item.nameAr : item.nameEn) : ""}{r.variant && !r.variant.isGeneric ? ` · ${variantLabel(r.variant, item, ar)}` : ""}</b>
-                      <span className="block text-[11.5px] text-ink-muted">{r.onHand} {t("left", "باقي")} · {daysLabel(r.daysLeft, ar)}{r.variant?.supplier ? ` · ${t("last bought from", "آخر مرة من")} ${r.variant.supplier}` : ""} {r.daysLeft != null && r.daysLeft < 7 ? <Pill yellow>{t("urgent", "عاجل")}</Pill> : null}</span>
+                      <span className="block text-[12.5px] text-ink-muted">{r.onHand} {t("left", "باقي")} · {daysLabel(r.daysLeft, ar)}{r.variant?.supplier ? ` · ${t("last bought from", "آخر مرة من")} ${r.variant.supplier}` : ""} {r.daysLeft != null && r.daysLeft < 7 ? <Pill yellow>{t("urgent", "عاجل")}</Pill> : null}</span>
                     </div>
-                    <div className="text-end"><b className="font-display text-xl font-black text-ink">{r.need}</b> <span className="text-[11px] text-ink-muted">{unitLabel(item?.unit || "box", r.need, ar)}</span></div>
+                    <div className="text-end"><b className="font-display text-xl font-black text-ink">{r.need}</b> <span className="text-[12px] text-ink-muted">{unitLabel(item?.unit || "box", r.need, ar)}</span></div>
                   </div>
                 );
               })}

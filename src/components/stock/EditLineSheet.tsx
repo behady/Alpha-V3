@@ -120,7 +120,7 @@ export function EditLineSheet({ ctx, line, drawer, startOnDelete = false, onClos
             <input id="stock-edit-supplier" list="stock-edit-suppliers" value={supplier} onChange={(e) => setSupplier(e.target.value)} className={inputCls} />
             <datalist id="stock-edit-suppliers">{snap.suppliers.map((s) => <option key={s} value={s} />)}</datalist>
           </Field>
-          <Field label={`${t("Price per", "السعر لكل")} ${unitLabel(unit, 1, ar)} (EGP)`}><input id="stock-edit-price" type="text" inputMode="decimal" autoComplete="off" value={price} onChange={(e) => setPrice(toAsciiDigits(e.target.value))} className={inputCls} dir="ltr" /></Field>
+          <Field label={`${t("Price per", "السعر لكل")} ${unitLabel(unit, 1, ar)} (${t("EGP", "جنيه")})`}><input id="stock-edit-price" type="text" inputMode="decimal" autoComplete="off" value={price} onChange={(e) => setPrice(toAsciiDigits(e.target.value))} className={inputCls} dir="ltr" /></Field>
         </div>
         {generic ? <p className="text-[12px] text-ink-muted">{t("Type a brand name to turn this row into that brand. Leave it empty to keep it without a brand.", "اكتب اسم الماركة عشان السطر ده يبقى الماركة دي. سيبه فاضي لو مش عايز ماركة.")}</p> : null}
       </section>

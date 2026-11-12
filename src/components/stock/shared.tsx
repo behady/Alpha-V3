@@ -78,7 +78,7 @@ export function LinePicture({ variant, item, className = "" }: { variant?: Stock
 export function PhotoTile({ variant, item, onFile, busy, className = "" }: { variant?: StockVariant; item?: StockItem; onFile: (f: File) => void; busy?: boolean; className?: string }) {
   const ref = useRef<HTMLInputElement>(null);
   return (
-    <button type="button" onClick={() => ref.current?.click()} disabled={busy} className={`relative block overflow-hidden rounded-lg border border-line bg-surface-subtle ${className}`} aria-label="Change photo">
+    <button type="button" tabIndex={-1} onClick={() => ref.current?.click()} disabled={busy} className={`relative block overflow-hidden rounded-lg border border-line bg-surface-subtle ${className}`} aria-label="Change photo">
       <LinePicture variant={variant} item={item} />
       <span className="absolute bottom-0.5 end-0.5 grid h-5 w-5 place-items-center rounded-full bg-ink-slab/85 text-white">
         {busy ? <Loader2 size={11} className="animate-spin" /> : <Camera size={11} />}
@@ -109,7 +109,13 @@ export function Ltr({ children }: { children: React.ReactNode }) {
   return <bdi dir="ltr">{children}</bdi>;
 }
 
-/** A sheet over the page: from the bottom on a phone, a centred card on a wider screen. */
+/**
+ * A sheet over the page: from the bottom on a phone, a centred card on a wider screen.
+ *
+ * It closes with its X, its Cancel button, Escape, or the phone's Back button (see `useOverlay`).
+ * It does not close on a tap outside it: a thumb that lands on the dimmed edge used to throw
+ * away whatever had just been typed.
+ */
 export function Sheet({ title, onClose, children, dir }: { title: string; onClose: () => void; children: React.ReactNode; dir?: "rtl" | "ltr" }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -119,12 +125,12 @@ export function Sheet({ title, onClose, children, dir }: { title: string; onClos
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
   return (
-    <div className="fixed inset-0 z-[300] flex items-end justify-center bg-black/45 sm:items-center sm:p-6" dir={dir} role="dialog" aria-modal="true" aria-label={title} onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="fixed inset-0 z-[300] flex items-end justify-center bg-black/45 sm:items-center sm:p-6" dir={dir} role="dialog" aria-modal="true" aria-label={title}>
       <div className="grid max-h-[90vh] w-full max-w-[640px] gap-4 overflow-y-auto rounded-t-3xl bg-surface p-5 pb-8 shadow-2xl sm:rounded-3xl sm:pb-5">
         <div className="flex items-center justify-between">
           <h3 className="font-display text-lg font-bold text-ink">{title}</h3>
-          <button type="button" onClick={onClose} aria-label="Close" className="grid h-9 w-9 place-items-center rounded-full border border-line text-ink-muted hover:text-ink">
-            <X size={16} />
+          <button type="button" onClick={onClose} aria-label="Close" className="grid h-11 w-11 place-items-center rounded-full border border-line text-ink-muted hover:text-ink">
+            <X size={18} />
           </button>
         </div>
         {children}
@@ -148,7 +154,8 @@ export function Reveal({ children }: { children: React.ReactNode }) {
  * It is a text box with a number keypad, not the browser's number box: that one hands back an
  * empty string for an Arabic "٥", which the page then saved as zero, and it changes its value
  * when the mouse wheel passes over it. Here Arabic digits are digits, an emptied box changes
- * nothing, and the wheel only scrolls the page. Enter moves to the next number on the screen.
+ * nothing, and the wheel only scrolls the page. Enter or the down arrow moves to the next
+ * number on the screen and the up arrow to the one before, the way a column of figures is typed.
  */
 export function NumberBox({ value, onChange, min = 0, max, decimal = false, blankZero = false, disabled = false, className = "", id, placeholder, label }: { value: number; onChange: (n: number) => void; min?: number; max?: number; decimal?: boolean; blankZero?: boolean; disabled?: boolean; className?: string; id?: string; placeholder?: string; label?: string }) {
   // null while the box is not being typed in: it then simply shows the value it was given.
@@ -175,12 +182,13 @@ export function NumberBox({ value, onChange, min = 0, max, decimal = false, blan
       }}
       onBlur={() => setText(null)}
       onKeyDown={(e) => {
-        if (e.key !== "Enter") return;
+        const step = e.key === "Enter" || e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : 0;
+        if (!step) return;
         e.preventDefault();
         const all = [...document.querySelectorAll<HTMLInputElement>("input[data-numbox]:not(:disabled)")];
-        const next = all[all.indexOf(e.currentTarget) + 1];
+        const next = all[all.indexOf(e.currentTarget) + step];
         if (next) next.focus();
-        else e.currentTarget.blur();
+        else if (e.key === "Enter") e.currentTarget.blur();
       }}
       className={className}
     />
@@ -190,7 +198,7 @@ export function NumberBox({ value, onChange, min = 0, max, decimal = false, blan
 export function Stepper({ value, onChange, min = 0, changed = false, disabled = false, label }: { value: number; onChange: (n: number) => void; min?: number; changed?: boolean; disabled?: boolean; label?: string }) {
   return (
     <div className={`inline-flex items-center overflow-hidden rounded-xl border ${changed ? "border-[#FACC15]" : "border-line"} bg-surface`}>
-      <button type="button" disabled={disabled} onClick={() => onChange(Math.max(min, value - 1))} className="grid h-10 w-10 place-items-center text-ink-body hover:bg-surface-subtle disabled:opacity-40" aria-label="minus">
+      <button type="button" disabled={disabled} onClick={() => onChange(Math.max(min, value - 1))} tabIndex={-1} className="grid h-10 w-10 place-items-center text-ink-body hover:bg-surface-subtle disabled:opacity-40" aria-label="minus">
         <Minus size={16} />
       </button>
       <NumberBox
@@ -201,7 +209,7 @@ export function Stepper({ value, onChange, min = 0, changed = false, disabled = 
         label={label}
         className={`h-10 w-14 border-x border-line text-center font-display text-base font-bold outline-none ${changed ? "bg-[#FACC15] text-[#1A1206]" : "bg-transparent text-ink"}`}
       />
-      <button type="button" disabled={disabled} onClick={() => onChange(value + 1)} className="grid h-10 w-10 place-items-center text-ink-body hover:bg-surface-subtle disabled:opacity-40" aria-label="plus">
+      <button type="button" disabled={disabled} onClick={() => onChange(value + 1)} tabIndex={-1} className="grid h-10 w-10 place-items-center text-ink-body hover:bg-surface-subtle disabled:opacity-40" aria-label="plus">
         <Plus size={16} />
       </button>
     </div>
@@ -236,12 +244,37 @@ export function useCountDraft(scope: string, today: string, validIds: Set<string
   return { values: state.values, step: state.step, restored: state.restored, set, clear };
 }
 
+/**
+ * Something that opens over the page and that the phone's Back button closes.
+ *
+ * Without this, Back with a sheet open left the whole drawer, and what was typed in the sheet
+ * went with it. Opening adds one step to the browser's history; Back takes that step and the
+ * sheet closes, and closing it any other way takes the step back so no stray one is left behind.
+ */
+export function useOverlay<T>() {
+  const [value, setValue] = useState<T | null>(null);
+  useEffect(() => {
+    const onPop = () => setValue(null);
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  const open = (next: T) => {
+    if (value == null) window.history.pushState({ stockOverlay: true }, "");
+    setValue(next);
+  };
+  const close = () => {
+    if ((window.history.state as { stockOverlay?: boolean } | null)?.stockOverlay) window.history.back();
+    else setValue(null);
+  };
+  return [value, open, close] as const;
+}
+
 export function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <div className={`rounded-2xl border border-line bg-surface shadow-sm ${className}`}>{children}</div>;
 }
 
 export function Eyebrow({ children }: { children: React.ReactNode }) {
-  return <div className="font-display text-[11px] font-bold uppercase tracking-[0.14em] text-ink-muted">{children}</div>;
+  return <div className="font-display text-[12px] font-bold uppercase tracking-[0.14em] text-ink-muted">{children}</div>;
 }
 
 export function Btn({ children, onClick, kind = "ghost", disabled, busy, className = "", type = "button" }: { children: React.ReactNode; onClick?: () => void; kind?: "ghost" | "dark" | "yellow"; disabled?: boolean; busy?: boolean; className?: string; type?: "button" | "submit" }) {
@@ -257,7 +290,7 @@ export function Btn({ children, onClick, kind = "ghost", disabled, busy, classNa
 
 export function Pill({ children, yellow = false }: { children: React.ReactNode; yellow?: boolean }) {
   return (
-    <span className={`inline-block rounded-full px-2 py-0.5 font-display text-[10.5px] font-bold uppercase tracking-[0.06em] ${yellow ? "bg-[#FACC15] text-[#1A1206]" : "border border-line text-ink-body"}`}>
+    <span className={`inline-block rounded-full px-2 py-0.5 font-display text-[12px] font-bold uppercase tracking-[0.06em] ${yellow ? "bg-[#FACC15] text-[#1A1206]" : "border border-line text-ink-body"}`}>
       {children}
     </span>
   );

@@ -84,7 +84,7 @@ export function SetupView({ ctx }: { ctx: StockCtx }) {
                 <div key={d.cabinet + d.number} className="flex items-center gap-3 border-t border-line px-3 py-2 text-[13px] first:border-t-0">
                   <span className="w-9 font-display text-xs font-black text-ink">{d.cabinet}{d.number}</span>
                   <span className="flex-1 text-ink">{ar ? d.nameAr : d.nameEn}</span>
-                  <span className="text-[11px] text-ink-muted">{ar ? d.where.ar : d.where.en}</span>
+                  <span className="text-[12px] text-ink-muted">{ar ? d.where.ar : d.where.en}</span>
                 </div>
               ))}
             </div>
@@ -116,7 +116,7 @@ export function SetupView({ ctx }: { ctx: StockCtx }) {
                 <div key={g}>
                   <div className="mb-2 flex items-baseline gap-2">
                     <span className="font-display text-[13px] font-bold text-ink">{ar ? CATALOG_GROUPS[g].ar : CATALOG_GROUPS[g].en}</span>
-                    <span className="text-[11px] text-ink-muted">{items.filter((c) => picked.has(c.key)).length}/{items.length}</span>
+                    <span className="text-[12px] text-ink-muted">{items.filter((c) => picked.has(c.key)).length}/{items.length}</span>
                   </div>
                   <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
                     {items.map((c) => {
@@ -137,7 +137,7 @@ export function SetupView({ ctx }: { ctx: StockCtx }) {
                           ) : null}
                           <ProductArt shape={c.shape} color={brandColor(c.en)} product={c.en.split(" ")[0]} className="h-14 w-full" />
                           <span className="text-[12px] font-semibold leading-tight text-ink">{ar ? c.ar : c.en}</span>
-                          <span className="text-[10.5px] text-ink-muted">{ar ? c.en : c.ar}</span>
+                          <span className="text-[12px] text-ink-muted">{ar ? c.en : c.ar}</span>
                         </button>
                       );
                     })}

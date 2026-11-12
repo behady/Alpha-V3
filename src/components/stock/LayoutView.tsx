@@ -110,8 +110,9 @@ function RoomCard({ ctx, room }: { ctx: StockCtx; room: { code: string; name: st
           onBlur={(e) => {
             const name = e.target.value.trim();
             if (!name || name === room.name) return;
-            void run(async () => { ctx.setSnap(await stockApi.renameRoom(room.code, name)); toast(t("Room renamed.", "اتغير اسم الغرفة.")); }, (m) => toast(m, "error"));
+            void run(async () => { ctx.setSnap(await stockApi.renameRoom(room.code, name)); toast(t("Name saved.", "اتحفظ الاسم.")); }, (m) => toast(m, "error"));
           }}
+          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
           className="min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-2 py-1 font-display text-lg font-bold text-ink outline-none hover:border-line focus:border-ink-muted focus:bg-surface"
         />
         <span className="text-[12px] text-ink-muted">{room.cabinets.size} {t("cabinets", "دولاب")} · {total} {t("places", "مكان")}</span>
@@ -171,7 +172,7 @@ function CabinetBlock({ ctx, roomCode, letter, drawers }: { ctx: StockCtx; roomC
               onBlur={(e) => {
                 const name = e.target.value.trim();
                 if (!name || name === (ar ? d.nameAr : d.nameEn)) return;
-                void run(async () => { ctx.setSnap(await stockApi.renameDrawer(d.id, { name })); }, (m) => toast(m, "error"));
+                void run(async () => { ctx.setSnap(await stockApi.renameDrawer(d.id, { name })); toast(t("Name saved.", "اتحفظ الاسم.")); }, (m) => toast(m, "error"));
               }}
               onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
               className="min-w-0 rounded-lg border border-line bg-surface px-2.5 py-2 text-[14px] text-ink outline-none focus:border-ink-muted"

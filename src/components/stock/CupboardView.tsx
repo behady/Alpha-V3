@@ -12,7 +12,7 @@ import type { StockDrawer, StockItem, StockLine, StockVariant } from "@/lib/stoc
 import { StockPicture } from "./Art";
 import { printDrawerLabels } from "./labels";
 import { EditLineSheet } from "./EditLineSheet";
-import { Btn, Card, CodeBadge, Eyebrow, Field, LinePicture, Ltr, NumberBox, PhotoButton, PhotoTile, Pill, Reveal, Stepper, fmtDate, inputCls, linesOfDrawer, shortCode, useBusy, useCountDraft, variantLabel, type StockCtx } from "./shared";
+import { Btn, Card, CodeBadge, Eyebrow, Field, LinePicture, Ltr, NumberBox, PhotoButton, PhotoTile, Pill, Reveal, Stepper, fmtDate, fmtMoney, inputCls, linesOfDrawer, shortCode, useBusy, useCountDraft, useOverlay, variantLabel, type StockCtx } from "./shared";
 
 /** The map of rooms, cabinets and drawers — or one drawer, when `drawerCode` is set. */
 export function CupboardView({ ctx, drawerCode }: { ctx: StockCtx; drawerCode: string | null }) {
@@ -76,7 +76,7 @@ function CupboardMap({ ctx }: { ctx: StockCtx }) {
         <Tile label={t("On the shelf", "على الرف")} value={String(units)} sub={`${snap.lines.length} ${t("lines", "سطر")} · ${snap.items.length} ${t("items", "صنف")} · ${snap.drawers.length} ${t("drawers", "درج")}`} />
         <Tile label={t("Running out", "هتخلص")} value={String(low)} sub={t("items under 14 days", "صنف تحت 14 يوم")} yellow={low > 0} />
         <Tile label={t("Weekly count", "العدّ الأسبوعي")} value={countDue ? t("Due", "مستحق") : t("Done", "تم")} sub={lastCount ? `${t("last", "آخر")} ${fmtDate(lastCount.date, ar)} · ${lastCount.byName}` : t("never counted", "لسه ما اتعدّش")} yellow={countDue} />
-        <Tile label={t("Last delivery", "آخر توريد")} value={lastDeliv ? fmtDate(lastDeliv.date, ar) : "—"} sub={lastDeliv ? `${lastDeliv.supplier} · ${lastDeliv.lines.length} ${t("lines", "سطر")} · ${Math.round(lastDeliv.total).toLocaleString()} EGP` : t("none yet", "لسه مفيش")} />
+        <Tile label={t("Last delivery", "آخر توريد")} value={lastDeliv ? fmtDate(lastDeliv.date, ar) : "—"} sub={lastDeliv ? `${lastDeliv.supplier} · ${lastDeliv.lines.length} ${t("lines", "سطر")} · ${fmtMoney(lastDeliv.total)} ${t("EGP", "جنيه")}` : t("none yet", "لسه مفيش")} />
       </div>
 
       {rooms.map((r) => (
@@ -106,9 +106,9 @@ function CupboardMap({ ctx }: { ctx: StockCtx }) {
                         <button type="button" onClick={() => ctx.go({ tab: "cupboard", drawer: d.code })} className="grid min-w-0 grid-cols-[1fr_auto] items-center gap-2.5 rounded-lg py-1 text-start hover:bg-surface-subtle">
                         <span className="min-w-0">
                           <b className="block truncate text-[13.5px] font-semibold text-ink">{ar ? d.nameAr : d.nameEn}</b>
-                          <span className="block text-[11.5px] text-ink-muted">{ar ? d.nameEn : d.nameAr}</span>
+                          <span className="block text-[12.5px] text-ink-muted">{ar ? d.nameEn : d.nameAr}</span>
                         </span>
-                        <span className="text-end text-[11.5px] text-ink-muted">
+                        <span className="text-end text-[12.5px] text-ink-muted">
                           {lines.length} {t("lines", "سطر")}
                           <br />
                           {d.tracked ? <Pill>{t("per patient", "لكل مريض")}</Pill> : lowHere ? <Pill yellow>{daysLabel(days, ar)}</Pill> : <span>{daysLabel(days, ar)}</span>}
@@ -141,7 +141,7 @@ function Tile({ label, value, sub, yellow = false }: { label: string; value: str
     <Card className="p-3.5">
       <Eyebrow>{label}</Eyebrow>
       <div className={`mt-1 inline-block font-display text-2xl font-bold leading-tight ${yellow ? "rounded-lg bg-[#FACC15] px-2 text-[#1A1206]" : "text-ink"}`}>{value}</div>
-      <div className="mt-1 text-[11.5px] text-ink-muted">{sub}</div>
+      <div className="mt-1 text-[12.5px] text-ink-muted">{sub}</div>
     </Card>
   );
 }
@@ -221,7 +221,8 @@ function DrawerDetail({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
   const { busy, run } = useBusy();
   const [mode, setMode] = useState<null | "item" | "brand" | "edit" | { use: StockLine }>(null);
   const [photoBusy, setPhotoBusy] = useState<string | null>(null);
-  const [editing, setEditing] = useState<null | { lineId: string; del: boolean }>(null);
+  // The Edit sheet: the phone's Back button closes it instead of leaving the drawer.
+  const [editing, setEditing, closeEditing] = useOverlay<{ lineId: string; del: boolean }>();
   const lines = linesOfDrawer(snap, drawer.id);
   // Quantities typed here but not saved yet. Saving them IS a count — of this drawer, today.
   // They are kept on the device, so leaving the page or a locked phone does not lose them.
@@ -275,13 +276,13 @@ function DrawerDetail({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
     <div className="grid gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <button type="button" onClick={() => ctx.go({ tab: "cupboard", drawer: null })} className="inline-flex items-center gap-1 text-[12.5px] text-ink-muted hover:text-ink">
-            <Back size={14} /> {t("Cupboard", "الدولاب")}
+          <button type="button" onClick={() => ctx.go({ tab: "cupboard", drawer: null })} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-line bg-surface px-3 font-display text-[13px] font-bold text-ink hover:bg-surface-subtle">
+            <Back size={15} /> {t("Cupboard", "الدولاب")}
           </button>
           <h2 className="mt-1 flex flex-wrap items-center gap-3 font-display text-2xl font-bold tracking-tight text-ink">
             <CodeBadge code={drawer.code} big />
             <span>{ar ? drawer.nameAr : drawer.nameEn}</span>
-            <span className="text-base font-semibold text-ink-muted">{ar ? drawer.nameEn : drawer.nameAr}</span>
+            <span className="hidden text-base font-semibold text-ink-muted sm:inline">{ar ? drawer.nameEn : drawer.nameAr}</span>
           </h2>
           <p className="mt-1 text-sm text-ink-body">
             {ar ? drawer.roomAr : drawer.roomEn} · {t("Cabinet", "دولاب")} {drawer.cabinetLetter}{drawer.cabinetWhere ? `, ${drawer.cabinetWhere}` : ""} · {t("code", "كود")} <b>{drawer.code}</b>
@@ -305,7 +306,8 @@ function DrawerDetail({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
       {mode && typeof mode === "object" && "use" in mode ? <Reveal><UseOnPatient ctx={ctx} drawer={drawer} line={mode.use} onDone={() => setMode(null)} /></Reveal> : null}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-        <div>
+        {/* On a phone the rows to count come first, and the photo and its note follow them. */}
+        <div className="order-last lg:order-none">
           {/* A real photo is worth the space on a phone; the drawn tray is not, so it waits for a wide screen. */}
           <div className={`aspect-[16/10] overflow-hidden rounded-2xl border border-line bg-surface-subtle ${drawer.photoUrl ? "" : "hidden lg:block"}`}>
             <DrawerThumb ctx={ctx} drawer={drawer} large />
@@ -358,10 +360,10 @@ function DrawerDetail({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
                           <b className="block text-[13px] font-semibold leading-snug text-ink">
                             {v?.isGeneric ? (item?.per ? <Ltr>{item.per}</Ltr> : item ? (ar ? item.nameAr : item.nameEn) : "") : <Ltr>{variantLabel(v, item, ar)}</Ltr>}
                           </b>
-                          <span className="block text-[11.5px] text-ink-muted">
+                          <span className="block text-[12.5px] text-ink-muted">
                             {v?.isGeneric ? t("no brand yet", "من غير ماركة") : item?.per ? <Ltr>{item.per}</Ltr> : null}
-                            {v?.barcode ? <> · <Ltr>{v.barcode}</Ltr></> : null}
-                            {v?.lastPrice ? <> · <Ltr>{Math.round(v.lastPrice).toLocaleString()} EGP</Ltr></> : null}
+                            {v?.barcode ? <span className="hidden sm:inline"> · <Ltr>{v.barcode}</Ltr></span> : null}
+                            {v?.lastPrice ? <> · <Ltr>{fmtMoney(v.lastPrice)}</Ltr> {t("EGP", "جنيه")}</> : null}
                             {v?.supplier ? <> · <Ltr>{v.supplier}</Ltr></> : null}
                           </span>
                           {drawer.tracked && ctx.canEdit && l.qty > 0 ? (
@@ -373,12 +375,12 @@ function DrawerDetail({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
                         {ctx.canEdit ? (
                           <div className="grid justify-items-end gap-0.5">
                             <Stepper value={draft[l.id] ?? l.qty} onChange={(n) => typeQty(l, n)} changed={draft[l.id] != null && draft[l.id] !== l.qty} />
-                            <span className="text-[11px] text-ink-muted">{unitLabel(item?.unit || "box", draft[l.id] ?? l.qty, ar)}</span>
+                            <span className="text-[12px] text-ink-muted">{unitLabel(item?.unit || "box", draft[l.id] ?? l.qty, ar)}</span>
                           </div>
                         ) : (
                           <div className="text-end">
                             <b className="block font-display text-xl font-black leading-none text-ink">{l.qty}</b>
-                            <span className="text-[11px] text-ink-muted">{unitLabel(item?.unit || "box", l.qty, ar)}</span>
+                            <span className="text-[12px] text-ink-muted">{unitLabel(item?.unit || "box", l.qty, ar)}</span>
                           </div>
                         )}
                         {/* Edit and Delete sit on their own line, at opposite ends: as two small words side by side a thumb hit the wrong one. Delete always asks first. */}
@@ -410,7 +412,7 @@ function DrawerDetail({ ctx, drawer }: { ctx: StockCtx; drawer: StockDrawer }) {
       </div>
 
       {editing && lines.find((l) => l.id === editing.lineId) ? (
-        <EditLineSheet ctx={ctx} drawer={drawer} line={lines.find((l) => l.id === editing.lineId) as StockLine} startOnDelete={editing.del} onClose={() => setEditing(null)} />
+        <EditLineSheet ctx={ctx} drawer={drawer} line={lines.find((l) => l.id === editing.lineId) as StockLine} startOnDelete={editing.del} onClose={closeEditing} />
       ) : null}
 
       {changedCount > 0 ? (
@@ -490,7 +492,8 @@ function AddItemHere({ ctx, drawer, onDone }: { ctx: StockCtx; drawer: StockDraw
 
   const addOwn = () =>
     run(async () => {
-      const r = await stockApi.addItem({ nameEn, nameAr: nameAr || nameEn, unit, per, drawerId: drawer.id, qty, tracked: drawer.tracked });
+      // One name is enough. The other language borrows it, so nobody has to type English.
+      const r = await stockApi.addItem({ nameEn: nameEn.trim() || nameAr.trim(), nameAr: nameAr.trim() || nameEn.trim(), unit, per, drawerId: drawer.id, qty, tracked: drawer.tracked });
       if (photo) {
         const url = await uploadStockPhoto("item", r.itemId, photo);
         ctx.setSnap(await stockApi.setPhoto("item", r.itemId, url));
@@ -519,15 +522,15 @@ function AddItemHere({ ctx, drawer, onDone }: { ctx: StockCtx; drawer: StockDraw
               <button key={c.key} type="button" disabled={busy} onClick={() => addCatalog(c.key)} className="grid gap-1 rounded-xl border border-line bg-surface p-2 text-start hover:bg-surface-subtle disabled:opacity-50">
                 <StockPicture photoUrl={null} shape={c.shape} product={c.en.split(" ")[0]} className="h-12" />
                 <span className="text-[12px] font-semibold leading-tight text-ink">{ar ? c.ar : c.en}</span>
-                <span className="text-[10.5px] text-ink-muted">{have.has(c.key) ? t("in cupboard", "في الدولاب") : ar ? c.en : c.ar}</span>
+                <span className="text-[12px] text-ink-muted">{have.has(c.key) ? t("in cupboard", "في الدولاب") : ar ? c.en : c.ar}</span>
               </button>
             ))}
           </div>
         </>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label={t("Name (English)", "الاسم بالإنجليزي")}><input value={nameEn} onChange={(e) => setNameEn(e.target.value)} className={inputCls} /></Field>
-          <Field label={t("Name (Arabic)", "الاسم بالعربي")}><input value={nameAr} onChange={(e) => setNameAr(e.target.value)} className={inputCls} dir="rtl" /></Field>
+          <Field label={t("Name (Arabic)", "اسم الصنف")}><input autoFocus={ar} value={nameAr} onChange={(e) => setNameAr(e.target.value)} className={inputCls} dir="rtl" /></Field>
+          <Field label={t("Name (English)", "الاسم بالإنجليزي (اختياري)")}><input autoFocus={!ar} value={nameEn} onChange={(e) => setNameEn(e.target.value)} className={inputCls} dir="ltr" /></Field>
           <Field label={t("Count unit", "وحدة العدّ")}>
             <select value={unit} onChange={(e) => setUnit(e.target.value)} className={inputCls}>
               {["box", "syringe", "bottle", "pack", "jar", "bag", "cartridge", "piece", "vial", "set", "roll", "can", "tube", "kit", "strip"].map((u) => <option key={u} value={u}>{unitLabel(u, 1, ar)}</option>)}
@@ -536,8 +539,9 @@ function AddItemHere({ ctx, drawer, onDone }: { ctx: StockCtx; drawer: StockDraw
           <Field label={t("What one unit holds", "الوحدة فيها إيه")}><input value={per} onChange={(e) => setPer(e.target.value)} className={inputCls} placeholder="50 pcs" /></Field>
           <Field label={t("How many now", "كام دلوقتي")}><NumberBox value={qty} onChange={setQty} className={inputCls} /></Field>
           <div className="self-end"><PhotoButton label={photo ? t("Photo attached ✓", "الصورة اتضافت ✓") : t("Photo", "صورة")} onFile={setPhoto} /></div>
+          {!nameEn.trim() && !nameAr.trim() ? <p className="text-[12.5px] font-semibold text-ink-body sm:col-span-2">{t("Still needed: the item's name", "لسه ناقص: اسم الصنف")}</p> : null}
           <div className="flex gap-2 sm:col-span-2">
-            <Btn kind="dark" busy={busy} disabled={!nameEn.trim()} onClick={addOwn}>{t("Add", "ضيف")}</Btn>
+            <Btn kind="dark" busy={busy} disabled={!nameEn.trim() && !nameAr.trim()} onClick={addOwn}>{t("Add", "ضيف")}</Btn>
             <Btn onClick={onDone}>{t("Cancel", "إلغاء")}</Btn>
           </div>
         </div>

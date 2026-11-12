@@ -94,13 +94,13 @@ export function CountView({ ctx, startDrawerCode }: { ctx: StockCtx; startDrawer
         <Card className="overflow-x-auto">
           <table className="w-full text-[13.5px]">
             <thead>
-              <tr className="text-start font-display text-[11px] uppercase tracking-[0.08em] text-ink-muted">
-                <th className="px-3.5 py-2.5 text-start">{t("Drawer", "الدرج")}</th>
-                <th className="px-3.5 py-2.5 text-start">{t("Item", "الصنف")}</th>
-                <th className="px-3.5 py-2.5 text-end">{t("Last", "آخر")}</th>
-                <th className="px-3.5 py-2.5 text-end">{t("Delivered", "اتورّد")}</th>
-                <th className="px-3.5 py-2.5 text-end">{t("Today", "النهارده")}</th>
-                <th className="px-3.5 py-2.5 text-end">{t("Used", "المستخدم")}</th>
+              <tr className="text-start font-display text-[12px] uppercase tracking-[0.08em] text-ink-muted">
+                <th className="px-2 py-2.5 sm:px-3.5 text-start hidden sm:table-cell">{t("Drawer", "الدرج")}</th>
+                <th className="px-2 py-2.5 sm:px-3.5 text-start">{t("Item", "الصنف")}</th>
+                <th className="px-2 py-2.5 sm:px-3.5 text-end">{t("Last", "آخر")}</th>
+                <th className="px-2 py-2.5 sm:px-3.5 text-end hidden sm:table-cell">{t("Delivered", "اتورّد")}</th>
+                <th className="px-2 py-2.5 sm:px-3.5 text-end">{t("Today", "النهارده")}</th>
+                <th className="px-2 py-2.5 sm:px-3.5 text-end">{t("Used", "المستخدم")}</th>
               </tr>
             </thead>
             <tbody>
@@ -109,12 +109,12 @@ export function CountView({ ctx, startDrawerCode }: { ctx: StockCtx; startDrawer
                 const d = ctx.drawers.get(l.drawerId);
                 return (
                   <tr key={c.lineId} className="border-t border-line">
-                    <td className="px-3.5 py-2 font-display font-bold">{d?.code}</td>
-                    <td className="px-3.5 py-2">{variantLabel(ctx.variants.get(l.variantId), ctx.items.get(l.itemId), ar)}</td>
-                    <td className="px-3.5 py-2 text-end font-display">{c.before}</td>
-                    <td className="px-3.5 py-2 text-end font-display">{c.delivered || "—"}</td>
-                    <td className="px-3.5 py-2 text-end"><span className="rounded-md bg-[#FACC15] px-1.5 font-display font-bold text-[#1A1206]">{c.after}</span></td>
-                    <td className="px-3.5 py-2 text-end font-display">{Math.max(0, c.before + c.delivered - c.after)}</td>
+                    <td className="px-2 py-2 sm:px-3.5 font-display font-bold hidden sm:table-cell">{d?.code}</td>
+                    <td className="px-2 py-2 sm:px-3.5">{variantLabel(ctx.variants.get(l.variantId), ctx.items.get(l.itemId), ar)}<span className="block font-display text-[12px] font-bold text-ink-muted sm:hidden"><Ltr>{d?.code}</Ltr></span></td>
+                    <td className="px-2 py-2 sm:px-3.5 text-end font-display">{c.before}{c.delivered ? <span className="block text-[12px] text-ink-muted sm:hidden"><Ltr>+{c.delivered}</Ltr></span> : null}</td>
+                    <td className="px-2 py-2 sm:px-3.5 text-end font-display hidden sm:table-cell">{c.delivered || "—"}</td>
+                    <td className="px-2 py-2 sm:px-3.5 text-end"><span className="rounded-md bg-[#FACC15] px-1.5 font-display font-bold text-[#1A1206]">{c.after}</span></td>
+                    <td className="px-2 py-2 sm:px-3.5 text-end font-display">{Math.max(0, c.before + c.delivered - c.after)}</td>
                   </tr>
                 );
               })}
@@ -177,7 +177,7 @@ export function CountView({ ctx, startDrawerCode }: { ctx: StockCtx; startDrawer
                 <div className="h-11 w-14 overflow-hidden rounded-lg border border-line bg-surface-subtle"><LinePicture variant={v} item={item} /></div>
                 <div className="min-w-0">
                   <b className="block text-[13.5px] font-semibold leading-snug text-ink">{v?.isGeneric ? (item ? (ar ? item.nameAr : item.nameEn) : "") : <Ltr>{variantLabel(v, item, ar)}</Ltr>}</b>
-                  <span className="block text-[11.5px] text-ink-muted">
+                  <span className="block text-[12.5px] text-ink-muted">
                     {v?.isGeneric ? "" : `${item ? (ar ? item.nameAr : item.nameEn) : ""} · `}
                     {t("count in", "عدّ بالـ")} {unitLabel(item?.unit || "box", 2, ar)} · {t("last", "آخر")} <b className="font-display">{l.qty}</b>
                   </span>

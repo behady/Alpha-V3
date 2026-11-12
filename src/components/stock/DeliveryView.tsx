@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Barcode, Check, ScanLine, Trash2 } from "lucide-react";
+import { Barcode, Check, Plus, ScanLine, Trash2 } from "lucide-react";
 import { CATALOG_BY_KEY, unitLabel } from "@/lib/stock/catalog";
 import { stockApi, uploadStockPhoto } from "@/lib/stock/api";
 import { normaliseBarcode } from "@/lib/stock/math";
@@ -137,7 +137,7 @@ export function DeliveryView({ ctx }: { ctx: StockCtx }) {
               <Btn type="submit" busy={busy} disabled={!manualCode.trim()}><Barcode size={15} /></Btn>
             </form>
           </div>
-          <button type="button" onClick={() => setAddManual(true)} className="text-start text-[12.5px] font-bold text-ink underline">{t("Add a line without a barcode", "ضيف سطر من غير باركود")}</button>
+          <Btn onClick={() => setAddManual(true)} className="justify-self-start"><Plus size={14} /> {t("Add a line without a barcode", "ضيف سطر من غير باركود")}</Btn>
         </Card>
 
         <Card className="grid content-start gap-3 p-4">
@@ -157,14 +157,14 @@ export function DeliveryView({ ctx }: { ctx: StockCtx }) {
                     {v ? variantLabel(v, item, ar) : [l.newVariant?.brand, l.newVariant?.product, l.newVariant?.spec].filter(Boolean).join(" · ")}{" "}
                     {l.tag === "library" ? <Pill>{t("new to clinic", "جديد على العيادة")}</Pill> : l.tag === "new" ? <Pill>{t("new product", "منتج جديد")}</Pill> : null}
                   </b>
-                  <span className="block text-[11.5px] text-ink-muted">{item ? (ar ? item.nameAr : item.nameEn) : ""}{item?.per ? <> · <Ltr>{item.per}</Ltr></> : null}</span>
+                  <span className="block text-[12.5px] text-ink-muted">{item ? (ar ? item.nameAr : item.nameEn) : ""}{item?.per ? <> · <Ltr>{item.per}</Ltr></> : null}</span>
                   <div className="mt-1.5 flex flex-wrap items-center gap-2">
                     <select value={l.drawerId} onChange={(e) => setLines(lines.map((x) => (x === l ? { ...x, drawerId: e.target.value } : x)))} className="rounded-lg border border-line bg-surface px-2 py-1 text-[12px]">
                       {snap.drawers.map((d) => <option key={d.id} value={d.id}>{d.code} · {ar ? d.nameAr : d.nameEn}</option>)}
                     </select>
                     <label className="flex items-center gap-1 text-[12px] text-ink-muted">
                       <NumberBox decimal blankZero placeholder="0" label={t("Price", "السعر")} value={l.price} onChange={(n) => setLines(lines.map((x) => (x === l ? { ...x, price: n } : x)))} className={`w-24 rounded-lg border bg-surface px-2 py-1 text-[12px] text-ink ${l.price > 0 ? "border-line" : "border-red-300"}`} />
-                      EGP / {unitLabel(item?.unit || "box", 1, ar)}
+                      {t("EGP", "جنيه")} / {unitLabel(item?.unit || "box", 1, ar)}
                     </label>
                     <button type="button" onClick={() => setLines(lines.filter((x) => x !== l))} className="ms-auto text-ink-muted hover:text-red-600" aria-label={t("Remove", "شيل")}><Trash2 size={15} /></button>
                   </div>
@@ -198,7 +198,7 @@ export function DeliveryView({ ctx }: { ctx: StockCtx }) {
 
           <div className="flex items-baseline justify-between border-t border-line pt-3">
             <span className="text-sm text-ink-muted">{t("Total", "الإجمالي")} · {lines.length} {t("lines", "سطر")}</span>
-            <b className="font-display text-xl font-black text-ink">{fmtMoney(total)} EGP</b>
+            <b className="font-display text-xl font-black text-ink">{fmtMoney(total)} {t("EGP", "جنيه")}</b>
           </div>
           {confirming && lines.length ? (
             <Reveal>
@@ -371,7 +371,7 @@ function NewProductForm({ ctx, barcode, library, initialItemId, onCancel, onAdd 
           <Field label={t("Brand", "الماركة")}><input value={brand} onChange={(e) => setBrand(e.target.value)} className={inputCls} placeholder="3M" /></Field>
           <Field label={t("Product", "المنتج")}><input value={product} onChange={(e) => setProduct(e.target.value)} className={inputCls} placeholder={item ? CATALOG_BY_KEY[item.catalogKey || ""]?.en || item.nameEn : ""} /></Field>
           <Field label={t("Shade / size", "اللون / المقاس")}><input value={spec} onChange={(e) => setSpec(e.target.value)} className={inputCls} placeholder="A2" /></Field>
-          <Field label={`${t("Price per", "السعر لكل")} ${unitLabel(item?.unit || "box", 1, ar)} (EGP)`}><NumberBox decimal blankZero value={price} onChange={setPrice} className={inputCls} /></Field>
+          <Field label={`${t("Price per", "السعر لكل")} ${unitLabel(item?.unit || "box", 1, ar)} (${t("EGP", "جنيه")})`}><NumberBox decimal blankZero value={price} onChange={setPrice} className={inputCls} /></Field>
           <Field label={t("Into drawer", "في درج")}>
             <select value={drawerId} onChange={(e) => setDrawerId(e.target.value)} className={inputCls}>
               <option value="" disabled>{t("Choose the drawer…", "اختار الدرج…")}</option>

@@ -145,7 +145,7 @@ export function HistoryView({ ctx }: { ctx: StockCtx }) {
             </div>
             <div className="min-w-0">
               <p className="text-[13.5px] leading-snug text-ink">{describeEvent(e, ar)}</p>
-              <span className="text-[11px] text-ink-muted">{ar ? GROUP_LABEL[EVENT_GROUP[e.type]].ar : GROUP_LABEL[EVENT_GROUP[e.type]].en}</span>
+              <span className="text-[12px] text-ink-muted">{ar ? GROUP_LABEL[EVENT_GROUP[e.type]].ar : GROUP_LABEL[EVENT_GROUP[e.type]].en}</span>
             </div>
           </div>
         ))}
