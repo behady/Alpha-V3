@@ -82,6 +82,9 @@ async function runForClinic(clinicId: string, now: Date): Promise<{ closed: numb
 
   for (const doc of open.docs) {
     const log = doc.data() as Record<string, unknown>;
+    // This collection also holds waiting-room rows (a patient marked Checked In). Only a staff
+    // punch carries `userId`; anything else is not ours to close.
+    if (typeof log.userId !== "string" || !log.userId) continue;
     const checkIn = toDate(log.checkIn);
     if (!checkIn) continue;
 

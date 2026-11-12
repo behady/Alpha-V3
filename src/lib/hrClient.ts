@@ -149,6 +149,7 @@ export function punchRecordFrom(id: string, data: Record<string, unknown>): Punc
     checkInDistanceM: data.checkInDistanceM == null ? null : num(data.checkInDistanceM),
     checkInAccuracyM: data.checkInAccuracyM == null ? null : num(data.checkInAccuracyM),
     deviceId: str(data.deviceId) || null,
+    autoClosed: data.autoClosed === true,
   };
 }
 

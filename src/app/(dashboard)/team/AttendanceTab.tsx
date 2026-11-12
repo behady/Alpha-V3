@@ -81,6 +81,12 @@ export default function AttendanceTab({
                             {distanceWords(log.checkInDistanceM, isAr)}
                           </span>
                         )}
+                        {/* Closed by the system after a forgotten clock-out, not a punch the person made. */}
+                        {log.autoClosed && (
+                          <span className="rounded-lg bg-amber-100 px-2 py-0.5 text-[13px] font-bold text-amber-800">
+                            {isAr ? "انصراف تلقائي" : "Auto clock-out"}
+                          </span>
+                        )}
                       </p>
                     </div>
                   </div>

@@ -76,6 +76,8 @@ export interface PunchRecord {
   checkInDistanceM: number | null;
   checkInAccuracyM: number | null;
   deviceId: string | null;
+  /** True when the system closed the shift (forgotten clock-out), not the person. */
+  autoClosed?: boolean;
 }
 
 export interface LeadRecord {

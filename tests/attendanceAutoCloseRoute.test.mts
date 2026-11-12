@@ -97,6 +97,8 @@ await at("ON", "forgotten-morning").set(openLog("s-morning", "u-morning", forgot
 // Older rows carry no staffId; the person is found by their sign-in id instead.
 await at("ON", "forgotten-old-row").set({ ...openLog("", "u-morning", forgottenMorning), staffId: null });
 await at("ON", "working-now").set(openLog("s-evening", "u-evening", justNow));
+// A waiting-room row (a patient, not staff) shares this collection. It has no userId.
+await at("ON", "patient-row").set({ status: "active", patientId: "p1", checkIn: Timestamp.fromDate(forgotten) });
 await at("ON", "already-done").set({
   ...openLog("s-evening", "u-evening", cairo(3, "13:00")),
   checkOut: Timestamp.fromDate(cairo(3, "20:00")),
@@ -170,6 +172,12 @@ await check("a shift that was already clocked out is not rewritten", async () =>
   const d = (await at("ON", "already-done").get()).data()!;
   assert.equal(d.durationMinutes, 420);
   assert.equal(d.autoClosed, undefined);
+});
+
+await check("a patient waiting-room row in the same collection is never touched", async () => {
+  const snap = await at("ON", "patient-row").get();
+  assert.equal(snap.data()!.status, "active");
+  assert.equal(snap.updateTime!.toMillis(), snap.createTime!.toMillis());
 });
 
 console.log("clinics that must not be touched");
