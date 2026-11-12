@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getDoc, getDocs, limit, orderBy, query } from "firebase/firestore";
 import { Loader2, Search, X, FlaskConical, Info, Trash2, ChevronDown } from "lucide-react";
+import SuggestInput from "@/components/shared/SuggestInput";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import Protect from "@/components/Protect";
@@ -411,6 +412,7 @@ export default function LabCaseModal({
 
   /** The known lab the typed name matches, or null while it names a new one. */
   const selectedLab = useMemo(() => findLabByName(knownLabs, labText), [knownLabs, labText]);
+  const labNames = useMemo(() => knownLabs.map((l) => l.name), [knownLabs]);
 
   /** The lab's usual turnaround fills the due date in — the reason it is worth recording. */
   /**
@@ -760,19 +762,14 @@ export default function LabCaseModal({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className={LABEL}>{isAr ? "المعمل" : "Lab"} *</label>
-              <input
-                data-tour="lab-case-lab"
+              <SuggestInput
+                dataTour="lab-case-lab"
                 value={labText}
-                onChange={(e) => setLabText(e.target.value)}
-                list="lab-case-labs"
-                placeholder={isAr ? "اكتب اسم المعمل" : "Type the lab's name"}
+                onChange={setLabText}
+                options={labNames}
+                placeholder={isAr ? "اختار المعمل أو اكتب اسمه" : "Pick a lab or type its name"}
                 className={INPUT}
               />
-              <datalist id="lab-case-labs">
-                {knownLabs.map((l) => (
-                  <option key={l.id} value={l.name} />
-                ))}
-              </datalist>
               {labText.trim() && !selectedLab && labText.trim().toLowerCase() !== (existing?.labName || "").trim().toLowerCase() && (
                 <p className="flex items-center gap-1 text-[10px] font-semibold text-sky-600 mt-1 leading-relaxed">
                   <Info size={11} className="shrink-0" />
@@ -782,18 +779,13 @@ export default function LabCaseModal({
             </div>
             <div>
               <label className={LABEL}>{isAr ? "نوع الشغل" : "Work type"} *</label>
-              <input
+              <SuggestInput
                 value={workText}
-                onChange={(e) => setWorkText(e.target.value)}
-                list="lab-case-work"
+                onChange={setWorkText}
+                options={workSuggestions}
                 placeholder={isAr ? "مثال: زيركون، فينير، طقم" : "e.g. Zirconia, Veneer, Denture"}
                 className={INPUT}
               />
-              <datalist id="lab-case-work">
-                {workSuggestions.map((w) => (
-                  <option key={w} value={w} />
-                ))}
-              </datalist>
             </div>
           </div>
 
@@ -1107,17 +1099,7 @@ export default function LabCaseModal({
               {wt.gumShade && (
                 <div>
                   <label className={LABEL}>{isAr ? "لون اللثة" : "Gum shade"}</label>
-                  <input
-                    value={gumShade}
-                    onChange={(e) => setGumShade(e.target.value)}
-                    list="lab-gum-shades"
-                    className={INPUT}
-                  />
-                  <datalist id="lab-gum-shades">
-                    {GUM_SHADE_SUGGESTIONS.map((g) => (
-                      <option key={g} value={g} />
-                    ))}
-                  </datalist>
+                  <SuggestInput value={gumShade} onChange={setGumShade} options={GUM_SHADE_SUGGESTIONS} className={INPUT} />
                 </div>
               )}
               <div>
@@ -1135,18 +1117,13 @@ export default function LabCaseModal({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-line">
                 <div>
                   <label className={LABEL}>{isAr ? "نظام الزرعة" : "Implant system"}</label>
-                  <input
+                  <SuggestInput
                     value={implantSystem}
-                    onChange={(e) => setImplantSystem(e.target.value)}
-                    list="lab-implant-systems"
-                    placeholder={isAr ? "اكتب الماركة" : "Type the brand"}
+                    onChange={setImplantSystem}
+                    options={implantSuggestions}
+                    placeholder={isAr ? "اختار الماركة أو اكتبها" : "Pick the brand or type it"}
                     className={INPUT}
                   />
-                  <datalist id="lab-implant-systems">
-                    {implantSuggestions.map((s) => (
-                      <option key={s} value={s} />
-                    ))}
-                  </datalist>
                   <p className="text-[10px] font-semibold text-slate-400 mt-1 leading-relaxed">
                     {isAr
                       ? "من غير الماركة والمقاس، الفني مش هيعرف يجيب الدعامة الصح."

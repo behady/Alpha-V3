@@ -5,6 +5,7 @@
 // cannot find the number somebody wrote in marker, a due date that never turns red, and a printed
 // order carrying a field the work type does not have — or, worse, a patient's full name.
 import assert from "node:assert/strict";
+import { suggestionsFor } from "../src/lib/suggestInput.ts";
 import {
   BLEACH_SHADES,
   CLASSICAL_SHADES,
@@ -980,3 +981,18 @@ assert.equal(quickLabStep("cancelled", false), null, "a cancelled case is reopen
   assert.equal(byNote.size, 2, "unlinked cases are skipped");
 }
 console.log("✓ treatment card: the one-tap lab step and which case a treatment shows");
+
+// ── Type-or-pick fields (lab, work type, gum shade, implant system) ─────────────────────────
+// The list under the field is the app's own, not the browser's: a phone drew the browser's
+// version as a strip above the keyboard that nobody recognised as a drop-down.
+{
+  const labs = ["Madina Dental Lab", "Nile Prosthetics", "Al Madar"];
+  assert.deepEqual(suggestionsFor(labs, ""), labs, "an empty field offers every choice");
+  assert.deepEqual(suggestionsFor(labs, "  "), labs, "spaces count as empty");
+  assert.deepEqual(suggestionsFor(labs, "nile prosthetics"), labs, "a field already holding a choice opens on the whole list");
+  assert.deepEqual(suggestionsFor(labs, "mad"), ["Madina Dental Lab", "Al Madar"], "typing narrows; names starting with the text come first");
+  assert.deepEqual(suggestionsFor(labs, "LAB"), ["Madina Dental Lab"], "matching ignores capitals");
+  assert.deepEqual(suggestionsFor(labs, "zzz"), [], "a new name matches nothing, and is still allowed");
+  assert.deepEqual(suggestionsFor(["زيركون", "فينير", "", "زيركون"], "زير"), ["زيركون"], "blanks and repeats are dropped");
+}
+console.log("✓ type-or-pick: which choices show under the field");
