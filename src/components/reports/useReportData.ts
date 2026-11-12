@@ -17,10 +17,10 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { documentId, getDocs, query, where, Timestamp, getDoc } from "firebase/firestore";
+import { getDocs, query, where, Timestamp, getDoc } from "firebase/firestore";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { getToday, type DateRange } from "@/lib/reportHelpers";
-import { inheritBranch } from "@/lib/reports/treatmentStatus";
+import { loadTreatmentNotes } from "@/lib/reports/treatmentNotesClient";
 import { addDays, lastYearRange, previousRange, trailingMonths } from "@/lib/reports/periods";
 import { toYmd } from "@/lib/reports/patientStats";
 
@@ -90,27 +90,6 @@ function windowFor(key: DatasetKey, range: DateRange): DateRange | null {
   }
 }
 
-/**
- * A treatment card carries no branch; its charge does. Looked up by id, thirty at a time, so the
- * page can show one branch's treatments the way it shows one branch's money.
- */
-async function withChargeBranch(notes: Row[]): Promise<Row[]> {
-  const ids = [...new Set(notes.map((n) => String(n.ledgerId || "")).filter(Boolean))];
-  const chunks: string[][] = [];
-  for (let i = 0; i < ids.length; i += 30) chunks.push(ids.slice(i, i + 30));
-  const branchOf = new Map<string, unknown>();
-  await Promise.all(
-    chunks.map(async (chunk) => {
-      const snap = await getDocs(query(getClinicCollection("ledger"), where(documentId(), "in", chunk)));
-      for (const d of snap.docs) branchOf.set(d.id, d.data().branchId);
-    }),
-  );
-  return notes.map((n) => {
-    const branchId = branchOf.get(String(n.ledgerId || ""));
-    return branchId ? { ...n, branchId } : n;
-  });
-}
-
 async function fetchDataset(key: DatasetKey, range: DateRange): Promise<Row[]> {
   const w = windowFor(key, range) || range;
   switch (key) {
@@ -124,20 +103,8 @@ async function fetchDataset(key: DatasetKey, range: DateRange): Promise<Row[]> {
     case "appointmentsWide":
     case "appointmentsAhead":
       return rows((await getDocs(query(getClinicCollection("appointments"), where("date", ">=", w.start), where("date", "<=", w.end)))).docs);
-    case "treatmentNotes": {
-      // Four small reads, merged: cards dated in the period, cards still open from any time, cards
-      // finished in the period, and continuations (few, and they decide a treatment's real state).
-      const notes = getClinicCollection("clinical_notes");
-      const snaps = await Promise.all([
-        getDocs(query(notes, where("date", ">=", w.start), where("date", "<=", w.end))),
-        getDocs(query(notes, where("status", "in", ["Planned", "Ongoing"]))),
-        getDocs(query(notes, where("completedDate", ">=", w.start), where("completedDate", "<=", w.end))),
-        getDocs(query(notes, where("isContinued", "==", true))),
-      ]);
-      const byId = new Map<string, Row>();
-      for (const snap of snaps) for (const row of rows(snap.docs)) byId.set(row.id, row);
-      return inheritBranch(await withChargeBranch([...byId.values()]));
-    }
+    case "treatmentNotes":
+      return loadTreatmentNotes(w);
     case "treatmentPlans":
       return rows((await getDocs(getClinicCollection("treatment_plans"))).docs);
     case "labCases":

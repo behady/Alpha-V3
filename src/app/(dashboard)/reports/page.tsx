@@ -63,6 +63,13 @@ function reportFromUrl(): string | null {
   return new URLSearchParams(window.location.search).get("report");
 }
 
+/** The period named in the URL (`?preset=today|week|month`), so a link opens on the period it was counted over. */
+function rangeFromUrl(): DateRange | null {
+  if (typeof window === "undefined") return null;
+  const preset = new URLSearchParams(window.location.search).get("preset");
+  return preset === "today" || preset === "week" || preset === "month" ? rangeFor(preset) : null;
+}
+
 function ReportsPage() {
   const { language } = useLanguage();
   const { branches, allowedBranches, activeBranchId, setActiveBranchId, canChooseAll, scopeBranchId } = useActiveBranch();
@@ -80,7 +87,7 @@ function ReportsPage() {
    * sequence fired two full reads, and stepping a month field with the arrow keys fired one per
    * step. Moving them together makes a preset a single change.
    */
-  const [range, setRange] = useState<DateRange>({ start: getFirstDay(), end: getToday() });
+  const [range, setRange] = useState<DateRange>(() => rangeFromUrl() || { start: getFirstDay(), end: getToday() });
   const { start: startDate, end: endDate } = range;
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
