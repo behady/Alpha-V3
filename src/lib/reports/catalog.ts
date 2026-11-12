@@ -28,7 +28,9 @@ export type DatasetKey =
   | "conversations"
   | "whatsappLogs"
   | "smsOutbox"
-  | "recallSettings";
+  | "recallSettings"
+  | "treatmentNotes"
+  | "appointmentsAhead";
 
 export const REPORT_GROUP_META: { id: ReportGroupId; en: string; ar: string }[] = [
   { id: "overview", en: "Overview", ar: "نظرة عامة" },
@@ -83,6 +85,7 @@ export const REPORT_CATALOG: ReportMeta[] = [
   { id: "demographics", group: "patients", en: "Demographics", ar: "الأعمار والنوع", hintEn: "Age and gender, and what each group comes for.", hintAr: "الأعمار والنوع، وكل فئة بتيجي ليه.", needs: [] },
   { id: "plans", group: "patients", en: "Treatment Plans", ar: "خطط العلاج", hintEn: "Presented, accepted, and actually done.", hintAr: "اتعرضت، اتقبلت، واتعملت فعلاً.", needs: ["treatmentPlans", "ledgerAll"], allTime: true },
 
+  { id: "treatments", group: "operations", en: "Treatments", ar: "متابعة العلاج", hintEn: "What is planned, in progress, and finished.", hintAr: "المخطط، والجاري، واللي اتعمل.", needs: ["treatmentNotes", "appointmentsAhead"] },
   { id: "appointments", group: "operations", en: "Appointments", ar: "المواعيد", hintEn: "Seen, missed, cancelled; by day, dentist and source.", hintAr: "حضور وغياب وإلغاء؛ باليوم والدكتور والمصدر.", needs: ["appointments"] },
   { id: "lab", group: "operations", en: "Lab", ar: "المعمل", hintEn: "Turnaround, remakes and cost, per lab.", hintAr: "المدة والإعادة والتكلفة، لكل معمل.", needs: ["labCases", "labPayments"], feature: "lab" },
   { id: "attendance", group: "operations", en: "Attendance & Payroll", ar: "الحضور والمرتبات", hintEn: "Hours, lateness, overtime and pay.", hintAr: "ساعات وتأخير وإضافي ومرتب.", needs: ["staff", "punches"], feature: "attendance" },

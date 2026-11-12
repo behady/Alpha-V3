@@ -15,6 +15,7 @@ import { Timestamp } from "firebase-admin/firestore";
 import type { DateRange } from "@/lib/reportHelpers";
 import { addDays, lastYearRange, previousRange, trailingMonths } from "@/lib/reports/periods";
 import { toYmd } from "@/lib/reports/patientStats";
+import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import { parsePayers, type Payer } from "@/lib/payers";
 import type { DatasetKey } from "@/lib/reports/catalog";
 import type { Row } from "@/lib/reports/documents";
@@ -45,6 +46,10 @@ export function windowFor(key: DatasetKey, range: DateRange): DateRange {
       return trailingMonths(range.end, 12).range;
     case "appointmentsWide":
       return { start: trailingMonths(range.end, 24).range.start, end: addDays(range.end, 366) };
+    case "appointmentsAhead": {
+      const today = ymdInTimeZone(clinicTimeZone());
+      return { start: today, end: addDays(today, 366) };
+    }
     default:
       return range;
   }
@@ -62,7 +67,21 @@ async function fetchDataset(clinicId: string, key: DatasetKey, range: DateRange)
       return ledgerRows(await col("ledger").get());
     case "appointments":
     case "appointmentsWide":
+    case "appointmentsAhead":
       return rows(await col("appointments").where("date", ">=", w.start).where("date", "<=", w.end).get());
+    case "treatmentNotes": {
+      // The same four reads the website makes (see useReportData), merged by id.
+      const notes = col("clinical_notes");
+      const snaps = await Promise.all([
+        notes.where("date", ">=", w.start).where("date", "<=", w.end).get(),
+        notes.where("status", "in", ["Planned", "Ongoing"]).get(),
+        notes.where("completedDate", ">=", w.start).where("completedDate", "<=", w.end).get(),
+        notes.where("isContinued", "==", true).get(),
+      ]);
+      const byId = new Map<string, Row>();
+      for (const snap of snaps) for (const row of rows(snap)) byId.set(row.id, row);
+      return [...byId.values()];
+    }
     case "treatmentPlans":
       return rows(await col("treatment_plans").get());
     case "labCases":

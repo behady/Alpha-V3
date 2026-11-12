@@ -230,7 +230,7 @@ function ReportsPage() {
   const scopedData = useMemo(() => {
     if (scopeBranchId === "") return extras.data;
     const out: ReportData = { ...extras.data };
-    for (const key of ["ledgerPrev", "ledgerLastYear", "ledgerMonths12", "ledgerAll", "appointments", "appointmentsWide"] as const) {
+    for (const key of ["ledgerPrev", "ledgerLastYear", "ledgerMonths12", "ledgerAll", "appointments", "appointmentsWide", "treatmentNotes"] as const) {
       const rows = out[key];
       if (rows) out[key] = rows.filter((r) => rowInScope(r, scopeBranchId));
     }

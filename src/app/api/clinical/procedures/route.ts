@@ -245,6 +245,23 @@ async function priceRequest(clinicId: string, body: Record<string, unknown>, act
 
 type Priced = Awaited<ReturnType<typeof priceRequest>>;
 
+/**
+ * The day a treatment was finished, kept apart from the day it was written.
+ *
+ * A crown is written up on the day it is started and marked Completed weeks later; its `date`
+ * stays the first day, so "what did we finish this month" had nothing to count on. The stamp is
+ * set once, when the state becomes Completed, and removed if the treatment is reopened. A card
+ * that is already Completed is left as it is: one finished before the stamp existed keeps falling
+ * back to its own date (see lib/reports/treatmentStatus).
+ */
+function finishStamp(before: Record<string, unknown> | null, p: Priced): Record<string, unknown> {
+  if (p.status !== "Completed") return before && before.completedDate !== undefined ? { completedDate: FieldValue.delete() } : {};
+  if (before && String(before.status) === "Completed") return {};
+  const today = ymdInTimeZone(clinicTimeZone());
+  // Written up afterwards with the visit's own day: that day. Marked done later: the day it was marked.
+  return { completedDate: before === null || p.date > today ? p.date : today };
+}
+
 function noteFields(p: Priced, body: Record<string, unknown>, appointmentId: string | null) {
   return {
     appointmentId,
@@ -444,6 +461,7 @@ async function createProcedure(args: { clinicId: string; actor: Actor; body: Rec
     const note = {
       patientId,
       ...noteFields(priced, body, appointmentId),
+      ...finishStamp(null, priced),
       ledgerId: ledgerRef ? ledgerRef.id : null,
       // Who typed this up, as distinct from the dentist it is attributed to.
       createdByUid: actor.uid,
@@ -867,6 +885,7 @@ async function updateProcedure(args: { clinicId: string; actor: Actor; body: Rec
 
     txn.update(noteRef, {
       ...noteFields(priced, body, appointmentId),
+      ...finishStamp(before, priced),
       ledgerId: shouldBill ? ledgerRefId : null,
       updatedByUid: actor.uid,
       updatedByName: actor.name,
@@ -1079,6 +1098,8 @@ async function continueProcedure(args: { clinicId: string; actor: Actor; body: R
     // Nor the approval link: the continuation is not a row the approval wrote, and carrying it
     // would lock the new note as an approval's (no edits, no delete) with no approval behind it.
     delete clone.claimId;
+    // Nor a finish day: the continuation is the treatment still going.
+    delete clone.completedDate;
 
     const newRef = adminClinicCollection(clinicId, "clinical_notes").doc();
     const continued = {
