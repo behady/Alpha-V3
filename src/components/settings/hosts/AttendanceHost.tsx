@@ -9,7 +9,7 @@ export default function AttendanceHost({ canEdit }: { canEdit: boolean }) {
     <ClinicInfoHost
       sectionId="attendance"
       canEdit={canEdit}
-      fields={["attendanceLat", "attendanceLng", "attendanceRadius"]}
+      fields={["attendanceLat", "attendanceLng", "attendanceRadius", "attendanceAutoCloseHours"]}
       activityLabel="Attendance location was updated from settings."
     >
       {({ clinicData, setClinicData, handleSaveClinic }) => (

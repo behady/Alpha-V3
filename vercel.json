@@ -25,6 +25,10 @@
       "schedule": "0 4 * * 1"
     },
     {
+      "path": "/api/automation/attendance-autoclose",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/automation/checkin",
       "schedule": "0 8 * * *"
     },

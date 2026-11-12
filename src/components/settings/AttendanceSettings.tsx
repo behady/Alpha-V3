@@ -56,7 +56,14 @@ export default function AttendanceSettings({ clinicData, setClinicData, handleSa
             <input type="number" value={clinicData.attendanceRadius} onChange={e => setClinicData({...clinicData, attendanceRadius: e.target.value})} placeholder="e.g. 50" className="w-full px-5 py-4 bg-surface border border-line rounded-2xl focus:ring-2 focus:ring-accent transition-all outline-none font-bold text-ink"/>
           </div>
       </div>
-      
+
+      {/* Auto clock-out. One number; empty means off, so a clinic that never opens this is untouched. */}
+      <div className="rounded-2xl border border-line bg-surface-subtle p-6 space-y-2">
+          <label className={`text-[11px] font-bold text-ink-muted uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.autoCloseHours}</label>
+          <input type="number" min="0" max="12" step="0.5" inputMode="decimal" value={clinicData.attendanceAutoCloseHours ?? ""} onChange={e => setClinicData({...clinicData, attendanceAutoCloseHours: e.target.value})} placeholder={txt.autoCloseOff} className="w-full md:w-1/2 px-5 py-4 bg-surface border border-line rounded-2xl focus:ring-2 focus:ring-accent transition-all outline-none font-bold text-ink"/>
+          <p className={`text-sm font-medium text-ink-muted leading-relaxed ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.autoCloseHint}</p>
+      </div>
+
       <div className={`flex ${isRTL ? 'justify-start' : 'justify-end'} pt-4`}>
           <button type="submit" className="bg-accent text-ink-on-accent px-10 py-4 rounded-2xl font-bold text-sm flex items-center gap-2 hover:bg-accent-strong transition-all shadow-lg active:scale-95"><Save size={20}/> {txt.saveGeofence}</button>
       </div>

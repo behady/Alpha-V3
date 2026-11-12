@@ -174,7 +174,7 @@ export const PersonalWorksheet = ({
                                                 </span>
                                             ) : (
                                                 <span className="inline-flex items-center gap-1.5 bg-surface border border-line text-ink-muted px-2 sm:px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-sm">
-                                                    <CheckCircle2 size={12} className="text-emerald-500"/> {t("attLogged")}
+                                                    <CheckCircle2 size={12} className={log.autoClosed ? "text-amber-500" : "text-emerald-500"}/> {log.autoClosed ? (isRTL ? "انصراف تلقائي" : "Auto clock-out") : t("attLogged")}
                                                 </span>
                                             )}
                                         </td>
@@ -482,6 +482,7 @@ export const StaffLogsModal = ({ isOpen, onClose, staffName, logs, handleUpdateL
                                             <p className="font-bold text-ink text-sm">
                                                 {log.date}
                                                 {log.status === 'active' && <span className="ml-2 text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold uppercase tracking-widest">{t("attActive")}</span>}
+                                                {log.autoClosed && <span className="ml-2 text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold uppercase tracking-widest">{isRTL ? "انصراف تلقائي" : "Auto clock-out"}</span>}
                                             </p>
                                             <div className="text-xs font-semibold text-ink-muted mt-1 flex items-center gap-2 flex-wrap">
                                                 <span>In: {formatTime(log.checkIn)}</span> <span className="text-slate-300">•</span> <span>Out: {formatTime(log.checkOut)}</span> 

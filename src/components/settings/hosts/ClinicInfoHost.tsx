@@ -42,6 +42,8 @@ const EMPTY: ClinicInfoState = {
   attendanceLat: "",
   attendanceLng: "",
   attendanceRadius: "50",
+  // Empty = auto clock-out is off.
+  attendanceAutoCloseHours: "",
 };
 
 interface Props {

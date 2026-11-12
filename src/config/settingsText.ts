@@ -493,6 +493,12 @@ export const SETTINGS_TEXT = {
     lng: { en: "Longitude", ar: "خط الطول (Longitude)" },
     radius: { en: "Allowed Radius (Meters)", ar: "النطاق المسموح (بالمتر)" },
     saveGeofence: { en: "Save Geofence", ar: "حفظ النطاق الجغرافي" },
+    autoCloseHours: { en: "Auto clock-out: hours after the shift ends", ar: "انصراف تلقائي: بعد كام ساعة من نهاية الشيفت" },
+    autoCloseOff: { en: "Empty = off", ar: "فاضي = مقفول" },
+    autoCloseHint: {
+      en: "If someone forgets to clock out, the system clocks them out after this many hours past the end of their shift. Example: shift ends 9 PM and you write 2 — they are clocked out at 11 PM. Leave it empty to switch this off.",
+      ar: "لو حد نسي يسجل انصراف، السيستم هيسجله انصراف بعد عدد الساعات ده من نهاية الشيفت بتاعه. مثال: الشيفت بيخلص 9 مساءً وكتبت 2 — هيتسجل انصراف الساعة 11. سيبها فاضية لو مش عايز الخاصية دي.",
+    },
   },
   clinicProfile: {
     title: { en: "Clinic profile", ar: "العيادة" },
