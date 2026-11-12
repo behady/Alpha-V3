@@ -225,7 +225,8 @@ export default function PatientLabTab({
               const late = due === "overdue";
               const moves = nextStatuses(c.status, c.needsTryIn).filter((s) => s !== "cancelled" && s !== "draft").slice(0, 2);
               // Each part is isolated: an English description beside Arabic text and Palmer brackets reorders itself otherwise.
-              const workParts = [workTypeLabel(c.workType, language), c.workDescription, formatPalmer(c.teeth)].filter(Boolean) as string[];
+              const workParts = [workTypeLabel(c.workType, language), c.workDescription].filter(Boolean) as string[];
+              const teeth = c.teeth?.length ? formatPalmer(c.teeth) : "";
               const dates: Array<[string, string, boolean]> = [
                 [isAr ? "اتبعتت" : "Sent", dmy(c.sentAt), false],
                 [isAr ? "ميعاد الاستلام" : "Due", dmy(c.dueDate), late],
@@ -250,33 +251,44 @@ export default function PatientLabTab({
                         {isAr ? "إعادة لـ" : "Remake of"} <span dir="ltr">{c.remakeOfCode}</span>
                       </span>
                     )}
-                    {!hideMoney && c.agreedPrice > 0 && (
-                      <span className="ms-auto text-[13px] font-black tabular-nums text-ink" data-film="price">
-                        {money(c.agreedPrice)} <span className="text-[11px] font-bold text-ink-muted">{isAr ? "سعر المعمل" : "lab price"}</span>
+                  </div>
+
+                  {/* Every line starts at the same edge. Separators sit at the END of a part, never
+                      the start, so a wrapped line can't open with a stray dot; the teeth are a chip
+                      in left-to-right order, the way the dentist reads the chart. */}
+                  <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] font-bold text-ink">
+                    {workParts.length === 0
+                      ? <span>{isAr ? "شغل معمل" : "Lab work"}</span>
+                      : workParts.map((part, i) => (
+                          <span key={i}>
+                            <bdi>{part}</bdi>
+                            {i < workParts.length - 1 && <span className="ms-1.5 text-ink-faint">·</span>}
+                          </span>
+                        ))}
+                    {teeth && (
+                      <span className="rounded-md bg-surface-muted px-1.5 py-0.5 text-[12px] font-black tabular-nums text-ink" dir="ltr">
+                        {teeth}
                       </span>
                     )}
                   </div>
-
-                  <p className="mt-2 flex flex-wrap gap-x-1.5 text-[13px] font-bold text-ink">
-                    {workParts.length === 0
-                      ? isAr ? "شغل معمل" : "Lab work"
-                      : workParts.map((part, i) => (
-                          <span key={i} className="inline-flex gap-x-1.5">
-                            {i > 0 && <span className="text-ink-faint">·</span>}
-                            <bdi>{part}</bdi>
-                          </span>
-                        ))}
-                  </p>
                   <p className="mt-0.5 text-[12px] font-semibold text-ink-muted">
                     {[c.labName, c.doctorName].filter(Boolean).join(" · ") || "—"}
                   </p>
+                  {!hideMoney && c.agreedPrice > 0 && (
+                    <p className="mt-1 text-[12px] font-bold text-ink-muted" data-film="price">
+                      {isAr ? "سعر المعمل" : "Lab price"}{" "}
+                      <span className="text-[13px] font-black tabular-nums text-ink" dir="ltr">{money(c.agreedPrice)}</span>
+                    </p>
+                  )}
 
                   <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4" data-film="dates">
                     {dates.map(([label, value, alert]) => (
                       <div key={label} className="min-w-0">
                         <dt className="text-[11px] font-bold text-ink-muted">{label}</dt>
-                        <dd className={`text-[13px] font-black tabular-nums ${alert ? "text-rose-600" : value ? "text-ink" : "text-ink-faint"}`} dir="ltr">
-                          {value || "—"}
+                        {/* dir="ltr" on the dd itself pushed every date to the LEFT edge under a
+                            right-aligned label in Arabic. Only the digits need the direction. */}
+                        <dd className={`text-[13px] font-black tabular-nums ${alert ? "text-rose-600" : value ? "text-ink" : "text-ink-faint"}`}>
+                          <span dir="ltr">{value || "—"}</span>
                         </dd>
                       </div>
                     ))}
