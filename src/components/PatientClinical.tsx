@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import ClinicalNotes from "@/components/clinical-notes";
 
-export default function PatientClinical({ patient }: { patient: any }) {
+export default function PatientClinical({ patient, onOpenLab }: { patient: any; onOpenLab?: () => void }) {
   const router = useRouter();
   const p = patient || {};
 
@@ -13,6 +13,7 @@ export default function PatientClinical({ patient }: { patient: any }) {
         patientId={p.id}
         teethData={p.teethData || {}}
         onWriteRx={() => router.push(`/patients/${p.id}/rx`)}
+        onOpenLab={onOpenLab}
       />
     </div>
   );

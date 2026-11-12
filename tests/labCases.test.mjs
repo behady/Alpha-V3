@@ -951,3 +951,32 @@ assert.deepEqual(treatmentLinkFromSeed({ patientId: "p1" }), {}, "an order raise
 assert.deepEqual(treatmentLinkFromSeed(null), {});
 assert.deepEqual(treatmentLinkFromSeed(undefined), {});
 console.log("✓ lab order from a treatment: the case keeps the treatment's note and ledger ids");
+
+// --- the treatment card's one-tap button ----------------------------------------------------------
+//
+// One button, so it must be the step that normally comes next — never cancel, never "back to the
+// lab" from a case that has already come home, and nothing at all once it is fitted.
+import { quickLabStep, labCasesByNote } from "../src/lib/labCases.ts";
+assert.equal(quickLabStep("draft", false), "at_lab");
+assert.equal(quickLabStep("at_lab", false), "back");
+assert.equal(quickLabStep("at_lab", true), "tryin_back", "a try-in case stops for the try-in first");
+assert.equal(quickLabStep("tryin_back", true), "returned_to_lab", "after a try-in it usually goes back to the lab");
+assert.equal(quickLabStep("returned_to_lab", true), "tryin_back");
+assert.equal(quickLabStep("back", false), "fitted");
+assert.equal(quickLabStep("fitted", false), null, "fitted is the end");
+assert.equal(quickLabStep("cancelled", false), null, "a cancelled case is reopened on the Lab page, not from a card");
+{
+  const byNote = labCasesByNote([
+    { id: "a", clinicalNoteId: "n1", status: "cancelled", codeNumber: 9 },
+    { id: "b", clinicalNoteId: "n1", status: "at_lab", codeNumber: 3 },
+    { id: "c", clinicalNoteId: "n2", status: "fitted", codeNumber: 4 },
+    { id: "d", clinicalNoteId: "n2", status: "back", codeNumber: 7 },
+    { id: "e", status: "at_lab", codeNumber: 8 },
+    { id: "f", clinicalNoteId: "n3", status: "cancelled", codeNumber: 1 },
+  ]);
+  assert.equal(byNote.get("n1")?.id, "b", "a cancelled case never hides the live one");
+  assert.equal(byNote.get("n2")?.id, "d", "an open remake wins over the fitted original");
+  assert.equal(byNote.has("n3"), false, "a treatment whose only case was cancelled shows nothing");
+  assert.equal(byNote.size, 2, "unlinked cases are skipped");
+}
+console.log("✓ treatment card: the one-tap lab step and which case a treatment shows");

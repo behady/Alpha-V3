@@ -24,7 +24,12 @@ import { FlaskConical, X } from "lucide-react";
 import LabCaseModal from "@/components/lab/LabCaseModal";
 import { useActiveBranch, ALL_BRANCHES } from "@/lib/useActiveBranch";
 import { LABS_SETTINGS_DOC, parseDentalLabs, type DentalLab } from "@/lib/dentalLabs";
-import type { LabCaseSeed } from "@/lib/labCases";
+import { LAB_CASES_COLLECTION, labCasesByNote, statusLabel, toLabCase, type LabCase, type LabCaseSeed, type LabCaseStatus } from "@/lib/labCases";
+import { advanceLabCase } from "@/lib/labCaseWrite";
+import { notifyLabCaseReady } from "@/lib/labNotify";
+import { useClinic } from "@/context/ClinicContext";
+import { isAnyUnlocked } from "@/lib/featureCatalog";
+import NoteLabStrip from "./NoteLabStrip";
 import { getDoc } from "firebase/firestore";
 import CallReminderDialog from "@/components/calls/CallReminderDialog";
 
@@ -32,17 +37,57 @@ export default function ClinicalNotesContainer({
   patientId,
   teethData,
   onWriteRx,
+  onOpenLab,
 }: {
   patientId: string;
   teethData?: Record<string, ToothData>;
   onWriteRx?: () => void;
+  /** Switches the patient file to its Lab tab, from a treatment card's lab strip. */
+  onOpenLab?: () => void;
 }) {
   const { language } = useLanguage();
-  const { showToast, confirm, clinicalEditorMode } = useUI();
+  const { showToast, confirm, clinicalEditorMode, clinicalNoteDensity } = useUI();
   const { user } = useAuth();
   /** Chair mode: a dentist sees no money here and can touch only their own treatments. */
   const { chair, staffId: chairStaffId, staffName: chairStaffName } = useChairMode();
   const canEditNote = (n: Note) => !chair || canTouch(n, { staffId: chairStaffId, name: chairStaffName });
+
+  /**
+   * Lab orders raised from this patient's treatments, shown on the card that raised them.
+   *
+   * Read only by people who may open the Lab page (the add-on is on and they hold access.lab) —
+   * the same gate as the patient file's Lab tab, and the rules refuse anyone else the read.
+   */
+  const { clinic, clinicId, isAdmin } = useClinic();
+  const canSeeLab = !!clinic && isAnyUnlocked(clinic, "lab") && (isAdmin || !!user?.permissions?.includes("access.lab"));
+  const [labCases, setLabCases] = useState<LabCase[]>([]);
+  const [labBusyId, setLabBusyId] = useState("");
+  useEffect(() => {
+    if (!canSeeLab || !patientId) {
+      setLabCases([]);
+      return;
+    }
+    return onSnapshot(
+      query(getClinicCollection(LAB_CASES_COLLECTION), where("patientId", "==", patientId)),
+      (snap) => setLabCases(snap.docs.map((d) => toLabCase(d.id, d.data() as Record<string, unknown>))),
+      (err) => console.error("Treatment-card lab cases subscription failed", err)
+    );
+  }, [canSeeLab, patientId]);
+  const labByNote = useMemo(() => labCasesByNote(labCases), [labCases]);
+
+  const advanceLab = async (labCase: LabCase, next: LabCaseStatus) => {
+    setLabBusyId(labCase.id);
+    try {
+      await advanceLabCase(labCase, next, { by: user?.name });
+      if (next === "back") void notifyLabCaseReady(labCase, language, clinic?.alertPreferences, clinicId);
+      showToast(`${labCase.code} · ${statusLabel(next, language)}`, "success");
+    } catch (err) {
+      console.error("Lab case status change failed", err);
+      showToast(language === "ar" ? "فشل التحديث" : "Could not update the case", "error");
+    } finally {
+      setLabBusyId("");
+    }
+  };
 
   const [notes, setNotes] = useState<Note[]>([]);
   const [appointments, setAppointments] = useState<RelatedAppointment[]>([]);
@@ -325,6 +370,20 @@ export default function ClinicalNotesContainer({
       onReorder={handleReorder}
       hideMoney={chair}
       canEditNote={canEditNote}
+      renderLab={(note) => {
+        const labCase = labByNote.get(note.id);
+        if (!labCase) return null;
+        return (
+          <NoteLabStrip
+            labCase={labCase}
+            busy={labBusyId === labCase.id}
+            onAdvance={advanceLab}
+            onOpen={onOpenLab}
+            compact={clinicalNoteDensity === "compact"}
+            readOnly={!canEditNote(note)}
+          />
+        );
+      }}
     />
   );
 

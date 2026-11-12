@@ -1898,7 +1898,7 @@ export default function PatientProfile() {
 
           {activeTab === "clinical" && canViewClinical && (
             <div className="animate-in fade-in duration-300 mt-6">
-              <PatientClinical patient={patient} />
+              <PatientClinical patient={patient} onOpenLab={canViewLab ? () => selectTab("lab") : undefined} />
             </div>
           )}
 

@@ -672,6 +672,41 @@ export function patientLabView<T extends Pick<LabCase, "status" | "dueDate" | "c
   return { rows, open, waiting, overdue };
 }
 
+/**
+ * The one step a treatment card's button offers: the move that normally comes next.
+ *
+ * Never cancel (that stays on the Lab page, where it gets a second thought), never "back to the
+ * lab" once the work is home — that is a remake, not a next step — and nothing once it is fitted.
+ */
+export function quickLabStep(current: LabCaseStatus, needsTryIn: boolean): LabCaseStatus | null {
+  if (current === "back") return "fitted";
+  if (current === "fitted") return null;
+  return nextStatuses(current, needsTryIn).find((s) => s !== "cancelled" && s !== "draft") ?? null;
+}
+
+/**
+ * Which case each treatment shows on its card, keyed by the clinical note that raised it.
+ *
+ * Cancelled cases are skipped; among the rest an open case beats a closed one (a remake in flight
+ * matters more than the original that was fitted), then the newest code wins.
+ */
+export function labCasesByNote<T extends Pick<LabCase, "status" | "codeNumber"> & { clinicalNoteId?: string }>(
+  cases: T[]
+): Map<string, T> {
+  const byNote = new Map<string, T>();
+  for (const c of cases) {
+    if (!c.clinicalNoteId || c.status === "cancelled") continue;
+    const held = byNote.get(c.clinicalNoteId);
+    if (!held) {
+      byNote.set(c.clinicalNoteId, c);
+      continue;
+    }
+    const openRank = Number(statusFor(held.status).closed) - Number(statusFor(c.status).closed);
+    if (openRank > 0 || (openRank === 0 && (c.codeNumber || 0) > (held.codeNumber || 0))) byNote.set(c.clinicalNoteId, c);
+  }
+  return byNote;
+}
+
 
 /**
  * Whether the clinic asked to be told when a case comes back.

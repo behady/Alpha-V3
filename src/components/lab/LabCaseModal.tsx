@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getDoc, getDocs, limit, orderBy, query } from "firebase/firestore";
-import { Loader2, Search, X, FlaskConical, Info, Trash2 } from "lucide-react";
+import { Loader2, Search, X, FlaskConical, Info, Trash2, ChevronDown } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import Protect from "@/components/Protect";
@@ -121,6 +121,8 @@ export default function LabCaseModal({
   const [needsTryIn, setNeedsTryIn] = useState(false);
   const [dueDate, setDueDate] = useState("");
   const [sendNow, setSendNow] = useState(true);
+  /** "More details" — closed every time the form opens. */
+  const [moreOpen, setMoreOpen] = useState(false);
 
   // --- patient + doctor pickers -------------------------------------------
   const [patientId, setPatientId] = useState("");
@@ -268,6 +270,7 @@ export default function LabCaseModal({
     const key = existing?.id || "new";
     if (seededFor.current === key) return;
     seededFor.current = key;
+    setMoreOpen(false);
 
     const src = existing;
     setLabText(src?.labName || (labs.length === 1 ? labs[0].name : ""));
@@ -480,6 +483,24 @@ export default function LabCaseModal({
   const canSave = Boolean(labText.trim()) && Boolean(workType) && !saving;
 
   /**
+   * How many folded fields somebody actually typed into, so an edited order never hides detail
+   * behind a closed section without saying so. Fields that fill themselves in (branch, dentist,
+   * units, how it leaves, try-in) are not counted — they are always "filled".
+   */
+  const foldedFilled = [
+    workDescription,
+    wt.cervicalShade ? cervicalShade : "",
+    wt.gumShade ? gumShade : "",
+    material,
+    wt.implant ? implantSystem : "",
+    wt.implant ? implantPlatform : "",
+    wt.implant && !wt.guide ? abutmentType : "",
+    wt.implant && !wt.guide ? retention : "",
+    wt.guide ? guideType : "",
+    wt.guide ? sleeveSystem : "",
+  ].filter((v) => String(v || "").trim()).length;
+
+  /**
    * The lab this order goes to, adding it to the lab list when the name is new.
    *
    * Only an Admin can write the lab list. For anyone else — or if that write fails — the new lab
@@ -645,9 +666,11 @@ export default function LabCaseModal({
                   ? isAr ? `تعديل ${existing?.code}` : `Edit ${existing?.code}`
                   : isAr ? "أمر معمل جديد" : "New lab order"}
               </h2>
-              {!isEdit && (
-                <p className="text-[11px] font-bold text-slate-400 mt-0.5" dir="ltr">
-                  {previewCode}
+              {(patientName || !isEdit) && (
+                <p className="text-[11px] font-bold text-slate-400 mt-0.5 truncate">
+                  {patientName && <bdi>{patientName}</bdi>}
+                  {patientName && !isEdit && " · "}
+                  {!isEdit && <span dir="ltr">{previewCode}</span>}
                 </p>
               )}
             </div>
@@ -663,56 +686,11 @@ export default function LabCaseModal({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-5 sm:px-7 py-5 space-y-5 custom-scrollbar">
-          {/* Lab + branch */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className={LABEL}>{isAr ? "المعمل" : "Lab"} *</label>
-              <input
-                data-tour="lab-case-lab"
-                value={labText}
-                onChange={(e) => setLabText(e.target.value)}
-                list="lab-case-labs"
-                placeholder={isAr ? "اكتب اسم المعمل" : "Type the lab's name"}
-                className={INPUT}
-              />
-              <datalist id="lab-case-labs">
-                {knownLabs.map((l) => (
-                  <option key={l.id} value={l.name} />
-                ))}
-              </datalist>
-              {labText.trim() && !selectedLab && labText.trim().toLowerCase() !== (existing?.labName || "").trim().toLowerCase() && (
-                <p className="flex items-center gap-1 text-[10px] font-semibold text-sky-600 mt-1 leading-relaxed">
-                  <Info size={11} className="shrink-0" />
-                  {isAr ? "معمل جديد — هيتحفظ للمرات الجاية" : "New lab — it will be saved for next time"}
-                </p>
-              )}
-            </div>
-            <div>
-              <label className={LABEL}>{isAr ? "الفرع" : "Branch"}</label>
-              <select
-                value={branchId}
-                onChange={(e) => setBranchId(e.target.value)}
-                className={INPUT}
-                disabled={isEdit}
-              >
-                <option value="">{isAr ? "بدون فرع" : "No branch"}</option>
-                {branches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
-              {isEdit && (
-                <p className="text-[10px] font-semibold text-slate-400 mt-1 leading-relaxed">
-                  {isAr
-                    ? "الفرع مش بيتغير بعد ما الكود اتطبع."
-                    : "The branch is fixed once the code has been printed."}
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Patient */}
+          {/* The order, as most people fill it in: who, which lab, what, which teeth, the shade,
+              when it is due, what it costs, and a note. Everything else is folded under "More
+              details" — it still prints when filled, and most of it fills itself in (branch,
+              dentist, how it leaves, try-in by work type). */}
+          {!patientName && (
           <div>
             <label className={LABEL}>{isAr ? "المريض" : "Patient"}</label>
             {patientName ? (
@@ -777,26 +755,30 @@ export default function LabCaseModal({
               </div>
             )}
           </div>
+          )}
 
-          {/* Doctor */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className={LABEL}>{isAr ? "الطبيب" : "Dentist"}</label>
-              <select
-                value={doctorId}
-                onChange={(e) => {
-                  setDoctorId(e.target.value);
-                  setDoctorName(staff.find((s) => s.id === e.target.value)?.name || "");
-                }}
+              <label className={LABEL}>{isAr ? "المعمل" : "Lab"} *</label>
+              <input
+                data-tour="lab-case-lab"
+                value={labText}
+                onChange={(e) => setLabText(e.target.value)}
+                list="lab-case-labs"
+                placeholder={isAr ? "اكتب اسم المعمل" : "Type the lab's name"}
                 className={INPUT}
-              >
-                <option value="">{doctorName || (isAr ? "غير محدد" : "Not set")}</option>
-                {staff.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
+              />
+              <datalist id="lab-case-labs">
+                {knownLabs.map((l) => (
+                  <option key={l.id} value={l.name} />
                 ))}
-              </select>
+              </datalist>
+              {labText.trim() && !selectedLab && labText.trim().toLowerCase() !== (existing?.labName || "").trim().toLowerCase() && (
+                <p className="flex items-center gap-1 text-[10px] font-semibold text-sky-600 mt-1 leading-relaxed">
+                  <Info size={11} className="shrink-0" />
+                  {isAr ? "معمل جديد — هيتحفظ للمرات الجاية" : "New lab — it will be saved for next time"}
+                </p>
+              )}
             </div>
             <div>
               <label className={LABEL}>{isAr ? "نوع الشغل" : "Work type"} *</label>
@@ -815,8 +797,250 @@ export default function LabCaseModal({
             </div>
           </div>
 
-          {/* Description + teeth */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* The chart. Same grid the printed order draws, so what is clicked here is what the
+              technician receives — no translation step in anybody's head. */}
+          <LabTeethPicker
+            teeth={teeth}
+            onChange={setTeethBoth}
+            showPrimary={showPrimaryTeeth}
+            onShowPrimaryChange={setShowPrimaryTeeth}
+          />
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {wt.bodyShade && (
+                <div>
+                  <label className={LABEL}>{isAr ? "لون الجسم" : "Body shade"}</label>
+                  <select value={bodyShade} onChange={(e) => setBodyShade(e.target.value)} className={INPUT}>
+                    <option value="">—</option>
+                    {TOOTH_SHADES.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            <div>
+              <label className={LABEL}>{isAr ? "ميعاد الرجوع" : "Due back"}</label>
+              <input
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                className={INPUT}
+              />
+              {selectedLab?.turnaroundDays && !isEdit && (
+                <p className="text-[10px] font-semibold text-slate-400 mt-1">
+                  {isAr
+                    ? `من مدة ${selectedLab.name}: ${selectedLab.turnaroundDays} يوم`
+                    : `From ${selectedLab.name}'s usual ${selectedLab.turnaroundDays} days`}
+                </p>
+              )}
+            </div>
+            <div>
+              <label className={LABEL}>{isAr ? "السعر المتفق عليه" : "Agreed price"}</label>
+              <input
+                type="number"
+                min={0}
+                dir="ltr"
+                value={agreedPrice}
+                onChange={(e) => setAgreedPrice(e.target.value)}
+                placeholder={isAr ? "ج.م" : "EGP"}
+                className={INPUT}
+              />
+              {/* The estimate the treatment was actually booked at, when it disagrees.
+                  Offered here rather than applied automatically: it moves money between the
+                  dentist and the clinic on every payment already taken, so it is a decision
+                  somebody makes, with both numbers in front of them. */}
+              {feeDrift !== 0 && (
+                <div className="mt-2 p-2.5 rounded-xl bg-amber-50 border border-amber-200">
+                  <p className="text-[11px] font-bold text-amber-900 leading-relaxed">
+                    {isAr
+                      ? `العلاج اتحسب بـ ${Math.round(bookedLabFee || 0)} تكلفة معمل، وانت متفق على ${Math.round(agreedNumber)}.`
+                      : `The treatment was booked at ${Math.round(bookedLabFee || 0)} for lab work; you agreed ${Math.round(agreedNumber)}.`}
+                  </p>
+                  <Protect permission="finance.edit">
+                    <button
+                      type="button"
+                      onClick={() => void applyFeeCorrection()}
+                      disabled={correcting}
+                      className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-[10px] font-black uppercase tracking-wide hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                    >
+                      {correcting && <Loader2 size={12} className="animate-spin" />}
+                      {isAr ? "صحّح الحسابات" : "Correct the books"}
+                    </button>
+                  </Protect>
+                  <p className="text-[10px] font-semibold text-amber-700 mt-1.5 leading-relaxed">
+                    {isAr
+                      ? "هيعيد حساب عمولة الطبيب وربح العيادة على التكلفة الحقيقية، وهيتسجل مين عمل كده."
+                      : "Recalculates the dentist's commission and the clinic's profit on the true cost, and records who did it."}
+                  </p>
+                </div>
+              )}
+
+              {/* Where the number came from. A price that appears on its own is a price nobody
+                  checks — saying which lab's rate it is makes it worth glancing at, and makes an
+                  out-of-date rate visible instead of silently agreed. */}
+              {!isEdit && selectedLab && (
+                <p className="text-[10px] font-semibold text-slate-400 mt-1 leading-relaxed">
+                  {labPriceFor(selectedLab, workType) !== null
+                    ? isAr
+                      ? `سعر ${selectedLab.name} للشغل ده`
+                      : `${selectedLab.name}'s rate for this work`
+                    : agreedPrice
+                      ? isAr
+                        ? "تقديري من قائمة أسعار العيادة — مش متفق عليه مع المعمل ده"
+                        : "Your clinic's estimate — not a rate agreed with this lab"
+                      : isAr
+                        ? "مفيش سعر متفق عليه مع المعمل ده للشغل ده"
+                        : "No agreed rate with this lab for this work"}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label className={LABEL}>{isAr ? "ملاحظات للفني" : "Notes to the technician"}</label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={2}
+              placeholder={isAr ? "أي حاجة الفني محتاج يعرفها" : "Anything the technician needs to know"}
+              className={`${INPUT} resize-none`}
+            />
+          </div>
+
+          {/* More details */}
+          <div className="rounded-2xl border border-line bg-slate-50/60">
+            <button
+              type="button"
+              onClick={() => setMoreOpen((v) => !v)}
+              aria-expanded={moreOpen}
+              className="w-full flex items-center justify-between gap-3 px-4 py-3 text-start"
+            >
+              <span className="text-[12px] font-black text-slate-600">
+                {isAr ? "تفاصيل أكتر" : "More details"}
+                {foldedFilled > 0 && (
+                  <span className="ms-2 rounded-md bg-sky-50 px-1.5 py-0.5 text-[10px] font-black text-sky-700">
+                    {isAr ? `${foldedFilled} متسجّل` : `${foldedFilled} filled`}
+                  </span>
+                )}
+              </span>
+              <ChevronDown size={16} className={`shrink-0 text-slate-400 transition-transform ${moreOpen ? "rotate-180" : ""}`} />
+            </button>
+            {moreOpen && (
+              <div className="space-y-4 border-t border-line p-4">
+                {patientName && (
+          <div>
+            <label className={LABEL}>{isAr ? "المريض" : "Patient"}</label>
+            {patientName ? (
+              <div className="flex items-center justify-between gap-3 px-4 py-3 bg-surface-subtle border border-line rounded-xl">
+                <div className="min-w-0">
+                  <p className="text-sm font-black text-slate-800 truncate">{patientName}</p>
+                  <p className="text-[11px] font-bold text-slate-400 truncate" dir="ltr">
+                    {patientPhone || (isAr ? "بدون تليفون" : "no phone")}
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setPatientId("");
+                    setPatientName("");
+                    setPatientPhone("");
+                  }}
+                  className="text-[11px] font-black uppercase tracking-wide text-slate-400 hover:text-rose-500 shrink-0"
+                >
+                  {isAr ? "تغيير" : "Change"}
+                </button>
+              </div>
+            ) : (
+              <div>
+              {/* The hint sits outside the positioned box, or the icon centres on input + hint. */}
+              <div className="relative">
+                <Search size={16} className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                <input
+                  value={patientQuery}
+                  onChange={(e) => setPatientQuery(e.target.value)}
+                  placeholder={
+                    isAr ? "دور بالاسم أو التليفون… (اختياري)" : "Search by name or phone… (optional)"
+                  }
+                  className={`${INPUT} ps-9`}
+                />
+                {patientMatches.length > 0 && (
+                  <div className="absolute z-10 mt-1 w-full bg-surface border border-line rounded-xl shadow-xl overflow-hidden max-h-56 overflow-y-auto">
+                    {patientMatches.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => {
+                          setPatientId(p.id);
+                          setPatientName(p.name);
+                          setPatientPhone(p.phone || "");
+                          setPatientQuery("");
+                        }}
+                        className="w-full text-start px-4 py-2.5 hover:bg-surface-subtle transition-colors"
+                      >
+                        <span className="block text-sm font-bold text-slate-700">{p.name}</span>
+                        <span className="block text-[11px] font-semibold text-slate-400" dir="ltr">
+                          {[p.fileId, p.phone].filter(Boolean).join(" · ")}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+                <p className="text-[10px] font-semibold text-slate-400 mt-1.5 leading-relaxed">
+                  {isAr
+                    ? "الورقة اللي بتروح المعمل فيها الاسم الأول والكود بس — الاسم الكامل مش بيخرج من العيادة."
+                    : "Only the first name and the code are printed. The full name never leaves the clinic."}
+                </p>
+              </div>
+            )}
+          </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className={LABEL}>{isAr ? "الفرع" : "Branch"}</label>
+              <select
+                value={branchId}
+                onChange={(e) => setBranchId(e.target.value)}
+                className={INPUT}
+                disabled={isEdit}
+              >
+                <option value="">{isAr ? "بدون فرع" : "No branch"}</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+              {isEdit && (
+                <p className="text-[10px] font-semibold text-slate-400 mt-1 leading-relaxed">
+                  {isAr
+                    ? "الفرع مش بيتغير بعد ما الكود اتطبع."
+                    : "The branch is fixed once the code has been printed."}
+                </p>
+              )}
+            </div>
+            <div>
+              <label className={LABEL}>{isAr ? "الطبيب" : "Dentist"}</label>
+              <select
+                value={doctorId}
+                onChange={(e) => {
+                  setDoctorId(e.target.value);
+                  setDoctorName(staff.find((s) => s.id === e.target.value)?.name || "");
+                }}
+                className={INPUT}
+              >
+                <option value="">{doctorName || (isAr ? "غير محدد" : "Not set")}</option>
+                {staff.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className={LABEL}>{isAr ? "وصف الشغل" : "What the lab is making"}</label>
               <input
@@ -844,23 +1068,9 @@ export default function LabCaseModal({
                   : "Palmer (UR5) or FDI (15) — both work, and the chart stays in step."}
               </p>
             </div>
-          </div>
+                </div>
 
-          {/* The chart. Same grid the printed order draws, so what is clicked here is what the
-              technician receives — no translation step in anybody's head. */}
-          <LabTeethPicker
-            teeth={teeth}
-            onChange={setTeethBoth}
-            showPrimary={showPrimaryTeeth}
-            onShowPrimaryChange={setShowPrimaryTeeth}
-          />
-
-          {/* Per-work-type technical fields */}
-          <div className="rounded-2xl border border-line bg-slate-50/60 p-4 space-y-4">
-            <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">
-              {isAr ? "تفاصيل فنية" : "Technical details"}
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {wt.units && (
                 <div>
                   <label className={LABEL}>{isAr ? "العدد" : "Units"}</label>
@@ -872,19 +1082,6 @@ export default function LabCaseModal({
                     onChange={(e) => setUnits(e.target.value)}
                     className={INPUT}
                   />
-                </div>
-              )}
-              {wt.bodyShade && (
-                <div>
-                  <label className={LABEL}>{isAr ? "لون الجسم" : "Body shade"}</label>
-                  <select value={bodyShade} onChange={(e) => setBodyShade(e.target.value)} className={INPUT}>
-                    <option value="">—</option>
-                    {TOOTH_SHADES.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
                 </div>
               )}
               {wt.cervicalShade && (
@@ -923,7 +1120,7 @@ export default function LabCaseModal({
                   </datalist>
                 </div>
               )}
-              <div className={wt.units || wt.bodyShade ? "" : "sm:col-span-2"}>
+              <div>
                 <label className={LABEL}>{isAr ? "الخامة / تفاصيل" : "Material / detail"}</label>
                 <input
                   value={material}
@@ -932,7 +1129,7 @@ export default function LabCaseModal({
                   className={INPUT}
                 />
               </div>
-            </div>
+                </div>
 
             {wt.implant && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-line">
@@ -1014,98 +1211,8 @@ export default function LabCaseModal({
                 </div>
               </div>
             )}
-          </div>
 
-          {/* Notes */}
-          <div>
-            <label className={LABEL}>{isAr ? "ملاحظات للفني" : "Notes to the technician"}</label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={2}
-              placeholder={isAr ? "أي حاجة الفني محتاج يعرفها" : "Anything the technician needs to know"}
-              className={`${INPUT} resize-none`}
-            />
-          </div>
-
-          {/* Logistics */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div>
-              <label className={LABEL}>{isAr ? "ميعاد الرجوع" : "Due back"}</label>
-              <input
-                type="date"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                className={INPUT}
-              />
-              {selectedLab?.turnaroundDays && !isEdit && (
-                <p className="text-[10px] font-semibold text-slate-400 mt-1">
-                  {isAr
-                    ? `من مدة ${selectedLab.name}: ${selectedLab.turnaroundDays} يوم`
-                    : `From ${selectedLab.name}'s usual ${selectedLab.turnaroundDays} days`}
-                </p>
-              )}
-            </div>
-            <div>
-              <label className={LABEL}>{isAr ? "السعر المتفق عليه" : "Agreed price"}</label>
-              <input
-                type="number"
-                min={0}
-                dir="ltr"
-                value={agreedPrice}
-                onChange={(e) => setAgreedPrice(e.target.value)}
-                placeholder={isAr ? "ج.م" : "EGP"}
-                className={INPUT}
-              />
-              {/* The estimate the treatment was actually booked at, when it disagrees.
-                  Offered here rather than applied automatically: it moves money between the
-                  dentist and the clinic on every payment already taken, so it is a decision
-                  somebody makes, with both numbers in front of them. */}
-              {feeDrift !== 0 && (
-                <div className="mt-2 p-2.5 rounded-xl bg-amber-50 border border-amber-200">
-                  <p className="text-[11px] font-bold text-amber-900 leading-relaxed">
-                    {isAr
-                      ? `العلاج اتحسب بـ ${Math.round(bookedLabFee || 0)} تكلفة معمل، وانت متفق على ${Math.round(agreedNumber)}.`
-                      : `The treatment was booked at ${Math.round(bookedLabFee || 0)} for lab work; you agreed ${Math.round(agreedNumber)}.`}
-                  </p>
-                  <Protect permission="finance.edit">
-                    <button
-                      type="button"
-                      onClick={() => void applyFeeCorrection()}
-                      disabled={correcting}
-                      className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-[10px] font-black uppercase tracking-wide hover:bg-amber-700 disabled:opacity-50 transition-colors"
-                    >
-                      {correcting && <Loader2 size={12} className="animate-spin" />}
-                      {isAr ? "صحّح الحسابات" : "Correct the books"}
-                    </button>
-                  </Protect>
-                  <p className="text-[10px] font-semibold text-amber-700 mt-1.5 leading-relaxed">
-                    {isAr
-                      ? "هيعيد حساب عمولة الطبيب وربح العيادة على التكلفة الحقيقية، وهيتسجل مين عمل كده."
-                      : "Recalculates the dentist's commission and the clinic's profit on the true cost, and records who did it."}
-                  </p>
-                </div>
-              )}
-
-              {/* Where the number came from. A price that appears on its own is a price nobody
-                  checks — saying which lab's rate it is makes it worth glancing at, and makes an
-                  out-of-date rate visible instead of silently agreed. */}
-              {!isEdit && selectedLab && (
-                <p className="text-[10px] font-semibold text-slate-400 mt-1 leading-relaxed">
-                  {labPriceFor(selectedLab, workType) !== null
-                    ? isAr
-                      ? `سعر ${selectedLab.name} للشغل ده`
-                      : `${selectedLab.name}'s rate for this work`
-                    : agreedPrice
-                      ? isAr
-                        ? "تقديري من قائمة أسعار العيادة — مش متفق عليه مع المعمل ده"
-                        : "Your clinic's estimate — not a rate agreed with this lab"
-                      : isAr
-                        ? "مفيش سعر متفق عليه مع المعمل ده للشغل ده"
-                        : "No agreed rate with this lab for this work"}
-                </p>
-              )}
-            </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className={LABEL}>{isAr ? "بتروح إزاي" : "How it leaves"}</label>
               <select
@@ -1117,9 +1224,8 @@ export default function LabCaseModal({
                 <option value="digital">{isAr ? "ملفات رقمية" : "Sent as files"}</option>
               </select>
             </div>
-          </div>
+                </div>
 
-          {/* Try-in + send now */}
           <div className="space-y-2">
             <label className="flex items-start gap-3 p-3 bg-surface border border-line rounded-xl cursor-pointer hover:bg-surface-subtle transition-colors">
               <input
@@ -1159,6 +1265,9 @@ export default function LabCaseModal({
                   </span>
                 </span>
               </label>
+            )}
+          </div>
+              </div>
             )}
           </div>
         </div>
