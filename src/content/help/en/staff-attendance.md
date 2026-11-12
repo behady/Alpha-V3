@@ -25,6 +25,8 @@ The screen says: *"Ensure you are inside the clinic to securely clock in."* That
 
 So it won't work from home, from the car park if your radius is tight, or if location is switched off on the device. If clocking in fails and you're standing in the clinic, that's usually the radius being too small — see the attendance settings.
 
+**More than one branch?** Each branch has its own location, set in Settings → Attendance. You can clock in at any branch, and the log shows which branch you were at.
+
 Press it again at the end of your shift to clock out.
 
 ## My Tracker
