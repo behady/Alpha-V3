@@ -47,7 +47,8 @@ export default function NoteLabStrip({
 
   return (
     <div
-      className={`flex items-center gap-2 rounded-xl border border-line bg-surface-subtle ${compact ? "w-fit px-2 py-1" : "w-full justify-between px-3 py-2"}`}
+      /* On a phone the code, the stage and the button do not fit on one line: the button drops under them, centred like the rest of the card, instead of covering the stage. */
+      className={`flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-xl border border-line bg-surface-subtle max-md:justify-center ${compact ? "w-fit max-w-full px-2 py-1" : "w-full px-3 py-2 md:justify-between"}`}
       data-tour="note-lab-strip"
     >
       {onOpen ? (
