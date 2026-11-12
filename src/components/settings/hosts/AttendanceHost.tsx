@@ -2,6 +2,7 @@
 
 import AttendanceSettings from "@/components/settings/AttendanceSettings";
 import ClinicInfoHost from "./ClinicInfoHost";
+import { BRANCH_SITES_FIELD } from "@/lib/attendanceSites";
 
 /** Geofence for clocking in. Saves the three attendance fields and nothing else. */
 export default function AttendanceHost({ canEdit }: { canEdit: boolean }) {
@@ -9,7 +10,7 @@ export default function AttendanceHost({ canEdit }: { canEdit: boolean }) {
     <ClinicInfoHost
       sectionId="attendance"
       canEdit={canEdit}
-      fields={["attendanceLat", "attendanceLng", "attendanceRadius", "attendanceAutoCloseHours", "attendanceRequireLocation", "attendanceRequireDevice"]}
+      fields={["attendanceLat", "attendanceLng", "attendanceRadius", BRANCH_SITES_FIELD, "attendanceAutoCloseHours", "attendanceRequireLocation", "attendanceRequireDevice"]}
       activityLabel="Attendance location was updated from settings."
     >
       {({ clinicData, setClinicData, handleSaveClinic }) => (

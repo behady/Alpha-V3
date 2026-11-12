@@ -493,6 +493,7 @@ export const StaffLogsModal = ({ isOpen, onClose, staffName, logs, handleUpdateL
                                             </p>
                                             <div className="text-xs font-semibold text-ink-muted mt-1 flex items-center gap-2 flex-wrap">
                                                 <span>In: {formatTime(log.checkIn)}</span> <span className="text-slate-300">•</span> <span>Out: {formatTime(log.checkOut)}</span> 
+                                                {log.checkInBranchName && (<><span className="text-slate-300">•</span> <span>{log.checkInBranchName}</span></>)}
                                                 <span className="text-slate-300">•</span> <span className="text-slate-700 font-bold">{formatDuration(log.durationMinutes, isRTL)}</span>
                                             </div>
                                             {log.status === 'completed' && log.durationMinutes > 0 && (

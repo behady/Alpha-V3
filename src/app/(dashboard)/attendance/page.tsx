@@ -32,12 +32,9 @@ import {
   type PaymentLedgerRow,
 } from "@/lib/ledgerCommission";
 import { getStoredDeviceId, persistDeviceId } from "@/lib/attendanceDeviceId";
-import {
-  acquireBestPosition,
-  isUsableGeofence,
-  judgeGeofence,
-  locationFailureMessage,
-} from "@/lib/attendanceLocation";
+import { acquireBestPosition, locationFailureMessage } from "@/lib/attendanceLocation";
+import { judgeSites, punchBranchFields, readAttendanceSites, type AttendanceSite } from "@/lib/attendanceSites";
+import { LOCATIONS_DOC, parseClinicBranches } from "@/lib/clinicLocations";
 import { isDeviceRefused, readAttendanceChecks, type AttendanceChecks } from "@/lib/attendanceChecks";
 import { localYmd } from "@/lib/clinicDate";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
@@ -124,7 +121,8 @@ export default function AttendancePage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [viewMode, setViewMode] = useState<'personal' | 'team'>('personal');
   
-  const [clinicGeofence, setClinicGeofence] = useState<{lat: number, lng: number, radius: number} | null>(null);
+  /** Every place a punch is accepted: one per branch, or the single clinic location. */
+  const [sites, setSites] = useState<AttendanceSite[]>([]);
   /** Distinguishes "settings have not arrived yet" from "the admin never set a location". */
   const [geofenceLoaded, setGeofenceLoaded] = useState(false);
   /** The clinic's two switches (Settings → Attendance). Both on until the settings say otherwise. */
@@ -169,13 +167,12 @@ export default function AttendancePage() {
             if (settingsSnap.exists()) {
                 const data = settingsSnap.data();
                 setChecks(readAttendanceChecks(data));
-                if (data.attendanceLat && data.attendanceLng) {
-                    setClinicGeofence({
-                        lat: parseFloat(data.attendanceLat),
-                        lng: parseFloat(data.attendanceLng),
-                        radius: parseInt(data.attendanceRadius) || 50,
-                    });
-                }
+                // The branch list decides whether there is one location or one per branch. If it
+                // cannot be read, fall back to the single clinic location rather than block everyone.
+                const branches = await getDoc(getClinicDoc("settings", LOCATIONS_DOC))
+                    .then((snap) => parseClinicBranches(snap.exists() ? snap.data() : null))
+                    .catch(() => []);
+                setSites(readAttendanceSites(data, branches));
             }
         } finally {
             // Set even on failure: a punch attempt should then report "location not set" rather
@@ -679,9 +676,11 @@ export default function AttendancePage() {
           // instead of carrying a distance nobody measured.
           let whereIn: Record<string, unknown> = { checkInLocationOff: true };
           let whereOut: Record<string, unknown> = { checkOutLocationOff: true };
+          /** The branch the punch landed in, for the confirmation. Empty for a one-location clinic. */
+          let punchedAt = "";
 
           if (checks.location) {
-              if (!isUsableGeofence(clinicGeofence)) {
+              if (sites.length === 0) {
                   showToast(
                       isAr
                           ? "موقع العيادة مش متسجّل. المدير لازم يحدده من الإعدادات ← الحضور."
@@ -701,20 +700,26 @@ export default function AttendancePage() {
                   return;
               }
 
-              const verdict = judgeGeofence({ reading: located.reading, clinic: clinicGeofence });
+              // Any branch will do: staff cover for each other. `sites` is not empty here, so
+              // there is always a verdict — the site they are in, or the nearest one they are not.
+              const verdict = judgeSites(located.reading, sites)!;
+              const placeAr = verdict.site.branchName ? `فرع ${verdict.site.branchName}` : "العيادة";
+              const placeEn = verdict.site.branchName || "the clinic";
               if (!verdict.inside) {
                   showToast(
                       isAr
-                          ? `إنت بعيد عن العيادة بحوالي ${verdict.effectiveDistance} متر (المسموح ${clinicGeofence.radius} متر). لو إنت جوه العيادة فعلاً، قرّب من شباك وجرّب تاني.`
-                          : `You appear to be about ${verdict.effectiveDistance}m from the clinic (limit ${clinicGeofence.radius}m). If you are inside, move near a window and try again.`,
+                          ? `إنت بعيد عن ${placeAr} بحوالي ${verdict.effectiveDistance} متر (المسموح ${verdict.site.radius} متر). لو إنت جوه العيادة فعلاً، قرّب من شباك وجرّب تاني.`
+                          : `You appear to be about ${verdict.effectiveDistance}m from ${placeEn} (limit ${verdict.site.radius}m). If you are inside, move near a window and try again.`,
                       "error"
                   );
                   finish();
                   return;
               }
-              // Kept so a disputed shift can be examined rather than argued about.
-              whereIn = { checkInDistanceM: verdict.distance, checkInAccuracyM: verdict.accuracy };
-              whereOut = { checkOutDistanceM: verdict.distance, checkOutAccuracyM: verdict.accuracy };
+              // Kept so a disputed shift can be examined rather than argued about — including,
+              // for a clinic with branches, which branch the person was standing in.
+              whereIn = { checkInDistanceM: verdict.distance, checkInAccuracyM: verdict.accuracy, ...punchBranchFields(verdict.site, "in") };
+              whereOut = { checkOutDistanceM: verdict.distance, checkOutAccuracyM: verdict.accuracy, ...punchBranchFields(verdict.site, "out") };
+              punchedAt = verdict.site.branchName;
           }
 
           try {
@@ -732,7 +737,12 @@ export default function AttendancePage() {
                       status: 'completed',
                       ...whereOut,
                   });
-                  showToast(isAr ? "تم تسجيل الخروج!" : "Clocked out!", "success");
+                  showToast(
+                      punchedAt
+                          ? (isAr ? `تم تسجيل الخروج — فرع ${punchedAt}` : `Clocked out — ${punchedAt}`)
+                          : (isAr ? "تم تسجيل الخروج!" : "Clocked out!"),
+                      "success"
+                  );
               } else {
                   // With the phone lock off, no phone is tied to the person — otherwise switching
                   // the lock back on later would lock everyone to whatever they happened to use.
@@ -754,7 +764,12 @@ export default function AttendancePage() {
                       status: 'active',
                       ...whereIn,
                   });
-                  showToast(isAr ? "تم تسجيل الدخول!" : "Clocked in!", "success");
+                  showToast(
+                      punchedAt
+                          ? (isAr ? `تم تسجيل الدخول — فرع ${punchedAt}` : `Clocked in — ${punchedAt}`)
+                          : (isAr ? "تم تسجيل الدخول!" : "Clocked in!"),
+                      "success"
+                  );
               }
           } catch (error) {
               console.error(error);

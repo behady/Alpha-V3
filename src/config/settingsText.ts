@@ -508,6 +508,21 @@ export const SETTINGS_TEXT = {
       en: "Both checks are off: anyone on the team can clock in from anywhere, on any device.",
       ar: "الاتنين مقفولين: أي حد في الفريق يقدر يسجل حضور من أي مكان ومن أي جهاز.",
     },
+    // A clinic with two or more branches gets one location card per branch (lib/attendanceSites).
+    branchSitesSub: {
+      en: "Each branch has its own location. Staff can clock in at any branch, and every punch records which branch it was.",
+      ar: "كل فرع له موقعه. الموظف يقدر يسجل حضور من أي فرع، وكل تسجيل بيتكتب عليه اسم الفرع.",
+    },
+    useMyLocation: { en: "Use my location now", ar: "استخدم موقعي دلوقتي" },
+    useMyLocationHint: { en: "Stand inside this branch, then press the button.", ar: "اقف جوه الفرع ده واضغط الزرار." },
+    useOldLocation: { en: "Use the location saved before", ar: "استخدم الموقع المتسجل قبل كده" },
+    oldLocationNote: {
+      en: "The location you saved before still works for clocking in, until every branch below has its own.",
+      ar: "الموقع اللي متسجل قبل كده لسه شغّال في تسجيل الحضور، لحد ما كل فرع تحت يبقى له موقعه.",
+    },
+    siteSet: { en: "Location set", ar: "الموقع متحدد" },
+    siteMissing: { en: "No location yet", ar: "لسه مفيش موقع" },
+    siteCaptured: { en: "Location captured. Press Save.", ar: "تم تحديد الموقع. اضغط حفظ." },
     autoCloseHours: { en: "Auto clock-out: hours after the shift ends", ar: "انصراف تلقائي: بعد كام ساعة من نهاية الشيفت" },
     autoCloseOff: { en: "Empty = off", ar: "فاضي = مقفول" },
     autoCloseHint: {

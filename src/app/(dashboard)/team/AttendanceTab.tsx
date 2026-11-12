@@ -78,7 +78,13 @@ export default function AttendanceTab({
                         {log.checkInDistanceM != null && (
                           <span className={`inline-flex items-center gap-1.5 ${far ? "font-bold text-danger" : "text-ink-muted"}`}>
                             <MapPin size={15} />
-                            {distanceWords(log.checkInDistanceM, isAr)}
+                            {/* A clinic with branches: the branch name says where. "At the clinic"
+                                would not say which one. */}
+                            {log.checkInBranchName
+                              ? far
+                                ? `${log.checkInBranchName} · ${distanceWords(log.checkInDistanceM, isAr)}`
+                                : log.checkInBranchName
+                              : distanceWords(log.checkInDistanceM, isAr)}
                           </span>
                         )}
                         {/* Closed by the system after a forgotten clock-out, not a punch the person made. */}
