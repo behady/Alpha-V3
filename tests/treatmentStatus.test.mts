@@ -144,4 +144,12 @@ const catalog = readFileSync(join(REPO, "src/lib/reports/catalog.ts"), "utf8");
 const registry = readFileSync(join(REPO, "src/components/reports/registry.tsx"), "utf8");
 ok(/id: "treatments"/.test(catalog) && /treatments: \{[^\n]*TreatmentStatusReport/.test(registry), "the tab is in the catalogue and drawn by the registry");
 
+// --- a link from inside the app opens the report it names ----------------------------------------
+// An in-app link renders the page before the address bar has moved; reading `?report=` on the first
+// render opened the overview under the right address. The page mounts once the address is the new one.
+const reportsPage = readFileSync(join(REPO, "src/app/(dashboard)/reports/page.tsx"), "utf8");
+ok(/\{addressReady \? <ReportsPage \/> : null\}/.test(reportsPage), "the Reports page reads its address after an in-app link has landed");
+const numbersCard = readFileSync(join(REPO, "src/components/dashboard/TreatmentNumbersCard.tsx"), "utf8");
+ok(/report=treatments&preset=\$\{preset\}/.test(numbersCard), "and the home's numbers name the report and the period they were counted over");
+
 console.log(`treatment status: ${checks} checks passed`);

@@ -486,9 +486,17 @@ function ReportsPage() {
 
 /** Sold as an add-on: the page renders only once the clinic's subscription says so. */
 export default function ReportsPageGated() {
+  // A link from inside the app (the owner's home numbers) renders this page BEFORE the address bar
+  // has moved, so a page that read `?report=` on its first render opened on the overview with the
+  // right address above it. The page is mounted one tick later, when the address is the new one.
+  const [addressReady, setAddressReady] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- browser-only: the URL is read once it has changed
+    setAddressReady(true);
+  }, []);
   return (
     <FeatureGate feature="reports">
-      <ReportsPage />
+      {addressReady ? <ReportsPage /> : null}
     </FeatureGate>
   );
 }
