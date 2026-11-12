@@ -166,10 +166,10 @@ export default function TreatmentStatusReport({ data, allPatients, range, today,
             label: isAr ? "العلاج" : "Treatment",
             exportValue: (l) => (l.tooth ? `${l.treatment} (${l.tooth})` : l.treatment),
             render: (l) => (
-              <span className="text-[13px] font-medium text-ink-body">
-                {l.treatment}
+              <span className="inline-flex flex-wrap items-center gap-1.5 text-[13px] font-medium text-ink-body">
+                <span>{l.treatment}</span>
                 {l.tooth && (
-                  <span dir="ltr" className="ms-1.5 font-figure text-[11px] text-ink-faint">
+                  <span dir="ltr" className="rounded-md bg-surface-muted px-1.5 py-0.5 font-figure text-[10.5px] font-bold text-ink-body">
                     {l.tooth}
                   </span>
                 )}
@@ -184,7 +184,7 @@ export default function TreatmentStatusReport({ data, allPatients, range, today,
             render: (l) => (
               <span
                 className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10.5px] font-black ${
-                  l.state === "Completed" ? "bg-ink-strong text-white" : l.state === "Ongoing" ? "bg-surface-muted text-ink" : "border border-line text-ink-muted"
+                  l.state === "Ongoing" ? "bg-ink-strong text-white" : l.state === "Planned" ? "bg-surface-muted text-ink" : "border border-line text-ink-muted"
                 }`}
               >
                 {word(l.state)}
