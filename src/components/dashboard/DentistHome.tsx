@@ -6,8 +6,15 @@ import { useRouter } from "next/navigation";
 import {
   arrayUnion, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where,
 } from "firebase/firestore";
-import { Armchair, CalendarDays, Check, Loader2, Plus, Search, User, X } from "lucide-react";
+import { Armchair, CalendarDays, Check, ChevronDown, Loader2, Plus, Search, User, X } from "lucide-react";
 import ChairPopup from "@/components/chair/ChairPopup";
+import InsurerBadge from "@/components/shared/InsurerBadge";
+import { useOpenCallReminders } from "@/lib/useOpenCallReminders";
+import { parseClaimLinks } from "@/lib/insurance/appointments";
+import { CLAIMS_COLLECTION } from "@/lib/insurance/claims";
+import { findPayer, parsePayers, type Payer } from "@/lib/payers";
+import { normalizePatientKind, normalizeWorkKind, patientKindLabel, workKindLabel } from "@/lib/visitKind";
+import { openTreatments, patientNotes, visitInsurer, type TodoItem } from "@/lib/dentistVisit";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
@@ -38,6 +45,11 @@ import HomeViewTabs from "@/components/dashboard/HomeViewTabs";
  *
  * Only their own bookings, read live: reception checks a patient in and the screen flips to
  * "waiting" without anyone pressing anything. No money is read here at all.
+ *
+ * Since 2026-11-13 (the dentist's ask) each booking also says what the dentist needs before the
+ * patient sits down: the insurer's badge, reception's new/old patient and new/follow-up work tags,
+ * the visit note, the open notes on the patient's file, and the treatments still to do. All of it
+ * is read, never written, and decided in lib/dentistVisit.
  */
 
 type Patient = { id: string; name?: string; teethData?: Record<string, ToothData>; [k: string]: unknown };
@@ -164,6 +176,89 @@ export default function DentistHome() {
   const heroIsCurrent = !!chair.current;
   const heroWaiting = hero && String(hero.status) === "Checked In" ? waitingMinutes(hero.checkInTime, now) : null;
   const dayDone = dayMine.filter((a) => isDone(a.status)).length;
+
+  // --- What each booking carries beyond its time and name --------------------------------------
+  const lang = isAr ? "ar" : "en";
+  const { rows: reminders } = useOpenCallReminders();
+  const [payers, setPayers] = useState<Payer[]>([]);
+  useEffect(() => {
+    if (!me || !clinicId) return;
+    return onSnapshot(getClinicDoc("settings", "payers"), (s) => setPayers(parsePayers(s.data())), () => setPayers([]));
+  }, [me, clinicId]);
+
+  // Every treatment on the patients on screen, live, so a treatment finished at the chair leaves
+  // the to-do list by itself. Firestore's `in` takes 30 values, hence the chunks.
+  const shownKey = useMemo(
+    () => [...new Set([...mine, ...dayMine].map((a) => String(a.patientId || "")).filter(Boolean))].sort().join("|"),
+    [mine, dayMine]
+  );
+  const [shownNotes, setShownNotes] = useState<Row[]>([]);
+  useEffect(() => {
+    if (!clinicId || !shownKey) { setShownNotes([]); return; }
+    const ids = shownKey.split("|");
+    const chunks: string[][] = [];
+    for (let i = 0; i < ids.length; i += 30) chunks.push(ids.slice(i, i + 30));
+    const byChunk: Row[][] = chunks.map(() => []);
+    const unsubs = chunks.map((chunk, i) =>
+      onSnapshot(
+        query(getClinicCollection("clinical_notes"), where("patientId", "in", chunk)),
+        (s) => {
+          byChunk[i] = s.docs.map((d) => ({ id: d.id, ...d.data() }));
+          setShownNotes(byChunk.flat());
+        },
+        () => undefined
+      )
+    );
+    return () => unsubs.forEach((u) => u());
+  }, [clinicId, shownKey]);
+
+  // The insurer behind each approval a booking is linked to: a handful of small reads per day.
+  const claimKey = useMemo(
+    () => [...new Set([...mine, ...dayMine].flatMap((a) => parseClaimLinks(a).map((l) => l.claimId)))].sort().join("|"),
+    [mine, dayMine]
+  );
+  const [claimPayerIds, setClaimPayerIds] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!clinicId || !claimKey) { setClaimPayerIds({}); return; }
+    let live = true;
+    Promise.all(
+      claimKey.split("|").map((id) =>
+        getDoc(getClinicDoc(CLAIMS_COLLECTION, id))
+          .then((s) => [id, String(s.data()?.payerId || "")] as const)
+          .catch(() => [id, ""] as const)
+      )
+    ).then((pairs) => {
+      if (live) setClaimPayerIds(Object.fromEntries(pairs.filter(([, payerId]) => payerId)));
+    });
+    return () => { live = false; };
+  }, [clinicId, claimKey]);
+
+  const patientById = useMemo(() => new Map(patients.map((p) => [p.id, p])), [patients]);
+  const infoOf = (a: Row) => {
+    const pid = String(a.patientId || "");
+    const insurer = visitInsurer({ apt: a, patient: patientById.get(pid), payers, claimPayerIds });
+    return {
+      // The badge is drawn from the English name so its letters and colour never change with the language.
+      insurerKey: insurer?.name || "",
+      insurerName: insurer ? (isAr && insurer.nameAr ? insurer.nameAr : insurer.name) : "",
+      patientKind: normalizePatientKind(a.patientKind),
+      workKind: normalizeWorkKind(a.workKind),
+      visitNote: String(a.notes || "").trim(),
+      patientNotes: patientNotes(reminders, pid),
+      todo: openTreatments(shownNotes, pid),
+    };
+  };
+  const heroInfo = hero ? infoOf(hero) : null;
+  /** The day-list row whose to-do list is open; one at a time keeps the list short. */
+  const [openRow, setOpenRow] = useState("");
+  const todoStatus = (t: TodoItem) => {
+    const state = t.status === "Ongoing" ? (isAr ? "جاري" : "Ongoing") : (isAr ? "مخطط" : "Planned");
+    if (!t.payerId) return state;
+    const payer = findPayer(payers, t.payerId);
+    const who = (isAr && payer?.nameAr) || payer?.name || t.payerName || (isAr ? "تأمين" : "Insurance");
+    return `${state} · ${who}`;
+  };
+  const teethLabel = (teeth: string) => `${isAr ? "سن" : teeth.includes(",") ? "teeth" : "tooth"} ${teeth}`;
 
   // --- Acting from it ---------------------------------------------------------------------------
   const [busyId, setBusyId] = useState("");
@@ -317,7 +412,67 @@ export default function DentistHome() {
                 {" · "}
                 {String(hero.serviceName || hero.treatment || (isAr ? "بدون إجراء محدد" : "No procedure set"))}
               </p>
+              {heroInfo && (heroInfo.insurerName || heroInfo.patientKind || heroInfo.workKind) && (
+                <div className="flex flex-wrap items-center gap-2 pt-1.5">
+                  {heroInfo.insurerName && (
+                    <span className="inline-flex items-center gap-1.5 h-[30px] ps-1 pe-3 rounded-full bg-white/10 text-[13px] font-bold text-white">
+                      <InsurerBadge name={heroInfo.insurerKey} size={22} /> {heroInfo.insurerName}
+                    </span>
+                  )}
+                  {heroInfo.patientKind && (
+                    <span className={`inline-flex items-center h-[30px] px-3 rounded-full text-[13px] font-bold ${heroInfo.patientKind === "new" ? "bg-white text-ink" : "border border-white/30 text-white/90"}`}>
+                      {patientKindLabel(heroInfo.patientKind, lang)}
+                    </span>
+                  )}
+                  {heroInfo.workKind && (
+                    <span className="inline-flex items-center h-[30px] px-3 rounded-full border border-white/30 text-[13px] font-bold text-white/90">
+                      {workKindLabel(heroInfo.workKind, lang)}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
+            {heroInfo && (heroInfo.visitNote || heroInfo.patientNotes.length > 0) && (
+              <div className="flex flex-col gap-3.5 border-t border-white/15 pt-4">
+                {heroInfo.visitNote && (
+                  <div className="flex flex-col gap-1">
+                    <span className={`${eyebrow} text-white/60`}>{isAr ? "ملاحظة الزيارة" : "Visit note"}</span>
+                    <p className="text-[15px] font-medium leading-snug text-white whitespace-pre-line break-words"><bdi>{heroInfo.visitNote}</bdi></p>
+                  </div>
+                )}
+                {heroInfo.patientNotes.length > 0 && (
+                  <div className="flex flex-col gap-1">
+                    <span className={`${eyebrow} text-white/60`}>
+                      {isAr ? "ملاحظات المريض" : "Patient notes"} · {heroInfo.patientNotes.length}
+                    </span>
+                    {heroInfo.patientNotes.slice(0, 4).map((text, i) => (
+                      <p key={i} className="text-[14px] font-medium leading-snug text-white/90 break-words"><bdi>{text}</bdi></p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {heroInfo && heroInfo.todo.length > 0 && (
+              <div className="flex flex-col gap-1 border-t border-white/15 pt-4">
+                <span className={`${eyebrow} text-white/60 pb-1`}>
+                  {isAr ? "المطلوب" : "To do"} · {heroInfo.todo.length}
+                </span>
+                {heroInfo.todo.slice(0, 6).map((t) => (
+                  <div key={t.id} className="flex items-center justify-between gap-3 min-h-[32px]">
+                    <span className="min-w-0 text-[15px] font-semibold text-white break-words">
+                      {t.name}
+                      {t.teeth && <span className="font-medium text-white/65"> · {teethLabel(t.teeth)}</span>}
+                    </span>
+                    <span className="shrink-0 text-[12px] font-bold text-white/75">{todoStatus(t)}</span>
+                  </div>
+                ))}
+                {heroInfo.todo.length > 6 && (
+                  <p className="text-[12px] font-bold text-white/65">
+                    {isAr ? `و ${heroInfo.todo.length - 6} كمان في الملف` : `+ ${heroInfo.todo.length - 6} more in the file`}
+                  </p>
+                )}
+              </div>
+            )}
             <div className="flex gap-2.5">
               {heroIsCurrent ? (
                 <button
@@ -459,19 +614,29 @@ export default function DentistHome() {
                 const what = String(a.serviceName || a.treatment || "");
                 const stage = getAppointmentStageLabel(String(a.status || ""), isAr ? "ar" : "en");
                 const name = String(a.patientName || "");
+                const info = infoOf(a);
+                const rowId = String(a.id);
+                const open = openRow === rowId;
+                const more = [
+                  info.todo.length ? (isAr ? `${info.todo.length} مطلوب` : `${info.todo.length} to do`) : "",
+                  info.patientNotes.length
+                    ? (isAr ? `${info.patientNotes.length} ملاحظات` : `${info.patientNotes.length} ${info.patientNotes.length === 1 ? "note" : "notes"}`)
+                    : "",
+                ].filter(Boolean).join(" · ");
+                const hasExtras = !!(info.patientKind || info.workKind || more || info.visitNote);
+                const tag = "inline-flex items-center h-6 px-2.5 rounded-full text-[12px] font-bold";
                 return (
-                  <div
-                    key={String(a.id)}
-                    className={`flex items-center gap-3 min-h-[66px] py-2 border-t border-surface-muted first:border-t-0 ${done ? "opacity-55" : ""}`}
-                  >
+                  <div key={rowId} className={`border-t border-surface-muted first:border-t-0 ${done ? "opacity-55" : ""}`}>
+                  <div className="flex items-center gap-3 min-h-[66px] py-2">
                     <span className="w-12 shrink-0 font-figure text-[15px] font-semibold text-ink">{String(a.time || "")}</span>
                     <div className="min-w-0 flex-1">
                       <p className="flex items-center gap-1.5 text-[15px] font-bold text-ink">
                         <span className={`w-2 h-2 rounded-full shrink-0 ${getAppointmentStatusStyles(String(a.status)).dot}`} title={stage} aria-label={stage} />
                         <span className="truncate">{name}</span>
+                        {info.insurerName && <InsurerBadge name={info.insurerKey} size={18} />}
                       </p>
                       <p className="text-[12px] font-semibold text-ink-muted truncate">
-                        {a.claimId ? (isAr ? "تأمين · " : "Insurance · ") : ""}
+                        {info.insurerName ? `${info.insurerName} · ` : a.claimId ? (isAr ? "تأمين · " : "Insurance · ") : ""}
                         {what || stage}
                       </p>
                     </div>
@@ -495,6 +660,61 @@ export default function DentistHome() {
                         {isAr ? "خدمة" : "Service"}
                       </button>
                     </div>
+                  </div>
+                  {hasExtras && (
+                    <div className="flex flex-col gap-1.5 pb-3 md:ps-[60px]">
+                      {(info.patientKind || info.workKind || more) && (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {info.patientKind && (
+                            <span className={`${tag} ${info.patientKind === "new" ? "bg-ink-slab text-white" : "border border-line-strong text-ink-body"}`}>
+                              {patientKindLabel(info.patientKind, lang)}
+                            </span>
+                          )}
+                          {info.workKind && (
+                            <span className={`${tag} border ${info.workKind === "new" ? "border-ink text-ink" : "border-line-strong text-ink-body"}`}>
+                              {workKindLabel(info.workKind, lang)}
+                            </span>
+                          )}
+                          {more && (
+                            <button
+                              type="button"
+                              aria-expanded={open}
+                              onClick={() => setOpenRow(open ? "" : rowId)}
+                              className="inline-flex items-center gap-1 h-8 px-3 rounded-full bg-surface-muted text-[12px] font-bold text-ink hover:bg-line"
+                            >
+                              {more} <ChevronDown size={13} strokeWidth={2.6} className={`transition-transform ${open ? "rotate-180" : ""}`} />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {info.visitNote && (
+                        <p className="text-[13px] font-medium leading-snug text-ink-body line-clamp-2 break-words"><bdi>{info.visitNote}</bdi></p>
+                      )}
+                      {open && (
+                        <div className="flex flex-col gap-0.5 rounded-2xl bg-surface-subtle px-3.5 py-2.5">
+                          {info.todo.map((t) => (
+                            <div key={t.id} className="flex items-center justify-between gap-3 min-h-7">
+                              <span className="min-w-0 text-[13px] font-semibold text-ink break-words">
+                                {t.name}
+                                {t.teeth ? ` · ${teethLabel(t.teeth)}` : ""}
+                              </span>
+                              <span className="shrink-0 text-[12px] font-bold text-ink-body">{todoStatus(t)}</span>
+                            </div>
+                          ))}
+                          {info.patientNotes.length > 0 && (
+                            <div className={`flex flex-col gap-0.5 ${info.todo.length ? "mt-1.5 border-t border-line pt-2" : ""}`}>
+                              <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-ink-muted">
+                                {isAr ? "ملاحظات المريض" : "Patient notes"}
+                              </span>
+                              {info.patientNotes.map((text, i) => (
+                                <p key={i} className="text-[13px] font-medium leading-snug text-ink break-words"><bdi>{text}</bdi></p>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   </div>
                 );
               })}

@@ -18,6 +18,7 @@ import { sendPatientAppointmentWhatsApp } from "@/lib/sendPatientAppointmentWhat
 import { currentClinicId, getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { syncClaimLineFromAppointment } from "@/lib/insurance/appointmentSync";
 import { appointmentLinkFields, type ClaimLink } from "@/lib/insurance/appointments";
+import { normalizePatientKind, normalizeWorkKind } from "@/lib/visitKind";
 
 /**
  * The link fields to store, or null when the caller sent neither form (keep what is stored).
@@ -82,6 +83,12 @@ export interface BookingSavePayload {
   roomName?: string | null;
   type?: string;
   notes?: string;
+  /**
+   * New or old patient, new work or follow-up (lib/visitKind) — shown to the dentist as tags.
+   * `undefined` means the caller has no such pickers (keep what is stored); null clears the answer.
+   */
+  patientKind?: string | null;
+  workKind?: string | null;
   cost: number;
   clinicalNoteId?: string | null;
   /**
@@ -286,6 +293,9 @@ export async function saveBooking(
       roomName: data.roomName !== undefined ? data.roomName || null : (prev.roomName as string | undefined) ?? null,
       type: data.type || "consult",
       notes: data.notes || "",
+      // Only when the caller has the pickers: a status-only save must not wipe reception's answer.
+      ...(data.patientKind !== undefined ? { patientKind: normalizePatientKind(data.patientKind) } : {}),
+      ...(data.workKind !== undefined ? { workKind: normalizeWorkKind(data.workKind) } : {}),
       cost: normalizedCost,
       clinicalNoteId: finalClinicalNoteId,
       // Neither form sent (a status-only save) leaves the stored links exactly as they were.
@@ -430,6 +440,8 @@ export async function saveBooking(
     roomName: data.roomName || null,
     type: data.type || "consult",
     notes: data.notes || "",
+    patientKind: normalizePatientKind(data.patientKind),
+    workKind: normalizeWorkKind(data.workKind),
     cost: normalizedCost,
     clinicalNoteId: finalClinicalNoteId,
     ...(linkFieldsFrom(data) ?? appointmentLinkFields([])),

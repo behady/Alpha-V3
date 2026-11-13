@@ -149,8 +149,11 @@ function editSnapshotOf(apt: DashboardAppointment): BookingEditSnapshot {
     claimId?: string | null;
     claimLine?: number | null;
     claimLinks?: unknown;
+    patientKind?: string | null;
+    workKind?: string | null;
   };
   return {
+    patientKind: raw.patientKind ?? null, workKind: raw.workKind ?? null,
     id: apt.id, patientId: String(apt.patientId), patientName: apt.patientName!,
     treatment: apt.treatment!, doctor: apt.doctor!, doctorId: raw.doctorId ?? null, date: apt.date!,
     time: apt.time!, duration: apt.duration!, clinicalNoteId: apt.clinicalNoteId ?? null,
@@ -639,6 +642,8 @@ export default function MobileDashboard() {
         cost: Number(data.cost) || 0,
         notes: String(data.notes || ""),
         status: String(data.status || "Scheduled"),
+        patientKind: data.patientKind ?? null,
+        workKind: data.workKind ?? null,
       } as BookingEditSnapshot);
       setBookingTab("payment");
       showToast(language === "ar" ? "الحجز اتسجّل — حصّل من هنا" : "Booked — take the payment here", "success");

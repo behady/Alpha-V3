@@ -68,6 +68,7 @@
     "test:demotour": "npx tsx tests/demoTour.test.mts",
     "test:errors": "npx tsx tests/friendlyErrors.test.mts",
     "test:dentist": "npx tsx tests/dentistHome.test.mts",
+    "test:dentist-visit": "npx tsx tests/dentistVisit.test.mts",
     "test:dentist-report": "npx tsx tests/dentistReport.test.mts",
     "test:owner": "npx tsx tests/ownerHome.test.mts",
     "test:owner-alerts": "npx tsx tests/ownerAlerts.test.mts",

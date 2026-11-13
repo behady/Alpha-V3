@@ -40,7 +40,7 @@ import {
 } from "@/lib/phoneNumber";
 import { db } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
-import { collection, query, where, getDocs, doc, getDoc, addDoc, updateDoc, serverTimestamp, deleteDoc, onSnapshot } from "firebase/firestore";
+import { collection, query, where, limit, getDocs, doc, getDoc, addDoc, updateDoc, serverTimestamp, deleteDoc, onSnapshot } from "firebase/firestore";
 import { appointmentLinkFields, openLines, parseClaimLinks, type ClaimLink } from "@/lib/insurance/appointments";
 import { CLAIMS_COLLECTION, parseClaim, type InsuranceClaim } from "@/lib/insurance/claims";
 import { useLanguage } from "@/context/LanguageContext";
@@ -72,6 +72,8 @@ import ApprovalUploadPanel from "./appointments/booking/ApprovalUploadPanel";
 import InsuranceShareDue from "./appointments/booking/InsuranceShareDue";
 import AppointmentMoneyTab from "./appointments/AppointmentMoneyTab";
 import AppointmentStagePicker from "./appointments/AppointmentStagePicker";
+import VisitKindPickers from "./appointments/booking/VisitKindPickers";
+import { guessPatientKind, normalizePatientKind, normalizeWorkKind, type PatientKind, type WorkKind } from "@/lib/visitKind";
 import { getAppointmentStageLabel } from "@/lib/appointmentStages";
 import { minutesToTimeKey, parseApptTimeToMinutes } from "@/lib/appointmentTime";
 import { generalDoctorLabel } from "@/lib/generalDentist";
@@ -109,6 +111,9 @@ interface AppointmentData {
   roomName?: string | null;
   type: string;
   notes: string;
+  /** New/old patient and new/follow-up work (lib/visitKind). `undefined` = leave what is stored. */
+  patientKind?: string | null;
+  workKind?: string | null;
   /** Final amount after discount (ledger / balance) */
   cost: number;
   clinicalNoteId?: string | null;
@@ -167,6 +172,8 @@ export type BookingEditSnapshot = {
   discountAmount?: number | null;
   notes?: string;
   status?: string;
+  patientKind?: string | null;
+  workKind?: string | null;
 };
 
 export interface SelectedService {
@@ -255,7 +262,7 @@ interface Props {
  * Anything else — a discount, a cost, a clinical note id — is carried through untouched, and
  * comparing it would report a change on every render and autosave in a loop.
  */
-const AUTOSAVE_FIELDS = ["date", "time", "doctor", "treatment", "duration", "notes", "status", "roomId"] as const;
+const AUTOSAVE_FIELDS = ["date", "time", "doctor", "treatment", "duration", "notes", "status", "roomId", "patientKind", "workKind"] as const;
 
 function dateIsClinicClosed(dateStr: string, offDays: string[]): boolean {
   if (!dateStr || !offDays.length) return false;
@@ -390,7 +397,12 @@ export default function BookingModal({
   const [time, setTime] = useState(preSelectedTime || "");
   const [duration, setDuration] = useState(sched.slotDuration);
   const [appointmentStatus, setAppointmentStatus] = useState("Scheduled");
-  
+  /** New/old patient and new/follow-up work, beside the status. "" = not answered. */
+  const [patientKind, setPatientKind] = useState<PatientKind | "">("");
+  const [workKind, setWorkKind] = useState<WorkKind | "">("");
+  /** Once reception has tapped the Patient switch, the pre-filled guess never overrides them. */
+  const patientKindTouched = useRef(false);
+
   // Local State: Services/Pricing
   const [treatment, setTreatment] = useState("");
   const [services, setServices] = useState<SelectedService[]>([]);
@@ -774,6 +786,8 @@ export default function BookingModal({
       setTreatment(editAppointment.treatment || "");
       setVisitNotes(editAppointment.notes || "");
       setAppointmentStatus(editAppointment.status || "Scheduled");
+      setPatientKind(normalizePatientKind(editAppointment.patientKind) || "");
+      setWorkKind(normalizeWorkKind(editAppointment.workKind) || "");
       setClaimLinks(parseClaimLinks(editAppointment));
     } else {
       setIsNewPatient(false);
@@ -793,6 +807,9 @@ export default function BookingModal({
       setTreatment("");
       setVisitNotes("");
       setAppointmentStatus("Scheduled");
+      setPatientKind("");
+      setWorkKind("");
+      patientKindTouched.current = false;
       setBranchId("");
       setRoomId(preSelectedRoomId || "");
       setClaimLinks(preSelectedClaimLine ? [preSelectedClaimLine] : []);
@@ -986,6 +1003,10 @@ export default function BookingModal({
         roomName: selectedRoom?.name || "",
         type: "consult",
         notes: visitNotes.trim(),
+        // An edit opened from a snapshot that never carried the answer, with nothing picked, sends
+        // `undefined` (= leave what is stored) rather than null, which would wipe it.
+        patientKind: patientKind || (editAppointment && editAppointment.patientKind === undefined ? undefined : null),
+        workKind: workKind || (editAppointment && editAppointment.workKind === undefined ? undefined : null),
         cost: editAppointment ? (editAppointment.cost || 0) : 0,
         clinicalNoteId: editAppointment ? editAppointment.clinicalNoteId : null,
         ...appointmentLinkFields(claimLinks),
@@ -1018,8 +1039,8 @@ export default function BookingModal({
   const autosaveFields = useMemo(
     // `doctorField`, not `doctor`: the comparison is against what is stored, and the General
     // sentinel would otherwise look like an unsaved edit the moment the panel opened.
-    () => ({ date, time, doctor: doctorField, treatment: treatment.trim(), duration, notes: visitNotes.trim(), status: appointmentStatus, roomId }),
-    [date, time, doctorField, treatment, duration, visitNotes, appointmentStatus, roomId]
+    () => ({ date, time, doctor: doctorField, treatment: treatment.trim(), duration, notes: visitNotes.trim(), status: appointmentStatus, roomId, patientKind, workKind }),
+    [date, time, doctorField, treatment, duration, visitNotes, appointmentStatus, roomId, patientKind, workKind]
   );
   const savedFields = useMemo(
     () =>
@@ -1033,6 +1054,8 @@ export default function BookingModal({
             notes: editAppointment.notes || "",
             status: editAppointment.status || "",
             roomId: editAppointment.roomId || "",
+            patientKind: normalizePatientKind(editAppointment.patientKind) || "",
+            workKind: normalizeWorkKind(editAppointment.workKind) || "",
           }
         : null,
     [editAppointment]
@@ -1103,6 +1126,36 @@ export default function BookingModal({
       .catch(() => {});
     return () => { live = false; };
   }, [isOpen, wideLayout, claimPatientId]);
+  /**
+   * Pre-fill the Patient switch on a NEW booking, so reception only taps when it is wrong: new for
+   * a patient being typed in or one the clinic has never seen, old otherwise (lib/visitKind).
+   * Never on an existing visit — filling it there would autosave an answer nobody gave onto every
+   * old booking that is merely opened.
+   */
+  useEffect(() => {
+    if (!isOpen || !wideLayout || editAppointment || patientKindTouched.current) return;
+    if (isNewPatient) { setPatientKind("new"); return; }
+    if (!claimPatientId) { setPatientKind(""); return; }
+    let live = true;
+    Promise.all([
+      getDocs(query(getClinicCollection("appointments"), where("patientId", "==", claimPatientId))),
+      getDocs(query(getClinicCollection("clinical_notes"), where("patientId", "==", claimPatientId), limit(1))),
+    ])
+      .then(([visits, notes]) => {
+        if (!live || patientKindTouched.current) return;
+        setPatientKind(
+          guessPatientKind({
+            isNewPatient: false,
+            visits: visits.docs.map((d) => d.data() as { date?: unknown; status?: unknown }),
+            hasNotes: !notes.empty,
+            today: getLocalDate(),
+          })
+        );
+      })
+      .catch(() => {});
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- getLocalDate is recreated every render
+  }, [isOpen, wideLayout, editAppointment, isNewPatient, claimPatientId]);
   const chartTreatments = useMemo(() => {
     const categoryById = new Map((servicesList as Array<{ id?: unknown; category?: string }>).map((sv) => [String(sv.id), sv.category]));
     return treatmentsByTooth(chartNotes, (id) => categoryById.get(id) || undefined, (name) => suggestCategory(name));
@@ -1990,9 +2043,19 @@ servicesList.length > 0 && (
           <p className="mt-1 text-sm text-ink-body">{visitTitle}</p>
         </div>
         {withStatus && (
-          <div className="flex items-center gap-3">
-            <span className={isPhone ? "text-sm font-semibold text-ink-body" : "text-base font-semibold text-ink-body"}>{isAr ? "الحالة" : "Status"}</span>
-            <AppointmentStagePicker value={appointmentStatus} onChange={setAppointmentStatus} language={isAr ? "ar" : "en"} isolateClicks={false} large />
+          <div className={`flex flex-wrap items-center ${isPhone ? "gap-x-4 gap-y-2.5" : "gap-x-6 gap-y-3"}`}>
+            <div className="flex items-center gap-3">
+              <span className={isPhone ? "text-sm font-semibold text-ink-body" : "text-base font-semibold text-ink-body"}>{isAr ? "الحالة" : "Status"}</span>
+              <AppointmentStagePicker value={appointmentStatus} onChange={setAppointmentStatus} language={isAr ? "ar" : "en"} isolateClicks={false} large />
+            </div>
+            <VisitKindPickers
+              patientKind={patientKind}
+              workKind={workKind}
+              onPatientKind={(next) => { patientKindTouched.current = true; setPatientKind(next); }}
+              onWorkKind={setWorkKind}
+              isAr={isAr}
+              isPhone={isPhone}
+            />
           </div>
         )}
       </div>
