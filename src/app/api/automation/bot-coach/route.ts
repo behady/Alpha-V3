@@ -41,7 +41,7 @@ async function runForClinic(clinicId: string): Promise<{ threads: number; sugges
   const apiKey = process.env.GEMINI_API_KEY || "";
   if (!apiKey) return { threads: 0, suggestions: 0, skipped: "no_api_key" };
   const settings = ((await adminClinicDoc(clinicId, "settings", "whatsapp").get()).data() || {}) as Record<string, unknown>;
-  if (settings.botMode !== "ai_first" && settings.botAiEnabled !== true) return { threads: 0, suggestions: 0, skipped: "ai_off" };
+  if (settings.botEnabled !== true) return { threads: 0, suggestions: 0, skipped: "bot_off" };
 
   const since = Date.now() - DAY_MS;
   const snap = await adminClinicCollection(clinicId, "whatsapp_conversations").where("lastMessageAt", ">=", since).limit(300).get();

@@ -1078,27 +1078,27 @@ const SETTINGS_NARRATION: Record<string, SettingsNarration> = {
   },
   whatsapp_bot: {
     say: {
-      en: "The scripted bot: the answers it gives without asking the AI anything. Your ready answers to the questions every clinic gets — price, address, opening hours — and the words that hand a chat to a human. It costs nothing to run, and it answers instantly.",
-      ar: "البوت المكتوب: الردود اللي بيقولها من غير ما يسأل الذكاء الاصطناعي. إجاباتك الجاهزة للأسئلة اللي بتتكرر — السعر، العنوان، المواعيد — والكلمات اللي بتحوّل المحادثة لبني آدم. مبيكلّفش حاجة، وبيرد على طول.",
+      en: "Auto-reply: one AI receptionist answers every patient who writes. Here you tell it about the clinic, how to talk, where its limits are, and you try it in a test chat before it talks to anyone. Each reply costs one credit.",
+      ar: "الرد التلقائي: موظف استقبال ذكي واحد بيرد على كل مريض بيكتب. من هنا بتعرّفه على العيادة، وبيتكلم إزاي، وحدوده فين، وبتجرّبه في محادثة اختبار قبل ما يكلم حد. كل رد بيتكلف كريديت واحد.",
     },
     ask: [
-      { en: "When does the bot hand over to a person?", ar: "البوت بيحوّل للموظف إمتى؟" },
-      { en: "Do the scripted answers cost credits?", ar: "الردود الجاهزة بتتكلف رصيد؟" },
+      { en: "When does the assistant hand over to a person?", ar: "المساعد بيحوّل للموظف إمتى؟" },
+      { en: "Can it book an appointment on its own?", ar: "يقدر يحجز موعد لوحده؟" },
     ],
     knowledge:
-      "Auto-reply (the WhatsApp page's Auto-reply tab, /chats/bot — the Bot and AI tabs became this one tab; admin, plan feature whatsappBot) starts with a choice of who answers patients: Off, Bot only, AI only, or Bot + AI, and then shows only that mode's numbered steps (About your clinic, Fixed replies, How the AI should talk, Behaviour and limits, Test it). 'Interview me' fills the clinic answers and the AI cards from one free description, for 1 credit. The scripted half of the WhatsApp assistant, saved into the same settings/whatsapp document as the other two WhatsApp sections: ready answers for the recurring questions (prices, address, hours, directions), the handover words that pass a conversation to a human, and the switches for which automated messages the bot may send. Scripted answers are free — they never call a model — and they are answered before the AI is ever consulted.",
+      "Auto-reply (the WhatsApp page's Auto-reply tab, /chats/bot; admin, plan feature whatsappBot) is one AI receptionist for every clinic since 2026-11-07 — the scripted menu bot (send 1/2/3, numbered day and time lists), the clinic's fixed trigger→reply scripts and the Standard/Pro brain choice were retired. The tab starts with the on/off switch (also on the Chats page), then four numbered steps: About your clinic (the facts: consultation, instalments, parking, insurance…), How the AI should talk (focus, tone, prices, never-say, hand-off rules, coaching notes), Behaviour and limits (answer unknown numbers, auto-confirm bookings, symptoms to a dentist or a person, name, human pacing, hide dentist names, the media library and the authorised medicines), and Test it (the test chat). 'Teach the assistant your clinic' opens the onboarding chat that drafts a clinic-specific layer from past chats and the owner's answers. 'Interview me' fills the clinic answers and the AI cards from one free description, for 1 credit. Every reply costs one AI credit from the clinic's monthly pool; with no credits the patient is told a person will reply and the owner is alerted. The assistant books, moves and cancels appointments itself, quotes only the price list, and hands medical questions, complaints and anything it has no facts for to a person.",
   },
   whatsapp_ai: {
     say: {
-      en: "And the AI half: what happens when a patient asks something your ready answers do not cover. This is where you set how freely it may answer, what it must never do, and when it must stop and fetch a person. Every answer here costs one credit.",
-      ar: "والنص التاني، الذكاء الاصطناعي: بيشتغل لما المريض يسأل حاجة إجاباتك الجاهزة مش مغطّياها. من هنا بتحدد بيرد بحرية قد إيه، وإيه اللي ممنوع يعمله، وإمتى لازم يوقف وينادي حد. كل رد هنا بيتكلف كريديت واحد.",
+      en: "How the AI should talk: this is where you set its focus, its tone, how it handles prices, what it must never say, and when it must stop and fetch a person. Every answer costs one credit.",
+      ar: "الذكاء الاصطناعي يتكلم إزاي: من هنا بتحدد تركيزه، وأسلوبه، وبيتعامل مع الأسعار إزاي، وإيه اللي ممنوع يقوله، وإمتى لازم يوقف وينادي حد. كل رد بيتكلف كريديت واحد.",
     },
     ask: [
       { en: "Can it book an appointment on its own?", ar: "يقدر يحجز موعد لوحده؟" },
       { en: "What stops it inventing a price?", ar: "إيه اللي يمنعه يخترع سعر؟" },
     ],
     knowledge:
-      "AI Assistant (its settings now live in the Auto-reply tab, /chats/bot, in the 'How the AI should talk' and 'Behaviour and limits' steps — old links to the AI tab open Auto-reply on the AI step; admin, plan feature aiChat) is the model-backed half of the WhatsApp assistant, saved into the same settings/whatsapp document: the persona and tone, what it is allowed to answer on its own, the coaching notes that correct it, and the limits that make it hand over instead of guessing. It answers only what the scripted bot did not, and every answer costs one credit. It quotes prices from the clinic's own price list rather than inventing them, and any medical question is handed to a person.",
+      "How the AI should talk and Behaviour and limits (two steps of the Auto-reply tab, /chats/bot; admin, plan feature aiChat for the credit pool) hold the assistant's settings, saved into the same settings/whatsapp document as the rest of WhatsApp: the persona name and tone, what it focuses on selling, how it quotes prices (from the clinic's own price list, never invented; or names only, 'consult first'), the never-say list, the coaching notes that correct it, and the limits that make it hand over instead of guessing. Every answer costs one credit. Any medical question beyond the clinic's own authorised medicine list is handed to a person; the emergency red flags always are.",
   },
   sms: {
     say: {

@@ -61,9 +61,10 @@ test("respond.ts sends the parts one by one, and folds them where only one messa
   assert.ok(src.includes("recordThreadMessage(clinicId, replyTo, { direction: \"out\", author: \"bot\", text: bubble, kind: reason }, Date.now())"), "each bubble is its own thread line");
 });
 
-test("both brains are told how to mark a break", () => {
-  for (const f of ["src/lib/bot/botPrompt.ts", "src/lib/botPro/proPrompt.ts"]) {
-    const src = readFileSync(new URL(`../${f}`, import.meta.url), "utf8");
-    assert.ok(src.includes("حط سطر فيه --- لوحده بين كل رسالة والتانية"), `${f} has the rule`);
-  }
+test("the brain is told how to mark a break (the shared voice, imported by the Pro rulebook)", () => {
+  const voice = readFileSync(new URL("../src/lib/bot/botPrompt.ts", import.meta.url), "utf8");
+  assert.ok(voice.includes("حط سطر فيه --- لوحده بين كل رسالة والتانية"), "botPrompt.ts has the rule");
+  const pro = readFileSync(new URL("../src/lib/botPro/proPrompt.ts", import.meta.url), "utf8");
+  assert.ok(/import \{[^}]*SALES_VOICE[^}]*\} from "@\/lib\/bot\/botPrompt"/.test(pro), "proPrompt.ts imports SALES_VOICE");
+  assert.ok(pro.includes("const VOICE = SALES_VOICE;"));
 });

@@ -37,7 +37,6 @@ export interface Clinic {
     aiXray?: boolean;
     aiOrtho?: boolean;
     aiReceipts?: boolean;
-    whatsappPro?: boolean;
     aiMonthlyCredits?: number;
     extraAiCredits?: number;
     maxStaff?: number;

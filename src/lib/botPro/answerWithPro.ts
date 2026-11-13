@@ -20,7 +20,7 @@
 import { FunctionCallingMode, GoogleGenerativeAI, type Content, type GenerativeModel, type Part } from "@google/generative-ai";
 import { createUsageMeter, type AiUsageMeter } from "@/lib/aiCreditLog";
 import { arabicDayLabel, arabicTimeLabel } from "@/lib/arabicDateTime";
-import { AI_DEFAULT_ACK, type AiReplyResult, type AiThreadLine } from "@/lib/bot/aiReply";
+import { AI_DEFAULT_ACK, type AiReplyResult, type AiThreadLine } from "@/lib/bot/aiTypes";
 import { briefLines, serviceNamesOnly } from "@/lib/bot/brief";
 import { factLines, type BotPromptInput } from "@/lib/bot/botPrompt";
 import { dossierLines } from "@/lib/bot/patientDossier";

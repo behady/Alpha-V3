@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
-import { quickIntent, mentionsRelative, isDecline } from "../src/lib/bot/quickAnswers";
+import { quickIntent, isDecline } from "../src/lib/bot/quickAnswers";
 import { readFileSync } from "node:fs";
-import { decideBotReply, type BotContext } from "../src/lib/bot/engine";
 
 /**
  * The free layer between the digits and the model.
@@ -23,17 +22,6 @@ function run(name: string, fn: () => void) {
     throw e;
   }
 }
-
-const ctx: BotContext = {
-  clinicName: "Alpha Dental",
-  patientName: "أحمد",
-  hoursText: "من 3:00 م إلى 11:00 م\nالإجازة: الجمعة",
-  addressText: "شارع الرحمة، القاهرة",
-  clinicPhone: "+201066666124",
-  canOfferBooking: true,
-  doctorCount: 0,
-  aiAvailable: true,
-};
 
 run("the everyday messages are recognised without a model call", () => {
   assert.equal(quickIntent("السلام عليكم"), "greeting");
@@ -98,67 +86,6 @@ run("nothing recognised returns null rather than guessing", () => {
   assert.equal(quickIntent(""), null);
 });
 
-run("the engine routes a typed booking into the real flow, not the model", () => {
-  // The word instead of the button used to reach the AI, which is the one path that cannot book.
-  const d = decideBotReply({ state: "awaiting_choice", text: "عايز احجز", ctx });
-  assert.equal(d.action?.type, "list_days");
-  assert.equal(d.next, "booking_day");
-});
-
-run("a first message that is a real question is answered, not swallowed by the greeting", () => {
-  // "التنظيف بكام" as an opening line used to get the menu and lose the question, while the same
-  // message one turn later was answered correctly.
-  const d = decideBotReply({ state: "new", text: "التنظيف بكام", ctx });
-  assert.equal(d.action?.type, "ai");
-  // A bare greeting still gets the greeting, for free.
-  const g = decideBotReply({ state: "new", text: "السلام عليكم", ctx });
-  assert.equal(g.reason, "greeted");
-  assert.equal(g.action, undefined);
-});
-
-run("courtesy is answered in one line and never with the booking menu", () => {
-  const a = decideBotReply({ state: "awaiting_choice", text: "تمام", ctx });
-  assert.equal(a.reason, "ack");
-  assert.equal(a.handoff, false);
-  assert.ok(!a.reply.includes("*1*"), "an acknowledgement must not be answered with the menu");
-  const t = decideBotReply({ state: "awaiting_choice", text: "شكرا", ctx });
-  assert.equal(t.reason, "thanks");
-  assert.ok(!t.reply.includes("*1*"));
-});
-
-run("a patient can escape a booking loop by asking for a person", () => {
-  // Inside a booking state anything that is not a digit used to re-send the identical list, with
-  // no exit, until the turn cap. Asking for a human now works from inside it.
-  const d = decideBotReply({ state: "booking_day", text: "عايز اكلم حد", ctx: { ...ctx, optionCount: 6 } });
-  assert.equal(d.handoff, true);
-  assert.equal(d.reason, "asked_for_human");
-  // And so does giving up on it.
-  const c = decideBotReply({ state: "booking_day", text: "مش هعرف اجي", ctx: { ...ctx, optionCount: 6 } });
-  assert.equal(c.handoff, true);
-  // A digit still books, exactly as before.
-  const n = decideBotReply({ state: "booking_day", text: "2", ctx: { ...ctx, optionCount: 6 } });
-  assert.equal(n.action?.type, "list_times");
-});
-
-run("an emergency still outranks every intent above it", () => {
-  // The clinical check runs before any of this, and must keep doing so: a patient in pain who
-  // also says "thanks" is still a patient in pain.
-  const d = decideBotReply({ state: "awaiting_choice", text: "شكرا بس ضرسي بيوجعني اوي", ctx });
-  assert.equal(d.reason, "clinical");
-  assert.equal(d.handoff, true);
-  // And the reply now carries the number it tells them to ring.
-  assert.ok(d.reply.includes("+201066666124"), "the emergency reply must include the clinic phone");
-});
-
-run("the address is answered from the clinic record, not handed to a person", () => {
-  const d = decideBotReply({ state: "awaiting_choice", text: "ابعتلي اللوكيشن", ctx });
-  assert.equal(d.reason, "location");
-  assert.ok(d.reply.includes("شارع الرحمة"));
-  // With no address configured there is nothing honest to say, so it falls through instead.
-  const empty = decideBotReply({ state: "awaiting_choice", text: "ابعتلي اللوكيشن", ctx: { ...ctx, addressText: "" } });
-  assert.notEqual(empty.reason, "location");
-});
-
 run("the clinic-fact questions are recognised and routed by priority", () => {
   assert.equal(quickIntent("لازم ميعاد ولا اجي على طول"), "walk_in");
   assert.equal(quickIntent("ينفع اجي دلوقتي من غير حجز"), "walk_in");
@@ -170,111 +97,6 @@ run("the clinic-fact questions are recognised and routed by priority", () => {
   assert.equal(quickIntent("التنضيف بياخد وقت اد ايه"), "duration");
   assert.equal(quickIntent("علاج العصب كام جلسه"), "duration");
   assert.equal(quickIntent("ينفع اكل بعد الحشو"), "aftercare");
-});
-
-run("an unwritten fact fetches a person; it is never guessed and never sent to the model", () => {
-  // This is the safety property of the whole feature: these are exactly the questions a model
-  // answers confidently from textbook dentistry, in the clinic's voice, on the clinic's number.
-  const blank = decideBotReply({ state: "awaiting_choice", text: "في تقسيط", ctx });
-  assert.equal(blank.handoff, true);
-  assert.equal(blank.reason, "installments_unknown");
-  assert.equal(blank.action, undefined, "an unknown fact must never reach the AI action");
-
-  // Written by the clinic: answered verbatim, free, no handoff.
-  const withFact = decideBotReply({
-    state: "awaiting_choice",
-    text: "في تقسيط",
-    ctx: { ...ctx, facts: { installments: "التقويم بيتقسط على 3 دفعات." } },
-  });
-  assert.equal(withFact.reason, "installments");
-  assert.equal(withFact.handoff, false);
-  assert.equal(withFact.reply, "التقويم بيتقسط على 3 دفعات.");
-});
-
-run("aftercare answers and still fetches a person", () => {
-  // The clinic's general note is a useful start and is never the whole answer for the patient
-  // who is actually asking.
-  const d = decideBotReply({
-    state: "awaiting_choice",
-    text: "ينفع اكل بعد الحشو",
-    ctx: { ...ctx, facts: { aftercare: "استنى ساعة قبل الأكل." } },
-  });
-  assert.equal(d.reason, "aftercare");
-  assert.equal(d.handoff, true);
-  assert.ok(d.reply.startsWith("استنى ساعة قبل الأكل."));
-});
-
-run("the map link rides along with the address", () => {
-  const d = decideBotReply({
-    state: "awaiting_choice",
-    text: "ابعتلي اللوكيشن",
-    ctx: { ...ctx, facts: { mapsUrl: "https://maps.app.goo.gl/abc" } },
-  });
-  assert.equal(d.reason, "location");
-  assert.ok(d.reply.includes("https://maps.app.goo.gl/abc"));
-  assert.ok(d.reply.includes("شارع الرحمة"));
-});
-
-
-run("complaints and courtesy openers never reach the paid path", () => {
-  // A complaint is handed to a person under every circumstance, so paying a model call to arrive
-  // there was pure waste — and it cost a turn, because the model only saw the message on the
-  // second send while the first got the cheerful booking menu.
-  assert.equal(quickIntent("قعدت مستني ساعه ونص وانا حاجز ده مش نظام خالص"), "complaint");
-  assert.equal(quickIntent("بعتلكوا امبارح ومحدش رد"), "complaint");
-  const d = decideBotReply({ state: "awaiting_choice", text: "ده مش نظام خالص", ctx });
-  assert.equal(d.reason, "complaint");
-  assert.equal(d.handoff, true);
-  assert.equal(d.action, undefined, "a complaint must never reach the AI action");
-
-  // The doorknock Egyptians send before the real question.
-  assert.equal(quickIntent("لو سمحت"), "greeting");
-  assert.equal(quickIntent("عندي استفسار"), "greeting");
-});
-
-run("the replies a reminder actually gets are read as cancel or confirm", () => {
-  assert.equal(quickIntent("مش هينفع"), "cancel");
-  assert.equal(quickIntent("مش هقدر بكره"), "cancel");
-  assert.equal(quickIntent("معلش مش هعرف"), "cancel");
-  assert.equal(quickIntent("تمام"), "ack");
-  assert.equal(quickIntent("هحضر ان شاء الله"), "ack");
-  // The engine hands "تمام" to the caller as an action, so it can confirm the appointment.
-  const d = decideBotReply({ state: "awaiting_choice", text: "تمام", ctx });
-  assert.equal(d.action?.type, "ack");
-});
-
-run("booking for somebody else asks whose name first", () => {
-  assert.equal(mentionsRelative("عايز احجز لمراتي"), true);
-  assert.equal(mentionsRelative("ممكن ميعاد لوالدتي"), true);
-  assert.equal(mentionsRelative("عايز احجز"), false);
-  // "عايز احجز لمراتي" used to book the husband.
-  const d = decideBotReply({ state: "awaiting_choice", text: "عايز احجز لمراتي", ctx: { ...ctx, relative: true } });
-  assert.equal(d.next, "booking_name");
-  assert.equal(d.reason, "ask_relative_name");
-  // The name that arrives is registered as the relative's, not the sender's.
-  const r = decideBotReply({ state: "booking_name", text: "منى أحمد", ctx: { ...ctx, forRelative: true } });
-  assert.equal(r.action?.type, "register");
-  assert.equal((r.action as { forRelative?: boolean }).forRelative, true);
-});
-
-run("a named day skips the day list and offers that day's times", () => {
-  // "ممكن ميعاد بكره" used to open the list of days and discard "بكره".
-  const d = decideBotReply({ state: "awaiting_choice", text: "ممكن ميعاد بكره", ctx: { ...ctx, dayWord: "2026-09-02" } });
-  assert.equal(d.action?.type, "list_times_date");
-  assert.equal((d.action as { dateKey?: string }).dateKey, "2026-09-02");
-  // With a dentist to choose, the dentist comes first and the day word waits.
-  const two = decideBotReply({ state: "awaiting_choice", text: "ممكن ميعاد بكره", ctx: { ...ctx, dayWord: "2026-09-02", doctorCount: 2 } });
-  assert.equal(two.action?.type, "list_doctors");
-});
-
-run("the greeting speaks to a woman as a woman, and to everyone as حضرتك", () => {
-  const her = decideBotReply({ state: "new", text: "السلام عليكم", ctx: { ...ctx, patientName: "منى", gender: "female" } });
-  assert.ok(her.reply.includes("معاكي"), "feminine 'with you'");
-  assert.ok(her.reply.includes("ابعتي"), "feminine imperative");
-  assert.ok(her.reply.includes("حضرتك"));
-  const him = decideBotReply({ state: "new", text: "السلام عليكم", ctx: { ...ctx, patientName: "أحمد", gender: "unknown" } });
-  assert.ok(him.reply.includes("معاك "), "masculine default");
-  assert.ok(!him.reply.includes("معاكي"));
 });
 
 run("a 'not now' is remembered, and nothing automated follows it", () => {

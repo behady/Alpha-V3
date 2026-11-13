@@ -47,14 +47,13 @@ export const FEATURE_CATALOG: FeatureInfo[] = [
   {
     key: "whatsappBot",
     group: "messaging",
-    labelEn: "WhatsApp Scripted Bot",
-    labelAr: "بوت واتساب (ردود جاهزة)",
+    labelEn: "WhatsApp AI Receptionist",
+    labelAr: "موظف استقبال واتساب بالذكاء الاصطناعي",
     // Its own add-on, on purpose: it shares the connected number with the automatic messages
-    // but neither needs the other. Its rule-based answers cost the platform nothing (Meta does
-    // not bill replies inside the 24-hour window); the AI-written answers it can fall back to
-    // spend the clinic's AI credits and therefore need the AI Assistant add-on as well.
-    descEn: "Ready answers, keyword replies, booking and rescheduling by rules — no AI, no per-message cost. AI-written replies are the AI Assistant add-on.",
-    descAr: "ردود جاهزة وكلمات مفتاحية وحجز وتعديل مواعيد بقواعد ثابتة — بدون ذكاء اصطناعي وبدون تكلفة لكل رسالة. الردود بالذكاء الاصطناعي هي إضافة المساعد الذكي.",
+    // but neither needs the other. Replies spend the clinic's AI credits (one per reply), so the
+    // AI Assistant add-on supplies the pool it draws from.
+    descEn: "An AI receptionist answers your WhatsApp patients in their own words, quotes only your price list, books, moves and cancels appointments, and hands anything sensitive to a person. Each reply spends one AI credit.",
+    descAr: "موظف استقبال ذكي يرد على مرضاك في واتساب بكلامهم، لا يذكر إلا أسعار قائمتك، يحجز ويعدّل ويلغي المواعيد، ويحوّل أي شيء حساس لموظف. كل رد يستهلك رصيد ذكاء اصطناعي واحد.",
   },
   {
     key: "ownerAlertsLine",
@@ -123,15 +122,6 @@ export const FEATURE_CATALOG: FeatureInfo[] = [
     labelAr: "قراءة فواتير المصروفات بالذكاء الاصطناعي",
     descEn: "Photograph a supplier invoice or a bill and the expenses are filled in, split by category, for the desk to check and save.",
     descAr: "صوّر فاتورة المورد أو الكهرباء والمصروفات تتكتب لوحدها مقسّمة حسب النوع، والاستقبال يراجعها ويحفظها.",
-    requires: "aiChat",
-  },
-  {
-    key: "whatsappPro",
-    group: "ai",
-    labelEn: "WhatsApp Pro AI",
-    labelAr: "الرد الذكي المتقدم على واتساب",
-    descEn: "A more capable AI answers your WhatsApp patients: it reads each conversation in full, quotes only prices from your price list and hands anything sensitive to a person.",
-    descAr: "ذكاء اصطناعي أقوى يرد على مرضاك في واتساب: يقرأ المحادثة كاملة، ولا يذكر إلا الأسعار الموجودة في قائمة أسعارك، ويحوّل أي شيء حساس لموظف.",
     requires: "aiChat",
   },
   {

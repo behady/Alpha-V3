@@ -347,7 +347,7 @@ export const TOUR_WALKS: Record<string, DemoAction[]> = {
   "settings-whatsapp": [
     pt(l("Connection", "الاتصال"), "Connection: the number.", "الاتصال: الرقم.", "self"),
     pt(l("Assistant", "المساعد"), "Assistant: its name and persona.", "المساعد: اسمه وشخصيته.", "self"),
-    pt(l("Ready answers", "الردود الجاهزة"), "Ready answers it uses first.", "الردود الجاهزة اللي بيستخدمها الأول.", "self"),
+    pt(l("How it talks", "بيتكلم إزاي"), "How the AI should talk: tone, prices, what never to say.", "الذكاء الاصطناعي يتكلم إزاي: الأسلوب، الأسعار، وإيه اللي ممنوع يقوله.", "self"),
     pt(l("Try it", "جرّب البوت"), "Try it — a sandbox, no real patient.", "جرّب البوت — ملعب، من غير مريض حقيقي.", "self"),
     pt(l("Automations", "الرسائل التلقائية"), "Automations, wording, and owner alerts.", "الرسائل التلقائية، الصياغة، وتنبيهات المالك.", "self"),
   ],

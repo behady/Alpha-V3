@@ -1,5 +1,4 @@
 import type { BotBrief, BotFacts } from "@/types/whatsapp";
-import type { AnswerMode } from "@/lib/setupWizard";
 
 export type { BotBrief };
 
@@ -90,21 +89,11 @@ export function factsFilled(f: BotFacts | undefined): { filled: number; total: 1
   return { filled, total: 14 };
 }
 
-export type AutoReplyStep = "clinic" | "replies" | "brief" | "behaviour" | "test";
+export type AutoReplyStep = "clinic" | "brief" | "behaviour" | "test";
 
-/** Which setup steps each answer mode shows, in order. Only the AI-only "replies" step is optional. */
-export function stepsForMode(mode: AnswerMode): Array<{ id: AutoReplyStep; optional: boolean }> {
-  const step = (id: AutoReplyStep, optional = false) => ({ id, optional });
-  switch (mode) {
-    case "bot":
-      return [step("clinic"), step("replies"), step("behaviour"), step("test")];
-    case "ai":
-      return [step("clinic"), step("brief"), step("behaviour"), step("test"), step("replies", true)];
-    case "both":
-      return [step("clinic"), step("replies"), step("brief"), step("behaviour"), step("test")];
-    default:
-      return [];
-  }
+/** The setup steps of the one assistant, in order. (The fixed-replies step left with the menu bot.) */
+export function autoReplySteps(): Array<{ id: AutoReplyStep; optional: boolean }> {
+  return (["clinic", "brief", "behaviour", "test"] as const).map((id) => ({ id, optional: false }));
 }
 
 /** What the "tell the AI about my clinic" interview proposes: facts and brief fields, nothing else. */
