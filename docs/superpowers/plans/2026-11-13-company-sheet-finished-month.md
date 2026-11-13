@@ -320,7 +320,7 @@ No test of its own: Task 5's emulator test runs it through the route.
 
 - [ ] **Step 1: Write the failing test**
 
-Harness copied from `tests/insuranceLineDatesRoute.test.mts` (fake auth lookup server, `idToken`, emulator env, project `demo-company-sheet`). Seed clinic `C1`: an admin staff user; `settings/payers` with contract payer `gasco` (active, no format) and `metlife` (with a format); the `insurance` feature on; ledger charges and cards for p1 (done 2026-11-05), p2 (one done, one Ongoing), p3 (done, completedDate in the current month + 1 is not possible — instead p3 done on the charge date). Use months relative to nothing: fixed `2026-11` works only if the clinic's current month is ≥ 2026-11, which holds from now on.
+Harness copied from `tests/insuranceLineDatesRoute.test.mts` (fake auth lookup server, `idToken`, emulator env, project `demo-company-sheet`). Seed clinic `C1`: an admin staff user; `settings/payers` with contract payer `gasco` (active, no format) and `metlife` (with a format); the `insurance` feature on; ledger charges and cards, all dated 2026-11, for p1 (one treatment, done 2026-11-05) and p2 (one done, one Ongoing). The fixed month `2026-11` is never after the clinic's current month, so the "future month" 400 does not interfere.
 
 ```ts
 mark hold p1 2026-11            → 200; settings/company_sheet_gasco marks["p1__2026-11"] == "hold"
