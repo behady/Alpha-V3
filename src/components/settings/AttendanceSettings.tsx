@@ -47,6 +47,10 @@ export default function AttendanceSettings({ clinicData, setClinicData, handleSa
   const sites = readBranchSiteDrafts(clinicData);
   const oldSite = readClinicWideSite(clinicData);
   const oldSiteStillUsed = Boolean(oldSite) && !branches.every((b) => isBranchSiteSet(sites[b.id]));
+  /** Once one branch has taken the old location, stop offering it — it is one building, not two. */
+  const oldSiteTaken = branches.some(
+    (b) => sites[b.id]?.lat === String(clinicData.attendanceLat ?? "") && sites[b.id]?.lng === String(clinicData.attendanceLng ?? "")
+  );
 
   const setSite = (branchId: string, patch: Partial<BranchSiteDraft>) =>
     setClinicData((prev: any) => {
@@ -159,7 +163,7 @@ export default function AttendanceSettings({ clinicData, setClinicData, handleSa
                     </button>
                     {/* The location saved before branches existed belongs to one of them. One press
                         puts it on the right card, without anyone travelling there to capture it again. */}
-                    {oldSite && !isSet && (
+                    {oldSite && !oldSiteTaken && !isSet && (
                       <button
                         type="button"
                         onClick={() => setSite(branch.id, { lat: String(clinicData.attendanceLat ?? ""), lng: String(clinicData.attendanceLng ?? ""), radius: String(clinicData.attendanceRadius || "50") })}
