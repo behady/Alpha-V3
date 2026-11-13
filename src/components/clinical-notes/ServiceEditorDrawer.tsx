@@ -749,6 +749,7 @@ export default function ServiceEditorDrawer({
             clinicalNoteId: result.noteId,
             ledgerId: result.ledgerId || undefined,
             teeth: selectedTeeth.map((t) => parseInt(t, 10)).filter((n) => !Number.isNaN(n)),
+            missingTeeth: [...missingTeeth(teethData, treatments)].map((t) => parseInt(t, 10)).filter((n) => !Number.isNaN(n)),
             workDescription: procedures.join(", "),
             units: previewUnits,
             branchId: branchId || undefined,

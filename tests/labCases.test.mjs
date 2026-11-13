@@ -996,3 +996,139 @@ console.log("✓ treatment card: the one-tap lab step and which case a treatment
   assert.deepEqual(suggestionsFor(["زيركون", "فينير", "", "زيركون"], "زير"), ["زيركون"], "blanks and repeats are dropped");
 }
 console.log("✓ type-or-pick: which choices show under the field");
+
+// ── Bridges ─────────────────────────────────────────────────────────────────────────────────
+// "Zirconia on 16, 15, 14" is three crowns or one bridge, and only one of those can be made from
+// the paper. The order says which, and which tooth is the one being replaced.
+import { bridgeRuns, suggestBridge, bridgeGaps, cleanPontics, bridgeLines, bridgeGroups, bridgeWorkApplies } from "../src/lib/labBridge.ts";
+import { toLabCase } from "../src/lib/labCases.ts";
+{
+  assert.deepEqual(bridgeRuns([14, 16, 15]), [[16, 15, 14]], "neighbours form one run, read in chart order");
+  assert.deepEqual(bridgeRuns([11, 21]), [[11, 21]], "the two front teeth are neighbours across the midline");
+  assert.deepEqual(bridgeRuns([14, 16]), [], "teeth with one between them are not neighbours");
+  assert.deepEqual(bridgeRuns([16, 15, 14, 26]), [[16, 15, 14]], "a lone tooth elsewhere is not a run");
+  assert.deepEqual(bridgeRuns([16, 15, 25, 26]), [[16, 15], [25, 26]], "two separate runs stay separate");
+  assert.deepEqual(bridgeRuns([18, 48]), [], "upper and lower never join");
+  assert.deepEqual(bridgeRuns([48, 38]), [], "the two ends of an arch are not neighbours");
+  assert.deepEqual(bridgeRuns([41, 31]), [[41, 31]], "lower front teeth join across the midline");
+  assert.deepEqual(bridgeRuns([55, 54]), [], "nobody bridges a child's teeth");
+  assert.deepEqual(bridgeRuns([15, 15, 14]), [[15, 14]], "a tooth listed twice counts once");
+
+  assert.deepEqual(suggestBridge([14, 15, 16], [15]), { bridge: true, pontics: [15] }, "a run over a missing tooth is a bridge");
+  assert.deepEqual(suggestBridge([14, 15, 16], []), { bridge: false, pontics: [] }, "three teeth all present are three crowns");
+  assert.deepEqual(suggestBridge([14, 16], [15]), { bridge: false, pontics: [] }, "the gap was not picked, so nothing is joined yet");
+  assert.deepEqual(suggestBridge([15], [15]), { bridge: false, pontics: [] }, "one tooth is never a bridge");
+  assert.deepEqual(suggestBridge([15, 14], [15, 14]), { bridge: false, pontics: [] }, "a run with nothing to hold it is not a bridge");
+  assert.deepEqual(suggestBridge([14, 15, 16, 26], [15, 26]), { bridge: true, pontics: [15] }, "a missing tooth standing alone is not a pontic");
+  assert.deepEqual(suggestBridge([16, 15], [15]), { bridge: true, pontics: [15] }, "one support and one replaced tooth is still a bridge");
+
+  assert.deepEqual(bridgeGaps([14, 16], [15]), [15], "a missing tooth between two picked teeth is offered");
+  assert.deepEqual(bridgeGaps([13, 16], [14, 15]), [15, 14], "a two-tooth gap is offered whole, in chart order");
+  assert.deepEqual(bridgeGaps([13, 16], [15]), [], "a tooth still in the mouth between them means no bridge");
+  assert.deepEqual(bridgeGaps([14, 15, 16], [15]), [], "a gap already picked is not offered again");
+  assert.deepEqual(bridgeGaps([11, 22], [21]), [21], "a gap is found across the midline too");
+  assert.deepEqual(bridgeGaps([16], [15]), [], "one picked tooth has no gap");
+
+  assert.deepEqual(cleanPontics([14, 15, 16], [15, 26]), [15], "a pontic must be one of the joined teeth");
+  assert.deepEqual(cleanPontics([14, 16], [15]), [], "no run, no pontic");
+  assert.deepEqual(cleanPontics([16, 15, 14], [14, 15]), [15, 14], "pontics read in chart order");
+
+  assert.equal(bridgeWorkApplies("zirconia"), true);
+  assert.equal(bridgeWorkApplies("implant_crown"), true);
+  assert.equal(bridgeWorkApplies("Veneer"), true, "work the clinic named itself can be joined too");
+  assert.equal(bridgeWorkApplies("full_denture"), false, "a denture is not a bridge");
+  assert.equal(bridgeWorkApplies("night_guard"), false);
+  assert.equal(bridgeWorkApplies("surgical_guide"), false);
+
+  const p = (n) => toPalmer(n).label;
+  const ar = bridgeLines({ teeth: [14, 15, 16], bridge: true, pontics: [15] }, "ar");
+  assert.equal(ar.length, 1);
+  assert.ok(ar[0].includes("كوبري 3 وحدات"), ar[0]);
+  // In an Arabic line the tooth marks sit inside a left-to-right island. Without it the bracket
+  // lands on the other side of its number, which names the opposite side of the mouth.
+  assert.ok(ar[0].includes(`دعامات: ⁦${p(16)} ${p(14)}⁩`), ar[0]);
+  assert.ok(ar[0].includes(`بونتيك: ⁦${p(15)}⁩`), ar[0]);
+  const en = bridgeLines({ teeth: [14, 15, 16], bridge: true, pontics: [15] }, "en");
+  assert.ok(en[0].includes("Bridge, 3 units") && en[0].includes(`pontic: ${p(15)}`), en[0]);
+
+  assert.deepEqual(bridgeLines({ teeth: [14, 15, 16], bridge: false, pontics: [] }, "ar"), [], "separate crowns need no line");
+  assert.deepEqual(bridgeLines({ teeth: [14, 15, 16] }, "ar"), [], "an old order says nothing about bridges");
+  assert.deepEqual(bridgeLines({ teeth: [14, 16], bridge: true, pontics: [] }, "en"), [], "joined with no neighbours is nothing");
+
+  const joined = bridgeLines({ teeth: [11, 21], bridge: true, pontics: [] }, "en");
+  assert.ok(joined[0].includes("Joined crowns, 2 units"), joined[0]);
+  assert.ok(!joined[0].includes("pontic"), "no pontic named when none is marked");
+
+  const mixed = bridgeLines({ teeth: [14, 15, 16, 26], bridge: true, pontics: [15] }, "en");
+  assert.equal(mixed.length, 2, "the lone crown gets its own line so nobody joins it to the bridge");
+  assert.ok(mixed[1].includes(`Single: ${p(26)}`), mixed[1]);
+  assert.deepEqual(
+    bridgeGroups({ teeth: [14, 15, 16, 26], bridge: true, pontics: [15] }),
+    { groups: [{ teeth: [16, 15, 14], supports: [16, 14], pontics: [15] }], singles: [26] },
+    "the same answer as data, for the paper to draw"
+  );
+  assert.equal(bridgeGroups({ teeth: [14, 15, 16] }), null);
+
+  // What is stored is what comes back, and an order from before bridges reads as separate crowns.
+  const read = toLabCase("x", { teeth: [14, 15, 16], bridge: true, pontics: [15, "16", "nope"] });
+  assert.equal(read.bridge, true);
+  assert.deepEqual(read.pontics, [15, 16]);
+  const old = toLabCase("x", { teeth: [14, 15, 16] });
+  assert.equal(old.bridge, false);
+  assert.deepEqual(old.pontics, []);
+
+  // The lab is told on both things it reads: the message and the paper.
+  const bridgeCase = { ...crown, teeth: [16, 15, 14], units: 3, bridge: true, pontics: [15] };
+  const bridgeMsg = buildLabOrderMessage(bridgeCase, "Alpha Dental", "ar");
+  assert.ok(bridgeMsg.includes("كوبري 3 وحدات"), bridgeMsg);
+  assert.ok(!buildLabOrderMessage(crown, "Alpha Dental", "ar").includes("كوبري"), "separate crowns are not called a bridge");
+  const bridgeHtml = buildLabOrderSrcDoc(bridgeCase, clinic, "", noLogo, "en", "a4_full");
+  assert.ok(bridgeHtml.includes("Bridge, 3 units"), "the printed order names the bridge");
+  assert.ok(bridgeHtml.includes("كوبري 3 وحدات"), "in both languages, like the rest of the sheet");
+  assert.ok(!bridgeHtml.includes("┘"), "teeth on paper are drawn in their bracket, never typed as a glyph");
+  assert.ok(bridgeHtml.includes("data-pontic=\"15\""), "the replaced tooth is marked on the printed chart");
+  assert.ok(!crownHtml.includes("data-pontic"), "no tooth is marked on an order that is not a bridge");
+  assert.ok(!crownHtml.includes("Bridge,"));
+}
+console.log("✓ bridges: runs, the chart's missing teeth, and what the lab is told");
+
+// ── The order fills itself ──────────────────────────────────────────────────────────────────
+// The treatment already says what the work is, and the clinic's last order for it says which lab.
+import { workTypeFromTreatment, prefillFromPast } from "../src/lib/labPrefill.ts";
+{
+  assert.equal(workTypeFromTreatment("Zirconia Crown"), "zirconia");
+  assert.equal(workTypeFromTreatment("تاج زيركون"), "zirconia");
+  assert.equal(workTypeFromTreatment("E-max veneer"), "emax");
+  assert.equal(workTypeFromTreatment("Emax Crown"), "emax");
+  assert.equal(workTypeFromTreatment("PFM Crown"), "pfm");
+  assert.equal(workTypeFromTreatment("تاج بورسلين"), "pfm");
+  assert.equal(workTypeFromTreatment("Porcelain veneer"), "", "a veneer is not porcelain on metal");
+  assert.equal(workTypeFromTreatment("Zirconia crown on implant"), "implant_crown", "the implant decides the fields the lab needs");
+  assert.equal(workTypeFromTreatment("تاج على زرعة"), "implant_crown");
+  assert.equal(workTypeFromTreatment("Surgical guide"), "surgical_guide");
+  assert.equal(workTypeFromTreatment("Complete denture"), "full_denture");
+  assert.equal(workTypeFromTreatment("طقم كامل"), "full_denture");
+  assert.equal(workTypeFromTreatment("طقم جزئي"), "partial_denture");
+  assert.equal(workTypeFromTreatment("Night guard"), "night_guard");
+  assert.equal(workTypeFromTreatment("Temporary crown"), "pmma");
+  assert.equal(workTypeFromTreatment("Scaling and polishing"), "", "work nobody sends to a lab is left alone");
+  assert.equal(workTypeFromTreatment(""), "");
+
+  // Newest first, the way the form loads them.
+  const past = [
+    { labName: "Nile Lab", workType: "emax", workDescription: "Emax Crown" },
+    { labName: "Cairo Lab", workType: "zirconia", workDescription: "Zirconia Crown" },
+    { labName: "Old Lab", workType: "zirconia", workDescription: "Zirconia Crown" },
+    { labName: "Delta Lab", workType: "Veneer", workDescription: "Smile design" },
+    { labName: "", workType: "pfm", workDescription: "PFM Crown" },
+  ];
+  assert.deepEqual(prefillFromPast(past, "zirconia crown "), { workType: "zirconia", labName: "Cairo Lab" }, "the newest order for the same treatment wins");
+  assert.deepEqual(prefillFromPast(past, "Smile design"), { workType: "Veneer", labName: "Delta Lab" }, "the clinic's own work name is remembered too");
+  assert.deepEqual(prefillFromPast(past, "Zirconia Bridge"), { workType: "zirconia", labName: "Cairo Lab" }, "a new treatment goes where that kind of work last went");
+  assert.deepEqual(prefillFromPast(past, "Night guard"), { workType: "night_guard", labName: "" }, "work never sent before names no lab");
+  assert.deepEqual(prefillFromPast(past, "Scaling"), { workType: "", labName: "" });
+  assert.deepEqual(prefillFromPast([], "Zirconia Crown"), { workType: "zirconia", labName: "" }, "a clinic's first order still gets its work type");
+  assert.deepEqual(prefillFromPast(past, ""), { workType: "", labName: "" }, "an order with no treatment is not guessed");
+  assert.deepEqual(prefillFromPast(past, "PFM Crown"), { workType: "pfm", labName: "" }, "an order that named no lab offers none");
+}
+console.log("✓ the order fills itself: work type from the treatment, lab from the last order");

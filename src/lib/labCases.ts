@@ -410,6 +410,10 @@ export type LabCase = {
   units?: number;
   /** FDI numbers. Stored as an array because the clinical note only ever keeps a joined string. */
   teeth: number[];
+  /** Neighbouring teeth are made as one piece. Absent on an order from before bridges: separate crowns. */
+  bridge?: boolean;
+  /** The teeth a bridge replaces rather than sits on. Always some of `teeth`. See labBridge.ts. */
+  pontics?: number[];
 
   /** The VITA shade for most of the crown. Read with a `toothShade` fallback for early records. */
   bodyShade?: string;
@@ -477,6 +481,8 @@ export type LabCaseSeed = {
   clinicalNoteId?: string;
   ledgerId?: string;
   teeth?: number[];
+  /** Teeth the patient's chart records as gone, so a bridge over one of them is recognised. */
+  missingTeeth?: number[];
   workDescription?: string;
   units?: number;
   branchId?: string;
@@ -1022,6 +1028,10 @@ export function toLabCase(id: string, data: Record<string, unknown>): LabCase {
     workDescription: str(data.workDescription) || undefined,
     units: data.units == null ? undefined : num(data.units),
     teeth,
+    bridge: data.bridge === true,
+    pontics: Array.isArray(data.pontics)
+      ? (data.pontics as unknown[]).map((t) => Number(t)).filter((n) => Number.isFinite(n))
+      : [],
     // `toothShade` is what the first version wrote, before the shade was split into body and
     // cervical. Read as a fallback so those cases still print a shade rather than a blank.
     bodyShade: str(data.bodyShade) || str(data.toothShade) || undefined,

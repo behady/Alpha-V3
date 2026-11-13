@@ -410,6 +410,8 @@ export async function createLabCase(input: NewLabCaseInput): Promise<CreatedLabC
     // Written unconditionally: these are never absent, and `agreedPrice: 0` is a real answer
     // (a remake the lab is redoing at its own cost) that compact() would have dropped.
     teeth: Array.isArray(input.teeth) ? input.teeth : [],
+    // Written only on a joined order, so an order of separate crowns keeps the shape it always had.
+    ...(input.bridge === true ? { bridge: true, pontics: Array.isArray(input.pontics) ? input.pontics : [] } : {}),
     agreedPrice: Number(input.agreedPrice) || 0,
     sentVia: input.sentVia === "digital" ? "digital" : "driver",
     status: input.status,
@@ -439,6 +441,11 @@ export async function updateLabCase(
   // user deleted has to reach Firestore as "" or the old value survives the save.
   for (const key of cleared) body[key] = "";
   if (Array.isArray(patch.teeth)) body.teeth = patch.teeth;
+  // Un-joining an order has to clear its pontics too, or the paper keeps a cross on a tooth.
+  if (patch.bridge !== undefined) {
+    body.bridge = patch.bridge === true;
+    body.pontics = patch.bridge === true && Array.isArray(patch.pontics) ? patch.pontics : [];
+  }
   if (patch.agreedPrice !== undefined) body.agreedPrice = Number(patch.agreedPrice) || 0;
   if (patch.needsTryIn !== undefined) body.needsTryIn = patch.needsTryIn === true;
 
@@ -520,6 +527,9 @@ export async function createRemake(
     workDescription: original.workDescription,
     units: original.units,
     teeth: original.teeth,
+    // A remade bridge is still a bridge.
+    bridge: original.bridge,
+    pontics: original.pontics,
     bodyShade: original.bodyShade,
     cervicalShade: original.cervicalShade,
     gumShade: original.gumShade,

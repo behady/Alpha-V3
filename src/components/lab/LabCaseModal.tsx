@@ -8,6 +8,10 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import Protect from "@/components/Protect";
 import LabTeethPicker from "@/components/lab/LabTeethPicker";
+import LabBridgeField from "@/components/lab/LabBridgeField";
+import LabOrderCreated from "@/components/lab/LabOrderCreated";
+import { bridgeGaps, bridgeRuns, bridgeWorkApplies, cleanPontics, suggestBridge } from "@/lib/labBridge";
+import { prefillFromPast } from "@/lib/labPrefill";
 import { MoneyApiError, setProcedureLabFee } from "@/lib/moneyApi";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { localYmd } from "@/lib/clinicDate";
@@ -28,6 +32,7 @@ import {
   parseToothInput,
   addDays,
   resolveWorkType,
+  toLabCase,
   treatmentLinkFromSeed,
   workTypeFor,
   workTypeLabel,
@@ -124,6 +129,14 @@ export default function LabCaseModal({
   const [sendNow, setSendNow] = useState(true);
   /** "More details" — closed every time the form opens. */
   const [moreOpen, setMoreOpen] = useState(false);
+  /**
+   * Bridge or separate crowns. `null` means nobody has chosen yet, so the form follows what the
+   * patient's chart says; a tap on the switch or on a tooth makes it the person's own answer.
+   */
+  const [bridgeChoice, setBridgeChoice] = useState<boolean | null>(null);
+  const [ponticChoice, setPonticChoice] = useState<number[] | null>(null);
+  /** The order just created, shown with its code until the person says they are done. */
+  const [created, setCreated] = useState<LabCase | null>(null);
 
   // --- patient + doctor pickers -------------------------------------------
   const [patientId, setPatientId] = useState("");
@@ -151,8 +164,10 @@ export default function LabCaseModal({
    * lab list is Admin-only to write), so this is also how the next order finds that lab again.
    */
   const [pastCases, setPastCases] = useState<
-    { labId: string; labName: string; workType: string; implantSystem: string }[]
+    { labId: string; labName: string; workType: string; workDescription: string; implantSystem: string }[]
   >([]);
+  /** True once that read has answered, with cases or without: only then can the form offer a lab. */
+  const [pastReady, setPastReady] = useState(false);
   /**
    * A ref, not state.
    *
@@ -165,9 +180,11 @@ export default function LabCaseModal({
   useEffect(() => {
     if (!open || pastLoaded.current) return;
     let cancelled = false;
+    let answered = false;
     pastLoaded.current = true;
     getDocs(query(getClinicCollection(LAB_CASES_COLLECTION), orderBy("codeNumber", "desc"), limit(300)))
       .then((snap) => {
+        answered = true;
         if (cancelled) return;
         setPastCases(
           snap.docs.map((d) => {
@@ -176,17 +193,24 @@ export default function LabCaseModal({
               labId: String(data.labId || "").trim(),
               labName: String(data.labName || "").trim(),
               workType: String(data.workType || "").trim(),
+              workDescription: String(data.workDescription || "").trim(),
               implantSystem: String(data.implantSystem || "").trim(),
             };
           })
         );
+        setPastReady(true);
       })
       .catch(() => {
+        answered = true;
+        if (!cancelled) setPastReady(true);
         // Suggestions are a convenience. Every field is free text either way, so a failed read
         // costs nothing a person cannot type.
       });
     return () => {
       cancelled = true;
+      // Closed before the reply landed: let the next opening ask again, or the form would never
+      // learn this clinic's labs for as long as the page stays open.
+      if (!answered) pastLoaded.current = false;
     };
   }, [open]);
 
@@ -266,6 +290,7 @@ export default function LabCaseModal({
   useEffect(() => {
     if (!open) {
       seededFor.current = null;
+      setCreated(null);
       return;
     }
     const key = existing?.id || "new";
@@ -284,6 +309,9 @@ export default function LabCaseModal({
     setTeethText(formatPalmerShorthand(seededTeeth));
     // A paediatric case opens on the grid that can actually show it.
     setShowPrimaryTeeth(hasPrimaryTeeth(seededTeeth));
+    // An order being edited keeps what it says. A new one follows the patient's chart.
+    setBridgeChoice(src ? src.bridge === true : null);
+    setPonticChoice(src ? src.pontics || [] : null);
     setBodyShade(src?.bodyShade || "");
     setCervicalShade(src?.cervicalShade || "");
     setGumShade(src?.gumShade || "");
@@ -317,6 +345,27 @@ export default function LabCaseModal({
     setDoctorId(src?.doctorId || seed?.doctorId || "");
     setDoctorName(src?.doctorName || seed?.doctorName || "");
   }, [open, existing, seed, defaultBranchId, labs, language]);
+
+  /**
+   * The work type and the lab, offered for an order raised from a treatment.
+   *
+   * The treatment's name says what the work is, and the clinic's last order for it says where it
+   * goes (see labPrefill.ts). Once per opening, after the past orders have answered, and only into
+   * a box that is still empty: something a person typed is never replaced.
+   */
+  const prefilledFor = useRef(false);
+
+  useEffect(() => {
+    if (!open) {
+      prefilledFor.current = false;
+      return;
+    }
+    if (isEdit || !pastReady || prefilledFor.current) return;
+    prefilledFor.current = true;
+    const offer = prefillFromPast(pastCases, seed?.workDescription);
+    if (offer.workType) setWorkText((typed) => (typed.trim() ? typed : workTypeLabel(offer.workType, language)));
+    if (offer.labName) setLabText((typed) => (typed.trim() ? typed : offer.labName));
+  }, [open, isEdit, pastReady, pastCases, seed, language]);
 
   /**
    * Picking a work type re-applies that type's defaults — but only when raising a new case.
@@ -478,6 +527,36 @@ export default function LabCaseModal({
     setTeeth(parseToothInput(value));
   };
 
+  /**
+   * Separate crowns or a bridge, and which teeth the bridge replaces.
+   *
+   * An implant crown is left out of the guessing: there the missing tooth is where the implant
+   * stands, not a gap being bridged, so only a person can say those crowns are joined.
+   */
+  const chartMissing = useMemo(
+    () => (isEdit || wt.implant ? [] : seed?.missingTeeth || []),
+    [isEdit, wt.implant, seed]
+  );
+  const bridgeApplies = bridgeWorkApplies(workType);
+  const chartBridge = useMemo(() => suggestBridge(teeth, chartMissing), [teeth, chartMissing]);
+  const bridgeOn = bridgeApplies && bridgeRuns(teeth).length > 0 && (bridgeChoice ?? chartBridge.bridge);
+  const pontics = bridgeOn ? cleanPontics(teeth, ponticChoice ?? chartBridge.pontics) : [];
+  const bridgeGapTeeth = bridgeApplies ? bridgeGaps(teeth, chartMissing) : [];
+
+  const togglePontic = (tooth: number) => {
+    setPonticChoice(pontics.includes(tooth) ? pontics.filter((t) => t !== tooth) : [...pontics, tooth]);
+  };
+
+  /** Take the chart's missing teeth into the order, as the bridge's pontics. */
+  const addBridgeGaps = () => {
+    const next = [...teeth, ...bridgeGapTeeth];
+    // The unit count follows only while it was simply the number of teeth.
+    if (units.trim() === String(teeth.length)) setUnits(String(next.length));
+    setBridgeChoice(true);
+    setPonticChoice([...pontics, ...bridgeGapTeeth]);
+    setTeethBoth(next);
+  };
+
   const branch = branches.find((b) => b.id === branchId) || null;
   const branchIndex = branch ? branches.indexOf(branch) : 0;
   const previewCode = `${branchCodeFor(branch, branchIndex)}-####`;
@@ -548,6 +627,8 @@ export default function LabCaseModal({
         // three. Zero is written, read back as "no count", and printed as nothing.
         units: wt.units && units.trim() ? Number(units) : 0,
         teeth,
+        // Only when it is, or was, a bridge: an old order of separate crowns is saved as it was.
+        ...(bridgeOn || existing?.bridge ? { bridge: bridgeOn, pontics } : {}),
         // Cleared per work type rather than kept: a case switched from a crown to a surgical guide
         // must not carry a shade the printed order would then hide but the record still claims.
         bodyShade: wt.bodyShade ? bodyShade : "",
@@ -590,7 +671,7 @@ export default function LabCaseModal({
         onSaved({ id: existing.id, code: existing.code, isNew: false });
         showToast(isAr ? "تم حفظ الحالة" : "Case saved", "success");
       } else {
-        const created = await createLabCase({
+        const made = await createLabCase({
           ...common,
           // The treatment this order was raised from. Without it the lab payment counts the fee twice.
           ...treatmentLinkFromSeed(seed),
@@ -601,11 +682,20 @@ export default function LabCaseModal({
           sentAt: sendNow ? localYmd() : undefined,
           createdBy: currentUserName,
         });
-        onSaved({ id: created.id, code: created.code, isNew: true });
-        showToast(
-          isAr ? `اتعملت الحالة ${created.code}` : `Case ${created.code} created`,
-          "success"
+        // Stay open on the code: it is about to be written on a bag. `onSaved` waits for "Done",
+        // because every screen that opens this form closes it the moment it hears of a save.
+        setCreated(
+          toLabCase(made.id, {
+            ...common,
+            code: made.code,
+            codeNumber: made.codeNumber,
+            branchId: branch?.id || "",
+            branchName: branch?.name || "",
+            branchCode: branchCodeFor(branch, branchIndex),
+            status: sendNow ? "at_lab" : "draft",
+          })
         );
+        return;
       }
       onClose();
     } catch (err) {
@@ -648,6 +738,12 @@ export default function LabCaseModal({
     }
   };
 
+  /** Leaving the code screen, by "Done" or by the X: now the screen behind hears of the save. */
+  const finishCreated = () => {
+    if (created) onSaved({ id: created.id, code: created.code, isNew: true });
+    onClose();
+  };
+
   if (!open) return null;
 
   return (
@@ -671,14 +767,14 @@ export default function LabCaseModal({
               {(patientName || !isEdit) && (
                 <p className="text-[11px] font-bold text-slate-400 mt-0.5 truncate">
                   {patientName && <bdi>{patientName}</bdi>}
-                  {patientName && !isEdit && " · "}
-                  {!isEdit && <span dir="ltr">{previewCode}</span>}
+                  {patientName && !isEdit && !created && " · "}
+                  {!isEdit && !created && <span dir="ltr">{previewCode}</span>}
                 </p>
               )}
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={created ? finishCreated : onClose}
             className="p-2 text-slate-400 hover:text-slate-700 hover:bg-surface-muted rounded-xl transition-colors shrink-0"
             aria-label={isAr ? "إغلاق" : "Close"}
           >
@@ -686,6 +782,10 @@ export default function LabCaseModal({
           </button>
         </div>
 
+        {created ? (
+          <LabOrderCreated labCase={created} labs={knownLabs} onDone={finishCreated} />
+        ) : (
+        <>
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-5 sm:px-7 py-5 space-y-5 custom-scrollbar">
           {/* The order, as most people fill it in: who, which lab, what, which teeth, the shade,
@@ -760,10 +860,11 @@ export default function LabCaseModal({
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
+            {/* The tutorial's ring. Written out here, not passed down as a prop: the settings test reads
+                the source for this exact string, and a ring it cannot find is a lesson step it cannot guard. */}
+            <div data-tour="lab-case-lab">
               <label className={LABEL}>{isAr ? "المعمل" : "Lab"} *</label>
               <SuggestInput
-                dataTour="lab-case-lab"
                 value={labText}
                 onChange={setLabText}
                 options={labNames}
@@ -797,6 +898,18 @@ export default function LabCaseModal({
             showPrimary={showPrimaryTeeth}
             onShowPrimaryChange={setShowPrimaryTeeth}
           />
+
+          {bridgeApplies && (
+            <LabBridgeField
+              teeth={teeth}
+              bridge={bridgeOn}
+              pontics={pontics}
+              gaps={bridgeGapTeeth}
+              onBridgeChange={setBridgeChoice}
+              onTogglePontic={togglePontic}
+              onAddGaps={addBridgeGaps}
+            />
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {wt.bodyShade && (
@@ -1262,7 +1375,7 @@ export default function LabCaseModal({
             </button>
           )}
           <button
-            onClick={onClose}
+            onClick={created ? finishCreated : onClose}
             className="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wide text-ink-muted hover:bg-slate-200/60 transition-colors"
           >
             {isAr ? "إلغاء" : "Cancel"}
@@ -1277,6 +1390,8 @@ export default function LabCaseModal({
             {isEdit ? (isAr ? "حفظ" : "Save") : isAr ? "إنشاء الأمر" : "Create order"}
           </button>
         </div>
+        </>
+        )}
       </div>
     </div>
   );
