@@ -104,6 +104,8 @@ export type AiReplyResult =
       openBooking?: boolean;
       /** Sales mode: the service the patient is interested in, as the model read it. */
       interest?: string;
+      /** The patient closed the subject without booking — too far, busy, not interested. Nothing automated should chase them. */
+      notNow?: boolean;
       /** Sales mode: the patient agreed to one of the offered slots (a key the caller gave). */
       bookSlot?: string;
       /** Sales mode: a file from the clinic's library to attach after the reply. */
@@ -349,7 +351,7 @@ export async function answerWithAi(args: {
           properties: {
             action: {
               type: SchemaType.STRING,
-              enum: ["answer", "open_booking", "book_slot", "reschedule", "cancel", "late", "suggest_medicine", "handoff_medical", "handoff_complaint", "handoff_staff", "handoff_other"],
+              enum: ["answer", "not_now", "open_booking", "book_slot", "reschedule", "cancel", "late", "suggest_medicine", "handoff_medical", "handoff_complaint", "handoff_staff", "handoff_other"],
               format: "enum",
             },
             reply: { type: SchemaType.STRING },
@@ -470,7 +472,7 @@ export async function answerWithAi(args: {
 
     let raw = "";
     let modelMs = 0;
-    let parsed: { action?: string; reply?: string; interest?: string; slotKey?: string; sendMedia?: string; medicineId?: string } = {};
+    let parsed: { action?: string; reply?: string; interest?: string; notNow?: boolean; slotKey?: string; sendMedia?: string; medicineId?: string } = {};
     let strays: string[] = [];
     /*
      * A medicine may be named only if the dentist wrote it in this patient's file or the patient
@@ -520,6 +522,9 @@ export async function answerWithAi(args: {
         throw new Error("ai_bad_json");
       }
       parsed = decoded as typeof parsed;
+      // "not_now" is an ordinary answer that also says the patient closed the subject. An action,
+      // not a flag: the model fills the required action every turn and skipped an optional boolean.
+      if (String(parsed.action) === "not_now") parsed = { ...parsed, action: "answer", notNow: true };
       const spoken = ["answer", "open_booking", "book_slot", "reschedule", "cancel", "late", "suggest_medicine"].includes(String(parsed.action));
       strays = spoken ? strayNumbers(String(parsed.reply || "")) : [];
       namedDrugs = spoken ? strayDrugNames(String(parsed.reply || ""), drugsAllowed) : [];
@@ -623,7 +628,7 @@ export async function answerWithAi(args: {
     }).catch(() => {});
 
     const interest = String(parsed.interest || "").trim().slice(0, 60) || undefined;
-    return { kind: "answer", text: text || AI_DEFAULT_ACK, openBooking, interest, bookSlot, sendMedia, reschedule, appointmentChange, medicineId };
+    return { kind: "answer", text: text || AI_DEFAULT_ACK, openBooking, interest, notNow: parsed.notNow === true && !bookSlot && !openBooking, bookSlot, sendMedia, reschedule, appointmentChange, medicineId };
   } catch (e) {
     const reason = e instanceof Error ? e.message : "model_error";
     await adminClinicCollection(clinicId, "ai_debug")

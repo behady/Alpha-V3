@@ -320,6 +320,8 @@ const DECLINE = [
   "مش دلوقتي", "مش دلوقت", "مش دلوقتى", "بعدين", "لما افضى", "لما افضي", "مش محتاج", "مش محتاجه", "مش محتاجة",
   "مش عايز", "مش عايزه", "مش عايزة", "مش هحجز", "مش مهتم", "مش مهتمه", "مش مهتمة", "لا شكرا", "لأ شكرا", "لا متشكر",
   "خلاص شكرا", "مش حاليا", "مش حالياً", "في وقت تاني", "وقت تاني", "هفكر", "هشوف وابلغك", "هبلغك",
+  // Too far to come. Said to a clinic with one address, that is a no — and it was being nudged.
+  "بعيد عليا", "بعيد عليه", "بعيد علينا", "بعيد عني", "بعيد عنى", "المكان بعيد", "العنوان بعيد", "العياده بعيده عليا", "مشوار عليا", "too far",
   "not now", "later", "maybe later", "no thanks", "no thank you", "not interested", "some other time", "i'll think about it",
 ];
 
@@ -328,6 +330,8 @@ export function isDecline(raw: string): boolean {
   if (!text) return false;
   // A decline is short. "مش دلوقتي، بكرة الساعة 5 ينفع؟" is a booking with a preference in front.
   if (text.split(/\s+/).length > 6) return false;
+  // "هو بعيد عن المترو؟" asks; it does not refuse.
+  if (/[?؟]/.test(raw)) return false;
   return has(text, DECLINE);
 }
 

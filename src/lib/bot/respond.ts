@@ -1460,6 +1460,17 @@ ${urgentCallLine(ctx.clinicPhone)}`;
        * came to be written on the wrong turns, leaving "the first one" with nothing to resolve
        * against exactly when it mattered.
        */
+      /*
+       * A no the keyword list did not catch. "العنوان بعيد عليا" was answered kindly and then
+       * chased 33 minutes later with "لسه معانا؟" — the nudge only knew a short list of phrases.
+       * The model reads the whole sentence, so it says when the patient closed the subject, and
+       * the same mark the keywords set keeps the nudge and the lead follow-up away. The chat doc
+       * is marked in a rehearsal too (a playground chat is never nudged); the lead is not touched.
+       */
+      if (ai.kind === "answer" && ai.notNow) {
+        void markConversationDeclined(clinicId, chatId).catch(() => {});
+        if (!args.dryRun && phone) void snoozeBotLead(clinicId, phone).catch(() => {});
+      }
       if (ai.kind === "answer" && ai.text) {
         const said = ai.text;
         // The clock alone is not an identifier: four different days share "3:00 م", and storing
