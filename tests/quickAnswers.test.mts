@@ -42,6 +42,10 @@ run("the everyday messages are recognised without a model call", () => {
   assert.equal(quickIntent("الو"), "greeting");
   assert.equal(quickIntent("شكرا"), "thanks");
   assert.equal(quickIntent("تسلم ايديكم"), "thanks");
+  // 14/11: "تسلمي" went to the model, so the chat did not read as closed and was nudged after it.
+  assert.equal(quickIntent("تسلمي"), "thanks");
+  assert.equal(quickIntent("تسلمي يا سارة"), "thanks");
+  assert.equal(quickIntent("تسلمي، عايزة احجز"), "booking", "a thank-you with a request is the request");
   assert.equal(quickIntent("تمام"), "ack");
   assert.equal(quickIntent("اوك ماشي"), "ack");
   assert.equal(quickIntent("👍"), "ack");
