@@ -30,6 +30,7 @@ import { cleanScripts } from "./scripts";
 import { arabicClock, arabicDayLabel, arabicTimeLabel } from "@/lib/arabicDateTime";
 import { normalizeReplyText } from "@/lib/patientMessaging";
 import { claimKey, claimOnce } from "./replyClaims";
+import { mapLinesBesideAddress } from "./careNote";
 import {
   conversationKey,
   humanClaimMsFromSetting,
@@ -1086,7 +1087,8 @@ export async function respondToPatientMessage(args: {
             // The care note: where to come, how to park, what the first visit is. The message a
             // receptionist adds by hand when there is time, which is never.
             ...(ctx.addressText?.trim() ? ["", `📍 ${ctx.addressText.trim()}`] : []),
-            ...(ctx.facts?.mapsUrl?.trim() ? [ctx.facts.mapsUrl.trim()] : []),
+            // Not the raw field: a clinic that pasted its address above the link would say it twice.
+            ...(mapLinesBesideAddress(ctx.addressText, ctx.facts?.mapsUrl) ? [mapLinesBesideAddress(ctx.addressText, ctx.facts?.mapsUrl)] : []),
             ...(ctx.facts?.parking?.trim() ? [`🅿️ ${ctx.facts.parking.trim()}`] : []),
             // Someone who came from an ad for a running offer booked the OFFER. Quoting the
             // ordinary consultation fee under their confirmation ("الكشف 200 ج.م") contradicts

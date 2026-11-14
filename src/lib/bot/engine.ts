@@ -247,6 +247,7 @@ import { competitorReply, expensiveReply, offersExpiredReply, thinkingReply } fr
 import { looksLikeQuestion, quickIntent, type QuickIntent } from "./quickAnswers";
 import { nameFromReply } from "./nameGuard";
 import { matchScript } from "./scripts";
+import { mapLinesBesideAddress } from "./careNote";
 
 /*
  * The voice.
@@ -382,7 +383,8 @@ function locationReply(ctx: BotContext): string {
   const lines = ["📍 *العنوان:*", ctx.addressText.trim()];
   // "ابعتلي اللوكيشن" asks for a pin. A street address answers a different question, so the map
   // link goes out alongside it whenever the clinic has saved one.
-  if (ctx.facts?.mapsUrl?.trim()) lines.push("", ctx.facts.mapsUrl.trim());
+  const mapLines = mapLinesBesideAddress(ctx.addressText, ctx.facts?.mapsUrl);
+  if (mapLines) lines.push("", mapLines);
   if (ctx.clinicPhone?.trim()) lines.push("", `📞 ${ctx.clinicPhone.trim()}`);
   return lines.join("\n");
 }
