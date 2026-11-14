@@ -5,6 +5,11 @@ import assert from "node:assert/strict";
 import {
   buildCompanySheets,
   markKey,
+  sendRefusal,
+  sheetChargeIds,
+  unsendRefusal,
+  type MonthSheet,
+  type SentMonth,
   type SheetCard,
   type SheetCharge,
   type SheetChoice,
@@ -165,5 +170,92 @@ check("order: earliest charge date, then name; value rounds to 2 places", () => 
   assert.equal(sheet("2026-11").printed[0].value, 10.01);
 });
 
-console.log(failed ? `companySheet: ${failed} failed, ${passed} passed` : `companySheet: all ${passed} checks passed`);
+// ---- the sent lock ----
+const sentRun = (
+  charges: SheetCharge[],
+  cards: SheetCard[],
+  sent: SentMonth[],
+  marks: Record<string, SheetChoice> = {},
+) => buildCompanySheets({ charges, cards, marks, sent, payerId: "gasco", through: "2026-12" });
+const sheetOf = (sheets: MonthSheet[], m: string) => sheets.find((s) => s.month === m) as MonthSheet;
+const sentNov: SentMonth = { month: "2026-11", chargeIds: ["c1"] };
+const doneN1 = card("n1", "Completed", "2026-11-05", "2026-11-05");
+
+check("sent month is frozen against a reopened treatment", () => {
+  const sheets = sentRun([charge("c1", "p1", "2026-11-05", "n1")], [card("n1", "Ongoing", "2026-11-05")], [sentNov]);
+  assert.deepEqual(sheetOf(sheets, "2026-11").printed.flatMap(ids), ["c1"]);
+  assert.notEqual(sheetOf(sheets, "2026-11").sent, null);
+  assert.ok(!sheetOf(sheets, "2026-12").printed.some((p) => p.patientId === "p1"));
+  assert.ok(!sheetOf(sheets, "2026-12").held.some((p) => p.patientId === "p1"));
+});
+
+check("sent month is frozen against a switch", () => {
+  const sheets = sentRun([charge("c1", "p1", "2026-11-05", "n1")], [doneN1], [sentNov], { [markKey("p1", "2026-11")]: "hold" });
+  assert.deepEqual(sheetOf(sheets, "2026-11").printed.flatMap(ids), ["c1"]);
+});
+
+check("back-dated charge waits for the next month", () => {
+  const sheets = sentRun(
+    [charge("c1", "p1", "2026-11-05", "n1"), charge("c2", "p1", "2026-11-20", "n2")],
+    [doneN1, card("n2", "Completed", "2026-11-20", "2026-11-20")],
+    [sentNov],
+  );
+  assert.deepEqual(sheetOf(sheets, "2026-11").printed.flatMap(ids), ["c1"]);
+  assert.deepEqual(sheetOf(sheets, "2026-11").held.flatMap(ids), ["c2"]);
+  assert.deepEqual(sheetOf(sheets, "2026-12").printed.flatMap(ids), ["c2"]);
+});
+
+check("moved charge stays on its sent month", () => {
+  const sheets = sentRun([charge("c1", "p1", "2026-12-02", "n1")], [doneN1], [sentNov]);
+  assert.deepEqual(sheetOf(sheets, "2026-11").printed.flatMap(ids), ["c1"]);
+  assert.deepEqual(sheetOf(sheets, "2026-12").printed, []);
+});
+
+check("deleted charge drops off a sent month", () => {
+  const sheets = sentRun(
+    [charge("c1", "p1", "2026-11-05", "n1"), charge("c2", "p1", "2026-11-06", "n1", { status: "deleted" })],
+    [doneN1],
+    [{ month: "2026-11", chargeIds: ["c1", "c2"] }],
+  );
+  assert.deepEqual(sheetOf(sheets, "2026-11").printed.flatMap(ids), ["c1"]);
+});
+
+check("sent month outside the walked range still keeps its charges off the waiting lists", () => {
+  const sheets = sentRun([charge("c1", "p1", "2026-11-05", "n1")], [doneN1], [{ month: "2027-03", chargeIds: ["c1"] }]);
+  assert.deepEqual(sheetOf(sheets, "2026-11").printed, []);
+  assert.deepEqual(sheetOf(sheets, "2026-12").printed, []);
+});
+
+check("sendRefusal", () => {
+  const open = sentRun([charge("c1", "p1", "2026-11-05", "n1"), charge("c9", "p9", "2026-12-05", "n1")], [doneN1], []);
+  assert.equal(sendRefusal(open, "2026-12"), "earlier_open");
+  assert.equal(sendRefusal(open, "2026-11"), null);
+  const empty = sentRun([], [], []);
+  assert.equal(sendRefusal(empty, "2026-11"), "empty");
+  const sent = sentRun([charge("c1", "p1", "2026-11-05", "n1")], [doneN1], [sentNov]);
+  assert.equal(sendRefusal(sent, "2026-11"), "already_sent");
+  assert.equal(sendRefusal(sent, "2026-12"), "empty");
+});
+
+check("unsendRefusal", () => {
+  const sheets = sentRun(
+    [charge("c1", "p1", "2026-11-05", "n1"), charge("c3", "p3", "2026-12-05", "n1")],
+    [doneN1],
+    [sentNov, { month: "2026-12", chargeIds: ["c3"] }],
+  );
+  assert.equal(unsendRefusal(sheets, "2026-11"), "later_sent");
+  assert.equal(unsendRefusal(sheets, "2026-12"), null);
+  assert.equal(unsendRefusal(sentRun([], [], []), "2026-11"), "not_sent");
+});
+
+check("sheetChargeIds lists every printed charge", () => {
+  const sheets = sentRun(
+    [charge("c1", "p1", "2026-11-05", "n1"), charge("c2", "p1", "2026-11-06", "n1"), charge("c3", "p2", "2026-11-07", "n1")],
+    [doneN1],
+    [],
+  );
+  assert.deepEqual(sheetChargeIds(sheetOf(sheets, "2026-11")), ["c1", "c2", "c3"]);
+});
+
+console.log(failed ?`companySheet: ${failed} failed, ${passed} passed` : `companySheet: all ${passed} checks passed`);
 if (failed) process.exit(1);
