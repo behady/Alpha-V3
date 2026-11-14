@@ -16,8 +16,21 @@ import { claimOnce } from "./replyClaims";
  *    one person. Text floods hit this one; it is the backstop, not the first line.
  */
 
-/** Photos or voice notes arriving within this of the first one are the same album. */
+/** Photos arriving within this of the first one are the same album. */
 export const MEDIA_BURST_MS = 90_000;
+
+/**
+ * Does this kind of captionless media share one answer with the ones around it?
+ *
+ * Photos, videos and files do: an album is one message sent as several. A voice note does not.
+ * People speak in a chain — a question, then the detail they forgot — and each recording says
+ * something new. Treating the second one as "the same album" meant it was never transcribed,
+ * never answered and never flagged: the patient asked twice and heard nothing. Every voice note
+ * is read; the per-minute reply cap below is what stops a flood.
+ */
+export function joinsMediaBurst(kind: string | undefined): boolean {
+  return kind === "image" || kind === "video" || kind === "document";
+}
 /**
  * Bot bubbles to one person inside a minute. A fast booking is four (menu, days, times, the
  * confirmation) and must never be held; the album that prompted this was twelve.

@@ -78,3 +78,70 @@ export function resolveSpokenPick(text: string, slots: Array<{ key: string; labe
   if (slots.length === 1 && AGREEMENT.some((a) => whole(normalize(a)).test(t))) return slots[0].key;
   return null;
 }
+
+/**
+ * Which of the offered times a reply actually said out loud, in the order it said them.
+ *
+ * "The first one" counts in the order the patient heard, so this list is what a pick resolves
+ * against. A clock alone is not an identifier — "6:30" is on offer on Saturday AND Sunday — so
+ * each clock is tied to the day or date mentioned nearest BEFORE it in the sentence. The earlier
+ * rule accepted a slot when its day appeared anywhere in the reply, so "السبت 6:30 أو الأحد 3:00"
+ * also stored Sunday 6:30, a time nobody had offered, and the positions shifted under the
+ * patient's answer. With no day in front of it, a clock counts only when one slot carries it.
+ */
+export function spokenSlots(said: string, offer: Array<{ key: string; label: string }>): string[] {
+  const text = normalize(said);
+  const slots = offer
+    .map((s) => ({
+      key: s.key,
+      // The digits only: the assistant says "10:30 بالليل" as often as "10:30 م".
+      clock: s.label.match(/\d{1,2}:\d{2}/)?.[0] || "",
+      date: s.label.match(/\d{1,2}\/\d{1,2}/)?.[0] || "",
+      day: normalize(s.label.match(/^(\S+)/)?.[1] || ""),
+    }))
+    .filter((s) => s.clock);
+
+  const positions = (needle: string): number[] => {
+    const out: number[] = [];
+    if (!needle) return out;
+    for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + 1)) {
+      // "3:00" inside "13:00", or "4/11" inside "14/11", is not a mention of its own.
+      if (/\d/.test(needle[0]) && /\d/.test(text[at - 1] || "")) continue;
+      out.push(at);
+    }
+    return out;
+  };
+
+  const marks: Array<{ at: number; day?: string; date?: string }> = [];
+  for (const day of new Set(slots.map((s) => s.day).filter((d) => d.length > 2))) for (const at of positions(day)) marks.push({ at, day });
+  for (const date of new Set(slots.map((s) => s.date).filter(Boolean))) for (const at of positions(date)) marks.push({ at, date });
+
+  const hits: Array<{ key: string; at: number }> = [];
+  for (const clock of new Set(slots.map((s) => s.clock))) {
+    const sameClock = slots.filter((s) => s.clock === clock);
+    for (const at of positions(clock)) {
+      const before = marks.filter((m) => m.at < at).sort((a, b) => b.at - a.at)[0];
+      let chosen = before ? sameClock.filter((s) => (before.day ? s.day === before.day : s.date === before.date)) : [];
+      if (chosen.length !== 1 && sameClock.length === 1) chosen = sameClock;
+      if (chosen.length === 1 && !hits.some((h) => h.key === chosen[0].key)) hits.push({ key: chosen[0].key, at });
+    }
+  }
+  return hits.sort((a, b) => a.at - b.at).map((h) => h.key);
+}
+
+/**
+ * Is this message agreement and nothing else — "تمام", "ماشي 👍", "اوك تمام"?
+ *
+ * After two times were offered, that says yes to booking without saying which. The model was
+ * asked to settle it and either booked the first one itself or lost the thread and greeted the
+ * patient again, so the caller asks "this one or that one?" in code.
+ */
+export function isBareAgreement(text: string): boolean {
+  const words = normalize(text)
+    .replace(/[^a-z0-9؀-ۿ\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!words.length || words.length > 3) return false;
+  const agree = new Set(AGREEMENT.map(normalize));
+  return words.every((w) => agree.has(w));
+}

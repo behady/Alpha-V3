@@ -29,7 +29,8 @@ function nudgeText(c) {
   const name = String(c.patientName || "").trim().split(/\s+/)[0] || "";
   const hi = name ? `${name}، ` : "";
   // "لو حبيت" reads the same to a man and a woman; the masculine participle does not.
-  return interest
+  // An interest that is itself the check-up reads "أحجزلك كشف عشان كشف"; say it once.
+  return interest && !/كشف|فحص/.test(interest)
     ? `${hi}لسه معانا؟ 😊 لو حبيت أحجزلك كشف عشان ${interest} أو عندك أي سؤال تاني، أنا هنا.`
     : `${hi}لسه معانا؟ 😊 لو حبيت أحجزلك كشف أو عندك أي سؤال تاني، أنا هنا.`;
 }

@@ -20,7 +20,7 @@ import { confirmOptOut } from "@/lib/bot/optOutConfirm";
 import { reportServerError } from "@/lib/server/reportError";
 import { readStoredAd, type AdReferral } from "@/lib/bot/adReferral";
 import { gradeLeadByPhone } from "@/lib/leads/gradeLeadServer";
-import { claimMediaTurn } from "@/lib/bot/burstGuard";
+import { claimMediaTurn, joinsMediaBurst } from "@/lib/bot/burstGuard";
 import { fileHistoryIntoThreads } from "@/lib/bot/threadHistory";
 import { readHistoryItems, type HistoryItem } from "@/lib/bot/threadHistoryPlan";
 
@@ -482,7 +482,8 @@ export async function POST(request: NextRequest) {
 
     // The second photo of an album and every one after it: on the thread (above), read by
     // nobody, answered by nobody — the first photo's answer was the answer. See lib/bot/burstGuard.
-    if (media && !text && !(await claimMediaTurn(clinicId, conversationKey(chatId)))) {
+    // Voice notes are not an album: each one is read and answered (see joinsMediaBurst).
+    if (media && !text && joinsMediaBurst(media.kind) && !(await claimMediaTurn(clinicId, conversationKey(chatId)))) {
       await adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(chatId)).set({ lastReason: "media_burst" }, { merge: true }).catch(() => {});
       return NextResponse.json({ ok: true, bot: "skipped", why: "media_burst" });
     }

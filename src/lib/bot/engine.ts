@@ -245,6 +245,7 @@ export { needsHuman, triageMessage } from "./clinicalTriage";
 import { needsHuman, triageMessage } from "./clinicalTriage";
 import { competitorReply, expensiveReply, offersExpiredReply, thinkingReply } from "./sales";
 import { looksLikeQuestion, quickIntent, type QuickIntent } from "./quickAnswers";
+import { nameFromReply } from "./nameGuard";
 import { matchScript } from "./scripts";
 
 /*
@@ -690,13 +691,19 @@ export function decideBotReply(args: {
      * than from a web form would be backwards. Digits are not names; they are almost certainly a
      * stray tap at an old list, so the question is asked again rather than a patient called "3".
      */
-    const name = text.replace(/\s+/g, " ").trim();
-    // In AI mode a greeting, a question or a booking word at the name step is talk, not a name:
-    // "Hi" must not be registered as somebody called Hi.
-    if (ctx.aiFirst && ctx.aiAvailable && (quickIntent(name) !== null || /[?؟]/.test(name))) {
+    const typed = text.replace(/\s+/g, " ").trim();
+    /*
+     * A sentence is not a name. A voice note answering this step — "ازي حضرتك أنا من بلبيس" —
+     * was registered as the patient's name and given an appointment; `nameFromReply` only
+     * returns something that looks like one, and drops the spoken "اسمي …" in front of it.
+     */
+    const name = nameFromReply(typed);
+    // In AI mode a greeting, a question, a booking word or any other sentence at the name step
+    // is talk, not a name: "Hi" must not be registered as somebody called Hi.
+    if (ctx.aiFirst && ctx.aiAvailable && (!name || quickIntent(typed) !== null || /[?؟]/.test(typed))) {
       return { reply: "", action: { type: "ai", question: text }, next: state, handoff: false, reason: "ai" };
     }
-    if (numberChoice(name) !== null || name.length < 2 || name.length > 80) {
+    if (!name || numberChoice(typed) !== null) {
       return { reply: "معلش، ياريت الاسم بالحروف (مش أرقام) عشان نكمل الحجز 🙏", next: "booking_name", handoff: false, reason: "ask_name_again" };
     }
     return { reply: "", action: { type: "register", name, forRelative: ctx.forRelative === true }, next: "booking_day", handoff: false, reason: "registered" };

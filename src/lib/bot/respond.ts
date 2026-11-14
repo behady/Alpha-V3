@@ -47,7 +47,7 @@ import { isLatinMessage, localizeOutbound } from "./localize";
 import { joinBubbles, splitBubbles } from "./bubbles";
 import { loadPatientDossier, type PatientDossier } from "./patientDossier";
 import { appointmentLine, branchesTextOf, stripDoctorNames } from "./ownerRules";
-import { resolveSpokenPick } from "./spokenPick";
+import { isBareAgreement, resolveSpokenPick, spokenSlots } from "./spokenPick";
 import { DEFAULT_SCREENING, readScreeningAnswer } from "./medicineScreen";
 import { stripRepeatIntro } from "./repeatIntro";
 import { feminizeAddress } from "./voiceFix";
@@ -1088,7 +1088,10 @@ export async function respondToPatientMessage(args: {
             ...(ctx.addressText?.trim() ? ["", `📍 ${ctx.addressText.trim()}`] : []),
             ...(ctx.facts?.mapsUrl?.trim() ? [ctx.facts.mapsUrl.trim()] : []),
             ...(ctx.facts?.parking?.trim() ? [`🅿️ ${ctx.facts.parking.trim()}`] : []),
-            ...(ctx.facts?.consultation?.trim() ? [`ℹ️ ${ctx.facts.consultation.trim()}`] : []),
+            // Someone who came from an ad for a running offer booked the OFFER. Quoting the
+            // ordinary consultation fee under their confirmation ("الكشف 200 ج.م") contradicts
+            // the price they were just promised, so the fee line is left out for them.
+            ...(ctx.facts?.consultation?.trim() && !(ctx.ad && offersActive) ? [`ℹ️ ${ctx.facts.consultation.trim()}`] : []),
           ].join("\n");
           nextState = "awaiting_choice";
           reason = "booked";
@@ -1416,7 +1419,13 @@ ${urgentCallLine(ctx.clinicPhone)}`;
        * were offered are on the conversation, so the choice is read here rather than argued about
        * in the prompt. Anything ambiguous still falls through to the model's own judgement.
        */
-      if (ai.kind === "answer" && ai.openBooking && !ai.bookSlot && (conversation.pendingSlots?.length || 0) > 0) {
+      /*
+       * The same reading also overrules a `book_slot` the model got wrong. Offered "السبت 6:30
+       * أو الأحد 3:00" and answered "الأول", it booked Saturday 3:30 — the first row of ITS list,
+       * a time the patient was never told. What the patient heard is on the conversation in the
+       * order they heard it, so "the first one" is counted there, not in the model's list.
+       */
+      if (ai.kind === "answer" && (ai.openBooking || ai.bookSlot) && (conversation.pendingSlots?.length || 0) > 0) {
         const offered = (conversation.pendingSlots || [])
           .map((key) => slotOffer.find((s) => s.key === key))
           .filter((s): s is { key: string; label: string } => Boolean(s));
@@ -1424,6 +1433,22 @@ ${urgentCallLine(ctx.clinicPhone)}`;
         if (picked) {
           ai.bookSlot = picked;
           ai.openBooking = false;
+        }
+      }
+      /*
+       * "تمام" after two times is a yes to booking, not a choice between them. The model either
+       * booked the first one on its own or lost the thread and greeted the patient again, so the
+       * question is asked here: the same two times, back in one line. Arabic only — the line is
+       * written in Arabic, and an "ok" from an English speaker stays with the model.
+       */
+      if (ai.kind === "answer" && /[؀-ۿ]/.test(act.question) && isBareAgreement(act.question)) {
+        const offered = (conversation.pendingSlots || [])
+          .map((key) => slotOffer.find((s) => s.key === key))
+          .filter((s): s is { key: string; label: string } => Boolean(s));
+        if (offered.length >= 2) {
+          ai.bookSlot = undefined;
+          ai.openBooking = false;
+          ai.text = `تمام 👍 تحب ${offered[0].label} ولا ${offered[1].label}؟`;
         }
       }
 
@@ -1441,21 +1466,7 @@ ${urgentCallLine(ctx.clinicPhone)}`;
         // all four made "the third one" resolve to a time nobody was offered. A slot counts as
         // spoken only when its date or its day name is in the sentence beside its clock — or when
         // that clock belongs to exactly one slot anyway.
-        const hits: Array<{ key: string; at: number }> = [];
-        for (const s of slotOffer) {
-          // The digits only: the assistant says "10:30 بالليل" as often as "10:30 م", and matching
-          // the marker missed every one of those.
-          const clock = s.label.match(/\d{1,2}:\d{2}/)?.[0];
-          if (!clock) continue;
-          const at = said.indexOf(clock);
-          if (at < 0) continue;
-          const date = s.label.match(/\d{1,2}\/\d{1,2}/)?.[0];
-          const day = s.label.match(/^(\S+)/)?.[1] || "";
-          const unique = slotOffer.filter((o) => o.label.includes(clock)).length === 1;
-          if (unique || (date && said.includes(date)) || (day.length > 2 && said.includes(day))) hits.push({ key: s.key, at });
-        }
-        // In the order the patient heard them, which is the order "the first one" counts in.
-        spokenSlotKeys = hits.sort((a, b) => a.at - b.at).map((h) => h.key);
+        spokenSlotKeys = spokenSlots(said, slotOffer);
       }
       if (ai.kind === "answer" || ai.kind === "handoff") {
         const wrote = ai.text || "";
@@ -2328,7 +2339,9 @@ function bookingStepLabel(c: BotConversation): string {
     case "booking_time":
       return `اختيار الساعة يوم ${c.pendingDate ? arabicDayLabel(c.pendingDate) : ""} من: ${(c.pendingTimes ?? []).map(arabicTimeLabel).join("، ")}`;
     case "booking_name":
-      return "طلبنا منه اسمه الكامل عشان نسجل الحجز";
+      // Said in full: left as a bare label, the model answered the small talk and dropped the
+      // booking — the patient had picked a time and was never asked for the name again.
+      return "طلبنا منه اسمه الكامل عشان نسجل الحجز، ولسه مبعتوش — الميعاد اللي اختاره متثبتش. رد على كلامه في جملة واحدة، وبعدها اطلب منه الاسم الكامل تاني عشان تثبتله الحجز. متعرضش مواعيد جديدة ومتسألوش محتاج إيه";
     default:
       return "";
   }
