@@ -410,6 +410,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, staffLine: true });
     }
 
+    // The line's own time goes to the reply too: "did they write again since" is measured from it.
+    const receivedAt = Date.now();
     const lineId = await recordThreadMessage(clinicId, chatId, {
       direction: "in",
       author: "patient",
@@ -418,7 +420,7 @@ export async function POST(request: NextRequest) {
       // The id an old-chats copy will carry for this same message later, so it is not filed twice.
       messageId: inboundId || undefined,
       channel: "wapilot",
-    }).catch((e) => {
+    }, receivedAt).catch((e) => {
       console.warn("[whatsapp-inbound] thread write failed:", e);
       return "";
     });
@@ -545,6 +547,9 @@ export async function POST(request: NextRequest) {
       chatId,
       phone,
       messageId: inboundId || undefined,
+      // Only a line that held the words from the start: a voice note's words reach the thread just
+      // now, so a message that came while it was being transcribed was answered without them.
+      receivedAt: lineId && reply.text ? receivedAt : undefined,
       text,
       media: mediaKind,
       mediaNote,

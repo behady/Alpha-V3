@@ -7,7 +7,8 @@
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { joinBubbles, MAX_BUBBLES, splitBubbles } from "../src/lib/bot/bubbles";
+import { joinBubbles, MAX_BUBBLES, priceBeforeQuestions, splitBubbles } from "../src/lib/bot/bubbles";
+import { asksPrice } from "../src/lib/bot/quickAnswers";
 
 function test(name: string, fn: () => void) {
   fn();
@@ -59,6 +60,45 @@ test("respond.ts sends the parts one by one, and folds them where only one messa
   assert.ok(loop > src.indexOf('claimKey("out", conversationKey(replyTo), body)'), "after the first bubble's claim and send");
   assert.ok(loop < src.indexOf("if (trailerBubble && !args.dryRun) {"), "before the photo disclaimer");
   assert.ok(src.includes("recordThreadMessage(clinicId, replyTo, { direction: \"out\", author: \"bot\", text: bubble, kind: reason }, Date.now())"), "each bubble is its own thread line");
+});
+
+// The real reply of 14/11/2026 08:25 (chat …054233): it already led with the price.
+const TURN1 =
+  "أيوه متاح عندنا كمبوزيت فينير، وسعره يبدأ من 1,500 ج.م، والاستقبال بيأكد السعر النهائي بعد ما الدكتور يحدد الأنسب لضحكتك. والكشف عموماً 200 ج.م وبيتخصم من تكلفة العلاج لو كمّلت معانا.\n\nالمواعيد المتاحة عندي مثلاً السبت 14/11 الساعة 3:00 م أو الأحد 15/11 الساعة 6:30 م، تحب أنهي فيهم؟";
+
+test("asked the price, the price comes before the model's own question", () => {
+  assert.equal(priceBeforeQuestions(TURN1), TURN1, "already price-first: untouched");
+  const questionFirst =
+    "الهدف تجميلي لتعديل شكل الابتسامة ولا في سنة معينة مضايقاك؟\n\nأيوه بنعمل كمبوزيت فينير، وسعره بيبدأ من 1,500 ج.م.\n\nعندي ميعاد السبت 6:30 م، يناسبك؟";
+  assert.equal(
+    priceBeforeQuestions(questionFirst),
+    "أيوه بنعمل كمبوزيت فينير، وسعره بيبدأ من 1,500 ج.م.\n\nالهدف تجميلي لتعديل شكل الابتسامة ولا في سنة معينة مضايقاك؟\n\nعندي ميعاد السبت 6:30 م، يناسبك؟",
+    "the question moves to just after the figure; nothing is added or lost"
+  );
+  const greeting = "أهلاً بك، معاك سارة.\n\nالعرض بـ 299 ج.م بدل 550 ج.م.\n\nتحب نحجزلك السبت؟";
+  assert.equal(priceBeforeQuestions(greeting), greeting, "a greeting stays first; a question after the price stays");
+  assert.equal(priceBeforeQuestions("سؤال؟\n---\n500 ج.م"), "سؤال؟\n---\n500 ج.م", "the clinic's --- order is its own");
+  assert.ok(priceBeforeQuestions("Is it for looks?\n\nVeneers start at EGP 1,500.").startsWith("Veneers"), "English, currency first");
+  assert.ok(priceBeforeQuestions("محتاج كام سنة؟\n\nالحشو 300 ج للسن.").startsWith("الحشو"), "ج on its own");
+  assert.equal(priceBeforeQuestions("محتاج كام جلسة؟\n\nغالباً 2 جلسة."), "محتاج كام جلسة؟\n\nغالباً 2 جلسة.", "a count is not a price");
+  assert.equal(priceBeforeQuestions("تحب تيجي امتى؟\n\nالسبت 6:30 م متاح."), "تحب تيجي امتى؟\n\nالسبت 6:30 م متاح.", "a time is not a price");
+});
+
+test("asksPrice: a money question, not every كام", () => {
+  for (const q of ["السعر كام", "بكام", "الفينير بكام؟", "how much is it", "بتعملوا فينيس\nالسعر كام", "سعره كام", "التنظيف بكم", "what are your prices"]) {
+    assert.equal(asksPrice(q), true, q);
+  }
+  for (const q of ["الساعة كام", "عندكم كام فرع", "بتعملوا فينيس", "اتمنى اجي بكره", "costume", ""]) {
+    assert.equal(asksPrice(q), false, q);
+  }
+});
+
+test("respond.ts reorders the model's answer only when a price was asked", () => {
+  const src = readFileSync(new URL("../src/lib/bot/respond.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  const guard = src.indexOf("if ([act.question, ...unanswered].some(asksPrice)) ai.text = priceBeforeQuestions(ai.text);");
+  assert.ok(guard > 0, "the guard is there");
+  assert.ok(guard > src.indexOf("const cleaned = stripDoctorNames(ai.text"), "after the hidden-names backstop");
+  assert.ok(guard < src.indexOf("brainUsed = brainReply.brainUsed;"), "before anything is built from the text");
 });
 
 test("both brains are told how to mark a break", () => {

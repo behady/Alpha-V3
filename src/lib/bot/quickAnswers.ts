@@ -278,6 +278,20 @@ const QUESTION_WORDS = [
 const PRICE_WORDS = ["سعر", "السعر", "اسعار", "الاسعار", "بكام", "كام", "تكلفه", "التكلفه", "price", "cost", "how much"];
 
 /**
+ * The patient asked what something costs. No bare "كام": "الساعة كام" and "عندكم كام فرع" ask
+ * the time and the branches, not a price.
+ */
+const PRICE_ASK = [
+  "سعر", "السعر", "سعره", "سعرها", "اسعار", "الاسعار", "بكام", "بكم", "تكلفه", "التكلفه", "تكلفته", "تكلفتها",
+  "تمن", "التمن", "price", "prices", "cost", "how much",
+];
+
+export function asksPrice(raw: string): boolean {
+  const text = normalize(raw);
+  return Boolean(text) && has(text, PRICE_ASK);
+}
+
+/**
  * Is this message asking something, rather than answering the question the bot just put?
  *
  * The bot asks for a name and gets "اسعار حشو العادى كام"; it lists dentists and gets "قولي

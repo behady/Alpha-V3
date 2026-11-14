@@ -29,3 +29,30 @@ export function splitBubbles(text: string, max: number = MAX_BUBBLES): string[] 
 export function joinBubbles(text: string): string {
   return splitBubbles(text, Number.POSITIVE_INFINITY).join("\n\n");
 }
+
+/** A money figure: "1,500 ج.م", "300 جنيه", "300 ج", "1500 EGP", "EGP 1,500", "LE 300". */
+const PRICE_FIGURE = /\d[\d,٬.]*\s*(?:ج\.?\s*م|جنيه|ج(?=[\s.،,]|$)|EGP\b|LE\b)|\b(?:EGP|LE)\s*\d/i;
+
+/** A paragraph that ends by asking something. */
+const ENDS_IN_QUESTION = /[?؟]\s*$/;
+
+/**
+ * The price before any question the model put above it.
+ *
+ * Asked "السعر كام", the model sometimes opens with its own question ("is it for looks, or a tooth
+ * that bothers you?") and gives the figure after it. Split into two bubbles, the first the patient
+ * reads is a question that looks like the answer to theirs. The question paragraphs above the
+ * first figure move to just after it; everything else stays where it was (a greeting stays
+ * first). The model's own words, never added to. A reply with `---` breaks is the clinic's own
+ * message order (its coaching) and is left alone.
+ */
+export function priceBeforeQuestions(reply: string): string {
+  if (BREAK.test(reply)) return reply;
+  const parts = reply.split(/\n[ \t]*\n/).map((s) => s.trim()).filter(Boolean);
+  const first = parts.findIndex((p) => PRICE_FIGURE.test(p));
+  if (first <= 0) return reply;
+  const before = parts.slice(0, first);
+  const asks = before.filter((p) => ENDS_IN_QUESTION.test(p));
+  if (!asks.length) return reply;
+  return [...before.filter((p) => !ENDS_IN_QUESTION.test(p)), parts[first], ...asks, ...parts.slice(first + 1)].join("\n\n");
+}

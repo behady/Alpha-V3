@@ -149,7 +149,9 @@ test("respond.ts: a held thread says nothing — no photo to the model, no «و�
     "ctx.heldByStaff = heldByStaff;",
     "const photoToModel = !heldByStaff &&",
     '? { reply: "", next: "handed_off" as const, handoff: false, reason: "already_with_a_human" }',
-    'state: heldByStaff ? "handed_off" :',
+    // The engine's state, kept in one place so a newer message is judged in it too (lib/bot/supersede).
+    'const engineState: BotState = heldByStaff ? "handed_off" :',
+    "decideBotReply({ state: engineState, text, ctx })",
     "staffQuestionAt(lines, wrote, now)",
   ]) {
     assert.ok(respond.includes(s), s);

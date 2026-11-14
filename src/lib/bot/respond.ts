@@ -45,7 +45,7 @@ import { answerWithAi, type AiPatientContext, type AiThreadLine, AI_DEFAULT_ACK 
 import { aiBrainOf, dryRunBrainTag, pickReply, type AiBrain } from "@/lib/botPro/brain";
 import { answerWithPro } from "@/lib/botPro/answerWithPro";
 import { isLatinMessage, localizeOutbound } from "./localize";
-import { joinBubbles, splitBubbles } from "./bubbles";
+import { joinBubbles, priceBeforeQuestions, splitBubbles } from "./bubbles";
 import { loadPatientDossier, type PatientDossier } from "./patientDossier";
 import { appointmentLine, branchesTextOf, stripDoctorNames } from "./ownerRules";
 import { isBareAgreement, resolveSpokenPick, spokenSlots } from "./spokenPick";
@@ -54,14 +54,15 @@ import { stripRepeatIntro } from "./repeatIntro";
 import { feminizeAddress } from "./voiceFix";
 import { SALES_CLOSE_REASONS, LEAD_INTEREST_REASONS, activeOffers, closingLine, offerForService } from "./sales";
 import { markBotLeadBooked, snoozeBotLead, upsertBotLead } from "./botLeads";
-import { patientWroteAfter, recentThreadLines, recordThreadMessage } from "./thread";
+import { newerPatientLines, recentThreadLines, recordThreadMessage } from "./thread";
+import { lineTakesOver } from "./supersede";
 import { STAFF_QUESTION_HOLD_MS, staffQuestionAt, staffQuestionCouldHold } from "./staffHold";
 import { adSubjectText, adSystemLine, readStoredAd, type AdReferral } from "./adReferral";
 import { attributionFromClicks, clickFromReferral, mergeClicks, type AdClick } from "@/lib/metaConversions";
 import { clinicalReplyText,
-  urgentCallLine, decideBotReply, type BotContext } from "./engine";
+  urgentCallLine, decideBotReply, type BotContext, type BotState } from "./engine";
 import { needsHuman } from "./clinicalTriage";
-import { isDecline, mentionsRelative, quickIntent } from "./quickAnswers";
+import { asksPrice, isDecline, mentionsRelative, quickIntent } from "./quickAnswers";
 import { markConversationDeclined } from "./conversation";
 import { parseDayWord } from "./dayWords";
 import { guessGender, voiceFor } from "@/lib/arabicNames";
@@ -556,6 +557,15 @@ export async function respondToPatientMessage(args: {
   phone?: string;
   /** WhatsApp's id of this message, when the channel gave one: tells a newer message from a redelivered copy. */
   messageId?: string;
+  /**
+   * The `at` of this message's own thread line. "Did the patient write again?" is measured from
+   * here, not from when this turn started: the line is written first, and a second message landing
+   * in the same second is newer than this one even though it is older than this turn's start.
+   * Absent (no line was written, or it did not hold the words yet: a voice note, whose transcript
+   * is attached just before this turn starts): the turn's start, as before — a message that came
+   * while the voice note was being transcribed was answered by a model that never heard it.
+   */
+  receivedAt?: number;
   text: string;
   /**
    * Set when the message carried a photo, voice note, video or document.
@@ -868,13 +878,21 @@ export async function respondToPatientMessage(args: {
   ctx.menuShown = MENU_ON_SCREEN_REASONS.has(String(conversation.lastReason || ""));
   // Remembered so a tapped button, a bare digit or an emoji keeps the language the patient chose.
   const latinNow = isLatinMessage(text);
-  // Only asked when it matters: sales mode and a one-word acknowledgement on the table.
-  if (settings.aiFirst && patient && quickIntent(text) === "ack") {
-    const soon = await findNextAppointment(clinicId, patient.id).catch(() => null);
-    const limit = new Date(`${clinicNow().dateKey}T12:00:00`);
-    limit.setDate(limit.getDate() + 2);
-    ctx.hasSoonAppointment = Boolean(soon && soon.date <= limit.toISOString().slice(0, 10));
-  }
+  // Only asked when it matters: sales mode and a one-word acknowledgement on the table — this
+  // message's, or (lib/bot/supersede) a newer one's. One lookup per turn at most.
+  let soonLookup: Promise<boolean> | null = null;
+  const soonAppointment = (): Promise<boolean> => {
+    const p = patient;
+    if (!p) return Promise.resolve(false);
+    soonLookup ??= (async () => {
+      const soon = await findNextAppointment(clinicId, p.id).catch(() => null);
+      const limit = new Date(`${clinicNow().dateKey}T12:00:00`);
+      limit.setDate(limit.getDate() + 2);
+      return Boolean(soon && soon.date <= limit.toISOString().slice(0, 10));
+    })();
+    return soonLookup;
+  };
+  if (settings.aiFirst && patient && quickIntent(text) === "ack") ctx.hasSoonAppointment = await soonAppointment();
   ctx.clinicalMode = settings.clinicalDentist ? "dentist" : "handoff";
   if (conversation.state === "booking_doctor") ctx.optionCount = conversation.pendingDoctors?.length ?? 0;
   if (conversation.state === "booking_day") ctx.optionCount = conversation.pendingDays?.length ?? 0;
@@ -894,6 +912,10 @@ export async function respondToPatientMessage(args: {
   }
   const heldByStaff = conversation.staffActive === true || staffAskedAtMs > 0;
   ctx.heldByStaff = heldByStaff;
+  // A handoff flag with nobody behind it must not mute the salesperson: the flag stays for the
+  // desk, the model keeps helping. A person who actually wrote, took the thread over, or asked the
+  // patient something still owns it. (Also the state a newer message is judged in: see the send.)
+  const engineState: BotState = heldByStaff ? "handed_off" : settings.aiFirst && conversation.state === "handed_off" ? "awaiting_choice" : conversation.state;
 
   /*
    * A photo, a voice note, a video: acknowledged and handed straight to a person.
@@ -937,14 +959,7 @@ export async function respondToPatientMessage(args: {
             handoff: true,
             reason: `media_${args.media}`,
           }
-      : decideBotReply({
-          // A handoff flag with nobody behind it must not mute the salesperson: the flag stays
-          // for the desk, the model keeps helping. A person who actually wrote, took the thread
-          // over, or asked the patient something still owns it.
-          state: heldByStaff ? "handed_off" : settings.aiFirst && conversation.state === "handed_off" ? "awaiting_choice" : conversation.state,
-          text,
-          ctx,
-        });
+      : decideBotReply({ state: engineState, text, ctx });
 
   /*
    * The patient wrote to a person and the bot said nothing — so that person is told. needsHuman
@@ -1516,6 +1531,21 @@ ${urgentCallLine(ctx.clinicPhone)}`;
             .add({ kind: "doctor_name_stripped", doctorNameStripped: true, brain: brainReply.brainUsed, createdAt: FieldValue.serverTimestamp() })
             .catch(() => {});
         }
+      }
+      /*
+       * Asked the price, the price comes first. A question the model put above the figure ("is it
+       * for looks?") is moved below it, so a reply split into two bubbles never opens with a
+       * question that reads as the answer to "السعر كام". The model's own paragraphs, reordered;
+       * nothing added. Asked in this message or in any of the patient's messages still unanswered.
+       */
+      if (ai.kind === "answer" && ai.text) {
+        const unanswered: string[] = [];
+        for (const line of [...(salesContext?.thread ?? [])].reverse()) {
+          if (line.author === "system") continue;
+          if (line.author !== "patient") break;
+          unanswered.push(line.text);
+        }
+        if ([act.question, ...unanswered].some(asksPrice)) ai.text = priceBeforeQuestions(ai.text);
       }
       brainUsed = brainReply.brainUsed;
       // What Pro offered is what "the first one" and the spoken clocks below resolve against.
@@ -2348,14 +2378,34 @@ ${askWho}` : askWho;
 
   let waMessageId: string | undefined;
   // Each bubble's thread line keeps the moment it actually went out, so two bubbles read in the
-  // order the patient saw them — the first line is written after both sends.
+  // order the patient saw them.
   let firstSentAt = Date.now();
   let firstSent = false;
+  /*
+   * Several messages in quick succession: did the patient write again while this answer was being
+   * composed (or while its first bubble was going out)? Then the newer turn, whose model reads the
+   * whole thread, answers everything, and the rest of this answer is not sent.
+   *
+   * Only a plain model answer in sales mode: a booking, a card or a hand-off still goes, a photo's
+   * reading still goes (its context lives on this turn only), and assisted mode never drops one —
+   * its model is not shown the thread, so the newer turn would not know the question. Only a newer
+   * message that really reaches the model counts (lib/bot/supersede): a "شكرا", a script, an album
+   * photo answer nothing in its place. Measured from this message's own line, not from when this
+   * turn started (14/11/2026: two messages 8 ms apart each got a greeting and an offer).
+   */
+  const supersedable = !args.dryRun && reason === "ai_answer" && settings.aiFirst && !photoToModel;
+  const ownLineAt = args.receivedAt ?? now;
+  const wroteAgain = async (): Promise<boolean> => {
+    for (const line of await newerPatientLines(clinicId, chatId, ownLineAt, { text, messageId: args.messageId })) {
+      const takesOver = await lineTakesOver(line, { state: engineState, ctx, today: clinicNow().dateKey, soonAppointment }).catch(() => false);
+      if (takesOver) return true;
+    }
+    return false;
+  };
+  // The first bubble went out and the patient wrote before the next one: the rest is not sent.
+  let tailDropped = false;
   try {
-    // Several messages in quick succession: the patient wrote again while this answer was being
-    // composed, so the newer turn — which sees the whole thread — answers everything, and this
-    // one is dropped unsent. Only a plain model answer: a booking, a card or a hand-off still goes.
-    if (!args.dryRun && reason === "ai_answer" && (await patientWroteAfter(clinicId, chatId, now, { text, messageId: args.messageId }))) {
+    if (supersedable && (await wroteAgain())) {
       return skip("superseded");
     }
     // Two invocations composing the same answer at the same moment (two quick messages from the
@@ -2366,10 +2416,23 @@ ${askWho}` : askWho;
     if (!args.dryRun) waMessageId = await sendPatientWhatsAppRich(clinicId, replyTo, body, structure);
     firstSentAt = Date.now();
     firstSent = true;
+    // The bot's own words, in the thread staff read, the moment they went out — so a turn started
+    // by the patient's next message already sees them (it used to be written after the last
+    // bubble, and a newer turn quoted the price again and offered other times). Never allowed to
+    // fail the turn. A rehearsal (dryRun) writes to its own private play_ thread — the fake phone
+    // it carries must never become a conversation on the Chats page, which it once did.
+    await recordThreadMessage(clinicId, args.dryRun ? chatId : replyTo, { direction: "out", author: "bot", text: body, kind: reason, waMessageId }, firstSentAt).catch(() => {});
     // The rest of the reply, one message at a time — the model's own breaks, or the long-answer
     // split above. Each waits about as long as typing it would.
     for (const bubble of extraBubbles.length ? extraBubbles : secondBubble ? [secondBubble] : []) {
       await new Promise((r) => setTimeout(r, Math.min(7000, 1500 + bubble.length * 30)));
+      // The patient wrote meanwhile: this tail was written for the older message. 14/11/2026: the
+      // price went out, the patient asked "السعر كام", and 0.7 s later the old tail's question
+      // arrived as if it were the answer.
+      if (supersedable && (await wroteAgain())) {
+        tailDropped = true;
+        break;
+      }
       await sendPatientWhatsAppRich(clinicId, replyTo, bubble, undefined);
       await recordThreadMessage(clinicId, replyTo, { direction: "out", author: "bot", text: bubble, kind: reason }, Date.now()).catch(() => {});
     }
@@ -2381,7 +2444,7 @@ ${askWho}` : askWho;
     // The file the model chose to attach: a before/after photo, the price sheet. After the words.
     // Cast: the assignment happens inside the action dispatch and TS's flow analysis loses it here.
     const attach = aiMedia as { id: string; label: string; url: string; kind: "image" | "document" } | null;
-    if (attach && !args.dryRun) {
+    if (attach && !args.dryRun && !tailDropped) {
       const cfg = await loadMetaWhatsappConfig(clinicId);
       if (cfg) {
         await new Promise((r) => setTimeout(r, 1200));
@@ -2427,16 +2490,17 @@ ${askWho}` : askWho;
     createdAt: FieldValue.serverTimestamp(),
   });
 
-  // The bot's own words, in the thread staff read. Never allowed to fail the turn.
-  // A rehearsal (dryRun) writes to its own private play_ thread — the fake phone it carries
-  // must never become a conversation on the Chats page, which is exactly what it once did.
-  await recordThreadMessage(clinicId, args.dryRun ? chatId : replyTo, {
-    direction: "out",
-    author: "bot",
-    text: body,
-    kind: reason,
-    waMessageId,
-  }, firstSentAt).catch(() => {});
+  /*
+   * The tail was dropped for a newer message. Its turn answers that message and saves the
+   * conversation; saving this older turn's state on top could undo it. What did go out still
+   * counts against the number's ban-protection caps, so only those are stamped.
+   */
+  if (tailDropped) {
+    void adminClinicDoc(clinicId, "whatsapp_conversations", conversation.phoneKey)
+      .set({ recentReplies: FieldValue.arrayUnion(now), repliesInWindow: FieldValue.increment(1) }, { merge: true })
+      .catch(() => {});
+    return { status: "replied", text: body, handoff, reason: "superseded_tail" };
+  }
 
   await saveConversation(
     clinicId,
@@ -2610,9 +2674,11 @@ async function loadSalesContext(
     const prev = Number(rows[1].at) || 0;
     if (newest && prev) gapMinutes = Math.round((newest - prev) / 60000);
   }
+  // A voice note is its words: its line says "[audio]" (dropped below) with the transcript beside it,
+  // so the model never heard an earlier voice note, and a burst that ended on a typed line lost it.
   const thread: AiThreadLine[] = rows
     .reverse()
-    .map((m) => ({ author: (m.author as AiThreadLine["author"]) || "bot", text: String(m.text || "") }))
+    .map((m) => ({ author: (m.author as AiThreadLine["author"]) || "bot", text: String(m.transcript || m.text || "") }))
     .filter((l) => l.text.trim() && !l.text.startsWith("[") );
   const knowledge = (knowledgeSnap?.docs ?? []).map((d) => {
     const k = d.data() || {};

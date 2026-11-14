@@ -1,6 +1,7 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { conversationKey } from "./conversation";
+import { normaliseForClaim } from "./replyClaims";
 import { knownPatientPatch } from "./threadPatientLink";
 
 /**
@@ -230,18 +231,72 @@ async function attachKnownPatientIfMissing(
 export type CurrentInbound = { text: string; messageId?: string };
 
 /**
+ * The inbound same-words claim's window (respond.ts): the same words again inside it are refused
+ * by their own turn, so such a line will never get an answer of its own.
+ */
+const REPEAT_MS = 20_000;
+
+/** What a patient line said, as the inbound claim compares it: a voice note by its transcript. */
+const said = (line: Record<string, unknown>): string => normaliseForClaim(String(line.transcript || line.text || ""));
+
+/** "[image]", "[audio]": a media line with no words (yet). */
+const MEDIA_PLACEHOLDER = /^\[[a-z_]+\]$/i;
+
+/**
  * Is this thread line a patient message newer than the one being answered?
  *
- * The gateway re-delivers a slow webhook (same messageId, a later `at`) and the copy is written to
- * the thread before the dedupe drops it, so "newer" is by id and text, not by time alone. Pure, so
- * the rule is unit-tested; patientWroteAfter does the read.
+ * `sinceMs` is the `at` of the answered message's OWN line. It used to be the moment its turn
+ * started, which is later than the line: two messages landing 8 ms apart (14/11/2026, "عياده
+ * اسنان" then "السلام عليكم") were each older than the other turn's start, neither turn saw the
+ * other, and the patient got two greetings and two different offers. Two lines in the same
+ * millisecond are ordered by id, so the two turns always agree which one is newer.
+ *
+ * A copy of the answered message (same id, or the same words) is not newer. Neither is a line filed
+ * from the phone's own history on the QR line: nobody answers those. Pure, so the rule is
+ * unit-tested; newerPatientLines does the read.
  */
 export function isNewerPatientLine(line: Record<string, unknown>, current: CurrentInbound, sinceMs: number): boolean {
   if (line.direction !== "in" || line.author !== "patient") return false;
-  if (!(Number(line.at) > sinceMs)) return false;
+  if (line.kind === "history") return false;
+  const at = Number(line.at);
+  if (!(at >= sinceMs)) return false;
   if (current.messageId && line.messageId === current.messageId) return false;
-  const text = String(line.text ?? "").replace(/\s+/g, " ").trim();
-  return text !== current.text.replace(/\s+/g, " ").trim();
+  // Same millisecond: the larger id is the newer one, so exactly one of the two turns gives way.
+  if (at === sinceMs && !(current.messageId && typeof line.messageId === "string" && line.messageId > current.messageId)) return false;
+  return said(line) !== normaliseForClaim(current.text);
+}
+
+/**
+ * The patient lines in `lines` (oldest first) that are newer than the answered message and will be
+ * answered by a turn of their own.
+ *
+ * A line repeating an earlier line's words inside the inbound claim's window is left out: its turn
+ * is refused as a duplicate, so it answers nothing, and it must not silence an answer that is
+ * still owed. A media line with no words yet (a voice note being transcribed) is never a repeat.
+ */
+export function newerLinesOf(lines: Array<Record<string, unknown>>, current: CurrentInbound, sinceMs: number): Array<Record<string, unknown>> {
+  const patient = lines.filter((l) => l.direction === "in" && l.author === "patient" && l.kind !== "history");
+  const repeats = (l: Record<string, unknown>): boolean => {
+    const words = said(l);
+    if (!words || MEDIA_PLACEHOLDER.test(words)) return false;
+    const at = Number(l.at);
+    return patient.some((p) => p !== l && Number(p.at) < at && at - Number(p.at) <= REPEAT_MS && said(p) === words);
+  };
+  return patient.filter((l) => isNewerPatientLine(l, current, sinceMs) && !repeats(l));
+}
+
+/**
+ * Did the patient write again after the message being answered? The lines that say so.
+ *
+ * Several messages in quick succession each start their own turn, and with a slow model the turns
+ * overlap. The newest turn's model reads the whole thread and answers all of it, so an answer
+ * composed for an older message may be dropped unsent (respond.ts asks lib/bot/supersede which
+ * newer lines will really reach the model). Read from 20 seconds before the message, so a repeat
+ * can be recognised. Never throws: a read failure means "nothing newer", and the answer goes out.
+ */
+export async function newerPatientLines(clinicId: string, address: string, sinceMs: number, current: CurrentInbound): Promise<Array<Record<string, unknown>>> {
+  const lines = await recentThreadLines(clinicId, address, sinceMs - REPEAT_MS - 1, 30);
+  return newerLinesOf(lines.reverse(), current, sinceMs);
 }
 
 /**
@@ -261,28 +316,5 @@ export async function recentThreadLines(clinicId: string, address: string, since
     return snap.docs.map((d) => d.data() || {});
   } catch {
     return [];
-  }
-}
-
-/**
- * Did the patient write again after this turn began?
- *
- * Several messages in quick succession each start their own turn, and with a slow model the
- * turns overlap: three questions in twenty seconds once got three overlapping answers, two of them
- * repeating the hours and the address. The latest turn sees the whole thread and answers all of
- * it, so an answer composed for an older message can be dropped unsent. Never throws: a read
- * failure means "nothing newer", and the answer goes out as before.
- */
-export async function patientWroteAfter(clinicId: string, address: string, sinceMs: number, current: CurrentInbound): Promise<boolean> {
-  try {
-    const snap = await adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(address))
-      .collection("messages")
-      .where("at", ">", sinceMs)
-      .orderBy("at", "asc")
-      .limit(8)
-      .get();
-    return snap.docs.some((d) => isNewerPatientLine(d.data() || {}, current, sinceMs));
-  } catch {
-    return false;
   }
 }
