@@ -29,6 +29,13 @@ import { currentClinicId } from "@/lib/db-utils";
  * sender holds back every REAL booking and visit (they wait, up to 7 days, and go out once the code
  * is cleared) — only the "Send test event" button uses the code. The server says so with
  * `testMode`; the saved code is the fallback for an older server that does not send it yet.
+ * The pill and notice show only when the switch is ON as well: with the switch off nothing new is
+ * even queued, so "Test mode" would claim something is waiting when nothing is. An off card with a
+ * code still saved says "Off" plus a small muted "test code saved", so the leftover is not hidden.
+ *
+ * "Send pending now" can come back having touched nothing because the clinic's setup pauses the
+ * run (`summary.paused`: switched off, settings incomplete, test code saved). That is not "nothing
+ * waiting" — rows may well be waiting — so the toast names the reason and what to fix instead.
  */
 
 type EventRow = {
@@ -140,8 +147,9 @@ export default function MetaConversionsCard() {
         ? "طول ما الكود ده متسجل، الحجوزات والزيارات الحقيقية مش بتتبعت لميتا — بتستنى لحد ما تمسحه. زرار «ابعت حدث تجربة» بس هو اللي بيستخدمه. امسحه بعد ما تخلص تجربة."
         : "While this is saved, real bookings and visits are not sent to Meta — they wait until you clear it. Only “Send test event” uses it. Clear it after testing.",
       testModeNotice: ar
-        ? "وضع التجربة: الحجوزات والزيارات الحقيقية مستنية، وهتتبعت لميتا بعد ما تمسح كود التجربة."
-        : "Test mode: real bookings and visits are waiting and will go to Meta after you clear the test code.",
+        ? "وضع التجربة: الحجوزات والزيارات الحقيقية مستنية (لحد 7 أيام)، وهتتبعت لميتا بعد ما تمسح كود التجربة."
+        : "Test mode: real bookings and visits are waiting (up to 7 days) and will go to Meta after you clear the test code.",
+      testCodeSaved: ar ? "كود التجربة متسجل" : "test code saved",
       switchLabel: ar ? "ابعت النتايج لميتا" : "Send results to Meta",
       save: ar ? "حفظ" : "Save",
       saved: ar ? "اتحفظ" : "Saved",
@@ -154,6 +162,16 @@ export default function MetaConversionsCard() {
       runRetry: ar ? "هيتعاد" : "to retry",
       runFailed: ar ? "فشل" : "failed",
       runNothing: ar ? "مفيش حاجة مستنية دلوقتي" : "Nothing waiting right now",
+      runDeferred: ar ? "مستني لسه" : "still waiting",
+      pausedDisabled: ar
+        ? "الخاصية مقفولة — مااتبعتش حاجة. شغّل «ابعت النتايج لميتا» واحفظ."
+        : "The switch is off — nothing was sent. Turn on “Send results to Meta” and Save.",
+      pausedNotConfigured: ar
+        ? "الإعدادات ناقصة — مااتبعتش حاجة. كمّل الناقص واحفظ؛ اللي مستني هيتبعت (لحد 7 أيام)."
+        : "Settings incomplete — nothing was sent. Fill in what is missing and Save; waiting events then go out (up to 7 days).",
+      pausedTestMode: ar
+        ? "وضع التجربة — مااتبعتش حاجة حقيقية. امسح كود التجربة واحفظ؛ اللي مستني هيتبعت (لحد 7 أيام)."
+        : "Test mode — nothing real was sent. Clear the test event code and Save; waiting events then go out (up to 7 days).",
       eventsTitle: ar ? "آخر الأحداث" : "Recent events",
       noEvents: ar ? "لسه مفيش أحداث." : "No events yet.",
       colTime: ar ? "الوقت" : "Time",
@@ -199,6 +217,8 @@ export default function MetaConversionsCard() {
     : r === "already_credited" ? (ar ? "الإعلان ده اتحسب قبل كده" : "Already reported for this ad")
     : r === "appointment_gone" ? (ar ? "الميعاد اتمسح" : "Appointment deleted")
     : r === "cancelled" ? (ar ? "اتلغى قبل ما يتبعت" : "Cancelled before sending")
+    : r === "not_confirmed" ? (ar ? "الحجز رجع مش مؤكد" : "Set back to unconfirmed")
+    : r === "visit_undone" ? (ar ? "تسجيل الحضور اتلغى" : "Check-in undone")
     : r === "unknown_event" ? (ar ? "حدث مش معروف" : "Unknown event")
     : r || "";
 
@@ -300,12 +320,28 @@ export default function MetaConversionsCard() {
     setRunning(true);
     try {
       const { res, data } = await post({ action: "run" });
-      const s = (data.summary || {}) as { sent?: number; retried?: number; failed?: number; examined?: number };
+      const s = (data.summary || {}) as {
+        sent?: number;
+        retried?: number;
+        failed?: number;
+        examined?: number;
+        deferred?: number;
+        paused?: string;
+      };
       if (res.ok && data.ok) {
-        if (!s.examined) showToast(txt.runNothing, "info");
+        // A paused run read no row at all, so "nothing waiting" would be a guess — say why instead.
+        const pausedMsg =
+          s.paused === "disabled" ? txt.pausedDisabled
+          : s.paused === "not_configured" ? txt.pausedNotConfigured
+          : s.paused === "test_mode" ? txt.pausedTestMode
+          : "";
+        const deferred = typeof s.deferred === "number" && s.deferred > 0 ? s.deferred : 0;
+        if (pausedMsg) showToast(pausedMsg, "error");
+        else if (!s.examined && !deferred) showToast(txt.runNothing, "info");
         else
           showToast(
-            `${txt.runDone}: ${s.sent ?? 0} · ${txt.runRetry}: ${s.retried ?? 0} · ${txt.runFailed}: ${s.failed ?? 0}`,
+            `${txt.runDone}: ${s.sent ?? 0} · ${txt.runRetry}: ${s.retried ?? 0} · ${txt.runFailed}: ${s.failed ?? 0}` +
+              (deferred ? ` · ${txt.runDeferred}: ${deferred}` : ""),
             (s.failed ?? 0) > 0 ? "error" : "success"
           );
         void load();
@@ -324,7 +360,9 @@ export default function MetaConversionsCard() {
   const shown = events.filter((e) => !(e.status === "skipped" && e.reason === "no_click"));
   const busy = loading || saving || testing || running;
   const testAvailable = Boolean(testCode.trim() || status?.testEventCode);
-  const testActive = status?.testMode === true;
+  // Test mode only means something while the switch is on: off, nothing new is queued at all.
+  const testActive = status?.enabled === true && status.testMode === true;
+  const testCodeLeftOver = status?.enabled !== true && status?.testMode === true;
 
   return (
     <section className="rounded-2xl xl:rounded-3xl bg-surface border border-line shadow-sm ring-1 ring-line p-5 xl:p-6 space-y-4">
@@ -337,7 +375,8 @@ export default function MetaConversionsCard() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {/* Test mode wins over On: while a test code is saved nothing real is sent, so "On" would mislead. */}
+          {/* Test mode wins over On (switch on + code saved: nothing real is sent, so "On" would
+              mislead). Off wins over Test mode: off, nothing new is queued, so nothing is "waiting". */}
           {loading ? (
             <Loader2 size={18} className="animate-spin text-ok" />
           ) : testActive ? (
@@ -346,9 +385,17 @@ export default function MetaConversionsCard() {
               {txt.testMode}
             </span>
           ) : !status?.enabled ? (
-            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-ink-muted bg-surface-subtle border border-line px-3 py-1.5 rounded-full">
-              {txt.off}
-            </span>
+            <>
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-ink-muted bg-surface-subtle border border-line px-3 py-1.5 rounded-full">
+                {txt.off}
+              </span>
+              {testCodeLeftOver && (
+                <span dir="auto" className="inline-flex items-center gap-1 text-[11px] font-semibold text-ink-muted">
+                  <FlaskConical size={12} aria-hidden />
+                  {txt.testCodeSaved}
+                </span>
+              )}
+            </>
           ) : status.ready ? (
             <span className="inline-flex items-center gap-1.5 text-xs font-bold text-ok bg-ok-tint border border-ok/25 px-3 py-1.5 rounded-full">
               <CheckCircle2 size={14} />

@@ -237,23 +237,30 @@ assert.equal(firstDueAt("confirmed", T), T);
 // The re-check right before a send: is the moment still true?
 assert.deepEqual(recheckAppointment("LeadSubmitted", null), { action: "skip", reason: "appointment_gone" });
 assert.deepEqual(recheckAppointment("Purchase", null), { action: "skip", reason: "appointment_gone" });
-for (const s of ["Scheduled", "Confirmed", "Checked In", "Completed", "Pending", undefined]) {
+// A lead: only Cancelled / No Show end it. A moved booking (Rescheduled) still was a booking —
+// the moved copy never queues a lead of its own, so this one must go out.
+for (const s of ["Scheduled", "Confirmed", "Checked In", "Completed", "Pending", undefined, "Rescheduled", "Delayed", "Late", "Emergency"]) {
   assert.deepEqual(recheckAppointment("LeadSubmitted", { status: s }), { action: "send" }, `lead still a lead at ${s}`);
 }
-for (const s of ["Cancelled", "No Show", "Rescheduled", " Cancelled "]) {
+for (const s of ["Cancelled", "No Show", " Cancelled "]) {
   assert.deepEqual(recheckAppointment("LeadSubmitted", { status: s }), { action: "skip", reason: "cancelled" }, `lead ended at ${s}`);
 }
-for (const s of ["Confirmed", "Checked In", "In Chair", "Arrived", "Completed"]) {
+// A confirmation: undone ONLY when the desk put it back to plain Scheduled. Every other live
+// status is a confirmed booking still going ahead.
+for (const s of ["Confirmed", "Checked In", "In Chair", "Arrived", "Completed", "Rescheduled", "Delayed", "Late", "Emergency", "Some New Status"]) {
   assert.deepEqual(recheckAppointment("QualifiedLead", { status: s }), { action: "send" }, `confirmation stands at ${s}`);
 }
-for (const s of ["Scheduled", undefined, "Cancelled", "No Show", "Rescheduled"]) {
-  assert.deepEqual(recheckAppointment("QualifiedLead", { status: s }), { action: "delete", reason: "not_confirmed" }, `confirmation undone at ${s}`);
+for (const s of ["Cancelled", "No Show"]) {
+  assert.deepEqual(recheckAppointment("QualifiedLead", { status: s }), { action: "skip", reason: "cancelled" }, `confirmation ended at ${s}`);
+}
+for (const s of ["Scheduled", undefined, "Pending", " Scheduled "]) {
+  assert.deepEqual(recheckAppointment("QualifiedLead", { status: s }), { action: "undone", reason: "not_confirmed" }, `confirmation undone at ${s}`);
 }
 for (const s of ["Checked In", "Seated", "Checking Out", "Completed"]) {
   assert.deepEqual(recheckAppointment("Purchase", { status: s }), { action: "send" }, `visit stands at ${s}`);
 }
-for (const s of ["Confirmed", "Scheduled", "Cancelled"]) {
-  assert.deepEqual(recheckAppointment("Purchase", { status: s }), { action: "delete", reason: "visit_undone" }, `visit undone at ${s}`);
+for (const s of ["Confirmed", "Scheduled", "Cancelled", "Rescheduled", "Delayed"]) {
+  assert.deepEqual(recheckAppointment("Purchase", { status: s }), { action: "undone", reason: "visit_undone" }, `visit undone at ${s}`);
 }
 
 // ================================================================================================
@@ -307,15 +314,32 @@ if (plan.planConversionEvents) {
 // ================================================================================================
 const click = (id: string, at: number, extra: Partial<AdClick> = {}): AdClick => ({ ctwaClid: id, clickedAt: at, ...extra });
 
-// mergeClicks: newest copy of each id, newest first, at most 10, junk ignored.
+// mergeClicks: one entry per id, each at the time it was FIRST seen, newest first, at most 10,
+// junk ignored.
 const merged = mergeClicks(
   [click("A", T - 3 * DAY), null, "junk", { ctwaClid: "" , clickedAt: T }, { ctwaClid: "NOTIME" }, { ctwaClid: "B", at: T - 2 * DAY }],
-  [click("A", T - DAY, { headline: "newer A" }), click("C", T - 5 * DAY)],
+  [click("A", T - DAY, { headline: "later A" }), click("C", T - 5 * DAY)],
 );
-assert.deepEqual(merged.map((c) => c.ctwaClid), ["A", "B", "C"], "newest first, no duplicates");
-assert.equal(merged[0].clickedAt, T - DAY, "a duplicate id keeps its newest time");
-assert.equal(merged[0].headline, "newer A");
-assert.equal(merged[1].clickedAt, T - 2 * DAY, "the legacy `at` field is read as the click time");
+assert.deepEqual(merged.map((c) => c.ctwaClid), ["B", "A", "C"], "newest first by first-seen time, no duplicates");
+assert.equal(merged[1].clickedAt, T - 3 * DAY, "a duplicate id keeps its FIRST-seen time");
+assert.equal(merged[1].headline, "later A", "a later copy fills a detail the first one lacked");
+assert.equal(merged[0].clickedAt, T - 2 * DAY, "the legacy `at` field is read as the click time");
+assert.equal(
+  mergeClicks([click("H", T - DAY, { headline: "first" })], [click("H", T, { headline: "second" })])[0].headline,
+  "first",
+  "the first copy's own details win"
+);
+assert.equal(mergeClicks([click("O", T)], [click("O", T - DAY)])[0].clickedAt, T - DAY, "an earlier copy arriving late wins, whatever the order");
+
+// A repeated referral (the same ctwa_clid tapped again AFTER the booking) must not move the click
+// after the booking it caused: the booking would then find no click before it and go out as no_click.
+const firstClick = click("REPEAT", T - 2 * DAY);
+const bookedAt = T - DAY;
+const afterRepeat = mergeClicks([firstClick], [click("REPEAT", T)]);
+assert.equal(afterRepeat.length, 1);
+assert.equal(afterRepeat[0].clickedAt, T - 2 * DAY, "the repeat keeps the first click time");
+assert.equal(pickClick(afterRepeat, bookedAt)?.ctwaClid, "REPEAT", "the booking is still credited to its click");
+assert.equal(attributionFromClicks({ ...firstClick, clicks: [firstClick] }, [click("REPEAT", T)])?.clickedAt, T - 2 * DAY, "the patient record keeps it too");
 const many = Array.from({ length: 12 }, (_, i) => click(`K${i}`, T - i * HOUR));
 const capped = mergeClicks([], many);
 assert.equal(capped.length, 10, "capped at 10");

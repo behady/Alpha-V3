@@ -38,6 +38,12 @@ import { CLINIC_SECRETS_COLLECTION } from "@/types/wapilot";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/**
+ * The "run" action drains the queue by hand, and processClinicQueue stops claiming new rows 240 s
+ * in. Without this the platform default could cut the function off mid-send, after Meta took an
+ * event but before its row said so — and Meta does not dedupe, so the next run would count it twice.
+ */
+export const maxDuration = 300;
 
 const secretDocRef = (clinicId: string) => adminDb().collection(CLINIC_SECRETS_COLLECTION).doc(clinicId);
 

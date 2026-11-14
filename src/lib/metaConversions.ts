@@ -143,8 +143,16 @@ export type AppointmentRecheck =
   | { action: "send" }
   /** Final: the row stays in the log as skipped with this reason. */
   | { action: "skip"; reason: "appointment_gone" | "cancelled" }
-  /** The moment was undone: drop the row so a later real one can queue it again. */
-  | { action: "delete"; reason: "not_confirmed" | "visit_undone" };
+  /**
+   * The moment was undone (a confirmation taken back, a check-in reversed). What happens to the
+   * row depends on whether it was ever posted, which only the sender knows — see processOne in
+   * metaConversionsServer.ts: never posted → deleted so a later real moment can queue again;
+   * posted before (it may already be counted at Meta) → ended skipped with this reason.
+   */
+  | { action: "undone"; reason: "not_confirmed" | "visit_undone" };
+
+/** A booking that ended without the patient: these end a lead or a confirmation for good. */
+const ENDED_STATUSES = new Set(["Cancelled", "No Show"]);
 
 /**
  * Is the moment a queued event reports still true, right before it goes to Meta?
@@ -154,19 +162,24 @@ export type AppointmentRecheck =
  * deduplicate these events and cannot take one back, so a status that was undone must stop here.
  *
  *   - Appointment deleted → skipped "appointment_gone".
- *   - LeadSubmitted on a booking now Cancelled / No Show / Rescheduled → skipped "cancelled".
- *   - QualifiedLead on a booking no longer Confirmed (and not visited) → the row is DELETED, not
- *     ended: a mis-tap undone and confirmed again later must be able to queue a fresh row (the
- *     trigger's create() would fail on a row that still exists).
- *   - Purchase on a booking no longer in a visited stage (the check-in was undone) → DELETED for
- *     the same reason: the real arrival must be able to queue its own Purchase.
+ *   - LeadSubmitted: skipped "cancelled" only for Cancelled / No Show. "Rescheduled" SENDS: the
+ *     booking really happened and merely moved, the moved copy never queues a "booked" of its own
+ *     (it carries rescheduledFromId), and the once-per-click marker stops any second lead.
+ *   - QualifiedLead: skipped "cancelled" for Cancelled / No Show; "undone" ONLY when the status is
+ *     exactly "Scheduled" — the desk explicitly took the confirmation back. Every other live status
+ *     (Confirmed, any visited stage, Rescheduled, Delayed, Late, Emergency, …) is a booking that
+ *     was confirmed and is still going ahead, so it sends.
+ *   - Purchase: sends for a visited stage; anything else means the check-in was undone → "undone".
  */
 export function recheckAppointment(eventName: ConversionEventName, appointment: { status?: unknown } | null): AppointmentRecheck {
   if (!appointment) return { action: "skip", reason: "appointment_gone" };
   const s = canonicalStatus(appointment.status);
-  if (eventName === "LeadSubmitted") return DEAD_STATUSES.has(s) ? { action: "skip", reason: "cancelled" } : { action: "send" };
-  if (eventName === "QualifiedLead") return s === "Confirmed" || isVisited(s) ? { action: "send" } : { action: "delete", reason: "not_confirmed" };
-  return isVisited(s) ? { action: "send" } : { action: "delete", reason: "visit_undone" };
+  if (eventName === "LeadSubmitted") return ENDED_STATUSES.has(s) ? { action: "skip", reason: "cancelled" } : { action: "send" };
+  if (eventName === "QualifiedLead") {
+    if (ENDED_STATUSES.has(s)) return { action: "skip", reason: "cancelled" };
+    return s === "Scheduled" ? { action: "undone", reason: "not_confirmed" } : { action: "send" };
+  }
+  return isVisited(s) ? { action: "send" } : { action: "undone", reason: "visit_undone" };
 }
 
 // ── Which click ─────────────────────────────────────────────────────────────────────────────
@@ -181,7 +194,15 @@ export interface AdClick {
   clickedAt: number;
 }
 
-/** Keep the newest copy of each click id, newest first, at most `max`. */
+/**
+ * One entry per click id, newest first, at most `max`.
+ *
+ * Each click keeps the time it was FIRST seen. Meta re-attaches the same ctwa_clid when a person
+ * taps the same ad again (or a chat replays its referral), and a click's time decides which
+ * booking it caused (pickClick: a click after the booking did not cause it). Taking the newest
+ * copy would move a click that came before a booking to after it, and the booking would then go
+ * out as "no_click". The earliest copy's details win; a later copy only fills fields it lacks.
+ */
 export function mergeClicks(existing: unknown, incoming: AdClick[], max = 10): AdClick[] {
   const all = [...(Array.isArray(existing) ? existing : []), ...incoming]
     .map(readClick)
@@ -189,7 +210,13 @@ export function mergeClicks(existing: unknown, incoming: AdClick[], max = 10): A
   const byId = new Map<string, AdClick>();
   for (const c of all) {
     const prev = byId.get(c.ctwaClid);
-    if (!prev || c.clickedAt > prev.clickedAt) byId.set(c.ctwaClid, c);
+    if (!prev) {
+      byId.set(c.ctwaClid, c);
+      continue;
+    }
+    const [first, later] = c.clickedAt < prev.clickedAt ? [c, prev] : [prev, c];
+    // readClick never writes an undefined key, so the spread only fills what `first` lacks.
+    byId.set(c.ctwaClid, { ...later, ...first });
   }
   return [...byId.values()].sort((x, y) => y.clickedAt - x.clickedAt).slice(0, max);
 }

@@ -23,11 +23,19 @@ Meta in the background.
   a hidden "click id" from Meta. Only chats with that id are reported. Walk-ins, phone bookings,
   word of mouth and ordinary WhatsApp chats are never sent. (A patient who came from an ad is
   remembered: an appointment within **28 days** of the click still counts for that ad. Meta does
-  not publish a window for click ids — 28 days is our own choice. The patient file shows a small
-  **From ad** tag for them.)
+  not publish a window for click ids — 28 days is our own choice. The click's time is the first
+  time that click id reached us.)
+- **The "From ad" tag on the patient file.** A new patient the bot registers from an ad gets the
+  small **From ad** tag straight away. A patient who **already had a file** and then taps an ad
+  gets the tag only once this card is switched on and one of their bookings has been processed —
+  so in a clinic with the card off, an existing patient who came back through an ad has no tag.
+  That is expected; the click is still kept on their WhatsApp chat.
 - **One booking and one confirmation per ad click.** The first booking and the first confirmation
   after an ad click are reported. A returning patient who books again on the same click is not
-  reported again, and moving an appointment to another time is not a new booking.
+  reported again, and moving an appointment to another time is not a new booking (a
+  **Rescheduled** appointment still counts as booked). A confirmation still counts if the visit
+  later goes **Delayed**, **Late** or **Rescheduled**; it is withdrawn only if the booking is set
+  back to **Unconfirmed (Scheduled)** before the report went.
 - **It needs the official WhatsApp number (Meta Cloud API).** Clinics that use the QR-code line
   (the gateway / WaPilot) do see which ad a chat came from, but Meta asks for the clinic's
   *WhatsApp Business Account ID* with every report, and a QR line does not have one. Meta will most
@@ -36,17 +44,22 @@ Meta in the background.
 - **One "visit" report per visit, sent about 3 hours after the patient arrives.** A report cannot
   be corrected once sent, and the system sends each one only once. So it waits 3 hours after
   check-in for the dentist to enter the day's treatments, then sends that visit's charges.
-  Treatments added after that are not sent. If the check-in is undone before then (status moved
-  back, appointment cancelled or deleted), nothing is sent; a later real arrival is reported
-  instead.
+  Treatments added after that are not sent. If the check-in is undone before the 3 hours are up
+  (status moved back, appointment cancelled or deleted), nothing is sent; a later real arrival is
+  reported instead.
+- **A withdrawn report is never sent late.** If a booking is un-confirmed or a check-in is undone
+  before its report went, a report that was never tried is simply dropped, and a later real
+  confirmation or arrival is reported instead. If the system had **already tried** to send it,
+  it is closed (shown as **Set back to unconfirmed** / **Check-in undone**) and never sent again —
+  Meta may already have it, and Meta counts every copy it gets.
 - **Nothing older than 7 days.** Meta refuses events older than a week, so an appointment edited
   long after the fact is skipped, not sent.
 - **It does not change your ads by itself.** The reports start flowing; you decide when to tell
   Meta to optimise for them (see **Making the ads use it** below).
-- **Nothing goes to Meta until you switch it on.** In every clinic the system already keeps the ad
-  click on the chat (and on a patient the bot registers from an ad) — that costs nothing extra and
-  is what lets the first reports work on day one. But no report is sent unless the clinic turns
-  this card on.
+- **Nothing goes to Meta until you switch it on.** In every clinic the system already keeps every
+  new ad click on the WhatsApp chat (and on a patient the bot registers from an ad) — that costs
+  nothing extra and is what lets the first reports work on day one. But while the card is off,
+  bookings and visits are not even queued, and no report is sent.
 
 ---
 
@@ -110,13 +123,16 @@ new card, **Meta ad results (Conversions API)**.
 
 1. In **Events Manager** → your dataset → **Test events**, copy the test code (looks like
    `TEST12345`).
-2. Paste it into **Test event code** in the card and press **Save**. The card shows **Test mode**.
+2. Paste it into **Test event code** in the card and press **Save**. With the switch still off,
+   the card shows **Off** with a small note **test code saved**. (Once the switch is on, a saved
+   code makes the card show **Test mode** instead.)
 3. Press **Send test event**. You should see **Meta received the test event**.
 4. Back in Events Manager → **Test events**, the event appears within a minute or so.
-5. **Now CLEAR the test event code and Save.** While a test code is saved, **real** bookings and
-   visits are **not sent at all** — they wait (up to 7 days) and go to Meta by themselves once you
-   clear the code. Only the **Send test event** button uses the code. Anything left waiting more
-   than 7 days is skipped as **Too old for Meta**, so do not leave the code in.
+5. **Now CLEAR the test event code and Save.** With the switch on and a test code saved, **real**
+   bookings and visits are **not sent at all** — they wait (up to 7 days) and go to Meta by
+   themselves once you clear the code. Only the **Send test event** button uses the code.
+   Anything left waiting more than 7 days is skipped as **Too old for Meta**, so do not leave the
+   code in.
 
 The test needs at least one real ad chat on the clinic (it borrows that chat's click id). If none
 has arrived yet, open the clinic's WhatsApp from one of its own ads once.
@@ -135,7 +151,9 @@ or skipped with a reason:
 | Already reported for this ad | This ad click's booking or confirmation was already sent. Normal for returning patients. |
 | No patient | The appointment has no patient file, so there is no ad click to look up. |
 | Appointment gone | The appointment was deleted before the report went. |
-| Cancelled | The appointment was cancelled, or the check-in was undone, before the report went. |
+| Cancelled | The appointment was cancelled before the report went. |
+| Set back to unconfirmed | The booking was moved back to Unconfirmed (Scheduled) after a send had already been tried. Closed, never sent again — Meta may already have it. |
+| Check-in undone | The check-in was undone within the 3-hour wait after a send had already been tried. Closed, never sent again — Meta may already have it. |
 | Too old for Meta | The moment was more than 7 days ago (Meta refuses older reports), or it waited too long — for example while the switch was off or a test code was saved. |
 | Meta refused it | Meta answered with an error. The note shows Meta's message — usually a wrong ID or token. |
 | Out of attempts | Meta could not be reached 5 times in a row. |
@@ -143,12 +161,18 @@ or skipped with a reason:
 | Unknown event | An internal mix-up; should never appear. Tell the developer. |
 | Feature was off / Settings incomplete | Only on older rows, from before the queue learned to wait. |
 
-**Send pending now** sends whatever is waiting without waiting for the next automatic run.
+**Send pending now** sends whatever is waiting without waiting for the next automatic run. If the
+card is off, half set up or in test mode, it sends nothing and says which of the three is in the
+way.
 
-**While the switch is off, or the settings are incomplete, or a test code is saved, reports wait in
-the queue.** Nothing is lost for 7 days: fix the setting and they go out on the next run.
+**Reports already in the queue wait** while the switch is off, the settings are incomplete, or a
+test code is saved. Nothing in the queue is lost for 7 days: switch it back on, finish the
+settings or clear the test code, and they go out on the next run. But **while the switch is off,
+new bookings and visits are not queued at all** — they are not caught up later.
 
-To stop: switch **Send results to Meta** OFF. Nothing else is needed.
+To stop: switch **Send results to Meta** OFF. No new bookings or visits are queued from then on;
+anything already waiting stays waiting (and is skipped as **Too old for Meta** after 7 days) unless
+you switch it back on.
 
 ---
 
@@ -161,11 +185,18 @@ To stop: switch **Send results to Meta** OFF. Nothing else is needed.
 | Patient arrived — the first of Checked In / In Chair / Checking Out / Completed | **Purchase** | the visit's treatment charges, in EGP |
 
 - **LeadSubmitted and QualifiedLead are reported once per ad click.** A returning patient's later
-  bookings on the same click are not reported again, and a reschedule is not a new booking.
-  Confirming, un-confirming and confirming again is one QualifiedLead.
+  bookings on the same click are not reported again, and a reschedule is not a new booking — a
+  **Rescheduled** appointment still counts as booked. Confirming, un-confirming and confirming
+  again is one QualifiedLead.
+- **A confirmation stays reported** if the visit later goes Delayed, Late or Rescheduled. It is
+  withdrawn only if the booking is set back to **Unconfirmed (Scheduled)** before it was sent.
 - **Purchase is reported once per visit.** Checked In → In Chair → Completed is one visit, one
   Purchase, sent about 3 hours after arrival. If the check-in is undone before then (status moved
   back, cancelled, deleted), nothing is sent and a later real arrival is reported instead.
+- **Withdrawn, never sent late.** A withdrawn report that was never tried is dropped quietly (the
+  later real confirmation or arrival is reported instead). One that was already tried is closed as
+  **Set back to unconfirmed** / **Check-in undone** and never sent again, because Meta may already
+  have it and Meta counts every copy.
 - The Purchase value is the sum of the treatments charged on that visit (before discounts),
   entered within about 3 hours of arrival. A visit with no charge entered is reported with 0.
 - Cancelled and No Show report nothing.
@@ -226,7 +257,7 @@ Reports flowing in is step one. Meta only optimises for them when the ad set is 
 | `src/app/api/automation/meta-conversions/route.ts` | The sender. Vercel cron every 10 minutes (`vercel.json`); cron-secret / automation-token auth. |
 | `src/app/api/admin/meta-conversions/route.ts` | The card's API: read/save settings (token write-only), test send, send now, recent events. Admins only. |
 | `src/components/settings/MetaConversionsCard.tsx` | The settings card, under the WhatsApp Business (Meta) card. |
-| `src/lib/bot/respond.ts` (`rememberAdClick`) | Keeps every ad click on the conversation and the patient. |
+| `src/lib/bot/respond.ts` (`withNewAdClick`, and the bot's patient registration) | Keeps every new ad click on the conversation, from the snapshot it already read; stamps `adAttribution` on a patient the bot registers from an ad. Never looks up an existing patient. |
 | `scripts/meta-capi-test-event.mts` | Command-line test send (below). |
 
 ### Data
@@ -235,18 +266,28 @@ Reports flowing in is step one. Meta only optimises for them when the ad set is 
 | --- | --- |
 | `clinic_secrets/{clinicId}.metaCapi` | `{ enabled, datasetId, wabaId, token, testEventCode, updatedAt, updatedBy }`. Empty `wabaId` / `token` fall back to `clinic_secrets/{clinicId}.metaWhatsapp.wabaId` / `.token`. Server-only. |
 | `clinic_secrets/{clinicId}/meta_conversion_events/{id}` | Queue and log in one: one row per appointment and event (the Purchase row is per visit; the id is built in `metaConversions.ts`). `status` pending → sent / retry → failed / skipped (`reason`), `dueAt`, `attempts`, `lockedUntil` while a run holds it, the click used, `value`, the redacted `payload`, Meta's `response` (`httpStatus`, `eventsReceived`, `fbtraceId`, `error`). Created with `create()` by the trigger, so a re-delivered trigger is a no-op. Under `clinic_secrets` because every path there is denied to clients, while any `clinics/{id}/*` subcollection is open to every clinic member. |
-| `clinics/{clinicId}/patients/{patientId}.adAttribution` | Newest click on top + `clicks[]` (newest first, max 10). Built only by `attributionFromClicks`; never overwritten with null. |
+| `clinics/{clinicId}/patients/{patientId}.adAttribution` | Newest click on top + `clicks[]` (newest first, max 10). Built only by `attributionFromClicks`; never overwritten with null. Written when the bot registers a patient from an ad, and by the sender's carry-over (`rememberPatientClicks`) when one of the patient's bookings is processed in a clinic with the switch on — so an existing patient who taps an ad has no `adAttribution` (and no From ad tag) until then. |
 | `clinics/{clinicId}/whatsapp_conversations/{key}.adClicks` | Every click on the chat (`mergeClicks`, max 10). The first-ad-wins `ad` / `adAt` fields beside it are unchanged; the ad reports read those. |
 
 ### Behaviour worth knowing
 
 - Off unless `clinic_secrets/{clinicId}.metaCapi.enabled === true`. The trigger reads nothing on a
-  write whose status did not move; on a booking/confirm/visit it reads the switch and stops if off.
-  Rows already queued wait (stay pending, not skipped) while the switch is off, the settings are
-  incomplete or a test code is saved; only `MAX_EVENT_AGE_MS` (7 days) ends them, as `too_old`.
-- **Capture runs in every clinic.** `rememberAdClick` keeps every ad click on the chat and on a
-  patient the bot registers from an ad, whatever the switch says. It rides on writes the bot
-  already makes, so it costs no extra reads. Nothing is sent to Meta unless the switch is on.
+  write whose status did not move; on a booking/confirm/visit it reads the switch and **queues
+  nothing if off** — bookings and visits made while off are never caught up. Rows queued while it
+  was on wait (stay pending, not skipped) while the switch is off, the settings are incomplete or
+  a test code is saved, and go out on the next run once it is back on / complete / the code is
+  cleared; only `MAX_EVENT_AGE_MS` (7 days) ends them, as `too_old`. A run that stops on one of
+  those returns `summary.paused` (`disabled` / `not_configured` / `test_mode`), which the card's
+  **Send pending now** turns into a reason.
+- **Capture runs in every clinic.** `withNewAdClick` (`respond.ts`) keeps every new ad click on
+  the chat, and the bot stamps `adAttribution` on a patient it registers from an ad, whatever the
+  switch says. Both ride on writes the bot already makes, so they cost no extra reads. An
+  **existing** patient who taps an ad is not looked up on the message path (that lookup could scan
+  thousands of patients per click); their clicks reach the patient file only through the sender's
+  carry-over (`clicksForPatient` → `rememberPatientClicks`) once the switch is on and one of their
+  bookings is processed. Nothing is sent to Meta unless the switch is on.
+- **Click time = first arrival.** A click's `clickedAt` is the first time that click id reached us;
+  a later copy of the same id does not move it.
 - **Meta does not deduplicate business-messaging events.** Its Conversions API for Business
   Messaging docs tell partners to dedupe before sending; the `event_id` we send is not a guard.
   Our guards are the only protection: `create()` in the trigger (one row per appointment and
@@ -259,12 +300,17 @@ Reports flowing in is step one. Meta only optimises for them when the ad set is 
   before the event, at most 28 days old (`MAX_CLICK_AGE_MS`). Meta publishes a 7-day window for
   phone matching and none for click ids; 28 days is our choice. No click → `skipped / no_click`.
 - LeadSubmitted and QualifiedLead are sent **once per ad click** (`already_credited` for the next
-  booking on the same click). A reschedule is not a new booking.
+  booking on the same click). A reschedule is not a new booking; Rescheduled still counts as
+  booked. A QualifiedLead stands through Delayed / Late / Rescheduled; it is withdrawn only when the
+  booking goes back to Unconfirmed (Scheduled) before it was sent.
 - Purchase is **once per visit**, due `eventTime + 3 h` (`PURCHASE_SETTLE_MS`); value = sum of
   `chargeAmount(row)` over `ledger` rows with this `appointmentId`, `type === "procedure"`, not
-  deleted/cancelled. If the check-in is undone before it is due (status moved back, cancelled,
-  deleted), the row is skipped (`cancelled` / `appointment_gone`) and a later real arrival queues a
-  fresh one.
+  deleted/cancelled. It is withdrawn if the check-in is undone before it is due (status moved
+  back, cancelled, deleted).
+- **Withdrawn rows.** A withdrawn row with no send attempt yet is removed silently, so a later real
+  confirmation / arrival queues and reports a fresh one. A row that was already attempted is ended
+  as `skipped` with reason `not_confirmed` (QualifiedLead) or `visit_undone` (Purchase) and is never
+  re-sent — Meta may already have it, and Meta does not dedupe.
 - Retry on 5xx, 429, network/timeout, Meta's `is_transient`, and throttle codes 4/17/32/613/80004.
   Any other 4xx fails at once (`meta_rejected`). `MAX_ATTEMPTS = 5`, delays 5 m / 20 m / 1 h / 3 h,
   then `out_of_attempts`.
@@ -332,7 +378,8 @@ Prints Meta's `events_received`, `fbtrace_id` and error; never prints the token.
 ### When Meta says nothing arrived
 
 1. Card **Recent events**: is there a row at all? None → the trigger is not deployed, or the
-   patient had no click (`No ad click`).
+   switch was off when the booking or visit happened (nothing is queued while off). A row
+   `No ad click` → the patient had no click.
 2. Row **Failed** with code 190 → token expired or revoked. Code 100 → wrong dataset id, or the
    dataset is not linked to this WhatsApp account. Permission errors → the system user lacks the
    dataset or `whatsapp_business_manage_events`.

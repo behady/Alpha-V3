@@ -459,7 +459,7 @@ async function recordAdReferral(clinicId: string, chatId: string, phone: string,
  * patient who tapped a whitening ad in March and an implant ad in May books in May because of the
  * second, and Meta should hear about the second click id. So the clicks are kept as a list
  * beside `ad` (lib/metaConversions `mergeClicks`: newest first, one entry per click id, ten at
- * most).
+ * most, and each click keeps the time it was FIRST seen).
  *
  * Only the conversation, and only from the snapshot the caller already read. This runs for every
  * clinic, on the message path, before the reply — so it may not look anything up. It once also
@@ -469,13 +469,18 @@ async function recordAdReferral(clinicId: string, chatId: string, phone: string,
  * reads this list itself when an appointment is due to be reported, and only for clinics that
  * did, so nothing is lost by leaving the patient alone here.
  *
- * Null when Meta sent no click id, or the click is already on the list: a repeat costs no write.
+ * Written ONLY when a click id appears that the list does not hold yet. Null when Meta sent no
+ * click id, or this click id is already there: Meta re-attaches the same ctwa_clid when somebody
+ * taps the same ad again, and that repeat must not touch the stored click — its time is when the
+ * click was first seen, and moving it later could put it after a booking it caused (the sender
+ * would then report "no_click"). A repeat costs no write.
  */
 function withNewAdClick(existing: unknown, click: AdClick | null): AdClick[] | null {
   if (!click) return null;
-  const before = mergeClicks(existing, []);
-  const after = mergeClicks(existing, [click]);
-  return JSON.stringify(before) === JSON.stringify(after) ? null : after;
+  // Every stored id, not just the ten mergeClicks keeps by default.
+  const known = new Set(mergeClicks(existing, [], Number.MAX_SAFE_INTEGER).map((c) => c.ctwaClid));
+  if (known.has(click.ctwaClid)) return null;
+  return mergeClicks(existing, [click]);
 }
 
 async function matchService(clinicId: string, text: string): Promise<string> {

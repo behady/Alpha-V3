@@ -54,10 +54,13 @@ import {
  *
  * Sending each event once is OUR job. Meta's docs tell partners to dedupe before sending; it does
  * not drop a repeated event_id. The guards: the trigger's create() (one row per appointment and
- * event), the claim lock (one run per row), rows that are never reopened once final, and the
- * once-per-click markers below (one lead and one qualified lead per ad click). What they cannot
- * cover: a request that timed out after Meta had already accepted it is retried, and Meta counts
- * that second copy too. The 30-second timeout makes that rare; it cannot make it impossible.
+ * event), the claim lock (one run per row), rows that are never reopened once final, the
+ * once-per-click markers below (one lead and one qualified lead per ad click, RESERVED before the
+ * send so two rows on one click in two overlapping runs cannot both go out), a sent row that is
+ * never released for another try even when its "sent" cannot be written, and an undone row that
+ * is only deleted (to be queued afresh) if it was never posted. What they cannot cover: a request
+ * that timed out after Meta had already accepted it is retried, and Meta counts that second copy
+ * too. The 30-second timeout makes that rare; it cannot make it impossible.
  *
  * Safety for the live clinics: nothing here runs for a clinic unless
  * `clinic_secrets/{clinicId}.metaCapi.enabled === true`, and the token is read from that document
@@ -86,13 +89,33 @@ const WHATSAPP_SETTINGS_FIELD = "metaWhatsapp";
  * most DEFAULT_SEND_TIMEOUT_MS).
  */
 const CLAIM_LOCK_MS = 5 * 60_000;
-/** One cron run stops claiming new rows after this, so it ends inside the function's 300 s. */
+/**
+ * A run stops claiming new rows after this, so it ends inside the function's 300 s — the cron's
+ * all-clinics run and, by default, every single-clinic run too (processClinicQueue).
+ */
 const RUN_BUDGET_MS = 240 * 1000;
 /**
  * Generous on purpose. A request that times out may still have reached Meta, and since Meta does
  * not dedupe, the retry would be counted twice — so a slow answer is better waited for.
  */
 const DEFAULT_SEND_TIMEOUT_MS = 30_000;
+/**
+ * A row whose click is mid-send in another run (its marker is reserved and fresh) waits this long
+ * and tries again — by then the other send has either been recorded (this row ends
+ * "already_credited") or given the click back.
+ */
+const MARKER_BUSY_WAIT_MS = 5 * 60_000;
+/** Tries at writing "sent" onto a row Meta has accepted, before giving up on the record. */
+const SENT_WRITE_TRIES = 3;
+/**
+ * The lock left on a row Meta accepted but whose "sent" could not be written. Releasing it would
+ * let the next run post it again, and Meta would count it twice. The row is flagged
+ * `sentUnrecorded` in the same write; whichever run claims it after the lock lapses records it as
+ * sent without posting anything.
+ */
+const SENT_UNRECORDED_LOCK_MS = 24 * 60 * 60_000;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Events that are credited once per ad click. A Purchase is once per visit and has no marker. */
 const ONCE_PER_CLICK = new Set<ConversionEventName>(["LeadSubmitted", "QualifiedLead"]);
@@ -112,14 +135,6 @@ export function clickMarkerRef(clinicId: string, ctwaClid: string, eventName: Co
   if (!id) throw new Error("clickMarkerRef: clinicId is required");
   const hash = createHash("sha256").update(ctwaClid).digest("hex").slice(0, 40);
   return adminDb().collection(CLINIC_SECRETS_COLLECTION).doc(id).collection(CAPI_CLICKS_SUBCOLLECTION).doc(`${hash}_${eventName}`);
-}
-
-/** gRPC ALREADY_EXISTS from a create(). */
-function isAlreadyExists(e: unknown): boolean {
-  const err = e as { code?: unknown; message?: unknown } | null;
-  if (!err) return false;
-  if (err.code === 6 || err.code === "already-exists" || err.code === "ALREADY_EXISTS") return true;
-  return /ALREADY_EXISTS/i.test(String(err.message || ""));
 }
 
 /** Firestore refuses `undefined` anywhere in a write; this drops those keys (one level deep). */
@@ -254,8 +269,9 @@ function clicksFromConversation(data: Record<string, unknown> | undefined): AdCl
 /**
  * The click a bot lead carries. Its time is the lead's `createdAt` — the bot writes the lead on
  * the ad's first message, so for an ad lead the two are the same moment. (A lead that existed
- * before the click and had the ad merged in later reads earlier than the real click. The other
- * sources carry the true time, and `mergeClicks` keeps the newest copy of each click id.)
+ * before the click and had the ad merged in later reads EARLIER than the real click, and
+ * `mergeClicks` keeps the earliest time of each click id — so clicksForPatient only takes a
+ * lead's click when no other source, which carries the true time, has that click id.)
  */
 function clickFromLead(data: Record<string, unknown> | undefined): AdClick | null {
   if (!data) return null;
@@ -335,13 +351,18 @@ export async function clicksForPatient(clinicId: string, patientId: string, pati
   const sendable = quietlySync(() => patientSendablePhone(p));
   if (sendable) phones.add(`+${sendable.replace(/\D/g, "")}`);
   for (const ph of phones) if (ph.length > 1) leadQueries.push(["phone", ph]);
+  const fromLeads: AdClick[] = [];
   for (const [field, value] of leadQueries) {
     const docs = await quietly(async () => (await adminClinicCollection(clinicId, "leads").where(field, "==", value).limit(20).get()).docs, []);
     for (const d of docs) {
       const c = clickFromLead(d.data());
-      if (c) found.push(c);
+      if (c) fromLeads.push(c);
     }
   }
+  // A lead's time can read earlier than the click (see clickFromLead), and the earliest time of a
+  // click id wins the merge — so a lead only contributes click ids nobody else has.
+  const seen = new Set(found.map((c) => c.ctwaClid));
+  for (const c of fromLeads) if (!seen.has(c.ctwaClid)) found.push(c);
 
   return mergeClicks([], found, 50);
 }
@@ -413,6 +434,11 @@ export interface QueueRunSummary {
   failed: number;
   skipped: number;
   /**
+   * Rows put back for a later run without a try being spent: their click is mid-send in another
+   * run, or an "undone" moment turned out to be true again by the time we went to drop it.
+   */
+  deferred: number;
+  /**
    * Set when the run touched no row because of the clinic's setup: switched off, missing a
    * dataset / WABA id / token, or a test code is saved. The rows wait; once the run resumes,
    * any that are older than Meta's seven days end as `too_old`.
@@ -420,6 +446,26 @@ export interface QueueRunSummary {
   paused?: "disabled" | "not_configured" | "test_mode";
   /** Set when the clinic's whole run failed (processAllEnabledClinics). */
   error?: string;
+}
+
+export interface QueueRunOptions {
+  nowMs?: number;
+  /** The real clock, for locks and the deadline. Injectable for tests. */
+  clock?: () => number;
+  fetchImpl?: typeof fetch;
+  limit?: number;
+  /** Stop claiming new rows after this (clock ms). Defaults to RUN_BUDGET_MS from the start. */
+  deadlineMs?: number;
+  /**
+   * TEST-ONLY seams; production never passes these. Each runs at one exact point a race or a
+   * failed write can strike, so the tests can make it strike there.
+   */
+  testHooks?: {
+    /** Before each try at writing "sent" onto a row Meta accepted. Throwing fails that try. */
+    beforeSentWrite?: (eventId: string, attempt: number) => void | Promise<void>;
+    /** Between the "undone" re-check and the transaction that deletes the row. */
+    beforeUndoneDelete?: (eventId: string) => void | Promise<void>;
+  };
 }
 
 const VALID_EVENTS = new Set<string>(Object.values(TRIGGER_EVENT));
@@ -444,16 +490,19 @@ const FINAL_STATUSES = new Set(["sent", "failed", "skipped"]);
  * not-yet-due or finished rows can never crowd a due one out of the `limit`. The status and the
  * lock are checked in code.
  *
- * One bad row never stops the run: its error is caught, its lock released, and it is tried again
- * next time (until it is too old for Meta to take).
+ * The run stops claiming rows RUN_BUDGET_MS in, even when the caller set no deadline (the admin
+ * "run" button, the per-clinic cron door): a function cut off by the platform mid-send leaves a
+ * row Meta may have taken but this file never marked, and the next run would post it again.
+ *
+ * One bad row never stops the run. An error BEFORE the send releases the row's lock and it is
+ * tried again next time (until it is too old for Meta to take). After a send Meta accepted, the
+ * row is never released: see recordSent.
  */
-export async function processClinicQueue(
-  clinicId: string,
-  opts: { nowMs?: number; clock?: () => number; fetchImpl?: typeof fetch; limit?: number; deadlineMs?: number } = {}
-): Promise<QueueRunSummary> {
+export async function processClinicQueue(clinicId: string, opts: QueueRunOptions = {}): Promise<QueueRunSummary> {
   const now = opts.nowMs ?? Date.now();
   const clock = opts.clock ?? Date.now;
-  const summary: QueueRunSummary = { clinicId, examined: 0, sent: 0, retried: 0, failed: 0, skipped: 0 };
+  const deadlineMs = opts.deadlineMs ?? clock() + RUN_BUDGET_MS;
+  const summary: QueueRunSummary = { clinicId, examined: 0, sent: 0, retried: 0, failed: 0, skipped: 0, deferred: 0 };
   const config = await loadCapiConfig(clinicId);
   if (!config.enabled) return { ...summary, paused: "disabled" };
   if (!config.ready) return { ...summary, paused: "not_configured" };
@@ -470,7 +519,7 @@ export async function processClinicQueue(
 
   for (const doc of snap.docs) {
     if (!isClaimable(doc.data())) continue;
-    if (opts.deadlineMs && Date.now() > opts.deadlineMs) break;
+    if (clock() > deadlineMs) break;
     const ref = doc.ref;
 
     let row: Record<string, unknown> | null = null;
@@ -498,13 +547,34 @@ export async function processClinicQueue(
         updatedAt: FieldValue.serverTimestamp(),
       });
 
+    let outcome: RowOutcome;
     try {
-      const outcome = await processOne(clinicId, ref.id, row, config, now, opts.fetchImpl);
-      if ("remove" in outcome) await ref.delete();
-      else await finish(outcome.patch);
-      summary[outcome.count] += 1;
+      // processOne never throws once a request has gone to Meta (see there), so anything caught
+      // here happened before a send and the row can safely be handed back.
+      outcome = await processOne({ clinicId, ref, row, config, now, clock, fetchImpl: opts.fetchImpl, hooks: opts.testHooks });
     } catch (e) {
       console.warn("[metaCapi] event failed:", clinicId, doc.id, errText(e));
+      await ref.update({ lockedUntil: FieldValue.delete() }).catch(() => {});
+      summary.failed += 1;
+      continue;
+    }
+
+    if (outcome.kind === "sent") {
+      await recordSent({ clinicId, ref, eventId: outcome.eventId, patch: outcome.patch, finish, clock, hooks: opts.testHooks });
+      summary.sent += 1;
+      continue;
+    }
+
+    try {
+      if (outcome.kind === "finish") await finish(outcome.patch);
+      // A release keeps the status and the tries; only the lock goes (and dueAt moves, if set).
+      else if (outcome.kind === "release") await ref.update({ ...defined(outcome.patch), lockedUntil: FieldValue.delete(), updatedAt: FieldValue.serverTimestamp() });
+      // "done": already written (the row was deleted inside its transaction).
+      summary[outcome.count] += 1;
+    } catch (e) {
+      // Nothing reached Meta on any of these paths (a retry/failed outcome's request did not
+      // count), so handing the row back is safe.
+      console.warn("[metaCapi] event write failed:", clinicId, doc.id, errText(e));
       await ref.update({ lockedUntil: FieldValue.delete() }).catch(() => {});
       summary.failed += 1;
     }
@@ -512,24 +582,90 @@ export async function processClinicQueue(
   return summary;
 }
 
-type Counter = "sent" | "retried" | "failed" | "skipped";
-type RowOutcome = { patch: Record<string, unknown>; count: Counter } | { remove: true; count: "skipped" };
+/**
+ * Write "sent" onto a row Meta has just accepted — and never hand it back for another try.
+ *
+ * Meta does not dedupe: a row released after its request went through would be posted again by
+ * the next run and counted twice. So the write is tried SENT_WRITE_TRIES times with a short
+ * pause, and if it still fails the row keeps its claim lock (it is NOT released), an error is
+ * logged with the clinic and event, and — best effort — the lock is stretched to
+ * SENT_UNRECORDED_LOCK_MS with `sentUnrecorded: true` beside it, so the run that eventually claims
+ * it records it as sent instead of posting it. If even that write fails, the claim lock still
+ * holds it for CLAIM_LOCK_MS; past that, only the console error is left to explain a repeat.
+ */
+async function recordSent(args: {
+  clinicId: string;
+  ref: FirebaseFirestore.DocumentReference;
+  eventId: string;
+  patch: Record<string, unknown>;
+  finish: (patch: Record<string, unknown>) => Promise<unknown>;
+  clock: () => number;
+  hooks?: QueueRunOptions["testHooks"];
+}): Promise<void> {
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= SENT_WRITE_TRIES; attempt++) {
+    try {
+      await args.hooks?.beforeSentWrite?.(args.eventId, attempt);
+      await args.finish(args.patch);
+      return;
+    } catch (e) {
+      lastError = e;
+      if (attempt < SENT_WRITE_TRIES) await sleep(150 * attempt);
+    }
+  }
+  console.error(
+    "[metaCapi] Meta ACCEPTED this event but the row could not be marked sent; it stays locked so it is never posted again:",
+    args.clinicId,
+    args.eventId,
+    errText(lastError)
+  );
+  await args.ref
+    .update({ sentUnrecorded: true, sentUnrecordedAt: args.clock(), lockedUntil: args.clock() + SENT_UNRECORDED_LOCK_MS })
+    .catch((e) => console.error("[metaCapi] could not stretch the lock on a sent row:", args.clinicId, args.eventId, errText(e)));
+}
+
+type Counter = "sent" | "retried" | "failed" | "skipped" | "deferred";
+type RowOutcome =
+  /** Write this onto the row (and release the lock). */
+  | { kind: "finish"; patch: Record<string, unknown>; count: Counter }
+  /** Meta accepted it: recordSent writes the patch and never releases the row. */
+  | { kind: "sent"; eventId: string; patch: Record<string, unknown> }
+  /** Hand the row back unchanged except for `patch` (usually a later dueAt); no try is spent. */
+  | { kind: "release"; patch: Record<string, unknown>; count: Counter }
+  /** Already handled inside processOne (the row was deleted). */
+  | { kind: "done"; count: Counter };
 
 /**
- * Decide and (when there is something to send) send one claimed row. Returns the row's update,
- * or `remove` when the row must be deleted so the moment can be queued again later.
+ * Decide and (when there is something to send) send one claimed row.
  *
- * Only called for a clinic that is switched on, fully set up and not in test mode.
+ * Only called for a clinic that is switched on, fully set up and not in test mode. It may throw
+ * BEFORE it posts (a read failed) — the caller then releases the row. Once a request has gone
+ * to Meta nothing in here throws: the click marker is settled best-effort and the outcome is
+ * handed back for the caller to record.
  */
-async function processOne(
-  clinicId: string,
-  docId: string,
-  row: Record<string, unknown>,
-  config: ResolvedCapiConfig,
-  now: number,
-  fetchImpl?: typeof fetch
-): Promise<RowOutcome> {
-  const skip = (reason: string, extra: Record<string, unknown> = {}): RowOutcome => ({ patch: { ...extra, status: "skipped", reason }, count: "skipped" });
+async function processOne(ctx: {
+  clinicId: string;
+  ref: FirebaseFirestore.DocumentReference;
+  row: Record<string, unknown>;
+  config: ResolvedCapiConfig;
+  now: number;
+  clock: () => number;
+  fetchImpl?: typeof fetch;
+  hooks?: QueueRunOptions["testHooks"];
+}): Promise<RowOutcome> {
+  const { clinicId, ref, row, config, now, clock } = ctx;
+  const docId = ref.id;
+  const skip = (reason: string, extra: Record<string, unknown> = {}): RowOutcome => ({ kind: "finish", patch: { ...extra, status: "skipped", reason }, count: "skipped" });
+
+  // A row Meta already took whose "sent" could not be written (recordSent). Record it, never post.
+  if (row.sentUnrecorded === true) {
+    return {
+      kind: "finish",
+      patch: { status: "sent", reason: "recorded_late", sentUnrecorded: FieldValue.delete(), sentAt: FieldValue.serverTimestamp() },
+      // Counted as skipped: nothing went to Meta in this run.
+      count: "skipped",
+    };
+  }
 
   const eventTimeMs = Number(row.eventTimeMs) || 0;
   if (!eventTimeMs || isTooOld(eventTimeMs, now)) return skip("too_old");
@@ -545,9 +681,20 @@ async function processOne(
   const appt = apptSnap?.exists ? ((apptSnap.data() || {}) as Record<string, unknown>) : null;
   const recheck = recheckAppointment(eventName, appt);
   if (recheck.action === "skip") return skip(recheck.reason);
-  if (recheck.action === "delete") {
-    console.info("[metaCapi] moment undone, row dropped:", clinicId, docId, recheck.reason);
-    return { remove: true, count: "skipped" };
+  if (recheck.action === "undone") {
+    // Posted before (a timeout, a 5xx): Meta may already have counted it, so it must never be
+    // queued again — it ends here. Never posted: drop it, so a later real confirmation or
+    // arrival can queue a fresh row (the trigger's create() fails on a row that still exists).
+    if ((Number(row.attempts) || 0) > 0) return skip(recheck.reason);
+    await ctx.hooks?.beforeUndoneDelete?.(eventId);
+    const dropped = await dropUndoneRow(clinicId, ref, eventName, appointmentId);
+    if (dropped === "deleted") {
+      console.info("[metaCapi] moment undone, row dropped:", clinicId, docId, recheck.reason);
+      return { kind: "done", count: "skipped" };
+    }
+    if (dropped === "gone") return { kind: "done", count: "skipped" };
+    // True again (the desk re-confirmed in between): leave it open, the next run sends it.
+    return { kind: "release", patch: {}, count: "deferred" };
   }
 
   const patientId = str(row.patientId) || str(appt?.patientId);
@@ -561,10 +708,17 @@ async function processOne(
   await rememberPatientClicks(clinicId, patientId, clicks).catch((e) => console.warn("[metaCapi] carry-over skipped:", errText(e)));
 
   // Once per click: a second booking (or confirmation) from the same ad chat is not a second
-  // lead, and Meta would count it as one. A Purchase is per visit and is not limited here.
+  // lead, and Meta would count it as one. A Purchase is per visit and is not limited here. The
+  // marker is RESERVED before the send — two rows on one click in two overlapping runs (each
+  // holding its own row's lock) would otherwise both see "no marker" and both go out.
   const marker = ONCE_PER_CLICK.has(eventName) ? clickMarkerRef(clinicId, click.ctwaClid, eventName) : null;
-  if (marker && (await marker.get()).exists) {
-    return skip("already_credited", { patientId, ctwaClid: click.ctwaClid, clickedAt: click.clickedAt, adSourceId: click.sourceId });
+  const mine: MarkerOwner = { clinicId, eventName, eventId, appointmentId };
+  if (marker) {
+    const claim = await reserveClickMarker(marker, mine, clock());
+    if (claim === "already_credited") {
+      return skip("already_credited", { patientId, ctwaClid: click.ctwaClid, clickedAt: click.clickedAt, adSourceId: click.sourceId });
+    }
+    if (claim === "busy") return { kind: "release", patch: { dueAt: now + MARKER_BUSY_WAIT_MS }, count: "deferred" };
   }
 
   const value = eventName === "Purchase" ? await appointmentChargeValue(clinicId, appointmentId) : 0;
@@ -577,8 +731,13 @@ async function processOne(
     match: { kind: "ctwa", ctwaClid: click.ctwaClid },
     value,
   });
-  const outcome = await postConversion({ datasetId: config.datasetId, token: config.token, payload, fetchImpl });
+  // ── From here on a request may have reached Meta: nothing below may throw. ──
+  const outcome = await postConversion({ datasetId: config.datasetId, token: config.token, payload, fetchImpl: ctx.fetchImpl });
   const attempts = (Number(row.attempts) || 0) + 1;
+
+  // Sent: the click is credited for good. Anything else: give the click back for the retry (or
+  // for another booking on it, when this one failed for good).
+  if (marker) await settleClickMarker(marker, mine, outcome.kind === "sent");
 
   const common: Record<string, unknown> = {
     patientId,
@@ -593,23 +752,126 @@ async function processOne(
   };
 
   if (outcome.kind === "sent") {
-    if (marker) {
-      // After the send, not before: a send that fails must leave the click free for the retry.
-      // A marker that fails to write only weakens the once-per-click guard; the send stands.
-      await marker
-        .create({ clinicId, eventName, eventId, appointmentId, createdAt: FieldValue.serverTimestamp() })
-        .catch((e) => {
-          if (!isAlreadyExists(e)) console.warn("[metaCapi] click marker not written:", clinicId, eventId, errText(e));
-        });
-    }
-    return { patch: { ...common, status: "sent", reason: FieldValue.delete(), sentAt: FieldValue.serverTimestamp() }, count: "sent" };
+    return { kind: "sent", eventId, patch: { ...common, status: "sent", reason: FieldValue.delete(), sentAt: FieldValue.serverTimestamp() } };
   }
   if (outcome.kind === "retry") {
     const next = nextAttemptAt(attempts, now);
-    if (next !== null) return { patch: { ...common, status: "retry", dueAt: next }, count: "retried" };
-    return { patch: { ...common, status: "failed", reason: "out_of_attempts" }, count: "failed" };
+    if (next !== null) return { kind: "finish", patch: { ...common, status: "retry", dueAt: next }, count: "retried" };
+    return { kind: "finish", patch: { ...common, status: "failed", reason: "out_of_attempts" }, count: "failed" };
   }
-  return { patch: { ...common, status: "failed", reason: "meta_rejected" }, count: "failed" };
+  return { kind: "finish", patch: { ...common, status: "failed", reason: "meta_rejected" }, count: "failed" };
+}
+
+/**
+ * Delete a never-posted row whose moment was undone — but only if, re-read inside a transaction,
+ * it STILL is: the appointment still says undone and the row is still open, unposted and here.
+ *
+ * Without the re-read, this race loses an event: we read "Scheduled", the desk re-confirms, the
+ * trigger's create() fails ALREADY_EXISTS on our still-present row (and swallows it), and then we
+ * delete the row — the real confirmation is never reported. The transaction re-reads the
+ * appointment, so a re-confirmation written in between either aborts our delete (contention) or
+ * is seen by it.
+ *
+ *   "deleted": dropped. "kept": no longer undone (or no longer ours to drop) — release it.
+ *   "gone": the row is already gone.
+ *
+ * Exported for the emulator test.
+ */
+export async function dropUndoneRow(
+  clinicId: string,
+  ref: FirebaseFirestore.DocumentReference,
+  eventName: ConversionEventName,
+  appointmentId: string
+): Promise<"deleted" | "kept" | "gone"> {
+  const apptRef = appointmentId ? adminClinicDoc(clinicId, "appointments", appointmentId) : null;
+  return adminDb().runTransaction(async (tx) => {
+    const fresh = await tx.get(ref);
+    const apptSnap = apptRef ? await tx.get(apptRef) : null;
+    if (!fresh.exists) return "gone" as const;
+    const d = fresh.data() || {};
+    const unsent = (OPEN_STATUSES as string[]).includes(String(d.status)) && !(Number(d.attempts) > 0) && d.sentUnrecorded !== true;
+    if (!unsent) return "kept" as const;
+    const appt = apptSnap?.exists ? ((apptSnap.data() || {}) as Record<string, unknown>) : null;
+    if (recheckAppointment(eventName, appt).action !== "undone") return "kept" as const;
+    tx.delete(ref);
+    return "deleted" as const;
+  });
+}
+
+interface MarkerOwner {
+  clinicId: string;
+  eventName: ConversionEventName;
+  eventId: string;
+  appointmentId: string;
+}
+
+/**
+ * Reserve the once-per-click marker before a send.
+ *
+ *   - No marker → written `{state: "sending", reservedAt, eventId, …}`: "reserved".
+ *   - state "sent" (or no state: markers from before reservations were only written after a
+ *     send) → "already_credited".
+ *   - state "sending", ours (this row's earlier try died mid-way) → re-reserved.
+ *   - state "sending", another row's: if that row is already sent → "already_credited" (and the
+ *     marker is corrected); if reserved less than CLAIM_LOCK_MS ago → "busy" (that send is in
+ *     flight); older → the run that held it died, so it is taken over.
+ *
+ * `nowClock` is the real clock: a reservation's age must be measured like a claim lock's.
+ */
+export async function reserveClickMarker(
+  marker: FirebaseFirestore.DocumentReference,
+  mine: MarkerOwner,
+  nowClock: number
+): Promise<"reserved" | "already_credited" | "busy"> {
+  const events = capiEventsCollection(mine.clinicId);
+  return adminDb().runTransaction(async (tx) => {
+    const snap = await tx.get(marker);
+    if (snap.exists) {
+      const m = snap.data() || {};
+      if (m.state !== "sending") return "already_credited" as const;
+      const owner = str(m.eventId);
+      if (owner !== mine.eventId) {
+        const ownerRow = owner ? await tx.get(events.doc(owner)) : null;
+        const od = ownerRow?.exists ? ownerRow.data() || {} : null;
+        if (od && (od.status === "sent" || od.sentUnrecorded === true)) {
+          // Its send went out but the marker never heard (settleClickMarker failed).
+          tx.update(marker, { state: "sent", sentAt: FieldValue.serverTimestamp() });
+          return "already_credited" as const;
+        }
+        if (nowClock - (Number(m.reservedAt) || 0) < CLAIM_LOCK_MS) return "busy" as const;
+      }
+    }
+    tx.set(marker, { ...mine, state: "sending", reservedAt: nowClock, createdAt: FieldValue.serverTimestamp() });
+    return "reserved" as const;
+  });
+}
+
+/**
+ * After the send: "sent" marks the click credited; any other answer gives the click back. Only a
+ * marker still reserved by THIS row is touched. Never throws — it runs after a request may have
+ * reached Meta. A sent marker that cannot be written stays "sending" under our event id, and
+ * reserveClickMarker reads our row (sent) and treats the click as credited all the same.
+ */
+async function settleClickMarker(marker: FirebaseFirestore.DocumentReference, mine: MarkerOwner, sent: boolean): Promise<void> {
+  for (let attempt = 1; attempt <= SENT_WRITE_TRIES; attempt++) {
+    try {
+      await adminDb().runTransaction(async (tx) => {
+        const snap = await tx.get(marker);
+        if (!snap.exists) {
+          // Somebody removed it mid-send. A sent click must still end up credited.
+          if (sent) tx.set(marker, { ...mine, state: "sent", sentAt: FieldValue.serverTimestamp(), createdAt: FieldValue.serverTimestamp() });
+          return;
+        }
+        if (str(snap.data()?.eventId) !== mine.eventId) return; // taken over: not ours to change
+        if (sent) tx.update(marker, { state: "sent", sentAt: FieldValue.serverTimestamp() });
+        else tx.delete(marker);
+      });
+      return;
+    } catch (e) {
+      if (attempt === SENT_WRITE_TRIES) console.warn("[metaCapi] click marker not settled:", mine.clinicId, mine.eventId, errText(e));
+      else await sleep(150 * attempt);
+    }
+  }
 }
 
 /** Meta's answer as stored on the row, without undefined keys. */
@@ -640,7 +902,7 @@ export async function processAllEnabledClinics(opts: { nowMs?: number; fetchImpl
       out.push(await processClinicQueue(doc.id, { ...opts, deadlineMs }));
     } catch (e) {
       console.warn("[metaCapi] clinic run failed:", doc.id, errText(e));
-      out.push({ clinicId: doc.id, examined: 0, sent: 0, retried: 0, failed: 1, skipped: 0, error: errText(e) });
+      out.push({ clinicId: doc.id, examined: 0, sent: 0, retried: 0, failed: 1, skipped: 0, deferred: 0, error: errText(e) });
     }
   }
   return out;

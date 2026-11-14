@@ -2473,9 +2473,12 @@ export default function PatientProfile() {
 /**
  * "From ad": this patient first wrote to the clinic by tapping a Click-to-WhatsApp ad.
  *
- * Read from `adAttribution`, which the WhatsApp bot stamps when a chat arrives with Meta's click
- * id (lib/bot/respond `rememberAdClick`, and on the record the bot registers). The desk sees
- * where the patient came from without opening the chat; the tooltip says which ad and when.
+ * Read from `adAttribution`. Every ad click is kept on the WhatsApp chat in every clinic; it reaches
+ * the patient file in two ways only: on a patient the bot registers from an ad, and — for a patient
+ * who already existed — once the clinic has the Meta ad-results card switched on and one of their
+ * bookings is processed. So an existing patient who tapped an ad in a clinic with the card off has
+ * no chip; that is expected, not a missed click. The desk sees where the patient came from without
+ * opening the chat; the tooltip says which ad and when.
  * Quiet on purpose — a grey chip, not a colour: it is context, not an alert. Nothing renders for
  * a patient with no click id.
  */
