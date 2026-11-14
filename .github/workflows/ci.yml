@@ -153,6 +153,8 @@ jobs:
         run: npx firebase-tools@13 emulators:exec --only firestore "npm run --silent test:approval-teeth-route"
       - name: Per-service done dates on an insurance approval (finish month, sent lock, delete a service)
         run: npx firebase-tools@13 emulators:exec --only firestore "npm run --silent test:insurance-line-dates-route"
+      - name: Company sheet switch and sent lock (GASCO monthly sheet)
+        run: npx firebase-tools@13 emulators:exec --only firestore "npm run --silent test:company-sheet-route"
 
   build:
     name: Production build
