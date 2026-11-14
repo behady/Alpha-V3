@@ -1765,7 +1765,7 @@ export default function MobileDashboard() {
                                           {apt.patientName}
                                         </h4>
                                         <span className="text-[10px] font-bold text-slate-400">
-                                          {apt.time} — {getEndTimeStr(apt.time, apt.duration || 30)}
+                                          {normalizeTimeKey(apt.time)} — {getEndTimeStr(apt.time, apt.duration || 30)}
                                         </span>
                                       </div>
                                       {/* Right: Status dot + Label */}

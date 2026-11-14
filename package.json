@@ -92,6 +92,7 @@
     "test:gradeflow": "npx tsx tests/leadGradingFlow.test.mts",
     "test:botcases": "npx tsx tests/botTestCases.test.mts",
     "test:claims": "npx tsx tests/replyClaims.test.mts",
+    "test:drag-time": "npx tsx tests/dragTimeFormat.test.mts",
     "test:delivery-claim": "npx tsx tests/inboundDeliveryClaim.test.mts",
     "test:followup-guard": "npx tsx tests/leadFollowupGuard.test.mts",
     "test:care-note": "npx tsx tests/careNote.test.mts",

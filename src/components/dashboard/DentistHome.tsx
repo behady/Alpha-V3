@@ -22,6 +22,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { useActiveBranch } from "@/lib/useActiveBranch";
 import { localYmd } from "@/lib/clinicDate";
+import { normalizeTimeKey } from "@/lib/appointmentTime";
 import { getAppointmentStageLabel, getAppointmentStatusStyles } from "@/lib/appointmentStages";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { isChairMode } from "@/lib/chairMode";
@@ -408,7 +409,7 @@ export default function DentistHome() {
                 {String(hero.patientName || "")}
               </h2>
               <p className="text-[15px] font-semibold text-white/70">
-                <span className="font-figure text-white">{String(hero.time || "")}</span>
+                <span className="font-figure text-white">{normalizeTimeKey(String(hero.time || ""))}</span>
                 {" · "}
                 {String(hero.serviceName || hero.treatment || (isAr ? "بدون إجراء محدد" : "No procedure set"))}
               </p>
@@ -628,7 +629,7 @@ export default function DentistHome() {
                 return (
                   <div key={rowId} className={`border-t border-surface-muted first:border-t-0 ${done ? "opacity-55" : ""}`}>
                   <div className="flex items-center gap-3 min-h-[66px] py-2">
-                    <span className="w-12 shrink-0 font-figure text-[15px] font-semibold text-ink">{String(a.time || "")}</span>
+                    <span className="w-12 shrink-0 font-figure text-[15px] font-semibold text-ink">{normalizeTimeKey(String(a.time || ""))}</span>
                     <div className="min-w-0 flex-1">
                       <p className="flex items-center gap-1.5 text-[15px] font-bold text-ink">
                         <span className={`w-2 h-2 rounded-full shrink-0 ${getAppointmentStatusStyles(String(a.status)).dot}`} title={stage} aria-label={stage} />

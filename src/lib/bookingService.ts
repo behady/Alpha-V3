@@ -515,8 +515,11 @@ export async function saveBooking(
  * is now the user's and the write is one guarded transaction. See DeleteAppointmentDialog.
  */
 
-export async function updateBookingTime(id: string, newDate: string, newTime: string): Promise<void> {
+export async function updateBookingTime(id: string, newDate: string, droppedTime: string): Promise<void> {
   const ref = getClinicDoc('appointments', id);
+  // A drop arrives as a clock position ("21:30"); every other booking path stores "09:30 PM".
+  // Stored raw, it showed as 24-hour on the dentist's home and in the patient's WhatsApp.
+  const newTime = normalizeTimeKey(droppedTime);
   // Read before write, because the patient message needs to know whether the slot actually moved
   // — and who the patient is. Dragging a card onto the slot it already occupies happens all the
   // time and must not text anybody.
