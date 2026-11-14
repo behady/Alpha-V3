@@ -133,17 +133,27 @@ assert.equal(offeredTimeAhead({}, morning), false);
 assert.equal(offeredTimeAhead({ pendingSlots: ["2026-11-14|11:45 PM|"] }, Date.UTC(2026, 10, 14, 21, 30)), false, "fifteen minutes away is not ahead");
 assert.equal(offeredTimeAhead({ pendingSlots: ["2026-11-15|03:00 PM|"] }, Date.UTC(2026, 10, 14, 22, 30)), true, "00:30 in Cairo on the 15th, 3 PM is ahead");
 assert.equal(offeredTimeAhead({ pendingSlots: ["2026-11-14|06:30 PM|"] }, Date.UTC(2026, 10, 14, 22, 30)), false, "after midnight in Cairo, yesterday's time is gone");
-// A patient the bot speaks English with is nudged in English, in every variant.
+// A patient the bot speaks English with is nudged in English, in every variant. lastText is the
+// bot's own last line (the chat's preview), which the bot wrote in English.
+const enLine = "Sure! I have Saturday at 6:30 PM or Sunday at 3:00 PM. Which one suits you?";
 for (const id of ["032262995", "123054233", "146708432", "1", ""]) {
-  for (const c of [{ patientName: "Sara Ali", lastLatin: true }, { patientName: "Sara Ali", lastLatin: true, pendingSlots: ["2026-11-15|03:00 PM|"] }]) {
+  for (const c of [{ patientName: "Sara Ali", lastLatin: true, lastText: enLine }, { patientName: "Sara Ali", lastLatin: true, lastText: enLine, pendingSlots: ["2026-11-15|03:00 PM|"] }]) {
     const en = nudgeText(c, id, now);
     assert.ok(!/[؀-ۿ]/.test(en), `Arabic in an English nudge: ${en}`);
     assert.ok(en.startsWith("Hi Sara! "), en);
   }
 }
-assert.ok(!/^Hi/.test(nudgeText({ lastLatin: true }, "1", now)), "no name, no 'Hi ' with a gap");
+assert.ok(/^(Still|No rush|Whenever)/.test(nudgeText({ lastLatin: true, lastText: enLine }, "1", now)), "no name, no 'Hi ' with a gap");
 assert.ok(/[؀-ۿ]/.test(nudgeText({ lastLatin: false }, "1", now)), "Arabic by default");
 assert.ok(/[؀-ۿ]/.test(nudgeText({}, "1", now)), "Arabic when the chat says nothing about language");
+// The patient's script is not the chat's language. "Ok", "tmam" and Franco-Arabic set lastLatin, and
+// the model answers them in Arabic: that Arabic chat must not get its one English message.
+for (const lastText of ["تمام، تحب أثبتلك ميعاد السبت الساعة 3:00 م ولا 6:30 م؟", "📍 العنوان: شارع الرحمة https://maps.app.goo.gl/x", ""]) {
+  for (const id of todaysIds) {
+    const t = nudgeText({ patientName: "مروة", lastLatin: true, lastText, pendingSlots: ["2026-11-15|03:00 PM|"] }, id, now);
+    assert.ok(/[؀-ۿ]/.test(t) && !/Still|rush|ready|Hi /.test(t), `an Arabic chat got an English nudge: ${t}`);
+  }
+}
 // Someone who came from an ad for an offer is booking the offer, not a check-up: the confirmation
 // already leaves the consultation fee out for them, and the nudge must not bring the word back.
 const adNudge = nudgeText({ patientName: "فاطمة خبير", lastInterest: "تبييض الأسنان", ad: { headline: "عرض التبييض" } });

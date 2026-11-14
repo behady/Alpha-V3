@@ -48,8 +48,8 @@ const OPENERS = ["لسه معانا؟ 😊", "براحة حضرتك خالص �
 const OFFER_ANY = "لو حبيت أحجزلك ميعاد أو عندك أي سؤال تاني، أنا هنا.";
 // When the last turn offered times still ahead. It never says they are held: nothing holds them.
 const OFFER_TIMES = "لو ميعاد من اللي بعتهالك مناسب أثبتهولك على طول، ولو يوم تاني أنسب أشوفلك غيره.";
-// A patient the bot answers in English (conversation.lastLatin, written by saveConversation) is
-// nudged in English too; an Arabic line to them is the one message of the chat they cannot read.
+// A patient the bot answers in English is nudged in English too; an Arabic line to them is the one
+// message of the chat they cannot read. See speaksEnglish for who that is.
 const OPENERS_EN = ["Still with us? 😊", "No rush at all 😊", "Whenever you're ready 😊"];
 const OFFER_ANY_EN = "If you'd like, I can book you an appointment, or ask me anything else.";
 const OFFER_TIMES_EN = "If one of the times I sent works for you, I'll confirm it right away, or I can find another day.";
@@ -106,12 +106,23 @@ function offeredTimeAhead(c, now) {
   });
 }
 
+/**
+ * Does the bot speak English in this chat? The patient's script alone (lastLatin) says no such
+ * thing: "Ok", "tmam" and Franco-Arabic all set it, and the model answers those in Arabic, so an
+ * Arabic chat would get its one English line. The bot's own last line must be Latin too: lastText,
+ * the thread preview written beside lastAuthor "bot" — the same witness the photo disclaimer uses.
+ */
+function speaksEnglish(c) {
+  const last = String(c.lastText || "");
+  return c.lastLatin === true && /[A-Za-z]/.test(last) && !/[؀-ۿ]/.test(last);
+}
+
 function nudgeText(c, id = "", now = Date.now()) {
   // First name only: "مروة محمد ابو ضيف، لسه معاك؟" is a form letter; "مروة، لسه معاكي؟" is a person.
   const name = String(c.patientName || "").trim().split(/\s+/)[0] || "";
   const hi = name ? `${name}، ` : "";
   const times = offeredTimeAhead(c, now);
-  if (c.lastLatin === true) return `${name ? `Hi ${name}! ` : ""}${OPENERS_EN[pickIndex(id, OPENERS_EN.length)]} ${times ? OFFER_TIMES_EN : OFFER_ANY_EN}`;
+  if (speaksEnglish(c)) return `${name ? `Hi ${name}! ` : ""}${OPENERS_EN[pickIndex(id, OPENERS_EN.length)]} ${times ? OFFER_TIMES_EN : OFFER_ANY_EN}`;
   return `${hi}${OPENERS[pickIndex(id, OPENERS.length)]} ${times ? OFFER_TIMES : OFFER_ANY}`;
 }
 
