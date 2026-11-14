@@ -1558,18 +1558,27 @@ ${replyText}`;
           // "rescheduled" is a success too — labelling it a failure made the quiet-nudge chase a
           // patient who had just moved their appointment.
           if (!["booked", "rescheduled", "slot_taken", "reschedule_gone"].includes(reason)) reason = "ai_slot_failed";
-        } else if (conversation.lastReason === "ai_ask_name_slot") {
+        } else if (conversation.lastReason === "ai_ask_name_slot" || conversation.lastReason === "ai_ask_name_again") {
           /*
            * The name was asked for in the last message and the answer was not understood as one.
-           * Asking a second time in the same words is a loop — a patient sent his name, then
-           * "it's above", then a voice note, and got the identical question four times. Once is
-           * the limit: the time stays held on the chat and a person finishes the booking.
+           * Asking again in the same words is a loop — a patient sent his name, then "it's
+           * above", then a voice note, and got the identical question four times. A receptionist
+           * would say it differently: the time is held, only the name is missing. Two such
+           * reminders, each in its own words; after that the chat is stuck and a person takes it.
            */
-          replyText = `معلش على اللخبطة 🙏 الاستقبال هيأكد الحجز ${voiceFor(ctx.gender ?? "unknown").withYou} حالاً.`;
-          nextState = "handed_off";
-          handoff = true;
+          const held = slotOffer.find((s) => s.key === ai.bookSlot)?.label;
+          const heldLine = held ? `ميعاد ${held} محجوز لحضرتك` : "الميعاد محجوز لحضرتك";
           pending = { date: slotDate, times: [slotTime], doctor: slotDoctor, treatment: ctx.serviceMatch || aiInterest || conversation.lastInterest };
-          reason = "ai_name_loop_handoff";
+          if (conversation.lastReason === "ai_ask_name_slot") {
+            replyText = `معلش 🙏 ${heldLine}، ناقصني بس الاسم عشان أأكده.\n\nممكن ${v.send === "ابعتي" ? "تكتبيلي" : "تكتبلي"} الاسم الأول والأخير بس في رسالة لوحدها؟`;
+            nextState = "booking_name";
+            reason = "ai_ask_name_again";
+          } else {
+            replyText = `معلش على اللخبطة 🙏 ${heldLine}، والاستقبال هيأكده ${voiceFor(ctx.gender ?? "unknown").withYou} حالاً.`;
+            nextState = "handed_off";
+            handoff = true;
+            reason = "ai_name_loop_handoff";
+          }
         } else {
           const askName = `${v.welcome} 🙏 عشان أسجل الحجز باسمك، ${v.send === "ابعتي" ? "ابعتيلي" : "ابعتلي"} اسمك الكامل.`;
           const lead = intro && !claimsBooked(intro) ? intro : "";
