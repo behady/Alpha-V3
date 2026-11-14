@@ -16,7 +16,8 @@
  *     `MAD-0142`.
  */
 
-import { runTransaction, addDoc, getDoc, updateDoc, deleteDoc, deleteField, serverTimestamp } from "firebase/firestore";
+import { runTransaction, addDoc, getDoc, getDocs, query, where, updateDoc, deleteDoc, deleteField, serverTimestamp } from "firebase/firestore";
+import { labCaseFateOnTreatmentDelete, toLabCase as readLabCase, type LabDeleteOutcome } from "@/lib/labCases";
 import { db } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { localYmd } from "@/lib/clinicDate";
@@ -487,6 +488,38 @@ export async function advanceLabCase(
   if (next === "fitted" && !labCase.fittedAt) body.fittedAt = day;
 
   await updateDoc(getClinicDoc(LAB_CASES_COLLECTION, labCase.id), body);
+}
+
+/**
+ * A treatment was deleted: settle the lab orders raised from it.
+ *
+ * Called after the delete has gone through, from every screen that can delete a treatment. The
+ * rule is `labCaseFateOnTreatmentDelete`: an order still out is cancelled, one already back is
+ * left alone. Never throws. A person who may delete a treatment but may not touch lab orders
+ * still gets their delete, and the order simply stays as it was before this existed.
+ */
+export async function cancelLabCasesOfDeletedTreatment(noteId: string, by?: string): Promise<LabDeleteOutcome> {
+  const outcome: LabDeleteOutcome = { cancelled: [], kept: [] };
+  if (!noteId) return outcome;
+  let cases: LabCase[] = [];
+  try {
+    const snap = await getDocs(query(getClinicCollection(LAB_CASES_COLLECTION), where("clinicalNoteId", "==", noteId)));
+    cases = snap.docs.map((d) => readLabCase(d.id, d.data() as Record<string, unknown>));
+  } catch {
+    return outcome;
+  }
+  for (const labCase of cases) {
+    const fate = labCaseFateOnTreatmentDelete(labCase);
+    if (fate === "keep") outcome.kept.push(labCase.code);
+    if (fate !== "cancel") continue;
+    try {
+      await advanceLabCase(labCase, "cancelled", { by, note: "Treatment deleted" });
+      outcome.cancelled.push(labCase.code);
+    } catch {
+      // Left as it was. Not reported as kept: that word is for work the lab is owed for.
+    }
+  }
+  return outcome;
 }
 
 /**

@@ -24,8 +24,8 @@ import { FlaskConical, X } from "lucide-react";
 import LabCaseModal from "@/components/lab/LabCaseModal";
 import { useActiveBranch, ALL_BRANCHES } from "@/lib/useActiveBranch";
 import { LABS_SETTINGS_DOC, parseDentalLabs, type DentalLab } from "@/lib/dentalLabs";
-import { LAB_CASES_COLLECTION, labCasesByNote, statusLabel, toLabCase, type LabCase, type LabCaseSeed, type LabCaseStatus } from "@/lib/labCases";
-import { advanceLabCase } from "@/lib/labCaseWrite";
+import { LAB_CASES_COLLECTION, labCasesByNote, labDeleteNotice, labDeleteWarning, statusLabel, toLabCase, type LabCase, type LabCaseSeed, type LabCaseStatus } from "@/lib/labCases";
+import { advanceLabCase, cancelLabCasesOfDeletedTreatment } from "@/lib/labCaseWrite";
 import { carryFromOrder, dropLabOffer, queueLabOffer, type LabCarry } from "@/lib/labBag";
 import { PalmerList } from "@/components/lab/PalmerMark";
 import { notifyLabCaseReady } from "@/lib/labNotify";
@@ -322,7 +322,13 @@ export default function ClinicalNotesContainer({
   };
 
   const handleDeleteService = async (note: Note) => {
-    if (!(await confirm("Delete this record? Any linked finance rows will also be removed."))) return;
+    const isAr = language === "ar";
+    const question = isAr
+      ? "حذف الإجراء ده؟ هيتشال كمان من الحساب."
+      : "Delete this record? Any linked finance rows will also be removed.";
+    // A treatment with a lab order says so before it goes, not after.
+    const labWarning = labDeleteWarning(labCases, note.id, language);
+    if (!(await confirm(labWarning ? `${question} ${labWarning}` : question))) return;
 
     try {
       // Deleting a treatment takes its charge with it, in both link directions — and is refused
@@ -330,7 +336,8 @@ export default function ClinicalNotesContainer({
       // never checked, so a paid-for treatment could be removed from the timeline while its
       // payments stayed behind pointing at nothing.
       await deleteProcedure(note.id);
-      showToast("Record deleted", "info");
+      const lab = await cancelLabCasesOfDeletedTreatment(note.id, user?.name);
+      showToast(labDeleteNotice(lab, language) || (isAr ? "اتحذف" : "Record deleted"), "info");
     } catch (error) {
       showToast(error instanceof MoneyApiError ? error.message : "Could not delete that record", "error");
     }

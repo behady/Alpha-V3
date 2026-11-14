@@ -59,6 +59,11 @@ export function carryFromOrder(made: LabCase): LabCarry {
   };
 }
 
+/** One lab, however an order names it: by its id, or by its typed name when it has none. */
+export function labKeyOf(labCase: Pick<LabCase, "labId" | "labName">): string {
+  return labCase.labId ? `id:${labCase.labId}` : `name:${String(labCase.labName || "").trim().toLowerCase()}`;
+}
+
 export type LabBagGroup = { labId: string; labName: string; cases: LabCase[] };
 
 /**
@@ -70,7 +75,7 @@ export function bagByLab(cases: LabCase[]): LabBagGroup[] {
   const groups: LabBagGroup[] = [];
   const byKey = new Map<string, LabBagGroup>();
   for (const c of cases) {
-    const key = c.labId ? `id:${c.labId}` : `name:${String(c.labName || "").trim().toLowerCase()}`;
+    const key = labKeyOf(c);
     let group = byKey.get(key);
     if (!group) {
       group = { labId: c.labId || "", labName: String(c.labName || "").trim(), cases: [] };

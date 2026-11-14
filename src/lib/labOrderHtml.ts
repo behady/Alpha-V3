@@ -56,7 +56,7 @@ export type LabOrderClinic = {
  * genuinely differ (one also escapes `'`, another does not escape `"`), so borrowing one silently
  * changes behaviour.
  */
-function esc(s: unknown): string {
+export function esc(s: unknown): string {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -119,7 +119,7 @@ function palmerMarkHtml(fdi: number): string {
   return `<span style="display:inline-block;padding:0 2px;margin:0 4px 0 0;${style};">${esc(position)}</span>`;
 }
 
-function palmerListHtml(teeth: number[]): string {
+export function palmerListHtml(teeth: number[]): string {
   return teeth.map(palmerMarkHtml).join("");
 }
 
@@ -166,7 +166,9 @@ function toothChartHtml(teeth: number[], pontics: number[] = []): string {
     // Which half is which. A chart is drawn facing the patient, so the left of the page is their
     // RIGHT — the one thing about a dental chart everybody is told once and nobody should have to
     // recall correctly while holding a bag of crowns.
-    return `<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+    // `dir="ltr"` on the chart itself: on an Arabic sheet the page is right-to-left, and a table
+    // left to follow it mirrors, putting the patient's right on the right of the page.
+    return `<table dir="ltr" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
       <tr>${sideLabel("Patient's right · يمين", half)}${sideLabel("Patient's left · شمال", half)}</tr>
       ${row(upper.slice(0, half), upper.slice(half), false)}
       ${row(lower.slice(0, half), lower.slice(half), true)}
@@ -228,6 +230,10 @@ function orderBodyHtml(
   const joined = bridgeGroups(labCase);
   const bridgePontics = joined ? joined.groups.flatMap((g) => g.pontics) : [];
   const bridgeLabel = `font-size:6.5pt;font-weight:400;color:${MUTED};`;
+  // Tooth numbers are always written left-to-right. On an Arabic sheet that would also push them
+  // to the left edge of their column, against the next column's labels, so they are held to the
+  // side the chart is on.
+  const ltrLine = isAr ? "text-align:right;" : "";
   const bridgeBlock = joined
     ? `<div style="margin-top:5px;padding:4px 6px;border:1.5px solid ${INK};font-size:8.5pt;font-weight:700;color:${INK};line-height:1.5;">
         ${joined.groups
@@ -236,7 +242,7 @@ function orderBodyHtml(
               g.pontics.length
                 ? `<div><span style="${bridgeLabel}">${esc(bi("Supports", "دعامات"))}</span> <span dir="ltr">${palmerListHtml(g.supports)}</span>
                    &nbsp; <span style="${bridgeLabel}">${esc(bi("Pontic", "بونتيك"))}</span> <span dir="ltr">${palmerListHtml(g.pontics)}</span></div>`
-                : `<div dir="ltr">${palmerListHtml(g.teeth)}</div>`
+                : `<div style="${ltrLine}" dir="ltr">${palmerListHtml(g.teeth)}</div>`
             }`
           )
           .join("")}
@@ -249,8 +255,8 @@ function orderBodyHtml(
     ? `<div>
         <div style="font-size:6.5pt;letter-spacing:0.09em;text-transform:uppercase;color:${MUTED};margin-bottom:3px;">${esc(bi("Teeth", "الأسنان"))}</div>
         ${toothChartHtml(labCase.teeth, bridgePontics)}
-        <div style="font-size:10pt;font-weight:700;color:${INK};margin-top:5px;" dir="ltr">${palmerListHtml(labCase.teeth)}</div>
-        <div style="font-size:6.5pt;color:${MUTED};margin-top:1px;" dir="ltr">FDI ${esc(labCase.teeth.join(", "))}</div>
+        <div style="font-size:10pt;font-weight:700;color:${INK};margin-top:5px;${ltrLine}" dir="ltr">${palmerListHtml(labCase.teeth)}</div>
+        <div style="font-size:6.5pt;color:${MUTED};margin-top:1px;${ltrLine}" dir="ltr">FDI ${esc(labCase.teeth.join(", "))}</div>
         ${bridgeBlock}
       </div>`
     : `<div style="font-size:8pt;color:${MUTED};">${esc(bi("No specific teeth", "من غير أسنان محددة"))}</div>`;
@@ -304,13 +310,13 @@ function orderBodyHtml(
             ${esc([clinic.branchName, clinic.phone].filter(Boolean).join(" · "))}
           </div>
         </td>
-        <td style="vertical-align:top;text-align:right;white-space:nowrap;">
-          <table cellspacing="0" cellpadding="0" style="float:right;">
+        <td style="vertical-align:top;text-align:${isAr ? "left" : "right"};white-space:nowrap;">
+          <table cellspacing="0" cellpadding="0" style="float:${isAr ? "left" : "right"};">
             <tr>
-              <td style="padding-right:8px;vertical-align:middle;">
+              <td style="padding-${isAr ? "left" : "right"}:8px;vertical-align:middle;">
                 ${qrDataUrl ? `<img src="${esc(qrDataUrl)}" alt="" width="${compact ? 46 : 56}" height="${compact ? 46 : 56}" style="display:block;" />` : ""}
               </td>
-              <td style="vertical-align:middle;text-align:left;">
+              <td style="vertical-align:middle;text-align:${isAr ? "right" : "left"};">
                 <div style="font-size:${compact ? 15 : 18}pt;font-weight:800;letter-spacing:0.02em;line-height:1;" dir="ltr">${esc(labCase.code)}</div>
                 <div style="font-size:6pt;letter-spacing:0.1em;text-transform:uppercase;color:${MUTED};margin-top:3px;">${esc(bi("Lab case · keep with work", "حالة معمل · تفضل مع الشغل"))}</div>
               </td>

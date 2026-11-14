@@ -19,6 +19,8 @@ import {
   MoneyApiError, createPayment, createProcedure, deleteProcedure, updateLedgerRow,
 } from "@/lib/moneyApi";
 import { sendPatientPaymentWhatsApp } from "@/lib/sendPatientPaymentWhatsAppClient";
+import { cancelLabCasesOfDeletedTreatment } from "@/lib/labCaseWrite";
+import { labDeleteNotice } from "@/lib/labCases";
 import { printPaymentReceipt } from "@/lib/printPatientReceipt";
 import { loadReceiptSettings } from "@/lib/receiptSettingsClient";
 import ServiceCombobox from "@/components/shared/ServiceCombobox";
@@ -786,7 +788,8 @@ export default function AppointmentMoneyTab({
     if (!ok) return;
     try {
       await deleteProcedure(charge.clinicalNoteId);
-      showToast(isAr ? "تم الحذف" : "Deleted", "info");
+      const lab = await cancelLabCasesOfDeletedTreatment(charge.clinicalNoteId);
+      showToast(labDeleteNotice(lab, isAr ? "ar" : "en") || (isAr ? "تم الحذف" : "Deleted"), "info");
     } catch (e) {
       showToast(
         e instanceof MoneyApiError ? e.message : isAr ? "خطأ في الحذف" : "Could not delete that",

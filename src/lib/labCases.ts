@@ -239,6 +239,17 @@ export const TOOTH_SHADES = [...BLEACH_SHADES, ...CLASSICAL_SHADES];
 export const CERVICAL_SHADES = TOOTH_SHADES;
 
 /**
+ * The same shades, laid out the way a shade guide is: one family to a row.
+ *
+ * For the tap buttons on the order form. A drop-down of twenty names is a scroll and a squint on a
+ * phone; a guide is something every dentist already reads at a glance.
+ */
+export const SHADE_ROWS: string[][] = [
+  ...["A", "B", "C", "D"].map((family) => CLASSICAL_SHADES.filter((s) => s.startsWith(family))),
+  BLEACH_SHADES,
+].filter((row) => row.length > 0);
+
+/**
  * Gum shades are offered as suggestions rather than a closed list.
  *
  * Unlike tooth shades there is no single guide every lab works to, and inventing a standard the
@@ -359,6 +370,79 @@ export function nextStatuses(current: LabCaseStatus, needsTryIn: boolean): LabCa
     default:
       return [];
   }
+}
+
+/**
+ * What becomes of a lab order when the treatment it was raised from is deleted.
+ *
+ * It used to stay behind, "at the lab", pointing at a treatment that no longer existed. An order
+ * that has not come back is cancelled with its treatment: nothing was delivered, so nothing is
+ * owed, and a cancelled order can be reopened if the delete was the mistake. One that is already
+ * back is left exactly as it is. The work is in the building and the lab is owed for it, whatever
+ * happened to the treatment, and quietly dropping it would hide a real debt.
+ */
+export function labCaseFateOnTreatmentDelete(labCase: {
+  status: LabCaseStatus;
+  needsTryIn?: boolean;
+}): "cancel" | "keep" | "none" {
+  if (labCase.status === "cancelled") return "none";
+  return nextStatuses(labCase.status, Boolean(labCase.needsTryIn)).includes("cancelled") ? "cancel" : "keep";
+}
+
+/** The codes of a deleted treatment's lab orders, by what was done with each. */
+export type LabDeleteOutcome = { cancelled: string[]; kept: string[] };
+
+function codeList(codes: string[], language: "en" | "ar"): string {
+  return codes.join(language === "ar" ? "، " : ", ");
+}
+
+/** Said after the delete. Empty when the treatment had no lab order. */
+export function labDeleteNotice(outcome: LabDeleteOutcome, language: "en" | "ar"): string {
+  const isAr = language === "ar";
+  const parts: string[] = [];
+  if (outcome.cancelled.length) {
+    const codes = codeList(outcome.cancelled, language);
+    parts.push(isAr ? `أمر المعمل ${codes} اتلغى مع العلاج.` : `Lab order ${codes} was cancelled with the treatment.`);
+  }
+  if (outcome.kept.length) {
+    const codes = codeList(outcome.kept, language);
+    parts.push(
+      isAr
+        ? `أمر المعمل ${codes} رجع من المعمل خلاص، فضل زي ما هو في حساب المعمل.`
+        : `Lab order ${codes} is already back from the lab, so it stays in the lab's account.`
+    );
+  }
+  return parts.join(" ");
+}
+
+/** Said BEFORE the delete, on a screen that already has the patient's lab orders in hand. */
+export function labDeleteWarning(
+  cases: { code: string; status: LabCaseStatus; needsTryIn?: boolean; clinicalNoteId?: string }[],
+  noteId: string,
+  language: "en" | "ar"
+): string {
+  const isAr = language === "ar";
+  const mine = cases.filter((c) => noteId && c.clinicalNoteId === noteId);
+  const cancel = mine.filter((c) => labCaseFateOnTreatmentDelete(c) === "cancel").map((c) => c.code);
+  const keep = mine.filter((c) => labCaseFateOnTreatmentDelete(c) === "keep").map((c) => c.code);
+  const parts: string[] = [];
+  if (cancel.length) {
+    const codes = codeList(cancel, language);
+    parts.push(
+      isAr
+        ? `العلاج ده ليه أمر معمل ${codes} لسه مارجعش — هيتلغي معاه.`
+        : `This treatment has lab order ${codes} still out. It will be cancelled too.`
+    );
+  }
+  if (keep.length) {
+    const codes = codeList(keep, language);
+    parts.push(
+      isAr
+        ? `أمر المعمل ${codes} رجع خلاص — هيفضل في حساب المعمل.`
+        : `Lab order ${codes} is already back. It stays in the lab's account.`
+    );
+  }
+  return parts.join(" ");
 }
 
 // ---------------------------------------------------------------------------

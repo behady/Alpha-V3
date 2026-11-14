@@ -1233,3 +1233,159 @@ import { buildLabBagSrcDoc } from "../src/lib/labOrderHtml.ts";
   );
 }
 console.log("✓ one visit, one bag: no offer lost, the next form starts filled, one sheet and one message per lab");
+
+// --- the Arabic printed order ---------------------------------------------------------------------
+//
+// The sheet is laid out right-to-left for an Arabic clinic, and three things on it must not simply
+// mirror. A tooth chart is read facing the patient in every language, so the patient's right stays
+// on the LEFT of the page: mirrored, the chart disagreed with the Palmer marks printed under it and
+// with the picker on screen. The written teeth belong under that chart, not against the next
+// column's labels. And the code sits beside its QR, with the gap between the two.
+{
+  const arHtml = buildLabOrderSrcDoc(crown, clinic, "data:image/png;base64,AAA", noLogo, "ar", "a4_full");
+  const enHtml = buildLabOrderSrcDoc(crown, clinic, "data:image/png;base64,AAA", noLogo, "en", "a4_full");
+  assert.ok(arHtml.includes('dir="rtl"'), "the sheet itself is right-to-left");
+  const chartTables = (html) => (html.match(/<table dir="ltr" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">/g) || []).length;
+  assert.equal(chartTables(arHtml), 1, "the tooth chart keeps the patient's right on the left of the page");
+  assert.equal(chartTables(enHtml), 1);
+  assert.ok(arHtml.indexOf("Patient&#39;s right") < arHtml.indexOf("Patient&#39;s left") || arHtml.indexOf("Patient's right") < arHtml.indexOf("Patient's left"));
+  assert.ok(/text-align:right;" dir="ltr"><span[^>]*>5<\/span>/.test(arHtml), "the written teeth sit under the chart");
+  assert.ok(/text-align:right;" dir="ltr">FDI 15, 14/.test(arHtml), "and so does the FDI line");
+  assert.ok(!/text-align:right;" dir="ltr">FDI/.test(enHtml), "an English sheet is laid out as before");
+  assert.ok(arHtml.includes('style="float:left;"') && !arHtml.includes('style="float:right;"'), "the code block goes to the far side from the clinic name");
+  assert.ok(enHtml.includes('style="float:right;"'));
+  assert.ok(arHtml.includes("padding-left:8px;vertical-align:middle;"), "the gap is between the QR and the code, not outside them");
+  assert.ok(enHtml.includes("padding-right:8px;vertical-align:middle;"));
+}
+console.log("✓ the Arabic printed order: chart not mirrored, teeth under the chart, code beside its QR");
+
+// --- a treatment is deleted, and it had a lab order ----------------------------------------------
+//
+// The order used to stay behind, "at the lab", pointing at a treatment that no longer existed. An
+// order that has not come back is cancelled with its treatment: nothing was delivered, so nothing
+// is owed, and a cancelled order can be reopened. One that IS back stays exactly as it is, because
+// the work is in the building and the lab is owed for it whatever happened to the treatment.
+import { labCaseFateOnTreatmentDelete, labDeleteNotice, labDeleteWarning } from "../src/lib/labCases.ts";
+{
+  const fate = (status, needsTryIn = false) => labCaseFateOnTreatmentDelete({ status, needsTryIn });
+  assert.equal(fate("draft"), "cancel");
+  assert.equal(fate("at_lab"), "cancel");
+  assert.equal(fate("tryin_back", true), "cancel");
+  assert.equal(fate("returned_to_lab"), "cancel");
+  assert.equal(fate("back"), "keep", "delivered work is owed for");
+  assert.equal(fate("fitted"), "keep");
+  assert.equal(fate("cancelled"), "none", "an order already cancelled is left alone");
+
+  assert.equal(labDeleteNotice({ cancelled: [], kept: [] }, "ar"), "", "no lab order, nothing to say");
+  const arCancelled = labDeleteNotice({ cancelled: ["B1-0003"], kept: [] }, "ar");
+  assert.ok(arCancelled.includes("B1-0003") && arCancelled.includes("اتلغى"));
+  const arKept = labDeleteNotice({ cancelled: [], kept: ["B1-0004"] }, "ar");
+  assert.ok(arKept.includes("B1-0004") && arKept.includes("حساب المعمل"));
+  const both = labDeleteNotice({ cancelled: ["B1-0003"], kept: ["B1-0004"] }, "en");
+  assert.ok(both.includes("B1-0003") && both.includes("B1-0004") && /cancelled/i.test(both) && /stays/i.test(both));
+
+  // Said before the delete too, when the screen already knows about the order.
+  const note = { clinicalNoteId: "n1", needsTryIn: false };
+  assert.equal(labDeleteWarning([], "n1", "ar"), "");
+  assert.equal(labDeleteWarning([{ ...note, code: "B1-0003", status: "cancelled" }], "n1", "ar"), "");
+  assert.equal(labDeleteWarning([{ ...note, code: "B1-0003", status: "at_lab", clinicalNoteId: "other" }], "n1", "ar"), "");
+  const warn = labDeleteWarning(
+    [{ ...note, code: "B1-0003", status: "at_lab" }, { ...note, code: "B1-0004", status: "back" }],
+    "n1",
+    "ar"
+  );
+  assert.ok(warn.includes("B1-0003") && warn.includes("هيتلغي"), "says which order will be cancelled");
+  assert.ok(warn.includes("B1-0004") && warn.includes("هيفضل"), "and which one stays");
+}
+console.log("✓ deleting a treatment: its lab order is cancelled if still out, kept if already back");
+
+// --- the driver's round, and the visit the work has to be back for -------------------------------
+//
+// Two moments the board did not serve. The lab's driver arrives: he takes today's bags and brings
+// back finished work, usually several at once, and each used to be found and ticked one by one.
+// And the day before a fitting, somebody should already know the crown is still at the lab.
+import {
+  buildChaseMessage,
+  buildPickupMessage,
+  draftsWaiting,
+  leavingToday,
+  outAtLab,
+  receiveStep,
+  roundLabs,
+  visitsAtRisk,
+} from "../src/lib/labRounds.ts";
+import { buildPickupSheetSrcDoc } from "../src/lib/labPickupHtml.ts";
+import { SHADE_ROWS } from "../src/lib/labCases.ts";
+{
+  const TODAY = "2026-11-14";
+  const noon = (day) => `${day}T12:00:00`;
+  const sent = (over) => ({ ...crown, status: "at_lab", sentAt: TODAY, events: [{ status: "at_lab", at: noon(TODAY) }], ...over });
+  const a = sent({ id: "a", code: "MAD-0301", dueDate: "2026-11-20" });
+  const old = sent({ id: "o", code: "MAD-0290", sentAt: "2026-11-05", events: [{ status: "at_lab", at: noon("2026-11-05") }], dueDate: "2026-11-10" });
+  const again = sent({
+    id: "r", code: "MAD-0280", sentAt: "2026-11-01", dueDate: "2026-11-18",
+    status: "returned_to_lab",
+    events: [{ status: "at_lab", at: noon("2026-11-01") }, { status: "tryin_back", at: noon("2026-11-10") }, { status: "returned_to_lab", at: noon(TODAY) }],
+  });
+  const draft = sent({ id: "d", code: "MAD-0302", status: "draft", sentAt: undefined, events: [{ status: "draft", at: noon(TODAY) }] });
+  const home = sent({ id: "h", code: "MAD-0270", status: "back", events: [{ status: "at_lab", at: noon("2026-11-01") }, { status: "back", at: noon(TODAY) }] });
+  const other = sent({ id: "x", code: "MAD-0303", labId: "l2", labName: "Delta Lab", needsTryIn: true, dueDate: "2026-11-16" });
+  const all = [a, old, again, draft, home, other];
+
+  // What the driver takes: sent today for the first time, or going back to the lab today.
+  assert.deepEqual(leavingToday(all, TODAY).map((c) => c.code), ["MAD-0301", "MAD-0280", "MAD-0303"]);
+  assert.deepEqual(leavingToday([{ ...a, events: [] }], TODAY).map((c) => c.code), ["MAD-0301"], "a record with no history still has its sent date");
+  assert.deepEqual(draftsWaiting(all).map((c) => c.code), ["MAD-0302"], "a draft has not left: it is offered, not assumed");
+
+  // What he might be bringing back: everything out at that lab, the late ones first.
+  assert.deepEqual(outAtLab(all, TODAY).map((c) => c.code), ["MAD-0290", "MAD-0303", "MAD-0280", "MAD-0301"]);
+  assert.equal(receiveStep(a), "back");
+  assert.equal(receiveStep(other), "tryin_back", "work that needs a try-in comes back as a try-in");
+  assert.equal(receiveStep(again), "back");
+  assert.equal(receiveStep(home), null, "only work that is out can be received");
+  assert.equal(receiveStep(draft), null);
+
+  // One line per lab, so the screen can ask "which driver is here?".
+  assert.deepEqual(roundLabs(all, TODAY), [
+    { key: "id:l1", labId: "l1", labName: "Cairo Lab", leaving: 2, drafts: 1, out: 3 },
+    { key: "id:l2", labId: "l2", labName: "Delta Lab", leaving: 1, drafts: 0, out: 1 },
+  ]);
+  assert.deepEqual(roundLabs([home], TODAY), [], "a lab with nothing out and nothing leaving is not listed");
+
+  // The handover, as a message and as paper.
+  const pickup = buildPickupMessage([a, again], "Alpha Dental", "en", TODAY);
+  assert.ok(pickup.includes("MAD-0301") && pickup.includes("MAD-0280") && /2 cases/.test(pickup));
+  assert.ok(pickup.includes("Alpha Dental") && !pickup.includes("Ahmed Fathy Mahmoud"), "first names only, as on every lab paper");
+  assert.ok(buildPickupMessage([a, again], "ألفا", "ar", TODAY).includes("حالتين"), "two the way Arabic says two");
+  assert.ok(buildPickupMessage([a], "ألفا", "ar", TODAY).includes("حالة واحدة"));
+  const sheet = buildPickupSheetSrcDoc({ labName: "Cairo <Lab>", cases: [a, again], clinic, language: "en", date: TODAY });
+  assert.ok(sheet.includes("MAD-0301") && sheet.includes("MAD-0280"));
+  assert.ok(sheet.includes("Cairo &lt;Lab&gt;") && !sheet.includes("<Lab>"), "nothing typed reaches the page unescaped");
+  assert.ok(!sheet.includes("Ahmed Fathy Mahmoud"));
+  assert.ok(/Driver signature/i.test(sheet), "the driver signs for what he took");
+  assert.ok(sheet.includes("size: A4 portrait"));
+
+  // Tomorrow's fitting, and the crown that is not back for it.
+  const appt = (over) => ({ id: "ap1", patientId: "p1", patientName: "Ahmed Fathy", date: "2026-11-15", time: "15:00", status: "Confirmed", ...over });
+  const mine = [{ ...a, patientId: "p1" }, { ...home, patientId: "p1" }, { ...draft, patientId: "p2" }, { ...other, patientId: "p3", status: "tryin_back" }];
+  const risk = visitsAtRisk(
+    mine,
+    [appt({}), appt({ id: "ap2", patientId: "p2", date: TODAY, time: "10:00" }), appt({ id: "ap3", patientId: "p3" }), appt({ id: "ap4", patientId: "p9" })],
+    TODAY
+  );
+  assert.deepEqual(
+    risk.map((r) => [r.when, r.appointment.id, r.labCase.code]),
+    [["today", "ap2", "MAD-0302"], ["tomorrow", "ap1", "MAD-0301"]],
+    "today before tomorrow; work that is back, or back for its try-in, is not a risk"
+  );
+  assert.deepEqual(visitsAtRisk(mine, [appt({ status: "Cancelled" }), appt({ status: "No Show" })], TODAY), [], "a visit that is not happening needs nothing");
+  assert.deepEqual(visitsAtRisk(mine, [appt({ date: "2026-11-16" })], TODAY), [], "the day after tomorrow is not yet urgent");
+  const chase = buildChaseMessage(risk[1], "Alpha Dental", "en");
+  assert.ok(chase.includes("MAD-0301") && chase.includes("15:00") && /tomorrow/i.test(chase) && !chase.includes("Fathy"));
+  assert.ok(buildChaseMessage(risk[0], "ألفا", "ar").includes("النهارده"));
+
+  // Shade buttons: every shade the list offers is on a row, once.
+  assert.deepEqual(SHADE_ROWS.flat().slice().sort(), [...TOOTH_SHADES].sort(), "the buttons and the list are the same shades");
+  assert.ok(SHADE_ROWS.every((row) => row.length <= 5), "a row fits a phone");
+}
+console.log("✓ the driver's round: what leaves, what comes back together, the paper, and the visit at risk");

@@ -13,7 +13,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getDoc, onSnapshot, query, orderBy } from "firebase/firestore";
+import { getDoc, getDocs, onSnapshot, query, orderBy, where } from "firebase/firestore";
 import {
   AlertTriangle,
   CalendarClock,
@@ -32,10 +32,11 @@ import {
   X,
 } from "lucide-react";
 import PermissionGuard from "@/components/PermissionGuard";
-import PageHeader, { headerButtonPrimary } from "@/components/dashboard/PageHeader";
+import PageHeader, { headerButtonGhost, headerButtonPrimary } from "@/components/dashboard/PageHeader";
 import LabCaseModal from "@/components/lab/LabCaseModal";
 import LabAccountsPanel from "@/components/lab/LabAccountsPanel";
 import LabRemakeModal from "@/components/lab/LabRemakeModal";
+import LabDriverDialog from "@/components/lab/LabDriverDialog";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
@@ -50,6 +51,7 @@ import {
   DEFAULT_LAB_PAPER,
   LAB_CASES_COLLECTION,
   LAB_CASE_STATUSES,
+  addDays,
   dueStateFor,
   formatPalmer,
   matchesLabCode,
@@ -69,6 +71,7 @@ import { LAB_PAYMENTS_COLLECTION, parseLabPaymentCases, type LabPayment } from "
 import { loadLabOrderClinic, printLabOrder } from "@/lib/labOrderPrint";
 import { notifyLabCaseReady } from "@/lib/labNotify";
 import { buildLabOrderMessage } from "@/lib/labMessages";
+import { buildChaseMessage, receiveStep, visitsAtRisk, type RoundAppointment, type VisitAtRisk } from "@/lib/labRounds";
 import { labMessagingNumber, findLab, labsWithCaseLabs } from "@/lib/dentalLabs";
 import { openWhatsAppWithText } from "@/lib/whatsappManual";
 import FeatureGate from "@/components/FeatureGate";
@@ -131,6 +134,9 @@ function LabTrackingPage() {
   const [remaking, setRemaking] = useState<LabCase | null>(null);
   /** The case that just came back, held so reception can be asked about the fitting. */
   const [arrived, setArrived] = useState<LabCase | null>(null);
+  const [driverOpen, setDriverOpen] = useState(false);
+  /** Today's and tomorrow's visits, read once: enough to say whose lab work is not back for them. */
+  const [soonVisits, setSoonVisits] = useState<RoundAppointment[]>([]);
 
   const today = localYmd();
 
@@ -196,6 +202,32 @@ function LabTrackingPage() {
   }, []);
 
   const branchScoped = useMemo(() => cases.filter((c) => matches(c.branchId)), [cases, matches]);
+
+  useEffect(() => {
+    getDocs(query(getClinicCollection("appointments"), where("date", "in", [today, addDays(today, 1)])))
+      .then((snap) =>
+        setSoonVisits(
+          snap.docs.map((d) => {
+            const a = d.data() as Record<string, unknown>;
+            return {
+              id: d.id,
+              patientId: String(a.patientId || ""),
+              patientName: String(a.patientName || ""),
+              date: String(a.date || ""),
+              time: String(a.time || ""),
+              status: String(a.status || ""),
+              branchId: a.branchId ? String(a.branchId) : undefined,
+            };
+          })
+        )
+      )
+      .catch(() => {
+        /* Somebody who may not read the calendar simply gets the board without the warning. */
+      });
+  }, [today]);
+
+  /** Visits today and tomorrow whose lab work is still out (see labRounds.ts). */
+  const atRisk = useMemo(() => visitsAtRisk(branchScoped, soonVisits, today), [branchScoped, soonVisits, today]);
 
   const summary = useMemo(() => summarise(branchScoped, today), [branchScoped, today]);
 
@@ -302,6 +334,66 @@ function LabTrackingPage() {
     [user, showToast, isAr, language, clinic]
   );
 
+  /**
+   * Sign several cases back in at once, for the driver screen.
+   *
+   * Each takes the same step its own button would (a try-in comes back as a try-in), and finished
+   * work rings the same bell. One that fails is left out of the answer rather than stopping the rest.
+   */
+  const receiveMany = useCallback(
+    async (picked: LabCase[]): Promise<LabCase[]> => {
+      const done: LabCase[] = [];
+      for (const labCase of picked) {
+        const step = receiveStep(labCase);
+        if (!step) continue;
+        try {
+          await advanceLabCase(labCase, step, { by: user?.name });
+          if (step === "back") void notifyLabCaseReady(labCase, language, clinic?.alertPreferences, clinicId);
+          done.push({ ...labCase, status: step });
+        } catch (err) {
+          console.error("Lab case receive failed", labCase.code, err);
+        }
+      }
+      return done;
+    },
+    [user, language, clinic, clinicId]
+  );
+
+  /** Drafts handed to the driver: now they are sent. */
+  const sendDrafts = useCallback(
+    async (picked: LabCase[]) => {
+      let failed = 0;
+      for (const labCase of picked) {
+        try {
+          await advanceLabCase(labCase, "at_lab", { by: user?.name });
+        } catch (err) {
+          failed += 1;
+          console.error("Lab draft send failed", labCase.code, err);
+        }
+      }
+      if (failed > 0) showToast(isAr ? "بعض الأوامر ماتبعتتش — جرّب تاني" : "Some orders were not sent. Try again.", "error");
+    },
+    [user, showToast, isAr]
+  );
+
+  /** Ask the lab about one piece of work a patient is coming for. Opened during the click itself. */
+  const handleChase = useCallback(
+    (item: VisitAtRisk) => {
+      const number = labMessagingNumber(findLab(labs, item.labCase.labId));
+      if (!number) {
+        showToast(
+          isAr
+            ? `مفيش رقم واتساب لـ ${item.labCase.labName} — ضيفه في الإعدادات ← المعامل`
+            : `No WhatsApp number for ${item.labCase.labName} — add one in Settings → Dental Labs`,
+          "error"
+        );
+        return;
+      }
+      openWhatsAppWithText(number, buildChaseMessage(item, clinic?.name || "", language));
+    },
+    [labs, clinic, language, showToast, isAr]
+  );
+
   /** Opens the dialog. The work happens in `confirmRemake` once fault and price are answered. */
   const handleRemake = useCallback((labCase: LabCase) => {
     setRemaking(labCase);
@@ -360,6 +452,11 @@ function LabTrackingPage() {
                 </button>
               ))}
             </div>
+            {view === "cases" && (
+              <button onClick={() => setDriverOpen(true)} data-tour="lab-driver-open" className={headerButtonGhost}>
+                <Truck size={16} /> {isAr ? "المندوب جه" : "Driver is here"}
+              </button>
+            )}
             {view === "cases" && (
               <button onClick={openNew} data-tour="lab-new-order" className={headerButtonPrimary}>
                 <Plus size={16} /> {isAr ? "أمر معمل جديد" : "New lab order"}
@@ -455,6 +552,50 @@ function LabTrackingPage() {
               />
             </div>
           </div>
+
+          {/* The visit the work has to be back for. Shown only when there is one. */}
+          {atRisk.length > 0 && (
+            <div className="shrink-0 rounded-2xl border border-line bg-surface p-4 shadow-sm sm:p-5" data-tour="lab-at-risk">
+              <div className="flex items-center gap-2">
+                <AlertTriangle size={16} className="shrink-0 text-rose-600" />
+                <p className="text-sm font-black text-ink">
+                  {isAr ? "مرضى جايين وشغلهم لسه ما رجعش من المعمل" : "Patients coming in, and their lab work is not back"}
+                </p>
+              </div>
+              <ul className="mt-3 divide-y divide-slate-100">
+                {atRisk.map((item) => (
+                  <li
+                    key={`${item.appointment.id}-${item.labCase.id}`}
+                    className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-2.5"
+                  >
+                    <div className="min-w-0">
+                      <p className="flex flex-wrap items-center gap-x-2 text-[13px] font-black text-ink">
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${item.when === "today" ? "bg-rose-50 text-rose-700" : "bg-surface-muted text-ink-muted"}`}>
+                          {item.when === "today" ? (isAr ? "النهارده" : "Today") : isAr ? "بكرة" : "Tomorrow"}
+                          {item.appointment.time ? ` · ${item.appointment.time}` : ""}
+                        </span>
+                        <bdi>{item.labCase.patientName || item.appointment.patientName}</bdi>
+                      </p>
+                      <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[12px] font-bold text-ink-muted">
+                        <span dir="ltr" className="font-black tabular-nums text-ink">{item.labCase.code}</span>
+                        <span>· {workTypeLabel(item.labCase.workType, language)}</span>
+                        <bdi>· {item.labCase.labName}</bdi>
+                        <span>· {statusLabel(item.labCase.status, language)}</span>
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleChase(item)}
+                      className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-line bg-surface px-3 text-[12px] font-black text-ink transition-colors hover:bg-surface-subtle"
+                    >
+                      <MessageCircle size={14} />
+                      {isAr ? "اسأل المعمل" : "Ask the lab"}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {/* Filters */}
           <div className="flex flex-col lg:flex-row gap-3 shrink-0">
@@ -625,6 +766,16 @@ function LabTrackingPage() {
           </div>
         </div>
       )}
+
+      <LabDriverDialog
+        open={driverOpen}
+        onClose={() => setDriverOpen(false)}
+        cases={branchScoped}
+        labs={labs}
+        today={today}
+        onReceive={receiveMany}
+        onSendDrafts={sendDrafts}
+      />
 
       <LabRemakeModal
         open={Boolean(remaking)}

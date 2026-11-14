@@ -10,6 +10,7 @@ import Protect from "@/components/Protect";
 import LabTeethPicker from "@/components/lab/LabTeethPicker";
 import LabBridgeField from "@/components/lab/LabBridgeField";
 import LabOrderCreated from "@/components/lab/LabOrderCreated";
+import ShadeButtons from "@/components/lab/ShadeButtons";
 import { bridgeGaps, bridgeRuns, bridgeWorkApplies, cleanPontics, suggestBridge } from "@/lib/labBridge";
 import { prefillFromPast } from "@/lib/labPrefill";
 import type { LabCarry } from "@/lib/labBag";
@@ -26,7 +27,6 @@ import {
   GUM_SHADE_SUGGESTIONS,
   LAB_WORK_TYPES,
   RETENTION_OPTIONS,
-  TOOTH_SHADES,
   CERVICAL_SHADES,
   formatPalmerShorthand,
   hasPrimaryTeeth,
@@ -948,20 +948,14 @@ export default function LabCaseModal({
             />
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {wt.bodyShade && (
-                <div>
-                  <label className={LABEL}>{isAr ? "لون الجسم" : "Body shade"}</label>
-                  <select value={bodyShade} onChange={(e) => setBodyShade(e.target.value)} className={INPUT}>
-                    <option value="">—</option>
-                    {TOOTH_SHADES.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
+          {wt.bodyShade && (
+            <div>
+              <label className={LABEL}>{isAr ? "لون الجسم" : "Body shade"}</label>
+              <ShadeButtons value={bodyShade} onChange={setBodyShade} label={isAr ? "لون الجسم" : "Body shade"} />
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className={LABEL}>{isAr ? "ميعاد الرجوع" : "Due back"}</label>
               <input

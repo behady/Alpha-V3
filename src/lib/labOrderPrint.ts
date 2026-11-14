@@ -19,6 +19,7 @@ import { clinicLogoImgHtml, getClinicLogo, NO_CLINIC_LOGO, type ClinicLogoAsset 
 import { buildLabBagSrcDoc, buildLabOrderSrcDoc, isCompactPaper, type LabOrderClinic } from "@/lib/labOrderHtml";
 import { buildLabStatementSrcDoc, type LabStatementPayload } from "@/lib/labStatementHtml";
 import type { LabCase, LabOrderPaper } from "@/lib/labCases";
+import { buildPickupSheetSrcDoc } from "@/lib/labPickupHtml";
 
 export type { LabOrderClinic } from "@/lib/labOrderHtml";
 export { buildLabOrderSrcDoc } from "@/lib/labOrderHtml";
@@ -130,6 +131,11 @@ async function printSrcDoc(srcDoc: string): Promise<void> {
 /** The statement a clinic settles a lab against. */
 export async function printLabStatement(payload: LabStatementPayload): Promise<void> {
   await printSrcDoc(buildLabStatementSrcDoc(payload));
+}
+
+/** The handover list one lab's driver signs for (see labPickupHtml.ts). */
+export async function printLabPickup(options: Parameters<typeof buildPickupSheetSrcDoc>[0]): Promise<void> {
+  await printSrcDoc(buildPickupSheetSrcDoc(options));
 }
 
 export async function printLabOrder(options: {
