@@ -59,7 +59,7 @@ import { SALES_CLOSE_REASONS, LEAD_INTEREST_REASONS, activeOffers, closingLine, 
 import { markBotLeadBooked, snoozeBotLead, upsertBotLead } from "./botLeads";
 import { newerPatientLines, recentThreadLines, recordThreadMessage } from "./thread";
 import { lineTakesOver } from "./supersede";
-import { STAFF_QUESTION_HOLD_MS, staffQuestionAt, staffQuestionCouldHold } from "./staffHold";
+import { STAFF_QUESTION_HOLD_MS, deskHearsHeldMessage, staffQuestionAt, staffQuestionCouldHold } from "./staffHold";
 import { adSubjectText, adSystemLine, readStoredAd, type AdReferral } from "./adReferral";
 import { checkupFees, checkupIsInAdOffer, isPlainCheckup, namesCheckup, plainCheckupPrices, stripCheckupFee } from "./offerCheckup";
 import { attributionFromClicks, clickFromReferral, mergeClicks, type AdClick } from "@/lib/metaConversions";
@@ -916,9 +916,12 @@ export async function respondToPatientMessage(args: {
    * (loadConversation) — or their last message asked the patient something and this is the
    * answer, which only the thread can tell (lib/bot/staffHold). Then the bot says nothing at all:
    * no photo to the model, no "وصلتنا…" line, no model dentist. The desk is told, below.
+   * The thread is read inside the claim minutes too: an answer to a staff question is the desk's
+   * news whenever it comes, a reply to a staff statement is not.
    */
+  const pausedByStaff = conversation.staffPaused === true;
   let staffAskedAtMs = 0;
-  if (!conversation.staffActive && staffQuestionCouldHold(conversation.staffWroteAtMs, now)) {
+  if (!pausedByStaff && staffQuestionCouldHold(conversation.staffWroteAtMs, now)) {
     const wrote = conversation.staffWroteAtMs || 0;
     const lines = await recentThreadLines(clinicId, chatId, Math.max(now - STAFF_QUESTION_HOLD_MS, wrote - 10 * 60 * 1000));
     staffAskedAtMs = staffQuestionAt(lines, wrote, now);
@@ -975,17 +978,25 @@ export async function respondToPatientMessage(args: {
       : decideBotReply({ state: engineState, text, ctx });
 
   /*
-   * The patient wrote to a person and the bot said nothing — so that person is told. needsHuman
-   * puts the chat in "مستني رد" (and lets handoffSla chase it); one push goes out per staff
-   * message, keyed on it so two quick messages do not push twice. No push while the receptionist
-   * is live in the chat (she wrote inside the claim minutes) unless it is urgent. 2026-11-14: a
-   * paused chat's "إيقاف.. ولكم الشكر" raised nothing at all and was seen by nobody.
+   * The patient wrote to a person and the bot said nothing — so that person is told: a paused
+   * chat, the answer to a staff question, a photo or voice note, anything urgent
+   * (deskHearsHeldMessage). needsHuman puts the chat in "مستني رد" (and lets handoffSla chase
+   * it); one push goes out per staff message, keyed on it so two quick messages do not push
+   * twice. 2026-11-14: a paused chat's "إيقاف.. ولكم الشكر" raised nothing at all and was seen by
+   * nobody — and handoffSla skips paused chats, so the push here is the only one they get.
    */
-  if (!args.dryRun && heldByStaff && decision.reason === "already_with_a_human") {
-    const mediaOnly = Boolean(args.media && args.media !== "sticker" && !text.trim());
-    // Weighed as the media handoff weighs it: an unread photo or voice note is urgent unless it was
-    // read and looked calm. A symptom is urgent.
-    const severity: HandoffSeverity = (mediaOnly && !(args.mediaNote && !args.mediaNote.urgent)) || needsHuman(text) ? "urgent" : "normal";
+  const heldMediaOnly = Boolean(args.media && args.media !== "sticker" && !text.trim());
+  // Weighed as the media handoff weighs it: an unread photo or voice note is urgent unless it was
+  // read and looked calm. A symptom is urgent.
+  const heldSeverity: HandoffSeverity = (heldMediaOnly && !(args.mediaNote && !args.mediaNote.urgent)) || needsHuman(text) ? "urgent" : "normal";
+  if (
+    !args.dryRun &&
+    heldByStaff &&
+    decision.reason === "already_with_a_human" &&
+    deskHearsHeldMessage({ paused: pausedByStaff, askedAtMs: staffAskedAtMs, mediaOnly: heldMediaOnly, urgent: heldSeverity === "urgent" })
+  ) {
+    const mediaOnly = heldMediaOnly;
+    const severity = heldSeverity;
     const said = mediaOnly ? (args.mediaNote ? `🖼️ ${args.mediaNote.summary}` : `[${args.media}]`) : text;
     await markHandoff(clinicId, conversation.phoneKey, "patient_replied_to_staff", {
       text: said,
@@ -995,9 +1006,7 @@ export async function respondToPatientMessage(args: {
       severity,
     });
     const staffSinceMs = Math.max(conversation.staffWroteAtMs || 0, conversation.pausedAtMs || 0);
-    const tell =
-      (severity === "urgent" || !conversation.staffLive) &&
-      (await claimOnce(clinicId, `held_${conversation.phoneKey}_${staffSinceMs}_${severity}`, 24 * 60 * 60 * 1000, now));
+    const tell = await claimOnce(clinicId, `held_${conversation.phoneKey}_${staffSinceMs}_${severity}`, 24 * 60 * 60 * 1000, now);
     if (tell) {
       const who = ctx.patientName || phone || "مريض";
       const preview = mediaOnly ? "" : text.replace(/\s+/g, " ").trim().slice(0, 90);

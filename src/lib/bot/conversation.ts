@@ -149,8 +149,8 @@ export interface BotConversation {
   outcome?: string;
   /** A staff member replied recently or paused the bot (not merely a handoff flag). */
   staffActive?: boolean;
-  /** A staff member wrote inside the clinic's claim minutes: they are in the chat right now. */
-  staffLive?: boolean;
+  /** Staff pressed "take over" and that take-over still holds (12h at most). */
+  staffPaused?: boolean;
   /** When a staff member last wrote to this patient (0 after «رجّع البوت»). See lib/bot/staffHold. */
   staffWroteAtMs?: number;
   /** When staff took the thread over, while that take-over still holds. */
@@ -341,7 +341,7 @@ export async function loadConversation(
     humanOwned,
     // A person has actually written or paused the bot — as opposed to a flag raised for one.
     staffActive: humanActiveAtMs > now - humanClaimMs || paused,
-    staffLive: humanActiveAtMs > now - humanClaimMs,
+    staffPaused: paused,
     staffWroteAtMs: humanActiveAtMs || undefined,
     pausedAtMs: paused ? pausedAt || undefined : undefined,
     turns: expired ? 0 : Number(d.turns) || 0,

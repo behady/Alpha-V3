@@ -87,3 +87,18 @@ export function staffQuestionAt(lines: readonly HoldLine[], humanActiveAtMs: num
 export function staffQuestionCouldHold(humanActiveAtMs: number | undefined, now: number): boolean {
   return Number(humanActiveAtMs) > now - STAFF_QUESTION_HOLD_MS;
 }
+
+/**
+ * The bot stayed silent because a person holds the chat. Is the desk told (the chat flagged
+ * «مستني رد» and one push per staff message)?
+ *
+ * Yes for a chat the desk paused, for the answer to a staff question, for a photo or voice note
+ * nobody has seen, and for anything urgent. Not for an ordinary reply to a staff STATEMENT inside
+ * the claim minutes: that is the chat the receptionist is in right now, and it stays exactly as it
+ * was before this rule (handoffSla's second pass still chases it if she walked away). A flag there
+ * would also keep a menu or assisted bot quiet for up to a day afterwards, which is the long hold
+ * the owner kept off on purpose.
+ */
+export function deskHearsHeldMessage(h: { paused: boolean; askedAtMs: number; mediaOnly: boolean; urgent: boolean }): boolean {
+  return h.paused || h.askedAtMs > 0 || h.mediaOnly || h.urgent;
+}

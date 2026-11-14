@@ -906,7 +906,7 @@ function Thread({
   const claimUntil = (chat.humanActiveAtMs || 0) + claimMs;
   const askedAt = chat.isPlayground ? 0 : staffQuestionAt(lines, chat.humanActiveAtMs || 0, Date.now());
   const askHoldUntil = askedAt ? askedAt + STAFF_QUESTION_HOLD_MS : 0;
-  const askHold = askHoldUntil > Date.now() && claimUntil <= Date.now();
+  const askHold = askHoldUntil > Date.now();
   const humanHold = chat.botPaused === true || claimUntil > Date.now() || askHold;
   const handling = !chat.isPlayground && (chat.botPaused === true || chat.needsHuman === true || humanHold);
 

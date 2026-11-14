@@ -17,6 +17,7 @@ import { readFileSync } from "node:fs";
 import {
   STAFF_QUESTION_HOLD_MS,
   asksPatient,
+  deskHearsHeldMessage,
   staffQuestionAt,
   staffQuestionCouldHold,
   type HoldLine,
@@ -109,6 +110,21 @@ test("a question nobody just sent does not hold: a line filed from history, a pa
   assert.equal(staffQuestionAt([], asked, T("09:01:00")), 0, "no thread read (or a failed one): no hold, as before");
 });
 
+// ------------------------------------------------------------------------------- who is told --
+test("the desk is told: a paused chat, a staff question's answer, media, anything urgent", () => {
+  const quiet = { paused: false, askedAtMs: 0, mediaOnly: false, urgent: false };
+  // 785354: paused, the patient's "إيقاف.. ولكم الشكر" — told, even if staff wrote a minute ago
+  // (handoffSla skips paused chats, so this push is the only one they get).
+  assert.equal(deskHearsHeldMessage({ ...quiet, paused: true }), true);
+  // 707035: the answer to "حضرتك ممكن تعرفني مكتوب فين…" — told, whenever it comes inside 12 hours.
+  assert.equal(deskHearsHeldMessage({ ...quiet, askedAtMs: STAMP_707035 }), true);
+  assert.equal(deskHearsHeldMessage({ ...quiet, mediaOnly: true }), true, "a photo or voice note nobody has seen");
+  assert.equal(deskHearsHeldMessage({ ...quiet, urgent: true }), true, "a symptom in a held chat (dentist mode no longer answers it)");
+  // A "شكرا" right after a staff STATEMENT, inside the claim minutes: the receptionist is in that
+  // chat now. No flag, exactly as before — a flag would keep a menu-mode bot quiet for a day.
+  assert.equal(deskHearsHeldMessage(quiet), false);
+});
+
 // ------------------------------------------------------------------------------------ the engine --
 const ctx: BotContext = { clinicName: "Alpha Dental", clinicPhone: "01000000000", canOfferBooking: true, aiAvailable: true, aiFirst: true };
 const dentist: BotContext = { ...ctx, clinicalMode: "dentist" };
@@ -156,28 +172,37 @@ test("respond.ts: a held thread says nothing — no photo to the model, no «و�
   ]) {
     assert.ok(respond.includes(s), s);
   }
-  // The thread is read only when a person wrote in the last 12 hours and no other hold is on.
-  assert.ok(respond.includes("if (!conversation.staffActive && staffQuestionCouldHold(conversation.staffWroteAtMs, now)) {"));
+  // The thread is read only when a person wrote in the last 12 hours and the chat is not paused —
+  // inside the claim minutes too, so an early answer to a question is still the desk's news.
+  assert.ok(respond.includes("const pausedByStaff = conversation.staffPaused === true;"));
+  assert.ok(respond.includes("if (!pausedByStaff && staffQuestionCouldHold(conversation.staffWroteAtMs, now)) {"));
   // The hold is decided before the decision that it changes.
   assert.ok(respond.indexOf("const heldByStaff =") < respond.indexOf("const photoToModel ="));
 });
 
 test("respond.ts: the desk is told — flag, one push per staff message, urgent for media and symptoms", () => {
-  const start = respond.indexOf('if (!args.dryRun && heldByStaff && decision.reason === "already_with_a_human") {');
-  assert.ok(start > 0, "the alert block exists, and never runs in the playground");
-  assert.ok(start < respond.indexOf("let replyText = decision.reply;"), "it runs right after the decision");
-  const block = respond.slice(start, respond.indexOf("let replyText = decision.reply;"));
+  const start = respond.indexOf("const heldMediaOnly =");
+  const end = respond.indexOf("let replyText = decision.reply;");
+  assert.ok(start > 0 && start < end, "the alert block runs right after the decision");
+  const block = respond.slice(start, end);
+  assert.ok(block.includes("!args.dryRun &&\n    heldByStaff &&\n    decision.reason === \"already_with_a_human\" &&"), "only for a silent held turn, never in the playground");
+  assert.ok(
+    block.includes('deskHearsHeldMessage({ paused: pausedByStaff, askedAtMs: staffAskedAtMs, mediaOnly: heldMediaOnly, urgent: heldSeverity === "urgent" })'),
+    "who is told is the pure rule tested above"
+  );
   assert.ok(block.includes('markHandoff(clinicId, conversation.phoneKey, "patient_replied_to_staff"'), "needsHuman: the chat shows «مستني رد»");
-  assert.ok(block.includes("(mediaOnly && !(args.mediaNote && !args.mediaNote.urgent)) || needsHuman(text)"), "urgent as the media hand-off weighs it");
-  assert.ok(block.includes("held_${conversation.phoneKey}_${staffSinceMs}_${severity}"), "deduped per staff message (and per severity)");
-  assert.ok(block.includes('(severity === "urgent" || !conversation.staffLive)'), "no push while she is live in the chat, unless urgent");
+  assert.ok(block.includes("(heldMediaOnly && !(args.mediaNote && !args.mediaNote.urgent)) || needsHuman(text)"), "urgent as the media hand-off weighs it");
+  // One push per staff message (and per severity), whoever is in the chat: the owner asked for it,
+  // and a paused chat has no other alert at all.
+  assert.ok(block.includes("const tell = await claimOnce(clinicId, `held_${conversation.phoneKey}_${staffSinceMs}_${severity}`"));
+  assert.ok(!block.includes("staffLive"), "no live-receptionist exception that swallows the paused chat's only push");
   assert.ok(block.includes('event: severity === "urgent" ? "urgentPatientMessage" : "patientRepliedAfterClaim"'));
   assert.ok(!/roles:\s*\[/.test(block), "the audience is the clinic's, not named here");
 });
 
 test("conversation.ts hands respond.ts what it needs; the Chats screen reads the same rule", () => {
   const conv = src("src/lib/bot/conversation.ts");
-  assert.ok(conv.includes("staffLive: humanActiveAtMs > now - humanClaimMs,"));
+  assert.ok(conv.includes("staffPaused: paused,"));
   assert.ok(conv.includes("staffWroteAtMs: humanActiveAtMs || undefined,"));
   assert.ok(conv.includes("pausedAtMs: paused ? pausedAt || undefined : undefined,"));
   // The claim minutes are untouched: no global extension of the hold.
