@@ -57,8 +57,12 @@ function offsetOf(todayKey: string, weekday: number | undefined, day?: string, m
 }
 
 const AR_REL = String.raw`(بعد\s+بكر[هةا]|بكر[هةا]|(?:ال|ا|إ)نهارد[هة])`;
+// Spaces on one line only. A line break ends the statement: "مفيش مواعيد النهارده" closing one
+// paragraph and "الأحد 15/11 الساعة 3:00 م" opening the next are two days, and "fixing" the first
+// to "بكره" told the patient there was nothing free tomorrow.
+const SP = String.raw`[^\S\r\n]`; // any space but a line break
 // No comma: "مش هينفع بكره، السبت فيه" is two days, not one day said twice.
-const AR_SEP = String.raw`(\s*(?:[(:\-–—]\s*)?(?:يوم\s+)?)`;
+const AR_SEP = String.raw`(${SP}*(?:[(:\-–—]${SP}*)?(?:يوم${SP}+)?)`;
 const AR_DAY = "(ال(?:أحد|احد|إثنين|اثنين|اتنين|إتنين|ثلاثاء|ثلاثا|تلات|تلاتاء|أربعاء|اربعاء|أربع|اربع|خميس|جمعة|جمعه|سبت))";
 const NUM = "([0-9٠-٩]{1,2})";
 // The weekday must carry "ال" and end its word, so "النهارده حد من الاستقبال" is not a day. An
@@ -66,11 +70,11 @@ const NUM = "([0-9٠-٩]{1,2})";
 // week's Saturday, a different day from this one: never touched. "اليوم" is left out on purpose —
 // it also just means "the day".
 const AR_RE = new RegExp(
-  String.raw`(?<![${AR}])([وف](?=بعد|بكر|ال?نهارد|انهارد)|)${AR_REL}${AR_SEP}(?:${AR_DAY}(?![${AR}])(?!\s*(?:الجا[يى]|الجاي[هة]|القادم|اللي\s+جا[يى]))(?:\s*${NUM}\s*/\s*${NUM})?|${NUM}\s*/\s*${NUM})`,
+  String.raw`(?<![${AR}])([وف](?=بعد|بكر|ال?نهارد|انهارد)|)${AR_REL}${AR_SEP}(?:${AR_DAY}(?![${AR}])(?!\s*(?:الجا[يى]|الجاي[هة]|القادم|اللي\s+جا[يى]))(?:${SP}*${NUM}\s*/\s*${NUM})?|${NUM}\s*/\s*${NUM})`,
   "g"
 );
 const EN_RE = new RegExp(
-  String.raw`\b(the day after tomorrow|tomorrow|today)\b(,?\s*(?:on\s+)?\(?\s*)(?:\b(${EN_DOW.join("|")})\b(?:\s*(\d{1,2})\s*/\s*(\d{1,2}))?|(\d{1,2})\s*/\s*(\d{1,2}))`,
+  String.raw`\b(the day after tomorrow|tomorrow|today)\b(,?${SP}*(?:on${SP}+)?\(?${SP}*)(?:\b(${EN_DOW.join("|")})\b(?:${SP}*(\d{1,2})\s*/\s*(\d{1,2}))?|(\d{1,2})\s*/\s*(\d{1,2}))`,
   "gi"
 );
 

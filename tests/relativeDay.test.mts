@@ -51,6 +51,23 @@ run("right words, bare words and lookalikes are left byte-identical", () => {
   assert.equal(fixRelativeDayWords("لو مش هينفع بكره، السبت فيه مواعيد", WED), "لو مش هينفع بكره، السبت فيه مواعيد");
 });
 
+run("a line break ends the statement: a day word closing one line is not the next line's day", () => {
+  // Before: "مفيش مواعيد فاضية النهارده" became "... بكره", telling the patient tomorrow was full.
+  for (const [s, today] of [
+    ["مفيش مواعيد فاضية النهارده\n\nالأحد 15/11 الساعة 3:00 م أو الإثنين 16/11 الساعة 6:30 م", SAT],
+    ["للأسف إحنا أجازة النهارده\nالسبت 14/11 الساعة 3:00 م أو الأحد 15/11 الساعة 6:30 م", FRI],
+    ["مفيش حاجة بكره\r\nالسبت 21/11 الساعة 3:00 م", SAT],
+    ["We're closed today\n\nSaturday 14/11 at 3:00 PM or Sunday 15/11 at 6:30 PM", FRI],
+  ])
+    assert.equal(fixRelativeDayWords(s, today), s, s);
+  // On one line it is still one statement, and still corrected.
+  assert.equal(fixRelativeDayWords("العنوان شارع الرحمة.\n\nعندي بكره السبت الساعة 3:00 م", SAT), "العنوان شارع الرحمة.\n\nعندي النهارده السبت الساعة 3:00 م");
+  const nbsp = String.fromCharCode(0xa0);
+  assert.equal(fixRelativeDayWords(`عندي بكره${nbsp}السبت 14/11`, SAT), `عندي النهارده${nbsp}السبت 14/11`, "a no-break space is still a space");
+  // A date on the next line does not overrule the weekday beside the word.
+  assert.equal(fixRelativeDayWords("بكره السبت\n21/11 مش متاح", SAT), "النهارده السبت\n21/11 مش متاح");
+});
+
 run("next week's day is a different day: السبت الجاي is never touched", () => {
   for (const s of ["بكره السبت الجاي", "بكره السبت الجاية", "النهارده الأحد اللي جاي", "بكره السبت القادم", "بعد بكره الخميس الجاى"])
     assert.equal(fixRelativeDayWords(s, SAT), s, s);
