@@ -40,11 +40,17 @@ export default function CompanySheetPanel({
   clinicId,
   payerId,
   sheets,
+  allBranchSheets,
+  scoped,
 }: {
   clinicId: string;
   payerId: string;
   payerName: string;
   sheets: MonthSheet[];
+  /** The same months for every branch: Mark as sent freezes the whole company month, so it is judged on these. */
+  allBranchSheets?: MonthSheet[];
+  /** A single branch is on screen, so the list above is not the whole month. */
+  scoped?: boolean;
 }) {
   const { language } = useLanguage();
   const ar = language === "ar";
@@ -73,7 +79,7 @@ export default function CompanySheetPanel({
 
   const send = async (month: string) => {
     if (busy) return;
-    const ok = await confirm(t("sheetConfirm").replace("{month}", monthName(month)), {
+    const ok = await confirm(t("sheetConfirm").replace("{month}", monthName(month)) + (scoped ? " " + t("sheetConfirmAllBranches") : ""), {
       title: t("sheetMarkSent"),
       confirmLabel: t("sheetMarkSent"),
     });
@@ -137,7 +143,7 @@ export default function CompanySheetPanel({
                   aria-pressed={onThisMonth}
                   onClick={() => {
                     if (onThisMonth) return;
-                    void choose(sheet.month, p.patientId, held?.reason === "finished_late" ? "include" : null);
+                    void choose(sheet.month, p.patientId, "include");
                   }}
                   className={seg(onThisMonth)}
                 >
@@ -149,7 +155,7 @@ export default function CompanySheetPanel({
                   aria-pressed={!onThisMonth}
                   onClick={() => {
                     if (!onThisMonth) return;
-                    void choose(sheet.month, p.patientId, p.choice === "include" ? null : "hold");
+                    void choose(sheet.month, p.patientId, "hold");
                   }}
                   className={seg(!onThisMonth)}
                 >
@@ -203,7 +209,7 @@ export default function CompanySheetPanel({
                 ) : (
                   <button
                     type="button"
-                    disabled={busy !== null || sheet.printed.length === 0}
+                    disabled={busy !== null || (allBranchSheets ?? sheets).find((s) => s.month === sheet.month)?.printed.length === 0}
                     onClick={() => void send(sheet.month)}
                     className="max-lg:min-h-10 inline-flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-xs font-bold text-ink-body hover:border-slate-400 disabled:opacity-40"
                   >

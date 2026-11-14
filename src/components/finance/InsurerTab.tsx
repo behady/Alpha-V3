@@ -43,6 +43,7 @@ import { useStatementHeader } from "@/lib/insuranceStatementHeader";
 import { companyStatement, type SheetCharge } from "@/lib/insurance/companySheet";
 import { useCompanySheet } from "@/components/insurance/useCompanySheet";
 import CompanySheetPanel from "@/components/insurance/CompanySheetPanel";
+import { tr } from "@/components/insurance/text";
 
 const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
@@ -199,7 +200,7 @@ export default function InsurerTab({
         : null,
     [backlog],
   );
-  const { inputs } = useCompanySheet(clinicId, payerId, useBacklog ? sheetCharges : null);
+  const { inputs, failed: sheetFailed } = useCompanySheet(clinicId, payerId, useBacklog && statementPeriod ? sheetCharges : null);
   // The statement and the panel come from one call, so the Excel report is exactly what the panel shows.
   // While the sheet's inputs load there is no statement (the button waits); if the backlog could not be
   // read, today's per-visit statement from the period's rows is all there is.
@@ -229,7 +230,13 @@ export default function InsurerTab({
       keep: (c) => rowInScope(c as Record<string, unknown>, scopeBranchId),
     });
   }, [statementPeriod, useBacklog, charges, inputs, payerId, payerName, scopeBranchId]);
+  // Mark as sent freezes the whole company month, so the panel judges it on every branch's sheet.
+  const allBranchSheets = useMemo(() => {
+    if (!built || !statementPeriod || !inputs || !useBacklog || scopeBranchId === "") return null;
+    return companyStatement({ ...inputs, payerId, payerName, range: statementPeriod, memberNumbers: new Map() }).sheets;
+  }, [built, statementPeriod, inputs, useBacklog, scopeBranchId, payerId, payerName]);
   const statement = built?.statement ?? null;
+  const sheetFailedText = sheetFailed && useBacklog && statementPeriod ? tr(ar)("sheetLoadFailed") : "";
   const exportStatement = async () => {
     if (!statement || !statementPeriod || exporting) return;
     setExporting(true);
@@ -382,8 +389,16 @@ export default function InsurerTab({
   return (
     <div className="flex flex-col gap-5 flex-1 min-h-0">
       {sheetPanel && statementPeriod && built && clinicId && (
-        <CompanySheetPanel clinicId={clinicId} payerId={payerId} payerName={payerName} sheets={built.sheets} />
+        <CompanySheetPanel
+          clinicId={clinicId}
+          payerId={payerId}
+          payerName={payerName}
+          sheets={built.sheets}
+          allBranchSheets={allBranchSheets ?? undefined}
+          scoped={scopeBranchId !== ""}
+        />
       )}
+      {sheetPanel && sheetFailedText && <p className="text-sm text-ink-muted">{sheetFailedText}</p>}
 
       {/* The company's account, on the slab: four figures, the debt last. */}
       <div className="rounded-2xl xl:rounded-3xl bg-ink-slab text-white p-5 xl:p-7 border border-slate-800">
@@ -419,9 +434,10 @@ export default function InsurerTab({
               onClick={exportStatement}
               disabled={loading || exporting || !statement || statement.cases.length === 0}
               title={
-                ar
+                sheetFailedText ||
+                (ar
                   ? `كشف ${payerName} من ${statementPeriod.start} لـ ${statementPeriod.end}`
-                  : `${payerName} statement, ${statementPeriod.start} to ${statementPeriod.end}`
+                  : `${payerName} statement, ${statementPeriod.start} to ${statementPeriod.end}`)
               }
               className="max-lg:min-h-10 inline-flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-xs font-bold text-ink-body hover:border-slate-400 disabled:opacity-40"
             >
