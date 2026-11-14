@@ -14,6 +14,7 @@ import { createRequire } from "node:module";
 import { parseBaileysAdReply, parseMetaReferral, readStoredAd, type AdReferral } from "../src/lib/bot/adReferral";
 import {
   MAX_ATTEMPTS,
+  MAX_CLICK_AGE_MS,
   MAX_EVENT_AGE_MS,
   META_CAPI_GRAPH_VERSION,
   PURCHASE_SETTLE_MS,
@@ -36,6 +37,7 @@ import {
   pickClick,
   readCapiSettings,
   readClick,
+  recheckAppointment,
   redactPayload,
   type AdClick,
   type ConversionEventName,
@@ -173,7 +175,7 @@ assert.equal(clickFromReferral(onText, 0), null, "a click with no time is no cli
 assert.deepEqual(TRIGGER_EVENT, { booked: "LeadSubmitted", confirmed: "QualifiedLead", visited: "Purchase" });
 assert.deepEqual([...VISITED_STATUSES], ["Checked In", "In Chair", "Checking Out", "Completed"]);
 
-type Row = [label: string, before: { status?: unknown } | null, after: { status?: unknown } | null, expected: string[]];
+type Row = [label: string, before: { status?: unknown } | null, after: { status?: unknown; rescheduledFromId?: unknown } | null, expected: string[]];
 const st = (status: string) => ({ status });
 const TABLE: Row[] = [
   ["create Scheduled", null, st("Scheduled"), ["booked"]],
@@ -203,6 +205,17 @@ const TABLE: Row[] = [
   ["delete", st("Confirmed"), null, []],
   ["delete of a visit", st("Completed"), null, []],
   ["padded status", st("Scheduled"), st("  Confirmed "), ["confirmed"]],
+  // A reschedule books a new document pointing at the old one; the old one becomes "Rescheduled".
+  // The move is not a new lead, and the marker left on the old slot is not a live booking.
+  ["create a rescheduled copy", null, { status: "Scheduled", rescheduledFromId: "OLD1" }, []],
+  ["create a rescheduled copy already Confirmed", null, { status: "Confirmed", rescheduledFromId: "OLD1" }, ["confirmed"]],
+  ["create a rescheduled copy already Checked In", null, { status: "Checked In", rescheduledFromId: "OLD1" }, ["visited"]],
+  ["create with a blank rescheduledFromId", null, { status: "Scheduled", rescheduledFromId: "  " }, ["booked"]],
+  ["create with a non-string rescheduledFromId", null, { status: "Scheduled", rescheduledFromId: 7 }, ["booked"]],
+  ["create Rescheduled", null, st("Rescheduled"), []],
+  ["Scheduled -> Rescheduled", st("Scheduled"), st("Rescheduled"), []],
+  ["Confirmed -> Rescheduled", st("Confirmed"), st("Rescheduled"), []],
+  ["Rescheduled -> Confirmed (moved back)", st("Rescheduled"), st("Confirmed"), ["confirmed"]],
 ];
 for (const [label, before, after, expected] of TABLE) {
   assert.deepEqual(conversionTriggers(before, after), expected, `web: ${label}`);
@@ -220,6 +233,28 @@ assert.equal(PURCHASE_SETTLE_MS, 3 * HOUR);
 assert.equal(firstDueAt("visited", T), T + 3 * HOUR, "a Purchase waits for the day's charges");
 assert.equal(firstDueAt("booked", T), T, "a booking goes out at once");
 assert.equal(firstDueAt("confirmed", T), T);
+
+// The re-check right before a send: is the moment still true?
+assert.deepEqual(recheckAppointment("LeadSubmitted", null), { action: "skip", reason: "appointment_gone" });
+assert.deepEqual(recheckAppointment("Purchase", null), { action: "skip", reason: "appointment_gone" });
+for (const s of ["Scheduled", "Confirmed", "Checked In", "Completed", "Pending", undefined]) {
+  assert.deepEqual(recheckAppointment("LeadSubmitted", { status: s }), { action: "send" }, `lead still a lead at ${s}`);
+}
+for (const s of ["Cancelled", "No Show", "Rescheduled", " Cancelled "]) {
+  assert.deepEqual(recheckAppointment("LeadSubmitted", { status: s }), { action: "skip", reason: "cancelled" }, `lead ended at ${s}`);
+}
+for (const s of ["Confirmed", "Checked In", "In Chair", "Arrived", "Completed"]) {
+  assert.deepEqual(recheckAppointment("QualifiedLead", { status: s }), { action: "send" }, `confirmation stands at ${s}`);
+}
+for (const s of ["Scheduled", undefined, "Cancelled", "No Show", "Rescheduled"]) {
+  assert.deepEqual(recheckAppointment("QualifiedLead", { status: s }), { action: "delete", reason: "not_confirmed" }, `confirmation undone at ${s}`);
+}
+for (const s of ["Checked In", "Seated", "Checking Out", "Completed"]) {
+  assert.deepEqual(recheckAppointment("Purchase", { status: s }), { action: "send" }, `visit stands at ${s}`);
+}
+for (const s of ["Confirmed", "Scheduled", "Cancelled"]) {
+  assert.deepEqual(recheckAppointment("Purchase", { status: s }), { action: "delete", reason: "visit_undone" }, `visit undone at ${s}`);
+}
 
 // ================================================================================================
 // 4. PARITY with the Firebase trigger's JavaScript twin (functions/metaConversionsPlan.js).
@@ -263,6 +298,8 @@ if (plan.planConversionEvents) {
   const visit = plan.planConversionEvents({ clinicId: "C1", appointmentId: "APPT1", before: { status: "Confirmed" }, after: { status: "Checked In" }, nowMs: T });
   assert.deepEqual(visit.map((d) => [d.id, d.data.dueAt, d.data.patientId]), [["APPT1_Purchase", T + 3 * HOUR, null]]);
   assert.deepEqual(plan.planConversionEvents({ clinicId: "C1", appointmentId: "APPT1", before: { status: "Checked In" }, after: { status: "Completed" }, nowMs: T }), []);
+  const moved = plan.planConversionEvents({ clinicId: "C1", appointmentId: "APPT2", before: null, after: { status: "Scheduled", patientId: "P1", rescheduledFromId: "APPT1" }, nowMs: T });
+  assert.deepEqual(moved, [], "a rescheduled copy queues no new lead");
 }
 
 // ================================================================================================
@@ -289,13 +326,15 @@ assert.equal(mergeClicks("nonsense", []).length, 0);
 assert.deepEqual(readClick({ ctwaClid: " X ", clickedAt: { seconds: T / 1000 } }), { ctwaClid: "X", clickedAt: T }, "a Firestore Timestamp shape is read");
 assert.equal(readClick({ ctwaClid: "X" }), null);
 
-// pickClick: the newest click at or before the event, and not older than 90 days.
+// pickClick: the newest click at or before the event, and not older than 28 days.
 const clicks = [click("OLD", T - 10 * DAY), click("RECENT", T - DAY), click("AFTER", T + HOUR), click("ANCIENT", T - 100 * DAY)];
 assert.equal(pickClick(clicks, T)?.ctwaClid, "RECENT");
 assert.equal(pickClick([click("EXACT", T)], T)?.ctwaClid, "EXACT", "a click at the event's own moment counts");
 assert.equal(pickClick([click("AFTER", T + 1)], T), null, "a click after the booking did not cause it");
-assert.equal(pickClick([click("ANCIENT", T - 91 * DAY)], T), null, "older than 90 days is not credited");
-assert.equal(pickClick([click("EDGE", T - 90 * DAY)], T)?.ctwaClid, "EDGE", "exactly 90 days is still credited");
+assert.equal(pickClick([click("STALE", T - 28 * DAY - 1)], T), null, "older than 28 days is not credited");
+assert.equal(pickClick([click("EDGE", T - 28 * DAY)], T)?.ctwaClid, "EDGE", "exactly 28 days is still credited");
+assert.equal(pickClick([click("WEEKS", T - 20 * DAY)], T)?.ctwaClid, "WEEKS", "a visit booked a few weeks after the ad is credited");
+assert.equal(MAX_CLICK_AGE_MS, 28 * DAY);
 assert.equal(pickClick([], T), null);
 
 // attributionFromClicks: newest on top, history underneath, never a click-less object.

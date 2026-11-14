@@ -161,5 +161,6 @@ if (o) {
 }
 if (result.error) console.log(`error:           ${result.error}`);
 console.log("\nNow look in Events Manager → your dataset → Test events. It shows up within a minute or so.");
-console.log("When you are done testing, CLEAR the test code in the card — while it is set, every event is a test event.");
+console.log("When you are done testing, CLEAR the test code in the card — while it is saved, live reporting is paused:");
+console.log("real bookings and visits wait in the queue (up to Meta's seven days) and nothing is sent for them.");
 process.exit(result.ok ? 0 : 1);

@@ -49,6 +49,8 @@ export async function GET(request: Request) {
       retried: total("retried"),
       failed: total("failed"),
       skipped: total("skipped"),
+      // Clinics switched on but not sending: half set up, or a test code saved. Their rows wait.
+      paused: runs.filter((r) => r.paused).length,
     });
   } catch (e) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : "Unknown error" }, { status: 500 });

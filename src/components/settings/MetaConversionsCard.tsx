@@ -16,7 +16,7 @@ import { currentClinicId } from "@/lib/db-utils";
  *
  * It sits right under the Meta WhatsApp card because it borrows that card's WABA id and token when
  * its own are empty — most clinics only ever paste a Dataset ID here. The status pill says exactly
- * what the sender will do (Off / On / On but missing …), using the server's own verdict.
+ * what the sender will do (Off / On / On but missing … / Test mode), using the server's own verdict.
  *
  * The token is never in this component's state from the server: the route only answers `tokenSet`.
  * What the owner types goes out once on Save and the field is cleared.
@@ -24,6 +24,11 @@ import { currentClinicId } from "@/lib/db-utils";
  * The event list is the clinic's own log. Appointments with no ad click behind them are queued too
  * (the trigger cannot know in advance) and skipped with reason "no_click"; there are many of those,
  * so they fold into one counting line and the list shows the events Meta actually got.
+ *
+ * Test mode gets its own loud notice because it is easy to forget: while a test code is saved the
+ * sender holds back every REAL booking and visit (they wait, up to 7 days, and go out once the code
+ * is cleared) — only the "Send test event" button uses the code. The server says so with
+ * `testMode`; the saved code is the fallback for an older server that does not send it yet.
  */
 
 type EventRow = {
@@ -47,6 +52,7 @@ type Status = {
   tokenSet: boolean;
   whatsappTokenSet: boolean;
   testEventCode: string;
+  testMode: boolean;
   ready: boolean;
   missing: string[];
   events: EventRow[];
@@ -75,6 +81,7 @@ function asStatus(data: Record<string, unknown>): Status {
     tokenSet: data.tokenSet === true,
     whatsappTokenSet: data.whatsappTokenSet === true,
     testEventCode: s(data.testEventCode),
+    testMode: typeof data.testMode === "boolean" ? data.testMode : s(data.testEventCode) !== "",
     ready: data.ready === true,
     missing: Array.isArray(data.missing) ? data.missing.filter((m): m is string => typeof m === "string") : [],
     events: Array.isArray(data.events) ? (data.events as EventRow[]) : [],
@@ -130,8 +137,11 @@ export default function MetaConversionsCard() {
       removeToken: ar ? "امسح التوكن المتسجل" : "Remove saved token",
       testCode: ar ? "كود التجربة (Test event code)" : "Test event code",
       testWarn: ar
-        ? "طول ما الكود ده مكتوب، كل الأحداث بتظهر في Test Events بس ومش بتحسّن الإعلانات. امسحه بعد ما تخلص تجربة."
-        : "While this is set, every event shows only under Test Events and does not improve your ads. Clear it after testing.",
+        ? "طول ما الكود ده متسجل، الحجوزات والزيارات الحقيقية مش بتتبعت لميتا — بتستنى لحد ما تمسحه. زرار «ابعت حدث تجربة» بس هو اللي بيستخدمه. امسحه بعد ما تخلص تجربة."
+        : "While this is saved, real bookings and visits are not sent to Meta — they wait until you clear it. Only “Send test event” uses it. Clear it after testing.",
+      testModeNotice: ar
+        ? "وضع التجربة: الحجوزات والزيارات الحقيقية مستنية، وهتتبعت لميتا بعد ما تمسح كود التجربة."
+        : "Test mode: real bookings and visits are waiting and will go to Meta after you clear the test code.",
       switchLabel: ar ? "ابعت النتايج لميتا" : "Send results to Meta",
       save: ar ? "حفظ" : "Save",
       saved: ar ? "اتحفظ" : "Saved",
@@ -183,6 +193,13 @@ export default function MetaConversionsCard() {
     : r === "disabled" ? (ar ? "الخاصية كانت مقفولة" : "Feature was off")
     : r === "not_configured" ? (ar ? "الإعدادات ناقصة" : "Settings incomplete")
     : r === "out_of_attempts" ? (ar ? "خلصت المحاولات" : "Out of attempts")
+    : r === "no_patient" ? (ar ? "مفيش ملف مريض" : "No patient file")
+    : r === "test_failed" ? (ar ? "التجربة ما نجحتش" : "Test did not go through")
+    : r === "meta_rejected" ? (ar ? "ميتا رفضته" : "Meta refused it")
+    : r === "already_credited" ? (ar ? "الإعلان ده اتحسب قبل كده" : "Already reported for this ad")
+    : r === "appointment_gone" ? (ar ? "الميعاد اتمسح" : "Appointment deleted")
+    : r === "cancelled" ? (ar ? "اتلغى قبل ما يتبعت" : "Cancelled before sending")
+    : r === "unknown_event" ? (ar ? "حدث مش معروف" : "Unknown event")
     : r || "";
 
   /** The server's `missing` entries, worded for the owner whatever key style they arrive in. */
@@ -307,7 +324,7 @@ export default function MetaConversionsCard() {
   const shown = events.filter((e) => !(e.status === "skipped" && e.reason === "no_click"));
   const busy = loading || saving || testing || running;
   const testAvailable = Boolean(testCode.trim() || status?.testEventCode);
-  const testActive = Boolean(status?.testEventCode);
+  const testActive = status?.testMode === true;
 
   return (
     <section className="rounded-2xl xl:rounded-3xl bg-surface border border-line shadow-sm ring-1 ring-line p-5 xl:p-6 space-y-4">
@@ -320,14 +337,14 @@ export default function MetaConversionsCard() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {testActive && !loading && (
+          {/* Test mode wins over On: while a test code is saved nothing real is sent, so "On" would mislead. */}
+          {loading ? (
+            <Loader2 size={18} className="animate-spin text-ok" />
+          ) : testActive ? (
             <span className="inline-flex items-center gap-1.5 text-xs font-bold text-warn bg-warn-tint border border-warn/25 px-3 py-1.5 rounded-full">
               <FlaskConical size={14} />
               {txt.testMode}
             </span>
-          )}
-          {loading ? (
-            <Loader2 size={18} className="animate-spin text-ok" />
           ) : !status?.enabled ? (
             <span className="inline-flex items-center gap-1.5 text-xs font-bold text-ink-muted bg-surface-subtle border border-line px-3 py-1.5 rounded-full">
               {txt.off}
@@ -345,6 +362,17 @@ export default function MetaConversionsCard() {
           )}
         </div>
       </div>
+
+      {testActive && !loading && (
+        <div
+          role="status"
+          dir="auto"
+          className="flex items-start gap-2 rounded-xl border border-warn/25 bg-warn-tint px-4 py-3 text-xs font-bold text-warn"
+        >
+          <FlaskConical size={16} className="mt-0.5 shrink-0" />
+          <span>{txt.testModeNotice}</span>
+        </div>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block">

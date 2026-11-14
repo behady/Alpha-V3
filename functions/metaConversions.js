@@ -18,9 +18,15 @@
  *
  * Why create() is the dedupe: the queue doc id is `${appointmentId}_${eventName}`, and create()
  * fails with ALREADY_EXISTS when the doc is there. Firebase delivers a trigger at least once, and
- * a status can go Confirmed → Scheduled → Confirmed again; either way the second create() fails,
- * is swallowed, and the first moment is the one reported — which is what Meta wants, because it
- * keeps only the first copy of an event id anyway.
+ * a status can go Confirmed → Scheduled → Confirmed again; while the first row is still queued the
+ * second create() fails, is swallowed, and one event goes out. That matters because Meta does NOT
+ * deduplicate Business Messaging events by event_id — its docs ask partners to dedupe before
+ * sending — so every copy we post is counted. Our guards are the only protection: this create(),
+ * the sender's claim lock, rows that are sent once and never reopened, and the once-per-click
+ * markers for leads. (The sender re-reads the appointment before sending and DELETES a row whose
+ * moment was undone, so a later real confirmation or arrival can queue again here.) One residual
+ * risk is stated in the sender: a request that timed out after Meta had already taken it is
+ * retried, and that copy is counted too.
  *
  * The queue lives under clinic_secrets/{clinicId}/meta_conversion_events because every path under
  * clinic_secrets is denied to all clients, while anything under clinics/{id}/ is readable and

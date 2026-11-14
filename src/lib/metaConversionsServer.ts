@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
@@ -20,6 +21,7 @@ import {
   pickClick,
   readCapiSettings,
   readClick,
+  recheckAppointment,
   redactPayload,
   toMillis,
   type AdClick,
@@ -37,8 +39,9 @@ import {
  * the queue every ten minutes, finds the click that came before each moment, and posts it.
  *
  * Why a queue and not a direct send from the trigger:
- *   - A Purchase must wait for the visit's charges to be entered (PURCHASE_SETTLE_MS), and Meta
- *     keeps the first copy of an event id, so it cannot be sent early and "corrected" later.
+ *   - A Purchase must wait for the visit's charges to be entered (PURCHASE_SETTLE_MS). We send
+ *     one Purchase per visit, and Meta does NOT deduplicate these events by event_id, so it
+ *     cannot be sent early and "corrected" later — the correction would count as a second sale.
  *   - Meta has bad minutes like everyone else. A failed send is retried on a schedule
  *     (RETRY_DELAYS_MS) instead of being lost with a log line nobody reads.
  *   - The row IS the log. The settings card lists the last few so a clinic owner can see "sent",
@@ -48,6 +51,13 @@ import {
  * `clinics/{id}` — the clinic subtree wildcard in firestore.rules lets every member of a clinic
  * read and write any subcollection there, and a nested deny cannot take that back. Everything
  * under `clinic_secrets` is denied to every client, so only the Admin SDK ever sees these rows.
+ *
+ * Sending each event once is OUR job. Meta's docs tell partners to dedupe before sending; it does
+ * not drop a repeated event_id. The guards: the trigger's create() (one row per appointment and
+ * event), the claim lock (one run per row), rows that are never reopened once final, and the
+ * once-per-click markers below (one lead and one qualified lead per ad click). What they cannot
+ * cover: a request that timed out after Meta had already accepted it is retried, and Meta counts
+ * that second copy too. The 30-second timeout makes that rare; it cannot make it impossible.
  *
  * Safety for the live clinics: nothing here runs for a clinic unless
  * `clinic_secrets/{clinicId}.metaCapi.enabled === true`, and the token is read from that document
@@ -61,19 +71,55 @@ import {
 export const CAPI_SETTINGS_FIELD = "metaCapi";
 /** The queue + log, one row per event id, under `clinic_secrets/{clinicId}`. */
 export const CAPI_EVENTS_SUBCOLLECTION = "meta_conversion_events";
+/**
+ * Once-per-click markers, beside the queue and just as server-only. A separate subcollection so
+ * the queue query and the settings card's log never trip over them.
+ */
+export const CAPI_CLICKS_SUBCOLLECTION = "meta_conversion_clicks";
 /** The WhatsApp card's own settings field (src/lib/metaWhatsapp.ts), used as a fallback. */
 const WHATSAPP_SETTINGS_FIELD = "metaWhatsapp";
 
-/** How long a claimed row stays locked against a second, overlapping run. */
-const CLAIM_LOCK_MS = 2 * 60 * 1000;
+/**
+ * How long a claimed row stays locked against a second, overlapping run. Measured on the real
+ * clock from the moment of the claim: a row claimed four minutes into a long run must still be
+ * locked when the next run starts. Far longer than one row takes (a few reads plus one send of at
+ * most DEFAULT_SEND_TIMEOUT_MS).
+ */
+const CLAIM_LOCK_MS = 5 * 60_000;
 /** One cron run stops claiming new rows after this, so it ends inside the function's 300 s. */
 const RUN_BUDGET_MS = 240 * 1000;
-const DEFAULT_SEND_TIMEOUT_MS = 15_000;
+/**
+ * Generous on purpose. A request that times out may still have reached Meta, and since Meta does
+ * not dedupe, the retry would be counted twice — so a slow answer is better waited for.
+ */
+const DEFAULT_SEND_TIMEOUT_MS = 30_000;
+
+/** Events that are credited once per ad click. A Purchase is once per visit and has no marker. */
+const ONCE_PER_CLICK = new Set<ConversionEventName>(["LeadSubmitted", "QualifiedLead"]);
 
 export function capiEventsCollection(clinicId: string): FirebaseFirestore.CollectionReference {
   const id = String(clinicId || "").trim();
   if (!id) throw new Error("capiEventsCollection: clinicId is required");
   return adminDb().collection(CLINIC_SECRETS_COLLECTION).doc(id).collection(CAPI_EVENTS_SUBCOLLECTION);
+}
+
+/**
+ * The once-per-click marker for one click and one event kind. The id hashes the click id: Meta's
+ * click ids run to a few hundred characters and may hold characters a document id should not.
+ */
+export function clickMarkerRef(clinicId: string, ctwaClid: string, eventName: ConversionEventName): FirebaseFirestore.DocumentReference {
+  const id = String(clinicId || "").trim();
+  if (!id) throw new Error("clickMarkerRef: clinicId is required");
+  const hash = createHash("sha256").update(ctwaClid).digest("hex").slice(0, 40);
+  return adminDb().collection(CLINIC_SECRETS_COLLECTION).doc(id).collection(CAPI_CLICKS_SUBCOLLECTION).doc(`${hash}_${eventName}`);
+}
+
+/** gRPC ALREADY_EXISTS from a create(). */
+function isAlreadyExists(e: unknown): boolean {
+  const err = e as { code?: unknown; message?: unknown } | null;
+  if (!err) return false;
+  if (err.code === 6 || err.code === "already-exists" || err.code === "ALREADY_EXISTS") return true;
+  return /ALREADY_EXISTS/i.test(String(err.message || ""));
 }
 
 /** Firestore refuses `undefined` anywhere in a write; this drops those keys (one level deep). */
@@ -97,6 +143,11 @@ export interface ResolvedCapiConfig {
   /** The token to send with — the card's own, else the WhatsApp card's. Never leaves the server. */
   token: string;
   testEventCode: string;
+  /**
+   * A test code is saved. Live sending pauses while it is (rows wait in the queue): a real event
+   * must never go out marked as a test, and a test must never be a real event.
+   */
+  testMode: boolean;
   enabled: boolean;
   /** Switched on AND everything needed to send is there. */
   ready: boolean;
@@ -116,8 +167,7 @@ export interface ResolvedCapiConfig {
  * No cache, deliberately: an owner who switches this off expects the next run to stop, not one
  * that happens to land on a warm serverless instance a minute later. It is one read per run.
  *
- * A failed read throws. Reading it as "switched off" would mark every queued event `skipped`,
- * and those cannot be un-skipped.
+ * A failed read throws, so the run stops without touching a row rather than guessing.
  */
 export async function loadCapiConfig(clinicId: string): Promise<ResolvedCapiConfig> {
   const snap = await adminDb().collection(CLINIC_SECRETS_COLLECTION).doc(String(clinicId || "").trim()).get();
@@ -140,6 +190,7 @@ export async function loadCapiConfig(clinicId: string): Promise<ResolvedCapiConf
     wabaId,
     token,
     testEventCode: settings.testEventCode,
+    testMode: !!settings.testEventCode,
     enabled: settings.enabled,
     ready: settings.enabled && missing.length === 0,
     missing,
@@ -361,41 +412,61 @@ export interface QueueRunSummary {
   retried: number;
   failed: number;
   skipped: number;
+  /**
+   * Set when the run touched no row because of the clinic's setup: switched off, missing a
+   * dataset / WABA id / token, or a test code is saved. The rows wait; once the run resumes,
+   * any that are older than Meta's seven days end as `too_old`.
+   */
+  paused?: "disabled" | "not_configured" | "test_mode";
   /** Set when the clinic's whole run failed (processAllEnabledClinics). */
   error?: string;
 }
 
 const VALID_EVENTS = new Set<string>(Object.values(TRIGGER_EVENT));
+const FINAL_STATUSES = new Set(["sent", "failed", "skipped"]);
 
 /**
  * Work one clinic's due rows.
  *
- * Every row is CLAIMED in a transaction before anything is sent: still open, due, and not locked
- * by another run — then locked for two minutes. Two overlapping cron runs (Vercel does retry, and
- * the route can also be run by hand) therefore never both send the same event. Meta would drop
- * the second copy by event id anyway, but the attempt counter and the log would lie.
+ * A setup problem pauses the run before any row is read: a clinic switched off, missing a piece
+ * of its setup, or in test mode leaves every row exactly as it is. Those are temporary — the
+ * owner is mid-way through the card — and ending rows over them would throw real conversions
+ * away. Live rows are therefore never sent with a test code; only `sendTestConversion` uses one.
  *
- * Only one-field queries: the composite indexes are not deployed, so "due" and "not locked" are
- * checked in code on at most `limit` open rows.
+ * Every row is CLAIMED in a transaction before anything is sent: still open, due, and not locked
+ * by another run — then locked for CLAIM_LOCK_MS on the real clock (`opts.clock`, injectable for
+ * tests). Two overlapping cron runs (Vercel does retry, and the route can also be run by hand)
+ * therefore never both send the same event — which matters, because Meta does not dedupe and
+ * would count both.
+ *
+ * The query is one field — `dueAt <= now`, oldest first — so it needs only the automatic index,
+ * and every FINAL status deletes `dueAt`, so finished rows leave the query and a pile of
+ * not-yet-due or finished rows can never crowd a due one out of the `limit`. The status and the
+ * lock are checked in code.
  *
  * One bad row never stops the run: its error is caught, its lock released, and it is tried again
  * next time (until it is too old for Meta to take).
  */
 export async function processClinicQueue(
   clinicId: string,
-  opts: { nowMs?: number; fetchImpl?: typeof fetch; limit?: number; deadlineMs?: number } = {}
+  opts: { nowMs?: number; clock?: () => number; fetchImpl?: typeof fetch; limit?: number; deadlineMs?: number } = {}
 ): Promise<QueueRunSummary> {
   const now = opts.nowMs ?? Date.now();
+  const clock = opts.clock ?? Date.now;
   const summary: QueueRunSummary = { clinicId, examined: 0, sent: 0, retried: 0, failed: 0, skipped: 0 };
   const config = await loadCapiConfig(clinicId);
+  if (!config.enabled) return { ...summary, paused: "disabled" };
+  if (!config.ready) return { ...summary, paused: "not_configured" };
+  if (config.testMode) return { ...summary, paused: "test_mode" };
+
   const col = capiEventsCollection(clinicId);
-  const snap = await col.where("status", "in", OPEN_STATUSES).limit(opts.limit ?? 100).get();
+  const snap = await col.where("dueAt", "<=", now).orderBy("dueAt").limit(opts.limit ?? 100).get();
 
   const isClaimable = (d: Record<string, unknown> | undefined) =>
     !!d &&
     (OPEN_STATUSES as string[]).includes(String(d.status)) &&
     (Number(d.dueAt) || 0) <= now &&
-    !((Number(d.lockedUntil) || 0) > now);
+    !((Number(d.lockedUntil) || 0) > clock());
 
   for (const doc of snap.docs) {
     if (!isClaimable(doc.data())) continue;
@@ -408,7 +479,7 @@ export async function processClinicQueue(
         const fresh = await tx.get(ref);
         const d = fresh.data();
         if (!isClaimable(d)) return null;
-        tx.update(ref, { lockedUntil: now + CLAIM_LOCK_MS });
+        tx.update(ref, { lockedUntil: clock() + CLAIM_LOCK_MS });
         return d as Record<string, unknown>;
       });
     } catch (e) {
@@ -419,11 +490,18 @@ export async function processClinicQueue(
     summary.examined += 1;
 
     const finish = (patch: Record<string, unknown>) =>
-      ref.update({ ...defined(patch), lockedUntil: FieldValue.delete(), updatedAt: FieldValue.serverTimestamp() });
+      ref.update({
+        ...defined(patch),
+        // A final row leaves the due-query for good; an open one keeps the dueAt in its patch.
+        ...(FINAL_STATUSES.has(String(patch.status)) ? { dueAt: FieldValue.delete() } : {}),
+        lockedUntil: FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
 
     try {
       const outcome = await processOne(clinicId, ref.id, row, config, now, opts.fetchImpl);
-      await finish(outcome.patch);
+      if ("remove" in outcome) await ref.delete();
+      else await finish(outcome.patch);
       summary[outcome.count] += 1;
     } catch (e) {
       console.warn("[metaCapi] event failed:", clinicId, doc.id, errText(e));
@@ -435,8 +513,14 @@ export async function processClinicQueue(
 }
 
 type Counter = "sent" | "retried" | "failed" | "skipped";
+type RowOutcome = { patch: Record<string, unknown>; count: Counter } | { remove: true; count: "skipped" };
 
-/** Decide and (when there is something to send) send one claimed row. Returns the row's update. */
+/**
+ * Decide and (when there is something to send) send one claimed row. Returns the row's update,
+ * or `remove` when the row must be deleted so the moment can be queued again later.
+ *
+ * Only called for a clinic that is switched on, fully set up and not in test mode.
+ */
 async function processOne(
   clinicId: string,
   docId: string,
@@ -444,17 +528,8 @@ async function processOne(
   config: ResolvedCapiConfig,
   now: number,
   fetchImpl?: typeof fetch
-): Promise<{ patch: Record<string, unknown>; count: Counter }> {
-  const skip = (reason: string): { patch: Record<string, unknown>; count: Counter } => ({ patch: { status: "skipped", reason }, count: "skipped" });
-
-  // Switched off after the row was queued: say so on the row, send nothing.
-  if (!config.enabled) return skip("disabled");
-  if (!config.ready) {
-    return {
-      patch: { status: "failed", reason: "not_configured", response: { httpStatus: 0, error: `Missing: ${config.missing.join(", ")}` } },
-      count: "failed",
-    };
-  }
+): Promise<RowOutcome> {
+  const skip = (reason: string, extra: Record<string, unknown> = {}): RowOutcome => ({ patch: { ...extra, status: "skipped", reason }, count: "skipped" });
 
   const eventTimeMs = Number(row.eventTimeMs) || 0;
   if (!eventTimeMs || isTooOld(eventTimeMs, now)) return skip("too_old");
@@ -465,21 +540,35 @@ async function processOne(
   const eventId = str(row.eventId) || docId;
   const appointmentId = str(row.appointmentId);
 
-  let patientId = str(row.patientId);
-  if (!patientId && appointmentId) {
-    const appt = await adminClinicDoc(clinicId, "appointments", appointmentId).get();
-    patientId = str((appt.data() || {}).patientId);
+  // Is the moment still true? One read, right before the send — see recheckAppointment.
+  const apptSnap = appointmentId ? await adminClinicDoc(clinicId, "appointments", appointmentId).get() : null;
+  const appt = apptSnap?.exists ? ((apptSnap.data() || {}) as Record<string, unknown>) : null;
+  const recheck = recheckAppointment(eventName, appt);
+  if (recheck.action === "skip") return skip(recheck.reason);
+  if (recheck.action === "delete") {
+    console.info("[metaCapi] moment undone, row dropped:", clinicId, docId, recheck.reason);
+    return { remove: true, count: "skipped" };
   }
+
+  const patientId = str(row.patientId) || str(appt?.patientId);
   if (!patientId) return skip("no_patient");
 
   const clicks = await clicksForPatient(clinicId, patientId);
   const click = pickClick(clicks, eventTimeMs);
-  if (!click) return { patch: { status: "skipped", reason: "no_click", patientId }, count: "skipped" };
+  if (!click) return skip("no_click", { patientId });
 
   // The carry-over: whatever was found anywhere now also lives on the patient. Best-effort.
   await rememberPatientClicks(clinicId, patientId, clicks).catch((e) => console.warn("[metaCapi] carry-over skipped:", errText(e)));
 
+  // Once per click: a second booking (or confirmation) from the same ad chat is not a second
+  // lead, and Meta would count it as one. A Purchase is per visit and is not limited here.
+  const marker = ONCE_PER_CLICK.has(eventName) ? clickMarkerRef(clinicId, click.ctwaClid, eventName) : null;
+  if (marker && (await marker.get()).exists) {
+    return skip("already_credited", { patientId, ctwaClid: click.ctwaClid, clickedAt: click.clickedAt, adSourceId: click.sourceId });
+  }
+
   const value = eventName === "Purchase" ? await appointmentChargeValue(clinicId, appointmentId) : 0;
+  // Never a test code here: a clinic in test mode never reaches this line.
   const payload = buildConversionPayload({
     eventName,
     eventTimeMs,
@@ -487,7 +576,6 @@ async function processOne(
     wabaId: config.wabaId,
     match: { kind: "ctwa", ctwaClid: click.ctwaClid },
     value,
-    testEventCode: config.testEventCode || undefined,
   });
   const outcome = await postConversion({ datasetId: config.datasetId, token: config.token, payload, fetchImpl });
   const attempts = (Number(row.attempts) || 0) + 1;
@@ -501,11 +589,19 @@ async function processOne(
     value,
     payload: redactPayload(payload),
     response: responseRecord(outcome),
-    test: config.testEventCode ? true : undefined,
     lastAttemptAt: FieldValue.serverTimestamp(),
   };
 
   if (outcome.kind === "sent") {
+    if (marker) {
+      // After the send, not before: a send that fails must leave the click free for the retry.
+      // A marker that fails to write only weakens the once-per-click guard; the send stands.
+      await marker
+        .create({ clinicId, eventName, eventId, appointmentId, createdAt: FieldValue.serverTimestamp() })
+        .catch((e) => {
+          if (!isAlreadyExists(e)) console.warn("[metaCapi] click marker not written:", clinicId, eventId, errText(e));
+        });
+    }
     return { patch: { ...common, status: "sent", reason: FieldValue.delete(), sentAt: FieldValue.serverTimestamp() }, count: "sent" };
   }
   if (outcome.kind === "retry") {
@@ -576,7 +672,8 @@ export async function latestClinicClick(clinicId: string): Promise<AdClick | nul
  * A test event code is REQUIRED. Without one this would be a real conversion on a real click id,
  * and Meta would train the clinic's ads on a booking that never happened. The switch does not
  * need to be on — testing before switching on is the point — but the dataset, WABA id and token
- * do. The attempt is written to the log like any other row, marked `test: true`.
+ * do. This is the ONLY place a test code is ever attached. The attempt is written to the log
+ * marked `test: true` and with no `dueAt`, so the queue never picks it up.
  */
 export async function sendTestConversion(
   clinicId: string,
@@ -619,7 +716,6 @@ export async function sendTestConversion(
           eventTimeMs: now,
           status: sent ? "sent" : "failed",
           reason: sent ? undefined : "test_failed",
-          dueAt: now,
           attempts: 1,
           ctwaClid,
           value: 0,

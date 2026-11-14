@@ -25,7 +25,9 @@ import { CLINIC_SECRETS_COLLECTION } from "@/types/wapilot";
  *
  * Three POST actions besides "save":
  *   - "test" sends one event marked with a Test Events code, so the owner can watch it arrive in
- *     Events Manager → Test Events before trusting the live switch.
+ *     Events Manager → Test Events before trusting the live switch. While a test code is SAVED
+ *     (`testMode`), live reporting pauses: real events wait in the queue and none goes out
+ *     marked as a test.
  *   - "run" drains this clinic's queue now, so a setup session does not wait for the cron.
  *
  * The event list in the GET is the clinic's own log (`clinic_secrets/{id}/meta_conversion_events`).
@@ -67,6 +69,8 @@ async function statusFor(clinicId: string) {
     tokenSet: cfg.settings.token.length > 0,
     whatsappTokenSet: cfg.whatsappTokenSet,
     testEventCode: cfg.settings.testEventCode,
+    /** A test code is saved, so live reporting is paused (rows wait) until it is cleared. */
+    testMode: cfg.testMode,
     ready: cfg.ready,
     missing: cfg.missing,
     events,
@@ -131,8 +135,10 @@ export async function POST(request: Request) {
 
     if (action === "run") {
       // Drains only this clinic's due events, the same function the cron calls. An event that is
-      // not due yet (a visit still inside its three-hour settle window) stays queued — Meta keeps
-      // the first copy of an event id, so sending a Purchase early would freeze a short value.
+      // not due yet (a visit still inside its three-hour settle window) stays queued — we send one
+      // Purchase per visit and Meta does not dedupe, so an early one cannot be corrected later.
+      // A switched-off, half-set-up or test-mode clinic comes back with `summary.paused` and no
+      // row touched.
       const summary = await processClinicQueue(clinicId);
       return NextResponse.json({ ok: true, summary });
     }

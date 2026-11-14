@@ -43,4 +43,4 @@
 - حدث `request_welcome` من Meta بيتعامل كأول دور (`welcome: true`) → تحية بالإعلان، من غير رصيد ذكاء اصطناعي.
 - تفعيل الترحيب: `POST /api/admin/meta-whatsapp-welcome` → `/{phone_number_id}/conversational_automation`.
 - البوابة (`whatsapp-gateway/src/shape.js` → `messageAd`) بتبعت الإعلان في `_data.ad`؛ لازم `git pull && docker compose up -d --build` على السيرفر عشان الرقم العادي يقرأه.
-- لسه مش مبني: إرسال «حجز» لـ Meta عبر Conversions API بالـ `ctwaClid` المتخزن (عشان Meta تحسّن الإعلان على الحجوزات مش الرسائل) — محتاج Dataset في Events Manager.
+- إرسال الحجز والتأكيد والزيارة لـ Meta عبر Conversions API بالـ `ctwaClid` المتخزن (عشان Meta تحسّن الإعلان على الحجوزات مش الرسائل) اتبنى — الخطوات والتفاصيل في `docs/runbooks/meta-conversions-api.md`.

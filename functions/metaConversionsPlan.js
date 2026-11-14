@@ -20,9 +20,10 @@ const TRIGGER_EVENT = Object.freeze({
 });
 
 /**
- * How long a visit waits before its Purchase may go out. Meta keeps the FIRST copy of an event
- * id and drops the rest, so a Purchase cannot be corrected once sent; three hours lets the
- * dentist enter the day's treatments so the value Meta learns from is the real one, not zero.
+ * How long a visit waits before its Purchase may go out. We send ONE Purchase per visit and it
+ * must already carry the day's charges: Meta does NOT deduplicate Business Messaging events by
+ * event_id, so a second "corrected" Purchase would be counted as another sale. Three hours lets
+ * the dentist enter the day's treatments so the value Meta learns from is the real one, not zero.
  */
 const PURCHASE_SETTLE_MS = 3 * 60 * 60 * 1000;
 
@@ -32,8 +33,11 @@ const VISITED_STATUSES = Object.freeze(["Checked In", "In Chair", "Checking Out"
 /** Legacy spellings still found on old rows (see appointmentStages.ts). */
 const STATUS_ALIASES = Object.freeze({ Arrived: "Checked In", Seated: "In Chair", Pending: "Scheduled" });
 
-/** A booking that is over without the patient coming credits nothing. */
-const DEAD_STATUSES = new Set(["Cancelled", "No Show"]);
+/**
+ * A booking that is over without the patient coming credits nothing. "Rescheduled" is the marker
+ * left on the old slot when a booking moves — the visit lives on in the new appointment.
+ */
+const DEAD_STATUSES = new Set(["Cancelled", "No Show", "Rescheduled"]);
 
 function canon(status) {
   const s = typeof status === "string" ? status.trim() : "";
@@ -53,6 +57,9 @@ const isVisited = (s) => VISITED_STATUSES.includes(s);
  * Confirmed in the popup) is both "booked" and "confirmed". Reaching any visited stage from a
  * non-visited one is "visited" — Checked In → In Chair → Completed is one visit, not three, and
  * the event id makes sure only the first is ever queued.
+ *
+ * A new appointment carrying `rescheduledFromId` is a booking that MOVED, not a new lead: the
+ * original booking was already the lead, so it is not "booked" again.
  */
 function conversionTriggers(before, after) {
   if (!after) return [];
@@ -60,7 +67,8 @@ function conversionTriggers(before, after) {
   if (DEAD_STATUSES.has(a)) return [];
   const out = [];
   const b = before ? canon(before.status) || "Scheduled" : null;
-  if (b === null) out.push("booked");
+  const isReschedule = typeof after.rescheduledFromId === "string" && after.rescheduledFromId.trim() !== "";
+  if (b === null && !isReschedule) out.push("booked");
   if (a === "Confirmed" && b !== "Confirmed") out.push("confirmed");
   if (isVisited(a) && !(b && isVisited(b))) out.push("visited");
   return out;

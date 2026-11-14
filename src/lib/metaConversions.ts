@@ -26,8 +26,12 @@
  */
 export const META_CAPI_GRAPH_VERSION = (process.env.META_CAPI_GRAPH_VERSION || "").trim() || "v23.0";
 export const META_GRAPH_ROOT = "https://graph.facebook.com";
-/** Identifies the sender to Meta. Not a secret. */
-export const META_CAPI_PARTNER_AGENT = "alpha-dental";
+/**
+ * Identifies the sender to Meta. Not a secret. "alpha-dental" is the name the owner asked for;
+ * Meta prefers a partner name it assigned itself, so once it issues one it goes in
+ * META_CAPI_PARTNER_AGENT and no code changes.
+ */
+export const META_CAPI_PARTNER_AGENT = (process.env.META_CAPI_PARTNER_AGENT || "").trim() || "alpha-dental";
 export const META_CAPI_CURRENCY = "EGP";
 
 /** The events-endpoint URL for one dataset. The token goes in the Authorization header, never here. */
@@ -36,10 +40,12 @@ export function eventsEndpoint(datasetId: string, version: string = META_CAPI_GR
 }
 
 /**
- * How long a visit sits before its Purchase goes out. Meta keeps the FIRST event it receives for
- * an event id and drops later copies, so a Purchase cannot be "updated" once sent. Waiting a few
- * hours after the patient arrives lets the dentist enter the day's treatments first, so the value
- * Meta learns from is the real one rather than zero.
+ * How long a visit sits before its Purchase goes out. We send ONE Purchase per visit and it has
+ * to carry the day's charges already: Meta does NOT deduplicate Business Messaging events by
+ * event_id (its docs ask partners to dedupe before sending), so a second, "corrected" Purchase
+ * would simply be counted as another sale. Waiting a few hours after the patient arrives lets the
+ * dentist enter the day's treatments first, so the value Meta learns from is the real one rather
+ * than zero.
  */
 export const PURCHASE_SETTLE_MS = 3 * 60 * 60 * 1000;
 
@@ -47,10 +53,11 @@ export const PURCHASE_SETTLE_MS = 3 * 60 * 60 * 1000;
 export const MAX_EVENT_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * A click older than this is not credited. Meta's own attribution windows are far shorter; this
- * only stops a patient who tapped one ad two years ago from being reported on every visit since.
+ * A click older than this is not credited. Meta documents a 7-day window for hashed (phone)
+ * matching and publishes none for ctwa_clid. 28 days lets a visit booked from an ad a few weeks
+ * out still be credited, while stopping a stale click from being re-reported for months.
  */
-export const MAX_CLICK_AGE_MS = 90 * 24 * 60 * 60 * 1000;
+export const MAX_CLICK_AGE_MS = 28 * 24 * 60 * 60 * 1000;
 
 /** Total tries per event (the first send included). */
 export const MAX_ATTEMPTS = 5;
@@ -72,7 +79,11 @@ export const TRIGGER_EVENT: Record<ConversionTrigger, ConversionEventName> = {
 export const VISITED_STATUSES = ["Checked In", "In Chair", "Checking Out", "Completed"] as const;
 /** Legacy spellings still found on old rows (see appointmentStages.ts). */
 const STATUS_ALIASES: Record<string, string> = { Arrived: "Checked In", Seated: "In Chair", Pending: "Scheduled" };
-const DEAD_STATUSES = new Set(["Cancelled", "No Show"]);
+/**
+ * A booking that is over without the patient coming credits nothing. "Rescheduled" is the marker
+ * left on the old slot when a booking moves — the visit lives on in the new appointment.
+ */
+const DEAD_STATUSES = new Set(["Cancelled", "No Show", "Rescheduled"]);
 
 function canon(status: unknown): string {
   const s = typeof status === "string" ? status.trim() : "";
@@ -80,6 +91,11 @@ function canon(status: unknown): string {
   return STATUS_ALIASES[s] || s;
 }
 const isVisited = (s: string) => (VISITED_STATUSES as readonly string[]).includes(s);
+
+/** An appointment status in its current spelling; a missing one reads as "Scheduled". */
+export function canonicalStatus(status: unknown): string {
+  return canon(status) || "Scheduled";
+}
 
 /**
  * Which conversion moments one appointment write represents.
@@ -90,16 +106,23 @@ const isVisited = (s: string) => (VISITED_STATUSES as readonly string[]).include
  * non-visited one is `visited` — Checked In → In Chair → Completed is one visit, not three, and
  * the event id makes sure only the first is ever queued.
  *
+ * A new appointment carrying `rescheduledFromId` is a booking that MOVED, not a new lead: the
+ * original booking was already the lead, so it is not `booked` again.
+ *
  * Twinned in functions/metaConversions.js — the test in tests/metaConversions.test.mts runs the
  * same table through both.
  */
-export function conversionTriggers(before: { status?: unknown } | null, after: { status?: unknown } | null): ConversionTrigger[] {
+export function conversionTriggers(
+  before: { status?: unknown } | null,
+  after: { status?: unknown; rescheduledFromId?: unknown } | null
+): ConversionTrigger[] {
   if (!after) return [];
   const a = canon(after.status) || "Scheduled";
   if (DEAD_STATUSES.has(a)) return [];
   const out: ConversionTrigger[] = [];
   const b = before ? canon(before.status) || "Scheduled" : null;
-  if (b === null) out.push("booked");
+  const isReschedule = typeof after.rescheduledFromId === "string" && after.rescheduledFromId.trim() !== "";
+  if (b === null && !isReschedule) out.push("booked");
   if (a === "Confirmed" && b !== "Confirmed") out.push("confirmed");
   if (isVisited(a) && !(b && isVisited(b))) out.push("visited");
   return out;
@@ -113,6 +136,37 @@ export function conversionEventId(appointmentId: string, eventName: ConversionEv
 /** When a queued event is first due. Purchases wait for the visit's charges to be entered. */
 export function firstDueAt(trigger: ConversionTrigger, eventTimeMs: number): number {
   return trigger === "visited" ? eventTimeMs + PURCHASE_SETTLE_MS : eventTimeMs;
+}
+
+/** What the sender does with a queued event after re-reading its appointment. */
+export type AppointmentRecheck =
+  | { action: "send" }
+  /** Final: the row stays in the log as skipped with this reason. */
+  | { action: "skip"; reason: "appointment_gone" | "cancelled" }
+  /** The moment was undone: drop the row so a later real one can queue it again. */
+  | { action: "delete"; reason: "not_confirmed" | "visit_undone" };
+
+/**
+ * Is the moment a queued event reports still true, right before it goes to Meta?
+ *
+ * The queue row was written when the status changed; the send can be minutes (a booking) or
+ * hours (a Purchase) later, and the desk may have changed its mind in between. Meta does not
+ * deduplicate these events and cannot take one back, so a status that was undone must stop here.
+ *
+ *   - Appointment deleted → skipped "appointment_gone".
+ *   - LeadSubmitted on a booking now Cancelled / No Show / Rescheduled → skipped "cancelled".
+ *   - QualifiedLead on a booking no longer Confirmed (and not visited) → the row is DELETED, not
+ *     ended: a mis-tap undone and confirmed again later must be able to queue a fresh row (the
+ *     trigger's create() would fail on a row that still exists).
+ *   - Purchase on a booking no longer in a visited stage (the check-in was undone) → DELETED for
+ *     the same reason: the real arrival must be able to queue its own Purchase.
+ */
+export function recheckAppointment(eventName: ConversionEventName, appointment: { status?: unknown } | null): AppointmentRecheck {
+  if (!appointment) return { action: "skip", reason: "appointment_gone" };
+  const s = canonicalStatus(appointment.status);
+  if (eventName === "LeadSubmitted") return DEAD_STATUSES.has(s) ? { action: "skip", reason: "cancelled" } : { action: "send" };
+  if (eventName === "QualifiedLead") return s === "Confirmed" || isVisited(s) ? { action: "send" } : { action: "delete", reason: "not_confirmed" };
+  return isVisited(s) ? { action: "send" } : { action: "delete", reason: "visit_undone" };
 }
 
 // ── Which click ─────────────────────────────────────────────────────────────────────────────
@@ -338,7 +392,8 @@ export function nextAttemptAt(attemptsMade: number, nowMs: number): number | nul
 /**
  * pending: queued, not yet tried. retry: tried, waiting for the next try. sent: Meta took it.
  * failed: gave up (4xx, or out of tries). skipped: nothing to send — no click on the patient,
- * the event is too old, or the clinic switched the feature off before it went out.
+ * the event is too old, the appointment is gone or cancelled, or the click was already credited.
+ * A clinic that is switched off, not fully set up or in test mode ends nothing: its rows wait.
  */
 export type QueueStatus = "pending" | "retry" | "sent" | "failed" | "skipped";
 export const OPEN_STATUSES: QueueStatus[] = ["pending", "retry"];
