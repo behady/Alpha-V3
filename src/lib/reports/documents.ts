@@ -36,6 +36,7 @@ import { buildCaseSheet, settlementOf, sumCases } from "@/lib/caseSheet";
 import { buildTreatmentStatus, type TreatmentState } from "@/lib/reports/treatmentStatus";
 import { buildInsuranceStatement, caseLabel, type StatementRowLite } from "@/lib/insuranceStatement";
 import { readMemberNumbers } from "@/lib/patientInsurance";
+import { companyStatement, type SheetInputs } from "@/lib/insurance/companySheet";
 import { parseApptTimeToMinutes } from "@/lib/appointmentTime";
 import { statusLabel, workTypeLabel } from "@/lib/labCases";
 
@@ -82,6 +83,8 @@ export type ReportInputs = {
   payroll: PayrollRow[] | null;
   /** The clinic's geofence and hours are not needed; the name is, for the title. */
   clinicName?: string;
+  /** Insurance statement only: the finished-month sheet's inputs for each contract company, by payer id. */
+  companySheets?: Record<string, SheetInputs>;
 };
 
 const fmt = (n: number) => Math.round(n).toLocaleString("en-US");
@@ -547,7 +550,11 @@ export function buildReportDoc(id: string, input: ReportInputs): ReportDoc {
       for (const p of insurers) {
         const memberNumbers = new Map<string, string>();
         input.allPatients.forEach((pt) => { const n = readMemberNumbers(pt)[p.id]; if (n) memberNumbers.set(String(pt.id), n); });
-        const st = buildInsuranceStatement({ rows: input.procedures as unknown as StatementRowLite[], payerId: p.id, payerName: isAr ? p.nameAr || p.name : p.name, month, range, memberNumbers });
+        const payerName = isAr ? p.nameAr || p.name : p.name;
+        const sheet = input.companySheets?.[p.id];
+        const st = sheet
+          ? companyStatement({ ...sheet, payerId: p.id, payerName, range, memberNumbers }).statement
+          : buildInsuranceStatement({ rows: input.procedures as unknown as StatementRowLite[], payerId: p.id, payerName, month, range, memberNumbers });
         if (st.cases.length === 0) continue;
         totalAll += st.total;
         casesAll += st.cases.length;

@@ -162,10 +162,14 @@ export function useCompanySheet(
   return { inputs, failed };
 }
 
-/** Every procedure charge of one company, live (for screens that do not already hold them). */
-export function useCompanyCharges(payerId: string): SheetCharge[] | null {
-  const [answer, setAnswer] = useState<{ payerId: string; list: SheetCharge[] } | null>(null);
+/**
+ * Every procedure charge of one company, live (for screens that do not already hold them).
+ * `payerId` null = no company picked: nothing is read. An unreadable ledger is `failed`, not an empty list.
+ */
+export function useCompanyCharges(payerId: string | null): { charges: SheetCharge[] | null; failed: boolean } {
+  const [answer, setAnswer] = useState<{ payerId: string; list: SheetCharge[] | null } | null>(null);
   useEffect(() => {
+    if (!payerId) return;
     // Two equality filters: served by the single-field indexes, no composite index needed.
     return onSnapshot(
       query(getClinicCollection("ledger"), where("payerId", "==", payerId), where("type", "==", "procedure")),
@@ -176,8 +180,9 @@ export function useCompanyCharges(payerId: string): SheetCharge[] | null {
             .map((d) => ({ ...(d.data() as Record<string, unknown>), id: d.id }) as SheetCharge)
             .filter((c) => !["deleted", "cancelled"].includes(String((c as Record<string, unknown>).status || "").toLowerCase())),
         }),
-      () => setAnswer({ payerId, list: [] }),
+      () => setAnswer({ payerId, list: null }),
     );
   }, [payerId]);
-  return answer?.payerId === payerId ? answer.list : null;
+  const mine = payerId && answer?.payerId === payerId ? answer : null;
+  return { charges: mine?.list ?? null, failed: mine !== null && mine.list === null };
 }

@@ -355,6 +355,7 @@ export const TEXT = {
   },
   sheetConfirmAllBranches: { en: "This covers every branch, not only the one on screen.", ar: "ده بيشمل كل الفروع، مش الفرع اللي قدامك بس." },
   sheetLoadFailed: { en: "The sheet could not be loaded. Reload the page.", ar: "التقفيلة ماتحمّلتش. حدّث الصفحة." },
+  sheetLoading: { en: "Loading the sheet…", ar: "بنحمّل التقفيلة…" },
   sheetEmpty: { en: "Nobody is on this month's sheet yet.", ar: "لسه مفيش حد في تقفيلة الشهر ده." },
   sheetToastSentLocked: { en: "That month is already sent. Mark it not sent first.", ar: "الشهر ده اتبعت. علّمه ماتبعتش الأول." },
   sheetToastNotFinished: { en: "This patient still has treatment waiting, so he cannot print yet.", ar: "المريض ده لسه عنده علاج مخلصش، فمش هيطلع دلوقتي." },

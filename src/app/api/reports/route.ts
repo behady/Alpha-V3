@@ -14,6 +14,9 @@ import { loadBriefingData } from "@/lib/automation/briefing/data";
 import { buildHrSection } from "@/lib/automation/briefing/hr";
 import { resolveBriefingAccess } from "@/lib/automation/briefing/build";
 import type { PayrollRow } from "@/lib/reports/opsStats";
+import { loadCompanySheetInputs } from "@/lib/server/companySheetData";
+import type { SheetInputs } from "@/lib/insurance/companySheet";
+import { PRIVATE_PAYER_ID, isInsurerFormat } from "@/lib/payers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -110,7 +113,16 @@ export async function GET(request: Request) {
       }
     }
 
-    const inputs: ReportInputs = { ...base, range, today, lang, data, payroll, clinicName: String(clinic?.name || "") };
+    // Insurance statement: a contract company (no approval paper) prints from its finished-month sheet.
+    let companySheets: Record<string, SheetInputs> | undefined;
+    if (meta.id === "insurance") {
+      const contract = base.payers.filter((p) => p.active && p.id !== PRIVATE_PAYER_ID && !isInsurerFormat(p.format));
+      companySheets = {};
+      const loaded = await Promise.all(contract.map((p) => loadCompanySheetInputs(clinicId, p.id)));
+      contract.forEach((p, i) => { companySheets![p.id] = loaded[i]; });
+    }
+
+    const inputs: ReportInputs = { ...base, range, today, lang, data, payroll, clinicName: String(clinic?.name || ""), companySheets };
     const drill = url.searchParams.get("drill")?.trim();
     if (drill) {
       return NextResponse.json({ ok: true, section: buildDrillDoc(meta.id, drill, inputs) });
