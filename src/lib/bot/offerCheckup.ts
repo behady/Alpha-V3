@@ -86,9 +86,19 @@ export function checkupFees(consultation: string | undefined, checkupServicePric
 }
 
 /** "وبيتخصم من العلاج" / "and it's deducted…" right after a fee clause belongs to the fee. */
-const CONTINUES = /^\s*(?:و?\s*(?:(?:ده|دي)\s+)?(?:بي|بت|ي|ت)تخصم|(?:and\s+)?(?:it'?s\s+|is\s+)?deducted\b)/i;
+const CONTINUES = /^\s*(?:و?\s*(?:(?:ده|دي|قيمته|سعره|تمنه)\s+)?(?:بي|بت|ي|ت)تخصم|(?:and\s+)?(?:it'?s\s+|is\s+)?deducted\b)/i;
 /** Stands in for the dot of "ج.م" while the reply is cut into clauses, so it is not read as a full stop. */
 const SAFE = "\u0001";
+/**
+ * Two things in one sentence joined by "و"/"and" with no comma: the cut goes right after a figure
+ * or a currency ("الحشو يبدأ من 200 ج.م والكشف بيتخصم", "الكشف 200 ج.م وعندي ميعاد السبت…"), or
+ * right before "والكشف"/"وقيمة الكشف"/"and the consultation". Without it another service's 200,
+ * or the times offered after the fee, went with the check-up's words. Only the space is the cut.
+ */
+const JOIN =
+  `(?<=[\\d٠-٩]|(?:^|[\\s\\d٠-٩])(?:ج${SAFE}م|ج|جم|جنيه|جنية|جنيهات)|\\b(?:EGP|LE|pounds?))[ \\t]+(?=و|and\\s)` +
+  `|[ \\t]+(?=و[لبف]{0,2}(?:ال)?كشف|و(?:قيمة|قيمه|سعر|تمن)\\s+(?:ال)?كشف|and\\s+(?:the\\s+)?(?:consultation|check-?up|exam))`;
+const CLAUSES = new RegExp(`([.!?؟]+[ \\t]*|،[ \\t]*|,[ \\t]+|\\n|${JOIN})`, "i");
 
 /**
  * The backstop behind the prompt. The first clause that names the check-up WITH one of the
@@ -103,8 +113,9 @@ export function stripCheckupFee(reply: string, fees: string[]): { text: string; 
   const feeSet = new Set(fees);
   const quotesFee = (s: string) => wholeNumbers(s).some((n) => feeSet.has(n));
   if (!reply || !feeSet.size || !quotesFee(reply)) return { text: reply, stripped: false };
-  const parts = reply.replace(/ج\.م/g, `ج${SAFE}م`).split(/([.!?؟]+[ \t]*|،[ \t]*|,[ \t]+|\n)/);
-  const isComma = (s?: string) => /^[،,]/.test(s || "");
+  const parts = reply.replace(/ج\.م/g, `ج${SAFE}م`).split(CLAUSES);
+  // A comma, or the bare space of a "و" join: it goes with the words it introduces.
+  const isComma = (s?: string) => /^[،,]/.test(s || "") || /^[ \t]+$/.test(s || "");
   const isBreak = (s?: string) => s === "\n";
   let replaced = false;
   let stripped = false;
@@ -140,7 +151,7 @@ export function stripCheckupFee(reply: string, fees: string[]): { text: string; 
   const rest = text.replace(/و?الكشف نفسه داخل في العرض/, "");
   if (/عرض/.test(rest) && namesCheckup(rest))
     text = text
-      .replace(/[،,]\s*والكشف نفسه داخل في العرض/, "")
+      .replace(/(?:[،,]\s*|(?<![.!?؟\s])[ \t]+)والكشف نفسه داخل في العرض/, "")
       .replace(/(^|[.!?؟]\s+|\n)و?الكشف نفسه داخل في العرض[.!]?[ \t]*/, "$1")
       .trim();
   return { text: text || "الكشف نفسه داخل في العرض 👍", stripped };

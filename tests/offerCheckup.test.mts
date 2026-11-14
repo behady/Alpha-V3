@@ -134,6 +134,34 @@ run("left exactly as written: the offer itself, a deduction with no figure, a 20
   }
 });
 
+run("no comma before the next thing: another service's 200 and the offered times are never taken with the check-up", () => {
+  // The coaching asks for "والكشف بيتخصم" under every price, often joined with "و" and no comma.
+  for (const s of [
+    "الحشو العادي يبدأ من 200 ج.م والكشف بيتخصم من العلاج لو كملت معانا.",
+    "الحشو يبدأ من 200 ج.م وقيمة الكشف بتتخصم من العلاج.",
+    "الخلع بـ200ج والكشف بيتخصم.",
+    "الحشو بـ 200 والكشف بيتخصم من أي علاج.",
+    "Fillings start at 200 EGP and the consultation is deducted from treatment.",
+  ]) {
+    assert.deepEqual(stripCheckupFee(s, fees), { text: s, stripped: false }, s);
+  }
+  // The fee goes; the times offered after it in the same sentence stay, so "الأول" still means one of them.
+  assert.equal(
+    stripCheckupFee("الكشف 200 ج.م وعندي ميعاد السبت 14/11 الساعة 3:00 م أو الأحد 15/11 الساعة 6:30 م، إيه اللي يناسبك؟", fees).text,
+    "الكشف نفسه داخل في العرض وعندي ميعاد السبت 14/11 الساعة 3:00 م أو الأحد 15/11 الساعة 6:30 م، إيه اللي يناسبك؟"
+  );
+  assert.equal(stripCheckupFee("الكشف بـ 200 ج.م والتنظيف بـ 550 ج.م.", fees).text, "الكشف نفسه داخل في العرض والتنظيف بـ 550 ج.م.");
+  assert.equal(
+    stripCheckupFee("Veneers start at 1,500 EGP and the consultation is 200 EGP.", fees).text,
+    "Veneers start at 1,500 EGP and the check-up itself is included in the offer."
+  );
+  // The deduction joined by "و" still goes with the fee, leaving no stray space before the full stop.
+  assert.equal(stripCheckupFee("تمام.\nالكشف ٢٠٠ جنيه وبيتخصم من العلاج.", fees).text, "تمام.\nالكشف نفسه داخل في العرض.");
+  assert.equal(stripCheckupFee("والكشف عموماً 200 ج.م، وقيمته بتتخصم من تكلفة العلاج.", fees).text, "الكشف نفسه داخل في العرض.");
+  // Said twice inside one sentence: the offer already covers it, so the added words go.
+  assert.equal(stripCheckupFee("العرض بيشمل كشف شامل وتنظيف بـ 299 ج.م والكشف لوحده 200 ج.م.", fees).text, "العرض بيشمل كشف شامل وتنظيف بـ 299 ج.م.");
+});
+
 run("no fees (no ad, no offer, a free check-up): every reply is untouched", () => {
   const incident = "والكشف عموماً 200 ج.م وبيتخصم من تكلفة العلاج.";
   assert.deepEqual(stripCheckupFee(incident, []), { text: incident, stripped: false });
