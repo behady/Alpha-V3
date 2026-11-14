@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { buildBotPrompt, fixedPromptLayers, LANGUAGE_RULE, PHONE_HIDDEN_LINE, promptVersion, type BotPromptInput } from "../src/lib/bot/botPrompt";
+import { CHECKUP_IN_OFFER_FACT, CHECKUP_IN_OFFER_RULE } from "../src/lib/bot/offerCheckup";
 
 /**
  * The WhatsApp prompt's SHAPE, pinned.
@@ -317,4 +318,47 @@ run("no today key (Pro's layer, the battery, old callers): the prompt is exactly
     assert.ok(!plain.includes("النهارده السبت"));
   }
   assert.ok(buildBotPrompt(base).includes("- s1 → بكرة 5 مساءً"), "a slot with no key is rendered as given");
+});
+
+// ---- the check-up in an ad patient's offer (lib/bot/offerCheckup) -------------------------------
+
+run("ad patient whose offer includes the check-up: no standalone fee in the prompt; everyone else unchanged", () => {
+  const ad = { headline: "رجّع لضحكتك لمعتها الطبيعية بـ 299 ج", body: "العرض يشمل: كشف شامل وتفصيلي. تنظيف جير وتصبغات. تلميع. السعر: 299 جنيه بس" };
+  const input: BotPromptInput = {
+    ...base,
+    priceLines: "كشف: يبدأ من 200 ج.م\nكشف تقويم: يبدأ من 300 ج.م\nكمبوزيت فينير: يبدأ من 1,500 ج.م",
+    facts: { consultation: "الكشف 200 ج.م وبيتخصم من العلاج لو كمّلت معانا", offers: "كشف شامل + تنظيف وتلميع بـ 299 ج.م بدل 550 ج.م" },
+    ad,
+  };
+  const plain = buildBotPrompt(input);
+  assert.ok(plain.includes("- الكشف: الكشف 200 ج.م"), "today's behaviour pinned without the flag");
+  assert.ok(plain.includes("كشف: يبدأ من 200 ج.م"));
+  const on = buildBotPrompt({ ...input, checkupInOffer: true });
+  assert.ok(!/(^|\D)200(\D|$)/.test(on), "no 200 anywhere in the prompt");
+  assert.ok(on.includes("كشف: داخل في العرض للمريض ده") && on.includes("كشف تقويم: يبدأ من 300 ج.م") && on.includes("كمبوزيت فينير: يبدأ من 1,500 ج.م"));
+  assert.ok(on.includes(`- الكشف: ${CHECKUP_IN_OFFER_FACT}`), "the الكشف fact points at the offer");
+  assert.equal(on.split("\n").filter((l) => l === CHECKUP_IN_OFFER_RULE).length, 1, "the rule, once");
+  assert.ok(on.indexOf(CHECKUP_IN_OFFER_RULE) > on.indexOf("المريض جاي من إعلان"), "right after the ad lines");
+  assert.ok(on.includes("- العروض والخصومات: كشف شامل + تنظيف وتلميع بـ 299"), "the offer itself stays");
+  // Layers 1-4 and the stamp do not move.
+  assert.ok(on.startsWith(fixedPromptLayers("sales", false, true).filter(Boolean).join("\n")));
+  assert.equal(on.split("معلومات العيادة:")[0], plain.split("معلومات العيادة:")[0]);
+  // Off, absent, or without an ad: byte-identical to today.
+  assert.equal(buildBotPrompt({ ...input, checkupInOffer: false }), plain);
+  assert.equal(buildBotPrompt({ ...base, checkupInOffer: false }), buildBotPrompt(base));
+  assert.equal(buildBotPrompt({ ...input, ad: undefined, checkupInOffer: true }), buildBotPrompt({ ...input, ad: undefined }));
+  // Dentist names hidden and the flag together: both apply.
+  const hidden = buildBotPrompt({ ...input, facts: { ...input.facts, dentists: "د. محمد سمير" }, hideDoctorNames: true, checkupInOffer: true });
+  assert.ok(!hidden.includes("د. محمد سمير") && hidden.includes(CHECKUP_IN_OFFER_FACT));
+  // A clinic that wrote no "الكشف" fact still gets the pointer, and nothing is said twice.
+  const noFact = buildBotPrompt({ ...input, facts: { offers: input.facts!.offers }, checkupInOffer: true });
+  assert.ok(noFact.includes(CHECKUP_IN_OFFER_FACT));
+  const seen = new Set<string>();
+  for (const l of on.split("\n").map((x) => x.trim()).filter(Boolean)) {
+    assert.ok(!seen.has(l), `said twice: ${l.slice(0, 60)}`);
+    seen.add(l);
+  }
+  // "No prices on WhatsApp" clinics: names-only list untouched, and still no fee.
+  const consult = buildBotPrompt({ ...input, brief: { prices: "consult" }, checkupInOffer: true });
+  assert.ok(!/(^|\D)200(\D|$)/.test(consult) && !consult.includes("كشف: يبدأ"));
 });

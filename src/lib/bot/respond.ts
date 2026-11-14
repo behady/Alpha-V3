@@ -60,6 +60,7 @@ import { newerPatientLines, recentThreadLines, recordThreadMessage } from "./thr
 import { lineTakesOver } from "./supersede";
 import { STAFF_QUESTION_HOLD_MS, staffQuestionAt, staffQuestionCouldHold } from "./staffHold";
 import { adSubjectText, adSystemLine, readStoredAd, type AdReferral } from "./adReferral";
+import { checkupFees, checkupIsInAdOffer, isPlainCheckup, namesCheckup, plainCheckupPrices, stripCheckupFee } from "./offerCheckup";
 import { attributionFromClicks, clickFromReferral, mergeClicks, type AdClick } from "@/lib/metaConversions";
 import { clinicalReplyText,
   urgentCallLine, decideBotReply, type BotContext, type BotState } from "./engine";
@@ -874,6 +875,15 @@ export async function respondToPatientMessage(args: {
     if (adService && offersActive) ctx.adOfferLine = offerForService(offersActive, adService) || undefined;
     if (adService && !ctx.serviceMatch && (args.ad || ctx.welcome)) ctx.serviceMatch = adService;
   }
+  /*
+   * Came from an ad for the running offer, and that offer includes the check-up (lib/bot/
+   * offerCheckup): the clinic's ordinary check-up fee is not this patient's price. A patient from
+   * the "كشف + تنظيف وتلميع بـ 299" ad was told "والكشف عموماً 200 ج.م". False for every chat
+   * without an ad, every clinic without a running offer, an offer that does not mention the
+   * check-up, and an ad that neither names it nor quotes one of the offer's prices — and then
+   * nothing below changes.
+   */
+  const checkupInOffer = Boolean(ctx.ad && offersActive && checkupIsInAdOffer({ adText: adSubjectText(ctx.ad), offersText: offersActive }));
   ctx.aiAvailable = settings.aiEnabled && (settings.aiMaxReplies === 0 || (conversation.aiReplies ?? 0) < settings.aiMaxReplies);
   ctx.aiFirst = settings.aiFirst;
   // The replies that put a numbered menu on the screen, or end with "send *3* to change it".
@@ -1445,7 +1455,8 @@ ${urgentCallLine(ctx.clinicPhone)}`;
           const s = (d.data() || {}) as Record<string, unknown>;
           const name = String(s.name || "").trim();
           const price = Number(s.price) || 0;
-          if (!name || price <= 0) return "";
+          // An offer patient whose offer covers the check-up is not shown its ordinary fee.
+          if (!name || price <= 0 || (checkupInOffer && isPlainCheckup(name))) return "";
           const perTooth = s.pricingMode === "per_tooth" ? " للسن" : "";
           return `• ${name}: يبدأ من ${price.toLocaleString("en-US")} ج.م${perTooth}`;
         })
@@ -1512,6 +1523,8 @@ ${urgentCallLine(ctx.clinicPhone)}`;
         sessionGapMinutes: salesContext?.gapMinutes,
         photo: args.media === "image" && args.mediaNote ? args.mediaNote : undefined,
         ad: ctx.ad,
+        // Absent (not false) for everyone else, so the arguments are what they always were.
+        ...(checkupInOffer ? { checkupInOffer: true } : {}),
       };
       // Pro answers sales-mode turns only, for a clinic that chose it and has the add-on (or the
       // playground trying it); any Pro failure is answered by answerWithAi with exactly these args.
@@ -1539,6 +1552,27 @@ ${urgentCallLine(ctx.clinicPhone)}`;
           void adminClinicCollection(clinicId, "ai_debug")
             .add({ kind: "doctor_name_stripped", doctorNameStripped: true, brain: brainReply.brainUsed, createdAt: FieldValue.serverTimestamp() })
             .catch(() => {});
+        }
+      }
+      /*
+       * The check-up is in this patient's offer — the backstop behind the prompt, on either
+       * brain's own words. The ordinary fee can still reach the model from approved answers, the
+       * owner's coaching or an earlier bot line in the thread, and it once said "والكشف عموماً
+       * 200 ج.م" under a veneer price. A clause naming the check-up WITH that fee becomes "والكشف
+       * نفسه داخل في العرض"; every other figure and time stays. Only read when the reply names
+       * the check-up at all; never a hand-off over it.
+       */
+      if (checkupInOffer && (ai.kind === "answer" || ai.kind === "handoff") && ai.text && namesCheckup(ai.text)) {
+        const servicesSnap = await adminClinicCollection(clinicId, "services").limit(200).get().catch(() => null);
+        const prices = plainCheckupPrices((servicesSnap?.docs || []).map((d) => (d.data() || {}) as Record<string, unknown>));
+        const cleaned = stripCheckupFee(ai.text, checkupFees(ctx.facts?.consultation, prices, offersActive));
+        if (cleaned.stripped) {
+          if (!args.dryRun) {
+            void adminClinicCollection(clinicId, "ai_debug")
+              .add({ kind: "checkup_fee_stripped", brain: brainReply.brainUsed, before: ai.text.slice(0, 600), createdAt: FieldValue.serverTimestamp() })
+              .catch(() => {});
+          }
+          ai.text = cleaned.text;
         }
       }
       /*
@@ -2123,7 +2157,8 @@ ${askWho}` : askWho;
   // In sales mode the model writes its own close; a second one under it reads as a stutter.
   if (salesTurn && SALES_CLOSE_REASONS.has(reason) && (ctx.canOfferBooking || ctx.canRegister) && !(settings.aiFirst && reason === "ai_answer")) {
     const upcoming = patient ? await findNextAppointment(clinicId, patient.id) : null;
-    appendLine(closingLine({ gender: ctx.gender, facts: ctx.facts, alreadyBooked: Boolean(upcoming) }));
+    // Check-up in their offer: the generic close, not the clinic's "الكشف 200 ج.م" (never saved; "" not undefined).
+    appendLine(closingLine({ gender: ctx.gender, facts: checkupInOffer ? { ...ctx.facts, consultation: "" } : ctx.facts, alreadyBooked: Boolean(upcoming) }));
     // The button block below builds its own structure for menu-shaped replies; everything else
     // gets the Book button here.
     if (!structure && !upcoming && !["greeted", "reprompt", "back_to_menu", "hours"].includes(reason)) {

@@ -3,6 +3,7 @@ import { adPromptLines, type AdReferral } from "./adReferral";
 import { briefLines, serviceNamesOnly } from "./brief";
 import { arabicDayLabel } from "@/lib/arabicDateTime";
 import { relativeDayWord, shiftDateKey } from "./relativeDay";
+import { CHECKUP_IN_OFFER_FACT, CHECKUP_IN_OFFER_RULE, checkupPriceInOffer } from "./offerCheckup";
 
 /**
  * The WhatsApp assistant's system prompt, as a pure function of what the caller knows.
@@ -116,6 +117,13 @@ export interface BotPromptInput {
   photo?: { summary: string; impression?: string; urgent: boolean; category?: "dental" | "document" | "other" };
   /** The ad or post this conversation started from: what the person saw before they typed. */
   ad?: AdReferral;
+  /**
+   * This patient came from an ad for the running offer, and that offer includes the check-up
+   * (respond.ts, lib/bot/offerCheckup). With an `ad`, the clinic's ordinary check-up fee is kept
+   * out of layer 5 and one rule says the check-up is in the offer. Absent, false, or without an
+   * `ad`: the prompt is byte-identical to what it was without it.
+   */
+  checkupInOffer?: boolean;
 }
 
 /**
@@ -405,6 +413,11 @@ function consultServiceLines(priceLines: string): string {
   return names ? `\nقائمة الخدمات اللي بنقدمها (السعر بيتحدد بعد الكشف):\n${names}` : "";
 }
 
+/** The facts as this patient should hear them: with the check-up in their offer, its ordinary fee is not one of them. */
+function withCheckupInOffer(facts: BotFacts | undefined, on: boolean): BotFacts | undefined {
+  return on ? { ...(facts || {}), consultation: CHECKUP_IN_OFFER_FACT } : facts;
+}
+
 /**
  * A slot as the model should say it: its label, with "النهارده"/"بكره"/"بعد بكره" in front when
  * that is true today. The model used to work the word out itself, with no idea what day it was,
@@ -419,6 +432,8 @@ export function clinicAndPatientLayer(input: BotPromptInput): string[] {
   const sales = input.mode === "sales";
   const { clinicName, hoursText, addressText, clinicPhone, priceLines, facts, patient, patientName } = input;
   const today = /^\d{4}-\d{2}-\d{2}$/.test(input.todayKey || "") ? (input.todayKey as string) : "";
+  // An offer patient whose offer covers the check-up: its ordinary fee is not theirs to hear.
+  const checkupInOffer = Boolean(input.ad && input.checkupInOffer === true);
 
   const patientLines = patient
     ? [
@@ -457,10 +472,11 @@ export function clinicAndPatientLayer(input: BotPromptInput): string[] {
     input.brief?.prices === "consult"
       ? consultServiceLines(priceLines)
       : priceLines
-        ? `\nقائمة الخدمات والأسعار:\n${priceLines}`
+        ? `\nقائمة الخدمات والأسعار:\n${checkupInOffer ? checkupPriceInOffer(priceLines) : priceLines}`
         : "\nقائمة الأسعار: غير متوفرة (حوّل أي سؤال سعر).",
     // Hidden names: the clinic's own "الأطباء" notes name every dentist, so they stay out.
-    factLines(input.hideDoctorNames && facts ? { ...facts, dentists: undefined } : facts),
+    // Check-up in the offer: the "الكشف" fact (the ordinary fee) is swapped for one that points at the offer.
+    factLines(withCheckupInOffer(input.hideDoctorNames && facts ? { ...facts, dentists: undefined } : facts, checkupInOffer)),
     ...patientLines,
     input.personaName?.trim()
       ? `\nاسمك ${input.personaName.trim()}. عرّف بنفسك مرة واحدة بس في أول رد في المحادثة (مثلاً: \"معاك ${input.personaName.trim()} من ${clinicName}\")، وبعدها اتكلم عادي من غير ما تعيد اسمك.`
@@ -489,6 +505,7 @@ export function clinicAndPatientLayer(input: BotPromptInput): string[] {
     input.dossierText,
     // What they tapped before typing. Placed with the patient facts: it is a fact about them.
     input.ad ? adPromptLines(input.ad) : "",
+    checkupInOffer ? CHECKUP_IN_OFFER_RULE : "",
     input.memory?.trim() ? `\nذاكرة من محادثات سابقة مع المريض ده (ابدأ من مكان ما وقفتوا، ومتعيدش اللي هو عارفه):\n${input.memory.trim().slice(0, 900)}` : "",
     sales && input.offeredSlots.length
       ? `\nأقرب مواعيد متاحة (slotKey → إزاي تقولها للمريض):\n${input.offeredSlots.map((s) => `- ${s.id} → ${slotSaying(s, today)}`).join("\n")}`

@@ -212,6 +212,8 @@ export async function answerWithAi(args: {
   photo?: { summary: string; impression?: string; urgent: boolean; category?: "dental" | "document" | "other" };
   /** The ad or post this conversation started from. */
   ad?: AdReferral;
+  /** The ad's running offer includes the check-up (respond.ts): its ordinary fee stays out of the prompt. */
+  checkupInOffer?: boolean;
 }): Promise<AiReplyResult> {
   const { clinicId, clinicName, question, patientName, hoursText, addressText, clinicPhone, facts, history } = args;
   const sales = args.mode === "sales";
@@ -288,6 +290,9 @@ export async function answerWithAi(args: {
     ...(args.branchesText?.trim() ? { branchesText: args.branchesText } : {}),
     ...(args.hideDoctorNames === true ? { hideDoctorNames: true } : {}),
     ...(args.phoneHidden === true ? { phoneHidden: true } : {}),
+    // Offer patient whose offer covers the check-up. Layer 5 only; the number guard below still
+    // reads the clinic's raw price list and facts, so the ordinary fee never becomes a stray figure.
+    ...(args.checkupInOffer === true ? { checkupInOffer: true } : {}),
     // "No prices on WhatsApp" keeps the prices out of the prompt (and out of the number guard) but
     // still tells the model which services the clinic offers.
     priceLines: args.brief?.prices === "consult" ? serviceNamesOnly(priceLines) : priceLines,
