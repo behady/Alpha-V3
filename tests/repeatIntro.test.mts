@@ -48,6 +48,12 @@ run("it never sends an empty or gutted message", () => {
   assert.equal(strip(""), "");
   // No persona configured: nothing to strip, nothing touched.
   assert.equal(stripRepeatIntro("معاكي سارة من العيادة. أهلاً.", "", CLINIC), "معاكي سارة من العيادة. أهلاً.");
+  // The emoji that closed the introduction is not left behind as a bubble of its own (14/11 replay:
+  // "🌸\n\nإحنا في مدينة نصر…").
+  assert.equal(strip("معاك سارة من Alpha Dental Clinic 🌸\n\nإحنا في مدينة نصر: شارع الرحمة."), "إحنا في مدينة نصر: شارع الرحمة.");
+  assert.equal(strip("معاك سارة من Alpha Dental Clinic ✨🦷\n\nالتنظيف بـ 350 ج.م."), "التنظيف بـ 350 ج.م.");
+  // An emoji the model put on a line of its own elsewhere is the model's choice and stays.
+  assert.equal(strip("معاك سارة من Alpha Dental Clinic.\n\nالتنظيف بـ 350 ج.م.\n\n🌸"), "التنظيف بـ 350 ج.م.\n\n🌸");
 });
 
 run("a message that is not an introduction is untouched", () => {
