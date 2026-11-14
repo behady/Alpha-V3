@@ -74,7 +74,9 @@ const OFFER_VOCAB = new Set([
 ]);
 const OFFER_STEMS = ["ميعاد", "معاد", "موعد", "مواعيد", "حجز", "متاح", "مناسب", "يناسب", "نظبط", "تظبط", "نسجل", "نثبت", "ناكد"];
 const RELATIVE_DAYS = ["بكره", "النهارده", "انهارده", "بعد بكره"];
-const TIME_OF_DAY = ["الساعه", "م", "ص", "العصر", "عصرا", "المغرب", "بالليل", "الصبح", "الضهر", "بكره", "النهارده", "انهارده"];
+// "بعد بكره" whole: the prompt now writes it before the third day's slots (lib/bot/relativeDay),
+// and a stray "بعد" left behind would keep every such offer from being recognised.
+const TIME_OF_DAY = ["الساعه", "م", "ص", "العصر", "عصرا", "المغرب", "بالليل", "الصبح", "الضهر", "بعد بكره", "بكره", "النهارده", "انهارده"];
 /** Letters a closing offer may carry besides the times ("المواعيد المتاحة عندي مثلاً … تحب أنهي فيهم"). */
 const MAX_OFFER_RESIDUE_LETTERS = 40;
 const MAX_TAIL_LETTERS = 30;

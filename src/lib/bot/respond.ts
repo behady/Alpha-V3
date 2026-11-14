@@ -49,6 +49,7 @@ import { joinBubbles, priceBeforeQuestions, splitBubbles } from "./bubbles";
 import { loadPatientDossier, type PatientDossier } from "./patientDossier";
 import { appointmentLine, branchesTextOf, stripDoctorNames } from "./ownerRules";
 import { isBareAgreement, resolveSpokenPick, spokenSlots } from "./spokenPick";
+import { fixRelativeDayWords } from "./relativeDay";
 import { holdRepeatOffer, withoutSlotOffer } from "./slotRepeat";
 import { DEFAULT_SCREENING, readScreeningAnswer } from "./medicineScreen";
 import { stripRepeatIntro } from "./repeatIntro";
@@ -1555,6 +1556,24 @@ ${urgentCallLine(ctx.clinicPhone)}`;
         }
         if ([act.question, ...unanswered].some(asksPrice)) ai.text = priceBeforeQuestions(ai.text);
       }
+      /*
+       * Today is never called tomorrow (lib/bot/relativeDay). The model offered today's first slot
+       * as "بكره السبت" on a Saturday morning: the weekday and date it copies from our labels were
+       * right, the day word was its own guess. A day word that contradicts the weekday or date
+       * right after it is corrected against the clinic's calendar, on either brain, before the
+       * offered times are read from the text below. Anything else stays exactly as written.
+       */
+      if ((ai.kind === "answer" || ai.kind === "handoff") && ai.text) {
+        const dayFixed = fixRelativeDayWords(ai.text, clinicNow().dateKey);
+        if (dayFixed !== ai.text) {
+          ai.text = dayFixed;
+          if (!args.dryRun) {
+            void adminClinicCollection(clinicId, "ai_debug")
+              .add({ kind: "relative_day_fixed", brain: brainReply.brainUsed, createdAt: FieldValue.serverTimestamp() })
+              .catch(() => {});
+          }
+        }
+      }
       brainUsed = brainReply.brainUsed;
       // What Pro offered is what "the first one" and the spoken clocks below resolve against.
       if (brainReply.slotsShown) slotOffer = brainReply.slotsShown;
@@ -1625,7 +1644,8 @@ ${urgentCallLine(ctx.clinicPhone)}`;
         // all four made "the third one" resolve to a time nobody was offered. A slot counts as
         // spoken only when its date or its day name is in the sentence beside its clock — or when
         // that clock belongs to exactly one slot anyway.
-        spokenSlotKeys = spokenSlots(said, slotOffer);
+        // "النهارده 3:00 أو بكره 6:30" names its days by today's calendar, so today goes along.
+        spokenSlotKeys = spokenSlots(said, slotOffer, clinicNow().dateKey);
       }
       /*
        * The two times, once (lib/bot/slotRepeat). The prompt asks for two times in every answer,

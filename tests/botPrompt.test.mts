@@ -266,3 +266,55 @@ run("hidden number: the ask-for-the-number line replaces the no-booking line, an
     assert.equal(promptVersion(v.mode, v.clinical, v.canBook, undefined, false), promptVersion(v.mode, v.clinical, v.canBook));
   }
 });
+
+// ---- today, and the day words (a Saturday slot was offered as "بكره السبت") ---------------------
+
+const SAY_AS_LISTED = '"النهارده" و"بكره" و"بعد بكره" قولها بس لو مكتوبة';
+
+run("no example teaches a day word, and the say-it-as-listed rule is there", () => {
+  for (const clinical of [false, true]) {
+    for (const mode of ["sales", "assisted"] as const) {
+      const fixed = fixedPromptLayers(mode, clinical, true).join("\n");
+      assert.ok(!/بكره|بكرة/.test(fixed.replace(SAY_AS_LISTED, "")), `no بكره example in the fixed layers (${mode}, clinical ${clinical})`);
+      assert.ok(fixed.includes("متحسبهاش بنفسك"), "the rule");
+    }
+    assert.ok(fixedPromptLayers("sales", clinical, true).join("\n").includes("عندي الخميس 5/11 الساعة 5:00 م أو السبت 7/11 الساعة 7:00 م"), "the label-form example, as Pro's");
+  }
+});
+
+run("a today key: the day is said once, and each near slot carries the right day word", () => {
+  const p = buildBotPrompt({
+    ...base,
+    todayKey: "2026-11-14",
+    offeredSlots: [
+      { id: "s1", key: "2026-11-14|03:00 PM|", label: "السبت 14/11 الساعة 3:00 م" },
+      { id: "s2", key: "2026-11-15|06:30 PM|", label: "الأحد 15/11 الساعة 6:30 م" },
+      { id: "s3", key: "2026-11-16|03:00 PM|", label: "الإثنين 16/11 الساعة 3:00 م" },
+      { id: "s4", key: "2026-11-17|03:00 PM|", label: "الثلاثاء 17/11 الساعة 3:00 م" },
+      { id: "s5", label: "الأربعاء 18/11 الساعة 3:00 م" },
+    ],
+  });
+  assert.equal(p.split("\n").filter((l) => l === "النهارده السبت 14/11، وبكره الأحد 15/11.").length, 1, "today said once");
+  assert.ok(p.indexOf("النهارده السبت 14/11، وبكره") > p.indexOf("مواعيد العمل:"), "with the clinic's hours, in layer 5");
+  assert.ok(p.includes("- s1 → النهارده السبت 14/11 الساعة 3:00 م"));
+  assert.ok(p.includes("- s2 → بكره الأحد 15/11 الساعة 6:30 م"));
+  assert.ok(p.includes("- s3 → بعد بكره الإثنين 16/11 الساعة 3:00 م"));
+  assert.ok(p.includes("- s4 → الثلاثاء 17/11 الساعة 3:00 م"), "further out: the label alone");
+  assert.ok(p.includes("- s5 → الأربعاء 18/11 الساعة 3:00 م"), "no key: the label alone");
+  assert.ok(p.startsWith(fixedPromptLayers("sales", false, true).filter(Boolean).join("\n")), "layers 1-4 do not take today");
+  // Across the turn of the year: the word follows the calendar.
+  const dec = buildBotPrompt({ ...base, todayKey: "2026-12-31", offeredSlots: [{ id: "s1", key: "2027-01-01|03:00 PM|", label: "الجمعة 1/1 الساعة 3:00 م" }] });
+  assert.ok(dec.includes("النهارده الخميس 31/12، وبكره الجمعة 1/1."));
+  assert.ok(dec.includes("- s1 → بكره الجمعة 1/1 الساعة 3:00 م"));
+});
+
+run("no today key (Pro's layer, the battery, old callers): the prompt is exactly as before", () => {
+  for (const v of [base, { ...base, mode: "assisted" as const }, { ...base, clinical: true }]) {
+    const plain = buildBotPrompt(v);
+    assert.equal(buildBotPrompt({ ...v, todayKey: undefined }), plain);
+    assert.equal(buildBotPrompt({ ...v, todayKey: "" }), plain);
+    assert.equal(buildBotPrompt({ ...v, todayKey: "not-a-date" }), plain);
+    assert.ok(!plain.includes("النهارده السبت"));
+  }
+  assert.ok(buildBotPrompt(base).includes("- s1 → بكرة 5 مساءً"), "a slot with no key is rendered as given");
+});

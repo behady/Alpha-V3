@@ -176,6 +176,17 @@ run("every closing offer the model wrote that day is recognised as an offer and 
   }
 });
 
+run("an offer said with the prompt's day words (النهارده / بكره / بعد بكره) is recognised too", () => {
+  const threeDays = [...OFFER_300, S("2026-11-16|03:00 PM|", "الإثنين 16/11 الساعة 3:00 م")];
+  for (const offer of [
+    "عندي النهارده السبت 14/11 الساعة 3:00 م أو بكره الأحد 15/11 الساعة 6:30 م، تحب أنهي؟",
+    "عندي النهارده السبت 14/11 الساعة 3:00 م أو بعد بكره الإثنين 16/11 الساعة 3:00 م، تحب أنهي؟",
+    "تحب بكره الأحد 15/11 الساعة 3:00 م ولا بعد بكرة الإثنين 16/11 الساعة 3:00 م؟",
+  ]) {
+    assert.equal(withoutSlotOffer(`عنواننا: ${ADDRESS}\n\n${offer}`, threeDays), `عنواننا: ${ADDRESS}`, offer);
+  }
+});
+
 /* ---------------------------------------------------------------- what must NOT change */
 
 run("the first offer of a conversation is never touched (nothing offered before)", () => {
@@ -367,7 +378,7 @@ run("no thread line with the times (offer line out of reach): not held", () => {
 
 run("respond.ts: the hold sits after the spoken times are read and before the reply is built", () => {
   const src = readFileSync(new URL("../src/lib/bot/respond.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
-  const spoken = src.indexOf("spokenSlotKeys = spokenSlots(said, slotOffer);");
+  const spoken = src.indexOf("spokenSlotKeys = spokenSlots(said, slotOffer, clinicNow().dateKey);");
   const hold = src.indexOf("holdRepeatOffer({");
   const agree = src.indexOf("isBareAgreement(act.question)) {");
   const lang = src.indexOf('if (ai.kind === "answer" || ai.kind === "handoff") {', spoken);

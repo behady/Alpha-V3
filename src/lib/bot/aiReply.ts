@@ -6,6 +6,7 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { createUsageMeter, logAiCreditUsage } from "@/lib/aiCreditLog";
 import type { AdReferral } from "./adReferral";
 import { getAiCreditLimit, hasFeature } from "@/lib/subscriptions";
+import { clinicNow } from "@/lib/publicBooking";
 import type { Clinic } from "@/types/saas";
 import type { BotBrief, BotFacts } from "@/types/whatsapp";
 import { briefLines, serviceNamesOnly } from "./brief";
@@ -304,6 +305,9 @@ export async function answerWithAi(args: {
     dossierText: dossierLines(args.dossier),
     memory: args.memory,
     offeredSlots,
+    // The clinic's today: the prompt states it and puts "النهارده"/"بكره" before the near slots,
+    // so the model never works the day word out itself (it called today's slot "بكره").
+    todayKey: clinicNow().dateKey,
     medicines: args.medicines,
     medicineScreened: args.medicineScreened,
     media: args.media,

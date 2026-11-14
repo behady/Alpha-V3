@@ -109,3 +109,35 @@ run("agreement and nothing else", () => {
   assert.equal(isBareAgreement("شكرا"), false);
   assert.equal(isBareAgreement(""), false);
 });
+
+// ------------------------------------------------------------------------------------------------
+// "النهارده 3:00 أو بكره 6:30": the prompt now shows each slot with its day word, so a reply may
+// name the day only that way. Once today is known, the word stands for the date it names.
+// ------------------------------------------------------------------------------------------------
+const KEYED = [
+  { key: "2026-11-14|03:00 PM|", label: "السبت 14/11 الساعة 3:00 م" },
+  { key: "2026-11-14|06:30 PM|", label: "السبت 14/11 الساعة 6:30 م" },
+  { key: "2026-11-15|03:00 PM|", label: "الأحد 15/11 الساعة 3:00 م" },
+  { key: "2026-11-15|06:30 PM|", label: "الأحد 15/11 الساعة 6:30 م" },
+  { key: "2026-11-16|03:00 PM|", label: "الإثنين 16/11 الساعة 3:00 م" },
+];
+
+run("a day word marks its date when today is known", () => {
+  const SAT = "2026-11-14";
+  assert.deepEqual(spokenSlots("عندي النهارده الساعة 3:00 م أو بكره الساعة 6:30 م", KEYED, SAT), ["2026-11-14|03:00 PM|", "2026-11-15|06:30 PM|"]);
+  assert.deepEqual(spokenSlots("عندي النهاردة 3:00 أو بعد بكرة 3:00", KEYED, SAT), ["2026-11-14|03:00 PM|", "2026-11-16|03:00 PM|"]);
+  assert.deepEqual(spokenSlots("إنهارده 6:30", KEYED, SAT), ["2026-11-14|06:30 PM|"]);
+  assert.deepEqual(spokenSlots("عندي السبت 3:00 م وبكره 6:30 م", KEYED, SAT), ["2026-11-14|03:00 PM|", "2026-11-15|06:30 PM|"], "an attached و");
+  // The weekday and date still win when they are the nearer mark.
+  assert.deepEqual(
+    spokenSlots("النهارده السبت 14/11 الساعة 3:00 م أو بكره الأحد 15/11 الساعة 6:30 م", KEYED, SAT),
+    ["2026-11-14|03:00 PM|", "2026-11-15|06:30 PM|"]
+  );
+  // Without today (every other caller): exactly the old answer.
+  assert.deepEqual(spokenSlots("عندي النهارده الساعة 3:00 م أو بكره الساعة 6:30 م", KEYED), []);
+  // A day word for a day with nothing offered adds no mark.
+  assert.deepEqual(spokenSlots("بكره الساعة 3:00", KEYED, "2026-11-16"), []);
+  // The old cases, with today passed: unchanged.
+  assert.deepEqual(spokenSlots("عندي ميعاد السبت الساعة 6:30 م أو الأحد الساعة 3:00 م، إيه اللي يناسبك؟", FOUR, SAT), ["sat630", "sun300"]);
+  assert.deepEqual(spokenSlots("عندي بكره الساعة 3:30 أو 6:30", FOUR, SAT), ["sat330"]);
+});

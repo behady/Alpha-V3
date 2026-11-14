@@ -12,6 +12,8 @@
  * else returns null and the model's own judgement stands.
  */
 
+import { shiftDateKey } from "./relativeDay";
+
 const ARABIC = "؀-ۿ";
 
 /** Alef spellings and Arabic-Indic digits vary by keyboard; the needle must not. */
@@ -89,7 +91,7 @@ export function resolveSpokenPick(text: string, slots: Array<{ key: string; labe
  * also stored Sunday 6:30, a time nobody had offered, and the positions shifted under the
  * patient's answer. With no day in front of it, a clock counts only when one slot carries it.
  */
-export function spokenSlots(said: string, offer: Array<{ key: string; label: string }>): string[] {
+export function spokenSlots(said: string, offer: Array<{ key: string; label: string }>, todayKey?: string): string[] {
   const text = normalize(said);
   const slots = offer
     .map((s) => ({
@@ -115,6 +117,15 @@ export function spokenSlots(said: string, offer: Array<{ key: string; label: str
   const marks: Array<{ at: number; day?: string; date?: string }> = [];
   for (const day of new Set(slots.map((s) => s.day).filter((d) => d.length > 2))) for (const at of positions(day)) marks.push({ at, day });
   for (const date of new Set(slots.map((s) => s.date).filter(Boolean))) for (const at of positions(date)) marks.push({ at, date });
+  // "النهارده 3:00 أو بكره 6:30": the day word names a date as surely as "14/11" does, once today
+  // is known. Slot keys start with their date ("2026-11-14|03:00 PM|…"). Without today: as before.
+  if (todayKey && /^\d{4}-\d{2}-\d{2}$/.test(todayKey)) {
+    for (const m of text.matchAll(/(?<![ء-ي])[وف]?(بعد\s+بكر[هةا]|بكر[هةا]|ال?نهارد[هة])(?![ء-ي])/g)) {
+      const target = shiftDateKey(todayKey, /^بعد/.test(m[1]) ? 2 : /^بكر/.test(m[1]) ? 1 : 0);
+      const date = slots.find((s) => s.key.startsWith(target))?.date;
+      if (date) marks.push({ at: m.index ?? 0, date });
+    }
+  }
 
   const hits: Array<{ key: string; at: number }> = [];
   for (const clock of new Set(slots.map((s) => s.clock))) {
