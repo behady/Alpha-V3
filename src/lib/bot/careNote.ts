@@ -8,6 +8,7 @@
  *
  * Pure. Links are never dropped; a line of words goes only when it is the address over again.
  */
+import { asksForLocation, normalize } from "./quickAnswers";
 
 /** Below this many letters a line is too short to be called a repeat because the address contains it. */
 const MIN_CONTAINED = 20;
@@ -38,4 +39,59 @@ export function mapLinesBesideAddress(address: string | undefined | null, mapsUr
     .map((l) => l.trim())
     .filter((l) => l && !repeatsAddress(l, said))
     .join("\n");
+}
+
+/*
+ * The map pin under a reply to "where are you".
+ *
+ * In sales mode every location question goes to the model, and the model is never given the URL:
+ * a patient who asked three times for the pin got the street address three times, and a slot pick
+ * in the same message swallowed the request whole. So the code adds it, whichever path wrote the
+ * reply — the same way the booking note already does.
+ */
+
+/** A line that carries a link, with or without the scheme. */
+const LINK = /(https?:\/\/|www\.)\S+|\b[a-z0-9-]+(\.[a-z0-9-]+)+\/\S*/i;
+/** Any map link already in the reply: copied from a clinic's coaching, another saved one, or a mangled copy of ours. */
+const ANY_MAP_LINK = /(maps\.app\.goo\.gl|goo\.gl\/maps|maps\.google\.|google\.[a-z.]+\/maps|share\.google|g\.page\/|g\.co\/kgs|maps\.apple\.com|waze\.com)/i;
+
+export const LOCATION_PIN_LABEL = "📍 لوكيشن العيادة على الخريطة:";
+
+/**
+ * The pin to add under a reply, or "" — when the patient did not ask where the clinic is, the
+ * clinic saved no link (words alone are not a pin), or the reply already carries a map link (the
+ * menu's address answer, the booking note, the model quoting the clinic's coaching).
+ */
+export function locationPinLine(a: { asked: string | string[]; reply: string; addressText?: string | null; mapsUrl?: string | null }): string {
+  const asked = (Array.isArray(a.asked) ? a.asked : [a.asked]).filter((q) => q && asksForLocation(q));
+  if (!asked.length) return "";
+  const lines = mapLinesBesideAddress(a.addressText, a.mapsUrl);
+  const links = lines.split("\n").filter((l) => LINK.test(l));
+  if (!links.length) return "";
+  if (links.some((l) => a.reply.includes(l)) || ANY_MAP_LINK.test(a.reply)) return "";
+  // One link per clinic: never the main branch's pin under a question about another branch.
+  const address = String(a.addressText || "").trim();
+  if (asked.every((q) => /فرع|فروع|branch/.test(normalize(q))) && !(address && a.reply.includes(address))) return "";
+  return `${LOCATION_PIN_LABEL}\n${lines}`;
+}
+
+/** A closing question, with whatever trails it: spaces, emoji and their joiners. */
+const ASKS = /[?؟][\s\p{Extended_Pictographic}\u{FE0F}\u{200D}]*$/u;
+
+/**
+ * The reply with the pin in it, placed so the reply still ends on what the patient must answer:
+ * before a closing question, and before the name request (`beforeLast`). Otherwise at the end,
+ * which is also right under a line the model wrote to introduce it ("وده اللوكيشن 👇").
+ */
+export function withPin(reply: string, pin: string, beforeLast = false): string {
+  if (!pin) return reply;
+  const text = reply.trim();
+  if (!text) return pin;
+  const paras = text.split(/\n{2,}/);
+  const last = paras[paras.length - 1];
+  // One paragraph that is a question usually holds the answer too ("عنواننا … تحب نحجز؟"): the
+  // pin goes under it. Only the code's own name request is one paragraph the pin goes above.
+  if (paras.length === 1) return beforeLast ? `${pin}\n\n${text}` : `${text}\n\n${pin}`;
+  if (beforeLast || ASKS.test(last)) return [...paras.slice(0, -1), pin, last].join("\n\n");
+  return `${text}\n\n${pin}`;
 }

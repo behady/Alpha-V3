@@ -249,7 +249,7 @@ const SILENT = (next: BotState, reason: string): BotDecision => ({ reply: "", ne
 export { needsHuman, triageMessage } from "./clinicalTriage";
 import { needsHuman, triageMessage } from "./clinicalTriage";
 import { competitorReply, expensiveReply, offersExpiredReply, thinkingReply } from "./sales";
-import { looksLikeQuestion, quickIntent, type QuickIntent } from "./quickAnswers";
+import { asksForLocation, looksLikeQuestion, quickIntent, type QuickIntent } from "./quickAnswers";
 import { nameFromReply } from "./nameGuard";
 import { matchScript } from "./scripts";
 import { mapLinesBesideAddress } from "./careNote";
@@ -643,7 +643,9 @@ export function decideBotReply(args: {
    * "thanks", "I want to book" and a thumbs-up each cost one of a conversation's three AI answers
    * — and the real question then arrived with the budget gone.
    */
-  const intent = quickIntent(text);
+  // LOCATION is whole-word, so "الموقع" and the typo "اللوكيش" read as nothing: the name step
+  // registered them as the patient's NAME, and a menu clinic re-prompted. They ask where we are.
+  const intent = quickIntent(text) ?? (asksForLocation(text) ? "location" : null);
 
   // Asking for a person works from anywhere, including out of a booking loop. A patient who has
   // given up on the menu must never have to find the right digit to escape it.

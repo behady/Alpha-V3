@@ -349,6 +349,34 @@ export function isDecline(raw: string): boolean {
   return has(text, DECLINE);
 }
 
+/**
+ * Is the patient asking where the clinic is?
+ *
+ * LOCATION above matches whole words only, which is right for picking ONE intent but missed the
+ * real asks: "الموقع", and the typo "في انتظار اللوكيش" — a patient who asked three times for the
+ * pin and got the street address three times. These are stems, read on their own and outside
+ * quickIntent's order, because "الأحد 3 عصرا.. ابعتلي اللوكيشن" is a booking AND a location ask.
+ */
+const LOCATION_ASK: RegExp[] = [
+  /لوك[يا]?ش/u, // لوكيشن، اللوكيشن، اللوكيش، لوكشن
+  /عنوان(?!ي)/u, // not "عنواني": that is the patient's own address
+  /خريط/u,
+  /(^| )و?(ال)?(جوجل ?)?ماب(س)?( |$)/u,
+  /(^| )و?(ال)?موقع(كم|ك|كو)?( |$)/u,
+  /فين (العياده|مكانكم|بالظبط)|(المكان|مكانكم|العياده) فين|(^| )(انتو|انتوا|انتم) فين/u,
+  /\b(location|address|google maps?|directions|where (are|r) (you|u)|where is (the|your) clinic)\b/,
+  /\b(send|drop|share)( me)?( the| a| your)? (pin|map)\b/,
+];
+/** "موقع على النت" is a website, not a place. */
+const NOT_A_PLACE = /(^| )(النت|ويب|website|فيس|فيسبوك|انستا|انستجرام|الصفحه)( |$)/u;
+
+export function asksForLocation(raw: string): boolean {
+  const text = normalize(raw);
+  // "لا العنوان بعيد عليا" names the address to say no.
+  if (!text || isDecline(raw) || NOT_A_PLACE.test(text)) return false;
+  return LOCATION_ASK.some((re) => re.test(text));
+}
+
 export function quickIntent(raw: string): QuickIntent | null {
   const text = normalize(raw);
   if (!text) return null;

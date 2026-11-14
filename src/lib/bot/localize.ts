@@ -84,6 +84,7 @@ const SENTENCES: Array<[string, string]> = [
   ["احنا مقفولين دلوقتي 🙏", "We're closed right now 🙏"],
   ["🕐 مواعيدنا:", "🕐 Our hours:"],
   ["📍 *العنوان:*", "📍 *Address:*"],
+  ["📍 لوكيشن العيادة على الخريطة:", "📍 The clinic on Google Maps:"],
 ];
 
 const DAYS: Array<[string, string]> = [

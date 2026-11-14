@@ -125,6 +125,13 @@ export function factLines(facts?: BotFacts): string {
     ["التقسيط", facts.installments],
     ["العروض والخصومات", facts.offers],
     ["الباركن", facts.parking],
+    /*
+     * The map link, said to exist but never given: the code puts it under the reply when the
+     * patient asks where the clinic is (careNote.locationPinLine). Without this row the model
+     * promised "الاستقبال هيبعتلك اللوكيشن" and a person had to. It forbids nothing — a clinic's
+     * coaching may send its link on purpose, and the code adds none when one is already there.
+     */
+    ["لينك اللوكيشن", /https?:\/\/|www\.|[a-z0-9-]+\.[a-z]{2,}\//i.test(facts.mapsUrl ?? "") ? "متسجل. لما المريض يسأل عن المكان أو اللوكيشن جاوبه بالعنوان من غير تحويل للاستقبال، والنظام بيحط اللينك تحت ردك لوحده — متقولش إن الاستقبال هيبعته." : undefined],
     ["التأمين", facts.insurance],
     ["مدة الجلسات", facts.durations],
     ["عدد الجلسات", facts.sessions],

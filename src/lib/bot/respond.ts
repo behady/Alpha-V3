@@ -30,7 +30,7 @@ import { cleanScripts } from "./scripts";
 import { arabicClock, arabicDayLabel, arabicTimeLabel } from "@/lib/arabicDateTime";
 import { normalizeReplyText } from "@/lib/patientMessaging";
 import { claimKey, claimOnce } from "./replyClaims";
-import { mapLinesBesideAddress } from "./careNote";
+import { locationPinLine, mapLinesBesideAddress, withPin } from "./careNote";
 import {
   conversationKey,
   humanClaimMsFromSetting,
@@ -1035,6 +1035,8 @@ export async function respondToPatientMessage(args: {
   let spokenSlotKeys: string[] = [];
   /** Which brain wrote the AI reply this turn; reported to the test chat only. */
   let brainUsed: AiBrain | undefined;
+  /** The patient's messages this sales-mode reply also answers (sent together, still unanswered). */
+  let askedTogether: string[] = [];
   /** Attach them to whatever this turn was already storing, without disturbing the rest. */
   const withSpokenSlots = (p: PendingOptions | undefined): PendingOptions | undefined =>
     spokenSlotKeys.length ? { ...(p ?? {}), slots: spokenSlotKeys } : p;
@@ -1470,6 +1472,11 @@ ${urgentCallLine(ctx.clinicPhone)}`;
       heardIntroBefore = (salesContext?.thread || []).some(
         (line) => line.author === "bot" && Boolean(settings.personaName) && line.text.includes(settings.personaName)
       );
+      for (const line of [...(salesContext?.thread ?? [])].reverse()) {
+        if (line.author === "system") continue;
+        if (line.author !== "patient") break;
+        askedTogether.push(line.text);
+      }
       const aiArgs: Parameters<typeof answerWithAi>[0] = {
         clinicId,
         clinicName,
@@ -2101,6 +2108,28 @@ ${askWho}` : askWho;
     // gets the Book button here.
     if (!structure && !upcoming && !["greeted", "reprompt", "back_to_menu", "hours"].includes(reason)) {
       structure = { body: replyText, buttons: menuButtons(Boolean(ctx.canOfferBooking)) };
+    }
+  }
+  /*
+   * "ابعتلي اللوكيشن" gets the map link, whichever path wrote the reply (lib/bot/careNote). The
+   * model is never given the URL, so in sales mode a patient who asked three times got the street
+   * address three times, and a slot pick in the same message swallowed the request. A reply that
+   * already carries a map link (the menu's address answer, the booking note, a clinic's coaching
+   * quoted by the model) is left alone; "the message did not reach me, send it again" gets none.
+   */
+  if (replyText.trim() && reason !== "ai_unavailable") {
+    const pin = locationPinLine({
+      asked: [text, ...askedTogether],
+      reply: `${replyText}\n${structure?.body ?? ""}`,
+      addressText: ctx.addressText,
+      mapsUrl: ctx.facts?.mapsUrl,
+    });
+    if (pin) {
+      // A name request must stay the last thing the patient reads.
+      const nameAsk = /^(ai_ask_name|ask_name|ask_relative_name)/.test(reason);
+      const mirrored = Boolean(structure && structure.body === replyText);
+      replyText = withPin(replyText, pin, nameAsk);
+      if (structure) structure = { ...structure, body: mirrored ? replyText : withPin(structure.body, pin, nameAsk) };
     }
   }
   /*

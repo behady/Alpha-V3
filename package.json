@@ -95,6 +95,7 @@
     "test:delivery-claim": "npx tsx tests/inboundDeliveryClaim.test.mts",
     "test:followup-guard": "npx tsx tests/leadFollowupGuard.test.mts",
     "test:care-note": "npx tsx tests/careNote.test.mts",
+    "test:location-pin": "npx tsx tests/locationPin.test.mts",
     "test:attended": "npx tsx tests/appointmentAttended.test.mts",
     "test:nudge": "node functions/test-quietNudge.js",
     "test:triage": "npx tsx tests/clinicalTriage.test.mts",
