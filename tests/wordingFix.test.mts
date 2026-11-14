@@ -107,6 +107,19 @@ run("a later turn keeps what is not a repeated welcome", () => {
   // The greeting goes on ("وبأهل بلبيس"), or sits inside the reply: a sentence, not a welcome.
   assert.equal(pipeline("أهلاً بحضرتك وبأهل بلبيس كلهم.\n\nتحب نكمل الحجز؟", { ...later, patientText: "أنا من بلبيس" }), "أهلاً بحضرتك وبأهل بلبيس كلهم.\n\nتحب نكمل الحجز؟");
   assert.equal(pipeline("العفو، وأهلاً بيك وبكل أهل السويس. تنورنا في أي وقت.", { ...later, patientText: "تمام شكرا انا سكان في السويس" }), "العفو، وأهلاً بيك وبكل أهل السويس. تنورنا في أي وقت.");
+  // "يا …" is a title and a name, never a sentence: the model often writes no comma after "يا
+  // فندم", and the words up to the first full stop are the reply's news, not part of the greeting.
+  for (const keep of [
+    "أهلاً يا أستاذ أحمد الميعاد اتلغى. تحب نحجزلك ميعاد تاني؟",
+    "أهلاً يا محمد الحجز اتأكد. مستنينك يوم السبت الساعة 6:30 م",
+    "أهلاً يا فندم العرض متاح وشامل الكشف. تحب نحجز السبت؟",
+    "أهلاً يا مدام منى ده ميعادك الجديد، السبت الساعة 6:30 م",
+  ]) {
+    assert.equal(pipeline(keep, later), keep, keep);
+  }
+  // …while a real name, "عبد …" included, still goes with the greeting.
+  assert.equal(pipeline("أهلاً بحضرتك يا أستاذ خميس عبد الوهاب، الميعاد اتثبت يوم السبت.", later), "الميعاد اتثبت يوم السبت.");
+  assert.equal(pipeline("أهلاً يا فندم 🙏 الميعاد اتثبت يوم السبت.", later), "الميعاد اتثبت يوم السبت.");
   // Nothing worth sending would be left.
   assert.equal(tidyModelWording("أهلاً بيك 🙏", { laterTurn: true, patientText: "تمام" }), "أهلاً بيك 🙏");
   assert.equal(tidyModelWording("أهلاً بيك، تمام", { laterTurn: true, patientText: "تمام" }), "أهلاً بيك، تمام");
@@ -165,6 +178,14 @@ run("every name question, either gender, still reaches an English-writing patien
     assert.ok(!/[؀-ۿ]/.test(en), `still Arabic: ${en}`);
     // With the model's own line in front, as respond.ts sends it when slots were picked.
     assert.ok(!/[؀-ۿ]/.test(localizeOutbound(`تمام 👍\n\n${line}`).text));
+  }
+  // The first reply of a sitting carries the engine's welcome in front: English too, either gender.
+  const newPatient: BotContext = { clinicName: "Alpha Dental", canOfferBooking: false, canRegister: true };
+  for (const [text, gender] of [["m1", "male"], ["m1", "female"], ["book", "male"], ["book", "female"]] as const) {
+    const firstLine = feminizeAddress(decideBotReply({ state: "new", text, ctx: { ...newPatient, gender } }).reply, gender);
+    assert.ok(firstLine.startsWith("أهلاً وسهلاً 👋"), firstLine);
+    const en = localizeOutbound(firstLine).text;
+    assert.ok(!/[؀-ۿ]/.test(en) && en.startsWith("Welcome 👋"), `still Arabic: ${en}`);
   }
   // respond.ts's two templates, as it builds them for each gender.
   const respondSrc = source("src/lib/bot/respond.ts");

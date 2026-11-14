@@ -383,6 +383,19 @@ function startBooking(ctx: BotContext): BotDecision {
   return { reply: HANDOFF_REPLY, next: "handed_off", handoff: true, reason: "booking_request" };
 }
 
+/**
+ * The name question greets only when nothing has been said yet in this sitting.
+ *
+ * It no longer opens with "أهلاً بيك": that welcome reached patients half-way through a booking.
+ * But a new patient whose very first message is "عايز احجز" (a menu or assisted clinic answers
+ * that without the model), or who taps an old "book" button after an hour of quiet, has not been
+ * greeted at all — so that one reply opens with the welcome the menu would have given.
+ */
+const FIRST_WELCOME = "أهلاً وسهلاً 👋";
+function welcomedIfFirst(d: BotDecision, state: BotState): BotDecision {
+  return state === "new" && d.reason === "ask_name" && d.reply ? { ...d, reply: `${FIRST_WELCOME}\n\n${d.reply}` } : d;
+}
+
 /** Just the address, for someone who asked where the clinic is rather than when it opens. */
 function locationReply(ctx: BotContext): string {
   if (!ctx.addressText?.trim()) return "";
@@ -611,7 +624,7 @@ export function decideBotReply(args: {
               : { reply: "", action: { type: "list_days" }, next: "booking_day", handoff: false, reason: "booking_days" };
           }
           if (ctx.canRegister) {
-            return { reply: "عشان نسجل حجزك، ابعتلنا اسمك الكامل من فضلك 🙏", next: "booking_name", handoff: false, reason: "ask_name" };
+            return welcomedIfFirst({ reply: "عشان نسجل حجزك، ابعتلنا اسمك الكامل من فضلك 🙏", next: "booking_name", handoff: false, reason: "ask_name" }, state);
           }
           if (ctx.phoneHidden) return { reply: ASK_PHONE_REPLY, next: "awaiting_choice", handoff: false, reason: "ask_phone" };
           return { reply: HANDOFF_REPLY, next: "handed_off", handoff: true, reason: "booking_request" };
@@ -770,7 +783,7 @@ export function decideBotReply(args: {
 
   if (!inBooking && intent) {
     const answered = answerIntent(intent, ctx);
-    if (answered) return answered;
+    if (answered) return welcomedIfFirst(answered, state);
   }
 
   if (state === "new") {

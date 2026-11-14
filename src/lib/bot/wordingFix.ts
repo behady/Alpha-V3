@@ -35,6 +35,16 @@ const AVAILABLE = "(?:متاحة|متاح|موجودة|موجود|شغالة|ش�
 const FORMAL_WELCOME = new RegExp(`${NOT_BEFORE}(و?)${HELLO}(${AND_WELCOME})?\\s+بكِ?${NOT_AFTER}`, "g");
 
 /**
+ * Who the greeting is addressed to: "يا فندم", "يا أستاذ خميس", "يا مدام منى عبد الله" — a title
+ * and at most two names ("عبد …" counts as one). Never a sentence: with any 30 characters allowed,
+ * "أهلاً يا أستاذ أحمد الميعاد اتلغى. تحب نحجزلك ميعاد تاني؟" lost "the appointment is cancelled"
+ * along with the greeting, because the model often writes no comma after "يا فندم".
+ */
+const TITLE = "(?:أستاذة|أستاذ|استاذة|استاذ|دكتورة|دكتوره|دكتور|مدام|آنسة|انسة|حاجة|حاج|بشمهندسة|بشمهندس|كابتن)";
+const NAME_WORD = "(?:عبد\\s*)?[^\\s،,.!؟?]+";
+const VOCATIVE = `(?:\\s+يا\\s+(?:${TITLE}\\s+)?${NAME_WORD}(?:\\s+${NAME_WORD})?)?`;
+
+/**
  * A greeting at the very start of the reply that ENDS there: "أهلاً بيك 🙏 …", "أهلاً بحضرتك يا
  * أستاذ خميس، …", "أهلاً بك.\n\n…". "أهلاً بحضرتك وبأهل بلبيس" goes on with "و", so it never
  * matches; neither does "وعليكم السلام" (answering the patient's own salaam) or a greeting inside
@@ -43,7 +53,7 @@ const FORMAL_WELCOME = new RegExp(`${NOT_BEFORE}(و?)${HELLO}(${AND_WELCOME})?\\
 const OPENING_GREETING = new RegExp(
   `^\\s*${HELLO}(?:${AND_WELCOME})?(?:\\s+(?:بحضرتك|بيكي|بيكم|بيك|بكم|بكِ|بك))?${NOT_AFTER}` +
     // "… يا أستاذ خميس" / "… يا فندم"
-    "(?:\\s+يا\\s+[^\\n،,.!؟?]{1,30}?)?" +
+    VOCATIVE +
     // …and then it ends: punctuation, an emoji, or the end of the line.
     "(?:\\s*[!.،,]+|\\s*(?:🙏|👋|🌟|😊|🌸|✨|🤍|💙)+|[ \\t]*(?=\\n|$))" +
     "[ \\t]*(?:🙏|👋|🌟|😊|🌸|✨|🤍|💙)*\\s*"

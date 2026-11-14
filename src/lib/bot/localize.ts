@@ -81,6 +81,8 @@ const SENTENCES: Array<[string, string]> = [
   // What stands in for a reply the model chose not to write (aiReply.AI_DEFAULT_ACK). It is the
   // one line the assistant sends that was never written in anybody's language.
   ["تمام 👍", "Got it 👍"],
+  // The welcome in front of the name question when it is the first reply of a sitting (engine).
+  ["أهلاً وسهلاً 👋", "Welcome 👋"],
   ["مالقيتش ليك ميعاد محجوز حالياً 🙏", "I couldn't find an upcoming appointment for you 🙏"],
   ["أيوه احنا فاتحين دلوقتي ✅", "Yes, we're open right now ✅"],
   ["احنا مقفولين دلوقتي 🙏", "We're closed right now 🙏"],

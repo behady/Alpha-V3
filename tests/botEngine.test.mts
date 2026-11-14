@@ -221,6 +221,15 @@ const tapAsk = decideBotReply({ state: "awaiting_choice", text: "m1", ctx: newPa
 assert.equal(tapAsk.reason, "ask_name");
 assert.ok(!/^\s*(أهلا|أهلاً|اهلا)/.test(tapAsk.reply), "the book button's name question does not greet again");
 assert.ok(tapAsk.reply.includes("اسمك الكامل"));
+// …but a first message "عايز احجز" (menu and assisted clinics answer it without the model), or an
+// old book button tapped after an hour of quiet, has had no welcome yet: that reply opens with one.
+for (const [text, extra] of [["عايز احجز", {}], ["السلام عليكم عايزة احجز", { gender: "female" as const }], ["عايز احجز", { aiAvailable: true }], ["m1", {}]] as const) {
+  const first = decideBotReply({ state: "new", text, ctx: { ...newPatientCtx, ...extra } });
+  assert.equal(first.reason, "ask_name", text);
+  assert.ok(first.reply.startsWith("أهلاً وسهلاً 👋\n\n"), `${text}: greeted on first contact: ${first.reply}`);
+  assert.ok(first.reply.includes("الكامل"), text);
+}
+assert.ok(!decideBotReply({ state: "awaiting_choice", text: "عايز احجز", ctx: newPatientCtx }).reply.startsWith("أهلاً"), "not greeted again mid-conversation");
 
 const named = decideBotReply({ state: "booking_name", text: "  محمد   صلاح ", ctx: newPatientCtx });
 assert.deepEqual(named.action, { type: "register", name: "محمد صلاح", forRelative: false }, "whitespace folds, name registers");
