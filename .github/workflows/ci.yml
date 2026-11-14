@@ -116,6 +116,8 @@ jobs:
         run: npm run --silent test:finance-excel
       - name: Contract company statement (GASCO layout)
         run: npm run --silent test:insurance-statement-gasco
+      - name: Company sheet (the month a patient is listed in)
+        run: npm run --silent test:company-sheet
       - name: Lint baseline (pre-existing errors only, none added)
         run: node scripts/check-lint-baseline.mjs
       # functions/ has no tests and no build step, so nothing else here would notice a syntax
