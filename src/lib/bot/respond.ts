@@ -55,6 +55,7 @@ import { SALES_CLOSE_REASONS, LEAD_INTEREST_REASONS, activeOffers, closingLine, 
 import { markBotLeadBooked, snoozeBotLead, upsertBotLead } from "./botLeads";
 import { patientWroteAfter, recordThreadMessage } from "./thread";
 import { adSubjectText, adSystemLine, readStoredAd, type AdReferral } from "./adReferral";
+import { attributionFromClicks, clickFromReferral, mergeClicks, type AdClick } from "@/lib/metaConversions";
 import { clinicalReplyText,
   urgentCallLine, decideBotReply, type BotContext } from "./engine";
 import { needsHuman } from "./clinicalTriage";
@@ -428,6 +429,13 @@ async function recordAdReferral(clinicId: string, chatId: string, phone: string,
   const key = conversationKey(chatId);
   const ref = adminClinicDoc(clinicId, "whatsapp_conversations", key);
   const snap = await ref.get();
+  // Every click, before first-ad-wins below decides whether this one is "the" ad.
+  const click = clickFromReferral(ad, Date.now());
+  if (click) {
+    await rememberAdClick(clinicId, chatId, ref, snap.data()?.adClicks, phone, click).catch((e) =>
+      console.warn("[bot] ad click not kept:", e)
+    );
+  }
   if (readStoredAd(snap.data()?.ad)) return;
   await ref.set({ ad, adAt: Date.now(), ...(text.trim() ? { adTypedAt: Date.now() } : {}) }, { merge: true });
   await recordThreadMessage(clinicId, chatId, { direction: "in", author: "system", text: adSystemLine(ad), kind: "ad_referral" }).catch(() => {});
@@ -441,6 +449,54 @@ async function recordAdReferral(clinicId: string, chatId: string, phone: string,
     reason: "ad_referral",
     ad,
   });
+}
+
+/**
+ * Keep one ad click — every one, not only the first — on the conversation and on the patient.
+ *
+ * `ad` above is first-ad-wins because the reports credit the creative that brought somebody. The
+ * Conversions API asks a different question: which click came right before THIS booking. A
+ * patient who tapped a whitening ad in March and an implant ad in May books in May because of the
+ * second, and Meta should hear about the second click id. So the clicks are kept as a list
+ * beside `ad` (lib/metaConversions `mergeClicks`: newest first, one entry per click id, ten at
+ * most), written only when this click is not already in it.
+ *
+ * And on the patient, when the number already is one. The conversation is keyed by phone, but
+ * an appointment knows its patient, not its chat — and a patient may later write from a second
+ * number, or have the chat key change under a lid. `patients/{id}.adAttribution` is what the
+ * conversion sender reads first, so it carries every click the patient ever came through.
+ *
+ * Best-effort throughout: the caller swallows a failure. A missed click costs one ad credit; a
+ * thrown error here would cost the reply.
+ */
+async function rememberAdClick(
+  clinicId: string,
+  chatId: string,
+  ref: FirebaseFirestore.DocumentReference,
+  existing: unknown,
+  phone: string,
+  click: AdClick
+): Promise<void> {
+  const before = mergeClicks(existing, []);
+  const after = mergeClicks(existing, [click]);
+  if (JSON.stringify(before) !== JSON.stringify(after)) {
+    await ref.set({ adClicks: after }, { merge: true });
+  }
+
+  // The patient behind this chat, if there is one. A lid chat hides the phone; the lid itself
+  // is bound to the record once the patient has told the bot their number.
+  let patient: { id: string; data: Record<string, unknown> } | null = null;
+  if (phone) patient = await findPatient(clinicId, phone);
+  else if (/@lid$/i.test(chatId)) patient = await findPatientByLid(clinicId, chatId);
+  if (!patient) return;
+
+  const current = patient.data.adAttribution;
+  const merged = attributionFromClicks(current, [click]);
+  if (!merged) return;
+  if (JSON.stringify(attributionFromClicks(current, [])) === JSON.stringify(merged)) return;
+  // update, not set-with-merge: a merge would deep-merge the map and leave the previous click's
+  // headline or link under a newer click that has none. The record exists — it was just read.
+  await adminClinicDoc(clinicId, "patients", patient.id).update({ adAttribution: merged });
 }
 
 async function matchService(clinicId: string, text: string): Promise<string> {
@@ -1767,6 +1823,11 @@ ${askWho}` : askWho;
        */
       // A rehearsal (dryRun) names nobody in the real patient list: the playground once left
       // test patients — and their Confirmed appointments — in the clinic's live day view.
+      // The ad clicks this chat came through go onto the new record from its first second, so the
+      // booking a moment later can be credited to its click (lib/metaConversions). The legacy
+      // first-ad field is read too, for a chat whose ad predates the click list.
+      const legacyClick = conversation.ad && conversation.adAt ? clickFromReferral(conversation.ad, conversation.adAt) : null;
+      const registerAttribution = attributionFromClicks(null, mergeClicks(conversation.adClicks ?? [], legacyClick ? [legacyClick] : []));
       const created = args.dryRun
         ? null
         : await adminClinicCollection(clinicId, "patients").add({
@@ -1783,6 +1844,7 @@ ${askWho}` : askWho;
             // Behind a lid the number was typed by the patient; binding the lid to the record
             // makes their next message resolve to it without the number again.
             ...(isLidChat ? { whatsappLid: chatId, whatsappLidLearnedAt: FieldValue.serverTimestamp(), whatsappLidSource: "self_claimed" } : {}),
+            ...(registerAttribution ? { adAttribution: registerAttribution } : {}),
             source: "whatsapp_bot",
           });
       patient = { id: created?.id ?? "dry_run", data: { name: act.name, phone } };

@@ -11,7 +11,7 @@ import {
   ChevronDown, MessageCircle, AlertCircle, Wallet, LayoutDashboard, Users, History, CreditCard,
   PhoneForwarded, CheckCircle2, UserX, Globe, MessageCircleOff, MessageSquare, MessageSquareOff, ScrollText,
   BellPlus, Star, Printer, Pill, Check, Calendar, Camera, UploadCloud, FilePlus, Eye, Download, StickyNote, ClipboardList, ShieldCheck, MoreHorizontal, Plus,
-  ChevronLeft, ChevronRight, FlaskConical
+  ChevronLeft, ChevronRight, FlaskConical, Megaphone
 } from "lucide-react";
 import { auth, db, storage } from "@/lib/firebase";
 import { doc, onSnapshot, updateDoc, deleteDoc, collection, query, where, limit, orderBy, addDoc, serverTimestamp } from "firebase/firestore";
@@ -1088,6 +1088,7 @@ export default function PatientProfile() {
                 <h1 className="truncate text-xl font-black text-ink">{patient.name}</h1>
                 <p className="text-[13px] font-semibold text-ink-muted">
                   {displayAge} {t('yearSymbol') || 'Y'}{patient.gender ? ` · ${patient.gender}` : ""}
+                  <FromAdChip attribution={patient.adAttribution} language={language} />
                 </p>
               </div>
               {/* Phones: how to reach them and what they owe, in the name's place. */}
@@ -1112,6 +1113,7 @@ export default function PatientProfile() {
                     </span>
                   </p>
                 )}
+                <FromAdChip attribution={patient.adAttribution} language={language} className="ms-0" />
               </div>
             </div>
             <div className="flex items-center gap-2 max-md:shrink-0">
@@ -2465,6 +2467,35 @@ export default function PatientProfile() {
         )}
       </div>
     </PermissionGuard>
+  );
+}
+
+/**
+ * "From ad": this patient first wrote to the clinic by tapping a Click-to-WhatsApp ad.
+ *
+ * Read from `adAttribution`, which the WhatsApp bot stamps when a chat arrives with Meta's click
+ * id (lib/bot/respond `rememberAdClick`, and on the record the bot registers). The desk sees
+ * where the patient came from without opening the chat; the tooltip says which ad and when.
+ * Quiet on purpose — a grey chip, not a colour: it is context, not an alert. Nothing renders for
+ * a patient with no click id.
+ */
+function FromAdChip({ attribution, language, className = "ms-1.5" }: { attribution: unknown; language: string; className?: string }) {
+  const a = attribution && typeof attribution === "object" ? (attribution as Record<string, unknown>) : null;
+  const clid = a && typeof a.ctwaClid === "string" ? a.ctwaClid.trim() : "";
+  if (!clid) return null;
+  const isAr = language === "ar";
+  const headline = typeof a?.headline === "string" ? a.headline.trim() : "";
+  const at = Number(a?.clickedAt) || 0;
+  const date = at ? new Date(at).toLocaleDateString(isAr ? "ar-EG" : "en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
+  const tip = [headline, date].filter(Boolean).join(" · ") || (isAr ? "جه من إعلان واتساب" : "Came from a WhatsApp ad");
+  return (
+    <span
+      title={tip}
+      className={`${className} inline-flex items-center gap-1 rounded-full border border-line bg-surface-muted px-2 py-0.5 align-middle text-[10px] font-black uppercase tracking-wide text-ink-body`}
+    >
+      <Megaphone size={10} className="shrink-0" aria-hidden />
+      {isAr ? "من إعلان" : "From ad"}
+    </span>
   );
 }
 

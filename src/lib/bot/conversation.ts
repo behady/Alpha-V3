@@ -3,6 +3,7 @@ import { adminClinicDoc } from "@/lib/adminClinicDb";
 import { phoneMatchKey } from "@/lib/patientPhone";
 import type { BotState } from "./engine";
 import { readStoredAd, type AdReferral } from "./adReferral";
+import { mergeClicks, type AdClick } from "@/lib/metaConversions";
 import { MAX_REPLIES_PER_MINUTE, REPLY_BURST_MS, repliesInLastMinute } from "./burstGuard";
 
 /**
@@ -194,6 +195,18 @@ export interface BotConversation {
    * report that says which ad brought bookings needs it still there when the booking happens.
    */
   ad?: AdReferral;
+  /** When `ad` was first recorded (epoch ms). Written by `recordAdReferral` alongside it. */
+  adAt?: number;
+  /**
+   * Every ad click this number has arrived from, newest first, at most ten.
+   *
+   * `ad` is first-ad-wins on purpose — the reports credit the creative that brought the person.
+   * Meta's Conversions API needs the opposite: the click id that came BEFORE the booking, which
+   * for somebody who tapped a second ad a month later is the second one. So the clicks are kept
+   * beside `ad` rather than instead of it. Written only by `recordAdReferral`; read-only here,
+   * and `saveConversation` never writes it, so a turn can never clobber the list.
+   */
+  adClicks?: AdClick[];
   /** When this ad-referred person first wrote something (an ad tap alone opens a chat). */
   adTypedAt?: number;
   /**
@@ -327,6 +340,11 @@ export async function loadConversation(
     repliesInWindow,
     optedOut: d.optedOut === true,
     ad: readStoredAd(d.ad) || undefined,
+    adAt: Number(d.adAt) || undefined,
+    adClicks: (() => {
+      const clicks = mergeClicks(d.adClicks, []);
+      return clicks.length ? clicks : undefined;
+    })(),
     adTypedAt: Number(d.adTypedAt) || undefined,
     recentReplies: recentRepliesFrom(d.recentReplies, now, ref(clinicId, phoneKey)),
     // Expired options are not carried: a list of "tomorrow's" times from last week books the

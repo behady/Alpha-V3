@@ -917,6 +917,16 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Its subcollections — today `meta_conversion_events`, the Meta Conversions API log and send
+    // queue (ad click ids, request bodies, Meta's answers). The rule above matches the secrets
+    // document only, not what sits under it; default deny already covers these, and this says so
+    // on purpose. No broad grant reaches clinic_secrets, so this deny is the whole story — unlike
+    // a deny nested under clinics/{clinicId}, which the member wildcard there would override.
+    // Written and read only by the Admin SDK (the queue trigger, the cron, the settings route).
+    match /clinic_secrets/{clinicId}/{sub=**} {
+      allow read, write: if false;
+    }
+
     // --- META LEAD ADS INTEGRATION ---
     // App credentials (verify token, app secret) and the Facebook-page → clinic mapping with
     // its page access tokens. Top-level for the same reason as clinic_secrets: the clinic

@@ -22,7 +22,7 @@ import {
   assertSucceeds,
   assertFails,
 } from "@firebase/rules-unit-testing";
-import { doc, setDoc, updateDoc, deleteDoc, getDoc, setLogLevel } from "firebase/firestore";
+import { doc, collection, setDoc, updateDoc, deleteDoc, getDoc, getDocs, setLogLevel } from "firebase/firestore";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rulesPath = join(__dirname, "..", "firestore.rules");
@@ -637,6 +637,46 @@ async function main() {
   await check(
     "an unauthenticated visitor cannot read them",
     getDoc(doc(anon, "clinic_secrets/clinicA")),
+    "deny"
+  );
+
+  console.log("clinic_secrets/{clinicId}/meta_conversion_events — Meta Conversions API log + queue");
+  // Server-only like the doc above it: click ids, request bodies and Meta's answers, written by
+  // the queue trigger and the cron. A browser that could write here could forge "sent" rows or
+  // queue events in the clinic's name.
+  await check(
+    "a clinic's own Owner cannot read its conversion events",
+    getDoc(doc(owner1, "clinic_secrets/clinicA/meta_conversion_events/x")),
+    "deny"
+  );
+  await check(
+    "a clinic's own Owner cannot write a conversion event",
+    setDoc(doc(owner1, "clinic_secrets/clinicA/meta_conversion_events/x"), { status: "sent" }),
+    "deny"
+  );
+  await check(
+    "a clinic's own Admin cannot read its conversion events",
+    getDoc(doc(admin1, "clinic_secrets/clinicA/meta_conversion_events/x")),
+    "deny"
+  );
+  await check(
+    "a clinic's own Admin cannot write a conversion event",
+    setDoc(doc(admin1, "clinic_secrets/clinicA/meta_conversion_events/x"), { status: "sent" }),
+    "deny"
+  );
+  await check(
+    "a clinic's own Admin cannot list the conversion events",
+    getDocs(collection(admin1, "clinic_secrets/clinicA/meta_conversion_events")),
+    "deny"
+  );
+  await check(
+    "not even a superadmin can read conversion events from a client",
+    getDoc(doc(super1, "clinic_secrets/clinicA/meta_conversion_events/x")),
+    "deny"
+  );
+  await check(
+    "not even a superadmin can write conversion events from a client",
+    setDoc(doc(super1, "clinic_secrets/clinicA/meta_conversion_events/x"), { status: "sent" }),
     "deny"
   );
 

@@ -9,6 +9,7 @@ import { auth, db } from "@/lib/firebase";
 import BotPlayground from "./BotPlayground";
 import BotMediaLibrary from "./BotMediaLibrary";
 import BotMedicineList from "./BotMedicineList";
+import MetaConversionsCard from "./MetaConversionsCard";
 import { WHATSAPP_DIAL_COUNTRIES, buildE164FromDialAndNational } from "@/lib/whatsappDialCountries";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
@@ -2310,6 +2311,9 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
             {txt.saveConnection}
           </button>
         </section>
+
+        {/* Meta ad results (Conversions API): borrows the card above's WABA id and token. */}
+        <MetaConversionsCard />
 
         <section className="rounded-2xl xl:rounded-3xl bg-surface border border-line shadow-sm ring-1 ring-line p-5 xl:p-6 flex flex-col gap-4">
           <div className="flex items-center gap-2 text-accent">

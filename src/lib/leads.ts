@@ -76,6 +76,17 @@ export interface Lead {
     campaignName?: string | null;
     createdTime?: string | null;
     fetchFailed?: boolean;
+    /*
+     * Written by the WhatsApp bot (lib/bot/botLeads `upsertBotLead`) for a chat opened from a
+     * Click-to-WhatsApp ad: the ad's ids as Meta's referral carried them, and the click id the
+     * Conversions API sends back. `via` is "whatsapp_click" for these.
+     */
+    ctwaClid?: string;
+    sourceId?: string;
+    sourceType?: string;
+    sourceUrl?: string;
+    mediaType?: string;
+    via?: string;
   } | null;
 
   /**
