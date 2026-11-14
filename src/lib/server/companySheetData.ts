@@ -2,10 +2,9 @@ import { FieldPath, type DocumentSnapshot } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { toYmd } from "@/lib/reports/patientStats";
-import { COMPANY_SHEET_START, type SentMonth, type SheetCard, type SheetCharge, type SheetChoice, type SheetInputs } from "@/lib/insurance/companySheet";
+import { COMPANY_SHEET_START, marksDocId, sentDocId, type SentMonth, type SheetCard, type SheetCharge, type SheetChoice, type SheetInputs } from "@/lib/insurance/companySheet";
 
-export const marksDocId = (payerId: string) => `company_sheet_${payerId}`;
-export const sentDocId = (payerId: string, month: string) => `company_sheet_${payerId}_${month}`;
+export { marksDocId, sentDocId };
 
 const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 const MAX_ROUNDS = 5;

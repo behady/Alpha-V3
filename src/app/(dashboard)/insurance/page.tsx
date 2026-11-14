@@ -476,6 +476,7 @@ function InsurancePage() {
                   collect={(id, chargeIds) => collectFromInsurer({ payerId: id, chargeIds, clinicId })}
                   collectClaim={(claimId, branchId) => recordInsurerPayment(clinicId || "", claimId, branchId || undefined)}
                   statementPeriod={range.from && range.to && range.from <= range.to ? { start: range.from, end: range.to } : undefined}
+                  sheetPanel
                 />
               </>
             ) : (

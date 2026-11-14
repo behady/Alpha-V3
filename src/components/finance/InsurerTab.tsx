@@ -40,6 +40,9 @@ import { insurerRows, insurerTotals, treatmentHasDentist, type InsurerRow, type 
 import { MoneyApiError } from "@/lib/moneyApi";
 import { buildInsuranceStatement, type StatementRowLite } from "@/lib/insuranceStatement";
 import { useStatementHeader } from "@/lib/insuranceStatementHeader";
+import { companyStatement, type SheetCharge } from "@/lib/insurance/companySheet";
+import { useCompanySheet } from "@/components/insurance/useCompanySheet";
+import CompanySheetPanel from "@/components/insurance/CompanySheetPanel";
 
 const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
@@ -57,6 +60,7 @@ export default function InsurerTab({
   collect: post,
   collectClaim,
   statementPeriod,
+  sheetPanel,
 }: {
   payerId: string;
   payerName: string;
@@ -78,6 +82,8 @@ export default function InsurerTab({
   collectClaim: (claimId: string, branchId: string | null) => Promise<string | null>;
   /** The page's period, for the Excel statement; absent = no statement for this company (approval insurers). */
   statementPeriod?: { start: string; end: string };
+  /** Show the monthly sheet (who prints, the switch, Mark as sent) above the figures. The Insurance page sets it; Finance does not. */
+  sheetPanel?: boolean;
 }) {
   const { language } = useLanguage();
   const ar = language === "ar";
@@ -181,19 +187,49 @@ export default function InsurerTab({
   const { clinicId } = useClinic();
   const [header] = useStatementHeader(clinicId);
   const [exporting, setExporting] = useState(false);
-  const statement = useMemo(() => {
+  // Every live charge of the company, ALL branches: whether a patient is finished does not depend on
+  // the branch on screen. The branch only narrows what is printed (`keep`, below). The tab's own cost
+  // (the whole price, as the company is billed), not the row's amount.
+  const sheetCharges = useMemo(
+    () =>
+      backlog
+        ? backlog
+            .filter((r) => !["deleted", "cancelled"].includes(String((r as Record<string, unknown>).status || "").toLowerCase()))
+            .map((c) => ({ ...c, amount: Number(c.cost) || Number(c.amount) || 0 }) as SheetCharge)
+        : null,
+    [backlog],
+  );
+  const { inputs } = useCompanySheet(clinicId, payerId, useBacklog ? sheetCharges : null);
+  // The statement and the panel come from one call, so the Excel report is exactly what the panel shows.
+  // While the sheet's inputs load there is no statement (the button waits); if the backlog could not be
+  // read, today's per-visit statement from the period's rows is all there is.
+  const built = useMemo(() => {
     if (!statementPeriod) return null;
-    // The tab's own cost (the whole price, as the company is billed), not the row's amount.
-    const rows = charges.map((c) => ({ ...c, amount: Number(c.cost) || Number(c.amount) || 0 }) as StatementRowLite);
-    return buildInsuranceStatement({
-      rows,
+    if (!useBacklog) {
+      const rows = charges.map((c) => ({ ...c, amount: Number(c.cost) || Number(c.amount) || 0 }) as StatementRowLite);
+      return {
+        statement: buildInsuranceStatement({
+          rows,
+          payerId,
+          payerName,
+          month: statementPeriod.start.slice(0, 7),
+          range: statementPeriod,
+          memberNumbers: new Map(),
+        }),
+        sheets: [],
+      };
+    }
+    if (!inputs) return null;
+    return companyStatement({
+      ...inputs,
       payerId,
       payerName,
-      month: statementPeriod.start.slice(0, 7),
       range: statementPeriod,
       memberNumbers: new Map(),
+      keep: (c) => rowInScope(c as Record<string, unknown>, scopeBranchId),
     });
-  }, [charges, payerId, payerName, statementPeriod]);
+  }, [statementPeriod, useBacklog, charges, inputs, payerId, payerName, scopeBranchId]);
+  const statement = built?.statement ?? null;
   const exportStatement = async () => {
     if (!statement || !statementPeriod || exporting) return;
     setExporting(true);
@@ -345,6 +381,10 @@ export default function InsurerTab({
 
   return (
     <div className="flex flex-col gap-5 flex-1 min-h-0">
+      {sheetPanel && statementPeriod && built && clinicId && (
+        <CompanySheetPanel clinicId={clinicId} payerId={payerId} payerName={payerName} sheets={built.sheets} />
+      )}
+
       {/* The company's account, on the slab: four figures, the debt last. */}
       <div className="rounded-2xl xl:rounded-3xl bg-ink-slab text-white p-5 xl:p-7 border border-slate-800">
         <div className="flex items-center gap-2.5">
@@ -373,11 +413,11 @@ export default function InsurerTab({
             {ar ? "المتبقي بس" : "Only outstanding"}
           </label>
           <div className="flex-1" />
-          {statement && statementPeriod && (
+          {statementPeriod && (
             <button
               type="button"
               onClick={exportStatement}
-              disabled={loading || exporting || statement.cases.length === 0}
+              disabled={loading || exporting || !statement || statement.cases.length === 0}
               title={
                 ar
                   ? `كشف ${payerName} من ${statementPeriod.start} لـ ${statementPeriod.end}`
@@ -387,7 +427,7 @@ export default function InsurerTab({
             >
               {exporting ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />}
               {ar ? "تقرير Excel" : "Excel report"}
-              <span className="font-figure text-ink-muted">({fmt(statement.cases.length)})</span>
+              {statement && <span className="font-figure text-ink-muted">({fmt(statement.cases.length)})</span>}
             </button>
           )}
           <Protect permission="finance.add">

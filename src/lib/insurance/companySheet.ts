@@ -45,6 +45,10 @@ const text = (v: unknown) => (typeof v === "string" ? v.trim() : v == null ? "" 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const amountOf = (c: SheetCharge) => round2(Number(c.cost) || Number(c.amount) || 0);
 
+/** Document ids of a company's switch document and of each month's sent document, in `settings`. */
+export const marksDocId = (payerId: string) => `company_sheet_${payerId}`;
+export const sentDocId = (payerId: string, month: string) => `company_sheet_${payerId}_${month}`;
+
 export function markKey(patientId: string, month: string): string {
   return `${patientId}__${month}`;
 }

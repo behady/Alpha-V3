@@ -336,6 +336,30 @@ export const TEXT = {
   axaProviderNote: { en: "Provider note", ar: "ملاحظة مقدم الخدمة" },
   axaTeethHint: { en: "Teeth are FDI numbers, e.g. 47. LR7 on the paper is lower right 7 = 47.", ar: "الأسنان بأرقام FDI، زي 47. LR7 في الورقة يعني تحت يمين 7 = 47." },
   ncTeethHint: { en: "Teeth are FDI numbers, e.g. 44, 46. L.R 4-6 on the paper is lower right 4 and 6 = 44, 46.", ar: "الأسنان بأرقام FDI، زي 44، 46. L.R 4-6 في الورقة يعني تحت يمين 4 و6 = 44، 46." },
+  // --- the company's monthly sheet (GASCO): who prints this month, who waits --------------------
+  sheetTitle: { en: "{month} sheet", ar: "تقفيلة {month}" },
+  sheetOnHeading: { en: "On this month's sheet", ar: "في تقفيلة الشهر ده" },
+  sheetWaitingHeading: { en: "Waiting", ar: "مستنيين" },
+  sheetThisMonth: { en: "This month", ar: "الشهر ده" },
+  sheetNextMonth: { en: "Next month", ar: "الشهر الجاي" },
+  sheetNotFinished: { en: "Not finished", ar: "لسه مخلصش" },
+  sheetFinishedLate: { en: "Finished after the month", ar: "خلص بعد الشهر" },
+  sheetMoved: { en: "Moved by the dentist", ar: "الدكتور أجّله" },
+  sheetAutomatic: { en: "Automatic", ar: "تلقائي" },
+  sheetMarkSent: { en: "Mark as sent", ar: "علّم اتبعت" },
+  sheetSentOn: { en: "Sent on {date} by {name}", ar: "اتبعت يوم {date} بواسطة {name}" },
+  sheetSentOnNoName: { en: "Sent on {date}", ar: "اتبعت يوم {date}" },
+  sheetConfirm: {
+    en: "Mark the {month} sheet as sent? Its patients and treatments are locked until you mark it not sent.",
+    ar: "تعلّم تقفيلة {month} إنها اتبعتت؟ المرضى والعلاج فيها هيتقفلوا لحد ما تعلّمها ماتبعتتش.",
+  },
+  sheetEmpty: { en: "Nobody is on this month's sheet yet.", ar: "لسه مفيش حد في تقفيلة الشهر ده." },
+  sheetToastSentLocked: { en: "That month is already sent. Mark it not sent first.", ar: "الشهر ده اتبعت. علّمه ماتبعتش الأول." },
+  sheetToastNotFinished: { en: "This patient still has treatment waiting, so he cannot print yet.", ar: "المريض ده لسه عنده علاج مخلصش، فمش هيطلع دلوقتي." },
+  sheetToastEmpty: { en: "There is nothing on this month's sheet to send.", ar: "مفيش حاجة في تقفيلة الشهر ده تتبعت." },
+  sheetToastEarlierOpen: { en: "An earlier month is not sent yet. Send it first.", ar: "فيه شهر قبله لسه ما اتبعتش. ابعته الأول." },
+  sheetToastLaterSent: { en: "A later month is already sent. Open that one first.", ar: "فيه شهر بعده اتبعت. افتح الشهر ده الأول." },
+  sheetToastFailed: { en: "Could not save that. Try again.", ar: "معرفناش نحفظ ده. جرّب تاني." },
 } as const satisfies Record<string, Lang>;
 
 export type TextKey = keyof typeof TEXT;
