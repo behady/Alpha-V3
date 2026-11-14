@@ -139,18 +139,51 @@ run("270445685: a caries remark is answered; the same pair is not repeated", () 
   assert.ok(t.text.endsWith("هتعمله معانا."));
 });
 
-run("123054233: a rotated pair on 'السعر كام' is held too; the pair he heard is what is kept", () => {
+run("123054233: 'السعر كام' answered with the same pair: only the price goes out", () => {
   const prev = "أيوه بنعمل كمبوزيت فينير، وسعره بيبدأ من 1,500 ج.م.\n\nعندي ميعاد السبت الساعة 6:30 م أو الأحد الساعة 3:00 م، إيه اللي يناسبك أكتر؟";
   const reply =
-    "أيوه متاح عندنا كمبوزيت فينير، وسعره يبدأ من 1,500 ج.م، والاستقبال بيأكد السعر النهائي.\n\nالمواعيد المتاحة عندي مثلاً السبت 14/11 الساعة 3:00 م أو الأحد 15/11 الساعة 6:30 م، تحب أنهي فيهم؟";
+    "أيوه متاح عندنا كمبوزيت فينير، وسعره يبدأ من 1,500 ج.م، والاستقبال بيأكد السعر النهائي.\n\nالمواعيد المتاحة عندي مثلاً السبت 14/11 الساعة 6:30 م أو الأحد 15/11 الساعة 3:00 م، تحب أنهي فيهم؟";
   const t = turn({ question: "السعر كام", reply, prevBotOffer: prev, thread: [{ author: "bot", text: prev }, { author: "patient", text: "السعر كام" }], offer: OFFER_300 });
   assert.equal(t.hold, true);
   assert.equal(t.text, "أيوه متاح عندنا كمبوزيت فينير، وسعره يبدأ من 1,500 ج.م، والاستقبال بيأكد السعر النهائي.");
   assert.deepEqual(t.carry, t.previousKeys);
 });
 
+run("123054233: a pair he never heard (the rotated twin reply) is news, sent as written", () => {
+  // 08:25:41 was the SECOND of two replies to one "السعر كام" (a burst problem, not this one) and
+  // named Sat 3:00 / Sun 6:30 after Sat 6:30 / Sun 3:00. Times the patient has not heard are never
+  // held: the same rule is what keeps "مش هينفع" from being answered with nothing.
+  const prev = "أيوه بنعمل كمبوزيت فينير، وسعره بيبدأ من 1,500 ج.م.\n\nعندي ميعاد السبت الساعة 6:30 م أو الأحد الساعة 3:00 م، إيه اللي يناسبك أكتر؟";
+  const reply =
+    "أيوه متاح عندنا كمبوزيت فينير، وسعره يبدأ من 1,500 ج.م، والاستقبال بيأكد السعر النهائي.\n\nالمواعيد المتاحة عندي مثلاً السبت 14/11 الساعة 3:00 م أو الأحد 15/11 الساعة 6:30 م، تحب أنهي فيهم؟";
+  const t = turn({ question: "السعر كام", reply, prevBotOffer: prev, thread: [{ author: "bot", text: prev }, { author: "patient", text: "السعر كام" }], offer: OFFER_300 });
+  assert.equal(t.hold, false);
+  assert.equal(t.text, reply);
+  assert.deepEqual(t.carry, ["2026-11-14|03:00 PM|", "2026-11-15|06:30 PM|"]);
+});
+
+run("a 'no' the timing list does not know gets the OTHER times the model offered, never a bare 'تمام'", () => {
+  const prev = "عندي ميعاد السبت 14/11 الساعة 3:00 م أو الأحد 15/11 الساعة 3:00 م، إيه اللي يناسبك؟";
+  for (const [question, reply] of [
+    ["مش هينفع", "ولا يهمك يا فندم.\n\nتحب السبت 14/11 الساعة 6:30 م ولا الأحد 15/11 الساعة 6:30 م؟"],
+    ["مش هقدر", "مفيش مشكلة خالص.\n\nعندي السبت 14/11 الساعة 10:00 م أو الأحد 15/11 الساعة 10:00 م، تحب أنهي؟"],
+    ["لا", "تمام يا فندم.\n\nعندي السبت 14/11 الساعة 6:30 م أو الأحد 15/11 الساعة 6:30 م، تحب أنهي؟"],
+    ["صعب عليا", "مقدرة ده جداً.\n\nعندي السبت 14/11 الساعة 10:00 م أو الأحد 15/11 الساعة 10:00 م، يناسبك أنهي؟"],
+    ["انا مشغول", "ولا يهمك، بنتظرك براحتك.\n\nعندي السبت 14/11 الساعة 10:00 م أو الأحد 15/11 الساعة 6:30 م، تحب أنهي؟"],
+    // One time heard before and one new: still news.
+    ["مش هينفع", "ولا يهمك يا فندم.\n\nعندي الأحد 15/11 الساعة 3:00 م أو الأحد 15/11 الساعة 6:30 م، تحب أنهي؟"],
+  ]) {
+    assert.equal(asksAboutTiming(question), false, `${question} is not on the timing list, so only the new-times rule protects it`);
+    const t = turn({ question, reply, prevBotOffer: prev, thread: [{ author: "bot", text: prev }, { author: "patient", text: question }], offer: OFFER_300 });
+    assert.equal(t.hold, false, question);
+    assert.equal(t.text, reply, question);
+    assert.deepEqual(t.carry, spokenSlots(reply, OFFER_300), question);
+  }
+});
+
 run("123054233: 'الفروع فين' keeps the branch question and drops only the times", () => {
-  const prev = "عندي ميعاد السبت الساعة 6:30 م أو الأحد الساعة 3:00 م، إيه اللي يناسبك أكتر؟";
+  // The pair he last heard (08:25:41), repeated word for word at 08:26:10.
+  const prev = "المواعيد المتاحة عندي مثلاً السبت 14/11 الساعة 3:00 م أو الأحد 15/11 الساعة 6:30 م، تحب أنهي فيهم؟";
   const reply = `فرعنا في ${ADDRESS.replace(/\.$/, "")}، وفيه فرع متاح في شارع الطاقة بحدائق الأهرام.\n\nتحب نظبط ميعاد في فرع مساكن الشروق؟ عندي السبت 14/11 الساعة 3:00 م أو الأحد 15/11 الساعة 6:30 م.`;
   const t = turn({ question: "الفروع فين", reply, prevBotOffer: prev, thread: [{ author: "bot", text: prev }, { author: "patient", text: "الفروع فين" }], offer: OFFER_300 });
   assert.equal(asksAboutTiming("الفروع فين"), false);

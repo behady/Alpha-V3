@@ -6,9 +6,9 @@
  * area heard "السبت 3:00 ولا الأحد 3:00؟" under every answer, cut off as its own pushy bubble, and
  * the model, reading its own earlier replies, kept copying the pattern.
  *
- * When the last offer is still fresh and this message is not about WHEN, the CLOSING offer comes
- * off the reply, and the times the patient last heard stay on the conversation, so "الأول" still
- * books them. Anything this file cannot read for certain is sent exactly as the model wrote it:
+ * When the last offer is still fresh, this message is not about WHEN, and the reply only repeats
+ * times the patient already heard, the CLOSING offer comes off the reply, and the times the
+ * patient last heard stay on the conversation, so "الأول" still books them. Anything this file cannot read for certain is sent exactly as the model wrote it:
  * a sentence that carries anything besides the offer (a price, an address, a branch, an English
  * word) is never cut. Pure: no I/O.
  */
@@ -210,10 +210,14 @@ function unansweredPatientLines(thread: Line[]): string[] {
 }
 
 /**
- * Should this reply's closing offer come off? Only for a CHOICE of times (two or more) right after
- * the patient already heard some that are still free, in the same sitting, fewer than three
- * patient messages ago, when nothing the patient just wrote is about a day, a time, booking or a
- * pick.
+ * Should this reply's closing offer come off? Only for a CHOICE of times (two or more) that the
+ * patient ALREADY HEARD, every one of them, in the same sitting, fewer than three patient messages
+ * ago, when nothing the patient just wrote is about a day, a time, booking or a pick.
+ *
+ * "Already heard" is what keeps a "no" from being answered with nothing. "مش هينفع", "مش هقدر",
+ * "صعب" or a bare "لا" after an offer are not on any timing list, and the model answers them with
+ * OTHER times: those are the answer, so a reply naming any time the patient has not heard yet is
+ * sent as written.
  */
 export function holdRepeatOffer(i: {
   question: string;
@@ -226,6 +230,8 @@ export function holdRepeatOffer(i: {
   gapMinutes?: number;
 }): boolean {
   if (i.spokenKeys.length < 2 || !i.previousKeys?.length) return false;
+  const previous = i.previousKeys;
+  if (!i.spokenKeys.every((k) => previous.includes(k))) return false; // a time they never heard is news
   if ((i.gapMinutes ?? 0) >= NEW_SITTING_MINUTES) return false;
   const heard = i.previousKeys.map((k) => i.offer.find((s) => s.key === k)).filter((s): s is Slot => Boolean(s));
   if (!heard.length) return false; // none of the times they heard is still free: new ones are news
