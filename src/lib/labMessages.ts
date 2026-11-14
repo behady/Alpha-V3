@@ -47,20 +47,8 @@ function fmtDate(iso: string | undefined, language: "en" | "ar"): string {
   });
 }
 
-/**
- * The order as a WhatsApp message.
- *
- * Plain text with no formatting tricks: WhatsApp's own markup renders differently across the app,
- * the web client and the desktop build, and a lab order is not the place to find that out.
- */
-export function buildLabOrderMessage(
-  labCase: LabCase,
-  clinicName: string,
-  language: "en" | "ar"
-): string {
-  const isAr = language === "ar";
-  const wt = workTypeFor(labCase.workType);
-  const t = isAr
+function wording(language: "en" | "ar") {
+  return language === "ar"
     ? {
         head: "أمر معمل",
         from: "من",
@@ -107,14 +95,13 @@ export function buildLabOrderMessage(
         remake: "REMAKE — replaces",
         digital: "Files are being sent digitally.",
       };
+}
 
-  const parts: Array<string | null> = [
-    `*${t.head} ${labCase.code}*`,
-    clinicName ? `${t.from}: ${clinicName}` : null,
-    labCase.remakeOfCode ? `${t.remake} ${labCase.remakeOfCode}` : null,
-    "",
-    // First name only. The code is the identity that travels.
-    line(t.patient, labCase.patientFirstName),
+/** The work itself: everything below the lines that say who the order is from and whose it is. */
+function orderDetails(labCase: LabCase, language: "en" | "ar"): Array<string | null> {
+  const wt = workTypeFor(labCase.workType);
+  const t = wording(language);
+  return [
     line(t.work, [workTypeLabel(labCase.workType, language), labCase.workDescription].filter(Boolean).join(" — ")),
     wt.units && labCase.units ? line(t.units, String(labCase.units)) : null,
     labCase.teeth.length ? line(t.teeth, formatPalmer(labCase.teeth, language)) : null,
@@ -137,6 +124,63 @@ export function buildLabOrderMessage(
     labCase.notes ? `${t.notes}: ${labCase.notes}` : null,
     labCase.sentVia === "digital" ? `\n${t.digital}` : null,
   ];
+}
 
+function joinParts(parts: Array<string | null>): string {
   return parts.filter((p) => p !== null).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/**
+ * The order as a WhatsApp message.
+ *
+ * Plain text with no formatting tricks: WhatsApp's own markup renders differently across the app,
+ * the web client and the desktop build, and a lab order is not the place to find that out.
+ */
+export function buildLabOrderMessage(
+  labCase: LabCase,
+  clinicName: string,
+  language: "en" | "ar"
+): string {
+  const t = wording(language);
+  return joinParts([
+    `*${t.head} ${labCase.code}*`,
+    clinicName ? `${t.from}: ${clinicName}` : null,
+    labCase.remakeOfCode ? `${t.remake} ${labCase.remakeOfCode}` : null,
+    "",
+    // First name only. The code is the identity that travels.
+    line(t.patient, labCase.patientFirstName),
+    ...orderDetails(labCase, language),
+  ]);
+}
+
+/**
+ * Several orders going to one lab in one bag, as one message.
+ *
+ * Who it is from and whose work it is are said once at the top; each job then stands under its own
+ * code, because the code is what the lab writes back about. A bag of one is the ordinary message.
+ */
+export function buildLabBagMessage(
+  cases: LabCase[],
+  clinicName: string,
+  language: "en" | "ar"
+): string {
+  if (cases.length === 0) return "";
+  if (cases.length === 1) return buildLabOrderMessage(cases[0], clinicName, language);
+  const t = wording(language);
+  const first = cases[0].patientFirstName;
+  const onePatient = cases.every((c) => c.patientFirstName === first);
+  return joinParts([
+    language === "ar"
+      ? `*كيس واحد · ${cases.length === 2 ? "أمرين" : `${cases.length} أوامر`} معمل*`
+      : `*One bag · ${cases.length} orders*`,
+    clinicName ? `${t.from}: ${clinicName}` : null,
+    onePatient ? line(t.patient, first) : null,
+    ...cases.flatMap((c) => [
+      "",
+      `*${c.code}*`,
+      c.remakeOfCode ? `${t.remake} ${c.remakeOfCode}` : null,
+      onePatient ? null : line(t.patient, c.patientFirstName),
+      ...orderDetails(c, language),
+    ]),
+  ]);
 }

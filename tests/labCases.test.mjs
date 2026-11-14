@@ -1132,3 +1132,104 @@ import { workTypeFromTreatment, prefillFromPast } from "../src/lib/labPrefill.ts
   assert.deepEqual(prefillFromPast(past, "PFM Crown"), { workType: "pfm", labName: "" }, "an order that named no lab offers none");
 }
 console.log("✓ the order fills itself: work type from the treatment, lab from the last order");
+
+// --- one visit, one bag --------------------------------------------------------------------------
+//
+// A dentist who does a crown and a veneer in one sitting sends one impression bag to one lab. The
+// second offer used to overwrite the first, so one of the two orders was simply never raised. Each
+// treatment still gets its own order (the lab's money is counted through that link); what is shared
+// is everything a person does with their hands: one pass through the forms, one sheet, one message.
+import { bagByLab, carryFromOrder, dropLabOffer, queueLabOffer } from "../src/lib/labBag.ts";
+import { buildLabBagMessage } from "../src/lib/labMessages.ts";
+import { buildLabBagSrcDoc } from "../src/lib/labOrderHtml.ts";
+{
+  const a = { clinicalNoteId: "n1", workDescription: "Zirconia Crown", teeth: [16] };
+  const b = { clinicalNoteId: "n2", workDescription: "Veneer", teeth: [11] };
+  assert.deepEqual(queueLabOffer(queueLabOffer([], a), b), [a, b], "a second offer waits behind the first");
+  const again = queueLabOffer([a, b], { ...a, units: 2 });
+  assert.equal(again.length, 2, "the same treatment offered again is not listed twice");
+  assert.equal(again[0].units, 2, "and its newer facts take the older one's place");
+  assert.deepEqual(dropLabOffer([a, b], a), [b]);
+  assert.deepEqual(dropLabOffer(dropLabOffer([a, b], a), a), [b], "answering one offer twice never drops the next one");
+  assert.deepEqual(dropLabOffer([a, b], null), [a, b]);
+  const loose = { workDescription: "typed by hand" };
+  assert.deepEqual(dropLabOffer([loose, b], loose), [b], "an offer with no treatment behind it is still its own");
+
+  // What the next form in the same bag starts from.
+  assert.deepEqual(carryFromOrder(crown), {
+    labName: "Cairo Lab",
+    dueDate: "2026-09-01",
+    bodyShade: "A2",
+    cervicalShade: "A3",
+    sendNow: true,
+  });
+  assert.equal(carryFromOrder({ ...crown, status: "draft" }).sendNow, false, "a bag being kept back keeps the next order back too");
+  assert.deepEqual(
+    carryFromOrder({ ...crown, dueDate: undefined, bodyShade: undefined, cervicalShade: undefined }),
+    { labName: "Cairo Lab", dueDate: "", bodyShade: "", cervicalShade: "", sendNow: true }
+  );
+
+  // A bag is the orders going to one lab. Two labs are two bags, each in the order it was raised.
+  const veneer = { ...crown, id: "c2", code: "MAD-0143", codeNumber: 143, workType: "emax", workDescription: "Veneer", teeth: [11], units: 1, notes: "" };
+  const guard = { ...crown, id: "c3", code: "MAD-0144", codeNumber: 144, labId: "l2", labName: "Delta Lab", workType: "night_guard", teeth: [], notes: "" };
+  assert.deepEqual(
+    bagByLab([crown, guard, veneer]).map((g) => [g.labName, g.cases.map((c) => c.code)]),
+    [["Cairo Lab", ["MAD-0142", "MAD-0143"]], ["Delta Lab", ["MAD-0144"]]]
+  );
+  assert.equal(
+    bagByLab([{ ...crown, labId: "" }, { ...veneer, labId: "", labName: " cairo lab " }]).length,
+    1,
+    "a lab typed by hand is the same lab however it was spelled"
+  );
+  assert.deepEqual(bagByLab([]), []);
+
+  // One message for the bag.
+  assert.equal(
+    buildLabBagMessage([crown], "Alpha Dental", "en"),
+    buildLabOrderMessage(crown, "Alpha Dental", "en"),
+    "a bag of one is the ordinary order message"
+  );
+  const bagMsg = buildLabBagMessage([crown, veneer], "Alpha Dental", "en");
+  assert.ok(bagMsg.includes("MAD-0142") && bagMsg.includes("MAD-0143"), "every code is in the message");
+  assert.ok(/2 orders/.test(bagMsg), "the lab is told how many jobs to look for");
+  assert.equal(bagMsg.split("Alpha Dental").length - 1, 1, "who it is from is said once");
+  assert.equal(bagMsg.split("Patient: Ahmed").length - 1, 1, "and so is the patient");
+  assert.ok(!bagMsg.includes("Ahmed Fathy Mahmoud"), "still the first name only");
+  assert.ok(bagMsg.includes("Zirconia") && /E\.?max/i.test(bagMsg), "each job says what it is");
+  assert.ok(bagMsg.indexOf("MAD-0142") < bagMsg.indexOf("MAD-0143"), "in the order they were raised");
+  assert.ok(buildLabBagMessage([crown, veneer], "ألفا", "ar").includes("كيس واحد · أمرين معمل"), "said in Arabic too, two the way Arabic says two");
+  assert.ok(buildLabBagMessage([crown, veneer, guard], "ألفا", "ar").includes("كيس واحد · 3 أوامر معمل"));
+
+  // One sheet for the bag: two orders share an A4, each on its own half with its own code and QR.
+  const qr = (labCase, tag) => ({ labCase, qrDataUrl: `data:image/png;base64,${tag}` });
+  const sheets = (html) => (html.match(/class="sheet[ "]/g) || []).length;
+  const bagHtml = buildLabBagSrcDoc([qr(crown, "AAA"), qr(veneer, "BBB")], clinic, noLogo, "en", "a4_full");
+  assert.equal(sheets(bagHtml), 1, "two jobs print on one sheet");
+  assert.ok(bagHtml.includes("MAD-0142") && bagHtml.includes("MAD-0143"));
+  assert.ok(bagHtml.includes("base64,AAA") && bagHtml.includes("base64,BBB"), "each job keeps its own QR");
+  assert.equal((bagHtml.match(/class="half"/g) || []).length, 2);
+  assert.ok(!bagHtml.includes("Ahmed Fathy Mahmoud"));
+  assert.equal(
+    sheets(buildLabBagSrcDoc([qr(crown, "A"), qr(veneer, "B"), qr({ ...veneer, code: "MAD-0145" }, "C")], clinic, noLogo, "en", "a4_two_up")),
+    2,
+    "a third job takes a second sheet"
+  );
+  assert.equal(
+    sheets(buildLabBagSrcDoc([qr(crown, "A"), qr(guard, "B")], clinic, noLogo, "en", "a4_two_up")),
+    2,
+    "two labs never share a sheet: the paper goes in the bag"
+  );
+  const a5Bag = buildLabBagSrcDoc([qr(crown, "A"), qr(veneer, "B")], clinic, noLogo, "en", "a5");
+  assert.ok(a5Bag.includes("size: A5 portrait"));
+  assert.equal(sheets(a5Bag), 2, "A5 paper holds one job a page");
+
+  // A sheet of two halves is held to one page. The cut line is a 1px border on top of two halves
+  // that already fill the paper, and it used to push a blank second page out after every order.
+  assert.ok(bagHtml.includes('class="sheet cut"'), "a pair is held to its page");
+  assert.ok(crownHtml.includes('class="sheet cut"'), "and so is a single order printed two-up");
+  assert.ok(
+    !buildLabOrderSrcDoc(crown, clinic, "", noLogo, "en", "a4_full").includes('class="sheet'),
+    "a full-page order may still run on to a second page"
+  );
+}
+console.log("✓ one visit, one bag: no offer lost, the next form starts filled, one sheet and one message per lab");

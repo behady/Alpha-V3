@@ -16,7 +16,7 @@ import { getDoc } from "firebase/firestore";
 import QRCode from "qrcode";
 import { getClinicDoc } from "@/lib/db-utils";
 import { clinicLogoImgHtml, getClinicLogo, NO_CLINIC_LOGO, type ClinicLogoAsset } from "@/lib/clinicLogo";
-import { buildLabOrderSrcDoc, isCompactPaper, type LabOrderClinic } from "@/lib/labOrderHtml";
+import { buildLabBagSrcDoc, buildLabOrderSrcDoc, isCompactPaper, type LabOrderClinic } from "@/lib/labOrderHtml";
 import { buildLabStatementSrcDoc, type LabStatementPayload } from "@/lib/labStatementHtml";
 import type { LabCase, LabOrderPaper } from "@/lib/labCases";
 
@@ -162,4 +162,41 @@ export async function printLabOrder(options: {
 
   const srcDoc = buildLabOrderSrcDoc(labCase, clinic, qrDataUrl, logoHtml, language, paper);
   await printSrcDoc(srcDoc);
+}
+
+const qrFor = (code: string) =>
+  QRCode.toDataURL(code, { width: 240, margin: 0, color: { dark: "#14171A", light: "#FFFFFF" } }).catch(() => "");
+
+/**
+ * The paper for a bag: every order raised in one sitting, in one print.
+ *
+ * A bag of one is the ordinary order. More than one go through the bag layout, which puts two
+ * orders for the same lab on one sheet (see `buildLabBagSrcDoc`).
+ */
+export async function printLabBag(options: {
+  cases: LabCase[];
+  clinic: LabOrderClinic;
+  language: "en" | "ar";
+  paper: LabOrderPaper;
+  logo?: ClinicLogoAsset;
+}): Promise<void> {
+  const { cases, clinic, language, paper } = options;
+  if (cases.length === 0) return;
+  if (cases.length === 1) return printLabOrder({ labCase: cases[0], clinic, language, paper, logo: options.logo });
+
+  const [qrs, logo] = await Promise.all([
+    Promise.all(cases.map((c) => qrFor(c.code))),
+    options.logo ? Promise.resolve(options.logo) : getClinicLogo().catch(() => NO_CLINIC_LOGO),
+  ]);
+  // Sized for a half page: that is where a paired order sits, whatever the paper setting.
+  const logoHtml = clinicLogoImgHtml(logo, { maxHeight: 26, maxWidth: 110, allow: "any" });
+  await printSrcDoc(
+    buildLabBagSrcDoc(
+      cases.map((labCase, i) => ({ labCase, qrDataUrl: qrs[i] })),
+      clinic,
+      logoHtml,
+      language,
+      paper
+    )
+  );
 }

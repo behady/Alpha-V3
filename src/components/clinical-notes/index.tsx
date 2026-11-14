@@ -26,6 +26,8 @@ import { useActiveBranch, ALL_BRANCHES } from "@/lib/useActiveBranch";
 import { LABS_SETTINGS_DOC, parseDentalLabs, type DentalLab } from "@/lib/dentalLabs";
 import { LAB_CASES_COLLECTION, labCasesByNote, statusLabel, toLabCase, type LabCase, type LabCaseSeed, type LabCaseStatus } from "@/lib/labCases";
 import { advanceLabCase } from "@/lib/labCaseWrite";
+import { carryFromOrder, dropLabOffer, queueLabOffer, type LabCarry } from "@/lib/labBag";
+import { PalmerList } from "@/components/lab/PalmerMark";
 import { notifyLabCaseReady } from "@/lib/labNotify";
 import { useClinic } from "@/context/ClinicContext";
 import { isAnyUnlocked } from "@/lib/featureCatalog";
@@ -162,7 +164,16 @@ export default function ClinicalNotesContainer({
    * and on desktop the inline form is remounted with a new `key` to reset it. State held there
    * would be destroyed in the same tick it was set. This container survives both.
    */
-  const [labSeed, setLabSeed] = useState<LabCaseSeed | null>(null);
+  /**
+   * A line, not a single slot: a crown and a veneer saved one after the other are two offers, and
+   * the second used to overwrite the first, so one order was never raised (see labBag.ts).
+   */
+  const [labQueue, setLabQueue] = useState<LabCaseSeed[]>([]);
+  /** The offer being answered: the first in line. */
+  const labSeed = labQueue[0] ?? null;
+  /** Orders already raised in this pass through the line, and what the next form starts from. */
+  const [labBag, setLabBag] = useState<LabCase[]>([]);
+  const [labCarry, setLabCarry] = useState<LabCarry | null>(null);
   const [labModalOpen, setLabModalOpen] = useState(false);
   const [labs, setLabs] = useState<DentalLab[]>([]);
   const { branches: labBranches, activeBranchId: labActiveBranchId } = useActiveBranch();
@@ -176,7 +187,22 @@ export default function ClinicalNotesContainer({
    */
   const offerLabOrder = (seed?: LabCaseSeed) => {
     if (!seed) return;
-    setLabSeed(seed);
+    setLabQueue((queue) => queueLabOffer(queue, seed));
+  };
+
+  /** The form is closed, by a save or without one: this offer is answered, the rest still wait. */
+  const closeLabOrder = () => {
+    setLabModalOpen(false);
+    setLabQueue((queue) => dropLabOffer(queue, labSeed));
+    setLabBag([]);
+    setLabCarry(null);
+  };
+
+  /** One order is raised and the next treatment's form takes its place, in the same bag. */
+  const nextLabOrder = (made: LabCase) => {
+    setLabBag((bag) => [...bag, made]);
+    setLabCarry(carryFromOrder(made));
+    setLabQueue((queue) => dropLabOffer(queue, labSeed));
   };
 
   /**
@@ -427,12 +453,30 @@ export default function ClinicalNotesContainer({
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-black tracking-tight">
-                {language === "ar" ? "الشغل ده محتاج معمل" : "This work needs a lab"}
+                {labQueue.length > 1
+                  ? language === "ar"
+                    ? labQueue.length === 2 ? "شغلين محتاجين معمل" : `${labQueue.length} أشغال محتاجة معمل`
+                    : `${labQueue.length} treatments need a lab`
+                  : language === "ar" ? "الشغل ده محتاج معمل" : "This work needs a lab"}
               </p>
+              {labQueue.length > 1 && (
+                <ul className="mt-1.5 space-y-0.5" data-tour="lab-offer-list">
+                  {labQueue.map((offer, i) => (
+                    <li key={offer.clinicalNoteId || i} className="flex flex-wrap items-center gap-x-1.5 text-xs font-bold text-slate-200">
+                      <bdi>{offer.workDescription || (language === "ar" ? "علاج" : "Treatment")}</bdi>
+                      {(offer.teeth?.length || 0) > 0 && <PalmerList teeth={offer.teeth || []} />}
+                    </li>
+                  ))}
+                </ul>
+              )}
               <p className="text-xs font-semibold text-slate-400 mt-0.5 leading-relaxed">
-                {language === "ar"
-                  ? "اعمل أمر معمل دلوقتي — المريض والأسنان والطبيب متملّيين بالفعل."
-                  : "Raise the lab order now — patient, teeth and dentist are already filled in."}
+                {labQueue.length > 1
+                  ? language === "ar"
+                    ? "هيتعملوا ورا بعض في كيس واحد — المعمل والميعاد واللون بيتملّوا مرة واحدة."
+                    : "Raised one after the other as one bag — the lab, date and shade are filled in once."
+                  : language === "ar"
+                    ? "اعمل أمر معمل دلوقتي — المريض والأسنان والطبيب متملّيين بالفعل."
+                    : "Raise the lab order now — patient, teeth and dentist are already filled in."}
               </p>
               <div className="flex items-center gap-2 mt-3">
                 <button
@@ -442,7 +486,7 @@ export default function ClinicalNotesContainer({
                   {language === "ar" ? "اعمل أمر معمل" : "Create lab order"}
                 </button>
                 <button
-                  onClick={() => setLabSeed(null)}
+                  onClick={() => setLabQueue([])}
                   className="px-3 py-2 rounded-xl text-[11px] font-black uppercase tracking-wide text-slate-400 hover:text-white transition-colors"
                 >
                   {language === "ar" ? "مش دلوقتي" : "Not now"}
@@ -450,7 +494,7 @@ export default function ClinicalNotesContainer({
               </div>
             </div>
             <button
-              onClick={() => setLabSeed(null)}
+              onClick={() => setLabQueue([])}
               className="p-1 text-slate-500 hover:text-white transition-colors shrink-0"
               aria-label={language === "ar" ? "إغلاق" : "Dismiss"}
             >
@@ -462,11 +506,12 @@ export default function ClinicalNotesContainer({
 
       <LabCaseModal
         open={labModalOpen}
-        onClose={() => {
-          setLabModalOpen(false);
-          setLabSeed(null);
-        }}
+        onClose={closeLabOrder}
         seed={labSeed}
+        carry={labCarry}
+        earlier={labBag}
+        next={labQueue[1] ?? null}
+        onNext={nextLabOrder}
         labs={labs}
         branches={labBranches}
         defaultBranchId={
@@ -477,10 +522,7 @@ export default function ClinicalNotesContainer({
           (labActiveBranchId && labActiveBranchId !== ALL_BRANCHES ? labActiveBranchId : "")
         }
         currentUserName={user?.name}
-        onSaved={() => {
-          setLabModalOpen(false);
-          setLabSeed(null);
-        }}
+        onSaved={closeLabOrder}
       />
     </>
   );
