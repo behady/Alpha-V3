@@ -5,7 +5,8 @@
  * minutes later "still there?" recovers some of those — and that inside WhatsApp's 24-hour
  * window it costs nothing and needs no template. Every fifteen minutes this finds AI-led
  * conversations where the bot spoke last, the patient has been silent for 20–90 minutes, no
- * person has taken over, nothing was booked, and no nudge was sent since their last message —
+ * person has taken over, nothing was booked, the bot's last line was not itself a goodbye, the
+ * person holds no visit today or later, and nobody on this chat was nudged in the past week —
  * and sends exactly one, on the line the clinic answers on: its official number when it has
  * one, otherwise its own QR line.
  *
@@ -30,20 +31,88 @@ const DEFAULT_GATEWAY_SEND_PATH = "/{instanceId}/send-message";
 
 /** How long a "not now" holds the nudge off. Longer than any lead follow-up window. */
 const DECLINE_HOLD_MS = 30 * 24 * 60 * 60 * 1000;
+/**
+ * One nudge per person per week. "Once per silence" re-armed on every reply: on 14/11 a patient
+ * who answered the nudge ("لا العنوان بعيد عليا", then "تسلمي") was nudged again 45 minutes later
+ * with the same line, and another got a second nudge 45 minutes after the first.
+ */
+const NUDGE_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 
-function nudgeText(c) {
-  const interest = String(c.lastInterest || "").trim();
+/*
+ * The words. Every line reads the same to a man and a woman ("لو حبيت", "حضرتك", no imperatives),
+ * and none carries the stored interest: "كشف عشان كشف", "كشف عشان زراعه مصري" were that field
+ * pasted into a sentence nobody read before it went. The thread right above already says what
+ * they asked about. "ميعاد" fits a check-up, a treatment and an ad offer alike.
+ */
+const OPENERS = ["لسه معانا؟ 😊", "براحة حضرتك خالص 😊", "في انتظار رد حضرتك 😊"];
+const OFFER_ANY = "لو حبيت أحجزلك ميعاد أو عندك أي سؤال تاني، أنا هنا.";
+// When the last turn offered times still ahead. It never says they are held: nothing holds them.
+const OFFER_TIMES = "لو ميعاد من اللي بعتهالك مناسب أثبتهولك على طول، ولو يوم تاني أنسب أشوفلك غيره.";
+// A patient the bot answers in English (conversation.lastLatin, written by saveConversation) is
+// nudged in English too; an Arabic line to them is the one message of the chat they cannot read.
+const OPENERS_EN = ["Still with us? 😊", "No rush at all 😊", "Whenever you're ready 😊"];
+const OFFER_ANY_EN = "If you'd like, I can book you an appointment, or ask me anything else.";
+const OFFER_TIMES_EN = "If one of the times I sent works for you, I'll confirm it right away, or I can find another day.";
+
+/**
+ * The bot's last line already closed the chat: "العفو 🙏 تحت أمر حضرتك في أي وقت." (thanks), or
+ * "تمام، مستنينك 🦷 + the appointment" (ack / ack_confirmed, a patient confirming a visit).
+ * "لسه معانا؟" after either argues with it. These are the fixed replies of AI mode.
+ */
+const CLOSED_REASONS = new Set(["thanks", "ack", "ack_confirmed"]);
+
+/**
+ * Does this person hold a visit today or later that still stands? Then they are not sold one.
+ * The conversation says "booked" only when the BOT booked; a visit booked at the desk left people
+ * with an appointment that week being asked "لو حبيت أحجزلك كشف". Same rule as
+ * src/lib/leads/followupGuard.ts (already_booked).
+ */
+function standingAppointment(rows, todayKey) {
+  return (rows || []).some((a) => {
+    const day = String((a && a.date) || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day < todayKey) return false;
+    const status = String((a && a.status) || "");
+    return status !== "Cancelled" && status !== "No Show";
+  });
+}
+
+/** Same chat, same line; different chats, different lines. An empty id gives the first. */
+function pickIndex(id, n) {
+  let h = 0;
+  for (const ch of String(id || "")) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return h % n;
+}
+
+/** Cairo date and minutes, as clinicNow() in src/lib/publicBooking.ts reads the clinic's clock. */
+function cairoClock(now) {
+  const p = {};
+  for (const x of new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date(now))) p[x.type] = x.value;
+  return { dateKey: `${p.year}-${p.month}-${p.day}`, minutes: (Number(p.hour) % 24) * 60 + Number(p.minute) };
+}
+
+/**
+ * Did the bot's last turn leave a time on the table that is still at least half an hour away?
+ * Slot keys are "2026-11-14|06:30 PM|doctor" (respond.ts nextSlots). Anything else reads as no.
+ */
+function offeredTimeAhead(c, now) {
+  const slots = Array.isArray(c.pendingSlots) ? c.pendingSlots : [];
+  const today = cairoClock(now);
+  return slots.some((s) => {
+    const [date, time] = String(s).split("|");
+    const m = /^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i.exec(String(time || "").trim());
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date)) || !m) return false;
+    const hour = m[3] ? (Number(m[1]) % 12) + (/pm/i.test(m[3]) ? 12 : 0) : Number(m[1]);
+    return date > today.dateKey || (date === today.dateKey && hour * 60 + Number(m[2]) > today.minutes + 30);
+  });
+}
+
+function nudgeText(c, id = "", now = Date.now()) {
   // First name only: "مروة محمد ابو ضيف، لسه معاك؟" is a form letter; "مروة، لسه معاكي؟" is a person.
   const name = String(c.patientName || "").trim().split(/\s+/)[0] || "";
   const hi = name ? `${name}، ` : "";
-  // Someone who came from an ad is booking the offer they were shown, not a check-up. The
-  // confirmation already leaves the consultation line out for them; so does this.
-  if (c.ad && typeof c.ad === "object") return `${hi}لسه معانا؟ 😊 لو حبيت أحجزلك ميعاد أو عندك أي سؤال تاني، أنا هنا.`;
-  // "لو حبيت" reads the same to a man and a woman; the masculine participle does not.
-  // An interest that is itself the check-up reads "أحجزلك كشف عشان كشف"; say it once.
-  return interest && !/كشف|فحص/.test(interest)
-    ? `${hi}لسه معانا؟ 😊 لو حبيت أحجزلك كشف عشان ${interest} أو عندك أي سؤال تاني، أنا هنا.`
-    : `${hi}لسه معانا؟ 😊 لو حبيت أحجزلك كشف أو عندك أي سؤال تاني، أنا هنا.`;
+  const times = offeredTimeAhead(c, now);
+  if (c.lastLatin === true) return `${name ? `Hi ${name}! ` : ""}${OPENERS_EN[pickIndex(id, OPENERS_EN.length)]} ${times ? OFFER_TIMES_EN : OFFER_ANY_EN}`;
+  return `${hi}${OPENERS[pickIndex(id, OPENERS.length)]} ${times ? OFFER_TIMES : OFFER_ANY}`;
 }
 
 /** Is this conversation owed its one nudge right now? Pure: the job reads, this decides. */
@@ -53,12 +122,16 @@ function shouldNudge(docId, c, now) {
   // "Not now" means not now. Nudging after it is how a polite no becomes a STOP.
   if (Number(c.declinedAtMs) > 0 && now - Number(c.declinedAtMs) < DECLINE_HOLD_MS) return false;
   if (c.lastDirection !== "out" || c.lastAuthor !== "bot") return false;
+  // The bot's own "العفو، تحت أمر حضرتك في أي وقت" or "تمام، مستنينك" closed the chat.
+  if (CLOSED_REASONS.has(String(c.lastReason || ""))) return false;
   const lastIn = Number(c.lastInboundAt) || 0;
   const lastAt = Number(c.lastMessageAt) || 0;
   if (!lastIn || now - lastIn > WINDOW_MS) return false;
   const quiet = now - lastAt;
   if (quiet < MIN_QUIET_MS || quiet > MAX_QUIET_MS) return false;
-  if ((Number(c.nudgedAtMs) || 0) >= lastIn) return false;
+  // At most one nudge a week per chat, however many times they wrote back in between.
+  const nudgedAt = Number(c.nudgedAtMs) || 0;
+  if (nudgedAt >= lastIn || now - nudgedAt < NUDGE_COOLDOWN_MS) return false;
   // Mid-booking lists are a question already on the table; a nudge on top reads as nagging.
   if (typeof c.state === "string" && c.state.startsWith("booking_")) return false;
   return true;
@@ -149,8 +222,14 @@ exports.quietNudge = onSchedule(
           if (!shouldNudge(doc.id, c, now)) continue;
           const to = nudgeAddress(c, route.kind);
           if (!to) continue;
+          if (typeof c.patientId === "string" && c.patientId) {
+            // One read, only for the few that passed shouldNudge: the single-field query the lead
+            // follow-up already runs, so no index. A failed read sends nothing.
+            const appts = await db().collection(`clinics/${clinicId}/appointments`).where("patientId", "==", c.patientId).limit(50).get().catch(() => null);
+            if (!appts || standingAppointment(appts.docs.map((a) => a.data() || {}), cairoClock(now).dateKey)) continue;
+          }
 
-          const text = nudgeText(c);
+          const text = nudgeText(c, doc.id, now);
           const sent = await sendNudge(route, to, text);
           const at = Date.now();
           await doc.ref.set({ nudgedAtMs: at, lastText: text.slice(0, 160), lastAt: at, lastDirection: "out", lastAuthor: "bot", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
@@ -174,6 +253,8 @@ exports.quietNudge = onSchedule(
 
 // For the offline checks (test-quietNudge.js); the deployed function is `quietNudge` alone.
 exports.nudgeText = nudgeText;
+exports.offeredTimeAhead = offeredTimeAhead;
+exports.standingAppointment = standingAppointment;
 exports.shouldNudge = shouldNudge;
 exports.nudgeRoute = nudgeRoute;
 exports.nudgeAddress = nudgeAddress;
