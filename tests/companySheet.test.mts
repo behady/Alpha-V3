@@ -2,8 +2,11 @@
 //
 //   npm run test:company-sheet
 import assert from "node:assert/strict";
+import { buildInsuranceStatement } from "../src/lib/insuranceStatement";
 import {
   buildCompanySheets,
+  companyStatement,
+  scopeSheets,
   markKey,
   sendRefusal,
   sheetChargeIds,
@@ -255,6 +258,144 @@ check("sheetChargeIds lists every printed charge", () => {
     [],
   );
   assert.deepEqual(sheetChargeIds(sheetOf(sheets, "2026-11")), ["c1", "c2", "c3"]);
+});
+
+// ---- companyStatement -------------------------------------------------------------------------
+const doneAll = [card("n1", "Completed", "2026-11-05", "2026-11-05"), card("n2", "Completed", "2026-11-12", "2026-11-12")];
+function stmt(
+  charges: SheetCharge[],
+  cards: SheetCard[],
+  range: { start: string; end: string },
+  keep?: (c: SheetCharge) => boolean,
+) {
+  return companyStatement({
+    charges,
+    cards,
+    marks: {},
+    sent: [],
+    payerId: "gasco",
+    payerName: "GASCO",
+    range,
+    memberNumbers: new Map([["p1", "M1"]]),
+    keep,
+  });
+}
+
+check("statement: one case per patient per month", () => {
+  const { statement } = stmt(
+    [charge("c1", "p1", "2026-11-05", "n1"), charge("c2", "p1", "2026-11-12", "n2")],
+    doneAll,
+    { start: "2026-11-01", end: "2026-11-30" },
+  );
+  assert.equal(statement.cases.length, 1);
+  assert.equal(statement.cases[0].lines.length, 2);
+  assert.equal(statement.cases[0].subtotal, 200);
+  assert.equal(statement.cases[0].date, "2026-11-05");
+  assert.equal(statement.cases[0].memberNumber, "M1");
+  assert.equal(statement.total, 200);
+  assert.equal(statement.month, "2026-11");
+});
+
+check("statement: a partial range prints the whole month", () => {
+  const { statement } = stmt(
+    [charge("c1", "p1", "2026-11-05", "n1"), charge("c2", "p1", "2026-11-12", "n2")],
+    [card("n1", "Completed", "2026-11-05", "2026-11-05"), card("n2", "Completed", "2026-11-12", "2026-11-20")],
+    { start: "2026-11-01", end: "2026-11-15" },
+  );
+  assert.equal(statement.cases.length, 1);
+  assert.equal(statement.cases[0].lines.length, 2);
+});
+
+check("statement: two months touched, serials run through", () => {
+  const { statement, sheets } = stmt(
+    [charge("c1", "p1", "2026-11-05", "n1"), charge("c2", "p2", "2026-12-05", "n2")],
+    [card("n1", "Completed", "2026-11-05", "2026-11-05"), card("n2", "Completed", "2026-12-05", "2026-12-05")],
+    { start: "2026-11-01", end: "2026-12-31" },
+  );
+  assert.deepEqual(statement.cases.map((c) => c.serial), [1, 2]);
+  assert.deepEqual(sheets.map((s) => s.month), ["2026-11", "2026-12"]);
+  assert.deepEqual(statement.missingMemberNumber.map((m) => m.patientId), ["p2"]);
+});
+
+check("statement: legacy months print exactly as before", () => {
+  const rows = [charge("a", "p1", "2026-10-10"), charge("b", "p1", "2026-10-10"), charge("c", "p1", "2026-10-20")];
+  const range = { start: "2026-10-01", end: "2026-10-31" };
+  const { statement, sheets } = stmt(rows, [], range);
+  const old = buildInsuranceStatement({
+    rows,
+    payerId: "gasco",
+    payerName: "GASCO",
+    month: "2026-10",
+    range,
+    memberNumbers: new Map([["p1", "M1"]]),
+  });
+  assert.deepEqual(statement.cases, old.cases);
+  assert.deepEqual(statement, old);
+  assert.deepEqual(sheets, []);
+});
+
+check("statement: a range across the start is legacy first, then November", () => {
+  const { statement, sheets } = stmt(
+    [charge("a", "p1", "2026-10-10"), charge("b", "p1", "2026-10-20"), charge("c1", "p2", "2026-11-05", "n1")],
+    [card("n1", "Completed", "2026-11-05", "2026-11-05")],
+    { start: "2026-10-15", end: "2026-11-30" },
+  );
+  assert.deepEqual(statement.cases.map((c) => c.date), ["2026-10-20", "2026-11-05"]);
+  assert.deepEqual(statement.cases.map((c) => c.serial), [1, 2]);
+  assert.deepEqual(sheets.map((s) => s.month), ["2026-11"]);
+  assert.equal(statement.month, "2026-10");
+});
+
+check("statement: the branch filter applies after the walk", () => {
+  const { statement, sheets } = stmt(
+    [charge("c1", "p1", "2026-11-05", "n1", { branchId: "A" }), charge("c2", "p1", "2026-11-06", "n2", { branchId: "B" })],
+    [card("n1", "Completed", "2026-11-05", "2026-11-05"), card("n2", "Ongoing", "2026-11-06")],
+    { start: "2026-11-01", end: "2026-11-30" },
+    (c) => c.branchId === "A",
+  );
+  assert.deepEqual(statement.cases, []);
+  assert.equal(sheets[0].held.length, 1);
+  assert.deepEqual(ids(sheets[0].held[0]), ["c1"]);
+});
+
+check("statement: held prints nothing", () => {
+  const { statement } = stmt(
+    [charge("c1", "p1", "2026-11-05", "n1")],
+    [card("n1", "Ongoing", "2026-11-05")],
+    { start: "2026-11-01", end: "2026-11-30" },
+  );
+  assert.deepEqual(statement.cases, []);
+  assert.equal(statement.total, 0);
+});
+
+check("statement: keep also filters legacy rows", () => {
+  const { statement } = stmt(
+    [charge("a", "p1", "2026-10-10", undefined, { branchId: "A" }), charge("b", "p2", "2026-10-11", undefined, { branchId: "B" })],
+    [],
+    { start: "2026-10-01", end: "2026-10-31" },
+    (c) => c.branchId === "A",
+  );
+  assert.deepEqual(statement.cases.map((c) => c.patientId), ["p1"]);
+});
+
+check("statement: a backwards range is empty", () => {
+  const { statement, sheets } = stmt([charge("c1", "p1", "2026-11-05", "n1")], doneAll, { start: "2026-12-01", end: "2026-11-01" });
+  assert.deepEqual(statement.cases, []);
+  assert.deepEqual(sheets, []);
+});
+
+check("scopeSheets drops a held patient left with no charges", () => {
+  const sheets = buildCompanySheets({
+    charges: [charge("c1", "p1", "2026-11-05", "n1", { branchId: "B" })],
+    cards: [card("n1", "Ongoing", "2026-11-05")],
+    marks: {},
+    sent: [],
+    payerId: "gasco",
+    through: "2026-11",
+  });
+  const scoped = scopeSheets(sheets, (c) => c.branchId === "A");
+  assert.deepEqual(scoped[0].held, []);
+  assert.equal(sheets[0].held.length, 1);
 });
 
 console.log(failed ?`companySheet: ${failed} failed, ${passed} passed` : `companySheet: all ${passed} checks passed`);

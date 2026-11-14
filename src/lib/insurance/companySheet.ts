@@ -15,7 +15,13 @@
  * Pure: no Firebase, no React. Charges before the start month never enter the walk.
  */
 import { monthsBetween } from "@/lib/insurance/billingMonth";
-import type { StatementRowLite } from "@/lib/insuranceStatement";
+import {
+  buildInsuranceStatement,
+  statementLineText,
+  type Statement,
+  type StatementCase,
+  type StatementRowLite,
+} from "@/lib/insuranceStatement";
 import { toYmd } from "@/lib/reports/patientStats";
 
 export const COMPANY_SHEET_START = "2026-11";
@@ -225,4 +231,93 @@ export function unsendRefusal(sheets: readonly MonthSheet[], month: string): "no
 /** The charge ids a `send` stores: every printed charge of the month. */
 export function sheetChargeIds(sheet: MonthSheet): string[] {
   return sheet.printed.flatMap((p) => p.charges.map((c) => text(c.id)));
+}
+
+/** Sheets with only the charges `keep` accepts; a patient left with none is dropped. */
+export function scopeSheets(sheets: readonly MonthSheet[], keep: (charge: SheetCharge) => boolean): MonthSheet[] {
+  const scope = <T extends SheetPatient>(patients: readonly T[]): T[] =>
+    patients.flatMap((p) => {
+      const charges = p.charges.filter(keep);
+      if (charges.length === 0) return [];
+      return [{ ...p, charges, value: round2(charges.reduce((sum, c) => sum + amountOf(c), 0)) }];
+    });
+  return sheets.map((s) => ({ ...s, printed: scope(s.printed), held: scope(s.held) }));
+}
+
+/**
+ * The company's statement for [start, end]: today's per-visit cases for the part of the range
+ * before 2026-11-01, then one case per printed patient for each month the range touches from
+ * 2026-11 on. Serials run through; `total` is the sum.
+ */
+export function companyStatement(
+  args: SheetInputs & {
+    payerId: string;
+    payerName: string;
+    range: { start: string; end: string };
+    memberNumbers: ReadonlyMap<string, string>;
+    keep?: (charge: SheetCharge) => boolean; // the branch on screen; applied after the walk
+  },
+): { statement: Statement; sheets: MonthSheet[] } {
+  const { payerId, payerName, range, memberNumbers, keep } = args;
+  const firstSheetDay = `${COMPANY_SHEET_START}-01`;
+  const month = range.start.slice(0, 7);
+  const cases: StatementCase[] = [];
+  let sheets: MonthSheet[] = [];
+
+  if (range.start <= range.end) {
+    if (range.start < firstSheetDay) {
+      const legacy = buildInsuranceStatement({
+        rows: keep ? args.charges.filter(keep) : [...args.charges],
+        payerId,
+        payerName,
+        month,
+        range: { start: range.start, end: range.end < firstSheetDay ? range.end : "2026-10-31" },
+        memberNumbers,
+      });
+      cases.push(...legacy.cases);
+    }
+
+    if (range.end >= firstSheetDay) {
+      const touched = new Set(monthsBetween(range.start > firstSheetDay ? range.start : firstSheetDay, range.end));
+      const walked = buildCompanySheets({ ...args, through: range.end.slice(0, 7) }).filter((s) => touched.has(s.month));
+      sheets = keep ? scopeSheets(walked, keep) : walked;
+      for (const sheet of sheets) {
+        for (const p of sheet.printed) {
+          const charges = [...p.charges].sort((a, b) => toYmd(a.date).localeCompare(toYmd(b.date)));
+          const lines = charges.map((c) => ({ text: statementLineText(c), amount: amountOf(c), rowId: text(c.id) }));
+          cases.push({
+            serial: 0,
+            patientId: p.patientId,
+            patientName: p.patientName,
+            memberNumber: text(memberNumbers.get(p.patientId)),
+            date: toYmd(charges[0].date),
+            lines,
+            subtotal: round2(lines.reduce((sum, l) => sum + l.amount, 0)),
+          });
+        }
+      }
+    }
+  }
+
+  cases.forEach((c, i) => {
+    c.serial = i + 1;
+  });
+  const seen = new Set<string>();
+  const missingMemberNumber: Statement["missingMemberNumber"] = [];
+  for (const c of cases) {
+    if (c.memberNumber || seen.has(c.patientId)) continue;
+    seen.add(c.patientId);
+    missingMemberNumber.push({ patientId: c.patientId, patientName: c.patientName });
+  }
+  return {
+    statement: {
+      payerId,
+      payerName,
+      month,
+      cases,
+      total: round2(cases.reduce((sum, c) => sum + c.subtotal, 0)),
+      missingMemberNumber,
+    },
+    sheets,
+  };
 }
