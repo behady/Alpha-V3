@@ -1558,6 +1558,18 @@ ${replyText}`;
           // "rescheduled" is a success too — labelling it a failure made the quiet-nudge chase a
           // patient who had just moved their appointment.
           if (!["booked", "rescheduled", "slot_taken", "reschedule_gone"].includes(reason)) reason = "ai_slot_failed";
+        } else if (conversation.lastReason === "ai_ask_name_slot") {
+          /*
+           * The name was asked for in the last message and the answer was not understood as one.
+           * Asking a second time in the same words is a loop — a patient sent his name, then
+           * "it's above", then a voice note, and got the identical question four times. Once is
+           * the limit: the time stays held on the chat and a person finishes the booking.
+           */
+          replyText = `معلش على اللخبطة 🙏 الاستقبال هيأكد الحجز ${voiceFor(ctx.gender ?? "unknown").withYou} حالاً.`;
+          nextState = "handed_off";
+          handoff = true;
+          pending = { date: slotDate, times: [slotTime], doctor: slotDoctor, treatment: ctx.serviceMatch || aiInterest || conversation.lastInterest };
+          reason = "ai_name_loop_handoff";
         } else {
           const askName = `${v.welcome} 🙏 عشان أسجل الحجز باسمك، ${v.send === "ابعتي" ? "ابعتيلي" : "ابعتلي"} اسمك الكامل.`;
           const lead = intro && !claimsBooked(intro) ? intro : "";
