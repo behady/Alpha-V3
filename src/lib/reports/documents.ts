@@ -173,6 +173,16 @@ function outcomeRow(c: OutcomeCounts): DocRow {
 
 // --- the builder ---------------------------------------------------------------------------------------
 
+/**
+ * The sheet's charges only start at 2026-11, but the part of a range before that prints per visit
+ * from the report's own rows: hand `companyStatement` both, one entry per id.
+ */
+function withRangeRows(sheetCharges: SheetInputs["charges"], rows: Row[], payerId: string): SheetInputs["charges"] {
+  const seen = new Set(sheetCharges.map((c) => String(c.id)));
+  const extra = rows.filter((r) => String(r.payerId || "") === payerId && !seen.has(String(r.id)));
+  return [...sheetCharges, ...(extra as unknown as SheetInputs["charges"][number][])];
+}
+
 export function buildReportDoc(id: string, input: ReportInputs): ReportDoc {
   const meta = reportMeta(id);
   const isAr = input.lang === "ar";
@@ -553,7 +563,7 @@ export function buildReportDoc(id: string, input: ReportInputs): ReportDoc {
         const payerName = isAr ? p.nameAr || p.name : p.name;
         const sheet = input.companySheets?.[p.id];
         const st = sheet
-          ? companyStatement({ ...sheet, payerId: p.id, payerName, range, memberNumbers }).statement
+          ? companyStatement({ ...sheet, charges: withRangeRows(sheet.charges, input.procedures, p.id), payerId: p.id, payerName, range, memberNumbers }).statement
           : buildInsuranceStatement({ rows: input.procedures as unknown as StatementRowLite[], payerId: p.id, payerName, month, range, memberNumbers });
         if (st.cases.length === 0) continue;
         totalAll += st.total;

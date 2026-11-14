@@ -118,6 +118,14 @@ ok(!compare.figures[0].delta?.bad, "and a rise in income is not red");
   ok(on?.type === "table" && on.rows.length === 1 && on.rows[0]._patientId === "p1" && on.total?.value === 1500, "insurance doc: a contract company's table follows the sheet, only the finished patient, total = her cost");
   const off = gascoTable(gascoIn(false));
   ok(off?.type === "table" && off.rows.length === 2 && off.total?.value === 1800, "insurance doc: no sheet entry means today's output, both patients");
+
+  // Before November the sheet's charges hold no history; the range's own rows still print per visit.
+  const octCharge = { id: "g0", type: "procedure", patientId: "p3", patientName: "Hana Fathy", serviceName: "Scaling", cost: 200, date: "2026-10-15", normDate: "2026-10-15", payerId: "gasco", payerName: "GASCO" };
+  const octRange = { start: "2026-10-01", end: "2026-10-31" };
+  const octOld = gascoTable({ ...gascoIn(false), range: octRange, procedures: [octCharge, ...gascoCharges] });
+  const octNew = gascoTable({ ...gascoIn(true), range: octRange, procedures: [octCharge, ...gascoCharges] });
+  ok(octOld?.type === "table" && octOld.rows.length === 1 && octOld.total?.value === 200, "insurance doc: October prints the October visit on the old path");
+  eq(octNew, octOld, "insurance doc: a contract company's October range prints exactly as the old path does");
 }
 
 const pnl = buildReportDoc("pnl", inputs("en"));

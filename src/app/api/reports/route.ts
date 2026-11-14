@@ -118,8 +118,14 @@ export async function GET(request: Request) {
     if (meta.id === "insurance") {
       const contract = base.payers.filter((p) => p.active && p.id !== PRIVATE_PAYER_ID && !isInsurerFormat(p.format));
       companySheets = {};
-      const loaded = await Promise.all(contract.map((p) => loadCompanySheetInputs(clinicId, p.id)));
-      contract.forEach((p, i) => { companySheets![p.id] = loaded[i]; });
+      // One company that cannot be read must not take the whole report down: it falls back to the per-visit statement.
+      await Promise.all(contract.map(async (p) => {
+        try {
+          companySheets![p.id] = await loadCompanySheetInputs(clinicId, p.id);
+        } catch (error) {
+          reportServerError("api/reports company sheet", error, { payerId: p.id });
+        }
+      }));
     }
 
     const inputs: ReportInputs = { ...base, range, today, lang, data, payroll, clinicName: String(clinic?.name || ""), companySheets };
