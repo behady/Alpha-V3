@@ -49,6 +49,25 @@ export function claimKey(kind: "in" | "out", phoneKey: string, text: string): st
 }
 
 /**
+ * One delivery per message id.
+ *
+ * The gateway gives a webhook fifteen seconds and then sends the same message again, twice. A turn
+ * that takes longer than that — a slow model answer plus the human pause — was received two or
+ * three times: the patient's line went onto the thread each time, and a copy that landed outside
+ * the twenty-second same-words window was answered again. The id is the message's own, so this
+ * claim is exact where the same-words one is a guess. Empty when there is no id to claim, and the
+ * caller then carries on as before.
+ */
+export function inboundDeliveryKey(messageId: string): string {
+  const id = String(messageId || "").trim().replace(/[^A-Za-z0-9_-]/g, "_");
+  // The tail is what differs between two messages in one chat, so a long id keeps its tail.
+  return id ? `msg_${id.slice(-120)}` : "";
+}
+
+/** The gateway's retries end inside a minute; a day costs nothing and covers a late replay. */
+export const INBOUND_DELIVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
  * True when this caller is the first to claim `key` inside `windowMs`; false when somebody else
  * already did. A stale claim (older than the window) is taken over.
  */

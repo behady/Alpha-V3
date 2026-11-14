@@ -20,6 +20,18 @@ assert.equal(nameFromReply("أنا اسمي ملك أيمن محمد."), "ملك
 assert.equal(nameFromReply("الاسم: علي حسن"), "علي حسن");
 assert.equal(nameFromReply("my name is Omar Adel"), "Omar Adel");
 
+// A name sent with a phone number and a thank-you is still a name. The real message: the patient
+// was asked for his name three times after sending exactly this, and reception had to step in.
+assert.equal(nameFromReply("خميس عبد الوهاب الحلواني.. موبايل رقم.. 01064785354.. ولكم الشكر"), "خميس عبد الوهاب الحلواني");
+assert.equal(nameFromReply("محمد صلاح 01001234567"), "محمد صلاح");
+assert.equal(nameFromReply("منى عبد الرحمن، شكرا"), "منى عبد الرحمن");
+assert.equal(nameFromReply("الاسم احمد علي ورقمي +201001234567"), "احمد علي");
+// ...but what is left must still be a name on its own.
+assert.equal(nameFromReply("تم أعلاه.. في انتظار اللوكيش"), null);
+assert.equal(nameFromReply("تمام.. عنوان العيادة.. ولكم الشكر"), null);
+assert.equal(nameFromReply("01064785354"), null);
+assert.equal(nameFromReply("شكرا"), null);
+
 // Sentences, greetings and questions are not names.
 assert.equal(nameFromReply("ازي حضرتك أنا من بلبيس من الشرقية"), null, "the real voice note");
 assert.equal(nameFromReply("المكان فين لو سمحت"), null);

@@ -6,7 +6,7 @@ import { getDocs, query, where } from "firebase/firestore";
 import { getClinicCollection } from "@/lib/db-utils";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
-import { normalizeAppointmentStatus } from "@/lib/appointmentStages";
+import { hasAttended } from "@/lib/appointmentStages";
 
 /**
  * The bot's sales funnel, last 30 days.
@@ -85,7 +85,7 @@ export default function BotFunnelCard() {
         handoffs: convRows.filter((c) => c.outcome === "handoff").length,
         leads: leadRows.length,
         booked: apptRows.length,
-        showed: apptRows.filter((a) => normalizeAppointmentStatus(String(a.status || "")) === "Completed").length,
+        showed: apptRows.filter((a) => hasAttended(String(a.status || ""))).length,
         services: [...services.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6),
         creditsThisMonth: (usage?.docs ?? []).reduce((n, d) => n + (Number(d.data().creditsUsed) || 0), 0),
       });

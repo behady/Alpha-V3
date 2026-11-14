@@ -39,6 +39,18 @@ export function normalizeAppointmentStatus(status: string | undefined | null): s
   return LEGACY_STATUS_ALIASES[status] || status;
 }
 
+/**
+ * Did the patient actually come in?
+ *
+ * Anything from the front door onward. Not every clinic presses Completed: one ends each visit at
+ * "Checking Out", so a count of Completed alone read as nobody showing up.
+ */
+const ATTENDED_STAGES: ReadonlySet<string> = new Set<AppointmentStageValue>(["Checked In", "In Chair", "Checking Out", "Completed"]);
+
+export function hasAttended(status: string | undefined | null): boolean {
+  return ATTENDED_STAGES.has(normalizeAppointmentStatus(status));
+}
+
 const STAGE_LABELS: Record<string, { en: string; ar: string }> = {
   Scheduled: { en: "Unconfirmed", ar: "غير مؤكد" },
   Confirmed: { en: "Confirmed", ar: "مؤكد" },

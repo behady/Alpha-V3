@@ -46,8 +46,33 @@ const NOT_NAME_WORDS = new Set(
   ].map(fold)
 );
 
+/**
+ * What people add around a name without being asked: their number, and a thank-you.
+ *
+ * "خميس عبد الوهاب الحلواني.. موبايل رقم.. 01064785354.. ولكم الشكر" is a complete answer to
+ * "what is your name", and it was refused three times because of the digits. Only these two
+ * courtesies are removed — whatever is left still has to pass as a name by itself, so a sentence
+ * with a number in it stays a sentence.
+ */
+function withoutExtras(text: string): string {
+  return text
+    .replace(/[+]?[\d٠-٩][\d٠-٩\s-]{6,}[\d٠-٩]/g, " ")
+    .replace(/(?:^|\s)و?(?:رقمي|رقم (?:ال)?(?:موبايل|تليفون|واتس(?:اب)?)|(?:ال)?(?:موبايل|تليفون) رقم|(?:ال)?موبايل|(?:ال)?تليفون|واتس ?اب)(?=$|[\s.،,:])/gu, " ")
+    .replace(/(?:^|\s)(?:ولكم|لكم)? ?(?:جزيل )?(?:الشكر|شكرا|شكراً)(?: جزيلا| جزيلاً)?(?=$|[\s.،,!])/gu, " ")
+    .replace(/(?:^|\s)(?:و)?(?:الف|ألف) شكر(?=$|[\s.،,!])/gu, " ")
+    .replace(/\b(?:thanks|thank you|mobile|phone|whatsapp)\b/giu, " ")
+    // "name.. number.. thanks" leaves its separators behind.
+    .replace(/[.،,:؛;!-]+(?=\s|$)/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** The name in this reply, tidied, or null when the reply is not a name. */
 export function nameFromReply(text: string): string | null {
+  return strictName(text) ?? strictName(withoutExtras(String(text || "")));
+}
+
+function strictName(text: string): string | null {
   let name = String(text || "")
     .replace(/\s+/g, " ")
     .trim()
@@ -68,6 +93,7 @@ export function nameFromReply(text: string): string | null {
   if (words.length > MAX_WORDS) return null;
   // Letters only (any script), with the marks real names carry: "عبد-الله", "O'Neil", "د.".
   if (!words.every((w) => /^[\p{L}\p{M}'’.-]+$/u.test(w) && /\p{L}/u.test(w))) return null;
-  if (words.some((w) => NOT_NAME_WORDS.has(fold(w)))) return null;
+  // "تمام.." is still "تمام": the dots a word may carry must not hide it from the list.
+  if (words.some((w) => NOT_NAME_WORDS.has(fold(w).replace(/['’.-]/g, "")))) return null;
   return name;
 }

@@ -21,6 +21,7 @@ import { reportServerError } from "@/lib/server/reportError";
 import { readStoredAd, type AdReferral } from "@/lib/bot/adReferral";
 import { gradeLeadByPhone } from "@/lib/leads/gradeLeadServer";
 import { claimMediaTurn, joinsMediaBurst } from "@/lib/bot/burstGuard";
+import { INBOUND_DELIVERY_WINDOW_MS, claimOnce, inboundDeliveryKey } from "@/lib/bot/replyClaims";
 import { fileHistoryIntoThreads } from "@/lib/bot/threadHistory";
 import { readHistoryItems, type HistoryItem } from "@/lib/bot/threadHistoryPlan";
 
@@ -376,6 +377,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, ignored: "unusable_phone" });
     }
 
+    // The same message delivered again (the gateway re-sends when this request runs past its
+    // fifteen seconds) is dropped here, before it is written, intercepted or answered a second
+    // time. The first delivery is still running and will finish the job. See lib/bot/replyClaims.
+    const inboundId = parsedBody ? firstString(...candidateMessages(parsedBody).map((m) => (typeof m.id === "string" ? m.id : ""))) : "";
+    const deliveryKey = inboundDeliveryKey(inboundId);
+    if (deliveryKey && !(await claimOnce(clinicId, deliveryKey, INBOUND_DELIVERY_WINDOW_MS))) {
+      return NextResponse.json({ ok: true, ignored: "duplicate_delivery" });
+    }
+
     // Into the chat thread before any decision about answering — received is received.
     // The clinic's own people are answered on the staff line and kept out of the inbox. Only
     // possible when the sender's phone is visible; a lid hides it, and that owner stays a stranger.
@@ -400,7 +410,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, staffLine: true });
     }
 
-    const inboundId = parsedBody ? firstString(...candidateMessages(parsedBody).map((m) => (typeof m.id === "string" ? m.id : ""))) : "";
     const lineId = await recordThreadMessage(clinicId, chatId, {
       direction: "in",
       author: "patient",

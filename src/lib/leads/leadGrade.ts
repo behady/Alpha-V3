@@ -129,16 +129,49 @@ export interface GradeSignals {
 }
 
 const HIGH_VALUE = ["زراعة", "زرع", "تقويم", "فينير", "ابتسامة", "هوليود", "تركيب", "طربوش", "بورسلين", "تجميل", "implant", "braces", "veneer", "crown", "smile", "invisalign", "اينفزلاين"];
-const SERVICE_WORDS = [...HIGH_VALUE, "تبييض", "تنظيف", "حشو", "خلع", "عصب", "جذور", "اطفال", "أطفال", "ضرس", "عقل", "تلبيس", "whitening", "cleaning", "filling", "root", "extraction", "kids"];
-const URGENCY = ["الم", "ألم", "وجع", "بيوجع", "ورم", "وارم", "نزيف", "بينزف", "كسر", "مكسور", "اتكسر", "مستعجل", "طوارئ", "مش قادر", "صديد", "خراج", "pain", "hurt", "swollen", "swelling", "broken", "urgent", "emergency"];
-const BOOKING = ["احجز", "أحجز", "حجز", "ميعاد", "موعد", "معاد", "امتى", "إمتى", "متى", "متاح", "فاضي", "فاضية", "اجي", "آجي", "أجي", "النهارده", "النهاردة", "بكره", "بكرة", "book", "appointment", "available", "when can", "today", "tomorrow", "slot"];
-const PRICE = ["بكام", "كام", "سعر", "اسعار", "أسعار", "التكلفة", "تكلفة", "الحساب", "price", "cost", "how much", "fees"];
+const SERVICE_WORDS = [...HIGH_VALUE, "تبييض", "تنظيف", "حشو", "خلع", "عصب", "جذور", "اطفال", "أطفال", "ضرس", "ضرسي", "ضرسه", "ضروس", "حشوه", "حشوات", "خلعه", "عقل", "تلبيس", "whitening", "cleaning", "filling", "root", "extraction", "kids"];
+const URGENCY = ["الم", "ألم", "وجع", "وجعني", "واجع", "موجوع", "بيوجع", "ورم", "وارم", "نزيف", "بينزف", "كسر", "مكسور", "اتكسر", "مستعجل", "طوارئ", "مش قادر", "صديد", "خراج", "pain", "hurt", "swollen", "swelling", "broken", "urgent", "emergency"];
+const BOOKING = ["احجز", "أحجز", "حجز", "حجزت", "ميعاد", "موعد", "معاد", "امتى", "إمتى", "متى", "متاح", "فاضي", "فاضية", "اجي", "آجي", "أجي", "هاجي", "حاجي", "اجيلك", "النهارده", "النهاردة", "بكره", "بكرة", "book", "appointment", "available", "when can", "today", "tomorrow", "slot"];
+const PRICE = ["بكام", "كام", "سعر", "سعره", "سعرها", "سعركم", "اسعار", "أسعار", "التكلفة", "تكلفة", "الحساب", "price", "cost", "how much", "fees"];
 const OBJECTION = ["غالي", "غاليه", "غالية", "هفكر", "افكر", "أفكر", "ارخص", "أرخص", "عيادة تانية", "مكان تاني", "expensive", "think about", "cheaper"];
 const DECLINE = ["مش دلوقتي", "مش دلوقت", "بعدين", "لا شكرا", "لا شكراً", "مش عايز", "مش عايزة", "مش محتاج", "not now", "later", "no thanks"];
 
+/** One leading particle an Arabic word may carry: "and", "so", "with", "for", "like", and the article. */
+const PARTICLES = ["وبال", "فبال", "وال", "بال", "فال", "كال", "لل", "ال", "و", "ف", "ب", "ل", "ك"];
+
+/**
+ * Below this length a keyword must be a whole word.
+ *
+ * "ألم" folds to "الم" — which is also the article in front of any noun starting with م. Matched
+ * as a run of letters it fired on المكان, المعلومات, المواعيد and المهم, so every lead who sent an
+ * ad's own first message was scored "in pain, urgent" and pushed to hot. The same accident sits
+ * in every three-letter word: عقل inside معقول, اجي inside محتاجين, كام inside الكامل. Endings are
+ * not guessed for short words (الم + هم is المهم again); the forms people really write are listed.
+ */
+const WHOLE_WORD_BELOW = 4;
+
+/** Every word of an already-normalised text, plus the word left after one leading particle. */
+function wordForms(normalised: string): Set<string> {
+  const forms = new Set<string>();
+  for (const token of normalised.split(/[^\p{L}\p{N}]+/u)) {
+    if (!token) continue;
+    forms.add(token);
+    for (const p of PARTICLES) {
+      if (token.length > p.length + 1 && token.startsWith(p)) forms.add(token.slice(p.length));
+    }
+  }
+  return forms;
+}
+
 function hasAny(text: string, needles: string[]): boolean {
   const t = normalizeReplyText(text);
-  return needles.some((n) => t.includes(normalizeReplyText(n)));
+  let forms: Set<string> | null = null;
+  return needles.some((raw) => {
+    const n = normalizeReplyText(raw);
+    if (n.length >= WHOLE_WORD_BELOW || n.includes(" ")) return t.includes(n);
+    forms ??= wordForms(t);
+    return forms.has(n);
+  });
 }
 
 /**
