@@ -29,6 +29,16 @@ run("the patient is addressed as a woman", () => {
   assert.equal(she("الميعاد ده ليك"), "الميعاد ده ليكي");
 });
 
+run("a word before an Arabic comma or question mark is still a whole word", () => {
+  // The whole Arabic block holds "،" and "؟" too; counted as letters, they hid the word before them.
+  assert.equal(she("أهلاً بيك، معاك سارة"), "أهلاً بيكي، معاكي سارة");
+  assert.equal(she("الميعاد ده مناسب ليك؟"), "الميعاد ده مناسب ليكي؟");
+  assert.equal(she("ابعتلي،اسمك"), "ابعتيلي،اسمك");
+  // …and a longer word is still not a needle, nor one already marked feminine with a kasra.
+  assert.equal(she("بيكلمك الدكتور، ليكون"), "بيكلمك الدكتور، ليكون");
+  assert.equal(she("أهلاً بيكِ يا منى"), "أهلاً بيكِ يا منى");
+});
+
 run("what is already feminine is left alone", () => {
   for (const line of ["معاكي سارة", "أهلاً بيكي", "مستنينكي", "تحبي تحجزي", "ابعتيلي اسمك"]) {
     assert.equal(she(line), line, line);

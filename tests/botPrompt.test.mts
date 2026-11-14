@@ -101,6 +101,19 @@ run("layers 1–4 are identical for every clinic, and the clinic's name is the f
   assert.ok(b.includes("اسم العيادة: عيادة النور"));
 });
 
+run("the opening it is shown is the Egyptian one, once, with no emoji to copy", () => {
+  const fixed = fixedPromptLayers("sales", false, true).filter(Boolean).join("\n");
+  const greetLine = lines(fixed).find((l) => l.startsWith("- رحّب مرة بس في أول رسالة"));
+  assert.ok(greetLine, "the greeting line is in the voice layer");
+  assert.ok(greetLine!.includes("\"أهلاً بحضرتك\""));
+  assert.ok(!/[\u{1F300}-\u{1FAFF}☀-➿]/u.test(greetLine!), "no emoji in the example");
+  assert.ok(!fixed.includes("أهلاً بيك في [اسم العيادة]"), "the old example is gone");
+  assert.ok(fixed.includes("مش ترجمة"));
+  assert.ok(!fixed.includes("Alpha"));
+  // The persona example opens the way a receptionist does.
+  assert.ok(buildBotPrompt(base).includes("(مثلاً: \"أهلاً بحضرتك، معاك نور من Alpha Dental Clinic\")"));
+});
+
 run("a number that cannot book is told so, in sales mode only", () => {
   assert.ok(buildBotPrompt({ ...base, canBook: false }).includes("الحجز مش متاح للرقم ده دلوقتي"));
   assert.ok(!buildBotPrompt({ ...base, canBook: true }).includes("الحجز مش متاح للرقم ده"));

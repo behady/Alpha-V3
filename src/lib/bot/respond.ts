@@ -54,6 +54,7 @@ import { holdRepeatOffer, withoutSlotOffer } from "./slotRepeat";
 import { DEFAULT_SCREENING, readScreeningAnswer } from "./medicineScreen";
 import { stripRepeatIntro } from "./repeatIntro";
 import { feminizeAddress } from "./voiceFix";
+import { tidyModelWording } from "./wordingFix";
 import { SALES_CLOSE_REASONS, LEAD_INTEREST_REASONS, activeOffers, closingLine, offerForService } from "./sales";
 import { markBotLeadBooked, snoozeBotLead, upsertBotLead } from "./botLeads";
 import { newerPatientLines, recentThreadLines, recordThreadMessage } from "./thread";
@@ -1555,6 +1556,18 @@ ${urgentCallLine(ctx.clinicPhone)}`;
         }
       }
       /*
+       * How a receptionist talks, on the model's own words only (like the name check above), for
+       * either brain (lib/bot/wordingFix): "أهلاً بحضرتك", not the textbook "أهلاً بك"; no
+       * translated "بالفعل"; and one welcome per sitting — on a later turn (conversation.turns
+       * resets after an hour of quiet) a greeting that opens the reply is dropped, unless the
+       * patient has just greeted again. Before stripRepeatIntro further down, so "أهلاً بك، معاك
+       * سارة من …" on a later turn loses both parts instead of leaving a stray "أهلاً بك." line.
+       * The cleaned words are also what the model reads back as its own earlier turns.
+       */
+      if ((ai.kind === "answer" || ai.kind === "handoff") && ai.text) {
+        ai.text = tidyModelWording(ai.text, { laterTurn: conversation.turns > 0, patientText: [act.question, ...askedTogether].join("\n") });
+      }
+      /*
        * The check-up is in this patient's offer — the backstop behind the prompt, on either
        * brain's own words. The ordinary fee can still reach the model from approved answers, the
        * owner's coaching or an earlier bot line in the thread, and it once said "والكشف عموماً
@@ -1813,7 +1826,8 @@ ${replyText}`;
             reason = "ai_name_loop_handoff";
           }
         } else {
-          const askName = `${v.welcome} 🙏 عشان أسجل الحجز باسمك، ${v.send === "ابعتي" ? "ابعتيلي" : "ابعتلي"} اسمك الكامل.`;
+          // No "أهلاً بيك" in front: the patient has been talking to us for a while by now.
+          const askName = `عشان أسجل الحجز باسمك، ${v.send === "ابعتي" ? "ابعتيلي" : "ابعتلي"} اسمك الكامل 🙏`;
           const lead = intro && !claimsBooked(intro) ? intro : "";
           replyText = lead ? `${lead}
 
@@ -1875,7 +1889,7 @@ ${askWho}` : askWho;
           }
           reason = "ai_booking";
         } else {
-          const askName = `${v.welcome} 🙏 عشان نسجل الحجز، ياريت حضرتك ${v.send === "ابعتي" ? "تبعتيلنا" : "تبعتلنا"} الاسم الكامل.`;
+          const askName = `عشان نسجل الحجز، ياريت حضرتك ${v.send === "ابعتي" ? "تبعتيلنا" : "تبعتلنا"} الاسم الكامل 🙏`;
           const lead = intro && !claimsBooked(intro) ? intro : "";
           replyText = lead ? `${lead}\n\n${askName}` : askName;
           nextState = "booking_name";

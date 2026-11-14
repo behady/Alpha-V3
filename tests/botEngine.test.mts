@@ -215,6 +215,12 @@ const newPatientCtx: BotContext = { clinicName: "Alpha Dental", canOfferBooking:
 const askName = decideBotReply({ state: "awaiting_choice", text: "1", ctx: newPatientCtx });
 assert.equal(askName.next, "booking_name");
 assert.ok(askName.reply.includes("الاسم"), "asks for the name");
+// Mid-conversation, right after the menu's own "أهلاً بحضرتك 👋": the name question does not greet again.
+assert.ok(!/^\s*(أهلا|أهلاً|اهلا)/.test(askName.reply), "the name question does not greet again");
+const tapAsk = decideBotReply({ state: "awaiting_choice", text: "m1", ctx: newPatientCtx });
+assert.equal(tapAsk.reason, "ask_name");
+assert.ok(!/^\s*(أهلا|أهلاً|اهلا)/.test(tapAsk.reply), "the book button's name question does not greet again");
+assert.ok(tapAsk.reply.includes("اسمك الكامل"));
 
 const named = decideBotReply({ state: "booking_name", text: "  محمد   صلاح ", ctx: newPatientCtx });
 assert.deepEqual(named.action, { type: "register", name: "محمد صلاح", forRelative: false }, "whitespace folds, name registers");

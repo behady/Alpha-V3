@@ -122,6 +122,7 @@
     "test:slot-repeat": "npx tsx tests/slotRepeat.test.mts",
     "test:intro": "npx tsx tests/repeatIntro.test.mts",
     "test:voice": "npx tsx tests/voiceFix.test.mts",
+    "test:wording": "npx tsx tests/wordingFix.test.mts",
     "test:medscreen": "npx tsx tests/medicineScreen.test.mts",
     "test:prompt": "npx tsx tests/botPrompt.test.mts",
     "test:slots": "npx tsx tests/slotPreference.test.mts",

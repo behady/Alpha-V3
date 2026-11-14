@@ -374,7 +374,8 @@ function startBooking(ctx: BotContext): BotDecision {
     // A real phone with nobody on file: a NEW patient. Their name is the only missing piece.
     const v = voiceFor(ctx.gender ?? "unknown");
     const sendUs = v.send === "ابعتي" ? "تبعتيلنا" : "تبعتلنا";
-    return { reply: `${v.welcome} 🙏 عشان نسجل الحجز، ياريت حضرتك ${sendUs} الاسم الكامل.`, next: "booking_name", handoff: false, reason: "ask_name" };
+    // No "أهلاً بيك" in front: this is mid-conversation, after the menu has already greeted them.
+    return { reply: `عشان نسجل الحجز، ياريت حضرتك ${sendUs} الاسم الكامل 🙏`, next: "booking_name", handoff: false, reason: "ask_name" };
   }
   if (ctx.phoneHidden) return { reply: ASK_PHONE_REPLY, next: "awaiting_choice", handoff: false, reason: "ask_phone" };
   // No configured schedule, or an unidentifiable sender: the honest answer is a person — never a
@@ -610,7 +611,7 @@ export function decideBotReply(args: {
               : { reply: "", action: { type: "list_days" }, next: "booking_day", handoff: false, reason: "booking_days" };
           }
           if (ctx.canRegister) {
-            return { reply: "أهلاً بيك 🌟 عشان نسجل حجزك، ابعتلنا اسمك الكامل من فضلك.", next: "booking_name", handoff: false, reason: "ask_name" };
+            return { reply: "عشان نسجل حجزك، ابعتلنا اسمك الكامل من فضلك 🙏", next: "booking_name", handoff: false, reason: "ask_name" };
           }
           if (ctx.phoneHidden) return { reply: ASK_PHONE_REPLY, next: "awaiting_choice", handoff: false, reason: "ask_phone" };
           return { reply: HANDOFF_REPLY, next: "handed_off", handoff: true, reason: "booking_request" };
