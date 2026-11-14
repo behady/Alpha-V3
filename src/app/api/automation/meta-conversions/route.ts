@@ -41,7 +41,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ ok: true, ...summary });
     }
     const runs = await processAllEnabledClinics();
-    const total = (k: "sent" | "retried" | "failed" | "skipped") => runs.reduce((n, r) => n + r[k], 0);
+    const total = (k: "sent" | "retried" | "failed" | "skipped" | "deferred") => runs.reduce((n, r) => n + (r[k] || 0), 0);
     return NextResponse.json({
       ok: true,
       clinics: runs.length,
@@ -49,6 +49,9 @@ export async function GET(request: Request) {
       retried: total("retried"),
       failed: total("failed"),
       skipped: total("skipped"),
+      // Rows put back without a try spent: their click is held by another row still in flight or
+      // waiting for a retry. Without this a run that only deferred would read as "nothing to do".
+      deferred: total("deferred"),
       // Clinics switched on but not sending: half set up, or a test code saved. Their rows wait.
       paused: runs.filter((r) => r.paused).length,
     });

@@ -77,8 +77,12 @@ export const TRIGGER_EVENT: Record<ConversionTrigger, ConversionEventName> = {
 
 /** Statuses that mean the patient physically came in. The first one reached is the visit. */
 export const VISITED_STATUSES = ["Checked In", "In Chair", "Checking Out", "Completed"] as const;
-/** Legacy spellings still found on old rows (see appointmentStages.ts). */
-const STATUS_ALIASES: Record<string, string> = { Arrived: "Checked In", Seated: "In Chair", Pending: "Scheduled" };
+/**
+ * Legacy spellings still found on old rows (see appointmentStages.ts, which maps the same ones).
+ * "In Progress" was only ever a filter option, but a row that somehow carries it is a patient in
+ * the chair — a visit, not an unknown status that would read as "check-in undone".
+ */
+const STATUS_ALIASES: Record<string, string> = { Arrived: "Checked In", Seated: "In Chair", "In Progress": "In Chair", Pending: "Scheduled" };
 /**
  * A booking that is over without the patient coming credits nothing. "Rescheduled" is the marker
  * left on the old slot when a booking moves — the visit lives on in the new appointment.
@@ -141,8 +145,11 @@ export function firstDueAt(trigger: ConversionTrigger, eventTimeMs: number): num
 /** What the sender does with a queued event after re-reading its appointment. */
 export type AppointmentRecheck =
   | { action: "send" }
-  /** Final: the row stays in the log as skipped with this reason. */
-  | { action: "skip"; reason: "appointment_gone" | "cancelled" }
+  /**
+   * Final: the row stays in the log as skipped with this reason. ("cancelled" is no longer
+   * produced — a later cancellation does not undo a booking — but old rows still carry it.)
+   */
+  | { action: "skip"; reason: "appointment_gone" }
   /**
    * The moment was undone (a confirmation taken back, a check-in reversed). What happens to the
    * row depends on whether it was ever posted, which only the sender knows — see processOne in
@@ -151,9 +158,6 @@ export type AppointmentRecheck =
    */
   | { action: "undone"; reason: "not_confirmed" | "visit_undone" };
 
-/** A booking that ended without the patient: these end a lead or a confirmation for good. */
-const ENDED_STATUSES = new Set(["Cancelled", "No Show"]);
-
 /**
  * Is the moment a queued event reports still true, right before it goes to Meta?
  *
@@ -161,24 +165,25 @@ const ENDED_STATUSES = new Set(["Cancelled", "No Show"]);
  * hours (a Purchase) later, and the desk may have changed its mind in between. Meta does not
  * deduplicate these events and cannot take one back, so a status that was undone must stop here.
  *
- *   - Appointment deleted → skipped "appointment_gone".
- *   - LeadSubmitted: skipped "cancelled" only for Cancelled / No Show. "Rescheduled" SENDS: the
- *     booking really happened and merely moved, the moved copy never queues a "booked" of its own
- *     (it carries rescheduledFromId), and the once-per-click marker stops any second lead.
- *   - QualifiedLead: skipped "cancelled" for Cancelled / No Show; "undone" ONLY when the status is
- *     exactly "Scheduled" — the desk explicitly took the confirmation back. Every other live status
- *     (Confirmed, any visited stage, Rescheduled, Delayed, Late, Emergency, …) is a booking that
- *     was confirmed and is still going ahead, so it sends.
- *   - Purchase: sends for a visited stage; anything else means the check-in was undone → "undone".
+ * "Undone" is narrow on purpose. A booking and a confirmation are things that HAPPENED: a patient
+ * who booked from an ad and later cancelled or did not show still booked, and that is exactly the
+ * signal Meta needs to learn which clicks book. Only an explicit take-back stops one.
+ *
+ *   - Appointment deleted → skipped "appointment_gone" (there is no record left to report on).
+ *   - LeadSubmitted: sends whenever the appointment still exists, whatever its status — Cancelled,
+ *     No Show and Rescheduled included. (A moved booking's copy never queues a "booked" of its own,
+ *     it carries rescheduledFromId, and the once-per-click marker stops any second lead.)
+ *   - QualifiedLead: "undone" ONLY when the status is exactly "Scheduled" — the desk set it back to
+ *     unconfirmed. Every other status (Confirmed, any visited stage, Rescheduled, Delayed,
+ *     Cancelled, No Show, …) is a confirmation that was given, so it sends.
+ *   - Purchase: sends for a visited stage; anything else (moved back, cancelled) means the check-in
+ *     was undone → "undone". A visit is the one event that must still be true when it is sent.
  */
 export function recheckAppointment(eventName: ConversionEventName, appointment: { status?: unknown } | null): AppointmentRecheck {
   if (!appointment) return { action: "skip", reason: "appointment_gone" };
   const s = canonicalStatus(appointment.status);
-  if (eventName === "LeadSubmitted") return ENDED_STATUSES.has(s) ? { action: "skip", reason: "cancelled" } : { action: "send" };
-  if (eventName === "QualifiedLead") {
-    if (ENDED_STATUSES.has(s)) return { action: "skip", reason: "cancelled" };
-    return s === "Scheduled" ? { action: "undone", reason: "not_confirmed" } : { action: "send" };
-  }
+  if (eventName === "LeadSubmitted") return { action: "send" };
+  if (eventName === "QualifiedLead") return s === "Scheduled" ? { action: "undone", reason: "not_confirmed" } : { action: "send" };
   return isVisited(s) ? { action: "send" } : { action: "undone", reason: "visit_undone" };
 }
 
@@ -419,7 +424,8 @@ export function nextAttemptAt(attemptsMade: number, nowMs: number): number | nul
 /**
  * pending: queued, not yet tried. retry: tried, waiting for the next try. sent: Meta took it.
  * failed: gave up (4xx, or out of tries). skipped: nothing to send — no click on the patient,
- * the event is too old, the appointment is gone or cancelled, or the click was already credited.
+ * the event is too old, the appointment is gone, the moment was undone after a try, or the click
+ * was already credited.
  * A clinic that is switched off, not fully set up or in test mode ends nothing: its rows wait.
  */
 export type QueueStatus = "pending" | "retry" | "sent" | "failed" | "skipped";

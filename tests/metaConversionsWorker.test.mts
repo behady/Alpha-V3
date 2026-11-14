@@ -20,18 +20,24 @@
  *   h. only the scheduler's secret runs the cron;
  *   i. a row another run has locked is left alone — measured on the real clock, so a row claimed
  *      late in a long run is still locked against the next run;
- *   j. the appointment is re-read before sending: gone, cancelled or no-show ends the row; a
- *      rescheduled lead and a delayed confirmation still go out; an undone confirmation or
- *      check-in that was never posted is deleted (and a later real one can queue again), one that
- *      was posted before ends skipped; a re-confirmation landing between our read and our delete
- *      leaves the row open and it is sent next run;
+ *   j. the appointment is re-read before sending: a deleted one ends the row; a booking or a
+ *      confirmation later cancelled / no-show / rescheduled / delayed still goes out, a cancelled
+ *      visit does not; an undone confirmation or check-in that was never posted is deleted (and a
+ *      later real one can queue again), a retry that was waiting ends skipped; a re-confirmation
+ *      landing between our read and our delete leaves the row open and it is sent next run;
  *   k. one lead and one qualified lead per ad click: a second booking on the same click sends
  *      nothing, a booking on a new click does;
  *   l. a heap of finished and not-yet-due rows cannot crowd a due row out of the run's limit;
  *   m. the click marker is reserved before the send: two rows on one click in two interleaved
- *      runs send once; a reservation left by a dead run is taken over; a repeated referral keeps
- *      the click's first time;
- *   n. a row Meta accepted is never posted again, even when its "sent" cannot be written.
+ *      runs send once; a reservation whose owner row is gone is taken over; a repeated referral
+ *      keeps the click's first time;
+ *   n. a row Meta accepted is never posted again, even when its "sent" cannot be written: the
+ *      fallback keeps the send's details, and a row whose own marker says "sent" is recorded late;
+ *   o. a timed-out / 5xx try keeps its click reserved: a second row on it waits (no try spent)
+ *      until the first is sent (then already_credited) or ends unsent (then takes the click),
+ *      however old the reservation; reserving stamps the click on the row;
+ *   p. an undone confirmation with no try counted but its click reserved or credited under its
+ *      own event id is ended skipped — never deleted, never posted.
  *
  * Meta does not deduplicate these events, so every one of these guards is the only protection.
  */
@@ -85,7 +91,7 @@ const DATASET = "123456789012345";
 const WABA = "998877665544332";
 const WA_WABA = "112233445566778";
 
-const CLINICS = ["CA", "CB", "CC", "CD", "CE", "CF", "CG", "CH", "CI", "CJ", "CK", "CL", "CM", "CN"];
+const CLINICS = ["CA", "CB", "CC", "CD", "CE", "CF", "CG", "CH", "CI", "CJ", "CK", "CL", "CM", "CN", "CO", "CP"];
 
 // ── Fake Meta ───────────────────────────────────────────────────────────────────────────────
 
@@ -364,6 +370,10 @@ await check("d. 500 and 429 retry in 5 minutes", async () => {
     assert.equal(row.lockedUntil, undefined, id);
   }
   assert.equal((await eventDoc("CD", evD1)).response.httpStatus, 500);
+  // The try may have reached Meta: the click stays reserved under the row until it is answered.
+  const m1 = (await server.clickMarkerRef("CD", "CLK_D1", "LeadSubmitted").get()).data() || {};
+  assert.equal(m1.state, "sending", "a retry keeps its click reserved");
+  assert.equal(m1.eventId, evD1);
 });
 
 await check("d. nothing is retried before it is due", async () => {
@@ -611,10 +621,6 @@ await check("i. a row claimed four minutes into a long run is still locked again
 await seedClinic("CJ", fullConfig());
 await seedPatient("CJ", "PJ", clickPatient("CLK_J", NOW - D));
 const evJGone = await seedEvent("CJ", "AP_J_GONE", "booked", NOW - H, { patientId: "PJ" }); // no appointment doc
-await seedAppointment("CJ", "AP_J_CXL", "PJ", "Cancelled");
-const evJCxl = await seedEvent("CJ", "AP_J_CXL", "booked", NOW - H, { patientId: "PJ" });
-await seedAppointment("CJ", "AP_J_NS", "PJ", "No Show"); // confirmed, then never came
-const evJNs = await seedEvent("CJ", "AP_J_NS", "confirmed", NOW - H, { patientId: "PJ" });
 await seedAppointment("CJ", "AP_J_CONF", "PJ", "Scheduled"); // confirmed, then un-confirmed
 const evJConf = await seedEvent("CJ", "AP_J_CONF", "confirmed", NOW - H);
 await seedAppointment("CJ", "AP_J_VISIT", "PJ", "Confirmed"); // checked in, then undone
@@ -626,21 +632,15 @@ const evJConf2 = await seedEvent("CJ", "AP_J_CONF2", "confirmed", NOW - H, { pat
 await seedAppointment("CJ", "AP_J_VISIT2", "PJ", "Scheduled");
 const evJVisit2 = await seedEvent("CJ", "AP_J_VISIT2", "visited", NOW - 4 * H, { patientId: "PJ", extra: { status: "retry", attempts: 1 } });
 
-await check("j. gone, cancelled, no-show end the row; never-posted undos are deleted, posted ones end skipped; Meta never called", async () => {
+await check("j. a deleted appointment ends the row; never-posted undos are deleted, waiting retries end skipped; Meta never called", async () => {
   const meta = fakeMeta();
   const run = await server.processClinicQueue("CJ", { nowMs: NOW, fetchImpl: meta.impl });
   assert.equal(meta.calls.length, 0);
-  assert.equal(run.skipped, 7);
+  assert.equal(run.skipped, 5);
   const gone = await eventDoc("CJ", evJGone);
   assert.equal(gone.status, "skipped");
   assert.equal(gone.reason, "appointment_gone");
   assert.equal(gone.dueAt, undefined);
-  for (const id of [evJCxl, evJNs]) {
-    const row = await eventDoc("CJ", id);
-    assert.equal(row.status, "skipped", id);
-    assert.equal(row.reason, "cancelled", id);
-    assert.equal(row.dueAt, undefined, id);
-  }
   assert.equal((await server.capiEventsCollection("CJ").doc(evJConf).get()).exists, false, "an undone, never-posted confirmation's row is deleted");
   assert.equal((await server.capiEventsCollection("CJ").doc(evJVisit).get()).exists, false, "an undone, never-posted check-in's row is deleted");
   for (const [id, reason, attempts] of [[evJConf2, "not_confirmed", 2], [evJVisit2, "visit_undone", 1]] as const) {
@@ -651,6 +651,29 @@ await check("j. gone, cancelled, no-show end the row; never-posted undos are del
     assert.equal(row.dueAt, undefined, `${id}: out of the queue for good`);
     assert.equal(row.lockedUntil, undefined, id);
   }
+});
+
+await check("j. a later cancellation or no-show does not undo a booking or a confirmation; it does undo a visit", async () => {
+  // A patient of their own, so PJ's click (spent further down) is not touched.
+  await seedPatient("CJ", "PJC", clickPatient("CLK_JC", NOW - D));
+  await seedAppointment("CJ", "AP_J_CXL", "PJC", "Cancelled"); // booked, then cancelled
+  const evJCxl = await seedEvent("CJ", "AP_J_CXL", "booked", NOW - H, { patientId: "PJC" });
+  await seedAppointment("CJ", "AP_J_NS", "PJC", "No Show"); // confirmed, then never came
+  const evJNs = await seedEvent("CJ", "AP_J_NS", "confirmed", NOW - H, { patientId: "PJC" });
+  await seedAppointment("CJ", "AP_J_CXLV", "PJC", "Cancelled"); // checked in, then cancelled
+  const evJCxlV = await seedEvent("CJ", "AP_J_CXLV", "visited", NOW - 4 * H, { patientId: "PJC" });
+  const meta = fakeMeta();
+  const run = await server.processClinicQueue("CJ", { nowMs: NOW, fetchImpl: meta.impl });
+  assert.equal(run.sent, 2);
+  assert.deepEqual(meta.calls.map((c) => c.body.data[0].event_id).sort(), [evJCxl, evJNs].sort());
+  assert.equal((await eventDoc("CJ", evJCxl)).status, "sent", "the booking happened; the cancellation does not undo it");
+  assert.equal((await eventDoc("CJ", evJNs)).status, "sent", "the confirmation was given; the no-show does not undo it");
+  assert.equal((await server.capiEventsCollection("CJ").doc(evJCxlV).get()).exists, false, "a cancelled visit is undone and its never-posted row dropped");
+  // The transaction agrees: a cancelled confirmation is not "undone", so it is never dropped.
+  const ref = server.capiEventsCollection("CJ").doc("AP_J_NS_QualifiedLead");
+  await ref.update({ status: "pending", attempts: 0 });
+  assert.equal(await server.dropUndoneRow("CJ", ref, "QualifiedLead", "AP_J_NS"), "kept");
+  await ref.update({ status: "sent" });
 });
 
 await check("j. a rescheduled lead and a delayed confirmation still go out", async () => {
@@ -866,7 +889,7 @@ await check("m. two rows on one click in two interleaved runs: exactly one send"
   assert.equal(m2b.reason, "already_credited");
 });
 
-await check("m. a reservation left by a dead run is taken over", async () => {
+await check("m. a reservation whose owner row no longer exists is taken over", async () => {
   await seedPatient("CM", "PM2", clickPatient("CLK_M2", NOW - D));
   await seedAppointment("CM", "AP_M3", "PM2");
   const ev = await seedEvent("CM", "AP_M3", "booked", NOW - H, { patientId: "PM2" });
@@ -955,6 +978,18 @@ await check("n. Meta took it but the row write keeps failing: it stays locked an
   assert.equal(row.status, "pending", "the 'sent' write never landed");
   assert.equal(row.sentUnrecorded, true);
   assert.ok(row.lockedUntil > Date.now() + 23 * H, "the lock was stretched, not released");
+  // The fallback carries what went to Meta, so the log row is complete before it is marked sent.
+  assert.equal(row.attempts, 1);
+  assert.equal(row.patientId, "PN");
+  assert.equal(row.ctwaClid, "CLK_N");
+  assert.equal(row.clickedAt, NOW - D);
+  assert.equal(row.value, 0);
+  assert.equal(row.payload?.data?.[0]?.event_id, evN);
+  assert.equal(row.response?.httpStatus, 200);
+  assert.ok(row.lastAttemptAt, "lastAttemptAt stamped");
+  assert.equal(row.sentAt, undefined, "not final yet");
+  assert.equal(row.reason, undefined);
+  assert.ok(!JSON.stringify(row).includes(TOKEN), "no token on the fallback write either");
 
   // The next cron runs: nothing is claimed, nothing posted.
   const again = fakeMeta();
@@ -970,9 +1005,13 @@ await check("n. Meta took it but the row write keeps failing: it stays locked an
   const done = await eventDoc("CN", evN);
   assert.equal(done.status, "sent");
   assert.equal(done.reason, "recorded_late");
+  assert.ok(done.sentAt, "sentAt stamped");
   assert.equal(done.sentUnrecorded, undefined);
   assert.equal(done.dueAt, undefined);
   assert.equal(done.lockedUntil, undefined);
+  assert.equal(done.attempts, 1, "the late record keeps the send's details");
+  assert.equal(done.ctwaClid, "CLK_N");
+  assert.equal(done.response?.httpStatus, 200);
 });
 
 await check("n. without the stretch, the claim lock alone still keeps the row from being re-posted", async () => {
@@ -1011,12 +1050,208 @@ await check("n. without the stretch, the claim lock alone still keeps the row fr
   assert.equal(meta.calls.length, 1);
   const row = await eventDoc("CN", ev);
   assert.equal(row.status, "pending");
+  assert.equal(row.attempts, 0, "not even the fallback landed");
   assert.ok(row.lockedUntil > Date.now(), "the claim lock is still there");
   const again = fakeMeta();
   await server.processClinicQueue("CN", { nowMs: NOW, fetchImpl: again.impl });
   assert.equal(again.calls.length, 0, "the next run cannot take it while the lock holds");
-  // Settle it so the cron check below finds nothing left to send.
-  await server.capiEventsCollection("CN").doc(ev).update({ status: "sent", dueAt: FieldValue.delete(), lockedUntil: FieldValue.delete() });
+
+  // Past the claim lock the row is claimable again, with nothing on it saying it was sent — but
+  // its click marker says "sent" under its own event id. That is recorded, never re-posted.
+  const marker = (await server.clickMarkerRef("CN", "CLK_N2", "LeadSubmitted").get()).data() || {};
+  assert.equal(marker.state, "sent");
+  assert.equal(marker.eventId, ev);
+  const later = fakeMeta();
+  const run = await server.processClinicQueue("CN", { nowMs: NOW + 10 * MIN, clock: () => Date.now() + 10 * MIN, fetchImpl: later.impl });
+  assert.equal(later.calls.length, 0, "never posted a second time");
+  assert.equal(run.examined, 1);
+  assert.equal(run.skipped, 1, "counted as skipped: nothing went to Meta in this run");
+  const done = await eventDoc("CN", ev);
+  assert.equal(done.status, "sent");
+  assert.equal(done.reason, "recorded_late", "not already_credited: the credit is this row's own");
+  assert.ok(done.sentAt);
+  assert.equal(done.ctwaClid, "CLK_N2");
+  assert.equal(done.dueAt, undefined);
+  assert.equal(done.lockedUntil, undefined);
+});
+
+// ── o. a retry keeps its click ──────────────────────────────────────────────────────────────
+
+await seedClinic("CO", fullConfig());
+await seedPatient("CO", "PO", clickPatient("CLK_O", NOW - D));
+await seedAppointment("CO", "AP_O1", "PO");
+await seedAppointment("CO", "AP_O2", "PO");
+const evO1 = await seedEvent("CO", "AP_O1", "booked", NOW - 2 * H, { patientId: "PO" });
+const evO2 = await seedEvent("CO", "AP_O2", "booked", NOW - H, { patientId: "PO" });
+
+await check("o. a timed-out lead keeps its click: a second row on it waits instead of going out", async () => {
+  // O1 times out at Meta (it may have arrived). Before this fix the click was given back and O2
+  // went out in the same run — two leads on one click if O1 had in fact reached Meta.
+  const meta = fakeMeta((id) => (id === evO1 ? { status: 504, json: {} } : OK));
+  const run = await server.processClinicQueue("CO", { nowMs: NOW, fetchImpl: meta.impl });
+  assert.equal(meta.calls.length, 1);
+  assert.equal(meta.calls[0].body.data[0].event_id, evO1);
+  assert.equal(run.retried, 1);
+  assert.equal(run.deferred, 1);
+  const marker = (await server.clickMarkerRef("CO", "CLK_O", "LeadSubmitted").get()).data() || {};
+  assert.equal(marker.state, "sending");
+  assert.equal(marker.eventId, evO1, "still O1's");
+  const o1 = await eventDoc("CO", evO1);
+  assert.equal(o1.status, "retry");
+  assert.equal(o1.attempts, 1);
+  const o2 = await eventDoc("CO", evO2);
+  assert.equal(o2.status, "pending");
+  assert.equal(o2.attempts, 0, "no try spent on the wait");
+  assert.equal(o2.dueAt, NOW + 5 * MIN);
+  assert.equal(o2.lockedUntil, undefined);
+  assert.equal(o2.ctwaClid, undefined, "a row that only waited never stamped a click");
+});
+
+await check("o. when the retry is sent, the waiting row ends already_credited", async () => {
+  const meta = fakeMeta();
+  const run = await server.processClinicQueue("CO", { nowMs: NOW + 5 * MIN, fetchImpl: meta.impl });
+  assert.equal(meta.calls.length, 1);
+  assert.equal(meta.calls[0].body.data[0].event_id, evO1);
+  assert.equal(run.sent, 1);
+  assert.equal(run.skipped, 1);
+  assert.equal((await eventDoc("CO", evO1)).status, "sent");
+  const o2 = await eventDoc("CO", evO2);
+  assert.equal(o2.status, "skipped");
+  assert.equal(o2.reason, "already_credited");
+  const marker = (await server.clickMarkerRef("CO", "CLK_O", "LeadSubmitted").get()).data() || {};
+  assert.equal(marker.state, "sent");
+  assert.equal(marker.eventId, evO1);
+});
+
+await check("o. an old reservation by an open row is waited on; once that row runs out of tries the click counts as credited (it may be at Meta)", async () => {
+  await seedPatient("CO", "PO2", clickPatient("CLK_O2", NOW - D));
+  await seedAppointment("CO", "AP_O3", "PO2");
+  await seedAppointment("CO", "AP_O4", "PO2");
+  // O3 tried once and is waiting for a retry hours away; its reservation is an hour old — older
+  // than any claim lock, which the removed age rule would have treated as a dead run.
+  const evO3 = await seedEvent("CO", "AP_O3", "booked", NOW - 2 * H, { patientId: "PO2", extra: { status: "retry", attempts: 1, dueAt: NOW + 3 * H, ctwaClid: "CLK_O2" } });
+  const evO4 = await seedEvent("CO", "AP_O4", "booked", NOW - H, { patientId: "PO2" });
+  const ref = server.clickMarkerRef("CO", "CLK_O2", "LeadSubmitted");
+  await ref.set({ state: "sending", reservedAt: Date.now() - H, eventId: evO3, appointmentId: "AP_O3", clinicId: "CO", eventName: "LeadSubmitted" });
+  const meta = fakeMeta();
+  const run = await server.processClinicQueue("CO", { nowMs: NOW, fetchImpl: meta.impl });
+  assert.equal(meta.calls.length, 0);
+  assert.equal(run.deferred, 1);
+  assert.equal((await eventDoc("CO", evO4)).status, "pending");
+  assert.equal((await ref.get()).data()?.eventId, evO3, "not taken over");
+
+  // O3 runs out of tries — every one a timeout or 5xx, any of which may have reached Meta. Taking
+  // its click would be a second lead Meta counts, so O4 ends already_credited and nothing is sent.
+  await server.capiEventsCollection("CO").doc(evO3).update({ status: "failed", reason: "out_of_attempts", dueAt: FieldValue.delete() });
+  const meta2 = fakeMeta();
+  const run2 = await server.processClinicQueue("CO", { nowMs: NOW + 5 * MIN, fetchImpl: meta2.impl });
+  assert.equal(meta2.calls.length, 0, "never a second lead for a click that may be at Meta");
+  assert.equal(run2.sent, 0);
+  assert.equal((await eventDoc("CO", evO4)).reason, "already_credited");
+  const m = (await ref.get()).data() || {};
+  assert.equal(m.state, "sent");
+  assert.equal(m.eventId, evO3);
+});
+
+await check("o. a click whose owner Meta refused outright (meta_rejected) is given to the next booking", async () => {
+  await seedPatient("CO", "PO4", clickPatient("CLK_O4", NOW - D));
+  await seedAppointment("CO", "AP_O6", "PO4");
+  await seedAppointment("CO", "AP_O7", "PO4");
+  const evO6 = await seedEvent("CO", "AP_O6", "booked", NOW - 2 * H, { patientId: "PO4", extra: { status: "failed", reason: "meta_rejected", attempts: 1, ctwaClid: "CLK_O4" } });
+  await server.capiEventsCollection("CO").doc(evO6).update({ dueAt: FieldValue.delete() });
+  const evO7 = await seedEvent("CO", "AP_O7", "booked", NOW - H, { patientId: "PO4" });
+  const ref = server.clickMarkerRef("CO", "CLK_O4", "LeadSubmitted");
+  await ref.set({ state: "sending", reservedAt: Date.now() - H, eventId: evO6, appointmentId: "AP_O6", clinicId: "CO", eventName: "LeadSubmitted" });
+  const meta = fakeMeta();
+  const run = await server.processClinicQueue("CO", { nowMs: NOW, fetchImpl: meta.impl });
+  assert.equal(meta.calls.length, 1);
+  assert.equal(meta.calls[0].body.data[0].event_id, evO7);
+  assert.equal(run.sent, 1);
+  const m = (await ref.get()).data() || {};
+  assert.equal(m.state, "sent");
+  assert.equal(m.eventId, evO7);
+});
+
+await check("o. a click whose owner was skipped after a try (appointment deleted mid-retry) counts as credited", async () => {
+  await seedPatient("CO", "PO5", clickPatient("CLK_O5", NOW - D));
+  await seedAppointment("CO", "AP_O9", "PO5");
+  const evO8 = await seedEvent("CO", "AP_O8", "booked", NOW - 2 * H, { patientId: "PO5", extra: { status: "skipped", reason: "appointment_gone", attempts: 1, ctwaClid: "CLK_O5" } });
+  await server.capiEventsCollection("CO").doc(evO8).update({ dueAt: FieldValue.delete() });
+  const evO9 = await seedEvent("CO", "AP_O9", "booked", NOW - H, { patientId: "PO5" });
+  await server.clickMarkerRef("CO", "CLK_O5", "LeadSubmitted").set({ state: "sending", reservedAt: Date.now() - H, eventId: evO8, appointmentId: "AP_O8", clinicId: "CO", eventName: "LeadSubmitted" });
+  const meta = fakeMeta();
+  await server.processClinicQueue("CO", { nowMs: NOW, fetchImpl: meta.impl });
+  assert.equal(meta.calls.length, 0);
+  assert.equal((await eventDoc("CO", evO9)).reason, "already_credited");
+});
+
+await check("o. reserving stamps the click on the row in the same write", async () => {
+  await seedPatient("CO", "PO3", clickPatient("CLK_O3", NOW - D));
+  await seedAppointment("CO", "AP_O5", "PO3", "Confirmed");
+  const ev = await seedEvent("CO", "AP_O5", "confirmed", NOW - H, { patientId: "PO3", extra: { dueAt: NOW + 3 * H } });
+  const rowRef = server.capiEventsCollection("CO").doc(ev);
+  const marker = server.clickMarkerRef("CO", "CLK_O3", "QualifiedLead");
+  const owner = { clinicId: "CO", eventName: "QualifiedLead" as const, eventId: ev, appointmentId: "AP_O5" };
+  const fields = { ctwaClid: "CLK_O3", clickedAt: NOW - D, adSourceId: undefined };
+  assert.equal(await server.reserveClickMarker(marker, owner, Date.now(), { row: rowRef, fields }), "reserved");
+  const row = await eventDoc("CO", ev);
+  assert.equal(row.ctwaClid, "CLK_O3");
+  assert.equal(row.clickedAt, NOW - D);
+  assert.equal("adSourceId" in row, false, "an undefined field is dropped, never written");
+  assert.equal((await marker.get()).data()?.state, "sending");
+  // Clean up: end it so nothing later picks it up.
+  await rowRef.update({ status: "skipped", reason: "test", dueAt: FieldValue.delete() });
+});
+
+// ── p. an undone confirmation whose click may already be at Meta ────────────────────────────
+
+await seedClinic("CP", fullConfig());
+await seedPatient("CP", "PP", clickPatient("CLK_P", NOW - D));
+
+await check("p. an undone confirmation with no try counted but its click reserved or credited under it is ended, never deleted or posted", async () => {
+  for (const [appt, state] of [["AP_P1", "sending"], ["AP_P2", "sent"]] as const) {
+    await seedAppointment("CP", appt, "PP", "Scheduled"); // set back to unconfirmed
+    // A run reserved the click and stamped it, then died — after posting, for all we know.
+    const ev = await seedEvent("CP", appt, "confirmed", NOW - H, { patientId: "PP", extra: { ctwaClid: "CLK_P" } });
+    await server.clickMarkerRef("CP", "CLK_P", "QualifiedLead").set({ state, reservedAt: Date.now(), eventId: ev, appointmentId: appt, clinicId: "CP", eventName: "QualifiedLead" });
+    const ref = server.capiEventsCollection("CP").doc(ev);
+    const expected = state === "sent" ? "mine_sent" : "maybe_sent";
+    assert.equal(await server.dropUndoneRow("CP", ref, "QualifiedLead", appt), expected, `${state}: the transaction refuses to drop it`);
+    const meta = fakeMeta();
+    const run = await server.processClinicQueue("CP", { nowMs: NOW, fetchImpl: meta.impl });
+    assert.equal(meta.calls.length, 0, `${state}: never posted`);
+    assert.equal(run.skipped, 1);
+    const row = await eventDoc("CP", ev);
+    if (state === "sent") {
+      // Credited under this row: Meta has it. The log says so instead of hiding it as skipped.
+      assert.equal(row.status, "sent");
+      assert.equal(row.reason, "recorded_late");
+    } else {
+      assert.equal(row.status, "skipped", `${state}: kept as a final row, so the trigger can never queue it again`);
+      assert.equal(row.reason, "not_confirmed");
+    }
+    assert.equal(row.attempts, 0);
+    assert.equal(row.dueAt, undefined);
+    assert.equal(row.lockedUntil, undefined);
+    await server.clickMarkerRef("CP", "CLK_P", "QualifiedLead").delete();
+  }
+});
+
+await check("p. a marker held by ANOTHER row does not stop an undone, never-posted row from being dropped", async () => {
+  await seedAppointment("CP", "AP_P3", "PP", "Scheduled");
+  const ev = await seedEvent("CP", "AP_P3", "confirmed", NOW - H, { patientId: "PP", extra: { ctwaClid: "CLK_P" } });
+  await server.clickMarkerRef("CP", "CLK_P", "QualifiedLead").set({ state: "sent", reservedAt: Date.now(), eventId: "SOMEONE_ELSE_QualifiedLead", appointmentId: "X", clinicId: "CP", eventName: "QualifiedLead" });
+  const meta = fakeMeta();
+  const run = await server.processClinicQueue("CP", { nowMs: NOW, fetchImpl: meta.impl });
+  assert.equal(meta.calls.length, 0);
+  assert.equal(run.skipped, 1);
+  assert.equal((await server.capiEventsCollection("CP").doc(ev).get()).exists, false, "dropped, so a later real confirmation can queue");
+});
+
+await check("p. an undone confirmation with no click stamped is dropped (it never reserved one)", async () => {
+  await seedAppointment("CP", "AP_P4", "PP", "Scheduled");
+  const ev = await seedEvent("CP", "AP_P4", "confirmed", NOW - H, { patientId: "PP" });
+  assert.equal(await server.dropUndoneRow("CP", server.capiEventsCollection("CP").doc(ev), "QualifiedLead", "AP_P4"), "deleted");
 });
 
 // ── h. the cron route ───────────────────────────────────────────────────────────────────────
@@ -1038,7 +1273,7 @@ await check("h. the scheduler's secret runs every switched-on clinic", async () 
   assert.equal(body.ok, true);
   // Every clinic but CF is switched on.
   assert.equal(body.clinics, CLINICS.length - 1);
-  for (const k of ["sent", "retried", "failed", "skipped", "paused"]) assert.equal(typeof body[k], "number", k);
+  for (const k of ["sent", "retried", "failed", "skipped", "deferred", "paused"]) assert.equal(typeof body[k], "number", k);
   assert.equal(body.sent, 0, "everything was already settled");
   assert.equal(body.paused, 0, "CG's setup and CH's test code were both finished above");
 });

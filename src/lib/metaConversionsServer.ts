@@ -56,11 +56,13 @@ import {
  * not drop a repeated event_id. The guards: the trigger's create() (one row per appointment and
  * event), the claim lock (one run per row), rows that are never reopened once final, the
  * once-per-click markers below (one lead and one qualified lead per ad click, RESERVED before the
- * send so two rows on one click in two overlapping runs cannot both go out), a sent row that is
- * never released for another try even when its "sent" cannot be written, and an undone row that
- * is only deleted (to be queued afresh) if it was never posted. What they cannot cover: a request
- * that timed out after Meta had already accepted it is retried, and Meta counts that second copy
- * too. The 30-second timeout makes that rare; it cannot make it impossible.
+ * send so two rows on one click in two overlapping runs cannot both go out, and kept reserved
+ * through a timed-out or 5xx try so no other row on that click goes out while that one may
+ * already be at Meta), a sent row that is never released for another try even when its "sent"
+ * cannot be written, and an undone row that is only deleted (to be queued afresh) if it was never
+ * posted. What they cannot cover: a request that timed out after Meta had already accepted it is
+ * retried, and Meta counts that second copy too. The 30-second timeout makes that rare; it cannot
+ * make it impossible.
  *
  * Safety for the live clinics: nothing here runs for a clinic unless
  * `clinic_secrets/{clinicId}.metaCapi.enabled === true`, and the token is read from that document
@@ -100,9 +102,9 @@ const RUN_BUDGET_MS = 240 * 1000;
  */
 const DEFAULT_SEND_TIMEOUT_MS = 30_000;
 /**
- * A row whose click is mid-send in another run (its marker is reserved and fresh) waits this long
- * and tries again — by then the other send has either been recorded (this row ends
- * "already_credited") or given the click back.
+ * A row whose click is reserved by another row that is still open (mid-send in another run, or
+ * waiting for a retry after a timeout or a 5xx) waits this long and asks again — until that row
+ * is sent (this one ends "already_credited") or ends without a send (this one takes the click).
  */
 const MARKER_BUSY_WAIT_MS = 5 * 60_000;
 /** Tries at writing "sent" onto a row Meta has accepted, before giving up on the record. */
@@ -590,8 +592,12 @@ export async function processClinicQueue(clinicId: string, opts: QueueRunOptions
  * pause, and if it still fails the row keeps its claim lock (it is NOT released), an error is
  * logged with the clinic and event, and — best effort — the lock is stretched to
  * SENT_UNRECORDED_LOCK_MS with `sentUnrecorded: true` beside it, so the run that eventually claims
- * it records it as sent instead of posting it. If even that write fails, the claim lock still
- * holds it for CLAIM_LOCK_MS; past that, only the console error is left to explain a repeat.
+ * it records it as sent instead of posting it. That same write carries the send's details (the
+ * click, the try count, the payload, Meta's answer, the value): the late "sent" only flips the
+ * status, and the log row still shows what went to Meta. If even that write fails, the claim lock
+ * still holds it for CLAIM_LOCK_MS; past that, the click marker (already "sent" under this row's
+ * event id for a lead) still stops a second post — reserveClickMarker records it — and for a
+ * Purchase only the console error is left to explain a repeat.
  */
 async function recordSent(args: {
   clinicId: string;
@@ -619,10 +625,17 @@ async function recordSent(args: {
     args.eventId,
     errText(lastError)
   );
+  // Everything the "sent" patch carries except the three fields that make it final: those are
+  // what the recorded_late path writes later. Undefined keys dropped — Firestore refuses them.
+  const details: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(args.patch)) if (v !== undefined && !SENT_ONLY_FIELDS.has(k)) details[k] = v;
   await args.ref
-    .update({ sentUnrecorded: true, sentUnrecordedAt: args.clock(), lockedUntil: args.clock() + SENT_UNRECORDED_LOCK_MS })
+    .update({ ...details, sentUnrecorded: true, sentUnrecordedAt: args.clock(), lockedUntil: args.clock() + SENT_UNRECORDED_LOCK_MS })
     .catch((e) => console.error("[metaCapi] could not stretch the lock on a sent row:", args.clinicId, args.eventId, errText(e)));
 }
+
+/** The fields of a "sent" patch that make the row final; recordSent's fallback leaves them out. */
+const SENT_ONLY_FIELDS = new Set(["status", "sentAt", "reason"]);
 
 type Counter = "sent" | "retried" | "failed" | "skipped" | "deferred";
 type RowOutcome =
@@ -693,6 +706,16 @@ async function processOne(ctx: {
       return { kind: "done", count: "skipped" };
     }
     if (dropped === "gone") return { kind: "done", count: "skipped" };
+    // No try is counted, but its click is reserved (or credited) under this row: a run died after
+    // reserving, maybe after posting. It may be at Meta, so it ends here like a tried row.
+    if (dropped === "maybe_sent") return skip(recheck.reason);
+    if (dropped === "mine_sent") {
+      return {
+        kind: "finish",
+        patch: { status: "sent", reason: "recorded_late", sentUnrecorded: FieldValue.delete(), sentAt: FieldValue.serverTimestamp() },
+        count: "skipped",
+      };
+    }
     // True again (the desk re-confirmed in between): leave it open, the next run sends it.
     return { kind: "release", patch: {}, count: "deferred" };
   }
@@ -713,10 +736,19 @@ async function processOne(ctx: {
   // holding its own row's lock) would otherwise both see "no marker" and both go out.
   const marker = ONCE_PER_CLICK.has(eventName) ? clickMarkerRef(clinicId, click.ctwaClid, eventName) : null;
   const mine: MarkerOwner = { clinicId, eventName, eventId, appointmentId };
+  const clickFields = { ctwaClid: click.ctwaClid, clickedAt: click.clickedAt, adSourceId: click.sourceId };
   if (marker) {
-    const claim = await reserveClickMarker(marker, mine, clock());
-    if (claim === "already_credited") {
-      return skip("already_credited", { patientId, ctwaClid: click.ctwaClid, clickedAt: click.clickedAt, adSourceId: click.sourceId });
+    const claim = await reserveClickMarker(marker, mine, clock(), { row: ref, fields: clickFields });
+    if (claim === "already_credited") return skip("already_credited", { patientId, ...clickFields });
+    // The click is credited to THIS row: an earlier run posted it and Meta took it, but neither
+    // the "sent" nor its fallback reached the row. Record it; never post it again.
+    if (claim === "mine_sent") {
+      return {
+        kind: "finish",
+        patch: { patientId, ...clickFields, status: "sent", reason: "recorded_late", sentUnrecorded: FieldValue.delete(), sentAt: FieldValue.serverTimestamp() },
+        // Counted as skipped: nothing went to Meta in this run.
+        count: "skipped",
+      };
     }
     if (claim === "busy") return { kind: "release", patch: { dueAt: now + MARKER_BUSY_WAIT_MS }, count: "deferred" };
   }
@@ -735,16 +767,17 @@ async function processOne(ctx: {
   const outcome = await postConversion({ datasetId: config.datasetId, token: config.token, payload, fetchImpl: ctx.fetchImpl });
   const attempts = (Number(row.attempts) || 0) + 1;
 
-  // Sent: the click is credited for good. Anything else: give the click back for the retry (or
-  // for another booking on it, when this one failed for good).
-  if (marker) await settleClickMarker(marker, mine, outcome.kind === "sent");
+  // Sent: the click is credited for good. Failed (Meta refused it outright): the click is given
+  // back for another booking on it. Retry (a timeout, a 5xx, a 429): the click STAYS reserved
+  // under this row — that request may have reached Meta, and another row on the same click going
+  // out meanwhile would be a second lead Meta counts. Other rows wait ("busy") until this row is
+  // sent or ends; see reserveClickMarker.
+  if (marker && outcome.kind !== "retry") await settleClickMarker(marker, mine, outcome.kind === "sent");
 
   const common: Record<string, unknown> = {
     patientId,
     attempts,
-    ctwaClid: click.ctwaClid,
-    clickedAt: click.clickedAt,
-    adSourceId: click.sourceId,
+    ...clickFields,
     value,
     payload: redactPayload(payload),
     response: responseRecord(outcome),
@@ -772,8 +805,17 @@ async function processOne(ctx: {
  * appointment, so a re-confirmation written in between either aborts our delete (contention) or
  * is seen by it.
  *
+ * "attempts: 0" is not proof the row was never posted. A run reserves the click marker (and stamps
+ * the click on the row, see reserveClickMarker) BEFORE it posts, and a run that died after the
+ * post leaves attempts at 0. So for a once-per-click event the marker is read in the same
+ * transaction: reserved ("sending") or credited ("sent") under THIS row's event id means the post
+ * may have happened, and the row is not deleted. A row with no click stamped never reserved one,
+ * so it has no marker to find.
+ *
  *   "deleted": dropped. "kept": no longer undone (or no longer ours to drop) — release it.
- *   "gone": the row is already gone.
+ *   "gone": the row is already gone. "maybe_sent": its click is reserved ("sending") under this
+ *   row — the caller ends it skipped, never deletes it and never posts it. "mine_sent": the click
+ *   is credited ("sent") under this row — Meta took it; the caller records it as sent/recorded_late.
  *
  * Exported for the emulator test.
  */
@@ -782,17 +824,27 @@ export async function dropUndoneRow(
   ref: FirebaseFirestore.DocumentReference,
   eventName: ConversionEventName,
   appointmentId: string
-): Promise<"deleted" | "kept" | "gone"> {
+): Promise<"deleted" | "kept" | "gone" | "maybe_sent" | "mine_sent"> {
   const apptRef = appointmentId ? adminClinicDoc(clinicId, "appointments", appointmentId) : null;
   return adminDb().runTransaction(async (tx) => {
     const fresh = await tx.get(ref);
     const apptSnap = apptRef ? await tx.get(apptRef) : null;
     if (!fresh.exists) return "gone" as const;
     const d = fresh.data() || {};
+    // Every read before any write: a Firestore transaction refuses a read after a write.
+    const clid = str(d.ctwaClid);
+    const markerSnap = ONCE_PER_CLICK.has(eventName) && clid ? await tx.get(clickMarkerRef(clinicId, clid, eventName)) : null;
     const unsent = (OPEN_STATUSES as string[]).includes(String(d.status)) && !(Number(d.attempts) > 0) && d.sentUnrecorded !== true;
     if (!unsent) return "kept" as const;
     const appt = apptSnap?.exists ? ((apptSnap.data() || {}) as Record<string, unknown>) : null;
     if (recheckAppointment(eventName, appt).action !== "undone") return "kept" as const;
+    const m = markerSnap?.exists ? markerSnap.data() || {} : null;
+    const rowEventId = str(d.eventId) || ref.id;
+    if (m && str(m.eventId) === rowEventId) {
+      // Credited under this row: Meta took it, only the row never heard. Record it as sent.
+      if (m.state !== "sending") return "mine_sent" as const;
+      return "maybe_sent" as const;
+    }
     tx.delete(ref);
     return "deleted" as const;
   });
@@ -810,26 +862,41 @@ interface MarkerOwner {
  *
  *   - No marker → written `{state: "sending", reservedAt, eventId, …}`: "reserved".
  *   - state "sent" (or no state: markers from before reservations were only written after a
- *     send) → "already_credited".
- *   - state "sending", ours (this row's earlier try died mid-way) → re-reserved.
- *   - state "sending", another row's: if that row is already sent → "already_credited" (and the
- *     marker is corrected); if reserved less than CLAIM_LOCK_MS ago → "busy" (that send is in
- *     flight); older → the run that held it died, so it is taken over.
+ *     send) under THIS row's event id → "mine_sent": Meta took this very row before, and only
+ *     the row never heard; the caller records it as sent and posts nothing.
+ *   - state "sent" (or no state) under another row → "already_credited".
+ *   - state "sending", ours (this row's earlier try timed out, or died mid-way) → re-reserved.
+ *   - state "sending", another row's — that row is read and decides:
+ *       sent, or sent but unrecorded → "already_credited" (and the marker is corrected to "sent");
+ *       still open (pending / retry) → "busy": it is mid-send, or waiting for a retry after a try
+ *         that may have reached Meta, and either way it will end sent or final on its own;
+ *       refused outright by Meta (failed / meta_rejected) or missing → taken over;
+ *       any other final ending (out_of_attempts, skipped after a try) → "already_credited", since
+ *         its earlier try may have reached Meta.
  *
- * `nowClock` is the real clock: a reservation's age must be measured like a claim lock's.
+ * There is no age-based takeover any more. It existed for a run that died mid-send, but such a
+ * row is still open: its claim lock lapses, the next run claims it and re-reserves its own marker,
+ * so it always settles. Waiting on it is right — taking its click while it may already be at Meta
+ * is what produced a second lead. A missing owner row (a hand-deleted row, a marker from before
+ * rows carried event ids) can never settle, so that alone is taken over at once.
+ *
+ * On "reserved", `stamp` writes the click onto this row in the same transaction, so a row whose
+ * click is reserved always says which click (dropUndoneRow needs it to find this marker).
+ * `nowClock` is the real clock, kept on the marker as `reservedAt` for anyone reading it.
  */
 export async function reserveClickMarker(
   marker: FirebaseFirestore.DocumentReference,
   mine: MarkerOwner,
-  nowClock: number
-): Promise<"reserved" | "already_credited" | "busy"> {
+  nowClock: number,
+  stamp?: { row: FirebaseFirestore.DocumentReference; fields: Record<string, unknown> }
+): Promise<"reserved" | "already_credited" | "busy" | "mine_sent"> {
   const events = capiEventsCollection(mine.clinicId);
   return adminDb().runTransaction(async (tx) => {
     const snap = await tx.get(marker);
     if (snap.exists) {
       const m = snap.data() || {};
-      if (m.state !== "sending") return "already_credited" as const;
       const owner = str(m.eventId);
+      if (m.state !== "sending") return owner === mine.eventId ? ("mine_sent" as const) : ("already_credited" as const);
       if (owner !== mine.eventId) {
         const ownerRow = owner ? await tx.get(events.doc(owner)) : null;
         const od = ownerRow?.exists ? ownerRow.data() || {} : null;
@@ -838,19 +905,31 @@ export async function reserveClickMarker(
           tx.update(marker, { state: "sent", sentAt: FieldValue.serverTimestamp() });
           return "already_credited" as const;
         }
-        if (nowClock - (Number(m.reservedAt) || 0) < CLAIM_LOCK_MS) return "busy" as const;
+        if (od && (OPEN_STATUSES as string[]).includes(String(od.status))) return "busy" as const;
+        // Ended without a recorded send. Only a row Meta refused outright (meta_rejected: nothing
+        // was counted) gives its click back. Every other ending — out of attempts after timeouts,
+        // a tried row skipped because its appointment changed, a run that died after reserving —
+        // may already be at Meta, and taking the click would be a second lead Meta counts. So the
+        // click is treated as credited. A missing owner row can never settle and is taken over.
+        if (od && !(od.status === "failed" && od.reason === "meta_rejected")) {
+          tx.update(marker, { state: "sent", sentAt: FieldValue.serverTimestamp() });
+          return "already_credited" as const;
+        }
       }
     }
     tx.set(marker, { ...mine, state: "sending", reservedAt: nowClock, createdAt: FieldValue.serverTimestamp() });
+    if (stamp) tx.update(stamp.row, defined(stamp.fields));
     return "reserved" as const;
   });
 }
 
 /**
- * After the send: "sent" marks the click credited; any other answer gives the click back. Only a
- * marker still reserved by THIS row is touched. Never throws — it runs after a request may have
- * reached Meta. A sent marker that cannot be written stays "sending" under our event id, and
- * reserveClickMarker reads our row (sent) and treats the click as credited all the same.
+ * After a send Meta answered for good: "sent" marks the click credited; "failed" (refused outright,
+ * so nothing was counted) gives the click back. A retry never comes here — its click stays
+ * reserved (see processOne). Only a marker still reserved by THIS row is touched. Never throws — it
+ * runs after a request may have reached Meta. A sent marker that cannot be written stays "sending"
+ * under our event id, and reserveClickMarker reads our row (sent, or sentUnrecorded) and treats the
+ * click as credited all the same.
  */
 async function settleClickMarker(marker: FirebaseFirestore.DocumentReference, mine: MarkerOwner, sent: boolean): Promise<void> {
   for (let attempt = 1; attempt <= SENT_WRITE_TRIES; attempt++) {

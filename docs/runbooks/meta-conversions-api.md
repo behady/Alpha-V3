@@ -33,9 +33,11 @@ Meta in the background.
 - **One booking and one confirmation per ad click.** The first booking and the first confirmation
   after an ad click are reported. A returning patient who books again on the same click is not
   reported again, and moving an appointment to another time is not a new booking (a
-  **Rescheduled** appointment still counts as booked). A confirmation still counts if the visit
-  later goes **Delayed**, **Late** or **Rescheduled**; it is withdrawn only if the booking is set
-  back to **Unconfirmed (Scheduled)** before the report went.
+  **Rescheduled** appointment still counts as booked). A booking and a confirmation are things
+  that happened, so they are still reported if the appointment is later **Cancelled**, a **No
+  Show**, **Delayed**, **Late** or **Rescheduled** — that is exactly what Meta needs to learn which
+  ads bring bookings. A confirmation is withdrawn only if the booking is set back to
+  **Unconfirmed (Scheduled)** before the report went; a booking only if the appointment is deleted.
 - **It needs the official WhatsApp number (Meta Cloud API).** Clinics that use the QR-code line
   (the gateway / WaPilot) do see which ad a chat came from, but Meta asks for the clinic's
   *WhatsApp Business Account ID* with every report, and a QR line does not have one. Meta will most
@@ -49,9 +51,10 @@ Meta in the background.
   reported instead.
 - **A withdrawn report is never sent late.** If a booking is un-confirmed or a check-in is undone
   before its report went, a report that was never tried is simply dropped, and a later real
-  confirmation or arrival is reported instead. If the system had **already tried** to send it,
-  it is closed (shown as **Set back to unconfirmed** / **Check-in undone**) and never sent again —
-  Meta may already have it, and Meta counts every copy it gets.
+  confirmation or arrival is reported instead. If it was a **retry that was still waiting** when
+  the booking was un-confirmed or the check-in was undone (Meta did not answer the first try in
+  time), it is closed (shown as **Set back to unconfirmed** / **Check-in undone**) and never sent
+  again — Meta may already have the first try, and Meta counts every copy it gets.
 - **Nothing older than 7 days.** Meta refuses events older than a week, so an appointment edited
   long after the fact is skipped, not sent.
 - **It does not change your ads by itself.** The reports start flowing; you decide when to tell
@@ -151,9 +154,10 @@ or skipped with a reason:
 | Already reported for this ad | This ad click's booking or confirmation was already sent. Normal for returning patients. |
 | No patient | The appointment has no patient file, so there is no ad click to look up. |
 | Appointment gone | The appointment was deleted before the report went. |
-| Cancelled | The appointment was cancelled before the report went. |
-| Set back to unconfirmed | The booking was moved back to Unconfirmed (Scheduled) after a send had already been tried. Closed, never sent again — Meta may already have it. |
-| Check-in undone | The check-in was undone within the 3-hour wait after a send had already been tried. Closed, never sent again — Meta may already have it. |
+| Cancelled | Only on older rows. Today a booking or confirmation is still reported when the appointment is later cancelled — it did happen. A cancelled **visit** is not reported (see Check-in undone). |
+| Set back to unconfirmed | A retry was still waiting when the booking was moved back to Unconfirmed (Scheduled). Closed, never sent again — Meta may already have the first try. |
+| Check-in undone | A retry was still waiting when the check-in was undone (moved back or cancelled) within the 3-hour wait. Closed, never sent again — Meta may already have the first try. |
+| Sent (recorded late) | Meta took the report, but the system could not write that down at the time. It was written later and was **not** sent twice. |
 | Too old for Meta | The moment was more than 7 days ago (Meta refuses older reports), or it waited too long — for example while the switch was off or a test code was saved. |
 | Meta refused it | Meta answered with an error. The note shows Meta's message — usually a wrong ID or token. |
 | Out of attempts | Meta could not be reached 5 times in a row. |
@@ -188,18 +192,23 @@ you switch it back on.
   bookings on the same click are not reported again, and a reschedule is not a new booking — a
   **Rescheduled** appointment still counts as booked. Confirming, un-confirming and confirming
   again is one QualifiedLead.
-- **A confirmation stays reported** if the visit later goes Delayed, Late or Rescheduled. It is
-  withdrawn only if the booking is set back to **Unconfirmed (Scheduled)** before it was sent.
+- **A booking and a confirmation stay reported** if the appointment later goes Cancelled, No Show,
+  Delayed, Late or Rescheduled — they happened. A booking is dropped only if the appointment is
+  deleted; a confirmation is withdrawn only if the booking is set back to **Unconfirmed
+  (Scheduled)** before it was sent.
 - **Purchase is reported once per visit.** Checked In → In Chair → Completed is one visit, one
   Purchase, sent about 3 hours after arrival. If the check-in is undone before then (status moved
   back, cancelled, deleted), nothing is sent and a later real arrival is reported instead.
 - **Withdrawn, never sent late.** A withdrawn report that was never tried is dropped quietly (the
-  later real confirmation or arrival is reported instead). One that was already tried is closed as
-  **Set back to unconfirmed** / **Check-in undone** and never sent again, because Meta may already
-  have it and Meta counts every copy.
-- The Purchase value is the sum of the treatments charged on that visit (before discounts),
-  entered within about 3 hours of arrival. A visit with no charge entered is reported with 0.
-- Cancelled and No Show report nothing.
+  later real confirmation or arrival is reported instead). A retry that was still waiting when the
+  confirmation or check-in was undone is closed as **Set back to unconfirmed** / **Check-in
+  undone** and never sent again, because Meta may already have the first try and Meta counts every
+  copy.
+- The Purchase value is the sum of the treatments charged on that visit **after discounts** (what
+  the patient is charged), entered within about 3 hours of arrival. A visit with no charge entered
+  is reported with 0.
+- An appointment that is Cancelled or a No Show from the start reports nothing, and a cancelled or
+  no-show appointment never reports a visit.
 
 ## How reliable it is
 
@@ -295,22 +304,40 @@ Reports flowing in is step one. Meta only optimises for them when the ad set is 
   never sent again, and once-per-click markers for LeadSubmitted / QualifiedLead. Residual risk: a
   request that times out after Meta already accepted it is retried and counted twice. Not fixable
   from our side; accepted.
-- The click is chosen when the event is **sent**, not when it is queued: the bot writes the
-  appointment a moment before the referral is stored. `pickClick` takes the newest click at or
-  before the event, at most 28 days old (`MAX_CLICK_AGE_MS`). Meta publishes a 7-day window for
-  phone matching and none for click ids; 28 days is our choice. No click → `skipped / no_click`.
+- The click is chosen when the event is **sent**, not when it is queued (the trigger reads no
+  clicks). `pickClick` takes the newest click at or before the event, at most 28 days old
+  (`MAX_CLICK_AGE_MS`); a click after the event did not cause it and is never used. Meta publishes
+  a 7-day window for phone matching and none for click ids; 28 days is our choice. No click →
+  `skipped / no_click`.
 - LeadSubmitted and QualifiedLead are sent **once per ad click** (`already_credited` for the next
   booking on the same click). A reschedule is not a new booking; Rescheduled still counts as
-  booked. A QualifiedLead stands through Delayed / Late / Rescheduled; it is withdrawn only when the
-  booking goes back to Unconfirmed (Scheduled) before it was sent.
+  booked. `recheckAppointment`: a LeadSubmitted is sent whenever the appointment still exists, any
+  status (Cancelled / No Show / Rescheduled included); a QualifiedLead is sent at any status except
+  exactly `Scheduled` (set back to unconfirmed → `not_confirmed`). Only a deleted appointment ends
+  either as `appointment_gone`. Old rows may still carry reason `cancelled`; nothing writes it now.
+- **Click markers** (`clinic_secrets/{clinicId}/meta_conversion_clicks/{hash}_{event}`) are reserved
+  (`state: "sending"`, `eventId`) before the send and the click is stamped on the row in the same
+  transaction. Sent → `state: "sent"`. Refused outright (`failed`) → the marker is deleted. A
+  **retry** (timeout, 5xx, 429) keeps the marker `sending` under that row: the try may have reached
+  Meta. Another row on the same click then reads the owner row: sent → `already_credited`; still
+  open → deferred 5 min (`busy`, no try spent); missing or final without a send → takes the click.
+  There is no age-based takeover.
 - Purchase is **once per visit**, due `eventTime + 3 h` (`PURCHASE_SETTLE_MS`); value = sum of
   `chargeAmount(row)` over `ledger` rows with this `appointmentId`, `type === "procedure"`, not
-  deleted/cancelled. It is withdrawn if the check-in is undone before it is due (status moved
-  back, cancelled, deleted).
+  deleted/cancelled — `cost` is already net of the discount, so the value is after discounts. It is
+  withdrawn if the check-in is undone before it is due (status moved back, cancelled, deleted).
 - **Withdrawn rows.** A withdrawn row with no send attempt yet is removed silently, so a later real
-  confirmation / arrival queues and reports a fresh one. A row that was already attempted is ended
-  as `skipped` with reason `not_confirmed` (QualifiedLead) or `visit_undone` (Purchase) and is never
-  re-sent — Meta may already have it, and Meta does not dedupe.
+  confirmation / arrival queues and reports a fresh one. A retry that was still waiting when the
+  moment was undone is ended as `skipped` with reason `not_confirmed` (QualifiedLead) or
+  `visit_undone` (Purchase) and is never re-sent — Meta may already have the first try, and Meta
+  does not dedupe. A QualifiedLead with no try counted but whose click marker is reserved or
+  credited under its own event id (a run died after reserving, maybe after posting) is ended the
+  same way (`dropUndoneRow` → `maybe_sent`).
+- **Recorded late.** If Meta accepts a row but its `sent` cannot be written, the row is locked for a
+  day with `sentUnrecorded: true` plus the send's details (click, attempts, payload, response,
+  value); the run that claims it after that writes only `status: "sent"`, `reason:
+  "recorded_late"` and `sentAt`. A lead whose marker already says `sent` under the row's own event
+  id is recorded the same way. Neither is posted again.
 - Retry on 5xx, 429, network/timeout, Meta's `is_transient`, and throttle codes 4/17/32/613/80004.
   Any other 4xx fails at once (`meta_rejected`). `MAX_ATTEMPTS = 5`, delays 5 m / 20 m / 1 h / 3 h,
   then `out_of_attempts`.

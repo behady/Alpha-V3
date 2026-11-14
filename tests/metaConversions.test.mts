@@ -198,6 +198,9 @@ const TABLE: Row[] = [
   ["Scheduled -> legacy Arrived", st("Scheduled"), st("Arrived"), ["visited"]],
   ["legacy Arrived -> Checked In (same visit)", st("Arrived"), st("Checked In"), []],
   ["legacy Seated -> Completed (same visit)", st("Seated"), st("Completed"), []],
+  ["Confirmed -> legacy In Progress", st("Confirmed"), st("In Progress"), ["visited"]],
+  ["legacy In Progress -> Completed (same visit)", st("In Progress"), st("Completed"), []],
+  ["Checked In -> legacy In Progress (same visit)", st("Checked In"), st("In Progress"), []],
   ["Scheduled -> Cancelled", st("Scheduled"), st("Cancelled"), []],
   ["Confirmed -> No Show", st("Confirmed"), st("No Show"), []],
   ["Cancelled -> Confirmed (re-opened)", st("Cancelled"), st("Confirmed"), ["confirmed"]],
@@ -237,29 +240,26 @@ assert.equal(firstDueAt("confirmed", T), T);
 // The re-check right before a send: is the moment still true?
 assert.deepEqual(recheckAppointment("LeadSubmitted", null), { action: "skip", reason: "appointment_gone" });
 assert.deepEqual(recheckAppointment("Purchase", null), { action: "skip", reason: "appointment_gone" });
-// A lead: only Cancelled / No Show end it. A moved booking (Rescheduled) still was a booking —
-// the moved copy never queues a lead of its own, so this one must go out.
-for (const s of ["Scheduled", "Confirmed", "Checked In", "Completed", "Pending", undefined, "Rescheduled", "Delayed", "Late", "Emergency"]) {
+assert.deepEqual(recheckAppointment("QualifiedLead", null), { action: "skip", reason: "appointment_gone" });
+// A lead: a booking that happened, whatever became of it. Only a deleted appointment ends it.
+// A later cancellation or no-show does not undo the booking, and a moved booking (Rescheduled)
+// still was a booking — the moved copy never queues a lead of its own.
+for (const s of ["Scheduled", "Confirmed", "Checked In", "Completed", "Pending", undefined, "Rescheduled", "Delayed", "Late", "Emergency", "Cancelled", "No Show", " Cancelled "]) {
   assert.deepEqual(recheckAppointment("LeadSubmitted", { status: s }), { action: "send" }, `lead still a lead at ${s}`);
 }
-for (const s of ["Cancelled", "No Show", " Cancelled "]) {
-  assert.deepEqual(recheckAppointment("LeadSubmitted", { status: s }), { action: "skip", reason: "cancelled" }, `lead ended at ${s}`);
-}
-// A confirmation: undone ONLY when the desk put it back to plain Scheduled. Every other live
-// status is a confirmed booking still going ahead.
-for (const s of ["Confirmed", "Checked In", "In Chair", "Arrived", "Completed", "Rescheduled", "Delayed", "Late", "Emergency", "Some New Status"]) {
+// A confirmation: undone ONLY when the desk put it back to plain Scheduled. Every other status —
+// a later cancellation or no-show included — is a confirmation that was given.
+for (const s of ["Confirmed", "Checked In", "In Chair", "Arrived", "In Progress", "Completed", "Rescheduled", "Delayed", "Late", "Emergency", "Some New Status", "Cancelled", "No Show"]) {
   assert.deepEqual(recheckAppointment("QualifiedLead", { status: s }), { action: "send" }, `confirmation stands at ${s}`);
 }
-for (const s of ["Cancelled", "No Show"]) {
-  assert.deepEqual(recheckAppointment("QualifiedLead", { status: s }), { action: "skip", reason: "cancelled" }, `confirmation ended at ${s}`);
-}
-for (const s of ["Scheduled", undefined, "Pending", " Scheduled "]) {
+for (const s of ["Scheduled", undefined, "Pending", " Scheduled ", ""]) {
   assert.deepEqual(recheckAppointment("QualifiedLead", { status: s }), { action: "undone", reason: "not_confirmed" }, `confirmation undone at ${s}`);
 }
-for (const s of ["Checked In", "Seated", "Checking Out", "Completed"]) {
+// A visit is the one moment that must still be true: anything but a visited stage undoes it.
+for (const s of ["Checked In", "Seated", "In Progress", "Checking Out", "Completed"]) {
   assert.deepEqual(recheckAppointment("Purchase", { status: s }), { action: "send" }, `visit stands at ${s}`);
 }
-for (const s of ["Confirmed", "Scheduled", "Cancelled", "Rescheduled", "Delayed"]) {
+for (const s of ["Confirmed", "Scheduled", "Cancelled", "No Show", "Rescheduled", "Delayed"]) {
   assert.deepEqual(recheckAppointment("Purchase", { status: s }), { action: "undone", reason: "visit_undone" }, `visit undone at ${s}`);
 }
 

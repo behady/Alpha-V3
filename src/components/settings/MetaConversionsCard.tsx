@@ -29,9 +29,13 @@ import { currentClinicId } from "@/lib/db-utils";
  * sender holds back every REAL booking and visit (they wait, up to 7 days, and go out once the code
  * is cleared) — only the "Send test event" button uses the code. The server says so with
  * `testMode`; the saved code is the fallback for an older server that does not send it yet.
- * The pill and notice show only when the switch is ON as well: with the switch off nothing new is
- * even queued, so "Test mode" would claim something is waiting when nothing is. An off card with a
- * code still saved says "Off" plus a small muted "test code saved", so the leftover is not hidden.
+ * The pill and notice show only when the switch is ON and the settings are complete as well: the
+ * pill follows the server's own pause order (off → settings missing → test mode), so it names the
+ * same reason "Send pending now" would. With the switch off nothing new is even queued, so "Test
+ * mode" would claim something is waiting when nothing is; with a setting missing, clearing the
+ * code would not get anything sent, so the missing setting is what the owner needs to see. An off
+ * card with a code still saved says "Off" plus a small muted "test code saved", so the leftover is
+ * not hidden.
  *
  * "Send pending now" can come back having touched nothing because the clinic's setup pauses the
  * run (`summary.paused`: switched off, settings incomplete, test code saved). That is not "nothing
@@ -219,6 +223,7 @@ export default function MetaConversionsCard() {
     : r === "cancelled" ? (ar ? "اتلغى قبل ما يتبعت" : "Cancelled before sending")
     : r === "not_confirmed" ? (ar ? "الحجز رجع مش مؤكد" : "Set back to unconfirmed")
     : r === "visit_undone" ? (ar ? "تسجيل الحضور اتلغى" : "Check-in undone")
+    : r === "recorded_late" ? (ar ? "اتبعت (اتسجل متأخر)" : "Sent (recorded late)")
     : r === "unknown_event" ? (ar ? "حدث مش معروف" : "Unknown event")
     : r || "";
 
@@ -360,8 +365,9 @@ export default function MetaConversionsCard() {
   const shown = events.filter((e) => !(e.status === "skipped" && e.reason === "no_click"));
   const busy = loading || saving || testing || running;
   const testAvailable = Boolean(testCode.trim() || status?.testEventCode);
-  // Test mode only means something while the switch is on: off, nothing new is queued at all.
-  const testActive = status?.enabled === true && status.testMode === true;
+  // Test mode only means something while the switch is on and the settings are complete: the
+  // server checks off, then missing settings, then the test code, and pauses on the first it hits.
+  const testActive = status?.enabled === true && status.ready === true && status.testMode === true;
   const testCodeLeftOver = status?.enabled !== true && status?.testMode === true;
 
   return (
@@ -375,15 +381,10 @@ export default function MetaConversionsCard() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {/* Test mode wins over On (switch on + code saved: nothing real is sent, so "On" would
-              mislead). Off wins over Test mode: off, nothing new is queued, so nothing is "waiting". */}
+          {/* The server's pause order: Off, then missing settings, then Test mode, then On. Test
+              mode wins over On (code saved: nothing real is sent, so "On" would mislead). */}
           {loading ? (
             <Loader2 size={18} className="animate-spin text-ok" />
-          ) : testActive ? (
-            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-warn bg-warn-tint border border-warn/25 px-3 py-1.5 rounded-full">
-              <FlaskConical size={14} />
-              {txt.testMode}
-            </span>
           ) : !status?.enabled ? (
             <>
               <span className="inline-flex items-center gap-1.5 text-xs font-bold text-ink-muted bg-surface-subtle border border-line px-3 py-1.5 rounded-full">
@@ -396,15 +397,20 @@ export default function MetaConversionsCard() {
                 </span>
               )}
             </>
-          ) : status.ready ? (
-            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-ok bg-ok-tint border border-ok/25 px-3 py-1.5 rounded-full">
-              <CheckCircle2 size={14} />
-              {txt.on}
-            </span>
-          ) : (
+          ) : !status.ready ? (
             <span className="inline-flex items-center gap-1.5 text-xs font-bold text-warn bg-warn-tint border border-warn/25 px-3 py-1.5 rounded-full">
               <AlertCircle size={14} />
               {txt.onMissing} {status.missing.map(missingLabel).join("، ")}
+            </span>
+          ) : testActive ? (
+            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-warn bg-warn-tint border border-warn/25 px-3 py-1.5 rounded-full">
+              <FlaskConical size={14} />
+              {txt.testMode}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-ok bg-ok-tint border border-ok/25 px-3 py-1.5 rounded-full">
+              <CheckCircle2 size={14} />
+              {txt.on}
             </span>
           )}
         </div>

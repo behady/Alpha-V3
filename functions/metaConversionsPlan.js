@@ -30,8 +30,12 @@ const PURCHASE_SETTLE_MS = 3 * 60 * 60 * 1000;
 /** Statuses that mean the patient physically came in. The first one reached is the visit. */
 const VISITED_STATUSES = Object.freeze(["Checked In", "In Chair", "Checking Out", "Completed"]);
 
-/** Legacy spellings still found on old rows (see appointmentStages.ts). */
-const STATUS_ALIASES = Object.freeze({ Arrived: "Checked In", Seated: "In Chair", Pending: "Scheduled" });
+/**
+ * Legacy spellings still found on old rows (see appointmentStages.ts, which maps the same ones).
+ * "In Progress" was only ever a filter option, but a row that carries it is a patient in the chair.
+ * Same table as the web copy — the parity test runs an "In Progress" row through both.
+ */
+const STATUS_ALIASES = Object.freeze({ Arrived: "Checked In", Seated: "In Chair", "In Progress": "In Chair", Pending: "Scheduled" });
 
 /**
  * A booking that is over without the patient coming credits nothing. "Rescheduled" is the marker
@@ -112,8 +116,8 @@ function toMillis(v) {
  * The event time of a booking is when the appointment was created (so a trigger delivered late
  * still reports the real moment), falling back to now; a confirmation or a visit happens at the
  * moment the status changed, which is now. Nothing here decides whether the patient came from an
- * ad — the sender looks for a click when the event is due, so a click recorded a minute after the
- * booking (the bot writes the appointment before the conversation's referral lands) still counts.
+ * ad: the sender looks for a click when the event is due, and only a click at or before the event
+ * counts (a click after a booking did not cause it).
  *
  * Every field is defined: Firestore rejects a write that carries an undefined value.
  */

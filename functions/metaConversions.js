@@ -23,8 +23,10 @@
  * deduplicate Business Messaging events by event_id — its docs ask partners to dedupe before
  * sending — so every copy we post is counted. Our guards are the only protection: this create(),
  * the sender's claim lock, rows that are sent once and never reopened, and the once-per-click
- * markers for leads. (The sender re-reads the appointment before sending and DELETES a row whose
- * moment was undone, so a later real confirmation or arrival can queue again here.) One residual
+ * markers for leads. (The sender re-reads the appointment before sending. When the moment was
+ * undone it deletes the row ONLY if it was never posted, so a later real confirmation or arrival
+ * can queue again here; a row that was already tried is ended as skipped and stays, so this
+ * create() keeps failing for it and it can never be sent a second time.) One residual
  * risk is stated in the sender: a request that timed out after Meta had already taken it is
  * retried, and that copy is counted too.
  *
