@@ -115,6 +115,39 @@ run("no link saved, words only, not asked, or another branch: nothing", () => {
   assert.equal(locationPinLine({ asked: "عنوان الفرع الرئيسي", reply: `عنواننا: ${addr}`, addressText: addr, mapsUrl: url }), pin);
 });
 
+run("branch talk: the saved link is one place, so no pin where another branch is in play", () => {
+  // 14/11: the bot offered "فرع في شارع الطاقة بحدائق الأهرام" to four far-away patients. The next
+  // "ابعتلي اللوكيشن" must not get the main clinic's pin under the other branch's address...
+  assert.equal(locationPinLine({ asked: "ابعتلي اللوكيشن", reply: "ده عنوان فرع حدائق الأهرام: شارع الطاقة", addressText: addr, mapsUrl: url }), "");
+  // ...nor under a bare "here it is" right after that offer (both bubbles of it are read).
+  const offer = ["فاهمة حضرتك، إحنا برضه متاح عندنا فرع في شارع الطاقة بحدائق الأهرام لو أقربلك.", "تحب أساعدك بأي استفسار تاني؟"];
+  assert.equal(locationPinLine({ asked: "ابعتلي اللوكيشن", reply: "تمام 👇", addressText: addr, mapsUrl: url, before: offer }), "");
+  assert.equal(locationPinLine({ asked: "ابعتلي اللوكيشن", reply: "تمام 👇", addressText: addr, mapsUrl: url, before: [...offer].reverse() }), "");
+  // The real 09:32 and 09:35 turns: what they answered names no branch, so the pin goes.
+  const askName = "تمام 👍\n\nأهلاً بيك 🙏 عشان أسجل الحجز باسمك، ابعتلي اسمك الكامل.";
+  const at0930 = "العيادة في مدينة نصر، عند مساكن شروق النادي الأهلي في شارع الرحمة (شارع أبو بكر).\n\nتحب نسجل حجزك السبت الساعة 3:00 العصر ولا الأحد الساعة 3:00 العصر؟";
+  assert.equal(locationPinLine({ asked: "Okay.. الأحد.. 15 نوفمبر الحالي الساعة 3 عصرا وألف شكر.. امكانية تبعتلي اللوكيشن..", reply: askName, addressText: addr, mapsUrl: url, before: at0930 }), pin);
+  assert.equal(locationPinLine({ asked: "تم أعلاه.. في انتظار اللوكيش", reply: askName, addressText: addr, mapsUrl: url, before: "أهلاً بيك 🙏 عشان أسجل الحجز باسمك، ابعتلي اسمك الكامل." }), pin);
+});
+
+run("a reply that promises the link gets it, even when the patient's words were not recognised", () => {
+  assert.ok(!asksForLocation("انتو في انهي حته"));
+  assert.equal(locationPinLine({ asked: "انتو في انهي حته", reply: `العيادة في مدينة نصر، وده اللوكيشن 👇`, addressText: addr, mapsUrl: url }), pin);
+  assert.equal(locationPinLine({ asked: "هو ايه اللي بيحصل؟", reply: "حجزتلك الأحد 3:00 عصراً، والاستقبال هيبعتلك اللوكيشن حالاً.", addressText: addr, mapsUrl: url }), pin);
+  assert.equal(locationPinLine({ asked: "where exactly?", reply: "Here's our location 👇", addressText: addr, mapsUrl: url }), pin);
+  // Nothing about the place on either side: nothing, exactly as before.
+  assert.equal(locationPinLine({ asked: "التنظيف بكام", reply: "التنظيف بيبدأ من 300 ج.م", addressText: addr, mapsUrl: url }), "");
+  // The promise with the link already in it, or no link saved: nothing added.
+  assert.equal(locationPinLine({ asked: "x", reply: `وده اللوكيشن ${url}`, addressText: addr, mapsUrl: url }), "");
+  assert.equal(locationPinLine({ asked: "x", reply: "وده اللوكيشن 👇", addressText: addr, mapsUrl: "" }), "");
+});
+
+run("an explicit 'send it' beside a polite later still asks; the area question counts", () => {
+  for (const s of ["ماشي ابعتلي اللوكيشن وهبلغك", "بعدين ابعتلي العنوان", "من فضلكم في اي منطقة..", "فين مكان العيادة"]) assert.ok(asksForLocation(s), s);
+  // Still a no: the address named to refuse it.
+  for (const s of ["لا العنوان بعيد عليا", "العنوان بعيد", "بعيد عليا"]) assert.ok(!asksForLocation(s), s);
+});
+
 run("messages sent together: an earlier line that asked still counts", () => {
   assert.equal(locationPinLine({ asked: ["والتنظيف بكام", "العنوان"], reply: "التنظيف 300", addressText: addr, mapsUrl: url }), pin);
   assert.equal(locationPinLine({ asked: ["والتنظيف بكام", "تمام"], reply: "التنظيف 300", addressText: addr, mapsUrl: url }), "");
@@ -177,6 +210,8 @@ run("wiring: one place in respond.ts, after the sales close and before the photo
   assert.ok(at < src.indexOf("localizeOutbound(replyText"), "localized with the rest");
   assert.match(src.slice(at - 200, at), /reason !== "ai_unavailable"/, "not under 'send it again'");
   assert.match(src.slice(at, at + 200), /asked: \[text, \.\.\.askedTogether\]/, "messages sent together count");
+  assert.match(src.slice(at, at + 300), /before: answeredTurn/, "the turn being answered is read for branch talk");
+  assert.match(src, /answeredTurn\.push\(/, "and it is collected from the thread");
 });
 
 console.log("locationPin: ok");

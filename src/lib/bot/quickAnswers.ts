@@ -364,17 +364,20 @@ const LOCATION_ASK: RegExp[] = [
   /خريط/u,
   /(^| )و?(ال)?(جوجل ?)?ماب(س)?( |$)/u,
   /(^| )و?(ال)?موقع(كم|ك|كو)?( |$)/u,
-  /فين (العياده|مكانكم|بالظبط)|(المكان|مكانكم|العياده) فين|(^| )(انتو|انتوا|انتم) فين/u,
+  /فين (العياده|مكانكم|مكان|المكان|بالظبط)|(المكان|مكانكم|العياده) فين|(^| )(انتو|انتوا|انتم) فين/u,
+  /(^| )(اي|انهي) منطقه( |$)/u, // "من فضلكم في اي منطقة" (14/11, the same patient, before the pin)
   /\b(location|address|google maps?|directions|where (are|r) (you|u)|where is (the|your) clinic)\b/,
   /\b(send|drop|share)( me)?( the| a| your)? (pin|map)\b/,
 ];
 /** "موقع على النت" is a website, not a place. */
 const NOT_A_PLACE = /(^| )(النت|ويب|website|فيس|فيسبوك|انستا|انستجرام|الصفحه)( |$)/u;
+/** "ابعتلي" / "تبعتلي" / "send": a request, whatever polite "later" or "I'll let you know" sits beside it. */
+const SEND_VERB = /(^| )و?(ابعت|تبعت|ارسل|ترسل)|\bsend\b/u;
 
 export function asksForLocation(raw: string): boolean {
   const text = normalize(raw);
-  // "لا العنوان بعيد عليا" names the address to say no.
-  if (!text || isDecline(raw) || NOT_A_PLACE.test(text)) return false;
+  // "لا العنوان بعيد عليا" names the address to say no. "ماشي ابعتلي اللوكيشن وهبلغك" asks for it.
+  if (!text || (isDecline(raw) && !SEND_VERB.test(text)) || NOT_A_PLACE.test(text)) return false;
   return LOCATION_ASK.some((re) => re.test(text));
 }
 

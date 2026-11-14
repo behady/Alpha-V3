@@ -1058,6 +1058,8 @@ export async function respondToPatientMessage(args: {
   let brainUsed: AiBrain | undefined;
   /** The patient's messages this sales-mode reply also answers (sent together, still unanswered). */
   let askedTogether: string[] = [];
+  /** The bot's (or staff's) turn just before those messages: what the patient was answering. */
+  let answeredTurn: string[] = [];
   /** Attach them to whatever this turn was already storing, without disturbing the rest. */
   const withSpokenSlots = (p: PendingOptions | undefined): PendingOptions | undefined =>
     spokenSlotKeys.length ? { ...(p ?? {}), slots: spokenSlotKeys } : p;
@@ -1494,10 +1496,18 @@ ${urgentCallLine(ctx.clinicPhone)}`;
       heardIntroBefore = (salesContext?.thread || []).some(
         (line) => line.author === "bot" && Boolean(settings.personaName) && line.text.includes(settings.personaName)
       );
-      for (const line of [...(salesContext?.thread ?? [])].reverse()) {
-        if (line.author === "system") continue;
-        if (line.author !== "patient") break;
-        askedTogether.push(line.text);
+      {
+        const lines = [...(salesContext?.thread ?? [])].reverse();
+        let i = 0;
+        for (; i < lines.length; i++) {
+          if (lines[i].author === "system") continue;
+          if (lines[i].author !== "patient") break;
+          askedTogether.push(lines[i].text);
+        }
+        // ...and the turn they are answering, every bubble of it (the location pin reads it for a branch).
+        for (; i < lines.length && lines[i].author !== "patient"; i++) {
+          if (lines[i].author !== "system") answeredTurn.push(lines[i].text);
+        }
       }
       const aiArgs: Parameters<typeof answerWithAi>[0] = {
         clinicId,
@@ -2194,6 +2204,8 @@ ${askWho}` : askWho;
    * address three times, and a slot pick in the same message swallowed the request. A reply that
    * already carries a map link (the menu's address answer, the booking note, a clinic's coaching
    * quoted by the model) is left alone; "the message did not reach me, send it again" gets none.
+   * A reply that promises the link ("وده اللوكيشن 👇") gets it too. Branch talk — in this reply or
+   * the turn the patient is answering — gets none: the saved link is one place, maybe not theirs.
    */
   if (replyText.trim() && reason !== "ai_unavailable") {
     const pin = locationPinLine({
@@ -2201,6 +2213,7 @@ ${askWho}` : askWho;
       reply: `${replyText}\n${structure?.body ?? ""}`,
       addressText: ctx.addressText,
       mapsUrl: ctx.facts?.mapsUrl,
+      before: answeredTurn,
     });
     if (pin) {
       // A name request must stay the last thing the patient reads.
