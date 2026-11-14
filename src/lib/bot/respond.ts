@@ -49,6 +49,7 @@ import { joinBubbles, priceBeforeQuestions, splitBubbles } from "./bubbles";
 import { loadPatientDossier, type PatientDossier } from "./patientDossier";
 import { appointmentLine, branchesTextOf, stripDoctorNames } from "./ownerRules";
 import { isBareAgreement, resolveSpokenPick, spokenSlots } from "./spokenPick";
+import { holdRepeatOffer, withoutSlotOffer } from "./slotRepeat";
 import { DEFAULT_SCREENING, readScreeningAnswer } from "./medicineScreen";
 import { stripRepeatIntro } from "./repeatIntro";
 import { feminizeAddress } from "./voiceFix";
@@ -1618,6 +1619,37 @@ ${urgentCallLine(ctx.clinicPhone)}`;
         // spoken only when its date or its day name is in the sentence beside its clock — or when
         // that clock belongs to exactly one slot anyway.
         spokenSlotKeys = spokenSlots(said, slotOffer);
+      }
+      /*
+       * The two times, once (lib/bot/slotRepeat). The prompt asks for two times in every answer,
+       * so a patient who asked for the address, then the area, read the same "السبت 3:00 ولا
+       * الأحد 3:00؟" under each answer. An info question soon after an offer gets the answer
+       * without its closing offer. What the patient last heard is carried, because the save below
+       * overwrites pendingSlots every turn and "الأول"/"التاني" must still resolve against it.
+       */
+      if (
+        ai.kind === "answer" && ai.text &&
+        !ai.bookSlot && !ai.openBooking && !ai.medicineId && !ai.appointmentChange && !ai.reschedule &&
+        !isBareAgreement(act.question) &&
+        holdRepeatOffer({
+          question: act.question,
+          spokenKeys: spokenSlotKeys,
+          previousKeys: conversation.pendingSlots,
+          thread: salesContext?.thread ?? [],
+          offer: slotOffer,
+          gapMinutes: salesContext?.gapMinutes,
+        })
+      ) {
+        const held = withoutSlotOffer(ai.text, slotOffer);
+        if (held) {
+          ai.text = held;
+          spokenSlotKeys = [...(conversation.pendingSlots ?? [])];
+          if (!args.dryRun) {
+            void adminClinicCollection(clinicId, "ai_debug")
+              .add({ kind: "slot_offer_held", brain: brainReply.brainUsed, createdAt: FieldValue.serverTimestamp() })
+              .catch(() => {});
+          }
+        }
       }
       if (ai.kind === "answer" || ai.kind === "handoff") {
         const wrote = ai.text || "";
