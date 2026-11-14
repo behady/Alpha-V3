@@ -914,7 +914,9 @@ export default function DesktopDashboard() {
    * patient is not the same act as moving a time, so it asks first; the save goes through the
    * normal booking path, which tells the patient if the time moved.
    */
-  const moveToDentist = async (apt: DashboardAppointment, doctor: { id: string; name: string } | null, date: string, time: string) => {
+  const moveToDentist = async (apt: DashboardAppointment, doctor: { id: string; name: string } | null, date: string, droppedTime: string) => {
+    // A drop is a clock position ("21:30"); asked and saved in the clinic's 12-hour form.
+    const time = normalizeTimeKey(droppedTime);
     const who = doctor ? doctor.name : generalDoctorLabel(language);
     const ok = await confirm(
       language === "ar" ? `تنقل زيارة ${apt.patientName || ""} لـ ${who} الساعة ${time}؟` : `Move ${apt.patientName || "this visit"} to ${who} at ${time}?`,
