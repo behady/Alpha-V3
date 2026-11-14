@@ -94,16 +94,14 @@ export function chargeDone(
   return { done: true, date: toYmd(latest.completedDate) || toYmd(latest.date) || chargeDate };
 }
 
-const inScope = (c: SheetCharge, payerId: string) => {
+/** A live procedure charge of this company: not deleted, not cancelled. */
+const isLiveCharge = (c: SheetCharge, payerId: string) => {
   const status = text(c.status).toLowerCase();
-  return (
-    c.type === "procedure" &&
-    text(c.payerId) === payerId &&
-    status !== "deleted" &&
-    status !== "cancelled" &&
-    toYmd(c.date) >= `${COMPANY_SHEET_START}-01`
-  );
+  return c.type === "procedure" && text(c.payerId) === payerId && status !== "deleted" && status !== "cancelled";
 };
+
+/** A live charge dated from the start month on: the only ones that enter the walk. */
+const inScope = (c: SheetCharge, payerId: string) => isLiveCharge(c, payerId) && toYmd(c.date) >= `${COMPANY_SHEET_START}-01`;
 
 /** One MonthSheet per month from COMPANY_SHEET_START to `through` (yyyy-mm), inclusive; [] when `through` is earlier. */
 export function buildCompanySheets(inputs: SheetInputs & { payerId: string; through: string }): MonthSheet[] {
@@ -160,8 +158,7 @@ export function buildCompanySheets(inputs: SheetInputs & { payerId: string; thro
       for (const id of sent.chargeIds) {
         const c = chargeById.get(id);
         if (!c) continue;
-        const status = text(c.status).toLowerCase();
-        if (c.type !== "procedure" || text(c.payerId) !== inputs.payerId || status === "deleted" || status === "cancelled") continue;
+        if (!isLiveCharge(c, inputs.payerId)) continue;
         const patientId = text(c.patientId);
         if (!patientId) continue;
         const entry = listed.get(patientId);

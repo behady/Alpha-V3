@@ -13,6 +13,7 @@ import { useEffect, useMemo, useState } from "react";
 import { documentId, onSnapshot, query, where, type DocumentData, type QueryDocumentSnapshot } from "firebase/firestore";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { toYmd } from "@/lib/reports/patientStats";
+import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import {
   COMPANY_SHEET_START,
   marksDocId,
@@ -44,7 +45,7 @@ function sentOf(d: QueryDocumentSnapshot<DocumentData>, payerId: string): SentMo
   const chargeIds = Array.isArray(data.chargeIds) ? data.chargeIds.filter((x): x is string => typeof x === "string") : [];
   const sent: SentMonth = { month, chargeIds };
   const at = (data.sentAt as { toDate?: () => Date } | null | undefined)?.toDate?.();
-  if (at) sent.sentAt = at.toISOString().slice(0, 10);
+  if (at) sent.sentAt = ymdInTimeZone(clinicTimeZone(), at); // the clinic's day, not the UTC day
   const by = text(data.sentByName);
   if (by) sent.sentByName = by;
   return sent;

@@ -31,7 +31,7 @@ import { adStats } from "@/lib/reports/adStats";
 import { doctorLabel, partitionRows, rollupPatients, rowDate, type PatientRollup, type ReportLedgerRow, type ReportPatient } from "@/lib/reportPatients";
 import { attributeService, buildProcedureIndex, type AttributableRow } from "@/lib/serviceAttribution";
 import { buildPayerReport, type LedgerRowLite } from "@/lib/payerReport";
-import { PRIVATE_PAYER_ID, type Payer } from "@/lib/payers";
+import { PRIVATE_PAYER_ID, isInsurerFormat, type Payer } from "@/lib/payers";
 import { buildCaseSheet, settlementOf, sumCases } from "@/lib/caseSheet";
 import { buildTreatmentStatus, type TreatmentState } from "@/lib/reports/treatmentStatus";
 import { buildInsuranceStatement, caseLabel, type StatementRowLite } from "@/lib/insuranceStatement";
@@ -562,6 +562,10 @@ export function buildReportDoc(id: string, input: ReportInputs): ReportDoc {
         input.allPatients.forEach((pt) => { const n = readMemberNumbers(pt)[p.id]; if (n) memberNumbers.set(String(pt.id), n); });
         const payerName = isAr ? p.nameAr || p.name : p.name;
         const sheet = input.companySheets?.[p.id];
+        // The route tried to read this company's sheet and could not: say so rather than quietly printing visits.
+        if (input.companySheets && !sheet && !isInsurerFormat(p.format)) {
+          note(isAr ? `${payerName}: التقفيلة ماتقريتش، دي الزيارات بدلها.` : `${payerName}: the sheet could not be read; showing visits instead.`);
+        }
         const st = sheet
           ? companyStatement({ ...sheet, charges: withRangeRows(sheet.charges, input.procedures, p.id), payerId: p.id, payerName, range, memberNumbers }).statement
           : buildInsuranceStatement({ rows: input.procedures as unknown as StatementRowLite[], payerId: p.id, payerName, month, range, memberNumbers });

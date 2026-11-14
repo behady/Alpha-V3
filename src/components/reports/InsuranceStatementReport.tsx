@@ -20,6 +20,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, ArrowUpRight, FileSpreadsheet, Loader2 } from "lucide-react";
 import { useClinic } from "@/context/ClinicContext";
+import { useActiveBranch } from "@/lib/useActiveBranch";
+import { rowInScope } from "@/lib/branchAccess";
 import type { ReportProps } from "@/components/reports/types";
 import { Note, PatientLink, ReportState, SectionTitle } from "@/components/reports/reportKit";
 import { PRIVATE_PAYER_ID, isInsurerFormat, type Payer } from "@/lib/payers";
@@ -72,6 +74,7 @@ const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits
 export default function InsuranceStatementReport({ procedures, allPatients, range, setRange, isAr, payers }: ReportProps & { payers: Payer[] }) {
   const t = (k: keyof typeof TEXT) => (isAr ? TEXT[k].ar : TEXT[k].en);
   const { clinicId } = useClinic();
+  const { scopeBranchId } = useActiveBranch();
 
   const insurers = useMemo(() => payers.filter((p) => p.id !== PRIVATE_PAYER_ID && p.active), [payers]);
   const [payerId, setPayerId] = useState<string>("");
@@ -116,13 +119,21 @@ export default function InsuranceStatementReport({ procedures, allPatients, rang
   const statement = useMemo(() => {
     if (isContract) {
       if (sheetInputs) {
-        return companyStatement({ ...sheetInputs, payerId, payerName, range: { start: `${month}-01`, end: lastDayOf(month) }, memberNumbers }).statement;
+        // The branch on screen narrows the printed lists; "all branches" ("") keeps everything.
+        return companyStatement({
+          ...sheetInputs,
+          payerId,
+          payerName,
+          range: { start: `${month}-01`, end: lastDayOf(month) },
+          memberNumbers,
+          keep: (c) => rowInScope(c, scopeBranchId),
+        }).statement;
       }
       // Not answered yet, or could not be read: nothing to show (and no Excel) rather than a half sheet.
       return buildInsuranceStatement({ rows: [], payerId, payerName, month, memberNumbers });
     }
     return buildInsuranceStatement({ rows: procedures as unknown as StatementRowLite[], payerId, payerName, month, memberNumbers });
-  }, [isContract, sheetInputs, procedures, payerId, payerName, month, memberNumbers]);
+  }, [isContract, sheetInputs, procedures, payerId, payerName, month, memberNumbers, scopeBranchId]);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

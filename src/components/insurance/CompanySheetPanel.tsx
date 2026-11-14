@@ -18,7 +18,7 @@ import { useUI } from "@/context/UIContext";
 import Protect from "@/components/Protect";
 import { statementLineText } from "@/lib/insuranceStatement";
 import type { HeldPatient, MonthSheet, SheetChoice, SheetPatient } from "@/lib/insurance/companySheet";
-import { markCompanySheet, sendCompanySheet, unsendCompanySheet } from "./api";
+import { cairoToday, markCompanySheet, sendCompanySheet, unsendCompanySheet } from "./api";
 import { tr, type TextKey } from "./text";
 
 const REFUSAL_TEXT: Record<string, TextKey> = {
@@ -58,6 +58,8 @@ export default function CompanySheetPanel({
   const { confirm, showToast } = useUI();
   /** What is being saved: a month's button or a patient's switch. Everything is held while one is in flight. */
   const [busy, setBusy] = useState<string | null>(null);
+
+  const thisMonth = cairoToday().slice(0, 7);
 
   const fmt = (n: number) => n.toLocaleString(ar ? "ar-EG" : "en-US");
   const monthName = (month: string) =>
@@ -109,7 +111,7 @@ export default function CompanySheetPanel({
 
   /** One patient: name, treatments, value, and the switch. `reason` only for a waiting patient. */
   const row = (sheet: MonthSheet, p: SheetPatient, held: HeldPatient | null) => {
-    const locked = sheet.sent !== null;
+    const locked = sheet.sent !== null || sheet.month > thisMonth; // the server refuses a month that has not started
     const rowBusy = busy === `${sheet.month}|${p.patientId}`;
     const onThisMonth = held === null;
     // Not finished: no switch can override it, so none is offered.
@@ -209,7 +211,7 @@ export default function CompanySheetPanel({
                 ) : (
                   <button
                     type="button"
-                    disabled={busy !== null || (allBranchSheets ?? sheets).find((s) => s.month === sheet.month)?.printed.length === 0}
+                    disabled={busy !== null || sheet.month > thisMonth || (allBranchSheets ?? sheets).find((s) => s.month === sheet.month)?.printed.length === 0}
                     onClick={() => void send(sheet.month)}
                     className="max-lg:min-h-10 inline-flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-xs font-bold text-ink-body hover:border-slate-400 disabled:opacity-40"
                   >

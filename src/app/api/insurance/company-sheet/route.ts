@@ -128,11 +128,13 @@ export async function POST(req: Request) {
         },
         { merge: true },
       );
+      // Name the patient the way the sheet does; the id only when no charge of his carries a name.
+      const named = inputs.charges.find((c) => String(c.patientId ?? "").trim() === patientId && String(c.patientName ?? "").trim());
       void logActivityServer({
         clinicId,
         user: actor,
         action: "Company Sheet Switch",
-        details: `${payer.name} ${month}: patient ${patientId} -> ${choice ?? "automatic"}`,
+        details: `${payer.name} ${month}: patient ${named ? String(named.patientName).trim() : patientId} -> ${choice ?? "automatic"}`,
         severity: "LOW",
         module: "finance",
       });

@@ -125,6 +125,28 @@ console.log("the switch");
   await post({ action: "mark", patientId: "p2", choice: null });
 }
 
+console.log("a long chain of continuation cards");
+{
+  // Eight cards, each continuing the one before; only the newest is Completed. The server must follow
+  // the whole chain (not stop after a few rounds) to see the treatment as finished.
+  await charge("L3", "p3", "K0", 400);
+  for (let i = 0; i < 8; i++) {
+    await clinic.collection("clinical_notes").doc(`K${i}`).set({
+      patientId: "p3",
+      date: `2026-11-${String(3 + i).padStart(2, "0")}`,
+      status: i === 7 ? "Completed" : "Ongoing",
+      completedDate: i === 7 ? "2026-11-10" : null,
+      continuedFromNoteId: i === 0 ? null : `K${i - 1}`,
+      procedure: "Filling",
+    });
+  }
+  const r = await post({ action: "mark", patientId: "p3", choice: "include" });
+  check("a chain of 8 cards, only the newest Completed, reads as finished", r.status === 200, r);
+  await post({ action: "mark", patientId: "p3", choice: null });
+  await clinic.collection("ledger").doc("L3").delete();
+  for (let i = 0; i < 8; i++) await clinic.collection("clinical_notes").doc(`K${i}`).delete();
+}
+
 console.log("refusals before anything is written");
 {
   check("a document-format insurer is refused", (await post({ action: "mark", patientId: "p1", choice: "hold", payerId: "metlife" })).status === 400);

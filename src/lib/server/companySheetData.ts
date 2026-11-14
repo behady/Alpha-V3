@@ -2,12 +2,13 @@ import { FieldPath, type DocumentSnapshot } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { toYmd } from "@/lib/reports/patientStats";
+import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 import { COMPANY_SHEET_START, marksDocId, sentDocId, type SentMonth, type SheetCard, type SheetCharge, type SheetChoice, type SheetInputs } from "@/lib/insurance/companySheet";
 
 export { marksDocId, sentDocId };
 
 const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
-const MAX_ROUNDS = 5;
+const MAX_ROUNDS = 20; // safety cap, same as the hop limit in chargeDone
 
 function chunks<T>(list: readonly T[], size: number): T[][] {
   const out: T[][] = [];
@@ -22,7 +23,7 @@ function cardOf(snap: DocumentSnapshot): SheetCard {
 
 function sentAtOf(v: unknown): string | undefined {
   const at = (v as { toDate?: () => Date } | null | undefined)?.toDate?.();
-  return at ? at.toISOString().slice(0, 10) : undefined;
+  return at ? ymdInTimeZone(clinicTimeZone(), at) : undefined; // the clinic's day, not the UTC day
 }
 
 /** Everything the walk needs for one company, read with the Admin SDK. */
