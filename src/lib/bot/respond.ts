@@ -54,7 +54,8 @@ import { stripRepeatIntro } from "./repeatIntro";
 import { feminizeAddress } from "./voiceFix";
 import { SALES_CLOSE_REASONS, LEAD_INTEREST_REASONS, activeOffers, closingLine, offerForService } from "./sales";
 import { markBotLeadBooked, snoozeBotLead, upsertBotLead } from "./botLeads";
-import { patientWroteAfter, recordThreadMessage } from "./thread";
+import { patientWroteAfter, recentThreadLines, recordThreadMessage } from "./thread";
+import { STAFF_QUESTION_HOLD_MS, staffQuestionAt, staffQuestionCouldHold } from "./staffHold";
 import { adSubjectText, adSystemLine, readStoredAd, type AdReferral } from "./adReferral";
 import { attributionFromClicks, clickFromReferral, mergeClicks, type AdClick } from "@/lib/metaConversions";
 import { clinicalReplyText,
@@ -880,6 +881,21 @@ export async function respondToPatientMessage(args: {
   if (conversation.state === "booking_time") ctx.optionCount = conversation.pendingTimes?.length ?? 0;
 
   /*
+   * Does a person hold this thread? Staff took it over, or wrote inside the claim minutes
+   * (loadConversation) — or their last message asked the patient something and this is the
+   * answer, which only the thread can tell (lib/bot/staffHold). Then the bot says nothing at all:
+   * no photo to the model, no "وصلتنا…" line, no model dentist. The desk is told, below.
+   */
+  let staffAskedAtMs = 0;
+  if (!conversation.staffActive && staffQuestionCouldHold(conversation.staffWroteAtMs, now)) {
+    const wrote = conversation.staffWroteAtMs || 0;
+    const lines = await recentThreadLines(clinicId, chatId, Math.max(now - STAFF_QUESTION_HOLD_MS, wrote - 10 * 60 * 1000));
+    staffAskedAtMs = staffQuestionAt(lines, wrote, now);
+  }
+  const heldByStaff = conversation.staffActive === true || staffAskedAtMs > 0;
+  ctx.heldByStaff = heldByStaff;
+
+  /*
    * A photo, a voice note, a video: acknowledged and handed straight to a person.
    *
    * Stickers and reactions are the exception — they are punctuation, not a message, and answering
@@ -892,9 +908,10 @@ export async function respondToPatientMessage(args: {
    * a dental photo, the preliminary impression) is in its prompt, so it can answer the picture
    * the way it answers a sentence — and, in dentist mode, as the desk dentist. The fixed "we got
    * your photo, someone will look" stays for clinics without the salesperson, for voice notes
-   * that could not be transcribed, and for photos the describer could not read.
+   * that could not be transcribed, and for photos the describer could not read. In a thread a
+   * person holds, neither: the photo is theirs to answer.
    */
-  const photoToModel = args.media === "image" && !text.trim() && Boolean(args.mediaNote) && settings.aiFirst && ctx.aiAvailable;
+  const photoToModel = !heldByStaff && args.media === "image" && !text.trim() && Boolean(args.mediaNote) && settings.aiFirst && ctx.aiAvailable;
   const decision = photoToModel
     ? {
         reply: "",
@@ -908,23 +925,74 @@ export async function respondToPatientMessage(args: {
         reason: "photo_ai",
       }
     : args.media && args.media !== "sticker" && !text.trim()
-      ? {
-          reply:
-            args.media === "audio"
-              ? "وصلتنا الرسالة الصوتية 🎙️ حد من العيادة هيسمعها ويرد عليك حالاً."
-              : "وصلتنا الصورة 📷 حد من العيادة هيشوفها ويرد عليك حالاً.\n\nلو الموضوع طارئ كلمنا على طول." +
-                (ctx.clinicPhone ? ` على ${ctx.clinicPhone}` : ""),
-          next: "handed_off" as const,
-          handoff: true,
-          reason: `media_${args.media}`,
-        }
+      ? heldByStaff
+        ? { reply: "", next: "handed_off" as const, handoff: false, reason: "already_with_a_human" }
+        : {
+            reply:
+              args.media === "audio"
+                ? "وصلتنا الرسالة الصوتية 🎙️ حد من العيادة هيسمعها ويرد عليك حالاً."
+                : "وصلتنا الصورة 📷 حد من العيادة هيشوفها ويرد عليك حالاً.\n\nلو الموضوع طارئ كلمنا على طول." +
+                  (ctx.clinicPhone ? ` على ${ctx.clinicPhone}` : ""),
+            next: "handed_off" as const,
+            handoff: true,
+            reason: `media_${args.media}`,
+          }
       : decideBotReply({
           // A handoff flag with nobody behind it must not mute the salesperson: the flag stays
-          // for the desk, the model keeps helping. A person who actually wrote still owns it.
-          state: settings.aiFirst && conversation.state === "handed_off" && !conversation.staffActive ? "awaiting_choice" : conversation.state,
+          // for the desk, the model keeps helping. A person who actually wrote, took the thread
+          // over, or asked the patient something still owns it.
+          state: heldByStaff ? "handed_off" : settings.aiFirst && conversation.state === "handed_off" ? "awaiting_choice" : conversation.state,
           text,
           ctx,
         });
+
+  /*
+   * The patient wrote to a person and the bot said nothing — so that person is told. needsHuman
+   * puts the chat in "مستني رد" (and lets handoffSla chase it); one push goes out per staff
+   * message, keyed on it so two quick messages do not push twice. No push while the receptionist
+   * is live in the chat (she wrote inside the claim minutes) unless it is urgent. 2026-11-14: a
+   * paused chat's "إيقاف.. ولكم الشكر" raised nothing at all and was seen by nobody.
+   */
+  if (!args.dryRun && heldByStaff && decision.reason === "already_with_a_human") {
+    const mediaOnly = Boolean(args.media && args.media !== "sticker" && !text.trim());
+    // Weighed as the media handoff weighs it: an unread photo or voice note is urgent unless it was
+    // read and looked calm. A symptom is urgent.
+    const severity: HandoffSeverity = (mediaOnly && !(args.mediaNote && !args.mediaNote.urgent)) || needsHuman(text) ? "urgent" : "normal";
+    const said = mediaOnly ? (args.mediaNote ? `🖼️ ${args.mediaNote.summary}` : `[${args.media}]`) : text;
+    await markHandoff(clinicId, conversation.phoneKey, "patient_replied_to_staff", {
+      text: said,
+      phone,
+      patientId: patient?.id,
+      patientName: ctx.patientName,
+      severity,
+    });
+    const staffSinceMs = Math.max(conversation.staffWroteAtMs || 0, conversation.pausedAtMs || 0);
+    const tell =
+      (severity === "urgent" || !conversation.staffLive) &&
+      (await claimOnce(clinicId, `held_${conversation.phoneKey}_${staffSinceMs}_${severity}`, 24 * 60 * 60 * 1000, now));
+    if (tell) {
+      const who = ctx.patientName || phone || "مريض";
+      const preview = mediaOnly ? "" : text.replace(/\s+/g, " ").trim().slice(0, 90);
+      const sent =
+        args.media === "audio" ? "رسالة صوتية" : args.media === "video" ? "فيديو" : args.media === "document" ? "ملف" : args.media === "location" ? "لوكيشن" : "صورة";
+      void push(
+        clinicId,
+        {
+          title: severity === "urgent" ? "⚠️ مريض رد على الاستقبال ومحتاج رد فوري" : "مريض رد على الاستقبال 💬",
+          body: preview
+            ? `${who} — ${preview}`
+            : args.mediaNote
+              ? `${who} بعت صورة: ${args.mediaNote.summary.slice(0, 110)}`
+              : `${who} بعت ${sent}`,
+        },
+        {
+          event: severity === "urgent" ? "urgentPatientMessage" : "patientRepliedAfterClaim",
+          channel: "alpha_bookings",
+          data: { chatId: conversation.phoneKey, ...(patient?.id ? { patientId: patient.id } : { screen: "chats" }) },
+        }
+      );
+    }
+  }
 
   /*
    * Perform whatever data work the engine asked for and compose the visible text. The engine

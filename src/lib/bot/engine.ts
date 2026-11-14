@@ -209,6 +209,11 @@ export interface BotContext {
   /** Settings → WhatsApp: what a symptom gets — a person (default) or the AI as a dentist first. */
   clinicalMode?: "handoff" | "dentist";
   /**
+   * A person holds this thread: staff took it over, wrote inside the claim minutes, or asked the
+   * patient something the patient is now answering (lib/bot/staffHold). Not a bot-raised flag.
+   */
+  heldByStaff?: boolean;
+  /**
    * How many numbered options the last booking message listed. The options themselves live in
    * the conversation document; the engine only needs to know whether "4" is a choice or noise.
    */
@@ -578,6 +583,10 @@ export function decideBotReply(args: {
      * there is nobody to answer as a dentist, so the promise of a person stands.
      */
     const dentist = ctx.clinicalMode === "dentist" && ctx.aiAvailable && triageMessage(text).reason !== "phrase";
+    // A person holds this thread: the model does not answer as the desk dentist over them. The
+    // patient's words go to that person (the caller flags it urgent). The emergency phrases are
+    // never `dentist`, so they still get the fixed safety line with the clinic's number below.
+    if (dentist && ctx.heldByStaff) return SILENT("handed_off", "already_with_a_human");
     if (dentist) {
       return { reply: "", action: { type: "ai", question: text, clinical: true }, next: "awaiting_choice", handoff: false, reason: "clinical_ai" };
     }

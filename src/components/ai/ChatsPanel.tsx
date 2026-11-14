@@ -43,6 +43,7 @@ import AutoReplySwitch from "./AutoReplySwitch";
 import ChatInfoPanel, { tagLabel, tagTone } from "./ChatInfoPanel";
 import { deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, setDoc, startAfter, updateDoc, where } from "firebase/firestore";
 import { testCaseId, turnsFromLines } from "@/lib/bot/testCases";
+import { STAFF_QUESTION_HOLD_MS, staffQuestionAt } from "@/lib/bot/staffHold";
 import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
 import { auth, storage } from "@/lib/firebase";
 import { chatSoundEnabled, playChatChime, requestChatNotifications, setChatSoundEnabled } from "@/lib/useChatAlerts";
@@ -900,7 +901,13 @@ function Thread({
   // would silently fail — a disabled box the receptionist can see beats a "sent" that never lands.
   // The gateway delivers to a lid; only the official channel has no address for it.
   const blocked = !chat.isPlayground && ((isLid && officialChannel) || (windowClosed && officialChannel) || chat.optedOut === true);
-  const humanHold = chat.botPaused === true || (chat.humanActiveAtMs || 0) > Date.now() - claimMs;
+  // The same rule the server answers by: a staff reply holds the bot for the claim minutes, and a
+  // staff QUESTION holds the patient's answer for the desk for 12 hours (lib/bot/staffHold).
+  const claimUntil = (chat.humanActiveAtMs || 0) + claimMs;
+  const askedAt = chat.isPlayground ? 0 : staffQuestionAt(lines, chat.humanActiveAtMs || 0, Date.now());
+  const askHoldUntil = askedAt ? askedAt + STAFF_QUESTION_HOLD_MS : 0;
+  const askHold = askHoldUntil > Date.now() && claimUntil <= Date.now();
+  const humanHold = chat.botPaused === true || claimUntil > Date.now() || askHold;
   const handling = !chat.isPlayground && (chat.botPaused === true || chat.needsHuman === true || humanHold);
 
   const post = async (payload: Record<string, unknown>) => {
@@ -1058,9 +1065,10 @@ function Thread({
    * means exactly that.
    */
   /**
-   * One button for every reason the bot is quiet: an explicit pause, an open hand-off, or the
-   * hour a staff reply claims. "Hand back" clears all three — a receptionist who answered once
-   * and now wants the bot to carry on should not have to know which of them is in force.
+   * One button for every reason the bot is quiet: an explicit pause, an open hand-off, the
+   * minutes a staff reply claims, or a staff question waiting for its answer. "Hand back" clears
+   * them all (zeroing humanActiveAtMs ends the question hold too) — a receptionist who answered
+   * once and now wants the bot to carry on should not have to know which of them is in force.
    */
   const botQuiet = chat.botPaused === true || humanHold || chat.needsHuman === true;
   const toggleBot = async () => {
@@ -1136,7 +1144,7 @@ function Thread({
                 : humanHold
                   ? ` · ${
                       isAr ? "البوت ساكت لحد" : "bot quiet until"
-                    } ${new Date((chat.humanActiveAtMs || 0) + claimMs).toLocaleTimeString(isAr ? "ar-EG" : "en-GB", { hour: "2-digit", minute: "2-digit" })}`
+                    } ${new Date(Math.max(claimUntil, askHoldUntil)).toLocaleTimeString(isAr ? "ar-EG" : "en-GB", { hour: "2-digit", minute: "2-digit" })}`
                   : ""}
           </p>
         </div>
@@ -1356,9 +1364,13 @@ function Thread({
                     ? isAr
                       ? "البوت سلّم المحادثة لحد من الفريق ومستني رد."
                       : "The bot handed this chat to a person and is waiting."
-                    : isAr
-                      ? `حد من الفريق رد من شوية — البوت ساكت ${Math.round(claimMs / 60000)} دقيقة.`
-                      : `A team member replied recently — the bot stays quiet for ${Math.round(claimMs / 60000)} minutes.`}
+                    : askHold
+                      ? isAr
+                        ? "حد من الفريق سأل المريض سؤال — رده هيوصلكم انتو، والبوت ساكت."
+                        : "A team member asked this patient something — the answer comes to you, and the bot stays quiet."
+                      : isAr
+                        ? `حد من الفريق رد من شوية — البوت ساكت ${Math.round(claimMs / 60000)} دقيقة.`
+                        : `A team member replied recently — the bot stays quiet for ${Math.round(claimMs / 60000)} minutes.`}
             </span>
           </div>
         )}

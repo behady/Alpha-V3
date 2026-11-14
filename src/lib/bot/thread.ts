@@ -245,6 +245,26 @@ export function isNewerPatientLine(line: Record<string, unknown>, current: Curre
 }
 
 /**
+ * The newest thread lines since `sinceMs`, newest first, at most `max`.
+ *
+ * For rules that need the clinic's last word to the patient (lib/bot/staffHold). Never throws: a
+ * read failure is an empty list, and the caller then behaves as it did before the rule existed.
+ */
+export async function recentThreadLines(clinicId: string, address: string, sinceMs: number, max = 30): Promise<Record<string, unknown>[]> {
+  try {
+    const snap = await adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(address))
+      .collection("messages")
+      .where("at", ">", sinceMs)
+      .orderBy("at", "desc")
+      .limit(max)
+      .get();
+    return snap.docs.map((d) => d.data() || {});
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Did the patient write again after this turn began?
  *
  * Several messages in quick succession each start their own turn, and with a slow model the

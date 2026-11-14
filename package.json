@@ -87,6 +87,7 @@
     "test:capi-worker": "npx tsx tests/metaConversionsWorker.test.mts",
     "test:grade": "npx tsx tests/leadGrade.test.mts",
     "test:burst": "npx tsx tests/burstGuard.test.mts",
+    "test:staff-hold": "npx tsx tests/botStaffHold.test.mts",
     "test:name": "npx tsx tests/nameGuard.test.mts",
     "test:gradeflow": "npx tsx tests/leadGradingFlow.test.mts",
     "test:botcases": "npx tsx tests/botTestCases.test.mts",

@@ -53,6 +53,7 @@ function handoffLabel(reason: string, isAr: boolean): string {
     ai_handoff_staff: { en: "Asked about a named dentist", ar: "سأل عن دكتور بالاسم" },
     ai_handoff_other: { en: "Question the bot couldn't answer", ar: "سؤال البوت معرفش يجاوبه" },
     asked_for_human: { en: "Asked for a person", ar: "طلب يكلم حد" },
+    patient_replied_to_staff: { en: "Answered a team member", ar: "رد على حد من الفريق" },
     gave_up: { en: "Bot didn't understand", ar: "البوت مفهمش" },
     booking_request: { en: "Wants to book (no schedule set)", ar: "عايز يحجز (المواعيد مش متظبطة)" },
     booking_abandoned: { en: "Gave up mid-booking", ar: "سابها في نص الحجز" },
