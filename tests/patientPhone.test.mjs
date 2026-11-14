@@ -88,3 +88,11 @@ for (const waId of ["201551552440", "201066037618", "201024348877"]) {
 }
 
 console.log("✓ patientPhone: sending stays strict, stored patients are reachable, matching is spelling-proof");
+
+// --- a foreign WhatsApp sender must not get +20 glued on (live: Meta 131026, 2026-11-14) ---
+assert.equal(normalizeToE164AssumingCountry("967774787421"), "+967774787421", "Yemeni wa_id, no plus");
+assert.equal(normalizeToE164AssumingCountry("249912371051"), "+249912371051", "Sudanese wa_id");
+assert.equal(normalizeToE164AssumingCountry("+20967774787421"), "+967774787421", "already-corrupted stored number heals");
+assert.equal(normalizeToE164AssumingCountry("+201024348877"), "+201024348877", "real Egyptian untouched");
+assert.equal(normalizeToE164AssumingCountry("10243488771"), "+2010243488771", "Egyptian typo never becomes +1");
+console.log("foreign-sender cases ok");
