@@ -42,6 +42,32 @@ assert.equal(whitening.namedService, true);
 assert.equal(whitening.priceOnly, false, "a price for a named service is a real question");
 assert.equal(rulesGrade(whitening).grade, "warm");
 
+// A short word is a word, not a run of letters inside another one.
+//
+// "ألم" folds to "الم", which is also the article plus any noun starting with م. Every whitening
+// lead that sent the ad's own first message ("…مزيد من المعلومات…") or asked "المكان فين" was
+// therefore graded "in pain, urgent" and pushed to hot.
+const adHello = signalsFromThread({ patientTexts: ["مرحبًا! هل يمكنني الحصول على مزيد من المعلومات حول هذا؟"], adText: "عرض تبييض الأسنان", fromAd: true, lastInboundAtMs: now - H, now });
+assert.equal(adHello.urgency, false, "المعلومات is not ألم");
+assert.notEqual(rulesGrade(adHello).grade, "hot", "an ad hello with nothing else is not a hot lead");
+for (const t of ["المكان فين", "مكان العياده والمواعيد", "المهم السعر", "الميعاد المناسب"]) {
+  assert.equal(signalsFromThread({ patientTexts: [t], lastInboundAtMs: now - H, now }).urgency, false, `no pain in: ${t}`);
+}
+for (const t of ["عندي الم في ضرسي", "الألم شديد", "بألم جامد", "والم مش بيروح", "ضرسي وجعني", "سني واجعني اوي", "في ورم في اللثه"]) {
+  assert.equal(signalsFromThread({ patientTexts: [t], lastInboundAtMs: now - H, now }).urgency, true, `pain in: ${t}`);
+}
+// The same accident with other three-letter words.
+assert.equal(signalsFromThread({ patientTexts: ["معقول السعر ده"], lastInboundAtMs: now - H, now }).namedService, false, "معقول is not ضرس العقل");
+assert.equal(signalsFromThread({ patientTexts: ["محتاجين نعرف التفاصيل"], lastInboundAtMs: now - H, now }).askedToBook, false, "محتاجين is not اجي");
+assert.equal(signalsFromThread({ patientTexts: ["الاسم الكامل احمد"], lastInboundAtMs: now - H, now }).askedPrice, false, "الكامل is not كام");
+// …and the real forms still count.
+assert.equal(signalsFromThread({ patientTexts: ["ضرس العقل بيتخلع بكام"], lastInboundAtMs: now - H, now }).namedService, true);
+assert.equal(signalsFromThread({ patientTexts: ["ضرسي محتاج حشوه"], lastInboundAtMs: now - H, now }).namedService, true);
+assert.equal(signalsFromThread({ patientTexts: ["هاجي بعد الشغل"], lastInboundAtMs: now - H, now }).askedToBook, true);
+assert.equal(signalsFromThread({ patientTexts: ["للحجز ازاي"], lastInboundAtMs: now - H, now }).askedToBook, true);
+assert.equal(signalsFromThread({ patientTexts: ["الحشو كام؟"], lastInboundAtMs: now - H, now }).askedPrice, true);
+assert.equal(signalsFromThread({ patientTexts: ["سعرها ايه"], lastInboundAtMs: now - H, now }).askedPrice, true);
+
 // The ad they tapped names the service when they did not.
 const fromAd = signalsFromThread({ patientTexts: ["مرحبا"], adText: "زراعة الأسنان بالتقسيط", fromAd: true, lastInboundAtMs: now - H, now });
 assert.equal(fromAd.namedService, true);

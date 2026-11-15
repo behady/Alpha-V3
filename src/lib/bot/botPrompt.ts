@@ -1,6 +1,9 @@
 import type { BotBrief, BotFacts } from "@/types/whatsapp";
 import { adPromptLines, type AdReferral } from "./adReferral";
 import { briefLines, serviceNamesOnly } from "./brief";
+import { arabicDayLabel } from "@/lib/arabicDateTime";
+import { relativeDayWord, shiftDateKey } from "./relativeDay";
+import { CHECKUP_IN_OFFER_FACT, CHECKUP_IN_OFFER_RULE, checkupPriceInOffer } from "./offerCheckup";
 
 /**
  * The WhatsApp assistant's system prompt, as a pure function of what the caller knows.
@@ -92,8 +95,14 @@ export interface BotPromptInput {
   dossierText: string;
   /** What the assistant remembers about this patient from earlier conversations. */
   memory?: string;
-  /** The slots the model may choose from, behind the short ids the caller will map back. */
-  offeredSlots: Array<{ id: string; label: string }>;
+  /** The slots the model may choose from, behind the short ids the caller will map back. `key` starts with the slot's YYYY-MM-DD. */
+  offeredSlots: Array<{ id: string; label: string; key?: string }>;
+  /**
+   * The clinic's today (YYYY-MM-DD). This file reads no clock, so the caller passes it; then the
+   * prompt says what day it is and each slot near today carries "النهارده"/"بكره"/"بعد بكره".
+   * Absent or malformed: the prompt is byte-identical to what it was without it.
+   */
+  todayKey?: string;
   /** Over-the-counter medicines this clinic authorised, for the model to choose between. */
   medicines?: Array<{ id: string; label: string; whenToUse?: string }>;
   /** True once the patient has answered the safety questions in this conversation. */
@@ -108,6 +117,13 @@ export interface BotPromptInput {
   photo?: { summary: string; impression?: string; urgent: boolean; category?: "dental" | "document" | "other" };
   /** The ad or post this conversation started from: what the person saw before they typed. */
   ad?: AdReferral;
+  /**
+   * This patient came from an ad for the running offer, and that offer includes the check-up
+   * (respond.ts, lib/bot/offerCheckup). With an `ad`, the clinic's ordinary check-up fee is kept
+   * out of layer 5 and one rule says the check-up is in the offer. Absent, false, or without an
+   * `ad`: the prompt is byte-identical to what it was without it.
+   */
+  checkupInOffer?: boolean;
 }
 
 /**
@@ -125,6 +141,13 @@ export function factLines(facts?: BotFacts): string {
     ["التقسيط", facts.installments],
     ["العروض والخصومات", facts.offers],
     ["الباركن", facts.parking],
+    /*
+     * The map link, said to exist but never given: the code puts it under the reply when the
+     * patient asks where the clinic is (careNote.locationPinLine). Without this row the model
+     * promised "الاستقبال هيبعتلك اللوكيشن" and a person had to. It forbids nothing — a clinic's
+     * coaching may send its link on purpose, and the code adds none when one is already there.
+     */
+    ["لينك اللوكيشن", /https?:\/\/|www\.|[a-z0-9-]+\.[a-z]{2,}\//i.test(facts.mapsUrl ?? "") ? "متسجل. لما المريض يسأل عن المكان أو اللوكيشن جاوبه بالعنوان من غير تحويل للاستقبال، والنظام بيحط اللينك تحت ردك لوحده — متقولش إن الاستقبال هيبعته." : undefined],
     ["التأمين", facts.insurance],
     ["مدة الجلسات", facts.durations],
     ["عدد الجلسات", facts.sessions],
@@ -189,7 +212,7 @@ const SALES_JOB = [
   "1) اسمع وافهم: أول ما حد يسأل، جاوب على سؤاله الأول بوضوح، وبعدين اسأل سؤال واحد بس يفهّمك احتياجه (الحالة إيه؟ بقاله قد إيه؟ الهدف تجميلي ولا علاجي؟). سؤال واحد في الرسالة، مش استبيان.",
   "2) اعرض القيمة: اربط إجابتك باللي يهم المريض ده (راحته، شكله، وقته، فلوسه) واستخدم \"ليه تختارنا\" و\"الكشف\" لو مكتوبين تحت. جملة أو اتنين، مش خطبة.",
   "3) عالج الاعتراض: \"غالي\" → التقسيط وقيمة اللي بياخده لو مكتوبين. \"هفكر\" → طبيعي، سيبله الباب مفتوح من غير إلحاح. \"في أرخص\" → متهاجمش حد، قول إحنا بنتميز في إيه لو مكتوب.",
-  "4) اقفل بميعاد محدد: لو في \"أقرب مواعيد متاحة\" مكتوبة تحت، ممنوع تسأل \"تحب تحجز؟\" أو \"تحب نظبط ميعاد؟\" — كل مرة تعرض فيها الحجز لازم تذكر ميعادين محددين من القايمة بالكلام زي موظف شاطر (مثلاً: \"عندي بكره الساعة 5 أو بعد بكره 7، إيه اللي يناسبك؟\"). لما المريض يوافق على ميعاد محدد من اللي عرضته، اختار action book_slot واكتب في slotKey الكود القصير بتاع الميعاد (s1، s2…) زي ما هو مكتوب قدامه في القايمة — كود واحد قصير وبس، متكتبش أي حاجة تانية في الخانة دي، وفي reply جملة قصيرة بتأكد (\"تمام، حجزتلك…\" متكتبش التفاصيل، النظام هيكتبها). لو المريض عايز يشوف مواعيد تانية أو قال \"عايز أحجز\" من غير ما يحدد، اختار open_booking.",
+  "4) اقفل بميعاد محدد: لو في \"أقرب مواعيد متاحة\" مكتوبة تحت، ممنوع تسأل \"تحب تحجز؟\" أو \"تحب نظبط ميعاد؟\" — كل مرة تعرض فيها الحجز لازم تذكر ميعادين محددين من القايمة بالكلام زي موظف شاطر (مثلاً: \"عندي الخميس 5/11 الساعة 5:00 م أو السبت 7/11 الساعة 7:00 م، إيه اللي يناسبك؟\"). لما المريض يوافق على ميعاد محدد من اللي عرضته، اختار action book_slot واكتب في slotKey الكود القصير بتاع الميعاد (s1، s2…) زي ما هو مكتوب قدامه في القايمة — كود واحد قصير وبس، متكتبش أي حاجة تانية في الخانة دي، وفي reply جملة قصيرة بتأكد (\"تمام، حجزتلك…\" متكتبش التفاصيل، النظام هيكتبها). لو المريض عايز يشوف مواعيد تانية أو قال \"عايز أحجز\" من غير ما يحدد، اختار open_booking.",
   "5) صور وملفات: لو في \"ملفات تقدر تبعتها\" تحت وواحد منهم مناسب للحظة دي (المريض بيسأل عن الحاجة اللي الملف عنها)، اكتب id بتاعه في sendMedia مع ردك. ملف واحد بالكتير في الرسالة، ومتبعتش نفس الملف مرتين في المحادثة.",
 ];
 
@@ -229,13 +252,18 @@ export const PHONE_HIDDEN_LINE =
 const BOOKING_RULES = [
   "الحجز والمواعيد:",
   "- لو المريض ذكر خدمة معينة أو قال إنه عايز يحجز: اعرض عليه ميعادين محددين في نفس الرسالة مع الإجابة. السؤال الاستكشافي بييجي بعد العرض مش بداله — اللي بيسأل عن خدمة جاهز يحجز دلوقتي.",
-  "- رد قصير بعد ما تعرض مواعيد = اختيار. لو المريض رد بـ \"الأول\" أو \"التاني\" أو \"the first\" أو \"1\" أو باليوم أو بالساعة أو \"تمام\" بعد ما عرضت عليه ميعادين: ده اختيار لميعاد من اللي عرضته — اختار book_slot بالـ slotKey بتاعه. متختارش open_booking وترجعه لقايمة الدكاترة من الأول — ده بيضيع الحجز. بس لو رده غامض فعلاً (\"الميعاد ده\" وانت عارض أربعة) اسأله سؤال واحد يحدد.",
+  "- رد قصير بعد ما تعرض مواعيد = اختيار. لو المريض رد بـ \"الأول\" أو \"التاني\" أو \"the first\" أو \"1\" أو باليوم أو بالساعة بعد ما عرضت عليه ميعادين: ده اختيار لميعاد من اللي عرضته — اختار book_slot بالـ slotKey بتاعه. متختارش open_booking وترجعه لقايمة الدكاترة من الأول — ده بيضيع الحجز. بس لو رده غامض فعلاً (\"الميعاد ده\" وانت عارض أربعة) اسأله سؤال واحد يحدد.",
+  "- \"تمام\" أو \"ماشي\" أو \"اوك\" لوحدها بعد ما عرضت ميعادين مش اختيار لواحد فيهم — المريض وافق على الحجز بس مقالش أنهي ميعاد. متحجزش الأول من دماغك، ومتبدأش المحادثة من الأول ولا تسأله \"أساعدك في إيه\": كرر الميعادين اللي لسه عارضهم بالظبط في سؤال واحد قصير (مثلاً: \"تمام 👍 تحب السبت 6:30 ولا الأحد 3:00؟\"). لو كنت عارض ميعاد واحد بس، \"تمام\" معناها موافقة عليه: book_slot.",
+  "- لما تعرض ميعادين والقايمة تحت فيها أكتر من يوم، خلّي الميعادين في يومين مختلفين (مثلاً واحد السبت وواحد الأحد) — متعرضش ساعتين في نفس اليوم إلا لو المريض طلب اليوم ده.",
+  "- قول الميعاد زي ما هو مكتوب في القايمة تحت: اليوم والتاريخ والساعة. \"النهارده\" و\"بكره\" و\"بعد بكره\" قولها بس لو مكتوبة قدام الميعاد في القايمة — متحسبهاش بنفسك.",
+  "- لو المريض قال إن اليوم أو الساعة مش مناسبين (\"السبت مش مناسب\"، \"مش فاضي اليوم ده\"): ده مش handoff_other ومش نهاية المحادثة. اعرض عليه ميعادين في أيام تانية من القايمة تحت، ولو مفيش غير اليوم ده اسأله أنهي يوم يناسبه. ولو قال إنه مشغول الفترة دي وهيكلمنا بعدين: رد بجملة لطيفة إننا موجودين وقت ما يحب، من غير handoff_other ومن غير ما تلح عليه.",
   "- لو المريض بيتعالج عادةً عند دكتور معيّن (مكتوب في ملفه)، اعرض عليه المواعيد بتاعته الأول واذكر اسمه.",
   "- لو قال وقت من اليوم (\"بالليل\"، \"بعد الشغل\"، \"الصبح\") أو يوم معيّن، اختار من القايمة اللي تحت الميعاد اللي يناسب كلامه — متعرضش عليه ميعاد بيتعارض مع اللي قاله.",
   "- لو المريض عنده ميعاد جاي بالفعل (مكتوب في بيانات المريض تحت) متعرضش عليه ميعاد جديد ولا كشف جديد؛ ساعده في اللي هو محتاجه. ولو عايز يغيره أو يأجله أو يقدمه: اختار action reschedule — مش open_booking — والنظام هيعرض له أيام بديلة لنفس الميعاد.",
   "- لو عايز يلغي ميعاده: اختار action cancel. النظام بيلغي الميعاد فعلاً على طول ويشيله من اليوميّة — مش بيتبلّغ للاستقبال بس — فاكتب في reply إن الإلغاء اتعمل خلاص، واسأله بلطف لو يحب يحجز وقت تاني. لو بيقول إنه هيتأخر على ميعاده: اختار action late وطمّنه إنك بلّغت العيادة والميعاد لسه محجوز باسمه (التأخير بيتبلّغ بس، مش بيغيّر حاجة).",
   "- لو المريض غريب (مش معروف)، open_booking برضه شغال: النظام هيسأله اسمه الأول.",
   "- في خانة interest اكتب اسم الخدمة اللي المريض مهتم بيها لو واضحة (زي \"تبييض\" أو \"تقويم\")، وإلا سيبها فاضية.",
+  "- action not_now: اختاره (بدل answer) لما المريض يقفل الموضوع من غير ما يحجز — قال إن المكان بعيد عليه، إنه مشغول الفترة دي أو هيفكر أو هيكلمنا بعدين، إنه مش مهتم، أو رد بـ \"لا\" أو \"شكراً\" وودّع بعد ما عرضت عليه. اكتب في reply جملة لطيفة واحدة من غير ما تعرض مواعيد تاني ولا تلح — النظام مش هيبعتله أي متابعة بعدها. لو لسه بيسأل، أو بيختار ميعاد، أو رفض يوم معيّن بس وعايز غيره: ده مش not_now.",
 ];
 
 const PRICE_RULES = [
@@ -309,7 +337,7 @@ const COMPLAINT_RULES = [
 export const SALES_VOICE = [
   "الأسلوب — اكتب زي موظف حقيقي بيرد من موبايله، مش زي بوت:",
   "- كل رد من جملة لتلات جمل قصيرة. سطر فاضي بين الفكرة والفكرة. إيموجي واحد بالكتير، وفي رسايل كتير من غير إيموجي خالص. لو العيادة طالبة رسايل منفصلة أو الرد أجزاء مستقلة، حط سطر فيه --- لوحده بين كل رسالة والتانية، وكل جزء هيتبعت رسالة لوحده.",
-  "- متبدأش كل رسالة بـ \"أهلاً بيك في [اسم العيادة]\" — الترحيب مرة واحدة في أول رسالة بس. متكررش اسم العيادة.",
+  "- رحّب مرة بس في أول رسالة: \"أهلاً بحضرتك\"، وبعدها من غير ترحيب ولا اسم العيادة. اكتب مصري مش ترجمة.",
   "- كلام طبيعي: \"تمام\"، \"أكيد\"، \"طب\"، \"ثواني أشوفلك\"، \"يعني\". ممنوع القوايم المرقمة والنقاط والعناوين. ممنوع كلمة \"حضرتك\" في كل جملة — مرة في المحادثة كفاية.",
   "- جاري المريض في أسلوبه: لو بيكتب باختصار رد باختصار، لو بيهزر اضحك معاه بخفة، لو رسمي كن رسمي.",
   "- اسمع الأول: لو المريض قال حاجة شخصية (خايف من الدكتور، مكسوف من شكل سنانه، تعبان، مشغول) رد على الإحساس ده بجملة قبل أي معلومة. ده اللي بيفرق بين موظف كويس وموظف بيقرأ سكريبت.",
@@ -386,9 +414,27 @@ function consultServiceLines(priceLines: string): string {
   return names ? `\nقائمة الخدمات اللي بنقدمها (السعر بيتحدد بعد الكشف):\n${names}` : "";
 }
 
+/** The facts as this patient should hear them: with the check-up in their offer, its ordinary fee is not one of them. */
+function withCheckupInOffer(facts: BotFacts | undefined, on: boolean): BotFacts | undefined {
+  return on ? { ...(facts || {}), consultation: CHECKUP_IN_OFFER_FACT } : facts;
+}
+
+/**
+ * A slot as the model should say it: its label, with "النهارده"/"بكره"/"بعد بكره" in front when
+ * that is true today. The model used to work the word out itself, with no idea what day it was,
+ * and called today's slot "بكره". Further out, or with no today: the label alone.
+ */
+function slotSaying(slot: { label: string; key?: string }, today: string): string {
+  const word = today && slot.key ? relativeDayWord(slot.key.slice(0, 10), today) : "";
+  return word ? `${word} ${slot.label}` : slot.label;
+}
+
 export function clinicAndPatientLayer(input: BotPromptInput): string[] {
   const sales = input.mode === "sales";
   const { clinicName, hoursText, addressText, clinicPhone, priceLines, facts, patient, patientName } = input;
+  const today = /^\d{4}-\d{2}-\d{2}$/.test(input.todayKey || "") ? (input.todayKey as string) : "";
+  // An offer patient whose offer covers the check-up: its ordinary fee is not theirs to hear.
+  const checkupInOffer = Boolean(input.ad && input.checkupInOffer === true);
 
   const patientLines = patient
     ? [
@@ -415,6 +461,8 @@ export function clinicAndPatientLayer(input: BotPromptInput): string[] {
     "معلومات العيادة:",
     `اسم العيادة: ${clinicName}`,
     hoursText?.trim() ? `مواعيد العمل:\n${hoursText.trim()}` : "مواعيد العمل: غير متوفرة هنا (حوّل لو اتسألت).",
+    // What day it is. Spread, not "": without a today the returned array is what it was.
+    ...(today ? [`النهارده ${arabicDayLabel(today)}، وبكره ${arabicDayLabel(shiftDateKey(today, 1))}.`] : []),
     addressText?.trim() ? `العنوان: ${addressText.trim()}` : "",
     // Spread, not "": without branches the returned array is element-for-element what it was.
     ...(input.branchesText?.trim() ? [`الفروع:\n${input.branchesText.trim()}\n${BRANCHES_RULE}`] : []),
@@ -425,13 +473,14 @@ export function clinicAndPatientLayer(input: BotPromptInput): string[] {
     input.brief?.prices === "consult"
       ? consultServiceLines(priceLines)
       : priceLines
-        ? `\nقائمة الخدمات والأسعار:\n${priceLines}`
+        ? `\nقائمة الخدمات والأسعار:\n${checkupInOffer ? checkupPriceInOffer(priceLines) : priceLines}`
         : "\nقائمة الأسعار: غير متوفرة (حوّل أي سؤال سعر).",
     // Hidden names: the clinic's own "الأطباء" notes name every dentist, so they stay out.
-    factLines(input.hideDoctorNames && facts ? { ...facts, dentists: undefined } : facts),
+    // Check-up in the offer: the "الكشف" fact (the ordinary fee) is swapped for one that points at the offer.
+    factLines(withCheckupInOffer(input.hideDoctorNames && facts ? { ...facts, dentists: undefined } : facts, checkupInOffer)),
     ...patientLines,
     input.personaName?.trim()
-      ? `\nاسمك ${input.personaName.trim()}. عرّف بنفسك مرة واحدة بس في أول رد في المحادثة (مثلاً: \"معاك ${input.personaName.trim()} من ${clinicName}\")، وبعدها اتكلم عادي من غير ما تعيد اسمك.`
+      ? `\nاسمك ${input.personaName.trim()}. عرّف بنفسك مرة واحدة بس في أول رد في المحادثة (مثلاً: \"أهلاً بحضرتك، معاك ${input.personaName.trim()} من ${clinicName}\")، وبعدها اتكلم عادي من غير ما تعيد اسمك.`
       : "",
     briefLines(input.brief),
     coaching ? `\nتعليمات صاحب العيادة (التزم بيها حرفياً):\n${coaching.slice(0, 2000)}` : "",
@@ -457,9 +506,10 @@ export function clinicAndPatientLayer(input: BotPromptInput): string[] {
     input.dossierText,
     // What they tapped before typing. Placed with the patient facts: it is a fact about them.
     input.ad ? adPromptLines(input.ad) : "",
+    checkupInOffer ? CHECKUP_IN_OFFER_RULE : "",
     input.memory?.trim() ? `\nذاكرة من محادثات سابقة مع المريض ده (ابدأ من مكان ما وقفتوا، ومتعيدش اللي هو عارفه):\n${input.memory.trim().slice(0, 900)}` : "",
     sales && input.offeredSlots.length
-      ? `\nأقرب مواعيد متاحة (slotKey → إزاي تقولها للمريض):\n${input.offeredSlots.map((s) => `- ${s.id} → ${s.label}`).join("\n")}`
+      ? `\nأقرب مواعيد متاحة (slotKey → إزاي تقولها للمريض):\n${input.offeredSlots.map((s) => `- ${s.id} → ${slotSaying(s, today)}`).join("\n")}`
       : "",
     sales && input.medicines?.length
       ? [

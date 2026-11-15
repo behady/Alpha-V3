@@ -149,6 +149,8 @@ jobs:
         run: npx firebase-tools@13 emulators:exec --only firestore "npm run --silent test:branch-money-routes"
       - name: Teeth on an insurance approval's treatment reach the approval and the monthly sheet
         run: npx firebase-tools@13 emulators:exec --only firestore "npm run --silent test:approval-teeth-route"
+      - name: Per-service done dates on an insurance approval (finish month, sent lock, delete a service)
+        run: npx firebase-tools@13 emulators:exec --only firestore "npm run --silent test:insurance-line-dates-route"
 
   build:
     name: Production build

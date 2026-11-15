@@ -33,6 +33,7 @@ import { attributeService, buildProcedureIndex, type AttributableRow } from "@/l
 import { buildPayerReport, type LedgerRowLite } from "@/lib/payerReport";
 import { PRIVATE_PAYER_ID, type Payer } from "@/lib/payers";
 import { buildCaseSheet, settlementOf, sumCases } from "@/lib/caseSheet";
+import { buildTreatmentStatus, type TreatmentState } from "@/lib/reports/treatmentStatus";
 import { buildInsuranceStatement, caseLabel, type StatementRowLite } from "@/lib/insuranceStatement";
 import { readMemberNumbers } from "@/lib/patientInsurance";
 import { parseApptTimeToMinutes } from "@/lib/appointmentTime";
@@ -660,6 +661,19 @@ export function buildReportDoc(id: string, input: ReportInputs): ReportDoc {
       break;
     }
     // --- operations ------------------------------------------------------------------------------------
+    case "treatments": {
+      const t = buildTreatmentStatus(d("treatmentNotes"), input.allPatients, d("appointmentsAhead"), range, input.today);
+      const word = (s: TreatmentState) => (isAr ? { Planned: "مخطط", Ongoing: "جاري", Completed: "اتعمل" }[s] : { Planned: "Planned", Ongoing: "In progress", Completed: "Done" }[s]);
+      figure(`${word("Planned")} · ${money(t.totals.Planned.value)}`, fmt(t.totals.Planned.count), "muted");
+      figure(`${word("Ongoing")} · ${money(t.totals.Ongoing.value)}`, fmt(t.totals.Ongoing.count));
+      figure(`${word("Completed")} · ${money(t.totals.Completed.value)}`, fmt(t.totals.Completed.count));
+      figure(isAr ? "أقدم ولسه مخلصش" : "Older, still not finished", fmt(t.older.count), t.older.count > 0 ? "bad" : "muted");
+      sections.push({ type: "table", title: isAr ? "العلاجات" : "Treatments",
+        columns: [{ key: "patient", label: isAr ? "المريض" : "Patient" }, { key: "phone", label: isAr ? "الهاتف" : "Phone" }, { key: "treatment", label: isAr ? "العلاج" : "Treatment" }, { key: "doctor", label: isAr ? "الدكتور" : "Dentist" }, { key: "state", label: isAr ? "الحالة" : "State" }, { key: "date", label: isAr ? "التاريخ" : "Date", kind: "date" }, { key: "next", label: isAr ? "الزيارة الجاية" : "Next visit", kind: "date" }, { key: "price", label: isAr ? "السعر" : "Price", align: "end", kind: "money" }],
+        rows: t.lines.map((l) => ({ _patientId: l.patientId, patient: l.patientName, phone: l.phone, treatment: l.tooth ? `${l.treatment} (${l.tooth})` : l.treatment, doctor: l.doctorName || "—", state: word(l.state) + (l.older ? (isAr ? " · قديم" : " · older") : ""), date: l.date, next: l.nextVisit || null, price: l.price, _bad: l.state !== "Completed" && !l.nextVisit })) });
+      note(isAr ? "«اتعمل» بيتحسب في الشهر اللي العلاج خلص فيه. الأحمر: علاج مفتوح ومريضه مش حاجز." : "Done counts in the month the treatment was finished. Red: open work whose patient has nothing booked.");
+      break;
+    }
     case "appointments": {
       const s = appointmentStats(d("appointments"), input.today, unassigned);
       const days = isAr ? WEEKDAYS_AR : WEEKDAYS_EN;

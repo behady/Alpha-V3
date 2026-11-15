@@ -3,19 +3,30 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { onSnapshot } from "firebase/firestore";
-import { Loader2, PhoneCall, X } from "lucide-react";
+import { Loader2, PhoneCall, StickyNote, X } from "lucide-react";
 import { getClinicCollection } from "@/lib/db-utils";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
-import { REASON_MAX, REMINDER_ROLES, quickDate, recipientLabel, type CallReminder, type ReminderRecipient, type ReminderRole, type ReminderSource } from "@/lib/callReminders";
+import {
+  REASON_MAX,
+  REMINDER_ROLES,
+  quickDate,
+  recipientLabel,
+  type CallReminder,
+  type ReminderKind,
+  type ReminderRecipient,
+  type ReminderRole,
+  type ReminderSource,
+} from "@/lib/callReminders";
 import { callReminderErrorText, createCallReminder, editCallReminder } from "@/lib/callRemindersApi";
 
 /**
- * "Call this patient on Thursday": the one window for setting a call, opened from the patient
- * file, the booking pop-up and a treatment card. The day is required, the time optional (blank
- * means the clinic's morning time), the reason is free text, and it goes to one person or a role.
+ * A note about a patient: "call her on Thursday about the crown price" or "send the x-ray to Dr.
+ * Hany". The one window for it, opened from the patient file, the booking pop-up and a treatment
+ * card. A note is a Call (the default) or a Reminder; the day is required, the time optional
+ * (blank means the clinic's morning time), the text is free, and it goes to one person or a role.
  */
 
 type StaffOption = { uid: string; name: string };
@@ -56,6 +67,7 @@ export default function CallReminderDialog({
   const isAr = language === "ar";
   const today = ymdInTimeZone(clinicTimeZone(), new Date());
 
+  const [kind, setKind] = useState<ReminderKind>("call");
   const [date, setDate] = useState(() => quickDate(today, "tomorrow"));
   const [time, setTime] = useState("");
   const [reason, setReason] = useState(initialReason);
@@ -68,11 +80,13 @@ export default function CallReminderDialog({
   useEffect(() => {
     if (!isOpen) return;
     if (editing) {
+      setKind(editing.kind);
       setDate(editing.date < today ? today : editing.date);
       setTime(editing.time || "");
       setReason(editing.reason);
       setTo(editing.recipient.kind === "person" ? `person:${editing.recipient.uid}` : `role:${editing.recipient.role}`);
     } else {
+      setKind("call");
       setDate(quickDate(today, "tomorrow"));
       setTime("");
       setReason(initialReason);
@@ -121,13 +135,14 @@ export default function CallReminderDialog({
     setError("");
     try {
       if (editing) {
-        await editCallReminder(editing.id, { date, time: time || null, reason, recipient: recipient() });
-        showToast(isAr ? "التذكير اتعدّل" : "Reminder updated", "success");
+        await editCallReminder(editing.id, { kind, date, time: time || null, reason, recipient: recipient() });
+        showToast(isAr ? "الملاحظة اتعدّلت" : "Note updated", "success");
         onSaved?.(editing.id);
         onClose();
         return;
       }
       const id = await createCallReminder({
+        kind,
         patientId: patient.id,
         date,
         time: time || null,
@@ -136,7 +151,7 @@ export default function CallReminderDialog({
         source,
         ...(sourceNoteId ? { sourceNoteId } : {}),
       });
-      showToast(isAr ? "التذكير اتحفظ" : "Reminder saved", "success");
+      showToast(isAr ? "الملاحظة اتحفظت" : "Note saved", "success");
       onSaved?.(id);
       onClose();
     } catch (e) {
@@ -162,13 +177,35 @@ export default function CallReminderDialog({
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 id="call-reminder-title" className="flex items-center gap-2 text-lg font-black text-ink">
-              <PhoneCall size={18} aria-hidden="true" /> {editing ? (isAr ? "تعديل التذكير" : "Edit reminder") : isAr ? "تذكير بمكالمة" : "Call reminder"}
+              {kind === "call" ? <PhoneCall size={18} aria-hidden="true" /> : <StickyNote size={18} aria-hidden="true" />}{" "}
+              {editing ? (isAr ? "تعديل الملاحظة" : "Edit note") : isAr ? "ملاحظة جديدة" : "New note"}
             </h2>
             <p className="truncate text-sm font-semibold text-ink-muted">{patient.name}</p>
           </div>
           <button type="button" onClick={onClose} aria-label={isAr ? "إغلاق" : "Close"} className="rounded-full p-2 text-ink-muted hover:bg-surface-subtle">
             <X size={18} />
           </button>
+        </div>
+
+        {/* Call or plain reminder. A call keeps the phone button on its row; a reminder does not. */}
+        <div className="mb-4 grid grid-cols-2 gap-1 rounded-2xl border border-line bg-surface-subtle p-1" role="radiogroup" aria-label={isAr ? "نوع الملاحظة" : "Note type"}>
+          {(
+            [
+              { id: "call", ar: "مكالمة", en: "Call", Icon: PhoneCall },
+              { id: "reminder", ar: "تذكير", en: "Reminder", Icon: StickyNote },
+            ] as const
+          ).map(({ id, ar, en, Icon }) => (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={kind === id}
+              onClick={() => setKind(id)}
+              className={`flex h-10 items-center justify-center gap-1.5 rounded-xl text-sm font-bold transition-colors ${kind === id ? "bg-ink text-white" : "text-ink-muted hover:text-ink"}`}
+            >
+              <Icon size={15} aria-hidden="true" /> {isAr ? ar : en}
+            </button>
+          ))}
         </div>
 
         <label className="mb-1.5 block text-sm font-bold text-ink">{isAr ? "اليوم" : "Day"}</label>
@@ -194,20 +231,28 @@ export default function CallReminderDialog({
         </label>
         <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className={INPUT} />
         <p className="mb-4 mt-1 text-xs font-semibold text-ink-muted">
-          {isAr ? "لو سبتها فاضية التذكير هيوصل الصبح، في ميعاد الصبح بتاع العيادة." : "Left blank, it arrives at the clinic's morning time."}
+          {isAr ? "لو سبتها فاضية الملاحظة هتوصل الصبح، في ميعاد الصبح بتاع العيادة." : "Left blank, it arrives at the clinic's morning time."}
         </p>
 
-        <label className="mb-1.5 block text-sm font-bold text-ink">{isAr ? "السبب" : "Reason"}</label>
+        <label className="mb-1.5 block text-sm font-bold text-ink">{isAr ? (kind === "call" ? "السبب" : "الملاحظة") : kind === "call" ? "Reason" : "Note"}</label>
         <textarea
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           maxLength={REASON_MAX}
           rows={2}
-          placeholder={isAr ? "مثلاً: سعر التركيبة، قالت هتفكر" : "e.g. crown price, she will think about it"}
+          placeholder={
+            kind === "call"
+              ? isAr
+                ? "مثلاً: سعر التركيبة، قالت هتفكر"
+                : "e.g. crown price, she will think about it"
+              : isAr
+                ? "مثلاً: ابعت الأشعة لدكتور هاني"
+                : "e.g. send the x-ray to Dr. Hany"
+          }
           className={`${INPUT} mb-4 resize-none`}
         />
 
-        <label className="mb-1.5 block text-sm font-bold text-ink">{isAr ? "لمين" : "Who calls"}</label>
+        <label className="mb-1.5 block text-sm font-bold text-ink">{isAr ? "لمين" : "For whom"}</label>
         <select value={to} onChange={(e) => setTo(e.target.value)} className={`${INPUT} mb-4`}>
           <optgroup label={isAr ? "شخص" : "A person"}>
             {people.map((p) => (
@@ -234,7 +279,7 @@ export default function CallReminderDialog({
           className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-ink text-[15px] font-bold text-white transition-opacity disabled:opacity-50"
         >
           {saving && <Loader2 size={16} className="animate-spin" />}
-          {editing ? (isAr ? "احفظ التعديل" : "Save changes") : isAr ? "احفظ التذكير" : "Save reminder"}
+          {editing ? (isAr ? "احفظ التعديل" : "Save changes") : isAr ? "احفظ الملاحظة" : "Save note"}
         </button>
       </div>
     </div>,

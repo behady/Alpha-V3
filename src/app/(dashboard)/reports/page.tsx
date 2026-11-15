@@ -63,6 +63,13 @@ function reportFromUrl(): string | null {
   return new URLSearchParams(window.location.search).get("report");
 }
 
+/** The period named in the URL (`?preset=today|week|month`), so a link opens on the period it was counted over. */
+function rangeFromUrl(): DateRange | null {
+  if (typeof window === "undefined") return null;
+  const preset = new URLSearchParams(window.location.search).get("preset");
+  return preset === "today" || preset === "week" || preset === "month" ? rangeFor(preset) : null;
+}
+
 function ReportsPage() {
   const { language } = useLanguage();
   const { branches, allowedBranches, activeBranchId, setActiveBranchId, canChooseAll, scopeBranchId } = useActiveBranch();
@@ -80,7 +87,7 @@ function ReportsPage() {
    * sequence fired two full reads, and stepping a month field with the arrow keys fired one per
    * step. Moving them together makes a preset a single change.
    */
-  const [range, setRange] = useState<DateRange>({ start: getFirstDay(), end: getToday() });
+  const [range, setRange] = useState<DateRange>(() => rangeFromUrl() || { start: getFirstDay(), end: getToday() });
   const { start: startDate, end: endDate } = range;
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
@@ -230,7 +237,7 @@ function ReportsPage() {
   const scopedData = useMemo(() => {
     if (scopeBranchId === "") return extras.data;
     const out: ReportData = { ...extras.data };
-    for (const key of ["ledgerPrev", "ledgerLastYear", "ledgerMonths12", "ledgerAll", "appointments", "appointmentsWide"] as const) {
+    for (const key of ["ledgerPrev", "ledgerLastYear", "ledgerMonths12", "ledgerAll", "appointments", "appointmentsWide", "treatmentNotes"] as const) {
       const rows = out[key];
       if (rows) out[key] = rows.filter((r) => rowInScope(r, scopeBranchId));
     }
@@ -479,9 +486,17 @@ function ReportsPage() {
 
 /** Sold as an add-on: the page renders only once the clinic's subscription says so. */
 export default function ReportsPageGated() {
+  // A link from inside the app (the owner's home numbers) renders this page BEFORE the address bar
+  // has moved, so a page that read `?report=` on its first render opened on the overview with the
+  // right address above it. The page is mounted one tick later, when the address is the new one.
+  const [addressReady, setAddressReady] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- browser-only: the URL is read once it has changed
+    setAddressReady(true);
+  }, []);
   return (
     <FeatureGate feature="reports">
-      <ReportsPage />
+      {addressReady ? <ReportsPage /> : null}
     </FeatureGate>
   );
 }

@@ -37,6 +37,7 @@ import {
 import PageHeader from "@/components/dashboard/PageHeader";
 import HomeViewTabs from "@/components/dashboard/HomeViewTabs";
 import CallsTodayCard from "@/components/calls/CallsTodayCard";
+import TreatmentNumbersCard from "@/components/dashboard/TreatmentNumbersCard";
 import Sparkline from "@/components/dashboard/Sparkline";
 
 /**
@@ -463,6 +464,9 @@ export default function OwnerHome() {
 
         {/* Today's calls the desk promised to make; renders nothing when there are none. */}
         <CallsTodayCard />
+
+        {/* Planned, in progress, done for the period on screen; each number opens its list. */}
+        <TreatmentNumbersCard period={period} scopeBranchId={scopeBranchId} />
 
         {/* Tabs */}
         <div className="flex flex-wrap gap-1.5 bg-surface border border-slate-200/60 rounded-2xl p-1.5 shadow-sm self-start">

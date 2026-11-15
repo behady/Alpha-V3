@@ -42,6 +42,13 @@ const EMPTY: ClinicInfoState = {
   attendanceLat: "",
   attendanceLng: "",
   attendanceRadius: "50",
+  // One clock-in location per branch id, for clinics with two or more branches (lib/attendanceSites).
+  attendanceBranchSites: {},
+  // Both clock-in checks are on unless the clinic switches one off (see lib/attendanceChecks).
+  attendanceRequireLocation: true,
+  attendanceRequireDevice: true,
+  // Empty = auto clock-out is off.
+  attendanceAutoCloseHours: "",
 };
 
 interface Props {

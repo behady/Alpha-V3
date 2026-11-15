@@ -64,6 +64,9 @@ test("dentist mode sends an ordinary symptom to the brain as a clinical turn; em
   assert.equal(d.handoff, false);
   assert.equal(say("awaiting_choice", "مش قادر ابلع", { clinicalMode: "dentist" }).reason, "clinical", "a red-flag phrase never reaches the brain");
   assert.equal(say("awaiting_choice", "ضرسي بيوجعني", { clinicalMode: "dentist", aiAvailable: false }).reason, "clinical", "no AI, no dentist");
+  // A person holds the thread (main, 2026-11-14): the brain does not answer as the dentist over them; an emergency still gets the fixed line.
+  assert.equal(say("handed_off", "ضرسي بيوجعني", { clinicalMode: "dentist", staffActive: true }).reason, "already_with_a_human");
+  assert.equal(say("handed_off", "مش قادر ابلع", { clinicalMode: "dentist", staffActive: true }).reason, "clinical");
 });
 
 test("a staff member in the thread keeps the brain quiet; a stale handoff flag does not", () => {
@@ -125,6 +128,9 @@ test("the name step: a name registers, talk goes to the brain and the step is ke
     assert.deepEqual(d.action, { type: "ai", question: talk }, talk);
     assert.equal(d.next, "booking_name");
   }
+  // A sentence is not a name (main, 2026-11-10): a transcribed voice note goes to the brain; a lead-in is dropped.
+  assert.equal(say("booking_name", "ازي حضرتك أنا من بلبيس").action?.type, "ai");
+  assert.deepEqual(say("booking_name", "اسمي أحمد محمود").action, { type: "register", name: "أحمد محمود", forRelative: false });
   const rel = say("booking_name", "سارة أحمد", { forRelative: true });
   assert.deepEqual(rel.action, { type: "register", name: "سارة أحمد", forRelative: true });
 });

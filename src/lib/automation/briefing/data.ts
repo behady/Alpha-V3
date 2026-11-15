@@ -75,7 +75,11 @@ export interface PunchRecord {
   overtimeStatus: string;
   checkInDistanceM: number | null;
   checkInAccuracyM: number | null;
+  /** The branch the person clocked in at — only for clinics with a location per branch. */
+  checkInBranchName?: string | null;
   deviceId: string | null;
+  /** True when the system closed the shift (forgotten clock-out), not the person. */
+  autoClosed?: boolean;
 }
 
 export interface LeadRecord {

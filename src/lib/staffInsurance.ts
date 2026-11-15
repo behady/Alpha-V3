@@ -1,7 +1,12 @@
 /**
  * A dentist's insurance work for a period: the Completed service lines assigned to them on treated or
  * sent claims, each with the rate and share stamped when the line was assigned. A Planned or Ongoing
- * line earns nobody anything yet (no state stored = Completed, as every older claim).
+ * line earns nobody anything yet (no state stored = Completed, as every older claim), and a service
+ * deleted from its approval earns nothing at all.
+ *
+ * Each service counts on the day IT was done (`lineDateOf`), not the day its approval was treated:
+ * an approval issued on 20/10 with one service done that day and another on 5/11 is October's pay
+ * for the first and November's for the second, whichever month the approval itself is billed in.
  *
  * Insurance is paid separately from private work — the owner's decision. Private commission comes
  * from the ledger (`staffCommission.ts`); this comes from the claims register and never touches
@@ -10,12 +15,12 @@
  * Pure: claims in, figures out. Nothing here is printed on the insurer's statement.
  */
 
-import { lineStatusOf, type InsuranceClaim } from "@/lib/insurance/claims";
+import { isLineRemoved, lineDateOf, lineStatusOf, type InsuranceClaim } from "@/lib/insurance/claims";
 
 export type InsuranceWorkEntry = {
   claimId: string;
   lineIndex: number;
-  /** The treated date when there is one, else the approval date. */
+  /** The day this service was done: its own day, else the approval's treated date, else the approval date. */
   date: string;
   patientName: string;
   payerId: string;
@@ -41,8 +46,9 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-function workDate(claim: InsuranceClaim): string {
-  return claim.treatedDate || claim.approvalDate;
+/** A service that earns: on the approval (not deleted) and done. */
+function earns(claim: InsuranceClaim, lineIndex: number): boolean {
+  return !isLineRemoved(claim, lineIndex) && lineStatusOf(claim, lineIndex) === "Completed";
 }
 
 /** Only treated or sent claims count: an approval nobody treated earns nobody anything. */
@@ -54,9 +60,9 @@ export function countsForPayroll(claim: InsuranceClaim): boolean {
  * Every assigned line of every counted claim, grouped by dentist. Lines carry the share that was
  * stamped on them, so a rate changed today leaves last month's figure alone.
  *
- * With a `period`, a claim counts in the period it was TREATED (the approval date only when no
- * treatment date was stored): an approval from July treated in October is October's pay. The caller
- * must therefore load claims by either date, not by the approval date alone.
+ * With a `period`, each service counts in the period IT was done (`lineDateOf`: its own day, else
+ * the approval's treated date, else the approval date). The caller must therefore load every claim
+ * with work in the period — by `workMonths`, and by either date for claims saved before it existed.
  */
 export function insuranceWorkByStaff(
   claims: readonly InsuranceClaim[],
@@ -66,19 +72,17 @@ export function insuranceWorkByStaff(
   const out = new Map<string, StaffInsuranceWork>();
   for (const claim of claims) {
     if (!countsForPayroll(claim)) continue;
-    if (period) {
-      const date = workDate(claim);
-      if (date < period.start || date > period.end) continue;
-    }
     for (const [k, d] of Object.entries(claim.dentists)) {
       const i = Number(k);
       const line = claim.lines[i];
-      if (!line || lineStatusOf(claim, i) !== "Completed") continue;
+      if (!line || !earns(claim, i)) continue;
+      const date = lineDateOf(claim, i);
+      if (period && (date < period.start || date > period.end)) continue;
       const bucket = out.get(d.staffId) ?? { total: 0, approved: 0, entries: [] };
       bucket.entries.push({
         claimId: claim.id,
         lineIndex: i,
-        date: workDate(claim),
+        date,
         patientName: claim.patientName,
         payerId: claim.payerId,
         approvalNumber: claim.approvalNumber,
@@ -103,10 +107,29 @@ export function unassignedLines(claims: readonly InsuranceClaim[]): { count: num
   for (const claim of claims) {
     if (!countsForPayroll(claim)) continue;
     claim.lines.forEach((line, i) => {
-      if (claim.dentists[i] || lineStatusOf(claim, i) !== "Completed") return;
+      if (claim.dentists[i] || !earns(claim, i)) return;
       count += 1;
       approved = round2(approved + line.approvedAmount);
     });
   }
   return { count, approved };
+}
+
+/**
+ * The dentists' share still unpaid on the insurance services done in a period. It is stamped on the
+ * approval's line (share, paid, deducted), not on a ledger row, so the ledger alone shows nothing owed.
+ */
+export function insurancePendingShare(claims: readonly InsuranceClaim[], period: { start: string; end: string }): number {
+  let total = 0;
+  for (const claim of claims) {
+    if (!countsForPayroll(claim)) continue;
+    for (const [k, d] of Object.entries(claim.dentists)) {
+      const i = Number(k);
+      if (!claim.lines[i] || !earns(claim, i)) continue;
+      const date = lineDateOf(claim, i);
+      if (date < period.start || date > period.end) continue;
+      total += Math.max(0, d.share - (d.paid ?? 0) - (d.deducted ?? 0));
+    }
+  }
+  return round2(total);
 }

@@ -2,21 +2,26 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, PhoneCall } from "lucide-react";
+import { ArrowUpRight, StickyNote } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
-import { dueOnCard, type CallReminder } from "@/lib/callReminders";
+import { dueOnCard, filterForView, type CallReminder } from "@/lib/callReminders";
 import { useOpenCallReminders } from "@/lib/useOpenCallReminders";
+import { useOwnStaffRow } from "@/lib/useOwnStaffRow";
 import CallRow from "@/components/calls/CallRow";
 import CallBookingHost from "@/components/calls/CallBookingHost";
 import CallReminderDialog from "@/components/calls/CallReminderDialog";
 
 /**
- * "مكالمات النهارده": today's calls and the overdue ones, on the desk's dashboard. Everyone at the
- * desk sees every row, so a call does not wait for the one person it was for. Hidden when empty.
+ * "ملاحظات النهارده": today's notes (calls and reminders) and the overdue ones, on the dashboard.
+ *
+ * Only MY notes: for me by name, or for my role at my branch. The owner's rule (2026-11-11): nobody
+ * sees a colleague's notes on their dashboard — everyone's list lives on the Notes page. Hidden when
+ * I have nothing due.
  */
+
 export default function CallsTodayCard() {
   const { user } = useAuth();
   const { language } = useLanguage();
@@ -24,7 +29,9 @@ export default function CallsTodayCard() {
   const { rows } = useOpenCallReminders();
   const [booking, setBooking] = useState<CallReminder | null>(null);
   const [editing, setEditing] = useState<CallReminder | null>(null);
-  const { isAdmin } = useClinic();
+  const { isAdmin, role } = useClinic();
+  const { row: staffRow } = useOwnStaffRow();
+  const uid = user?.uid || "";
   // The clock the card reads. Ticks once a minute and on coming back to the tab, so a desk tab
   // left open overnight moves to the new day by itself.
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -41,32 +48,40 @@ export default function CallsTodayCard() {
 
   const today = ymdInTimeZone(clinicTimeZone(), new Date(nowMs));
   const due = dueOnCard(rows, nowMs, today);
-  if (due.length === 0 && !booking && !editing) return null;
+  const me = { uid, role, branchIds: staffRow?.branchIds ?? null };
+  const shown = filterForView(due, "mine", me);
+
+  if (shown.length === 0 && !booking && !editing) return null;
 
   return (
-    <section className="rounded-2xl border border-line bg-surface p-4" aria-label={isAr ? "مكالمات النهارده" : "Today's calls"}>
+    <section className="rounded-2xl border border-line bg-surface p-4" aria-label={isAr ? "ملاحظات النهارده" : "Today's notes"}>
       <div className="flex items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-base font-black text-ink">
-          <PhoneCall size={17} aria-hidden="true" /> {isAr ? "مكالمات النهارده" : "Today's calls"}
-          <span className="rounded-full bg-accent px-2 py-0.5 font-figure text-xs text-ink-on-accent">{due.length}</span>
+          <StickyNote size={17} aria-hidden="true" /> {isAr ? "ملاحظات النهارده" : "Today's notes"}
+          <span className="rounded-full bg-accent px-2 py-0.5 font-figure text-xs text-ink-on-accent">{shown.length}</span>
         </h2>
-        <Link href="/calls" className="inline-flex items-center gap-1 text-sm font-bold text-ink-muted hover:text-ink">
-          {isAr ? "كل المكالمات" : "All calls"} <ArrowUpRight size={13} />
+        <Link href="/notes" className="inline-flex items-center gap-1 text-sm font-bold text-ink-muted hover:text-ink">
+          {isAr ? "كل الملاحظات" : "All notes"} <ArrowUpRight size={13} />
         </Link>
       </div>
-      {/* Capped and scrolling: on the desk the calendar below is the main thing on screen. */}
-      <ul className="max-h-[30vh] divide-y divide-line overflow-y-auto">
-        {due.map((r) => (
-          <CallRow
-            key={r.id}
-            reminder={r}
-            meUid={user?.uid || ""}
-            todayYmd={today}
-            onBook={setBooking}
-            onEdit={isAdmin || r.createdBy.uid === user?.uid ? setEditing : undefined}
-          />
-        ))}
-      </ul>
+
+      {shown.length === 0 ? (
+        <p className="py-5 text-center text-sm font-semibold text-ink-muted">{isAr ? "مفيش حاجة ليك النهارده." : "Nothing for you today."}</p>
+      ) : (
+        /* Capped and scrolling: on the desk the calendar below is the main thing on screen. */
+        <ul className="mt-3 max-h-[30vh] divide-y divide-line overflow-y-auto">
+          {shown.map((r) => (
+            <CallRow
+              key={r.id}
+              reminder={r}
+              meUid={uid}
+              todayYmd={today}
+              onBook={setBooking}
+              onEdit={isAdmin || r.createdBy.uid === uid ? setEditing : undefined}
+            />
+          ))}
+        </ul>
+      )}
       <CallBookingHost reminder={booking} onClose={() => setBooking(null)} />
       {editing && (
         <CallReminderDialog

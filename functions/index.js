@@ -428,6 +428,9 @@ exports.notificationsSweep = pushPhase1.notificationsSweep;
 exports.handoffSla = require("./handoffSla").handoffSla;
 exports.quietNudge = require("./quietNudge").quietNudge;
 exports.appointmentNotices = require("./appointmentNotices").appointmentNotices;
+// Queues Meta ad-conversion events (booked / confirmed / visited); inert unless a clinic turns
+// metaCapi on. The web cron does the sending — see metaConversions.js.
+exports.onAppointmentConversion = require("./metaConversions").onAppointmentConversion;
 
 const { handleMetaWebhook, retryPendingLeadEvents } = require("./metaLeads");
 

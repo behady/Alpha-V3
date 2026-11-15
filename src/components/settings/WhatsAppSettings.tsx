@@ -9,6 +9,7 @@ import { auth, db } from "@/lib/firebase";
 import BotPlayground from "./BotPlayground";
 import BotMediaLibrary from "./BotMediaLibrary";
 import BotMedicineList from "./BotMedicineList";
+import MetaConversionsCard from "./MetaConversionsCard";
 import { WHATSAPP_DIAL_COUNTRIES, buildE164FromDialAndNational } from "@/lib/whatsappDialCountries";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
@@ -668,8 +669,8 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
       botClaimUnit: language === "ar" ? "دقيقة (الافتراضي ١٥)" : "minutes (default 15)",
       botClaimHint:
         language === "ar"
-          ? "لما حد من الفريق يرد على مريض من شاشة المحادثات، البوت بيبعد عن المحادثة دي المدة دي عشان ميتكلمش فوق الموظف. صفر يعني البوت يرد على الرسالة اللي بعدها على طول. زرار «رجّع البوت» في المحادثة بيلغي الانتظار في أي وقت."
-          : "When a team member replies to a patient from the chat screen, the bot steps out of that conversation for this long so it never talks over a person. 0 means the bot answers the very next message. The \"Hand back to bot\" button in the chat ends the wait at any time.",
+          ? "لما حد من الفريق يرد على مريض من شاشة المحادثات، البوت بيبعد عن المحادثة دي المدة دي عشان ميتكلمش فوق الموظف. صفر يعني البوت يرد على الرسالة اللي بعدها على طول. ولو الموظف سأل المريض سؤال، رد المريض بيوصلكم انتو مش البوت (لحد ١٢ ساعة) ومعاه إشعار. زرار «رجّع البوت» في المحادثة بيلغي الانتظار في أي وقت."
+          : "When a team member replies to a patient from the chat screen, the bot steps out of that conversation for this long so it never talks over a person. 0 means the bot answers the very next message. If the team member asked the patient a question, the patient's answer comes to you, not the bot (for up to 12 hours), with a notification. The \"Hand back to bot\" button in the chat ends the wait at any time.",
       botDentist: language === "ar" ? "يرد على الأعراض كطبيب أسنان أولاً، وبعدها يعرض الحجز" : "Answer symptoms like a dentist first, then offer a booking",
       botDentistHint:
         language === "ar"
@@ -2197,6 +2198,9 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
             {txt.saveConnection}
           </button>
         </section>
+
+        {/* Meta ad results (Conversions API): borrows the card above's WABA id and token. */}
+        <MetaConversionsCard />
 
         <section className="rounded-2xl xl:rounded-3xl bg-surface border border-line shadow-sm ring-1 ring-line p-5 xl:p-6 flex flex-col gap-4">
           <div className="flex items-center gap-2 text-accent">

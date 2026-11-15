@@ -30,6 +30,10 @@ run("the everyday messages are recognised without a model call", () => {
   assert.equal(quickIntent("الو"), "greeting");
   assert.equal(quickIntent("شكرا"), "thanks");
   assert.equal(quickIntent("تسلم ايديكم"), "thanks");
+  // 14/11: "تسلمي" went to the model, so the chat did not read as closed and was nudged after it.
+  assert.equal(quickIntent("تسلمي"), "thanks");
+  assert.equal(quickIntent("تسلمي يا سارة"), "thanks");
+  assert.equal(quickIntent("تسلمي، عايزة احجز"), "booking", "a thank-you with a request is the request");
   assert.equal(quickIntent("تمام"), "ack");
   assert.equal(quickIntent("اوك ماشي"), "ack");
   assert.equal(quickIntent("👍"), "ack");
@@ -102,6 +106,14 @@ run("the clinic-fact questions are recognised and routed by priority", () => {
 run("a 'not now' is remembered, and nothing automated follows it", () => {
   for (const t of ["مش دلوقتي", "مش دلوقت", "بعدين", "لا شكرا", "مش محتاج دلوقتي", "not now", "maybe later", "هشوف وابلغك", "مش مهتمة"]) {
     assert.ok(isDecline(t), `not read as a decline: ${t}`);
+  }
+  // The 299 campaign: "the address is far for me" was answered kindly and then nudged 33 minutes later.
+  for (const t of ["لا العنوان بعيد عليا", "المكان بعيد", "بعيد عني اوي", "بعيد عليا", "too far for me"]) {
+    assert.ok(isDecline(t), `not read as a decline: ${t}`);
+  }
+  // A question about distance is still a question.
+  for (const t of ["هو بعيد عن المترو؟", "العيادة بعيدة عن مدينة نصر ولا قريبة"]) {
+    assert.ok(!isDecline(t), `wrongly read as a decline: ${t}`);
   }
   for (const t of ["عايز احجز", "تمام", "شكرا", "مش دلوقتي، بكرة الساعة 5 ينفع عشان معنديش وقت النهارده خالص", "الكشف بكام", "Hi"]) {
     assert.ok(!isDecline(t), `wrongly read as a decline: ${t}`);

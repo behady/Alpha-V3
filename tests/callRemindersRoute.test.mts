@@ -230,6 +230,32 @@ let firstId = "";
   check("edit: a handled call cannot be edited", closed.status === 409 && closed.json.error === "already-handled", closed.json);
 }
 
+/* --- note types (2026-11-11) ------------------------------------------------------------------ */
+{
+  const plain = (await read((await post(DESK, { action: "create", ...input })).json.id)) || {};
+  check("types: a note created without a type is a call", plain.kind === "call", plain.kind);
+  const junk = (await read((await post(DESK, { action: "create", ...input, kind: "<b>" })).json.id)) || {};
+  check("types: an unknown type is stored as a call", junk.kind === "call", junk.kind);
+
+  const id = (await post(DESK, { action: "create", ...input, kind: "reminder" })).json.id;
+  check("types: a reminder is stored as one", (await read(id))?.kind === "reminder");
+  const again = await post(DESK, { action: "reschedule", id, date: quickDate(today, "week"), time: null });
+  check("types: remind-again keeps the type", (await read(again.json.id))?.kind === "reminder", again.json);
+
+  const edited = await post(DESK, { action: "edit", id: again.json.id, date: quickDate(today, "week"), time: null, reason: "x", recipient: input.recipient, kind: "call" });
+  check("types: edit can change the type", edited.status === 200 && (await read(again.json.id))?.kind === "call", edited.json);
+  await post(DESK, { action: "edit", id: again.json.id, date: quickDate(today, "week"), time: null, reason: "y", recipient: input.recipient });
+  check("types: an edit that leaves the type out keeps it", (await read(again.json.id))?.kind === "call");
+
+  // A note stored before types existed (no field at all) still goes "again" as a call.
+  const legacy = col("call_reminders").doc("legacy1");
+  const { kind: _k, ...withoutKind } = plain;
+  void _k;
+  await legacy.set({ ...withoutKind, status: "open" });
+  const legacyAgain = await post(DESK, { action: "reschedule", id: "legacy1", date: quickDate(today, "week"), time: null });
+  check("types: an old note without a type goes again as a call", (await read(legacyAgain.json.id))?.kind === "call", legacyAgain.json);
+}
+
 /* --- nonsense ----------------------------------------------------------------------------------- */
 {
   const { status, json } = await post(DESK, { action: "explode" });

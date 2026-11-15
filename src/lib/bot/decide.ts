@@ -3,7 +3,8 @@ import type { BotFacts } from "@/types/whatsapp";
 import { voiceFor, type Gender } from "@/lib/arabicNames";
 import { adGreetingLine, type AdReferral } from "./adReferral";
 import { needsHuman, triageMessage } from "./clinicalTriage";
-import { quickIntent } from "./quickAnswers";
+import { asksForLocation, quickIntent } from "./quickAnswers";
+import { nameFromReply } from "./nameGuard";
 
 /**
  * What happens to a patient's message before the brain sees it.
@@ -91,7 +92,7 @@ export interface BotContext {
   aiAvailable?: boolean;
   /** Settings → WhatsApp: what a symptom gets — a person (default) or the AI as a dentist first. */
   clinicalMode?: "handoff" | "dentist";
-  /** A staff member wrote to this patient recently or paused the bot. */
+  /** A person holds this thread: staff took it over, wrote inside the claim minutes, or asked something the patient is answering (lib/bot/staffHold). */
   staffActive?: boolean;
   /* ---- Carried for the caller (respond.ts) beside the decision; the decider never reads them. ---- */
   /** Opening hours, already formatted for reading. Empty when the clinic has not set any. */
@@ -208,6 +209,9 @@ export function decide(args: { state: BotState; text: string; ctx: BotContext })
      * anaesthetic) and stays with a person whatever the setting.
      */
     const dentist = ctx.clinicalMode === "dentist" && ctx.aiAvailable && triageMessage(text).reason !== "phrase";
+    // A person holds this thread: the brain does not answer as the desk dentist over them. The
+    // emergency phrases are never `dentist`, so they still get the fixed safety line below.
+    if (dentist && ctx.staffActive) return SILENT("handed_off", "already_with_a_human");
     if (dentist) return AI(text, "awaiting_choice", true);
     return { reply: clinicalReplyText(ctx.clinicPhone), next: "handed_off", handoff: true, reason: "clinical" };
   }
@@ -225,8 +229,12 @@ export function decide(args: { state: BotState; text: string; ctx: BotContext })
      * digits at the name step is talk, not a name: "Hi" must not be registered as somebody called
      * Hi, and "3" is a stray tap at an old list. The brain answers and asks for the name again.
      */
-    const name = text.replace(/\s+/g, " ").trim();
-    const talk = quickIntent(name) !== null || /[?؟]/.test(name) || /\d/.test(name) || name.length < 2 || name.length > 80;
+    const typed = text.replace(/\s+/g, " ").trim();
+    // A sentence is not a name (lib/bot/nameGuard): a voice note answering this step — "ازي حضرتك
+    // أنا من بلبيس" — was once registered as the patient's name; "اسمي أحمد" loses its lead-in.
+    const name = nameFromReply(typed);
+    // "اللوكيش" (a typo for the location) is a question, not a name: asksForLocation reads it.
+    const talk = !name || quickIntent(typed) !== null || asksForLocation(typed) || /[?؟]/.test(typed) || /\d/.test(typed);
     if (talk) return AI(text, "booking_name");
     return { reply: "", action: { type: "register", name, forRelative: ctx.forRelative === true }, next: "awaiting_choice", handoff: false, reason: "registered" };
   }

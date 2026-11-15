@@ -10,7 +10,7 @@ import { auth } from "@/lib/firebase";
 import { currentClinicId } from "@/lib/db-utils";
 import { currentBranchId, withBranch } from "@/lib/branchScope";
 import { ALL_BRANCHES } from "@/lib/branchAccess";
-import type { ReminderInput } from "@/lib/callReminders";
+import type { ReminderInput, ReminderKind } from "@/lib/callReminders";
 
 export class CallReminderApiError extends Error {
   status: number;
@@ -65,7 +65,7 @@ export async function markCallBooked(id: string, appointmentId: string, appointm
 
 export async function editCallReminder(
   id: string,
-  fields: { date: string; time: string | null; reason: string; recipient: ReminderInput["recipient"] },
+  fields: { date: string; time: string | null; reason: string; recipient: ReminderInput["recipient"]; kind?: ReminderKind },
 ): Promise<void> {
   await post({ action: "edit", id, ...fields });
 }
@@ -80,11 +80,11 @@ export function callReminderErrorText(error: unknown, isAr: boolean): string {
   const words: Record<string, [string, string]> = {
     date: ["Pick today or a later day.", "اختار النهارده أو يوم بعده."],
     time: ["That time is not valid.", "الساعة دي مش مظبوطة."],
-    reason: ["Write why the call is needed.", "اكتب سبب المكالمة."],
-    recipient: ["Choose who should call.", "اختار مين اللي هيكلّم."],
-    "already-handled": ["Someone already handled this call.", "حد تاني خلّص المكالمة دي خلاص."],
+    reason: ["Write what the note is about.", "اكتب الملاحظة عن إيه."],
+    recipient: ["Choose who it is for.", "اختار الملاحظة لمين."],
+    "already-handled": ["Someone already handled this note.", "حد تاني خلّص الملاحظة دي خلاص."],
     forbidden: ["You are not allowed to do that.", "مش مسموحلك تعمل كده."],
-    "not-found": ["This call no longer exists.", "المكالمة دي مبقتش موجودة."],
+    "not-found": ["This note no longer exists.", "الملاحظة دي مبقتش موجودة."],
     "signed-out": ["You are signed out. Sign in and try again.", "انت خارج الحساب. ادخل وجرّب تاني."],
   };
   const w = code ? words[code] : undefined;

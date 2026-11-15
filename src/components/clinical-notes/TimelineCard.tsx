@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Plus, Clock, CalendarDays, Inbox, ArrowDownWideNarrow, ArrowUpNarrowWide, MoveVertical } from "lucide-react";
 import Protect from "@/components/Protect";
 import { Note, RelatedAppointment } from "./types";
@@ -31,6 +31,8 @@ interface Props {
   hideMoney?: boolean;
   /** Chair mode: which notes the viewer may edit or delete; absent means all of them. */
   canEditNote?: (note: Note) => boolean;
+  /** The lab order strip for a treatment, if it raised one. */
+  renderLab?: (note: Note) => ReactNode;
 }
 
 export default function TimelineCard({
@@ -45,6 +47,7 @@ export default function TimelineCard({
   onReorder,
   hideMoney = false,
   canEditNote,
+  renderLab,
 }: Props) {
   const { language } = useLanguage();
   const { clinicalNoteSort, clinicalNoteGrouping, clinicalNoteDensity } = useUI();
@@ -156,6 +159,7 @@ export default function TimelineCard({
         compact={compact}
         hideMoney={hideMoney}
         locked={canEditNote ? !canEditNote(note) : false}
+        lab={renderLab?.(note)}
         reorder={
           manual
             ? {

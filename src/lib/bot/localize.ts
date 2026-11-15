@@ -45,11 +45,13 @@ const SENTENCES: Array<[string, string]> = [
   ["مستنينك 🦷 لو حبيت تعدّل الميعاد، ابعتلنا وهنظبطه.", "See you then 🦷 If you need to change it, just tell me."],
   ["مستنينكي 🦷 لو حبيت تعدّل الميعاد، ابعتلنا وهنظبطه.", "See you then 🦷 If you need to change it, just tell me."],
   ["العيادة هتراجع الطلب وهتتواصل مع حضرتك للتأكيد. لو حبيت تعدّل، ابعتلنا وهنظبطه.", "The clinic will review the request and contact you to confirm. If you need to change it, just tell me."],
-  ["أهلاً بيك 🙏 عشان أسجل الحجز باسمك، ابعتلي اسمك الكامل.", "Great 🙏 to put the booking under your name, please send me your full name."],
-  ["أهلاً بيكي 🙏 عشان أسجل الحجز باسمك، ابعتيلي اسمك الكامل.", "Great 🙏 to put the booking under your name, please send me your full name."],
-  ["أهلاً بيك 🙏 عشان نسجل الحجز، ياريت حضرتك تبعتلنا الاسم الكامل.", "Great 🙏 to register the booking, please send us your full name."],
-  ["أهلاً بيكي 🙏 عشان نسجل الحجز، ياريت حضرتك تبعتيلنا الاسم الكامل.", "Great 🙏 to register the booking, please send us your full name."],
-  ["أهلاً بيك 🌟 عشان نسجل حجزك، ابعتلنا اسمك الكامل من فضلك.", "Welcome 🌟 to register your booking, please send us your full name."],
+  ["عشان أسجل الحجز باسمك، ابعتلي اسمك الكامل 🙏", "To put the booking under your name, please send me your full name 🙏"],
+  ["عشان أسجل الحجز باسمك، ابعتيلي اسمك الكامل 🙏", "To put the booking under your name, please send me your full name 🙏"],
+  ["عشان نسجل الحجز، ياريت حضرتك تبعتلنا الاسم الكامل 🙏", "To register the booking, please send us your full name 🙏"],
+  ["عشان نسجل الحجز، ياريت حضرتك تبعتيلنا الاسم الكامل 🙏", "To register the booking, please send us your full name 🙏"],
+  ["عشان نسجل حجزك، ابعتلنا اسمك الكامل من فضلك 🙏", "To register your booking, please send us your full name 🙏"],
+  // The same line after voiceFix has addressed a woman ("ابعتلنا" → "ابعتيلنا").
+  ["عشان نسجل حجزك، ابعتيلنا اسمك الكامل من فضلك 🙏", "To register your booking, please send us your full name 🙏"],
   ["معلش، ياريت الاسم بالحروف (مش أرقام) عشان نكمل الحجز 🙏", "Sorry — please send your name in letters (not numbers) so we can complete the booking 🙏"],
   ["تمام، الحجز لمين؟ ياريت تبعتلنا الاسم الكامل بتاعه 🙏", "Sure — who is the booking for? Please send me their full name 🙏"],
   ["عندك أكتر من حجز مفتوح بالفعل 🙏 الاستقبال هيتواصل معاك يظبطهالك.", "You already have several open bookings — reception will sort this out for you."],
@@ -73,11 +75,14 @@ const SENTENCES: Array<[string, string]> = [
   // What stands in for a reply the model chose not to write (aiTypes.AI_DEFAULT_ACK). It is the
   // one line the assistant sends that was never written in anybody's language.
   ["تمام 👍", "Got it 👍"],
+  // The welcome in front of the name question when it is the first reply of a sitting (engine).
+  ["أهلاً وسهلاً 👋", "Welcome 👋"],
   ["مالقيتش ليك ميعاد محجوز حالياً 🙏", "I couldn't find an upcoming appointment for you 🙏"],
   ["أيوه احنا فاتحين دلوقتي ✅", "Yes, we're open right now ✅"],
   ["احنا مقفولين دلوقتي 🙏", "We're closed right now 🙏"],
   ["🕐 مواعيدنا:", "🕐 Our hours:"],
   ["📍 *العنوان:*", "📍 *Address:*"],
+  ["📍 لوكيشن العيادة على الخريطة:", "📍 The clinic on Google Maps:"],
 ];
 
 const DAYS: Array<[string, string]> = [

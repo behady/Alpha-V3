@@ -148,7 +148,9 @@ export function punchRecordFrom(id: string, data: Record<string, unknown>): Punc
     overtimeStatus: str(data.overtimeStatus),
     checkInDistanceM: data.checkInDistanceM == null ? null : num(data.checkInDistanceM),
     checkInAccuracyM: data.checkInAccuracyM == null ? null : num(data.checkInAccuracyM),
+    checkInBranchName: str(data.checkInBranchName) || null,
     deviceId: str(data.deviceId) || null,
+    autoClosed: data.autoClosed === true,
   };
 }
 

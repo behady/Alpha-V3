@@ -58,20 +58,13 @@ run("a button id is not a language, and a translated reply carries its buttons w
   assert.equal(isLatinMessage("hi how much is a cleaning"), true);
   assert.equal(isLatinMessage("3ayez a3raf el tanzeef bkam"), true);
 
-  const { text, structure } = localizeOutbound("📅 اختار اليوم اللي يناسبك:\n\n*0* — رجوع للقائمة", {
-    body: "📅 اختار اليوم اللي يناسبك:",
-    list: {
-      buttonLabel: "اختيار اليوم",
-      rows: [
-        { id: "d2026-09-06|", title: "الأحد 6/9" },
-        { id: "d2026-09-07|", title: "الإثنين 7/9" },
-      ],
-    },
+  // The spoken slot offer (the day lists are gone with the menu bot): heading, day names and the question.
+  const { text, structure } = localizeOutbound("عندنا المواعيد دي:\n• الأحد 6/9 الساعة 3:00 م\n\nتحب أنهي واحد؟", {
+    body: "عندنا المواعيد دي:",
   });
-  assert.ok(text.includes("Pick the day"), "the message text is translated");
-  assert.ok(structure?.body.includes("Pick the day"), "and so is the interactive body");
-  assert.equal(structure?.list?.buttonLabel, "Choose a day", "and the list's own button");
-  assert.equal(structure?.list?.rows[0].title, "Sunday 6/9", "and every row, day name included");
+  assert.ok(text.includes("Here are the times we have"), "the message text is translated");
+  assert.ok(text.includes("Sunday 6/9") && text.includes("Which one would you like?"), "day names and the question too");
+  assert.ok(structure?.body.includes("Here are the times we have"), "and so is an interactive body");
   assert.ok(!/[؀-ۿ]/.test(JSON.stringify(structure)), "nothing Arabic survives in the structure");
 
   const clock = localizeOutbound("⏰ 3:30 م", undefined).text;

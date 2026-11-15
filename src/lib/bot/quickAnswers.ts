@@ -214,7 +214,8 @@ const ACK = [
   "كله تمام", "كله تمام الحمد لله", "الحمد لله تمام", "احسن", "بقيت احسن",
 ];
 const THANKS = [
-  "شكرا", "شكرآ", "متشكر", "متشكره", "مشكور", "تسلم", "تسلمو", "تسلم ايدك", "تسلم ايديكم",
+  // "تسلمي": the assistant introduces herself as a woman, and patients thank her that way.
+  "شكرا", "شكرآ", "متشكر", "متشكره", "مشكور", "تسلم", "تسلمي", "تسلمو", "تسلم ايدك", "تسلم ايديكم",
   "ربنا يخليك", "ربنا يكرمك", "جزاكم الله خيرا", "الله يكرمكم", "شكرا جزيلا", "شكرا ليكم",
   "thanks", "thank you", "thx", "appreciated",
 ];
@@ -278,6 +279,20 @@ const QUESTION_WORDS = [
 const PRICE_WORDS = ["سعر", "السعر", "اسعار", "الاسعار", "بكام", "كام", "تكلفه", "التكلفه", "price", "cost", "how much"];
 
 /**
+ * The patient asked what something costs. No bare "كام": "الساعة كام" and "عندكم كام فرع" ask
+ * the time and the branches, not a price.
+ */
+const PRICE_ASK = [
+  "سعر", "السعر", "سعره", "سعرها", "اسعار", "الاسعار", "بكام", "بكم", "تكلفه", "التكلفه", "تكلفته", "تكلفتها",
+  "تمن", "التمن", "price", "prices", "cost", "how much",
+];
+
+export function asksPrice(raw: string): boolean {
+  const text = normalize(raw);
+  return Boolean(text) && has(text, PRICE_ASK);
+}
+
+/**
  * Is this message asking something, rather than answering the question the bot just put?
  *
  * The bot asks for a name and gets "اسعار حشو العادى كام"; it lists dentists and gets "قولي
@@ -320,6 +335,8 @@ const DECLINE = [
   "مش دلوقتي", "مش دلوقت", "مش دلوقتى", "بعدين", "لما افضى", "لما افضي", "مش محتاج", "مش محتاجه", "مش محتاجة",
   "مش عايز", "مش عايزه", "مش عايزة", "مش هحجز", "مش مهتم", "مش مهتمه", "مش مهتمة", "لا شكرا", "لأ شكرا", "لا متشكر",
   "خلاص شكرا", "مش حاليا", "مش حالياً", "في وقت تاني", "وقت تاني", "هفكر", "هشوف وابلغك", "هبلغك",
+  // Too far to come. Said to a clinic with one address, that is a no — and it was being nudged.
+  "بعيد عليا", "بعيد عليه", "بعيد علينا", "بعيد عني", "بعيد عنى", "المكان بعيد", "العنوان بعيد", "العياده بعيده عليا", "مشوار عليا", "too far",
   "not now", "later", "maybe later", "no thanks", "no thank you", "not interested", "some other time", "i'll think about it",
 ];
 
@@ -328,7 +345,40 @@ export function isDecline(raw: string): boolean {
   if (!text) return false;
   // A decline is short. "مش دلوقتي، بكرة الساعة 5 ينفع؟" is a booking with a preference in front.
   if (text.split(/\s+/).length > 6) return false;
+  // "هو بعيد عن المترو؟" asks; it does not refuse.
+  if (/[?؟]/.test(raw)) return false;
   return has(text, DECLINE);
+}
+
+/**
+ * Is the patient asking where the clinic is?
+ *
+ * LOCATION above matches whole words only, which is right for picking ONE intent but missed the
+ * real asks: "الموقع", and the typo "في انتظار اللوكيش" — a patient who asked three times for the
+ * pin and got the street address three times. These are stems, read on their own and outside
+ * quickIntent's order, because "الأحد 3 عصرا.. ابعتلي اللوكيشن" is a booking AND a location ask.
+ */
+const LOCATION_ASK: RegExp[] = [
+  /لوك[يا]?ش/u, // لوكيشن، اللوكيشن، اللوكيش، لوكشن
+  /عنوان(?!ي)/u, // not "عنواني": that is the patient's own address
+  /خريط/u,
+  /(^| )و?(ال)?(جوجل ?)?ماب(س)?( |$)/u,
+  /(^| )و?(ال)?موقع(كم|ك|كو)?( |$)/u,
+  /فين (العياده|مكانكم|مكان|المكان|بالظبط)|(المكان|مكانكم|العياده) فين|(^| )(انتو|انتوا|انتم) فين/u,
+  /(^| )(اي|انهي) منطقه( |$)/u, // "من فضلكم في اي منطقة" (14/11, the same patient, before the pin)
+  /\b(location|address|google maps?|directions|where (are|r) (you|u)|where is (the|your) clinic)\b/,
+  /\b(send|drop|share)( me)?( the| a| your)? (pin|map)\b/,
+];
+/** "موقع على النت" is a website, not a place. */
+const NOT_A_PLACE = /(^| )(النت|ويب|website|فيس|فيسبوك|انستا|انستجرام|الصفحه)( |$)/u;
+/** "ابعتلي" / "تبعتلي" / "send": a request, whatever polite "later" or "I'll let you know" sits beside it. */
+const SEND_VERB = /(^| )و?(ابعت|تبعت|ارسل|ترسل)|\bsend\b/u;
+
+export function asksForLocation(raw: string): boolean {
+  const text = normalize(raw);
+  // "لا العنوان بعيد عليا" names the address to say no. "ماشي ابعتلي اللوكيشن وهبلغك" asks for it.
+  if (!text || (isDecline(raw) && !SEND_VERB.test(text)) || NOT_A_PLACE.test(text)) return false;
+  return LOCATION_ASK.some((re) => re.test(text));
 }
 
 export function quickIntent(raw: string): QuickIntent | null {

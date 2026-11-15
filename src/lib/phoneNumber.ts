@@ -1,3 +1,5 @@
+import { WHATSAPP_DIAL_COUNTRIES } from "./whatsappDialCountries";
+
 /**
  * Arabic-Indic and Extended Arabic-Indic digits, folded to ASCII.
  *
@@ -104,14 +106,29 @@ export function splitE164ToCountryAndLocal(
  * clinic's country. Anything already carrying `+` or `00` keeps the country it names.
  */
 export function normalizeToE164AssumingCountry(raw: string, countryCode: string = DEFAULT_COUNTRY_CODE): string {
+  const cc = String(countryCode || DEFAULT_COUNTRY_CODE).replace(/\D/g, "");
+
   const strict = normalizeToE164WithCountryCode(raw);
-  if (strict) return strict;
+  if (strict) return repairDoubledCountryCode(strict, cc);
 
   const digits = foldArabicDigits(raw).replace(/\D/g, "");
   if (!digits) return "";
-
-  const cc = String(countryCode || DEFAULT_COUNTRY_CODE).replace(/\D/g, "");
   if (!cc) return "";
+
+  // Too long to be a national number of the clinic's country, no trunk zero, and opening with
+  // another country's dial code: this is already international. WhatsApp hands every sender over
+  // this way (`967774787421`, no plus), and reading it as national glued +20 onto a Yemeni number —
+  // every staff reply to a foreign patient then failed with Meta 131026 "Message undeliverable".
+  const maxNational = MAX_NATIONAL_DIGITS[cc];
+  if (
+    maxNational &&
+    !digits.startsWith("0") &&
+    !digits.startsWith(cc) &&
+    digits.length > maxNational &&
+    startsWithKnownDialCode(digits)
+  ) {
+    return normalizeToE164WithCountryCode(`+${digits}`);
+  }
 
   // A leading zero is the national trunk prefix and is dropped when the country code goes on.
   const national = digits.replace(/^0+/, "");
@@ -123,4 +140,26 @@ export function normalizeToE164AssumingCountry(raw: string, countryCode: string 
   }
 
   return normalizeToE164WithCountryCode(`+${cc}${national}`);
+}
+
+/** Longest national significant number (no trunk zero) per dial code. Egypt: 10 (mobiles). */
+const MAX_NATIONAL_DIGITS: Record<string, number> = { "20": 10 };
+
+// "1" (US/Canada) is left out on purpose: Egyptian mobiles start 10/11/12/15 once the trunk zero
+// goes, so a mistyped Egyptian number with one digit too many must not turn into an American one.
+function startsWithKnownDialCode(digits: string): boolean {
+  return WHATSAPP_DIAL_COUNTRIES.some((c) => c.dial !== "1" && digits.startsWith(c.dial));
+}
+
+/**
+ * Undo the old bug above for numbers already stored with it: `+20967774787421` is not an
+ * Egyptian number (too many digits after +20), it is `+967774787421` with +20 wrongly in front.
+ * Only touched when the tail is too long for the country AND opens with a real dial code.
+ */
+function repairDoubledCountryCode(e164: string, cc: string): string {
+  const maxNational = MAX_NATIONAL_DIGITS[cc];
+  if (!maxNational || !e164.startsWith(`+${cc}`)) return e164;
+  const tail = e164.slice(cc.length + 1);
+  if (tail.length <= maxNational || tail.startsWith(cc) || !startsWithKnownDialCode(tail)) return e164;
+  return normalizeToE164WithCountryCode(`+${tail}`) || e164;
 }

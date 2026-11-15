@@ -32,12 +32,10 @@ import {
   type PaymentLedgerRow,
 } from "@/lib/ledgerCommission";
 import { getStoredDeviceId, persistDeviceId } from "@/lib/attendanceDeviceId";
-import {
-  acquireBestPosition,
-  isUsableGeofence,
-  judgeGeofence,
-  locationFailureMessage,
-} from "@/lib/attendanceLocation";
+import { acquireBestPosition, locationFailureMessage } from "@/lib/attendanceLocation";
+import { judgeSites, punchBranchFields, readAttendanceSites, type AttendanceSite } from "@/lib/attendanceSites";
+import { LOCATIONS_DOC, parseClinicBranches } from "@/lib/clinicLocations";
+import { isDeviceRefused, readAttendanceChecks, type AttendanceChecks } from "@/lib/attendanceChecks";
 import { localYmd } from "@/lib/clinicDate";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { MoneyApiError, setPaymentCommission } from "@/lib/moneyApi";
@@ -123,10 +121,13 @@ export default function AttendancePage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [viewMode, setViewMode] = useState<'personal' | 'team'>('personal');
   
-  const [clinicGeofence, setClinicGeofence] = useState<{lat: number, lng: number, radius: number} | null>(null);
+  /** Every place a punch is accepted: one per branch, or the single clinic location. */
+  const [sites, setSites] = useState<AttendanceSite[]>([]);
   /** Distinguishes "settings have not arrived yet" from "the admin never set a location". */
   const [geofenceLoaded, setGeofenceLoaded] = useState(false);
-  
+  /** The clinic's two switches (Settings → Attendance). Both on until the settings say otherwise. */
+  const [checks, setChecks] = useState<AttendanceChecks>({ location: true, device: true });
+
   // PERSONAL STATE
   const [activeSession, setActiveSession] = useState<any | null>(null);
   const [personalLogs, setPersonalLogs] = useState<any[]>([]);
@@ -165,13 +166,13 @@ export default function AttendancePage() {
             const settingsSnap = await getDoc(getClinicDoc("settings", "clinic_info"));
             if (settingsSnap.exists()) {
                 const data = settingsSnap.data();
-                if (data.attendanceLat && data.attendanceLng) {
-                    setClinicGeofence({
-                        lat: parseFloat(data.attendanceLat),
-                        lng: parseFloat(data.attendanceLng),
-                        radius: parseInt(data.attendanceRadius) || 50,
-                    });
-                }
+                setChecks(readAttendanceChecks(data));
+                // The branch list decides whether there is one location or one per branch. If it
+                // cannot be read, fall back to the single clinic location rather than block everyone.
+                const branches = await getDoc(getClinicDoc("settings", LOCATIONS_DOC))
+                    .then((snap) => parseClinicBranches(snap.exists() ? snap.data() : null))
+                    .catch(() => []);
+                setSites(readAttendanceSites(data, branches));
             }
         } finally {
             // Set even on failure: a punch attempt should then report "location not set" rather
@@ -604,6 +605,20 @@ export default function AttendancePage() {
 
       const finish = () => setActionLoading(false);
 
+      // "Still loading" and "never configured" are different problems with different fixes,
+      // and telling a receptionist the admin has not set GPS when the settings simply had not
+      // arrived yet sends them to bother someone for no reason. Checked first because the
+      // clinic's switches (location, phone lock) arrive with the same settings: until they do,
+      // nothing below knows which checks apply.
+      if (!geofenceLoaded) {
+          showToast(
+              isAr ? "لسه بنحمّل إعدادات العيادة. ثانية وجرّب تاني." : "Still loading clinic settings — try again in a moment.",
+              "info"
+          );
+          finish();
+          return;
+      }
+
       try {
           const staffRef = getClinicDoc("staff", myProfile.id);
           const staffSnap = await getDoc(staffRef);
@@ -644,7 +659,7 @@ export default function AttendancePage() {
                   return;
               }
 
-              if (liveProfile?.registeredDeviceId && liveProfile.registeredDeviceId !== currentDeviceId) {
+              if (isDeviceRefused({ checks, registeredDeviceId: liveProfile?.registeredDeviceId, currentDeviceId })) {
                   showToast(
                       isAr
                           ? "الجهاز ده مش المسجّل باسمك. اطلب من المدير يفك ارتباط جهازك من الحضور ← الفريق ← الإعدادات، وبعدين سجّل من الموبايل ده."
@@ -656,47 +671,55 @@ export default function AttendancePage() {
               }
           }
 
-          // "Still loading" and "never configured" are different problems with different fixes,
-          // and telling a receptionist the admin has not set GPS when the settings simply had not
-          // arrived yet sends them to bother someone for no reason.
-          if (!geofenceLoaded) {
-              showToast(
-                  isAr ? "لسه بنحمّل إعدادات العيادة. ثانية وجرّب تاني." : "Still loading clinic settings — try again in a moment.",
-                  "info"
-              );
-              finish();
-              return;
-          }
-          if (!isUsableGeofence(clinicGeofence)) {
-              showToast(
-                  isAr
-                      ? "موقع العيادة مش متسجّل. المدير لازم يحدده من الإعدادات ← الحضور."
-                      : "The clinic's location is not set. An Admin needs to set it in Settings → Attendance.",
-                  "error"
-              );
-              finish();
-              return;
-          }
+          // What gets stored about where the punch was made. With the location check switched off
+          // by the clinic, the phone is never asked for its position at all, and the row says so
+          // instead of carrying a distance nobody measured.
+          let whereIn: Record<string, unknown> = { checkInLocationOff: true };
+          let whereOut: Record<string, unknown> = { checkOutLocationOff: true };
+          /** The branch the punch landed in, for the confirmation. Empty for a one-location clinic. */
+          let punchedAt = "";
 
-          // Takes a few seconds: it keeps improving the fix rather than trusting the first,
-          // coarse one. That wait is the whole reason this stopped failing at random.
-          const located = await acquireBestPosition();
-          if (!located.ok) {
-              showToast(locationFailureMessage(located.failure, isAr), "error");
-              finish();
-              return;
-          }
+          if (checks.location) {
+              if (sites.length === 0) {
+                  showToast(
+                      isAr
+                          ? "موقع العيادة مش متسجّل. المدير لازم يحدده من الإعدادات ← الحضور."
+                          : "The clinic's location is not set. An Admin needs to set it in Settings → Attendance.",
+                      "error"
+                  );
+                  finish();
+                  return;
+              }
 
-          const verdict = judgeGeofence({ reading: located.reading, clinic: clinicGeofence });
-          if (!verdict.inside) {
-              showToast(
-                  isAr
-                      ? `إنت بعيد عن العيادة بحوالي ${verdict.effectiveDistance} متر (المسموح ${clinicGeofence.radius} متر). لو إنت جوه العيادة فعلاً، قرّب من شباك وجرّب تاني.`
-                      : `You appear to be about ${verdict.effectiveDistance}m from the clinic (limit ${clinicGeofence.radius}m). If you are inside, move near a window and try again.`,
-                  "error"
-              );
-              finish();
-              return;
+              // Takes a few seconds: it keeps improving the fix rather than trusting the first,
+              // coarse one. That wait is the whole reason this stopped failing at random.
+              const located = await acquireBestPosition();
+              if (!located.ok) {
+                  showToast(locationFailureMessage(located.failure, isAr), "error");
+                  finish();
+                  return;
+              }
+
+              // Any branch will do: staff cover for each other. `sites` is not empty here, so
+              // there is always a verdict — the site they are in, or the nearest one they are not.
+              const verdict = judgeSites(located.reading, sites)!;
+              const placeAr = verdict.site.branchName ? `فرع ${verdict.site.branchName}` : "العيادة";
+              const placeEn = verdict.site.branchName || "the clinic";
+              if (!verdict.inside) {
+                  showToast(
+                      isAr
+                          ? `إنت بعيد عن ${placeAr} بحوالي ${verdict.effectiveDistance} متر (المسموح ${verdict.site.radius} متر). لو إنت جوه العيادة فعلاً، قرّب من شباك وجرّب تاني.`
+                          : `You appear to be about ${verdict.effectiveDistance}m from ${placeEn} (limit ${verdict.site.radius}m). If you are inside, move near a window and try again.`,
+                      "error"
+                  );
+                  finish();
+                  return;
+              }
+              // Kept so a disputed shift can be examined rather than argued about — including,
+              // for a clinic with branches, which branch the person was standing in.
+              whereIn = { checkInDistanceM: verdict.distance, checkInAccuracyM: verdict.accuracy, ...punchBranchFields(verdict.site, "in") };
+              whereOut = { checkOutDistanceM: verdict.distance, checkOutAccuracyM: verdict.accuracy, ...punchBranchFields(verdict.site, "out") };
+              punchedAt = verdict.site.branchName;
           }
 
           try {
@@ -712,13 +735,18 @@ export default function AttendancePage() {
                       checkOut: serverTimestamp(),
                       durationMinutes: diffMins,
                       status: 'completed',
-                      // Kept so a disputed shift can be examined rather than argued about.
-                      checkOutDistanceM: verdict.distance,
-                      checkOutAccuracyM: verdict.accuracy,
+                      ...whereOut,
                   });
-                  showToast(isAr ? "تم تسجيل الخروج!" : "Clocked out!", "success");
+                  showToast(
+                      punchedAt
+                          ? (isAr ? `تم تسجيل الخروج — فرع ${punchedAt}` : `Clocked out — ${punchedAt}`)
+                          : (isAr ? "تم تسجيل الخروج!" : "Clocked out!"),
+                      "success"
+                  );
               } else {
-                  if (!liveProfile?.registeredDeviceId) {
+                  // With the phone lock off, no phone is tied to the person — otherwise switching
+                  // the lock back on later would lock everyone to whatever they happened to use.
+                  if (checks.device && !liveProfile?.registeredDeviceId) {
                       persistDeviceId(currentDeviceId);
                       await updateDoc(staffRef, { registeredDeviceId: currentDeviceId });
                   }
@@ -734,10 +762,14 @@ export default function AttendancePage() {
                       checkOut: null,
                       durationMinutes: 0,
                       status: 'active',
-                      checkInDistanceM: verdict.distance,
-                      checkInAccuracyM: verdict.accuracy,
+                      ...whereIn,
                   });
-                  showToast(isAr ? "تم تسجيل الدخول!" : "Clocked in!", "success");
+                  showToast(
+                      punchedAt
+                          ? (isAr ? `تم تسجيل الدخول — فرع ${punchedAt}` : `Clocked in — ${punchedAt}`)
+                          : (isAr ? "تم تسجيل الدخول!" : "Clocked in!"),
+                      "success"
+                  );
               }
           } catch (error) {
               console.error(error);
@@ -1143,12 +1175,13 @@ export default function AttendancePage() {
 
   const myCalculatedStats = viewMode === 'personal' && payrollData.length > 0 ? payrollData[0] : null;
   const currentDevId = getStoredDeviceId();
-  const isDeviceBlocked = Boolean(
-      myProfile?.registeredDeviceId && myProfile.registeredDeviceId !== currentDevId && !activeSession
-  );
-  const isDeviceMismatch = Boolean(
-      myProfile?.registeredDeviceId && myProfile.registeredDeviceId !== currentDevId
-  );
+  // Both follow the clinic's phone-lock switch: with it off, no phone is ever "the wrong one".
+  const isDeviceMismatch = geofenceLoaded && isDeviceRefused({
+      checks,
+      registeredDeviceId: myProfile?.registeredDeviceId,
+      currentDeviceId: currentDevId,
+  });
+  const isDeviceBlocked = isDeviceMismatch && !activeSession;
 
   /**
    * The subscription gate must stay HERE, below every hook — not near the top where it used to be.
@@ -1241,7 +1274,7 @@ export default function AttendancePage() {
       {/* VIEWS */}
       {viewMode === 'personal' && (
           <PersonalWorksheet 
-              activeSession={activeSession} isDeviceBlocked={isDeviceBlocked} isDeviceMismatch={isDeviceMismatch} liveDuration={liveDuration} 
+              activeSession={activeSession} isDeviceBlocked={isDeviceBlocked} isDeviceMismatch={isDeviceMismatch} liveDuration={liveDuration} checks={checks}
               actionLoading={actionLoading} handlePunch={handlePunch} myCalculatedStats={myCalculatedStats} 
               personalLogs={personalLogs} myProfile={myProfile} language={language}
               periodType={dateRangeType}

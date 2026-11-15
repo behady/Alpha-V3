@@ -39,6 +39,7 @@ import {
   type LabCase,
   type LabOrderPaper,
 } from "@/lib/labCases";
+import { bridgeGroups, bridgeTitle } from "@/lib/labBridge";
 
 export type LabOrderClinic = {
   name: string;
@@ -131,8 +132,11 @@ function palmerListHtml(teeth: number[]): string {
  * Upper arch first and quadrant 1 leftmost, so the chart is read as if facing the patient — the
  * way every dentist reads one.
  */
-function toothChartHtml(teeth: number[]): string {
+function toothChartHtml(teeth: number[], pontics: number[] = []): string {
   const on = new Set(teeth);
+  // A bridge's replaced tooth carries the cross the app's own chart uses for a missing tooth, so
+  // the technician sees at a glance which unit hangs and which sits on a tooth.
+  const replaced = new Set(pontics);
 
   // Palmer positions, not FDI codes: 8→1 out to the midline, then 1→8 away from it, with the
   // quadrant cross drawn through the middle. This IS the Palmer grid — the bracket on a written
@@ -140,8 +144,9 @@ function toothChartHtml(teeth: number[]): string {
   // one thing rather than two notations for the same mouth.
   const cell = (id: number, borders: string) => {
     const lit = on.has(id);
-    const position = toPalmer(id)?.position ?? "";
-    return `<td style="width:14px;height:14px;padding:0;text-align:center;vertical-align:middle;${borders}background:${lit ? ACCENT : "#FFFFFF"};color:${lit ? "#FFFFFF" : "#9AA09D"};font-size:5.5pt;font-weight:${lit ? 700 : 400};">${position}</td>`;
+    const pontic = lit && replaced.has(id);
+    const position = pontic ? "&#10005;" : toPalmer(id)?.position ?? "";
+    return `<td${pontic ? ` data-pontic="${id}"` : ""} style="width:14px;height:14px;padding:0;text-align:center;vertical-align:middle;${borders}background:${lit ? ACCENT : "#FFFFFF"};color:${lit ? "#FFFFFF" : "#9AA09D"};font-size:5.5pt;font-weight:${lit ? 700 : 400};">${position}</td>`;
   };
 
   const MID = `border-right:2px solid ${INK};`;
@@ -217,12 +222,35 @@ function orderBodyHtml(
   // The patient is a first name plus the code. The full name is deliberately absent.
   const patientLine = [labCase.patientFirstName || "—", labCase.code].filter(Boolean).join(" · ");
 
+  // Three crowns or one bridge. Said in both languages, like every label on this sheet, and
+  // absent altogether on an order that is not joined.
+  const joined = bridgeGroups(labCase);
+  const bridgePontics = joined ? joined.groups.flatMap((g) => g.pontics) : [];
+  const bridgeLabel = `font-size:6.5pt;font-weight:400;color:${MUTED};`;
+  const bridgeBlock = joined
+    ? `<div style="margin-top:5px;padding:4px 6px;border:1.5px solid ${INK};font-size:8.5pt;font-weight:700;color:${INK};line-height:1.5;">
+        ${joined.groups
+          .map(
+            (g) => `<div>${esc(bi(bridgeTitle(g, "en"), bridgeTitle(g, "ar")))}</div>${
+              g.pontics.length
+                ? `<div><span style="${bridgeLabel}">${esc(bi("Supports", "دعامات"))}</span> <span dir="ltr">${palmerListHtml(g.supports)}</span>
+                   &nbsp; <span style="${bridgeLabel}">${esc(bi("Pontic", "بونتيك"))}</span> <span dir="ltr">${palmerListHtml(g.pontics)}</span></div>`
+                : `<div dir="ltr">${palmerListHtml(g.teeth)}</div>`
+            }`
+          )
+          .join("")}
+        ${joined.singles.length ? `<div><span style="${bridgeLabel}">${esc(bi("Single", "منفرد"))}</span> <span dir="ltr">${palmerListHtml(joined.singles)}</span></div>` : ""}
+        ${bridgePontics.length ? `<div style="${bridgeLabel}">${esc(bi("✕ on the chart = pontic", "✕ على الرسم = بونتيك"))}</div>` : ""}
+      </div>`
+    : "";
+
   const teethBlock = labCase.teeth.length
     ? `<div>
         <div style="font-size:6.5pt;letter-spacing:0.09em;text-transform:uppercase;color:${MUTED};margin-bottom:3px;">${esc(bi("Teeth", "الأسنان"))}</div>
-        ${toothChartHtml(labCase.teeth)}
+        ${toothChartHtml(labCase.teeth, bridgePontics)}
         <div style="font-size:10pt;font-weight:700;color:${INK};margin-top:5px;" dir="ltr">${palmerListHtml(labCase.teeth)}</div>
         <div style="font-size:6.5pt;color:${MUTED};margin-top:1px;" dir="ltr">FDI ${esc(labCase.teeth.join(", "))}</div>
+        ${bridgeBlock}
       </div>`
     : `<div style="font-size:8pt;color:${MUTED};">${esc(bi("No specific teeth", "من غير أسنان محددة"))}</div>`;
 

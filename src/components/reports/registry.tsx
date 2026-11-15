@@ -13,7 +13,7 @@
 
 import type { ComponentType, ReactNode } from "react";
 import {
-  Activity, BarChart3, Building2, CalendarDays, CalendarRange, Clock, FileSpreadsheet, FlaskConical, Grid3x3, Heart, Landmark, MessageCircle, Network, Package, Percent, PieChart, Receipt, Repeat, Stethoscope, TableProperties, TrendingUp, UserCheck, UserPlus, Users, Wallet, Megaphone, ClipboardCheck, BellRing, Cake, ArrowLeftRight, Coins, Layers,
+  Activity, BarChart3, Building2, CalendarDays, CalendarRange, Clock, FileSpreadsheet, FlaskConical, Grid3x3, Heart, Landmark, ListChecks, MessageCircle, Network, Package, Percent, PieChart, Receipt, Repeat, Stethoscope, TableProperties, TrendingUp, UserCheck, UserPlus, Users, Wallet, Megaphone, ClipboardCheck, BellRing, Cake, ArrowLeftRight, Coins, Layers,
 } from "lucide-react";
 import { REPORT_CATALOG, REPORT_GROUP_META, type ReportGroupId, type ReportMeta } from "@/lib/reports/catalog";
 import type { ReportProps } from "@/components/reports/types";
@@ -26,6 +26,7 @@ import LeadFunnelReport from "@/components/reports/LeadFunnelReport";
 import PayerReport from "@/components/reports/PayerReport";
 import InsuranceStatementReport from "@/components/reports/InsuranceStatementReport";
 import CaseSheetReport from "@/components/reports/CaseSheetReport";
+import TreatmentStatusReport from "@/components/reports/TreatmentStatusReport";
 import CompareReport from "@/components/reports/CompareReport";
 import YearReviewReport from "@/components/reports/YearReviewReport";
 import HeatmapReport from "@/components/reports/HeatmapReport";
@@ -91,6 +92,7 @@ const RENDERERS: Record<string, { icon: ComponentType<{ size?: number; className
   ltv: { icon: UserPlus, render: (p) => <LtvReport {...p} /> },
   demographics: { icon: Cake, render: (p) => <DemographicsReport {...p} /> },
   plans: { icon: ClipboardCheck, render: (p) => <PlanConversionReport {...p} /> },
+  treatments: { icon: ListChecks, render: (p) => <TreatmentStatusReport {...p} /> },
   appointments: { icon: CalendarDays, render: (p) => <AppointmentsReport {...p} /> },
   lab: { icon: FlaskConical, render: (p) => <LabReport {...p} /> },
   attendance: { icon: Clock, render: (p) => <AttendanceReport {...p} /> },

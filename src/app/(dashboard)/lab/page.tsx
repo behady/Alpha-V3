@@ -721,14 +721,14 @@ function CaseRow({
     : 0;
   const moves = nextStatuses(labCase.status, labCase.needsTryIn);
 
-  const workLine = [
+  // Kept as parts and isolated one by one when drawn: an English description beside Arabic text and
+  // Palmer brackets otherwise reorders itself in an Arabic row.
+  const workParts = [
     workTypeLabel(labCase.workType, language),
     labCase.workDescription,
     // Palmer, not FDI: the board is read by the same people who read the printed order.
     formatPalmer(labCase.teeth),
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  ].filter(Boolean) as string[];
 
   return (
     <div className="flex flex-col lg:flex-row lg:items-center gap-3 lg:gap-4 p-4 hover:bg-slate-50/60 transition-colors">
@@ -745,7 +745,14 @@ function CaseRow({
         <p className="text-sm font-bold text-slate-700 truncate">
           {labCase.patientName || (isAr ? "بدون مريض" : "No patient")}
         </p>
-        <p className="text-xs font-semibold text-slate-400 truncate mt-0.5">{workLine}</p>
+        <p className="text-xs font-semibold text-slate-400 truncate mt-0.5">
+          {workParts.map((part, i) => (
+            <span key={i}>
+              {i > 0 && " · "}
+              <bdi>{part}</bdi>
+            </span>
+          ))}
+        </p>
       </div>
 
       {/* State */}

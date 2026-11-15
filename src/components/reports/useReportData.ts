@@ -19,7 +19,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getDocs, query, where, Timestamp, getDoc } from "firebase/firestore";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
-import type { DateRange } from "@/lib/reportHelpers";
+import { getToday, type DateRange } from "@/lib/reportHelpers";
+import { loadTreatmentNotes } from "@/lib/reports/treatmentNotesClient";
 import { addDays, lastYearRange, previousRange, trailingMonths } from "@/lib/reports/periods";
 import { toYmd } from "@/lib/reports/patientStats";
 
@@ -42,7 +43,9 @@ export type DatasetKey =
   | "conversations"
   | "whatsappLogs"
   | "smsOutbox"
-  | "recallSettings";
+  | "recallSettings"
+  | "treatmentNotes"
+  | "appointmentsAhead";
 
 export type ReportData = Partial<Record<DatasetKey, Row[]>>;
 
@@ -73,6 +76,9 @@ function windowFor(key: DatasetKey, range: DateRange): DateRange | null {
     case "appointmentsWide":
       // Two years back for "when were they last seen", a year ahead for "already booked".
       return { start: trailingMonths(range.end, 24).range.start, end: addDays(range.end, 366) };
+    case "appointmentsAhead":
+      // What is booked from today on, whatever period is on screen.
+      return { start: getToday(), end: addDays(getToday(), 366) };
     case "ledgerAll":
     case "treatmentPlans":
     case "inventory":
@@ -95,7 +101,10 @@ async function fetchDataset(key: DatasetKey, range: DateRange): Promise<Row[]> {
       return ledgerRows((await getDocs(getClinicCollection("ledger"))).docs);
     case "appointments":
     case "appointmentsWide":
+    case "appointmentsAhead":
       return rows((await getDocs(query(getClinicCollection("appointments"), where("date", ">=", w.start), where("date", "<=", w.end)))).docs);
+    case "treatmentNotes":
+      return loadTreatmentNotes(w);
     case "treatmentPlans":
       return rows((await getDocs(getClinicCollection("treatment_plans"))).docs);
     case "labCases":

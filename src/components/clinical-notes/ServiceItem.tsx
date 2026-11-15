@@ -1,4 +1,5 @@
-import { Edit2, ArrowRightLeft, Copy, Trash2, RefreshCcw, GripVertical, ChevronUp, ChevronDown, PhoneForwarded } from "lucide-react";
+import type { ReactNode } from "react";
+import { Edit2, ArrowRightLeft, Copy, Trash2, RefreshCcw, GripVertical, ChevronUp, ChevronDown, BellPlus } from "lucide-react";
 import { Note } from "./types";
 import { useLanguage } from "@/context/LanguageContext";
 import Protect from "@/components/Protect";
@@ -28,9 +29,11 @@ interface Props {
   hideMoney?: boolean;
   /** Chair mode: another dentist's (or the clinic's) treatment — shown, never editable here. */
   locked?: boolean;
+  /** The lab order this treatment raised, with its one-tap next step (NoteLabStrip). */
+  lab?: ReactNode;
 }
 
-export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue, onCallReminder, compact = false, reorder, hideMoney = false, locked = false }: Props) {
+export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue, onCallReminder, compact = false, reorder, hideMoney = false, locked = false, lab }: Props) {
   const { language } = useLanguage();
   const isAr = language === "ar";
   /** Stored status ids are English; the pill shows the app's own word for them. */
@@ -48,7 +51,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
     move: language === "ar" ? "نقل إلى موعد آخر" : "Move to another appointment",
     continue: language === "ar" ? "استكمال في موعد آخر" : "Continue in another appointment",
     delete: language === "ar" ? "حذف" : "Delete",
-    callReminder: language === "ar" ? "تذكير بمكالمة" : "Call reminder",
+    callReminder: language === "ar" ? "ملاحظة متابعة" : "Follow-up note",
     dragHint: language === "ar" ? "اسحب لإعادة الترتيب" : "Drag to reorder",
     moveUp: language === "ar" ? "تحريك لأعلى" : "Move up",
     moveDown: language === "ar" ? "تحريك لأسفل" : "Move down",
@@ -112,7 +115,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
   if (compact) {
     return (
       <div
-        className={`flex items-center gap-2 px-3 py-2 border rounded-xl transition-all group relative ${getContainerStyles(note.status)}`}
+        className={`flex flex-wrap items-center gap-2 px-3 py-2 border rounded-xl transition-all group relative ${getContainerStyles(note.status)}`}
       >
         {reorderControls}
 
@@ -148,7 +151,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
               aria-label={txt.callReminder}
               className="p-1.5 rounded-lg text-ink-body bg-surface-subtle hover:bg-surface-muted transition-colors border border-line"
             >
-              <PhoneForwarded size={13} />
+              <BellPlus size={13} />
             </button>
           )}
           {!note.isContinued && (
@@ -172,6 +175,9 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
             </button>
           </Protect>
         </div>
+
+        {/* Its own line: a one-line row on a phone has no room left for a code and a button. */}
+        {lab && <div className="basis-full">{lab}</div>}
       </div>
     );
   }
@@ -236,6 +242,8 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
             )}
           </div>
         )}
+
+        {lab}
       </div>
 
       {/* Edit above delete, at the edge of the card. Locked (another dentist's, in chair mode): nothing to press. */}
@@ -262,7 +270,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
             aria-label={txt.callReminder}
             className="p-2.5 max-md:p-3 rounded-lg text-ink-body bg-surface-subtle hover:bg-surface-muted transition-colors shadow-sm border border-line"
           >
-            <PhoneForwarded size={16} />
+            <BellPlus size={16} />
           </button>
         )}
 

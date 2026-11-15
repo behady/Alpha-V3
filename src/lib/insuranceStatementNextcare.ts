@@ -19,7 +19,8 @@
  *     again with today's rules — an approval saved before "UR6 UR7" was understood still prints them).
  *   - Cases run by treatment date, then patient name.
  */
-import { claimStatementName, type InsuranceClaim } from "@/lib/insurance/claims";
+import { claimStatementName, isLineRemoved, type InsuranceClaim } from "@/lib/insurance/claims";
+import { inSheetRange, type SheetDateMode } from "@/lib/insurance/billingMonth";
 import { assignConditionTeeth, isVisitService, memberCodeFromCard, quadrantTeeth } from "@/lib/insurance/nextcare";
 import { insurerToothLabel, type Statement, type StatementCase, type StatementLine } from "@/lib/insuranceStatement";
 
@@ -50,6 +51,13 @@ export function nextcareLineText(line: InsuranceClaim["lines"][number], wording:
   return `${count}${name}${teeth.length ? ` رقم ${teeth.join("-")}` : ""}`;
 }
 
+/**
+ * `mode` picks WHICH approvals are on the sheet of `[from, to]`, never what is printed for them:
+ * `"approval"` by the approval date, `"finish"` by the day the approval's last service was done
+ * (lib/insurance/billingMonth.ts). With no mode it is the treated date, as it always was. The date
+ * column prints the treated date in every case, and a service deleted from its approval is never
+ * printed.
+ */
 export function buildNextcareStatement(args: {
   claims: InsuranceClaim[];
   payerId: string;
@@ -58,11 +66,12 @@ export function buildNextcareStatement(args: {
   from: string;
   to: string;
   wording: Record<string, string>;
+  mode?: SheetDateMode;
 }): Statement {
-  const { claims, payerId, payerName, from, to, wording } = args;
+  const { claims, payerId, payerName, from, to, wording, mode } = args;
   const billed = claims
     .map((c) => ({ c, date: c.treatedDate || c.approvalDate }))
-    .filter(({ c, date }) => c.payerId === payerId && (c.status === "treated" || c.status === "sent") && date >= from && date <= to)
+    .filter(({ c, date }) => c.payerId === payerId && (mode ? inSheetRange(c, mode, from, to) : (c.status === "treated" || c.status === "sent") && date >= from && date <= to))
     .sort((a, b) => a.date.localeCompare(b.date) || claimStatementName(a.c).localeCompare(claimStatementName(b.c)) || a.c.approvalNumber.localeCompare(b.c.approvalNumber));
 
   const cases: StatementCase[] = [];
@@ -70,7 +79,7 @@ export function buildNextcareStatement(args: {
     const lines: StatementLine[] = [];
     const fromPaper = assignConditionTeeth(c.lines, quadrantTeeth(c.metlife.comment ?? ""));
     c.lines.forEach((l, i) => {
-      if (l.approvedAmount <= 0) return;
+      if (l.approvedAmount <= 0 || isLineRemoved(c, i)) return;
       const withTeeth = l.teeth && l.teeth.length ? l : { ...l, teeth: fromPaper[i] ?? [] };
       lines.push({ text: nextcareLineText(withTeeth, wording), amount: money(l.approvedAmount), rowId: `${c.id}#${i}` });
     });

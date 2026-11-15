@@ -29,6 +29,8 @@ export type AiReplyResult =
       openBooking?: boolean;
       /** The service the patient is interested in, as the model read it. */
       interest?: string;
+      /** The patient closed the subject without booking — too far, busy, not interested. Nothing automated should chase them. */
+      notNow?: boolean;
       /** The patient agreed to one of the offered slots (a key the caller gave). */
       bookSlot?: string;
       /** A file from the clinic's library to attach after the reply. */
@@ -125,4 +127,6 @@ export interface AiArgs {
   photo?: { summary: string; impression?: string; urgent: boolean; category?: "dental" | "document" | "other" };
   /** The ad or post this conversation started from. */
   ad?: AdReferral;
+  /** The ad's running offer includes the check-up (respond.ts): its ordinary fee stays out of the prompt. */
+  checkupInOffer?: boolean;
 }

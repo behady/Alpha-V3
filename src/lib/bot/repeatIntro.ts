@@ -78,6 +78,8 @@ export function stripRepeatIntro(text: string, personaName: string, clinicName: 
     .replace(/[،,][ \t]*(?=[.!؟?])/g, "")
     // Leading punctuation only — never \s, which would eat the blank line between paragraphs.
     .replace(/^[ \t،,]+/gm, "")
+    // The emoji that closed the introduction ("معاك سارة من … 🌸") must not open the reply alone.
+    .replace(/^(?:[ \t]*[\p{Extended_Pictographic}\u{FE0F}\u{200D}]+[ \t]*(?:\r?\n|$))+\s*/u, "")
     .replace(/[ \t]{2,}/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();

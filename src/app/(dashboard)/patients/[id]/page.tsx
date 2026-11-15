@@ -10,8 +10,8 @@ import {
   Activity, User, CalendarDays, Stethoscope, Trash2, 
   ChevronDown, MessageCircle, AlertCircle, Wallet, LayoutDashboard, Users, History, CreditCard,
   PhoneForwarded, CheckCircle2, UserX, Globe, MessageCircleOff, MessageSquare, MessageSquareOff, ScrollText,
-  Star, Printer, Pill, Check, Calendar, Camera, UploadCloud, FilePlus, Eye, Download, StickyNote, ClipboardList, ShieldCheck, MoreHorizontal, Plus,
-  ChevronLeft, ChevronRight
+  BellPlus, Star, Printer, Pill, Check, Calendar, Camera, UploadCloud, FilePlus, Eye, Download, StickyNote, ClipboardList, ShieldCheck, MoreHorizontal, Plus,
+  ChevronLeft, ChevronRight, FlaskConical, Megaphone
 } from "lucide-react";
 import { auth, db, storage } from "@/lib/firebase";
 import { doc, onSnapshot, updateDoc, deleteDoc, collection, query, where, limit, orderBy, addDoc, serverTimestamp } from "firebase/firestore";
@@ -31,6 +31,7 @@ import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import { PRIVATE_PAYER_ID } from "@/lib/payers";
 import { readInsurance, writeInsurance, type PatientInsuranceEntry } from "@/lib/patientInsurance";
 import PatientInsuranceTab from "@/components/insurance/PatientInsuranceTab";
+import PatientLabTab from "@/components/lab/PatientLabTab";
 import { isAnyUnlocked } from "@/lib/featureCatalog";
 import PermissionGuard from "@/components/PermissionGuard";
 import Protect from "@/components/Protect";
@@ -223,9 +224,11 @@ export default function PatientProfile() {
   const [isDeleting, setIsDeleting] = useState(false);
   const canViewClinical = isAdmin || user?.role === "Admin" || user?.role === "Dentist" || user?.permissions?.includes("access.clinical");
   const canViewOrtho = isAdmin || user?.role === "Admin" || user?.role === "Dentist" || user?.permissions?.includes("access.ortho");
+  /** The Lab tab opens for whoever may open the Lab page: the add-on is on and they hold access.lab. */
+  const canViewLab = !!clinic && isAnyUnlocked(clinic, "lab") && (isAdmin || !!user?.permissions?.includes("access.lab"));
 
   // Start empty so we don't flash the wrong tab during auth load
-  const [activeTab, setActiveTab] = useState<"overview" | "clinical" | "plan" | "finance" | "insurance" | "timeline" | "xrays" | "prescriptions" | "notes" | "">("");
+  const [activeTab, setActiveTab] = useState<"overview" | "clinical" | "plan" | "finance" | "insurance" | "lab" | "timeline" | "xrays" | "prescriptions" | "notes" | "">("");
   // A hidden tab stays hidden: the overview's "full ledger" button and a ?tab=finance link used
   // to land on it anyway. Adjusted during render, not in an effect.
   if (chair && (activeTab === "finance" || activeTab === "insurance")) setActiveTab(canViewClinical ? "clinical" : "overview");
@@ -289,6 +292,7 @@ export default function PatientProfile() {
     canViewClinical ? "clinical,plan" : "",
     chair ? "" : "finance",
     clinic && isAnyUnlocked(clinic, "insurance") && !chair ? "insurance" : "",
+    canViewLab ? "lab" : "",
   ].join("|");
   const lastCentredTab = useRef<string | null>(null);
   useEffect(() => {
@@ -373,7 +377,7 @@ export default function PatientProfile() {
               tabParam === "timeline" || tabParam === "xrays" || tabParam === "prescriptions" ||
               tabParam === "notes" || tabParam === "plan" ||
               // The Insurance tab locks itself when the add-on is off, and chair mode moves off it.
-              tabParam === "insurance"
+              tabParam === "insurance" || tabParam === "lab"
           ) {
               setActiveTab(tabParam);
           } else {
@@ -1023,12 +1027,14 @@ export default function PatientProfile() {
   ];
   const avatarGradient = avatarPalette[(patient.name || "").length % avatarPalette.length];
 
-  const tabs: Array<{ id: "clinical" | "overview" | "plan" | "finance" | "insurance" | "timeline" | "xrays" | "prescriptions" | "notes"; label: string; icon: any; show: boolean }> = [
+  const tabs: Array<{ id: "clinical" | "overview" | "plan" | "finance" | "insurance" | "lab" | "timeline" | "xrays" | "prescriptions" | "notes"; label: string; icon: any; show: boolean }> = [
     { id: "clinical", label: language === "ar" ? "السجل السريري" : "Clinical", icon: Activity, show: !!canViewClinical },
     { id: "plan", label: language === "ar" ? "خطة العلاج" : "Treatment Plan", icon: ClipboardList, show: !!canViewClinical },
     { id: "finance", label: language === "ar" ? "المالية" : "Finance", icon: Wallet, show: !chair },
     // Only a clinic with the insurance add-on has approvals to show; others never see the tab.
     { id: "insurance", label: language === "ar" ? "التأمين" : "Insurance", icon: ShieldCheck, show: !!clinic && isAnyUnlocked(clinic, "insurance") && !chair },
+    // Lab work follows the Lab page: the add-on must be on and the person must be allowed in there.
+    { id: "lab", label: language === "ar" ? "المعمل" : "Lab", icon: FlaskConical, show: canViewLab },
     { id: "timeline", label: language === "ar" ? "سجل الزيارات" : "Timeline", icon: History, show: true },
     { id: "overview", label: language === "ar" ? "نظرة عامة" : "Overview", icon: LayoutDashboard, show: true },
     { id: "xrays", label: language === "ar" ? "الأشعة والصور" : "X-Rays & Photos", icon: Camera, show: true },
@@ -1082,6 +1088,7 @@ export default function PatientProfile() {
                 <h1 className="truncate text-xl font-black text-ink">{patient.name}</h1>
                 <p className="text-[13px] font-semibold text-ink-muted">
                   {displayAge} {t('yearSymbol') || 'Y'}{patient.gender ? ` · ${patient.gender}` : ""}
+                  <FromAdChip attribution={patient.adAttribution} language={language} />
                 </p>
               </div>
               {/* Phones: how to reach them and what they owe, in the name's place. */}
@@ -1106,16 +1113,17 @@ export default function PatientProfile() {
                     </span>
                   </p>
                 )}
+                <FromAdChip attribution={patient.adAttribution} language={language} className="ms-0" />
               </div>
             </div>
             <div className="flex items-center gap-2 max-md:shrink-0">
               <button
                 type="button"
                 onClick={() => setCallReminderOpen(true)}
-                aria-label={language === 'ar' ? 'تذكير بمكالمة' : 'Call reminder'}
+                aria-label={language === 'ar' ? 'ملاحظة متابعة' : 'Follow-up note'}
                 className="inline-flex h-10 items-center gap-2 rounded-xl border border-line bg-surface px-4 text-sm font-bold text-ink transition-colors hover:bg-surface-subtle max-md:w-10 max-md:justify-center max-md:px-0"
               >
-                <PhoneForwarded size={15} /> <span className="max-md:sr-only">{language === 'ar' ? 'تذكير بمكالمة' : 'Call reminder'}</span>
+                <BellPlus size={15} /> <span className="max-md:sr-only">{language === 'ar' ? 'ملاحظة متابعة' : 'Follow-up note'}</span>
               </button>
               <Protect permission="patients.edit">
                 <button
@@ -1892,7 +1900,7 @@ export default function PatientProfile() {
 
           {activeTab === "clinical" && canViewClinical && (
             <div className="animate-in fade-in duration-300 mt-6">
-              <PatientClinical patient={patient} />
+              <PatientClinical patient={patient} onOpenLab={canViewLab ? () => selectTab("lab") : undefined} />
             </div>
           )}
 
@@ -1914,6 +1922,12 @@ export default function PatientProfile() {
           {activeTab === "finance" && (
             <div className="animate-in fade-in duration-300 mt-6">
                 <PatientFinance patientId={id} />
+            </div>
+          )}
+
+          {activeTab === "lab" && canViewLab && (
+            <div className="animate-in fade-in duration-300 mt-6">
+                <PatientLabTab patientId={id} patient={patient} hideMoney={chair} />
             </div>
           )}
 
@@ -2453,6 +2467,38 @@ export default function PatientProfile() {
         )}
       </div>
     </PermissionGuard>
+  );
+}
+
+/**
+ * "From ad": this patient first wrote to the clinic by tapping a Click-to-WhatsApp ad.
+ *
+ * Read from `adAttribution`. Every ad click is kept on the WhatsApp chat in every clinic; it reaches
+ * the patient file in two ways only: on a patient the bot registers from an ad, and — for a patient
+ * who already existed — once the clinic has the Meta ad-results card switched on and one of their
+ * bookings is processed. So an existing patient who tapped an ad in a clinic with the card off has
+ * no chip; that is expected, not a missed click. The desk sees where the patient came from without
+ * opening the chat; the tooltip says which ad and when.
+ * Quiet on purpose — a grey chip, not a colour: it is context, not an alert. Nothing renders for
+ * a patient with no click id.
+ */
+function FromAdChip({ attribution, language, className = "ms-1.5" }: { attribution: unknown; language: string; className?: string }) {
+  const a = attribution && typeof attribution === "object" ? (attribution as Record<string, unknown>) : null;
+  const clid = a && typeof a.ctwaClid === "string" ? a.ctwaClid.trim() : "";
+  if (!clid) return null;
+  const isAr = language === "ar";
+  const headline = typeof a?.headline === "string" ? a.headline.trim() : "";
+  const at = Number(a?.clickedAt) || 0;
+  const date = at ? new Date(at).toLocaleDateString(isAr ? "ar-EG" : "en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
+  const tip = [headline, date].filter(Boolean).join(" · ") || (isAr ? "جه من إعلان واتساب" : "Came from a WhatsApp ad");
+  return (
+    <span
+      title={tip}
+      className={`${className} inline-flex items-center gap-1 rounded-full border border-line bg-surface-muted px-2 py-0.5 align-middle text-[10px] font-black uppercase tracking-wide text-ink-body`}
+    >
+      <Megaphone size={10} className="shrink-0" aria-hidden />
+      {isAr ? "من إعلان" : "From ad"}
+    </span>
   );
 }
 

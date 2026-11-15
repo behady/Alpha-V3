@@ -410,6 +410,10 @@ export type LabCase = {
   units?: number;
   /** FDI numbers. Stored as an array because the clinical note only ever keeps a joined string. */
   teeth: number[];
+  /** Neighbouring teeth are made as one piece. Absent on an order from before bridges: separate crowns. */
+  bridge?: boolean;
+  /** The teeth a bridge replaces rather than sits on. Always some of `teeth`. See labBridge.ts. */
+  pontics?: number[];
 
   /** The VITA shade for most of the crown. Read with a `toothShade` fallback for early records. */
   bodyShade?: string;
@@ -477,12 +481,28 @@ export type LabCaseSeed = {
   clinicalNoteId?: string;
   ledgerId?: string;
   teeth?: number[];
+  /** Teeth the patient's chart records as gone, so a bridge over one of them is recognised. */
+  missingTeeth?: number[];
   workDescription?: string;
   units?: number;
   branchId?: string;
   /** The price list's estimated lab fee, offered as a starting figure the user can correct. */
   agreedPrice?: number;
 };
+
+/**
+ * The treatment a new case was raised from, as the case stores it.
+ *
+ * Only the ids that exist are returned (Firestore rejects an undefined field). These two ids are
+ * what lets a lab payment skip the fee the treatment already booked, and what lets the order form
+ * offer to correct that fee once the lab's real price is known.
+ */
+export function treatmentLinkFromSeed(seed: LabCaseSeed | null | undefined): { clinicalNoteId?: string; ledgerId?: string } {
+  return {
+    ...(seed?.clinicalNoteId ? { clinicalNoteId: seed.clinicalNoteId } : {}),
+    ...(seed?.ledgerId ? { ledgerId: seed.ledgerId } : {}),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Codes
@@ -633,6 +653,64 @@ export function summarise(cases: LabCase[], today: string) {
     }
   }
   return { overdue, dueThisWeek, waitingForPatient, atLab, total: cases.length };
+}
+
+/**
+ * One patient's cases, as their file shows them.
+ *
+ * The cases still moving come first — they are the reason somebody opened the tab — and each group
+ * runs newest first. The three counts answer the desk's question without reading the rows: is
+ * anything out, is anything late, is anything sitting here waiting for this patient.
+ */
+export function patientLabView<T extends Pick<LabCase, "status" | "dueDate" | "codeNumber">>(cases: T[], today: string) {
+  const rows = [...cases].sort((a, b) => {
+    const closed = Number(statusFor(a.status).closed) - Number(statusFor(b.status).closed);
+    return closed || (b.codeNumber || 0) - (a.codeNumber || 0);
+  });
+  let open = 0;
+  let waiting = 0;
+  let overdue = 0;
+  for (const c of cases) {
+    if (!statusFor(c.status).closed) open += 1;
+    if (c.status === "back") waiting += 1;
+    if (dueStateFor(c, today) === "overdue") overdue += 1;
+  }
+  return { rows, open, waiting, overdue };
+}
+
+/**
+ * The one step a treatment card's button offers: the move that normally comes next.
+ *
+ * Never cancel (that stays on the Lab page, where it gets a second thought), never "back to the
+ * lab" once the work is home — that is a remake, not a next step — and nothing once it is fitted.
+ */
+export function quickLabStep(current: LabCaseStatus, needsTryIn: boolean): LabCaseStatus | null {
+  if (current === "back") return "fitted";
+  if (current === "fitted") return null;
+  return nextStatuses(current, needsTryIn).find((s) => s !== "cancelled" && s !== "draft") ?? null;
+}
+
+/**
+ * Which case each treatment shows on its card, keyed by the clinical note that raised it.
+ *
+ * Cancelled cases are skipped; among the rest an open case beats a closed one (a remake in flight
+ * matters more than the original that was fitted), then the newest code wins.
+ */
+export function labCasesByNote<T extends Pick<LabCase, "status" | "codeNumber"> & { clinicalNoteId?: string }>(
+  cases: T[]
+): Map<string, T> {
+  const byNote = new Map<string, T>();
+  for (const c of cases) {
+    if (!c.clinicalNoteId || c.status === "cancelled") continue;
+    const held = byNote.get(c.clinicalNoteId);
+    if (!held) {
+      byNote.set(c.clinicalNoteId, c);
+      continue;
+    }
+    const openRank = Number(statusFor(held.status).closed) - Number(statusFor(c.status).closed);
+    if (openRank > 0 || (openRank === 0 && (c.codeNumber || 0) > (held.codeNumber || 0))) byNote.set(c.clinicalNoteId, c);
+  }
+  return byNote;
 }
 
 
@@ -950,6 +1028,10 @@ export function toLabCase(id: string, data: Record<string, unknown>): LabCase {
     workDescription: str(data.workDescription) || undefined,
     units: data.units == null ? undefined : num(data.units),
     teeth,
+    bridge: data.bridge === true,
+    pontics: Array.isArray(data.pontics)
+      ? (data.pontics as unknown[]).map((t) => Number(t)).filter((n) => Number.isFinite(n))
+      : [],
     // `toothShade` is what the first version wrote, before the shade was split into body and
     // cervical. Read as a fallback so those cases still print a shade rather than a blank.
     bodyShade: str(data.bodyShade) || str(data.toothShade) || undefined,

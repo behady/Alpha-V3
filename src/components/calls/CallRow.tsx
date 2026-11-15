@@ -2,15 +2,16 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { CalendarPlus, Check, Loader2, Pencil, Phone, RotateCcw, Trash2 } from "lucide-react";
+import { CalendarPlus, Check, Loader2, Pencil, Phone, RotateCcw, StickyNote, Trash2 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { callDayParts, daysLate, quickDate, recipientLabel, type CallReminder } from "@/lib/callReminders";
 import { callReminderErrorText, markCallDone, rescheduleCall } from "@/lib/callRemindersApi";
 
 /**
- * One call to make, with what can be done about it: done (with a note), call again on another
- * day, or book. Used by the dashboard card and the Calls page.
+ * One note to act on, with what can be done about it: done (with a note), again on another day,
+ * or book. A Call note also carries the phone button; a Reminder note does not. Used by the
+ * dashboard card and the Notes page.
  *
  * Monochrome on purpose: the date block leads, the actions are quiet outlines, and "Done" is the
  * one yellow thing on the row. Late calls are the only other colour.
@@ -61,18 +62,19 @@ export default function CallRow({
   const mine = r.kind === "person" && r.uid === meUid;
   const orphan = reminder.deliveryError === "nobody";
   const day = callDayParts(reminder.date, todayYmd, isAr);
+  const isCall = reminder.kind !== "reminder";
 
   // Call, edit, delete: small round icons. On a phone they sit beside the name so the three main
   // actions get one even row; from md up they close the action row.
   const icons = (
     <>
-      {reminder.patientPhone && (
+      {isCall && reminder.patientPhone && (
         <a href={`tel:${reminder.patientPhone}`} aria-label={isAr ? `كلّم ${reminder.patientName}` : `Call ${reminder.patientName}`} className={ICON}>
           <Phone size={16} />
         </a>
       )}
       {onEdit && (
-        <button type="button" onClick={() => onEdit(reminder)} aria-label={isAr ? "عدّل التذكير" : "Edit reminder"} className={ICON}>
+        <button type="button" onClick={() => onEdit(reminder)} aria-label={isAr ? "عدّل الملاحظة" : "Edit note"} className={ICON}>
           <Pencil size={15} />
         </button>
       )}
@@ -80,7 +82,7 @@ export default function CallRow({
         <button
           type="button"
           onClick={() => onDelete(reminder)}
-          aria-label={isAr ? "امسح التذكير" : "Delete reminder"}
+          aria-label={isAr ? "امسح الملاحظة" : "Delete note"}
           className={`${ICON} hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700`}
         >
           <Trash2 size={15} />
@@ -124,6 +126,11 @@ export default function CallRow({
                 <Link href={`/patients/${encodeURIComponent(reminder.patientId)}`} className="text-[15px] font-bold text-ink hover:underline">
                   {reminder.patientName}
                 </Link>
+                {!isCall && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-[11px] font-bold text-ink-muted">
+                    <StickyNote size={11} aria-hidden="true" /> {isAr ? "تذكير" : "Reminder"}
+                  </span>
+                )}
                 {late > 0 && (
                   <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-bold text-rose-700">
                     {isAr ? `متأخرة ${late === 1 ? "يوم" : late === 2 ? "يومين" : `${late} أيام`}` : `${late} day${late === 1 ? "" : "s"} late`}
@@ -151,7 +158,7 @@ export default function CallRow({
               <Check size={15} /> {isAr ? "تم" : "Done"}
             </button>
             <button type="button" onClick={() => setMode("again")} className={PILL}>
-              <RotateCcw size={14} className="max-md:hidden" /> {isAr ? "كلّمه تاني" : "Call again"}
+              <RotateCcw size={14} className="max-md:hidden" /> {isCall ? (isAr ? "كلّمه تاني" : "Call again") : isAr ? "فكّرني تاني" : "Remind again"}
             </button>
             <button type="button" onClick={() => onBook(reminder)} className={PILL}>
               <CalendarPlus size={14} className="max-md:hidden" /> {isAr ? "احجز" : "Book"}
@@ -166,7 +173,19 @@ export default function CallRow({
           <input
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            placeholder={mode === "done" ? (isAr ? "حصل إيه؟ (اختياري)" : "What happened? (optional)") : isAr ? "ليه هنكلّمه تاني؟ (اختياري)" : "Why call again? (optional)"}
+            placeholder={
+              mode === "done"
+                ? isAr
+                  ? "حصل إيه؟ (اختياري)"
+                  : "What happened? (optional)"
+                : isCall
+                  ? isAr
+                    ? "ليه هنكلّمه تاني؟ (اختياري)"
+                    : "Why call again? (optional)"
+                  : isAr
+                    ? "ليه هتفكّرنا تاني؟ (اختياري)"
+                    : "Why remind again? (optional)"
+            }
             className={INPUT}
           />
           {mode === "again" && (
@@ -193,7 +212,7 @@ export default function CallRow({
               disabled={busy}
               onClick={() =>
                 mode === "done"
-                  ? void run(() => markCallDone(reminder.id, note.trim() || undefined), isAr ? "المكالمة اتقفلت" : "Call closed")
+                  ? void run(() => markCallDone(reminder.id, note.trim() || undefined), isAr ? "اتقفلت" : "Closed")
                   : void run(() => rescheduleCall(reminder.id, date, reminder.time, note.trim() || undefined), isAr ? "اتحدد يوم تاني" : "Set for another day")
               }
               className={`inline-flex h-9 items-center gap-1.5 rounded-full px-5 text-sm font-bold disabled:opacity-50 ${YELLOW}`}

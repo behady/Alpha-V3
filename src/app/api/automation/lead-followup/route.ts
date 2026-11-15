@@ -8,7 +8,7 @@ import { clinicDisplayName } from "@/lib/sms/events";
 import { whatsappOptOutReason } from "@/lib/messagingConsent";
 import { conversationKey } from "@/lib/bot/conversation";
 import { deliverWhatsAppMessage } from "@/lib/whatsappDelivery";
-import { normalizeAppointmentStatus } from "@/lib/appointmentStages";
+import { followupBlockedBy, type FollowupBlock } from "@/lib/leads/followupGuard";
 import { clinicHasFeature } from "@/lib/clinicFeatures";
 
 export const runtime = "nodejs";
@@ -59,14 +59,20 @@ interface FollowupResult {
   reason?: string;
 }
 
-async function hasUpcomingAppointment(clinicId: string, phone: string): Promise<boolean> {
-  const today = clinicNow().dateKey;
-  const snap = await adminClinicCollection(clinicId, "appointments").where("patientPhone", "==", phone).limit(20).get();
-  return snap.docs.some((d) => {
-    const a = d.data() || {};
-    const status = normalizeAppointmentStatus(String(a.status || ""));
-    return String(a.date || "") >= today && status !== "Cancelled" && status !== "No Show";
-  });
+/**
+ * Is this person already with the clinic — booked, or seen in the last month?
+ *
+ * Looked up by phone AND by patient id: an appointment made at the desk carries the patient's id
+ * and no phone, so a search by phone alone never saw it. See lib/leads/followupGuard.
+ */
+async function appointmentBlock(clinicId: string, phone: string, patientIds: string[]): Promise<FollowupBlock> {
+  const appointments = adminClinicCollection(clinicId, "appointments");
+  const snaps = await Promise.all([
+    appointments.where("patientPhone", "==", phone).limit(50).get(),
+    ...patientIds.map((id) => appointments.where("patientId", "==", id).limit(50).get()),
+  ]);
+  const rows = snaps.flatMap((s) => s.docs.map((d) => d.data() || {}));
+  return followupBlockedBy(rows, clinicNow().dateKey);
 }
 
 async function runForClinic(clinicId: string): Promise<{ results: FollowupResult[] }> {
@@ -117,11 +123,15 @@ async function runForClinic(clinicId: string): Promise<{ results: FollowupResult
     // already having, and a second "you asked and did not book" the next morning is a nag.
     if (Number(conv.declinedAtMs) > 0) { results.push({ leadId: d.id, status: "skipped", reason: "declined" }); continue; }
     if (Number(conv.lastInboundAt) > createdMs) { results.push({ leadId: d.id, status: "skipped", reason: "already_replied" }); continue; }
-    if (await hasUpcomingAppointment(clinicId, phone)) {
+    const patientIds = [...new Set([lead.patientId, lead.existingPatientId].map((v) => String(v || "").trim()).filter(Boolean))];
+    const block = await appointmentBlock(clinicId, phone, patientIds);
+    if (block === "already_booked") {
       await d.ref.set({ stage: "booked", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       results.push({ leadId: d.id, status: "skipped", reason: "already_booked" });
       continue;
     }
+    // Came in last week, or missed last week's slot: "you have not booked" is untrue either way.
+    if (block === "recent_visit") { results.push({ leadId: d.id, status: "skipped", reason: "recent_visit" }); continue; }
 
     const interest = String(lead.interest || "").trim() || "خدماتنا";
     const text = `أهلاً 👋 حضرتك سألت ${clinicName} عن ${interest} ولسه محجزتش. لو حبيت نحجزلك كشف أو عندك أي سؤال، ابعتلنا رسالة وهنرد عليك فوراً 🦷`;

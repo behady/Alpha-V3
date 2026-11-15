@@ -3,6 +3,7 @@ import { adminClinicDoc } from "@/lib/adminClinicDb";
 import { phoneMatchKey } from "@/lib/patientPhone";
 import type { BotState } from "./decide";
 import { readStoredAd, type AdReferral } from "./adReferral";
+import { mergeClicks, type AdClick } from "@/lib/metaConversions";
 import { MAX_REPLIES_PER_MINUTE, REPLY_BURST_MS, repliesInLastMinute } from "./burstGuard";
 
 /**
@@ -148,6 +149,12 @@ export interface BotConversation {
   outcome?: string;
   /** A staff member replied recently or paused the bot (not merely a handoff flag). */
   staffActive?: boolean;
+  /** Staff pressed "take over" and that take-over still holds (12h at most). */
+  staffPaused?: boolean;
+  /** When a staff member last wrote to this patient (0 after «رجّع البوت»). See lib/bot/staffHold. */
+  staffWroteAtMs?: number;
+  /** When staff took the thread over, while that take-over still holds. */
+  pausedAtMs?: number;
   /** The service the model last heard the patient wanting; the treatment when a booking follows. */
   lastInterest?: string;
   /** What the assistant remembers from earlier conversations with this number (nightly summary). */
@@ -167,8 +174,9 @@ export interface BotConversation {
    * A person owns this thread right now.
    *
    * True while a handoff is open (raised by the bot, not yet marked handled by staff, and younger
-   * than a day) or while a staff member has written to this patient in the last hour. The bot
-   * must stay silent for as long as this is true — the one-hour conversation expiry used to
+   * than a day) or while a staff member has written to this patient within the clinic's claim
+   * minutes, or has taken the thread over. The bot must stay silent for as long as this is
+   * true — the one-hour conversation expiry used to
    * reset the state to "new" underneath a live handoff, so the bot re-greeted, with buttons, a
    * patient a receptionist was mid-conversation with.
    */
@@ -194,6 +202,18 @@ export interface BotConversation {
    * report that says which ad brought bookings needs it still there when the booking happens.
    */
   ad?: AdReferral;
+  /** When `ad` was first recorded (epoch ms). Written by `recordAdReferral` alongside it. */
+  adAt?: number;
+  /**
+   * Every ad click this number has arrived from, newest first, at most ten.
+   *
+   * `ad` is first-ad-wins on purpose — the reports credit the creative that brought the person.
+   * Meta's Conversions API needs the opposite: the click id that came BEFORE the booking, which
+   * for somebody who tapped a second ad a month later is the second one. So the clicks are kept
+   * beside `ad` rather than instead of it. Written only by `recordAdReferral`; read-only here,
+   * and `saveConversation` never writes it, so a turn can never clobber the list.
+   */
+  adClicks?: AdClick[];
   /** When this ad-referred person first wrote something (an ad tap alone opens a chat). */
   adTypedAt?: number;
   /**
@@ -279,7 +299,9 @@ export async function loadConversation(
    * Two signals, either is enough. A handoff the bot raised stays open until staff mark it
    * handled (handledAtMs after handoffAtMs) — with a one-day ceiling so an unattended inbox
    * cannot silence the bot forever. And a staff member writing to the patient from the app
-   * claims the thread for an hour, so the bot never answers over a human mid-conversation.
+   * claims the thread for the clinic's claim minutes, so the bot never answers over a human
+   * mid-conversation. (A staff QUESTION holds longer; respond.ts reads that from the thread —
+   * see lib/bot/staffHold.)
    */
   const handoffAtMs = Number(d.handoffAtMs) || 0;
   const handledAtMs = Number(d.handledAtMs) || 0;
@@ -319,6 +341,9 @@ export async function loadConversation(
     humanOwned,
     // A person has actually written or paused the bot — as opposed to a flag raised for one.
     staffActive: humanActiveAtMs > now - humanClaimMs || paused,
+    staffPaused: paused,
+    staffWroteAtMs: humanActiveAtMs || undefined,
+    pausedAtMs: paused ? pausedAt || undefined : undefined,
     turns: expired ? 0 : Number(d.turns) || 0,
     patientId: typeof d.patientId === "string" ? d.patientId : undefined,
     patientName: typeof d.patientName === "string" ? d.patientName : undefined,
@@ -327,6 +352,11 @@ export async function loadConversation(
     repliesInWindow,
     optedOut: d.optedOut === true,
     ad: readStoredAd(d.ad) || undefined,
+    adAt: Number(d.adAt) || undefined,
+    adClicks: (() => {
+      const clicks = mergeClicks(d.adClicks, []);
+      return clicks.length ? clicks : undefined;
+    })(),
     adTypedAt: Number(d.adTypedAt) || undefined,
     recentReplies: recentRepliesFrom(d.recentReplies, now, ref(clinicId, phoneKey)),
     // Expired options are not carried: a list of "tomorrow's" times from last week books the

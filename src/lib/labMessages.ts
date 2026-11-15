@@ -28,6 +28,7 @@ import {
   workTypeLabel,
   type LabCase,
 } from "@/lib/labCases";
+import { bridgeLines } from "@/lib/labBridge";
 
 function line(label: string, value: string | undefined | null): string | null {
   const v = String(value ?? "").trim();
@@ -117,6 +118,8 @@ export function buildLabOrderMessage(
     line(t.work, [workTypeLabel(labCase.workType, language), labCase.workDescription].filter(Boolean).join(" — ")),
     wt.units && labCase.units ? line(t.units, String(labCase.units)) : null,
     labCase.teeth.length ? line(t.teeth, formatPalmer(labCase.teeth, language)) : null,
+    // Three crowns or one bridge: the one thing a list of teeth cannot say.
+    ...bridgeLines(labCase, language),
     line(t.material, labCase.material),
     wt.bodyShade ? line(t.body, labCase.bodyShade) : null,
     wt.cervicalShade ? line(t.cervical, labCase.cervicalShade) : null,

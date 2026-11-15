@@ -27,7 +27,7 @@ const translations = {
     // they name the three tabs of that page, which is all they label now.
     intelligence: "Intelligence",
     chats: "WhatsApp",
-    calls: "Calls",
+    calls: "Notes",
     briefing: "Briefing",
     revenueRecovery: "Recovery",
     reactivation: "Reactivation",
@@ -465,7 +465,7 @@ const translations = {
     paymentRecovery: "تحصيل المستحقات",
     intelligence: "ذكاء ألفا",
     chats: "واتساب",
-    calls: "المكالمات",
+    calls: "الملاحظات",
     briefing: "ملخص اليوم",
     revenueRecovery: "استرداد",
     reactivation: "إعادة تفعيل",

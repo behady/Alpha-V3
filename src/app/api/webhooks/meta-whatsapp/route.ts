@@ -19,7 +19,7 @@ import { clinicIdForPhoneNumberId } from "@/lib/metaWhatsapp";
 import { reportServerError } from "@/lib/server/reportError";
 import { parseMetaReferral, type AdReferral } from "@/lib/bot/adReferral";
 import { gradeLeadByPhone } from "@/lib/leads/gradeLeadServer";
-import { claimMediaTurn } from "@/lib/bot/burstGuard";
+import { claimMediaTurn, joinsMediaBurst } from "@/lib/bot/burstGuard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -266,7 +266,7 @@ function extractMessages(body: unknown): InboundMessage[] {
 }
 
 /** The patient's message, into the chat thread staff read. Never allowed to fail the webhook. */
-async function rememberInbound(clinicId: string, msg: InboundMessage): Promise<string> {
+async function rememberInbound(clinicId: string, msg: InboundMessage, at: number = Date.now()): Promise<string> {
   return recordThreadMessage(clinicId, msg.from, {
     direction: "in",
     author: "patient",
@@ -274,7 +274,7 @@ async function rememberInbound(clinicId: string, msg: InboundMessage): Promise<s
     media: msg.media,
     messageId: msg.messageId,
     channel: "meta",
-  }).catch((e) => {
+  }, at).catch((e) => {
     console.warn("[meta-whatsapp] thread write failed:", e);
     return "";
   });
@@ -421,7 +421,9 @@ export async function POST(request: NextRequest) {
       // off for, or refuses to answer, is still a message the clinic received.
       // A welcome event is not something the person said, so it is not a patient line; the
       // attribution line respond.ts writes ("came from ad …") is the thread's record of it.
-      const lineId = msg.welcome ? "" : await rememberInbound(clinicId, msg);
+      // The line's own time goes to the reply too: "did they write again since" is measured from it.
+      const receivedAt = Date.now();
+      const lineId = msg.welcome ? "" : await rememberInbound(clinicId, msg, receivedAt);
       if (msg.text) void raiseComplaintIfAny({ clinicId, phone: `+${msg.from}`, text: msg.text, chatId: conversationKey(msg.from) });
 
       /*
@@ -461,7 +463,8 @@ export async function POST(request: NextRequest) {
          * now (above); nothing reads it and nobody answers it — the first photo's answer was the
          * answer. Stickers and locations are punctuation and never hold the slot.
          */
-        if (!msg.text && (msg.media === "image" || msg.media === "audio" || msg.media === "video" || msg.media === "document")) {
+        // Voice notes are not an album: each one is read and answered (see joinsMediaBurst).
+        if (!msg.text && joinsMediaBurst(msg.media)) {
           if (!(await claimMediaTurn(clinicId, conversationKey(msg.from)))) {
             await adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(msg.from)).set({ lastReason: "media_burst" }, { merge: true }).catch(() => {});
             return;
@@ -522,6 +525,9 @@ export async function POST(request: NextRequest) {
             chatId: msg.from,
             phone: msg.from,
             messageId: msg.messageId || undefined,
+            // Only a line that held the words from the start: a voice note's words reach the thread
+            // just now, so a message that came while it was being transcribed was answered without them.
+            receivedAt: lineId && msg.text ? receivedAt : undefined,
             text,
             media,
             ad: msg.ad,

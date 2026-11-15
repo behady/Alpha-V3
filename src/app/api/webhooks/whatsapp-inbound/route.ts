@@ -20,7 +20,8 @@ import { confirmOptOut } from "@/lib/bot/optOutConfirm";
 import { reportServerError } from "@/lib/server/reportError";
 import { readStoredAd, type AdReferral } from "@/lib/bot/adReferral";
 import { gradeLeadByPhone } from "@/lib/leads/gradeLeadServer";
-import { claimMediaTurn } from "@/lib/bot/burstGuard";
+import { claimMediaTurn, joinsMediaBurst } from "@/lib/bot/burstGuard";
+import { INBOUND_DELIVERY_WINDOW_MS, claimOnce, inboundDeliveryKey } from "@/lib/bot/replyClaims";
 import { fileHistoryIntoThreads } from "@/lib/bot/threadHistory";
 import { readHistoryItems, type HistoryItem } from "@/lib/bot/threadHistoryPlan";
 
@@ -376,6 +377,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, ignored: "unusable_phone" });
     }
 
+    // The same message delivered again (the gateway re-sends when this request runs past its
+    // fifteen seconds) is dropped here, before it is written, intercepted or answered a second
+    // time. The first delivery is still running and will finish the job. See lib/bot/replyClaims.
+    const inboundId = parsedBody ? firstString(...candidateMessages(parsedBody).map((m) => (typeof m.id === "string" ? m.id : ""))) : "";
+    const deliveryKey = inboundDeliveryKey(inboundId);
+    if (deliveryKey && !(await claimOnce(clinicId, deliveryKey, INBOUND_DELIVERY_WINDOW_MS))) {
+      return NextResponse.json({ ok: true, ignored: "duplicate_delivery" });
+    }
+
     // Into the chat thread before any decision about answering — received is received.
     // The clinic's own people are answered on the staff line and kept out of the inbox. Only
     // possible when the sender's phone is visible; a lid hides it, and that owner stays a stranger.
@@ -400,7 +410,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, staffLine: true });
     }
 
-    const inboundId = parsedBody ? firstString(...candidateMessages(parsedBody).map((m) => (typeof m.id === "string" ? m.id : ""))) : "";
+    // The line's own time goes to the reply too: "did they write again since" is measured from it.
+    const receivedAt = Date.now();
     const lineId = await recordThreadMessage(clinicId, chatId, {
       direction: "in",
       author: "patient",
@@ -409,7 +420,7 @@ export async function POST(request: NextRequest) {
       // The id an old-chats copy will carry for this same message later, so it is not filed twice.
       messageId: inboundId || undefined,
       channel: "wapilot",
-    }).catch((e) => {
+    }, receivedAt).catch((e) => {
       console.warn("[whatsapp-inbound] thread write failed:", e);
       return "";
     });
@@ -482,7 +493,8 @@ export async function POST(request: NextRequest) {
 
     // The second photo of an album and every one after it: on the thread (above), read by
     // nobody, answered by nobody — the first photo's answer was the answer. See lib/bot/burstGuard.
-    if (media && !text && !(await claimMediaTurn(clinicId, conversationKey(chatId)))) {
+    // Voice notes are not an album: each one is read and answered (see joinsMediaBurst).
+    if (media && !text && joinsMediaBurst(media.kind) && !(await claimMediaTurn(clinicId, conversationKey(chatId)))) {
       await adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(chatId)).set({ lastReason: "media_burst" }, { merge: true }).catch(() => {});
       return NextResponse.json({ ok: true, bot: "skipped", why: "media_burst" });
     }
@@ -535,6 +547,9 @@ export async function POST(request: NextRequest) {
       chatId,
       phone,
       messageId: inboundId || undefined,
+      // Only a line that held the words from the start: a voice note's words reach the thread just
+      // now, so a message that came while it was being transcribed was answered without them.
+      receivedAt: lineId && reply.text ? receivedAt : undefined,
       text,
       media: mediaKind,
       mediaNote,

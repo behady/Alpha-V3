@@ -25,6 +25,7 @@ import { isDentistStaff } from "@/lib/staffRoles";
 import { nameSimilarity } from "@/lib/insurance/matchPatient";
 import { hasHardFailure, normalizeMetlife, type Check } from "@/lib/insurance/metlife";
 import { checkApproval } from "@/lib/insurance/formats";
+import { billingFields, isLineRemoved, lineDateOf, lineDatesAfterStates, movesSentMonth, type BillingClaim } from "@/lib/insurance/billingMonth";
 import {
   claimDocId,
   claimExtraction,
@@ -49,6 +50,7 @@ import {
   insuranceTreatmentRows,
   reshareLineDentists,
   isLineStatus,
+  lineStatusOf,
   lineDentistFor,
   rowsActionForStatus,
   type LineDentist,
@@ -65,7 +67,7 @@ const PERMISSION = "patients.edit";
 const MAX_LINES = 100;
 const MAX_NAME = 200;
 const MAX_WORDING = 200;
-const PATCH_KEYS = new Set(["status", "treatedDate", "approvalDate", "patientId", "lines", "metlife", "dentists", "lineStatus", "collectShare", "insurerPaid"]);
+const PATCH_KEYS = new Set(["status", "treatedDate", "approvalDate", "patientId", "lines", "metlife", "dentists", "lineStatus", "lineDates", "removeLine", "restoreLine", "collectShare", "insurerPaid"]);
 const LINE_KEY = /^\d{1,3}$/;
 const LINE_STATUS_ERROR = 'A service state must be "Completed", "Planned" or "Ongoing".';
 /** How the insurer's own payment is filed: its own method and category, so cash reports never mistake it for cash. */
@@ -143,10 +145,12 @@ type Charge = { id: string; row: Record<string, unknown> };
  * patient's balance all see insurance work without a second entry. Writes only; the caller has
  * done every read. Returns the links to keep on the claim and the charges for the audit trail.
  */
-function writeTreatmentRows(tx: Transaction, clinicId: string, args: TreatmentRowArgs, branchId: string | null): { ledgerIds: Record<number, LineLedger>; charges: Charge[] } {
+function writeTreatmentRows(tx: Transaction, clinicId: string, args: TreatmentRowArgs, branchId: string | null, only?: number): { ledgerIds: Record<number, LineLedger>; charges: Charge[] } {
   const ledgerIds: Record<number, LineLedger> = {};
   const charges: Charge[] = [];
   for (const r of insuranceTreatmentRows(args)) {
+    // `only`: one service put back on the approval writes its own row and no other.
+    if (only !== undefined && r.lineIndex !== only) continue;
     const noteRef = adminClinicCollection(clinicId, "clinical_notes").doc();
     const ledgerRef = adminClinicCollection(clinicId, "ledger").doc();
     tx.set(noteRef, { ...stripUndefined(r.note), ledgerId: ledgerRef.id, createdAt: FieldValue.serverTimestamp() });
@@ -176,6 +180,183 @@ async function auditCharges(clinicId: string, charges: Charge[], actor: Actor, v
       }).catch((err) => reportServerError("Insurance treatment audit failed:", err)),
     ),
   );
+}
+
+/** What a payment looks like once the treatment it settled is gone: money on the patient's account. */
+const ON_ACCOUNT_CATEGORY = "Advance Payment";
+
+/**
+ * Deletes one service from an approval, or puts it back.
+ *
+ * The clinic bills an approval in the month its last service was done, so a service the patient
+ * never comes back for would hold the approval open for ever. Deleting it takes its treatment row
+ * (clinical note + charge) out of the patient's file and off every sheet and payroll; the line
+ * itself stays in `lines`, because the paper is a record. Restoring writes that one row again.
+ *
+ * - Only a service that is not Completed can be deleted (409 `line_done`): done work is billed.
+ * - Money the PATIENT paid on it is never erased (owner, 2026-11-11: a paid service can still be
+ *   deleted). Each payment is kept, detached from the deleted charge: it becomes money on the
+ *   patient's account, earning no dentist commission. The answer says how much (`creditKept`).
+ * - The insurer's own payment is not the patient's money, so a service the insurer has paid for is
+ *   refused (409 `insurer_paid_line`) until that payment is deleted in the patient's Finance tab.
+ * - A change that would move or reopen an approval already sent to the company is refused
+ *   (409 `sent_locked`), as in PATCH.
+ */
+async function changeLineMembership(args: { clinicId: string; claimId: string; op: "remove" | "restore"; index: number; actor: Actor; branchId: unknown }): Promise<NextResponse> {
+  const { clinicId, claimId, op, index, actor } = args;
+  const claimRef = adminClinicDoc(clinicId, CLAIMS_COLLECTION, claimId);
+  const today = ymdInTimeZone(clinicTimeZone());
+
+  // A restored service on a treated approval writes a charge, and a charge belongs to a branch:
+  // the one the approval's rows already carry, else the patient's, resolved before the transaction.
+  let newRowBranch: string | null = null;
+  let branchResolved = false;
+  if (op === "restore") {
+    const pre = parseClaim(claimId, (await claimRef.get()).data());
+    if (pre && (pre.status === "treated" || pre.status === "sent")) {
+      if (pre.branchId) newRowBranch = pre.branchId;
+      else {
+        const branch = await assertBranchAllowed({
+          clinicId, uid: actor.uid, role: actor.role, branchId: args.branchId,
+          fallback: async (branches) => automaticBranch(clinicId, branches, { patientId: pre.patientId }),
+        });
+        if (!branch.ok) return branch.response;
+        newRowBranch = branch.branchId;
+      }
+      branchResolved = true;
+    }
+  }
+
+  type Detached = { id: string; amount: number; before: Record<string, unknown>; after: Record<string, unknown> };
+  type Outcome =
+    | { kind: "no_claim" }
+    | { kind: "unreadable" }
+    | { kind: "bad_line" }
+    | { kind: "state_changed" }
+    | { kind: "line_done" }
+    | { kind: "insurer_paid_line" }
+    | { kind: "sent_locked" }
+    | { kind: "ok"; removed: Charge | null; created: Charge[]; detached: Detached[]; restamp: Array<string | null>; service: string };
+  const result = await adminDb().runTransaction(async (tx): Promise<Outcome> => {
+    // --- reads ----------------------------------------------------------------------------------
+    const claimSnap = await tx.get(claimRef);
+    if (!claimSnap.exists) return { kind: "no_claim" };
+    const claim = parseClaim(claimId, claimSnap.data());
+    if (!claim) return { kind: "unreadable" };
+    const line = claim.lines[index];
+    if (!line) return { kind: "bad_line" };
+    const service = line.description || line.code;
+    const stamp = { updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.uid };
+
+    if (op === "remove") {
+      if (isLineRemoved(claim, index)) return { kind: "state_changed" };
+      if (lineStatusOf(claim, index) === "Completed") return { kind: "line_done" };
+      const link: LineLedger | undefined = claim.ledgerIds[index];
+      const chargeSnap = link ? await tx.get(adminClinicDoc(clinicId, "ledger", link.ledgerId)) : null;
+      const payments = link && chargeSnap?.exists ? await readProcedurePayments(tx, clinicId, link.ledgerId) : [];
+      if (payments.some((p) => p.method === INSURER_METHOD)) return { kind: "insurer_paid_line" };
+
+      const removedLines = { ...claim.removedLines, [index]: { at: today, by: actor.uid } };
+      const lineDates = { ...claim.lineDates };
+      delete lineDates[index];
+      const ledgerIds = { ...claim.ledgerIds };
+      delete ledgerIds[index];
+      const after: BillingClaim = { ...claim, removedLines, lineDates };
+      if (movesSentMonth(claim, after)) return { kind: "sent_locked" };
+
+      // --- writes -------------------------------------------------------------------------------
+      const detached: Detached[] = [];
+      for (const p of payments) {
+        const amount = round2(Number(p.paid ?? p.amount) || 0);
+        const fields = {
+          procedureId: null,
+          category: ON_ACCOUNT_CATEGORY,
+          payerId: null,
+          payerName: null,
+          doctorId: null,
+          doctorName: null,
+          doctorCommissionPercentage: 0,
+          doctorCommissionAmount: 0,
+          clinicProfit: amount,
+          labFee: 0,
+        };
+        // `claimId` goes: the payment no longer belongs to the approval, so nothing that follows
+        // an approval's rows (its deletion, its reports) may take the patient's money with it.
+        tx.update(adminClinicDoc(clinicId, "ledger", p.id), { ...fields, claimId: FieldValue.delete(), commissionSetManually: FieldValue.delete(), detachedFrom: { claimId, service, at: today }, updatedAt: FieldValue.serverTimestamp() });
+        detached.push({ id: p.id, amount, before: { procedureId: link?.ledgerId ?? null, claimId, doctorId: p.doctorId ?? null, doctorCommissionPercentage: p.doctorCommissionPercentage ?? null }, after: fields });
+      }
+      let removed: Charge | null = null;
+      if (link) {
+        if (chargeSnap?.exists) {
+          tx.delete(adminClinicDoc(clinicId, "ledger", link.ledgerId));
+          removed = { id: link.ledgerId, row: chargeSnap.data() ?? {} };
+        }
+        tx.delete(adminClinicDoc(clinicId, "clinical_notes", link.noteId));
+      }
+      tx.update(claimRef, { removedLines, lineDates, ledgerIds, ...billingFields(after), ...stamp });
+      return { kind: "ok", removed, created: [], detached, restamp: [claim.dentists[index]?.staffId ?? null, ...payments.map((p) => p.doctorId ?? null)], service };
+    }
+
+    // --- restore ---------------------------------------------------------------------------------
+    if (!isLineRemoved(claim, index)) return { kind: "state_changed" };
+    const removedLines = { ...claim.removedLines };
+    delete removedLines[index];
+    const after: BillingClaim = { ...claim, removedLines };
+    if (movesSentMonth(claim, after)) return { kind: "sent_locked" };
+    const worked = claim.status === "treated" || claim.status === "sent";
+    // It became treated between the branch decision and this read: nobody chose a branch for the row.
+    if (worked && !branchResolved) return { kind: "state_changed" };
+    const payersSnap = worked ? await tx.get(adminClinicDoc(clinicId, "settings", "payers")) : null;
+    const wordingSnap = worked ? await tx.get(adminClinicDoc(clinicId, "settings", WORDING_DOC)) : null;
+
+    let ledgerIds = claim.ledgerIds;
+    let created: Charge[] = [];
+    if (worked) {
+      const payerName = findPayer(parsePayers(payersSnap?.data()), claim.payerId)?.name ?? claim.payerId;
+      const written = writeTreatmentRows(tx, clinicId, { claimId, claim: { ...claim, removedLines }, payerName, wording: rowWording(wordingSnap?.get(claim.insurer), {}), actor }, newRowBranch, index);
+      ledgerIds = { ...claim.ledgerIds, ...written.ledgerIds };
+      created = written.charges;
+    }
+    tx.update(claimRef, { removedLines, ledgerIds, ...billingFields(after), ...stamp });
+    return { kind: "ok", removed: null, created, detached: [], restamp: [claim.dentists[index]?.staffId ?? null], service };
+  });
+
+  if (result.kind === "no_claim") return fail(404, "That claim was not found.");
+  if (result.kind === "unreadable") return fail(500, "That claim could not be read. Please contact support.");
+  if (result.kind === "bad_line") return fail(400, "That names a service line that is not on this approval.");
+  if (result.kind === "state_changed") return fail(409, "This approval just changed. Refresh and try again.");
+  if (result.kind === "line_done") {
+    return fail(409, "This service is done, so it is billed. Set it back to Planned before deleting it. / الخدمة دي اتعملت. رجّعها مخطط الأول لو عايز تمسحها.", { reason: "line_done" });
+  }
+  if (result.kind === "insurer_paid_line") {
+    return fail(409, "The insurer's payment is recorded on this service. Delete that payment in the patient's Finance tab first. / الشركة دافعة على الخدمة دي. امسح الدفعة من مالية المريض الأول.", { reason: "insurer_paid_line" });
+  }
+  if (result.kind === "sent_locked") {
+    return fail(409, "This approval was already sent to the company. Mark it not sent first. / دي اتبعتت للشركة. علّمها ماتبعتتش الأول.", { reason: "sent_locked" });
+  }
+
+  await restampStaffSettlementsFor(clinicId, result.restamp);
+  if (result.removed) {
+    const c = result.removed;
+    await recordMoneyChange({
+      entry: { clinicId, action: "delete", collection: "ledger", documentId: c.id, before: c.row, actor, via: "insurance/claims:line-removed" },
+      action: "Procedure Deleted",
+      details: `${String(c.row.description ?? result.service)} - deleted from approval ${claimId}`,
+    }).catch((err) => reportServerError("Insurance service removal audit failed:", err));
+  }
+  await Promise.all(
+    result.detached.map((p) =>
+      recordMoneyChange({
+        entry: { clinicId, action: "update", collection: "ledger", documentId: p.id, before: p.before, after: p.after, actor, via: "insurance/claims:line-removed (payment kept as credit)" },
+        action: "Payment Moved",
+        details: `${p.amount} EGP paid on ${result.service} (approval ${claimId}) stays on the patient's account: the service was deleted`,
+        severity: "HIGH",
+      }).catch((err) => reportServerError("Insurance kept-payment audit failed:", err)),
+    ),
+  );
+  if (result.created.length) await auditCharges(clinicId, result.created, actor, "insurance/claims:line-restored");
+  if (op === "remove") return NextResponse.json({ ok: true, creditKept: round2(result.detached.reduce((sum, p) => sum + p.amount, 0)) });
+  return NextResponse.json({ ok: true });
 }
 
 type DocFacts = InsuranceClaim["doc"];
@@ -463,6 +644,8 @@ export async function POST(req: Request) {
           const state = lineIn[i]?.status;
           if (state) claim.lineStatus[i] = state;
         });
+        // The month it is billed in and the months it has work in, stored so screens can query by them.
+        Object.assign(claim, billingFields(claim));
         // The treatments are recorded only once they are done: a claim saved as `treated` writes
         // its rows now, dated the treated day; an `approved` one writes them when it is marked
         // treated (or sent).
@@ -584,8 +767,19 @@ export async function POST(req: Request) {
  * - `lineStatus`: { lineIndex: "Completed" | "Planned" | "Ongoing" }, merged into the stored map; each
  *   index must be a line of the claim. The state follows into the clinical note of each treatment
  *   row that exists (the ledger charge carries no state, as in the clinical editor).
+ * - `lineDates`: { lineIndex: "yyyy-mm-dd" | null }, the day each service was done (null = back to
+ *   the default). Not before the approval date, not after today, and only on a Completed service
+ *   (400 otherwise). A service that becomes Completed with no day is done today; one that goes back
+ *   to Planned or Ongoing loses its day. That service's charge and note move to its day (never its
+ *   payments). The treated-date re-dating above now moves only services with no day of their own.
+ * - Every edit stores `finishedDate` and `workMonths` (lib/insurance/billingMonth.ts): the day the
+ *   last service was done once nothing is left open, and the months that have work.
+ * - A `sent` approval's finish month is locked (409, reason `sent_locked`): no edit may move it to
+ *   another month or reopen it. Mark it not sent (`status: "treated"`) first.
  * - `collectShare` / `insurerPaid` (one at a time, never with a status change): one payment per
  *   treatment row, capped at what is still open on it, only on a `treated` or `sent` approval.
+ *
+ * - `removeLine` / `restoreLine` (a line index, each alone in its patch): see `changeLineMembership`.
  *
  * Every edit stamps `updatedAt`/`updatedBy`.
  */
@@ -601,6 +795,21 @@ export async function PATCH(req: Request) {
     if (keys.length === 0) return fail(400, "Nothing to change.");
     const unknown = keys.filter((k) => !PATCH_KEYS.has(k));
     if (unknown.length) return fail(400, `Unknown field: ${unknown.join(", ")}.`);
+
+    // Deleting a service from the approval, or putting it back: its own small transaction, and
+    // never mixed with another edit (each acts on rows the other would read).
+    if ("removeLine" in patch || "restoreLine" in patch) {
+      if (keys.length !== 1) return fail(400, "Delete or restore a service on its own, not with another change.");
+      const op = "removeLine" in patch ? "remove" : "restore";
+      const index = op === "remove" ? patch.removeLine : patch.restoreLine;
+      if (typeof index !== "number" || !Number.isInteger(index) || index < 0 || index >= MAX_LINES) return fail(400, "That names a service line that is not on this approval.");
+      const authz = await requireStaffPermission(req, clinicId, PERMISSION);
+      if (!authz.ok) return authz.response;
+      if (!(await clinicHasFeature(clinicId, "insurance"))) {
+        return fail(403, "Insurance is not part of this clinic's subscription.", { reason: "feature_locked" });
+      }
+      return await changeLineMembership({ clinicId, claimId, op, index, actor: { uid: authz.uid, name: authz.name, role: authz.role }, branchId: body.branchId });
+    }
 
     let status: ClaimStatus | undefined;
     if ("status" in patch) {
@@ -662,6 +871,21 @@ export async function PATCH(req: Request) {
         statePicks[Number(k)] = v;
       }
       if (Object.keys(statePicks).length === 0) return fail(400, "lineStatus is empty.");
+    }
+    // The day each service was done: { "<lineIndex>": "yyyy-mm-dd" | null } (null = the default again).
+    let datePicks: Record<number, string | null> | undefined;
+    if ("lineDates" in patch) {
+      if (!isRecord(patch.lineDates)) return fail(400, "lineDates must map a line index to a date or null.");
+      if (rawLines !== undefined) return fail(400, "Edit the approval's services and their dates one at a time.");
+      const today = ymdInTimeZone(clinicTimeZone());
+      datePicks = {};
+      for (const [k, v] of Object.entries(patch.lineDates)) {
+        if (!LINE_KEY.test(k)) return fail(400, "lineDates keys must be line indices.");
+        if (v !== null && !isIsoDate(v)) return fail(400, "A service's date must be a yyyy-mm-dd date or null.");
+        if (v !== null && v > today) return fail(400, "A service cannot be done in the future.");
+        datePicks[Number(k)] = v;
+      }
+      if (Object.keys(datePicks).length === 0) return fail(400, "lineDates is empty.");
     }
     // The patient's share taken as cash. The ledger rows and the claim's stamp are written in ONE
     // transaction here — two separate calls left a stray cash row whenever the second one failed.
@@ -742,6 +966,9 @@ export async function PATCH(req: Request) {
       | { kind: "no_staff"; ids: string[] }
       | { kind: "not_dentist" }
       | { kind: "bad_line" }
+      | { kind: "bad_line_date" }
+      | { kind: "line_not_done" }
+      | { kind: "sent_locked" }
       | { kind: "state_changed" }
       | { kind: "rows_exist" }
       | { kind: "rows_paid_edit" }
@@ -754,7 +981,7 @@ export async function PATCH(req: Request) {
       | { kind: "no_rows" }
       | { kind: "nothing_left" }
       | { kind: "checks"; checks: Check[] }
-      | { kind: "ok"; created: Charge[]; removed: Charge[]; payments: Charge[] | null; what: "share" | "insurer"; collected: Collected | null; rebuilt: boolean; restamp: Array<string | null>; redated: Array<{ id: string; from: unknown }>; rowDate: string; approvalMoved: { from: string; to: string } | null };
+      | { kind: "ok"; created: Charge[]; removed: Charge[]; payments: Charge[] | null; what: "share" | "insurer"; collected: Collected | null; rebuilt: boolean; restamp: Array<string | null>; redated: Array<{ id: string; from: unknown; to: string; own: boolean }>; approvalMoved: { from: string; to: string } | null };
     const result = await adminDb().runTransaction(async (tx): Promise<PatchOutcome> => {
       // --- reads: every one of them before the first write --------------------------------------
       const claimSnap = await tx.get(claimRef);
@@ -787,13 +1014,34 @@ export async function PATCH(req: Request) {
         approvalDate: approvalAfter,
         today: ymdInTimeZone(clinicTimeZone()),
       });
-      // The rows are dated the treated day, else the approval's own (as insuranceTreatmentRows
-      // writes them). When that day moves on rows that stay, the books move with it: the
-      // statement and payroll already read the claim's date, and Finance and the payer report
-      // read the rows'. A July approval treated in October is October's work in all four.
-      const rowDateBefore = claim.treatedDate ?? claim.approvalDate;
-      const rowDateAfter = (treated === undefined ? claim.treatedDate : treated) ?? approvalAfter;
-      const redate = hasRows && rowsAction === "none" && !rebuild && rowDateAfter !== rowDateBefore;
+      // The day each service was done, after this edit. A service that becomes Completed with no
+      // day is done today; one that goes back to Planned/Ongoing loses its day; a day typed on the
+      // screen (or sent by a finished visit) is laid over that. Going back to approved/cancelled
+      // means the work did not happen: the days go with it, so treating it again starts from today.
+      const today = ymdInTimeZone(clinicTimeZone());
+      let lineDatesNext: Record<number, string> = statePicks ? lineDatesAfterStates(claim, statePicks, today) : { ...claim.lineDates };
+      if (datePicks) {
+        for (const [k, v] of Object.entries(datePicks)) {
+          const i = Number(k);
+          if (i >= claim.lines.length) return { kind: "bad_line" };
+          if (v === null) {
+            delete lineDatesNext[i];
+            continue;
+          }
+          if (v < approvalAfter) return { kind: "bad_line_date" };
+          if ((statePicks?.[i] ?? lineStatusOf(claim, i)) !== "Completed") return { kind: "line_not_done" };
+          lineDatesNext[i] = v;
+        }
+      }
+      if (status !== undefined && status !== claim.status && (status === "approved" || status === "cancelled")) lineDatesNext = {};
+      // Each row is dated the day ITS service was done: its own day, else the treated day, else the
+      // approval's (as insuranceTreatmentRows writes them). When that day moves on a row that
+      // stays, the books move with it: the statement and payroll read the claim, Finance and the
+      // payer report read the rows. A treated-date edit therefore moves only the services with no
+      // day of their own.
+      const datesAfter = { lineDates: lineDatesNext, treatedDate: treated === undefined ? claim.treatedDate : treated, approvalDate: approvalAfter };
+      const moving = hasRows && rowsAction === "none" && !rebuild ? links.filter((l) => lineDateOf(claim, l.index) !== lineDateOf(datesAfter, l.index)) : [];
+      const redate = moving.length > 0;
 
       const patientRef = newPatientId ? adminClinicDoc(clinicId, "patients", newPatientId) : null;
       const patientSnap = patientRef ? await tx.get(patientRef) : null;
@@ -920,6 +1168,17 @@ export async function PATCH(req: Request) {
         update.lineStatus = lineStatus;
       }
 
+      // The services' days and the deleted services follow an edit of the paper the same way, and
+      // the month the approval is billed in is derived from all of it.
+      const lineDates = rawLines !== undefined ? onLines(lineDatesNext) : lineDatesNext;
+      const removedLines = rawLines !== undefined ? onLines(claim.removedLines) : claim.removedLines;
+      if (JSON.stringify(lineDates) !== JSON.stringify(claim.lineDates)) update.lineDates = lineDates;
+      if (JSON.stringify(removedLines) !== JSON.stringify(claim.removedLines)) update.removedLines = removedLines;
+      const after: BillingClaim = { status: status ?? claim.status, lines, lineStatus, lineDates, removedLines, treatedDate: datesAfter.treatedDate, approvalDate: approvalAfter };
+      // Already sent to the company: it stays on the month's sheet it went out on (owner, 2026-11-11).
+      if (movesSentMonth(claim, after)) return { kind: "sent_locked" };
+      Object.assign(update, billingFields(after));
+
       // One payment per live treatment row, each capped at what is still open on that row, so a row
       // the patient already settled at the counter is never paid twice.
       const plan: Array<{ index: number; ledgerId: string; amount: number; labFee: number; service: string }> = [];
@@ -974,19 +1233,18 @@ export async function PATCH(req: Request) {
           if (noteSnaps.get(link.noteId)?.exists) noteUpdate(link.noteId, { doctorId: rowPatch.doctorId, doctor: rowPatch.doctor });
         }
       }
-      // The treated day moved: every charge and note the approval wrote moves with it. The payments
-      // against them keep their own dates; the money arrived when it arrived.
-      const redated: Array<{ id: string; from: unknown }> = [];
-      if (redate) {
-        for (const l of links) {
-          const snap = chargeSnaps.get(l.ledgerId);
-          if (snap?.exists && snap.get("date") !== rowDateAfter) {
-            chargeUpdate(l.ledgerId, { date: rowDateAfter, updatedAt: FieldValue.serverTimestamp() });
-            redated.push({ id: l.ledgerId, from: snap.get("date") ?? null });
-          }
-          const note = noteSnaps.get(l.noteId);
-          if (note?.exists && note.get("date") !== rowDateAfter) noteUpdate(l.noteId, { date: rowDateAfter, updatedAt: FieldValue.serverTimestamp() });
+      // A service's day moved: its charge and its note move with it. The payments against them keep
+      // their own dates; the money arrived when it arrived.
+      const redated: Array<{ id: string; from: unknown; to: string; own: boolean }> = [];
+      for (const l of moving) {
+        const to = lineDateOf(datesAfter, l.index);
+        const snap = chargeSnaps.get(l.ledgerId);
+        if (snap?.exists && snap.get("date") !== to) {
+          chargeUpdate(l.ledgerId, { date: to, updatedAt: FieldValue.serverTimestamp() });
+          redated.push({ id: l.ledgerId, from: snap.get("date") ?? null, to, own: lineDatesNext[l.index] !== claim.lineDates[l.index] });
         }
+        const note = noteSnaps.get(l.noteId);
+        if (note?.exists && note.get("date") !== to) noteUpdate(l.noteId, { date: to, updatedAt: FieldValue.serverTimestamp() });
       }
       for (const [ledgerId, fields] of chargeUpdates) tx.update(adminClinicDoc(clinicId, "ledger", ledgerId), fields);
       if (statePicks && rowsAction !== "remove" && !rebuild) {
@@ -1029,6 +1287,8 @@ export async function PATCH(req: Request) {
             lines,
             dentists,
             lineStatus,
+            lineDates,
+            removedLines,
           },
           payerName,
           wording: rowWording(wordingSnap?.get(claim.insurer), {}),
@@ -1142,7 +1402,7 @@ export async function PATCH(req: Request) {
         updatedAt: FieldValue.serverTimestamp(),
         updatedBy: authz.uid,
       });
-      return { kind: "ok", created, removed, payments, what: collectShare ? "share" : "insurer", collected, rebuilt: rebuild, restamp, redated, rowDate: rowDateAfter, approvalMoved: approvalAfter !== claim.approvalDate ? { from: claim.approvalDate, to: approvalAfter } : null };
+      return { kind: "ok", created, removed, payments, what: collectShare ? "share" : "insurer", collected, rebuilt: rebuild, restamp, redated, approvalMoved: approvalAfter !== claim.approvalDate ? { from: claim.approvalDate, to: approvalAfter } : null };
     });
 
     if (result.kind === "no_claim") return fail(404, "That claim was not found.");
@@ -1150,7 +1410,12 @@ export async function PATCH(req: Request) {
     if (result.kind === "no_patient") return fail(404, "That patient was not found.");
     if (result.kind === "no_staff") return fail(404, `Staff not found: ${result.ids.join(", ")}.`);
     if (result.kind === "not_dentist") return fail(400, "That staff member is not a dentist.");
-    if (result.kind === "bad_line") return fail(400, "lineStatus names a service line that is not on this approval.");
+    if (result.kind === "bad_line") return fail(400, "That names a service line that is not on this approval.");
+    if (result.kind === "bad_line_date") return fail(400, "A service cannot be done before the approval date. / الخدمة ماينفعش تتعمل قبل تاريخ الموافقة.");
+    if (result.kind === "line_not_done") return fail(400, "Mark the service Completed before dating it.");
+    if (result.kind === "sent_locked") {
+      return fail(409, "This approval was already sent to the company. Mark it not sent first. / دي اتبعتت للشركة. علّمها ماتبعتتش الأول.", { reason: "sent_locked" });
+    }
     if (result.kind === "state_changed") return fail(409, "This approval just changed. Refresh and try again.");
     if (result.kind === "rows_exist") {
       return fail(409, "Save the approval's edits first, then change its status or record a payment.");
@@ -1183,11 +1448,13 @@ export async function PATCH(req: Request) {
       await Promise.all(
         result.redated.map((r) =>
           recordMoneyChange({
-            entry: { clinicId, action: "update", collection: "ledger", documentId: r.id, before: { date: r.from }, after: { date: result.rowDate }, actor, via: result.approvalMoved ? "insurance/claims:approval-date" : "insurance/claims:treated-date" },
+            entry: { clinicId, action: "update", collection: "ledger", documentId: r.id, before: { date: r.from }, after: { date: r.to }, actor, via: r.own ? "insurance/claims:line-date" : result.approvalMoved ? "insurance/claims:approval-date" : "insurance/claims:treated-date" },
             action: "Procedure Moved",
-            details: result.approvalMoved
-              ? `Approval ${claimId} date corrected ${result.approvalMoved.from} -> ${result.approvalMoved.to}: its charge moved from ${String(r.from)}`
-              : `Approval ${claimId} treated ${result.rowDate}: its charge moved from ${String(r.from)}`,
+            details: r.own
+              ? `Approval ${claimId}: service done ${r.to}, its charge moved from ${String(r.from)}`
+              : result.approvalMoved
+                ? `Approval ${claimId} date corrected ${result.approvalMoved.from} -> ${result.approvalMoved.to}: its charge moved from ${String(r.from)}`
+                : `Approval ${claimId} treated ${r.to}: its charge moved from ${String(r.from)}`,
           }).catch((err) => reportServerError("Insurance re-date audit failed:", err)),
         ),
       );

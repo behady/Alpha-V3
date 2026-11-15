@@ -16,7 +16,12 @@
  * else, and guessing from a name is the mistake this file exists to keep out of sight.
  */
 
-const ARABIC = "؀-ۿ";
+/*
+ * Arabic letters and their marks — not the whole block, which also holds "،" "؛" "؟" and the
+ * digits. With the whole block, "أهلاً بيك، معاك" came out "أهلاً بيك، معاكي": a word followed by
+ * an Arabic comma or question mark never counted as a whole word.
+ */
+const ARABIC = "ء-ي" + "\\u064B-\\u065F" + "ٱ-ۓ"; // letters, harakat, letters (escaped for the regex)
 
 /**
  * A whole word in Arabic.

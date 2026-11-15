@@ -4,7 +4,7 @@ import { localYmd } from "@/lib/clinicDate";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { TrendingUp, TrendingDown, DollarSign, PieChart, Download, Plus, Edit2, Trash2, Loader2, X, Save, CalendarDays, CalendarClock, Users, ChevronLeft, ChevronRight, SlidersHorizontal, ChevronDown, ChevronUp, Wallet, FileText, FileSpreadsheet, ScanLine } from "lucide-react";
 import { db } from "@/lib/firebase";
-import { collection, addDoc, query, orderBy, serverTimestamp, deleteDoc, doc, updateDoc, where, getDoc, getDocs, onSnapshot, documentId } from "firebase/firestore";
+import { collection, addDoc, query, orderBy, serverTimestamp, deleteDoc, doc, updateDoc, where, getDoc, getDocs, onSnapshot, documentId, type DocumentData, type Query } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { useAuth } from "@/context/AuthContext";
@@ -36,9 +36,10 @@ import { INSURER_PAYMENT_METHOD } from "@/lib/ledgerInsurer";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import { PRIVATE_PAYER_ID } from "@/lib/payers";
 import { MoneyApiError, collectFromInsurer, createLedgerEntry, deleteLedgerRow, deleteStaffSettlement, updateLedgerRow, updateStaffSettlement } from "@/lib/moneyApi";
-import { CLAIMS_COLLECTION, lineStatusOf, parseClaim, type InsuranceClaim } from "@/lib/insurance/claims";
+import { CLAIMS_COLLECTION, parseClaim, type InsuranceClaim } from "@/lib/insurance/claims";
 import { categoryLabel, EXPENSE_CATEGORY_LIST, INCOME_CATEGORY_LIST } from "@/lib/expenseCategories";
-import { countsForPayroll } from "@/lib/staffInsurance";
+import { insurancePendingShare } from "@/lib/staffInsurance";
+import { monthsBetween } from "@/lib/insurance/billingMonth";
 import { useClinic } from "@/context/ClinicContext";
 import { isUnlocked } from "@/lib/featureCatalog";
 import ReceiptScanDialog from "@/components/finance/ReceiptScanDialog";
@@ -177,26 +178,8 @@ export default function FinancePage() {
     () => (scopeBranchId === "" && branches.length > 0 ? loadedTransactions.filter((t) => !t.branchId).length : 0),
     [loadedTransactions, scopeBranchId, branches.length],
   );
-  /**
-   * The dentists' share still unpaid on insurance work treated in the period. It is stamped on
-   * the approval's line (share, paid, deducted), not on the insurer's payment row, so the ledger
-   * alone would show it as nothing owed.
-   */
+  /** The approvals with insurance work in the period (loaded below, by treated date and by work month). */
   const [periodClaims, setPeriodClaims] = useState<InsuranceClaim[]>([]);
-  // Follows the branch on screen like the private figure beside it (the claim list that NAMES rows
-  // below stays clinic-wide, since a row's approval is looked up by id).
-  const insurancePending = useMemo(() => {
-    let total = 0;
-    for (const claim of periodClaims) {
-      if (!rowInScope(claim, scopeBranchId)) continue;
-      if (!countsForPayroll(claim)) continue;
-      for (const [k, d] of Object.entries(claim.dentists)) {
-        if (lineStatusOf(claim, Number(k)) !== "Completed") continue;
-        total += Math.max(0, d.share - (d.paid ?? 0) - (d.deducted ?? 0));
-      }
-    }
-    return Math.round(total * 100) / 100;
-  }, [periodClaims, scopeBranchId]);
   /** The approvals the listed insurance payments belong to, so a row can name its dentist and share. */
   const [claimsById, setClaimsById] = useState<Map<string, InsuranceClaim>>(new Map());
   /**
@@ -362,18 +345,51 @@ export default function FinancePage() {
         setIsLoading(false);
       }
     );
-    const unsubClaims = onSnapshot(
-      query(getClinicCollection(CLAIMS_COLLECTION), where("treatedDate", ">=", startDateStr), where("treatedDate", "<=", endDateStr)),
-      (snap) => {
-        setPeriodClaims(snap.docs.map((d) => parseClaim(d.id, d.data())).filter((c): c is InsuranceClaim => c !== null));
-      },
-      () => setPeriodClaims([]),
-    );
+    // Each insurance service is the dentist's pay in the month IT was done, so an approval treated
+    // earlier can still have work in this period: found by `workMonths`, and by treated date for
+    // approvals saved before that field existed. Merged by id.
+    const byTreated = new Map<string, InsuranceClaim>();
+    const byWorkMonth = new Map<string, InsuranceClaim>();
+    const publishClaims = () => setPeriodClaims([...new Map([...byTreated, ...byWorkMonth]).values()]);
+    const claimsInto = (into: Map<string, InsuranceClaim>, q: Query<DocumentData>) =>
+      onSnapshot(
+        q,
+        (snap) => {
+          into.clear();
+          for (const d of snap.docs) {
+            const claim = parseClaim(d.id, d.data());
+            if (claim) into.set(claim.id, claim);
+          }
+          publishClaims();
+        },
+        () => {
+          into.clear();
+          publishClaims();
+        },
+      );
+    const unsubClaims = claimsInto(byTreated, query(getClinicCollection(CLAIMS_COLLECTION), where("treatedDate", ">=", startDateStr), where("treatedDate", "<=", endDateStr)));
+    const months = monthsBetween(startDateStr, endDateStr);
+    // `array-contains-any` takes at most 30 values: a longer period falls back on the treated date alone.
+    const unsubClaimsByMonth =
+      months.length >= 1 && months.length <= 30 ? claimsInto(byWorkMonth, query(getClinicCollection(CLAIMS_COLLECTION), where("workMonths", "array-contains-any", months))) : () => {};
     return () => {
       unsub();
       unsubClaims();
+      unsubClaimsByMonth();
     };
   }, [periodBounds, showToast]);
+
+  /**
+   * The dentists' share still unpaid on the insurance services done in the period. It is stamped
+   * on the approval's line (share, paid, deducted), not on the insurer's payment row, so the
+   * ledger alone would show it as nothing owed. Follows the branch on screen like the private
+   * figure beside it (the claim list that NAMES rows below stays clinic-wide, since a row's
+   * approval is looked up by id).
+   */
+  const insurancePending = useMemo(
+    () => insurancePendingShare(periodClaims.filter((claim) => rowInScope(claim, scopeBranchId)), periodBounds),
+    [periodClaims, scopeBranchId, periodBounds],
+  );
 
   // The approvals behind the listed insurance payments, live, in chunks of 30 (the `in` limit).
   const claimIdsKey = useMemo(

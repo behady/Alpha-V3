@@ -2,11 +2,16 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getDoc, getDocs, limit, orderBy, query } from "firebase/firestore";
-import { Loader2, Search, X, FlaskConical, Info, Trash2 } from "lucide-react";
+import { Loader2, Search, X, FlaskConical, Info, Trash2, ChevronDown } from "lucide-react";
+import SuggestInput from "@/components/shared/SuggestInput";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import Protect from "@/components/Protect";
 import LabTeethPicker from "@/components/lab/LabTeethPicker";
+import LabBridgeField from "@/components/lab/LabBridgeField";
+import LabOrderCreated from "@/components/lab/LabOrderCreated";
+import { bridgeGaps, bridgeRuns, bridgeWorkApplies, cleanPontics, suggestBridge } from "@/lib/labBridge";
+import { prefillFromPast } from "@/lib/labPrefill";
 import { MoneyApiError, setProcedureLabFee } from "@/lib/moneyApi";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { localYmd } from "@/lib/clinicDate";
@@ -27,6 +32,8 @@ import {
   parseToothInput,
   addDays,
   resolveWorkType,
+  toLabCase,
+  treatmentLinkFromSeed,
   workTypeFor,
   workTypeLabel,
   type LabCase,
@@ -120,6 +127,16 @@ export default function LabCaseModal({
   const [needsTryIn, setNeedsTryIn] = useState(false);
   const [dueDate, setDueDate] = useState("");
   const [sendNow, setSendNow] = useState(true);
+  /** "More details" — closed every time the form opens. */
+  const [moreOpen, setMoreOpen] = useState(false);
+  /**
+   * Bridge or separate crowns. `null` means nobody has chosen yet, so the form follows what the
+   * patient's chart says; a tap on the switch or on a tooth makes it the person's own answer.
+   */
+  const [bridgeChoice, setBridgeChoice] = useState<boolean | null>(null);
+  const [ponticChoice, setPonticChoice] = useState<number[] | null>(null);
+  /** The order just created, shown with its code until the person says they are done. */
+  const [created, setCreated] = useState<LabCase | null>(null);
 
   // --- patient + doctor pickers -------------------------------------------
   const [patientId, setPatientId] = useState("");
@@ -147,8 +164,10 @@ export default function LabCaseModal({
    * lab list is Admin-only to write), so this is also how the next order finds that lab again.
    */
   const [pastCases, setPastCases] = useState<
-    { labId: string; labName: string; workType: string; implantSystem: string }[]
+    { labId: string; labName: string; workType: string; workDescription: string; implantSystem: string }[]
   >([]);
+  /** True once that read has answered, with cases or without: only then can the form offer a lab. */
+  const [pastReady, setPastReady] = useState(false);
   /**
    * A ref, not state.
    *
@@ -161,9 +180,11 @@ export default function LabCaseModal({
   useEffect(() => {
     if (!open || pastLoaded.current) return;
     let cancelled = false;
+    let answered = false;
     pastLoaded.current = true;
     getDocs(query(getClinicCollection(LAB_CASES_COLLECTION), orderBy("codeNumber", "desc"), limit(300)))
       .then((snap) => {
+        answered = true;
         if (cancelled) return;
         setPastCases(
           snap.docs.map((d) => {
@@ -172,17 +193,24 @@ export default function LabCaseModal({
               labId: String(data.labId || "").trim(),
               labName: String(data.labName || "").trim(),
               workType: String(data.workType || "").trim(),
+              workDescription: String(data.workDescription || "").trim(),
               implantSystem: String(data.implantSystem || "").trim(),
             };
           })
         );
+        setPastReady(true);
       })
       .catch(() => {
+        answered = true;
+        if (!cancelled) setPastReady(true);
         // Suggestions are a convenience. Every field is free text either way, so a failed read
         // costs nothing a person cannot type.
       });
     return () => {
       cancelled = true;
+      // Closed before the reply landed: let the next opening ask again, or the form would never
+      // learn this clinic's labs for as long as the page stays open.
+      if (!answered) pastLoaded.current = false;
     };
   }, [open]);
 
@@ -262,11 +290,13 @@ export default function LabCaseModal({
   useEffect(() => {
     if (!open) {
       seededFor.current = null;
+      setCreated(null);
       return;
     }
     const key = existing?.id || "new";
     if (seededFor.current === key) return;
     seededFor.current = key;
+    setMoreOpen(false);
 
     const src = existing;
     setLabText(src?.labName || (labs.length === 1 ? labs[0].name : ""));
@@ -279,6 +309,9 @@ export default function LabCaseModal({
     setTeethText(formatPalmerShorthand(seededTeeth));
     // A paediatric case opens on the grid that can actually show it.
     setShowPrimaryTeeth(hasPrimaryTeeth(seededTeeth));
+    // An order being edited keeps what it says. A new one follows the patient's chart.
+    setBridgeChoice(src ? src.bridge === true : null);
+    setPonticChoice(src ? src.pontics || [] : null);
     setBodyShade(src?.bodyShade || "");
     setCervicalShade(src?.cervicalShade || "");
     setGumShade(src?.gumShade || "");
@@ -312,6 +345,27 @@ export default function LabCaseModal({
     setDoctorId(src?.doctorId || seed?.doctorId || "");
     setDoctorName(src?.doctorName || seed?.doctorName || "");
   }, [open, existing, seed, defaultBranchId, labs, language]);
+
+  /**
+   * The work type and the lab, offered for an order raised from a treatment.
+   *
+   * The treatment's name says what the work is, and the clinic's last order for it says where it
+   * goes (see labPrefill.ts). Once per opening, after the past orders have answered, and only into
+   * a box that is still empty: something a person typed is never replaced.
+   */
+  const prefilledFor = useRef(false);
+
+  useEffect(() => {
+    if (!open) {
+      prefilledFor.current = false;
+      return;
+    }
+    if (isEdit || !pastReady || prefilledFor.current) return;
+    prefilledFor.current = true;
+    const offer = prefillFromPast(pastCases, seed?.workDescription);
+    if (offer.workType) setWorkText((typed) => (typed.trim() ? typed : workTypeLabel(offer.workType, language)));
+    if (offer.labName) setLabText((typed) => (typed.trim() ? typed : offer.labName));
+  }, [open, isEdit, pastReady, pastCases, seed, language]);
 
   /**
    * Picking a work type re-applies that type's defaults — but only when raising a new case.
@@ -407,6 +461,7 @@ export default function LabCaseModal({
 
   /** The known lab the typed name matches, or null while it names a new one. */
   const selectedLab = useMemo(() => findLabByName(knownLabs, labText), [knownLabs, labText]);
+  const labNames = useMemo(() => knownLabs.map((l) => l.name), [knownLabs]);
 
   /** The lab's usual turnaround fills the due date in — the reason it is worth recording. */
   /**
@@ -472,11 +527,59 @@ export default function LabCaseModal({
     setTeeth(parseToothInput(value));
   };
 
+  /**
+   * Separate crowns or a bridge, and which teeth the bridge replaces.
+   *
+   * An implant crown is left out of the guessing: there the missing tooth is where the implant
+   * stands, not a gap being bridged, so only a person can say those crowns are joined.
+   */
+  const chartMissing = useMemo(
+    () => (isEdit || wt.implant ? [] : seed?.missingTeeth || []),
+    [isEdit, wt.implant, seed]
+  );
+  const bridgeApplies = bridgeWorkApplies(workType);
+  const chartBridge = useMemo(() => suggestBridge(teeth, chartMissing), [teeth, chartMissing]);
+  const bridgeOn = bridgeApplies && bridgeRuns(teeth).length > 0 && (bridgeChoice ?? chartBridge.bridge);
+  const pontics = bridgeOn ? cleanPontics(teeth, ponticChoice ?? chartBridge.pontics) : [];
+  const bridgeGapTeeth = bridgeApplies ? bridgeGaps(teeth, chartMissing) : [];
+
+  const togglePontic = (tooth: number) => {
+    setPonticChoice(pontics.includes(tooth) ? pontics.filter((t) => t !== tooth) : [...pontics, tooth]);
+  };
+
+  /** Take the chart's missing teeth into the order, as the bridge's pontics. */
+  const addBridgeGaps = () => {
+    const next = [...teeth, ...bridgeGapTeeth];
+    // The unit count follows only while it was simply the number of teeth.
+    if (units.trim() === String(teeth.length)) setUnits(String(next.length));
+    setBridgeChoice(true);
+    setPonticChoice([...pontics, ...bridgeGapTeeth]);
+    setTeethBoth(next);
+  };
+
   const branch = branches.find((b) => b.id === branchId) || null;
   const branchIndex = branch ? branches.indexOf(branch) : 0;
   const previewCode = `${branchCodeFor(branch, branchIndex)}-####`;
 
   const canSave = Boolean(labText.trim()) && Boolean(workType) && !saving;
+
+  /**
+   * How many folded fields somebody actually typed into, so an edited order never hides detail
+   * behind a closed section without saying so. Fields that fill themselves in (branch, dentist,
+   * units, how it leaves, try-in) are not counted — they are always "filled".
+   */
+  const foldedFilled = [
+    workDescription,
+    wt.cervicalShade ? cervicalShade : "",
+    wt.gumShade ? gumShade : "",
+    material,
+    wt.implant ? implantSystem : "",
+    wt.implant ? implantPlatform : "",
+    wt.implant && !wt.guide ? abutmentType : "",
+    wt.implant && !wt.guide ? retention : "",
+    wt.guide ? guideType : "",
+    wt.guide ? sleeveSystem : "",
+  ].filter((v) => String(v || "").trim()).length;
 
   /**
    * The lab this order goes to, adding it to the lab list when the name is new.
@@ -524,6 +627,8 @@ export default function LabCaseModal({
         // three. Zero is written, read back as "no count", and printed as nothing.
         units: wt.units && units.trim() ? Number(units) : 0,
         teeth,
+        // Only when it is, or was, a bridge: an old order of separate crowns is saved as it was.
+        ...(bridgeOn || existing?.bridge ? { bridge: bridgeOn, pontics } : {}),
         // Cleared per work type rather than kept: a case switched from a crown to a surgical guide
         // must not carry a shade the printed order would then hide but the record still claims.
         bodyShade: wt.bodyShade ? bodyShade : "",
@@ -566,8 +671,10 @@ export default function LabCaseModal({
         onSaved({ id: existing.id, code: existing.code, isNew: false });
         showToast(isAr ? "تم حفظ الحالة" : "Case saved", "success");
       } else {
-        const created = await createLabCase({
+        const made = await createLabCase({
           ...common,
+          // The treatment this order was raised from. Without it the lab payment counts the fee twice.
+          ...treatmentLinkFromSeed(seed),
           branchId: branch?.id || "",
           branchName: branch?.name || "",
           branchCode: branchCodeFor(branch, branchIndex),
@@ -575,11 +682,20 @@ export default function LabCaseModal({
           sentAt: sendNow ? localYmd() : undefined,
           createdBy: currentUserName,
         });
-        onSaved({ id: created.id, code: created.code, isNew: true });
-        showToast(
-          isAr ? `اتعملت الحالة ${created.code}` : `Case ${created.code} created`,
-          "success"
+        // Stay open on the code: it is about to be written on a bag. `onSaved` waits for "Done",
+        // because every screen that opens this form closes it the moment it hears of a save.
+        setCreated(
+          toLabCase(made.id, {
+            ...common,
+            code: made.code,
+            codeNumber: made.codeNumber,
+            branchId: branch?.id || "",
+            branchName: branch?.name || "",
+            branchCode: branchCodeFor(branch, branchIndex),
+            status: sendNow ? "at_lab" : "draft",
+          })
         );
+        return;
       }
       onClose();
     } catch (err) {
@@ -622,6 +738,12 @@ export default function LabCaseModal({
     }
   };
 
+  /** Leaving the code screen, by "Done" or by the X: now the screen behind hears of the save. */
+  const finishCreated = () => {
+    if (created) onSaved({ id: created.id, code: created.code, isNew: true });
+    onClose();
+  };
+
   if (!open) return null;
 
   return (
@@ -642,15 +764,17 @@ export default function LabCaseModal({
                   ? isAr ? `تعديل ${existing?.code}` : `Edit ${existing?.code}`
                   : isAr ? "أمر معمل جديد" : "New lab order"}
               </h2>
-              {!isEdit && (
-                <p className="text-[11px] font-bold text-slate-400 mt-0.5" dir="ltr">
-                  {previewCode}
+              {(patientName || !isEdit) && (
+                <p className="text-[11px] font-bold text-slate-400 mt-0.5 truncate">
+                  {patientName && <bdi>{patientName}</bdi>}
+                  {patientName && !isEdit && !created && " · "}
+                  {!isEdit && !created && <span dir="ltr">{previewCode}</span>}
                 </p>
               )}
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={created ? finishCreated : onClose}
             className="p-2 text-slate-400 hover:text-slate-700 hover:bg-surface-muted rounded-xl transition-colors shrink-0"
             aria-label={isAr ? "إغلاق" : "Close"}
           >
@@ -658,58 +782,17 @@ export default function LabCaseModal({
           </button>
         </div>
 
+        {created ? (
+          <LabOrderCreated labCase={created} labs={knownLabs} onDone={finishCreated} />
+        ) : (
+        <>
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-5 sm:px-7 py-5 space-y-5 custom-scrollbar">
-          {/* Lab + branch */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className={LABEL}>{isAr ? "المعمل" : "Lab"} *</label>
-              <input
-                data-tour="lab-case-lab"
-                value={labText}
-                onChange={(e) => setLabText(e.target.value)}
-                list="lab-case-labs"
-                placeholder={isAr ? "اكتب اسم المعمل" : "Type the lab's name"}
-                className={INPUT}
-              />
-              <datalist id="lab-case-labs">
-                {knownLabs.map((l) => (
-                  <option key={l.id} value={l.name} />
-                ))}
-              </datalist>
-              {labText.trim() && !selectedLab && labText.trim().toLowerCase() !== (existing?.labName || "").trim().toLowerCase() && (
-                <p className="flex items-center gap-1 text-[10px] font-semibold text-sky-600 mt-1 leading-relaxed">
-                  <Info size={11} className="shrink-0" />
-                  {isAr ? "معمل جديد — هيتحفظ للمرات الجاية" : "New lab — it will be saved for next time"}
-                </p>
-              )}
-            </div>
-            <div>
-              <label className={LABEL}>{isAr ? "الفرع" : "Branch"}</label>
-              <select
-                value={branchId}
-                onChange={(e) => setBranchId(e.target.value)}
-                className={INPUT}
-                disabled={isEdit}
-              >
-                <option value="">{isAr ? "بدون فرع" : "No branch"}</option>
-                {branches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
-              {isEdit && (
-                <p className="text-[10px] font-semibold text-slate-400 mt-1 leading-relaxed">
-                  {isAr
-                    ? "الفرع مش بيتغير بعد ما الكود اتطبع."
-                    : "The branch is fixed once the code has been printed."}
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Patient */}
+          {/* The order, as most people fill it in: who, which lab, what, which teeth, the shade,
+              when it is due, what it costs, and a note. Everything else is folded under "More
+              details" — it still prints when filled, and most of it fills itself in (branch,
+              dentist, how it leaves, try-in by work type). */}
+          {!patientName && (
           <div>
             <label className={LABEL}>{isAr ? "المريض" : "Patient"}</label>
             {patientName ? (
@@ -774,72 +857,36 @@ export default function LabCaseModal({
               </div>
             )}
           </div>
+          )}
 
-          {/* Doctor */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className={LABEL}>{isAr ? "الطبيب" : "Dentist"}</label>
-              <select
-                value={doctorId}
-                onChange={(e) => {
-                  setDoctorId(e.target.value);
-                  setDoctorName(staff.find((s) => s.id === e.target.value)?.name || "");
-                }}
+            {/* The tutorial's ring. Written out here, not passed down as a prop: the settings test reads
+                the source for this exact string, and a ring it cannot find is a lesson step it cannot guard. */}
+            <div data-tour="lab-case-lab">
+              <label className={LABEL}>{isAr ? "المعمل" : "Lab"} *</label>
+              <SuggestInput
+                value={labText}
+                onChange={setLabText}
+                options={labNames}
+                placeholder={isAr ? "اختار المعمل أو اكتب اسمه" : "Pick a lab or type its name"}
                 className={INPUT}
-              >
-                <option value="">{doctorName || (isAr ? "غير محدد" : "Not set")}</option>
-                {staff.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+              />
+              {labText.trim() && !selectedLab && labText.trim().toLowerCase() !== (existing?.labName || "").trim().toLowerCase() && (
+                <p className="flex items-center gap-1 text-[10px] font-semibold text-sky-600 mt-1 leading-relaxed">
+                  <Info size={11} className="shrink-0" />
+                  {isAr ? "معمل جديد — هيتحفظ للمرات الجاية" : "New lab — it will be saved for next time"}
+                </p>
+              )}
             </div>
             <div>
               <label className={LABEL}>{isAr ? "نوع الشغل" : "Work type"} *</label>
-              <input
+              <SuggestInput
                 value={workText}
-                onChange={(e) => setWorkText(e.target.value)}
-                list="lab-case-work"
+                onChange={setWorkText}
+                options={workSuggestions}
                 placeholder={isAr ? "مثال: زيركون، فينير، طقم" : "e.g. Zirconia, Veneer, Denture"}
                 className={INPUT}
               />
-              <datalist id="lab-case-work">
-                {workSuggestions.map((w) => (
-                  <option key={w} value={w} />
-                ))}
-              </datalist>
-            </div>
-          </div>
-
-          {/* Description + teeth */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className={LABEL}>{isAr ? "وصف الشغل" : "What the lab is making"}</label>
-              <input
-                value={workDescription}
-                onChange={(e) => setWorkDescription(e.target.value)}
-                placeholder={isAr ? "مثال: تاجين كامل" : "e.g. 2 x full crown"}
-                className={INPUT}
-              />
-            </div>
-            <div>
-              <label className={LABEL}>{isAr ? "الأسنان — اكتبها" : "Teeth — or type them"}</label>
-              <input
-                value={teethText}
-                onChange={(e) => setTeethFromText(e.target.value)}
-                placeholder="UR5, UR4"
-                dir="ltr"
-                className={INPUT}
-              />
-              {/* The box takes either notation: a case raised from a treatment arrives prefilled in
-                  FDI from the odontogram, while one typed by hand comes in the Palmer shorthand
-                  people actually write. Clicking the chart rewrites this in Palmer. */}
-              <p className="text-[10px] font-semibold text-slate-400 mt-1 leading-relaxed">
-                {isAr
-                  ? "بالمر (UR5) أو FDI (15) — الاتنين شغالين، والرسم فوق بيتحدث معاهم."
-                  : "Palmer (UR5) or FDI (15) — both work, and the chart stays in step."}
-              </p>
             </div>
           </div>
 
@@ -852,25 +899,19 @@ export default function LabCaseModal({
             onShowPrimaryChange={setShowPrimaryTeeth}
           />
 
-          {/* Per-work-type technical fields */}
-          <div className="rounded-2xl border border-line bg-slate-50/60 p-4 space-y-4">
-            <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">
-              {isAr ? "تفاصيل فنية" : "Technical details"}
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {wt.units && (
-                <div>
-                  <label className={LABEL}>{isAr ? "العدد" : "Units"}</label>
-                  <input
-                    type="number"
-                    min={1}
-                    dir="ltr"
-                    value={units}
-                    onChange={(e) => setUnits(e.target.value)}
-                    className={INPUT}
-                  />
-                </div>
-              )}
+          {bridgeApplies && (
+            <LabBridgeField
+              teeth={teeth}
+              bridge={bridgeOn}
+              pontics={pontics}
+              gaps={bridgeGapTeeth}
+              onBridgeChange={setBridgeChoice}
+              onTogglePontic={togglePontic}
+              onAddGaps={addBridgeGaps}
+            />
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {wt.bodyShade && (
                 <div>
                   <label className={LABEL}>{isAr ? "لون الجسم" : "Body shade"}</label>
@@ -884,149 +925,6 @@ export default function LabCaseModal({
                   </select>
                 </div>
               )}
-              {wt.cervicalShade && (
-                <div>
-                  <label className={LABEL}>{isAr ? "لون العنق" : "Cervical shade"}</label>
-                  <select value={cervicalShade} onChange={(e) => setCervicalShade(e.target.value)} className={INPUT}>
-                    <option value="">—</option>
-                    {CERVICAL_SHADES.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                  {/* The whole point of a second shade: a crown built to one flat colour reads as
-                      a crown. Natural teeth are darker at the gum. */}
-                  <p className="text-[10px] font-semibold text-slate-400 mt-1 leading-relaxed">
-                    {isAr
-                      ? "أغمق من لون الجسم عادةً، عشان التاج يبان زي جيرانه."
-                      : "Usually a step darker than the body, so the crown reads like its neighbours."}
-                  </p>
-                </div>
-              )}
-              {wt.gumShade && (
-                <div>
-                  <label className={LABEL}>{isAr ? "لون اللثة" : "Gum shade"}</label>
-                  <input
-                    value={gumShade}
-                    onChange={(e) => setGumShade(e.target.value)}
-                    list="lab-gum-shades"
-                    className={INPUT}
-                  />
-                  <datalist id="lab-gum-shades">
-                    {GUM_SHADE_SUGGESTIONS.map((g) => (
-                      <option key={g} value={g} />
-                    ))}
-                  </datalist>
-                </div>
-              )}
-              <div className={wt.units || wt.bodyShade ? "" : "sm:col-span-2"}>
-                <label className={LABEL}>{isAr ? "الخامة / تفاصيل" : "Material / detail"}</label>
-                <input
-                  value={material}
-                  onChange={(e) => setMaterial(e.target.value)}
-                  placeholder={isAr ? "مثال: مونوليثك" : "e.g. monolithic"}
-                  className={INPUT}
-                />
-              </div>
-            </div>
-
-            {wt.implant && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-line">
-                <div>
-                  <label className={LABEL}>{isAr ? "نظام الزرعة" : "Implant system"}</label>
-                  <input
-                    value={implantSystem}
-                    onChange={(e) => setImplantSystem(e.target.value)}
-                    list="lab-implant-systems"
-                    placeholder={isAr ? "اكتب الماركة" : "Type the brand"}
-                    className={INPUT}
-                  />
-                  <datalist id="lab-implant-systems">
-                    {implantSuggestions.map((s) => (
-                      <option key={s} value={s} />
-                    ))}
-                  </datalist>
-                  <p className="text-[10px] font-semibold text-slate-400 mt-1 leading-relaxed">
-                    {isAr
-                      ? "من غير الماركة والمقاس، الفني مش هيعرف يجيب الدعامة الصح."
-                      : "Without the brand and platform the technician cannot pick a matching abutment."}
-                  </p>
-                </div>
-                <div>
-                  <label className={LABEL}>{isAr ? "المقاس / المنصة" : "Platform"}</label>
-                  <input
-                    value={implantPlatform}
-                    onChange={(e) => setImplantPlatform(e.target.value)}
-                    placeholder="e.g. RC 4.1"
-                    dir="ltr"
-                    className={INPUT}
-                  />
-                </div>
-                {!wt.guide && (
-                  <>
-                    <div>
-                      <label className={LABEL}>{isAr ? "الدعامة" : "Abutment"}</label>
-                      <select value={abutmentType} onChange={(e) => setAbutmentType(e.target.value)} className={INPUT}>
-                        <option value="">—</option>
-                        {ABUTMENT_OPTIONS.map((o) => (
-                          <option key={o.id} value={o.id}>
-                            {isAr ? o.ar : o.en}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className={LABEL}>{isAr ? "التثبيت" : "Retention"}</label>
-                      <select value={retention} onChange={(e) => setRetention(e.target.value)} className={INPUT}>
-                        <option value="">—</option>
-                        {RETENTION_OPTIONS.map((o) => (
-                          <option key={o.id} value={o.id}>
-                            {isAr ? o.ar : o.en}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {wt.guide && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-line">
-                <div>
-                  <label className={LABEL}>{isAr ? "نوع الدليل" : "Guide type"}</label>
-                  <select value={guideType} onChange={(e) => setGuideType(e.target.value)} className={INPUT}>
-                    <option value="">—</option>
-                    {GUIDE_TYPE_OPTIONS.map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {isAr ? o.ar : o.en}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className={LABEL}>{isAr ? "نظام الكُم" : "Sleeve system"}</label>
-                  <input value={sleeveSystem} onChange={(e) => setSleeveSystem(e.target.value)} className={INPUT} />
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Notes */}
-          <div>
-            <label className={LABEL}>{isAr ? "ملاحظات للفني" : "Notes to the technician"}</label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={2}
-              placeholder={isAr ? "أي حاجة الفني محتاج يعرفها" : "Anything the technician needs to know"}
-              className={`${INPUT} resize-none`}
-            />
-          </div>
-
-          {/* Logistics */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className={LABEL}>{isAr ? "ميعاد الرجوع" : "Due back"}</label>
               <input
@@ -1103,6 +1001,308 @@ export default function LabCaseModal({
                 </p>
               )}
             </div>
+          </div>
+
+          <div>
+            <label className={LABEL}>{isAr ? "ملاحظات للفني" : "Notes to the technician"}</label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={2}
+              placeholder={isAr ? "أي حاجة الفني محتاج يعرفها" : "Anything the technician needs to know"}
+              className={`${INPUT} resize-none`}
+            />
+          </div>
+
+          {/* More details */}
+          <div className="rounded-2xl border border-line bg-slate-50/60">
+            <button
+              type="button"
+              onClick={() => setMoreOpen((v) => !v)}
+              aria-expanded={moreOpen}
+              className="w-full flex items-center justify-between gap-3 px-4 py-3 text-start"
+            >
+              <span className="text-[12px] font-black text-slate-600">
+                {isAr ? "تفاصيل أكتر" : "More details"}
+                {foldedFilled > 0 && (
+                  <span className="ms-2 rounded-md bg-sky-50 px-1.5 py-0.5 text-[10px] font-black text-sky-700">
+                    {isAr ? `${foldedFilled} متسجّل` : `${foldedFilled} filled`}
+                  </span>
+                )}
+              </span>
+              <ChevronDown size={16} className={`shrink-0 text-slate-400 transition-transform ${moreOpen ? "rotate-180" : ""}`} />
+            </button>
+            {moreOpen && (
+              <div className="space-y-4 border-t border-line p-4">
+                {patientName && (
+          <div>
+            <label className={LABEL}>{isAr ? "المريض" : "Patient"}</label>
+            {patientName ? (
+              <div className="flex items-center justify-between gap-3 px-4 py-3 bg-surface-subtle border border-line rounded-xl">
+                <div className="min-w-0">
+                  <p className="text-sm font-black text-slate-800 truncate">{patientName}</p>
+                  <p className="text-[11px] font-bold text-slate-400 truncate" dir="ltr">
+                    {patientPhone || (isAr ? "بدون تليفون" : "no phone")}
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setPatientId("");
+                    setPatientName("");
+                    setPatientPhone("");
+                  }}
+                  className="text-[11px] font-black uppercase tracking-wide text-slate-400 hover:text-rose-500 shrink-0"
+                >
+                  {isAr ? "تغيير" : "Change"}
+                </button>
+              </div>
+            ) : (
+              <div>
+              {/* The hint sits outside the positioned box, or the icon centres on input + hint. */}
+              <div className="relative">
+                <Search size={16} className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                <input
+                  value={patientQuery}
+                  onChange={(e) => setPatientQuery(e.target.value)}
+                  placeholder={
+                    isAr ? "دور بالاسم أو التليفون… (اختياري)" : "Search by name or phone… (optional)"
+                  }
+                  className={`${INPUT} ps-9`}
+                />
+                {patientMatches.length > 0 && (
+                  <div className="absolute z-10 mt-1 w-full bg-surface border border-line rounded-xl shadow-xl overflow-hidden max-h-56 overflow-y-auto">
+                    {patientMatches.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => {
+                          setPatientId(p.id);
+                          setPatientName(p.name);
+                          setPatientPhone(p.phone || "");
+                          setPatientQuery("");
+                        }}
+                        className="w-full text-start px-4 py-2.5 hover:bg-surface-subtle transition-colors"
+                      >
+                        <span className="block text-sm font-bold text-slate-700">{p.name}</span>
+                        <span className="block text-[11px] font-semibold text-slate-400" dir="ltr">
+                          {[p.fileId, p.phone].filter(Boolean).join(" · ")}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+                <p className="text-[10px] font-semibold text-slate-400 mt-1.5 leading-relaxed">
+                  {isAr
+                    ? "الورقة اللي بتروح المعمل فيها الاسم الأول والكود بس — الاسم الكامل مش بيخرج من العيادة."
+                    : "Only the first name and the code are printed. The full name never leaves the clinic."}
+                </p>
+              </div>
+            )}
+          </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className={LABEL}>{isAr ? "الفرع" : "Branch"}</label>
+              <select
+                value={branchId}
+                onChange={(e) => setBranchId(e.target.value)}
+                className={INPUT}
+                disabled={isEdit}
+              >
+                <option value="">{isAr ? "بدون فرع" : "No branch"}</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+              {isEdit && (
+                <p className="text-[10px] font-semibold text-slate-400 mt-1 leading-relaxed">
+                  {isAr
+                    ? "الفرع مش بيتغير بعد ما الكود اتطبع."
+                    : "The branch is fixed once the code has been printed."}
+                </p>
+              )}
+            </div>
+            <div>
+              <label className={LABEL}>{isAr ? "الطبيب" : "Dentist"}</label>
+              <select
+                value={doctorId}
+                onChange={(e) => {
+                  setDoctorId(e.target.value);
+                  setDoctorName(staff.find((s) => s.id === e.target.value)?.name || "");
+                }}
+                className={INPUT}
+              >
+                <option value="">{doctorName || (isAr ? "غير محدد" : "Not set")}</option>
+                {staff.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className={LABEL}>{isAr ? "وصف الشغل" : "What the lab is making"}</label>
+              <input
+                value={workDescription}
+                onChange={(e) => setWorkDescription(e.target.value)}
+                placeholder={isAr ? "مثال: تاجين كامل" : "e.g. 2 x full crown"}
+                className={INPUT}
+              />
+            </div>
+            <div>
+              <label className={LABEL}>{isAr ? "الأسنان — اكتبها" : "Teeth — or type them"}</label>
+              <input
+                value={teethText}
+                onChange={(e) => setTeethFromText(e.target.value)}
+                placeholder="UR5, UR4"
+                dir="ltr"
+                className={INPUT}
+              />
+              {/* The box takes either notation: a case raised from a treatment arrives prefilled in
+                  FDI from the odontogram, while one typed by hand comes in the Palmer shorthand
+                  people actually write. Clicking the chart rewrites this in Palmer. */}
+              <p className="text-[10px] font-semibold text-slate-400 mt-1 leading-relaxed">
+                {isAr
+                  ? "بالمر (UR5) أو FDI (15) — الاتنين شغالين، والرسم فوق بيتحدث معاهم."
+                  : "Palmer (UR5) or FDI (15) — both work, and the chart stays in step."}
+              </p>
+            </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {wt.units && (
+                <div>
+                  <label className={LABEL}>{isAr ? "العدد" : "Units"}</label>
+                  <input
+                    type="number"
+                    min={1}
+                    dir="ltr"
+                    value={units}
+                    onChange={(e) => setUnits(e.target.value)}
+                    className={INPUT}
+                  />
+                </div>
+              )}
+              {wt.cervicalShade && (
+                <div>
+                  <label className={LABEL}>{isAr ? "لون العنق" : "Cervical shade"}</label>
+                  <select value={cervicalShade} onChange={(e) => setCervicalShade(e.target.value)} className={INPUT}>
+                    <option value="">—</option>
+                    {CERVICAL_SHADES.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                  {/* The whole point of a second shade: a crown built to one flat colour reads as
+                      a crown. Natural teeth are darker at the gum. */}
+                  <p className="text-[10px] font-semibold text-slate-400 mt-1 leading-relaxed">
+                    {isAr
+                      ? "أغمق من لون الجسم عادةً، عشان التاج يبان زي جيرانه."
+                      : "Usually a step darker than the body, so the crown reads like its neighbours."}
+                  </p>
+                </div>
+              )}
+              {wt.gumShade && (
+                <div>
+                  <label className={LABEL}>{isAr ? "لون اللثة" : "Gum shade"}</label>
+                  <SuggestInput value={gumShade} onChange={setGumShade} options={GUM_SHADE_SUGGESTIONS} className={INPUT} />
+                </div>
+              )}
+              <div>
+                <label className={LABEL}>{isAr ? "الخامة / تفاصيل" : "Material / detail"}</label>
+                <input
+                  value={material}
+                  onChange={(e) => setMaterial(e.target.value)}
+                  placeholder={isAr ? "مثال: مونوليثك" : "e.g. monolithic"}
+                  className={INPUT}
+                />
+              </div>
+                </div>
+
+            {wt.implant && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-line">
+                <div>
+                  <label className={LABEL}>{isAr ? "نظام الزرعة" : "Implant system"}</label>
+                  <SuggestInput
+                    value={implantSystem}
+                    onChange={setImplantSystem}
+                    options={implantSuggestions}
+                    placeholder={isAr ? "اختار الماركة أو اكتبها" : "Pick the brand or type it"}
+                    className={INPUT}
+                  />
+                  <p className="text-[10px] font-semibold text-slate-400 mt-1 leading-relaxed">
+                    {isAr
+                      ? "من غير الماركة والمقاس، الفني مش هيعرف يجيب الدعامة الصح."
+                      : "Without the brand and platform the technician cannot pick a matching abutment."}
+                  </p>
+                </div>
+                <div>
+                  <label className={LABEL}>{isAr ? "المقاس / المنصة" : "Platform"}</label>
+                  <input
+                    value={implantPlatform}
+                    onChange={(e) => setImplantPlatform(e.target.value)}
+                    placeholder="e.g. RC 4.1"
+                    dir="ltr"
+                    className={INPUT}
+                  />
+                </div>
+                {!wt.guide && (
+                  <>
+                    <div>
+                      <label className={LABEL}>{isAr ? "الدعامة" : "Abutment"}</label>
+                      <select value={abutmentType} onChange={(e) => setAbutmentType(e.target.value)} className={INPUT}>
+                        <option value="">—</option>
+                        {ABUTMENT_OPTIONS.map((o) => (
+                          <option key={o.id} value={o.id}>
+                            {isAr ? o.ar : o.en}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className={LABEL}>{isAr ? "التثبيت" : "Retention"}</label>
+                      <select value={retention} onChange={(e) => setRetention(e.target.value)} className={INPUT}>
+                        <option value="">—</option>
+                        {RETENTION_OPTIONS.map((o) => (
+                          <option key={o.id} value={o.id}>
+                            {isAr ? o.ar : o.en}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {wt.guide && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-line">
+                <div>
+                  <label className={LABEL}>{isAr ? "نوع الدليل" : "Guide type"}</label>
+                  <select value={guideType} onChange={(e) => setGuideType(e.target.value)} className={INPUT}>
+                    <option value="">—</option>
+                    {GUIDE_TYPE_OPTIONS.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {isAr ? o.ar : o.en}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className={LABEL}>{isAr ? "نظام الكُم" : "Sleeve system"}</label>
+                  <input value={sleeveSystem} onChange={(e) => setSleeveSystem(e.target.value)} className={INPUT} />
+                </div>
+              </div>
+            )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className={LABEL}>{isAr ? "بتروح إزاي" : "How it leaves"}</label>
               <select
@@ -1114,9 +1314,8 @@ export default function LabCaseModal({
                 <option value="digital">{isAr ? "ملفات رقمية" : "Sent as files"}</option>
               </select>
             </div>
-          </div>
+                </div>
 
-          {/* Try-in + send now */}
           <div className="space-y-2">
             <label className="flex items-start gap-3 p-3 bg-surface border border-line rounded-xl cursor-pointer hover:bg-surface-subtle transition-colors">
               <input
@@ -1158,6 +1357,9 @@ export default function LabCaseModal({
               </label>
             )}
           </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Footer */}
@@ -1173,7 +1375,7 @@ export default function LabCaseModal({
             </button>
           )}
           <button
-            onClick={onClose}
+            onClick={created ? finishCreated : onClose}
             className="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wide text-ink-muted hover:bg-slate-200/60 transition-colors"
           >
             {isAr ? "إلغاء" : "Cancel"}
@@ -1188,6 +1390,8 @@ export default function LabCaseModal({
             {isEdit ? (isAr ? "حفظ" : "Save") : isAr ? "إنشاء الأمر" : "Create order"}
           </button>
         </div>
+        </>
+        )}
       </div>
     </div>
   );

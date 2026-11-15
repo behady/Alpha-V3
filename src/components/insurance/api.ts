@@ -166,6 +166,12 @@ export type ClaimPatch = {
   dentists?: Record<number, string | null>;
   /** Line index -> where that service stands; follows into the treatment row's note. */
   lineStatus?: Record<number, LineStatus>;
+  /** Line index -> the day that service was done (`yyyy-mm-dd`), or null to go back to the default. */
+  lineDates?: Record<number, string | null>;
+  /** Delete one service the patient will not come back for (never a Completed one). Travels alone. */
+  removeLine?: number;
+  /** Put a deleted service back on the approval. Travels alone. */
+  restoreLine?: number;
   /** Take the patient's share as cash: the server posts the ledger row and stamps the claim in one transaction. */
   collectShare?: true;
   /** Record the insurer's payment against the treatment rows, and mark them settled. */
@@ -177,6 +183,17 @@ export async function patchClaim(clinicId: string, claimId: string, patch: Claim
   const { status, data } = await call("PATCH", "/api/insurance/claims", { clinicId, claimId, patch, ...(branchId ? { branchId } : {}) });
   if (status === 200 && data.ok === true) return null;
   return typeof data.error === "string" && data.error ? data.error : `HTTP ${status}`;
+}
+
+/**
+ * One edit to a single service of an approval (its done date, deleting it, restoring it). Like
+ * `patchClaim`, plus what the server said about money: deleting a service the patient had paid on
+ * keeps that payment on their account, and `creditKept` is how much.
+ */
+export async function editClaimLine(clinicId: string, claimId: string, patch: ClaimPatch): Promise<{ error: string | null; creditKept: number }> {
+  const { status, data } = await call("PATCH", "/api/insurance/claims", { clinicId, claimId, patch });
+  if (status === 200 && data.ok === true) return { error: null, creditKept: typeof data.creditKept === "number" ? data.creditKept : 0 };
+  return { error: typeof data.error === "string" && data.error ? data.error : `HTTP ${status}`, creditKept: 0 };
 }
 
 /** A blank header, for "type it myself": every field empty, in the split shape the claims route keeps. */

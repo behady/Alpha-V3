@@ -247,6 +247,9 @@ async function runTurn(
     // Owner switches; absent (not undefined) when off, so the input is Plan 1's.
     ...(args.branchesText?.trim() ? { branchesText: args.branchesText } : {}),
     ...(hideDoctors ? { hideDoctorNames: true } : {}),
+    // Offer patient whose offer covers the check-up (respond.ts): its ordinary fee stays out of
+    // the prompt. The number guard still reads the clinic's raw list (proMoneySources).
+    ...(args.checkupInOffer === true ? { checkupInOffer: true } : {}),
     // "No prices on WhatsApp": the names stay, the figures leave the prompt and the number guard.
     priceLines: consult ? serviceNamesOnly(ctx.priceLines) : ctx.priceLines,
     brief: args.brief,

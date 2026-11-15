@@ -493,6 +493,42 @@ export const SETTINGS_TEXT = {
     lng: { en: "Longitude", ar: "خط الطول (Longitude)" },
     radius: { en: "Allowed Radius (Meters)", ar: "النطاق المسموح (بالمتر)" },
     saveGeofence: { en: "Save Geofence", ar: "حفظ النطاق الجغرافي" },
+    checksTitle: { en: "What staff need to clock in", ar: "المطلوب عشان الموظف يسجل حضور" },
+    requireLocation: { en: "Must be inside the clinic (GPS)", ar: "لازم يكون جوه العيادة (GPS)" },
+    requireLocationHint: {
+      en: "On: the phone's location is checked against the clinic location below. Off: staff can clock in and out from anywhere.",
+      ar: "شغّال: بنتأكد من موقع الموبايل إنه جوه العيادة. مقفول: الموظف يقدر يسجل حضور وانصراف من أي مكان.",
+    },
+    requireDevice: { en: "Lock each person to their own phone", ar: "كل موظف يسجل من موبايله بس" },
+    requireDeviceHint: {
+      en: "On: each person can only clock in from the first phone they used. Off: they can clock in from any phone or computer.",
+      ar: "شغّال: كل موظف يسجل حضور من أول موبايل استخدمه بس. مقفول: يقدر يسجل من أي موبايل أو كمبيوتر.",
+    },
+    bothOffWarning: {
+      en: "Both checks are off: anyone on the team can clock in from anywhere, on any device.",
+      ar: "الاتنين مقفولين: أي حد في الفريق يقدر يسجل حضور من أي مكان ومن أي جهاز.",
+    },
+    // A clinic with two or more branches gets one location card per branch (lib/attendanceSites).
+    branchSitesSub: {
+      en: "Each branch has its own location. Staff can clock in at any branch, and every punch records which branch it was.",
+      ar: "كل فرع له موقعه. الموظف يقدر يسجل حضور من أي فرع، وكل تسجيل بيتكتب عليه اسم الفرع.",
+    },
+    useMyLocation: { en: "Use my location now", ar: "استخدم موقعي دلوقتي" },
+    useMyLocationHint: { en: "Stand inside this branch, then press the button.", ar: "اقف جوه الفرع ده واضغط الزرار." },
+    useOldLocation: { en: "Use the location saved before", ar: "استخدم الموقع المتسجل قبل كده" },
+    oldLocationNote: {
+      en: "The location you saved before still works for clocking in, until every branch below has its own.",
+      ar: "الموقع اللي متسجل قبل كده لسه شغّال في تسجيل الحضور، لحد ما كل فرع تحت يبقى له موقعه.",
+    },
+    siteSet: { en: "Location set", ar: "الموقع متحدد" },
+    siteMissing: { en: "No location yet", ar: "لسه مفيش موقع" },
+    siteCaptured: { en: "Location captured. Press Save.", ar: "تم تحديد الموقع. اضغط حفظ." },
+    autoCloseHours: { en: "Auto clock-out: hours after the shift ends", ar: "انصراف تلقائي: بعد كام ساعة من نهاية الشيفت" },
+    autoCloseOff: { en: "Empty = off", ar: "فاضي = مقفول" },
+    autoCloseHint: {
+      en: "If someone forgets to clock out, the system clocks them out after this many hours past the end of their shift. Example: shift ends 9 PM and you write 2 — they are clocked out at 11 PM. Leave it empty to switch this off.",
+      ar: "لو حد نسي يسجل انصراف، السيستم هيسجله انصراف بعد عدد الساعات ده من نهاية الشيفت بتاعه. مثال: الشيفت بيخلص 9 مساءً وكتبت 2 — هيتسجل انصراف الساعة 11. سيبها فاضية لو مش عايز الخاصية دي.",
+    },
   },
   clinicProfile: {
     title: { en: "Clinic profile", ar: "العيادة" },

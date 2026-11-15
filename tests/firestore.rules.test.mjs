@@ -22,7 +22,7 @@ import {
   assertSucceeds,
   assertFails,
 } from "@firebase/rules-unit-testing";
-import { doc, setDoc, updateDoc, deleteDoc, getDoc, setLogLevel } from "firebase/firestore";
+import { doc, collection, setDoc, updateDoc, deleteDoc, getDoc, getDocs, setLogLevel } from "firebase/firestore";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rulesPath = join(__dirname, "..", "firestore.rules");
@@ -129,6 +129,19 @@ async function main() {
     await setDoc(doc(db, "clinics/clinicA/staff/staffDoc1"), {
       name: "Dr. Ahmed",
       commissionPercentage: 40,
+    });
+    // The assistant's own row, linked to their login, with no attendance phone registered yet —
+    // exactly the state every newly added staff member is in before their first clock-in.
+    await setDoc(doc(db, "clinics/clinicA/staff/staffAssistant1"), {
+      name: "Assistant One",
+      uid: "assistant1",
+      commissionPercentage: 10,
+    });
+    // A colleague who has already registered a phone.
+    await setDoc(doc(db, "clinics/clinicA/staff/staffLimited1"), {
+      name: "Reception One",
+      uid: "limited1",
+      registeredDeviceId: "phone-limited",
     });
     await setDoc(doc(db, "clinics/clinicA/settings/whatsapp"), {
       templates: [],
@@ -489,6 +502,54 @@ async function main() {
     "allow"
   );
 
+  // The first clock-in registers the phone in the person's hand as their attendance device. With
+  // staff rows Admin-only, that write was refused for everyone below Admin, and the punch failed
+  // with "could not save" before the attendance row was ever attempted.
+  console.log("clinics/{clinicId}/staff/{staffId} — attendance device");
+  await check(
+    "a member cannot register a phone on a colleague's row",
+    updateDoc(doc(assistant1, "clinics/clinicA/staff/staffDoc1"), { registeredDeviceId: "phone-a" }),
+    "deny"
+  );
+  await check(
+    "a member cannot smuggle another field in with the phone",
+    updateDoc(doc(assistant1, "clinics/clinicA/staff/staffAssistant1"), {
+      registeredDeviceId: "phone-a",
+      commissionPercentage: 99,
+    }),
+    "deny"
+  );
+  await check(
+    "a member cannot register an empty phone id",
+    updateDoc(doc(assistant1, "clinics/clinicA/staff/staffAssistant1"), { registeredDeviceId: "" }),
+    "deny"
+  );
+  await check(
+    "a member can register their first attendance phone on their own row",
+    updateDoc(doc(assistant1, "clinics/clinicA/staff/staffAssistant1"), { registeredDeviceId: "phone-a" }),
+    "allow"
+  );
+  await check(
+    "once a phone is registered the member cannot swap it for another",
+    updateDoc(doc(assistant1, "clinics/clinicA/staff/staffAssistant1"), { registeredDeviceId: "phone-b" }),
+    "deny"
+  );
+  await check(
+    "a member cannot unlink their own phone — that stays an Admin decision",
+    updateDoc(doc(limited1, "clinics/clinicA/staff/staffLimited1"), { registeredDeviceId: null }),
+    "deny"
+  );
+  await check(
+    "an Admin can unlink a member's phone",
+    updateDoc(doc(admin1, "clinics/clinicA/staff/staffLimited1"), { registeredDeviceId: null }),
+    "allow"
+  );
+  await check(
+    "after an Admin unlinks it, the member can register a new phone",
+    updateDoc(doc(limited1, "clinics/clinicA/staff/staffLimited1"), { registeredDeviceId: "phone-new" }),
+    "allow"
+  );
+
   console.log("clinics/{clinicId}/settings/{docId}");
   await check(
     "clinic Admin can edit clinic settings",
@@ -576,6 +637,46 @@ async function main() {
   await check(
     "an unauthenticated visitor cannot read them",
     getDoc(doc(anon, "clinic_secrets/clinicA")),
+    "deny"
+  );
+
+  console.log("clinic_secrets/{clinicId}/meta_conversion_events — Meta Conversions API log + queue");
+  // Server-only like the doc above it: click ids, request bodies and Meta's answers, written by
+  // the queue trigger and the cron. A browser that could write here could forge "sent" rows or
+  // queue events in the clinic's name.
+  await check(
+    "a clinic's own Owner cannot read its conversion events",
+    getDoc(doc(owner1, "clinic_secrets/clinicA/meta_conversion_events/x")),
+    "deny"
+  );
+  await check(
+    "a clinic's own Owner cannot write a conversion event",
+    setDoc(doc(owner1, "clinic_secrets/clinicA/meta_conversion_events/x"), { status: "sent" }),
+    "deny"
+  );
+  await check(
+    "a clinic's own Admin cannot read its conversion events",
+    getDoc(doc(admin1, "clinic_secrets/clinicA/meta_conversion_events/x")),
+    "deny"
+  );
+  await check(
+    "a clinic's own Admin cannot write a conversion event",
+    setDoc(doc(admin1, "clinic_secrets/clinicA/meta_conversion_events/x"), { status: "sent" }),
+    "deny"
+  );
+  await check(
+    "a clinic's own Admin cannot list the conversion events",
+    getDocs(collection(admin1, "clinic_secrets/clinicA/meta_conversion_events")),
+    "deny"
+  );
+  await check(
+    "not even a superadmin can read conversion events from a client",
+    getDoc(doc(super1, "clinic_secrets/clinicA/meta_conversion_events/x")),
+    "deny"
+  );
+  await check(
+    "not even a superadmin can write conversion events from a client",
+    setDoc(doc(super1, "clinic_secrets/clinicA/meta_conversion_events/x"), { status: "sent" }),
     "deny"
   );
 

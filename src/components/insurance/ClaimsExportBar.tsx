@@ -3,6 +3,10 @@
 /**
  * The range, the sheet's header lines, and the monthly Excel to MetLife.
  *
+ * The switch above the range says which date places an approval in it: its approval date, or the
+ * day it was finished (its last service done). The list on screen and the sheet follow the same
+ * choice; the sheet itself — its columns, its printed dates — is the same either way.
+ *
  * The statement is `buildMetlifeStatement` over the claims on screen: approvals in [from, to] that are
  * treated or sent. What it leaves out is said above the button — approvals not yet marked treated,
  * and service codes with no sheet wording (printed in the paper's English
@@ -20,6 +24,7 @@ import { useUI } from "@/context/UIContext";
 import type { InsuranceClaim } from "@/lib/insurance/claims";
 import { buildMetlifeStatement } from "@/lib/insuranceStatementMetlife";
 import { buildNextcareStatement, DEFAULT_NEXTCARE_WORDING } from "@/lib/insuranceStatementNextcare";
+import type { SheetDateMode } from "@/lib/insurance/billingMonth";
 import type { InsurerFormat } from "@/lib/payers";
 import type { StatementHeader } from "@/lib/insuranceStatementXlsx";
 import type { ClaimPatch } from "./api";
@@ -37,18 +42,17 @@ export default function ClaimsExportBar({
   wording,
   onPatch,
   format = "metlife",
-  statementClaims,
+  mode = "approval",
+  setMode,
   payerId = "",
   payerName = "",
 }: {
   claims: InsuranceClaim[];
   /** Which insurer's sheet: MetLife's own layout, or NextCare's (the clinic's existing sheet, from approvals; AXA has no sheet of its own and borrows it). */
   format?: InsurerFormat;
-  /**
-   * NextCare bills by TREATMENT date, so its sheet needs approvals from before the range that were
-   * treated inside it. The page loads those separately; the list on screen stays the range's own.
-   */
-  statementClaims?: InsuranceClaim[];
+  /** Which date places an approval in the range; the claims passed in were loaded by the same one. */
+  mode?: SheetDateMode;
+  setMode?: (mode: SheetDateMode) => void;
   payerId?: string;
   payerName?: string;
   from: string;
@@ -68,11 +72,11 @@ export default function ClaimsExportBar({
 
   const inverted = from > to;
   const isNc = format !== undefined && format !== "metlife";
-  const statement = useMemo(() => buildMetlifeStatement({ claims, from, to, wording }), [claims, from, to, wording]);
-  const ncSource = statementClaims ?? claims;
+  const statement = useMemo(() => buildMetlifeStatement({ claims, from, to, wording, mode }), [claims, from, to, wording, mode]);
+  const ncSource = claims;
   const ncStatement = useMemo(
-    () => (isNc ? buildNextcareStatement({ claims: ncSource, payerId, payerName, from, to, wording }) : null),
-    [isNc, ncSource, payerId, payerName, from, to, wording],
+    () => (isNc ? buildNextcareStatement({ claims: ncSource, payerId, payerName, from, to, wording, mode }) : null),
+    [isNc, ncSource, payerId, payerName, from, to, wording, mode],
   );
   const toSend = useMemo(() => {
     if (inverted) return [];
@@ -81,8 +85,8 @@ export default function ClaimsExportBar({
       return ncSource.filter((c) => c.status === "treated" && billed.has(c.id));
     }
     const printed = new Set(statement.cases.map((c) => c.approvalNumber));
-    return claims.filter((c) => c.status === "treated" && c.approvalDate >= from && c.approvalDate <= to && printed.has(c.approvalNumber));
-  }, [claims, from, to, inverted, statement.cases, ncStatement, ncSource]);
+    return claims.filter((c) => c.status === "treated" && printed.has(c.approvalNumber));
+  }, [claims, inverted, statement.cases, ncStatement, ncSource]);
   // What the sheet leaves out or cannot word, said above the button, for either format.
   const heldBack = ncStatement ? claims.filter((c) => c.status === "approved").length : statement.heldBack;
   const missingWording = useMemo(() => {
@@ -148,6 +152,25 @@ export default function ClaimsExportBar({
 
   return (
     <section className="space-y-3 rounded-3xl border border-line bg-surface p-5" data-tour="insurance-export">
+      {setMode && (
+        <div>
+          <span className="mb-1 block text-[10.5px] font-black uppercase tracking-wider text-ink-muted">{t("dateModeLabel")}</span>
+          <div className="inline-flex rounded-xl border border-line bg-surface-subtle p-0.5" role="group" aria-label={t("dateModeLabel")} data-tour="insurance-date-mode">
+            {(["approval", "finish"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                aria-pressed={mode === m}
+                onClick={() => setMode(m)}
+                className={`rounded-[10px] px-3.5 py-1.5 text-[12.5px] font-black transition-colors ${mode === m ? "bg-ink text-surface" : "text-ink-body hover:text-ink"}`}
+              >
+                {t(m === "approval" ? "dateModeApproval" : "dateModeFinish")}
+              </button>
+            ))}
+          </div>
+          {mode === "finish" && <p className="mt-1 text-[11.5px] font-semibold text-ink-muted">{t("dateModeFinishHint")}</p>}
+        </div>
+      )}
       <div className="grid gap-4 lg:grid-cols-[11rem_11rem_1fr]">
         <label className="block">
           <span className="mb-1 block text-[10.5px] font-black uppercase tracking-wider text-ink-muted">{t("from")}</span>

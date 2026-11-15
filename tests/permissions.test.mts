@@ -669,6 +669,8 @@ const ALLOWED_INACTIVE = [
   // (each POST) are now gated for the first time.
   "admin/meta-whatsapp-config/route.ts",  // GET: the clinic's WhatsApp connection status, read
   "admin/meta-whatsapp-welcome/route.ts", // GET: whether the welcome message is on, read
+  "admin/meta-conversions/route.ts",      // GET: the Meta ad-results settings and event log, read.
+                                          // Its POST (save, test send, send pending) is gated.
   "admin/wapilot-config/route.ts",        // GET: the clinic's gateway settings, read
   "admin/wapilot-config/gateway/route.ts", // GET: gateway status, read
   "finance/recovery/route.ts",            // GET: the unpaid-balances list, read

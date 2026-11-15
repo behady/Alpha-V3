@@ -3,25 +3,28 @@
 /**
  * The saved approvals of one insurer in the chosen range.
  *
- * Columns: approval number, patient, approval date, treated date, approved total, patient share,
- * status. Row actions: mark treated / not treated, mark sent, open the document, delete (to the
+ * Columns: approval number, patient, approval date, treated date, finished date (the day its last
+ * service was done — the month it is billed in), approved total, patient share, status. Row
+ * actions: mark treated / not treated, mark sent / not sent, open the document, delete (to the
  * recycle bin). The page owns the calls (`onPatch`, `onDelete`); this owns the questions: a claim
  * already sent to MetLife asks "continue?" before it is changed or deleted, and every delete asks
  * first anyway.
  */
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import Link from "next/link";
 import { ref, getDownloadURL } from "firebase/storage";
-import { Banknote, CheckCircle2, FileText, Landmark, Loader2, Pencil, RotateCcw, Send, Trash2 } from "lucide-react";
+import { Banknote, CheckCircle2, ChevronDown, FileText, Landmark, Loader2, Pencil, RotateCcw, Send, Trash2, Undo2 } from "lucide-react";
 import { storage } from "@/lib/firebase";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { useBranchForMoney } from "@/lib/useBranchForMoney";
-import { claimStatementName, type ClaimStatus, type InsuranceClaim } from "@/lib/insurance/claims";
+import { claimStatementName, isLineRemoved, lineStatusOf, type ClaimStatus, type InsuranceClaim } from "@/lib/insurance/claims";
 import { claimProgress, type LinkedAppointmentLite } from "@/lib/insurance/appointments";
+import { claimFinishedDate } from "@/lib/insurance/billingMonth";
 import type { ClaimPatch } from "./api";
-import { tr, type TextKey } from "./text";
+import { STATE_KEY, tr, type TextKey } from "./text";
+import LineDoneControls from "./LineDoneControls";
 import { useOpenShares } from "./useOpenShares";
 
 const STATUS: Record<ClaimStatus, { key: TextKey; pill: string }> = {
@@ -63,6 +66,15 @@ export default function ClaimsTable({
   const { confirm, showToast } = useUI();
   const { requireBranchForMoney, picker: branchPicker } = useBranchForMoney();
   const [busyId, setBusyId] = useState("");
+  /** The approvals whose services are opened out under their row. */
+  const [openIds, setOpenIds] = useState<Set<string>>(new Set());
+  const toggleOpen = (id: string) =>
+    setOpenIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   // The share still unpaid, from the treatment rows: ordinary payments at the counter count too.
   const openShare = useOpenShares(claims);
 
@@ -152,6 +164,9 @@ export default function ClaimsTable({
     { approved: 0, share: 0 },
   );
 
+  /** The day the approval was finished, "Not finished" while a service is still open, a dash before any work. */
+  const finishedText = (c: InsuranceClaim) => (c.status === "treated" || c.status === "sent" ? (claimFinishedDate(c) ?? t("notFinished")) : "—");
+
   /** What Collect would take; the claim's own figure while its rows load. */
   const shareDue = (c: InsuranceClaim) => openShare(c) ?? c.totals.patientShare;
 
@@ -176,6 +191,13 @@ export default function ClaimsTable({
         {c.status === "treated" && (
           <Action big={big} short={t("shortSent")} label={t("markSent")} disabled={busy} onClick={() => patch(c, { status: "sent" })}>
             <Send size={s} />
+          </Action>
+        )}
+        {/* A sent approval's month is locked; this is how the desk unlocks one to correct it. No
+            "already sent" question first: undoing that is the whole point of the button. */}
+        {c.status === "sent" && (
+          <Action big={big} short={t("shortNotSent")} label={t("markNotSent")} disabled={busy} onClick={() => void run(c, () => onPatch(c, { status: "treated" }))}>
+            <Undo2 size={s} />
           </Action>
         )}
         {(c.status === "treated" || c.status === "sent") && shareDue(c) > 0 && (
@@ -212,6 +234,43 @@ export default function ClaimsTable({
       </div>
     );
   };
+
+  /** "Services ▾": opens the approval's services under its row. */
+  const servicesToggle = (c: InsuranceClaim) => (
+    <button
+      type="button"
+      onClick={() => toggleOpen(c.id)}
+      aria-expanded={openIds.has(c.id)}
+      className="mt-1 inline-flex items-center gap-1 rounded-lg text-[11.5px] font-black text-ink-body transition-colors hover:text-ink"
+    >
+      {t("services")} · {c.lines.length}
+      <ChevronDown size={13} className={`transition-transform ${openIds.has(c.id) ? "rotate-180" : ""}`} />
+    </button>
+  );
+
+  /**
+   * Each service of an approval with the day it was done (editable) and its delete / restore
+   * button: the same control as the booking pop-up and the patient's Insurance tab.
+   */
+  const servicesList = (c: InsuranceClaim) => (
+    <ul className="divide-y divide-line/60">
+      {c.lines.map((line, i) => {
+        const gone = isLineRemoved(c, i);
+        return (
+          <li key={i} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-2">
+            <div className={`min-w-0 flex-1 basis-full text-[13px] font-bold sm:basis-0 ${gone ? "text-ink-faint line-through" : "text-ink"}`}>
+              <bdi dir="ltr" className="font-figure text-[12px] font-semibold text-ink-muted">{line.code}</bdi> {line.description}
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              {!gone && <span className="text-[12px] font-bold text-ink-body">{t(STATE_KEY[lineStatusOf(c, i)])}</span>}
+              <span className={`font-figure text-[13px] font-black tabular-nums ${gone ? "text-ink-faint line-through" : "text-ink"}`}>{money(line.approvedAmount)}</span>
+              <LineDoneControls claim={c} line={i} showLabel disabled={busyId === c.id} />
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
 
   const progressLine = (c: InsuranceClaim) => {
     // Only when there is something to say: an approval with every service done and
@@ -268,8 +327,15 @@ export default function ClaimsTable({
                   {t("colTreatedDate")}: {c.treatedDate}
                 </span>
               )}
+              {(c.status === "treated" || c.status === "sent") && (
+                <span className="tabular-nums">
+                  {t("colFinished")}: {finishedText(c)}
+                </span>
+              )}
             </div>
             {progress && <div className="mt-1 text-[11px] font-semibold tabular-nums text-ink-muted">{progress}</div>}
+            {c.status !== "cancelled" && servicesToggle(c)}
+            {openIds.has(c.id) && <div className="mt-1 border-t border-line pt-1">{servicesList(c)}</div>}
             <div className="mt-2 border-t border-line pt-2">{renderActions(c, true)}</div>
           </div>
         );
@@ -285,10 +351,10 @@ export default function ClaimsTable({
       </div>
     </div>
     <div className="hidden overflow-x-auto rounded-3xl border border-line bg-surface md:block">
-      <table className="w-full min-w-[60rem] border-collapse">
+      <table className="w-full min-w-[66rem] border-collapse">
         <thead>
           <tr className="border-b border-line bg-surface-subtle">
-            {(["colApproval", "colPatient", "colApprovalDate", "colTreatedDate", "colApproved", "colShare", "colStatus", "colActions"] as const).map((k) => (
+            {(["colApproval", "colPatient", "colApprovalDate", "colTreatedDate", "colFinished", "colApproved", "colShare", "colStatus", "colActions"] as const).map((k) => (
               <th
                 key={k}
                 className={`px-3 py-3 text-[10.5px] font-black uppercase tracking-wider text-ink-muted ${k === "colApproved" || k === "colShare" ? "text-end" : "text-start"}`}
@@ -302,7 +368,8 @@ export default function ClaimsTable({
           {claims.map((c) => {
             const status = STATUS[c.status];
             return (
-              <tr key={c.id} id={`claim-${c.id}`} className={`border-t border-line ${highlightId === c.id ? "bg-amber-50" : ""}`}>
+              <Fragment key={c.id}>
+              <tr id={`claim-${c.id}`} className={`border-t border-line ${highlightId === c.id ? "bg-amber-50" : ""}`}>
                 <td className="px-3 py-2.5 text-start font-display text-[13px] font-black text-ink">
                   <bdi dir="ltr">{c.approvalNumber}</bdi>
                 </td>
@@ -313,9 +380,11 @@ export default function ClaimsTable({
                   <div className="text-[11px] font-semibold text-ink-faint" dir="ltr">
                     {c.insurer === "metlife" ? `${c.metlife.certificateNumber}/${c.metlife.dependentCode}` : c.metlife.certificateNumber}
                   </div>
+                  {c.status !== "cancelled" && servicesToggle(c)}
                 </td>
                 <td className="px-3 py-2.5 text-[13px] font-bold tabular-nums text-ink-body">{c.approvalDate}</td>
                 <td className="px-3 py-2.5 text-[13px] font-bold tabular-nums text-ink-body">{c.treatedDate ?? "—"}</td>
+                <td className="px-3 py-2.5 text-[13px] font-bold tabular-nums text-ink-body">{finishedText(c)}</td>
                 <td className="px-3 py-2.5 text-end text-[13px] font-black tabular-nums text-ink">{money(c.totals.approved)}</td>
                 <td className="px-3 py-2.5 text-end text-[13px] font-bold tabular-nums text-ink-body">{money(c.totals.patientShare)}</td>
                 <td className="px-3 py-2.5">
@@ -335,10 +404,18 @@ export default function ClaimsTable({
                 </td>
                 <td className="px-3 py-2">{renderActions(c)}</td>
               </tr>
+              {openIds.has(c.id) && (
+                <tr className="bg-surface-subtle">
+                  <td colSpan={9} className="px-5 py-1.5">
+                    {servicesList(c)}
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             );
           })}
           <tr className="border-t border-line bg-surface-subtle">
-            <td colSpan={4} className="px-3 py-3 text-[12px] font-black uppercase tracking-wider text-ink">
+            <td colSpan={5} className="px-3 py-3 text-[12px] font-black uppercase tracking-wider text-ink">
               {t("totalRow")} · {claims.length}
             </td>
             <td className="px-3 py-3 text-end font-display text-[15px] font-black tabular-nums text-ink">{money(totals.approved)}</td>
