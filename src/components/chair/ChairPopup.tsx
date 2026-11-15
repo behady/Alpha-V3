@@ -22,6 +22,8 @@ import { isChairMode } from "@/lib/chairMode";
 import { cairo } from "@/lib/fonts/arabic";
 import { CLAIMS_COLLECTION, parseClaim, type InsuranceClaim, type LineStatus } from "@/lib/insurance/claims";
 import { deleteProcedure, updateApprovalProcedure, updateProcedure } from "@/lib/moneyApi";
+import { cancelLabCasesOfDeletedTreatment } from "@/lib/labCaseWrite";
+import { labDeleteNotice } from "@/lib/labCases";
 import { treatmentsByTooth } from "@/lib/toothTreatments";
 
 type Props = {
@@ -200,7 +202,8 @@ export default function ChairPopup({ isOpen, onClose, patientId, appointment, me
     setBusyId(note.id);
     try {
       await deleteProcedure(note.id);
-      showToast(isAr ? "اتحذف" : "Deleted", "success");
+      const lab = await cancelLabCasesOfDeletedTreatment(note.id);
+      showToast(labDeleteNotice(lab, isAr ? "ar" : "en") || (isAr ? "اتحذف" : "Deleted"), "success");
     } catch (e) {
       console.error("Chair: delete failed", e);
       showToast(isAr ? "ماتحذفش — جرّب تاني" : "Not deleted — try again", "error");

@@ -39,6 +39,7 @@ import {
   type LabCase,
   type LabOrderPaper,
 } from "@/lib/labCases";
+import { bagByLab } from "@/lib/labBag";
 import { bridgeGroups, bridgeTitle } from "@/lib/labBridge";
 
 export type LabOrderClinic = {
@@ -55,7 +56,7 @@ export type LabOrderClinic = {
  * genuinely differ (one also escapes `'`, another does not escape `"`), so borrowing one silently
  * changes behaviour.
  */
-function esc(s: unknown): string {
+export function esc(s: unknown): string {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -118,7 +119,7 @@ function palmerMarkHtml(fdi: number): string {
   return `<span style="display:inline-block;padding:0 2px;margin:0 4px 0 0;${style};">${esc(position)}</span>`;
 }
 
-function palmerListHtml(teeth: number[]): string {
+export function palmerListHtml(teeth: number[]): string {
   return teeth.map(palmerMarkHtml).join("");
 }
 
@@ -165,7 +166,9 @@ function toothChartHtml(teeth: number[], pontics: number[] = []): string {
     // Which half is which. A chart is drawn facing the patient, so the left of the page is their
     // RIGHT — the one thing about a dental chart everybody is told once and nobody should have to
     // recall correctly while holding a bag of crowns.
-    return `<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+    // `dir="ltr"` on the chart itself: on an Arabic sheet the page is right-to-left, and a table
+    // left to follow it mirrors, putting the patient's right on the right of the page.
+    return `<table dir="ltr" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
       <tr>${sideLabel("Patient's right · يمين", half)}${sideLabel("Patient's left · شمال", half)}</tr>
       ${row(upper.slice(0, half), upper.slice(half), false)}
       ${row(lower.slice(0, half), lower.slice(half), true)}
@@ -227,6 +230,10 @@ function orderBodyHtml(
   const joined = bridgeGroups(labCase);
   const bridgePontics = joined ? joined.groups.flatMap((g) => g.pontics) : [];
   const bridgeLabel = `font-size:6.5pt;font-weight:400;color:${MUTED};`;
+  // Tooth numbers are always written left-to-right. On an Arabic sheet that would also push them
+  // to the left edge of their column, against the next column's labels, so they are held to the
+  // side the chart is on.
+  const ltrLine = isAr ? "text-align:right;" : "";
   const bridgeBlock = joined
     ? `<div style="margin-top:5px;padding:4px 6px;border:1.5px solid ${INK};font-size:8.5pt;font-weight:700;color:${INK};line-height:1.5;">
         ${joined.groups
@@ -235,7 +242,7 @@ function orderBodyHtml(
               g.pontics.length
                 ? `<div><span style="${bridgeLabel}">${esc(bi("Supports", "دعامات"))}</span> <span dir="ltr">${palmerListHtml(g.supports)}</span>
                    &nbsp; <span style="${bridgeLabel}">${esc(bi("Pontic", "بونتيك"))}</span> <span dir="ltr">${palmerListHtml(g.pontics)}</span></div>`
-                : `<div dir="ltr">${palmerListHtml(g.teeth)}</div>`
+                : `<div style="${ltrLine}" dir="ltr">${palmerListHtml(g.teeth)}</div>`
             }`
           )
           .join("")}
@@ -248,8 +255,8 @@ function orderBodyHtml(
     ? `<div>
         <div style="font-size:6.5pt;letter-spacing:0.09em;text-transform:uppercase;color:${MUTED};margin-bottom:3px;">${esc(bi("Teeth", "الأسنان"))}</div>
         ${toothChartHtml(labCase.teeth, bridgePontics)}
-        <div style="font-size:10pt;font-weight:700;color:${INK};margin-top:5px;" dir="ltr">${palmerListHtml(labCase.teeth)}</div>
-        <div style="font-size:6.5pt;color:${MUTED};margin-top:1px;" dir="ltr">FDI ${esc(labCase.teeth.join(", "))}</div>
+        <div style="font-size:10pt;font-weight:700;color:${INK};margin-top:5px;${ltrLine}" dir="ltr">${palmerListHtml(labCase.teeth)}</div>
+        <div style="font-size:6.5pt;color:${MUTED};margin-top:1px;${ltrLine}" dir="ltr">FDI ${esc(labCase.teeth.join(", "))}</div>
         ${bridgeBlock}
       </div>`
     : `<div style="font-size:8pt;color:${MUTED};">${esc(bi("No specific teeth", "من غير أسنان محددة"))}</div>`;
@@ -303,13 +310,13 @@ function orderBodyHtml(
             ${esc([clinic.branchName, clinic.phone].filter(Boolean).join(" · "))}
           </div>
         </td>
-        <td style="vertical-align:top;text-align:right;white-space:nowrap;">
-          <table cellspacing="0" cellpadding="0" style="float:right;">
+        <td style="vertical-align:top;text-align:${isAr ? "left" : "right"};white-space:nowrap;">
+          <table cellspacing="0" cellpadding="0" style="float:${isAr ? "left" : "right"};">
             <tr>
-              <td style="padding-right:8px;vertical-align:middle;">
+              <td style="padding-${isAr ? "left" : "right"}:8px;vertical-align:middle;">
                 ${qrDataUrl ? `<img src="${esc(qrDataUrl)}" alt="" width="${compact ? 46 : 56}" height="${compact ? 46 : 56}" style="display:block;" />` : ""}
               </td>
-              <td style="vertical-align:middle;text-align:left;">
+              <td style="vertical-align:middle;text-align:${isAr ? "right" : "left"};">
                 <div style="font-size:${compact ? 15 : 18}pt;font-weight:800;letter-spacing:0.02em;line-height:1;" dir="ltr">${esc(labCase.code)}</div>
                 <div style="font-size:6pt;letter-spacing:0.1em;text-transform:uppercase;color:${MUTED};margin-top:3px;">${esc(bi("Lab case · keep with work", "حالة معمل · تفضل مع الشغل"))}</div>
               </td>
@@ -358,6 +365,78 @@ export function isCompactPaper(paper: LabOrderPaper): boolean {
   return paper === "a4_two_up" || paper === "a5";
 }
 
+/** The cut line between the two halves of an A4 sheet. */
+function foldHtml(isAr: boolean): string {
+  return `<div class="fold"><span>${esc(isAr ? "قص هنا" : "cut here")}</span></div>`;
+}
+
+/** The page around the orders: paper size, fonts, and the boxes an order is laid out in. */
+function sheetDoc(title: string, body: string, language: "en" | "ar", paper: LabOrderPaper): string {
+  const isAr = language === "ar";
+  const pageSize = paper === "a5" ? "A5 portrait" : "A4 portrait";
+  const pageHeight = paper === "a5" ? "210mm" : "297mm";
+
+  return `<!DOCTYPE html>
+<html lang="${isAr ? "ar" : "en"}" dir="${isAr ? "rtl" : "ltr"}">
+<head>
+<meta charset="utf-8" />
+<title>${esc(title)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+  @page { size: ${pageSize}; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #FFFFFF; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-family: Tajawal, 'Segoe UI', Arial, sans-serif; }
+  .sheet { break-after: page; page-break-after: always; }
+  .sheet:last-child { break-after: auto; page-break-after: auto; }
+  .sheet.cut { height: 297mm; overflow: hidden; }
+  .half { height: 148.5mm; padding: 9mm 10mm 7mm; overflow: hidden; }
+  .single { min-height: ${pageHeight}; padding: ${paper === "a5" ? "10mm" : "14mm"}; }
+  .fold {
+    position: relative; height: 0; border-top: 1px dashed #B9BEB9;
+    text-align: center;
+  }
+  .fold span {
+    position: relative; top: -6px; background: #FFFFFF; padding: 0 6px;
+    font-size: 6pt; letter-spacing: 0.14em; text-transform: uppercase; color: #9AA09D;
+  }
+  table { border-collapse: collapse; }
+  td { word-break: break-word; }
+</style>
+</head>
+<body>${body}</body>
+</html>`;
+}
+
+/**
+ * One printed sheet.
+ *
+ * A sheet of two halves is held to exactly one page: the halves are 148.5mm each and the cut line
+ * between them is a 1px border, and that one pixel was enough to push a blank second page out of
+ * the printer after every two-up order. A full-page order is left free to run on to a second page,
+ * because a long note to the technician matters more than the page count.
+ */
+function sheetHtml(inner: string, halves: boolean): string {
+  return `<div class="sheet${halves ? " cut" : ""}">${inner}</div>`;
+}
+
+/** One order on its own, the way the clinic's paper setting lays it out. */
+function loneOrderHtml(
+  labCase: LabCase,
+  clinic: LabOrderClinic,
+  qrDataUrl: string,
+  logoHtml: string,
+  language: "en" | "ar",
+  paper: LabOrderPaper
+): string {
+  const body = orderBodyHtml(labCase, clinic, qrDataUrl, logoHtml, language, isCompactPaper(paper));
+  return paper === "a4_two_up"
+    ? `<div class="half">${body}</div>
+       ${foldHtml(language === "ar")}
+       <div class="half">${body}</div>`
+    : `<div class="single">${body}</div>`;
+}
+
 /**
  * Two-up is one A4 sheet holding two 148.5mm halves, not two `@page` rules.
  *
@@ -373,42 +452,47 @@ export function buildLabOrderSrcDoc(
   language: "en" | "ar",
   paper: LabOrderPaper
 ): string {
-  const isAr = language === "ar";
-  const twoUp = paper === "a4_two_up";
-  const pageSize = paper === "a5" ? "A5 portrait" : "A4 portrait";
-  const body = orderBodyHtml(labCase, clinic, qrDataUrl, logoHtml, language, isCompactPaper(paper));
+  const order = loneOrderHtml(labCase, clinic, qrDataUrl, logoHtml, language, paper);
+  return sheetDoc(labCase.code, paper === "a4_two_up" ? sheetHtml(order, true) : order, language, paper);
+}
 
-  const sheet = twoUp
-    ? `<div class="half">${body}</div>
-       <div class="fold"><span>${esc(isAr ? "قص هنا" : "cut here")}</span></div>
-       <div class="half">${body}</div>`
-    : `<div class="single">${body}</div>`;
+/**
+ * The paper for a bag: several orders printed in one go.
+ *
+ * Two orders for the same lab share one A4, each on its own half with its own code and QR, so the
+ * bag carries one sheet instead of a stack. The half is the layout the two-up paper already uses,
+ * which is why a pair fits whatever the clinic's paper setting is. An order left without a pair
+ * prints the way a single order always does, A5 paper holds one order a page, and two labs never
+ * share a sheet: the paper travels in the bag, and those are two bags.
+ */
+export function buildLabBagSrcDoc(
+  items: { labCase: LabCase; qrDataUrl: string }[],
+  clinic: LabOrderClinic,
+  logoHtml: string,
+  language: "en" | "ar",
+  paper: LabOrderPaper
+): string {
+  const qrOf = new Map(items.map((item) => [item.labCase, item.qrDataUrl]));
+  const half = (c: LabCase) =>
+    `<div class="half">${orderBodyHtml(c, clinic, qrOf.get(c) || "", logoHtml, language, true)}</div>`;
+  const perSheet = paper === "a5" ? 1 : 2;
 
-  return `<!DOCTYPE html>
-<html lang="${isAr ? "ar" : "en"}" dir="${isAr ? "rtl" : "ltr"}">
-<head>
-<meta charset="utf-8" />
-<title>${esc(labCase.code)}</title>
-<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
-<style>
-  @page { size: ${pageSize}; margin: 0; }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: #FFFFFF; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  body { font-family: Tajawal, 'Segoe UI', Arial, sans-serif; }
-  .half { height: 148.5mm; padding: 9mm 10mm 7mm; overflow: hidden; }
-  .single { min-height: ${paper === "a5" ? "210mm" : "297mm"}; padding: ${paper === "a5" ? "10mm" : "14mm"}; }
-  .fold {
-    position: relative; height: 0; border-top: 1px dashed #B9BEB9;
-    text-align: center;
+  const sheets: string[] = [];
+  for (const group of bagByLab(items.map((item) => item.labCase))) {
+    for (let i = 0; i < group.cases.length; i += perSheet) {
+      const [a, b] = group.cases.slice(i, i + perSheet);
+      sheets.push(
+        b
+          ? sheetHtml(`${half(a)}${foldHtml(language === "ar")}${half(b)}`, true)
+          : sheetHtml(loneOrderHtml(a, clinic, qrOf.get(a) || "", logoHtml, language, paper), paper === "a4_two_up")
+      );
+    }
   }
-  .fold span {
-    position: relative; top: -6px; background: #FFFFFF; padding: 0 6px;
-    font-size: 6pt; letter-spacing: 0.14em; text-transform: uppercase; color: #9AA09D;
-  }
-  table { border-collapse: collapse; }
-  td { word-break: break-word; }
-</style>
-</head>
-<body>${sheet}</body>
-</html>`;
+
+  return sheetDoc(
+    items.map((item) => item.labCase.code).join(" · "),
+    sheets.join(""),
+    language,
+    paper
+  );
 }
