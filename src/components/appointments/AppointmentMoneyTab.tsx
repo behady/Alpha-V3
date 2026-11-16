@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import {
   AlertTriangle, Banknote, Check, ChevronDown, History, Loader2, Pencil, Plus, Printer, Receipt, ShieldCheck, Tag, Trash2, User,
@@ -29,6 +29,8 @@ import { stagedLineTotal, stagedMode, stagedUnits, toothListLabel } from "@/lib/
 import type { Note, Service, Staff } from "@/components/clinical-notes/types";
 import { resolveListPrice } from "@/lib/discountMath";
 import { PRIVATE_PAYER_ID, findPayer, payerForPriceList } from "@/lib/payers";
+import { needsApproval, storedVisitPayer } from "@/lib/visitPayer";
+import { parseClaimLinks } from "@/lib/insurance/appointments";
 import { serviceMenuById } from "@/lib/serviceMenu";
 import { serviceDisplayName, serviceMatchesName } from "@/lib/serviceName";
 import InsurerBadge from "@/components/shared/InsurerBadge";
@@ -201,6 +203,22 @@ export default function AppointmentMoneyTab({
 
   const [ledger, setLedger] = useState<any[]>([]);
   const [ledgerLoading, setLedgerLoading] = useState(true);
+  /**
+   * Start on the payer the desk booked the visit under (lib/visitPayer), once per visit and once
+   * the payers have loaded. A visit with none stored starts on the patient, exactly as before.
+   */
+  const startedPayerFor = useRef("");
+  useEffect(() => {
+    const aid = String(appointment?.id || "");
+    if (!aid || payers.length === 0 || startedPayerFor.current === aid) return;
+    startedPayerFor.current = aid;
+    const stored = storedVisitPayer(appointment, payers);
+    if (stored && stored.id !== PRIVATE_PAYER_ID) pickPayer(stored.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per visit, not on every list change
+  }, [appointment?.id, payers]);
+  /** Charging a company that sends approval paper, on a visit linked to no approval: say so, allow it. */
+  const chargeWithoutApproval =
+    insurerPays && needsApproval(findPayer(payers, procPayerId)) && parseClaimLinks(appointment).length === 0;
   const [notes, setNotes] = useState<Note[]>([]);
   const [teethData, setTeethData] = useState<Record<string, any>>({});
 
@@ -1598,6 +1616,16 @@ export default function AppointmentMoneyTab({
                     </Protect>}
                     <button
                       type="button"
+              {chargeWithoutApproval && (
+                <p role="status" className="mt-2 flex items-start gap-2 rounded-lg border border-accent/40 bg-accent-tint px-3 py-2 text-xs font-semibold text-accent-ink">
+                  <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                  <span>
+                    {isAr
+                      ? `الزيارة دي مش مربوطة بموافقة من ${insurerName(procPayerId)}. الشركة غالبًا مش هتدفع من غير موافقة — ارفعها من تبويب التأمين، أو خلّي المريض يدفع.`
+                      : `This visit is not linked to a ${insurerName(procPayerId)} approval. The company usually won't pay without one — upload it on the Insurance tab, or charge the patient.`}
+                  </span>
+                </p>
+              )}
                       title={isAr ? "طباعة الإيصال" : "Print receipt"}
                       disabled={printingId === p.id}
                       onClick={() => void printReceipt(p.id)}

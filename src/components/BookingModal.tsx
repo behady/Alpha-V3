@@ -31,6 +31,7 @@ import {
   CloudOff,
   Pencil,
   BellPlus,
+  AlertCircle,
 } from "lucide-react";
 import CallReminderDialog from "@/components/calls/CallReminderDialog";
 import {
@@ -83,7 +84,9 @@ import { treatmentsByTooth, type TreatmentSourceNote } from "@/lib/toothTreatmen
 import { suggestCategory } from "@/lib/dentalIcons";
 import type { ToothData } from "@/lib/diagnosisCatalog";
 import { newStagedId, stagedChargeTotal, stagedLineTotal, stagedMode, stagedUnits, toothListLabel } from "@/lib/stagedProcedures";
-import { PRIVATE_PAYER_ID, payerForPriceList } from "@/lib/payers";
+import { PRIVATE_PAYER_ID, findPayer, payerForPriceList } from "@/lib/payers";
+import { approvalWarning, effectiveVisitPayer } from "@/lib/visitPayer";
+import { readInsurance } from "@/lib/patientInsurance";
 import { serviceMenuById } from "@/lib/serviceMenu";
 import { serviceDisplayName } from "@/lib/serviceName";
 import InsurerBadge from "@/components/shared/InsurerBadge";
@@ -122,6 +125,8 @@ interface AppointmentData {
   claimLine?: number | null;
   /** Every approved service this visit is for; the pair above mirrors its first entry. */
   claimLinks?: ClaimLink[];
+  /** Who pays for the visit (lib/visitPayer). `undefined` = leave what is stored. */
+  payerId?: string | null;
   newProcedureName?: string | null;
   /** false = follow-up on existing case, no extra charge unless staff adds an extra procedure */
   chargeForVisit?: boolean;
@@ -174,6 +179,8 @@ export type BookingEditSnapshot = {
   status?: string;
   patientKind?: string | null;
   workKind?: string | null;
+  /** The stored payer; `undefined` when the opener did not carry it (the editor then leaves it alone). */
+  payerId?: string | null;
 };
 
 export interface SelectedService {
@@ -262,7 +269,7 @@ interface Props {
  * Anything else — a discount, a cost, a clinical note id — is carried through untouched, and
  * comparing it would report a change on every render and autosave in a loop.
  */
-const AUTOSAVE_FIELDS = ["date", "time", "doctor", "treatment", "duration", "notes", "status", "roomId", "patientKind", "workKind"] as const;
+const AUTOSAVE_FIELDS = ["date", "time", "doctor", "treatment", "duration", "notes", "status", "roomId", "patientKind", "workKind", "payerId"] as const;
 
 function dateIsClinicClosed(dateStr: string, offDays: string[]): boolean {
   if (!dateStr || !offDays.length) return false;
@@ -524,6 +531,7 @@ export default function BookingModal({
   /** One service and only that one (the single dropdown, and the Book button's pick). "" = a plain visit. */
   const pickLine = (value: string) => {
     const opt = lineOptions.find((o) => o.value === value) ?? null;
+    setPayerTouched(true);
     setClaimLinks(opt ? [opt.link] : []);
     if (!opt) return;
     setTreatment(opt.reason);
@@ -533,6 +541,7 @@ export default function BookingModal({
   const toggleLine = (value: string) => {
     const opt = lineOptions.find((o) => o.value === value) ?? null;
     if (!opt) return;
+    setPayerTouched(true);
     if (isLinked(opt.link.claimId, opt.link.claimLine)) {
       setClaimLinks((prev) => prev.filter((l) => !(l.claimId === opt.link.claimId && l.claimLine === opt.link.claimLine)));
       return;
@@ -563,6 +572,44 @@ export default function BookingModal({
   useEffect(() => {
     if (!isOpen) appliedPreselect.current = "";
   }, [isOpen]);
+
+  // --- insurance: who pays for this visit (lib/visitPayer) ---------------------------------------
+  /** The desk's own pick; "" = none, so the answer follows the approval or the patient's file. */
+  const [pickedPayerId, setPickedPayerId] = useState("");
+  /**
+   * Whether anyone changed who pays (the picker, or the approval services linked) since the
+   * editor opened. An edit nobody touched sends nothing, so opening an old visit never rewrites it.
+   */
+  const [payerTouched, setPayerTouched] = useState(false);
+  /** Insurers on the patient's file, read live so a membership added elsewhere shows at once. */
+  const [patientInsurerIds, setPatientInsurerIds] = useState<string[]>([]);
+  useEffect(() => {
+    if (!isOpen || !claimPatientId) { setPatientInsurerIds([]); return; }
+    return onSnapshot(
+      getClinicDoc("patients", claimPatientId),
+      (snap) => setPatientInsurerIds(Object.keys(readInsurance((snap.data() as Record<string, unknown>) || {}))),
+      () => setPatientInsurerIds([]),
+    );
+  }, [isOpen, claimPatientId]);
+  const linkedPayerIds = useMemo(
+    () => claimLinks.map((l) => patientClaims.claims.find((c) => c.id === l.claimId)?.payerId || "").filter(Boolean),
+    [claimLinks, patientClaims],
+  );
+  const openApprovalPayerIds = useMemo(
+    () => (claimsLoaded ? patientClaims.claims.filter((c) => openLines(c).length > 0).map((c) => c.payerId) : []),
+    [claimsLoaded, patientClaims],
+  );
+  const visitPayer = effectiveVisitPayer({ payers, linkedPayerIds, picked: pickedPayerId, patientInsurerIds });
+  const visitPayerRow = findPayer(payers, visitPayer.payerId);
+  const visitApprovalWarning = approvalWarning({ payer: visitPayerRow, linked: claimLinks.length > 0, openApprovalPayerIds });
+  /** What the save sends: always on a new booking; on an edit only once someone changed it. */
+  const payerIdToSave = !editAppointment || payerTouched ? visitPayer.payerId : undefined;
+  const pickablePayers = useMemo(() => {
+    const live = payers.filter((p) => p.active);
+    return [...live.filter((p) => p.id === PRIVATE_PAYER_ID), ...live.filter((p) => p.id !== PRIVATE_PAYER_ID)];
+  }, [payers]);
+  const clinicHasInsurers = pickablePayers.some((p) => p.id !== PRIVATE_PAYER_ID);
+
   /** The reason box must be able to show the approved service's wording even when the clinic's list lacks it. */
   const reasonOptions = treatment && !visitReasonsOptions.includes(treatment) ? [treatment, ...visitReasonsOptions] : visitReasonsOptions;
 
@@ -789,6 +836,8 @@ export default function BookingModal({
       setPatientKind(normalizePatientKind(editAppointment.patientKind) || "");
       setWorkKind(normalizeWorkKind(editAppointment.workKind) || "");
       setClaimLinks(parseClaimLinks(editAppointment));
+      setPickedPayerId(typeof editAppointment.payerId === "string" ? editAppointment.payerId : "");
+      setPayerTouched(false);
     } else {
       setIsNewPatient(false);
       setNewPatientName("");
@@ -813,6 +862,8 @@ export default function BookingModal({
       setBranchId("");
       setRoomId(preSelectedRoomId || "");
       setClaimLinks(preSelectedClaimLine ? [preSelectedClaimLine] : []);
+      setPickedPayerId("");
+      setPayerTouched(false);
     }
   }, [isOpen, editAppointment, doctors, sched.slotDuration, preSelectedDoctor, preSelectedPatient, preSelectedDate, preSelectedTime, preSelectedClaimLine, preSelectedRoomId]);
 
@@ -1010,6 +1061,7 @@ export default function BookingModal({
         cost: editAppointment ? (editAppointment.cost || 0) : 0,
         clinicalNoteId: editAppointment ? editAppointment.clinicalNoteId : null,
         ...appointmentLinkFields(claimLinks),
+        payerId: payerIdToSave,
         newProcedureName: null,
         listPrice: editAppointment ? (editAppointment.listPrice || 0) : 0,
         // `as const` because this is now a returned object rather than an inline argument — without
@@ -1039,8 +1091,12 @@ export default function BookingModal({
   const autosaveFields = useMemo(
     // `doctorField`, not `doctor`: the comparison is against what is stored, and the General
     // sentinel would otherwise look like an unsaved edit the moment the panel opened.
-    () => ({ date, time, doctor: doctorField, treatment: treatment.trim(), duration, notes: visitNotes.trim(), status: appointmentStatus, roomId, patientKind, workKind }),
-    [date, time, doctorField, treatment, duration, visitNotes, appointmentStatus, roomId, patientKind, workKind]
+    () => ({
+      date, time, doctor: doctorField, treatment: treatment.trim(), duration, notes: visitNotes.trim(), status: appointmentStatus, roomId, patientKind, workKind,
+      // Untouched = whatever is stored, so merely opening a visit is never an edit.
+      payerId: payerIdToSave ?? String(editAppointment?.payerId ?? ""),
+    }),
+    [date, time, doctorField, treatment, duration, visitNotes, appointmentStatus, roomId, patientKind, workKind, payerIdToSave, editAppointment]
   );
   const savedFields = useMemo(
     () =>
@@ -1056,6 +1112,7 @@ export default function BookingModal({
             roomId: editAppointment.roomId || "",
             patientKind: normalizePatientKind(editAppointment.patientKind) || "",
             workKind: normalizeWorkKind(editAppointment.workKind) || "",
+            payerId: String(editAppointment.payerId ?? ""),
           }
         : null,
     [editAppointment]
@@ -2421,6 +2478,62 @@ servicesList.length > 0 && (
                     ))}
                   </select>
                 </div>
+                {clinicHasInsurers && (
+                  <div className={fieldRow}>
+                    <label className={fieldLabel} htmlFor="booking-payer">
+                      {isAr ? "مين بيدفع؟" : "Who pays?"}
+                    </label>
+                    <div className="flex max-w-2xl flex-col gap-2">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <select
+                          id="booking-payer"
+                          value={visitPayer.payerId}
+                          disabled={visitPayer.source === "approval"}
+                          onChange={(e) => {
+                            setPickedPayerId(e.target.value);
+                            setPayerTouched(true);
+                          }}
+                          className={`${input} h-12 max-w-md disabled:cursor-not-allowed disabled:opacity-70`}
+                        >
+                          {pickablePayers.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {isAr ? p.nameAr || p.name : p.name}
+                            </option>
+                          ))}
+                        </select>
+                        {visitPayerRow && visitPayerRow.id !== PRIVATE_PAYER_ID && <InsurerBadge name={visitPayerRow.name} size={24} />}
+                      </div>
+                      {visitPayer.source === "approval" && (
+                        <p className="text-sm font-semibold text-ink-muted">
+                          {isAr ? "متحدد من الموافقة المربوطة بالزيارة." : "Set by the approval this visit is linked to."}
+                        </p>
+                      )}
+                      {visitPayer.source === "patient" && (
+                        <p className="text-sm font-semibold text-ink-muted">
+                          {isAr ? "من ملف المريض." : "From the patient's file."}
+                        </p>
+                      )}
+                      {visitApprovalWarning && visitPayerRow && (
+                        <button
+                          type="button"
+                          onClick={() => setWideTab("insurance")}
+                          className="flex w-full items-start gap-2 rounded-xl border border-accent/40 bg-accent-tint px-4 py-3 text-start text-sm font-semibold text-accent-ink"
+                        >
+                          <AlertCircle size={16} className="mt-0.5 shrink-0" />
+                          <span>
+                            {visitApprovalWarning === "none"
+                              ? isAr
+                                ? `مفيش موافقة من ${visitPayerRow.nameAr || visitPayerRow.name} للمريض ده. ارفع الموافقة من تبويب التأمين قبل الشغل.`
+                                : `No approval from ${visitPayerRow.name} for this patient yet. Upload it on the Insurance tab before treatment.`
+                              : isAr
+                                ? `فيه موافقة من ${visitPayerRow.nameAr || visitPayerRow.name} — اربط الزيارة بخدماتها من تبويب التأمين.`
+                                : `There is a ${visitPayerRow.name} approval on file — link this visit to its services on the Insurance tab.`}
+                          </span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
                 <div className={fieldRow}>
                   <label className={fieldLabel} htmlFor="booking-notes">
                     {txt.notesLabel}

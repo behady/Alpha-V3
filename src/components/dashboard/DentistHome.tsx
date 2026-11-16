@@ -15,6 +15,7 @@ import { CLAIMS_COLLECTION } from "@/lib/insurance/claims";
 import { findPayer, parsePayers, type Payer } from "@/lib/payers";
 import { normalizePatientKind, normalizeWorkKind, patientKindLabel, workKindLabel } from "@/lib/visitKind";
 import { openTreatments, patientNotes, visitInsurer, type TodoItem } from "@/lib/dentistVisit";
+import { needsApproval } from "@/lib/visitPayer";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
@@ -242,6 +243,8 @@ export default function DentistHome() {
       // The badge is drawn from the English name so its letters and colour never change with the language.
       insurerKey: insurer?.name || "",
       insurerName: insurer ? (isAr && insurer.nameAr ? insurer.nameAr : insurer.name) : "",
+      /** A company that sends approval paper, on a visit linked to none of its approvals. */
+      noApproval: needsApproval(insurer) && parseClaimLinks(a).length === 0,
       patientKind: normalizePatientKind(a.patientKind),
       workKind: normalizeWorkKind(a.workKind),
       visitNote: String(a.notes || "").trim(),
@@ -425,6 +428,11 @@ export default function DentistHome() {
                   {heroInfo.insurerName && (
                     <span className="inline-flex items-center gap-1.5 h-[30px] ps-1 pe-3 rounded-full bg-white/10 text-[13px] font-bold text-white">
                       <InsurerBadge name={heroInfo.insurerKey} size={22} /> {heroInfo.insurerName}
+                    </span>
+                  )}
+                  {heroInfo.noApproval && (
+                    <span className="inline-flex items-center h-[30px] px-3 rounded-full bg-accent text-[13px] font-bold text-ink-on-accent">
+                      {isAr ? "مفيش موافقة" : "No approval"}
                     </span>
                   )}
                   {heroInfo.patientKind && (
@@ -642,6 +650,11 @@ export default function DentistHome() {
                         <span className={`w-2 h-2 rounded-full shrink-0 ${getAppointmentStatusStyles(String(a.status)).dot}`} title={stage} aria-label={stage} />
                         <span className="truncate">{name}</span>
                         {info.insurerName && <InsurerBadge name={info.insurerKey} size={18} />}
+                        {info.noApproval && (
+                          <span className="shrink-0 inline-flex items-center h-5 px-2 rounded-full bg-accent text-[11px] font-bold text-ink-on-accent">
+                            {isAr ? "مفيش موافقة" : "No approval"}
+                          </span>
+                        )}
                       </p>
                       <p className="text-[12px] font-semibold text-ink-muted truncate">
                         {info.insurerName ? `${info.insurerName} · ` : a.claimId ? (isAr ? "تأمين · " : "Insurance · ") : ""}

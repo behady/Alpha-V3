@@ -81,6 +81,14 @@ export function visitInsurer(args: {
     const hit = insurerOrNull(findPayer(payers, claimPayerIds[link.claimId]));
     if (hit) return hit;
   }
+  // Who the desk booked the visit under (lib/visitPayer). Private chosen there is an answer too:
+  // the patient may hold a card and still be paying this visit themselves.
+  const booked = typeof apt.payerId === "string" ? apt.payerId.trim() : "";
+  if (booked === PRIVATE_PAYER_ID) return null;
+  if (booked) {
+    const hit = insurerOrNull(findPayer(payers, booked));
+    if (hit) return hit;
+  }
   if (!patient) return null;
   for (const payerId of Object.keys(readInsurance(patient))) {
     const hit = insurerOrNull(findPayer(payers, payerId));

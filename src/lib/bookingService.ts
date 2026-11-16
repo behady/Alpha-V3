@@ -103,6 +103,11 @@ export interface BookingSavePayload {
    * the pair above; the stored pair then mirrors its first entry for screens that read only that.
    */
   claimLinks?: ClaimLink[] | null;
+  /**
+   * Who pays for this visit (a payer id from settings/payers; "private" for the patient), as the
+   * desk set it — see lib/visitPayer. `undefined` = the caller did not touch it (keep what is stored).
+   */
+  payerId?: string | null;
   newProcedureName?: string | null;
   serviceId?: string | null;
   serviceName?: string | null;
@@ -300,6 +305,8 @@ export async function saveBooking(
       clinicalNoteId: finalClinicalNoteId,
       // Neither form sent (a status-only save) leaves the stored links exactly as they were.
       ...(linkFieldsFrom(data) ?? {}),
+      // Only when the caller decided it: an edit that never touched the picker keeps what is stored.
+      ...(data.payerId !== undefined ? { payerId: data.payerId || null } : {}),
       serviceId: chargeForVisit ? data.serviceId || null : null,
       serviceName: chargeForVisit ? data.serviceName || null : null,
       listPrice: chargeForVisit ? Number(data.listPrice) || 0 : null,
@@ -445,6 +452,7 @@ export async function saveBooking(
     cost: normalizedCost,
     clinicalNoteId: finalClinicalNoteId,
     ...(linkFieldsFrom(data) ?? appointmentLinkFields([])),
+    payerId: data.payerId || null,
     serviceId: chargeForVisit ? data.serviceId || null : null,
     serviceName: chargeForVisit ? data.serviceName || null : null,
     listPrice: chargeForVisit ? Number(data.listPrice) || 0 : null,

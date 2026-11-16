@@ -7,6 +7,8 @@ import {
   X, Save, Trash2, ChevronDown, Bell, UserPlus, AlertCircle, ScanLine
 } from "lucide-react";
 import ApprovalReadSheet from "@/components/insurance/ApprovalReadSheet";
+import NoApprovalTag from "@/components/appointments/NoApprovalTag";
+import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import { useClinic } from "@/context/ClinicContext";
 import { holdsPermission } from "@/lib/permissions";
 import { isAnyUnlocked } from "@/lib/featureCatalog";
@@ -151,9 +153,10 @@ function editSnapshotOf(apt: DashboardAppointment): BookingEditSnapshot {
     claimLinks?: unknown;
     patientKind?: string | null;
     workKind?: string | null;
+    payerId?: string | null;
   };
   return {
-    patientKind: raw.patientKind ?? null, workKind: raw.workKind ?? null,
+    patientKind: raw.patientKind ?? null, workKind: raw.workKind ?? null, payerId: raw.payerId,
     id: apt.id, patientId: String(apt.patientId), patientName: apt.patientName!,
     treatment: apt.treatment!, doctor: apt.doctor!, doctorId: raw.doctorId ?? null, date: apt.date!,
     time: apt.time!, duration: apt.duration!, clinicalNoteId: apt.clinicalNoteId ?? null,
@@ -192,6 +195,8 @@ function DashboardClockWidget({ language, showTime = true }: { language: string,
 export default function MobileDashboard() {
   const { language, isRTL, t } = useLanguage();
   const { clinic, role, isAdmin } = useClinic();
+  /** The clinic's insurers, for the "No approval" tag on a card (components/appointments/NoApprovalTag). */
+  const { payers } = usePricingPolicy();
   /** "Read an approval" sits where Quick Pay was; it needs the insurance add-on. */
   const insuranceOn = !!clinic && isAnyUnlocked(clinic, "insurance");
   const [readApproval, setReadApproval] = useState(false);
@@ -644,6 +649,7 @@ export default function MobileDashboard() {
         status: String(data.status || "Scheduled"),
         patientKind: data.patientKind ?? null,
         workKind: data.workKind ?? null,
+        payerId: data.payerId,
       } as BookingEditSnapshot);
       setBookingTab("payment");
       showToast(language === "ar" ? "الحجز اتسجّل — حصّل من هنا" : "Booked — take the payment here", "success");
@@ -1481,6 +1487,7 @@ export default function MobileDashboard() {
                                     <span className="shrink-0 text-[9px] font-black text-ink-body uppercase tracking-widest bg-surface-subtle border border-slate-100 px-2 py-0.5 rounded-full whitespace-nowrap">
                                       {getAppointmentStageLabel(apt.status, language)}
                                     </span>
+                                    <NoApprovalTag appointment={apt} payers={payers} isAr={language === "ar"} />
                                     {aptDetail && (
                                       <span className="min-w-0 max-w-full text-[11px] font-bold text-ink-muted leading-snug line-clamp-2 break-words">{aptDetail}</span>
                                     )}
@@ -1761,8 +1768,9 @@ export default function MobileDashboard() {
                                     <div className="flex-1 flex justify-between items-center px-4 py-2">
                                       {/* Left: Patient Name & Time Range */}
                                       <div className="flex flex-col min-w-0 gap-0.5">
-                                        <h4 className="text-xs font-black text-slate-800 truncate">
-                                          {apt.patientName}
+                                        <h4 className="flex items-center gap-1.5 text-xs font-black text-slate-800 min-w-0">
+                                          <span className="truncate">{apt.patientName}</span>
+                                          <NoApprovalTag appointment={apt} payers={payers} isAr={language === "ar"} size="xs" />
                                         </h4>
                                         <span className="text-[10px] font-bold text-slate-400">
                                           {normalizeTimeKey(apt.time)} — {getEndTimeStr(apt.time, apt.duration || 30)}
