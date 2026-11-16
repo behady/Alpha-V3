@@ -250,8 +250,15 @@ export default function DentistHome() {
     };
   };
   const heroInfo = hero ? infoOf(hero) : null;
-  /** The day-list row whose to-do list is open; one at a time keeps the list short. */
-  const [openRow, setOpenRow] = useState("");
+  /** Day-list rows the dentist has folded. Every row's notes and to-do list start open. */
+  const [closedRows, setClosedRows] = useState<Set<string>>(() => new Set());
+  const toggleRow = (rowId: string) =>
+    setClosedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowId)) next.delete(rowId);
+      else next.add(rowId);
+      return next;
+    });
   const todoStatus = (t: TodoItem) => {
     const state = t.status === "Ongoing" ? (isAr ? "جاري" : "Ongoing") : (isAr ? "مخطط" : "Planned");
     if (!t.payerId) return state;
@@ -617,7 +624,7 @@ export default function DentistHome() {
                 const name = String(a.patientName || "");
                 const info = infoOf(a);
                 const rowId = String(a.id);
-                const open = openRow === rowId;
+                const open = !closedRows.has(rowId);
                 const more = [
                   info.todo.length ? (isAr ? `${info.todo.length} مطلوب` : `${info.todo.length} to do`) : "",
                   info.patientNotes.length
@@ -680,7 +687,7 @@ export default function DentistHome() {
                             <button
                               type="button"
                               aria-expanded={open}
-                              onClick={() => setOpenRow(open ? "" : rowId)}
+                              onClick={() => toggleRow(rowId)}
                               className="inline-flex items-center gap-1 h-8 px-3 rounded-full bg-surface-muted text-[12px] font-bold text-ink hover:bg-line"
                             >
                               {more} <ChevronDown size={13} strokeWidth={2.6} className={`transition-transform ${open ? "rotate-180" : ""}`} />
