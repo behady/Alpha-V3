@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 import {
   arrayUnion, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where,
 } from "firebase/firestore";
-import { Armchair, CalendarDays, Check, ChevronDown, Loader2, Plus, Search, User, X } from "lucide-react";
+import { Armchair, CalendarDays, Check, ChevronDown, Loader2, Pencil, Plus, Search, User, X } from "lucide-react";
+import { logActivity } from "@/lib/logger";
 import ChairPopup from "@/components/chair/ChairPopup";
 import InsurerBadge from "@/components/shared/InsurerBadge";
 import { useOpenCallReminders } from "@/lib/useOpenCallReminders";
@@ -50,8 +51,8 @@ import HomeViewTabs from "@/components/dashboard/HomeViewTabs";
  *
  * Since 2026-11-13 (the dentist's ask) each booking also says what the dentist needs before the
  * patient sits down: the insurer's badge, reception's new/old patient and new/follow-up work tags,
- * the visit note, the open notes on the patient's file, and the treatments still to do. All of it
- * is read, never written, and decided in lib/dentistVisit.
+ * the visit note, the open notes on the patient's file, and the treatments still to do, decided in
+ * lib/dentistVisit. Only the visit note is written from here (since 2026-11-16); the rest is read.
  */
 
 type Patient = { id: string; name?: string; teethData?: Record<string, ToothData>; [k: string]: unknown };
@@ -303,6 +304,44 @@ export default function DentistHome() {
     }
   };
 
+  /**
+   * The visit note, written from here (the dentist's ask, 2026-11-16): the same `notes` field the
+   * booking pop-up edits, so reception sees what the dentist wrote and the other way round. One
+   * note open for editing at a time; the live list shows the saved text.
+   */
+  const [noteEditId, setNoteEditId] = useState("");
+  const [noteDraft, setNoteDraft] = useState("");
+  const [noteSaving, setNoteSaving] = useState(false);
+  const editVisitNote = (a: Row) => {
+    setNoteEditId(String(a.id));
+    setNoteDraft(String(a.notes || ""));
+  };
+  const saveVisitNote = async (a: Row) => {
+    if (noteSaving) return;
+    const text = noteDraft.trim();
+    if (text === String(a.notes || "").trim()) return setNoteEditId("");
+    setNoteSaving(true);
+    try {
+      await updateDoc(getClinicDoc("appointments", String(a.id)), {
+        notes: text,
+        modifiedBy: user?.name || "System",
+        updatedAt: serverTimestamp(),
+      });
+      void logActivity(
+        { uid: user?.uid || "", name: user?.name || "", role: role || "" },
+        "Appointment Updated",
+        `Edited the visit note on ${String(a.patientName || "")} appointment ${String(a.id)}`
+      );
+      setNoteEditId("");
+      showToast(isAr ? "اتحفظت الملاحظة" : "Note saved", "success");
+    } catch (e) {
+      console.error("Visit note save failed:", e);
+      showToast(isAr ? "مقدرناش نحفظ الملاحظة" : "Could not save the note", "error");
+    } finally {
+      setNoteSaving(false);
+    }
+  };
+
   /** The chair popup: a patient, and today's visit when there is one. */
   const [chairPop, setChairPop] = useState<{ patientId: string; appointment: { id: string; branchId?: string | null } | null } | null>(null);
   const openChairFor = (a: Row) =>
@@ -394,6 +433,74 @@ export default function DentistHome() {
     `h-9 px-4 rounded-full text-[13px] font-bold transition-colors ${on ? "bg-surface text-ink shadow-sm" : "text-ink-muted hover:text-ink"}`;
   const pill = "inline-flex items-center gap-1 h-8 px-2.5 rounded-full text-[12px] font-bold whitespace-nowrap transition-colors disabled:opacity-50";
 
+  /** The visit-note editor, in the hero (dark) or a day-list row (light). Ctrl+Enter saves, Esc cancels. */
+  const noteEditor = (a: Row, dark: boolean) => (
+    <div className="flex flex-col gap-2">
+      <textarea
+        autoFocus
+        rows={3}
+        dir="auto"
+        value={noteDraft}
+        onChange={(e) => setNoteDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") setNoteEditId("");
+          if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) void saveVisitNote(a);
+        }}
+        placeholder={isAr ? "اكتب ملاحظة للزيارة…" : "Write a note for this visit…"}
+        aria-label={isAr ? "ملاحظة الزيارة" : "Visit note"}
+        className={`w-full rounded-2xl px-3.5 py-2.5 text-[14px] font-medium leading-snug resize-y outline-none focus:ring-2 ${
+          dark
+            ? "bg-white/10 border border-white/20 text-white placeholder:text-white/45 focus:ring-white/40"
+            : "bg-surface-subtle border border-line text-ink placeholder:text-ink-faint focus:ring-line-strong"
+        }`}
+      />
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => setNoteEditId("")}
+          disabled={noteSaving}
+          className={`${pill} px-3.5 ${dark ? "border border-white/30 text-white hover:bg-white/10" : "border border-line text-ink hover:bg-surface-subtle"}`}
+        >
+          {isAr ? "إلغاء" : "Cancel"}
+        </button>
+        <button
+          type="button"
+          onClick={() => void saveVisitNote(a)}
+          disabled={noteSaving}
+          className={`${pill} px-3.5 ${dark ? "bg-accent text-ink-on-accent hover:opacity-90" : "bg-ink-slab text-white hover:opacity-90"}`}
+        >
+          {noteSaving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} strokeWidth={2.6} />}
+          {isAr ? "احفظ" : "Save"}
+        </button>
+      </div>
+    </div>
+  );
+  /** "Add note" when the visit has none; the pencil beside the note when it has one. */
+  const addNoteButton = (a: Row, dark: boolean) => (
+    <button
+      type="button"
+      onClick={() => editVisitNote(a)}
+      className={`self-start inline-flex items-center gap-1 h-7 px-2.5 rounded-full border border-dashed text-[12px] font-bold transition-colors ${
+        dark ? "border-white/30 text-white/75 hover:text-white" : "border-line-strong text-ink-muted hover:text-ink"
+      }`}
+    >
+      <Plus size={12} strokeWidth={2.6} /> {isAr ? "أضف ملاحظة" : "Add note"}
+    </button>
+  );
+  const editNoteButton = (a: Row, dark: boolean) => (
+    <button
+      type="button"
+      onClick={() => editVisitNote(a)}
+      aria-label={isAr ? "عدّل الملاحظة" : "Edit note"}
+      title={isAr ? "عدّل الملاحظة" : "Edit note"}
+      className={`shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full transition-colors ${
+        dark ? "text-white/70 hover:bg-white/10 hover:text-white" : "text-ink-muted hover:bg-surface-muted hover:text-ink"
+      }`}
+    >
+      <Pencil size={14} strokeWidth={2.4} />
+    </button>
+  );
+
   return (
     /* pb-2 below lg: <main> already leaves 128px under the page for the bottom bar and the orb. */
     <div className="min-h-full pb-2 lg:pb-6 text-ink-strong" dir={isRTL ? "rtl" : "ltr"}>
@@ -448,13 +555,23 @@ export default function DentistHome() {
                 </div>
               )}
             </div>
-            {heroInfo && (heroInfo.visitNote || heroInfo.patientNotes.length > 0) && (
+            {heroInfo && (
               <div className="flex flex-col gap-3.5 border-t border-white/15 pt-4">
-                {heroInfo.visitNote && (
+                {noteEditId === String(hero.id) ? (
                   <div className="flex flex-col gap-1">
                     <span className={`${eyebrow} text-white/60`}>{isAr ? "ملاحظة الزيارة" : "Visit note"}</span>
-                    <p className="text-[15px] font-medium leading-snug text-white whitespace-pre-line break-words"><bdi>{heroInfo.visitNote}</bdi></p>
+                    {noteEditor(hero, true)}
                   </div>
+                ) : heroInfo.visitNote ? (
+                  <div className="flex flex-col gap-1">
+                    <span className={`${eyebrow} text-white/60`}>{isAr ? "ملاحظة الزيارة" : "Visit note"}</span>
+                    <div className="flex items-start gap-2">
+                      <p className="min-w-0 flex-1 text-[15px] font-medium leading-snug text-white whitespace-pre-line break-words"><bdi>{heroInfo.visitNote}</bdi></p>
+                      {editNoteButton(hero, true)}
+                    </div>
+                  </div>
+                ) : (
+                  addNoteButton(hero, true)
                 )}
                 {heroInfo.patientNotes.length > 0 && (
                   <div className="flex flex-col gap-1">
@@ -639,7 +756,6 @@ export default function DentistHome() {
                     ? (isAr ? `${info.patientNotes.length} ملاحظات` : `${info.patientNotes.length} ${info.patientNotes.length === 1 ? "note" : "notes"}`)
                     : "",
                 ].filter(Boolean).join(" · ");
-                const hasExtras = !!(info.noApproval || info.patientKind || info.workKind || more || info.visitNote);
                 const tag = "inline-flex items-center h-6 px-2.5 rounded-full text-[12px] font-bold";
                 return (
                   <div key={rowId} className={`border-t border-surface-muted first:border-t-0 ${done ? "opacity-55" : ""}`}>
@@ -680,7 +796,6 @@ export default function DentistHome() {
                       </button>
                     </div>
                   </div>
-                  {hasExtras && (
                     <div className="flex flex-col gap-1.5 pb-3 md:ps-[60px]">
                       {(info.noApproval || info.patientKind || info.workKind || more) && (
                         <div className="flex flex-wrap items-center gap-1.5">
@@ -711,8 +826,15 @@ export default function DentistHome() {
                           )}
                         </div>
                       )}
-                      {info.visitNote && (
-                        <p className="text-[13px] font-medium leading-snug text-ink-body line-clamp-2 break-words"><bdi>{info.visitNote}</bdi></p>
+                      {noteEditId === rowId ? (
+                        noteEditor(a, false)
+                      ) : info.visitNote ? (
+                        <div className="flex items-start gap-1">
+                          <p className="min-w-0 flex-1 text-[13px] font-medium leading-snug text-ink-body line-clamp-2 break-words"><bdi>{info.visitNote}</bdi></p>
+                          {editNoteButton(a, false)}
+                        </div>
+                      ) : (
+                        addNoteButton(a, false)
                       )}
                       {open && more && (
                         <div className="flex flex-col gap-0.5 rounded-2xl bg-surface-subtle px-3.5 py-2.5">
@@ -738,7 +860,6 @@ export default function DentistHome() {
                         </div>
                       )}
                     </div>
-                  )}
                   </div>
                 );
               })}
