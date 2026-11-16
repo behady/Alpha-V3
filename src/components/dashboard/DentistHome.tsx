@@ -639,7 +639,7 @@ export default function DentistHome() {
                     ? (isAr ? `${info.patientNotes.length} ملاحظات` : `${info.patientNotes.length} ${info.patientNotes.length === 1 ? "note" : "notes"}`)
                     : "",
                 ].filter(Boolean).join(" · ");
-                const hasExtras = !!(info.patientKind || info.workKind || more || info.visitNote);
+                const hasExtras = !!(info.noApproval || info.patientKind || info.workKind || more || info.visitNote);
                 const tag = "inline-flex items-center h-6 px-2.5 rounded-full text-[12px] font-bold";
                 return (
                   <div key={rowId} className={`border-t border-surface-muted first:border-t-0 ${done ? "opacity-55" : ""}`}>
@@ -650,11 +650,6 @@ export default function DentistHome() {
                         <span className={`w-2 h-2 rounded-full shrink-0 ${getAppointmentStatusStyles(String(a.status)).dot}`} title={stage} aria-label={stage} />
                         <span className="truncate">{name}</span>
                         {info.insurerName && <InsurerBadge name={info.insurerKey} size={18} />}
-                        {info.noApproval && (
-                          <span className="shrink-0 inline-flex items-center h-5 px-2 rounded-full bg-accent text-[11px] font-bold text-ink-on-accent">
-                            {isAr ? "مفيش موافقة" : "No approval"}
-                          </span>
-                        )}
                       </p>
                       <p className="text-[12px] font-semibold text-ink-muted truncate">
                         {info.insurerName ? `${info.insurerName} · ` : a.claimId ? (isAr ? "تأمين · " : "Insurance · ") : ""}
@@ -684,8 +679,13 @@ export default function DentistHome() {
                   </div>
                   {hasExtras && (
                     <div className="flex flex-col gap-1.5 pb-3 md:ps-[60px]">
-                      {(info.patientKind || info.workKind || more) && (
+                      {(info.noApproval || info.patientKind || info.workKind || more) && (
                         <div className="flex flex-wrap items-center gap-1.5">
+                          {info.noApproval && (
+                            <span className={`${tag} bg-accent text-ink-on-accent`}>
+                              {isAr ? "مفيش موافقة" : "No approval"}
+                            </span>
+                          )}
                           {info.patientKind && (
                             <span className={`${tag} ${info.patientKind === "new" ? "bg-ink-slab text-white" : "border border-line-strong text-ink-body"}`}>
                               {patientKindLabel(info.patientKind, lang)}
@@ -711,7 +711,7 @@ export default function DentistHome() {
                       {info.visitNote && (
                         <p className="text-[13px] font-medium leading-snug text-ink-body line-clamp-2 break-words"><bdi>{info.visitNote}</bdi></p>
                       )}
-                      {open && (
+                      {open && more && (
                         <div className="flex flex-col gap-0.5 rounded-2xl bg-surface-subtle px-3.5 py-2.5">
                           {info.todo.map((t) => (
                             <div key={t.id} className="flex items-center justify-between gap-3 min-h-7">
